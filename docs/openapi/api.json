@@ -419,6 +419,24 @@
         ],
         "type": "object"
       },
+      "ApiResponseOfManageUserResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ManageUserResponse"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
       "ApiResponseOfModel": {
         "properties": {
           "data": {
@@ -1990,6 +2008,26 @@
             "type": "string"
           },
           "value": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ManageUserResponse": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "quota": {
+            "type": "integer"
+          },
+          "role": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "user_id": {
             "type": "integer"
           }
         },
@@ -15543,15 +15581,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponseOfUser"
                 }
               }
             },
@@ -15590,15 +15620,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponseOfUser"
                 }
               }
             },
@@ -16449,18 +16471,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/User"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponseOfManageUserResponse"
                 }
               }
             },
@@ -17900,15 +17911,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponse"
                 }
               }
             },

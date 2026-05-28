@@ -75,10 +75,10 @@ var manifest = map[string]map[string]respSpec{
 	"/api/oauth/linuxdo":        {"get": {Empty: true}},
 
 	// === User management ===
-	"/api/user/":         {"get": {Type: "User", Paged: true}, "post": {Empty: true}, "put": {Empty: true}},
+	"/api/user/":         {"get": {Type: "User", Paged: true}, "post": {Type: "User"}, "put": {Type: "User"}},
 	"/api/user/{id}":     {"get": {Type: "User"}, "delete": {Empty: true}},
 	"/api/user/search":   {"get": {Type: "User", Paged: true}},
-	"/api/user/manage":   {"post": {Empty: true}},
+	"/api/user/manage":   {"post": {Type: "ManageUserResponse"}},
 	"/api/user/group/batch": {"post": {Type: "BulkUpdateUserGroupResponse", Body: "BulkUpdateUserGroupRequest"}},
 
 	// === Pricing admin ===

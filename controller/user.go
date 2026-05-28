@@ -24,6 +24,7 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type LoginRequest struct {
@@ -267,7 +268,7 @@ func SearchUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	users, total, err := model.SearchUsers(keyword, group, role, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 
@@ -284,25 +285,24 @@ func canManageTargetRole(myRole int, targetRole int) bool {
 func GetUser(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
 	user, err := model.GetUserById(id, false)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "user_not_found", i18n.MsgUserNotExists)
+		return
+	}
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	myRole := c.GetInt("role")
 	if !canManageTargetRole(myRole, user.Role) {
-		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
+		common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "permission_denied", i18n.MsgUserNoPermissionSameLevel)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    user,
-	})
-	return
+	common.ApiSuccess(c, user)
 }
 
 func GenerateAccessToken(c *gin.Context) {
@@ -568,28 +568,32 @@ func UpdateUser(c *gin.Context) {
 	var updatedUser model.User
 	err := json.NewDecoder(c.Request.Body).Decode(&updatedUser)
 	if err != nil || updatedUser.Id == 0 {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
 	if updatedUser.Password == "" {
 		updatedUser.Password = "$I_LOVE_U" // make Validator happy :)
 	}
 	if err := common.Validate.Struct(&updatedUser); err != nil {
-		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
+		common.ApiErrorI18nStatusCode(c, http.StatusUnprocessableEntity, "user_input_invalid", i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
 	originUser, err := model.GetUserById(updatedUser.Id, false)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "user_not_found", i18n.MsgUserNotExists)
+		return
+	}
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	myRole := c.GetInt("role")
 	if !canManageTargetRole(myRole, originUser.Role) {
-		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
+		common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "permission_denied", i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
 	if !canManageTargetRole(myRole, updatedUser.Role) {
-		common.ApiErrorI18n(c, i18n.MsgUserCannotCreateHigherLevel)
+		common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "cannot_create_higher_level", i18n.MsgUserCannotCreateHigherLevel)
 		return
 	}
 	if updatedUser.Password == "$I_LOVE_U" {
@@ -597,14 +601,18 @@ func UpdateUser(c *gin.Context) {
 	}
 	updatePassword := updatedUser.Password != ""
 	if err := updatedUser.Edit(updatePassword); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
-	return
+	// Reload after edit so the response reflects the persisted state (and so
+	// callers don't have to assume the request body == DB state).
+	refreshed, err := model.GetUserById(updatedUser.Id, false)
+	if err != nil {
+		// Edit succeeded but reload failed; return the request body as a best-effort.
+		refreshed = &updatedUser
+	}
+	refreshed.Password = "" // never leak hashed password
+	common.ApiSuccess(c, refreshed)
 }
 
 func AdminClearUserBinding(c *gin.Context) {
@@ -780,29 +788,28 @@ func checkUpdatePassword(originalPassword string, newPassword string, userId int
 func DeleteUser(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
 	originUser, err := model.GetUserById(id, false)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "user_not_found", i18n.MsgUserNotExists)
+		return
+	}
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	myRole := c.GetInt("role")
 	if myRole <= originUser.Role {
-		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
+		common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "permission_denied", i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
-	err = model.HardDeleteUserById(id)
-	if err != nil {
-		common.ApiError(c, err)
+	if err := model.HardDeleteUserById(id); err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
-	return
+	common.ApiSuccess(c, nil)
 }
 
 func DeleteSelf(c *gin.Context) {
@@ -831,11 +838,11 @@ func CreateUser(c *gin.Context) {
 	err := json.NewDecoder(c.Request.Body).Decode(&user)
 	user.Username = strings.TrimSpace(user.Username)
 	if err != nil || user.Username == "" || user.Password == "" {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
 	if err := common.Validate.Struct(&user); err != nil {
-		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
+		common.ApiErrorI18nStatusCode(c, http.StatusUnprocessableEntity, "user_input_invalid", i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
 	if user.DisplayName == "" {
@@ -843,7 +850,7 @@ func CreateUser(c *gin.Context) {
 	}
 	myRole := c.GetInt("role")
 	if user.Role >= myRole {
-		common.ApiErrorI18n(c, i18n.MsgUserCannotCreateHigherLevel)
+		common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "cannot_create_higher_level", i18n.MsgUserCannotCreateHigherLevel)
 		return
 	}
 	// Even for admin users, we cannot fully trust them!
@@ -854,15 +861,15 @@ func CreateUser(c *gin.Context) {
 		Role:        user.Role, // 保持管理员设置的角色
 	}
 	if err := cleanUser.Insert(0); err != nil {
-		common.ApiError(c, err)
+		// Unique-constraint detection across SQLite/MySQL/PostgreSQL is fragile
+		// (each driver returns a different error message). Treat any insert
+		// failure as internal_error for now; a future refactor can split
+		// username_exists (409) once a robust check is in place.
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
-	return
+	common.ApiSuccessStatus(c, http.StatusCreated, cleanUser)
 }
 
 type ManageRequest struct {
@@ -872,48 +879,62 @@ type ManageRequest struct {
 	Mode   string `json:"mode"`
 }
 
+// ManageUserResponse is the result of a successful POST /api/user/manage call.
+// Action is the executed action ("disable"|"enable"|"delete"|"promote"|"demote"|"add_quota").
+// Role and Status reflect the user's state after the action; for quota actions
+// Quota carries the new quota value. Some actions leave fields zero — clients
+// should switch on Action to know which fields are meaningful.
+type ManageUserResponse struct {
+	Action string `json:"action"`
+	UserId int    `json:"user_id"`
+	Role   int    `json:"role"`
+	Status int    `json:"status"`
+	Quota  int    `json:"quota,omitempty"`
+}
+
 // ManageUser Only admin user can do this
 func ManageUser(c *gin.Context) {
 	var req ManageRequest
 	err := json.NewDecoder(c.Request.Body).Decode(&req)
 
 	if err != nil {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
-	user := model.User{
-		Id: req.Id,
+	var user model.User
+	// Use Unscoped so soft-deleted users can still be acted on (the "delete"
+	// action also hits this path for already-deleted records). Check the real
+	// gorm error to distinguish "not found" from other DB failures.
+	err = model.DB.Unscoped().Where("id = ?", req.Id).First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "user_not_found", i18n.MsgUserNotExists)
+		return
 	}
-	// Fill attributes
-	model.DB.Unscoped().Where(&user).First(&user)
-	if user.Id == 0 {
-		common.ApiErrorI18n(c, i18n.MsgUserNotExists)
+	if err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	myRole := c.GetInt("role")
 	if !canManageTargetRole(myRole, user.Role) {
-		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
+		common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "permission_denied", i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
 	switch req.Action {
 	case "disable":
-		user.Status = common.UserStatusDisabled
 		if user.Role == common.RoleRootUser {
-			common.ApiErrorI18n(c, i18n.MsgUserCannotDisableRootUser)
+			common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "cannot_disable_root", i18n.MsgUserCannotDisableRootUser)
 			return
 		}
+		user.Status = common.UserStatusDisabled
 	case "enable":
 		user.Status = common.UserStatusEnabled
 	case "delete":
 		if user.Role == common.RoleRootUser {
-			common.ApiErrorI18n(c, i18n.MsgUserCannotDeleteRootUser)
+			common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "cannot_delete_root", i18n.MsgUserCannotDeleteRootUser)
 			return
 		}
 		if err := user.Delete(); err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
+			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 			return
 		}
 		// 删除用户后，强制清理 Redis 中所有该用户令牌的缓存，
@@ -923,21 +944,21 @@ func ManageUser(c *gin.Context) {
 		}
 	case "promote":
 		if myRole != common.RoleRootUser {
-			common.ApiErrorI18n(c, i18n.MsgUserAdminCannotPromote)
+			common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "admin_cannot_promote", i18n.MsgUserAdminCannotPromote)
 			return
 		}
 		if user.Role >= common.RoleAdminUser {
-			common.ApiErrorI18n(c, i18n.MsgUserAlreadyAdmin)
+			common.ApiErrorI18nStatusCode(c, http.StatusConflict, "user_already_admin", i18n.MsgUserAlreadyAdmin)
 			return
 		}
 		user.Role = common.RoleAdminUser
 	case "demote":
 		if user.Role == common.RoleRootUser {
-			common.ApiErrorI18n(c, i18n.MsgUserCannotDemoteRootUser)
+			common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "cannot_demote_root", i18n.MsgUserCannotDemoteRootUser)
 			return
 		}
 		if user.Role == common.RoleCommonUser {
-			common.ApiErrorI18n(c, i18n.MsgUserAlreadyCommon)
+			common.ApiErrorI18nStatusCode(c, http.StatusConflict, "user_already_common", i18n.MsgUserAlreadyCommon)
 			return
 		}
 		user.Role = common.RoleCommonUser
@@ -951,11 +972,11 @@ func ManageUser(c *gin.Context) {
 		switch req.Mode {
 		case "add":
 			if req.Value <= 0 {
-				common.ApiErrorI18n(c, i18n.MsgUserQuotaChangeZero)
+				common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "quota_change_zero", i18n.MsgUserQuotaChangeZero)
 				return
 			}
 			if err := model.IncreaseUserQuota(user.Id, req.Value, true); err != nil {
-				common.ApiError(c, err)
+				common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 				return
 			}
 			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
@@ -966,7 +987,7 @@ func ManageUser(c *gin.Context) {
 				return
 			}
 			if err := model.DecreaseUserQuota(user.Id, req.Value, true); err != nil {
-				common.ApiError(c, err)
+				common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 				return
 			}
 			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
@@ -974,30 +995,37 @@ func ManageUser(c *gin.Context) {
 		case "override":
 			oldQuota := user.Quota
 			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
-				common.ApiError(c, err)
+				common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 				return
 			}
 			model.RecordLogWithAdminInfo(user.Id, model.LogTypeManage,
 				fmt.Sprintf("管理员覆盖用户额度从 %s 为 %s", logger.LogQuota(oldQuota), logger.LogQuota(req.Value)), adminInfo)
 		default:
-			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "",
+		// Reload quota for the response payload (memory-only fast path: refetch
+		// just the quota column to avoid pulling the whole user back).
+		var newQuota int
+		_ = model.DB.Model(&model.User{}).Select("quota").Where("id = ?", user.Id).Scan(&newQuota).Error
+		common.ApiSuccess(c, ManageUserResponse{
+			Action: req.Action,
+			UserId: user.Id,
+			Role:   user.Role,
+			Status: user.Status,
+			Quota:  newQuota,
 		})
 		return
 	}
 
 	if err := user.Update(false); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	// 禁用 / 角色调整后，强制失效用户缓存与其全部令牌缓存，
 	// 避免在 Redis TTL 过期前仍使用旧状态（尤其是禁用后仍可发起请求的问题）。
 	// InvalidateUserCache 会让下一次 GetUserCache 从数据库重新加载，
-	// InvalidateUserTokensCache 则确保令牌侧的缓存也同步刷新。
+	// InvalidateUserTokensCache 则确保令牌侧的缓存также синхронно обновился.
 	if req.Action == "disable" || req.Action == "promote" || req.Action == "demote" {
 		if err := model.InvalidateUserCache(user.Id); err != nil {
 			common.SysLog(fmt.Sprintf("failed to invalidate user cache for user %d: %s", user.Id, err.Error()))
@@ -1006,16 +1034,12 @@ func ManageUser(c *gin.Context) {
 			common.SysLog(fmt.Sprintf("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
 		}
 	}
-	clearUser := model.User{
+	common.ApiSuccess(c, ManageUserResponse{
+		Action: req.Action,
+		UserId: user.Id,
 		Role:   user.Role,
 		Status: user.Status,
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    clearUser,
 	})
-	return
 }
 
 type emailBindRequest struct {

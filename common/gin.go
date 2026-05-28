@@ -255,6 +255,51 @@ func ApiErrorI18nStatus(c *gin.Context, status int, key string, args ...map[stri
 	})
 }
 
+// ApiErrorStatusCode is ApiErrorStatus with a stable machine-readable error
+// code in the envelope. `code` is a snake_case identifier that clients can
+// switch on without parsing the (i18n-translated) message.
+func ApiErrorStatusCode(c *gin.Context, status int, code string, err error) {
+	c.AbortWithStatusJSON(status, gin.H{
+		"success": false,
+		"code":    code,
+		"message": err.Error(),
+	})
+}
+
+// ApiErrorMsgStatusCode is ApiErrorMsgStatus with a stable error code.
+func ApiErrorMsgStatusCode(c *gin.Context, status int, code string, msg string) {
+	c.AbortWithStatusJSON(status, gin.H{
+		"success": false,
+		"code":    code,
+		"message": msg,
+	})
+}
+
+// ApiErrorI18nStatusCode is ApiErrorI18nStatus with a stable error code.
+// Use this for the migrated endpoints — it produces:
+//
+//	HTTP <status>
+//	{"success":false, "code":"<code>", "message":"<translated>"}
+func ApiErrorI18nStatusCode(c *gin.Context, status int, code string, key string, args ...map[string]any) {
+	msg := TranslateMessage(c, key, args...)
+	c.AbortWithStatusJSON(status, gin.H{
+		"success": false,
+		"code":    code,
+		"message": msg,
+	})
+}
+
+// ApiSuccessStatus is ApiSuccess with an explicit HTTP status code (e.g. 201
+// for resource creation). Wraps `data` in the standard {success,message,data}
+// envelope.
+func ApiSuccessStatus(c *gin.Context, status int, data any) {
+	c.JSON(status, gin.H{
+		"success": true,
+		"message": "",
+		"data":    data,
+	})
+}
+
 // ApiSuccessI18n returns a translated success message based on the user's language preference
 func ApiSuccessI18n(c *gin.Context, key string, data any, args ...map[string]any) {
 	msg := TranslateMessage(c, key, args...)
