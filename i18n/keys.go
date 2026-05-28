@@ -204,6 +204,13 @@ const (
 	MsgGroupNotExists     = "group.not_exists"
 )
 
+// Pricing/ratio admin endpoints
+const (
+	MsgPricingMultiplierInvalid = "pricing.multiplier_invalid"
+	MsgPricingScopeInvalid      = "pricing.scope_invalid"
+	MsgChannelTypeInvalid       = "channel.type_invalid"
+)
+
 // Checkin related messages
 const (
 	MsgCheckinDisabled     = "checkin.disabled"

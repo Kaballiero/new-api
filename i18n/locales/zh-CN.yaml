@@ -176,6 +176,11 @@ group.name_exists: "组名称已存在"
 group.id_missing: "缺少组 ID"
 group.not_exists: "分组 '{{.Group}}' 不存在"
 
+# 倍率/价格管理
+pricing.multiplier_invalid: "倍率必须为正数"
+pricing.scope_invalid: "未知的价格范围: '{{.Scope}}'"
+channel.type_invalid: "未知的渠道类型: {{.Type}}"
+
 # Checkin messages
 checkin.disabled: "签到功能未启用"
 checkin.already_today: "今日已签到"

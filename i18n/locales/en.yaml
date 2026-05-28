@@ -175,6 +175,11 @@ group.name_exists: "Group name already exists"
 group.id_missing: "Group ID is missing"
 group.not_exists: "Group '{{.Group}}' does not exist"
 
+# Pricing/ratio admin
+pricing.multiplier_invalid: "Multiplier must be a positive number"
+pricing.scope_invalid: "Unknown pricing scope: '{{.Scope}}'"
+channel.type_invalid: "Unknown channel type: {{.Type}}"
+
 # Checkin messages
 checkin.disabled: "Check-in feature is not enabled"
 checkin.already_today: "Already checked in today"

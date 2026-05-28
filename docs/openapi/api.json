@@ -19,6 +19,52 @@
         },
         "type": "object"
       },
+      "AdjustModelPricingRequest": {
+        "properties": {
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "multiplier": {
+            "type": "number"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "AdjustModelPricingResponse": {
+        "properties": {
+          "applied": {
+            "items": {
+              "$ref": "#/components/schemas/PricingChange"
+            },
+            "type": "array"
+          },
+          "multiplier": {
+            "type": "number"
+          },
+          "option_keys_written": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/PricingSkip"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "AdminBindSubscriptionRequest": {
         "properties": {
           "plan_id": {
@@ -211,6 +257,24 @@
         ],
         "type": "object"
       },
+      "ApiResponseOfAdjustModelPricingResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AdjustModelPricingResponse"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
       "ApiResponseOfBulkUpdateUserGroupResponse": {
         "properties": {
           "data": {
@@ -287,6 +351,24 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/CustomOAuthProvider"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ApiResponseOfListProviderModelsResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ListProviderModelsResponse"
           },
           "message": {
             "type": "string"
@@ -1751,6 +1833,26 @@
         },
         "type": "object"
       },
+      "ListProviderModelsResponse": {
+        "properties": {
+          "api_type": {
+            "type": "integer"
+          },
+          "channel_name": {
+            "type": "string"
+          },
+          "channel_type": {
+            "type": "integer"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "Log": {
         "properties": {
           "channel": {
@@ -2374,6 +2476,23 @@
         },
         "type": "object"
       },
+      "PricingChange": {
+        "properties": {
+          "from": {
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "to": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "PricingResponse": {
         "properties": {
           "auto_groups": {
@@ -2415,6 +2534,20 @@
               "$ref": "#/components/schemas/Vendor"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "PricingSkip": {
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -12054,6 +12187,89 @@
           }
         ],
         "summary": "迁移控制台设置",
+        "tags": [
+          "系统设置"
+        ]
+      }
+    },
+    "/api/option/pricing/adjust": {
+      "post": {
+        "deprecated": false,
+        "description": "Auto-generated entry. Add a manual summary/description in api.json.",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustModelPricingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfAdjustModelPricingResponse"
+                }
+              }
+            },
+            "description": "成功",
+            "headers": {}
+          }
+        },
+        "security": [
+          {
+            "Combination343": []
+          },
+          {
+            "Combination1243": []
+          }
+        ],
+        "summary": "post /api/option/pricing/adjust",
+        "tags": [
+          "系统设置"
+        ]
+      }
+    },
+    "/api/option/pricing/models/{channel_type}": {
+      "get": {
+        "deprecated": false,
+        "description": "Auto-generated entry. Add a manual summary/description in api.json.",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "channel_type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfListProviderModelsResponse"
+                }
+              }
+            },
+            "description": "成功",
+            "headers": {}
+          }
+        },
+        "security": [
+          {
+            "Combination343": []
+          },
+          {
+            "Combination1243": []
+          }
+        ],
+        "summary": "get /api/option/pricing/models/{channel_type}",
         "tags": [
           "系统设置"
         ]

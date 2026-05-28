@@ -80,6 +80,10 @@ var manifest = map[string]map[string]respSpec{
 	"/api/user/search":   {"get": {Type: "User", Paged: true}},
 	"/api/user/manage":   {"post": {Empty: true}},
 	"/api/user/group/batch": {"post": {Type: "BulkUpdateUserGroupResponse", Body: "BulkUpdateUserGroupRequest"}},
+
+	// === Pricing admin ===
+	"/api/option/pricing/models/{channel_type}": {"get": {Type: "ListProviderModelsResponse"}},
+	"/api/option/pricing/adjust":                {"post": {Type: "AdjustModelPricingResponse", Body: "AdjustModelPricingRequest"}},
 	"/api/user/self":     {"get": {Type: "User"}},
 	"/api/user/aff":      {"get": {Wrap: "ApiResponseOfString"}},
 	"/api/user/groups":   {"get": {Wrap: "ApiResponseOfStringList"}},
