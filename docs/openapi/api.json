@@ -18412,7 +18412,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse"
+                  "$ref": "#/components/schemas/ApiResponseOfVendor"
                 }
               }
             },
@@ -18451,7 +18451,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse"
+                  "$ref": "#/components/schemas/ApiResponseOfVendor"
                 }
               }
             },

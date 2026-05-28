@@ -1,12 +1,15 @@
 package controller
 
 import (
+	"errors"
+	"net/http"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // GetAllVendors 获取供应商列表（分页）
@@ -14,7 +17,7 @@ func GetAllVendors(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	vendors, err := model.GetAllVendors(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	var total int64
@@ -30,7 +33,7 @@ func SearchVendors(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	vendors, total, err := model.SearchVendors(keyword, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	pageInfo.SetTotal(int(total))
@@ -40,15 +43,18 @@ func SearchVendors(c *gin.Context) {
 
 // GetVendorMeta 根据 ID 获取供应商
 func GetVendorMeta(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "invalid id")
 		return
 	}
 	v, err := model.GetVendorByID(id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorMsgStatusCode(c, http.StatusNotFound, "vendor_not_found", "vendor not found")
+		return
+	}
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	common.ApiSuccess(c, v)
@@ -58,51 +64,49 @@ func GetVendorMeta(c *gin.Context) {
 func CreateVendorMeta(c *gin.Context) {
 	var v model.Vendor
 	if err := c.ShouldBindJSON(&v); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", err.Error())
 		return
 	}
 	if v.Name == "" {
-		common.ApiErrorMsg(c, "供应商名称不能为空")
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "vendor_name_empty", "供应商名称不能为空")
 		return
 	}
-	// 创建前先检查名称
 	if dup, err := model.IsVendorNameDuplicated(0, v.Name); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	} else if dup {
-		common.ApiErrorMsg(c, "供应商名称已存在")
+		common.ApiErrorMsgStatusCode(c, http.StatusConflict, "vendor_name_exists", "供应商名称已存在")
 		return
 	}
 
 	if err := v.Insert(); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	common.ApiSuccess(c, &v)
+	common.ApiSuccessStatus(c, http.StatusCreated, &v)
 }
 
 // UpdateVendorMeta 更新供应商
 func UpdateVendorMeta(c *gin.Context) {
 	var v model.Vendor
 	if err := c.ShouldBindJSON(&v); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", err.Error())
 		return
 	}
 	if v.Id == 0 {
-		common.ApiErrorMsg(c, "缺少供应商 ID")
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "vendor_id_missing", "缺少供应商 ID")
 		return
 	}
-	// 名称冲突检查
 	if dup, err := model.IsVendorNameDuplicated(v.Id, v.Name); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	} else if dup {
-		common.ApiErrorMsg(c, "供应商名称已存在")
+		common.ApiErrorMsgStatusCode(c, http.StatusConflict, "vendor_name_exists", "供应商名称已存在")
 		return
 	}
 
 	if err := v.Update(); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	common.ApiSuccess(c, &v)
@@ -110,14 +114,18 @@ func UpdateVendorMeta(c *gin.Context) {
 
 // DeleteVendorMeta 删除供应商
 func DeleteVendorMeta(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "invalid id")
 		return
 	}
-	if err := model.DB.Delete(&model.Vendor{}, id).Error; err != nil {
-		common.ApiError(c, err)
+	res := model.DB.Delete(&model.Vendor{}, id)
+	if res.Error != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		common.ApiErrorMsgStatusCode(c, http.StatusNotFound, "vendor_not_found", "vendor not found")
 		return
 	}
 	common.ApiSuccess(c, nil)

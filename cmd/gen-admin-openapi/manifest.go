@@ -181,7 +181,7 @@ var manifest = map[string]map[string]respSpec{
 	"/api/models/sync_upstream/preview": {"get": {Type: "SyncUpstreamPreviewResponse"}},
 
 	// === Vendors ===
-	"/api/vendors/":       {"get": {Type: "Vendor", Paged: true}, "post": {Empty: true}, "put": {Empty: true}},
+	"/api/vendors/":       {"get": {Type: "Vendor", Paged: true}, "post": {Type: "Vendor"}, "put": {Type: "Vendor"}},
 	"/api/vendors/{id}":   {"get": {Type: "Vendor"}, "delete": {Empty: true}},
 	"/api/vendors/search": {"get": {Type: "Vendor", Paged: true}},
 
