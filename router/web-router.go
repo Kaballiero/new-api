@@ -14,13 +14,15 @@ import (
 )
 
 // ThemeAssets holds the embedded frontend assets for both themes plus
-// the OpenAPI spec bytes (served at /openapi.json + /openapi/ui).
+// the OpenAPI spec files (served at /openapi.json + /openapi/ui).
+// OpenAPISpecs is an embed.FS rooted at the repo top so the openapi router
+// can read `docs/openapi/api.<locale>.json` for runtime locale dispatch.
 type ThemeAssets struct {
 	DefaultBuildFS   embed.FS
 	DefaultIndexPage []byte
 	ClassicBuildFS   embed.FS
 	ClassicIndexPage []byte
-	OpenAPISpec      []byte
+	OpenAPISpecs     embed.FS
 }
 
 func SetWebRouter(router *gin.Engine, assets ThemeAssets) {

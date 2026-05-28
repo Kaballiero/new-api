@@ -47,8 +47,11 @@ var classicBuildFS embed.FS
 //go:embed web/classic/dist/index.html
 var classicIndexPage []byte
 
-//go:embed docs/openapi/api.json
-var openAPISpec []byte
+// All localized OpenAPI specs (api.en.json, api.zh.json, api.ru.json) plus the
+// api.json alias produced by the generator. Served by router/openapi.go.
+//
+//go:embed docs/openapi/api.json docs/openapi/api.en.json docs/openapi/api.zh.json docs/openapi/api.ru.json
+var openAPISpecs embed.FS
 
 func main() {
 	startTime := time.Now()
@@ -198,7 +201,7 @@ func main() {
 		DefaultIndexPage: indexPage,
 		ClassicBuildFS:   classicBuildFS,
 		ClassicIndexPage: classicIndexPage,
-		OpenAPISpec:      openAPISpec,
+		OpenAPISpecs:     openAPISpecs,
 	})
 	var port = os.Getenv("PORT")
 	if port == "" {

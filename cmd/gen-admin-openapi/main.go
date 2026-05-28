@@ -23,30 +23,47 @@ import (
 	"os"
 )
 
-var checkOnly = flag.Bool("check", false, "validate without writing api.json (CI mode)")
+var (
+	checkOnly  = flag.Bool("check", false, "validate without writing api.json (CI mode)")
+	localeFlag = flag.String("locale", "", "single locale to generate (en|zh|ru); empty = all")
+)
 
 func main() {
 	flag.Parse()
-	if err := run(); err != nil {
+	locales := supportedLocales
+	if *localeFlag != "" {
+		if !localeOK(*localeFlag) {
+			fmt.Fprintln(os.Stderr, "error: unknown locale:", *localeFlag)
+			os.Exit(1)
+		}
+		locales = []string{*localeFlag}
+	}
+	// Parse model/dto/controller/router ONCE (independent of locale).
+	if err := bootstrap(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+	for _, loc := range locales {
+		currentLocale = loc
+		if err := run(loc); err != nil {
+			fmt.Fprintln(os.Stderr, "error (", loc, "):", err)
+			os.Exit(1)
+		}
+	}
 }
 
-func run() error {
+// bootstrap performs the one-time AST parsing that's independent of locale.
+// Splitting this out lets the locale loop reuse the parsed handlers/routes/
+// schemas without re-walking the source on every iteration.
+func bootstrap() error {
 	if err := parseModels("./model"); err != nil {
 		return fmt.Errorf("parse models: %w", err)
 	}
-	// Pull request DTO struct types from auxiliary packages so cross-package
-	// types referenced by handlers (e.g. dto.UpstreamRequest, ionet.DeploymentRequest)
-	// also resolve to schemas.
 	for _, dir := range []string{"./dto", "./pkg/ionet"} {
 		if err := parseModels(dir); err != nil {
 			return fmt.Errorf("parse %s: %w", dir, err)
 		}
 	}
-	// Index package-level vars/consts BEFORE controller analysis so handler
-	// AST walks can resolve SelectorExpr like `common.Version` to typed values.
 	for _, dir := range []string{
 		"./common",
 		"./setting",
@@ -68,7 +85,12 @@ func run() error {
 		return fmt.Errorf("parse routes: %w", err)
 	}
 	dedupeRoutes()
+	return nil
+}
 
+func run(locale string) error {
+	// Re-read the base spec from disk per locale so each invocation starts
+	// fresh (avoid carrying mutations between locales).
 	rawSpec, err := os.ReadFile("./docs/openapi/api.json")
 	if err != nil {
 		return fmt.Errorf("read spec: %w", err)
@@ -78,29 +100,39 @@ func run() error {
 		return fmt.Errorf("parse spec: %w", err)
 	}
 
+	// Apply locale-aware top-level metadata.
+	info, _ := spec["info"].(map[string]interface{})
+	if info == nil {
+		info = map[string]interface{}{}
+		spec["info"] = info
+	}
+	info["title"] = translate(locale, "info.title")
+	info["description"] = translate(locale, "info.description")
+
 	paths, _ := spec["paths"].(map[string]interface{})
 	if paths == nil {
 		return fmt.Errorf("spec has no paths")
 	}
 
-	// Apply spec mutations first — they populate referencedTypes via manifest
-	// + handler enrichment. buildSchemas reads referencedTypes to emit only
-	// the types actually used (plus transitive deps).
-	//
-	// Order matters:
-	//   1. removeFakePaths        — drop paths that don't exist in the router
-	//   2. clearPlaceholderBodies — wipe legacy template bodies so step 4 wins
-	//   3. applyManifest          — set responses + register manifest body refs
-	//   4. enrichFromHandlers     — AST-derived bodies and responses (authoritative)
-	//   5. applyManifestBodies    — manifest-declared body fallback for endpoints
-	//                               where AST analysis didn't yield a schema
-	//   6. defaultUntypedResponses — ensure every operation has responses["200"]
+	// Reset per-run mutation state. referencedTypes accumulates across the
+	// pipeline; each locale needs a fresh count so schema sweep is correct.
+	referencedTypes = map[string]bool{}
+
+	// Apply spec mutations:
+	//   1. removeFakePaths         — drop paths that don't exist in the router
+	//   2. clearPlaceholderBodies  — wipe legacy template bodies
+	//   3. applyManifest           — set responses + register manifest body refs
+	//   4. enrichFromHandlers      — AST-derived bodies/responses/summaries
+	//   5. enrichErrorResponses    — per-endpoint x-error-codes + examples
+	//   6. applyManifestBodies     — manifest-declared body fallback
+	//   7. defaultUntypedResponses — ensure every operation has 200 + default 4xx/5xx
 	removeFakePaths(paths)
 	clearPlaceholderBodies(paths)
 	applyManifest(paths)
 	enrichFromHandlers(paths)
 	applyManifestBodies(paths)
 	defaultUntypedResponses(paths)
+	enrichErrorResponses(paths)
 
 	schemas := buildSchemas()
 
@@ -132,13 +164,21 @@ func run() error {
 		return err
 	}
 	out = append(out, '\n')
+	outPath := "./docs/openapi/api." + locale + ".json"
 	if !*checkOnly {
-		if err := os.WriteFile("./docs/openapi/api.json", out, 0644); err != nil {
+		if err := os.WriteFile(outPath, out, 0644); err != nil {
 			return err
 		}
-		fmt.Println("ok: docs/openapi/api.json updated")
+		// en is also written to api.json as the default-locale alias (existing
+		// tooling/SDK consumers read api.json without specifying a locale).
+		if locale == "en" {
+			if err := os.WriteFile("./docs/openapi/api.json", out, 0644); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("ok: %s updated\n", outPath)
 	} else {
-		fmt.Println("check: skipping write (--check mode)")
+		fmt.Printf("check (%s): skipping write (--check mode)\n", locale)
 	}
 	fmt.Printf("    schemas:    %d\n", len(existingSchemas))
 	fmt.Printf("    paths:      %d\n", len(paths))

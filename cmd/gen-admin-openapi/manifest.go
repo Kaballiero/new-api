@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -480,38 +481,48 @@ func splitPath(path string) []string {
 	return parts
 }
 
-func guessTag(path string) string {
+// currentLocale is set by the generator's locale loop before each spec build.
+// Functions that emit user-visible strings (descriptions, tags, summaries)
+// read this to pick the right translation. Defaults to "en" for safety when
+// the generator is invoked single-shot without setting it.
+var currentLocale = "en"
+
+// tagKeyFor maps a URL path to a translation key (`tag.xxx`). The actual
+// localized label is resolved by translate(currentLocale, key) at the call
+// site. Keeps mapping logic in one place; locale-agnostic.
+func tagKeyFor(path string) string {
 	switch {
 	case startsWith(path, "/api/subscription/admin"):
-		return "订阅管理"
+		return "tag.subscription_admin"
 	case startsWith(path, "/api/subscription"):
-		return "订阅"
-	case startsWith(path, "/api/custom-oauth-provider"):
-		return "OAuth"
-	case startsWith(path, "/api/performance"):
-		return "性能"
+		return "tag.subscription"
+	case startsWith(path, "/api/custom-oauth-provider"), startsWith(path, "/api/oauth"):
+		return "tag.oauth"
+	case startsWith(path, "/api/performance"), startsWith(path, "/api/perf-metrics"), startsWith(path, "/api/rankings"):
+		return "tag.performance"
 	case startsWith(path, "/api/deployments"):
-		return "部署"
+		return "tag.deployment"
 	case startsWith(path, "/api/channel"):
-		return "渠道管理"
+		return "tag.channel"
 	case startsWith(path, "/api/user"):
-		return "用户管理"
+		return "tag.user"
 	case startsWith(path, "/api/token"):
-		return "令牌管理"
+		return "tag.token"
 	case startsWith(path, "/api/log"):
-		return "日志"
+		return "tag.log"
 	case startsWith(path, "/api/data"):
-		return "数据统计"
+		return "tag.data"
 	case startsWith(path, "/api/option"):
-		return "系统设置"
-	case startsWith(path, "/api/oauth"):
-		return "OAuth"
+		return "tag.system"
 	case startsWith(path, "/api/waffo"):
-		return "充值"
-	case startsWith(path, "/api/perf-metrics"), startsWith(path, "/api/rankings"):
-		return "性能"
+		return "tag.topup"
 	}
-	return "未分类"
+	return "tag.uncategorized"
+}
+
+// guessTag returns the localized tag label for the given path.
+func guessTag(path string) string {
+	return translate(currentLocale, tagKeyFor(path))
 }
 
 func startsWith(s, prefix string) bool {
@@ -598,17 +609,22 @@ func defaultUntypedResponses(paths map[string]interface{}) {
 	}
 }
 
+// standardErrorCodeList — HTTP statuses for which every operation gets a
+// default ApiErrorResponse response (localized via err.<code> keys).
+var standardErrorCodeList = []string{"400", "401", "403", "404", "409", "422", "500", "502"}
+
 // injectErrorResponses adds standard ApiErrorResponse-typed entries for HTTP
 // 400/401/403/404/409/422/500/502 unless the operation already declares them.
+// Each description is localized via translate(currentLocale, "err.<code>").
 // This ensures every endpoint surfaces a typed error envelope to SDK clients.
 func injectErrorResponses(responses map[string]interface{}) {
 	referencedTypes["ApiErrorResponse"] = true
-	for code, desc := range standardErrorCodes {
+	for _, code := range standardErrorCodeList {
 		if _, exists := responses[code]; exists {
 			continue
 		}
 		responses[code] = map[string]interface{}{
-			"description": desc,
+			"description": translate(currentLocale, "err."+code),
 			"content": map[string]interface{}{
 				"application/json": map[string]interface{}{
 					"schema": map[string]interface{}{
@@ -618,21 +634,6 @@ func injectErrorResponses(responses map[string]interface{}) {
 			},
 		}
 	}
-}
-
-// standardErrorCodes maps HTTP status → short description for the spec.
-// Order is preserved for readability in the generated JSON (insertion order
-// is implementation-defined but stable per-run since Go map iteration shuffle
-// isn't relevant — JSON serialization sorts keys lexicographically).
-var standardErrorCodes = map[string]string{
-	"400": "Bad request — invalid_params, validation failed, or other client error",
-	"401": "Unauthorized — missing or invalid auth credentials",
-	"403": "Forbidden — insufficient role/permission or feature disabled",
-	"404": "Not found — referenced resource does not exist",
-	"409": "Conflict — resource already exists or state precludes the operation",
-	"422": "Unprocessable entity — well-formed but semantically invalid input",
-	"500": "Internal server error — DB transaction failure or unhandled exception",
-	"502": "Bad gateway — upstream provider (LLM API, model registry) failed",
 }
 
 func isHTTPMethod(s string) bool {
@@ -784,7 +785,106 @@ func enrichFromHandlers(paths map[string]interface{}) {
 		} else if h.RespType != "" || h.RespIsPaged {
 			upgradeResponse(op, h)
 		}
+
+		// --- summary: replace auto "post /api/x" placeholder with godoc /
+		// translation. Only overwrite when the existing summary still has the
+		// placeholder shape (preserves any manually-curated summaries).
+		if curSummary, _ := op["summary"].(string); isAutoSummary(curSummary, route.Method, route.Path) {
+			if s := translateSummaryWithFallback(currentLocale, h.Name, handlerSummaries[h.Name]); s != "" {
+				op["summary"] = s
+			}
+		}
 	}
+}
+
+// isAutoSummary returns true when the operation's summary matches the
+// auto-generated "<method> <path>" placeholder from newOperation. Used to
+// avoid overwriting hand-curated summaries.
+func isAutoSummary(summary, method, path string) bool {
+	if summary == "" {
+		return true
+	}
+	expected := strings.ToLower(method) + " " + path
+	return summary == expected
+}
+
+// enrichErrorResponses walks routes and augments each operation's response
+// map with handler-specific error catalog data. For every (HTTP status, code)
+// pair extracted from the handler body by analyzeErrorCall, we:
+//   - Add the code to `responses[status]["x-error-codes"]` (vendor extension —
+//     machine-readable list of every error code that path may emit at that status).
+//   - Add an entry to `responses[status]["content"]["application/json"]["examples"]`
+//     with the literal envelope shape `{success:false, code, message}` — Swagger
+//     UI renders these inline as labeled examples per code.
+//
+// Runs AFTER enrichFromHandlers (so response schemas exist) and AFTER
+// defaultUntypedResponses (so generic 4xx/5xx slots are present).
+func enrichErrorResponses(paths map[string]interface{}) {
+	for _, route := range routes {
+		if route.HandlerName == "" {
+			continue
+		}
+		h, ok := handlers[route.HandlerName]
+		if !ok || len(h.ErrorCodes) == 0 {
+			continue
+		}
+		pathObj, _ := paths[route.Path].(map[string]interface{})
+		if pathObj == nil {
+			continue
+		}
+		op, _ := pathObj[strings.ToLower(route.Method)].(map[string]interface{})
+		if op == nil {
+			continue
+		}
+		responses, _ := op["responses"].(map[string]interface{})
+		if responses == nil {
+			continue
+		}
+
+		byStatus := map[int][]string{}
+		for _, ec := range h.ErrorCodes {
+			byStatus[ec.Status] = append(byStatus[ec.Status], ec.Code)
+		}
+		for status, codes := range byStatus {
+			sCode := strconv.Itoa(status)
+			resp, _ := responses[sCode].(map[string]interface{})
+			if resp == nil {
+				continue // status not in default catalog (e.g. 201) — handled by setup, skip
+			}
+			resp["x-error-codes"] = stringsToInterfaces(codes)
+
+			content, _ := resp["content"].(map[string]interface{})
+			if content == nil {
+				continue
+			}
+			appJSON, _ := content["application/json"].(map[string]interface{})
+			if appJSON == nil {
+				continue
+			}
+			examples := map[string]interface{}{}
+			for _, code := range codes {
+				examples[code] = map[string]interface{}{
+					"summary": code,
+					"value": map[string]interface{}{
+						"success": false,
+						"code":    code,
+						"message": "<localized message>",
+					},
+				}
+			}
+			appJSON["examples"] = examples
+		}
+	}
+}
+
+// stringsToInterfaces is a tiny helper because Go's JSON encoder needs
+// []interface{} for heterogeneous slices but our codes are []string.
+func stringsToInterfaces(in []string) []interface{} {
+	out := make([]interface{}, len(in))
+	for i, s := range in {
+		out[i] = s
+	}
+	return out
 }
 
 // isGenericResponse returns true when responses["200"] points at the bare
@@ -820,7 +920,7 @@ func isGenericResponse(op map[string]interface{}) bool {
 func setInlineResponse(op map[string]interface{}, schema map[string]interface{}) {
 	op["responses"] = map[string]interface{}{
 		"200": map[string]interface{}{
-			"description": "成功",
+			"description": translate(currentLocale, "resp.success"),
 			"headers":     map[string]interface{}{},
 			"content": map[string]interface{}{
 				"application/json": map[string]interface{}{
@@ -937,7 +1037,7 @@ func buildResponse(spec respSpec) map[string]interface{} {
 	}
 	return map[string]interface{}{
 		"200": map[string]interface{}{
-			"description": "成功",
+			"description": translate(currentLocale, "resp.success"),
 			"headers":     map[string]interface{}{},
 			"content": map[string]interface{}{
 				"application/json": map[string]interface{}{

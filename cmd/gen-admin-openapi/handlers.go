@@ -25,6 +25,7 @@ type HandlerInfo struct {
 	RespSchema  map[string]interface{} // inline schema for gin.H{...} responses
 	RespIsList  bool
 	RespIsPaged bool
+	ErrorCodes  []ErrorCode // populated by analyzeErrorCalls — see enrichErrorResponses
 }
 
 type QueryParam struct {
@@ -32,10 +33,51 @@ type QueryParam struct {
 	Type string // "string" | "integer" | "boolean" | "number"
 }
 
+// ErrorCode — extracted (HTTP status, machine-readable code) pair from a
+// `common.ApiError*StatusCode` call inside a handler body. Status comes from
+// the http.StatusXxx selector; Code is the string literal third argument.
+type ErrorCode struct {
+	Status int    // 400, 404, 500, ...
+	Code   string // "user_not_found", "invalid_params", ...
+}
+
+// httpStatusMap resolves `http.StatusXxx` selectors to integer codes during
+// AST inspection. Covers all status codes the migrated handlers currently
+// emit (waves 1–7). Extend when a new status is introduced in handlers.
+var httpStatusMap = map[string]int{
+	"StatusOK":                   200,
+	"StatusCreated":              201,
+	"StatusAccepted":             202,
+	"StatusNoContent":            204,
+	"StatusBadRequest":           400,
+	"StatusUnauthorized":         401,
+	"StatusForbidden":            403,
+	"StatusNotFound":             404,
+	"StatusMethodNotAllowed":     405,
+	"StatusConflict":             409,
+	"StatusGone":                 410,
+	"StatusUnprocessableEntity":  422,
+	"StatusTooManyRequests":      429,
+	"StatusInternalServerError":  500,
+	"StatusNotImplemented":       501,
+	"StatusBadGateway":           502,
+	"StatusServiceUnavailable":   503,
+	"StatusGatewayTimeout":       504,
+}
+
+// errorHelperNames — Set of common.ApiError*StatusCode helpers analyzeErrorCall
+// recognizes. All have the same signature: (c, http.StatusXxx, codeString, ...).
+var errorHelperNames = map[string]struct{}{
+	"ApiErrorStatusCode":     {},
+	"ApiErrorMsgStatusCode":  {},
+	"ApiErrorI18nStatusCode": {},
+}
+
 // Global tables populated by parseControllers + parseModels.
 var (
-	handlers   = map[string]*HandlerInfo{}
-	funcReturn = map[string]string{} // function name → primary returned Go type (best-effort)
+	handlers         = map[string]*HandlerInfo{}
+	funcReturn       = map[string]string{} // function name → primary returned Go type (best-effort)
+	handlerSummaries = map[string]string{} // handler name → godoc-extracted summary (typically zh)
 )
 
 // parseControllers runs a two-pass scan: first registers all declarations
@@ -91,6 +133,15 @@ func parseControllers(dir string) error {
 					continue
 				}
 				recordFuncReturn(d)
+				// godoc summary: first comment line of the form
+				// `// HandlerName 描述` becomes the operation summary (zh source).
+				// en/ru pull from translations["summary."+HandlerName]; this is
+				// the fallback if no manual translation exists.
+				if d.Doc != nil && len(d.Doc.List) > 0 {
+					if s := trimGodocPrefix(d.Doc.List[0].Text, d.Name.Name); s != "" {
+						handlerSummaries[d.Name.Name] = s
+					}
+				}
 			}
 		}
 	}
@@ -161,6 +212,7 @@ func analyzeHandler(fn *ast.FuncDecl) *HandlerInfo {
 	info := &HandlerInfo{Name: fn.Name.Name}
 
 	locals := collectLocals(fn.Body)
+	seen := map[ErrorCode]struct{}{}
 
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -168,10 +220,67 @@ func analyzeHandler(fn *ast.FuncDecl) *HandlerInfo {
 			return true
 		}
 		analyzeCall(call, locals, info)
+		if ec := analyzeErrorCall(call); ec != nil {
+			if _, dup := seen[*ec]; !dup {
+				seen[*ec] = struct{}{}
+				info.ErrorCodes = append(info.ErrorCodes, *ec)
+			}
+		}
 		return true
 	})
 
 	return info
+}
+
+// analyzeErrorCall recognizes calls to the common.ApiError*StatusCode helpers
+// and extracts (status, code) tuples. Returns nil when the call shape doesn't
+// match (different package, different fn name, non-literal args, etc.).
+//
+// Expected shapes:
+//   common.ApiErrorStatusCode(c, http.StatusXxx, "code", err)
+//   common.ApiErrorMsgStatusCode(c, http.StatusXxx, "code", msg)
+//   common.ApiErrorI18nStatusCode(c, http.StatusXxx, "code", i18nKey, ...)
+//
+// AST shape: CallExpr{Fun: SelectorExpr{X:Ident("common"), Sel:Ident("ApiErrorI18nStatusCode")}}.
+// Args[1] is http.StatusXxx (SelectorExpr), Args[2] is the code BasicLit.
+func analyzeErrorCall(call *ast.CallExpr) *ErrorCode {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return nil
+	}
+	pkg, _ := sel.X.(*ast.Ident)
+	if pkg == nil || pkg.Name != "common" {
+		return nil
+	}
+	if _, recognized := errorHelperNames[sel.Sel.Name]; !recognized {
+		return nil
+	}
+	if len(call.Args) < 3 {
+		return nil
+	}
+	// arg[1]: http.StatusXxx
+	statusSel, ok := call.Args[1].(*ast.SelectorExpr)
+	if !ok {
+		return nil
+	}
+	pkgIdent, _ := statusSel.X.(*ast.Ident)
+	if pkgIdent == nil || pkgIdent.Name != "http" {
+		return nil
+	}
+	status, ok := httpStatusMap[statusSel.Sel.Name]
+	if !ok {
+		return nil
+	}
+	// arg[2]: "code" string literal
+	codeLit, ok := call.Args[2].(*ast.BasicLit)
+	if !ok || codeLit.Kind != token.STRING {
+		return nil
+	}
+	code := strings.Trim(codeLit.Value, "`\"")
+	if code == "" {
+		return nil
+	}
+	return &ErrorCode{Status: status, Code: code}
 }
 
 // collectLocals scans top-level var decls and `:=` assignments inside the

@@ -5,6 +5,7 @@
 .gitignore
 Makefile
 docs
+!docs/openapi
 .eslintcache
 .gocache
 /web/node_modules

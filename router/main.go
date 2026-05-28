@@ -17,7 +17,7 @@ func SetRouter(router *gin.Engine, assets ThemeAssets) {
 	SetDashboardRouter(router)
 	SetRelayRouter(router)
 	SetVideoRouter(router)
-	SetOpenAPIRouter(router, assets.OpenAPISpec)
+	SetOpenAPIRouter(router, assets.OpenAPISpecs)
 	frontendBaseUrl := os.Getenv("FRONTEND_BASE_URL")
 	if common.IsMasterNode && frontendBaseUrl != "" {
 		frontendBaseUrl = ""
