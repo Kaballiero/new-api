@@ -26,6 +26,46 @@ const (
 	upstreamVendorsURL = "https://basellm.github.io/llm-metadata/api/newapi/vendors.json"
 )
 
+// SyncUpstreamSource — provenance metadata returned with both sync and preview
+// responses (which locale was used + the exact upstream URLs hit).
+type SyncUpstreamSource struct {
+	Locale     string `json:"locale"`
+	ModelsURL  string `json:"models_url"`
+	VendorsURL string `json:"vendors_url"`
+}
+
+// SyncUpstreamModelsResponse is the result body of POST /api/models/sync_upstream.
+type SyncUpstreamModelsResponse struct {
+	CreatedModels  int                `json:"created_models"`
+	CreatedVendors int                `json:"created_vendors"`
+	UpdatedModels  int                `json:"updated_models"`
+	SkippedModels  []string           `json:"skipped_models"`
+	CreatedList    []string           `json:"created_list"`
+	UpdatedList    []string           `json:"updated_list"`
+	Source         SyncUpstreamSource `json:"source"`
+}
+
+// SyncConflictField — one field-level diff between local and upstream metadata
+// (used in preview).
+type SyncConflictField struct {
+	Field    string      `json:"field"`
+	Local    interface{} `json:"local"`
+	Upstream interface{} `json:"upstream"`
+}
+
+// SyncConflictItem — model with at least one conflicting field.
+type SyncConflictItem struct {
+	ModelName string              `json:"model_name"`
+	Fields    []SyncConflictField `json:"fields"`
+}
+
+// SyncUpstreamPreviewResponse is the result body of GET /api/models/sync_upstream/preview.
+type SyncUpstreamPreviewResponse struct {
+	Missing   []string           `json:"missing"`
+	Conflicts []SyncConflictItem `json:"conflicts"`
+	Source    SyncUpstreamSource `json:"source"`
+}
+
 func normalizeLocale(locale string) (string, bool) {
 	l := strings.ToLower(strings.TrimSpace(locale))
 	switch l {
@@ -273,28 +313,18 @@ func SyncUpstreamModels(c *gin.Context) {
 	missing, err := model.GetMissingModels()
 	if err != nil {
 		common.SysError("failed to get missing models: " + err.Error())
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取模型列表失败，请稍后重试"})
+		common.ApiErrorMsgStatusCode(c, http.StatusInternalServerError, "internal_error", "获取模型列表失败，请稍后重试")
 		return
 	}
 
 	// 若既无缺失模型需要创建，也未指定覆盖更新字段，则无需请求上游数据，直接返回
 	if len(missing) == 0 && len(req.Overwrite) == 0 {
 		modelsURL, vendorsURL := getUpstreamURLs(req.Locale)
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data": gin.H{
-				"created_models":  0,
-				"created_vendors": 0,
-				"updated_models":  0,
-				"skipped_models":  []string{},
-				"created_list":    []string{},
-				"updated_list":    []string{},
-				"source": gin.H{
-					"locale":      req.Locale,
-					"models_url":  modelsURL,
-					"vendors_url": vendorsURL,
-				},
-			},
+		common.ApiSuccess(c, SyncUpstreamModelsResponse{
+			SkippedModels: []string{},
+			CreatedList:   []string{},
+			UpdatedList:   []string{},
+			Source:        SyncUpstreamSource{Locale: req.Locale, ModelsURL: modelsURL, VendorsURL: vendorsURL},
 		})
 		return
 	}
@@ -323,7 +353,7 @@ func SyncUpstreamModels(c *gin.Context) {
 	}()
 	wg.Wait()
 	if fetchErr != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取上游模型失败: " + fetchErr.Error(), "locale": req.Locale, "source_urls": gin.H{"models_url": modelsURL, "vendors_url": vendorsURL}})
+		common.ApiErrorMsgStatusCode(c, http.StatusBadGateway, "fetch_upstream_failed", "获取上游模型失败: "+fetchErr.Error())
 		return
 	}
 
@@ -450,21 +480,14 @@ func SyncUpstreamModels(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"created_models":  createdModels,
-			"created_vendors": createdVendors,
-			"updated_models":  updatedModels,
-			"skipped_models":  skipped,
-			"created_list":    createdList,
-			"updated_list":    updatedList,
-			"source": gin.H{
-				"locale":      req.Locale,
-				"models_url":  modelsURL,
-				"vendors_url": vendorsURL,
-			},
-		},
+	common.ApiSuccess(c, SyncUpstreamModelsResponse{
+		CreatedModels:  createdModels,
+		CreatedVendors: createdVendors,
+		UpdatedModels:  updatedModels,
+		SkippedModels:  skipped,
+		CreatedList:    createdList,
+		UpdatedList:    updatedList,
+		Source:         SyncUpstreamSource{Locale: req.Locale, ModelsURL: modelsURL, VendorsURL: vendorsURL},
 	})
 }
 
@@ -522,7 +545,7 @@ func SyncUpstreamPreview(c *gin.Context) {
 	}()
 	wg.Wait()
 	if fetchErr != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取上游模型失败: " + fetchErr.Error(), "locale": locale, "source_urls": gin.H{"models_url": modelsURL, "vendors_url": vendorsURL}})
+		common.ApiErrorMsgStatusCode(c, http.StatusBadGateway, "fetch_upstream_failed", "获取上游模型失败: "+fetchErr.Error())
 		return
 	}
 
@@ -577,58 +600,41 @@ func SyncUpstreamPreview(c *gin.Context) {
 	}
 
 	// 4) 计算冲突字段
-	type conflictField struct {
-		Field    string      `json:"field"`
-		Local    interface{} `json:"local"`
-		Upstream interface{} `json:"upstream"`
-	}
-	type conflictItem struct {
-		ModelName string          `json:"model_name"`
-		Fields    []conflictField `json:"fields"`
-	}
-
-	var conflicts []conflictItem
+	var conflicts []SyncConflictItem
 	for _, local := range locals {
 		up, ok := modelByName[local.ModelName]
 		if !ok {
 			continue
 		}
-		fields := make([]conflictField, 0, 6)
+		fields := make([]SyncConflictField, 0, 6)
 		if strings.TrimSpace(local.Description) != strings.TrimSpace(up.Description) {
-			fields = append(fields, conflictField{Field: "description", Local: local.Description, Upstream: up.Description})
+			fields = append(fields, SyncConflictField{Field: "description", Local: local.Description, Upstream: up.Description})
 		}
 		if strings.TrimSpace(local.Icon) != strings.TrimSpace(up.Icon) {
-			fields = append(fields, conflictField{Field: "icon", Local: local.Icon, Upstream: up.Icon})
+			fields = append(fields, SyncConflictField{Field: "icon", Local: local.Icon, Upstream: up.Icon})
 		}
 		if strings.TrimSpace(local.Tags) != strings.TrimSpace(up.Tags) {
-			fields = append(fields, conflictField{Field: "tags", Local: local.Tags, Upstream: up.Tags})
+			fields = append(fields, SyncConflictField{Field: "tags", Local: local.Tags, Upstream: up.Tags})
 		}
 		// vendor 对比使用名称
 		localVendor := idToVendorName[local.VendorID]
 		if strings.TrimSpace(localVendor) != strings.TrimSpace(up.VendorName) {
-			fields = append(fields, conflictField{Field: "vendor", Local: localVendor, Upstream: up.VendorName})
+			fields = append(fields, SyncConflictField{Field: "vendor", Local: localVendor, Upstream: up.VendorName})
 		}
 		if local.NameRule != up.NameRule {
-			fields = append(fields, conflictField{Field: "name_rule", Local: local.NameRule, Upstream: up.NameRule})
+			fields = append(fields, SyncConflictField{Field: "name_rule", Local: local.NameRule, Upstream: up.NameRule})
 		}
 		if local.Status != chooseStatus(up.Status, local.Status) {
-			fields = append(fields, conflictField{Field: "status", Local: local.Status, Upstream: up.Status})
+			fields = append(fields, SyncConflictField{Field: "status", Local: local.Status, Upstream: up.Status})
 		}
 		if len(fields) > 0 {
-			conflicts = append(conflicts, conflictItem{ModelName: local.ModelName, Fields: fields})
+			conflicts = append(conflicts, SyncConflictItem{ModelName: local.ModelName, Fields: fields})
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"missing":   missing,
-			"conflicts": conflicts,
-			"source": gin.H{
-				"locale":      locale,
-				"models_url":  modelsURL,
-				"vendors_url": vendorsURL,
-			},
-		},
+	common.ApiSuccess(c, SyncUpstreamPreviewResponse{
+		Missing:   missing,
+		Conflicts: conflicts,
+		Source:    SyncUpstreamSource{Locale: locale, ModelsURL: modelsURL, VendorsURL: vendorsURL},
 	})
 }

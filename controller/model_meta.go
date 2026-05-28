@@ -2,6 +2,8 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,49 +13,53 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+// ListModelsMetaResponse — response body of GET /api/models/. Combines
+// paged model list with vendor counts so the admin UI populates the filter
+// sidebar in a single round-trip. Named schema replaces anonymous gin.H.
+type ListModelsMetaResponse struct {
+	Items        []*model.Model  `json:"items"`
+	Total        int64           `json:"total"`
+	Page         int             `json:"page"`
+	PageSize     int             `json:"page_size"`
+	VendorCounts map[int64]int64 `json:"vendor_counts"`
+}
 
 // GetAllModelsMeta 获取模型列表（分页）
 func GetAllModelsMeta(c *gin.Context) {
-
 	pageInfo := common.GetPageQuery(c)
 	modelsMeta, err := model.GetAllModels(pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	// 批量填充附加字段，提升列表接口性能
 	enrichModels(modelsMeta)
 	var total int64
 	model.DB.Model(&model.Model{}).Count(&total)
-
-	// 统计供应商计数（全部数据，不受分页影响）
 	vendorCounts, _ := model.GetVendorModelCounts()
 
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(modelsMeta)
-	common.ApiSuccess(c, gin.H{
-		"items":         modelsMeta,
-		"total":         total,
-		"page":          pageInfo.GetPage(),
-		"page_size":     pageInfo.GetPageSize(),
-		"vendor_counts": vendorCounts,
+	common.ApiSuccess(c, ListModelsMetaResponse{
+		Items:        modelsMeta,
+		Total:        total,
+		Page:         pageInfo.GetPage(),
+		PageSize:     pageInfo.GetPageSize(),
+		VendorCounts: vendorCounts,
 	})
 }
 
 // SearchModelsMeta 搜索模型列表
 func SearchModelsMeta(c *gin.Context) {
-
 	keyword := c.Query("keyword")
 	vendor := c.Query("vendor")
 	pageInfo := common.GetPageQuery(c)
 
 	modelsMeta, total, err := model.SearchModels(keyword, vendor, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	// 批量填充附加字段，提升列表接口性能
 	enrichModels(modelsMeta)
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(modelsMeta)
@@ -62,15 +68,18 @@ func SearchModelsMeta(c *gin.Context) {
 
 // GetModelMeta 根据 ID 获取单条模型信息
 func GetModelMeta(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "invalid id")
 		return
 	}
 	var m model.Model
 	if err := model.DB.First(&m, id).Error; err != nil {
-		common.ApiError(c, err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorMsgStatusCode(c, http.StatusNotFound, "model_not_found", "model not found")
+			return
+		}
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	enrichModels([]*model.Model{&m})
@@ -81,28 +90,27 @@ func GetModelMeta(c *gin.Context) {
 func CreateModelMeta(c *gin.Context) {
 	var m model.Model
 	if err := c.ShouldBindJSON(&m); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", err.Error())
 		return
 	}
 	if m.ModelName == "" {
-		common.ApiErrorMsg(c, "模型名称不能为空")
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "model_name_empty", "模型名称不能为空")
 		return
 	}
-	// 名称冲突检查
 	if dup, err := model.IsModelNameDuplicated(0, m.ModelName); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	} else if dup {
-		common.ApiErrorMsg(c, "模型名称已存在")
+		common.ApiErrorMsgStatusCode(c, http.StatusConflict, "model_name_exists", "模型名称已存在")
 		return
 	}
 
 	if err := m.Insert(); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	model.RefreshPricing()
-	common.ApiSuccess(c, &m)
+	common.ApiSuccessStatus(c, http.StatusCreated, &m)
 }
 
 // UpdateModelMeta 更新模型
@@ -111,32 +119,32 @@ func UpdateModelMeta(c *gin.Context) {
 
 	var m model.Model
 	if err := c.ShouldBindJSON(&m); err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", err.Error())
 		return
 	}
 	if m.Id == 0 {
-		common.ApiErrorMsg(c, "缺少模型 ID")
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "model_id_missing", "缺少模型 ID")
 		return
 	}
 
 	if statusOnly {
 		// 只更新状态，防止误清空其他字段
 		if err := model.DB.Model(&model.Model{}).Where("id = ?", m.Id).Update("status", m.Status).Error; err != nil {
-			common.ApiError(c, err)
+			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 			return
 		}
 	} else {
 		// 名称冲突检查
 		if dup, err := model.IsModelNameDuplicated(m.Id, m.ModelName); err != nil {
-			common.ApiError(c, err)
+			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 			return
 		} else if dup {
-			common.ApiErrorMsg(c, "模型名称已存在")
+			common.ApiErrorMsgStatusCode(c, http.StatusConflict, "model_name_exists", "模型名称已存在")
 			return
 		}
 
 		if err := m.Update(); err != nil {
-			common.ApiError(c, err)
+			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 			return
 		}
 	}
@@ -146,14 +154,18 @@ func UpdateModelMeta(c *gin.Context) {
 
 // DeleteModelMeta 删除模型
 func DeleteModelMeta(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "invalid id")
 		return
 	}
-	if err := model.DB.Delete(&model.Model{}, id).Error; err != nil {
-		common.ApiError(c, err)
+	res := model.DB.Delete(&model.Model{}, id)
+	if res.Error != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		common.ApiErrorMsgStatusCode(c, http.StatusNotFound, "model_not_found", "model not found")
 		return
 	}
 	model.RefreshPricing()

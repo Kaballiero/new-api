@@ -173,12 +173,12 @@ var manifest = map[string]map[string]respSpec{
 
 	// === Models ===
 	"/api/models":                       {"get": {Wrap: "ApiResponseOfStringList"}},
-	"/api/models/":                      {"get": {Type: "Model", Paged: true}, "post": {Empty: true}},
+	"/api/models/":                      {"get": {Type: "ListModelsMetaResponse"}, "post": {Type: "Model"}, "put": {Type: "Model"}},
 	"/api/models/{id}":                  {"get": {Type: "Model"}, "delete": {Empty: true}},
 	"/api/models/missing":               {"get": {Wrap: "ApiResponseOfStringList"}},
 	"/api/models/search":                {"get": {Type: "Model", Paged: true}},
-	"/api/models/sync_upstream":         {"post": {Wrap: "ApiResponseOfObject"}},
-	"/api/models/sync_upstream/preview": {"get": {Wrap: "ApiResponseOfObject"}},
+	"/api/models/sync_upstream":         {"post": {Type: "SyncUpstreamModelsResponse"}},
+	"/api/models/sync_upstream/preview": {"get": {Type: "SyncUpstreamPreviewResponse"}},
 
 	// === Vendors ===
 	"/api/vendors/":       {"get": {Type: "Vendor", Paged: true}, "post": {Empty: true}, "put": {Empty: true}},

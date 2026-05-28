@@ -365,6 +365,24 @@
         ],
         "type": "object"
       },
+      "ApiResponseOfListModelsMetaResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ListModelsMetaResponse"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
       "ApiResponseOfListProviderModelsResponse": {
         "properties": {
           "data": {
@@ -571,6 +589,42 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ApiResponseOfSyncUpstreamModelsResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SyncUpstreamModelsResponse"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ApiResponseOfSyncUpstreamPreviewResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SyncUpstreamPreviewResponse"
           },
           "message": {
             "type": "string"
@@ -1880,6 +1934,32 @@
         },
         "type": "object"
       },
+      "ListModelsMetaResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "vendor_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "ListProviderModelsResponse": {
         "properties": {
           "api_type": {
@@ -3067,6 +3147,103 @@
         "properties": {
           "plan_id": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "SyncConflictField": {
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "local": {
+            "description": "Any value."
+          },
+          "upstream": {
+            "description": "Any value."
+          }
+        },
+        "type": "object"
+      },
+      "SyncConflictItem": {
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/SyncConflictField"
+            },
+            "type": "array"
+          },
+          "model_name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SyncUpstreamModelsResponse": {
+        "properties": {
+          "created_list": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "created_models": {
+            "type": "integer"
+          },
+          "created_vendors": {
+            "type": "integer"
+          },
+          "skipped_models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SyncUpstreamSource"
+          },
+          "updated_list": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updated_models": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "SyncUpstreamPreviewResponse": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/SyncConflictItem"
+            },
+            "type": "array"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SyncUpstreamSource"
+          }
+        },
+        "type": "object"
+      },
+      "SyncUpstreamSource": {
+        "properties": {
+          "locale": {
+            "type": "string"
+          },
+          "models_url": {
+            "type": "string"
+          },
+          "vendors_url": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -11038,7 +11215,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponsePagedOfModel"
+                  "$ref": "#/components/schemas/ApiResponseOfListModelsMetaResponse"
                 }
               }
             },
@@ -11077,7 +11254,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse"
+                  "$ref": "#/components/schemas/ApiResponseOfModel"
                 }
               }
             },
@@ -11126,7 +11303,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse"
+                  "$ref": "#/components/schemas/ApiResponseOfModel"
                 }
               }
             },
@@ -11268,44 +11445,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "data": {
-                      "properties": {
-                        "created_list": {},
-                        "created_models": {
-                          "type": "integer"
-                        },
-                        "created_vendors": {
-                          "type": "integer"
-                        },
-                        "skipped_models": {},
-                        "source": {
-                          "properties": {
-                            "locale": {
-                              "type": "string"
-                            },
-                            "models_url": {
-                              "type": "string"
-                            },
-                            "vendors_url": {}
-                          },
-                          "type": "object"
-                        },
-                        "updated_list": {},
-                        "updated_models": {
-                          "type": "integer"
-                        }
-                      },
-                      "type": "object"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponseOfSyncUpstreamModelsResponse"
                 }
               }
             },
@@ -11347,34 +11487,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "data": {
-                      "properties": {
-                        "conflicts": {},
-                        "missing": {
-                          "type": "string"
-                        },
-                        "source": {
-                          "properties": {
-                            "locale": {},
-                            "models_url": {
-                              "type": "string"
-                            },
-                            "vendors_url": {}
-                          },
-                          "type": "object"
-                        }
-                      },
-                      "type": "object"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponseOfSyncUpstreamPreviewResponse"
                 }
               }
             },
