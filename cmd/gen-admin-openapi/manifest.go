@@ -151,7 +151,7 @@ var manifest = map[string]map[string]respSpec{
 	"/api/channel/fetch_models/{id}":   {"get": {Wrap: "ApiResponseOfStringList"}},
 
 	// === Token ===
-	"/api/token/":       {"get": {Type: "Token", Paged: true}, "post": {Empty: true}, "put": {Empty: true}},
+	"/api/token/":       {"get": {Type: "Token", Paged: true}, "post": {Type: "Token"}, "put": {Type: "Token"}},
 	"/api/token/{id}":   {"get": {Type: "Token"}, "delete": {Empty: true}},
 	"/api/token/search": {"get": {Type: "Token", Paged: true}},
 	"/api/token/batch":  {"post": {Wrap: "ApiResponseOfObject"}},
@@ -293,7 +293,7 @@ var manifest = map[string]map[string]respSpec{
 	"/api/user/waffo/amount":                     {"post": {Wrap: "ApiResponseOfObject"}},
 	"/api/user/waffo/pay":                        {"post": {Wrap: "ApiResponseOfObject"}},
 	"/api/waffo/webhook":                         {"post": {Empty: true}},
-	"/api/token/{id}/key":                        {"post": {Wrap: "ApiResponseOfTokenKeyResult"}},
+	"/api/token/{id}/key":                        {"post": {Type: "TokenKeyResponse"}},
 	"/api/token/batch/keys":                      {"post": {Wrap: "ApiResponseOfStringList"}},
 }
 

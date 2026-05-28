@@ -1,7 +1,7 @@
 package controller
 
 import (
-	"fmt"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +12,15 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
+
+// TokenKeyResponse is the body of POST /api/token/{id}/key — exposes the
+// full (unmasked) token key for the owning user. Separate struct so OpenAPI
+// gets a named schema rather than an anonymous object.
+type TokenKeyResponse struct {
+	Key string `json:"key"`
+}
 
 func buildMaskedTokenResponse(token *model.Token) *model.Token {
 	if token == nil {
@@ -36,7 +44,7 @@ func GetAllTokens(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	total, _ := model.CountUserTokens(userId)
@@ -54,7 +62,7 @@ func SearchTokens(c *gin.Context) {
 
 	tokens, total, err := model.SearchUserTokens(userId, keyword, token, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	pageInfo.SetTotal(int(total))
@@ -64,14 +72,18 @@ func SearchTokens(c *gin.Context) {
 
 func GetToken(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
-	userId := c.GetInt("id")
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
+	userId := c.GetInt("id")
 	token, err := model.GetTokenByIds(id, userId)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "token_not_found", i18n.MsgTokenNotExists)
+		return
+	}
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	common.ApiSuccess(c, buildMaskedTokenResponse(token))
@@ -79,19 +91,21 @@ func GetToken(c *gin.Context) {
 
 func GetTokenKey(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
+		return
+	}
 	userId := c.GetInt("id")
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
 	token, err := model.GetTokenByIds(id, userId)
-	if err != nil {
-		common.ApiError(c, err)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "token_not_found", i18n.MsgTokenNotExists)
 		return
 	}
-	common.ApiSuccess(c, gin.H{
-		"key": token.GetFullKey(),
-	})
+	if err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		return
+	}
+	common.ApiSuccess(c, TokenKeyResponse{Key: token.GetFullKey()})
 }
 
 func GetTokenStatus(c *gin.Context) {
@@ -166,24 +180,23 @@ func GetTokenUsage(c *gin.Context) {
 
 func AddToken(c *gin.Context) {
 	token := model.Token{}
-	err := c.ShouldBindJSON(&token)
-	if err != nil {
-		common.ApiError(c, err)
+	if err := c.ShouldBindJSON(&token); err != nil {
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
 	if len(token.Name) > 50 {
-		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "token_name_too_long", i18n.MsgTokenNameTooLong)
 		return
 	}
 	// 非无限额度时，检查额度值是否超出有效范围
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
-			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "token_quota_negative", i18n.MsgTokenQuotaNegative)
 			return
 		}
 		maxQuotaValue := int((1000000000 * common.QuotaPerUnit))
 		if token.RemainQuota > maxQuotaValue {
-			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "token_quota_exceed_max", i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
 			return
 		}
 	}
@@ -191,20 +204,17 @@ func AddToken(c *gin.Context) {
 	maxTokens := operation_setting.GetMaxUserTokens()
 	count, err := model.CountUserTokens(c.GetInt("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	if int(count) >= maxTokens {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": fmt.Sprintf("已达到最大令牌数量限制 (%d)", maxTokens),
-		})
+		common.ApiErrorI18nStatusCode(c, http.StatusConflict, "token_count_limit", i18n.MsgTokenCountLimit, map[string]any{"Max": maxTokens})
 		return
 	}
 	key, err := common.GenerateKey()
 	if err != nil {
-		common.ApiErrorI18n(c, i18n.MsgTokenGenerateFailed)
 		common.SysLog("failed to generate token key: " + err.Error())
+		common.ApiErrorI18nStatusCode(c, http.StatusInternalServerError, "token_generate_failed", i18n.MsgTokenGenerateFailed)
 		return
 	}
 	cleanToken := model.Token{
@@ -222,67 +232,70 @@ func AddToken(c *gin.Context) {
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
 	}
-	err = cleanToken.Insert()
-	if err != nil {
-		common.ApiError(c, err)
+	if err := cleanToken.Insert(); err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
+	common.ApiSuccessStatus(c, http.StatusCreated, buildMaskedTokenResponse(&cleanToken))
 }
 
 func DeleteToken(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	userId := c.GetInt("id")
-	err := model.DeleteTokenById(id, userId)
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
+	userId := c.GetInt("id")
+	if err := model.DeleteTokenById(id, userId); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "token_not_found", i18n.MsgTokenNotExists)
+			return
+		}
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		return
+	}
+	common.ApiSuccess(c, nil)
 }
 
 func UpdateToken(c *gin.Context) {
 	userId := c.GetInt("id")
 	statusOnly := c.Query("status_only")
 	token := model.Token{}
-	err := c.ShouldBindJSON(&token)
-	if err != nil {
-		common.ApiError(c, err)
+	if err := c.ShouldBindJSON(&token); err != nil {
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
 	if len(token.Name) > 50 {
-		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "token_name_too_long", i18n.MsgTokenNameTooLong)
 		return
 	}
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
-			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "token_quota_negative", i18n.MsgTokenQuotaNegative)
 			return
 		}
 		maxQuotaValue := int((1000000000 * common.QuotaPerUnit))
 		if token.RemainQuota > maxQuotaValue {
-			common.ApiErrorI18n(c, i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "token_quota_exceed_max", i18n.MsgTokenQuotaExceedMax, map[string]any{"Max": maxQuotaValue})
 			return
 		}
 	}
 	cleanToken, err := model.GetTokenByIds(token.Id, userId)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "token_not_found", i18n.MsgTokenNotExists)
+		return
+	}
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	if token.Status == common.TokenStatusEnabled {
 		if cleanToken.Status == common.TokenStatusExpired && cleanToken.ExpiredTime <= common.GetTimestamp() && cleanToken.ExpiredTime != -1 {
-			common.ApiErrorI18n(c, i18n.MsgTokenExpiredCannotEnable)
+			common.ApiErrorI18nStatusCode(c, http.StatusConflict, "token_expired_cannot_enable", i18n.MsgTokenExpiredCannotEnable)
 			return
 		}
 		if cleanToken.Status == common.TokenStatusExhausted && cleanToken.RemainQuota <= 0 && !cleanToken.UnlimitedQuota {
-			common.ApiErrorI18n(c, i18n.MsgTokenExhaustedCannotEable)
+			common.ApiErrorI18nStatusCode(c, http.StatusConflict, "token_exhausted_cannot_enable", i18n.MsgTokenExhaustedCannotEable)
 			return
 		}
 	}
@@ -300,16 +313,11 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
 	}
-	err = cleanToken.Update()
-	if err != nil {
-		common.ApiError(c, err)
+	if err := cleanToken.Update(); err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    buildMaskedTokenResponse(cleanToken),
-	})
+	common.ApiSuccess(c, buildMaskedTokenResponse(cleanToken))
 }
 
 type TokenBatch struct {

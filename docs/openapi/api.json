@@ -585,10 +585,10 @@
         ],
         "type": "object"
       },
-      "ApiResponseOfTokenKeyResult": {
+      "ApiResponseOfTokenKeyResponse": {
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/TokenKeyResult"
+            "$ref": "#/components/schemas/TokenKeyResponse"
           },
           "message": {
             "type": "string"
@@ -3186,7 +3186,7 @@
         },
         "type": "object"
       },
-      "TokenKeyResult": {
+      "TokenKeyResponse": {
         "properties": {
           "key": {
             "type": "string"
@@ -14968,15 +14968,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponseOfToken"
                 }
               }
             },
@@ -15025,18 +15017,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/Token"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponseOfToken"
                 }
               }
             },
@@ -15241,15 +15222,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponse"
                 }
               }
             },
@@ -15332,7 +15305,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponseOfTokenKeyResult"
+                  "$ref": "#/components/schemas/ApiResponseOfTokenKeyResponse"
                 }
               }
             },
