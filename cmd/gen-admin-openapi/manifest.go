@@ -565,6 +565,8 @@ func removeFakePaths(paths map[string]interface{}) {
 
 // defaultUntypedResponses fills in a generic ApiResponse wrapper for any operation
 // whose responses["200"] still lacks `content` (i.e. wasn't covered by the manifest).
+// Also injects standard error responses (4xx / 5xx) referencing ApiErrorResponse
+// so SDK consumers get a typed error envelope for every endpoint.
 func defaultUntypedResponses(paths map[string]interface{}) {
 	for _, pathObj := range paths {
 		pathMap, _ := pathObj.(map[string]interface{})
@@ -580,18 +582,57 @@ func defaultUntypedResponses(paths map[string]interface{}) {
 			responses, _ := opMap["responses"].(map[string]interface{})
 			if responses == nil {
 				opMap["responses"] = buildResponse(respSpec{Wrap: "ApiResponse"})
-				continue
+				responses = opMap["responses"].(map[string]interface{})
+			} else {
+				r200, _ := responses["200"].(map[string]interface{})
+				if r200 == nil {
+					opMap["responses"] = buildResponse(respSpec{Wrap: "ApiResponse"})
+					responses = opMap["responses"].(map[string]interface{})
+				} else if _, has := r200["content"]; !has {
+					opMap["responses"] = buildResponse(respSpec{Wrap: "ApiResponse"})
+					responses = opMap["responses"].(map[string]interface{})
+				}
 			}
-			r200, _ := responses["200"].(map[string]interface{})
-			if r200 == nil {
-				opMap["responses"] = buildResponse(respSpec{Wrap: "ApiResponse"})
-				continue
-			}
-			if _, has := r200["content"]; !has {
-				opMap["responses"] = buildResponse(respSpec{Wrap: "ApiResponse"})
-			}
+			injectErrorResponses(responses)
 		}
 	}
+}
+
+// injectErrorResponses adds standard ApiErrorResponse-typed entries for HTTP
+// 400/401/403/404/409/422/500/502 unless the operation already declares them.
+// This ensures every endpoint surfaces a typed error envelope to SDK clients.
+func injectErrorResponses(responses map[string]interface{}) {
+	referencedTypes["ApiErrorResponse"] = true
+	for code, desc := range standardErrorCodes {
+		if _, exists := responses[code]; exists {
+			continue
+		}
+		responses[code] = map[string]interface{}{
+			"description": desc,
+			"content": map[string]interface{}{
+				"application/json": map[string]interface{}{
+					"schema": map[string]interface{}{
+						"$ref": "#/components/schemas/ApiErrorResponse",
+					},
+				},
+			},
+		}
+	}
+}
+
+// standardErrorCodes maps HTTP status → short description for the spec.
+// Order is preserved for readability in the generated JSON (insertion order
+// is implementation-defined but stable per-run since Go map iteration shuffle
+// isn't relevant — JSON serialization sorts keys lexicographically).
+var standardErrorCodes = map[string]string{
+	"400": "Bad request — invalid_params, validation failed, or other client error",
+	"401": "Unauthorized — missing or invalid auth credentials",
+	"403": "Forbidden — insufficient role/permission or feature disabled",
+	"404": "Not found — referenced resource does not exist",
+	"409": "Conflict — resource already exists or state precludes the operation",
+	"422": "Unprocessable entity — well-formed but semantically invalid input",
+	"500": "Internal server error — DB transaction failure or unhandled exception",
+	"502": "Bad gateway — upstream provider (LLM API, model registry) failed",
 }
 
 func isHTTPMethod(s string) bool {
