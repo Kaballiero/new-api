@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/QuantumNous/new-api/constant"
 
@@ -1293,4 +1294,102 @@ func UpdateUserSetting(c *gin.Context) {
 	}
 
 	common.ApiSuccessI18n(c, i18n.MsgSettingSaved, nil)
+}
+
+// BulkUpdateUserGroupRequest is the request body for POST /api/user/group/batch.
+type BulkUpdateUserGroupRequest struct {
+	// UserIds to apply the new group to. Required, max 1000, must be non-empty.
+	UserIds []int `json:"user_ids"`
+	// Group is the target group name. Must exist in ratio_setting groupRatioMap.
+	Group string `json:"group"`
+}
+
+// BulkUpdateUserGroupResponse summarizes the outcome of a bulk group update.
+type BulkUpdateUserGroupResponse struct {
+	// Updated is the number of rows affected by the DB update.
+	Updated int `json:"updated"`
+	// UpdatedIds lists the user ids that were updated.
+	UpdatedIds []int `json:"updated_ids"`
+	// SkippedIds lists ids whose role the caller cannot manage; they were not updated.
+	SkippedIds []int `json:"skipped_ids"`
+	// NotFoundIds lists ids that did not exist in the DB.
+	NotFoundIds []int `json:"not_found_ids"`
+}
+
+const bulkUpdateUserGroupMaxBatch = 1000
+
+// BulkUpdateUserGroup handles POST /api/user/group/batch — bulk update the `group` field
+// of multiple users at once. Admin-only. Returns:
+//   - 400 on empty input, oversize batch, or unknown target group
+//   - 403 if every requested id is forbidden by the caller's role
+//   - 404 if every requested id does not exist
+//   - 200 with BulkUpdateUserGroupResponse on success (including partial: skipped/not_found are reported in the body)
+func BulkUpdateUserGroup(c *gin.Context) {
+	var req BulkUpdateUserGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorI18nStatus(c, http.StatusBadRequest, i18n.MsgInvalidParams)
+		return
+	}
+	if len(req.UserIds) == 0 || req.Group == "" {
+		common.ApiErrorI18nStatus(c, http.StatusBadRequest, i18n.MsgInvalidParams)
+		return
+	}
+	if len(req.UserIds) > bulkUpdateUserGroupMaxBatch {
+		common.ApiErrorI18nStatus(c, http.StatusBadRequest, i18n.MsgBatchTooMany, map[string]any{"Max": bulkUpdateUserGroupMaxBatch})
+		return
+	}
+	if !ratio_setting.ContainsGroupRatio(req.Group) {
+		common.ApiErrorI18nStatus(c, http.StatusBadRequest, i18n.MsgGroupNotExists, map[string]any{"Group": req.Group})
+		return
+	}
+
+	roles, err := model.GetUserRolesByIds(req.UserIds)
+	if err != nil {
+		common.ApiErrorStatus(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	myRole := c.GetInt("role")
+	allowed := make([]int, 0, len(req.UserIds))
+	skipped := make([]int, 0)
+	notFound := make([]int, 0)
+	for _, id := range req.UserIds {
+		targetRole, exists := roles[id]
+		if !exists {
+			notFound = append(notFound, id)
+			continue
+		}
+		if !canManageTargetRole(myRole, targetRole) {
+			skipped = append(skipped, id)
+			continue
+		}
+		allowed = append(allowed, id)
+	}
+
+	if len(allowed) == 0 {
+		switch {
+		case len(notFound) == len(req.UserIds):
+			common.ApiErrorI18nStatus(c, http.StatusNotFound, i18n.MsgUserNotExists)
+			return
+		case len(skipped) > 0:
+			common.ApiErrorI18nStatus(c, http.StatusForbidden, i18n.MsgUserNoPermissionHigherLevel)
+			return
+		default:
+			common.ApiErrorI18nStatus(c, http.StatusBadRequest, i18n.MsgInvalidParams)
+			return
+		}
+	}
+
+	affected, err := model.BatchUpdateUserGroup(allowed, req.Group)
+	if err != nil {
+		common.ApiErrorStatus(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	common.ApiSuccess(c, BulkUpdateUserGroupResponse{
+		Updated:     int(affected),
+		UpdatedIds:  allowed,
+		SkippedIds:  skipped,
+		NotFoundIds: notFound,
+	})
 }

@@ -201,6 +201,7 @@ const (
 	MsgGroupNameTypeEmpty = "group.name_type_empty"
 	MsgGroupNameExists    = "group.name_exists"
 	MsgGroupIdMissing     = "group.id_missing"
+	MsgGroupNotExists     = "group.not_exists"
 )
 
 // Checkin related messages

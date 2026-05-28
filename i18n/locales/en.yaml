@@ -173,6 +173,7 @@ vendor.id_missing: "Vendor ID is missing"
 group.name_type_empty: "Group name and type cannot be empty"
 group.name_exists: "Group name already exists"
 group.id_missing: "Group ID is missing"
+group.not_exists: "Group '{{.Group}}' does not exist"
 
 # Checkin messages
 checkin.disabled: "Check-in feature is not enabled"

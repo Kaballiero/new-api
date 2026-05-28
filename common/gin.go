@@ -228,6 +228,33 @@ func ApiErrorI18n(c *gin.Context, key string, args ...map[string]any) {
 	})
 }
 
+// ApiErrorStatus responds with the given HTTP status code and an error payload
+// in the standard {success,message} shape. Use when REST status codes matter
+// (e.g. 400/403/404 on admin batch endpoints).
+func ApiErrorStatus(c *gin.Context, status int, err error) {
+	c.AbortWithStatusJSON(status, gin.H{
+		"success": false,
+		"message": err.Error(),
+	})
+}
+
+// ApiErrorMsgStatus is ApiErrorStatus with a raw message instead of an error.
+func ApiErrorMsgStatus(c *gin.Context, status int, msg string) {
+	c.AbortWithStatusJSON(status, gin.H{
+		"success": false,
+		"message": msg,
+	})
+}
+
+// ApiErrorI18nStatus is ApiErrorI18n with an explicit HTTP status code.
+func ApiErrorI18nStatus(c *gin.Context, status int, key string, args ...map[string]any) {
+	msg := TranslateMessage(c, key, args...)
+	c.AbortWithStatusJSON(status, gin.H{
+		"success": false,
+		"message": msg,
+	})
+}
+
 // ApiSuccessI18n returns a translated success message based on the user's language preference
 func ApiSuccessI18n(c *gin.Context, key string, data any, args ...map[string]any) {
 	msg := TranslateMessage(c, key, args...)

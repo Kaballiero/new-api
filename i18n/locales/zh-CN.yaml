@@ -174,6 +174,7 @@ vendor.id_missing: "缺少供应商 ID"
 group.name_type_empty: "组名称和类型不能为空"
 group.name_exists: "组名称已存在"
 group.id_missing: "缺少组 ID"
+group.not_exists: "分组 '{{.Group}}' 不存在"
 
 # Checkin messages
 checkin.disabled: "签到功能未启用"

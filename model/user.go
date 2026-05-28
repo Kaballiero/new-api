@@ -538,6 +538,75 @@ func (user *User) Edit(updatePassword bool) error {
 	return updateUserCache(*user)
 }
 
+// GetUserRolesByIds returns a map of user id -> role for the given ids.
+// Only users that exist in the DB appear in the map. Missing ids must be detected by the caller.
+func GetUserRolesByIds(ids []int) (map[int]int, error) {
+	if len(ids) == 0 {
+		return map[int]int{}, nil
+	}
+	type idRole struct {
+		Id   int
+		Role int
+	}
+	var rows []idRole
+	if err := DB.Model(&User{}).Select("id, role").Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int]int, len(rows))
+	for _, r := range rows {
+		out[r.Id] = r.Role
+	}
+	return out, nil
+}
+
+// BatchUpdateUserGroup updates the `group` column for the given user ids in a single transaction
+// and fans out per-user Redis cache invalidation. Chunks ids on SQLite to stay below the
+// "too many SQL variables" limit. Returns the number of rows affected.
+//
+// Note: this function does NOT enforce role-based authorization — callers MUST pre-filter
+// ids based on the requester's role (see controller layer).
+func BatchUpdateUserGroup(ids []int, group string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	const sqliteChunk = 500
+	chunks := [][]int{ids}
+	if common.UsingSQLite && len(ids) > sqliteChunk {
+		chunks = chunks[:0]
+		for i := 0; i < len(ids); i += sqliteChunk {
+			end := i + sqliteChunk
+			if end > len(ids) {
+				end = len(ids)
+			}
+			chunks = append(chunks, ids[i:end])
+		}
+	}
+
+	var affected int64
+	tx := DB.Begin()
+	for _, chunk := range chunks {
+		res := tx.Model(&User{}).Where("id IN ?", chunk).Updates(map[string]interface{}{"group": group})
+		if res.Error != nil {
+			tx.Rollback()
+			return 0, res.Error
+		}
+		affected += res.RowsAffected
+	}
+	if err := tx.Commit().Error; err != nil {
+		return 0, err
+	}
+
+	if common.RedisEnabled {
+		gopool.Go(func() {
+			for _, id := range ids {
+				_ = UpdateUserGroupCache(id, group)
+			}
+		})
+	}
+	return affected, nil
+}
+
 func (user *User) ClearBinding(bindingType string) error {
 	if user.Id == 0 {
 		return errors.New("user id is empty")
