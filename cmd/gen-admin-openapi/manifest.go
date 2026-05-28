@@ -127,12 +127,12 @@ var manifest = map[string]map[string]respSpec{
 	"/api/creem/webhook":      {"post": {Empty: true}},
 
 	// === Channel ===
-	"/api/channel/":                    {"get": {Type: "Channel", Paged: true}, "post": {Empty: true}, "put": {Empty: true}},
+	"/api/channel/":                    {"get": {Type: "Channel", Paged: true}, "post": {Empty: true}, "put": {Type: "Channel"}},
 	"/api/channel/{id}":                {"get": {Type: "Channel"}, "delete": {Empty: true}},
-	"/api/channel/{id}/key":            {"post": {Wrap: "ApiResponseOfChannelKeyResult"}},
-	"/api/channel/search":              {"get": {Type: "Channel", Paged: true}},
-	"/api/channel/test":                {"get": {Wrap: "ApiResponseOfChannelTestResult"}},
-	"/api/channel/test/{id}":           {"get": {Wrap: "ApiResponseOfChannelTestResult"}},
+	"/api/channel/{id}/key":            {"post": {Type: "ChannelKeyResponse"}},
+	"/api/channel/search":              {"get": {Type: "SearchChannelsResponse"}},
+	"/api/channel/test":                {"get": {Type: "ChannelTestResponse"}},
+	"/api/channel/test/{id}":           {"get": {Type: "ChannelTestResponse"}},
 	"/api/channel/update_balance":      {"get": {Wrap: "ApiResponseOfObject"}},
 	"/api/channel/update_balance/{id}": {"get": {Wrap: "ApiResponseOfObject"}},
 	"/api/channel/disabled":            {"delete": {Empty: true}},
@@ -147,7 +147,7 @@ var manifest = map[string]map[string]respSpec{
 	"/api/channel/tag/models":          {"get": {Wrap: "ApiResponseOfObject"}},
 	"/api/channel/models":              {"get": {Wrap: "ApiResponseOfStringList"}},
 	"/api/channel/models_enabled":      {"get": {Wrap: "ApiResponseOfStringList"}},
-	"/api/channel/fetch_models":        {"post": {Wrap: "ApiResponseOfStringList"}},
+	"/api/channel/fetch_models":        {"post": {Wrap: "ApiResponseOfStringList", Body: "FetchModelsRequest"}},
 	"/api/channel/fetch_models/{id}":   {"get": {Wrap: "ApiResponseOfStringList"}},
 
 	// === Token ===

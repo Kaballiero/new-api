@@ -311,10 +311,10 @@
         ],
         "type": "object"
       },
-      "ApiResponseOfChannelKeyResult": {
+      "ApiResponseOfChannelKeyResponse": {
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/ChannelKeyResult"
+            "$ref": "#/components/schemas/ChannelKeyResponse"
           },
           "message": {
             "type": "string"
@@ -329,10 +329,10 @@
         ],
         "type": "object"
       },
-      "ApiResponseOfChannelTestResult": {
+      "ApiResponseOfChannelTestResponse": {
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/ChannelTestResult"
+            "$ref": "#/components/schemas/ChannelTestResponse"
           },
           "message": {
             "type": "string"
@@ -496,6 +496,24 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/Redemption"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ApiResponseOfSearchChannelsResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SearchChannelsResponse"
           },
           "message": {
             "type": "string"
@@ -1315,7 +1333,7 @@
         },
         "type": "object"
       },
-      "ChannelKeyResult": {
+      "ChannelKeyResponse": {
         "properties": {
           "key": {
             "type": "string"
@@ -1355,13 +1373,10 @@
         },
         "type": "object"
       },
-      "ChannelTestResult": {
+      "ChannelTestResponse": {
         "properties": {
-          "message": {
+          "error_code": {
             "type": "string"
-          },
-          "success": {
-            "type": "boolean"
           },
           "time": {
             "type": "number"
@@ -1847,6 +1862,20 @@
           },
           "well_known_url": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "FetchModelsRequest": {
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "type": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -2836,6 +2865,26 @@
           },
           "registry_username": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SearchChannelsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "type_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
           }
         },
         "type": "object"
@@ -6664,15 +6713,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponse"
                 }
               }
             },
@@ -6711,18 +6752,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "data": {
-                      "$ref": "#/components/schemas/PatchChannel"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponseOfChannel"
                 }
               }
             },
@@ -7039,18 +7069,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "properties": {
-                  "base_url": {
-                    "type": "string"
-                  },
-                  "key": {
-                    "type": "string"
-                  },
-                  "type": {
-                    "type": "integer"
-                  }
-                },
-                "type": "object"
+                "$ref": "#/components/schemas/FetchModelsRequest"
               }
             }
           }
@@ -7603,7 +7622,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponsePagedOfChannel"
+                  "$ref": "#/components/schemas/ApiResponseOfSearchChannelsResponse"
                 }
               }
             },
@@ -7835,7 +7854,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponseOfChannelTestResult"
+                  "$ref": "#/components/schemas/ApiResponseOfChannelTestResponse"
                 }
               }
             },
@@ -7905,7 +7924,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponseOfChannelTestResult"
+                  "$ref": "#/components/schemas/ApiResponseOfChannelTestResponse"
                 }
               }
             },
@@ -8278,15 +8297,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiResponse"
                 }
               }
             },
@@ -8574,7 +8585,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponseOfChannelKeyResult"
+                  "$ref": "#/components/schemas/ApiResponseOfChannelKeyResponse"
                 }
               }
             },

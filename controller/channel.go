@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
@@ -21,6 +23,38 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+// SearchChannelsResponse is the response body of GET /api/channel/search —
+// paged channels plus per-type counts for the admin UI filter bar. Named
+// schema replaces the previous anonymous gin.H{items,total,type_counts}.
+type SearchChannelsResponse struct {
+	Items      []*model.Channel `json:"items"`
+	Total      int              `json:"total"`
+	TypeCounts map[int64]int64  `json:"type_counts"`
+}
+
+// ChannelKeyResponse is the response body of POST /api/channel/{id}/key.
+// Reveals the channel's upstream credentials (gated by SecureVerificationRequired
+// middleware). Separate struct so OpenAPI gets a named schema.
+type ChannelKeyResponse struct {
+	Key string `json:"key"`
+}
+
+// ChannelTestResponse is the result of GET /api/channel/test/{id}. The legacy
+// shape lived OUTSIDE the standard {success,message,data} envelope (success/
+// message/time/error_code at top level); migrating to the envelope so SDK
+// types pick it up as $ref instead of anonymous object.
+type ChannelTestResponse struct {
+	Time      float64 `json:"time"`
+	ErrorCode string  `json:"error_code,omitempty"`
+}
+
+// FetchModelsRequest is the request body of POST /api/channel/fetch_models.
+type FetchModelsRequest struct {
+	BaseURL string `json:"base_url"`
+	Type    int    `json:"type"`
+	Key     string `json:"key"`
+}
 
 type OpenAIModel struct {
 	ID         string         `json:"id"`
@@ -215,30 +249,27 @@ func buildFetchModelsHeaders(channel *model.Channel, key string) (http.Header, e
 func FetchUpstreamModels(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgChannelIdFormatError)
 		return
 	}
 
 	channel, err := model.GetChannelById(id, true)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
+		return
+	}
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 
 	ids, err := fetchChannelUpstreamModelIDs(channel)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": fmt.Sprintf("获取模型列表失败: %s", err.Error()),
-		})
+		common.ApiErrorMsgStatusCode(c, http.StatusBadGateway, "fetch_models_failed", fmt.Sprintf("获取模型列表失败: %s", err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    ids,
-	})
+	common.ApiSuccess(c, ids)
 }
 
 func FixChannelsAbilities(c *gin.Context) {
@@ -270,10 +301,7 @@ func SearchChannels(c *gin.Context) {
 	if enableTagMode {
 		tags, err := model.SearchTags(keyword, group, modelKeyword, idSort)
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
+			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 			return
 		}
 		for _, tag := range tags {
@@ -283,10 +311,7 @@ func SearchChannels(c *gin.Context) {
 					Omit("key").
 					Find(&tagChannels).Error
 				if err != nil {
-					c.JSON(http.StatusOK, gin.H{
-						"success": false,
-						"message": err.Error(),
-					})
+					common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 					return
 				}
 				channelData = append(channelData, tagChannels...)
@@ -295,10 +320,7 @@ func SearchChannels(c *gin.Context) {
 	} else {
 		channels, err := model.SearchChannels(keyword, group, modelKeyword, idSort, sortOptions)
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
+			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 			return
 		}
 		channelData = channels
@@ -367,38 +389,34 @@ func SearchChannels(c *gin.Context) {
 		clearChannelInfo(datum)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data": gin.H{
-			"items":       pagedData,
-			"total":       total,
-			"type_counts": typeCounts,
-		},
+	common.ApiSuccess(c, SearchChannelsResponse{
+		Items:      pagedData,
+		Total:      total,
+		TypeCounts: typeCounts,
 	})
-	return
 }
 
 func GetChannel(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgChannelIdFormatError)
 		return
 	}
 	channel, err := model.GetChannelById(id, false)
-	if err != nil {
-		common.ApiError(c, err)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
 		return
 	}
-	if channel != nil {
-		clearChannelInfo(channel)
+	if err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    channel,
-	})
-	return
+	if channel == nil {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
+		return
+	}
+	clearChannelInfo(channel)
+	common.ApiSuccess(c, channel)
 }
 
 // GetChannelKey 获取渠道密钥（需要通过安全验证中间件）
@@ -407,33 +425,29 @@ func GetChannelKey(c *gin.Context) {
 	userId := c.GetInt("id")
 	channelId, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, fmt.Errorf("渠道ID格式错误: %v", err))
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgChannelIdFormatError)
 		return
 	}
 
 	// 获取渠道信息（包含密钥）
 	channel, err := model.GetChannelById(channelId, true)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
+		return
+	}
 	if err != nil {
-		common.ApiError(c, fmt.Errorf("获取渠道信息失败: %v", err))
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-
 	if channel == nil {
-		common.ApiError(c, fmt.Errorf("渠道不存在"))
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
 		return
 	}
 
-	// 记录操作日志
+	// 记录операцию (audit log) — view of an upstream key is sensitive.
 	model.RecordLog(userId, model.LogTypeSystem, fmt.Sprintf("查看渠道密钥信息 (渠道ID: %d)", channelId))
 
-	// 返回渠道密钥
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "获取成功",
-		"data": map[string]interface{}{
-			"key": channel.Key,
-		},
-	})
+	common.ApiSuccess(c, ChannelKeyResponse{Key: channel.Key})
 }
 
 // validateTwoFactorAuth 统一的2FA验证函数
@@ -586,18 +600,14 @@ func getVertexArrayKeys(keys string) ([]string, error) {
 
 func AddChannel(c *gin.Context) {
 	addChannelRequest := AddChannelRequest{}
-	err := c.ShouldBindJSON(&addChannelRequest)
-	if err != nil {
-		common.ApiError(c, err)
+	if err := c.ShouldBindJSON(&addChannelRequest); err != nil {
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
 
 	// 使用统一的校验函数
 	if err := validateChannel(addChannelRequest.Channel, true); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "channel_validation_failed", err.Error())
 		return
 	}
 
@@ -610,10 +620,7 @@ func AddChannel(c *gin.Context) {
 		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
 			array, err := getVertexArrayKeys(addChannelRequest.Channel.Key)
 			if err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
+				common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "channel_validation_failed", err.Error())
 				return
 			}
 			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(array)
@@ -634,12 +641,10 @@ func AddChannel(c *gin.Context) {
 	case "batch":
 		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
 			// multi json
-			keys, err = getVertexArrayKeys(addChannelRequest.Channel.Key)
-			if err != nil {
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
+			var verr error
+			keys, verr = getVertexArrayKeys(addChannelRequest.Channel.Key)
+			if verr != nil {
+				common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "channel_validation_failed", verr.Error())
 				return
 			}
 		} else {
@@ -648,10 +653,7 @@ func AddChannel(c *gin.Context) {
 	case "single":
 		keys = []string{addChannelRequest.Channel.Key}
 	default:
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "不支持的添加模式",
-		})
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "mode_unsupported", "不支持的添加模式")
 		return
 	}
 
@@ -671,33 +673,31 @@ func AddChannel(c *gin.Context) {
 		}
 		channels = append(channels, *localChannel)
 	}
-	err = model.BatchInsertChannels(channels)
-	if err != nil {
-		common.ApiError(c, err)
+	if err := model.BatchInsertChannels(channels); err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	service.ResetProxyClientCache()
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
-	return
+	common.ApiSuccessStatus(c, http.StatusCreated, nil)
 }
 
 func DeleteChannel(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	channel := model.Channel{Id: id}
-	err := channel.Delete()
+	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgChannelIdFormatError)
+		return
+	}
+	channel := model.Channel{Id: id}
+	if err := channel.Delete(); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
+			return
+		}
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	model.InitChannelCache()
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-	})
-	return
+	common.ApiSuccess(c, nil)
 }
 
 func DeleteDisabledChannel(c *gin.Context) {
@@ -862,27 +862,24 @@ type PatchChannel struct {
 
 func UpdateChannel(c *gin.Context) {
 	channel := PatchChannel{}
-	err := c.ShouldBindJSON(&channel)
-	if err != nil {
-		common.ApiError(c, err)
+	if err := c.ShouldBindJSON(&channel); err != nil {
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
 
 	// 使用统一的校验函数
 	if err := validateChannel(&channel.Channel, false); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "channel_validation_failed", err.Error())
 		return
 	}
 	// Preserve existing ChannelInfo to ensure multi-key channels keep correct state even if the client does not send ChannelInfo in the request.
 	originChannel, err := model.GetChannelById(channel.Id, true)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
+		return
+	}
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 
@@ -924,10 +921,7 @@ func UpdateChannel(c *gin.Context) {
 					if strings.HasPrefix(strings.TrimSpace(channel.Key), "[") {
 						array, err := getVertexArrayKeys(channel.Key)
 						if err != nil {
-							c.JSON(http.StatusOK, gin.H{
-								"success": false,
-								"message": "追加密钥解析失败: " + err.Error(),
-							})
+							common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "channel_validation_failed", "追加密钥解析失败: "+err.Error())
 							return
 						}
 						newKeys = array
@@ -974,35 +968,22 @@ func UpdateChannel(c *gin.Context) {
 			// 覆盖模式：直接使用新密钥（默认行为，不需要特殊处理）
 		}
 	}
-	err = channel.Update()
-	if err != nil {
-		common.ApiError(c, err)
+	if err := channel.Update(); err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	model.InitChannelCache()
 	service.ResetProxyClientCache()
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    channel,
-	})
-	return
+	common.ApiSuccess(c, channel)
 }
 
 func FetchModels(c *gin.Context) {
-	var req struct {
-		BaseURL string `json:"base_url"`
-		Type    int    `json:"type"`
-		Key     string `json:"key"`
-	}
+	var req FetchModelsRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid request",
-		})
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
 
@@ -1018,10 +999,7 @@ func FetchModels(c *gin.Context) {
 	if req.Type == constant.ChannelTypeOllama {
 		models, err := ollama.FetchOllamaModels(baseURL, key)
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": fmt.Sprintf("获取Ollama模型失败: %s", err.Error()),
-			})
+			common.ApiErrorMsgStatusCode(c, http.StatusBadGateway, "fetch_models_failed", fmt.Sprintf("获取Ollama模型失败: %s", err.Error()))
 			return
 		}
 
@@ -1029,28 +1007,17 @@ func FetchModels(c *gin.Context) {
 		for _, modelInfo := range models {
 			names = append(names, modelInfo.Name)
 		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    names,
-		})
+		common.ApiSuccess(c, names)
 		return
 	}
 
 	if req.Type == constant.ChannelTypeGemini {
 		models, err := gemini.FetchGeminiModels(baseURL, key, "")
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": fmt.Sprintf("获取Gemini模型失败: %s", err.Error()),
-			})
+			common.ApiErrorMsgStatusCode(c, http.StatusBadGateway, "fetch_models_failed", fmt.Sprintf("获取Gemini模型失败: %s", err.Error()))
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    models,
-		})
+		common.ApiSuccess(c, models)
 		return
 	}
 
@@ -1059,10 +1026,7 @@ func FetchModels(c *gin.Context) {
 
 	request, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 
@@ -1070,21 +1034,15 @@ func FetchModels(c *gin.Context) {
 
 	response, err := client.Do(request)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-	//check status code
-	if response.StatusCode != http.StatusOK {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to fetch models",
-		})
+		common.ApiErrorStatusCode(c, http.StatusBadGateway, "fetch_models_failed", err)
 		return
 	}
 	defer response.Body.Close()
+	//check status code
+	if response.StatusCode != http.StatusOK {
+		common.ApiErrorMsgStatusCode(c, http.StatusBadGateway, "fetch_models_failed", "Failed to fetch models")
+		return
+	}
 
 	var result struct {
 		Data []struct {
@@ -1093,22 +1051,15 @@ func FetchModels(c *gin.Context) {
 	}
 
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
+		common.ApiErrorStatusCode(c, http.StatusBadGateway, "fetch_models_failed", err)
 		return
 	}
 
-	var models []string
-	for _, model := range result.Data {
-		models = append(models, model.ID)
+	models := make([]string, 0, len(result.Data))
+	for _, m := range result.Data {
+		models = append(models, m.ID)
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    models,
-	})
+	common.ApiSuccess(c, models)
 }
 
 func BatchSetChannelTag(c *gin.Context) {

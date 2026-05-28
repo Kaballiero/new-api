@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -35,6 +36,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type testResult struct {
@@ -832,14 +834,18 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 func TestChannel(c *gin.Context) {
 	channelId, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgChannelIdFormatError)
 		return
 	}
 	channel, err := model.CacheGetChannel(channelId)
 	if err != nil {
 		channel, err = model.GetChannelById(channelId, true)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
+			return
+		}
 		if err != nil {
-			common.ApiError(c, err)
+			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 			return
 		}
 	}
@@ -853,21 +859,26 @@ func TestChannel(c *gin.Context) {
 	isStream, _ := strconv.ParseBool(c.Query("stream"))
 	testUserID, err := resolveChannelTestUserID(c)
 	if err != nil {
-		common.ApiError(c, err)
+		common.ApiErrorStatusCode(c, http.StatusBadRequest, "invalid_params", err)
 		return
 	}
 	tik := time.Now()
 	result := testChannel(channel, testUserID, testModel, endpointType, isStream)
 	if result.localErr != nil {
-		resp := gin.H{
+		// Local error (validation, no test user, no key) — surface as 422 with
+		// the legacy {time, error_code} payload so SDK clients can still read
+		// the diagnostic data via the standard envelope's message field.
+		errCode := ""
+		if result.newAPIError != nil {
+			errCode = string(result.newAPIError.GetErrorCode())
+		}
+		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{
 			"success": false,
+			"code":    "channel_test_failed",
 			"message": result.localErr.Error(),
 			"time":    0.0,
-		}
-		if result.newAPIError != nil {
-			resp["error_code"] = result.newAPIError.GetErrorCode()
-		}
-		c.JSON(http.StatusOK, resp)
+			"data":    ChannelTestResponse{Time: 0, ErrorCode: errCode},
+		})
 		return
 	}
 	tok := time.Now()
@@ -875,19 +886,17 @@ func TestChannel(c *gin.Context) {
 	go channel.UpdateResponseTime(milliseconds)
 	consumedTime := float64(milliseconds) / 1000.0
 	if result.newAPIError != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success":    false,
-			"message":    result.newAPIError.Error(),
-			"time":       consumedTime,
-			"error_code": result.newAPIError.GetErrorCode(),
+		// Upstream failure — 502 Bad Gateway; carry timing + provider error code.
+		c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{
+			"success": false,
+			"code":    "channel_test_failed",
+			"message": result.newAPIError.Error(),
+			"time":    consumedTime,
+			"data":    ChannelTestResponse{Time: consumedTime, ErrorCode: string(result.newAPIError.GetErrorCode())},
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"time":    consumedTime,
-	})
+	common.ApiSuccess(c, ChannelTestResponse{Time: consumedTime})
 }
 
 var testAllChannelsLock sync.Mutex
