@@ -47,6 +47,9 @@ var classicBuildFS embed.FS
 //go:embed web/classic/dist/index.html
 var classicIndexPage []byte
 
+//go:embed docs/openapi/api.json
+var openAPISpec []byte
+
 func main() {
 	startTime := time.Now()
 
@@ -195,6 +198,7 @@ func main() {
 		DefaultIndexPage: indexPage,
 		ClassicBuildFS:   classicBuildFS,
 		ClassicIndexPage: classicIndexPage,
+		OpenAPISpec:      openAPISpec,
 	})
 	var port = os.Getenv("PORT")
 	if port == "" {

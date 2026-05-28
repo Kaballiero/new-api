@@ -13,12 +13,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ThemeAssets holds the embedded frontend assets for both themes.
+// ThemeAssets holds the embedded frontend assets for both themes plus
+// the OpenAPI spec bytes (served at /openapi.json + /openapi/ui).
 type ThemeAssets struct {
 	DefaultBuildFS   embed.FS
 	DefaultIndexPage []byte
 	ClassicBuildFS   embed.FS
 	ClassicIndexPage []byte
+	OpenAPISpec      []byte
 }
 
 func SetWebRouter(router *gin.Engine, assets ThemeAssets) {
