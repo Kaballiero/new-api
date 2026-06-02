@@ -12,10 +12,11 @@ var (
 	ImageGenerationModels = []string{
 		"dall-e-3",
 		"dall-e-2",
-		"gpt-image-1",
+		"gpt-image",
 		"prefix:imagen-",
 		"flux-",
 		"flux.1-",
+		"seedream",
 	}
 	OpenAITextModels = []string{
 		"gpt-",
@@ -23,6 +24,10 @@ var (
 		"o3",
 		"o4",
 		"chatgpt",
+	}
+	// AudioSpeechModels are text-to-speech models served on /v1/audio/speech.
+	AudioSpeechModels = []string{
+		"tts",
 	}
 )
 
@@ -51,6 +56,18 @@ func IsImageGenerationModel(modelName string) bool {
 func IsOpenAITextModel(modelName string) bool {
 	modelName = strings.ToLower(modelName)
 	for _, m := range OpenAITextModels {
+		if strings.Contains(modelName, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsAudioSpeechModel reports whether the model is a text-to-speech model that
+// must be tested on /v1/audio/speech rather than chat/completions.
+func IsAudioSpeechModel(modelName string) bool {
+	modelName = strings.ToLower(modelName)
+	for _, m := range AudioSpeechModels {
 		if strings.Contains(modelName, m) {
 			return true
 		}
