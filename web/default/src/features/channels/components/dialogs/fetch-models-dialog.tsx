@@ -29,6 +29,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { chunk, mapWithConcurrency } from '@/lib/concurrency'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -68,6 +69,12 @@ function normalizeModelNameList(models: readonly string[]): string[] {
   )
 }
 
+// Validate models in small chunks with bounded parallelism so a large channel
+// (hundreds of models) never becomes one multi-minute request that the browser
+// or a reverse proxy times out, while avoiding an upstream rate-limit burst.
+const VALIDATE_CHUNK_SIZE = 25
+const VALIDATE_MAX_PARALLEL_CHUNKS = 3
+
 type FetchModelsDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -103,6 +110,10 @@ export function FetchModelsDialog({
   const [validation, setValidation] = useState<
     Record<string, ModelValidationResult>
   >({})
+  const [validationProgress, setValidationProgress] = useState({
+    done: 0,
+    total: 0,
+  })
   const [searchKeyword, setSearchKeyword] = useState('')
 
   // Parse existing models
@@ -195,49 +206,94 @@ export function FetchModelsDialog({
     }
 
     setIsValidating(true)
+    setValidation({})
+    setValidationProgress({ done: 0, total: models.length })
+
+    // Mutated across interleaved chunk callbacks; JS is single-threaded so the
+    // running tallies stay consistent without locking.
+    const summary = { alive: 0, dead: 0, uncertain: 0 }
+    let failedChunks = 0
+
     try {
-      const response = customValidator
-        ? await customValidator(models)
-        : await validateModels({ channel_id: activeChannel!.id, models })
+      const chunks = chunk(models, VALIDATE_CHUNK_SIZE)
+      await mapWithConcurrency(
+        chunks,
+        VALIDATE_MAX_PARALLEL_CHUNKS,
+        async (modelsChunk) => {
+          try {
+            const response = customValidator
+              ? await customValidator(modelsChunk)
+              : await validateModels({
+                  channel_id: activeChannel!.id,
+                  models: modelsChunk,
+                })
 
-      if (!response.success || !response.data) {
-        toast.error(response.message || t('Failed to validate models'))
-        return
-      }
+            if (!response.success || !response.data) {
+              failedChunks++
+              return
+            }
 
-      const { results, summary } = response.data
-      const map: Record<string, ModelValidationResult> = {}
-      for (const r of results) {
-        map[normalizeModelName(r.model)] = r
-      }
-      setValidation(map)
+            const { results } = response.data
+            // Merge badges incrementally so the user sees progress fill in.
+            setValidation((prev) => {
+              const next = { ...prev }
+              for (const r of results) {
+                next[normalizeModelName(r.model)] = r
+              }
+              return next
+            })
 
-      // Auto-deselect models the upstream definitively reports as dead.
-      const deadSet = new Set(
-        results
-          .filter((r) => r.status === 'dead')
-          .map((r) => normalizeModelName(r.model))
-      )
-      if (deadSet.size > 0) {
-        setSelectedModels((prev) =>
-          prev.filter((m) => !deadSet.has(normalizeModelName(m)))
-        )
-      }
-
-      toast.success(
-        t(
-          '{{alive}} alive, {{dead}} dead removed, {{uncertain}} uncertain kept',
-          {
-            alive: summary.alive,
-            dead: summary.dead,
-            uncertain: summary.uncertain,
+            const deadSet = new Set<string>()
+            for (const r of results) {
+              if (r.status === 'dead') {
+                summary.dead++
+                deadSet.add(normalizeModelName(r.model))
+              } else if (r.status === 'alive') {
+                summary.alive++
+              } else {
+                summary.uncertain++
+              }
+            }
+            if (deadSet.size > 0) {
+              setSelectedModels((prev) =>
+                prev.filter((m) => !deadSet.has(normalizeModelName(m)))
+              )
+            }
+          } catch {
+            failedChunks++
+          } finally {
+            setValidationProgress((p) => ({
+              ...p,
+              done: Math.min(p.total, p.done + modelsChunk.length),
+            }))
           }
+        }
+      )
+
+      if (failedChunks > 0) {
+        toast.warning(
+          t(
+            '{{alive}} alive, {{dead}} dead removed, {{uncertain}} uncertain kept ({{failed}} batch(es) failed)',
+            {
+              alive: summary.alive,
+              dead: summary.dead,
+              uncertain: summary.uncertain,
+              failed: failedChunks,
+            }
+          )
         )
-      )
-    } catch (error: unknown) {
-      toast.error(
-        error instanceof Error ? error.message : t('Failed to validate models')
-      )
+      } else {
+        toast.success(
+          t(
+            '{{alive}} alive, {{dead}} dead removed, {{uncertain}} uncertain kept',
+            {
+              alive: summary.alive,
+              dead: summary.dead,
+              uncertain: summary.uncertain,
+            }
+          )
+        )
+      }
     } finally {
       setIsValidating(false)
     }
@@ -280,6 +336,7 @@ export function FetchModelsDialog({
     setFetchedModels([])
     setSelectedModels([])
     setValidation({})
+    setValidationProgress({ done: 0, total: 0 })
     setSearchKeyword('')
     onOpenChange(false)
   }
@@ -642,7 +699,12 @@ export function FetchModelsDialog({
                   {isValidating && (
                     <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                   )}
-                  {isValidating ? t('Validating...') : t('Validate Models')}
+                  {isValidating
+                    ? t('Validating {{done}}/{{total}}', {
+                        done: validationProgress.done,
+                        total: validationProgress.total,
+                      })
+                    : t('Validate Models')}
                 </Button>
               )}
               <Button onClick={handleSave} disabled={isSaving || isValidating}>
