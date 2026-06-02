@@ -150,6 +150,19 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 		if strings.HasSuffix(testModel, ratio_setting.CompactModelSuffix) {
 			requestPath = "/v1/responses/compact"
 		}
+
+		// Registry fallback: if the name heuristics above left us on the default
+		// chat endpoint, consult the per-model supported-endpoint registry
+		// (model.GetModelSupportEndpointTypes), which knows image-generation and
+		// responses-only models that name rules miss. Empty registry (e.g. an
+		// unsaved channel not yet in Ability) is a no-op, keeping name heuristics.
+		if requestPath == "/v1/chat/completions" {
+			if eps := model.GetModelSupportEndpointTypes(testModel); len(eps) > 0 {
+				if info, ok := common.GetDefaultEndpointInfo(eps[0]); ok && info.Path != "" {
+					requestPath = info.Path
+				}
+			}
+		}
 	}
 	if strings.HasPrefix(requestPath, "/v1/responses/compact") {
 		testModel = ratio_setting.WithCompactModelSuffix(testModel)
