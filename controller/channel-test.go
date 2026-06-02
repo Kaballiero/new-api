@@ -56,6 +56,9 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
 		return string(constant.EndpointTypeOpenAIResponse)
 	}
+	if common.IsAudioSpeechModel(modelName) {
+		return string(constant.EndpointTypeAudioSpeech)
+	}
 	return normalized
 }
 
@@ -76,18 +79,26 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 	return rootUser.Id, nil
 }
 
+// unsupportedTestChannelTypes are async task channels (image/video/music) whose
+// requests are submit+poll rather than a single synchronous call, so testChannel
+// cannot exercise them. Validation falls back to catalog presence for these.
+var unsupportedTestChannelTypes = []int{
+	constant.ChannelTypeMidjourney,
+	constant.ChannelTypeMidjourneyPlus,
+	constant.ChannelTypeSunoAPI,
+	constant.ChannelTypeKling,
+	constant.ChannelTypeJimeng,
+	constant.ChannelTypeDoubaoVideo,
+	constant.ChannelTypeVidu,
+}
+
+func isUnsupportedTestChannelType(channelType int) bool {
+	return lo.Contains(unsupportedTestChannelTypes, channelType)
+}
+
 func testChannel(channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
 	tik := time.Now()
-	var unsupportedTestChannelTypes = []int{
-		constant.ChannelTypeMidjourney,
-		constant.ChannelTypeMidjourneyPlus,
-		constant.ChannelTypeSunoAPI,
-		constant.ChannelTypeKling,
-		constant.ChannelTypeJimeng,
-		constant.ChannelTypeDoubaoVideo,
-		constant.ChannelTypeVidu,
-	}
-	if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
+	if isUnsupportedTestChannelType(channel.Type) {
 		channelTypeName := constant.GetChannelTypeName(channel.Type)
 		return testResult{
 			localErr: fmt.Errorf("%s channel test is not supported", channelTypeName),
@@ -222,6 +233,8 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
+		case constant.EndpointTypeAudioSpeech:
+			relayFormat = types.RelayFormatOpenAIAudio
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -389,6 +402,18 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 				newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
+	case relayconstant.RelayModeAudioSpeech:
+		// Audio speech (TTS) request — ConvertAudioRequest returns the request
+		// body as an io.Reader rather than a marshalable struct.
+		if audioReq, ok := request.(*dto.AudioRequest); ok {
+			convertedRequest, err = adaptor.ConvertAudioRequest(c, info, *audioReq)
+		} else {
+			return testResult{
+				context:     c,
+				localErr:    errors.New("invalid audio request type"),
+				newAPIError: types.NewError(errors.New("invalid audio request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
 	default:
 		// Chat/Completion 等其他请求类型
 		if generalReq, ok := request.(*dto.GeneralOpenAIRequest); ok {
@@ -409,25 +434,32 @@ func testChannel(channel *model.Channel, testUserID int, testModel string, endpo
 			newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
 		}
 	}
-	jsonData, err := common.Marshal(convertedRequest)
-	if err != nil {
-		return testResult{
-			context:     c,
-			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
+	// Most converters return a marshalable struct; audio (ConvertAudioRequest)
+	// already produced the body as an io.Reader, so read it directly instead of
+	// re-marshaling. This branch only triggers for reader-returning converters,
+	// so existing struct-based paths are unchanged.
+	var jsonData []byte
+	if reader, ok := convertedRequest.(io.Reader); ok {
+		jsonData, err = io.ReadAll(reader)
+		if err != nil {
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewError(err, types.ErrorCodeReadResponseBodyFailed),
+			}
+		}
+	} else {
+		jsonData, err = common.Marshal(convertedRequest)
+		if err != nil {
+			return testResult{
+				context:     c,
+				localErr:    err,
+				newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
+			}
 		}
 	}
 
-	//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
-	//if err != nil {
-	//	return testResult{
-	//		context:     c,
-	//		localErr:    err,
-	//		newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
-	//	}
-	//}
-
-	if len(info.ParamOverride) > 0 {
+	if len(info.ParamOverride) > 0 && info.RelayMode != relayconstant.RelayModeAudioSpeech {
 		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 		if err != nil {
 			if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
@@ -730,6 +762,14 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Prompt: "a cute cat",
 				N:      lo.ToPtr(uint(1)),
 				Size:   "1024x1024",
+			}
+		case constant.EndpointTypeAudioSpeech:
+			// 返回 AudioRequest (TTS)
+			return &dto.AudioRequest{
+				Model:          model,
+				Input:          "test",
+				Voice:          "alloy",
+				ResponseFormat: "mp3",
 			}
 		case constant.EndpointTypeJinaRerank:
 			// 返回 RerankRequest

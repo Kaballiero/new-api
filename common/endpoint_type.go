@@ -41,5 +41,9 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		// add to first
 		endpointTypes = append([]constant.EndpointType{constant.EndpointTypeImageGeneration}, endpointTypes...)
 	}
+	if IsAudioSpeechModel(modelName) {
+		// add to first
+		endpointTypes = append([]constant.EndpointType{constant.EndpointTypeAudioSpeech}, endpointTypes...)
+	}
 	return endpointTypes
 }

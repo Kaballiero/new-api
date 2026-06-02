@@ -89,6 +89,15 @@ func ValidateModels(c *gin.Context) {
 		return
 	}
 
+	// Async task channels (video/image/music) can't be exercised by a single
+	// synchronous test request, so fall back to provider catalog presence:
+	// a model still listed upstream is "listed (not inference-tested)", a model
+	// the provider no longer lists is treated as dead.
+	if isUnsupportedTestChannelType(channel.Type) {
+		common.ApiSuccess(c, validateByCatalogPresence(channel, models))
+		return
+	}
+
 	testUserID, err := resolveChannelTestUserID(c)
 	if err != nil {
 		common.ApiErrorStatusCode(c, http.StatusBadRequest, "invalid_params", err)
@@ -214,6 +223,46 @@ func validateOneModel(channel *model.Channel, testUserID int, modelName, endpoin
 		}
 	}
 	return out
+}
+
+// validateByCatalogPresence classifies models for async task channels that
+// cannot be exercised by a synchronous test request. A model still present in
+// the provider's catalog is "listed" (uncertain, not inference-tested); a model
+// the provider no longer lists is treated as dead. No generation is triggered.
+func validateByCatalogPresence(channel *model.Channel, models []string) ValidateModelsResponse {
+	resp := ValidateModelsResponse{Results: make([]ModelValidationResult, 0, len(models))}
+
+	listed, err := fetchChannelUpstreamModelIDs(channel)
+	if err != nil {
+		for _, m := range models {
+			resp.Results = append(resp.Results, ModelValidationResult{
+				Model:   m,
+				Status:  string(service.ModelUncertain),
+				Message: "channel does not support test requests and the provider model listing is unavailable: " + common.MaskSensitiveInfo(err.Error()),
+			})
+			resp.Summary.Uncertain++
+		}
+		return resp
+	}
+
+	listedSet := make(map[string]struct{}, len(listed))
+	for _, id := range listed {
+		listedSet[strings.TrimSpace(id)] = struct{}{}
+	}
+	for _, m := range models {
+		r := ModelValidationResult{Model: m}
+		if _, ok := listedSet[strings.TrimSpace(m)]; ok {
+			r.Status = string(service.ModelUncertain)
+			r.Message = "listed by provider; not inference-tested (async task channel)"
+			resp.Summary.Uncertain++
+		} else {
+			r.Status = string(service.ModelDead)
+			r.Message = "not present in provider model listing"
+			resp.Summary.Dead++
+		}
+		resp.Results = append(resp.Results, r)
+	}
+	return resp
 }
 
 // dedupeTrimModels trims, drops empties and de-duplicates while preserving order.
