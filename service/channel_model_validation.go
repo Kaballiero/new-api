@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -121,4 +122,28 @@ func ClassifyModelValidation(localErr error, apiErr *types.NewAPIError) (ModelLi
 
 	// Transport errors, timeouts, local failures ⇒ never dead.
 	return ModelUncertain, code
+}
+
+// EndpointFromErrorText infers the endpoint a model should be tested on from a
+// wrong-endpoint upstream error (e.g. "this model is only supported in
+// v1/responses"). It returns the target endpoint type and true when the error
+// points at a retryable endpoint. Audio (v1/audio) is intentionally not returned
+// here — there is no audio test endpoint type yet, so such failures stay uncertain.
+func EndpointFromErrorText(msg string) (constant.EndpointType, bool) {
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "only supported in v1/responses"),
+		strings.Contains(lower, "use the responses api"),
+		strings.Contains(lower, "not a chat model"),
+		strings.Contains(lower, "not a chat completions"),
+		strings.Contains(lower, "v1/responses"):
+		return constant.EndpointTypeOpenAIResponse, true
+	case strings.Contains(lower, "v1/images"):
+		return constant.EndpointTypeImageGeneration, true
+	case strings.Contains(lower, "v1/embeddings"):
+		return constant.EndpointTypeEmbeddings, true
+	case strings.Contains(lower, "v1/rerank"):
+		return constant.EndpointTypeJinaRerank, true
+	}
+	return "", false
 }

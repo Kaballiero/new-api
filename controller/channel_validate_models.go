@@ -160,10 +160,11 @@ func resolveValidateChannel(c *gin.Context, req *ValidateModelsRequest) (*model.
 	}, true
 }
 
-// validateOneModel runs a single testChannel call with a hard timeout and maps
-// the result to a ModelValidationResult. A timeout is classified uncertain so a
-// slow upstream never marks a real model dead.
-func validateOneModel(channel *model.Channel, testUserID int, modelName, endpointType string) ModelValidationResult {
+// runModelTest runs one testChannel with a hard timeout and maps it to a
+// ModelValidationResult. It also returns the raw (unmasked) error message for
+// endpoint inference, and whether the call timed out (classified uncertain so a
+// slow upstream never marks a real model dead).
+func runModelTest(channel *model.Channel, testUserID int, modelName, endpointType string) (ModelValidationResult, string, bool) {
 	start := time.Now()
 	done := make(chan testResult, 1)
 	gopool.Go(func() {
@@ -178,16 +179,39 @@ func validateOneModel(channel *model.Channel, testUserID int, modelName, endpoin
 		out.Status = string(status)
 		out.OK = status == service.ModelAlive
 		out.UpstreamCode = code
+		var raw string
 		if res.newAPIError != nil {
+			raw = res.newAPIError.Error()
 			out.ErrorCode = string(res.newAPIError.GetErrorCode())
-			out.Message = common.MaskSensitiveInfo(res.newAPIError.Error())
+			out.Message = common.MaskSensitiveInfo(raw)
 		} else if res.localErr != nil {
-			out.Message = common.MaskSensitiveInfo(res.localErr.Error())
+			raw = res.localErr.Error()
+			out.Message = common.MaskSensitiveInfo(raw)
 		}
+		return out, raw, false
 	case <-time.After(validateModelsPerModelTimeout):
 		out.LatencyMs = time.Since(start).Milliseconds()
 		out.Status = string(service.ModelUncertain)
 		out.Message = "validation timed out"
+		return out, "", true
+	}
+}
+
+// validateOneModel tests a model and, when the first attempt is inconclusive
+// because of a wrong-endpoint error, retries once on the endpoint named in the
+// upstream error so a real model is reclassified alive/dead instead of staying
+// uncertain. Only retries when the caller did not pin an endpoint.
+func validateOneModel(channel *model.Channel, testUserID int, modelName, endpointType string) ModelValidationResult {
+	out, raw, timedOut := runModelTest(channel, testUserID, modelName, endpointType)
+
+	if !timedOut && endpointType == "" && out.Status == string(service.ModelUncertain) {
+		if ep, ok := service.EndpointFromErrorText(raw); ok && string(ep) != "" {
+			retry, _, retryTimedOut := runModelTest(channel, testUserID, modelName, string(ep))
+			if !retryTimedOut {
+				retry.LatencyMs += out.LatencyMs
+				return retry
+			}
+		}
 	}
 	return out
 }

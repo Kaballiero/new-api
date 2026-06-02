@@ -89,6 +89,29 @@ func TestClassifyModelValidation(t *testing.T) {
 	}
 }
 
+func TestEndpointFromErrorText(t *testing.T) {
+	cases := []struct {
+		in     string
+		wantEP string
+		wantOK bool
+	}{
+		{"This model is only supported in v1/responses and not in v1/chat/completions", "openai-response", true},
+		{"This is not a chat model and thus not supported", "openai-response", true},
+		{"The model needs the images endpoint: v1/images/generations", "image-generation", true},
+		{"use v1/embeddings for this model", "embeddings", true},
+		{"please call v1/rerank", "jina-rerank", true},
+		{"The model `gpt-x` does not exist", "", false},
+		{"only available via v1/audio/speech", "", false}, // audio not retried yet
+		{"Rate limit reached", "", false},
+	}
+	for _, tc := range cases {
+		ep, ok := EndpointFromErrorText(tc.in)
+		if ok != tc.wantOK || string(ep) != tc.wantEP {
+			t.Errorf("EndpointFromErrorText(%q) = (%q,%v), want (%q,%v)", tc.in, ep, ok, tc.wantEP, tc.wantOK)
+		}
+	}
+}
+
 func TestParseUpstreamStatusCode(t *testing.T) {
 	cases := []struct {
 		in   string
