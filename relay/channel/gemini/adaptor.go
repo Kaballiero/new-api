@@ -56,8 +56,10 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	if info.RelayMode != constant.RelayModeAudioSpeech {
+		return nil, errors.New("unsupported audio relay mode")
+	}
+	return convertGeminiTTSRequest(c, request)
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
@@ -260,6 +262,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			return GeminiResponsesStreamHandler(c, info, resp)
 		}
 		return GeminiResponsesHandler(c, info, resp)
+	}
+
+	if info.RelayMode == constant.RelayModeAudioSpeech {
+		return GeminiTTSHandler(c, info, resp)
 	}
 
 	if info.RelayMode == constant.RelayModeGemini {
