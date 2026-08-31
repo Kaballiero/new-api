@@ -190,6 +190,8 @@ var defaultModelRatio = map[string]float64{
 	"gemini-2.5-flash-lite-preview-thinking-*":  0.05,
 	"gemini-2.5-flash-lite-preview-06-17":       0.05,
 	"gemini-2.5-flash":                          0.15,
+	"gemini-2.5-flash-preview-tts":              0.25,
+	"gemini-2.5-pro-preview-tts":                0.5,
 	"gemini-robotics-er-1.5-preview":            0.15,
 	"gemini-embedding-001":                      0.075,
 	"text-embedding-004":                        0.001,
@@ -312,13 +314,15 @@ var defaultAudioRatio = map[string]float64{
 }
 
 var defaultAudioCompletionRatio = map[string]float64{
-	"gpt-4o-realtime":      2,
-	"gpt-4o-mini-realtime": 2,
-	"gpt-4o-mini-tts":      1,
-	"tts-1":                0,
-	"tts-1-hd":             0,
-	"tts-1-1106":           0,
-	"tts-1-hd-1106":        0,
+	"gpt-4o-realtime":              2,
+	"gpt-4o-mini-realtime":         2,
+	"gpt-4o-mini-tts":              1,
+	"tts-1":                        0,
+	"tts-1-hd":                     0,
+	"tts-1-1106":                   0,
+	"tts-1-hd-1106":                0,
+	"gemini-2.5-flash-preview-tts": 20,
+	"gemini-2.5-pro-preview-tts":   20,
 }
 
 var modelPriceMap = types.NewRWMap[string, float64]()
