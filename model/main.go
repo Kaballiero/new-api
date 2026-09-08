@@ -335,7 +335,6 @@ func migrateDB() error {
 		&Channel{},
 		&Token{},
 		&User{},
-		&GetAPIUserBinding{},
 		&UserSession{},
 		&AuthFlow{},
 		&ExternalIdentityClaim{},

@@ -852,9 +852,6 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 	if err = lockForUpdate(tx).First(&current, user.Id).Error; err != nil {
 		return err
 	}
-	if err = updateGetAPIManagedStatusWithTx(tx, current, newUser.Status); err != nil {
-		return err
-	}
 	// Updates(struct) ignores zero values. Match that behavior when deciding
 	// whether this request actually changes authentication-sensitive state;
 	// partial self-profile updates intentionally leave role/status/group empty.

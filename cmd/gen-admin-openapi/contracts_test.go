@@ -67,6 +67,13 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	enrichErrorResponses(paths)
 	enrichExplicitContracts(paths)
 	components := map[string]interface{}{}
+	schemas := buildSchemas()
+	enrichGetAPIInitializeSchemas(schemas)
+	schemas["GetApiCreateCredentialResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/GetAPICreateCredential"})
+	schemas["GetApiCreateCredential"] = structToSchema(modelTypes["GetAPICreateCredential"])
+	schemas["GetAPICreateCredential"].(map[string]interface{})["required"] = []string{"user_id", "access_token"}
+	normalizeGetAPIErrorSchema(schemas)
+	components["schemas"] = schemas
 	enrichSecurityContracts(paths, components)
 	operation := func(path, method string) map[string]interface{} {
 		require.Contains(t, paths, path)
@@ -77,8 +84,8 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 		path, method, operationID string
 		statuses                  []string
 	}{
-		{"/api/getapi/users", "post", "provisionGetApiUser", []string{"200", "201", "400", "401", "403", "404", "409", "503"}},
-		{"/api/getapi/users/{external_account_id}/credential", "get", "getGetApiUserCredential", []string{"200", "400", "401", "403", "404", "409", "503"}},
+		{"/api/getapi/users", "post", "provisionGetApiUser", []string{"201", "400", "401", "403", "404", "409", "503"}},
+		{"/api/getapi/users/{user_id}/pat", "post", "initializeGetApiPat", []string{"200", "201", "400", "401", "403", "404", "409", "503"}},
 	} {
 		op := operation(custom.path, custom.method)
 		assert.Equal(t, custom.operationID, op["operationId"])
@@ -89,8 +96,10 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 			require.Contains(t, responses, status)
 			response := responses[status].(map[string]interface{})
 			expected := "#/components/schemas/GetApiErrorResponse"
-			if status == "200" || status == "201" {
-				expected = "#/components/schemas/GetApiCredentialResponse"
+			if custom.path == "/api/getapi/users" && status == "201" {
+				expected = "#/components/schemas/GetApiCreateCredentialResponse"
+			} else if custom.path == "/api/getapi/users/{user_id}/pat" && (status == "200" || status == "201") {
+				expected = "#/components/schemas/GetApiInitializePATResponse"
 			}
 			assert.Equal(t, expected, extractContentSchema(response)["$ref"])
 		}
@@ -102,6 +111,22 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 		schema := responses["201"].(map[string]interface{})["content"].(map[string]interface{})["application/json"].(map[string]interface{})["schema"].(map[string]interface{})
 		assert.NotEqual(t, "#/components/schemas/ApiResponse", schema["$ref"])
 	}
+	createSchema := components["schemas"].(map[string]interface{})["GetAPICreateCredential"].(map[string]interface{})
+	assert.Equal(t, []string{"user_id", "access_token"}, createSchema["required"])
+	createProperties := createSchema["properties"].(map[string]interface{})
+	assert.Contains(t, createProperties, "user_id")
+	assert.Contains(t, createProperties, "access_token")
+	assert.NotContains(t, createProperties["access_token"].(map[string]interface{}), "writeOnly")
+	initSchema := components["schemas"].(map[string]interface{})["GetAPIInitializePATResult"].(map[string]interface{})
+	assert.Equal(t, []string{"user_id", "state", "outcome", "access_token"}, initSchema["required"])
+	assert.NotContains(t, initSchema["properties"].(map[string]interface{})["access_token"].(map[string]interface{}), "writeOnly")
+	initRequest := components["schemas"].(map[string]interface{})["GetAPIInitializePATRequest"].(map[string]interface{})
+	assert.Equal(t, []string{"expected_username"}, initRequest["required"])
+	assert.Equal(t, map[string]interface{}{"type": "boolean", "default": false}, initRequest["properties"].(map[string]interface{})["apply"])
+	assert.NotContains(t, initRequest["properties"], "UserID")
+	errorSchema := components["schemas"].(map[string]interface{})["GetApiErrorResponse"].(map[string]interface{})
+	errorCode := errorSchema["properties"].(map[string]interface{})["code"].(map[string]interface{})
+	assert.Equal(t, getAPIErrorCodes, errorCode["enum"])
 	userResponses := operation("/api/user/", "post")["responses"].(map[string]interface{})
 	assert.NotContains(t, userResponses, "201")
 	require.Contains(t, userResponses, "200")
