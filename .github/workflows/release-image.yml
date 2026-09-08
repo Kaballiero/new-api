@@ -1,0 +1,77 @@
+name: Publish release image
+
+on:
+  push:
+    tags:
+      - 'v0.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, e.g. v0.3.4'
+        required: true
+        type: string
+      commit:
+        description: 'Commit already built on main (defaults to the tag commit)'
+        required: false
+        type: string
+
+jobs:
+  publish:
+    name: Tag prebuilt main image as release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Resolve version and source image
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          COMMIT="${{ github.event.inputs.commit }}"
+          if [ -z "$COMMIT" ]; then
+            COMMIT="$GITHUB_SHA"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "SOURCE=lishchenkoev/new-api-get:sha-$COMMIT" >> "$GITHUB_ENV"
+          echo "Releasing $VERSION from sha-$COMMIT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Wait for the main build to publish the source image
+        run: |
+          for attempt in $(seq 1 20); do
+            if docker buildx imagetools inspect "$SOURCE" >/dev/null 2>&1; then
+              echo "Found $SOURCE"
+              exit 0
+            fi
+            echo "Attempt $attempt: $SOURCE not published yet, retrying in 30s"
+            sleep 30
+          done
+          echo "::error::$SOURCE was never published; check the 'Publish Docker image (main)' run for this commit"
+          exit 1
+
+      - name: Publish release tag
+        run: |
+          docker buildx imagetools create \
+            -t "lishchenkoev/new-api-get:${VERSION}" \
+            "$SOURCE"
+
+      - name: Image summary
+        run: |
+          {
+            echo "### Release image"
+            echo '```'
+            echo "lishchenkoev/new-api-get:${VERSION} <- ${SOURCE}"
+            docker buildx imagetools inspect "lishchenkoev/new-api-get:${VERSION}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
