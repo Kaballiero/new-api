@@ -73,7 +73,7 @@ func getAPIIntegrationForPrincipal(principalID int, capability string) string {
 		}
 		principals[integration.PrincipalUserID] = true
 		for _, granted := range integration.Capabilities {
-			if granted != "getapi.users.provision" && granted != "getapi.users.read-current" {
+			if granted != "getapi.users.provision" && granted != "getapi.users.initialize-pat" {
 				return ""
 			}
 			if granted == capability && integration.PrincipalUserID == principalID {
@@ -85,5 +85,5 @@ func getAPIIntegrationForPrincipal(principalID int, capability string) string {
 }
 
 func recordGetAPIAudit(c *gin.Context, action string) {
-	model.RecordAuditLog(c, model.AuditLog{UserId: c.GetInt("id"), Username: c.GetString("username"), ActorRole: c.GetInt("role"), Category: model.AuditCategoryOperation, Action: action, Success: c.Writer.Status() < 400, Other: model.AuditOther{RootInfo: model.AuditFields{"integration_id": c.GetString("getapi_integration_id"), "external_account_id": c.GetString("getapi_external_account_id"), "target_user_id": c.GetInt("getapi_target_user_id")}}})
+	model.RecordAuditLog(c, model.AuditLog{UserId: c.GetInt("id"), Username: c.GetString("username"), ActorRole: c.GetInt("role"), Category: model.AuditCategoryOperation, Action: action, Success: c.Writer.Status() < 400, Other: model.AuditOther{RootInfo: model.AuditFields{"integration_id": c.GetString("getapi_integration_id"), "target_user_id": c.GetInt("getapi_target_user_id")}}})
 }

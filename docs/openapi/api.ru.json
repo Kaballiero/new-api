@@ -3619,17 +3619,95 @@
         },
         "type": "object"
       },
+      "GetAPICreateCredential": {
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "access_token"
+        ],
+        "type": "object"
+      },
+      "GetAPIInitializePATRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "apply": {
+            "default": false,
+            "type": "boolean"
+          },
+          "expected_username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_username"
+        ],
+        "type": "object"
+      },
+      "GetAPIInitializePATResult": {
+        "properties": {
+          "access_token": {
+            "nullable": true,
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "would_issue",
+              "would_reuse",
+              "issued",
+              "reused",
+              "blocked_no_pat"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "blocked"
+            ],
+            "type": "string"
+          },
+          "user_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "state",
+          "outcome",
+          "access_token"
+        ],
+        "type": "object"
+      },
+      "GetApiCreateCredentialResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GetAPICreateCredential"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "type": "object"
+      },
       "GetApiCreateUserRequest": {
         "additionalProperties": false,
         "properties": {
           "display_name": {
             "maxLength": 20,
-            "type": "string"
-          },
-          "external_account_id": {
-            "maxLength": 128,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9_-]+$",
             "type": "string"
           },
           "password": {
@@ -3645,58 +3723,9 @@
           }
         },
         "required": [
-          "external_account_id",
           "username",
           "password",
           "display_name"
-        ],
-        "type": "object"
-      },
-      "GetApiCredential": {
-        "properties": {
-          "access_token": {
-            "description": "Current nonempty PAT for active; null for blocked. Never cache or expose to frontend.",
-            "nullable": true,
-            "type": "string"
-          },
-          "external_account_id": {
-            "type": "string"
-          },
-          "state": {
-            "enum": [
-              "active",
-              "blocked"
-            ],
-            "type": "string"
-          },
-          "user_id": {
-            "minimum": 1,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "external_account_id",
-          "user_id",
-          "state",
-          "access_token"
-        ],
-        "type": "object"
-      },
-      "GetApiCredentialResponse": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/GetApiCredential"
-          },
-          "success": {
-            "enum": [
-              true
-            ],
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "success",
-          "data"
         ],
         "type": "object"
       },
@@ -3709,8 +3738,8 @@
               "GETAPI_CAPABILITY_DENIED",
               "GETAPI_ACCOUNT_NOT_FOUND",
               "GETAPI_CREATE_CONFLICT",
-              "GETAPI_BINDING_CONFLICT",
-              "GETAPI_PAT_MISSING",
+              "GETAPI_USERNAME_MISMATCH",
+              "GETAPI_TARGET_ROLE_DENIED",
               "GETAPI_CREDENTIAL_UNAVAILABLE"
             ],
             "type": "string"
@@ -3729,6 +3758,24 @@
           "success",
           "code",
           "message"
+        ],
+        "type": "object"
+      },
+      "GetApiInitializePATResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GetAPIInitializePATResult"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
         ],
         "type": "object"
       },
@@ -17489,17 +17536,7 @@
       "post": {
         "description": "Enabled admin/root principal with explicit getapi.users.provision capability, restricted to its server-assigned integration. Active targets must be ordinary users below the principal role. No-store responses.",
         "operationId": "provisionGetApiUser",
-        "parameters": [
-          {
-            "description": "Must equal external_account_id. Matching replay returns current state, never mints or enables.",
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
+        "parameters": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -17511,31 +17548,11 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetApiCredentialResponse"
-                }
-              }
-            },
-            "description": "Current credential snapshot",
-            "headers": {
-              "Cache-Control": {
-                "schema": {
-                  "enum": [
-                    "no-store"
-                  ],
-                  "type": "string"
-                }
-              }
-            }
-          },
           "201": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetApiCredentialResponse"
+                  "$ref": "#/components/schemas/GetApiCreateCredentialResponse"
                 }
               }
             },
@@ -17683,33 +17700,62 @@
         ]
       }
     },
-    "/api/getapi/users/{external_account_id}/credential": {
-      "get": {
-        "description": "Enabled admin/root principal with explicit getapi.users.read-current capability, restricted to its server-assigned integration. Active targets must be ordinary users below the principal role. No-store responses.",
-        "operationId": "getGetApiUserCredential",
+    "/api/getapi/users/{user_id}/pat": {
+      "post": {
+        "deprecated": false,
+        "description": "Auto-generated entry. Add a manual summary/description in api.json.",
+        "operationId": "initializeGetApiPat",
         "parameters": [
           {
             "in": "path",
-            "name": "external_account_id",
+            "name": "user_id",
             "required": true,
             "schema": {
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9_-]+$",
-              "type": "string"
+              "minimum": 1,
+              "type": "integer"
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetAPIInitializePATRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetApiCredentialResponse"
+                  "$ref": "#/components/schemas/GetApiInitializePATResponse"
                 }
               }
             },
-            "description": "Current credential snapshot",
+            "description": "Успех",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetApiInitializePATResponse"
+                }
+              }
+            },
+            "description": "Успех",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -17729,7 +17775,7 @@
                 }
               }
             },
-            "description": "Request rejected; no credential material",
+            "description": "Успех",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -17749,7 +17795,7 @@
                 }
               }
             },
-            "description": "Request rejected; no credential material",
+            "description": "Успех",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -17769,7 +17815,7 @@
                 }
               }
             },
-            "description": "Request rejected; no credential material",
+            "description": "Успех",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -17789,7 +17835,7 @@
                 }
               }
             },
-            "description": "Request rejected; no credential material",
+            "description": "Успех",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -17809,7 +17855,7 @@
                 }
               }
             },
-            "description": "Request rejected; no credential material",
+            "description": "Успех",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -17829,7 +17875,7 @@
                 }
               }
             },
-            "description": "Request rejected; no credential material",
+            "description": "Успех",
             "headers": {
               "Cache-Control": {
                 "schema": {
@@ -17847,9 +17893,9 @@
             "AccessToken1": []
           }
         ],
-        "summary": "getGetApiUserCredential",
+        "summary": "post /api/getapi/users/{user_id}/pat",
         "tags": [
-          "GetAPI"
+          "Uncategorized"
         ]
       }
     },

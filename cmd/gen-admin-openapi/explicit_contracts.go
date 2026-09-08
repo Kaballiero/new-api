@@ -5,6 +5,44 @@ import (
 	"strings"
 )
 
+var getAPIErrorCodes = []string{
+	"GETAPI_INVALID_REQUEST",
+	"AUTH_UNAUTHORIZED",
+	"GETAPI_CAPABILITY_DENIED",
+	"GETAPI_ACCOUNT_NOT_FOUND",
+	"GETAPI_CREATE_CONFLICT",
+	"GETAPI_USERNAME_MISMATCH",
+	"GETAPI_TARGET_ROLE_DENIED",
+	"GETAPI_CREDENTIAL_UNAVAILABLE",
+}
+
+func normalizeGetAPIErrorSchema(schemas map[string]interface{}) {
+	schema, ok := schemas["GetApiErrorResponse"].(map[string]interface{})
+	if !ok {
+		schema = map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"success": map[string]interface{}{"type": "boolean", "enum": []bool{false}},
+				"code":    map[string]interface{}{"type": "string"},
+				"message": map[string]interface{}{"type": "string"},
+			},
+			"required": []string{"success", "code", "message"},
+		}
+		schemas["GetApiErrorResponse"] = schema
+	}
+	properties, _ := schema["properties"].(map[string]interface{})
+	if properties == nil {
+		properties = map[string]interface{}{}
+		schema["properties"] = properties
+	}
+	code, ok := properties["code"].(map[string]interface{})
+	if !ok {
+		code = map[string]interface{}{"type": "string"}
+		properties["code"] = code
+	}
+	code["enum"] = append([]string(nil), getAPIErrorCodes...)
+}
+
 // AST discovery cannot infer validation expressed in ordinary control flow.
 // Keep the native sync preconditions explicit rather than documenting a legacy
 // no-body apply operation that the server deliberately rejects.
@@ -21,8 +59,11 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 			responses[strconv.Itoa(h.RespStatus)] = responses["200"]
 			delete(responses, "200")
 		}
-		if route.HandlerName == "ProvisionGetAPIUser" || route.HandlerName == "GetGetAPIUserCredential" {
-			enrichGetAPIContract(op, route.HandlerName == "ProvisionGetAPIUser")
+		if route.HandlerName == "ProvisionGetAPIUser" {
+			enrichGetAPIContract(op, true)
+		}
+		if route.HandlerName == "InitializeGetAPIPAT" {
+			enrichGetAPIInitializeContract(op)
 		}
 		if route.HandlerName == "VerifyLogin" || route.HandlerName == "LoginPasskeyFinish" {
 			op["responses"].(map[string]interface{})["200"] = buildResponse(respSpec{Custom: "LoginSessionResponse"})["200"]
@@ -37,6 +78,53 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 			properties["source_version"].(map[string]interface{})["minLength"] = 1
 			properties["selections"].(map[string]interface{})["minItems"] = 1
 		}
+	}
+}
+
+func enrichGetAPIInitializeContract(op map[string]interface{}) {
+	responses := map[string]interface{}{}
+	for _, status := range []string{"200", "201", "400", "401", "403", "404", "409", "503"} {
+		schema := "GetApiErrorResponse"
+		if status == "200" || status == "201" {
+			schema = "GetApiInitializePATResponse"
+		}
+		response := buildResponse(respSpec{Custom: schema})["200"].(map[string]interface{})
+		response["headers"] = map[string]interface{}{"Cache-Control": map[string]interface{}{"schema": map[string]interface{}{"type": "string", "enum": []string{"no-store"}}}}
+		responses[status] = response
+	}
+	op["responses"] = responses
+	op["operationId"] = "initializeGetApiPat"
+	op["parameters"] = []interface{}{map[string]interface{}{"name": "user_id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "integer", "minimum": 1}}}
+	op["requestBody"] = map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"$ref": "#/components/schemas/GetAPIInitializePATRequest"}}}}
+}
+
+func enrichGetAPIInitializeSchemas(schemas map[string]interface{}) {
+	if request, ok := schemas["GetAPIInitializePATRequest"].(map[string]interface{}); ok {
+		request["additionalProperties"] = false
+		request["required"] = []string{"expected_username"}
+		props := request["properties"].(map[string]interface{})
+		request["properties"] = map[string]interface{}{"expected_username": props["expected_username"], "apply": map[string]interface{}{"type": "boolean", "default": false}}
+	}
+	data := structToSchema(modelTypes["GetAPIInitializePATResult"])
+	props := data["properties"].(map[string]interface{})
+	props["state"] = map[string]interface{}{"type": "string", "enum": []string{"active", "blocked"}}
+	props["outcome"] = map[string]interface{}{"type": "string", "enum": []string{"would_issue", "would_reuse", "issued", "reused", "blocked_no_pat"}}
+	props["access_token"] = map[string]interface{}{"type": "string", "nullable": true}
+	data["required"] = []string{"user_id", "state", "outcome", "access_token"}
+	schemas["GetApiInitializePATResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/GetAPIInitializePATResult"})
+	schemas["GetApiInitializePATResponse"].(map[string]interface{})["required"] = []string{"success", "data"}
+	schemas["GetAPIInitializePATResult"] = data
+	if create, ok := schemas["GetApiCreateUserRequest"].(map[string]interface{}); ok {
+		if props, ok := create["properties"].(map[string]interface{}); ok {
+			delete(props, "external_account_id")
+		}
+		create["required"] = []string{"username", "password", "display_name"}
+	}
+	if cred, ok := schemas["GetApiCredential"].(map[string]interface{}); ok {
+		if props, ok := cred["properties"].(map[string]interface{}); ok {
+			delete(props, "external_account_id")
+		}
+		cred["required"] = []string{"user_id", "state", "access_token"}
 	}
 }
 
@@ -91,15 +179,17 @@ func enrichMetadataSelectionSchema(schemas map[string]interface{}) {
 }
 
 func enrichGetAPIContract(op map[string]interface{}, provision bool) {
-	statuses := []string{"200", "400", "401", "403", "404", "409", "503"}
+	statuses := []string{"400", "401", "403", "404", "409", "503"}
 	if provision {
-		statuses = append(statuses, "201")
+		statuses = append([]string{"201"}, statuses...)
+	} else {
+		statuses = append([]string{"200"}, statuses...)
 	}
 	responses := map[string]interface{}{}
 	for _, status := range statuses {
 		schema := "GetApiErrorResponse"
 		if status == "200" || status == "201" {
-			schema = "GetApiCredentialResponse"
+			schema = "GetApiCreateCredentialResponse"
 		}
 		response := buildResponse(respSpec{Custom: schema})["200"].(map[string]interface{})
 		response["description"] = "Request rejected; no credential material"
@@ -112,11 +202,7 @@ func enrichGetAPIContract(op map[string]interface{}, provision bool) {
 	op["responses"] = responses
 	if provision {
 		op["operationId"] = "provisionGetApiUser"
-		op["parameters"] = []interface{}{map[string]interface{}{"name": "Idempotency-Key", "in": "header", "required": true, "description": "Must equal external_account_id. Matching replay returns current state, never mints or enables.", "schema": map[string]interface{}{"type": "string"}}}
+		op["parameters"] = []interface{}{}
 		op["requestBody"] = map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"$ref": "#/components/schemas/GetApiCreateUserRequest"}}}}
-	} else {
-		op["operationId"] = "getGetApiUserCredential"
-		op["parameters"] = []interface{}{map[string]interface{}{"name": "external_account_id", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_-]+$"}}}
-		delete(op, "requestBody")
 	}
 }

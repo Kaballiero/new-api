@@ -148,6 +148,11 @@ func run(locale string) error {
 	schemas := buildSchemas()
 	enrichLoginSchemas(schemas)
 	enrichMetadataSelectionSchema(schemas)
+	enrichGetAPIInitializeSchemas(schemas)
+	schemas["GetApiCreateCredentialResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/GetAPICreateCredential"})
+	schemas["GetApiCreateCredentialResponse"].(map[string]interface{})["required"] = []string{"success", "data"}
+	schemas["GetAPICreateCredential"] = structToSchema(modelTypes["GetAPICreateCredential"])
+	schemas["GetAPICreateCredential"].(map[string]interface{})["required"] = []string{"user_id", "access_token"}
 
 	components, _ := spec["components"].(map[string]interface{})
 	if components == nil {
@@ -166,6 +171,17 @@ func run(locale string) error {
 	for name, sch := range schemas {
 		existingSchemas[name] = sch
 	}
+	for _, name := range []string{"GetApiCreateUserRequest", "GetApiCredential"} {
+		if schema, ok := existingSchemas[name].(map[string]interface{}); ok {
+			if props, ok := schema["properties"].(map[string]interface{}); ok {
+				delete(props, "external_account_id")
+			}
+			if name == "GetApiCreateUserRequest" {
+				schema["required"] = []string{"username", "password", "display_name"}
+			}
+		}
+	}
+	normalizeGetAPIErrorSchema(existingSchemas)
 	components["schemas"] = existingSchemas
 
 	// Sweep unreferenced schemas. The generator merges new schemas into the

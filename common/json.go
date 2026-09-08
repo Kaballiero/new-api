@@ -20,6 +20,34 @@ func DecodeJson(reader io.Reader, v any) error {
 	return json.NewDecoder(reader).Decode(v)
 }
 
+func HasDuplicateJSONKeys(data []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return false
+	}
+	seen := map[string]struct{}{}
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return false
+		}
+		if _, exists := seen[key]; exists {
+			return true
+		}
+		seen[key] = struct{}{}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return false
+		}
+	}
+	return false
+}
+
 // DecodeJsonWithValidation decodes JSON and applies Gin's configured binding-tag
 // validator, including binding:"required" and any registered custom validators.
 func DecodeJsonWithValidation(reader io.Reader, v any) error {
