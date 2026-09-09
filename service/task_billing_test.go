@@ -2357,6 +2357,26 @@ func TestCaptureBillingFXRejectsCustomDenominationDrift(t *testing.T) {
 	assert.True(t, IsBillingFXError(err))
 }
 
+func TestApplyBillingFXUsesPureGroupRatioAndPublishedFactor(t *testing.T) {
+	tests := []struct {
+		name   string
+		pure   float64
+		factor float64
+		want   float64
+	}{
+		{name: "standard group", pure: 1.5, factor: 0.9, want: 1.35},
+		{name: "free group", pure: 0, factor: 1.2, want: 0},
+		{name: "unchanged factor", pure: 1.5, factor: 1, want: 1.5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ApplyBillingFX(tt.pure, tt.factor)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestTaskBillingCompletionAppliedGroup(t *testing.T) {
 	oldM, oldG, oldS := ratio_setting.ModelRatio2JSONString(), ratio_setting.GroupRatio2JSONString(), ratio_setting.GroupGroupRatio2JSONString()
 	t.Cleanup(func() {
