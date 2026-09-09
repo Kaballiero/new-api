@@ -1,10 +1,14 @@
 package service
 
 import (
+	"errors"
 	"math"
 	"math/rand"
+	"net/http"
 	"testing"
+	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -29,6 +33,59 @@ const cacheExpr = `tier("default", p * 2 + c * 10 + cr * 0.2 + cc * 2.5 + cc1h *
 const probeExpr = `param("service_tier") == "fast" ? tier("fast", p * 4 + c * 20) : tier("normal", p * 2 + c * 10)`
 
 const testQuotaPerUnit = 500_000.0
+
+func TestPostAudioConsumeQuotaUsesEffectiveBillingGroupRatio(t *testing.T) {
+	oldRedis, oldBatch := common.RedisEnabled, common.BatchUpdateEnabled
+	common.RedisEnabled, common.BatchUpdateEnabled = false, false
+	t.Cleanup(func() { common.RedisEnabled, common.BatchUpdateEnabled = oldRedis, oldBatch })
+
+	require.NoError(t, model.LOG_DB.Exec("DELETE FROM logs").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM tokens").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM users").Error)
+	require.NoError(t, model.DB.Exec("DELETE FROM channels").Error)
+	require.NoError(t, model.DB.Create(&model.User{Id: 901, Username: "audio-effective", Password: "placeholder", Quota: 100, Group: "default"}).Error)
+	require.NoError(t, model.DB.Create(&model.Token{Id: 901, UserId: 901, Key: "audio-effective-token", Name: "audio-effective-token", RemainQuota: 100}).Error)
+	require.NoError(t, model.DB.Create(&model.Channel{Id: 901, Name: "audio-effective", Type: 1, Key: "test"}).Error)
+
+	c, _ := gin.CreateTestContext(nil)
+	c.Set("token_name", "audio-effective-token")
+	info := &relaycommon.RelayInfo{
+		UserId:          901,
+		TokenId:         901,
+		TokenKey:        "audio-effective-token",
+		OriginModelName: "audio-effective-model",
+		StartTime:       time.Now(),
+		ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: 901},
+		PriceData: types.PriceData{
+			ModelRatio:        1,
+			BillingGroupRatio: 2,
+			GroupRatioInfo:    types.GroupRatioInfo{GroupRatio: 1},
+		},
+	}
+	usage := &dto.Usage{PromptTokens: 1, TotalTokens: 1, PromptTokensDetails: dto.InputTokenDetails{TextTokens: 1}}
+	PostAudioConsumeQuota(c, info, usage, "")
+
+	var user model.User
+	var token model.Token
+	var channel model.Channel
+	require.NoError(t, model.DB.First(&user, 901).Error)
+	require.NoError(t, model.DB.First(&token, 901).Error)
+	require.NoError(t, model.DB.First(&channel, 901).Error)
+	assert.Equal(t, 98, user.Quota)
+	assert.Equal(t, 2, user.UsedQuota)
+	assert.Equal(t, 1, user.RequestCount)
+	assert.Equal(t, 98, token.RemainQuota)
+	assert.Equal(t, 2, token.UsedQuota)
+	assert.EqualValues(t, 2, channel.UsedQuota)
+	var logs []model.Log
+	require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+	require.Len(t, logs, 1)
+	assert.Equal(t, 2, logs[0].Quota)
+	assert.Contains(t, logs[0].Content, "分组倍率 1.00")
+	other, err := common.StrToMap(logs[0].Other)
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), other["group_ratio"])
+}
 
 func makeSnapshot(expr string, groupRatio float64, estPrompt, estCompletion int) *billingexpr.BillingSnapshot {
 	return &billingexpr.BillingSnapshot{
@@ -88,6 +145,36 @@ func TestTryTieredSettleUsesFrozenRequestInput(t *testing.T) {
 	if result == nil || result.MatchedTier != "fast" {
 		t.Fatalf("matched tier = %v, want fast", result)
 	}
+}
+
+func TestTryTieredWssSettleRejectsFinalClamp(t *testing.T) {
+	info := makeRelayInfo(`p > 10000 ? 1e20 : 0`, 1, 0, 0)
+	ok, _, _, err := TryTieredWssSettle(info, billingexpr.TokenParams{P: 10001})
+	require.True(t, ok)
+	require.Error(t, err)
+	assert.NotNil(t, info.QuotaClamp)
+}
+
+func TestRefreshTieredBillingGroupRecomposesSelectedPureGroup(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		BillingFXRate:   90,
+		BillingFXFactor: 0.9,
+		PriceData: types.PriceData{
+			GroupRatioInfo:    types.GroupRatioInfo{GroupRatio: 3},
+			BillingGroupRatio: 1.8,
+		},
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:               "tiered_expr",
+			GroupRatio:                1.8,
+			EstimatedQuotaBeforeGroup: 100,
+			EstimatedQuotaAfterGroup:  180,
+		},
+	}
+
+	snapshot, err := refreshTieredBillingGroup(info)
+	require.NoError(t, err)
+	require.Equal(t, 2.7, snapshot.GroupRatio)
+	require.Equal(t, 270, snapshot.EstimatedQuotaAfterGroup)
 }
 
 func TestTryTieredSettleFallsBackToFrozenPreConsumeOnExprError(t *testing.T) {
@@ -363,6 +450,26 @@ func TestPrepareTieredBillingForSelectedGroupUpdatesReservation(t *testing.T) {
 	assert.Equal(t, 100_000, relayInfo.FinalPreConsumedQuota)
 	assert.Equal(t, 0.20, relayInfo.TieredBillingSnapshot.GroupRatio)
 	assert.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+}
+
+func TestPrepareTieredBillingForSelectedGroupRetainsClampCause(t *testing.T) {
+	relayInfo := &relaycommon.RelayInfo{
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:               "tiered_expr",
+			GroupRatio:                1,
+			EstimatedQuotaBeforeGroup: float64(common.MaxQuota) * 2,
+			EstimatedQuotaAfterGroup:  common.MaxQuota,
+		},
+		PriceData: types.PriceData{GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 2}},
+	}
+
+	apiErr := PrepareTieredBillingForSelectedGroup(nil, relayInfo)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+	var clamp *common.QuotaClamp
+	require.ErrorAs(t, apiErr, &clamp)
+	assert.True(t, errors.Is(apiErr.Err, clamp))
+	assert.Same(t, clamp, relayInfo.QuotaClamp)
 }
 
 func TestPrepareTieredBillingForSelectedGroupStartsBillingAfterFreeGroup(t *testing.T) {

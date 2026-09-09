@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { useStatus } from '@/hooks/use-status'
 import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
@@ -103,6 +104,7 @@ type PricingSectionProps = {
 
 export function PricingSection({ defaultValues }: PricingSectionProps) {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const updateOption = useUpdateOption()
 
   const pricingSchema = createPricingSchema(t)
@@ -143,6 +145,14 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
     displayType === 'TOKENS' ||
     defaultValues.QuotaPerUnit !== DEFAULT_CURRENCY_CONFIG.quotaPerUnit
   const showDisplayInCurrencyOption = displayInCurrencyEnabled === false
+  const billingFXRate = status?.billing_fx
+  const currentBillingFXRate =
+    billingFXRate?.available === true &&
+    typeof billingFXRate.usd_rate === 'number' &&
+    Number.isFinite(billingFXRate.usd_rate) &&
+    billingFXRate.usd_rate > 0
+      ? String(billingFXRate.usd_rate)
+      : t('Unavailable')
 
   return (
     <>
@@ -229,6 +239,25 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
               )}
             />
 
+            <FormItem>
+              <FormLabel htmlFor='billing-fx-rate'>
+                {t('Current Billing FX Rate')}
+              </FormLabel>
+              <FormControl>
+                <Input
+                  id='billing-fx-rate'
+                  value={currentBillingFXRate}
+                  disabled
+                  readOnly
+                />
+              </FormControl>
+              <FormDescription>
+                {t(
+                  'Current RAM rate used for model-cost billing. This does not change the legacy payment or top-up exchange rate.'
+                )}
+              </FormDescription>
+            </FormItem>
+
             {displayType !== 'TOKENS' && (
               <FormField
                 control={form.control}
@@ -238,9 +267,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                     <FormLabel>
                       {displayType === 'CNY'
                         ? t('CNY per USD')
-                        : displayType === 'USD'
-                          ? t('USD Exchange Rate')
-                          : t('USD Exchange Rate')}
+                        : t('USD Exchange Rate')}
                     </FormLabel>
                     <FormControl>
                       <Input

@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 type TaskSubmitResult struct {
@@ -246,8 +247,14 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 4. 价格计算：基础模型价格
 	info.OriginModelName = modelName
+	billingFXFactor, err := service.CaptureBillingFX(info)
+	if err != nil {
+		if admissionErr := service.TaskBillingAdmissionError(c, info, err); admissionErr != nil {
+			return nil, admissionErr
+		}
+		return nil, service.TaskErrorWrapper(err, "model_price_error", http.StatusServiceUnavailable)
+	}
 	var priceData types.PriceData
-	var err error
 	useTiered := billing_setting.GetBillingMode(modelName) == billing_setting.BillingModeTieredExpr
 	var exprStr string
 	var exists bool
@@ -284,13 +291,25 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			return nil, service.TaskErrorWrapper(runErr, "model_price_error", http.StatusBadRequest)
 		}
 		groupRatioInfo := helper.HandleGroupRatio(c, info)
-		quota, clamp := common.QuotaRoundChecked(cost * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		billingGroupRatio, applyErr := service.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
+		if applyErr != nil {
+			if admissionErr := service.TaskBillingAdmissionError(c, info, applyErr); admissionErr != nil {
+				return nil, admissionErr
+			}
+			return nil, service.TaskErrorWrapper(applyErr, "model_price_error", http.StatusServiceUnavailable)
+		}
+		quota, clamp := common.QuotaFromDecimalChecked(decimal.NewFromFloat(cost).
+			Mul(decimal.NewFromInt(int64(common.QuotaPerUnit))).
+			Mul(decimal.NewFromFloat(billingGroupRatio)))
 		noteTaskQuotaClamp(info, clamp)
-		priceData = types.PriceData{Quota: quota, QuotaToPreConsume: quota, GroupRatioInfo: groupRatioInfo}
-		info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: billing_setting.BillingModeTieredExpr, ModelName: modelName, ExprString: exprStr, ExprHash: billingexpr.ExprHashString(exprStr), GroupRatio: groupRatioInfo.GroupRatio, EstimatedQuotaBeforeGroup: cost * common.QuotaPerUnit, EstimatedQuotaAfterGroup: quota, EstimatedTier: trace.MatchedTier, QuotaPerUnit: common.QuotaPerUnit, ExprVersion: billingexpr.ExprVersion(exprStr), TaskUsageBilling: true, UsageFacts: facts}
+		priceData = types.PriceData{Quota: quota, QuotaToPreConsume: quota, GroupRatioInfo: groupRatioInfo, BillingGroupRatio: billingGroupRatio}
+		info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: billing_setting.BillingModeTieredExpr, ModelName: modelName, ExprString: exprStr, ExprHash: billingexpr.ExprHashString(exprStr), GroupRatio: billingGroupRatio, EstimatedQuotaBeforeGroup: cost * common.QuotaPerUnit, EstimatedQuotaAfterGroup: quota, EstimatedTier: trace.MatchedTier, QuotaPerUnit: common.QuotaPerUnit, ExprVersion: billingexpr.ExprVersion(exprStr), TaskUsageBilling: true, UsageFacts: facts}
 	} else {
 		priceData, err = helper.ModelPriceHelperPerCall(c, info)
 		if err != nil {
+			if admissionErr := service.TaskBillingAdmissionError(c, info, err); admissionErr != nil {
+				return nil, admissionErr
+			}
 			return nil, service.TaskErrorWrapper(err, "model_price_error", http.StatusBadRequest)
 		}
 	}
@@ -322,6 +341,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		quota, clamp := common.QuotaFromFloatChecked(quotaWithRatios)
 		info.PriceData.Quota = quota
 		noteTaskQuotaClamp(info, clamp)
+	}
+	if info.QuotaClamp != nil {
+		return nil, service.TaskBillingAdmissionError(c, info, info.QuotaClamp)
 	}
 
 	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）

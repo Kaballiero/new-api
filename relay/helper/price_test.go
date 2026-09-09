@@ -1,24 +1,116 @@
 package helper
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+const modelCostFXTestSource = "cbr-xml-daily.ru"
+
+func TestMain(m *testing.M) {
+	previousCustomRate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	defer func() { operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousCustomRate }()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		panic(err)
+	}
+	previousDB := model.DB
+	model.DB = db
+	if err := db.AutoMigrate(&model.ModelCostFXRow{}); err != nil {
+		panic(err)
+	}
+	if os.Getenv("PRICE_TEST_WITHOUT_FX") == "" {
+		if err := saveModelCostFXForPriceTest(100); err != nil {
+			panic(err)
+		}
+	}
+	result := m.Run()
+	model.DB = previousDB
+	os.Exit(result)
+}
+
+func saveModelCostFXForPriceTest(rate float64) error {
+	return publishModelCostFXForPriceTest(map[string]float64{"USD": rate})
+}
+
+func publishModelCostFXForPriceTest(rates map[string]float64) error {
+	var row model.ModelCostFXRow
+	if err := model.DB.Where("source = ?", modelCostFXTestSource).First(&row).Error; err != nil && err != gorm.ErrRecordNotFound {
+		return err
+	}
+	version := row.Version + 1
+	if current, err := model.CurrentModelCostFX(modelCostFXTestSource); err == nil && current.Version >= version {
+		version = current.Version + 1
+	}
+	encoded, err := common.Marshal(rates)
+	if err != nil {
+		return err
+	}
+	publication := model.ModelCostFXRow{
+		Source: modelCostFXTestSource, EffectiveAt: version + 100, FetchedAt: version + 100,
+		Version: version, RatesJSON: string(encoded),
+	}
+	if row.Source == "" {
+		if err := model.DB.Create(&publication).Error; err != nil {
+			return err
+		}
+	} else if err := model.DB.Model(&model.ModelCostFXRow{}).Where("source = ?", modelCostFXTestSource).Updates(map[string]any{
+		"effective_at": publication.EffectiveAt, "fetched_at": publication.FetchedAt,
+		"version": publication.Version, "rates_json": publication.RatesJSON,
+	}).Error; err != nil {
+		return err
+	}
+	return model.LoadModelCostFX(context.Background(), modelCostFXTestSource)
+}
+
+func TestModelPriceHelperRejectsMissingFXForFreePricing(t *testing.T) {
+	if os.Getenv("PRICE_TEST_WITHOUT_FX") != "" {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		info := &relaycommon.RelayInfo{OriginModelName: "unpriced-free", UserGroup: "default", UsingGroup: "default"}
+		_, err := ModelPriceHelper(ctx, info, 0, &types.TokenCountMeta{})
+		require.Error(t, err)
+		return
+	}
+	// A valid publication without USD is unusable for a genuinely free request.
+	t.Cleanup(func() { require.NoError(t, saveModelCostFXForPriceTest(100)) })
+	require.NoError(t, publishModelCostFXForPriceTest(map[string]float64{"EUR": 1}))
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	info := &relaycommon.RelayInfo{OriginModelName: "unpriced-free", UserGroup: "default", UsingGroup: "default"}
+	_, err := ModelPriceHelper(ctx, info, 0, &types.TokenCountMeta{})
+	require.Error(t, err)
+
+	cmd := exec.Command(os.Args[0], "-test.run", "^TestModelPriceHelperRejectsMissingFXForFreePricing$", "-test.count=1")
+	cmd.Env = append(os.Environ(), "PRICE_TEST_WITHOUT_FX=1")
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+}
 
 func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -33,8 +125,8 @@ func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	})
 
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
-		"billing_setting.billing_mode": `{"tiered-test-model":"tiered_expr"}`,
-		"billing_setting.billing_expr": `{"tiered-test-model":"param(\"stream\") == true ? tier(\"stream\", p * 3) : tier(\"base\", p * 2)"}`,
+		"billing_setting.billing_mode": `{"tiered-test-model":"tiered_expr","tiered-fx-matrix":"tiered_expr"}`,
+		"billing_setting.billing_expr": `{"tiered-test-model":"param(\"stream\") == true ? tier(\"stream\", p * 3) : tier(\"base\", p * 2)","tiered-fx-matrix":"p * 2"}`,
 	}))
 
 	recorder := httptest.NewRecorder()
@@ -66,6 +158,43 @@ func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	require.Equal(t, "stream", info.TieredBillingSnapshot.EstimatedTier)
 	require.Equal(t, billing_setting.BillingModeTieredExpr, info.TieredBillingSnapshot.BillingMode)
 	require.Equal(t, common.QuotaPerUnit, info.TieredBillingSnapshot.QuotaPerUnit)
+
+	savedGroups := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(savedGroups)) })
+	previousFX, err := model.CurrentModelCostFX(modelCostFXTestSource)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, publishModelCostFXForPriceTest(previousFX.Rates)) })
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"tiered-fx":1.45}`))
+	for _, testCase := range []struct {
+		rate  float64
+		quota int
+	}{
+		{rate: 90, quota: 1_305_000},
+		{rate: 100, quota: 1_450_000},
+		{rate: 110, quota: 1_595_000},
+	} {
+		t.Run(fmt.Sprintf("tiered_fx_rate_%g", testCase.rate), func(t *testing.T) {
+			require.NoError(t, saveModelCostFXForPriceTest(testCase.rate))
+			matrixCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			matrixInfo := &relaycommon.RelayInfo{
+				OriginModelName: "tiered-fx-matrix",
+				UserGroup:       "tiered-fx",
+				UsingGroup:      "tiered-fx",
+				BillingRequestInput: &billingexpr.RequestInput{
+					Body: []byte(`{}`),
+				},
+			}
+			matrixPrice, matrixErr := ModelPriceHelper(matrixCtx, matrixInfo, 1_000_000, &types.TokenCountMeta{})
+			require.NoError(t, matrixErr)
+			assert.Equal(t, testCase.quota, matrixPrice.QuotaToPreConsume)
+			assert.Equal(t, 1.45, matrixPrice.GroupRatioInfo.GroupRatio)
+			assert.Equal(t, testCase.rate, matrixInfo.BillingFXRate)
+			ok, actualQuota, result := service.TryTieredSettle(matrixInfo, billingexpr.TokenParams{P: 1_000_000})
+			require.True(t, ok)
+			require.NotNil(t, result)
+			assert.Equal(t, testCase.quota, actualQuota)
+		})
+	}
 }
 
 func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {
@@ -183,6 +312,65 @@ func TestModelPriceHelperTieredRejectsPreConsumeOverflow(t *testing.T) {
 	require.ErrorAs(t, err, &clamp)
 	require.Equal(t, "QuotaRound", clamp.Op)
 	require.Equal(t, common.QuotaClampOverflow, clamp.Kind)
+}
+
+func TestModelPriceHelperClampAdmissionRetainsCauseAndEmitsSafeAudit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"tiered-clamp-admission":"tiered_expr"}`,
+		"billing_setting.billing_expr":    `{"tiered-clamp-admission":"tier(\"overflow\", p * 100000000000000000)"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+
+	var audit bytes.Buffer
+	common.LogWriterMu.Lock()
+	previousWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &audit
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = previousWriter
+		common.LogWriterMu.Unlock()
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set(common.RequestIdKey, "clamp-admission-test")
+	ctx.Set("group", "default")
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "tiered-clamp-admission",
+		UserGroup:       "default",
+		UsingGroup:      "default",
+		BillingRequestInput: &billingexpr.RequestInput{
+			Body: []byte(`{}`),
+		},
+	}
+
+	_, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+	var clamp *common.QuotaClamp
+	require.ErrorAs(t, err, &clamp)
+
+	apiErr := service.BillingAdmissionError(ctx, info, err)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+	assert.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
+	assert.Equal(t, "insufficient quota", apiErr.ToOpenAIError().Message)
+	assert.True(t, errors.Is(apiErr.Err, clamp))
+	assert.Same(t, clamp, info.QuotaClamp)
+	ctx.JSON(apiErr.StatusCode, gin.H{"error": apiErr.ToOpenAIError()})
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "insufficient quota")
+	assert.NotContains(t, recorder.Body.String(), "QuotaRound")
+	assert.Contains(t, audit.String(), "clamp-admission-test")
+	assert.Contains(t, audit.String(), "op=QuotaRound kind=overflow clamped=2147483647")
+	assert.NotContains(t, audit.String(), "quota saturation admission refused: op=QuotaRound kind=overflow original=")
+	assert.NotContains(t, apiErr.ToOpenAIError().Message, "QuotaRound")
 }
 
 func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T) {
@@ -653,4 +841,103 @@ func TestModelPriceHelperNativeGeminiNoThinkingDoesNotAliasBillingModel(t *testi
 	assert.Equal(t, "gemini-3-pro", info.GetBillingModelName())
 	assert.Equal(t, 1.25, priceData.ModelRatio)
 	assert.NotEqual(t, 37.5, priceData.ModelRatio)
+}
+
+func TestModelPriceHelperAppliesCapturedFXToNormalPricing(t *testing.T) {
+	savedRatios := ratio_setting.ModelRatio2JSONString()
+	savedGroups := ratio_setting.GroupRatio2JSONString()
+	savedSpecialGroups := ratio_setting.GroupGroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedRatios))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(savedGroups))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(savedSpecialGroups))
+		require.NoError(t, saveModelCostFXForPriceTest(100))
+	})
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"fx-normal":1}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"normal":1.45,"auto":1.45}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"vip":{"special":1.45}}`))
+	for _, tc := range []struct {
+		rate        float64
+		effective   float64
+		preConsumed int
+	}{
+		{rate: 90, effective: 1.305, preConsumed: 1_305_000},
+		{rate: 100, effective: 1.45, preConsumed: 1_450_000},
+		{rate: 110, effective: 1.595, preConsumed: 1_595_000},
+	} {
+		t.Run(fmt.Sprintf("rate_%g", tc.rate), func(t *testing.T) {
+			require.NoError(t, saveModelCostFXForPriceTest(tc.rate))
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			info := &relaycommon.RelayInfo{OriginModelName: "fx-normal", UserGroup: "default", UsingGroup: "normal"}
+			price, err := ModelPriceHelper(ctx, info, 1_000_000, &types.TokenCountMeta{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.preConsumed, price.QuotaToPreConsume)
+			assert.Equal(t, 1.45, price.GroupRatioInfo.GroupRatio)
+			assert.Equal(t, tc.effective, price.EffectiveGroupRatio())
+			assert.Equal(t, tc.rate, info.BillingFXRate)
+
+			for _, groupCase := range []struct{ name, userGroup, usingGroup, autoGroup string }{
+				{name: "special", userGroup: "vip", usingGroup: "special"},
+				{name: "auto", userGroup: "default", usingGroup: "normal", autoGroup: "auto"},
+			} {
+				t.Run(groupCase.name, func(t *testing.T) {
+					caseCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+					if groupCase.autoGroup != "" {
+						caseCtx.Set("auto_group", groupCase.autoGroup)
+					}
+					caseInfo := &relaycommon.RelayInfo{OriginModelName: "fx-normal", UserGroup: groupCase.userGroup, UsingGroup: groupCase.usingGroup}
+					casePrice, caseErr := ModelPriceHelper(caseCtx, caseInfo, 1_000_000, &types.TokenCountMeta{})
+					require.NoError(t, caseErr)
+					assert.Equal(t, tc.preConsumed, casePrice.QuotaToPreConsume)
+					assert.Equal(t, 1.45, casePrice.GroupRatioInfo.GroupRatio)
+				})
+			}
+
+			if tc.rate == 90 {
+				require.NoError(t, saveModelCostFXForPriceTest(100))
+				retained, retainedErr := ModelPriceHelper(ctx, info, 1_000_000, &types.TokenCountMeta{})
+				require.NoError(t, retainedErr)
+				assert.Equal(t, tc.preConsumed, retained.QuotaToPreConsume)
+				assert.Equal(t, 1.45, retained.GroupRatioInfo.GroupRatio)
+				assert.Equal(t, tc.rate, info.BillingFXRate)
+			}
+		})
+	}
+}
+
+func TestModelPriceHelperPerCallAppliesCapturedFX(t *testing.T) {
+	savedPrices := ratio_setting.ModelPrice2JSONString()
+	savedRatios := ratio_setting.ModelRatio2JSONString()
+	savedGroups := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedPrices))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedRatios))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(savedGroups))
+		require.NoError(t, saveModelCostFXForPriceTest(100))
+	})
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"fx-per-call-price":2}`))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"fx-per-call-ratio":2}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"per-call":1.45}`))
+	for _, testCase := range []struct {
+		name  string
+		model string
+		rate  float64
+		quota int
+	}{
+		{name: "fixed price rate 90", model: "fx-per-call-price", rate: 90, quota: 1_305_000},
+		{name: "fixed price rate 100", model: "fx-per-call-price", rate: 100, quota: 1_450_000},
+		{name: "fixed price rate 110", model: "fx-per-call-price", rate: 110, quota: 1_595_000},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			require.NoError(t, saveModelCostFXForPriceTest(testCase.rate))
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			info := &relaycommon.RelayInfo{OriginModelName: testCase.model, UserGroup: "default", UsingGroup: "per-call"}
+			priceData, err := ModelPriceHelperPerCall(ctx, info)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.quota, priceData.Quota)
+			assert.Equal(t, 1.45, priceData.GroupRatioInfo.GroupRatio)
+			assert.Equal(t, 1.45*testCase.rate/100, priceData.EffectiveGroupRatio())
+			assert.Equal(t, testCase.rate, info.BillingFXRate)
+		})
+	}
 }

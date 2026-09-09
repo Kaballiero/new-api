@@ -372,7 +372,14 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 			continue
 		}
 		if terminalTransition {
-			billingSettled := settleTaskBillingOnComplete(ctx, adaptor, task, &responseItem.TaskInfo)
+			billingSettled, billingErr := settleTaskBillingOnComplete(ctx, adaptor, task, &responseItem.TaskInfo)
+			if billingErr != nil {
+				logger.LogWarn(ctx, fmt.Sprintf("Batch task %s billing history is invalid: %s", task.TaskID, billingErr.Error()))
+				if hasIndependentTaskRefundEntitlement(task) {
+					RefundTaskQuota(ctx, task, task.FailReason)
+				}
+				continue
+			}
 			if task.Status == model.TaskStatusFailure && !billingSettled && task.Quota != 0 {
 				RefundTaskQuota(ctx, task, task.FailReason)
 			}
@@ -615,7 +622,14 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	if shouldFinalizeBilling {
-		billingSettled := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+		billingSettled, billingErr := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+		if billingErr != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("Task %s billing history is invalid: %s", task.TaskID, billingErr.Error()))
+			if hasIndependentTaskRefundEntitlement(task) {
+				RefundTaskQuota(ctx, task, task.FailReason)
+			}
+			return nil
+		}
 		if task.Status == model.TaskStatusFailure && !billingSettled && task.Quota != 0 {
 			RefundTaskQuota(ctx, task, task.FailReason)
 		}
@@ -663,11 +677,14 @@ func truncateBase64(s string) string {
 // 优先级：1. tiered snapshot → 2. adaptor 调整 → 3. token 重算。
 //
 // 表达式求值失败会保留预扣额度，因此也视为已接管，避免错误全退。
-func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) bool {
+func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) (bool, error) {
+	if _, modern, err := taskBillingFXFactor(task.PrivateData.BillingContext); modern && err != nil {
+		return false, err
+	}
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.TieredSnapshot != nil {
 		// 用量表达式结算只适用于成功任务；失败任务由调用方全额退款。
 		if task.Status == model.TaskStatusFailure {
-			return false
+			return false, nil
 		}
 		usageFacts := make(map[string]any, len(bc.TieredSnapshot.UsageFacts)+len(taskResult.UsageFacts))
 		for key, value := range bc.TieredSnapshot.UsageFacts {
@@ -679,7 +696,7 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		result, err := billingexpr.ComputeTieredQuotaWithRequest(bc.TieredSnapshot, billingexpr.TokenParams{}, billingexpr.RequestInput{Usage: usageFacts})
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("任务 %s 表达式结算失败，保留预扣额度: %v", task.TaskID, err))
-			return true
+			return true, nil
 		}
 		if result.Clamp != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("任务 %s 表达式结算额度发生饱和: %+v", task.TaskID, result.Clamp))
@@ -687,17 +704,17 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		bc.TieredSnapshot.UsageFacts = usageFacts
 		bc.TieredSnapshot.EstimatedTier = result.MatchedTier
 		RecalculateTaskQuota(ctx, task, result.ActualQuotaAfterGroup, "任务用量表达式结算", result.Clamp)
-		return true
+		return true, nil
 	}
 	// 按次计费的成功任务保持预扣；失败任务由调用方全额退款。
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
-		return false
+		return false, nil
 	}
 	// 优先让 adaptor 决定最终额度。
 	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {
 		RecalculateTaskQuota(ctx, task, actualQuota, "adaptor计费调整")
-		return true
+		return true, nil
 	}
 	// 回退到 token 重算。
 	tokens := taskResult.TotalTokens
@@ -705,9 +722,9 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		tokens = taskResult.CompletionTokens
 	}
 	if tokens > 0 {
-		return RecalculateTaskQuotaByTokens(ctx, task, tokens)
+		return RecalculateTaskQuotaByTokens(ctx, task, tokens), nil
 	}
-	return false
+	return false, nil
 }
 
 func classifyPollHTTP(statusCode int) string {
@@ -818,7 +835,13 @@ func failTaskFromPoll(ctx context.Context, adaptor TaskPollingAdaptor, task *mod
 		return nil
 	}
 	taskResult := relaycommon.FailTaskInfo(reason)
-	billingSettled := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+	billingSettled, billingErr := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+	if billingErr != nil {
+		if hasIndependentTaskRefundEntitlement(task) {
+			RefundTaskQuota(ctx, task, reason)
+		}
+		return billingErr
+	}
 	if !billingSettled && task.Quota != 0 {
 		RefundTaskQuota(ctx, task, reason)
 	}

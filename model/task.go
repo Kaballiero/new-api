@@ -164,6 +164,158 @@ type TaskBillingContext struct {
 	OriginModelName string                       `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
 	PerCallBilling  bool                         `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
 	TieredSnapshot  *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
+	BillingFX       *TaskBillingFX               `json:"billing_fx,omitempty"`
+	SubmitGroup     *TaskBillingSubmitGroup      `json:"submit_group,omitempty"`
+	billingFXRaw    json.RawMessage
+	submitGroupRaw  json.RawMessage
+}
+
+// TaskBillingFX is the immutable schema-1 publication basis accepted when a
+// modern task was submitted. Factor is always derived from Rate / 100.
+type TaskBillingFX struct {
+	SchemaVersion      int     `json:"schema_version"`
+	Source             string  `json:"source"`
+	Rate               float64 `json:"rate"`
+	PublicationVersion int64   `json:"publication_version"`
+	EffectiveAt        int64   `json:"effective_at"`
+	FetchedAt          int64   `json:"fetched_at"`
+}
+
+// TaskBillingSubmitGroup preserves the pure group selection accepted at
+// submission. It explains the saved effective GroupRatio without freezing the
+// group policy used for a later token-based completion calculation.
+type TaskBillingSubmitGroup struct {
+	PureRatio       float64  `json:"pure_ratio"`
+	HasSpecialRatio bool     `json:"has_special_ratio"`
+	SpecialRatio    *float64 `json:"special_ratio,omitempty"`
+}
+
+// UnmarshalJSON retains raw member presence for the two modern billing
+// members. A typed decode failure is deliberately deferred to the billing
+// validator so malformed history cannot be mistaken for absent legacy data.
+func (c *TaskBillingContext) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		ModelPrice      float64                      `json:"model_price,omitempty"`
+		GroupRatio      float64                      `json:"group_ratio,omitempty"`
+		ModelRatio      float64                      `json:"model_ratio,omitempty"`
+		OtherRatios     map[string]float64           `json:"other_ratios,omitempty"`
+		OriginModelName string                       `json:"origin_model_name,omitempty"`
+		PerCallBilling  bool                         `json:"per_call_billing,omitempty"`
+		TieredSnapshot  *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
+		BillingFX       json.RawMessage              `json:"billing_fx"`
+		SubmitGroup     json.RawMessage              `json:"submit_group"`
+	}
+	if err := common.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	var members map[string]json.RawMessage
+	if err := common.Unmarshal(data, &members); err != nil {
+		return err
+	}
+	billingFXRaw := wire.BillingFX
+	if raw, ok := members["billing_fx"]; ok {
+		billingFXRaw = raw
+	}
+	submitGroupRaw := wire.SubmitGroup
+	if raw, ok := members["submit_group"]; ok {
+		submitGroupRaw = raw
+	}
+	*c = TaskBillingContext{
+		ModelPrice: wire.ModelPrice, GroupRatio: wire.GroupRatio, ModelRatio: wire.ModelRatio,
+		OtherRatios: wire.OtherRatios, OriginModelName: wire.OriginModelName, PerCallBilling: wire.PerCallBilling,
+		TieredSnapshot: wire.TieredSnapshot, billingFXRaw: append(json.RawMessage(nil), billingFXRaw...),
+		submitGroupRaw: append(json.RawMessage(nil), submitGroupRaw...),
+	}
+	if len(billingFXRaw) > 0 && string(billingFXRaw) != "null" {
+		var fx TaskBillingFX
+		if common.Unmarshal(billingFXRaw, &fx) == nil {
+			c.BillingFX = &fx
+		}
+	}
+	if len(submitGroupRaw) > 0 && string(submitGroupRaw) != "null" {
+		var group TaskBillingSubmitGroup
+		if common.Unmarshal(submitGroupRaw, &group) == nil {
+			c.SubmitGroup = &group
+		}
+	}
+	return nil
+}
+
+func (c *TaskBillingContext) HasBillingFX() bool {
+	return c != nil && (len(c.billingFXRaw) > 0 || c.BillingFX != nil)
+}
+func (c *TaskBillingContext) HasSubmitGroup() bool {
+	return c != nil && (len(c.submitGroupRaw) > 0 || c.SubmitGroup != nil)
+}
+
+func (c *TaskBillingContext) HasCompleteBillingFX() bool {
+	if c == nil || len(c.billingFXRaw) == 0 {
+		return true
+	}
+	var fields map[string]json.RawMessage
+	if common.Unmarshal(c.billingFXRaw, &fields) != nil {
+		return false
+	}
+	for _, key := range []string{"schema_version", "source", "rate", "publication_version", "effective_at", "fetched_at"} {
+		if value, ok := fields[key]; !ok || string(value) == "null" {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *TaskBillingContext) HasCompleteSubmitGroup() bool {
+	if c == nil || len(c.submitGroupRaw) == 0 {
+		return true
+	}
+	var fields map[string]json.RawMessage
+	if common.Unmarshal(c.submitGroupRaw, &fields) != nil {
+		return false
+	}
+	pure, hasPure := fields["pure_ratio"]
+	hasSpecial, hasHasSpecial := fields["has_special_ratio"]
+	if !hasPure || !hasHasSpecial || string(pure) == "null" || string(hasSpecial) == "null" {
+		return false
+	}
+	if c.SubmitGroup != nil && c.SubmitGroup.HasSpecialRatio {
+		special, ok := fields["special_ratio"]
+		return ok && string(special) != "null"
+	}
+	_, hasSpecialValue := fields["special_ratio"]
+	return !hasSpecialValue
+}
+
+func (c TaskBillingContext) MarshalJSON() ([]byte, error) {
+	var billingFX, submitGroup json.RawMessage
+	if len(c.billingFXRaw) > 0 {
+		billingFX = c.billingFXRaw
+	} else if c.BillingFX != nil {
+		data, err := common.Marshal(c.BillingFX)
+		if err != nil {
+			return nil, err
+		}
+		billingFX = data
+	}
+	if len(c.submitGroupRaw) > 0 {
+		submitGroup = c.submitGroupRaw
+	} else if c.SubmitGroup != nil {
+		data, err := common.Marshal(c.SubmitGroup)
+		if err != nil {
+			return nil, err
+		}
+		submitGroup = data
+	}
+	return common.Marshal(struct {
+		ModelPrice      float64                      `json:"model_price,omitempty"`
+		GroupRatio      float64                      `json:"group_ratio,omitempty"`
+		ModelRatio      float64                      `json:"model_ratio,omitempty"`
+		OtherRatios     map[string]float64           `json:"other_ratios,omitempty"`
+		OriginModelName string                       `json:"origin_model_name,omitempty"`
+		PerCallBilling  bool                         `json:"per_call_billing,omitempty"`
+		TieredSnapshot  *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
+		BillingFX       json.RawMessage              `json:"billing_fx,omitempty"`
+		SubmitGroup     json.RawMessage              `json:"submit_group,omitempty"`
+	}{c.ModelPrice, c.GroupRatio, c.ModelRatio, c.OtherRatios, c.OriginModelName, c.PerCallBilling, c.TieredSnapshot, billingFX, submitGroup})
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）

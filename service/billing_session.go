@@ -24,16 +24,72 @@ import (
 // BillingSession 封装单次请求的预扣费/结算/退款生命周期。
 // 实现 relaycommon.BillingSettler 接口。
 type BillingSession struct {
-	relayInfo        *relaycommon.RelayInfo
-	funding          FundingSource
-	preConsumedQuota int  // 实际预扣额度（信任用户可能为 0）
-	tokenConsumed    int  // 令牌额度实际扣减量
-	extraReserved    int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
-	trusted          bool // 是否命中信任额度旁路
-	fundingSettled   bool // funding.Settle 已成功，资金来源已提交
-	settled          bool // Settle 全部完成（资金 + 令牌）
-	refunded         bool // Refund 已调用
-	mu               sync.Mutex
+	relayInfo         *relaycommon.RelayInfo
+	funding           FundingSource
+	preConsumedQuota  int  // 实际预扣额度（信任用户可能为 0）
+	tokenConsumed     int  // 令牌额度实际扣减量
+	extraReserved     int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
+	trusted           bool // 是否命中信任额度旁路
+	fundingSettled    bool // funding.Settle 已成功，资金来源已提交
+	wssFundingSettled bool // terminal WSS funding adjustment succeeded
+	settled           bool // Settle 全部完成（资金 + 令牌）
+	refunded          bool // Refund 已调用
+	wssFundingDirect  int
+	wssTokenDirect    int
+	mu                sync.Mutex
+}
+
+func (s *BillingSession) RecordWssDirectCharge(quota int, fundingApplied, tokenApplied bool) {
+	if quota <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if fundingApplied {
+		s.wssFundingDirect += quota
+	}
+	if tokenApplied {
+		s.wssTokenDirect += quota
+	}
+}
+
+// SettleWss reconciles each independently applied ledger. A direct wallet or
+// token mutation can fail after its counterpart succeeds, so the final delta
+// is intentionally computed separately for both legs.
+func (s *BillingSession) SettleWss(actualQuota int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.settled {
+		return nil
+	}
+	fundingDelta := actualQuota - s.preConsumedQuota - s.wssFundingDirect
+	if !s.wssFundingSettled {
+		if err := s.funding.Settle(fundingDelta); err != nil {
+			return err
+		}
+		s.fundingSettled = true
+		s.wssFundingSettled = true
+		if s.funding.Source() == BillingSourceSubscription {
+			s.relayInfo.SubscriptionPostDelta += int64(fundingDelta)
+		}
+	}
+
+	if s.relayInfo.IsPlayground {
+		s.settled = true
+		return nil
+	}
+	tokenDelta := actualQuota - s.tokenConsumed - s.wssTokenDirect
+	var err error
+	if tokenDelta > 0 {
+		err = model.DecreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, tokenDelta)
+	} else if tokenDelta < 0 {
+		err = model.IncreaseTokenQuota(s.relayInfo.TokenId, s.relayInfo.TokenKey, -tokenDelta)
+	}
+	if err != nil {
+		return err
+	}
+	s.settled = true
+	return nil
 }
 
 // Settle 根据实际消耗额度进行结算。

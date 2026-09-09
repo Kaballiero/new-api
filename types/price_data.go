@@ -30,6 +30,9 @@ type PriceData struct {
 	Quota                int // 按次计费的最终额度（MJ / Task）
 	QuotaToPreConsume    int // 按量计费的预消耗额度
 	GroupRatioInfo       GroupRatioInfo
+	// BillingGroupRatio is the internal pure group ratio composed with the captured FX factor.
+	// Public/log projections continue to use GroupRatioInfo.
+	BillingGroupRatio float64
 }
 
 func (p *PriceData) AddOtherRatio(key string, ratio float64) {
@@ -105,6 +108,13 @@ func (p *PriceData) RemoveOtherRatiosFromFloat(value float64) float64 {
 
 func isValidOtherRatio(ratio float64) bool {
 	return ratio > 0 && !math.IsInf(ratio, 1)
+}
+
+func (p PriceData) EffectiveGroupRatio() float64 {
+	if p.BillingGroupRatio == 0 && p.GroupRatioInfo.GroupRatio != 0 {
+		return p.GroupRatioInfo.GroupRatio
+	}
+	return p.BillingGroupRatio
 }
 
 func (p *PriceData) ToSetting() string {

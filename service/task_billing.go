@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -14,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
@@ -44,6 +46,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 	}
 	other := model.NewLogOther()
 	other.SetPublic("is_task", true)
+	appendBillingFXLogInfo(other, info, info.PriceData, "submit")
 	other.SetPublic("request_path", c.Request.URL.Path)
 	other.SetPublic("model_price", info.PriceData.ModelPrice)
 	if info.PriceData.ModelRatio > 0 {
@@ -135,13 +138,40 @@ func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
 
 // taskBillingOther 从 task 的 BillingContext 构建日志 Other 字段。
 func taskBillingOther(task *model.Task) *model.LogOther {
+	return taskBillingOtherWithProjection(task, nil)
+}
+
+func taskBillingOtherWithProjection(task *model.Task, projection *taskBillingProjection) *model.LogOther {
 	other := model.NewLogOther()
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other.SetPublic("model_price", bc.ModelPrice)
 		if bc.ModelRatio > 0 {
 			other.SetPublic("model_ratio", bc.ModelRatio)
 		}
-		other.SetPublic("group_ratio", bc.GroupRatio)
+		if _, modern, err := taskBillingFXFactor(bc); err == nil && modern {
+			if projection == nil {
+				other.SetPublic("group_ratio", bc.SubmitGroup.PureRatio)
+				if bc.SubmitGroup.HasSpecialRatio {
+					other.SetPublic("user_group_ratio", *bc.SubmitGroup.SpecialRatio)
+				}
+			}
+			other.SetAdmin("billing_submit_group", map[string]any{
+				"pure_ratio":        bc.SubmitGroup.PureRatio,
+				"has_special_ratio": bc.SubmitGroup.HasSpecialRatio,
+				"special_ratio":     bc.SubmitGroup.SpecialRatio,
+			})
+			other.SetAdmin("billing_fx", map[string]any{
+				"schema_version":      bc.BillingFX.SchemaVersion,
+				"source":              bc.BillingFX.Source,
+				"rate":                bc.BillingFX.Rate,
+				"publication_version": bc.BillingFX.PublicationVersion,
+				"effective_at":        bc.BillingFX.EffectiveAt,
+				"fetched_at":          bc.BillingFX.FetchedAt,
+			})
+			other.SetAdmin("billing_stage", "saved_quota")
+		} else if !modern {
+			other.SetPublic("group_ratio", bc.GroupRatio)
+		}
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
 				if !other.SetPublic(k, v) {
@@ -165,6 +195,69 @@ func taskBillingOther(task *model.Task) *model.LogOther {
 	}
 	appendTaskLogInfo(task, other)
 	return other
+}
+
+type taskBillingProjection struct {
+	modelRatio      float64
+	groupRatio      float64
+	hasSpecialRatio bool
+	specialRatio    float64
+}
+
+// taskBillingFXFactor validates modern durable task history. Both new members
+// are required together; their joint absence is the only legacy marker.
+func taskBillingFXFactor(bc *model.TaskBillingContext) (float64, bool, error) {
+	if bc == nil || (!bc.HasBillingFX() && !bc.HasSubmitGroup()) {
+		return 1, false, nil
+	}
+	if !bc.HasBillingFX() || !bc.HasSubmitGroup() || !bc.HasCompleteBillingFX() || !bc.HasCompleteSubmitGroup() || bc.BillingFX == nil || bc.SubmitGroup == nil {
+		return 0, true, fmt.Errorf("task billing FX history is incomplete")
+	}
+	fx := bc.BillingFX
+	if fx.SchemaVersion != 1 || fx.Source != modelCostFXSource || fx.Rate <= 0 || math.IsNaN(fx.Rate) || math.IsInf(fx.Rate, 0) ||
+		fx.PublicationVersion < 0 || fx.EffectiveAt <= 0 || fx.FetchedAt <= 0 {
+		return 0, true, fmt.Errorf("task billing FX history is invalid")
+	}
+	factor := fx.Rate / billingFXRateDenomination
+	if factor <= 0 || math.IsNaN(factor) || math.IsInf(factor, 0) {
+		return 0, true, fmt.Errorf("task billing FX history is invalid")
+	}
+	group := bc.SubmitGroup
+	if group.PureRatio < 0 || math.IsNaN(group.PureRatio) || math.IsInf(group.PureRatio, 0) {
+		return 0, true, fmt.Errorf("task billing submit group is invalid")
+	}
+	if group.HasSpecialRatio != (group.SpecialRatio != nil) {
+		return 0, true, fmt.Errorf("task billing submit group is incomplete")
+	}
+	if group.SpecialRatio != nil && (*group.SpecialRatio < 0 || math.IsNaN(*group.SpecialRatio) ||
+		math.IsInf(*group.SpecialRatio, 0) || *group.SpecialRatio != group.PureRatio) {
+		return 0, true, fmt.Errorf("task billing special group is invalid")
+	}
+	effective := group.PureRatio
+	if effective != 0 && factor != 1 {
+		effective *= factor
+		if effective <= 0 || math.IsNaN(effective) || math.IsInf(effective, 0) {
+			return 0, true, fmt.Errorf("task billing effective group is invalid")
+		}
+	}
+	if bc.GroupRatio != effective {
+		return 0, true, fmt.Errorf("task billing effective group does not match FX history")
+	}
+	if snapshot := bc.TieredSnapshot; snapshot != nil &&
+		(snapshot.GroupRatio != effective || snapshot.QuotaPerUnit != billingFXQuotaPerUnit) {
+		return 0, true, fmt.Errorf("task billing tiered snapshot does not match FX history")
+	}
+	return factor, true, nil
+}
+
+// hasIndependentTaskRefundEntitlement identifies failed task modes whose
+// existing refund contract uses the already saved quota without repricing.
+func hasIndependentTaskRefundEntitlement(task *model.Task) bool {
+	if task == nil || task.Status != model.TaskStatusFailure || task.Quota == 0 {
+		return false
+	}
+	bc := task.PrivateData.BillingContext
+	return bc != nil && (bc.PerCallBilling || bc.TieredSnapshot != nil)
 }
 
 func appendTaskLogInfo(task *model.Task, other *model.LogOther) {
@@ -259,6 +352,10 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 // reason 用于日志记录（例如 "token重算" 或 "adaptor调整"）。
 // clamps 可选：若计算 actualQuota 时发生额度饱和，将其记入日志 admin_info（仅管理员可见）。
 func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, clamps ...*common.QuotaClamp) {
+	recalculateTaskQuota(ctx, task, actualQuota, reason, nil, clamps...)
+}
+
+func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int, reason string, projection *taskBillingProjection, clamps ...*common.QuotaClamp) {
 	if actualQuota < 0 {
 		return
 	}
@@ -306,7 +403,37 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		logType = model.LogTypeRefund
 		logQuota = -quotaDelta
 	}
-	other := taskBillingOther(task)
+	other := taskBillingOtherWithProjection(task, projection)
+	if projection != nil {
+		other.SetPublic("model_ratio", projection.modelRatio)
+		other.SetPublic("group_ratio", projection.groupRatio)
+		if projection.hasSpecialRatio {
+			other.SetPublic("user_group_ratio", projection.specialRatio)
+		}
+		if _, modern, err := taskBillingFXFactor(task.PrivateData.BillingContext); err == nil && modern {
+			other.SetAdmin("billing_stage", "completion_tokens")
+			applied := map[string]any{"pure_ratio": projection.groupRatio, "effective_ratio": projection.groupRatio * (task.PrivateData.BillingContext.BillingFX.Rate / billingFXRateDenomination)}
+			if projection.hasSpecialRatio {
+				applied["special_ratio"] = projection.specialRatio
+			}
+			other.SetAdmin("billing_applied_group", applied)
+		}
+	} else if _, modern, err := taskBillingFXFactor(task.PrivateData.BillingContext); err == nil && modern {
+		switch {
+		case reason == "任务用量表达式结算":
+			other.SetAdmin("billing_stage", "completion_tiered")
+			bc := task.PrivateData.BillingContext
+			if bc.TieredSnapshot != nil {
+				applied := map[string]any{"pure_ratio": bc.SubmitGroup.PureRatio, "effective_ratio": bc.TieredSnapshot.GroupRatio}
+				if bc.SubmitGroup.HasSpecialRatio {
+					applied["special_ratio"] = *bc.SubmitGroup.SpecialRatio
+				}
+				other.SetAdmin("billing_applied_group", applied)
+			}
+		case reason == "adaptor计费调整":
+			other.SetAdmin("billing_stage", "adaptor_quota")
+		}
+	}
 	other.SetPublic("task_id", task.TaskID)
 	other.SetPublic("pre_consumed_quota", preConsumedQuota)
 	other.SetPublic("actual_quota", actualQuota)
@@ -332,6 +459,11 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 // 与预扣费的差额进行补扣或退还。支持钱包和订阅计费来源。
 func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTokens int) bool {
 	if totalTokens <= 0 {
+		return false
+	}
+	factor, modern, err := taskBillingFXFactor(task.PrivateData.BillingContext)
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("任务 %s 计费 FX 历史无效: %s", task.TaskID, err.Error()))
 		return false
 	}
 
@@ -372,10 +504,31 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		otherMultiplier = priceData.OtherRatioMultiplier()
 	}
 
-	// 计算实际应扣费额度: totalTokens * modelRatio * groupRatio * otherMultiplier（饱和转换，防止溢出成负数）
-	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
+	// Modern tasks retain the submit FX factor, while model and group policy is
+	// intentionally selected at completion. Decimal factors avoid an unnecessary
+	// binary64 overflow before the checked quota conversion. F1 must retain the
+	// legacy binary64 multiplication order, including its integer boundaries.
+	var actualQuota int
+	var clamp *common.QuotaClamp
+	if modern && factor != 1 {
+		quota := decimal.NewFromInt(int64(totalTokens)).
+			Mul(decimal.NewFromFloat(modelRatio)).
+			Mul(decimal.NewFromFloat(finalGroupRatio)).
+			Mul(decimal.NewFromFloat(otherMultiplier)).
+			Mul(decimal.NewFromFloat(factor))
+		quotaFloat, _ := quota.Float64()
+		actualQuota, clamp = common.QuotaFromFloatChecked(quotaFloat)
+	} else {
+		actualQuota, clamp = common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
+	}
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
-	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)
+	// Completion fields are current pricing policy, while billing_submit_group
+	// in admin_info remains immutable submission provenance.
+	projection := (*taskBillingProjection)(nil)
+	if modern {
+		projection = &taskBillingProjection{modelRatio: modelRatio, groupRatio: finalGroupRatio, hasSpecialRatio: hasUserGroupRatio, specialRatio: userGroupRatio}
+	}
+	recalculateTaskQuota(ctx, task, actualQuota, reason, projection, clamp)
 	return true
 }

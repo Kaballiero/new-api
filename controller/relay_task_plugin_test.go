@@ -12,11 +12,15 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relaykittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -225,6 +229,126 @@ func TestExecuteTaskSubmissionPersistsPinnedPluginProvenance(t *testing.T) {
 	require.NotNil(t, stored.PrivateData.Execution.TaskPlugin.Author)
 	assert.Equal(t, "Community Author", stored.PrivateData.Execution.TaskPlugin.Author.Name)
 	assert.Equal(t, "upstream-private", stored.PrivateData.UpstreamTaskID)
+}
+
+func TestExecuteTaskSubmissionPersistsAcceptedBillingFXContext(t *testing.T) {
+	events := make([]string, 0, 3)
+	database := setupTaskSubmissionDatabase(t, true, &events)
+	previousLogConsumeEnabled := common.LogConsumeEnabled
+	common.LogConsumeEnabled = false
+	t.Cleanup(func() { common.LogConsumeEnabled = previousLogConsumeEnabled })
+
+	billing := &taskSubmissionTestBilling{events: &events}
+	info := taskSubmissionRelayInfo(billing)
+	info.BillingFXRate = 90
+	info.BillingFXFactor = 0.9
+	info.PriceData = types.PriceData{
+		ModelPrice:        2,
+		GroupRatioInfo:    types.GroupRatioInfo{GroupRatio: 1.45, GroupSpecialRatio: 1.45, HasSpecialRatio: true},
+		BillingGroupRatio: 1.305,
+	}
+
+	outcome, taskErr := executeTaskSubmissionWith(taskSubmissionTestContext(), info, func(*gin.Context, *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+		return &relay.TaskSubmitResult{UpstreamTaskID: "upstream-private", Platform: constant.TaskPlatform("plugin")}, nil
+	})
+	require.Nil(t, taskErr)
+	require.NotNil(t, outcome)
+
+	var stored model.Task
+	require.NoError(t, database.Where("task_id = ?", "task_public").First(&stored).Error)
+	context := stored.PrivateData.BillingContext
+	require.NotNil(t, context)
+	require.NotNil(t, context.BillingFX)
+	assert.Equal(t, 90.0, context.BillingFX.Rate)
+	assert.Equal(t, 0.9, context.BillingFX.Rate/100)
+	assert.Equal(t, 1.305, context.GroupRatio)
+	require.NotNil(t, context.SubmitGroup)
+	assert.Equal(t, 1.45, context.SubmitGroup.PureRatio)
+	assert.True(t, context.SubmitGroup.HasSpecialRatio)
+	require.NotNil(t, context.SubmitGroup.SpecialRatio)
+	assert.Equal(t, 1.45, *context.SubmitGroup.SpecialRatio)
+}
+
+func TestResponsesPricingAdmissionUsesExistingFallbackPresenter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	database := setupRoutingRetryTestDatabase(t, "default", 1)
+	seedNativeRouteFX(t, database)
+	previousModelRatios := ratio_setting.ModelRatio2JSONString()
+	previousModelPrices := ratio_setting.ModelPrice2JSONString()
+	previousCustomRate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"kling-v1":1e20}`))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"responses-pricing":1e20}`))
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	t.Cleanup(func() {
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousCustomRate
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousModelRatios))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousModelPrices))
+	})
+	_, err := pluginruntime.DefaultRegistry.Register(`
+export const meta = {apiVersion:1,key:"responses-pricing",name:"Responses Pricing",version:"1.0.0",author:{name:"Test"},models:["responses-pricing"],fetchMode:"per_task",protocols:[{name:"openai_responses",supports:["sync","stream"]}]};
+export function buildSubmitRequest(ctx){ return {url:ctx.baseUrl+"/submit",method:"POST",body:{model:ctx.model},action:"text_to_video"}; }
+export function parseSubmitResponse(){ return {taskId:"private"}; }
+export function buildQueryRequest(){ return {url:"https://provider.invalid"}; }
+export function parseTaskResult(){ return {status:"SUCCESS"}; }
+export const protocols = {openai_responses:{decodeRequest:function(ctx){ctx.requestBody=ctx.body.value; return {kind:"submit",model:ctx.body.value.model,action:"text_to_video"};},renderEvents:function(){return {events:[],done:false};},renderFinal:function(){return {};}}};
+`, pluginruntime.Options{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, pluginruntime.DefaultRegistry.Unregister("responses-pricing")) })
+	channelSetting := `{"task_plugin_key":"responses-pricing"}`
+	baseURL := "http://127.0.0.1"
+	channel := &model.Channel{Id: 4453, Type: constant.ChannelTypeTaskPlugin, Name: "responses-pricing", Key: "sk-test", BaseURL: &baseURL, Status: common.ChannelStatusEnabled, Models: "responses-pricing", Group: "default", Setting: &channelSetting}
+
+	for _, testCase := range []struct {
+		name, model, body, message string
+		claimed                    bool
+		customRate                 float64
+		wantStatus                 int
+	}{
+		{name: "unclaimed clamp", model: "kling-v1", body: `{"model":"kling-v1","input":"x"}`, message: "insufficient quota", wantStatus: http.StatusForbidden, customRate: 100},
+		{name: "unclaimed FX configuration", model: "kling-v1", body: `{"model":"kling-v1","input":"x"}`, message: "model cost accounting configuration is invalid", wantStatus: http.StatusServiceUnavailable, customRate: 1},
+		{name: "claimed JSON clamp", model: "responses-pricing", body: `{"model":"responses-pricing","prompt":"x"}`, message: "Task protocol request was denied", claimed: true, wantStatus: http.StatusForbidden, customRate: 100},
+		{name: "claimed stream FX configuration", model: "responses-pricing", body: `{"model":"responses-pricing","prompt":"x","stream":true}`, message: "Task protocol request failed", claimed: true, wantStatus: http.StatusServiceUnavailable, customRate: 1},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = testCase.customRate
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(testCase.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			common.SetContextKey(c, constant.ContextKeyUserId, 4451)
+			common.SetContextKey(c, constant.ContextKeyTokenId, 4451)
+			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyTokenGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUserQuota, 1000)
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, testCase.model)
+
+			if !testCase.claimed {
+				RelayTaskPluginEndpoint(c, func(c *gin.Context) { Relay(c, relaykittypes.RelayFormatOpenAIResponses) })
+			} else {
+				router := gin.New()
+				router.POST("/v1/responses", func(c *gin.Context) {
+					common.SetContextKey(c, constant.ContextKeyUserId, 4451)
+					common.SetContextKey(c, constant.ContextKeyTokenId, 4451)
+					common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+					common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+					common.SetContextKey(c, constant.ContextKeyTokenGroup, "default")
+					common.SetContextKey(c, constant.ContextKeyUserQuota, 1000)
+					common.SetContextKey(c, constant.ContextKeyOriginalModel, testCase.model)
+				}, middleware.PinTaskPluginEndpoint(), middleware.PrepareTaskPluginEndpoint(), func(c *gin.Context) {
+					require.Nil(t, middleware.SetupContextForSelectedChannel(c, channel, testCase.model))
+					RelayTaskPluginEndpoint(c, func(c *gin.Context) { Relay(c, relaykittypes.RelayFormatOpenAIResponses) })
+				})
+				router.ServeHTTP(recorder, c.Request)
+			}
+
+			require.Equal(t, testCase.wantStatus, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), testCase.message)
+			assert.NotContains(t, recorder.Body.String(), "QuotaRound")
+			assert.NotContains(t, recorder.Body.String(), "1e20")
+			assert.Empty(t, c.GetStringSlice("use_channel"))
+		})
+	}
 }
 
 func TestExecuteTaskSubmissionRefundsCancellationBeforeDurableBarrier(t *testing.T) {
