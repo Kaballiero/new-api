@@ -81,15 +81,16 @@ var manifest = map[string]map[string]respSpec{
 	"/api/user/group/batch": {"post": {Type: "BulkUpdateUserGroupResponse", Body: "BulkUpdateUserGroupRequest"}},
 
 	// === Pricing admin ===
-	"/api/user/self":         {"get": {Type: "User"}},
-	"/api/user/aff":          {"get": {Wrap: "ApiResponseOfString"}},
-	"/api/user/groups":       {"get": {Wrap: "ApiResponseOfStringList"}},
-	"/api/user/self/groups":  {"get": {Wrap: "ApiResponseOfStringList"}},
-	"/api/user/aff_transfer": {"post": {Empty: true}},
-	"/api/user/amount":       {"post": {Custom: "MessageEnvelopeOfString"}},
-	"/api/user/setting":      {"put": {Empty: true}},
-	"/api/user/token":        {"get": {Wrap: "ApiResponseOfString"}},
-	"/api/user/models":       {"get": {Wrap: "ApiResponseOfStringList"}},
+	"/api/user/self":              {"get": {Type: "User"}},
+	"/api/user/effective-pricing": {"get": {Custom: "EffectivePricingResponse"}},
+	"/api/user/aff":               {"get": {Wrap: "ApiResponseOfString"}},
+	"/api/user/groups":            {"get": {Wrap: "ApiResponseOfStringList"}},
+	"/api/user/self/groups":       {"get": {Wrap: "ApiResponseOfStringList"}},
+	"/api/user/aff_transfer":      {"post": {Empty: true}},
+	"/api/user/amount":            {"post": {Custom: "MessageEnvelopeOfString"}},
+	"/api/user/setting":           {"put": {Empty: true}},
+	"/api/user/token":             {"get": {Wrap: "ApiResponseOfString"}},
+	"/api/user/models":            {"get": {Wrap: "ApiResponseOfStringList"}},
 
 	// === Passkey ===
 	"/api/user/passkey":                 {"get": {Wrap: "ApiResponseOfObject"}},
