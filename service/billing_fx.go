@@ -28,6 +28,17 @@ type BillingFXStatus struct {
 	USDRate   *float64 `json:"usd_rate,omitempty"`
 }
 
+// BillingFXBasis is the validated read-only FX basis used by both consumption
+// admission and effective pricing display.
+type BillingFXBasis struct {
+	USDRate            float64 `json:"usd_rate"`
+	Factor             float64 `json:"factor"`
+	Source             string  `json:"source"`
+	PublicationVersion int64   `json:"publication_version"`
+	EffectiveAt        int64   `json:"effective_at"`
+	FetchedAt          int64   `json:"fetched_at"`
+}
+
 // CurrentBillingFXStatus reads the already-published RAM snapshot for status
 // display. It never falls back to a configured or nominal rate.
 func CurrentBillingFXStatus() BillingFXStatus {
@@ -40,6 +51,49 @@ func CurrentBillingFXStatus() BillingFXStatus {
 		return BillingFXStatus{}
 	}
 	return BillingFXStatus{Available: true, USDRate: &rate}
+}
+
+// CurrentBillingFXFactor returns the currently published billing factor for
+// read-only pricing projections. It shares the same snapshot and accounting
+// denominator as consumption, without creating or mutating a relay session.
+func CurrentBillingFXFactor() (float64, error) {
+	basis, err := CurrentBillingFXBasis()
+	if err != nil {
+		return 0, err
+	}
+	return basis.Factor, nil
+}
+
+// CurrentBillingFXBasis returns the same validated FX basis that consumption
+// captures, without mutating a relay session.
+func CurrentBillingFXBasis() (BillingFXBasis, error) {
+	return currentBillingFXBasis()
+}
+
+func currentBillingFXBasis() (BillingFXBasis, error) {
+	if err := validateBillingFXAccounting(); err != nil {
+		return BillingFXBasis{}, err
+	}
+	snapshot, err := model.CurrentModelCostFX(modelCostFXSource)
+	if err != nil {
+		return BillingFXBasis{}, billingFXError("model cost FX is unavailable")
+	}
+	rate, ok := snapshot.Rates["USD"]
+	if !ok || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return BillingFXBasis{}, billingFXError("model cost FX basis is invalid")
+	}
+	factor := rate / billingFXRateDenomination
+	if factor <= 0 || math.IsNaN(factor) || math.IsInf(factor, 0) {
+		return BillingFXBasis{}, billingFXError("model cost FX basis is invalid")
+	}
+	return BillingFXBasis{
+		USDRate:            rate,
+		Factor:             factor,
+		Source:             snapshot.Source,
+		PublicationVersion: snapshot.Version,
+		EffectiveAt:        snapshot.EffectiveAt,
+		FetchedAt:          snapshot.FetchedAt,
+	}, nil
 }
 
 // BillingFXError is a trusted host accounting admission failure. Its message
@@ -109,35 +163,27 @@ func CaptureBillingFX(info *relaycommon.RelayInfo) (float64, error) {
 	if info == nil {
 		return 0, billingFXError("model cost FX basis is invalid")
 	}
-	if err := validateBillingFXAccounting(); err != nil {
-		return 0, err
-	}
 	if info.BillingFXFactor != 0 {
+		if err := validateBillingFXAccounting(); err != nil {
+			return 0, err
+		}
 		if info.BillingFXRate <= 0 || math.IsNaN(info.BillingFXRate) || math.IsInf(info.BillingFXRate, 0) ||
 			info.BillingFXRate/billingFXRateDenomination != info.BillingFXFactor {
 			return 0, billingFXError("captured model cost FX basis is invalid")
 		}
 		return info.BillingFXFactor, nil
 	}
-	snapshot, err := model.CurrentModelCostFX(modelCostFXSource)
+	basis, err := currentBillingFXBasis()
 	if err != nil {
-		return 0, billingFXError("model cost FX is unavailable")
+		return 0, err
 	}
-	rate, ok := snapshot.Rates["USD"]
-	if !ok || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
-		return 0, billingFXError("model cost FX basis is invalid")
-	}
-	factor := rate / billingFXRateDenomination
-	if factor <= 0 || math.IsNaN(factor) || math.IsInf(factor, 0) {
-		return 0, billingFXError("model cost FX basis is invalid")
-	}
-	info.BillingFXRate = rate
-	info.BillingFXFactor = factor
-	info.BillingFXSource = snapshot.Source
-	info.BillingFXPublicationVersion = snapshot.Version
-	info.BillingFXEffectiveAt = snapshot.EffectiveAt
-	info.BillingFXFetchedAt = snapshot.FetchedAt
-	return factor, nil
+	info.BillingFXRate = basis.USDRate
+	info.BillingFXFactor = basis.Factor
+	info.BillingFXSource = basis.Source
+	info.BillingFXPublicationVersion = basis.PublicationVersion
+	info.BillingFXEffectiveAt = basis.EffectiveAt
+	info.BillingFXFetchedAt = basis.FetchedAt
+	return basis.Factor, nil
 }
 
 // ApplyBillingFX composes the selected pure group ratio with the captured

@@ -1,12 +1,14 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -179,6 +181,100 @@ func decodeUserModelsResponse(t *testing.T, recorder *httptest.ResponseRecorder)
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
 	require.True(t, payload.Success)
 	return payload.Data
+}
+
+func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.ModelCostFXRow{}))
+
+	oldGroups := setting.UserUsableGroups2JSONString()
+	oldGroupRatio := ratio_setting.GroupRatio2JSONString()
+	oldGroupGroupRatio := ratio_setting.GroupGroupRatio2JSONString()
+	oldModelRatio := ratio_setting.ModelRatio2JSONString()
+	oldModelPrice := ratio_setting.ModelPrice2JSONString()
+	oldCompletionRatio := ratio_setting.CompletionRatio2JSONString()
+	oldQuotaPerUnit := common.QuotaPerUnit
+	oldExchangeRate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(oldGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroupRatio))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(oldGroupGroupRatio))
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(oldModelRatio))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(oldModelPrice))
+		require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(oldCompletionRatio))
+		common.QuotaPerUnit = oldQuotaPerUnit
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = oldExchangeRate
+		model.InvalidatePricingCache()
+	})
+
+	common.QuotaPerUnit = 500000
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":2}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"vip":1.5}}`))
+	now := time.Now().Unix()
+	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+		Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90},
+	}, 0))
+
+	require.NoError(t, db.Create(&model.User{Id: 2101, Username: "effective-pricing-user", Password: "password", Group: "default", Status: common.UserStatusEnabled}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "zz-effective-ratio", ChannelId: 1, Enabled: true},
+		{Group: "vip", Model: "zz-effective-ratio", ChannelId: 2, Enabled: true},
+		{Group: "vip", Model: "zz-effective-fixed", ChannelId: 2, Enabled: true},
+		{Group: "vip", Model: "zz-effective-expr", ChannelId: 2, Enabled: true},
+	}).Error)
+	withTieredBillingConfig(t, map[string]string{"zz-effective-expr": "tiered_expr"}, map[string]string{"zz-effective-expr": `tier("base", p * 2 + c * 6)`})
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"zz-effective-ratio":3}`))
+	require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(`{"zz-effective-ratio":4}`))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"zz-effective-fixed":2}`))
+	model.InvalidatePricingCache()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/effective-pricing", nil)
+	c.Set("id", 2101)
+
+	GetEffectivePricing(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var envelope struct {
+		Success bool                     `json:"success"`
+		Data    effectivePricingResponse `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &envelope))
+	require.True(t, envelope.Success)
+	assert.Equal(t, "default", envelope.Data.UserGroup)
+	assert.Equal(t, 0.9, envelope.Data.FX.Factor)
+
+	models := map[string]effectivePricingModel{}
+	for _, item := range envelope.Data.Data {
+		models[item.ModelName] = item
+	}
+	ratioModel := models["zz-effective-ratio"]
+	require.Len(t, ratioModel.GroupPrices, 2)
+	groups := map[string]effectiveGroupPricing{}
+	for _, price := range ratioModel.GroupPrices {
+		groups[price.UsingGroup] = price
+	}
+	assert.Equal(t, 0.9, groups["default"].EffectiveBillingRatio)
+	assert.Equal(t, 1.35, groups["vip"].EffectiveBillingRatio, "special override replaces vip base ratio before FX")
+	assert.InEpsilon(t, 3*1.35*200, groups["vip"].UnitPrices[0].AmountRub, 1e-12)
+	assert.InEpsilon(t, 3*1.35*200*4, groups["vip"].UnitPrices[1].AmountRub, 1e-12)
+
+	fixed := models["zz-effective-fixed"]
+	require.Len(t, fixed.GroupPrices, 1)
+	assert.Equal(t, "vip", fixed.GroupPrices[0].UsingGroup)
+	assert.InEpsilon(t, 2*100*1.35, fixed.GroupPrices[0].UnitPrices[0].AmountRub, 1e-12)
+
+	expr := models["zz-effective-expr"]
+	require.Len(t, expr.GroupPrices, 1)
+	require.NotNil(t, expr.GroupPrices[0].Formula)
+	assert.Equal(t, "formula", expr.GroupPrices[0].Status)
+	assert.Equal(t, "token_expression", expr.GroupPrices[0].Formula.Kind)
+	assert.Equal(t, `tier("base", p * 2 + c * 6)`, expr.GroupPrices[0].Formula.Expression)
+	assert.InEpsilon(t, 500000*1.35/1000000, expr.GroupPrices[0].Formula.OutputToQuotaFactor, 1e-12)
+	assert.InEpsilon(t, 1.35/10000, expr.GroupPrices[0].Formula.OutputToRubFactor, 1e-12)
 }
 
 func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
