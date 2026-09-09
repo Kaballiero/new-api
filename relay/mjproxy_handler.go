@@ -205,6 +205,10 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 
 	priceData, err := helper.ModelPriceHelperPerCall(c, info)
 	if err != nil {
+		if service.IsQuotaClamp(err) {
+			service.BillingAdmissionError(c, info, err)
+			return &dto.MidjourneyResponse{Code: 4, Description: "quota_not_enough"}
+		}
 		return &dto.MidjourneyResponse{
 			Code:        4,
 			Description: err.Error(),
@@ -518,6 +522,10 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 
 	priceData, err := helper.ModelPriceHelperPerCall(c, relayInfo)
 	if err != nil {
+		if service.IsQuotaClamp(err) {
+			service.BillingAdmissionError(c, relayInfo, err)
+			return &dto.MidjourneyResponse{Code: 4, Description: "quota_not_enough"}
+		}
 		return &dto.MidjourneyResponse{
 			Code:        4,
 			Description: err.Error(),

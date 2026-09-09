@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -103,7 +104,14 @@ func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.B
 		return nil, nil
 	}
 
-	groupRatio := relayInfo.PriceData.GroupRatioInfo.GroupRatio
+	groupRatio := relayInfo.PriceData.EffectiveGroupRatio()
+	if relayInfo.BillingFXFactor != 0 {
+		var err error
+		groupRatio, err = ApplyBillingFX(relayInfo.PriceData.GroupRatioInfo.GroupRatio, relayInfo.BillingFXFactor)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if snap.GroupRatio == groupRatio {
 		return snap, nil
 	}
@@ -125,6 +133,9 @@ func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.B
 func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 	snap, err := refreshTieredBillingGroup(relayInfo)
 	if err != nil {
+		if admissionErr := BillingAdmissionError(c, relayInfo, err); admissionErr != nil {
+			return admissionErr
+		}
 		return types.NewErrorWithStatusCode(
 			err,
 			types.ErrorCodeModelPriceError,
@@ -134,6 +145,9 @@ func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon
 	}
 	if snap == nil {
 		return nil
+	}
+	if relayInfo.QuotaClamp != nil {
+		return BillingAdmissionError(c, relayInfo, relayInfo.QuotaClamp)
 	}
 	if snap.GroupRatio == 0 {
 		// Paid-to-free keeps FreeModel as-is: FreeModel means "pre-consume was
@@ -161,9 +175,21 @@ func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon
 //   - ok=true, quota, result  when tiered billing applies
 //   - ok=false, 0, nil        when it doesn't (caller should fall through to existing logic)
 func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams) (ok bool, quota int, result *billingexpr.TieredResult) {
+	ok, quota, result, _ = tryTieredSettle(relayInfo, params, false)
+	return ok, quota, result
+}
+
+// TryTieredWssSettle keeps WSS from treating an invalid final tiered result as
+// a valid replacement quota. Ordinary HTTP callers retain TryTieredSettle's
+// historical estimate fallback on expression errors.
+func TryTieredWssSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams) (ok bool, quota int, result *billingexpr.TieredResult, err error) {
+	return tryTieredSettle(relayInfo, params, true)
+}
+
+func tryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenParams, rejectInvalidFinal bool) (ok bool, quota int, result *billingexpr.TieredResult, err error) {
 	snap := relayInfo.TieredBillingSnapshot
 	if snap == nil || snap.BillingMode != "tiered_expr" {
-		return false, 0, nil
+		return false, 0, nil, nil
 	}
 
 	requestInput := billingexpr.RequestInput{}
@@ -173,17 +199,23 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 
 	tr, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, requestInput)
 	if err != nil {
+		if rejectInvalidFinal {
+			return true, 0, nil, fmt.Errorf("invalid final tiered quota: %w", err)
+		}
 		quota = relayInfo.FinalPreConsumedQuota
 		if quota <= 0 {
 			quota = snap.EstimatedQuotaAfterGroup
 		}
-		return true, quota, nil
+		return true, quota, nil, nil
 	}
 
 	// Surface any single-request saturation from settlement onto RelayInfo so the
 	// consume log records it under admin_info, regardless of which caller
 	// (text, audio, WSS) consumes the returned quota. First non-nil wins.
 	noteQuotaClamp(relayInfo, tr.Clamp)
+	if rejectInvalidFinal && tr.Clamp != nil {
+		return true, 0, nil, tr.Clamp
+	}
 
-	return true, tr.ActualQuotaAfterGroup, &tr
+	return true, tr.ActualQuotaAfterGroup, &tr, nil
 }

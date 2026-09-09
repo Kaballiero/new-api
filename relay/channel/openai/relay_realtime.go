@@ -1,7 +1,11 @@
 package openai
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -11,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
-	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -25,40 +28,61 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 	clientConn := info.ClientWs
 	targetConn := info.TargetWs
 
-	clientClosed := make(chan struct{})
-	targetClosed := make(chan struct{})
-	sendChan := make(chan []byte, 100)
-	receiveChan := make(chan []byte, 100)
-	errChan := make(chan error, 2)
-
-	usage := &dto.RealtimeUsage{}
-	localUsage := &dto.RealtimeUsage{}
+	done := make(chan struct{})
+	result := make(chan error, 2)
+	var stopOnce sync.Once
+	stop := func() {
+		stopOnce.Do(func() {
+			close(done)
+			_ = targetConn.Close()
+			_ = clientConn.Close()
+		})
+	}
+	var readers sync.WaitGroup
+	var localMu sync.Mutex
+	localUsage := dto.RealtimeUsage{}
 	sumUsage := &dto.RealtimeUsage{}
 
-	gopool.Go(func() {
+	consume := func(usage *dto.RealtimeUsage) error {
+		if usage == nil || usage.TotalTokens == 0 {
+			return nil
+		}
+		return preConsumeUsage(c, info, usage, sumUsage)
+	}
+
+	readers.Add(1)
+	go func() {
+		defer readers.Done()
+		var readerErr error
 		defer func() {
 			if r := recover(); r != nil {
-				errChan <- fmt.Errorf("panic in client reader: %v", r)
+				readerErr = fmt.Errorf("panic in client reader: %v", r)
 			}
+			result <- readerErr
 		}()
 		for {
 			select {
-			case <-c.Done():
+			case <-done:
 				return
 			default:
 				_, message, err := clientConn.ReadMessage()
 				if err != nil {
-					if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-						errChan <- fmt.Errorf("error reading from client: %v", err)
+					select {
+					case <-done:
+						return
+					default:
 					}
-					close(clientClosed)
+					if isNormalRealtimeClose(err) {
+						return
+					}
+					readerErr = fmt.Errorf("error reading client websocket: %w", err)
 					return
 				}
 
 				realtimeEvent := &dto.RealtimeEvent{}
 				err = common.Unmarshal(message, realtimeEvent)
 				if err != nil {
-					errChan <- fmt.Errorf("error unmarshalling message: %v", err)
+					readerErr = fmt.Errorf("error unmarshalling client message: %w", err)
 					return
 				}
 
@@ -72,96 +96,90 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 
 				textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
 				if err != nil {
-					errChan <- fmt.Errorf("error counting text token: %v", err)
+					readerErr = fmt.Errorf("error counting client text token: %w", err)
 					return
 				}
 				logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
+				localMu.Lock()
 				localUsage.TotalTokens += textToken + audioToken
 				localUsage.InputTokens += textToken + audioToken
 				localUsage.InputTokenDetails.TextTokens += textToken
 				localUsage.InputTokenDetails.AudioTokens += audioToken
+				localMu.Unlock()
 
 				err = helper.WssString(c, targetConn, string(message))
 				if err != nil {
-					errChan <- fmt.Errorf("error writing to target: %v", err)
+					readerErr = fmt.Errorf("error writing to target: %w", err)
 					return
-				}
-
-				select {
-				case sendChan <- message:
-				default:
 				}
 			}
 		}
-	})
+	}()
 
-	gopool.Go(func() {
+	readers.Add(1)
+	go func() {
+		defer readers.Done()
+		var readerErr error
 		defer func() {
 			if r := recover(); r != nil {
-				errChan <- fmt.Errorf("panic in target reader: %v", r)
+				readerErr = fmt.Errorf("panic in target reader: %v", r)
 			}
+			result <- readerErr
 		}()
 		for {
 			select {
-			case <-c.Done():
+			case <-done:
 				return
 			default:
 				_, message, err := targetConn.ReadMessage()
 				if err != nil {
-					if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-						errChan <- fmt.Errorf("error reading from target: %v", err)
+					select {
+					case <-done:
+						return
+					default:
 					}
-					close(targetClosed)
+					if isNormalRealtimeClose(err) {
+						return
+					}
+					readerErr = fmt.Errorf("error reading target websocket: %w", err)
 					return
 				}
 				info.SetFirstResponseTime()
 				realtimeEvent := &dto.RealtimeEvent{}
 				err = common.Unmarshal(message, realtimeEvent)
 				if err != nil {
-					errChan <- fmt.Errorf("error unmarshalling message: %v", err)
+					readerErr = fmt.Errorf("error unmarshalling target message: %w", err)
 					return
 				}
 
 				if realtimeEvent.Type == dto.RealtimeEventTypeResponseDone {
 					realtimeUsage := realtimeEvent.Response.Usage
+					var contribution dto.RealtimeUsage
 					if realtimeUsage != nil {
-						usage.TotalTokens += realtimeUsage.TotalTokens
-						usage.InputTokens += realtimeUsage.InputTokens
-						usage.OutputTokens += realtimeUsage.OutputTokens
-						usage.InputTokenDetails.AudioTokens += realtimeUsage.InputTokenDetails.AudioTokens
-						usage.InputTokenDetails.CachedTokens += realtimeUsage.InputTokenDetails.CachedTokens
-						usage.InputTokenDetails.TextTokens += realtimeUsage.InputTokenDetails.TextTokens
-						usage.OutputTokenDetails.AudioTokens += realtimeUsage.OutputTokenDetails.AudioTokens
-						usage.OutputTokenDetails.TextTokens += realtimeUsage.OutputTokenDetails.TextTokens
-						err := preConsumeUsage(c, info, usage, sumUsage)
-						if err != nil {
-							errChan <- fmt.Errorf("error consume usage: %v", err)
-							return
-						}
-						// 本次计费完成，清除
-						usage = &dto.RealtimeUsage{}
-
-						localUsage = &dto.RealtimeUsage{}
+						contribution = *realtimeUsage
+						localMu.Lock()
+						localUsage = dto.RealtimeUsage{}
+						localMu.Unlock()
 					} else {
 						textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
 						if err != nil {
-							errChan <- fmt.Errorf("error counting text token: %v", err)
+							readerErr = fmt.Errorf("error counting target text token: %w", err)
 							return
 						}
 						logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
+						localMu.Lock()
 						localUsage.TotalTokens += textToken + audioToken
 						info.IsFirstRequest = false
 						localUsage.InputTokens += textToken + audioToken
 						localUsage.InputTokenDetails.TextTokens += textToken
 						localUsage.InputTokenDetails.AudioTokens += audioToken
-						err = preConsumeUsage(c, info, localUsage, sumUsage)
-						if err != nil {
-							errChan <- fmt.Errorf("error consume usage: %v", err)
-							return
-						}
-						// 本次计费完成，清除
-						localUsage = &dto.RealtimeUsage{}
-						// print now usage
+						contribution = localUsage
+						localUsage = dto.RealtimeUsage{}
+						localMu.Unlock()
+					}
+					if err := consume(&contribution); err != nil {
+						readerErr = fmt.Errorf("error consume usage: %w", err)
+						return
 					}
 					logger.LogInfo(c, fmt.Sprintf("realtime streaming sumUsage: %v", sumUsage))
 					logger.LogInfo(c, fmt.Sprintf("realtime streaming localUsage: %v", localUsage))
@@ -177,50 +195,63 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 				} else {
 					textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
 					if err != nil {
-						errChan <- fmt.Errorf("error counting text token: %v", err)
+						readerErr = fmt.Errorf("error counting target text token: %w", err)
 						return
 					}
 					logger.LogInfo(c, fmt.Sprintf("type: %s, textToken: %d, audioToken: %d", realtimeEvent.Type, textToken, audioToken))
+					localMu.Lock()
 					localUsage.TotalTokens += textToken + audioToken
 					localUsage.OutputTokens += textToken + audioToken
 					localUsage.OutputTokenDetails.TextTokens += textToken
 					localUsage.OutputTokenDetails.AudioTokens += audioToken
+					localMu.Unlock()
 				}
 
 				err = helper.WssString(c, clientConn, string(message))
 				if err != nil {
-					errChan <- fmt.Errorf("error writing to client: %v", err)
+					readerErr = fmt.Errorf("error writing to client: %w", err)
 					return
-				}
-
-				select {
-				case receiveChan <- message:
-				default:
 				}
 			}
 		}
-	})
+	}()
 
+	var terminalErr error
+	remainingReaderResults := 2
 	select {
-	case <-clientClosed:
-	case <-targetClosed:
-	case err := <-errChan:
-		//return service.OpenAIErrorWrapper(err, "realtime_error", http.StatusInternalServerError), nil
-		logger.LogError(c, "realtime error: "+err.Error())
+	case terminalErr = <-result:
+		remainingReaderResults--
 	case <-c.Done():
+		terminalErr = c.Err()
+		if terminalErr == nil {
+			terminalErr = context.Canceled
+		}
+	}
+	stop()
+	readers.Wait()
+	for range remainingReaderResults {
+		terminalErr = errors.Join(terminalErr, <-result)
+	}
+	if terminalErr != nil {
+		logger.LogError(c, "realtime error: "+terminalErr.Error())
 	}
 
-	if usage.TotalTokens != 0 {
-		_ = preConsumeUsage(c, info, usage, sumUsage)
+	localMu.Lock()
+	tail := localUsage
+	localUsage = dto.RealtimeUsage{}
+	localMu.Unlock()
+	if err := consume(&tail); err != nil {
+		terminalErr = errors.Join(terminalErr, fmt.Errorf("error consume terminal usage: %w", err))
 	}
 
-	if localUsage.TotalTokens != 0 {
-		_ = preConsumeUsage(c, info, localUsage, sumUsage)
+	if terminalErr != nil {
+		return types.NewError(terminalErr, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry()), sumUsage
 	}
-
-	// check usage total tokens, if 0, use local usage
-
 	return nil, sumUsage
+}
+
+func isNormalRealtimeClose(err error) bool {
+	return errors.Is(err, io.EOF) || websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway)
 }
 
 func preConsumeUsage(ctx *gin.Context, info *relaycommon.RelayInfo, usage *dto.RealtimeUsage, totalUsage *dto.RealtimeUsage) error {
@@ -236,7 +267,8 @@ func preConsumeUsage(ctx *gin.Context, info *relaycommon.RelayInfo, usage *dto.R
 	totalUsage.InputTokenDetails.AudioTokens += usage.InputTokenDetails.AudioTokens
 	totalUsage.OutputTokenDetails.TextTokens += usage.OutputTokenDetails.TextTokens
 	totalUsage.OutputTokenDetails.AudioTokens += usage.OutputTokenDetails.AudioTokens
-	// clear usage
-	err := service.PreWssConsumeQuota(ctx, info, usage)
-	return err
+	// The observation belongs to this event even if its provisional debit is
+	// refused. Callers clear their contribution before returning the error so a
+	// terminal tail cannot count it a second time.
+	return service.PreWssConsumeQuota(ctx, info, usage)
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -15,16 +16,16 @@ const (
 	BillingSourceSubscription = "subscription"
 )
 
+type wssBillingSettler interface {
+	RecordWssDirectCharge(quota int, fundingApplied, tokenApplied bool)
+	SettleWss(actualQuota int) error
+}
+
 // PreConsumeBilling 根据用户计费偏好创建 BillingSession 并执行预扣费。
 // 会话存储在 relayInfo.Billing 上，供后续 Settle / Refund 使用。
 func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
 	if relayInfo != nil && relayInfo.QuotaClamp != nil {
-		return types.NewErrorWithStatusCode(
-			relayInfo.QuotaClamp,
-			types.ErrorCodeModelPriceError,
-			http.StatusBadRequest,
-			types.ErrOptionWithSkipRetry(),
-		)
+		return BillingAdmissionError(c, relayInfo, relayInfo.QuotaClamp)
 	}
 	if preConsumedQuota < 0 {
 		return types.NewErrorWithStatusCode(
@@ -91,5 +92,56 @@ func SettleBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuo
 	if quotaDelta != 0 {
 		return PostConsumeQuota(relayInfo, quotaDelta, relayInfo.FinalPreConsumedQuota, true)
 	}
+	return nil
+}
+
+// SettleWssBilling keeps ordinary HTTP settlement unchanged while making the
+// realtime provisional debits visible to the existing billing session.
+func SettleWssBilling(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, actualQuota int) error {
+	if relayInfo.Billing != nil {
+		wssSession, ok := relayInfo.Billing.(wssBillingSettler)
+		if !ok {
+			return SettleBilling(ctx, relayInfo, actualQuota)
+		}
+		return wssSession.SettleWss(actualQuota)
+	}
+	if !relayInfo.WssFundingSettled {
+		fundingDelta := actualQuota - relayInfo.WssFundingDirect
+		if relayInfo.BillingSource == BillingSourceSubscription {
+			if relayInfo.SubscriptionId == 0 {
+				return fmt.Errorf("subscription id is missing")
+			}
+			if err := model.PostConsumeUserSubscriptionDelta(relayInfo.SubscriptionId, int64(fundingDelta)); err != nil {
+				return err
+			}
+			relayInfo.SubscriptionPostDelta += int64(fundingDelta)
+		} else if fundingDelta > 0 {
+			if err := model.DecreaseUserQuota(relayInfo.UserId, fundingDelta, false); err != nil {
+				return err
+			}
+		} else if fundingDelta < 0 {
+			if err := model.IncreaseUserQuota(relayInfo.UserId, -fundingDelta, false); err != nil {
+				return err
+			}
+		}
+		relayInfo.WssFundingSettled = true
+	}
+	if relayInfo.IsPlayground {
+		return nil
+	}
+	if relayInfo.WssTokenSettled {
+		return nil
+	}
+	tokenDelta := actualQuota - relayInfo.WssTokenDirect
+	if tokenDelta > 0 {
+		if err := model.DecreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, tokenDelta); err != nil {
+			return err
+		}
+	} else if tokenDelta < 0 {
+		if err := model.IncreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, -tokenDelta); err != nil {
+			return err
+		}
+	}
+	relayInfo.WssTokenSettled = true
 	return nil
 }

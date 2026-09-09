@@ -56,6 +56,7 @@ type textQuotaSummary struct {
 	ImageRatio             float64
 	ModelRatio             float64
 	GroupRatio             float64
+	BillingGroupRatio      float64
 	ModelPrice             float64
 	CacheCreationRatio     float64
 	CacheCreationRatio5m   float64
@@ -146,7 +147,11 @@ func mergeToolSurchargeItems(items []ToolSurchargeItem) []ToolSurchargeItem {
 }
 
 func calculateTextToolCallSurcharge(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, summary *textQuotaSummary) decimal.Decimal {
-	dGroupRatio := decimal.NewFromFloat(summary.GroupRatio)
+	billingGroupRatio := summary.BillingGroupRatio
+	if billingGroupRatio == 0 && summary.GroupRatio != 0 {
+		billingGroupRatio = summary.GroupRatio
+	}
+	dGroupRatio := decimal.NewFromFloat(billingGroupRatio)
 	dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 
 	var items []ToolSurchargeItem
@@ -238,6 +243,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		ImageRatio:           relayInfo.PriceData.ImageRatio,
 		ModelRatio:           relayInfo.PriceData.ModelRatio,
 		GroupRatio:           relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+		BillingGroupRatio:    relayInfo.PriceData.EffectiveGroupRatio(),
 		ModelPrice:           relayInfo.PriceData.ModelPrice,
 		CacheCreationRatio:   relayInfo.PriceData.CacheCreationRatio,
 		CacheCreationRatio5m: relayInfo.PriceData.CacheCreation5mRatio,
@@ -290,7 +296,11 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	dCacheRatio := decimal.NewFromFloat(summary.CacheRatio)
 	dImageRatio := decimal.NewFromFloat(summary.ImageRatio)
 	dModelRatio := decimal.NewFromFloat(summary.ModelRatio)
-	dGroupRatio := decimal.NewFromFloat(summary.GroupRatio)
+	billingGroupRatio := summary.BillingGroupRatio
+	if billingGroupRatio == 0 && summary.GroupRatio != 0 {
+		billingGroupRatio = summary.GroupRatio
+	}
+	dGroupRatio := decimal.NewFromFloat(billingGroupRatio)
 	dModelPrice := decimal.NewFromFloat(summary.ModelPrice)
 	dCacheCreationRatio := decimal.NewFromFloat(summary.CacheCreationRatio)
 	dCacheCreationRatio5m := decimal.NewFromFloat(summary.CacheCreationRatio5m)

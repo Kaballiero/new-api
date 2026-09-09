@@ -128,6 +128,60 @@ func TestQuotaFromDecimalChecked(t *testing.T) {
 	}
 }
 
+func TestQuotaClampAuditMapIsJSONSafe(t *testing.T) {
+	cases := []struct {
+		name          string
+		convert       func() (int, *QuotaClamp)
+		kind          QuotaClampKind
+		original      any
+		expectedQuota int
+	}{
+		{
+			name:    "finite overflow",
+			convert: func() (int, *QuotaClamp) { return QuotaFromFloatChecked(float64(MaxQuota) + 1) },
+			kind:    QuotaClampOverflow, original: float64(MaxQuota + 1), expectedQuota: MaxQuota,
+		},
+		{
+			name:    "positive infinity",
+			convert: func() (int, *QuotaClamp) { return QuotaFromFloatChecked(math.Inf(1)) },
+			kind:    QuotaClampOverflow, original: "+Inf", expectedQuota: MaxQuota,
+		},
+		{
+			name:    "negative infinity",
+			convert: func() (int, *QuotaClamp) { return QuotaFromFloatChecked(math.Inf(-1)) },
+			kind:    QuotaClampUnderflow, original: "-Inf", expectedQuota: MinQuota,
+		},
+		{
+			name:    "nan",
+			convert: func() (int, *QuotaClamp) { return QuotaFromFloatChecked(math.NaN()) },
+			kind:    QuotaClampNaN, original: "NaN", expectedQuota: 0,
+		},
+		{
+			name: "decimal overflow",
+			convert: func() (int, *QuotaClamp) {
+				return QuotaFromDecimalChecked(decimal.RequireFromString("1e400"))
+			},
+			kind: QuotaClampOverflow, original: "+Inf", expectedQuota: MaxQuota,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			quota, clamp := testCase.convert()
+			require.NotNil(t, clamp)
+			assert.Equal(t, testCase.expectedQuota, quota)
+			assert.Equal(t, testCase.kind, clamp.Kind)
+			encoded, err := Marshal(clamp.AuditMap())
+			require.NoError(t, err)
+			var audit map[string]any
+			require.NoError(t, Unmarshal(encoded, &audit))
+			assert.Equal(t, testCase.original, audit["original"])
+			assert.Equal(t, string(testCase.kind), audit["kind"])
+			assert.Equal(t, float64(testCase.expectedQuota), audit["clamped"])
+		})
+	}
+}
+
 func TestWalletQuotaFromDecimalStrict(t *testing.T) {
 	quota, err := WalletQuotaFromDecimalStrict(decimal.NewFromInt(4_294_500_000))
 	require.NoError(t, err)

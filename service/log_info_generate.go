@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -97,6 +98,9 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
 	cacheTokens int, cacheRatio float64, modelPrice float64, userGroupRatio float64) *model.LogOther {
 	other := model.NewLogOther()
+	if relayInfo != nil {
+		appendBillingFXLogInfo(other, relayInfo, relayInfo.PriceData, "request")
+	}
 	other.SetPublic("model_ratio", modelRatio)
 	other.SetPublic("group_ratio", groupRatio)
 	other.SetPublic("completion_ratio", completionRatio)
@@ -126,6 +130,37 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
 	return other
+}
+
+// appendBillingFXLogInfo adds the captured basis and its pure/effective group
+// projection only to the existing admin scope. Public log fields keep their
+// historical pure group meaning.
+func appendBillingFXLogInfo(other *model.LogOther, relayInfo *relaycommon.RelayInfo, priceData hosttypes.PriceData, stage string) {
+	if other == nil || relayInfo == nil || relayInfo.BillingFXRate <= 0 || relayInfo.BillingFXFactor <= 0 ||
+		math.IsNaN(relayInfo.BillingFXRate) || math.IsInf(relayInfo.BillingFXRate, 0) ||
+		math.IsNaN(relayInfo.BillingFXFactor) || math.IsInf(relayInfo.BillingFXFactor, 0) ||
+		relayInfo.BillingFXRate/billingFXRateDenomination != relayInfo.BillingFXFactor ||
+		relayInfo.BillingFXSource == "" || relayInfo.BillingFXPublicationVersion < 0 ||
+		relayInfo.BillingFXEffectiveAt <= 0 || relayInfo.BillingFXFetchedAt <= 0 {
+		return
+	}
+	other.SetAdmin("billing_fx", map[string]any{
+		"schema_version":      1,
+		"source":              relayInfo.BillingFXSource,
+		"rate":                relayInfo.BillingFXRate,
+		"publication_version": relayInfo.BillingFXPublicationVersion,
+		"effective_at":        relayInfo.BillingFXEffectiveAt,
+		"fetched_at":          relayInfo.BillingFXFetchedAt,
+	})
+	other.SetAdmin("billing_stage", stage)
+	group := map[string]any{
+		"pure_ratio":      priceData.GroupRatioInfo.GroupRatio,
+		"effective_ratio": priceData.EffectiveGroupRatio(),
+	}
+	if priceData.GroupRatioInfo.HasSpecialRatio {
+		group["special_ratio"] = priceData.GroupRatioInfo.GroupSpecialRatio
+	}
+	other.SetAdmin("billing_applied_group", group)
 }
 
 func appendParamOverrideInfo(relayInfo *relaycommon.RelayInfo, other *model.LogOther) {
@@ -302,6 +337,7 @@ func GenerateClaudeOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 
 func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData hosttypes.PriceData) *model.LogOther {
 	other := model.NewLogOther()
+	appendBillingFXLogInfo(other, relayInfo, priceData, "submit")
 	other.SetPublic("model_price", priceData.ModelPrice)
 	other.SetPublic("group_ratio", priceData.GroupRatioInfo.GroupRatio)
 	if priceData.GroupRatioInfo.HasSpecialRatio {

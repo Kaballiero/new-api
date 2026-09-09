@@ -1,7 +1,9 @@
 package relay
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -25,7 +27,7 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 	//requestBody = bytes.NewBuffer(firstWssRequest.([]byte))
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
-	resp, err := adaptor.DoRequest(c, info, nil)
+	resp, err := adaptor.DoRequest(c, info, http.NoBody)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeDoRequestFailed)
 	}
@@ -35,12 +37,22 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 		defer info.TargetWs.Close()
 	}
 
-	usage, newAPIError := adaptor.DoResponse(c, nil, info)
-	if newAPIError != nil {
-		// reset status code 重置状态码
-		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
-		return newAPIError
+	usage, responseErr := adaptor.DoResponse(c, nil, info)
+	var settlementErr error
+	if usage != nil {
+		settlementErr = service.PostWssConsumeQuota(c, info, info.UpstreamModelName, usage.(*dto.RealtimeUsage), "")
 	}
-	service.PostWssConsumeQuota(c, info, info.UpstreamModelName, usage.(*dto.RealtimeUsage), "")
+	if responseErr != nil {
+		// reset status code 重置状态码
+		service.ResetStatusCode(responseErr, statusCodeMappingStr)
+		if settlementErr != nil {
+			responseErr.Err = errors.Join(responseErr.Err, fmt.Errorf("WSS settlement failed: %w", settlementErr))
+			return responseErr
+		}
+		return responseErr
+	}
+	if settlementErr != nil {
+		return types.NewError(settlementErr, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
+	}
 	return nil
 }

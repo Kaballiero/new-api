@@ -94,7 +94,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
-			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			if !service.IsQuotaClamp(newAPIError) {
+				newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -157,6 +159,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
+		if admissionErr := service.BillingAdmissionError(c, relayInfo, err); admissionErr != nil {
+			newAPIError = admissionErr
+			return
+		}
 		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 		return
 	}
@@ -353,7 +359,22 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
-	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+	// Channel selection may move an auto token between billing groups. Rebuild
+	// the pure projection from the accepted group before recomposing its frozen FX.
+	if selectGroup != "" {
+		c.Set("auto_group", selectGroup)
+	}
+	pureGroup := helper.HandleGroupRatio(c, info)
+	factor, fxErr := service.CaptureBillingFX(info)
+	if fxErr != nil {
+		return nil, types.NewErrorWithStatusCode(fxErr, types.ErrorCodeModelPriceError, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+	}
+	effectiveGroup, fxErr := service.ApplyBillingFX(pureGroup.GroupRatio, factor)
+	if fxErr != nil {
+		return nil, types.NewErrorWithStatusCode(fxErr, types.ErrorCodeModelPriceError, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+	}
+	info.PriceData.GroupRatioInfo = pureGroup
+	info.PriceData.BillingGroupRatio = effectiveGroup
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 	if newAPIError != nil {
@@ -645,7 +666,11 @@ func executeTaskSubmissionWith(
 			channel, channelErr = getChannel(c, relayInfo, retryParam)
 			if channelErr != nil {
 				logger.LogError(c, channelErr.Error())
-				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+				if admissionErr := service.TaskBillingAdmissionError(c, relayInfo, channelErr.Err); admissionErr != nil {
+					taskErr = admissionErr
+				} else {
+					taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+				}
 				break
 			}
 		}
@@ -738,14 +763,32 @@ func executeTaskSubmissionWith(
 	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 	task.PrivateData.TokenId = relayInfo.TokenId
 	task.PrivateData.NodeName = common.NodeName
+	var specialRatio *float64
+	if relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio {
+		ratio := relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio
+		specialRatio = &ratio
+	}
 	task.PrivateData.BillingContext = &model.TaskBillingContext{
 		ModelPrice:      relayInfo.PriceData.ModelPrice,
-		GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+		GroupRatio:      relayInfo.PriceData.EffectiveGroupRatio(),
 		ModelRatio:      relayInfo.PriceData.ModelRatio,
 		OtherRatios:     relayInfo.PriceData.OtherRatios(),
 		OriginModelName: relayInfo.OriginModelName,
 		PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
 		TieredSnapshot:  relayInfo.TieredBillingSnapshot,
+		BillingFX: &model.TaskBillingFX{
+			SchemaVersion:      1,
+			Source:             relayInfo.BillingFXSource,
+			Rate:               relayInfo.BillingFXRate,
+			PublicationVersion: relayInfo.BillingFXPublicationVersion,
+			EffectiveAt:        relayInfo.BillingFXEffectiveAt,
+			FetchedAt:          relayInfo.BillingFXFetchedAt,
+		},
+		SubmitGroup: &model.TaskBillingSubmitGroup{
+			PureRatio:       relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+			HasSpecialRatio: relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio,
+			SpecialRatio:    specialRatio,
+		},
 	}
 	task.Quota = result.Quota
 	task.Data = result.TaskData
@@ -880,6 +923,9 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 	if taskErr.StatusCode == 307 {
 		return true
 	}
+	if taskErr.LocalError {
+		return false
+	}
 	if taskErr.StatusCode/100 == 5 {
 		// 超时不重试
 		if operation_setting.IsAlwaysSkipRetryStatusCode(taskErr.StatusCode) {
@@ -892,9 +938,6 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 	}
 	if taskErr.StatusCode == 408 {
 		// azure处理超时不重试
-		return false
-	}
-	if taskErr.LocalError {
 		return false
 	}
 	if taskErr.StatusCode/100 == 2 {
