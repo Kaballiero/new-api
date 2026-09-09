@@ -93,6 +93,8 @@ func newHTTPClient() *http.Client {
 	timeoutSec := common.GetEnvOrDefault("SYNC_HTTP_TIMEOUT_SECONDS", 10)
 	dialer := &net.Dialer{Timeout: time.Duration(timeoutSec) * time.Second}
 	transport := &http.Transport{
+		// 上游价格/模型清单可能被地域封锁，与 relay HTTP 客户端保持一致，走部署配置的代理。
+		Proxy:                 http.ProxyFromEnvironment,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   time.Duration(timeoutSec) * time.Second,

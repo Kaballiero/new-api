@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -139,4 +140,17 @@ func TestPricingSyncCompleteSourcesAndArrayFormats(t *testing.T) {
 	assert.Equal(t, float64(4), response.Data.Prices["sync-token"].Upstreams["Expressions(1)"]["completion_ratio"])
 	assert.Equal(t, float64(0), response.Data.Prices["sync-token"].Upstreams["Expressions(1)"]["cache_ratio"])
 	assert.Equal(t, float64(0), response.Data.Prices["sync-free"].Upstreams["Legacy(2)"]["model_ratio"])
+}
+
+// 同步上游价格/模型清单的 HTTP 客户端必须走部署配置的代理：部分上游（如 OpenRouter）
+// 会按地域封锁直连出口，此前该客户端未设置 Proxy，直连会得到 403。
+func TestSyncHTTPClientUsesEnvironmentProxy(t *testing.T) {
+	transport, ok := newHTTPClient().Transport.(*http.Transport)
+	require.True(t, ok, "sync client must expose *http.Transport")
+	require.NotNil(t, transport.Proxy, "sync client must not disable proxy support")
+	assert.Equal(t,
+		reflect.ValueOf(http.ProxyFromEnvironment).Pointer(),
+		reflect.ValueOf(transport.Proxy).Pointer(),
+		"sync client must resolve the proxy from the environment",
+	)
 }
