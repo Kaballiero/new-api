@@ -58,3 +58,19 @@ func TestGetStatusReturnsEffectiveOIDCDisplayName(t *testing.T) {
 		})
 	}
 }
+
+func TestGetStatusMarksBillingFXUnavailableWithoutRAMSnapshot(t *testing.T) {
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/status", nil)
+
+	GetStatus(context)
+
+	var payload struct {
+		Success bool           `json:"success"`
+		Data    map[string]any `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
+	require.True(t, payload.Success)
+	assert.Equal(t, map[string]any{"available": false}, payload.Data["billing_fx"])
+}

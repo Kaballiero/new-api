@@ -124,6 +124,7 @@ export interface SystemStatus {
     quota_per_unit?: number
     quota_display_type?: string
     usd_exchange_rate?: number
+    billing_fx?: BillingFXStatus
     custom_currency_symbol?: string
     custom_currency_exchange_rate?: number
     demo_site_enabled?: boolean
@@ -171,6 +172,7 @@ export interface SystemStatus {
   quota_per_unit?: number
   quota_display_type?: string
   usd_exchange_rate?: number
+  billing_fx?: BillingFXStatus
   custom_currency_symbol?: string
   custom_currency_exchange_rate?: number
   demo_site_enabled?: boolean
@@ -183,6 +185,11 @@ export interface SystemStatus {
   password_register_enabled?: boolean
   custom_oauth_providers?: CustomOAuthProviderInfo[]
   [key: string]: unknown
+}
+
+export interface BillingFXStatus {
+  available: boolean
+  usd_rate?: number
 }
 
 // ============================================================================

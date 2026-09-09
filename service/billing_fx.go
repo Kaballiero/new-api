@@ -20,6 +20,28 @@ const (
 	billingFXQuotaPerUnit     = 500_000.0
 )
 
+// BillingFXStatus is the read-only current model-cost FX basis exposed to the
+// admin UI. It is intentionally independent from legacy payment exchange-rate
+// settings.
+type BillingFXStatus struct {
+	Available bool     `json:"available"`
+	USDRate   *float64 `json:"usd_rate,omitempty"`
+}
+
+// CurrentBillingFXStatus reads the already-published RAM snapshot for status
+// display. It never falls back to a configured or nominal rate.
+func CurrentBillingFXStatus() BillingFXStatus {
+	snapshot, err := model.CurrentModelCostFX(modelCostFXSource)
+	if err != nil {
+		return BillingFXStatus{}
+	}
+	rate, ok := snapshot.Rates["USD"]
+	if !ok || rate <= 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return BillingFXStatus{}
+	}
+	return BillingFXStatus{Available: true, USDRate: &rate}
+}
+
 // BillingFXError is a trusted host accounting admission failure. Its message
 // is deliberately safe to present through existing generic pricing envelopes.
 type BillingFXError struct{ message string }
