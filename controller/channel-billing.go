@@ -127,6 +127,16 @@ type DeepSeekUsageResponse struct {
 	} `json:"balance_infos"`
 }
 
+func deepSeekBalanceUSD(response DeepSeekUsageResponse) (float64, error) {
+	for _, balanceInfo := range response.BalanceInfos {
+		if balanceInfo.Currency != "USD" {
+			continue
+		}
+		return strconv.ParseFloat(balanceInfo.TotalBalance, 64)
+	}
+	return 0, errors.New("currency USD not found")
+}
+
 type OpenRouterCreditResponse struct {
 	Data struct {
 		TotalCredits float64 `json:"total_credits"`
@@ -286,17 +296,7 @@ func updateChannelDeepSeekBalance(channel *model.Channel) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	index := -1
-	for i, balanceInfo := range response.BalanceInfos {
-		if balanceInfo.Currency == "CNY" {
-			index = i
-			break
-		}
-	}
-	if index == -1 {
-		return 0, errors.New("currency CNY not found")
-	}
-	balance, err := strconv.ParseFloat(response.BalanceInfos[index].TotalBalance, 64)
+	balance, err := deepSeekBalanceUSD(response)
 	if err != nil {
 		return 0, err
 	}
