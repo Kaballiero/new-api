@@ -46,6 +46,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { handleServerError } from '@/lib/handle-server-error'
 
 import { fetchUpstreamModels, updateChannel, validateModels } from '../../api'
 import {
@@ -173,14 +174,12 @@ export function FetchModelsDialog({
           setSelectedModels(existingModels)
           toast.success(t('Fetched {{count}} models', { count: list.length }))
         } else {
-          toast.error(response.message || t('Failed to fetch models'))
+          handleServerError(response, t('Failed to fetch models'))
           setFetchedModels([])
         }
       }
     } catch (error: unknown) {
-      toast.error(
-        error instanceof Error ? error.message : t('Failed to fetch models')
-      )
+      handleServerError(error, t('Failed to fetch models'))
       setFetchedModels([])
     } finally {
       setIsFetching(false)
@@ -277,12 +276,10 @@ export function FetchModelsDialog({
         queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
         onOpenChange(false)
       } else {
-        toast.error(response.message || t('Failed to update models'))
+        handleServerError(response, t('Failed to update models'))
       }
     } catch (error: unknown) {
-      toast.error(
-        error instanceof Error ? error.message : t('Failed to update models')
-      )
+      handleServerError(error, t('Failed to update models'))
     } finally {
       setIsSaving(false)
     }

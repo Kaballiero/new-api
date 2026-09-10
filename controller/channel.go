@@ -478,11 +478,16 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		if len(pluginKey) > 30 {
 			return fmt.Errorf("task plugin key must not exceed 30 characters")
 		}
-		if _, ok := jsplugin.DefaultRegistry.Get(pluginKey); !ok {
+		plugin, ok := jsplugin.DefaultRegistry.Get(pluginKey)
+		if !ok {
 			return fmt.Errorf("task plugin %q is not registered", pluginKey)
 		}
 		if channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "" {
-			return fmt.Errorf("base URL is required for task plugin channels")
+			if plugin.Meta.BaseURL == "" {
+				return fmt.Errorf("base URL is required for task plugin channels")
+			}
+			defaultBaseURL := plugin.Meta.BaseURL
+			channel.BaseURL = &defaultBaseURL
 		}
 	}
 
@@ -630,6 +635,9 @@ func AddChannel(c *gin.Context) {
 		return
 	}
 
+	baseURLFromPluginDefault := addChannelRequest.Channel != nil &&
+		addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin &&
+		(addChannelRequest.Channel.BaseURL == nil || strings.TrimSpace(*addChannelRequest.Channel.BaseURL) == "")
 	// 使用统一的校验函数
 	if err := validateChannel(addChannelRequest.Channel, true); err != nil {
 		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "channel_validation_failed", err.Error())
@@ -706,11 +714,15 @@ func AddChannel(c *gin.Context) {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	recordManageAudit(c, "channel.create", map[string]interface{}{
+	createAudit := map[string]any{
 		"name":  addChannelRequest.Channel.Name,
 		"type":  addChannelRequest.Channel.Type,
 		"count": len(channels),
-	})
+	}
+	if baseURLFromPluginDefault {
+		createAudit["base_url_source"] = "plugin_default"
+	}
+	recordManageAudit(c, "channel.create", createAudit)
 	common.ApiSuccessStatus(c, http.StatusCreated, nil)
 }
 
@@ -966,6 +978,8 @@ func UpdateChannel(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	baseURLFromPluginDefault := requestChannel.Type == constant.ChannelTypeTaskPlugin &&
+		(requestChannel.BaseURL == nil || strings.TrimSpace(*requestChannel.BaseURL) == "")
 
 	var channel PatchChannel
 	var originChannel *model.Channel
@@ -1141,11 +1155,15 @@ func UpdateChannel(c *gin.Context) {
 	if channel.Key != "" && channel.Key != originChannel.Key {
 		changedFields = append(changedFields, "key")
 	}
-	recordManageAudit(c, "channel.update", map[string]interface{}{
+	updateAudit := map[string]any{
 		"id":             channel.Id,
 		"name":           channel.Name,
 		"changed_fields": changedFields,
-	})
+	}
+	if baseURLFromPluginDefault {
+		updateAudit["base_url_source"] = "plugin_default"
+	}
+	recordManageAudit(c, "channel.update", updateAudit)
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)
 	common.ApiSuccess(c, channel)

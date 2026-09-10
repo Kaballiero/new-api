@@ -27,51 +27,68 @@ type ListModelsMetaResponse struct {
 
 // GetAllModelsMeta 获取模型列表（分页）
 func GetAllModelsMeta(c *gin.Context) {
+	listModelsMeta(c, "", "")
+}
+
+// SearchModelsMeta 搜索模型列表
+func SearchModelsMeta(c *gin.Context) {
+	listModelsMeta(c, c.Query("keyword"), c.Query("vendor"))
+}
+
+func listModelsMeta(c *gin.Context, keyword, vendor string) {
+	squareState := model.ModelSquareState(c.Query("square_state"))
+	switch squareState {
+	case "", model.ModelSquareVisible, model.ModelSquareUnavailable, model.ModelSquareHidden, model.ModelSquarePartial:
+	default:
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "Invalid model square state")
+		return
+	}
+
 	pageInfo := common.GetPageQuery(c)
-	status := c.Query("status")
-	syncOfficial := c.Query("sync_official")
-	modelsMeta, total, err := model.SearchModels("", "", status, syncOfficial, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if squareState != "" && (pageInfo.GetPage() < 1 || pageInfo.GetPageSize() < 1) {
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "Invalid pagination")
+		return
+	}
+	offset, limit := pageInfo.GetStartIdx(), pageInfo.GetPageSize()
+	if squareState != "" {
+		offset, limit = 0, -1
+	}
+	search := model.SearchModels
+	if c.Query("include_channel_models") == "true" {
+		search = model.SearchModelsWithChannels
+	}
+	modelsMeta, total, err := search(keyword, vendor, c.Query("status"), c.Query("sync_official"), offset, limit)
 	if err != nil {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	enrichModels(modelsMeta)
+	if err := enrichModels(modelsMeta); err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		return
+	}
+	if squareState != "" {
+		filtered := make([]*model.Model, 0, len(modelsMeta))
+		for _, metadata := range modelsMeta {
+			if metadata.SquareState == squareState {
+				filtered = append(filtered, metadata)
+			}
+		}
+		total = int64(len(filtered))
+		start := len(filtered)
+		if pageInfo.GetPage()-1 <= len(filtered)/pageInfo.GetPageSize() {
+			start = (pageInfo.GetPage() - 1) * pageInfo.GetPageSize()
+		}
+		end := min(start+pageInfo.GetPageSize(), len(filtered))
+		modelsMeta = filtered[start:end]
+	}
 
-	// 统计供应商计数（全部数据，不受分页影响）
 	vendorCounts, _ := model.GetVendorModelCounts()
-
 	common.ApiSuccess(c, ListModelsMetaResponse{
 		Items:        modelsMeta,
 		Total:        total,
 		Page:         pageInfo.GetPage(),
 		PageSize:     pageInfo.GetPageSize(),
 		VendorCounts: vendorCounts,
-	})
-}
-
-// SearchModelsMeta 搜索模型列表
-func SearchModelsMeta(c *gin.Context) {
-	keyword := c.Query("keyword")
-	vendor := c.Query("vendor")
-	status := c.Query("status")
-	syncOfficial := c.Query("sync_official")
-	pageInfo := common.GetPageQuery(c)
-
-	modelsMeta, total, err := model.SearchModels(keyword, vendor, status, syncOfficial, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
-	if err != nil {
-		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
-		return
-	}
-	enrichModels(modelsMeta)
-	vendorCounts, _ := model.GetVendorModelCounts()
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(modelsMeta)
-	common.ApiSuccess(c, gin.H{
-		"items":         modelsMeta,
-		"total":         total,
-		"page":          pageInfo.GetPage(),
-		"page_size":     pageInfo.GetPageSize(),
-		"vendor_counts": vendorCounts,
 	})
 }
 
@@ -91,7 +108,10 @@ func GetModelMeta(c *gin.Context) {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	enrichModels([]*model.Model{&m})
+	if err := enrichModels([]*model.Model{&m}); err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		return
+	}
 	common.ApiSuccess(c, &m)
 }
 
@@ -246,14 +266,38 @@ func BatchDeleteModelMeta(c *gin.Context) {
 
 // enrichModels keeps configured endpoints intact and derives connections from
 // enabled routes, including hidden or unpriced models absent from the catalog.
-func enrichModels(models []*model.Model) {
+func enrichModels(models []*model.Model) error {
 	if len(models) == 0 {
-		return
+		return nil
+	}
+	configured, err := model.GetConfiguredModelChannels()
+	if err != nil {
+		common.SysError("load configured model channels: " + err.Error())
+		return err
+	}
+	for _, metadata := range models {
+		if metadata == nil {
+			continue
+		}
+		metadata.HasMetadata = metadata.Id > 0
+		channelIDs := make(map[int]struct{})
+		for name, ids := range configured {
+			if metadata.MatchesName(name) {
+				for _, id := range ids {
+					channelIDs[id] = struct{}{}
+				}
+			}
+		}
+		metadata.ConfiguredChannelCount = len(channelIDs)
 	}
 	connections, err := model.GetModelConnections()
 	if err != nil {
 		common.SysError("load model connections: " + err.Error())
-		return
+		return err
+	}
+	if err := model.FillModelSquareStates(models, configured, connections); err != nil {
+		common.SysError("load model square states: " + err.Error())
+		return err
 	}
 	for _, metadata := range models {
 		if metadata == nil {
@@ -266,16 +310,7 @@ func enrichModels(models []*model.Model) {
 		quotas := make(map[int]bool)
 		for _, connection := range connections {
 			name := connection.Model
-			matched := name == metadata.ModelName
-			switch metadata.NameRule {
-			case model.NameRulePrefix:
-				matched = strings.HasPrefix(name, metadata.ModelName)
-			case model.NameRuleSuffix:
-				matched = strings.HasSuffix(name, metadata.ModelName)
-			case model.NameRuleContains:
-				matched = strings.Contains(name, metadata.ModelName)
-			}
-			if !matched {
+			if !metadata.MatchesName(name) {
 				continue
 			}
 			names[name] = true
@@ -323,4 +358,5 @@ func enrichModels(models []*model.Model) {
 			metadata.MatchedCount = len(names)
 		}
 	}
+	return nil
 }

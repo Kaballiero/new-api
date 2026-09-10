@@ -104,6 +104,43 @@ func modelManagementRequest(t *testing.T, handler gin.HandlerFunc, method, path 
 	return recorder
 }
 
+func captureModelManagementErrors(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var output bytes.Buffer
+	common.LogWriterMu.Lock()
+	previousWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &output
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = previousWriter
+		common.LogWriterMu.Unlock()
+	})
+	return &output
+}
+
+func failModelManagementQuery(t *testing.T, db *gorm.DB, name, table, message string) {
+	t.Helper()
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register(name, func(tx *gorm.DB) {
+		if tx.Statement.Table == table {
+			tx.AddError(errors.New(message))
+		}
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, db.Callback().Query().Remove(name))
+	})
+}
+
+func failModelManagementRow(t *testing.T, db *gorm.DB, name, message string) {
+	t.Helper()
+	require.NoError(t, db.Callback().Row().Before("gorm:row").Register(name, func(tx *gorm.DB) {
+		tx.AddError(errors.New(message))
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, db.Callback().Row().Remove(name))
+	})
+}
+
 func TestModelManagementDatabaseMatrix(t *testing.T) {
 	_, err := jsplugin.DefaultRegistry.Register(`
 export const meta = {apiVersion: 1, key: "model-management-task", name: "Management task fixture", version: "1.0.0", author: {name: "Test"}, models: ["matrix-task"], fetchMode: "per_task", usageSchema: {seconds: {type: "number", unit: "second"}}};
@@ -120,6 +157,345 @@ export function parseTaskResult() { return {}; }
 				t.Skip("set " + dialect.env + " to run this database")
 			}
 			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
+
+			t.Run("square_states_follow_catalog_policy", func(t *testing.T) {
+				records := []model.Model{
+					{ModelName: "square-visible", Status: 1},
+					{ModelName: "square-hidden", Status: 0},
+					{ModelName: "square-catalog", Status: 1},
+					{ModelName: "square-hidden-catalog", Status: 0},
+					{ModelName: "square-partial-", NameRule: model.NameRulePrefix, Status: 1},
+					{ModelName: "square-partial-hidden", Status: 0},
+					{ModelName: "square-hidden-", NameRule: model.NameRulePrefix, Status: 0},
+					{ModelName: "square-hidden-override", Status: 1},
+					{ModelName: "square-off-", NameRule: model.NameRulePrefix, Status: 0},
+					{ModelName: "square-empty", NameRule: model.NameRulePrefix, Status: 1},
+					{ModelName: "square-empty-hidden", NameRule: model.NameRulePrefix, Status: 0},
+					{ModelName: "-ending", NameRule: model.NameRuleSuffix, Status: 1},
+					{ModelName: "square-prefix-", NameRule: model.NameRulePrefix, Status: 0},
+					{ModelName: "square-contains", NameRule: model.NameRuleContains, Status: 0},
+				}
+				ids := make([]int, 0, len(records))
+				for i := range records {
+					require.NoError(t, records[i].Insert())
+					ids = append(ids, records[i].Id)
+				}
+				active := model.Channel{Name: "Square active", Type: 1, Key: "fixture", Group: "default", Status: common.ChannelStatusEnabled,
+					Models: "square-visible,square-hidden,square-bare,square-partial-on,square-partial-hidden,square-hidden-child,square-hidden-override,square-prefix-ending,square-contains-ending"}
+				inactive := model.Channel{Name: "Square inactive", Type: 1, Key: "fixture", Group: "default", Status: common.ChannelStatusManuallyDisabled,
+					Models: "square-disabled,square-partial-off,square-off-child"}
+				for _, channel := range []*model.Channel{&active, &inactive} {
+					require.NoError(t, channel.Insert())
+				}
+				t.Cleanup(func() {
+					require.NoError(t, db.Where("channel_id IN ?", []int{active.Id, inactive.Id}).Delete(&model.Ability{}).Error)
+					require.NoError(t, db.Where("id IN ?", []int{active.Id, inactive.Id}).Delete(&model.Channel{}).Error)
+					require.NoError(t, db.Unscoped().Where("id IN ?", ids).Delete(&model.Model{}).Error)
+					model.RefreshPricing()
+				})
+				var response struct {
+					Success bool
+					Data    struct{ Items []model.Model }
+				}
+				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=square-&page_size=100", nil, &response)
+				require.True(t, response.Success)
+				byName := make(map[string]model.Model)
+				for _, row := range response.Data.Items {
+					byName[row.ModelName] = row
+				}
+				catalog := make(map[string]bool)
+				model.RefreshPricing()
+				for _, row := range model.GetPricing() {
+					catalog[row.ModelName] = true
+				}
+				expected := map[string]model.ModelSquareState{
+					"square-visible":         model.ModelSquareVisible,
+					"square-hidden":          model.ModelSquareHidden,
+					"square-catalog":         model.ModelSquareUnavailable,
+					"square-hidden-catalog":  model.ModelSquareHidden,
+					"square-bare":            model.ModelSquareVisible,
+					"square-disabled":        model.ModelSquareUnavailable,
+					"square-partial-":        model.ModelSquarePartial,
+					"square-partial-hidden":  model.ModelSquareHidden,
+					"square-partial-on":      model.ModelSquareVisible,
+					"square-partial-off":     model.ModelSquareUnavailable,
+					"square-hidden-":         model.ModelSquarePartial,
+					"square-hidden-child":    model.ModelSquareHidden,
+					"square-hidden-override": model.ModelSquareVisible,
+					"square-off-":            model.ModelSquareHidden,
+					"square-off-child":       model.ModelSquareHidden,
+					"square-empty":           model.ModelSquareUnavailable,
+					"square-empty-hidden":    model.ModelSquareHidden,
+					"square-prefix-ending":   model.ModelSquareHidden,
+					"square-contains-ending": model.ModelSquareVisible,
+					"square-contains":        model.ModelSquareVisible,
+					"square-prefix-":         model.ModelSquareHidden,
+				}
+				for name, state := range expected {
+					row, exists := byName[name]
+					require.True(t, exists, name)
+					assert.Equal(t, state, row.SquareState, name)
+					if row.NameRule == model.NameRuleExact {
+						assert.Equal(t, state == model.ModelSquareVisible, catalog[name], name)
+					}
+				}
+				assert.Zero(t, byName["square-bare"].Id)
+				assert.Zero(t, byName["square-hidden-child"].Id)
+				t.Run("filter_square_state_before_pagination", func(t *testing.T) {
+					type filteredResponse struct {
+						Success bool
+						Data    struct {
+							Items []model.Model
+							Total int
+						}
+					}
+					for _, state := range []model.ModelSquareState{model.ModelSquareVisible, model.ModelSquareUnavailable, model.ModelSquareHidden, model.ModelSquarePartial} {
+						t.Run(string(state), func(t *testing.T) {
+							expectedNames := []string{}
+							for name, expectedState := range expected {
+								if expectedState == state {
+									expectedNames = append(expectedNames, name)
+								}
+							}
+							actualNames := []string{}
+							for page := 1; page <= (len(expectedNames)+1)/2; page++ {
+								var result filteredResponse
+								path := fmt.Sprintf("/api/models/search?include_channel_models=true&keyword=square-&square_state=%s&page_size=2&p=%d", state, page)
+								modelManagementRequest(t, SearchModelsMeta, "GET", path, nil, &result)
+								require.True(t, result.Success)
+								assert.Equal(t, len(expectedNames), result.Data.Total)
+								for _, row := range result.Data.Items {
+									assert.Equal(t, state, row.SquareState)
+									actualNames = append(actualNames, row.ModelName)
+								}
+							}
+							assert.ElementsMatch(t, expectedNames, actualNames)
+							var beyondLastPage filteredResponse
+							modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=square-&square_state="+string(state)+"&page_size=2&p=99", nil, &beyondLastPage)
+							require.True(t, beyondLastPage.Success)
+							assert.Equal(t, len(expectedNames), beyondLastPage.Data.Total)
+							assert.Empty(t, beyondLastPage.Data.Items)
+						})
+					}
+					for _, test := range []struct {
+						name    string
+						handler gin.HandlerFunc
+						query   string
+						names   []string
+					}{
+						{"list", GetAllModelsMeta, "?include_channel_models=true&square_state=visible", []string{"square-visible", "square-bare", "square-partial-on", "square-hidden-override", "square-contains-ending", "square-contains"}},
+						{"metadata_only", SearchModelsMeta, "?keyword=square-&square_state=visible", []string{"square-visible", "square-hidden-override", "square-contains"}},
+						{"keyword", SearchModelsMeta, "?include_channel_models=true&keyword=square-partial&square_state=hidden", []string{"square-partial-hidden"}},
+						{"policy", SearchModelsMeta, "?include_channel_models=true&keyword=square-&square_state=partial&status=disabled", []string{"square-hidden-"}},
+						{"vendor_and_sync", SearchModelsMeta, "?include_channel_models=true&keyword=square-&square_state=partial&vendor=0&sync_official=no", []string{"square-hidden-", "square-partial-"}},
+						{"no_matches", SearchModelsMeta, "?include_channel_models=true&keyword=square-bare&square_state=hidden", []string{}},
+					} {
+						t.Run(test.name, func(t *testing.T) {
+							var result filteredResponse
+							modelManagementRequest(t, test.handler, "GET", "/api/models/"+test.query+"&page_size=100", nil, &result)
+							require.True(t, result.Success)
+							names := []string{}
+							for _, row := range result.Data.Items {
+								names = append(names, row.ModelName)
+							}
+							assert.Equal(t, len(test.names), result.Data.Total)
+							assert.ElementsMatch(t, test.names, names)
+						})
+					}
+					for _, handler := range []gin.HandlerFunc{GetAllModelsMeta, SearchModelsMeta} {
+						var result filteredResponse
+						recorder := modelManagementRequest(t, handler, "GET", "/api/models/?square_state=unknown", nil, &result)
+						assert.Equal(t, http.StatusBadRequest, recorder.Code)
+						assert.False(t, result.Success)
+					}
+					for _, query := range []string{"p=-1", "page_size=-1"} {
+						recorder := modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?square_state=visible&"+query, nil, nil)
+						assert.Equal(t, http.StatusBadRequest, recorder.Code)
+					}
+					var oversizedPage filteredResponse
+					modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?square_state=visible&keyword=square-&p="+strconv.Itoa(int(^uint(0)>>1)), nil, &oversizedPage)
+					require.True(t, oversizedPage.Success)
+					assert.Equal(t, 3, oversizedPage.Data.Total)
+					assert.Empty(t, oversizedPage.Data.Items)
+				})
+				var detail struct {
+					Success bool
+					Data    model.Model
+				}
+				modelManagementRequest(t, func(c *gin.Context) {
+					c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(records[4].Id)}}
+					GetModelMeta(c)
+				}, "GET", "/api/models/"+strconv.Itoa(records[4].Id), nil, &detail)
+				require.True(t, detail.Success)
+				assert.Equal(t, model.ModelSquarePartial, detail.Data.SquareState)
+			})
+			t.Run("channel_model_listing", func(t *testing.T) {
+				exact := model.Model{ModelName: "listing-exact", Status: 1, SyncOfficial: 1}
+				catalog := model.Model{ModelName: "listing-catalog", Status: 1}
+				rule := model.Model{ModelName: "listing-rule-", NameRule: model.NameRulePrefix, Status: 1}
+				for _, item := range []*model.Model{&exact, &catalog, &rule} {
+					require.NoError(t, item.Insert())
+				}
+				active := model.Channel{Name: "Listing active", Type: 1, Key: "fixture", Models: "listing-exact, listing-new,listing-rule-child,listing-new, ,", Group: "default", Status: common.ChannelStatusEnabled}
+				inactive := model.Channel{Name: "Listing inactive", Type: 1, Key: "fixture", Models: "listing-new,listing-disabled", Group: "default", Status: common.ChannelStatusManuallyDisabled}
+				for _, channel := range []*model.Channel{&active, &inactive} {
+					require.NoError(t, channel.Insert())
+				}
+				t.Cleanup(func() {
+					require.NoError(t, db.Where("channel_id IN ?", []int{active.Id, inactive.Id}).Delete(&model.Ability{}).Error)
+					require.NoError(t, db.Where("id IN ?", []int{active.Id, inactive.Id}).Delete(&model.Channel{}).Error)
+					require.NoError(t, db.Unscoped().Where("model_name LIKE ?", "listing-%").Delete(&model.Model{}).Error)
+					model.RefreshPricing()
+				})
+				type listingResponse struct {
+					Success bool
+					Data    struct {
+						Items        []model.Model
+						Total        int
+						VendorCounts map[int64]int64 `json:"vendor_counts"`
+					}
+				}
+				var response listingResponse
+				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-", nil, &response)
+				require.True(t, response.Success)
+				require.Equal(t, 6, response.Data.Total)
+				assert.Equal(t, int64(3), response.Data.VendorCounts[0], "vendor counts remain catalog-only when channel-only rows are listed")
+				names := make([]string, 0)
+				byName := make(map[string]model.Model)
+				for _, item := range response.Data.Items {
+					names = append(names, item.ModelName)
+					byName[item.ModelName] = item
+				}
+				assert.Equal(t, []string{"listing-rule-", "listing-catalog", "listing-exact", "listing-disabled", "listing-new", "listing-rule-child"}, names)
+				assert.True(t, byName[exact.ModelName].HasMetadata)
+				assert.False(t, byName["listing-new"].HasMetadata)
+				assert.Zero(t, byName["listing-new"].Id)
+				assert.Equal(t, 2, byName["listing-new"].ConfiguredChannelCount)
+				assert.Equal(t, 1, byName["listing-disabled"].ConfiguredChannelCount)
+				assert.Empty(t, byName["listing-disabled"].BoundChannels)
+				assert.Zero(t, byName[catalog.ModelName].ConfiguredChannelCount)
+				for _, tc := range []struct {
+					query string
+					total int
+					names []string
+				}{
+					{"&p=2&page_size=2", 6, []string{"listing-exact", "listing-disabled"}},
+					{"&p=9&page_size=2", 6, []string{}},
+					{"&status=enabled", 3, []string{"listing-rule-", "listing-catalog", "listing-exact"}},
+					{"&sync_official=no", 2, []string{"listing-rule-", "listing-catalog"}},
+					{"&vendor=0", 6, []string{"listing-rule-", "listing-catalog", "listing-exact", "listing-disabled", "listing-new", "listing-rule-child"}},
+					{"&vendor=999", 0, []string{}},
+				} {
+					var page listingResponse
+					modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-"+tc.query, nil, &page)
+					require.True(t, page.Success)
+					assert.Equal(t, tc.total, page.Data.Total)
+					if tc.query == "&sync_official=no" {
+						assert.Equal(t, int64(3), page.Data.VendorCounts[0], "sync filtering does not alter catalog vendor counts")
+					}
+					actual := make([]string, 0)
+					for _, item := range page.Data.Items {
+						actual = append(actual, item.ModelName)
+					}
+					assert.Equal(t, tc.names, actual)
+				}
+				var legacy listingResponse
+				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?keyword=listing-", nil, &legacy)
+				assert.Equal(t, 3, legacy.Data.Total)
+				var count int64
+				require.NoError(t, db.Model(&model.Model{}).Where("model_name LIKE ?", "listing-%").Count(&count).Error)
+				assert.EqualValues(t, 3, count)
+				prices, err := model.GetModelPricingSnapshot([]string{"listing-new"})
+				require.NoError(t, err)
+				require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: "listing-new", ExpectedVersion: prices.Entries[0].Version, Pricing: model.PricingValues{"ModelPrice": float64(0)}}}))
+				t.Cleanup(func() {
+					snapshot, err := model.GetModelPricingSnapshot([]string{"listing-new"})
+					require.NoError(t, err)
+					require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: "listing-new", ExpectedVersion: snapshot.Entries[0].Version, Reset: true}}))
+				})
+				require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", "listing-new").Count(&count).Error)
+				assert.Zero(t, count)
+				for _, price := range model.GetPricing() {
+					assert.NotEqual(t, catalog.ModelName, price.ModelName)
+				}
+				created := model.Model{ModelName: "listing-new", Status: 1}
+				require.NoError(t, created.Insert())
+				var after listingResponse
+				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-new", nil, &after)
+				require.Len(t, after.Data.Items, 1)
+				assert.Equal(t, created.Id, after.Data.Items[0].Id)
+				require.NoError(t, created.Delete())
+				after = listingResponse{}
+				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-new", nil, &after)
+				require.Len(t, after.Data.Items, 1)
+				assert.False(t, after.Data.Items[0].HasMetadata)
+				require.NoError(t, db.Callback().Query().Before("gorm:query").Register("fail_listing_channels", func(tx *gorm.DB) {
+					if tx.Statement.Table == "channels" {
+						tx.AddError(errors.New("channel lookup failed"))
+					}
+				}))
+				var failed listingResponse
+				modelManagementRequest(t, GetAllModelsMeta, "GET", "/api/models/?include_channel_models=true", nil, &failed)
+				require.NoError(t, db.Callback().Query().Remove("fail_listing_channels"))
+				assert.False(t, failed.Success, "a channel lookup failure must not look like an empty configuration")
+
+			})
+			t.Run("enrichment_errors_preserve_diagnostics_and_typed_responses", func(t *testing.T) {
+				stages := []struct {
+					name       string
+					table      string
+					message    string
+					diagnostic string
+				}{
+					{name: "configured_channels", table: "channels", message: "configured channels unavailable", diagnostic: "load configured model channels"},
+					{name: "connections", table: "abilities", message: "model connections unavailable", diagnostic: "load model connections"},
+					{name: "square_states", table: "models", message: "model square states unavailable", diagnostic: "load model square states"},
+				}
+				for _, stage := range stages {
+					t.Run(stage.name, func(t *testing.T) {
+						output := captureModelManagementErrors(t)
+						if stage.name == "connections" {
+							failModelManagementRow(t, db, "fail_enrichment_"+stage.name, stage.message)
+						} else {
+							failModelManagementQuery(t, db, "fail_enrichment_"+stage.name, stage.table, stage.message)
+						}
+						err := enrichModels([]*model.Model{{ModelName: "enrichment-error"}})
+						require.ErrorContains(t, err, stage.message)
+						assert.Contains(t, output.String(), stage.diagnostic+": "+stage.message)
+						assert.Equal(t, 1, strings.Count(output.String(), stage.diagnostic), "each enrichment failure is logged once")
+					})
+				}
+
+				metadata := &model.Model{ModelName: "enrichment-handler-error", Status: 1}
+				require.NoError(t, metadata.Insert())
+				t.Cleanup(func() { require.NoError(t, metadata.Delete()) })
+				t.Run("listing", func(t *testing.T) {
+					failModelManagementQuery(t, db, "fail_enrichment_listing", "channels", "listing enrichment unavailable")
+					var response struct {
+						Success bool
+						Code    string
+					}
+					recorder := modelManagementRequest(t, GetAllModelsMeta, http.MethodGet, "/api/models/", nil, &response)
+					assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+					assert.False(t, response.Success)
+					assert.Equal(t, "internal_error", response.Code)
+				})
+				t.Run("detail", func(t *testing.T) {
+					failModelManagementRow(t, db, "fail_enrichment_detail", "detail enrichment unavailable")
+					var response struct {
+						Success bool
+						Code    string
+					}
+					recorder := modelManagementRequest(t, func(c *gin.Context) {
+						c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(metadata.Id)}}
+						GetModelMeta(c)
+					}, http.MethodGet, "/api/models/"+strconv.Itoa(metadata.Id), nil, &response)
+					assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+					assert.False(t, response.Success)
+					assert.Equal(t, "internal_error", response.Code)
+				})
+			})
+
 			t.Run("pricing_saves_zero_switches_modes_and_rejects_stale_batches", func(t *testing.T) {
 				before, err := model.GetModelPricingSnapshot([]string{"matrix-priced", "matrix-other"})
 				require.NoError(t, err)
@@ -233,13 +609,11 @@ export function parseTaskResult() { return {}; }
 				update := model.MetadataSyncUpdate{MetadataSyncSelection: model.MetadataSyncSelection{ModelName: "matrix-concurrent-import", RecordVersion: model.MetadataRecordVersion(nil, nil, nil), Create: true}, Values: model.MetadataValues{Description: "Imported", Status: 1}}
 				var wg sync.WaitGroup
 				results := make(chan error, 2)
-				for i := 0; i < 2; i++ {
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
+				for range 2 {
+					wg.Go(func() {
 						_, err := model.ApplyMetadataSync([]model.MetadataSyncUpdate{update}, nil)
 						results <- err
-					}()
+					})
 				}
 				wg.Wait()
 				close(results)
@@ -272,7 +646,7 @@ export function parseTaskResult() { return {}; }
 				exact := &model.Model{ModelName: "matrix-hidden-unpriced", Status: 0, SyncOfficial: 0}
 				require.NoError(t, exact.Insert())
 				rule := &model.Model{ModelName: "matrix-hidden-", NameRule: model.NameRulePrefix}
-				enrichModels([]*model.Model{exact, rule})
+				require.NoError(t, enrichModels([]*model.Model{exact, rule}))
 				assert.Equal(t, []string{"available"}, exact.EnableGroups)
 				assert.Equal(t, []model.BoundChannel{{Name: "Active route", Type: 1}}, exact.BoundChannels)
 				assert.Equal(t, []string{"matrix-hidden-unpriced"}, rule.MatchedModels)
@@ -286,7 +660,7 @@ export function parseTaskResult() { return {}; }
 				assert.Contains(t, response.Body.String(), `"success":true`)
 				var reloaded model.Model
 				require.NoError(t, db.First(&reloaded, exact.Id).Error)
-				enrichModels([]*model.Model{&reloaded})
+				require.NoError(t, enrichModels([]*model.Model{&reloaded}))
 				assert.Equal(t, exact.Endpoints, reloaded.Endpoints)
 				assert.Empty(t, reloaded.BoundChannels)
 				prices, err := model.GetModelPricingSnapshot([]string{"matrix-hidden-unpriced", "matrix-renamed"})
@@ -436,6 +810,7 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 				t.Skip("set " + dialect.env)
 			}
 			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
+
 			t.Run("pricing_reads_keep_default_brands_without_writing_vendors", func(t *testing.T) {
 				channel := model.Channel{Name: "Vendor fixture", Type: 1, Status: common.ChannelStatusEnabled}
 				require.NoError(t, db.Create(&channel).Error)
@@ -647,6 +1022,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 				t.Skip("set " + dialect.env + " to run this database")
 			}
 			db := modelManagementDB(t, dialect.kind, os.Getenv(dialect.env))
+
 			var response struct {
 				Success bool
 				Data    model.ModelDeleteResult
