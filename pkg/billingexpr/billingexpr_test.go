@@ -1188,3 +1188,196 @@ func TestFrontendSimulationContract(t *testing.T) {
 		})
 	}
 }
+
+// tokenProbe sets one token dimension so RunExpr isolates that component's coefficient.
+var tokenProbe = map[string]func(*billingexpr.TokenParams, float64){
+	"p":     func(t *billingexpr.TokenParams, v float64) { t.P = v },
+	"c":     func(t *billingexpr.TokenParams, v float64) { t.C = v },
+	"cr":    func(t *billingexpr.TokenParams, v float64) { t.CR = v },
+	"cc":    func(t *billingexpr.TokenParams, v float64) { t.CC = v },
+	"cc1h":  func(t *billingexpr.TokenParams, v float64) { t.CC1h = v },
+	"img":   func(t *billingexpr.TokenParams, v float64) { t.Img = v },
+	"img_o": func(t *billingexpr.TokenParams, v float64) { t.ImgO = v },
+	"ai":    func(t *billingexpr.TokenParams, v float64) { t.AI = v },
+	"ao":    func(t *billingexpr.TokenParams, v float64) { t.AO = v },
+}
+
+func loadProdExpressions(t *testing.T) []struct{ Model, Expr string } {
+	data, err := os.ReadFile("testdata/prod_expressions.json")
+	require.NoError(t, err)
+	var corpus []struct{ Model, Expr string }
+	require.NoError(t, common.Unmarshal(data, &corpus))
+	require.Len(t, corpus, 270)
+	return corpus
+}
+
+func usesProbeGuard(conditions []billingexpr.TierCondition) bool {
+	for _, condition := range conditions {
+		if condition.Arg != "" || usesProbeGuard(condition.Operands) {
+			return true
+		}
+	}
+	return false
+}
+
+// Every live expression enumerates, and the enumerated coefficients reproduce
+// what the billing engine charges for a unit probe of each component: the
+// displayed price is the billed price.
+func TestEnumerateTiersProdCorpusMatchesRunExpr(t *testing.T) {
+	lenProbes := []float64{0, 32001, 128001, 200001, 256001, 272001}
+	tierCounts := map[int]int{}
+	unlabelled, timeGuarded := 0, 0
+	for _, entry := range loadProdExpressions(t) {
+		t.Run(entry.Model, func(t *testing.T) {
+			tiers, err := billingexpr.EnumerateTiers(entry.Expr)
+			require.NoError(t, err)
+			require.NotEmpty(t, tiers)
+			tierCounts[len(tiers)]++
+			byLabel := make(map[string]billingexpr.Tier, len(tiers))
+			referenced := map[string]bool{}
+			for _, tier := range tiers {
+				require.True(t, tier.Linear, "tier %q is not linear", tier.Label)
+				byLabel[tier.Label] = tier
+				for variable := range tier.Coefficients {
+					referenced[variable] = true
+				}
+				if tier.Label == "" {
+					unlabelled++
+				}
+				if usesProbeGuard(tier.Conditions) {
+					timeGuarded++
+				}
+			}
+			matched := map[string]bool{}
+			for variable := range referenced {
+				for _, length := range lenProbes {
+					params := billingexpr.TokenParams{Len: length}
+					tokenProbe[variable](&params, 1_000_000)
+					cost, trace, err := billingexpr.RunExpr(entry.Expr, params)
+					require.NoError(t, err)
+					tier, ok := byLabel[trace.MatchedTier]
+					require.True(t, ok, "engine matched unknown tier %q", trace.MatchedTier)
+					matched[trace.MatchedTier] = true
+					assert.InDelta(t, tier.Coefficients[variable]*1_000_000, cost, 1e-6, "component %s of tier %q", variable, tier.Label)
+				}
+			}
+			for _, tier := range tiers {
+				if !usesProbeGuard(tier.Conditions) {
+					assert.True(t, matched[tier.Label], "tier %q never selected by a probe", tier.Label)
+				}
+			}
+		})
+	}
+	assert.Equal(t, map[int]int{1: 246, 2: 22, 3: 2}, tierCounts)
+	assert.Equal(t, 1, unlabelled)
+	assert.Equal(t, 2, timeGuarded)
+}
+
+func TestEnumerateTiersStructure(t *testing.T) {
+	lenAtMost := func(value float64, negated bool) billingexpr.TierCondition {
+		return billingexpr.TierCondition{Var: "len", Op: "<=", Value: value, Negated: negated}
+	}
+	hourWindow := func(from, to float64) billingexpr.TierCondition {
+		return billingexpr.TierCondition{Op: "&&", Operands: []billingexpr.TierCondition{
+			{Var: "hour", Arg: "UTC", Op: ">=", Value: from},
+			{Var: "hour", Arg: "UTC", Op: "<", Value: to},
+		}}
+	}
+	peakHours := billingexpr.TierCondition{Op: "||", Operands: []billingexpr.TierCondition{hourWindow(1, 4), hourWindow(6, 10)}}
+	offPeakHours := peakHours
+	offPeakHours.Negated = true
+
+	for _, tc := range []struct {
+		name  string
+		expr  string
+		tiers []billingexpr.Tier
+	}{
+		{
+			name:  "bare body without tier() is one unlabelled tier",
+			expr:  `p * 0 + c * 0`,
+			tiers: []billingexpr.Tier{{Coefficients: map[string]float64{"p": 0, "c": 0}, Linear: true}},
+		},
+		{
+			name:  "version prefix is accepted",
+			expr:  `v1:tier("base", p * 2 + c * 10)`,
+			tiers: []billingexpr.Tier{{Label: "base", Coefficients: map[string]float64{"p": 2, "c": 10}, Linear: true}},
+		},
+		{
+			name: "nested ternary accumulates guards at every depth",
+			expr: `len <= 32000 ? tier("0_32k", p * 0.45 + c * 2.25) : len <= 128000 ? tier("32k_128k", p * 0.75 + c * 3.75) : tier("128k_plus", p * 1.2 + c * 6)`,
+			tiers: []billingexpr.Tier{
+				{Label: "0_32k", Conditions: []billingexpr.TierCondition{lenAtMost(32000, false)}, Coefficients: map[string]float64{"p": 0.45, "c": 2.25}, Linear: true},
+				{Label: "32k_128k", Conditions: []billingexpr.TierCondition{lenAtMost(32000, true), lenAtMost(128000, false)}, Coefficients: map[string]float64{"p": 0.75, "c": 3.75}, Linear: true},
+				{Label: "128k_plus", Conditions: []billingexpr.TierCondition{lenAtMost(32000, true), lenAtMost(128000, true)}, Coefficients: map[string]float64{"p": 1.2, "c": 6}, Linear: true},
+			},
+		},
+		{
+			name: "hour guards are returned as data for both branches",
+			expr: `(hour("UTC") >= 1 && hour("UTC") < 4) || (hour("UTC") >= 6 && hour("UTC") < 10) ? tier("peak", p * 1.32 + c * 3.96 + cr * 0.044) : tier("off_peak", p * 0.66 + c * 1.98 + cr * 0.022)`,
+			tiers: []billingexpr.Tier{
+				{Label: "peak", Conditions: []billingexpr.TierCondition{peakHours}, Coefficients: map[string]float64{"p": 1.32, "c": 3.96, "cr": 0.044}, Linear: true},
+				{Label: "off_peak", Conditions: []billingexpr.TierCondition{offPeakHours}, Coefficients: map[string]float64{"p": 0.66, "c": 1.98, "cr": 0.022}, Linear: true},
+			},
+		},
+		{
+			name:  "reversed comparison and reversed product are normalised",
+			expr:  `32000 >= len ? tier("short", 2 * p) : tier("long", p * 4)`,
+			tiers: []billingexpr.Tier{{Label: "short", Conditions: []billingexpr.TierCondition{lenAtMost(32000, false)}, Coefficients: map[string]float64{"p": 2}, Linear: true}, {Label: "long", Conditions: []billingexpr.TierCondition{lenAtMost(32000, true)}, Coefficients: map[string]float64{"p": 4}, Linear: true}},
+		},
+		{
+			name:  "function call in body is not linear",
+			expr:  `tier("base", max(p, c) * 2)`,
+			tiers: []billingexpr.Tier{{Label: "base", Linear: false}},
+		},
+		{
+			name:  "fixed price leaf is not a token price",
+			expr:  `tier("request", fixed(0.01))`,
+			tiers: []billingexpr.Tier{{Label: "request", Linear: false}},
+		},
+		{
+			name:  "division is not linear",
+			expr:  `tier("base", p / 2)`,
+			tiers: []billingexpr.Tier{{Label: "base", Linear: false}},
+		},
+		{
+			name:  "constant term is not linear",
+			expr:  `tier("base", p * 2 + 1)`,
+			tiers: []billingexpr.Tier{{Label: "base", Linear: false}},
+		},
+		{
+			name:  "repeated variable is not linear",
+			expr:  `tier("base", p * 2 + p * 3)`,
+			tiers: []billingexpr.Tier{{Label: "base", Linear: false}},
+		},
+		{
+			name:  "variable times variable is not linear",
+			expr:  `tier("base", p * c)`,
+			tiers: []billingexpr.Tier{{Label: "base", Linear: false}},
+		},
+		{
+			name:  "identifier outside the billing environment is not a token price",
+			expr:  `tier("base", foo * 2)`,
+			tiers: []billingexpr.Tier{{Label: "base", Linear: false}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tiers, err := billingexpr.EnumerateTiers(tc.expr)
+			require.NoError(t, err)
+			assert.Equal(t, tc.tiers, tiers)
+		})
+	}
+}
+
+func TestEnumerateTiersRefusesUnknownStructure(t *testing.T) {
+	for name, expr := range map[string]string{
+		"summed tiers":              `tier("a", p * 2) + tier("b", c * 3)`,
+		"request multiplier":        `tier("base", p * 5) * (param("fast") == true ? 2 : 1)`,
+		"guard on a request header": `header("x-mode") == "fast" ? tier("fast", p * 2) : tier("std", p * 1)`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			tiers, err := billingexpr.EnumerateTiers(expr)
+			require.Error(t, err)
+			assert.Nil(t, tiers)
+		})
+	}
+}

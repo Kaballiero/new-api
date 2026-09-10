@@ -86,6 +86,7 @@ type effectivePricingResponse struct {
 	UserGroup     string                  `json:"user_group"`
 	Currency      string                  `json:"currency"`
 	PriceKind     string                  `json:"price_kind"`
+	PriceScope    string                  `json:"price_scope"`
 	FX            service.BillingFXBasis  `json:"fx"`
 	Accounting    effectiveAccounting     `json:"accounting"`
 	AutoGroups    []string                `json:"auto_groups"`
@@ -117,6 +118,8 @@ type effectiveGroupPricing struct {
 	BillingSurface        string                               `json:"billing_surface"`
 	Status                string                               `json:"status"`
 	UnitPrices            []effectiveUnitPrice                 `json:"unit_prices,omitempty"`
+	Tiers                 []effectivePricingTier               `json:"tiers"`
+	IsFree                bool                                 `json:"is_free"`
 	Formula               *effectivePricingFormula             `json:"formula,omitempty"`
 	Limitations           []string                             `json:"limitations,omitempty"`
 	UsageSchema           map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
@@ -156,6 +159,7 @@ func GetEffectivePricing(c *gin.Context) {
 		UserGroup:     user.Group,
 		Currency:      "RUB",
 		PriceKind:     "current_tariff",
+		PriceScope:    "user_group",
 		FX:            basis,
 		Accounting: effectiveAccounting{
 			QuotaPerUnit: common.QuotaPerUnit,
@@ -238,7 +242,10 @@ func buildEffectiveGroupPricing(item model.Pricing, group string, pureRatio, eff
 		}
 		groupPrice.Status = "formula"
 		groupPrice.Formula = &effectivePricingFormula{Expression: item.BillingExpr, Kind: kind, OutputToQuotaFactor: outputToQuota, OutputToRubFactor: outputToRub}
-		groupPrice.Limitations = []string{"final charge depends on request and usage context"}
+		groupPrice.setTiers([]effectivePricingTier{})
+		if kind == "token_expression" {
+			groupPrice.setTiers(tokenExpressionTiers(item.BillingExpr, outputToRub))
+		}
 		return groupPrice
 	}
 	if item.QuotaType == 1 {
@@ -246,6 +253,7 @@ func buildEffectiveGroupPricing(item model.Pricing, group string, pureRatio, eff
 		groupPrice.Status = "unit_prices"
 		groupPrice.UnitPrices = []effectiveUnitPrice{{Component: "base", Unit: "call", AmountRub: item.ModelPrice * 100 * effectiveRatio}}
 		groupPrice.Limitations = []string{"provider-specific multipliers may apply for some request parameters"}
+		groupPrice.setTiers([]effectivePricingTier{{UnitPrices: groupPrice.UnitPrices}})
 		return groupPrice
 	}
 	groupPrice.Status = "unit_prices"
@@ -269,6 +277,7 @@ func buildEffectiveGroupPricing(item model.Pricing, group string, pureRatio, eff
 	if item.AudioCompletionRatio != nil {
 		groupPrice.UnitPrices = append(groupPrice.UnitPrices, effectiveUnitPrice{Component: "audio_output", Unit: "million_tokens", AmountRub: baseInput * *item.AudioCompletionRatio})
 	}
+	groupPrice.setTiers([]effectivePricingTier{{UnitPrices: groupPrice.UnitPrices}})
 	return groupPrice
 }
 
