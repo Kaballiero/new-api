@@ -478,11 +478,16 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		if len(pluginKey) > 30 {
 			return fmt.Errorf("task plugin key must not exceed 30 characters")
 		}
-		if _, ok := jsplugin.DefaultRegistry.Get(pluginKey); !ok {
+		plugin, ok := jsplugin.DefaultRegistry.Get(pluginKey)
+		if !ok {
 			return fmt.Errorf("task plugin %q is not registered", pluginKey)
 		}
 		if channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "" {
-			return fmt.Errorf("base URL is required for task plugin channels")
+			if plugin.Meta.BaseURL == "" {
+				return fmt.Errorf("base URL is required for task plugin channels")
+			}
+			defaultBaseURL := plugin.Meta.BaseURL
+			channel.BaseURL = &defaultBaseURL
 		}
 	}
 

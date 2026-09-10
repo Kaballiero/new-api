@@ -104,6 +104,43 @@ func modelManagementRequest(t *testing.T, handler gin.HandlerFunc, method, path 
 	return recorder
 }
 
+func captureModelManagementErrors(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var output bytes.Buffer
+	common.LogWriterMu.Lock()
+	previousWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &output
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = previousWriter
+		common.LogWriterMu.Unlock()
+	})
+	return &output
+}
+
+func failModelManagementQuery(t *testing.T, db *gorm.DB, name, table, message string) {
+	t.Helper()
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register(name, func(tx *gorm.DB) {
+		if tx.Statement.Table == table {
+			tx.AddError(errors.New(message))
+		}
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, db.Callback().Query().Remove(name))
+	})
+}
+
+func failModelManagementRow(t *testing.T, db *gorm.DB, name, message string) {
+	t.Helper()
+	require.NoError(t, db.Callback().Row().Before("gorm:row").Register(name, func(tx *gorm.DB) {
+		tx.AddError(errors.New(message))
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, db.Callback().Row().Remove(name))
+	})
+}
+
 func TestModelManagementDatabaseMatrix(t *testing.T) {
 	_, err := jsplugin.DefaultRegistry.Register(`
 export const meta = {apiVersion: 1, key: "model-management-task", name: "Management task fixture", version: "1.0.0", author: {name: "Test"}, models: ["matrix-task"], fetchMode: "per_task", usageSchema: {seconds: {type: "number", unit: "second"}}};
@@ -313,14 +350,16 @@ export function parseTaskResult() { return {}; }
 				type listingResponse struct {
 					Success bool
 					Data    struct {
-						Items []model.Model
-						Total int
+						Items        []model.Model
+						Total        int
+						VendorCounts map[int64]int64 `json:"vendor_counts"`
 					}
 				}
 				var response listingResponse
 				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-", nil, &response)
 				require.True(t, response.Success)
 				require.Equal(t, 6, response.Data.Total)
+				assert.Equal(t, int64(3), response.Data.VendorCounts[0], "vendor counts remain catalog-only when channel-only rows are listed")
 				names := make([]string, 0)
 				byName := make(map[string]model.Model)
 				for _, item := range response.Data.Items {
@@ -351,6 +390,9 @@ export function parseTaskResult() { return {}; }
 					modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-"+tc.query, nil, &page)
 					require.True(t, page.Success)
 					assert.Equal(t, tc.total, page.Data.Total)
+					if tc.query == "&sync_official=no" {
+						assert.Equal(t, int64(3), page.Data.VendorCounts[0], "sync filtering does not alter catalog vendor counts")
+					}
 					actual := make([]string, 0)
 					for _, item := range page.Data.Items {
 						actual = append(actual, item.ModelName)
@@ -397,6 +439,61 @@ export function parseTaskResult() { return {}; }
 				require.NoError(t, db.Callback().Query().Remove("fail_listing_channels"))
 				assert.False(t, failed.Success, "a channel lookup failure must not look like an empty configuration")
 
+			})
+			t.Run("enrichment_errors_preserve_diagnostics_and_typed_responses", func(t *testing.T) {
+				stages := []struct {
+					name       string
+					table      string
+					message    string
+					diagnostic string
+				}{
+					{name: "configured_channels", table: "channels", message: "configured channels unavailable", diagnostic: "load configured model channels"},
+					{name: "connections", table: "abilities", message: "model connections unavailable", diagnostic: "load model connections"},
+					{name: "square_states", table: "models", message: "model square states unavailable", diagnostic: "load model square states"},
+				}
+				for _, stage := range stages {
+					t.Run(stage.name, func(t *testing.T) {
+						output := captureModelManagementErrors(t)
+						if stage.name == "connections" {
+							failModelManagementRow(t, db, "fail_enrichment_"+stage.name, stage.message)
+						} else {
+							failModelManagementQuery(t, db, "fail_enrichment_"+stage.name, stage.table, stage.message)
+						}
+						err := enrichModels([]*model.Model{{ModelName: "enrichment-error"}})
+						require.ErrorContains(t, err, stage.message)
+						assert.Contains(t, output.String(), stage.diagnostic+": "+stage.message)
+						assert.Equal(t, 1, strings.Count(output.String(), stage.diagnostic), "each enrichment failure is logged once")
+					})
+				}
+
+				metadata := &model.Model{ModelName: "enrichment-handler-error", Status: 1}
+				require.NoError(t, metadata.Insert())
+				t.Cleanup(func() { require.NoError(t, metadata.Delete()) })
+				t.Run("listing", func(t *testing.T) {
+					failModelManagementQuery(t, db, "fail_enrichment_listing", "channels", "listing enrichment unavailable")
+					var response struct {
+						Success bool
+						Code    string
+					}
+					recorder := modelManagementRequest(t, GetAllModelsMeta, http.MethodGet, "/api/models/", nil, &response)
+					assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+					assert.False(t, response.Success)
+					assert.Equal(t, "internal_error", response.Code)
+				})
+				t.Run("detail", func(t *testing.T) {
+					failModelManagementRow(t, db, "fail_enrichment_detail", "detail enrichment unavailable")
+					var response struct {
+						Success bool
+						Code    string
+					}
+					recorder := modelManagementRequest(t, func(c *gin.Context) {
+						c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(metadata.Id)}}
+						GetModelMeta(c)
+					}, http.MethodGet, "/api/models/"+strconv.Itoa(metadata.Id), nil, &response)
+					assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+					assert.False(t, response.Success)
+					assert.Equal(t, "internal_error", response.Code)
+				})
 			})
 
 			t.Run("pricing_saves_zero_switches_modes_and_rejects_stale_batches", func(t *testing.T) {
@@ -549,7 +646,7 @@ export function parseTaskResult() { return {}; }
 				exact := &model.Model{ModelName: "matrix-hidden-unpriced", Status: 0, SyncOfficial: 0}
 				require.NoError(t, exact.Insert())
 				rule := &model.Model{ModelName: "matrix-hidden-", NameRule: model.NameRulePrefix}
-				enrichModels([]*model.Model{exact, rule})
+				require.NoError(t, enrichModels([]*model.Model{exact, rule}))
 				assert.Equal(t, []string{"available"}, exact.EnableGroups)
 				assert.Equal(t, []model.BoundChannel{{Name: "Active route", Type: 1}}, exact.BoundChannels)
 				assert.Equal(t, []string{"matrix-hidden-unpriced"}, rule.MatchedModels)
@@ -563,7 +660,7 @@ export function parseTaskResult() { return {}; }
 				assert.Contains(t, response.Body.String(), `"success":true`)
 				var reloaded model.Model
 				require.NoError(t, db.First(&reloaded, exact.Id).Error)
-				enrichModels([]*model.Model{&reloaded})
+				require.NoError(t, enrichModels([]*model.Model{&reloaded}))
 				assert.Equal(t, exact.Endpoints, reloaded.Endpoints)
 				assert.Empty(t, reloaded.BoundChannels)
 				prices, err := model.GetModelPricingSnapshot([]string{"matrix-hidden-unpriced", "matrix-renamed"})

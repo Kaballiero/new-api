@@ -62,7 +62,10 @@ func listModelsMeta(c *gin.Context, keyword, vendor string) {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	enrichModels(modelsMeta)
+	if err := enrichModels(modelsMeta); err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		return
+	}
 	if squareState != "" {
 		filtered := make([]*model.Model, 0, len(modelsMeta))
 		for _, metadata := range modelsMeta {
@@ -105,7 +108,10 @@ func GetModelMeta(c *gin.Context) {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
-	enrichModels([]*model.Model{&m})
+	if err := enrichModels([]*model.Model{&m}); err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		return
+	}
 	common.ApiSuccess(c, &m)
 }
 
@@ -260,14 +266,38 @@ func BatchDeleteModelMeta(c *gin.Context) {
 
 // enrichModels keeps configured endpoints intact and derives connections from
 // enabled routes, including hidden or unpriced models absent from the catalog.
-func enrichModels(models []*model.Model) {
+func enrichModels(models []*model.Model) error {
 	if len(models) == 0 {
-		return
+		return nil
+	}
+	configured, err := model.GetConfiguredModelChannels()
+	if err != nil {
+		common.SysError("load configured model channels: " + err.Error())
+		return err
+	}
+	for _, metadata := range models {
+		if metadata == nil {
+			continue
+		}
+		metadata.HasMetadata = metadata.Id > 0
+		channelIDs := make(map[int]struct{})
+		for name, ids := range configured {
+			if metadata.MatchesName(name) {
+				for _, id := range ids {
+					channelIDs[id] = struct{}{}
+				}
+			}
+		}
+		metadata.ConfiguredChannelCount = len(channelIDs)
 	}
 	connections, err := model.GetModelConnections()
 	if err != nil {
 		common.SysError("load model connections: " + err.Error())
-		return
+		return err
+	}
+	if err := model.FillModelSquareStates(models, configured, connections); err != nil {
+		common.SysError("load model square states: " + err.Error())
+		return err
 	}
 	for _, metadata := range models {
 		if metadata == nil {
@@ -280,16 +310,7 @@ func enrichModels(models []*model.Model) {
 		quotas := make(map[int]bool)
 		for _, connection := range connections {
 			name := connection.Model
-			matched := name == metadata.ModelName
-			switch metadata.NameRule {
-			case model.NameRulePrefix:
-				matched = strings.HasPrefix(name, metadata.ModelName)
-			case model.NameRuleSuffix:
-				matched = strings.HasSuffix(name, metadata.ModelName)
-			case model.NameRuleContains:
-				matched = strings.Contains(name, metadata.ModelName)
-			}
-			if !matched {
+			if !metadata.MatchesName(name) {
 				continue
 			}
 			names[name] = true
@@ -337,4 +358,5 @@ func enrichModels(models []*model.Model) {
 			metadata.MatchedCount = len(names)
 		}
 	}
+	return nil
 }
