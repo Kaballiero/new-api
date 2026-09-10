@@ -1,0 +1,1082 @@
+[
+ {
+  "model": "mistral-medium-3.1",
+  "expr": "tier(\"base\", p * 0.4 + c * 2.0 + cr * 0.04)"
+ },
+ {
+  "model": "kimi-k2",
+  "expr": "tier(\"base\", p * 0.57 + c * 2.3)"
+ },
+ {
+  "model": "gemini-2.5-computer-use-preview-10-2025",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 1.25 + c * 10) : tier(\"200k_plus\", p * 2.5 + c * 15)"
+ },
+ {
+  "model": "kimi-k3",
+  "expr": "tier(\"base\", p * 3.0 + c * 15.0 + cr * 0.3)"
+ },
+ {
+  "model": "step-3.5-flash",
+  "expr": "tier(\"base\", p * 0.1 + c * 0.3)"
+ },
+ {
+  "model": "o4-mini",
+  "expr": "tier(\"base\", p * 1.1 + c * 4.4 + cr * 0.275)"
+ },
+ {
+  "model": "seed-2-1-turbo",
+  "expr": "tier(\"base\", p * 0.5 + c * 2.5)"
+ },
+ {
+  "model": "claude-opus-4-8",
+  "expr": "tier(\"base\", p * 5 + c * 25 + cr * 0.5 + cc * 6.25 + cc1h * 10)"
+ },
+ {
+  "model": "glm-5",
+  "expr": "tier(\"base\", p * 0.6 + c * 1.92 + cr * 0.12)"
+ },
+ {
+  "model": "kat-coder-air-v2.5",
+  "expr": "tier(\"base\", p * 0.15 + c * 0.6 + cr * 0.03)"
+ },
+ {
+  "model": "gemini-embedding-2",
+  "expr": "tier(\"base\", p * 0.2 + img * 0.45 + ai * 6.5)"
+ },
+ {
+  "model": "qwen3.8-max",
+  "expr": "tier(\"base\", p * 2.0 + c * 6.0 + cr * 0.25 + cc * 2.5)"
+ },
+ {
+  "model": "gemma-3-12b-it",
+  "expr": "tier(\"base\", p * 0.05 + c * 0.15)"
+ },
+ {
+  "model": "gemini-3.1-flash-image",
+  "expr": "tier(\"base\", p * 0.5 + c * 3.0 + img_o * 60.0)"
+ },
+ {
+  "model": "mistral-medium-3-5",
+  "expr": "tier(\"base\", p * 1.5 + c * 7.5)"
+ },
+ {
+  "model": "l3-lunaris-8b",
+  "expr": "tier(\"base\", p * 0.04 + c * 0.05)"
+ },
+ {
+  "model": "qwen3-vl-235b-a22b-instruct",
+  "expr": "tier(\"base\", p * 0.21 + c * 1.90 + cr * 0.10)"
+ },
+ {
+  "model": "ministral-8b-2512",
+  "expr": "tier(\"base\", p * 0.15 + c * 0.15 + cr * 0.015)"
+ },
+ {
+  "model": "reka-edge",
+  "expr": "tier(\"base\", p * 0.1 + c * 0.1)"
+ },
+ {
+  "model": "minimax-m2.7",
+  "expr": "tier(\"base\", p * 0.3 + c * 1.2 + cr * 0.06)"
+ },
+ {
+  "model": "gemini-2.5-pro",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 1.25 + c * 10 + cr * 0.125) : tier(\"200k_plus\", p * 2.5 + c * 15 + cr * 0.25)"
+ },
+ {
+  "model": "qwen3-235b-a22b",
+  "expr": "tier(\"base\", p * 0.455 + c * 1.82)"
+ },
+ {
+  "model": "deepseek-v3.1-terminus",
+  "expr": "tier(\"base\", p * 0.27 + c * 1.0 + cr * 0.135)"
+ },
+ {
+  "model": "mistral-large-2512",
+  "expr": "tier(\"base\", p * 0.5 + c * 1.5 + cr * 0.05)"
+ },
+ {
+  "model": "gemini-2.5-flash",
+  "expr": "tier(\"base\", p * 0.3 + ai * 1.0 + c * 2.5 + cr * 0.03)"
+ },
+ {
+  "model": "gpt-5.5",
+  "expr": "len <= 272000 ? tier(\"0_272k\", p * 5 + c * 30 + cr * 0.5) : tier(\"272k_plus\", p * 10 + c * 45 + cr * 1)"
+ },
+ {
+  "model": "ministral-14b-2512",
+  "expr": "tier(\"base\", p * 0.2 + c * 0.2 + cr * 0.02)"
+ },
+ {
+  "model": "qwen3.5-27b",
+  "expr": "tier(\"base\", p * 0.195 + c * 1.56)"
+ },
+ {
+  "model": "nova-micro-v1",
+  "expr": "tier(\"base\", p * 0.035 + c * 0.14)"
+ },
+ {
+  "model": "claude-sonnet-4-6",
+  "expr": "tier(\"base\", p * 3 + c * 15 + cr * 0.3 + cc * 3.75 + cc1h * 6)"
+ },
+ {
+  "model": "gpt-5.6-sol",
+  "expr": "len <= 272000 ? tier(\"0_272k\", p * 4 + c * 20 + cr * 0.4 + cc * 5) : tier(\"272k_plus\", p * 8 + c * 30 + cr * 0.8 + cc * 10)"
+ },
+ {
+  "model": "gpt-oss-20b",
+  "expr": "tier(\"base\", p * 0.03 + c * 0.13 + cr * 0.03)"
+ },
+ {
+  "model": "inkling-small",
+  "expr": "tier(\"base\", p * 0.45 + c * 1.2 + cr * 0.1)"
+ },
+ {
+  "model": "gemma-3-27b-it",
+  "expr": "tier(\"base\", p * 0.08 + c * 0.45 + cr * 0.04)"
+ },
+ {
+  "model": "qwen3.5-122b-a10b",
+  "expr": "tier(\"base\", p * 0.29 + c * 2.4)"
+ },
+ {
+  "model": "gpt-6-astra",
+  "expr": "len <= 272000 ? tier(\"0_272k\", p * 10 + c * 50 + cr * 1 + cc * 12.5) : tier(\"272k_plus\", p * 20 + c * 75 + cr * 2 + cc * 25)"
+ },
+ {
+  "model": "nemotron-3.5-content-safety:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "qwen3.6-27b",
+  "expr": "tier(\"base\", p * 0.6 + c * 3.6 + cr * 0.12)"
+ },
+ {
+  "model": "olmo-3-32b-think",
+  "expr": "tier(\"base\", p * 0.15 + c * 0.5)"
+ },
+ {
+  "model": "mistral-small-3.1-24b-instruct",
+  "expr": "tier(\"base\", p * 0.351 + c * 0.555)"
+ },
+ {
+  "model": "gpt-5.3-codex",
+  "expr": "tier(\"base\", p * 1.75 + c * 14 + cr * 0.175)"
+ },
+ {
+  "model": "qwen3-next-80b-a3b-instruct",
+  "expr": "tier(\"base\", p * 0.1 + c * 1.1 + cr * 0.07)"
+ },
+ {
+  "model": "gemini-3.1-flash-lite",
+  "expr": "tier(\"base\", p * 0.25 + ai * 0.5 + c * 1.5 + cr * 0.025)"
+ },
+ {
+  "model": "gpt-4.1-nano",
+  "expr": "tier(\"base\", p * 0.1 + c * 0.4 + cr * 0.025)"
+ },
+ {
+  "model": "o1",
+  "expr": "tier(\"base\", p * 15 + c * 60 + cr * 7.5)"
+ },
+ {
+  "model": "fugu-ultra",
+  "expr": "len <= 272000 ? tier(\"0_272k\", p * 5 + c * 30 + cr * 0.5) : tier(\"272k_plus\", p * 10 + c * 45 + cr * 1)"
+ },
+ {
+  "model": "qwen3.5-397b-a17b",
+  "expr": "tier(\"base\", p * 0.39 + c * 2.34)"
+ },
+ {
+  "model": "gemma-2-27b-it",
+  "expr": "tier(\"base\", p * 0.65 + c * 0.65)"
+ },
+ {
+  "model": "aion-rp-llama-3.1-8b",
+  "expr": "tier(\"base\", p * 0.8 + c * 1.6)"
+ },
+ {
+  "model": "mistral-nemo",
+  "expr": "tier(\"base\", p * 0.019 + c * 0.03)"
+ },
+ {
+  "model": "granite-4.1-8b",
+  "expr": "tier(\"base\", p * 0.05 + c * 0.1 + cr * 0.05)"
+ },
+ {
+  "model": "deepseek-v4-pro",
+  "expr": "(hour(\"UTC\") >= 1 && hour(\"UTC\") < 4) || (hour(\"UTC\") >= 6 && hour(\"UTC\") < 10) ? tier(\"peak\", p * 1.32 + c * 3.96 + cr * 0.044) : tier(\"off_peak\", p * 0.66 + c * 1.98 + cr * 0.022)"
+ },
+ {
+  "model": "trinity-large-thinking",
+  "expr": "tier(\"base\", p * 0.22 + c * 0.85 + cr * 0.06)"
+ },
+ {
+  "model": "deepseek-r1-0528",
+  "expr": "tier(\"base\", p * 0.5 + c * 2.15 + cr * 0.35)"
+ },
+ {
+  "model": "qwen3-14b",
+  "expr": "tier(\"base\", p * 0.12 + c * 0.24)"
+ },
+ {
+  "model": "reka-flash-3",
+  "expr": "tier(\"base\", p * 0.1 + c * 0.2)"
+ },
+ {
+  "model": "claude-fable-5",
+  "expr": "tier(\"base\", p * 10 + c * 50 + cr * 1.0 + cc * 12.5 + cc1h * 20)"
+ },
+ {
+  "model": "qwen3-30b-a3b-thinking-2507",
+  "expr": "tier(\"base\", p * 0.2 + c * 2.4)"
+ },
+ {
+  "model": "qwen3.7-flash",
+  "expr": "len <= 32000 ? tier(\"0_32k\", p * 0.02962 + c * 0.1185 + cr * 0.002962 + cc * 0.03703) : len <= 256000 ? tier(\"32k_256k\", p * 0.08887 + c * 0.35549 + cr * 0.008887 + cc * 0.11109) : tier(\"256k_plus\", p * 0.17774 + c * 0.71098 + cr * 0.017774 + cc * 0.22218)"
+ },
+ {
+  "model": "lyria-3-pro-preview",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "nemotron-3-super-120b-a12b",
+  "expr": "tier(\"base\", p * 0.085 + c * 0.4)"
+ },
+ {
+  "model": "command-r7b-12-2024",
+  "expr": "tier(\"base\", p * 0.0375 + c * 0.15)"
+ },
+ {
+  "model": "remm-slerp-l2-13b",
+  "expr": "tier(\"base\", p * 0.45 + c * 0.65)"
+ },
+ {
+  "model": "phi-4",
+  "expr": "tier(\"base\", p * 0.07 + c * 0.14)"
+ },
+ {
+  "model": "gpt-5.2",
+  "expr": "tier(\"base\", p * 1.75 + c * 14 + cr * 0.175)"
+ },
+ {
+  "model": "qwen-2.5-coder-32b-instruct",
+  "expr": "tier(\"base\", p * 0.66 + c * 1.0)"
+ },
+ {
+  "model": "qwen3-8b",
+  "expr": "tier(\"base\", p * 0.117 + c * 0.455)"
+ },
+ {
+  "model": "glm-4.7",
+  "expr": "tier(\"base\", p * 0.4 + c * 1.75 + cr * 0.08)"
+ },
+ {
+  "model": "kimi-k2-0905",
+  "expr": "tier(\"base\", p * 0.6 + c * 2.5)"
+ },
+ {
+  "model": "gpt-5.6-luna",
+  "expr": "len <= 272000 ? tier(\"0_272k\", p * 0.2 + c * 1.2 + cr * 0.02 + cc * 0.25) : tier(\"272k_plus\", p * 0.4 + c * 1.8 + cr * 0.04 + cc * 0.5)"
+ },
+ {
+  "model": "gpt-4o-mini",
+  "expr": "tier(\"base\", p * 0.15 + c * 0.6 + cr * 0.075)"
+ },
+ {
+  "model": "minimax-m2.1",
+  "expr": "tier(\"base\", p * 0.3 + c * 1.2 + cr * 0.03)"
+ },
+ {
+  "model": "gemini-embedding-001",
+  "expr": "tier(\"base\", p * 0.15)"
+ },
+ {
+  "model": "qwen-2.5-7b-instruct",
+  "expr": "tier(\"base\", p * 0.1 + c * 0.2)"
+ },
+ {
+  "model": "mercury-2",
+  "expr": "tier(\"base\", p * 0.25 + c * 0.75 + cr * 0.025)"
+ },
+ {
+  "model": "dots-3-note-preview:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "gpt-4-turbo",
+  "expr": "tier(\"base\", p * 10 + c * 30)"
+ },
+ {
+  "model": "mythomax-l2-13b",
+  "expr": "tier(\"base\", p * 0.06 + c * 0.06)"
+ },
+ {
+  "model": "llama-3.1-70b-instruct",
+  "expr": "tier(\"base\", p * 0.4 + c * 0.4)"
+ },
+ {
+  "model": "gemma-4-31b-it",
+  "expr": "tier(\"base\", p * 0.09 + c * 0.34 + cr * 0.05)"
+ },
+ {
+  "model": "deepseek-chat-v3.1",
+  "expr": "tier(\"base\", p * 0.55 + c * 1.65 + cr * 0.55)"
+ },
+ {
+  "model": "gemini-3.5-flash",
+  "expr": "tier(\"base\", p * 1.5 + c * 9.0 + cr * 0.15)"
+ },
+ {
+  "model": "qwen3-vl-235b-a22b-thinking",
+  "expr": "tier(\"base\", p * 0.4 + c * 4.0)"
+ },
+ {
+  "model": "kimi-k2.6",
+  "expr": "tier(\"base\", p * 0.95 + c * 4.0 + cr * 0.16)"
+ },
+ {
+  "model": "ui-tars-1.5-7b",
+  "expr": "tier(\"base\", p * 0.1 + c * 0.2 + cr * 0.1)"
+ },
+ {
+  "model": "minimax-m2",
+  "expr": "tier(\"base\", p * 0.255 + c * 1.02)"
+ },
+ {
+  "model": "deepseek-v4-flash-0731",
+  "expr": "tier(\"base\", p * 0.06 + c * 0.12 + cr * 0.012)"
+ },
+ {
+  "model": "deepseek-v3.2-exp",
+  "expr": "tier(\"base\", p * 0.27 + c * 0.41)"
+ },
+ {
+  "model": "gpt-4",
+  "expr": "tier(\"base\", p * 30 + c * 60)"
+ },
+ {
+  "model": "glm-4.6",
+  "expr": "tier(\"base\", p * 0.43 + c * 1.75 + cr * 0.08)"
+ },
+ {
+  "model": "llama-4-scout",
+  "expr": "tier(\"base\", p * 0.11 + c * 0.34 + cr * 0.055)"
+ },
+ {
+  "model": "gpt-5.4",
+  "expr": "len <= 272000 ? tier(\"0_272k\", p * 2.5 + c * 15 + cr * 0.25) : tier(\"272k_plus\", p * 5 + c * 22.5 + cr * 0.5)"
+ },
+ {
+  "model": "qwen3-coder-next",
+  "expr": "tier(\"base\", p * 0.12 + c * 0.8 + cr * 0.07)"
+ },
+ {
+  "model": "nemotron-3-ultra-550b-a55b:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "palmyra-x5",
+  "expr": "tier(\"base\", p * 0.6 + c * 6.0)"
+ },
+ {
+  "model": "nova-premier-v1",
+  "expr": "tier(\"base\", p * 2.5 + c * 12.5 + cr * 0.625)"
+ },
+ {
+  "model": "hunyuan-a13b-instruct",
+  "expr": "tier(\"base\", p * 0.14 + c * 0.57)"
+ },
+ {
+  "model": "gemini-2.5-pro-preview-tts",
+  "expr": "tier(\"base\", p * 1.0 + ao * 20.0)"
+ },
+ {
+  "model": "claude-sonnet-4-5-20250929",
+  "expr": "tier(\"base\", p * 3 + c * 15 + cr * 0.3 + cc * 3.75 + cc1h * 6)"
+ },
+ {
+  "model": "ling-3.0-flash",
+  "expr": "tier(\"base\", p * 0.021 + c * 0.063 + cr * 0.0042)"
+ },
+ {
+  "model": "minimax-m2-her",
+  "expr": "tier(\"base\", p * 0.3 + c * 1.2 + cr * 0.03)"
+ },
+ {
+  "model": "mistral-large",
+  "expr": "tier(\"base\", p * 2.0 + c * 6.0 + cr * 0.2)"
+ },
+ {
+  "model": "qwen3.7-max",
+  "expr": "tier(\"base\", p * 1.475 + c * 4.425 + cr * 0.295 + cc * 1.84375)"
+ },
+ {
+  "model": "glm-5-turbo",
+  "expr": "tier(\"base\", p * 1.2 + c * 4.0 + cr * 0.24)"
+ },
+ {
+  "model": "nova-pro-v1",
+  "expr": "tier(\"base\", p * 0.8 + c * 3.2)"
+ },
+ {
+  "model": "gemini-3.8-flash",
+  "expr": "tier(\"base\", p * 0.75 + c * 3.75 + cr * 0.075)"
+ },
+ {
+  "model": "gemini-3.6-flash",
+  "expr": "tier(\"base\", p * 0.75 + c * 3.75 + cr * 0.075)"
+ },
+ {
+  "model": "gpt-4o",
+  "expr": "tier(\"base\", p * 2.5 + c * 10 + cr * 1.25)"
+ },
+ {
+  "model": "cydonia-24b-v4.1",
+  "expr": "tier(\"base\", p * 0.3 + c * 0.5 + cr * 0.15)"
+ },
+ {
+  "model": "qwen3-vl-30b-a3b-instruct",
+  "expr": "tier(\"base\", p * 0.13 + c * 0.52)"
+ },
+ {
+  "model": "laguna-s-2.1:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "unslopnemo-12b",
+  "expr": "tier(\"base\", p * 0.4 + c * 0.4)"
+ },
+ {
+  "model": "claude-haiku-4-5-20251001",
+  "expr": "tier(\"base\", p * 1 + c * 5 + cr * 0.1 + cc * 1.25 + cc1h * 2)"
+ },
+ {
+  "model": "gemini-robotics-er-2-preview",
+  "expr": "tier(\"base\", p * 1.0 + c * 5.0 + cr * 0.1)"
+ },
+ {
+  "model": "gemini-2.5-flash-lite",
+  "expr": "tier(\"base\", p * 0.1 + ai * 0.3 + c * 0.4 + cr * 0.01)"
+ },
+ {
+  "model": "kimi-latest",
+  "expr": "tier(\"base\", p * 2.55 + c * 12.75 + cr * 0.25599999)"
+ },
+ {
+  "model": "relace-apply-3",
+  "expr": "tier(\"base\", p * 0.85 + c * 1.25)"
+ },
+ {
+  "model": "nex-n2-mini",
+  "expr": "tier(\"base\", p * 0.025 + c * 0.1 + cr * 0.0025)"
+ },
+ {
+  "model": "nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "gemini-3-flash-preview",
+  "expr": "tier(\"base\", p * 0.5 + ai * 1.0 + c * 3.0 + cr * 0.05)"
+ },
+ {
+  "model": "qwen3-next-80b-a3b-thinking",
+  "expr": "tier(\"base\", p * 0.15 + c * 1.2)"
+ },
+ {
+  "model": "gemini-3-pro-image",
+  "expr": "tier(\"base\", p * 2.0 + c * 12.0 + img_o * 120.0)"
+ },
+ {
+  "model": "gpt-4.1-mini",
+  "expr": "tier(\"base\", p * 0.4 + c * 1.6 + cr * 0.1)"
+ },
+ {
+  "model": "weaver",
+  "expr": "tier(\"base\", p * 0.5 + c * 0.75)"
+ },
+ {
+  "model": "qwen3.7-plus",
+  "expr": "len <= 256000 ? tier(\"0_256k\", p * 0.5 + c * 3 + cr * 0.05 + cc * 0.625) : tier(\"256k_plus\", p * 2 + c * 6 + cr * 0.2 + cc * 2.5)"
+ },
+ {
+  "model": "qwen-2.5-72b-instruct",
+  "expr": "tier(\"base\", p * 0.36 + c * 0.4)"
+ },
+ {
+  "model": "inkling",
+  "expr": "tier(\"base\", p * 0.95 + c * 4.05 + cr * 0.16)"
+ },
+ {
+  "model": "claude-opus-4-7",
+  "expr": "tier(\"base\", p * 5 + c * 25 + cr * 0.5 + cc * 6.25 + cc1h * 10)"
+ },
+ {
+  "model": "qwen3-30b-a3b-instruct-2507",
+  "expr": "tier(\"base\", p * 0.04815 + c * 0.19305)"
+ },
+ {
+  "model": "qwen3-235b-a22b-2507",
+  "expr": "tier(\"base\", p * 0.0875 + c * 0.35 + cr * 0.0175)"
+ },
+ {
+  "model": "glm-5v-turbo",
+  "expr": "tier(\"base\", p * 1.2 + c * 4.0 + cr * 0.24)"
+ },
+ {
+  "model": "nemotron-3.5-lightning:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "granite-4.0-h-micro",
+  "expr": "tier(\"base\", p * 0.017 + c * 0.112)"
+ },
+ {
+  "model": "minimax-m3:batch",
+  "expr": "tier(\"base\", p * 0.3 + c * 1.2 + cr * 0.06)"
+ },
+ {
+  "model": "llama-guard-4-12b",
+  "expr": "tier(\"base\", p * 0.18 + c * 0.18)"
+ },
+ {
+  "model": "hermes-3-llama-3.1-70b",
+  "expr": "tier(\"base\", p * 0.7 + c * 0.7)"
+ },
+ {
+  "model": "glm-5.1",
+  "expr": "tier(\"base\", p * 1.26 + c * 3.96 + cr * 0.234)"
+ },
+ {
+  "model": "claude-opus-4-6",
+  "expr": "tier(\"base\", p * 5 + c * 25 + cr * 0.5 + cc * 6.25 + cc1h * 10)"
+ },
+ {
+  "model": "mixtral-8x22b-instruct",
+  "expr": "tier(\"base\", p * 2.0 + c * 6.0 + cr * 0.2)"
+ },
+ {
+  "model": "hermes-3-llama-3.1-405b",
+  "expr": "tier(\"base\", p * 1.0 + c * 1.0)"
+ },
+ {
+  "model": "gpt-5",
+  "expr": "tier(\"base\", p * 1.25 + c * 10 + cr * 0.125)"
+ },
+ {
+  "model": "gpt-3.5-turbo",
+  "expr": "tier(\"base\", p * 0.5 + c * 1.5)"
+ },
+ {
+  "model": "dolphin-mistral-24b-venice-edition",
+  "expr": "tier(\"base\", p * 0.2 + c * 0.9)"
+ },
+ {
+  "model": "kat-coder-pro-v2.5",
+  "expr": "tier(\"base\", p * 0.74 + c * 2.96 + cr * 0.15)"
+ },
+ {
+  "model": "grok-4.5",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 2 + c * 6 + cr * 0.3) : tier(\"200k_plus\", p * 4 + c * 12 + cr * 0.6)"
+ },
+ {
+  "model": "nex-n2-pro",
+  "expr": "tier(\"base\", p * 0.25 + c * 1.0 + cr * 0.025)"
+ },
+ {
+  "model": "gemma-4-31b-it:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "mimo-v2.5",
+  "expr": "tier(\"base\", p * 0.14 + c * 0.28 + cr * 0.0028)"
+ },
+ {
+  "model": "kimi-k2-thinking",
+  "expr": "tier(\"base\", p * 0.6 + c * 2.5 + cr * 0.15)"
+ },
+ {
+  "model": "deepseek-v3.2",
+  "expr": "tier(\"base\", p * 0.269 + c * 0.4 + cr * 0.1345)"
+ },
+ {
+  "model": "qwen3-30b-a3b",
+  "expr": "tier(\"base\", p * 0.12 + c * 0.5)"
+ },
+ {
+  "model": "kat-coder-pro-v2",
+  "expr": "tier(\"base\", p * 0.3 + c * 1.2 + cr * 0.06)"
+ },
+ {
+  "model": "aion-2.0",
+  "expr": "tier(\"base\", p * 0.8 + c * 1.6 + cr * 0.2)"
+ },
+ {
+  "model": "gemini-3.1-flash-tts-preview",
+  "expr": "tier(\"base\", p * 1.0 + ao * 20.0)"
+ },
+ {
+  "model": "deepseek-v4-flash",
+  "expr": "p * 0 + c * 0"
+ },
+ {
+  "model": "claude-opus-5",
+  "expr": "tier(\"base\", p * 5 + c * 25 + cr * 0.5 + cc * 6.25 + cc1h * 10)"
+ },
+ {
+  "model": "gemini-3.1-pro-preview-customtools",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 2 + c * 12 + cr * 0.2) : tier(\"200k_plus\", p * 4 + c * 18 + cr * 0.4)"
+ },
+ {
+  "model": "gemini-3.1-pro-preview",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 2 + c * 12 + cr * 0.2) : tier(\"200k_plus\", p * 4 + c * 18 + cr * 0.4)"
+ },
+ {
+  "model": "aion-3.0-mini",
+  "expr": "tier(\"base\", p * 0.7 + c * 1.4 + cr * 0.18)"
+ },
+ {
+  "model": "perceptron-mk1",
+  "expr": "tier(\"base\", p * 0.15 + c * 1.5)"
+ },
+ {
+  "model": "hy3-preview",
+  "expr": "tier(\"base\", p * 0.18 + c * 0.6 + cr * 0.06)"
+ },
+ {
+  "model": "gemma-4-26b-a4b-it:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "gemini-3.1-flash-lite-image",
+  "expr": "tier(\"base\", p * 0.25 + c * 1.5 + img_o * 30.0)"
+ },
+ {
+  "model": "qwen3-vl-32b-instruct",
+  "expr": "tier(\"base\", p * 0.104 + c * 0.416)"
+ },
+ {
+  "model": "inkling:batch",
+  "expr": "tier(\"base\", p * 1.0 + c * 4.05 + cr * 0.17)"
+ },
+ {
+  "model": "gemma-4-26b-a4b-it",
+  "expr": "tier(\"base\", p * 0.07 + c * 0.34)"
+ },
+ {
+  "model": "kimi-k2.5",
+  "expr": "tier(\"base\", p * 0.6 + c * 3.0 + cr * 0.1)"
+ },
+ {
+  "model": "mistral-large-2407",
+  "expr": "tier(\"base\", p * 2.0 + c * 6.0 + cr * 0.2)"
+ },
+ {
+  "model": "skyfall-36b-v2",
+  "expr": "tier(\"base\", p * 0.55 + c * 0.8 + cr * 0.25)"
+ },
+ {
+  "model": "gpt-oss-120b",
+  "expr": "tier(\"base\", p * 0.037 + c * 0.17)"
+ },
+ {
+  "model": "glm-5.2:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "nemotron-3-ultra-550b-a55b",
+  "expr": "tier(\"base\", p * 0.5 + c * 2.2 + cr * 0.1)"
+ },
+ {
+  "model": "nemotron-3-ultra-550b-a55b:batch",
+  "expr": "tier(\"base\", p * 0.6 + c * 3.6 + cr * 0.2)"
+ },
+ {
+  "model": "hermes-4-405b",
+  "expr": "tier(\"base\", p * 1.0 + c * 3.0)"
+ },
+ {
+  "model": "mistral-saba",
+  "expr": "tier(\"base\", p * 0.2 + c * 0.6 + cr * 0.02)"
+ },
+ {
+  "model": "minimax-01",
+  "expr": "tier(\"base\", p * 0.2 + c * 1.1)"
+ },
+ {
+  "model": "gemma-3-4b-it",
+  "expr": "tier(\"base\", p * 0.05 + c * 0.1)"
+ },
+ {
+  "model": "gpt-5-mini",
+  "expr": "tier(\"base\", p * 0.25 + c * 2 + cr * 0.025)"
+ },
+ {
+  "model": "magnum-v4-72b",
+  "expr": "tier(\"base\", p * 3.0 + c * 5.0)"
+ },
+ {
+  "model": "gpt-5.6-terra",
+  "expr": "len <= 272000 ? tier(\"0_272k\", p * 2 + c * 12 + cr * 0.2 + cc * 2.5) : tier(\"272k_plus\", p * 4 + c * 18 + cr * 0.4 + cc * 5)"
+ },
+ {
+  "model": "gpt-5.4-mini",
+  "expr": "tier(\"base\", p * 0.75 + c * 4.5 + cr * 0.075)"
+ },
+ {
+  "model": "gpt-5.4-pro",
+  "expr": "len <= 272000 ? tier(\"0_272k\", p * 30 + c * 180) : tier(\"272k_plus\", p * 60 + c * 270)"
+ },
+ {
+  "model": "qwen3-vl-8b-instruct",
+  "expr": "tier(\"base\", p * 0.117 + c * 0.455)"
+ },
+ {
+  "model": "mistral-medium-3",
+  "expr": "tier(\"base\", p * 0.4 + c * 2.0 + cr * 0.04)"
+ },
+ {
+  "model": "qwen3-32b",
+  "expr": "tier(\"base\", p * 0.08 + c * 0.28)"
+ },
+ {
+  "model": "nova-lite-v1",
+  "expr": "tier(\"base\", p * 0.06 + c * 0.24)"
+ },
+ {
+  "model": "gemini-3.5-flash-lite",
+  "expr": "tier(\"base\", p * 0.3 + c * 2.5 + cr * 0.03)"
+ },
+ {
+  "model": "deepseek-r1-distill-llama-70b",
+  "expr": "tier(\"base\", p * 0.8 + c * 0.8)"
+ },
+ {
+  "model": "gemini-3.7-flash",
+  "expr": "tier(\"base\", p * 0.75 + c * 3.75 + cr * 0.075)"
+ },
+ {
+  "model": "l3.1-euryale-70b",
+  "expr": "tier(\"base\", p * 0.85 + c * 0.85)"
+ },
+ {
+  "model": "grok-4.3",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 1.25 + c * 2.5 + cr * 0.2) : tier(\"200k_plus\", p * 2.5 + c * 5 + cr * 0.4)"
+ },
+ {
+  "model": "minimax-m2.5",
+  "expr": "tier(\"base\", p * 0.27 + c * 1.08 + cr * 0.027)"
+ },
+ {
+  "model": "qwen3.5-9b",
+  "expr": "tier(\"base\", p * 0.1 + c * 0.15)"
+ },
+ {
+  "model": "glm-4.7-flash",
+  "expr": "tier(\"base\", p * 0.06 + c * 0.4 + cr * 0.01)"
+ },
+ {
+  "model": "lfm-2.5-2.6b:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "qwen2.5-vl-72b-instruct",
+  "expr": "tier(\"base\", p * 0.25 + c * 0.75)"
+ },
+ {
+  "model": "grok-build-0.1",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 1 + c * 2 + cr * 0.2) : tier(\"200k_plus\", p * 2 + c * 4 + cr * 0.4)"
+ },
+ {
+  "model": "deep-research-preview-04-2026",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 2 + c * 12 + cr * 0.2) : tier(\"200k_plus\", p * 4 + c * 18 + cr * 0.4)"
+ },
+ {
+  "model": "llama-3.2-1b-instruct",
+  "expr": "tier(\"base\", p * 0.027 + c * 0.201)"
+ },
+ {
+  "model": "step-3.7-flash",
+  "expr": "tier(\"base\", p * 0.2 + c * 1.15 + cr * 0.04)"
+ },
+ {
+  "model": "deep-research-max-preview-04-2026",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 2 + c * 12 + cr * 0.2) : tier(\"200k_plus\", p * 4 + c * 18 + cr * 0.4)"
+ },
+ {
+  "model": "deepseek-chat-v3-0324",
+  "expr": "tier(\"base\", p * 0.25 + c * 1.0)"
+ },
+ {
+  "model": "qwen3.8-27b",
+  "expr": "tier(\"base\", p * 0.425 + c * 2.55 + cr * 0.085 + cc * 0.53125)"
+ },
+ {
+  "model": "glm-5.2",
+  "expr": "tier(\"base\", p * 1.19 + c * 3.74 + cr * 0.221)"
+ },
+ {
+  "model": "llama-4-maverick",
+  "expr": "tier(\"base\", p * 0.2 + c * 0.8)"
+ },
+ {
+  "model": "qwen3.5-flash-02-23",
+  "expr": "tier(\"base\", p * 0.065 + c * 0.26)"
+ },
+ {
+  "model": "gemini-2.5-flash-preview-tts",
+  "expr": "tier(\"base\", p * 0.5 + ao * 10.0)"
+ },
+ {
+  "model": "mistral-small-24b-instruct-2501",
+  "expr": "tier(\"base\", p * 0.05 + c * 0.08)"
+ },
+ {
+  "model": "qwen3.6-35b-a3b",
+  "expr": "tier(\"base\", p * 0.1 + c * 0.9 + cr * 0.05)"
+ },
+ {
+  "model": "deepseek-v4-flash-latest",
+  "expr": "tier(\"base\", p * 0.03 + c * 0.1 + cr * 0.007)"
+ },
+ {
+  "model": "mistral-small-3.2-24b-instruct",
+  "expr": "tier(\"base\", p * 0.075 + c * 0.2)"
+ },
+ {
+  "model": "qwen3.8-2.4t-a95b",
+  "expr": "tier(\"base\", p * 2.0 + c * 6.0 + cr * 0.2)"
+ },
+ {
+  "model": "qwen3-vl-8b-thinking",
+  "expr": "tier(\"base\", p * 0.18 + c * 2.1)"
+ },
+ {
+  "model": "kimi-k2.7-code",
+  "expr": "tier(\"base\", p * 0.66 + c * 3.4 + cr * 0.18)"
+ },
+ {
+  "model": "llama-3.2-3b-instruct",
+  "expr": "tier(\"base\", p * 0.05 + c * 0.33)"
+ },
+ {
+  "model": "o3-mini",
+  "expr": "tier(\"base\", p * 1.1 + c * 4.4 + cr * 0.55)"
+ },
+ {
+  "model": "l3.3-euryale-70b",
+  "expr": "tier(\"base\", p * 0.65 + c * 0.75)"
+ },
+ {
+  "model": "morph-v3-fast",
+  "expr": "tier(\"base\", p * 0.8 + c * 1.2)"
+ },
+ {
+  "model": "minimax-m1",
+  "expr": "tier(\"base\", p * 0.55 + c * 2.2)"
+ },
+ {
+  "model": "llama-3.3-70b-instruct",
+  "expr": "tier(\"base\", p * 0.71 + c * 0.71 + cr * 0.71)"
+ },
+ {
+  "model": "qwen3-235b-a22b-thinking-2507",
+  "expr": "tier(\"base\", p * 0.23 + c * 2.3)"
+ },
+ {
+  "model": "minimax-m3",
+  "expr": "tier(\"base\", p * 0.3 + c * 1.2 + cr * 0.06)"
+ },
+ {
+  "model": "qwen3.6-plus",
+  "expr": "len <= 256000 ? tier(\"0_256k\", p * 0.5 + c * 3 + cr * 0.05 + cc * 0.625) : tier(\"256k_plus\", p * 2 + c * 6 + cr * 0.2 + cc * 2.5)"
+ },
+ {
+  "model": "claude-opus-4-5-20251101",
+  "expr": "tier(\"base\", p * 5 + c * 25 + cr * 0.5 + cc * 6.25 + cc1h * 10)"
+ },
+ {
+  "model": "lyria-3-clip-preview",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "gpt-5.4-nano",
+  "expr": "tier(\"base\", p * 0.2 + c * 1.25 + cr * 0.02)"
+ },
+ {
+  "model": "gpt-5-nano",
+  "expr": "tier(\"base\", p * 0.05 + c * 0.4 + cr * 0.005)"
+ },
+ {
+  "model": "mimo-v2.5-pro",
+  "expr": "tier(\"base\", p * 0.435 + c * 0.87 + cr * 0.0036)"
+ },
+ {
+  "model": "ministral-3b-2512",
+  "expr": "tier(\"base\", p * 0.1 + c * 0.1 + cr * 0.01)"
+ },
+ {
+  "model": "laguna-xs-2.1",
+  "expr": "tier(\"base\", p * 0.06 + c * 0.12 + cr * 0.03)"
+ },
+ {
+  "model": "laguna-xs-2.1:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "solar-pro-3",
+  "expr": "tier(\"base\", p * 0.15 + c * 0.6 + cr * 0.015)"
+ },
+ {
+  "model": "deepseek-r1",
+  "expr": "tier(\"base\", p * 0.7 + c * 2.5)"
+ },
+ {
+  "model": "gpt-5-pro",
+  "expr": "tier(\"base\", p * 15 + c * 120)"
+ },
+ {
+  "model": "qwen3.5-35b-a3b",
+  "expr": "tier(\"base\", p * 0.25 + c * 1.25 + cr * 0.25)"
+ },
+ {
+  "model": "nemotron-3.5-lightning",
+  "expr": "tier(\"base\", p * 0.08 + c * 0.2 + cr * 0.04)"
+ },
+ {
+  "model": "muse-glimmer-30b",
+  "expr": "tier(\"base\", p * 0.35 + c * 1.5 + cr * 0.04)"
+ },
+ {
+  "model": "north-mini-code:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "glm-4.5v",
+  "expr": "tier(\"base\", p * 0.6 + c * 1.8 + cr * 0.11)"
+ },
+ {
+  "model": "gpt-oss-safeguard-20b",
+  "expr": "tier(\"base\", p * 0.075 + c * 0.3 + cr * 0.0375)"
+ },
+ {
+  "model": "qwen3-vl-30b-a3b-thinking",
+  "expr": "tier(\"base\", p * 0.2 + c * 2.4)"
+ },
+ {
+  "model": "ernie-4.5-vl-424b-a47b",
+  "expr": "tier(\"base\", p * 0.42 + c * 1.25)"
+ },
+ {
+  "model": "gpt-5.1",
+  "expr": "tier(\"base\", p * 1.25 + c * 10 + cr * 0.125)"
+ },
+ {
+  "model": "nemotron-3-nano-30b-a3b",
+  "expr": "tier(\"base\", p * 0.05 + c * 0.2 + cr * 0.025)"
+ },
+ {
+  "model": "mistral-small-2603",
+  "expr": "tier(\"base\", p * 0.15 + c * 0.6 + cr * 0.015)"
+ },
+ {
+  "model": "qwen3-coder",
+  "expr": "tier(\"base\", p * 0.3 + c * 1.0 + cr * 0.1)"
+ },
+ {
+  "model": "claude-sonnet-5",
+  "expr": "tier(\"base\", p * 2 + c * 10 + cr * 0.2 + cc * 2.5 + cc1h * 4)"
+ },
+ {
+  "model": "grok-4.6",
+  "expr": "len <= 200000 ? tier(\"0_200k\", p * 2 + c * 6 + cr * 0.5) : tier(\"200k_plus\", p * 4 + c * 12 + cr * 1)"
+ },
+ {
+  "model": "laguna-s-2.1",
+  "expr": "tier(\"base\", p * 0.09 + c * 0.18 + cr * 0.009)"
+ },
+ {
+  "model": "command-a",
+  "expr": "tier(\"base\", p * 2.5 + c * 10.0)"
+ },
+ {
+  "model": "glm-4.5-air",
+  "expr": "tier(\"base\", p * 0.13 + c * 0.85 + cr * 0.025)"
+ },
+ {
+  "model": "nemotron-3-super-120b-a12b:free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "openrouter/free",
+  "expr": "tier(\"base\", p * 0.0 + c * 0.0)"
+ },
+ {
+  "model": "virtuoso-large",
+  "expr": "tier(\"base\", p * 0.75 + c * 1.2)"
+ },
+ {
+  "model": "wizardlm-2-8x22b",
+  "expr": "tier(\"base\", p * 0.62 + c * 0.62)"
+ },
+ {
+  "model": "gpt-5.5-pro",
+  "expr": "len <= 272000 ? tier(\"0_272k\", p * 30 + c * 180) : tier(\"272k_plus\", p * 60 + c * 270)"
+ },
+ {
+  "model": "qwen3-coder-30b-a3b-instruct",
+  "expr": "len <= 32000 ? tier(\"0_32k\", p * 0.45 + c * 2.25) : len <= 128000 ? tier(\"32k_128k\", p * 0.75 + c * 3.75) : tier(\"128k_plus\", p * 1.2 + c * 6)"
+ },
+ {
+  "model": "morph-v3-large",
+  "expr": "tier(\"base\", p * 0.9 + c * 1.9)"
+ },
+ {
+  "model": "gpt-4.1",
+  "expr": "tier(\"base\", p * 2 + c * 8 + cr * 0.5)"
+ },
+ {
+  "model": "glm-4.5",
+  "expr": "tier(\"base\", p * 0.6 + c * 2.2 + cr * 0.11)"
+ },
+ {
+  "model": "codestral-2508",
+  "expr": "tier(\"base\", p * 0.3 + c * 0.9 + cr * 0.03)"
+ },
+ {
+  "model": "o3",
+  "expr": "tier(\"base\", p * 2 + c * 8 + cr * 0.5)"
+ },
+ {
+  "model": "glm-4.6v",
+  "expr": "tier(\"base\", p * 0.3 + c * 0.9 + cr * 0.055)"
+ },
+ {
+  "model": "solar-pro4",
+  "expr": "tier(\"base\", p * 0.03 + c * 0.12 + cr * 0.006)"
+ },
+ {
+  "model": "relace-search",
+  "expr": "tier(\"base\", p * 1.0 + c * 3.0)"
+ },
+ {
+  "model": "nova-2-lite-v1",
+  "expr": "tier(\"base\", p * 0.3 + c * 2.5)"
+ },
+ {
+  "model": "hermes-4-70b",
+  "expr": "tier(\"base\", p * 0.13 + c * 0.4)"
+ },
+ {
+  "model": "longcat-2.0",
+  "expr": "tier(\"base\", p * 0.3 + c * 1.2 + cr * 0.006)"
+ },
+ {
+  "model": "aion-3.0",
+  "expr": "tier(\"base\", p * 3.0 + c * 6.0 + cr * 0.75)"
+ },
+ {
+  "model": "llama-3.1-8b-instruct",
+  "expr": "tier(\"base\", p * 0.05 + c * 0.08 + cr * 0.025)"
+ }
+]

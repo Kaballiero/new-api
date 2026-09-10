@@ -12,7 +12,10 @@ import (
 	"github.com/expr-lang/expr/vm"
 )
 
-const maxCacheSize = 256
+// maxCacheSize must exceed the number of distinct live expressions: the cache
+// is dropped wholesale when full, so a ceiling below the working set makes
+// every catalogue-wide read recompile everything.
+const maxCacheSize = 1024
 
 // DefaultExprVersion is used when an expression string has no version prefix.
 const DefaultExprVersion = 1
@@ -114,6 +117,8 @@ type cachedEntry struct {
 	usedVars      map[string]bool
 	usedUsageKeys map[string]bool
 	requestRules  []RequestRuleTrace
+	tiers         []Tier
+	tiersErr      error
 	version       int
 	fixedPricing  bool
 }
@@ -215,11 +220,14 @@ func compileEntryFromCacheByHash(exprStr, hash string) (*cachedEntry, error) {
 		return nil, fmt.Errorf("expr compile error: %w", err)
 	}
 
+	tiers, tiersErr := enumerateTiers(tree.Node, getCompileEnv(version))
 	entry := &cachedEntry{
 		prog:          prog,
 		usedVars:      extractUsedVars(prog),
 		usedUsageKeys: extractUsedUsageKeys(prog),
 		requestRules:  patcher.requestRules,
+		tiers:         tiers,
+		tiersErr:      tiersErr,
 		version:       version,
 		fixedPricing:  fixedPricing,
 	}
