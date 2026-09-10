@@ -27,51 +27,65 @@ type ListModelsMetaResponse struct {
 
 // GetAllModelsMeta 获取模型列表（分页）
 func GetAllModelsMeta(c *gin.Context) {
+	listModelsMeta(c, "", "")
+}
+
+// SearchModelsMeta 搜索模型列表
+func SearchModelsMeta(c *gin.Context) {
+	listModelsMeta(c, c.Query("keyword"), c.Query("vendor"))
+}
+
+func listModelsMeta(c *gin.Context, keyword, vendor string) {
+	squareState := model.ModelSquareState(c.Query("square_state"))
+	switch squareState {
+	case "", model.ModelSquareVisible, model.ModelSquareUnavailable, model.ModelSquareHidden, model.ModelSquarePartial:
+	default:
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "Invalid model square state")
+		return
+	}
+
 	pageInfo := common.GetPageQuery(c)
-	status := c.Query("status")
-	syncOfficial := c.Query("sync_official")
-	modelsMeta, total, err := model.SearchModels("", "", status, syncOfficial, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if squareState != "" && (pageInfo.GetPage() < 1 || pageInfo.GetPageSize() < 1) {
+		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "Invalid pagination")
+		return
+	}
+	offset, limit := pageInfo.GetStartIdx(), pageInfo.GetPageSize()
+	if squareState != "" {
+		offset, limit = 0, -1
+	}
+	search := model.SearchModels
+	if c.Query("include_channel_models") == "true" {
+		search = model.SearchModelsWithChannels
+	}
+	modelsMeta, total, err := search(keyword, vendor, c.Query("status"), c.Query("sync_official"), offset, limit)
 	if err != nil {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return
 	}
 	enrichModels(modelsMeta)
+	if squareState != "" {
+		filtered := make([]*model.Model, 0, len(modelsMeta))
+		for _, metadata := range modelsMeta {
+			if metadata.SquareState == squareState {
+				filtered = append(filtered, metadata)
+			}
+		}
+		total = int64(len(filtered))
+		start := len(filtered)
+		if pageInfo.GetPage()-1 <= len(filtered)/pageInfo.GetPageSize() {
+			start = (pageInfo.GetPage() - 1) * pageInfo.GetPageSize()
+		}
+		end := min(start+pageInfo.GetPageSize(), len(filtered))
+		modelsMeta = filtered[start:end]
+	}
 
-	// 统计供应商计数（全部数据，不受分页影响）
 	vendorCounts, _ := model.GetVendorModelCounts()
-
 	common.ApiSuccess(c, ListModelsMetaResponse{
 		Items:        modelsMeta,
 		Total:        total,
 		Page:         pageInfo.GetPage(),
 		PageSize:     pageInfo.GetPageSize(),
 		VendorCounts: vendorCounts,
-	})
-}
-
-// SearchModelsMeta 搜索模型列表
-func SearchModelsMeta(c *gin.Context) {
-	keyword := c.Query("keyword")
-	vendor := c.Query("vendor")
-	status := c.Query("status")
-	syncOfficial := c.Query("sync_official")
-	pageInfo := common.GetPageQuery(c)
-
-	modelsMeta, total, err := model.SearchModels(keyword, vendor, status, syncOfficial, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
-	if err != nil {
-		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
-		return
-	}
-	enrichModels(modelsMeta)
-	vendorCounts, _ := model.GetVendorModelCounts()
-	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(modelsMeta)
-	common.ApiSuccess(c, gin.H{
-		"items":         modelsMeta,
-		"total":         total,
-		"page":          pageInfo.GetPage(),
-		"page_size":     pageInfo.GetPageSize(),
-		"vendor_counts": vendorCounts,
 	})
 }
 
