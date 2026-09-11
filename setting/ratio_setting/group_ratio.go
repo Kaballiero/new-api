@@ -1,7 +1,6 @@
 package ratio_setting
 
 import (
-	"encoding/json"
 	"errors"
 
 	"github.com/QuantumNous/new-api/common"
@@ -73,6 +72,9 @@ func GroupRatio2JSONString() string {
 }
 
 func UpdateGroupRatioByJSONString(jsonStr string) error {
+	if err := CheckGroupRatio(jsonStr); err != nil {
+		return err
+	}
 	return types.LoadFromJsonString(groupRatioMap, jsonStr)
 }
 
@@ -102,18 +104,44 @@ func GroupGroupRatio2JSONString() string {
 }
 
 func UpdateGroupGroupRatioByJSONString(jsonStr string) error {
+	if err := CheckGroupGroupRatio(jsonStr); err != nil {
+		return err
+	}
 	return types.LoadFromJsonString(groupGroupRatioMap, jsonStr)
 }
 
 func CheckGroupRatio(jsonStr string) error {
 	checkGroupRatio := make(map[string]float64)
-	err := json.Unmarshal([]byte(jsonStr), &checkGroupRatio)
+	err := common.UnmarshalJsonStr(jsonStr, &checkGroupRatio)
 	if err != nil {
 		return err
+	}
+	if checkGroupRatio == nil {
+		return errors.New("group ratio must be a JSON object")
 	}
 	for name, ratio := range checkGroupRatio {
 		if ratio < 0 {
 			return errors.New("group ratio must be not less than 0: " + name)
+		}
+	}
+	return nil
+}
+
+// CheckGroupGroupRatio validates special user-group/using-group overrides before
+// mutating the live map or persisting either option spelling.
+func CheckGroupGroupRatio(jsonStr string) error {
+	var ratios map[string]map[string]float64
+	if err := common.UnmarshalJsonStr(jsonStr, &ratios); err != nil {
+		return err
+	}
+	if ratios == nil {
+		return errors.New("group group ratio must be a JSON object")
+	}
+	for userGroup, groups := range ratios {
+		for usingGroup, ratio := range groups {
+			if ratio < 0 {
+				return errors.New("group group ratio must be not less than 0: " + userGroup + "/" + usingGroup)
+			}
 		}
 	}
 	return nil
