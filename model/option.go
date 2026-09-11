@@ -1,9 +1,12 @@
 package model
 
 import (
+	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -194,9 +197,43 @@ func InitOptionMap() {
 	loadOptionsFromDatabase()
 }
 
+// The legacy keys are the admin editor contract and win existing DB conflicts.
+// The namespaced keys remain supported aliases, not independent settings.
+var groupRatioOptionAliases = map[string]string{
+	"GroupRatio":      "group_ratio_setting.group_ratio",
+	"GroupGroupRatio": "group_ratio_setting.group_group_ratio",
+}
+
+var groupRatioOptionMutex sync.Mutex
+
+func canonicalGroupRatioOption(key string) string {
+	for canonical, alias := range groupRatioOptionAliases {
+		if key == canonical || key == alias {
+			return canonical
+		}
+	}
+	return ""
+}
+
 func loadOptionsFromDatabase() {
-	options, _ := AllOption()
+	groupRatioOptionMutex.Lock()
+	defer groupRatioOptionMutex.Unlock()
+	options, err := AllOption()
+	if err != nil {
+		common.SysError("failed to load options from database: " + err.Error())
+		return
+	}
+	// Resolve aliases before applying any values so billing never observes the
+	// losing value, regardless of the database row order.
+	present := make(map[string]bool, len(options))
 	for _, option := range options {
+		present[option.Key] = true
+	}
+	for _, option := range options {
+		canonical := canonicalGroupRatioOption(option.Key)
+		if canonical != "" && option.Key != canonical && present[canonical] {
+			continue
+		}
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
@@ -213,6 +250,12 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	switch canonicalGroupRatioOption(key) {
+	case "GroupRatio":
+		return ratio_setting.CheckGroupRatio(value)
+	case "GroupGroupRatio":
+		return ratio_setting.CheckGroupGroupRatio(value)
+	}
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
 	}
@@ -226,6 +269,9 @@ func validateOptionValue(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
+	if canonicalGroupRatioOption(key) != "" {
+		return UpdateOptionsBulk(map[string]string{key: value})
+	}
 	if IsModelPricingOption(key) {
 		return UpdateModelPricingOptions(map[string]string{key: value})
 	}
@@ -256,13 +302,33 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	// Persist both spellings atomically, including writes through the old API.
+	// Reject ambiguous bulk requests instead of depending on Go map iteration.
+	values = maps.Clone(values)
+	for canonical, alias := range groupRatioOptionAliases {
+		canonicalValue, hasCanonical := values[canonical]
+		aliasValue, hasAlias := values[alias]
+		if hasCanonical && hasAlias && canonicalValue != aliasValue {
+			return fmt.Errorf("conflicting group ratio options: %s and %s", canonical, alias)
+		}
+		if hasCanonical {
+			values[alias] = canonicalValue
+		} else if hasAlias {
+			values[canonical] = aliasValue
+		}
+	}
 	for key, value := range values {
 		if err := validateOptionValue(key, value); err != nil {
 			return err
 		}
 	}
+	// Do not let an older synchronization snapshot overwrite a completed write.
+	groupRatioOptionMutex.Lock()
+	defer groupRatioOptionMutex.Unlock()
+	keys := slices.Sorted(maps.Keys(values))
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range values {
+		for _, k := range keys {
+			v := values[k]
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
 				return err
@@ -277,8 +343,11 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if err != nil {
 		return err
 	}
-	for k, v := range values {
-		if err := updateOptionMap(k, v); err != nil {
+	for _, k := range keys {
+		if canonical := canonicalGroupRatioOption(k); canonical != "" && k != canonical {
+			continue
+		}
+		if err := updateOptionMap(k, values[k]); err != nil {
 			return err
 		}
 	}
@@ -294,6 +363,21 @@ func updateOptionMap(key string, value string) (err error) {
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	// Both API spellings publish the value used by the shared billing map.
+	if canonical := canonicalGroupRatioOption(key); canonical != "" {
+		switch canonical {
+		case "GroupRatio":
+			err = ratio_setting.UpdateGroupRatioByJSONString(value)
+		case "GroupGroupRatio":
+			err = ratio_setting.UpdateGroupGroupRatioByJSONString(value)
+		}
+		if err != nil {
+			return err
+		}
+		common.OptionMap[canonical] = value
+		common.OptionMap[groupRatioOptionAliases[canonical]] = value
+		return nil
+	}
 	common.OptionMap[key] = value
 
 	// 检查是否是模型配置 - 使用更规范的方式处理
@@ -574,10 +658,6 @@ func updateOptionMap(key string, value string) (err error) {
 		common.DataExportDefaultTime = value
 	case "ModelRatio":
 		err = ratio_setting.UpdateModelRatioByJSONString(value)
-	case "GroupRatio":
-		err = ratio_setting.UpdateGroupRatioByJSONString(value)
-	case "GroupGroupRatio":
-		err = ratio_setting.UpdateGroupGroupRatioByJSONString(value)
 	case "UserUsableGroups":
 		err = setting.UpdateUserUsableGroupsByJSONString(value)
 	case "CompletionRatio":
