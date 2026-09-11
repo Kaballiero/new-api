@@ -30,12 +30,9 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from '@/components/ui/tooltip'
-import {
-  useCanEditModelPricing,
-  type ModelPricingConfig,
-} from '@/features/model-pricing/api'
-import { modelPricingDisplay } from '@/features/model-pricing/pricing'
-import { ModelPriceCell } from '@/features/pricing/components/model-price-cell'
+import { useCanEditModelPricing } from '@/features/model-pricing/api'
+import { EffectivePrice } from '@/features/pricing/components/effective-price'
+import type { EffectivePricingResponse } from '@/features/pricing/effective-pricing'
 import { formatTimestampToDate } from '@/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
@@ -50,7 +47,7 @@ import { useModels } from './models-provider'
 
 export function useModelsColumns(
   vendors: Vendor[] = [],
-  pricing?: ModelPricingConfig,
+  pricing?: EffectivePricingResponse,
   pricingState?: 'loading' | 'error'
 ): ColumnDef<Model>[] {
   const { t } = useTranslation()
@@ -62,7 +59,7 @@ export function useModelsColumns(
   )
   const priceMap = useMemo(
     () =>
-      new Map(pricing?.entries.map((entry) => [entry.model_name, entry]) ?? []),
+      new Map(pricing?.data.map((entry) => [entry.model_name, entry]) ?? []),
     [pricing]
   )
   const rules = getNameRuleConfig(t)
@@ -144,8 +141,8 @@ export function useModelsColumns(
     },
     {
       id: 'pricing',
-      header: t('Pricing'),
-      meta: { label: t('Pricing') },
+      header: t('Customer tariff (RUB)'),
+      meta: { label: t('Customer tariff (RUB)') },
       size: 225,
       enableSorting: false,
       cell: ({ row }) => {
@@ -185,13 +182,7 @@ export function useModelsColumns(
               setOpen('price-model')
             }}
           >
-            <ModelPriceCell
-              model={modelPricingDisplay(
-                entry ?? { model_name: row.original.model_name, effective: {} }
-              )}
-              options={{ tokenUnit: 'M' }}
-              showExpression={false}
-            />
+            <EffectivePrice model={entry ?? null} compact />
           </Button>
         )
       },

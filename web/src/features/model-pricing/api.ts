@@ -88,6 +88,7 @@ export async function invalidateModelPricing(client: QueryClient) {
     client.invalidateQueries({ queryKey: ['model-pricing-config'] }),
     client.invalidateQueries({ queryKey: ['system-options'] }),
     client.invalidateQueries({ queryKey: ['pricing'] }),
+    client.invalidateQueries({ queryKey: ['effective-pricing'] }),
     client.invalidateQueries({ queryKey: ['models'] }),
   ])
 }

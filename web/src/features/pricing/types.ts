@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { EffectivePricingModel } from './effective-pricing'
+
 // ----------------------------------------------------------------------------
 // Pricing Types
 // ----------------------------------------------------------------------------
@@ -45,6 +47,8 @@ export type BillingUsageExample = {
 }
 
 export type PricingModel = {
+  /** Undefined preserves base-price consumers; null explicitly forbids a raw-price fallback. */
+  effective_pricing?: EffectivePricingModel | null
   id: number
   model_name: string
   description?: string

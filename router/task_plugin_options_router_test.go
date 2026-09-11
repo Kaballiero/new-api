@@ -53,3 +53,55 @@ func TestGetTaskPluginOptionsAdminForbiddenRootAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestEffectivePricingPreviewRequiresRoot(t *testing.T) {
+	oldDB, oldLogDB := model.DB, model.LOG_DB
+	oldRedis := common.RedisEnabled
+	oldRateLimit := common.GlobalApiRateLimitEnable
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AuditLog{}))
+	model.DB, model.LOG_DB = db, db
+	common.RedisEnabled = false
+	common.GlobalApiRateLimitEnable = false
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = oldDB, oldLogDB
+		common.RedisEnabled = oldRedis
+		common.GlobalApiRateLimitEnable = oldRateLimit
+		require.NoError(t, sqlDB.Close())
+	})
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	SetApiRouter(engine)
+	for _, tc := range []struct {
+		name   string
+		role   int
+		status int
+	}{
+		{name: "anonymous", status: http.StatusUnauthorized},
+		{name: "user", role: common.RoleCommonUser, status: http.StatusForbidden},
+		{name: "admin", role: common.RoleAdminUser, status: http.StatusForbidden},
+		// Invalid group reaches handler validation only after successful root auth.
+		{name: "root", role: common.RoleRootUser, status: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/option/effective_pricing?user_group=", nil)
+			if tc.role != 0 {
+				token := "preview-test-" + tc.name
+				user := model.User{Id: 9200 + tc.role, Username: "preview-" + tc.name, Role: tc.role, Group: "default", AffCode: tc.name, Status: common.UserStatusEnabled, AccessToken: &token}
+				require.NoError(t, db.Create(&user).Error)
+				request.Header.Set("Authorization", "Bearer "+token)
+			}
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			assert.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			if tc.role == common.RoleRootUser {
+				assert.Contains(t, recorder.Header().Get("Cache-Control"), "no-store")
+				assert.Contains(t, recorder.Body.String(), "invalid user pricing group")
+			}
+		})
+	}
+}

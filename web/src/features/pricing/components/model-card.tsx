@@ -40,6 +40,7 @@ import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import { taskPriceLabel } from '../lib/task-price-display'
 import type { PricingModel, PriceType, TokenUnit } from '../types'
+import { EffectivePrice } from './effective-price'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
@@ -69,27 +70,45 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 28) : null
   const initial = props.model.model_name?.charAt(0).toUpperCase() || '?'
   const isDynamicPricing =
+    props.model.effective_pricing === undefined &&
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
   const isUnconfiguredTaskUsage = isUnconfiguredTaskUsageModel(props.model)
-  const billingTime = useBillingTime(props.model.billing_expr)
+  const billingTime = useBillingTime(
+    props.model.effective_pricing === undefined
+      ? props.model.billing_expr
+      : undefined
+  )
   const dynamicPriceOptions = {
     now: billingTime === undefined ? undefined : new Date(billingTime),
     tokenUnit,
     showRechargePrice,
     priceRate,
     usdExchangeRate,
-    groupRatioMultiplier: getDynamicDisplayGroupRatio(
-      props.model,
-      props.selectedGroup
-    ),
+    groupRatioMultiplier:
+      props.model.effective_pricing === undefined
+        ? getDynamicDisplayGroupRatio(props.model, props.selectedGroup)
+        : undefined,
   }
   const dynamicSummary = isDynamicPricing
     ? getDynamicPricingSummary(props.model, dynamicPriceOptions)
     : null
-  const cardExamplePrice = getCardExamplePrice(props.model, dynamicPriceOptions)
+  const cardExamplePrice =
+    props.model.effective_pricing === undefined
+      ? getCardExamplePrice(props.model, dynamicPriceOptions)
+      : null
   let priceSummary: ReactNode
-  if (dynamicSummary) {
+  if (props.model.effective_pricing !== undefined) {
+    priceSummary = (
+      <div className='col-span-full min-w-0'>
+        <EffectivePrice
+          model={props.model.effective_pricing}
+          selectedGroup={props.selectedGroup}
+          compact
+        />
+      </div>
+    )
+  } else if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
       priceSummary = (
         <div className='col-span-full min-w-0'>

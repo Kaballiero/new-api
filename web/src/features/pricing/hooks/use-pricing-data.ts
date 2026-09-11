@@ -23,9 +23,15 @@ import { useStatus } from '@/hooks/use-status'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { getPricing } from '../api'
+import { useEffectivePricing } from '../effective-pricing'
 
-export function usePricingData(enabled = true) {
+export function usePricingData(enabled = true, effectivePricing = false) {
   const { status } = useStatus()
+  const effectiveQuery = useEffectivePricing(
+    undefined,
+    false,
+    enabled && effectivePricing
+  )
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['pricing'],
@@ -47,9 +53,15 @@ export function usePricingData(enabled = true) {
   const models = useMemo(() => {
     if (!data?.data || !data?.vendors) return []
 
+    const effectiveModels = new Map(
+      (effectiveQuery.isError ? [] : (effectiveQuery.data?.data ?? [])).map(
+        (model) => [model.model_name, model]
+      )
+    )
     const vendorMap = new Map(data.vendors.map((v) => [v.id, v]))
 
     return data.data.map((model) => {
+      const tariff = effectiveModels.get(model.model_name)
       const vendor = model.vendor_id
         ? vendorMap.get(model.vendor_id)
         : undefined
@@ -60,9 +72,17 @@ export function usePricingData(enabled = true) {
         vendor_icon: vendor?.icon,
         vendor_description: vendor?.description,
         group_ratio: data.group_ratio,
+        ...(effectivePricing
+          ? {
+              effective_pricing: tariff ?? null,
+              enable_groups:
+                tariff?.group_prices.map((group) => group.using_group) ??
+                model.enable_groups,
+            }
+          : {}),
       }
     })
-  }, [data])
+  }, [data, effectivePricing, effectiveQuery.data, effectiveQuery.isError])
 
   return {
     models,

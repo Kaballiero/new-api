@@ -24,16 +24,13 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
-import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
-import { ModelPriceCell } from '@/features/pricing/components/model-price-cell'
-import { isDynamicPricingModel } from '@/features/pricing/lib/dynamic-price'
-import { formatPrice } from '@/features/pricing/lib/price'
+import { EffectivePrice } from '@/features/pricing/components/effective-price'
+import { useEffectivePricing } from '@/features/pricing/effective-pricing'
 import {
   ModelPricingEditorPanel,
   type ModelPricingEditorPanelHandle,
 } from '@/features/system-settings/models/model-pricing-sheet'
 import { handleServerError } from '@/lib/handle-server-error'
-import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import {
   useCanEditModelPricing,
@@ -41,14 +38,16 @@ import {
   useSaveModelPricing,
   type ModelPricingEntry,
 } from './api'
-import { modelPricingDisplay, pricingFromDraft, pricingRow } from './pricing'
+import { pricingFromDraft, pricingRow } from './pricing'
+import { PricingPreviewControls } from './pricing-preview-controls'
 
 export function ModelPricingPanel(props: {
   modelName: string
   onDirtyChange?: (dirty: boolean) => void
 }) {
   const { t } = useTranslation()
-  useSystemConfigStore((state) => state.config.currency)
+  const [userGroup, setUserGroup] = useState<string>()
+  const preview = useEffectivePricing(userGroup, true)
   const canEdit = useCanEditModelPricing()
   const query = useModelPricing([props.modelName], Boolean(props.modelName))
   const save = useSaveModelPricing()
@@ -117,7 +116,6 @@ export function ModelPricingPanel(props: {
     )
   }
   if (!editData || !entry) return <LoadingState />
-  const effectivePricing = modelPricingDisplay(entry)
 
   return (
     <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>
@@ -150,75 +148,32 @@ export function ModelPricingPanel(props: {
               </Button>
             </div>
             <section
-              aria-label={t('Current Billing')}
+              aria-label={t('Customer tariff (RUB)')}
               className='space-y-3 border-b pb-3'
             >
-              <h3 className='text-muted-foreground text-xs'>
-                {t('Current Billing')}
+              <h3 className='text-sm font-medium'>
+                {t('Customer tariff (RUB)')}
               </h3>
-              <div className='max-w-xs'>
-                <ModelPriceCell
-                  model={effectivePricing}
-                  options={{ tokenUnit: 'M' }}
-                  showExpression={false}
-                />
-              </div>
-              {isDynamicPricingModel(effectivePricing) ? (
-                <DynamicPricingBreakdown
-                  compact
-                  billingExpr={effectivePricing.billing_expr}
-                  usageSchema={entry.usage_schema}
-                />
-              ) : (
-                effectivePricing.quota_type === 0 &&
-                Number.isFinite(effectivePricing.model_ratio) && (
-                  <dl className='grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3'>
-                    {(
-                      [
-                        {
-                          field: 'cache_ratio',
-                          type: 'cache',
-                          label: t('Cache Read'),
-                        },
-                        {
-                          field: 'create_cache_ratio',
-                          type: 'create_cache',
-                          label: t('Cache write'),
-                        },
-                        {
-                          field: 'image_ratio',
-                          type: 'image',
-                          label: t('Image input'),
-                        },
-                        {
-                          field: 'audio_ratio',
-                          type: 'audio_input',
-                          label: t('Audio input'),
-                        },
-                        {
-                          field: 'audio_completion_ratio',
-                          type: 'audio_output',
-                          label: t('Audio output'),
-                        },
-                      ] as const
-                    ).map((field) => {
-                      if (effectivePricing[field.field] == null) return null
-                      return (
-                        <div key={field.field}>
-                          <dt className='text-muted-foreground'>
-                            {field.label}
-                          </dt>
-                          <dd className='mt-1 font-mono tabular-nums'>
-                            {formatPrice(effectivePricing, field.type, 'M')} /
-                            1M
-                          </dd>
-                        </div>
-                      )
-                    })}
-                  </dl>
-                )
-              )}
+              <PricingPreviewControls
+                query={preview}
+                userGroup={userGroup}
+                onGroupChange={setUserGroup}
+              />
+              <EffectivePrice
+                model={
+                  preview.isError
+                    ? null
+                    : (preview.data?.data.find(
+                        (item) => item.model_name === props.modelName
+                      ) ?? null)
+                }
+              />
             </section>
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Edit base model prices below. Customer tariffs are calculated separately; wallet conversion is unchanged.'
+              )}
+            </p>
             {save.isError && (
               <div>
                 <p role='alert' className='text-destructive mb-2 text-sm'>
