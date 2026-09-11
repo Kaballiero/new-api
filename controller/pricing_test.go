@@ -123,3 +123,54 @@ func TestEffectiveGroupPricingRefusesUnpriceableExpressions(t *testing.T) {
 		})
 	}
 }
+
+func TestEffectiveGroupPricingLegacyAudioOutputUsesAudioInputBasis(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		audioRatio *float64
+		want       float64
+	}{
+		{name: "configured audio input ratio", audioRatio: float(4), want: 9600},
+		{name: "missing audio input ratio defaults to one", want: 2400},
+		{name: "explicit zero remains free", audioRatio: float(0), want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			price := buildEffectiveGroupPricing(model.Pricing{
+				ModelRatio: 2, CompletionRatio: 7,
+				AudioRatio: tc.audioRatio, AudioCompletionRatio: float(3),
+			}, "paid", 4, 2)
+			require.NotEmpty(t, price.UnitPrices)
+			output := price.UnitPrices[len(price.UnitPrices)-1]
+			assert.Equal(t, "audio_output", output.Component)
+			assert.Equal(t, "million_tokens", output.Unit)
+			assert.Equal(t, tc.want, output.AmountRub)
+			require.Len(t, price.Tiers, 1)
+			assert.Equal(t, price.UnitPrices, price.Tiers[0].UnitPrices)
+		})
+	}
+}
+
+func TestEffectiveGroupPricingExpressionAudioPricesIgnoreLegacyRatios(t *testing.T) {
+	item := tieredPricing(`tier("audio", p * 2 + c * 7 + ai * 11 + ao * 13)`)
+	item.ModelRatio = 50
+	item.CompletionRatio = 60
+	item.AudioRatio = float(70)
+	item.AudioCompletionRatio = float(80)
+	price := buildEffectiveGroupPricing(item, "paid", 4, 2)
+	require.NotNil(t, price.Formula)
+	assert.Equal(t, item.BillingExpr, price.Formula.Expression)
+	assert.Empty(t, price.UnitPrices)
+	require.Len(t, price.Tiers, 1)
+	require.Len(t, price.Tiers[0].UnitPrices, 4)
+	for i, expected := range []effectiveUnitPrice{
+		{Component: "input", Unit: "million_tokens", AmountRub: 400},
+		{Component: "output", Unit: "million_tokens", AmountRub: 1400},
+		{Component: "audio_input", Unit: "million_tokens", AmountRub: 2200},
+		{Component: "audio_output", Unit: "million_tokens", AmountRub: 2600},
+	} {
+		actual := price.Tiers[0].UnitPrices[i]
+		assert.Equal(t, expected.Component, actual.Component)
+		assert.Equal(t, expected.Unit, actual.Unit)
+		assert.InDelta(t, expected.AmountRub, actual.AmountRub, 1e-9)
+	}
+}

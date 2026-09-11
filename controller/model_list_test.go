@@ -275,6 +275,67 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 	assert.Equal(t, `tier("base", p * 2 + c * 6)`, expr.GroupPrices[0].Formula.Expression)
 	assert.InEpsilon(t, 500000*1.35/1000000, expr.GroupPrices[0].Formula.OutputToQuotaFactor, 1e-12)
 	assert.InEpsilon(t, 1.35/10000, expr.GroupPrices[0].Formula.OutputToRubFactor, 1e-12)
+
+	// The root preview uses the same projection as the authenticated self endpoint.
+	for _, query := range []string{"", "?user_group=default", "?user_group=vip"} {
+		previewRecorder := httptest.NewRecorder()
+		previewContext, _ := gin.CreateTestContext(previewRecorder)
+		previewContext.Request = httptest.NewRequest(http.MethodGet, "/api/option/effective_pricing"+query, nil)
+		previewContext.Set("id", 2101)
+		previewContext.Set("group", "default")
+		GetEffectivePricingPreview(previewContext)
+		require.Equal(t, http.StatusOK, previewRecorder.Code)
+		var preview struct {
+			Success bool                            `json:"success"`
+			Data    effectivePricingPreviewResponse `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(previewRecorder.Body.Bytes(), &preview))
+		require.True(t, preview.Success)
+		assert.Equal(t, []string{"default", "vip"}, preview.Data.AvailableUserGroups)
+		if query != "?user_group=vip" {
+			assert.Equal(t, envelope.Data, preview.Data.effectivePricingResponse)
+		} else {
+			assert.Equal(t, "vip", preview.Data.UserGroup)
+			for _, item := range preview.Data.Data {
+				for _, price := range item.GroupPrices {
+					if price.UsingGroup == "vip" {
+						assert.Equal(t, 2.0, price.PureGroupRatio)
+						assert.Equal(t, 1.8, price.EffectiveBillingRatio)
+					}
+				}
+			}
+		}
+		assert.Equal(t, 2101, previewContext.GetInt("id"))
+		assert.Equal(t, "default", previewContext.GetString("group"))
+	}
+	user, err := model.GetUserCache(2101)
+	require.NoError(t, err)
+	assert.Equal(t, "default", user.Group)
+
+	// Invalid selection is rejected before attempting FX or model database reads.
+	for _, query := range []string{"?user_group=", "?user_group=unknown", "?user_group=auto", "?user_group=default&user_group=vip"} {
+		invalidRecorder := httptest.NewRecorder()
+		invalidContext, _ := gin.CreateTestContext(invalidRecorder)
+		invalidContext.Request = httptest.NewRequest(http.MethodGet, "/api/option/effective_pricing"+query, nil)
+		GetEffectivePricingPreview(invalidContext)
+		assert.Equal(t, http.StatusBadRequest, invalidRecorder.Code)
+	}
+
+	// Both handlers fail closed on an invalid accounting basis, never nominal FX.
+	common.QuotaPerUnit = 1
+	for _, handler := range []gin.HandlerFunc{GetEffectivePricing, GetEffectivePricingPreview} {
+		unavailableRecorder := httptest.NewRecorder()
+		unavailableContext, _ := gin.CreateTestContext(unavailableRecorder)
+		unavailableContext.Request = httptest.NewRequest(http.MethodGet, "/?user_group=default", nil)
+		unavailableContext.Set("id", 2101)
+		handler(unavailableContext)
+		assert.Equal(t, http.StatusServiceUnavailable, unavailableRecorder.Code)
+		var unavailable map[string]any
+		require.NoError(t, common.Unmarshal(unavailableRecorder.Body.Bytes(), &unavailable))
+		assert.Equal(t, false, unavailable["success"])
+		assert.NotContains(t, unavailable, "data")
+	}
+
 }
 
 func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {

@@ -52,7 +52,7 @@ export function Pricing() {
     isLoading,
     priceRate,
     usdExchangeRate,
-  } = usePricingData()
+  } = usePricingData(true, true)
 
   const {
     searchInput,
@@ -81,7 +81,7 @@ export function Pricing() {
     availableTags,
     clearFilters,
     clearSearch,
-  } = useFilters(models || [])
+  } = useFilters(models || [], true)
 
   const handleModelClick = useCallback((modelName: string) => {
     setSelectedModelName(modelName)
@@ -216,7 +216,6 @@ export function Pricing() {
               onTagChange={setTagFilter}
               vendors={vendors || []}
               groups={availableGroups}
-              groupRatios={groupRatio}
               tags={availableTags}
               models={models || []}
               hasActiveFilters={hasActiveFilters}
@@ -226,6 +225,7 @@ export function Pricing() {
 
             <main className='min-w-0 space-y-4'>
               <PricingToolbar
+                effectivePricing
                 filteredCount={filteredModels.length}
                 totalCount={models?.length}
                 sortBy={sortBy}
@@ -248,7 +248,6 @@ export function Pricing() {
                 onTagChange={setTagFilter}
                 vendors={vendors || []}
                 groups={availableGroups}
-                groupRatios={groupRatio}
                 tags={availableTags}
                 models={models || []}
                 hasActiveFilters={hasActiveFilters}

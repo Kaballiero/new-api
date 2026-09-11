@@ -91,6 +91,7 @@ interface ModelSelectorProps {
 }
 
 interface GroupSelectorProps {
+  ariaLabel?: string
   selectedGroup: string
   groups: GroupOption[]
   onGroupChange: (value: string) => void
@@ -370,7 +371,14 @@ ModelSelector.displayName = 'ModelSelector'
  * Styled following Scira's form-component design patterns
  */
 export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
-  ({ selectedGroup, groups, onGroupChange, className, disabled = false }) => {
+  ({
+    selectedGroup,
+    groups,
+    onGroupChange,
+    className,
+    disabled = false,
+    ariaLabel,
+  }) => {
     const { t } = useTranslation()
     const [open, setOpen] = useState(false)
     const isMobile = useIsMobile()
@@ -469,6 +477,7 @@ export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
         <DrawerTrigger asChild>
           <GroupTriggerButton
             currentLabel={currentGroup?.label || t('Group')}
+            aria-label={ariaLabel}
             triggerClassName={className}
             isDisabled={disabled}
             aria-expanded={open}
@@ -533,6 +542,7 @@ export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
           render={
             <GroupTriggerButton
               currentLabel={currentGroup?.label || t('Group')}
+              aria-label={ariaLabel}
               triggerClassName={className}
               isDisabled={disabled}
               aria-expanded={open}

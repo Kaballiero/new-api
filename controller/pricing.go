@@ -152,11 +152,16 @@ func GetEffectivePricing(c *gin.Context) {
 		return
 	}
 
-	usableGroups := service.GetUserUsableGroups(user.Group)
-	pricing := filterPricingByUsableGroups(model.GetPricing(), usableGroups)
+	response := buildEffectivePricingResponse(user.Group, basis, model.GetPricing())
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
+}
+
+func buildEffectivePricingResponse(userGroup string, basis service.BillingFXBasis, pricing []model.Pricing) effectivePricingResponse {
+	usableGroups := service.GetUserUsableGroups(userGroup)
+	pricing = filterPricingByUsableGroups(pricing, usableGroups)
 	response := effectivePricingResponse{
 		SchemaVersion: "v1",
-		UserGroup:     user.Group,
+		UserGroup:     userGroup,
 		Currency:      "RUB",
 		PriceKind:     "current_tariff",
 		PriceScope:    "user_group",
@@ -166,13 +171,13 @@ func GetEffectivePricing(c *gin.Context) {
 			RubPerUnit:   100,
 			QuotaPerRub:  float64(common.QuotaPerUnit) / 100,
 		},
-		AutoGroups: service.GetUserAutoGroup(user.Group),
+		AutoGroups: service.GetUserAutoGroup(userGroup),
 		Data:       make([]effectivePricingModel, 0, len(pricing)),
 	}
 	for _, item := range pricing {
-		response.Data = append(response.Data, buildEffectivePricingModel(user.Group, usableGroups, basis.Factor, item))
+		response.Data = append(response.Data, buildEffectivePricingModel(userGroup, usableGroups, basis.Factor, item))
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
+	return response
 }
 
 func buildEffectivePricingModel(userGroup string, usableGroups map[string]string, fxFactor float64, item model.Pricing) effectivePricingModel {
@@ -275,7 +280,11 @@ func buildEffectiveGroupPricing(item model.Pricing, group string, pureRatio, eff
 		groupPrice.UnitPrices = append(groupPrice.UnitPrices, effectiveUnitPrice{Component: "audio_input", Unit: "million_tokens", AmountRub: baseInput * *item.AudioRatio})
 	}
 	if item.AudioCompletionRatio != nil {
-		groupPrice.UnitPrices = append(groupPrice.UnitPrices, effectiveUnitPrice{Component: "audio_output", Unit: "million_tokens", AmountRub: baseInput * *item.AudioCompletionRatio})
+		audioInput := baseInput
+		if item.AudioRatio != nil {
+			audioInput *= *item.AudioRatio
+		}
+		groupPrice.UnitPrices = append(groupPrice.UnitPrices, effectiveUnitPrice{Component: "audio_output", Unit: "million_tokens", AmountRub: audioInput * *item.AudioCompletionRatio})
 	}
 	groupPrice.setTiers([]effectivePricingTier{{UnitPrices: groupPrice.UnitPrices}})
 	return groupPrice

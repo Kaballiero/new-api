@@ -82,6 +82,50 @@ it.each([200, 400])(
       }
       if (
         config.method === 'get' &&
+        config.url === '/api/option/effective_pricing'
+      ) {
+        return {
+          data: {
+            success: true,
+            data: {
+              currency: 'RUB',
+              user_group: 'default',
+              fx: { usd_rate: 85.4594, publication_version: 1, fetched_at: 1 },
+              data: [
+                {
+                  model_name: 'example',
+                  group_prices: [
+                    {
+                      using_group: 'default',
+                      billing_mode: 'tiered_expr',
+                      billing_surface: 'token',
+                      status: 'formula',
+                      is_free: false,
+                      tiers: [
+                        {
+                          unit_prices: [
+                            {
+                              component: 'input',
+                              unit: 'million_tokens',
+                              amount_rub: 85.4594,
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        }
+      }
+      if (
+        config.method === 'get' &&
         config.url === '/api/option/model_pricing'
       ) {
         return {
@@ -128,6 +172,10 @@ it.each([200, 400])(
     const price = await screen.findByRole('textbox', {
       name: 'Input price',
     })
+    expect(price).toHaveValue('1')
+    expect(
+      await screen.findByRole('region', { name: 'Customer tariff (RUB)' })
+    ).toHaveTextContent('85.46 ₽ / 1M tokens')
     await user.clear(price)
     await user.type(price, '3')
     const save = screen.getByRole('button', { name: 'Save model prices' })

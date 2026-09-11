@@ -28,9 +28,27 @@ import {
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, stripTrailingZeros } from '../lib/price'
 import type { PricingModel } from '../types'
+import { EffectivePrice } from './effective-price'
 import type { ModelPriceCellOptions } from './model-price-cell'
 
 export function CachedPriceCell(props: {
+  model: PricingModel
+  options: ModelPriceCellOptions
+}) {
+  if (props.model.effective_pricing !== undefined) {
+    return (
+      <EffectivePrice
+        model={props.model.effective_pricing}
+        selectedGroup={props.options?.selectedGroup}
+        compact
+        components={['cache_read', 'cache_write', 'cache_write_1h']}
+      />
+    )
+  }
+  return <LegacyCachedPriceCell {...props} />
+}
+
+function LegacyCachedPriceCell(props: {
   model: PricingModel
   options: ModelPriceCellOptions
 }) {

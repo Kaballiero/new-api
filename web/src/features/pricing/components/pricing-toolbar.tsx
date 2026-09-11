@@ -50,6 +50,7 @@ import type { PricingModel, PricingVendor, TokenUnit } from '../types'
 import { PricingSidebar } from './pricing-sidebar'
 
 export interface PricingToolbarProps {
+  effectivePricing?: boolean
   filteredCount: number
   totalCount?: number
   sortBy: string
@@ -83,7 +84,10 @@ export interface PricingToolbarProps {
 export function PricingToolbar(props: PricingToolbarProps) {
   const { t } = useTranslation()
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
-  const sortLabels = getSortLabels(t)
+  const allSortLabels = getSortLabels(t)
+  const sortLabels = props.effectivePricing
+    ? { name: allSortLabels.name }
+    : allSortLabels
 
   return (
     <div className='bg-card rounded-xl border p-3'>
@@ -120,34 +124,42 @@ export function PricingToolbar(props: PricingToolbarProps) {
         </div>
 
         <div className='flex min-w-0 flex-wrap items-center gap-2'>
-          <ToggleGroup
-            value={[props.showRechargePrice ? 'recharge' : 'standard']}
-            onValueChange={(values) => {
-              if (values.length > 0) {
-                props.onRechargePriceChange(values[0] === 'recharge')
-              }
-            }}
-            variant='outline'
-            size='sm'
-            aria-label={t('Price display mode')}
-          >
-            <ToggleGroupItem value='standard'>{t('Standard')}</ToggleGroupItem>
-            <ToggleGroupItem value='recharge'>{t('Recharge')}</ToggleGroupItem>
-          </ToggleGroup>
-          <ToggleGroup
-            value={[props.tokenUnit]}
-            onValueChange={(values) => {
-              if (values[0] === 'M' || values[0] === 'K') {
-                props.onTokenUnitChange(values[0])
-              }
-            }}
-            variant='outline'
-            size='sm'
-            aria-label={t('Token unit')}
-          >
-            <ToggleGroupItem value='M'>/1M</ToggleGroupItem>
-            <ToggleGroupItem value='K'>/1K</ToggleGroupItem>
-          </ToggleGroup>
+          {!props.effectivePricing && (
+            <>
+              <ToggleGroup
+                value={[props.showRechargePrice ? 'recharge' : 'standard']}
+                onValueChange={(values) => {
+                  if (values.length > 0) {
+                    props.onRechargePriceChange(values[0] === 'recharge')
+                  }
+                }}
+                variant='outline'
+                size='sm'
+                aria-label={t('Price display mode')}
+              >
+                <ToggleGroupItem value='standard'>
+                  {t('Standard')}
+                </ToggleGroupItem>
+                <ToggleGroupItem value='recharge'>
+                  {t('Recharge')}
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <ToggleGroup
+                value={[props.tokenUnit]}
+                onValueChange={(values) => {
+                  if (values[0] === 'M' || values[0] === 'K') {
+                    props.onTokenUnitChange(values[0])
+                  }
+                }}
+                variant='outline'
+                size='sm'
+                aria-label={t('Token unit')}
+              >
+                <ToggleGroupItem value='M'>/1M</ToggleGroupItem>
+                <ToggleGroupItem value='K'>/1K</ToggleGroupItem>
+              </ToggleGroup>
+            </>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -161,7 +173,11 @@ export function PricingToolbar(props: PricingToolbarProps) {
               }
             >
               <ArrowUpDown className='size-3.5' />
-              <span>{sortLabels[props.sortBy as SortOption] || t('Sort')}</span>
+              <span>
+                {allSortLabels[
+                  (props.effectivePricing ? 'name' : props.sortBy) as SortOption
+                ] || t('Sort')}
+              </span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align='end' className='w-44'>
               <DropdownMenuGroup>

@@ -96,6 +96,7 @@ import type {
   TokenUnit,
 } from '../types'
 import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
+import { EffectivePrice } from './effective-price'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
@@ -1373,14 +1374,20 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
   const showRechargePrice = props.showRechargePrice ?? false
 
   const isDynamic =
+    props.model.effective_pricing === undefined &&
     props.model.billing_mode === 'tiered_expr' &&
     Boolean(props.model.billing_expr)
 
-  const simpleTaskPricing = hasSimpleTaskPricing(props.model)
-  const taskTiers = getTaskPricingDisplayTiers(
-    props.model.billing_expr,
-    props.model.billing_usage_schema
-  )
+  const simpleTaskPricing =
+    props.model.effective_pricing === undefined &&
+    hasSimpleTaskPricing(props.model)
+  const taskTiers =
+    props.model.effective_pricing === undefined
+      ? getTaskPricingDisplayTiers(
+          props.model.billing_expr,
+          props.model.billing_usage_schema
+        )
+      : []
   const showBasePrices =
     !props.model.billing_usage_schema ||
     simpleTaskPricing ||
@@ -1412,36 +1419,42 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
 
           <section className='bg-card/60 space-y-5 rounded-xl border p-4 shadow-sm'>
             <SectionTitle>{t('Pricing')}</SectionTitle>
-            {showBasePrices && (
-              <PriceSection
-                model={props.model}
-                priceRate={props.priceRate}
-                usdExchangeRate={props.usdExchangeRate}
-                tokenUnit={props.tokenUnit}
-                showRechargePrice={showRechargePrice}
-              />
+            {props.model.effective_pricing !== undefined ? (
+              <EffectivePrice model={props.model.effective_pricing} />
+            ) : (
+              <>
+                {showBasePrices && (
+                  <PriceSection
+                    model={props.model}
+                    priceRate={props.priceRate}
+                    usdExchangeRate={props.usdExchangeRate}
+                    tokenUnit={props.tokenUnit}
+                    showRechargePrice={showRechargePrice}
+                  />
+                )}
+                {isDynamic && !simpleTaskPricing && (
+                  <DynamicPricingBreakdown
+                    billingExpr={props.model.billing_expr}
+                    usageSchema={props.model.billing_usage_schema}
+                    taskPriceOptions={{
+                      showRechargePrice,
+                      priceRate: props.priceRate,
+                      usdExchangeRate: props.usdExchangeRate,
+                    }}
+                  />
+                )}
+                <GroupPricingSection
+                  model={props.model}
+                  groupRatio={props.groupRatio}
+                  usableGroup={props.usableGroup}
+                  autoGroups={props.autoGroups}
+                  priceRate={props.priceRate}
+                  usdExchangeRate={props.usdExchangeRate}
+                  tokenUnit={props.tokenUnit}
+                  showRechargePrice={showRechargePrice}
+                />
+              </>
             )}
-            {isDynamic && !simpleTaskPricing && (
-              <DynamicPricingBreakdown
-                billingExpr={props.model.billing_expr}
-                usageSchema={props.model.billing_usage_schema}
-                taskPriceOptions={{
-                  showRechargePrice,
-                  priceRate: props.priceRate,
-                  usdExchangeRate: props.usdExchangeRate,
-                }}
-              />
-            )}
-            <GroupPricingSection
-              model={props.model}
-              groupRatio={props.groupRatio}
-              usableGroup={props.usableGroup}
-              autoGroups={props.autoGroups}
-              priceRate={props.priceRate}
-              usdExchangeRate={props.usdExchangeRate}
-              tokenUnit={props.tokenUnit}
-              showRechargePrice={showRechargePrice}
-            />
           </section>
 
           <ModelBackendDetailsSection model={props.model} />
@@ -1510,7 +1523,7 @@ export function ModelDetails() {
     isLoading,
     priceRate,
     usdExchangeRate,
-  } = usePricingData()
+  } = usePricingData(true, true)
 
   const tokenUnit: TokenUnit =
     search.tokenUnit === 'K' ? 'K' : DEFAULT_TOKEN_UNIT

@@ -59,6 +59,21 @@ function toolbarProps(): PricingToolbarProps {
 }
 
 describe('pricing controls', () => {
+  it('hides legacy price conversion and price sorting for effective tariffs', async () => {
+    const user = userEvent.setup()
+    render(<PricingToolbar {...toolbarProps()} effectivePricing />)
+    expect(
+      screen.queryByRole('button', { name: 'Recharge' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: '/1K' })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Name' }))
+    expect(
+      screen.queryByRole('menuitem', { name: 'Price: Low to High' })
+    ).not.toBeInTheDocument()
+  })
+
   it('changes the token unit and keeps the selected unit pressed when clicked again', async () => {
     const props = toolbarProps()
     const user = userEvent.setup()

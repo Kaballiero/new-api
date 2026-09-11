@@ -32,6 +32,7 @@ import {
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import type { PricingModel, TokenUnit } from '../types'
+import { EffectivePrice } from './effective-price'
 
 export type ModelPriceCellOptions = {
   tokenUnit?: TokenUnit
@@ -42,6 +43,23 @@ export type ModelPriceCellOptions = {
 }
 
 export function ModelPriceCell(props: {
+  model: PricingModel
+  options?: ModelPriceCellOptions
+  showExpression?: boolean
+}) {
+  if (props.model.effective_pricing !== undefined) {
+    return (
+      <EffectivePrice
+        model={props.model.effective_pricing}
+        selectedGroup={props.options?.selectedGroup}
+        compact
+      />
+    )
+  }
+  return <LegacyModelPriceCell {...props} />
+}
+
+function LegacyModelPriceCell(props: {
   model: PricingModel
   options?: ModelPriceCellOptions
   showExpression?: boolean

@@ -18,12 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { DataTablePage, useDataTable } from '@/components/data-table'
 import { ErrorState } from '@/components/error-state'
-import { useModelPricing } from '@/features/model-pricing/api'
+import { useCanEditModelPricing } from '@/features/model-pricing/api'
+import { PricingPreviewControls } from '@/features/model-pricing/pricing-preview-controls'
+import { useEffectivePricing } from '@/features/pricing/effective-pricing'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { requireServerSuccess } from '@/lib/server-error-message'
@@ -169,12 +171,9 @@ export function ModelsTable() {
   const vendorCounts = data?.data?.vendor_counts
 
   // Columns configuration
-  const pricingQuery = useModelPricing(
-    models
-      .filter((item) => item.name_rule === 0)
-      .map((item) => item.model_name),
-    models.length > 0
-  )
+  const canPrice = useCanEditModelPricing()
+  const [userGroup, setUserGroup] = useState<string>()
+  const pricingQuery = useEffectivePricing(userGroup, true, models.length > 0)
   let pricingState: 'loading' | 'error' | undefined
   if (pricingQuery.isError) pricingState = 'error'
   else if (pricingQuery.isLoading) pricingState = 'loading'
@@ -231,67 +230,76 @@ export function ModelsTable() {
   }
 
   return (
-    <DataTablePage
-      showMobileBulkActions
-      mobileProps={{ enableRowSelection: true }}
-      table={table}
-      columns={columns}
-      isLoading={isLoading}
-      isFetching={isFetching}
-      emptyTitle={t('No Models Found')}
-      emptyDescription={
-        shouldSearch
-          ? t('Try adjusting your search')
-          : t('No models available. Create your first model to get started.')
-      }
-      skeletonKeyPrefix='model-skeleton'
-      applyHeaderSize
-      pinnedColumns={[
-        { columnId: 'model_name', side: 'left' },
-        { columnId: 'actions', side: 'right' },
-      ]}
-      toolbarProps={{
-        searchPlaceholder: t('Filter by model name...'),
-        searchDebounceMs: 500,
-        filters: [
-          {
-            columnId: 'status',
-            title: t('Display policy'),
-            options: [
-              { label: t('Allowed'), value: 'enabled' },
-              { label: t('Not listed'), value: 'disabled' },
-            ],
-            singleSelect: true,
-          },
-          {
-            columnId: 'square_state',
-            title: t('Model square visibility'),
-            options: [
-              { label: t('Displayed'), value: 'visible' },
-              { label: t('Unavailable'), value: 'unavailable' },
-              { label: t('Listing hidden'), value: 'hidden' },
-              { label: t('Partly shown'), value: 'partial' },
-            ],
-            singleSelect: true,
-          },
-          {
-            columnId: 'vendor_id',
-            title: t('Vendor'),
-            options: vendorFilterOptions,
-            singleSelect: true,
-          },
-          {
-            columnId: 'sync_official',
-            title: t('Sync policy'),
-            options: [
-              { label: t('Allow updates'), value: 'yes' },
-              { label: t('Keep local'), value: 'no' },
-            ],
-            singleSelect: true,
-          },
-        ],
-      }}
-      bulkActions={<DataTableBulkActions table={table} />}
-    />
+    <>
+      {canPrice && (
+        <PricingPreviewControls
+          query={pricingQuery}
+          userGroup={userGroup}
+          onGroupChange={setUserGroup}
+        />
+      )}
+      <DataTablePage
+        showMobileBulkActions
+        mobileProps={{ enableRowSelection: true }}
+        table={table}
+        columns={columns}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        emptyTitle={t('No Models Found')}
+        emptyDescription={
+          shouldSearch
+            ? t('Try adjusting your search')
+            : t('No models available. Create your first model to get started.')
+        }
+        skeletonKeyPrefix='model-skeleton'
+        applyHeaderSize
+        pinnedColumns={[
+          { columnId: 'model_name', side: 'left' },
+          { columnId: 'actions', side: 'right' },
+        ]}
+        toolbarProps={{
+          searchPlaceholder: t('Filter by model name...'),
+          searchDebounceMs: 500,
+          filters: [
+            {
+              columnId: 'status',
+              title: t('Display policy'),
+              options: [
+                { label: t('Allowed'), value: 'enabled' },
+                { label: t('Not listed'), value: 'disabled' },
+              ],
+              singleSelect: true,
+            },
+            {
+              columnId: 'square_state',
+              title: t('Model square visibility'),
+              options: [
+                { label: t('Displayed'), value: 'visible' },
+                { label: t('Unavailable'), value: 'unavailable' },
+                { label: t('Listing hidden'), value: 'hidden' },
+                { label: t('Partly shown'), value: 'partial' },
+              ],
+              singleSelect: true,
+            },
+            {
+              columnId: 'vendor_id',
+              title: t('Vendor'),
+              options: vendorFilterOptions,
+              singleSelect: true,
+            },
+            {
+              columnId: 'sync_official',
+              title: t('Sync policy'),
+              options: [
+                { label: t('Allow updates'), value: 'yes' },
+                { label: t('Keep local'), value: 'no' },
+              ],
+              singleSelect: true,
+            },
+          ],
+        }}
+        bulkActions={<DataTableBulkActions table={table} />}
+      />
+    </>
   )
 }
