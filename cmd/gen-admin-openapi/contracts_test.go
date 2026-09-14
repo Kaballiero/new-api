@@ -180,18 +180,20 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	assert.Equal(t, []string{"channel.key.read"}, proof["scopes"])
 	assert.Equal(t, true, proof["single_use"])
 	assert.NotContains(t, operation("/api/token/{id}/key", "post"), "x-security-proof")
-	selfLogs := operation("/api/log/self", "get")
-	var tokenID map[string]interface{}
-	for _, parameter := range selfLogs["parameters"].([]interface{}) {
-		entry := parameter.(map[string]interface{})
-		if entry["name"] == "token_id" && entry["in"] == "query" {
-			tokenID = entry
-			break
+	for _, path := range []string{"/api/log/self", "/api/data/self"} {
+		op := operation(path, "get")
+		var tokenID map[string]interface{}
+		for _, parameter := range op["parameters"].([]interface{}) {
+			entry := parameter.(map[string]interface{})
+			if entry["name"] == "token_id" && entry["in"] == "query" {
+				tokenID = entry
+				break
+			}
 		}
+		require.NotNil(t, tokenID)
+		assert.Equal(t, false, tokenID["required"])
+		assert.Equal(t, map[string]interface{}{"type": "integer", "minimum": 1}, tokenID["schema"])
 	}
-	require.NotNil(t, tokenID)
-	assert.Equal(t, false, tokenID["required"])
-	assert.Equal(t, map[string]interface{}{"type": "integer", "minimum": 1}, tokenID["schema"])
 }
 
 func TestAllGeneratedSecurityReferencesAndAnonymousExceptions(t *testing.T) {

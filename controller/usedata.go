@@ -55,12 +55,21 @@ func GetUserQuotaDates(c *gin.Context) {
 	userId := c.GetInt("id")
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	tokenId := 0
+	if tokenIdQuery := c.Query("token_id"); tokenIdQuery != "" {
+		parsedTokenId, err := strconv.Atoi(tokenIdQuery)
+		if err != nil || parsedTokenId <= 0 {
+			common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_token_id", "token_id must be a positive integer")
+			return
+		}
+		tokenId = parsedTokenId
+	}
 	// 判断时间跨度是否超过 1 个月
 	if endTimestamp-startTimestamp > 2592000 {
 		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "time_span_exceeded", "时间跨度不能超过 1 个月")
 		return
 	}
-	dates, err := model.GetQuotaDataByUserId(userId, startTimestamp, endTimestamp)
+	dates, err := model.GetQuotaDataByUserId(userId, startTimestamp, endTimestamp, tokenId)
 	if err != nil {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return

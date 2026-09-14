@@ -65,7 +65,7 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 		if route.HandlerName == "InitializeGetAPIPAT" {
 			enrichGetAPIInitializeContract(op)
 		}
-		if route.HandlerName == "GetUserLogs" {
+		if route.HandlerName == "GetUserLogs" || route.HandlerName == "GetUserQuotaDates" {
 			parameters, _ := op["parameters"].([]interface{})
 			found := false
 			for _, parameter := range parameters {

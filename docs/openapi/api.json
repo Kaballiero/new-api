@@ -15479,6 +15479,16 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "token_id",
+            "required": false,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -15497,6 +15507,14 @@
             "content": {
               "application/json": {
                 "examples": {
+                  "invalid_token_id": {
+                    "summary": "invalid_token_id",
+                    "value": {
+                      "code": "invalid_token_id",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  },
                   "time_span_exceeded": {
                     "summary": "time_span_exceeded",
                     "value": {
@@ -15513,6 +15531,7 @@
             },
             "description": "Bad request — invalid_params, validation failed, or other client error",
             "x-error-codes": [
+              "invalid_token_id",
               "time_span_exceeded"
             ]
           },
