@@ -117,6 +117,55 @@ func TestGetUserFlowQuotaDatesRestrictsToAuthenticatedUser(t *testing.T) {
 	require.Empty(t, payload.Data[0].ChannelName)
 }
 
+func TestGetUserQuotaDatesFiltersByOwnedTokenAndDateRange(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	require.NoError(t, model.DB.Create(&model.Token{Id: 12, UserId: 1, Key: "sk-secondary", Name: "secondary"}).Error)
+	require.NoError(t, model.DB.Create(&model.QuotaData{UserID: 1, Username: "alice", TokenID: 11, ModelName: "gpt-old", CreatedAt: 900, Count: 3, Quota: 150, TokenUsed: 60}).Error)
+	require.NoError(t, model.DB.Create(&model.QuotaData{UserID: 1, Username: "alice", TokenID: 12, ModelName: "gpt-secondary", CreatedAt: 1100, Count: 4, Quota: 200, TokenUsed: 80}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("id", 1)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/data/self?start_timestamp=1000&end_timestamp=2000&token_id=11", nil)
+
+	GetUserQuotaDates(ctx)
+
+	payload := decodeFlowQuotaResponse(t, recorder)
+	require.Len(t, payload.Data, 1)
+	require.Equal(t, "gpt-a", payload.Data[0].ModelName)
+	require.Equal(t, 2, payload.Data[0].Count)
+	require.Equal(t, 100, payload.Data[0].Quota)
+	require.Equal(t, 40, payload.Data[0].TokenUsed)
+}
+
+func TestGetUserQuotaDatesDoesNotExposeForeignTokenUsage(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("id", 1)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/data/self?start_timestamp=1000&end_timestamp=2000&token_id=22", nil)
+
+	GetUserQuotaDates(ctx)
+
+	payload := decodeFlowQuotaResponse(t, recorder)
+	require.Empty(t, payload.Data)
+}
+
+func TestGetUserQuotaDatesRejectsNonPositiveTokenID(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("id", 1)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/data/self?start_timestamp=1000&end_timestamp=2000&token_id=0", nil)
+
+	GetUserQuotaDates(ctx)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+}
+
 func TestGetUserFlowQuotaDatesRejectsInvalidTimeRange(t *testing.T) {
 	setupFlowControllerTestDB(t)
 
