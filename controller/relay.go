@@ -842,7 +842,7 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 		otherRatios = map[string]float64{}
 	}
 	if ratiosJSON, err := common.Marshal(otherRatios); err == nil {
-		c.Header("X-New-Api-Other-Ratios", string(ratiosJSON))
+		c.Header("X-Api-Other-Ratios", string(ratiosJSON))
 	}
 	if pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedRoute); exists {
 		if pinned, ok := pinnedValue.(pluginruntime.PinnedRoute); ok && pinned.Plugin != nil && pinned.Route.Render != "" {
