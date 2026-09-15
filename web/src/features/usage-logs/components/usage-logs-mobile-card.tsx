@@ -44,6 +44,7 @@ const logTypeRowTint: Record<number, string> = {
 }
 
 interface UsageLogsMobileListProps<TData> {
+  isAdmin?: boolean
   table: Table<TData>
   isLoading?: boolean
   emptyTitle?: string
@@ -242,6 +243,7 @@ export function UsageLogsMobileList<TData>({
   emptyTitle,
   emptyDescription,
   logCategory,
+  isAdmin = false,
 }: UsageLogsMobileListProps<TData>) {
   const { t } = useTranslation()
 
@@ -304,6 +306,7 @@ export function UsageLogsMobileList<TData>({
               <CommonLogMobileCard
                 log={row.original as UsageLog}
                 cells={cells}
+                isAdmin={isAdmin}
               />
             )}
             {logCategory === 'task' && <TaskLogsCard cells={cells} />}

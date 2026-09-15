@@ -77,6 +77,7 @@ function Fixture(props: {
       <UsageLogsMobileList
         table={table}
         logCategory='common'
+        isAdmin={props.admin ?? true}
         isLoading={props.loading}
       />
     </>
@@ -266,3 +267,42 @@ it('shows loading placeholders without displaying stale log fields', () => {
     screen.queryByRole('button', { name: /^Model:/ })
   ).not.toBeInTheDocument()
 })
+
+it.each([true, false])(
+  'mobile ratio uses the captured effective value only for admin=%s',
+  (admin) => {
+    renderLogs({
+      admin,
+      logs: [
+        {
+          ...log,
+          other: JSON.stringify({
+            group_ratio: 1.45,
+            admin_info: {
+              billing_fx: {
+                schema_version: 1,
+                source: 'cbr',
+                rate: 90,
+                publication_version: 7,
+                effective_at: 1789430400,
+                fetched_at: 1789430401,
+              },
+              billing_applied_group: {
+                pure_ratio: 1.45,
+                effective_ratio: 1.305,
+              },
+            },
+          }),
+        },
+      ],
+    })
+    expect(
+      screen.getByText(
+        admin
+          ? 'Applied Group Ratio: 1.305× (1.45 × 0.9)'
+          : 'Group Ratio: 1.45×'
+      )
+    ).toBeVisible()
+    if (!admin) expect(screen.queryByText(/1\.305/)).not.toBeInTheDocument()
+  }
+)

@@ -31,6 +31,49 @@ import { buildQuotaAuditOperation } from './quota-audit-operation'
 
 export { normalizeTierLabel }
 
+export function getLogBillingGroup(
+  other: LogOtherData | null,
+  isAdmin: boolean
+): {
+  ratio: number | undefined
+  pureRatio: number | undefined
+  isUserRatio: boolean
+  applied: boolean
+  fx: { rate: number; source: string; factor: number } | null
+} {
+  const userRatio = other?.user_group_ratio
+  const isUserRatio =
+    userRatio != null && userRatio !== -1 && Number.isFinite(userRatio)
+  const legacyRatio = isUserRatio ? userRatio : other?.group_ratio
+  const group = isAdmin ? other?.admin_info?.billing_applied_group : undefined
+  const applied =
+    group != null &&
+    Number.isFinite(group.pure_ratio) &&
+    group.pure_ratio >= 0 &&
+    Number.isFinite(group.effective_ratio) &&
+    group.effective_ratio >= 0
+  const snapshot = isAdmin ? other?.admin_info?.billing_fx : undefined
+  const fx =
+    snapshot?.schema_version === 1 &&
+    Number.isFinite(snapshot.rate) &&
+    snapshot.rate > 0 &&
+    snapshot.source
+      ? {
+          rate: snapshot.rate,
+          source: snapshot.source,
+          factor: snapshot.rate / 100,
+        }
+      : null
+
+  return {
+    ratio: applied ? group.effective_ratio : legacyRatio,
+    pureRatio: applied ? group.pure_ratio : legacyRatio,
+    isUserRatio: applied ? group.special_ratio != null : isUserRatio,
+    applied,
+    fx,
+  }
+}
+
 const PARAM_OVERRIDE_ACTION_MAP: Record<string, string> = {
   set: 'Set',
   delete: 'Delete',

@@ -36,6 +36,7 @@ import {
 import type { UsageLog } from '../../data/schema'
 import type { LogOtherData } from '../../types'
 import { useCommonLogsColumns } from '../columns/common-logs-columns'
+import { UsageLogsProvider } from '../usage-logs-provider'
 
 vi.mock('@lobehub/icons', () => ({}))
 vi.hoisted(() => {
@@ -73,7 +74,11 @@ function makeLog(other: LogOtherData): UsageLog {
   }
 }
 
-function DetailPreview(props: { other: LogOtherData; isAdmin: boolean }) {
+function DetailPreview(props: {
+  other: LogOtherData
+  isAdmin: boolean
+  columnId?: string
+}) {
   const table = useReactTable({
     data: [makeLog(props.other)],
     columns: useCommonLogsColumns(props.isAdmin, false),
@@ -82,7 +87,7 @@ function DetailPreview(props: { other: LogOtherData; isAdmin: boolean }) {
   const cell = table
     .getRowModel()
     .rows[0].getAllCells()
-    .find((item) => item.column.id === 'content')
+    .find((item) => item.column.id === (props.columnId ?? 'content'))
   if (!cell) throw new Error('The log must have a content column')
   return flexRender(cell.column.columnDef.cell, cell.getContext())
 }
@@ -297,5 +302,95 @@ test.each(['missing schema', 'unsupported expression', 'unknown tier'])(
       matched_tier: scenario === 'unknown tier' ? 'old' : 'music',
     })
     expect(preview.textContent).toBe('Dynamic Pricing · No matching results')
+  }
+)
+
+test.each([true, false])(
+  'billing preview uses the applied ratio only for admin=%s',
+  (isAdmin) => {
+    const preview = renderPreview(
+      {
+        group_ratio: 1.45,
+        admin_info: {
+          billing_fx: {
+            schema_version: 1,
+            source: 'cbr',
+            rate: 90,
+            publication_version: 7,
+            effective_at: 1789430400,
+            fetched_at: 1789430401,
+          },
+          billing_applied_group: { pure_ratio: 1.45, effective_ratio: 1.305 },
+        },
+      },
+      isAdmin
+    )
+    expect(preview.textContent).toBe(
+      isAdmin
+        ? '1.305x · Applied Group Ratio (1.45 × 0.9)'
+        : 'Group Ratio 1.45x'
+    )
+  }
+)
+
+test.each([
+  { model_ratio: 1, completion_ratio: 2 },
+  { model_price: 0.25 },
+  {
+    billing_mode: 'tiered_expr',
+    billing_unit: 'request' as const,
+    fixed_price: 0.25,
+    matched_tier: 'fixed',
+    expr_b64: btoa('tier("fixed", fixed(0.25))'),
+  },
+])('applied ratio remains visible alongside recorded pricing %j', (pricing) => {
+  const preview = renderPreview({
+    ...pricing,
+    group_ratio: 1.45,
+    admin_info: {
+      billing_fx: {
+        schema_version: 1,
+        source: 'cbr',
+        rate: 90,
+        publication_version: 7,
+        effective_at: 1789430400,
+        fetched_at: 1789430401,
+      },
+      billing_applied_group: { pure_ratio: 1.45, effective_ratio: 1.305 },
+    },
+  })
+  expect(preview.textContent).toBe(
+    '1.305x · Applied Group Ratio (1.45 × 0.9)+1'
+  )
+})
+
+test.each([true, false])(
+  'token column uses the applied ratio only for admin=%s',
+  (isAdmin) => {
+    render(
+      <I18nextProvider i18n={i18n}>
+        <QueryClientProvider client={client}>
+          <UsageLogsProvider>
+            <DetailPreview
+              isAdmin={isAdmin}
+              columnId='token_name'
+              other={{
+                group_ratio: 1.45,
+                admin_info: {
+                  billing_applied_group: {
+                    pure_ratio: 1.45,
+                    effective_ratio: 1.305,
+                  },
+                },
+              }}
+            />
+          </UsageLogsProvider>
+        </QueryClientProvider>
+      </I18nextProvider>
+    )
+    expect(screen.getByText(isAdmin ? '1.305x' : '1.45x')).toBeVisible()
+    if (!isAdmin) {
+      expect(screen.queryByTitle('Applied Group Ratio')).not.toBeInTheDocument()
+    }
   }
 )

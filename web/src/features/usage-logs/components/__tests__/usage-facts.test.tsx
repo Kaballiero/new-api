@@ -19,7 +19,19 @@ For commercial licensing, please contact support@quantumnous.com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import i18next from 'i18next'
-import { afterEach, beforeAll, describe, expect, test } from 'vitest'
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from 'vitest'
+
+import {
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 import type { UsageLog } from '../../data/schema'
 import type { LogOtherData } from '../../types'
@@ -64,7 +76,11 @@ function makeLog(other: LogOtherData): UsageLog {
   }
 }
 
-function renderDetails(other: LogOtherData): QueryClient {
+function renderDetails(
+  other: LogOtherData,
+  isAdmin = false,
+  quota = 5000
+): QueryClient {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -79,8 +95,8 @@ function renderDetails(other: LogOtherData): QueryClient {
   render(
     <QueryClientProvider client={queryClient}>
       <DetailsDialog
-        log={makeLog(other)}
-        isAdmin={false}
+        log={{ ...makeLog(other), quota }}
+        isAdmin={isAdmin}
         isRoot={false}
         open
         onOpenChange={() => undefined}
@@ -96,12 +112,19 @@ function rowValue(label: string): string | null {
 
 describe('usage facts billing details', () => {
   const queryClients: QueryClient[] = []
+  const previousConfig = useSystemConfigStore.getState().config
+  beforeEach(() => {
+    useSystemConfigStore
+      .getState()
+      .setConfig({ currency: { ...DEFAULT_CURRENCY_CONFIG } })
+  })
 
   beforeAll(() => {
     i18next.addResourceBundle('en', 'translation', i18nKeys)
   })
 
   afterEach(() => {
+    useSystemConfigStore.getState().setConfig(previousConfig)
     for (const queryClient of queryClients) {
       queryClient.clear()
     }
@@ -162,5 +185,155 @@ describe('usage facts billing details', () => {
     expect(screen.queryByText('resolution')).toBeNull()
     expect(screen.queryByText('seconds')).toBeNull()
     expect(screen.getByText('Total Cost')).toBeInTheDocument()
+  })
+  test.each([
+    {
+      pure: 1.45,
+      effective: 1.305,
+      special: undefined,
+      label: 'Group Ratio',
+      quota: 652500,
+      total: '$1.305',
+    },
+    {
+      pure: 0.8,
+      effective: 0.72,
+      special: 0.8,
+      label: 'User Exclusive Ratio',
+      quota: 360000,
+      total: '$0.72',
+    },
+    {
+      pure: 0,
+      effective: 0,
+      special: undefined,
+      label: 'Group Ratio',
+      quota: 0,
+      total: '$0',
+    },
+  ])(
+    'admin sees the captured FX calculation for pure=$pure',
+    ({ pure, effective, special, label, quota, total }) => {
+      queryClients.push(
+        renderDetails(
+          {
+            model_price: 1,
+            group_ratio: 9,
+            admin_info: {
+              billing_fx: {
+                schema_version: 1,
+                source: 'cbr',
+                rate: 90,
+                publication_version: 7,
+                effective_at: 1789430400,
+                fetched_at: 1789430401,
+              },
+              billing_applied_group: {
+                pure_ratio: pure,
+                effective_ratio: effective,
+                special_ratio: special,
+              },
+              billing_stage: 'request',
+            },
+          },
+          true,
+          quota
+        )
+      )
+      expect(rowValue('Billing Exchange Rate')).toBe('90 RUB/USD')
+      expect(rowValue('Exchange Rate Source')).toBe('cbr')
+      expect(rowValue('Exchange Rate Multiplier')).toBe('90 / 100 = 0.9x')
+      expect(rowValue(label)).toBe(`${pure}x`)
+      expect(rowValue('Applied Group Ratio')).toBe(
+        `${pure} × 0.9 = ${effective}x`
+      )
+      expect(rowValue('Model Price')).toBe('$1')
+      expect(rowValue('Total Cost')).toBe(total)
+    }
+  )
+
+  test.each([true, false])(
+    'legacy log keeps its ratio without inventing an FX rate (admin=%s)',
+    (isAdmin) => {
+      queryClients.push(renderDetails({ group_ratio: 1.45 }, isAdmin))
+      expect(rowValue('Group Ratio')).toBe('1.4500x')
+      expect(
+        screen.queryByText('Billing Exchange Rate')
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText('Applied Group Ratio')).not.toBeInTheDocument()
+    }
+  )
+
+  test('user view does not expose an admin FX snapshot even when present in the response', () => {
+    queryClients.push(
+      renderDetails({
+        group_ratio: 1.45,
+        admin_info: {
+          billing_fx: {
+            schema_version: 1,
+            source: 'cbr',
+            rate: 90,
+            publication_version: 7,
+            effective_at: 1789430400,
+            fetched_at: 1789430401,
+          },
+          billing_applied_group: { pure_ratio: 1.45, effective_ratio: 1.305 },
+        },
+      })
+    )
+    expect(rowValue('Group Ratio')).toBe('1.4500x')
+    expect(screen.queryByText('Billing Exchange Rate')).not.toBeInTheDocument()
+    expect(screen.queryByText('Applied Group Ratio')).not.toBeInTheDocument()
+    expect(screen.queryByText('cbr')).not.toBeInTheDocument()
+  })
+
+  test.each([0, -90, null, '90'])(
+    'invalid captured rate %s does not invent a multiplier',
+    (rate) => {
+      const other = {
+        group_ratio: 1.45,
+        admin_info: {
+          billing_fx: {
+            schema_version: 1,
+            source: 'cbr',
+            rate,
+            publication_version: 7,
+            effective_at: 1789430400,
+            fetched_at: 1789430401,
+          },
+          billing_applied_group: { pure_ratio: 1.45, effective_ratio: 1.305 },
+        },
+      } as unknown as LogOtherData
+      queryClients.push(renderDetails(other, true))
+      expect(rowValue('Applied Group Ratio')).toBe('1.305x')
+      expect(
+        screen.queryByText('Exchange Rate Multiplier')
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  test('unknown FX schema retains the recorded effective ratio without interpreting its rate', () => {
+    queryClients.push(
+      renderDetails(
+        {
+          admin_info: {
+            billing_fx: {
+              schema_version: 2,
+              source: 'cbr',
+              rate: 90,
+              publication_version: 7,
+              effective_at: 1789430400,
+              fetched_at: 1789430401,
+            },
+            billing_applied_group: { pure_ratio: 1.45, effective_ratio: 1.305 },
+          },
+        },
+        true
+      )
+    )
+    expect(rowValue('Applied Group Ratio')).toBe('1.305x')
+    expect(
+      screen.queryByText('Exchange Rate Multiplier')
+    ).not.toBeInTheDocument()
   })
 })

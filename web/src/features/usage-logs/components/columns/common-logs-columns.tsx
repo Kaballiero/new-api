@@ -58,6 +58,7 @@ import {
   getTieredBillingSummary,
   hasAnyCacheTokens,
   parseLogOther,
+  getLogBillingGroup,
   isViolationFeeLog,
   renderAuditContent,
 } from '../../lib/format'
@@ -87,24 +88,6 @@ function formatRatioCompact(ratio: number | undefined): string {
     : ratio.toFixed(4).replace(/\.?0+$/, '')
 }
 
-function getGroupRatio(other: LogOtherData | null): number | null {
-  const userGroupRatio = other?.user_group_ratio
-  if (
-    userGroupRatio != null &&
-    userGroupRatio !== -1 &&
-    Number.isFinite(userGroupRatio)
-  ) {
-    return userGroupRatio
-  }
-
-  const groupRatio = other?.group_ratio
-  if (groupRatio != null && groupRatio !== 1 && Number.isFinite(groupRatio)) {
-    return groupRatio
-  }
-
-  return null
-}
-
 function buildDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
@@ -112,7 +95,7 @@ function buildDetailSegments(
   isAdmin: boolean,
   usageSchema?: BillingUsageSchema
 ): DetailSegment[] {
-  const segments = buildTypeDetailSegments(log, other, t, usageSchema)
+  const segments = buildTypeDetailSegments(log, other, t, isAdmin, usageSchema)
   const adminSegments: DetailSegment[] = []
   // Quota saturation is a rare, admin-only anomaly marker; surface it first
   // and in danger styling so it stands out on the related billing log. The
@@ -128,6 +111,7 @@ function buildTypeDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
   t: (key: string, opts?: Record<string, unknown>) => string,
+  isAdmin: boolean,
   usageSchema?: BillingUsageSchema
 ): DetailSegment[] {
   // Top-up, audit, and login logs can carry a localized operation descriptor.
@@ -162,6 +146,15 @@ function buildTypeDetailSegments(
   if (!other) return []
 
   const segments: DetailSegment[] = []
+  const billingGroup = getLogBillingGroup(other, isAdmin)
+  if (billingGroup.applied) {
+    const calculation = billingGroup.fx
+      ? ` (${billingGroup.pureRatio} × ${billingGroup.fx.factor})`
+      : ''
+    segments.push({
+      text: `${billingGroup.ratio}x · ${t('Applied Group Ratio')}${calculation}`,
+    })
+  }
 
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
   const formatPrice = (price: number) =>
@@ -302,7 +295,7 @@ function buildTypeDetailSegments(
           })
         }
       }
-    } else {
+    } else if (!billingGroup.applied) {
       const userGroupRatio = other.user_group_ratio
       const groupRatio = other.group_ratio
       const isUserGroup =
@@ -602,7 +595,14 @@ export function useCommonLogsColumns(
       const displayName = sensitiveVisible ? tokenName : '••••'
       let group = log.group
       if (!group) group = other?.group || ''
-      const groupRatio = getGroupRatio(other)
+      const billingGroup = getLogBillingGroup(other, isAdmin)
+      const ratio = billingGroup.ratio
+      const groupRatio =
+        ratio != null &&
+        Number.isFinite(ratio) &&
+        (ratio !== 1 || billingGroup.isUserRatio || billingGroup.applied)
+          ? ratio
+          : null
 
       return (
         <div className='flex max-w-[200px] flex-col gap-0.5'>
@@ -638,8 +638,16 @@ export function useCommonLogsColumns(
               ) : null}
               {group && groupRatio != null ? ' ' : null}
               {groupRatio != null ? (
-                <span className='text-muted-foreground/60 relative top-px align-baseline tabular-nums'>
-                  {formatRatioCompact(groupRatio)}x
+                <span
+                  title={
+                    billingGroup.applied ? t('Applied Group Ratio') : undefined
+                  }
+                  className='text-muted-foreground/60 relative top-px align-baseline tabular-nums'
+                >
+                  {billingGroup.applied
+                    ? groupRatio
+                    : formatRatioCompact(groupRatio)}
+                  x
                 </span>
               ) : null}
             </span>

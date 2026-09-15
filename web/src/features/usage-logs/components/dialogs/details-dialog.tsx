@@ -67,6 +67,7 @@ import { AuditDetailFields } from '../../audit/components/audit-detail-fields'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
+  getLogBillingGroup,
   getParamOverrideActionLabel,
   parseAuditLine,
   decodeBillingExprB64,
@@ -223,13 +224,37 @@ function BillingBreakdown(props: {
     }
   }
 
-  const userGR = other.user_group_ratio
-  const isUserGR = userGR != null && Number.isFinite(userGR) && userGR !== -1
-  const effectiveGR = isUserGR ? userGR : other.group_ratio
-  if (effectiveGR != null && Number.isFinite(effectiveGR)) {
+  const billingGroup = getLogBillingGroup(other, isAdmin)
+  if (
+    billingGroup.pureRatio != null &&
+    Number.isFinite(billingGroup.pureRatio)
+  ) {
     rows.push({
-      label: isUserGR ? t('User Exclusive Ratio') : t('Group Ratio'),
-      value: `${formatRatio(effectiveGR)}x`,
+      label: billingGroup.isUserRatio
+        ? t('User Exclusive Ratio')
+        : t('Group Ratio'),
+      value: `${billingGroup.applied ? billingGroup.pureRatio : formatRatio(billingGroup.pureRatio)}x`,
+    })
+  }
+  if (billingGroup.fx) {
+    rows.push(
+      {
+        label: t('Billing Exchange Rate'),
+        value: `${billingGroup.fx.rate} RUB/USD`,
+      },
+      { label: t('Exchange Rate Source'), value: billingGroup.fx.source },
+      {
+        label: t('Exchange Rate Multiplier'),
+        value: `${billingGroup.fx.rate} / 100 = ${billingGroup.fx.factor}x`,
+      }
+    )
+  }
+  if (billingGroup.applied) {
+    rows.push({
+      label: t('Applied Group Ratio'),
+      value: billingGroup.fx
+        ? `${billingGroup.pureRatio} × ${billingGroup.fx.factor} = ${billingGroup.ratio}x`
+        : `${billingGroup.ratio}x`,
     })
   }
 
