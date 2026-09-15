@@ -32,7 +32,11 @@ import dayjs from '@/lib/dayjs'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
-import { formatModelName, parseLogOther } from '../lib/format'
+import {
+  formatModelName,
+  parseLogOther,
+  getLogBillingGroup,
+} from '../lib/format'
 import {
   getLogTypeConfig,
   isDisplayableLogType,
@@ -60,6 +64,7 @@ type LogField = {
 /** Mobile summaries use tappable fields; desktop tooltip cells cannot reveal full text on touch. */
 export function CommonLogMobileCard<TData>(props: {
   log: UsageLog
+  isAdmin: boolean
   cells: Map<string, Cell<TData, unknown>>
 }) {
   const { t } = useTranslation()
@@ -72,10 +77,8 @@ export function CommonLogMobileCard<TData>(props: {
   const model = formatModelName(log)
   const config = getLogTypeConfig(log.type)
   const group = log.group || other?.group || ''
-  const groupRatio =
-    other?.user_group_ratio != null && other.user_group_ratio !== -1
-      ? other.user_group_ratio
-      : other?.group_ratio
+  const billingGroup = getLogBillingGroup(other, props.isAdmin)
+  const groupRatio = billingGroup.ratio
   const fields: Record<FieldName, LogField> = {
     model: {
       label: t('Model'),
@@ -277,11 +280,17 @@ export function CommonLogMobileCard<TData>(props: {
             )
           })}
           {groupRatio != null &&
-            groupRatio !== 1 &&
+            (groupRatio !== 1 || billingGroup.applied) &&
             Number.isFinite(groupRatio) &&
             props.cells.has('token_name') && (
               <div className='text-muted-foreground col-span-2 [overflow-wrap:anywhere]'>
-                {t('Group Ratio')}: {groupRatio}×
+                {billingGroup.applied
+                  ? t('Applied Group Ratio')
+                  : t('Group Ratio')}
+                : {groupRatio}×
+                {billingGroup.applied && billingGroup.fx
+                  ? ` (${billingGroup.pureRatio} × ${billingGroup.fx.factor})`
+                  : ''}
               </div>
             )}
         </div>

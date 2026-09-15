@@ -205,6 +205,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       )}
       mobile={
         <UsageLogsMobileList
+          isAdmin={isAdmin}
           table={table}
           isLoading={isLoadingData}
           logCategory={logCategory}
