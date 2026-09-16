@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http/httptest"
@@ -73,6 +75,259 @@ func TestFixedPriceBillingDatabaseMatrix(t *testing.T) {
 			require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
 			t.Logf("database: %s", version)
 			runFixedPriceAccountingCases(t, db)
+		})
+	}
+}
+
+func TestDeliveryFailureReason(t *testing.T) {
+	newContext := func(t *testing.T) *gin.Context {
+		t.Helper()
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+		return ctx
+	}
+	streamStatus := func(reason relaycommon.StreamEndReason, streamError error) *relaycommon.StreamStatus {
+		status := relaycommon.NewStreamStatus()
+		status.SetEndReason(reason, streamError)
+		return status
+	}
+
+	tests := []struct {
+		name  string
+		setup func(*gin.Context, *relaycommon.RelayInfo)
+		want  string
+	}{
+		{name: "absent stream status"},
+		{name: "done", setup: func(_ *gin.Context, info *relaycommon.RelayInfo) {
+			info.StreamStatus = streamStatus(relaycommon.StreamEndReasonDone, nil)
+		}},
+		{name: "EOF", setup: func(_ *gin.Context, info *relaycommon.RelayInfo) {
+			info.StreamStatus = streamStatus(relaycommon.StreamEndReasonEOF, nil)
+		}},
+		{name: "clean handler stop", setup: func(_ *gin.Context, info *relaycommon.RelayInfo) {
+			info.StreamStatus = streamStatus(relaycommon.StreamEndReasonHandlerStop, nil)
+		}},
+		{name: "timeout", setup: func(_ *gin.Context, info *relaycommon.RelayInfo) {
+			info.StreamStatus = streamStatus(relaycommon.StreamEndReasonTimeout, nil)
+		}, want: "stream_timeout"},
+		{name: "client gone", setup: func(_ *gin.Context, info *relaycommon.RelayInfo) {
+			info.StreamStatus = streamStatus(relaycommon.StreamEndReasonClientGone, errors.New("client connection closed"))
+		}, want: "stream_client_gone"},
+		{name: "scanner error", setup: func(_ *gin.Context, info *relaycommon.RelayInfo) {
+			info.StreamStatus = streamStatus(relaycommon.StreamEndReasonScannerErr, errors.New("scanner failed"))
+		}, want: "stream_scanner_error"},
+		{name: "soft error after done", setup: func(_ *gin.Context, info *relaycommon.RelayInfo) {
+			info.StreamStatus = streamStatus(relaycommon.StreamEndReasonDone, nil)
+			info.StreamStatus.RecordError("upstream failed")
+		}, want: "stream_error"},
+		{name: "soft error after EOF", setup: func(_ *gin.Context, info *relaycommon.RelayInfo) {
+			info.StreamStatus = streamStatus(relaycommon.StreamEndReasonEOF, nil)
+			info.StreamStatus.RecordError("upstream failed")
+		}, want: "stream_error"},
+		{name: "canceled nonstream", setup: func(ctx *gin.Context, _ *relaycommon.RelayInfo) {
+			requestContext, cancel := context.WithCancel(ctx.Request.Context())
+			ctx.Request = ctx.Request.WithContext(requestContext)
+			cancel()
+		}, want: "context_canceled"},
+		{name: "deadline first", setup: func(ctx *gin.Context, info *relaycommon.RelayInfo) {
+			requestContext, cancel := context.WithDeadline(ctx.Request.Context(), time.Now().Add(-time.Second))
+			ctx.Request = ctx.Request.WithContext(requestContext)
+			cancel()
+			info.StreamStatus = streamStatus(relaycommon.StreamEndReasonTimeout, nil)
+		}, want: "context_deadline_exceeded"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := newContext(t)
+			info := &relaycommon.RelayInfo{}
+			if tt.setup != nil {
+				tt.setup(ctx, info)
+			}
+			require.Equal(t, tt.want, deliveryFailureReason(ctx, info))
+		})
+	}
+}
+
+func TestTextDeliveryOutcomeDatabaseMatrix(t *testing.T) {
+	for _, dialect := range []struct {
+		name common.DatabaseType
+		env  string
+	}{
+		{common.DatabaseTypeSQLite, ""},
+		{common.DatabaseTypeMySQL, "TEST_FIXED_MYSQL_DSN"},
+		{common.DatabaseTypePostgreSQL, "TEST_FIXED_POSTGRES_DSN"},
+	} {
+		t.Run(string(dialect.name), func(t *testing.T) {
+			var driver gorm.Dialector = sqlite.Open(":memory:")
+			if dialect.env != "" {
+				dsn := os.Getenv(dialect.env)
+				if dsn == "" {
+					t.Skip(dialect.env + " is not configured")
+				}
+				if dialect.name == common.DatabaseTypeMySQL {
+					driver = mysql.Open(dsn)
+				} else {
+					driver = postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true})
+				}
+			}
+			db, err := gorm.Open(driver, &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+			oldDB, oldLogDB := model.DB, model.LOG_DB
+			oldMainType, oldLogType := common.MainDatabaseType(), common.LogDatabaseType()
+			model.DB, model.LOG_DB = db, db
+			common.SetDatabaseTypes(dialect.name, dialect.name)
+			t.Cleanup(func() { model.DB, model.LOG_DB = oldDB, oldLogDB; common.SetDatabaseTypes(oldMainType, oldLogType) })
+			require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}))
+			versionQuery := "select version()"
+			if dialect.name == common.DatabaseTypeSQLite {
+				versionQuery = "select sqlite_version()"
+			}
+			var version string
+			require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
+			t.Logf("database: %s", version)
+			runTextDeliveryOutcomeCases(t, db)
+		})
+	}
+}
+
+func runTextDeliveryOutcomeCases(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	oldErrorLogEnabled, oldConsumeLogEnabled := constant.ErrorLogEnabled, common.LogConsumeEnabled
+	constant.ErrorLogEnabled, common.LogConsumeEnabled = true, true
+	t.Cleanup(func() { constant.ErrorLogEnabled, common.LogConsumeEnabled = oldErrorLogEnabled, oldConsumeLogEnabled })
+
+	for index, tc := range []struct {
+		name            string
+		streamStatus    *relaycommon.StreamStatus
+		cancelRequest   bool
+		errorLogEnabled bool
+		maskedError     bool
+		wantReason      string
+	}{
+		{name: "successful done", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+			return status
+		}()},
+		{name: "successful EOF", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+			return status
+		}()},
+		{name: "clean handler stop", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, nil)
+			return status
+		}()},
+		{name: "timeout", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
+			return status
+		}(), wantReason: "stream_timeout"},
+		{name: "client gone", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, errors.New("client connection closed"))
+			return status
+		}(), wantReason: "stream_client_gone"},
+		{name: "scanner error", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonScannerErr, errors.New("scanner failed"))
+			return status
+		}(), wantReason: "stream_scanner_error"},
+		{name: "soft error after done", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+			status.RecordError("upstream error")
+			return status
+		}(), wantReason: "stream_error"},
+		{name: "soft error after EOF", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+			status.RecordError("upstream error")
+			return status
+		}(), wantReason: "stream_error"},
+		{name: "masked soft error", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, nil)
+			status.RecordError(common.MaskSensitiveInfo("upstream api_key:credential"))
+			return status
+		}(), maskedError: true, wantReason: "stream_error"},
+		{name: "canceled nonstream", cancelRequest: true, wantReason: "context_canceled"},
+		{name: "error logging disabled", streamStatus: func() *relaycommon.StreamStatus {
+			status := relaycommon.NewStreamStatus()
+			status.SetEndReason(relaycommon.StreamEndReasonClientGone, errors.New("client connection closed"))
+			return status
+		}(), errorLogEnabled: false, wantReason: "stream_client_gone"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			constant.ErrorLogEnabled = tc.errorLogEnabled || tc.name != "error logging disabled"
+			user := model.User{Username: fmt.Sprintf("delivery_outcome_%d", index), Quota: 1_000, Status: common.UserStatusEnabled}
+			require.NoError(t, db.Create(&user).Error)
+			token := model.Token{UserId: user.Id, Key: fmt.Sprintf("delivery-outcome-%d", index), Name: "delivery-outcome", RemainQuota: 1_000, Status: common.TokenStatusEnabled}
+			require.NoError(t, db.Create(&token).Error)
+			channel := model.Channel{Name: "delivery-outcome", Key: "unused", Status: common.ChannelStatusEnabled}
+			require.NoError(t, db.Create(&channel).Error)
+			t.Cleanup(func() {
+				require.NoError(t, db.Where("user_id = ?", user.Id).Delete(&model.Log{}).Error)
+				require.NoError(t, db.Unscoped().Delete(&token).Error)
+				require.NoError(t, db.Unscoped().Delete(&user).Error)
+				require.NoError(t, db.Unscoped().Delete(&channel).Error)
+			})
+
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+			ctx.Set(common.RequestIdKey, fmt.Sprintf("delivery-request-%d", index))
+			info := &relaycommon.RelayInfo{
+				UserId: user.Id, TokenId: token.Id, TokenKey: token.Key,
+				ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: channel.Id},
+				OriginModelName: "delivery-test", UsingGroup: "default", StartTime: time.Now(),
+				IsStream: tc.streamStatus != nil, RelayFormat: types.RelayFormatOpenAI,
+				UserSetting:  dto.UserSetting{BillingPreference: "wallet_only"},
+				PriceData:    hosttypes.PriceData{ModelRatio: 1, CompletionRatio: 1, GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1}},
+				StreamStatus: tc.streamStatus,
+			}
+			require.Nil(t, PreConsumeBilling(ctx, 5, info))
+			if tc.cancelRequest {
+				requestContext, cancel := context.WithCancel(ctx.Request.Context())
+				ctx.Request = ctx.Request.WithContext(requestContext)
+				cancel()
+			}
+
+			PostTextConsumeQuota(ctx, info, &dto.Usage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5}, nil)
+
+			var logs []model.Log
+			require.NoError(t, db.Where("user_id = ?", user.Id).Order("id").Find(&logs).Error)
+			require.Len(t, logs, map[bool]int{true: 2, false: 1}[tc.wantReason != "" && constant.ErrorLogEnabled])
+			consume := logs[0]
+			require.Equal(t, model.LogTypeConsume, consume.Type)
+			require.Equal(t, 5, consume.Quota)
+			var other map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(consume.Other, &other))
+			if tc.wantReason == "" {
+				assert.NotContains(t, other, "delivery_status")
+				return
+			}
+			assert.Equal(t, "failed", other["delivery_status"])
+			assert.Equal(t, tc.wantReason, other["delivery_reason"])
+			if constant.ErrorLogEnabled {
+				errorLog := logs[1]
+				require.Equal(t, model.LogTypeError, errorLog.Type)
+				assert.Zero(t, errorLog.Quota)
+				assert.Equal(t, consume.RequestId, errorLog.RequestId)
+				assert.Equal(t, consume.ChannelId, errorLog.ChannelId)
+				assert.Equal(t, consume.ModelName, errorLog.ModelName)
+				assert.Equal(t, consume.UserId, errorLog.UserId)
+			}
+			if tc.maskedError {
+				for _, log := range logs {
+					assert.NotContains(t, log.Other, "credential")
+					assert.Contains(t, log.Other, "api_key:***")
+				}
+			}
 		})
 	}
 }

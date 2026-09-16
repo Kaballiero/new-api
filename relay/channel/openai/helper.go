@@ -2,6 +2,7 @@ package openai
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -18,6 +19,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func hasOpenAIErrorContent(openAIError *types.OpenAIError) bool {
+	if openAIError == nil {
+		return false
+	}
+	if strings.TrimSpace(openAIError.Message) != "" || strings.TrimSpace(openAIError.Type) != "" {
+		return true
+	}
+	if openAIError.Code == nil {
+		return false
+	}
+	code, isString := openAIError.Code.(string)
+	return !isString || code != ""
+}
+
+func embeddedOpenAIError(openAIError *types.OpenAIError, upstreamStatusCode int) *types.NewAPIError {
+	if !hasOpenAIErrorContent(openAIError) {
+		return nil
+	}
+	if upstreamStatusCode >= http.StatusOK && upstreamStatusCode < http.StatusMultipleChoices {
+		upstreamStatusCode = http.StatusBadGateway
+	}
+	return types.WithOpenAIError(*openAIError, upstreamStatusCode)
+}
 
 // 辅助函数
 func HandleStreamFormat(c *gin.Context, info *relaycommon.RelayInfo, data string, forceFormat bool, thinkToContent bool) error {

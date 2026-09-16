@@ -118,8 +118,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var usage = &dto.Usage{}
 	var lastStreamData string
 	var secondLastStreamData string // 保留倒数第二个stream data；部分兼容网关把完整usage放在倒数第二个事件
+	var latestStreamUsage *dto.Usage
+	var latestStreamUsageData string
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
+	var embeddedStreamError bool
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" {
@@ -128,7 +131,31 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				sr.Error(err)
 			}
 		}
+
+		var errorResponse struct {
+			Error any `json:"error"`
+		}
+		if err := common.UnmarshalJsonStr(data, &errorResponse); err == nil {
+			if relayError := embeddedOpenAIError(dto.GetOpenAIError(errorResponse.Error), resp.StatusCode); relayError != nil {
+				embeddedStreamError = true
+				sr.Error(fmt.Errorf("%s", relayError.MaskSensitiveError()))
+				if err := writeEmbeddedOpenAIStreamError(c, info, relayError); err != nil {
+					sr.Error(err)
+				}
+				sr.Stop(nil)
+				return
+			}
+		}
+
 		if len(data) > 0 {
+			var streamResponse struct {
+				Usage *dto.Usage `json:"usage"`
+			}
+			if err := common.UnmarshalJsonStr(data, &streamResponse); err == nil && service.ValidUsage(streamResponse.Usage) {
+				latestStreamUsage = dto.MergeUsageNonZero(latestStreamUsage, streamResponse.Usage)
+				latestStreamUsageData = data
+			}
+
 			if lastStreamData != "" {
 				secondLastStreamData = lastStreamData
 			}
@@ -148,10 +175,17 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		&containStreamUsage, info, &shouldSendLastResp); err != nil {
 		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
 	}
+	if embeddedStreamError && latestStreamUsage != nil {
+		usage = dto.MergeUsageNonZero(usage, latestStreamUsage)
+		containStreamUsage = service.ValidUsage(usage)
+	}
 
 	// 部分兼容网关把完整的累计usage附在倒数第二个事件上，随后发送一个空的最后事件。
 	// 仅当最后一个事件没有有效usage时，回退到倒数第二个事件的完整快照。
 	usageFrame := lastStreamData
+	if embeddedStreamError && latestStreamUsageData != "" {
+		usageFrame = latestStreamUsageData
+	}
 	if !containStreamUsage && secondLastStreamData != "" {
 		var streamResp struct {
 			Usage *dto.Usage `json:"usage"`
@@ -172,7 +206,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	}
 
-	if info.RelayFormat == types.RelayFormatOpenAI {
+	if !embeddedStreamError && info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
 			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
@@ -188,10 +222,43 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	for _, name := range streamFunctionCallNames {
 		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
 	}
+	if embeddedStreamError {
+		return usage, nil
+	}
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
 	return usage, nil
+}
+
+func writeEmbeddedOpenAIStreamError(c *gin.Context, info *relaycommon.RelayInfo, relayError *types.NewAPIError) error {
+	if info.RelayFormat == types.RelayFormatClaude {
+		payload, err := common.Marshal(dto.ClaudeResponse{
+			Type:  "error",
+			Error: relayError.ToClaudeError(),
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := c.Writer.WriteString("event: error\n"); err != nil {
+			return err
+		}
+		if _, err := c.Writer.WriteString("data: " + string(payload) + "\n\n"); err != nil {
+			return err
+		}
+		return helper.FlushWriter(c)
+	}
+
+	payload, err := common.Marshal(struct {
+		Error types.OpenAIError `json:"error"`
+	}{Error: relayError.ToOpenAIError()})
+	if err != nil {
+		return err
+	}
+	if _, err := c.Writer.WriteString("data: " + string(payload) + "\n\n"); err != nil {
+		return err
+	}
+	return helper.FlushWriter(c)
 }
 
 func collectStreamFunctionCallNames(data string, seen map[string]struct{}, names *[]string) {
@@ -268,8 +335,8 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	if relayError := embeddedOpenAIError(simpleResponse.GetOpenAIError(), resp.StatusCode); relayError != nil {
+		return nil, relayError
 	}
 
 	for _, choice := range simpleResponse.Choices {

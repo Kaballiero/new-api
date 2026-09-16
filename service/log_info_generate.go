@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"math"
@@ -18,6 +19,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func deliveryFailureReason(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) string {
+	if ctx != nil && ctx.Request != nil {
+		switch ctx.Request.Context().Err() {
+		case context.Canceled:
+			return "context_canceled"
+		case context.DeadlineExceeded:
+			return "context_deadline_exceeded"
+		}
+	}
+	if relayInfo == nil || relayInfo.StreamStatus == nil {
+		return ""
+	}
+	if !relayInfo.StreamStatus.IsNormalEnd() {
+		if relayInfo.StreamStatus.EndReason == "" {
+			return "stream_incomplete"
+		}
+		return "stream_" + string(relayInfo.StreamStatus.EndReason)
+	}
+	if relayInfo.StreamStatus.HasErrors() {
+		return "stream_error"
+	}
+	return ""
+}
 
 // attachQuotaSaturationToOther nests a quota saturation marker under
 // other.admin_info.quota_saturation. Nesting under admin_info makes it
