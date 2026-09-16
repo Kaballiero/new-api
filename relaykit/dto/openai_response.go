@@ -561,6 +561,12 @@ func GetOpenAIError(errorField any) *types.OpenAIError {
 		if errCode, ok := err["code"]; ok {
 			openaiErr.Code = errCode
 		}
+		if metadata, ok := err["metadata"]; ok {
+			metadataJSON, marshalErr := kitutil.Marshal(metadata)
+			if marshalErr == nil {
+				openaiErr.Metadata = metadataJSON
+			}
+		}
 		return openaiErr
 	case string:
 		// 处理简单字符串错误

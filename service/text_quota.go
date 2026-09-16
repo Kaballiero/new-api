@@ -539,6 +539,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}
+	deliveryFailure := deliveryFailureReason(ctx, relayInfo)
+	if deliveryFailure != "" {
+		other.SetPublic("delivery_status", "failed")
+		other.SetPublic("delivery_reason", deliveryFailure)
+	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
 
@@ -556,7 +561,12 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+	if deliveryFailure != "" && constant.ErrorLogEnabled {
+		model.RecordErrorLog(ctx, relayInfo.UserId, relayInfo.ChannelId, logModel, summary.TokenName,
+			"response delivery failed: "+deliveryFailure, relayInfo.TokenId, int(summary.UseTimeSeconds),
+			relayInfo.IsStream, relayInfo.UsingGroup, other)
+	}
 	gopool.Go(func() {
-		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
+		perfmetrics.RecordRelaySample(relayInfo, deliveryFailure == "", int64(summary.CompletionTokens))
 	})
 }
