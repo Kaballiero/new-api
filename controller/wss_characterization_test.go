@@ -674,9 +674,166 @@ func TestWssCharacterization(t *testing.T) {
 		assert.Empty(t, r.logs)
 		assert.NotEqual(t, 2_147_483_647, r.terminal.tokenUsed)
 	})
+
+	t.Run("tiered_realtime_uses_actual_modalities_and_cache", func(t *testing.T) {
+		value := func(n int) *int { return &n }
+		usage := &dto.RealtimeUsage{
+			TotalTokens:  1550,
+			InputTokens:  1200,
+			OutputTokens: 350,
+			InputTokenDetails: dto.InputTokenDetails{
+				CachedTokens: 600,
+				TextTokens:   200,
+				AudioTokens:  800,
+				ImageTokens:  200,
+				CachedTokensDetails: &dto.CachedTokenDetails{
+					TextTokens:  value(100),
+					AudioTokens: value(400),
+					ImageTokens: value(100),
+				},
+			},
+			OutputTokenDetails: dto.OutputTokenDetails{AudioTokens: 300, ImageTokens: 50},
+		}
+		r := newWssRunUsagesConfigured(t, db, logDB, 10_000_000_000, 10_000_000_000, false, []*dto.RealtimeUsage{usage}, false, func(info *relaycommon.RelayInfo) {
+			info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{
+				BillingMode:              "tiered_expr",
+				ExprString:               `tier("realtime", p * 2 + c * 3 + ai * 10 + ao * 11 + img * 12 + img_o * 13 + cr)`,
+				ExprHash:                 billingexpr.ExprHashString(`tier("realtime", p * 2 + c * 3 + ai * 10 + ao * 11 + img * 12 + img_o * 13 + cr)`),
+				GroupRatio:               1,
+				EstimatedQuotaAfterGroup: 1,
+				QuotaPerUnit:             1_000_000,
+			}
+		})
+		r.closeAndAwait(t)
+		assertWssTerminal(t, db, r, 9950, 1200, 350, false)
+		other, err := common.StrToMap(r.log.Other)
+		require.NoError(t, err)
+		assert.Equal(t, "tiered_expr", other["billing_mode"])
+	})
+
+	t.Run("tiered_realtime_missing_cache_overlap_settles_without_discount", func(t *testing.T) {
+		usage := &dto.RealtimeUsage{
+			TotalTokens: 1200,
+			InputTokens: 1200,
+			InputTokenDetails: dto.InputTokenDetails{
+				CachedTokens: 600,
+				TextTokens:   400,
+				AudioTokens:  800,
+			},
+		}
+		r := newWssRunUsagesConfigured(t, db, logDB, 10_000_000_000, 10_000_000_000, false, []*dto.RealtimeUsage{usage}, false, func(info *relaycommon.RelayInfo) {
+			info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{
+				BillingMode:              "tiered_expr",
+				ExprString:               `tier("realtime", p * 2 + ai * 10 + cr)`,
+				ExprHash:                 billingexpr.ExprHashString(`tier("realtime", p * 2 + ai * 10 + cr)`),
+				GroupRatio:               1,
+				EstimatedQuotaAfterGroup: 1,
+				QuotaPerUnit:             1_000_000,
+			}
+		})
+		r.closeAndAwait(t)
+		assertWssTerminal(t, db, r, 8800, 1200, 0, true)
+		other, err := common.StrToMap(r.log.Other)
+		require.NoError(t, err)
+		adminInfo, ok := other["admin_info"].(map[string]any)
+		require.True(t, ok)
+		warning, ok := adminInfo["realtime_cache_discount"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "session", warning["scope"])
+		assert.Equal(t, "missing_overlap_details", warning["reason"])
+	})
+
+	t.Run("tiered_realtime_sticky_cache_fallback_across_responses", func(t *testing.T) {
+		value := func(n int) *int { return &n }
+		valid := &dto.RealtimeUsage{TotalTokens: 1200, InputTokens: 1200, InputTokenDetails: dto.InputTokenDetails{CachedTokens: 600, TextTokens: 400, AudioTokens: 800, CachedTokensDetails: &dto.CachedTokenDetails{TextTokens: value(200), AudioTokens: value(400)}}}
+		invalid := &dto.RealtimeUsage{TotalTokens: 1200, InputTokens: 1200, InputTokenDetails: dto.InputTokenDetails{CachedTokens: 600, TextTokens: 400, AudioTokens: 800}}
+		r := newWssRunUsagesConfigured(t, db, logDB, 10_000_000_000, 10_000_000_000, false, []*dto.RealtimeUsage{valid, invalid}, false, func(info *relaycommon.RelayInfo) {
+			info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ExprString: `tier("realtime", p * 2 + ai * 10 + cr)`, ExprHash: billingexpr.ExprHashString(`tier("realtime", p * 2 + ai * 10 + cr)`), GroupRatio: 1, EstimatedQuotaAfterGroup: 1, QuotaPerUnit: 1_000_000}
+		})
+		r.closeAndAwait(t)
+		assertWssTerminal(t, db, r, 17600, 2400, 0, true)
+		other, err := common.StrToMap(r.log.Other)
+		require.NoError(t, err)
+		adminInfo, ok := other["admin_info"].(map[string]any)
+		require.True(t, ok)
+		assert.Contains(t, adminInfo, "realtime_cache_discount")
+	})
+
+	t.Run("tiered_realtime_sums_cache_creation_aliases_per_response", func(t *testing.T) {
+		first := &dto.RealtimeUsage{TotalTokens: 1, InputTokens: 1, InputTokenDetails: dto.InputTokenDetails{TextTokens: 1, CacheWriteTokens: 100, CachedCreationTokens: 20}}
+		second := &dto.RealtimeUsage{TotalTokens: 1, InputTokens: 1, InputTokenDetails: dto.InputTokenDetails{TextTokens: 1, CacheWriteTokens: 10, CachedCreationTokens: 200}}
+		r := newWssRunUsagesConfigured(t, db, logDB, 10_000_000_000, 10_000_000_000, false, []*dto.RealtimeUsage{first, second}, false, func(info *relaycommon.RelayInfo) {
+			info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ExprString: `tier("realtime", cc)`, ExprHash: billingexpr.ExprHashString(`tier("realtime", cc)`), GroupRatio: 1, EstimatedQuotaAfterGroup: 1, QuotaPerUnit: 1_000_000}
+		})
+		r.closeAndAwait(t)
+		assertWssTerminal(t, db, r, 300, 2, 0, false)
+	})
+
+	t.Run("tiered_realtime_remaining_vectors", func(t *testing.T) {
+		value := func(n int) *int { return &n }
+		valid := func() *dto.RealtimeUsage {
+			return &dto.RealtimeUsage{TotalTokens: 1000, InputTokens: 1000, InputTokenDetails: dto.InputTokenDetails{CachedTokens: 500, TextTokens: 200, AudioTokens: 800, CachedTokensDetails: &dto.CachedTokenDetails{AudioTokens: value(400)}}}
+		}
+		cases := []struct {
+			name, expr string
+			usages     []*dto.RealtimeUsage
+			quota      int
+			prompt     int
+			completion int
+			warning    bool
+		}{
+			{"zero_cache_then_valid", `tier("realtime", p*2+ai*10+cr)`, []*dto.RealtimeUsage{{TotalTokens: 200, InputTokens: 200, InputTokenDetails: dto.InputTokenDetails{TextTokens: 200, CachedTokensDetails: &dto.CachedTokenDetails{AudioTokens: value(400)}}}, valid()}, 5100, 1200, 0, false},
+			{"absent_then_valid", `tier("realtime", p*2+ai*10+cr)`, []*dto.RealtimeUsage{{TotalTokens: 200, InputTokens: 200, InputTokenDetails: dto.InputTokenDetails{TextTokens: 200}}, valid()}, 5100, 1200, 0, false},
+			{"invalid_then_valid", `tier("realtime", p*2+ai*10+cr)`, []*dto.RealtimeUsage{{TotalTokens: 1200, InputTokens: 1200, InputTokenDetails: dto.InputTokenDetails{CachedTokens: 600, TextTokens: 400, AudioTokens: 800}}, &dto.RealtimeUsage{TotalTokens: 1200, InputTokens: 1200, InputTokenDetails: dto.InputTokenDetails{CachedTokens: 600, TextTokens: 400, AudioTokens: 800, CachedTokensDetails: &dto.CachedTokenDetails{TextTokens: value(200), AudioTokens: value(400)}}}}, 17600, 2400, 0, true},
+			{"explicit_zero", `tier("realtime", p*2+ai*10+cr)`, []*dto.RealtimeUsage{{TotalTokens: 1000, InputTokens: 1000, InputTokenDetails: dto.InputTokenDetails{CachedTokens: 100, TextTokens: 200, AudioTokens: 800, CachedTokensDetails: &dto.CachedTokenDetails{AudioTokens: value(0)}}}}, 8300, 1000, 0, false},
+			{"nested_absence", `tier("realtime", p*2+ai*10+cr)`, []*dto.RealtimeUsage{{TotalTokens: 1000, InputTokens: 1000, InputTokenDetails: dto.InputTokenDetails{CachedTokens: 100, TextTokens: 200, AudioTokens: 800, CachedTokensDetails: &dto.CachedTokenDetails{}}}}, 8400, 1000, 0, true},
+			{"fully_cached", `tier("realtime", p*2+ai*10+cr)`, []*dto.RealtimeUsage{{TotalTokens: 1000, InputTokens: 1000, InputTokenDetails: dto.InputTokenDetails{CachedTokens: 800, TextTokens: 200, AudioTokens: 800, CachedTokensDetails: &dto.CachedTokenDetails{AudioTokens: value(800)}}}}, 1200, 1000, 0, false},
+			{"live_replay", `tier("realtime", p*2+c*3+ai*10+ao*11)`, []*dto.RealtimeUsage{{TotalTokens: 61, InputTokens: 27, OutputTokens: 34, InputTokenDetails: dto.InputTokenDetails{TextTokens: 19, AudioTokens: 8}, OutputTokenDetails: dto.OutputTokenDetails{TextTokens: 10, AudioTokens: 24}}}, 412, 27, 34, false},
+			{"free_fallback", `len > 0 ? tier("free", 0) : tier("paid", p*2+ai*10+cr)`, []*dto.RealtimeUsage{{TotalTokens: 1200, InputTokens: 1200, InputTokenDetails: dto.InputTokenDetails{CachedTokens: 600, TextTokens: 400, AudioTokens: 800}}}, 0, 1200, 0, true},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				r := newWssRunUsagesConfigured(t, db, logDB, 10_000_000_000, 10_000_000_000, false, tc.usages, false, func(info *relaycommon.RelayInfo) {
+					info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ExprString: tc.expr, ExprHash: billingexpr.ExprHashString(tc.expr), GroupRatio: 1, EstimatedQuotaAfterGroup: 1, QuotaPerUnit: 1_000_000}
+				})
+				r.closeAndAwait(t)
+				assertWssTerminal(t, db, r, tc.quota, tc.prompt, tc.completion, tc.warning)
+			})
+		}
+	})
 }
 
 type ledger struct{ wallet, token, tokenUsed int }
+
+func assertWssTerminal(t *testing.T, db *gorm.DB, r *wssRun, quota, prompt, completion int, warning bool) {
+	t.Helper()
+	require.Nil(t, r.err)
+	require.Len(t, r.logs, 1)
+	assert.Equal(t, quota, r.log.Quota)
+	assert.Equal(t, prompt, r.log.PromptTokens)
+	assert.Equal(t, completion, r.log.CompletionTokens)
+	assert.Equal(t, ledger{wallet: 10_000_000_000 - quota, token: 10_000_000_000 - quota, tokenUsed: quota}, r.terminal)
+	assert.Equal(t, r.terminal, r.deferRefund)
+	var user model.User
+	var channel model.Channel
+	require.NoError(t, db.First(&user, 1).Error)
+	require.NoError(t, db.First(&channel, 1).Error)
+	assert.Equal(t, quota, user.UsedQuota)
+	assert.Equal(t, 1, user.RequestCount)
+	assert.EqualValues(t, quota, channel.UsedQuota)
+	other, err := common.StrToMap(r.log.Other)
+	require.NoError(t, err)
+	admin, _ := other["admin_info"].(map[string]any)
+	rawWarning, present := admin["realtime_cache_discount"]
+	require.Equal(t, warning, present)
+	if warning {
+		warningInfo, isMap := rawWarning.(map[string]any)
+		require.True(t, isMap)
+		require.Equal(t, "session", warningInfo["scope"])
+		require.Equal(t, "missing_overlap_details", warningInfo["reason"])
+	}
+}
+
 type wssRun struct {
 	t                                             *testing.T
 	db                                            *gorm.DB
@@ -712,6 +869,14 @@ func newWssRun(t *testing.T, db, logDB *gorm.DB, wallet, token int, unlimited bo
 }
 
 func newWssRunConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token int, unlimited bool, usages []int, local bool, configure func(*relaycommon.RelayInfo)) *wssRun {
+	providerUsages := make([]*dto.RealtimeUsage, len(usages))
+	for i := range usages {
+		providerUsages[i] = providerUsage(usages[i])
+	}
+	return newWssRunUsagesConfigured(t, db, logDB, wallet, token, unlimited, providerUsages, local, configure)
+}
+
+func newWssRunUsagesConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token int, unlimited bool, usages []*dto.RealtimeUsage, local bool, configure func(*relaycommon.RelayInfo)) *wssRun {
 	t.Helper()
 	resetWssTables(t, db, logDB, wallet, token, unlimited)
 	r := &wssRun{
@@ -738,7 +903,7 @@ func newWssRunConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token int, un
 			if local {
 				event = dto.RealtimeEvent{Type: dto.RealtimeEventTypeResponseDone, Response: &dto.RealtimeResponse{}}
 			} else {
-				event = dto.RealtimeEvent{Type: dto.RealtimeEventTypeResponseDone, Response: &dto.RealtimeResponse{Usage: providerUsage(usage)}}
+				event = dto.RealtimeEvent{Type: dto.RealtimeEventTypeResponseDone, Response: &dto.RealtimeResponse{Usage: usage}}
 			}
 			payload, err := common.Marshal(event)
 			if err != nil {

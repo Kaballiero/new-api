@@ -180,13 +180,16 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 
 func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelName string,
 	usage *dto.RealtimeUsage, extraContent string) error {
+	if usage.InputTokens < 0 || usage.OutputTokens < 0 {
+		return fmt.Errorf("invalid final WSS usage totals")
+	}
 
 	var tieredResult *billingexpr.TieredResult
-	tieredOk, tieredQuota, tieredRes, tieredErr := TryTieredWssSettle(relayInfo, billingexpr.TokenParams{
-		P:   float64(usage.InputTokens),
-		C:   float64(usage.OutputTokens),
-		Len: float64(usage.InputTokens),
-	})
+	var tieredUsedVars map[string]bool
+	if snap := relayInfo.TieredBillingSnapshot; snap != nil {
+		tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
+	}
+	tieredOk, tieredQuota, tieredRes, tieredErr := TryTieredWssSettle(relayInfo, BuildRealtimeTieredTokenParams(usage, tieredUsedVars))
 	if tieredErr != nil {
 		return fmt.Errorf("invalid final WSS tiered quota: %w", tieredErr)
 	}
@@ -271,6 +274,10 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		completionRatio.InexactFloat64(), audioRatio.InexactFloat64(), audioCompletionRatio.InexactFloat64(), modelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
 	if tieredResult != nil {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
+	}
+	if usage.CacheDiscountUnavailable {
+		other.SetAdmin("realtime_cache_discount", map[string]string{"scope": "session", "reason": usage.CacheDiscountUnavailableReason})
+		logger.LogWarn(ctx, fmt.Sprintf("realtime cache discount unavailable: scope=session reason=%s", usage.CacheDiscountUnavailableReason))
 	}
 	attachQuotaSaturation(ctx, relayInfo, other)
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{

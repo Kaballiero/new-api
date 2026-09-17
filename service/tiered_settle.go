@@ -95,6 +95,144 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 	}
 }
 
+func BuildRealtimeTieredTokenParams(usage *dto.RealtimeUsage, usedVars map[string]bool) billingexpr.TokenParams {
+	p := float64(usage.InputTokens)
+	c := float64(usage.OutputTokens)
+	cr := float64(usage.InputTokenDetails.CachedTokens)
+	cc := float64(usage.InputTokenDetails.CacheCreationTokensTotal())
+	ai := float64(usage.InputTokenDetails.AudioTokens)
+	img := float64(usage.InputTokenDetails.ImageTokens)
+	imgO := float64(usage.OutputTokenDetails.ImageTokens)
+	ao := float64(usage.OutputTokenDetails.AudioTokens)
+
+	if usage.CacheDiscountUnavailable || cr <= 0 {
+		cr = 0
+	} else if usedVars["cr"] {
+		if details := usage.InputTokenDetails.CachedTokensDetails; details != nil {
+			if usedVars["ai"] && details.AudioTokens != nil {
+				ai -= float64(*details.AudioTokens)
+			}
+			if usedVars["img"] && details.ImageTokens != nil {
+				img -= float64(*details.ImageTokens)
+			}
+		}
+	}
+
+	if usedVars["cr"] {
+		p -= cr
+	}
+	if usedVars["cc"] {
+		p -= cc
+	}
+	if usedVars["ai"] {
+		p -= ai
+	}
+	if usedVars["img"] {
+		p -= img
+	}
+	if usedVars["img_o"] {
+		c -= imgO
+	}
+	if usedVars["ao"] {
+		c -= ao
+	}
+
+	return billingexpr.TokenParams{
+		P:    realtimeRemainder(usage.InputTokens, p),
+		C:    realtimeRemainder(usage.OutputTokens, c),
+		Len:  float64(usage.InputTokens),
+		CR:   cr,
+		CC:   cc,
+		Img:  img,
+		ImgO: imgO,
+		AI:   ai,
+		AO:   ao,
+	}
+}
+
+func RealtimeCacheDiscountIssue(usage *dto.RealtimeUsage, usedVars map[string]bool) string {
+	if usage == nil || !usedVars["cr"] {
+		return ""
+	}
+	details := usage.InputTokenDetails.CachedTokensDetails
+	if usage.InputTokenDetails.CachedTokens < 0 {
+		return "inconsistent_overlap_details"
+	}
+	audioRequired := usedVars["ai"] && usage.InputTokenDetails.AudioTokens > 0
+	imageRequired := usedVars["img"] && usage.InputTokenDetails.ImageTokens > 0
+	if details != nil && ((details.TextTokens != nil && *details.TextTokens < 0) || (details.AudioTokens != nil && *details.AudioTokens < 0) || (details.ImageTokens != nil && *details.ImageTokens < 0)) {
+		return "inconsistent_overlap_details"
+	}
+	if usage.InputTokenDetails.CachedTokens == 0 {
+		if details != nil && ((details.TextTokens != nil && *details.TextTokens != 0) || (details.AudioTokens != nil && *details.AudioTokens != 0) || (details.ImageTokens != nil && *details.ImageTokens != 0)) && (audioRequired || imageRequired) {
+			return "inconsistent_overlap_details"
+		}
+		return ""
+	}
+	if !audioRequired && !imageRequired {
+		return ""
+	}
+	if details == nil || (audioRequired && details.AudioTokens == nil) || (imageRequired && details.ImageTokens == nil) {
+		return "missing_overlap_details"
+	}
+
+	textTokens := usage.InputTokens - usage.InputTokenDetails.AudioTokens - usage.InputTokenDetails.ImageTokens
+	if textTokens < 0 || invalidCachedTokens(details.TextTokens, textTokens, usage.InputTokenDetails.CachedTokens) ||
+		invalidCachedTokens(details.AudioTokens, usage.InputTokenDetails.AudioTokens, usage.InputTokenDetails.CachedTokens) ||
+		invalidCachedTokens(details.ImageTokens, usage.InputTokenDetails.ImageTokens, usage.InputTokenDetails.CachedTokens) {
+		return "inconsistent_overlap_details"
+	}
+
+	knownCached := 0
+	unknownCapacity := 0
+	if details.TextTokens != nil {
+		knownCached += *details.TextTokens
+	} else {
+		unknownCapacity += textTokens
+	}
+	if details.AudioTokens != nil {
+		knownCached += *details.AudioTokens
+	} else {
+		unknownCapacity += usage.InputTokenDetails.AudioTokens
+	}
+	if details.ImageTokens != nil {
+		knownCached += *details.ImageTokens
+	} else {
+		unknownCapacity += usage.InputTokenDetails.ImageTokens
+	}
+	if knownCached > usage.InputTokenDetails.CachedTokens || usage.InputTokenDetails.CachedTokens-knownCached > unknownCapacity {
+		return "inconsistent_overlap_details"
+	}
+	requiredCached := 0
+	requiredCapacity := 0
+	if audioRequired {
+		requiredCached += *details.AudioTokens
+		requiredCapacity += usage.InputTokenDetails.AudioTokens
+	}
+	if imageRequired {
+		requiredCached += *details.ImageTokens
+		requiredCapacity += usage.InputTokenDetails.ImageTokens
+	}
+	if requiredCached > usage.InputTokenDetails.CachedTokens || usage.InputTokenDetails.CachedTokens-requiredCached > usage.InputTokens-requiredCapacity {
+		return "inconsistent_overlap_details"
+	}
+	if details.TextTokens != nil && details.AudioTokens != nil && details.ImageTokens != nil && *details.TextTokens+*details.AudioTokens+*details.ImageTokens != usage.InputTokenDetails.CachedTokens {
+		return "inconsistent_overlap_details"
+	}
+	return ""
+}
+
+func realtimeRemainder(raw int, value float64) float64 {
+	if raw < 0 {
+		return value
+	}
+	return max(value, 0)
+}
+
+func invalidCachedTokens(cached *int, total, cachedTotal int) bool {
+	return cached != nil && (*cached < 0 || *cached > total || *cached > cachedTotal)
+}
+
 func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.BillingSnapshot, error) {
 	if relayInfo == nil {
 		return nil, nil

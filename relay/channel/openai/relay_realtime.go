@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -259,16 +260,67 @@ func preConsumeUsage(ctx *gin.Context, info *relaycommon.RelayInfo, usage *dto.R
 		return fmt.Errorf("invalid usage pointer")
 	}
 
+	if snap := info.TieredBillingSnapshot; snap != nil {
+		if reason := service.RealtimeCacheDiscountIssue(usage, billingexpr.UsedVars(snap.ExprString)); reason != "" {
+			usage.CacheDiscountUnavailable = true
+			usage.CacheDiscountUnavailableReason = reason
+			usage.InputTokenDetails.CachedTokens = 0
+			usage.InputTokenDetails.CachedTokensDetails = nil
+		}
+	}
+
 	totalUsage.TotalTokens += usage.TotalTokens
 	totalUsage.InputTokens += usage.InputTokens
 	totalUsage.OutputTokens += usage.OutputTokens
 	totalUsage.InputTokenDetails.CachedTokens += usage.InputTokenDetails.CachedTokens
+	totalUsage.InputTokenDetails.CachedCreationTokens += usage.InputTokenDetails.CacheCreationTokensTotal()
 	totalUsage.InputTokenDetails.TextTokens += usage.InputTokenDetails.TextTokens
 	totalUsage.InputTokenDetails.AudioTokens += usage.InputTokenDetails.AudioTokens
+	totalUsage.InputTokenDetails.ImageTokens += usage.InputTokenDetails.ImageTokens
 	totalUsage.OutputTokenDetails.TextTokens += usage.OutputTokenDetails.TextTokens
 	totalUsage.OutputTokenDetails.AudioTokens += usage.OutputTokenDetails.AudioTokens
+	totalUsage.OutputTokenDetails.ImageTokens += usage.OutputTokenDetails.ImageTokens
+	if usage.InputTokenDetails.CachedTokens > 0 {
+		mergeCachedTokenDetails(&totalUsage.InputTokenDetails, usage.InputTokenDetails.CachedTokensDetails)
+	}
+	if usage.CacheDiscountUnavailable {
+		totalUsage.CacheDiscountUnavailable = true
+		if totalUsage.CacheDiscountUnavailableReason == "" {
+			totalUsage.CacheDiscountUnavailableReason = usage.CacheDiscountUnavailableReason
+		}
+	}
 	// The observation belongs to this event even if its provisional debit is
 	// refused. Callers clear their contribution before returning the error so a
 	// terminal tail cannot count it a second time.
 	return service.PreWssConsumeQuota(ctx, info, usage)
+}
+
+func mergeCachedTokenDetails(target *dto.InputTokenDetails, source *dto.CachedTokenDetails) {
+	if source == nil {
+		return
+	}
+	if target.CachedTokensDetails == nil {
+		target.CachedTokensDetails = &dto.CachedTokenDetails{}
+	}
+	if source.TextTokens != nil {
+		value := *source.TextTokens
+		if target.CachedTokensDetails.TextTokens != nil {
+			value += *target.CachedTokensDetails.TextTokens
+		}
+		target.CachedTokensDetails.TextTokens = &value
+	}
+	if source.AudioTokens != nil {
+		value := *source.AudioTokens
+		if target.CachedTokensDetails.AudioTokens != nil {
+			value += *target.CachedTokensDetails.AudioTokens
+		}
+		target.CachedTokensDetails.AudioTokens = &value
+	}
+	if source.ImageTokens != nil {
+		value := *source.ImageTokens
+		if target.CachedTokensDetails.ImageTokens != nil {
+			value += *target.CachedTokensDetails.ImageTokens
+		}
+		target.CachedTokensDetails.ImageTokens = &value
+	}
 }
