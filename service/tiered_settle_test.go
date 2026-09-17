@@ -34,6 +34,105 @@ const probeExpr = `param("service_tier") == "fast" ? tier("fast", p * 4 + c * 20
 
 const testQuotaPerUnit = 500_000.0
 
+func TestBuildRealtimeTieredTokenParams(t *testing.T) {
+	value := func(n int) *int { return &n }
+	usage := &dto.RealtimeUsage{
+		InputTokens:  1200,
+		OutputTokens: 350,
+		InputTokenDetails: dto.InputTokenDetails{
+			CachedTokens: 600,
+			TextTokens:   200,
+			AudioTokens:  800,
+			ImageTokens:  200,
+			CachedTokensDetails: &dto.CachedTokenDetails{
+				TextTokens:  value(100),
+				AudioTokens: value(400),
+				ImageTokens: value(100),
+			},
+		},
+		OutputTokenDetails: dto.OutputTokenDetails{AudioTokens: 300, ImageTokens: 50},
+	}
+
+	cases := []struct {
+		name string
+		vars map[string]bool
+		p    float64
+		ai   float64
+		img  float64
+		cr   float64
+	}{
+		{name: "base", vars: map[string]bool{}, p: 1200, ai: 800, img: 200, cr: 600},
+		{name: "audio", vars: map[string]bool{"ai": true}, p: 400, ai: 800, img: 200, cr: 600},
+		{name: "image", vars: map[string]bool{"img": true}, p: 1000, ai: 800, img: 200, cr: 600},
+		{name: "audio_image", vars: map[string]bool{"ai": true, "img": true}, p: 200, ai: 800, img: 200, cr: 600},
+		{name: "cache", vars: map[string]bool{"cr": true}, p: 600, ai: 800, img: 200, cr: 600},
+		{name: "cache_audio", vars: map[string]bool{"cr": true, "ai": true}, p: 200, ai: 400, img: 200, cr: 600},
+		{name: "cache_image", vars: map[string]bool{"cr": true, "img": true}, p: 500, ai: 800, img: 100, cr: 600},
+		{name: "cache_audio_image", vars: map[string]bool{"cr": true, "ai": true, "img": true}, p: 100, ai: 400, img: 100, cr: 600},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			params := BuildRealtimeTieredTokenParams(usage, tc.vars)
+			assert.Equal(t, tc.p, params.P)
+			assert.Equal(t, tc.ai, params.AI)
+			assert.Equal(t, tc.img, params.Img)
+			assert.Equal(t, tc.cr, params.CR)
+			assert.Equal(t, float64(1200), params.Len)
+			assert.Empty(t, RealtimeCacheDiscountIssue(usage, tc.vars))
+		})
+	}
+
+	for _, tc := range []struct {
+		vars map[string]bool
+		c    float64
+	}{{map[string]bool{}, 350}, {map[string]bool{"ao": true}, 50}, {map[string]bool{"img_o": true}, 300}, {map[string]bool{"ao": true, "img_o": true}, 0}} {
+		output := BuildRealtimeTieredTokenParams(usage, tc.vars)
+		assert.Equal(t, tc.c, output.C)
+		assert.Equal(t, float64(300), output.AO)
+		assert.Equal(t, float64(50), output.ImgO)
+	}
+
+	usage.CacheDiscountUnavailable = true
+	params := BuildRealtimeTieredTokenParams(usage, map[string]bool{"cr": true, "ai": true, "img": true})
+	assert.Equal(t, float64(200), params.P)
+	assert.Equal(t, float64(800), params.AI)
+	assert.Equal(t, float64(200), params.Img)
+	assert.Equal(t, float64(0), params.CR)
+}
+
+func TestRealtimeCacheDiscountIssue(t *testing.T) {
+	value := func(n int) *int { return &n }
+	valid := func() *dto.RealtimeUsage {
+		return &dto.RealtimeUsage{
+			InputTokens: 1000,
+			InputTokenDetails: dto.InputTokenDetails{
+				CachedTokens:        500,
+				AudioTokens:         800,
+				CachedTokensDetails: &dto.CachedTokenDetails{AudioTokens: value(400)},
+			},
+		}
+	}
+
+	assert.Empty(t, RealtimeCacheDiscountIssue(valid(), map[string]bool{"cr": true, "ai": true}))
+	missing := valid()
+	missing.InputTokenDetails.CachedTokensDetails = nil
+	assert.Equal(t, "missing_overlap_details", RealtimeCacheDiscountIssue(missing, map[string]bool{"cr": true, "ai": true}))
+	inconsistent := valid()
+	inconsistent.InputTokenDetails.CachedTokensDetails.AudioTokens = value(801)
+	assert.Equal(t, "inconsistent_overlap_details", RealtimeCacheDiscountIssue(inconsistent, map[string]bool{"cr": true, "ai": true}))
+	partial := valid()
+	partial.InputTokenDetails.CachedTokensDetails.TextTokens = value(200)
+	assert.Equal(t, "inconsistent_overlap_details", RealtimeCacheDiscountIssue(partial, map[string]bool{"cr": true, "ai": true}))
+	zero := valid()
+	zero.InputTokenDetails.CachedTokens = 0
+	assert.Equal(t, "inconsistent_overlap_details", RealtimeCacheDiscountIssue(zero, map[string]bool{"cr": true, "ai": true}))
+	negative := valid()
+	negative.InputTokenDetails.CachedTokens = -1
+	assert.Equal(t, "inconsistent_overlap_details", RealtimeCacheDiscountIssue(negative, map[string]bool{"cr": true, "ai": true}))
+	assert.Empty(t, RealtimeCacheDiscountIssue(missing, map[string]bool{"ai": true}))
+}
+
 func TestPostAudioConsumeQuotaUsesEffectiveBillingGroupRatio(t *testing.T) {
 	oldRedis, oldBatch := common.RedisEnabled, common.BatchUpdateEnabled
 	common.RedisEnabled, common.BatchUpdateEnabled = false, false
