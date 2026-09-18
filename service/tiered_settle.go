@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -155,29 +156,35 @@ func RealtimeCacheDiscountIssue(usage *dto.RealtimeUsage, usedVars map[string]bo
 		return ""
 	}
 	details := usage.InputTokenDetails.CachedTokensDetails
-	if usage.InputTokenDetails.CachedTokens < 0 {
+	if usage.InputTokenDetails.CachedTokens < 0 || usage.InputTokenDetails.CachedTokens > usage.InputTokens {
 		return "inconsistent_overlap_details"
 	}
 	audioRequired := usedVars["ai"] && usage.InputTokenDetails.AudioTokens > 0
 	imageRequired := usedVars["img"] && usage.InputTokenDetails.ImageTokens > 0
-	if details != nil && ((details.TextTokens != nil && *details.TextTokens < 0) || (details.AudioTokens != nil && *details.AudioTokens < 0) || (details.ImageTokens != nil && *details.ImageTokens < 0)) {
-		return "inconsistent_overlap_details"
-	}
 	if usage.InputTokenDetails.CachedTokens == 0 {
 		if details != nil && ((details.TextTokens != nil && *details.TextTokens != 0) || (details.AudioTokens != nil && *details.AudioTokens != 0) || (details.ImageTokens != nil && *details.ImageTokens != 0)) && (audioRequired || imageRequired) {
 			return "inconsistent_overlap_details"
 		}
 		return ""
 	}
-	if !audioRequired && !imageRequired {
+	if !usedVars["ai"] && !usedVars["img"] {
 		return ""
 	}
-	if details == nil || (audioRequired && details.AudioTokens == nil) || (imageRequired && details.ImageTokens == nil) {
+	if details != nil && ((details.TextTokens != nil && *details.TextTokens < 0) || (details.AudioTokens != nil && *details.AudioTokens < 0) || (details.ImageTokens != nil && *details.ImageTokens < 0)) {
+		return "inconsistent_overlap_details"
+	}
+	if details == nil {
+		if audioRequired || imageRequired {
+			return "missing_overlap_details"
+		}
+		return ""
+	}
+	if (audioRequired && details.AudioTokens == nil) || (imageRequired && details.ImageTokens == nil) {
 		return "missing_overlap_details"
 	}
 
-	textTokens := usage.InputTokens - usage.InputTokenDetails.AudioTokens - usage.InputTokenDetails.ImageTokens
-	if textTokens < 0 || invalidCachedTokens(details.TextTokens, textTokens, usage.InputTokenDetails.CachedTokens) ||
+	textTokens, ok := realtimeRemaining(usage.InputTokens, usage.InputTokenDetails.AudioTokens, usage.InputTokenDetails.ImageTokens)
+	if !ok || invalidCachedTokens(details.TextTokens, textTokens, usage.InputTokenDetails.CachedTokens) ||
 		invalidCachedTokens(details.AudioTokens, usage.InputTokenDetails.AudioTokens, usage.InputTokenDetails.CachedTokens) ||
 		invalidCachedTokens(details.ImageTokens, usage.InputTokenDetails.ImageTokens, usage.InputTokenDetails.CachedTokens) {
 		return "inconsistent_overlap_details"
@@ -185,41 +192,89 @@ func RealtimeCacheDiscountIssue(usage *dto.RealtimeUsage, usedVars map[string]bo
 
 	knownCached := 0
 	unknownCapacity := 0
-	if details.TextTokens != nil {
-		knownCached += *details.TextTokens
-	} else {
-		unknownCapacity += textTokens
+	for _, part := range []struct {
+		cached   *int
+		capacity int
+	}{{details.TextTokens, textTokens}, {details.AudioTokens, usage.InputTokenDetails.AudioTokens}, {details.ImageTokens, usage.InputTokenDetails.ImageTokens}} {
+		if part.cached != nil {
+			if !realtimeAdd(&knownCached, *part.cached) {
+				return "inconsistent_overlap_details"
+			}
+		} else if !realtimeAdd(&unknownCapacity, part.capacity) {
+			return "inconsistent_overlap_details"
+		}
 	}
-	if details.AudioTokens != nil {
-		knownCached += *details.AudioTokens
-	} else {
-		unknownCapacity += usage.InputTokenDetails.AudioTokens
-	}
-	if details.ImageTokens != nil {
-		knownCached += *details.ImageTokens
-	} else {
-		unknownCapacity += usage.InputTokenDetails.ImageTokens
-	}
-	if knownCached > usage.InputTokenDetails.CachedTokens || usage.InputTokenDetails.CachedTokens-knownCached > unknownCapacity {
+	remainingCached, ok := realtimeRemaining(usage.InputTokenDetails.CachedTokens, knownCached)
+	if !ok || remainingCached > unknownCapacity {
 		return "inconsistent_overlap_details"
 	}
 	requiredCached := 0
 	requiredCapacity := 0
 	if audioRequired {
-		requiredCached += *details.AudioTokens
-		requiredCapacity += usage.InputTokenDetails.AudioTokens
+		if !realtimeAdd(&requiredCached, *details.AudioTokens) || !realtimeAdd(&requiredCapacity, usage.InputTokenDetails.AudioTokens) {
+			return "inconsistent_overlap_details"
+		}
 	}
 	if imageRequired {
-		requiredCached += *details.ImageTokens
-		requiredCapacity += usage.InputTokenDetails.ImageTokens
+		if !realtimeAdd(&requiredCached, *details.ImageTokens) || !realtimeAdd(&requiredCapacity, usage.InputTokenDetails.ImageTokens) {
+			return "inconsistent_overlap_details"
+		}
 	}
-	if requiredCached > usage.InputTokenDetails.CachedTokens || usage.InputTokenDetails.CachedTokens-requiredCached > usage.InputTokens-requiredCapacity {
+	remainingCached, ok = realtimeRemaining(usage.InputTokenDetails.CachedTokens, requiredCached)
+	remainingInput, inputOK := realtimeRemaining(usage.InputTokens, requiredCapacity)
+	if !ok || !inputOK || remainingCached > remainingInput {
 		return "inconsistent_overlap_details"
 	}
-	if details.TextTokens != nil && details.AudioTokens != nil && details.ImageTokens != nil && *details.TextTokens+*details.AudioTokens+*details.ImageTokens != usage.InputTokenDetails.CachedTokens {
+	if details.TextTokens != nil && details.AudioTokens != nil && details.ImageTokens != nil && knownCached != usage.InputTokenDetails.CachedTokens {
 		return "inconsistent_overlap_details"
 	}
 	return ""
+}
+
+func ValidateRealtimeUsage(usage *dto.RealtimeUsage) error {
+	if usage == nil {
+		return fmt.Errorf("invalid realtime usage")
+	}
+	if usage.TotalTokens < 0 || usage.InputTokens < 0 || usage.OutputTokens < 0 {
+		return fmt.Errorf("negative realtime usage total")
+	}
+	if usage.TotalTokens == 0 && (usage.InputTokens != 0 || usage.OutputTokens != 0) {
+		return fmt.Errorf("inconsistent zero realtime usage total")
+	}
+	if !realtimeSubset(usage.InputTokens, usage.InputTokenDetails.TextTokens, usage.InputTokenDetails.AudioTokens, usage.InputTokenDetails.ImageTokens) ||
+		!realtimeSubset(usage.OutputTokens, usage.OutputTokenDetails.TextTokens, usage.OutputTokenDetails.AudioTokens, usage.OutputTokenDetails.ImageTokens) {
+		return fmt.Errorf("invalid realtime usage modalities")
+	}
+	return nil
+}
+
+func realtimeSubset(total int, parts ...int) bool {
+	remaining := total
+	for _, part := range parts {
+		if part < 0 || part > remaining {
+			return false
+		}
+		remaining -= part
+	}
+	return true
+}
+
+func realtimeRemaining(total int, parts ...int) (int, bool) {
+	if !realtimeSubset(total, parts...) {
+		return 0, false
+	}
+	for _, part := range parts {
+		total -= part
+	}
+	return total, true
+}
+
+func realtimeAdd(total *int, value int) bool {
+	if (value > 0 && *total > math.MaxInt-value) || (value < 0 && *total < math.MinInt-value) {
+		return false
+	}
+	*total += value
+	return true
 }
 
 func realtimeRemainder(raw int, value float64) float64 {
@@ -353,6 +408,9 @@ func tryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 	noteQuotaClamp(relayInfo, tr.Clamp)
 	if rejectInvalidFinal && tr.Clamp != nil {
 		return true, 0, nil, tr.Clamp
+	}
+	if rejectInvalidFinal && (tr.ActualQuotaBeforeGroup < 0 || tr.ActualQuotaAfterGroup < 0) {
+		return true, 0, nil, fmt.Errorf("negative final tiered quota")
 	}
 
 	return true, tr.ActualQuotaAfterGroup, &tr, nil

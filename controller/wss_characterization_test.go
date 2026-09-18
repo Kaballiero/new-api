@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -102,6 +105,184 @@ func TestWssCharacterization(t *testing.T) {
 	})
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"wss-char":1}`))
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"wss-char-model":1}`))
+
+	for _, field := range []string{"text", "ai", "img", "text_o", "ao", "img_o"} {
+		t.Run("malformed_realtime_usage_stops_before_forwarding/"+field, func(t *testing.T) {
+			r := newWssRunUsagesConfiguredWithFirstReceipt(t, db, logDB, wssBalance, wssBalance, false, []*dto.RealtimeUsage{malformedWssUsage(field)}, false, wssTiered(wssMalformedExpression(field)), false)
+			r.assertFirstRejected(t)
+			r.closeAndAwait(t)
+			assertWssSettled(t, db, r, 0, 0, 0, 0, "", true)
+		})
+	}
+	for _, field := range []string{"ai", "img", "ao", "img_o"} {
+		t.Run("valid_then_malformed_settles_only_valid_usage/"+field, func(t *testing.T) {
+			r := newWssRunUsagesConfigured(t, db, logDB, wssBalance, wssBalance, false, []*dto.RealtimeUsage{providerUsage(100), malformedWssUsage(field)}, false, wssTiered(wssMalformedExpression(field)))
+			assert.Equal(t, ledger{wallet: wssBalance - 1, token: wssBalance - 1, tokenUsed: 1}, r.reserve)
+			assert.Equal(t, ledger{wallet: wssBalance - 101, token: wssBalance - 101, tokenUsed: 101}, r.first)
+			r.releaseSecond(t)
+			r.assertFirstRejected(t)
+			r.closeAndAwait(t)
+			assertWssSettled(t, db, r, 200, 100, 0, 1, "", true)
+		})
+		t.Run("malformed_then_attempted_valid/"+field, func(t *testing.T) {
+			r := newWssRunUsagesConfiguredWithFirstReceipt(t, db, logDB, wssBalance, wssBalance, false, []*dto.RealtimeUsage{malformedWssUsage(field), providerUsage(100)}, false, wssTiered(wssMalformedExpression(field)), false)
+			r.assertFirstRejected(t)
+			r.releaseSecond(t)
+			select {
+			case <-r.secondAttempted:
+			case <-time.After(5 * time.Second):
+				t.Fatal("later valid upstream send was not attempted")
+			}
+			r.closeAndAwait(t)
+			assertWssSettled(t, db, r, 0, 0, 0, 0, "", true)
+		})
+	}
+	t.Run("zero_total_contract", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			usage *dto.RealtimeUsage
+		}{
+			{"input", &dto.RealtimeUsage{InputTokens: 1}},
+			{"output", &dto.RealtimeUsage{OutputTokens: 1}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				r := newWssRunUsagesConfiguredWithFirstReceipt(t, db, logDB, wssBalance, wssBalance, false, []*dto.RealtimeUsage{tc.usage}, false, wssTiered("p*2+c*2"), false)
+				r.assertFirstRejected(t)
+				r.closeAndAwait(t)
+				assertWssSettled(t, db, r, 0, 0, 0, 0, "", true)
+			})
+		}
+		for _, later := range []bool{false, true} {
+			t.Run(fmt.Sprintf("genuine_zero_later_%t", later), func(t *testing.T) {
+				usages := []*dto.RealtimeUsage{{}}
+				if later {
+					usages = append(usages, providerUsage(100))
+				}
+				r := newWssRunUsagesConfigured(t, db, logDB, wssBalance, wssBalance, false, usages, false, wssTiered("p*2"))
+				assert.Equal(t, ledger{wallet: wssBalance - 1, token: wssBalance - 1, tokenUsed: 1}, r.first)
+				if later {
+					r.releaseSecond(t)
+					r.awaitSecond(t)
+				}
+				r.closeAndAwait(t)
+				if later {
+					assertWssSettled(t, db, r, 200, 100, 0, 1, "", false)
+				} else {
+					assertWssSettled(t, db, r, 0, 0, 0, 0, "", false)
+				}
+			})
+		}
+	})
+	t.Run("positive_cache_zero_capacity_pairs", func(t *testing.T) {
+		for _, modality := range []string{"ai", "img"} {
+			for _, corrected := range []bool{false, true} {
+				for _, reverse := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/corrected_%t/reverse_%t", modality, corrected, reverse), func(t *testing.T) {
+						value := func(n int) *int { return &n }
+						cached := 100
+						if corrected {
+							cached = 0
+						}
+						first := &dto.RealtimeUsage{TotalTokens: 200, InputTokens: 200, InputTokenDetails: dto.InputTokenDetails{TextTokens: 200, CachedTokens: 100, CachedTokensDetails: &dto.CachedTokenDetails{TextTokens: value(100)}}}
+						second := &dto.RealtimeUsage{TotalTokens: 1000, InputTokens: 1000, InputTokenDetails: dto.InputTokenDetails{TextTokens: 200, CachedTokens: 500, CachedTokensDetails: &dto.CachedTokenDetails{TextTokens: value(100)}}}
+						if modality == "ai" {
+							first.InputTokenDetails.CachedTokensDetails.AudioTokens = value(cached)
+							second.InputTokenDetails.AudioTokens = 800
+							second.InputTokenDetails.CachedTokensDetails.AudioTokens = value(400)
+						} else {
+							first.InputTokenDetails.CachedTokensDetails.ImageTokens = value(cached)
+							second.InputTokenDetails.ImageTokens = 800
+							second.InputTokenDetails.CachedTokensDetails.ImageTokens = value(400)
+						}
+						usages := []*dto.RealtimeUsage{first, second}
+						if reverse {
+							usages[0], usages[1] = usages[1], usages[0]
+						}
+						r := newWssRunUsagesConfigured(t, db, logDB, wssBalance, wssBalance, false, usages, false, wssTiered("p*2+"+modality+"*10+cr"))
+						r.releaseSecond(t)
+						r.awaitSecond(t)
+						assert.LessOrEqual(t, r.second.wallet, r.first.wallet)
+						assert.LessOrEqual(t, r.second.token, r.first.token)
+						r.closeAndAwait(t)
+						if corrected {
+							assertWssSettled(t, db, r, 5000, 1200, 0, 1, "", false)
+						} else {
+							assertWssSettled(t, db, r, 8800, 1200, 0, 1, "inconsistent_overlap_details", false)
+						}
+					})
+				}
+			}
+		}
+	})
+	for _, expr := range []string{"p * -1", "p * -0.1"} {
+		t.Run("negative_final_direct/"+expr, func(t *testing.T) {
+			resetWssTables(t, db, logDB, wssBalance, wssBalance, false)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			info := testRelayInfo(false)
+			wssTiered(expr)(info)
+			before := readLedger(t, db)
+			require.ErrorContains(t, service.PostWssConsumeQuota(c, info, info.OriginModelName, providerUsage(1), ""), "invalid final WSS tiered quota")
+			assert.Equal(t, before, readLedger(t, db))
+			assertWssCounters(t, db, 0, 0)
+			var logs []model.Log
+			require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+			assert.Empty(t, logs)
+		})
+		t.Run("negative_final_transport/"+expr, func(t *testing.T) {
+			r := newWssRunUsagesConfigured(t, db, logDB, wssBalance, wssBalance, false, []*dto.RealtimeUsage{providerUsage(1)}, false, wssTiered(expr))
+			assert.Equal(t, ledger{wallet: wssBalance - 1, token: wssBalance - 1, tokenUsed: 1}, r.reserve)
+			assert.Equal(t, ledger{wallet: wssBalance - 2, token: wssBalance - 2, tokenUsed: 2}, r.first)
+			r.closeAndAwait(t)
+			require.NotNil(t, r.err)
+			assert.Equal(t, relaykittypes.ErrorCodeModelPriceError, r.err.GetErrorCode())
+			assert.True(t, relaykittypes.IsSkipRetryError(r.err))
+			assert.Equal(t, r.first, r.terminal)
+			assert.Equal(t, ledger{wallet: wssBalance - 1, token: wssBalance - 1, tokenUsed: 1}, r.deferRefund)
+			assert.Empty(t, r.logs)
+			assertWssCounters(t, db, 0, 0)
+		})
+	}
+	t.Run("terminal_tail_failure_is_logged_and_settled_once", func(t *testing.T) {
+		event := dto.RealtimeEvent{Type: dto.RealtimeEventResponseAudioTranscriptionDelta, Delta: "counted terminal output"}
+		n, a, err := service.CountTokenRealtime(testRelayInfo(false), event, "wss-char-model")
+		require.NoError(t, err)
+		require.Positive(t, n)
+		require.Zero(t, a)
+		var output bytes.Buffer
+		common.LogWriterMu.Lock()
+		previousWriter, previousErrorWriter := gin.DefaultWriter, gin.DefaultErrorWriter
+		gin.DefaultWriter, gin.DefaultErrorWriter = &output, &output
+		common.LogWriterMu.Unlock()
+		t.Cleanup(func() {
+			common.LogWriterMu.Lock()
+			gin.DefaultWriter, gin.DefaultErrorWriter = previousWriter, previousErrorWriter
+			common.LogWriterMu.Unlock()
+		})
+		r := newWssRunEventsConfigured(t, db, logDB, wssBalance, wssBalance, false, []dto.RealtimeEvent{event}, false, wssTiered("c*2"), true)
+		assert.Equal(t, r.reserve, r.first)
+		injected := errors.New("injected terminal tail token update failure")
+		var armed atomic.Bool
+		callbackName := "wss_terminal_tail_token_failure"
+		require.NoError(t, db.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+			if tx.Statement.Table == "tokens" && armed.CompareAndSwap(true, false) {
+				tx.AddError(injected)
+			}
+		}))
+		t.Cleanup(func() { db.Callback().Update().Remove(callbackName) })
+		armed.Store(true)
+		r.closeAndAwait(t)
+		require.ErrorIs(t, r.err, injected)
+		assert.False(t, armed.Load())
+		assertWssSettled(t, db, r, 2*n, 0, n, 1, "", true)
+		common.LogWriterMu.Lock()
+		logged := output.String()
+		common.LogWriterMu.Unlock()
+		assert.Contains(t, logged, "realtime error:")
+		assert.Contains(t, logged, "error consume terminal usage")
+		assert.Contains(t, logged, injected.Error())
+		assert.NotContains(t, logged, event.Delta)
+		assert.NotContains(t, logged, "wss-char-token")
+	})
 
 	t.Run("A_provider_usage_refusal_reconciles_unique_terminal_usage", func(t *testing.T) {
 		r := newWssRun(t, db, logDB, 10_000_000_000, 3, false, []int{1, 2}, false)
@@ -803,34 +984,92 @@ func TestWssCharacterization(t *testing.T) {
 	})
 }
 
+const wssBalance = 10_000_000_000
+
 type ledger struct{ wallet, token, tokenUsed int }
 
-func assertWssTerminal(t *testing.T, db *gorm.DB, r *wssRun, quota, prompt, completion int, warning bool) {
+func wssTiered(expr string) func(*relaycommon.RelayInfo) {
+	return func(info *relaycommon.RelayInfo) {
+		info.TieredBillingSnapshot = &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ExprString: expr, ExprHash: billingexpr.ExprHashString(expr), GroupRatio: 1, EstimatedQuotaAfterGroup: 1, QuotaPerUnit: 1_000_000}
+	}
+}
+
+func wssMalformedExpression(field string) string {
+	switch field {
+	case "ai", "img":
+		return "p*2+" + field + "*10"
+	case "ao", "img_o":
+		return "p*2+c*2+" + field + "*10"
+	default:
+		return "p*2+c*2"
+	}
+}
+
+func malformedWssUsage(field string) *dto.RealtimeUsage {
+	u := &dto.RealtimeUsage{TotalTokens: 200, InputTokens: 100, OutputTokens: 100, InputTokenDetails: dto.InputTokenDetails{TextTokens: 100}, OutputTokenDetails: dto.OutputTokenDetails{TextTokens: 100}}
+	switch field {
+	case "text":
+		u.InputTokenDetails.TextTokens = -100
+	case "ai":
+		u.InputTokenDetails.AudioTokens = -100
+	case "img":
+		u.InputTokenDetails.ImageTokens = -100
+	case "text_o":
+		u.OutputTokenDetails.TextTokens = -100
+	case "ao":
+		u.OutputTokenDetails.AudioTokens = -100
+	case "img_o":
+		u.OutputTokenDetails.ImageTokens = -100
+	}
+	return u
+}
+
+func assertWssCounters(t *testing.T, db *gorm.DB, quota, requests int) {
 	t.Helper()
-	require.Nil(t, r.err)
-	require.Len(t, r.logs, 1)
-	assert.Equal(t, quota, r.log.Quota)
-	assert.Equal(t, prompt, r.log.PromptTokens)
-	assert.Equal(t, completion, r.log.CompletionTokens)
-	assert.Equal(t, ledger{wallet: 10_000_000_000 - quota, token: 10_000_000_000 - quota, tokenUsed: quota}, r.terminal)
-	assert.Equal(t, r.terminal, r.deferRefund)
 	var user model.User
 	var channel model.Channel
 	require.NoError(t, db.First(&user, 1).Error)
 	require.NoError(t, db.First(&channel, 1).Error)
 	assert.Equal(t, quota, user.UsedQuota)
-	assert.Equal(t, 1, user.RequestCount)
+	assert.Equal(t, requests, user.RequestCount)
 	assert.EqualValues(t, quota, channel.UsedQuota)
+}
+
+func assertWssTerminal(t *testing.T, db *gorm.DB, r *wssRun, quota, prompt, completion int, warning bool) {
+	t.Helper()
+	reason := ""
+	if warning {
+		reason = "missing_overlap_details"
+	}
+	assertWssSettled(t, db, r, quota, prompt, completion, 1, reason, false)
+}
+
+func assertWssSettled(t *testing.T, db *gorm.DB, r *wssRun, quota, prompt, completion, requests int, reason string, rawError bool) {
+	t.Helper()
+	if rawError {
+		require.NotNil(t, r.err)
+		assert.Equal(t, relaykittypes.ErrorCodeBadResponse, r.err.GetErrorCode())
+		assert.True(t, relaykittypes.IsSkipRetryError(r.err))
+	} else {
+		require.Nil(t, r.err)
+	}
+	require.Len(t, r.logs, 1)
+	assert.Equal(t, quota, r.log.Quota)
+	assert.Equal(t, prompt, r.log.PromptTokens)
+	assert.Equal(t, completion, r.log.CompletionTokens)
+	assert.Equal(t, ledger{wallet: wssBalance - quota, token: wssBalance - quota, tokenUsed: quota}, r.terminal)
+	assert.Equal(t, r.terminal, r.deferRefund)
+	assertWssCounters(t, db, quota, requests)
 	other, err := common.StrToMap(r.log.Other)
 	require.NoError(t, err)
 	admin, _ := other["admin_info"].(map[string]any)
 	rawWarning, present := admin["realtime_cache_discount"]
-	require.Equal(t, warning, present)
-	if warning {
-		warningInfo, isMap := rawWarning.(map[string]any)
+	require.Equal(t, reason != "", present)
+	if reason != "" {
+		warning, isMap := rawWarning.(map[string]any)
 		require.True(t, isMap)
-		require.Equal(t, "session", warningInfo["scope"])
-		require.Equal(t, "missing_overlap_details", warningInfo["reason"])
+		assert.Equal(t, "session", warning["scope"])
+		assert.Equal(t, reason, warning["reason"])
 	}
 }
 
@@ -841,6 +1080,7 @@ type wssRun struct {
 	client                                        *websocket.Conn
 	upstream, server                              *httptest.Server
 	release                                       chan struct{}
+	secondAttempted                               chan struct{}
 	closePeer                                     chan struct{}
 	stop                                          chan struct{}
 	releaseOnce, closePeerOnce, stopOnce          sync.Once
@@ -877,11 +1117,26 @@ func newWssRunConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token int, un
 }
 
 func newWssRunUsagesConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token int, unlimited bool, usages []*dto.RealtimeUsage, local bool, configure func(*relaycommon.RelayInfo)) *wssRun {
+	return newWssRunUsagesConfiguredWithFirstReceipt(t, db, logDB, wallet, token, unlimited, usages, local, configure, true)
+}
+
+func newWssRunUsagesConfiguredWithFirstReceipt(t *testing.T, db, logDB *gorm.DB, wallet, token int, unlimited bool, usages []*dto.RealtimeUsage, local bool, configure func(*relaycommon.RelayInfo), expectFirstReceipt bool) *wssRun {
+	events := make([]dto.RealtimeEvent, len(usages))
+	for i, usage := range usages {
+		events[i] = dto.RealtimeEvent{Type: dto.RealtimeEventTypeResponseDone, Response: &dto.RealtimeResponse{Usage: usage}}
+		if local {
+			events[i].Response.Usage = nil
+		}
+	}
+	return newWssRunEventsConfigured(t, db, logDB, wallet, token, unlimited, events, local, configure, expectFirstReceipt)
+}
+
+func newWssRunEventsConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token int, unlimited bool, events []dto.RealtimeEvent, local bool, configure func(*relaycommon.RelayInfo), expectFirstReceipt bool) *wssRun {
 	t.Helper()
 	resetWssTables(t, db, logDB, wallet, token, unlimited)
 	r := &wssRun{
 		t: t, db: db, logDB: logDB,
-		release: make(chan struct{}), closePeer: make(chan struct{}), stop: make(chan struct{}),
+		release: make(chan struct{}), secondAttempted: make(chan struct{}), closePeer: make(chan struct{}), stop: make(chan struct{}),
 		result: make(chan wssResult, 1), peerErr: make(chan error, 4),
 		upstreamDone: make(chan struct{}), handlerDone: make(chan struct{}),
 	}
@@ -898,23 +1153,24 @@ func newWssRunUsagesConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token i
 			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "test complete"), time.Now().Add(time.Second))
 			_ = conn.Close()
 		}()
-		for i, usage := range usages {
-			var event dto.RealtimeEvent
-			if local {
-				event = dto.RealtimeEvent{Type: dto.RealtimeEventTypeResponseDone, Response: &dto.RealtimeResponse{}}
-			} else {
-				event = dto.RealtimeEvent{Type: dto.RealtimeEventTypeResponseDone, Response: &dto.RealtimeResponse{Usage: usage}}
-			}
+		for i, event := range events {
 			payload, err := common.Marshal(event)
 			if err != nil {
 				r.recordPeerErr(err)
 				return
 			}
-			if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-				r.recordPeerErr(err)
+			err = conn.WriteMessage(websocket.TextMessage, payload)
+			if i == 1 {
+				close(r.secondAttempted)
+			}
+			if err != nil {
+				peerClosed := errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, websocket.ErrCloseSent)
+				if expectFirstReceipt || i != 1 || !peerClosed {
+					r.recordPeerErr(err)
+				}
 				return
 			}
-			if i == 0 && len(usages) > 1 {
+			if i == 0 && len(events) > 1 {
 				select {
 				case <-r.release:
 				case <-r.stop:
@@ -985,8 +1241,24 @@ func newWssRunUsagesConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token i
 		if len(logs) > 0 {
 			log = logs[len(logs)-1]
 		}
+		needsRefund := info.Billing.NeedsRefund()
 		info.Billing.Refund(c)
 		deferRefund, err := readLedgerValue(db)
+		if needsRefund && err == nil && wssErr != nil && wssErr.GetErrorCode() == relaykittypes.ErrorCodeModelPriceError {
+			expected := ledger{wallet: terminal.wallet + 1, token: terminal.token + 1, tokenUsed: terminal.tokenUsed - 1}
+			deadline := time.NewTimer(5 * time.Second)
+			ticker := time.NewTicker(time.Millisecond)
+			defer deadline.Stop()
+			defer ticker.Stop()
+			for deferRefund != expected && err == nil {
+				select {
+				case <-ticker.C:
+					deferRefund, err = readLedgerValue(db)
+				case <-deadline.C:
+					err = fmt.Errorf("reservation refund did not complete: got %+v, want %+v", deferRefund, expected)
+				}
+			}
+		}
 		if err != nil {
 			r.recordPeerErr(err)
 			return
@@ -999,13 +1271,25 @@ func newWssRunUsagesConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token i
 	client, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	require.NoError(t, err)
 	r.client = client
-	r.awaitFirst(t)
+	if expectFirstReceipt {
+		r.awaitFirst(t)
+	}
 	return r
 }
 func (r *wssRun) awaitFirst(t *testing.T) {
 	t.Helper()
 	r.readForwarded(t)
 	r.first = readLedger(t, r.db)
+}
+func (r *wssRun) assertFirstRejected(t *testing.T) {
+	t.Helper()
+	require.NoError(t, r.client.SetReadDeadline(time.Now().Add(5*time.Second)))
+	kind, payload, err := r.client.ReadMessage()
+	require.Error(t, err, "unexpected forwarded data: kind=%d payload=%q", kind, payload)
+	var networkError net.Error
+	if errors.As(err, &networkError) {
+		require.False(t, networkError.Timeout(), "a timeout does not prove rejection")
+	}
 }
 func (r *wssRun) releaseSecond(t *testing.T) {
 	t.Helper()

@@ -93,6 +93,9 @@ func calculateAudioQuota(info QuotaInfo) (int, *common.QuotaClamp) {
 }
 
 func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.RealtimeUsage) error {
+	if err := ValidateRealtimeUsage(usage); err != nil {
+		return fmt.Errorf("invalid preliminary WSS usage: %w", err)
+	}
 	if relayInfo.UsePrice {
 		return nil
 	}
@@ -180,8 +183,8 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 
 func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelName string,
 	usage *dto.RealtimeUsage, extraContent string) error {
-	if usage.InputTokens < 0 || usage.OutputTokens < 0 {
-		return fmt.Errorf("invalid final WSS usage totals")
+	if err := ValidateRealtimeUsage(usage); err != nil {
+		return fmt.Errorf("invalid final WSS usage: %w", err)
 	}
 
 	var tieredResult *billingexpr.TieredResult
