@@ -282,13 +282,16 @@ func TestOaiStreamHandlerLeavesNonErrorsAndMalformedPayloadsUnchanged(t *testing
 
 			usage, relayError := OaiStreamHandler(c, info, resp)
 
-			require.Nil(t, relayError)
-			require.NotNil(t, usage)
-			require.Contains(t, recorder.Body.String(), tt.data)
 			if tt.name == "malformed" {
+				require.NotNil(t, relayError)
+				require.Nil(t, usage)
 				require.True(t, info.StreamStatus.HasErrors())
+				require.NotContains(t, recorder.Body.String(), tt.data)
 			} else {
+				require.Nil(t, relayError)
+				require.NotNil(t, usage)
 				require.False(t, info.StreamStatus.HasErrors())
+				require.Contains(t, recorder.Body.String(), tt.data)
 				require.Contains(t, recorder.Body.String(), "[DONE]")
 			}
 		})

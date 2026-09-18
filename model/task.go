@@ -389,8 +389,12 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 		if relayInfo.UpstreamModelName != "" {
 			properties.UpstreamModelName = relayInfo.UpstreamModelName
 		}
-		if relayInfo.OriginModelName != "" {
-			properties.OriginModelName = relayInfo.OriginModelName
+		modelName := relayInfo.ClientModelName
+		if modelName == "" {
+			modelName = relayInfo.OriginModelName
+		}
+		if modelName != "" && modelName != "\x00" {
+			properties.OriginModelName = modelName
 		}
 	}
 

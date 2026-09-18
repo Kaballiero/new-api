@@ -215,7 +215,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					localMu.Unlock()
 				}
 
-				err = helper.WssString(c, clientConn, string(message))
+				err = helper.WssClientString(c, clientConn, string(message))
 				if err != nil {
 					readerErr = fmt.Errorf("error writing to client: %w", err)
 					return

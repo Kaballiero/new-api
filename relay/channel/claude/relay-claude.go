@@ -116,7 +116,9 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 			}
 		}
 		countClaudeStreamBillableTools(c, info, &claudeResponse)
-		helper.ClaudeChunkData(c, claudeResponse, data)
+		if err := helper.ClaudeChunkData(c, claudeResponse, data); err != nil {
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
 		state, err := claudeToChatStreamState(info)
 		if err != nil {
@@ -208,8 +210,9 @@ func sendGeminiStreamResults(c *gin.Context, results []relayconvert.ResponseResu
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
-		c.Render(-1, common.CustomEvent{Data: "data: " + string(data)})
-		_ = helper.FlushWriter(c)
+		if err := helper.StringData(c, string(data)); err != nil {
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
 	}
 	return nil
 }
@@ -388,7 +391,9 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		}
 	}
 
-	service.IOCopyBytesGracefully(c, httpResp, responseData)
+	if err := service.IOCopyBytesGracefully(c, httpResp, responseData); err != nil {
+		return types.NewError(err, types.ErrorCodeBadResponseBody)
+	}
 	return nil
 }
 

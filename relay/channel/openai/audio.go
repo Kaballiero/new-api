@@ -123,7 +123,15 @@ func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 		return types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError), nil
 	}
 	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	switch responseFormat {
+	case "text", "srt", "vtt":
+		service.IOCopyOpaqueBytesGracefully(c, resp, responseBody)
+	default:
+		service.IOCopyBytesGracefully(c, resp, responseBody)
+	}
+	if c.IsAborted() {
+		return types.NewOpenAIError(fmt.Errorf("invalid client response"), types.ErrorCodeBadResponseBody, http.StatusBadGateway), nil
+	}
 
 	var responseData struct {
 		Usage *dto.Usage `json:"usage"`

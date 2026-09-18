@@ -123,12 +123,19 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
 	var embeddedStreamError bool
+	var projectionErr error
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if _, err := common.ProjectClientResponseString(c, data); err != nil {
+			projectionErr = err
+			sr.Stop(err)
+			return
+		}
 		if lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-				common.SysLog("error handling stream format: " + err.Error())
-				sr.Error(err)
+				projectionErr = err
+				sr.Stop(err)
+				return
 			}
 		}
 
@@ -169,6 +176,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	})
 
+	if projectionErr != nil {
+		return nil, types.NewError(projectionErr, types.ErrorCodeBadResponseBody)
+	}
+
 	// 处理最后的响应
 	shouldSendLastResp := true
 	if err := handleLastResponse(lastStreamData, &responseId, &createAt, &systemFingerprint, &model, &usage,
@@ -208,7 +219,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	if !embeddedStreamError && info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
-			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
+			if err := sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+			}
 		}
 	}
 
@@ -418,7 +431,9 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		responseBody = geminiRespStr
 	}
 
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	if err := service.IOCopyBytesGracefully(c, resp, responseBody); err != nil {
+		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+	}
 
 	return &simpleResponse.Usage, nil
 }

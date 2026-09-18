@@ -248,6 +248,8 @@ func serveTaskPluginProtocol(
 		relayInfo.RelayMode = relayconstant.RelayModeVideoSubmit
 		relayInfo.IsStream = false
 		relayInfo.OriginModelName = c.GetString("resolved_task_model")
+		relayInfo.ClientModelName = relayInfo.OriginModelName
+		common.BindClientResponseModel(c, relayInfo.ClientModelName)
 		if action := c.GetString("task_action"); action != "" {
 			relayInfo.Action = action
 		}
@@ -355,7 +357,10 @@ func serveTaskPluginProtocol(
 				outcome.Task.TaskID,
 				taskPluginDebugStatus(string(outcome.Task.Status)),
 			)
-			c.JSON(http.StatusOK, machine.PendingResponse(string(outcome.Task.Status)))
+			if err := common.WriteClientJSON(c, http.StatusOK, machine.PendingResponse(string(outcome.Task.Status))); err != nil {
+				c.AbortWithStatus(http.StatusBadGateway)
+				return
+			}
 			return
 		}
 		logger.LogDebug(c, "task_plugin subsystem=protocol event=background_stream generation=%d plugin=%q public_task_id=%q", generation, pluginKey, outcome.Task.TaskID)
@@ -782,7 +787,10 @@ func waitTaskPluginProtocol(
 					taskPluginDebugStatus(lastStatus),
 					hookElapsed.Milliseconds(),
 				)
-				c.JSON(http.StatusOK, response)
+				if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
+					c.AbortWithStatus(http.StatusBadGateway)
+					return
+				}
 				logger.LogDebug(
 					c,
 					"task_plugin subsystem=protocol event=observation_complete generation=%d plugin=%q mode=nonstream reason=terminal status=%q ticks=%d",
@@ -966,6 +974,8 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 		return
 	}
 
+	common.BindClientResponseModel(c, task.Properties.OriginModelName)
+
 	generationNumber := uint64(0)
 	if generation != nil {
 		generationNumber = generation.Number
@@ -1010,7 +1020,10 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 	}
 	if task.Status != model.TaskStatusSuccess {
 		logger.LogDebug(c, "task_plugin subsystem=protocol event=retrieve_pending generation=%d plugin=%q public_task_id=%q status=%q", generationNumber, plugin.Meta.Key, task.TaskID, taskPluginDebugStatus(string(task.Status)))
-		c.JSON(http.StatusOK, machine.PendingResponse(string(task.Status)))
+		if err := common.WriteClientJSON(c, http.StatusOK, machine.PendingResponse(string(task.Status))); err != nil {
+			c.AbortWithStatus(http.StatusBadGateway)
+			return
+		}
 		return
 	}
 
@@ -1060,7 +1073,10 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 		taskPluginDebugStatus(string(task.Status)),
 		hookElapsed.Milliseconds(),
 	)
-	c.JSON(http.StatusOK, response)
+	if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
+		c.AbortWithStatus(http.StatusBadGateway)
+		return
+	}
 }
 
 func writeTaskPluginResponseNotFound(c *gin.Context, responseID, reason string) {
@@ -1113,7 +1129,10 @@ func writeTaskPluginProtocolFailureResponse(
 			respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
 			return
 		}
-		c.JSON(http.StatusOK, response)
+		if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
+			c.AbortWithStatus(http.StatusBadGateway)
+			return
+		}
 		return
 	}
 	response, err := machine.FailureResponse(taskStatus)
@@ -1122,7 +1141,10 @@ func writeTaskPluginProtocolFailureResponse(
 		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
 		return
 	}
-	c.JSON(http.StatusOK, response)
+	if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
+		c.AbortWithStatus(http.StatusBadGateway)
+		return
+	}
 }
 
 func writeTaskPluginProtocolTimeoutResponse(
@@ -1136,7 +1158,10 @@ func writeTaskPluginProtocolTimeoutResponse(
 		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
 		return
 	}
-	c.JSON(http.StatusOK, response)
+	if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
+		c.AbortWithStatus(http.StatusBadGateway)
+		return
+	}
 }
 
 func taskPluginProtocolJSONValue(value any) (any, error) {
@@ -1220,6 +1245,10 @@ func taskPluginProtocolEventsTerminal(events []dto.PluginResponsesStreamEvent) b
 
 func writeTaskPluginProtocolEvent(c *gin.Context, event dto.PluginResponsesStreamEvent) error {
 	encoded, err := common.Marshal(event)
+	if err != nil {
+		return err
+	}
+	encoded, err = common.ProjectClientResponse(c, encoded)
 	if err != nil {
 		return err
 	}
