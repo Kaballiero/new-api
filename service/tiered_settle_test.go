@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
 	"net/http"
@@ -131,6 +132,224 @@ func TestRealtimeCacheDiscountIssue(t *testing.T) {
 	negative.InputTokenDetails.CachedTokens = -1
 	assert.Equal(t, "inconsistent_overlap_details", RealtimeCacheDiscountIssue(negative, map[string]bool{"cr": true, "ai": true}))
 	assert.Empty(t, RealtimeCacheDiscountIssue(missing, map[string]bool{"ai": true}))
+	positivePoison := &dto.RealtimeUsage{
+		InputTokens: 200,
+		InputTokenDetails: dto.InputTokenDetails{
+			CachedTokens: 100,
+			TextTokens:   200,
+			CachedTokensDetails: &dto.CachedTokenDetails{
+				TextTokens:  value(100),
+				AudioTokens: value(100),
+			},
+		},
+	}
+	assert.Equal(t, "inconsistent_overlap_details", RealtimeCacheDiscountIssue(positivePoison, map[string]bool{"cr": true, "ai": true}))
+	tooLarge := valid()
+	tooLarge.InputTokenDetails.CachedTokens = 1001
+	assert.Equal(t, "inconsistent_overlap_details", RealtimeCacheDiscountIssue(tooLarge, map[string]bool{"cr": true, "ai": true}))
+}
+
+func TestValidateRealtimeUsage(t *testing.T) {
+	for _, field := range []string{"text", "ai", "img", "text_o", "ao", "img_o"} {
+		for _, n := range []int{-1, -100, 101, 200, 100, 70} {
+			t.Run(fmt.Sprintf("%s/%d", field, n), func(t *testing.T) {
+				u := &dto.RealtimeUsage{TotalTokens: 200, InputTokens: 100, OutputTokens: 100}
+				switch field {
+				case "text":
+					u.InputTokenDetails.TextTokens = n
+				case "ai":
+					u.InputTokenDetails.AudioTokens = n
+				case "img":
+					u.InputTokenDetails.ImageTokens = n
+				case "text_o":
+					u.OutputTokenDetails.TextTokens = n
+				case "ao":
+					u.OutputTokenDetails.AudioTokens = n
+				case "img_o":
+					u.OutputTokenDetails.ImageTokens = n
+				}
+				if n < 0 || n > 100 {
+					assertInvalidRealtimeEntryPoints(t, u)
+				} else {
+					require.NoError(t, ValidateRealtimeUsage(u))
+					require.NoError(t, PreWssConsumeQuota(nil, &relaycommon.RelayInfo{UsePrice: true}, u))
+				}
+			})
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		usage *dto.RealtimeUsage
+	}{
+		{"negative_input", &dto.RealtimeUsage{TotalTokens: 1, InputTokens: -1}},
+		{"negative_output", &dto.RealtimeUsage{TotalTokens: 1, OutputTokens: -1}},
+		{"negative_total", &dto.RealtimeUsage{TotalTokens: -1}},
+		{"zero_total_input", &dto.RealtimeUsage{InputTokens: 1}},
+		{"zero_total_output", &dto.RealtimeUsage{OutputTokens: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) { assertInvalidRealtimeEntryPoints(t, tc.usage) })
+	}
+	require.NoError(t, ValidateRealtimeUsage(&dto.RealtimeUsage{}))
+}
+
+func assertInvalidRealtimeEntryPoints(t *testing.T, u *dto.RealtimeUsage) {
+	t.Helper()
+	require.Error(t, ValidateRealtimeUsage(u))
+	for _, usePrice := range []bool{false, true} {
+		for _, expr := range []string{"p*2", "p*2+cr", "p*2+cr+ai", "p*2+cr+img"} {
+			info := &relaycommon.RelayInfo{UsePrice: usePrice, TieredBillingSnapshot: &billingexpr.BillingSnapshot{ExprString: expr}}
+			require.Error(t, PreWssConsumeQuota(nil, info, u), "UsePrice=%t expr=%s", usePrice, expr)
+			require.Error(t, PostWssConsumeQuota(nil, info, "", u, ""), "UsePrice=%t expr=%s", usePrice, expr)
+		}
+	}
+}
+
+func TestValidateRealtimeUsageCombinedSubsets(t *testing.T) {
+	for _, output := range []bool{false, true} {
+		for _, tc := range []struct {
+			name                 string
+			total, first, second int
+			valid                bool
+		}{
+			{"over_capacity", 100, 60, 41, false},
+			{"integer_overflow", math.MaxInt, math.MaxInt, 1, false},
+			{"exact_capacity", 100, 60, 40, true},
+			{"integer_boundary", math.MaxInt, math.MaxInt - 1, 1, true},
+		} {
+			t.Run(fmt.Sprintf("output_%t/%s", output, tc.name), func(t *testing.T) {
+				u := &dto.RealtimeUsage{TotalTokens: tc.total}
+				if output {
+					u.OutputTokens = tc.total
+					u.OutputTokenDetails = dto.OutputTokenDetails{AudioTokens: tc.first, ImageTokens: tc.second}
+				} else {
+					u.InputTokens = tc.total
+					u.InputTokenDetails = dto.InputTokenDetails{TextTokens: tc.first, AudioTokens: tc.second}
+				}
+				if tc.valid {
+					require.NoError(t, ValidateRealtimeUsage(u))
+				} else {
+					assertInvalidRealtimeEntryPoints(t, u)
+				}
+			})
+		}
+	}
+}
+
+func TestRealtimeCacheDiscountFeasibilityMatrix(t *testing.T) {
+	value := func(n int) *int { return &n }
+	for _, modality := range []string{"ai", "img"} {
+		for _, tc := range []struct {
+			name                   string
+			input, capacity, cache int
+			text, modal, other     *int
+			reason                 string
+		}{
+			{"valid_partial", 100, 60, 30, nil, value(20), nil, ""},
+			{"valid_complete", 100, 60, 30, value(10), value(20), value(0), ""},
+			{"explicit_zero", 100, 60, 30, nil, value(0), nil, ""},
+			{"absent_required", 100, 60, 30, nil, nil, nil, "missing_overlap_details"},
+			{"negative_cache", 100, 60, -1, nil, value(0), nil, "inconsistent_overlap_details"},
+			{"cache_over_input", 100, 60, 101, nil, value(0), nil, "inconsistent_overlap_details"},
+			{"negative_modal", 100, 60, 30, nil, value(-1), nil, "inconsistent_overlap_details"},
+			{"max_modal", 100, 60, 30, nil, value(math.MaxInt), nil, "inconsistent_overlap_details"},
+			{"max_text", 100, 60, 30, value(math.MaxInt), value(20), nil, "inconsistent_overlap_details"},
+			{"max_other", 100, 60, 30, nil, value(20), value(math.MaxInt), "inconsistent_overlap_details"},
+			{"negative_text", 100, 60, 30, value(-1), value(20), nil, "inconsistent_overlap_details"},
+			{"negative_other", 100, 60, 30, nil, value(20), value(-1), "inconsistent_overlap_details"},
+			{"modal_over_capacity", 100, 60, 80, nil, value(61), nil, "inconsistent_overlap_details"},
+			{"modal_over_cache", 100, 60, 30, nil, value(31), nil, "inconsistent_overlap_details"},
+			{"text_over_capacity", 100, 60, 80, value(41), value(30), nil, "inconsistent_overlap_details"},
+			{"other_over_capacity", 100, 60, 30, nil, value(20), value(1), "inconsistent_overlap_details"},
+			{"known_sum_over_cache", 100, 60, 30, value(20), value(20), nil, "inconsistent_overlap_details"},
+			{"impossible_remaining", 100, 60, 70, nil, value(20), nil, "inconsistent_overlap_details"},
+			{"complete_mismatch", 100, 60, 30, value(5), value(20), value(0), "inconsistent_overlap_details"},
+			{"positive_cache_zero_capacity", 100, 0, 30, value(30), value(1), nil, "inconsistent_overlap_details"},
+			{"positive_cache_zero_corrected", 100, 0, 30, value(30), value(0), nil, ""},
+			{"zero_cache_irrelevant_noise", 100, 0, 0, value(math.MaxInt), value(-1), value(math.MaxInt), ""},
+			{"zero_cache_required_noise", 100, 60, 0, nil, value(1), nil, "inconsistent_overlap_details"},
+			{"max_valid", math.MaxInt, 2, math.MaxInt, value(math.MaxInt - 2), value(2), value(0), ""},
+			{"max_impossible_remaining", math.MaxInt, 2, math.MaxInt, nil, value(1), nil, "inconsistent_overlap_details"},
+			{"max_known_sum_over_cache", math.MaxInt, 2, math.MaxInt - 1, value(math.MaxInt - 2), value(2), nil, "inconsistent_overlap_details"},
+		} {
+			t.Run(modality+"/"+tc.name, func(t *testing.T) {
+				u := &dto.RealtimeUsage{TotalTokens: tc.input, InputTokens: tc.input, InputTokenDetails: dto.InputTokenDetails{CachedTokens: tc.cache, CachedTokensDetails: &dto.CachedTokenDetails{TextTokens: tc.text}}}
+				details := u.InputTokenDetails.CachedTokensDetails
+				if modality == "ai" {
+					u.InputTokenDetails.AudioTokens = tc.capacity
+					details.AudioTokens = tc.modal
+					details.ImageTokens = tc.other
+				} else {
+					u.InputTokenDetails.ImageTokens = tc.capacity
+					details.ImageTokens = tc.modal
+					details.AudioTokens = tc.other
+				}
+				require.NoError(t, ValidateRealtimeUsage(u))
+				vars := map[string]bool{"cr": true, modality: true}
+				reason := RealtimeCacheDiscountIssue(u, vars)
+				assert.Equal(t, tc.reason, reason)
+				u.CacheDiscountUnavailable = reason != ""
+				params := BuildRealtimeTieredTokenParams(u, vars)
+				if tc.reason == "" {
+					assert.Equal(t, float64(tc.cache), params.CR)
+				} else {
+					assert.Zero(t, params.CR)
+				}
+			})
+		}
+	}
+}
+
+func TestRealtimeCacheDiscountIgnoresUnusedFacts(t *testing.T) {
+	for _, expr := range []string{"p*2", "p*2+cr"} {
+		for _, noise := range []int{-1, math.MaxInt} {
+			t.Run(fmt.Sprintf("%s/%d", expr, noise), func(t *testing.T) {
+				u := &dto.RealtimeUsage{TotalTokens: 100, InputTokens: 100, InputTokenDetails: dto.InputTokenDetails{TextTokens: 100, CachedTokens: 50, CachedTokensDetails: &dto.CachedTokenDetails{TextTokens: &noise, AudioTokens: &noise, ImageTokens: &noise}}}
+				vars := billingexpr.UsedVars(expr)
+				assert.Empty(t, RealtimeCacheDiscountIssue(u, vars))
+				params := BuildRealtimeTieredTokenParams(u, vars)
+				if vars["cr"] {
+					assert.Equal(t, float64(50), params.P)
+					assert.Equal(t, float64(50), params.CR)
+				} else {
+					assert.Equal(t, float64(100), params.P)
+				}
+				if !vars["cr"] {
+					u.InputTokenDetails.CachedTokens = noise
+					assert.Empty(t, RealtimeCacheDiscountIssue(u, vars))
+					assert.Equal(t, float64(100), BuildRealtimeTieredTokenParams(u, vars).P)
+				}
+			})
+		}
+	}
+}
+
+func TestTryTieredWssSettleAcceptsZero(t *testing.T) {
+	for _, tc := range []struct {
+		name, expr string
+		group      float64
+	}{
+		{"zero", "0", 1}, {"free_branch", `len>0 ? tier("free",0) : tier("paid",p*2)`, 1}, {"zero_group", "p*2", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := makeRelayInfo(tc.expr, tc.group, 1, 0)
+			ok, quota, result, err := TryTieredWssSettle(info, billingexpr.TokenParams{P: 1, Len: 1})
+			require.True(t, ok)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Zero(t, quota)
+		})
+	}
+}
+
+func TestTryTieredWssSettleRejectsNegativeFinalQuota(t *testing.T) {
+	info := makeRelayInfo(`tier("negative", p * -1)`, 1, 1, 0)
+	ok, _, result, err := TryTieredWssSettle(info, billingexpr.TokenParams{P: 1})
+	require.True(t, ok)
+	require.Error(t, err)
+	assert.Nil(t, result)
+	info = makeRelayInfo(`tier("negative-fraction", p * -0.1)`, 1, 1, 0)
+	_, _, _, err = TryTieredWssSettle(info, billingexpr.TokenParams{P: 1})
+	require.Error(t, err)
 }
 
 func TestPostAudioConsumeQuotaUsesEffectiveBillingGroupRatio(t *testing.T) {

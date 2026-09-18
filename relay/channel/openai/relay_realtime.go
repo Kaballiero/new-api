@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -45,7 +46,13 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 	sumUsage := &dto.RealtimeUsage{}
 
 	consume := func(usage *dto.RealtimeUsage) error {
-		if usage == nil || usage.TotalTokens == 0 {
+		if usage == nil {
+			return nil
+		}
+		if err := service.ValidateRealtimeUsage(usage); err != nil {
+			return err
+		}
+		if usage.TotalTokens == 0 {
 			return nil
 		}
 		return preConsumeUsage(c, info, usage, sumUsage)
@@ -233,16 +240,15 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 	for range remainingReaderResults {
 		terminalErr = errors.Join(terminalErr, <-result)
 	}
-	if terminalErr != nil {
-		logger.LogError(c, "realtime error: "+terminalErr.Error())
-	}
-
 	localMu.Lock()
 	tail := localUsage
 	localUsage = dto.RealtimeUsage{}
 	localMu.Unlock()
 	if err := consume(&tail); err != nil {
 		terminalErr = errors.Join(terminalErr, fmt.Errorf("error consume terminal usage: %w", err))
+	}
+	if terminalErr != nil {
+		logger.LogError(c, "realtime error: "+terminalErr.Error())
 	}
 
 	if terminalErr != nil {
@@ -259,9 +265,14 @@ func preConsumeUsage(ctx *gin.Context, info *relaycommon.RelayInfo, usage *dto.R
 	if usage == nil || totalUsage == nil {
 		return fmt.Errorf("invalid usage pointer")
 	}
+	if err := service.ValidateRealtimeUsage(usage); err != nil {
+		return err
+	}
 
+	usedVars := map[string]bool{}
 	if snap := info.TieredBillingSnapshot; snap != nil {
-		if reason := service.RealtimeCacheDiscountIssue(usage, billingexpr.UsedVars(snap.ExprString)); reason != "" {
+		usedVars = billingexpr.UsedVars(snap.ExprString)
+		if reason := service.RealtimeCacheDiscountIssue(usage, usedVars); reason != "" {
 			usage.CacheDiscountUnavailable = true
 			usage.CacheDiscountUnavailableReason = reason
 			usage.InputTokenDetails.CachedTokens = 0
@@ -269,58 +280,94 @@ func preConsumeUsage(ctx *gin.Context, info *relaycommon.RelayInfo, usage *dto.R
 		}
 	}
 
-	totalUsage.TotalTokens += usage.TotalTokens
-	totalUsage.InputTokens += usage.InputTokens
-	totalUsage.OutputTokens += usage.OutputTokens
-	totalUsage.InputTokenDetails.CachedTokens += usage.InputTokenDetails.CachedTokens
-	totalUsage.InputTokenDetails.CachedCreationTokens += usage.InputTokenDetails.CacheCreationTokensTotal()
-	totalUsage.InputTokenDetails.TextTokens += usage.InputTokenDetails.TextTokens
-	totalUsage.InputTokenDetails.AudioTokens += usage.InputTokenDetails.AudioTokens
-	totalUsage.InputTokenDetails.ImageTokens += usage.InputTokenDetails.ImageTokens
-	totalUsage.OutputTokenDetails.TextTokens += usage.OutputTokenDetails.TextTokens
-	totalUsage.OutputTokenDetails.AudioTokens += usage.OutputTokenDetails.AudioTokens
-	totalUsage.OutputTokenDetails.ImageTokens += usage.OutputTokenDetails.ImageTokens
-	if usage.InputTokenDetails.CachedTokens > 0 {
-		mergeCachedTokenDetails(&totalUsage.InputTokenDetails, usage.InputTokenDetails.CachedTokensDetails)
+	candidate := cloneRealtimeUsage(totalUsage)
+	if !addRealtimeUsage(candidate, usage, usedVars) {
+		return fmt.Errorf("realtime usage aggregate overflow")
 	}
-	if usage.CacheDiscountUnavailable {
-		totalUsage.CacheDiscountUnavailable = true
-		if totalUsage.CacheDiscountUnavailableReason == "" {
-			totalUsage.CacheDiscountUnavailableReason = usage.CacheDiscountUnavailableReason
+	if usage.InputTokenDetails.CachedTokens > 0 && usedVars["cr"] && (usedVars["ai"] || usedVars["img"]) {
+		if !mergeCachedTokenDetails(&candidate.InputTokenDetails, usage.InputTokenDetails.CachedTokensDetails, usedVars) {
+			return fmt.Errorf("realtime cached usage aggregate overflow")
 		}
 	}
+	if usage.CacheDiscountUnavailable {
+		candidate.CacheDiscountUnavailable = true
+		if candidate.CacheDiscountUnavailableReason == "" {
+			candidate.CacheDiscountUnavailableReason = usage.CacheDiscountUnavailableReason
+		}
+	}
+	*totalUsage = *candidate
 	// The observation belongs to this event even if its provisional debit is
 	// refused. Callers clear their contribution before returning the error so a
 	// terminal tail cannot count it a second time.
 	return service.PreWssConsumeQuota(ctx, info, usage)
 }
 
-func mergeCachedTokenDetails(target *dto.InputTokenDetails, source *dto.CachedTokenDetails) {
+func cloneRealtimeUsage(usage *dto.RealtimeUsage) *dto.RealtimeUsage {
+	clone := *usage
+	if details := usage.InputTokenDetails.CachedTokensDetails; details != nil {
+		copy := *details
+		copy.TextTokens = cloneRealtimeTokenPointer(details.TextTokens)
+		copy.AudioTokens = cloneRealtimeTokenPointer(details.AudioTokens)
+		copy.ImageTokens = cloneRealtimeTokenPointer(details.ImageTokens)
+		clone.InputTokenDetails.CachedTokensDetails = &copy
+	}
+	return &clone
+}
+
+func cloneRealtimeTokenPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func addRealtimeUsage(total, usage *dto.RealtimeUsage, usedVars map[string]bool) bool {
+	return addRealtimeToken(&total.TotalTokens, usage.TotalTokens) &&
+		addRealtimeToken(&total.InputTokens, usage.InputTokens) &&
+		addRealtimeToken(&total.OutputTokens, usage.OutputTokens) &&
+		addRealtimeToken(&total.InputTokenDetails.TextTokens, usage.InputTokenDetails.TextTokens) &&
+		addRealtimeToken(&total.InputTokenDetails.AudioTokens, usage.InputTokenDetails.AudioTokens) &&
+		addRealtimeToken(&total.InputTokenDetails.ImageTokens, usage.InputTokenDetails.ImageTokens) &&
+		addRealtimeToken(&total.OutputTokenDetails.TextTokens, usage.OutputTokenDetails.TextTokens) &&
+		addRealtimeToken(&total.OutputTokenDetails.AudioTokens, usage.OutputTokenDetails.AudioTokens) &&
+		addRealtimeToken(&total.OutputTokenDetails.ImageTokens, usage.OutputTokenDetails.ImageTokens) &&
+		(!usedVars["cr"] || addRealtimeToken(&total.InputTokenDetails.CachedTokens, usage.InputTokenDetails.CachedTokens)) &&
+		addRealtimeToken(&total.InputTokenDetails.CachedCreationTokens, usage.InputTokenDetails.CacheCreationTokensTotal())
+}
+
+func addRealtimeToken(total *int, value int) bool {
+	if (value > 0 && *total > math.MaxInt-value) || (value < 0 && *total < math.MinInt-value) {
+		return false
+	}
+	*total += value
+	return true
+}
+
+func mergeCachedTokenDetails(target *dto.InputTokenDetails, source *dto.CachedTokenDetails, usedVars map[string]bool) bool {
 	if source == nil {
-		return
+		return true
 	}
 	if target.CachedTokensDetails == nil {
 		target.CachedTokensDetails = &dto.CachedTokenDetails{}
 	}
-	if source.TextTokens != nil {
-		value := *source.TextTokens
-		if target.CachedTokensDetails.TextTokens != nil {
-			value += *target.CachedTokensDetails.TextTokens
-		}
-		target.CachedTokensDetails.TextTokens = &value
-	}
-	if source.AudioTokens != nil {
+	if usedVars["ai"] && source.AudioTokens != nil {
 		value := *source.AudioTokens
 		if target.CachedTokensDetails.AudioTokens != nil {
-			value += *target.CachedTokensDetails.AudioTokens
+			if !addRealtimeToken(&value, *target.CachedTokensDetails.AudioTokens) {
+				return false
+			}
 		}
 		target.CachedTokensDetails.AudioTokens = &value
 	}
-	if source.ImageTokens != nil {
+	if usedVars["img"] && source.ImageTokens != nil {
 		value := *source.ImageTokens
 		if target.CachedTokensDetails.ImageTokens != nil {
-			value += *target.CachedTokensDetails.ImageTokens
+			if !addRealtimeToken(&value, *target.CachedTokensDetails.ImageTokens) {
+				return false
+			}
 		}
 		target.CachedTokensDetails.ImageTokens = &value
 	}
+	return true
 }
