@@ -36,7 +36,9 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 
 	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	if err := service.IOCopyBytesGracefully(c, resp, responseBody); err != nil {
+		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
+	}
 
 	// compute usage
 	usage := relayconvert.NormalizeResponsesUsage(responsesResponse.Usage)
@@ -76,6 +78,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	var responseTextBuilder strings.Builder
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
+	var projectionErr error
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -83,10 +86,15 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		var streamResponse dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
 			logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
-			sr.Error(err)
+			projectionErr = err
+			sr.Stop(err)
 			return
 		}
-		sendResponsesStreamData(c, streamResponse, data)
+		if err := sendResponsesStreamData(c, streamResponse, data); err != nil {
+			projectionErr = err
+			sr.Stop(err)
+			return
+		}
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			if streamResponse.Response != nil {
@@ -138,6 +146,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		}
 	})
+
+	if projectionErr != nil {
+		return nil, types.NewError(projectionErr, types.ErrorCodeBadResponseBody)
+	}
 
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量

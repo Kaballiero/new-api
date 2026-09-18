@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -70,6 +69,10 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 	if !exist {
 		return service.TaskErrorWrapperLocal(errors.New("task_origin_not_exist"), "task_not_exist", http.StatusBadRequest)
 	}
+	if info.ClientModelName == "" && originTask.Properties.OriginModelName != "" {
+		info.ClientModelName = originTask.Properties.OriginModelName
+		common.BindClientResponseModel(c, info.ClientModelName)
+	}
 
 	// 从原始任务推导模型名称
 	if info.OriginModelName == "" {
@@ -77,11 +80,13 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 			info.OriginModelName = originTask.Properties.OriginModelName
 		} else if originTask.Properties.UpstreamModelName != "" {
 			info.OriginModelName = originTask.Properties.UpstreamModelName
+			info.ClientModelName = "\x00"
 		} else {
 			var taskData map[string]any
 			_ = common.Unmarshal(originTask.Data, &taskData)
 			if m, ok := taskData["model"].(string); ok && m != "" {
 				info.OriginModelName = m
+				info.ClientModelName = "\x00"
 			}
 		}
 	}
@@ -457,12 +462,12 @@ func RelayTaskFetch(c *gin.Context, relayMode int) (taskResp *dto.TaskError) {
 		respBody = []byte("{\"code\":\"success\",\"data\":null}")
 	}
 
-	c.Writer.Header().Set("Content-Type", "application/json")
-	_, err := io.Copy(c.Writer, bytes.NewBuffer(respBody))
+	projected, err := common.ProjectClientResponse(c, respBody)
 	if err != nil {
-		taskResp = service.TaskErrorWrapper(err, "copy_response_body_failed", http.StatusInternalServerError)
+		taskResp = service.TaskErrorWrapper(err, "project_response_body_failed", http.StatusBadGateway)
 		return
 	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", projected)
 	return
 }
 
@@ -482,6 +487,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		taskResp = service.TaskErrorWrapperLocal(errors.New("task_not_exist"), "task_not_exist", http.StatusBadRequest)
 		return
 	}
+	common.BindClientResponseModel(c, originTask.Properties.OriginModelName)
 
 	isOpenAIVideoAPI := strings.HasPrefix(c.Request.RequestURI, "/v1/videos/")
 

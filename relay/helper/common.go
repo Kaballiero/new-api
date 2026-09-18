@@ -62,35 +62,42 @@ func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 	if requestContextDone(c) {
 		return nil
 	}
-
 	jsonData, err := common.Marshal(resp)
 	if err != nil {
-		common.SysError("error marshalling stream response: " + err.Error())
-	} else {
-		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-		c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonData)})
+		return err
 	}
-	_ = FlushWriter(c)
-	return nil
+	data, err := common.ProjectClientResponseString(c, string(jsonData))
+	if err != nil {
+		return err
+	}
+	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
+	c.Render(-1, common.CustomEvent{Data: "data: " + data})
+	return FlushWriter(c)
 }
 
-func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
+func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) error {
 	if requestContextDone(c) {
-		return
+		return nil
 	}
-
+	projected, err := common.ProjectClientResponseString(c, data)
+	if err != nil {
+		return err
+	}
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s\n", data)})
-	_ = FlushWriter(c)
+	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s\n", projected)})
+	return FlushWriter(c)
 }
 
 func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data string) error {
 	if requestContextDone(c) {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
-
+	projected, err := common.ProjectClientResponseString(c, data)
+	if err != nil {
+		return err
+	}
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", data)})
+	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", projected)})
 	return FlushWriter(c)
 }
 
@@ -103,7 +110,11 @@ func StringData(c *gin.Context, str string) error {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	c.Render(-1, common.CustomEvent{Data: "data: " + str})
+	projected, err := common.ProjectClientResponseString(c, str)
+	if err != nil {
+		return err
+	}
+	c.Render(-1, common.CustomEvent{Data: "data: " + projected})
 	return FlushWriter(c)
 }
 
@@ -144,6 +155,14 @@ func WssString(c *gin.Context, ws *websocket.Conn, str string) error {
 	}
 	//common.LogInfo(c, fmt.Sprintf("sending message: %s", str))
 	return ws.WriteMessage(1, []byte(str))
+}
+
+func WssClientString(c *gin.Context, ws *websocket.Conn, str string) error {
+	projected, err := common.ProjectClientResponseString(c, str)
+	if err != nil {
+		return err
+	}
+	return WssString(c, ws, projected)
 }
 
 func WssObject(c *gin.Context, ws *websocket.Conn, object any) error {

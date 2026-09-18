@@ -854,7 +854,10 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 				if valueErr == nil {
 					if body, callErr := pinned.Plugin.Engine.CallPath(c.Request.Context(), "native", []string{pinned.Route.Render}, requestContext.JSValue(), viewValue); callErr == nil {
 						diagnostics.present(outcome.Task, "native_presenter")
-						c.JSON(http.StatusOK, body)
+						if err := common.WriteClientJSON(c, http.StatusOK, body); err != nil {
+							c.AbortWithStatus(http.StatusBadGateway)
+							return
+						}
 						return
 					} else {
 						logger.LogError(c, "task plugin native submit presenter failed: "+callErr.Error())
@@ -870,7 +873,10 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 	if pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedEndpoint); exists {
 		if pinned, ok := pinnedValue.(pluginruntime.PinnedEndpoint); ok && pinned.Protocol == "openai_video" && pinned.Operation.Name == "create" {
 			diagnostics.present(outcome.Task, "openai_video_create")
-			c.JSON(http.StatusOK, outcome.Task.ToOpenAIVideo())
+			if err := common.WriteClientJSON(c, http.StatusOK, outcome.Task.ToOpenAIVideo()); err != nil {
+				c.AbortWithStatus(http.StatusBadGateway)
+				return
+			}
 			return
 		}
 	}
@@ -879,13 +885,16 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 		createdAt = outcome.Task.SubmitTime
 	}
 	diagnostics.present(outcome.Task, "host_fallback")
-	c.JSON(http.StatusOK, map[string]any{
+	if err := common.WriteClientJSON(c, http.StatusOK, map[string]any{
 		"id":         outcome.Task.TaskID,
 		"task_id":    outcome.Task.TaskID,
 		"status":     "queued",
 		"model":      outcome.RelayInfo.OriginModelName,
 		"created_at": createdAt,
-	})
+	}); err != nil {
+		c.AbortWithStatus(http.StatusBadGateway)
+		return
+	}
 }
 
 func respondTaskSubmissionError(c *gin.Context, taskErr *taskdto.TaskError) {

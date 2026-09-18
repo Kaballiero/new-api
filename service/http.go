@@ -29,7 +29,12 @@ func CloseResponseBodyGracefully(httpResponse *http.Response) {
 // ID). When the upstream header is X-Oneapi-Request-Id, the value is captured
 // into the Gin context for later logging.
 func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
-	if strings.EqualFold(k, "Content-Length") {
+	if strings.EqualFold(k, "Content-Length") ||
+		strings.EqualFold(k, "X-Generation-Id") ||
+		strings.EqualFold(k, "CF-Ray") ||
+		strings.EqualFold(k, "Access-Control-Expose-Headers") ||
+		strings.EqualFold(k, "X-Provider-Name") ||
+		strings.EqualFold(k, "Set-Cookie") {
 		return false
 	}
 	if strings.EqualFold(k, common.RequestIdKey) {
@@ -41,7 +46,18 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 	return true
 }
 
-func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
+func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) error {
+	projected, err := common.ProjectClientResponse(c, data)
+	if err != nil {
+		logger.LogError(c, fmt.Sprintf("failed to project client response: %s", err.Error()))
+		c.AbortWithStatus(http.StatusBadGateway)
+		return err
+	}
+	IOCopyOpaqueBytesGracefully(c, src, projected)
+	return nil
+}
+
+func IOCopyOpaqueBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	if c.Writer == nil {
 		return
 	}

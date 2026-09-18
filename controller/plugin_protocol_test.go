@@ -18,11 +18,13 @@ import (
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 	"gorm.io/gorm"
 )
 
@@ -1578,4 +1580,143 @@ func pluginProtocolRetrieveDeps(pinned pluginruntime.PinnedEndpoint, task *model
 		return pinned.Plugin, pinned.Generation, true
 	}
 	return deps
+}
+
+func TestClientPrivacyTaskRenderers(t *testing.T) {
+	const renderer = `
+ const fields = {model:"mapped-private",cost:7,cost_details:{upstream_inference_cost:8},is_byok:true,usage_semantic:"private",usage_source:"private",billing_usage:{source:"private"}};
+ export const protocols = {openai_responses: {
+  renderEvents: function() {return {events:[{type:"output",data:"rendered"}],done:true};},
+  renderFinal: function() {return {...fields,usage:{...fields,total_tokens:3},result:{...fields,usageMetadata:{...fields,totalTokenCount:3}},output:[{type:"message",role:"assistant",content:[{type:"output_text",text:'{"model":"artifact","cost":7}',annotations:[],logprobs:[]}]}] };}
+ }};`
+	pinned := compilePluginProtocolRetrieveEndpoint(t, "privacy-renderers", renderer, pluginruntime.Options{})
+	for _, stream := range []bool{false, true} {
+		t.Run("create-stream-"+strconv.FormatBool(stream), func(t *testing.T) {
+			c, recorder := newPluginProtocolTestContext(stream, stream)
+			c.Set("resolved_task_model", "public:modifier")
+			deps := pluginProtocolTestDeps()
+			deps.submit = func(_ *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
+				return pluginProtocolTestOutcome(info, pinned.Plugin.Meta.Key, "task_privacy"), nil
+			}
+			deps.loadTask = func(context.Context, int, constant.TaskPlatform, string) (*model.Task, bool, error) {
+				return &model.Task{TaskID: "task_privacy", Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key), UserId: 71, Status: model.TaskStatusSuccess}, true, nil
+			}
+			serveTaskPluginProtocol(c, pinned, deps)
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			events := []string{recorder.Body.String()}
+			if stream {
+				events = nil
+				for line := range strings.SplitSeq(recorder.Body.String(), "\n") {
+					if event, ok := strings.CutPrefix(line, "data: "); ok {
+						events = append(events, event)
+					}
+				}
+				assert.Contains(t, pluginProtocolTestSSEEventTypes(recorder.Body.String()), "response.completed")
+			}
+			require.NotEmpty(t, events)
+			for _, event := range events {
+				prefix := ""
+				if stream {
+					prefix = "response."
+				}
+				if model := gjson.Get(event, prefix+"model"); model.Exists() {
+					assert.Equal(t, "public:modifier", model.String(), event)
+				}
+				for _, path := range []string{"", "usage.", "result.", "result.usageMetadata."} {
+					for _, field := range []string{"cost", "cost_details", "is_byok", "usage_semantic", "usage_source", "billing_usage"} {
+						assert.False(t, gjson.Get(event, prefix+path+field).Exists(), event)
+					}
+				}
+			}
+		})
+	}
+	for _, origin := range []string{"public:modifier", ""} {
+		for _, status := range []model.TaskStatus{model.TaskStatusSuccess, model.TaskStatusSubmitted} {
+			t.Run("retrieve-"+origin+"-"+string(status), func(t *testing.T) {
+				c, recorder := newPluginProtocolRetrieveContext("resp_privacy")
+				task := &model.Task{TaskID: "task_privacy", Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key), UserId: 71, Status: status, Properties: model.Properties{OriginModelName: origin, UpstreamModelName: "mapped-private"}, Data: []byte(`{"model":"raw-private","billing_usage":{"source":"private"}}`)}
+				before, err := common.Marshal(task)
+				require.NoError(t, err)
+				retrieveTaskPluginResponse(c, pluginProtocolRetrieveDeps(pinned, task, true, nil))
+				require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+				if origin == "" {
+					assert.False(t, gjson.Get(recorder.Body.String(), "model").Exists())
+				} else {
+					assert.Equal(t, origin, gjson.Get(recorder.Body.String(), "model").String())
+				}
+				for _, prefix := range []string{"", "usage.", "result.", "result.usageMetadata."} {
+					for _, field := range []string{"cost", "cost_details", "is_byok", "usage_semantic", "usage_source", "billing_usage"} {
+						assert.False(t, gjson.Get(recorder.Body.String(), prefix+field).Exists())
+					}
+				}
+				after, err := common.Marshal(task)
+				require.NoError(t, err)
+				assert.Equal(t, string(before), string(after))
+				if status == model.TaskStatusSuccess {
+					assert.Equal(t, `{"model":"artifact","cost":7}`, gjson.Get(recorder.Body.String(), "output.0.content.0.text").String())
+				}
+			})
+		}
+	}
+}
+
+func TestClientPrivacyTaskFetchDashboardAndLegacyOrigin(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := database.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	previousDB := model.DB
+	model.DB = database
+	t.Cleanup(func() { model.DB = previousDB; require.NoError(t, sqlDB.Close()) })
+	require.NoError(t, database.AutoMigrate(&model.Task{}, &model.Channel{}))
+	require.NoError(t, database.Create(&model.Channel{Id: 1, Type: 1, Status: common.ChannelStatusEnabled, Key: "synthetic-key"}).Error)
+	raw := []byte(`{"model":"raw-private","provider":"kept","fallback":"kept","usage":{"prompt_tokens":1,"cost":7,"billing_usage":{"source":"private"}},"result":{"cost":7,"billing_usage":{"source":"private"}},"artifact":{"cost":7,"model":"artifact"}}`)
+	for _, origin := range []string{"public:modifier", ""} {
+		task := &model.Task{TaskID: "task_privacy_" + strconv.Itoa(len(origin)), ChannelId: 1, UserId: 71, Status: model.TaskStatusSuccess, Properties: model.Properties{OriginModelName: origin, UpstreamModelName: "fallback-private"}, Data: raw}
+		require.NoError(t, database.Create(task).Error)
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/task", nil)
+		c.Set("id", 71)
+		c.Set("task_id", task.TaskID)
+		require.Nil(t, relay.RelayTaskFetch(c, relayconstant.RelayModeVideoFetchByID))
+		assert.NotContains(t, recorder.Body.String(), "billing_usage")
+		assert.NotContains(t, recorder.Body.String(), "raw-private")
+		client := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)
+		admin := tasksToDto([]*model.Task{task}, false, common.RoleAdminUser)
+		root := tasksToDto([]*model.Task{task}, false, common.RoleRootUser)
+		require.Len(t, client, 1)
+		assert.Equal(t, string(raw), string(admin[0].Data))
+		assert.Equal(t, string(raw), string(root[0].Data))
+		assert.Equal(t, string(raw), string(task.Data))
+		assert.False(t, gjson.GetBytes(client[0].Data, "usage.cost").Exists())
+		assert.False(t, gjson.GetBytes(client[0].Data, "result.billing_usage").Exists())
+		assert.Equal(t, "artifact", gjson.GetBytes(client[0].Data, "artifact.model").String())
+		assert.Equal(t, int64(7), gjson.GetBytes(client[0].Data, "artifact.cost").Int())
+		if origin == "" {
+			assert.False(t, gjson.GetBytes(client[0].Data, "model").Exists())
+		} else {
+			assert.Equal(t, origin, gjson.GetBytes(client[0].Data, "model").String())
+		}
+		c, _ = gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos/"+task.TaskID+"/remix", nil)
+		c.Params = gin.Params{{Key: "video_id", Value: task.TaskID}}
+		info := relaycommon.GenRelayInfoOpenAI(c, nil)
+		info.UserId = 71
+		info.TaskRelayInfo = &relaycommon.TaskRelayInfo{}
+		info.ChannelMeta = &relaycommon.ChannelMeta{}
+		require.Nil(t, relay.ResolveOriginTask(c, info))
+		expectedInternal := origin
+		if expectedInternal == "" {
+			expectedInternal = "fallback-private"
+		}
+		assert.Equal(t, expectedInternal, info.OriginModelName)
+		persisted := model.InitTask(constant.TaskPlatform("synthetic"), info)
+		assert.Equal(t, origin, persisted.Properties.OriginModelName)
+		require.NoError(t, database.Create(persisted).Error)
+		var loaded model.Task
+		require.NoError(t, database.First(&loaded, persisted.ID).Error)
+		assert.Equal(t, origin, loaded.Properties.OriginModelName)
+	}
 }

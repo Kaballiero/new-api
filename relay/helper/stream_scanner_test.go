@@ -243,14 +243,14 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
 			count.Add(1)
 			_ = StringData(c, data)
-			if data == "first" {
+			if data == `"first"` {
 				close(firstHandled)
 			}
 		})
 		close(done)
 	}()
 
-	_, err := fmt.Fprint(pw, "data: first\n")
+	_, err := fmt.Fprint(pw, "data: \"first\"\n")
 	require.NoError(t, err)
 
 	select {

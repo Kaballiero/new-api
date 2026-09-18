@@ -99,6 +99,7 @@ type RelayInfo struct {
 	UsePrice               bool
 	RelayMode              int
 	OriginModelName        string
+	ClientModelName        string
 
 	// BillingModelName is the pricing identity for this request. It is kept
 	// separate from OriginModelName and UpstreamModelName so virtual pricing
@@ -552,6 +553,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	}
 	reasoningEffort := reasoningEffortFromRequest(request)
 	originModelName := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
+	common.BindClientResponseModel(c, originModelName)
 	info := &RelayInfo{
 		Request:         request,
 		ReasoningEffort: reasoningEffort,
@@ -564,6 +566,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
 		OriginModelName: originModelName,
+		ClientModelName: originModelName,
 
 		TokenId:        common.GetContextKeyInt(c, constant.ContextKeyTokenId),
 		TokenKey:       common.GetContextKeyString(c, constant.ContextKeyTokenKey),

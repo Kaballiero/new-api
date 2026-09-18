@@ -416,6 +416,16 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskD
 			}
 		}
 		item := relay.TaskModel2Dto(task)
+		if viewerRole < common.RoleAdminUser && len(item.Data) > 0 {
+			projectionContext := &gin.Context{}
+			common.BindClientResponseModel(projectionContext, task.Properties.OriginModelName)
+			projected, err := common.ProjectClientResponse(projectionContext, item.Data)
+			if err != nil {
+				item.Data = nil
+			} else {
+				item.Data = projected
+			}
+		}
 		item.LegacyVideoAvailable = legacyVideoAvailable(task)
 		if task.Status == model.TaskStatusSuccess {
 			item.ResultURL = ""
