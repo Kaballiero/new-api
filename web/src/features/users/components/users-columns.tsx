@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -95,13 +96,22 @@ export function useUsersColumns(): ColumnDef<User>[] {
         const username = row.getValue('username') as string
         const displayName = row.original.display_name
         const remark = row.original.remark
+        const contactEmail = row.original.contact_email || row.original.email
 
         return (
           <div className='flex min-w-[160px] flex-col gap-1'>
             <div className='flex items-center gap-2'>
-              <LongText className='max-w-[140px] text-sm font-normal'>
-                {username}
-              </LongText>
+              <Link
+                to='/usage-logs/$section'
+                params={{ section: 'common' }}
+                search={{ username }}
+                aria-label={`${t('Usage Logs')}: ${username}`}
+                className='hover:underline'
+              >
+                <LongText className='max-w-[140px] text-sm font-normal'>
+                  {username}
+                </LongText>
+              </Link>
               {remark && (
                 <Tooltip>
                   <TooltipTrigger
@@ -121,14 +131,21 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 </Tooltip>
               )}
             </div>
-            {displayName && displayName !== username && (
-              <div
-                data-table-text='secondary'
-                className='text-muted-foreground max-w-[180px] text-xs font-normal'
-              >
-                <LongText>{displayName}</LongText>
-              </div>
+            {contactEmail && (
+              <LongText className='text-muted-foreground max-w-[180px] text-xs font-normal'>
+                {contactEmail}
+              </LongText>
             )}
+            {displayName &&
+              displayName !== username &&
+              displayName !== contactEmail && (
+                <div
+                  data-table-text='secondary'
+                  className='text-muted-foreground max-w-[180px] text-xs font-normal'
+                >
+                  <LongText>{displayName}</LongText>
+                </div>
+              )}
           </div>
         )
       },

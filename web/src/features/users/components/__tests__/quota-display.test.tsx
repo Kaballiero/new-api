@@ -265,6 +265,7 @@ async function renderUsersList(emptyInvitation = false) {
             id: 2,
             username: 'long-user-name-for-table-layout',
             display_name: 'A display name',
+            contact_email: 'support.customer@example.com',
             role: 1,
             status: 1,
             quota: 1900,
@@ -434,4 +435,16 @@ it('labels raw quota mode as tokens without introducing a currency symbol', () =
   expect(
     within(screen.getAllByRole('cell')[0]).getByText('200')
   ).toBeInTheDocument()
+})
+
+it('shows the contact email beside the username and links to that user logs', async () => {
+  await renderUsersList()
+  expect(screen.getByText('support.customer@example.com')).toBeVisible()
+  const link = screen.getByRole('link', {
+    name: 'Usage Logs: long-user-name-for-table-layout',
+  })
+  expect(link).toHaveAttribute(
+    'href',
+    '/usage-logs/common?username=long-user-name-for-table-layout'
+  )
 })

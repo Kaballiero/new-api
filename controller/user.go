@@ -645,8 +645,21 @@ func GetUserModels(c *gin.Context) {
 }
 
 func UpdateUser(c *gin.Context) {
-	var updatedUser model.User
-	err := common.DecodeJson(c.Request.Body, &updatedUser)
+	var payload struct {
+		model.User
+		ContactEmail *string `json:"contact_email"`
+	}
+	err := common.DecodeJson(c.Request.Body, &payload)
+	updatedUser := payload.User
+	var contactEmails []string
+	if payload.ContactEmail != nil {
+		updatedUser.ContactEmail = strings.TrimSpace(*payload.ContactEmail)
+		contactEmails = append(contactEmails, updatedUser.ContactEmail)
+	}
+	if common.Validate.Var(updatedUser.ContactEmail, "omitempty,email,max=50") != nil {
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
+		return
+	}
 	if err != nil || updatedUser.Id == 0 {
 		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
@@ -685,7 +698,7 @@ func UpdateUser(c *gin.Context) {
 		if err := model.EnsureUsernameAvailableWithTx(tx, updatedUser.Username, updatedUser.Id); err != nil {
 			return err
 		}
-		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
+		if err := updatedUser.EditWithTx(tx, updatePassword, contactEmails...); err != nil {
 			return err
 		}
 		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)

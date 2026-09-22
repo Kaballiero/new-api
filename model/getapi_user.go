@@ -39,9 +39,10 @@ var (
 )
 
 type GetAPICreateUserRequest struct {
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	DisplayName string `json:"display_name"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+	DisplayName  string `json:"display_name"`
+	ContactEmail string `json:"contact_email,omitempty"`
 }
 type GetAPICredential struct {
 	UserID      int     `json:"user_id"`
@@ -68,7 +69,7 @@ type GetAPIInitializePATResult struct {
 func ProvisionGetAPIUser(principalRole int, request GetAPICreateUserRequest) (*GetAPICreateCredential, error) {
 	var credential *GetAPICreateCredential
 	err := DB.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).Transaction(func(tx *gorm.DB) error {
-		user := User{Username: strings.TrimSpace(request.Username), Password: request.Password, DisplayName: request.DisplayName, Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+		user := User{Username: strings.TrimSpace(request.Username), Password: request.Password, DisplayName: request.DisplayName, ContactEmail: strings.TrimSpace(request.ContactEmail), Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 		if user.DisplayName == "" {
 			user.DisplayName = user.Username
 		}

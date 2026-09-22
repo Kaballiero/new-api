@@ -30,16 +30,22 @@ import (
 	"gorm.io/gorm"
 )
 
-func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
+func setupAccessTokenAudit(t *testing.T, databases ...*gorm.DB) (*model.User, string) {
 	t.Helper()
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
 	previousRedis := common.RedisEnabled
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	require.NoError(t, err)
+	var db *gorm.DB
+	if len(databases) > 0 {
+		db = databases[0]
+	} else {
+		var err error
+		db, err = gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		require.NoError(t, err)
+	}
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Log{}, &model.AuditLog{}, &model.CasbinRule{}, &model.AuthzRole{}))
 	model.DB, model.LOG_DB = db, db
-	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.SetDatabaseTypes(common.DatabaseType(db.Dialector.Name()), common.DatabaseType(db.Dialector.Name()))
 	common.RedisEnabled = false
 	previousMaster := common.IsMasterNode
 	common.IsMasterNode = true

@@ -35,6 +35,7 @@ export type UserRole = z.infer<typeof userRoleSchema>
 export const userSchema = z.object({
   id: z.number(),
   username: z.string(),
+  contact_email: z.string().optional(),
   display_name: z.string(),
   password: z.string().optional(),
   github_id: z.string().optional(),
