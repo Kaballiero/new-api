@@ -184,7 +184,6 @@ export function UsersTable() {
         row.getValue('username'),
         row.original.display_name,
         row.original.email,
-        row.original.contact_email,
       ]
       return fields.some((field) =>
         String(field || '')

@@ -647,16 +647,16 @@ func GetUserModels(c *gin.Context) {
 func UpdateUser(c *gin.Context) {
 	var payload struct {
 		model.User
-		ContactEmail *string `json:"contact_email"`
+		Email *string `json:"email"`
 	}
 	err := common.DecodeJson(c.Request.Body, &payload)
 	updatedUser := payload.User
-	var contactEmails []string
-	if payload.ContactEmail != nil {
-		updatedUser.ContactEmail = strings.TrimSpace(*payload.ContactEmail)
-		contactEmails = append(contactEmails, updatedUser.ContactEmail)
+	var emails []string
+	if payload.Email != nil {
+		updatedUser.Email = strings.TrimSpace(*payload.Email)
+		emails = append(emails, updatedUser.Email)
 	}
-	if common.Validate.Var(updatedUser.ContactEmail, "omitempty,email,max=50") != nil {
+	if common.Validate.Var(updatedUser.Email, "omitempty,email,max=50") != nil {
 		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
@@ -698,13 +698,17 @@ func UpdateUser(c *gin.Context) {
 		if err := model.EnsureUsernameAvailableWithTx(tx, updatedUser.Username, updatedUser.Id); err != nil {
 			return err
 		}
-		if err := updatedUser.EditWithTx(tx, updatePassword, contactEmails...); err != nil {
+		if err := updatedUser.EditWithTx(tx, updatePassword, emails...); err != nil {
 			return err
 		}
 		touched, err := updateAdminPermissionsForUserInTx(c, tx, updatedUser.Id, originUser.Role, updatedUser.AdminPermissions)
 		authzTouched = touched
 		return err
 	}); err != nil {
+		if errors.Is(err, model.ErrEmailAlreadyTaken) {
+			common.ApiErrorI18nStatusCode(c, http.StatusConflict, "email_already_taken", i18n.MsgUserEmailAlreadyTaken)
+			return
+		}
 		if errors.Is(err, model.ErrUsernameAlreadyTaken) {
 			common.ApiErrorI18nStatusCode(c, http.StatusConflict, "username_already_taken", i18n.MsgUserExists)
 			return

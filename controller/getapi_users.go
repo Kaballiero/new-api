@@ -27,7 +27,7 @@ func ProvisionGetAPIUser(c *gin.Context) {
 		}
 	}
 	for name, value := range fields {
-		if name != "username" && name != "password" && name != "display_name" && name != "contact_email" {
+		if name != "username" && name != "password" && name != "display_name" && name != "email" {
 			writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
 			return
 		}
@@ -41,8 +41,8 @@ func ProvisionGetAPIUser(c *gin.Context) {
 		writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
 		return
 	}
-	u := model.User{Username: req.Username, Password: req.Password, DisplayName: req.DisplayName, ContactEmail: strings.TrimSpace(req.ContactEmail)}
-	if common.Validate.Struct(&u) != nil || common.Validate.Var(u.ContactEmail, "omitempty,email") != nil {
+	u := model.User{Username: req.Username, Password: req.Password, DisplayName: req.DisplayName, Email: strings.TrimSpace(req.Email)}
+	if common.Validate.Struct(&u) != nil || common.Validate.Var(u.Email, "omitempty,email") != nil {
 		writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
 		return
 	}

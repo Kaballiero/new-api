@@ -39,10 +39,10 @@ var (
 )
 
 type GetAPICreateUserRequest struct {
-	Username     string `json:"username"`
-	Password     string `json:"password"`
-	DisplayName  string `json:"display_name"`
-	ContactEmail string `json:"contact_email,omitempty"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email,omitempty"`
 }
 type GetAPICredential struct {
 	UserID      int     `json:"user_id"`
@@ -69,7 +69,7 @@ type GetAPIInitializePATResult struct {
 func ProvisionGetAPIUser(principalRole int, request GetAPICreateUserRequest) (*GetAPICreateCredential, error) {
 	var credential *GetAPICreateCredential
 	err := DB.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).Transaction(func(tx *gorm.DB) error {
-		user := User{Username: strings.TrimSpace(request.Username), Password: request.Password, DisplayName: request.DisplayName, ContactEmail: strings.TrimSpace(request.ContactEmail), Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+		user := User{Username: strings.TrimSpace(request.Username), Password: request.Password, DisplayName: request.DisplayName, Email: strings.TrimSpace(request.Email), Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 		if user.DisplayName == "" {
 			user.DisplayName = user.Username
 		}
@@ -90,7 +90,7 @@ func ProvisionGetAPIUser(principalRole int, request GetAPICreateUserRequest) (*G
 		setting.SidebarModules = generateDefaultSidebarConfigForRole(user.Role)
 		user.SetSetting(setting)
 		if err := user.InsertWithTx(tx, 0); err != nil {
-			if errors.Is(err, ErrUsernameAlreadyTaken) || isUsernameUniqueViolation(err) {
+			if errors.Is(err, ErrEmailAlreadyTaken) || errors.Is(err, ErrUsernameAlreadyTaken) || isUsernameUniqueViolation(err) {
 				return ErrGetAPICreateConflict
 			}
 			return ErrGetAPICredentialUnavailable

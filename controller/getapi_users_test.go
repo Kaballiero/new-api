@@ -218,15 +218,6 @@ func TestGetAPIEmailProfile(t *testing.T) {
 func testGetAPIEmailProfile(t *testing.T, databases ...*gorm.DB) {
 	t.Helper()
 	principal, pat := setupAccessTokenAudit(t, databases...)
-	var legacy model.User
-	require.NoError(t, model.DB.Select("username", "access_token").First(&legacy, principal.Id).Error)
-	require.NoError(t, model.DB.Migrator().DropColumn(&model.User{}, "ContactEmail"))
-	require.NoError(t, model.DB.AutoMigrate(&model.User{}))
-	require.NoError(t, model.DB.AutoMigrate(&model.User{}))
-	var retained model.User
-	require.NoError(t, model.DB.First(&retained, principal.Id).Error)
-	assert.Equal(t, principal.Username, retained.Username)
-	assert.Equal(t, legacy.GetAccessToken(), retained.GetAccessToken())
 	config, err := common.Marshal([]map[string]any{{"integration_id": "email-test", "principal_user_id": principal.Id, "capabilities": []string{"getapi.users.provision"}}})
 	require.NoError(t, err)
 	t.Setenv("GETAPI_INTEGRATIONS", string(config))
@@ -243,35 +234,45 @@ func testGetAPIEmailProfile(t *testing.T, databases ...*gorm.DB) {
 		return response
 	}
 	created := request(http.MethodPost, "/api/getapi/users", map[string]any{
-		"username": "ga-email-test", "password": "safe-password", "display_name": "ga-email-test", "contact_email": "long.support.address@example.com",
+		"username": "ga-email-test", "password": "safe-password", "display_name": "ga-email-test", "email": "long.support.address@example.com",
 	})
 	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
 	var user model.User
 	require.NoError(t, model.DB.Where("username = ?", "ga-email-test").First(&user).Error)
-	assert.Equal(t, "long.support.address@example.com", user.ContactEmail)
-	assert.Empty(t, user.Email)
+	assert.Equal(t, "long.support.address@example.com", user.Email)
 	originalPAT := user.GetAccessToken()
-	users, total, err := model.SearchUsers(user.ContactEmail, "", nil, nil, 0, 10)
+	users, total, err := model.SearchUsers(user.Email, "", nil, nil, 0, 10)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, total)
 	assert.Equal(t, user.Id, users[0].Id)
 
 	updated := request(http.MethodPut, "/api/user/", map[string]any{
-		"id": user.Id, "username": user.Username, "display_name": user.DisplayName, "group": user.Group, "contact_email": "Updated.Support@Example.com",
+		"id": user.Id, "username": user.Username, "display_name": user.DisplayName, "group": user.Group, "email": "Updated.Support@Example.com",
 	})
 	require.Equal(t, http.StatusOK, updated.Code, updated.Body.String())
 	require.Contains(t, updated.Body.String(), `"success":true`)
 	require.NoError(t, model.DB.First(&user, user.Id).Error)
-	assert.Equal(t, "Updated.Support@Example.com", user.ContactEmail)
+	assert.Equal(t, "updated.support@example.com", user.Email)
 	assert.Equal(t, "ga-email-test", user.Username)
 	assert.Equal(t, originalPAT, user.GetAccessToken())
 
 	duplicate := request(http.MethodPost, "/api/getapi/users", map[string]any{
-		"username": "ga-email-other", "password": "safe-password", "display_name": "Other", "contact_email": user.ContactEmail,
+		"username": "ga-email-other", "password": "safe-password", "display_name": "Other", "email": user.Email,
 	})
-	assert.Equal(t, http.StatusCreated, duplicate.Code, duplicate.Body.String())
+	assert.Equal(t, http.StatusConflict, duplicate.Code, duplicate.Body.String())
+	other := request(http.MethodPost, "/api/getapi/users", map[string]any{
+		"username": "ga-email-distinct", "password": "safe-password", "display_name": "Other", "email": "taken@example.com",
+	})
+	require.Equal(t, http.StatusCreated, other.Code, other.Body.String())
+	conflict := request(http.MethodPut, "/api/user/", map[string]any{
+		"id": user.Id, "username": user.Username, "email": "Taken@Example.com",
+	})
+	require.Equal(t, http.StatusConflict, conflict.Code)
+	require.Contains(t, conflict.Body.String(), `"code":"email_already_taken"`)
+	require.NoError(t, model.DB.First(&user, user.Id).Error)
+	assert.Equal(t, "updated.support@example.com", user.Email)
 	invalid := request(http.MethodPut, "/api/user/", map[string]any{
-		"id": user.Id, "username": user.Username, "contact_email": "not-an-email",
+		"id": user.Id, "username": user.Username, "email": "not-an-email",
 	})
 	assert.Equal(t, http.StatusBadRequest, invalid.Code, invalid.Body.String())
 	withoutEmail := request(http.MethodPut, "/api/user/", map[string]any{
@@ -279,12 +280,12 @@ func testGetAPIEmailProfile(t *testing.T, databases ...*gorm.DB) {
 	})
 	require.Equal(t, http.StatusOK, withoutEmail.Code, withoutEmail.Body.String())
 	require.NoError(t, model.DB.First(&user, user.Id).Error)
-	assert.Equal(t, "Updated.Support@Example.com", user.ContactEmail)
+	assert.Equal(t, "updated.support@example.com", user.Email)
 	cleared := request(http.MethodPut, "/api/user/", map[string]any{
-		"id": user.Id, "username": user.Username, "display_name": user.DisplayName, "group": user.Group, "contact_email": "",
+		"id": user.Id, "username": user.Username, "display_name": user.DisplayName, "group": user.Group, "email": "",
 	})
 	require.Equal(t, http.StatusOK, cleared.Code, cleared.Body.String())
 	require.NoError(t, model.DB.First(&user, user.Id).Error)
-	assert.Empty(t, user.ContactEmail)
+	assert.Empty(t, user.Email)
 	assert.Equal(t, originalPAT, user.GetAccessToken())
 }

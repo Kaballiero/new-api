@@ -4116,11 +4116,11 @@
       "GetApiCreateUserRequest": {
         "additionalProperties": false,
         "properties": {
-        "contact_email": {
-          "type": "string",
-          "maxLength": 50,
-          "description": "Contact address for support lookup; never used for login or password recovery."
-        },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 50
+          },
           "display_name": {
             "maxLength": 20,
             "type": "string"
@@ -6726,11 +6726,6 @@
       },
       "User": {
         "properties": {
-        "contact_email": {
-          "type": "string",
-          "maxLength": 50,
-          "description": "Contact address for support lookup; never used for login or password recovery."
-        },
           "DeletedAt": {
             "format": "date-time",
             "type": "string"

@@ -86,7 +86,6 @@ type User struct {
 	DisplayName          string                     `json:"display_name" gorm:"index" validate:"max=20"`
 	Role                 int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
 	Status               int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	ContactEmail         string                     `json:"contact_email" gorm:"index" validate:"omitempty,email,max=50"`
 	Email                string                     `json:"email" gorm:"index" validate:"max=50"`
 	GitHubId             string                     `json:"github_id" gorm:"column:github_id;index"`
 	DiscordId            string                     `json:"discord_id" gorm:"column:discord_id;index"`
@@ -471,8 +470,8 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	query := tx.Unscoped().Model(&User{})
 
 	// 构建搜索条件
-	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ? OR contact_email LIKE ?"
-	likeArgs := []any{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
+	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ?"
+	likeArgs := []any{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
 
 	// 尝试将关键字转换为整数ID
 	keywordInt, err := strconv.Atoi(keyword)
@@ -545,7 +544,7 @@ func GetSelfUserById(id int) (*User, error) {
 		HasPassword bool `gorm:"column:has_password"`
 	}
 	err := DB.Model(&User{}).Select([]string{
-		"id", "username", "display_name", "role", "status", "email", "contact_email",
+		"id", "username", "display_name", "role", "status", "email",
 		"github_id", "discord_id", "oidc_id", "wechat_id", "telegram_id",
 		"group", "quota", "used_quota", "request_count", "aff_code", "aff_count",
 		"aff_quota", "aff_history", "inviter_id", "linux_do_id", "setting",
@@ -902,7 +901,19 @@ func (user *User) Edit(updatePassword bool) error {
 	return nil
 }
 
-func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool, contactEmails ...string) error {
+func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool, emails ...string) error {
+	if len(emails) > 0 {
+		email := NormalizeEmail(emails[0])
+		return withNormalizedEmailLock(tx, email, func(tx *gorm.DB) error {
+			if err := ensureEmailAvailableWithTx(tx, email, user.Id); err != nil {
+				return err
+			}
+			if err := tx.Model(&User{}).Where("id = ?", user.Id).Update("email", email).Error; err != nil {
+				return err
+			}
+			return user.EditWithTx(tx, updatePassword)
+		})
+	}
 	var err error
 	if updatePassword {
 		user.Password, err = common.HashAccountPassword(user.Password)
@@ -917,9 +928,6 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool, contactEmails ...
 		"display_name": newUser.DisplayName,
 		"group":        newUser.Group,
 		"remark":       newUser.Remark,
-	}
-	if len(contactEmails) > 0 {
-		updates["contact_email"] = strings.TrimSpace(contactEmails[0])
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password
