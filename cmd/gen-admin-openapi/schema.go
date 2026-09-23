@@ -888,9 +888,8 @@ func qualifiedToSchema(qname string) map[string]interface{} {
 	case "time.Time":
 		return map[string]interface{}{"type": "string", "format": "date-time"}
 	case "gorm.DeletedAt":
-		// Soft-delete timestamp; usually only present after deletion. Not nullable
-		// in the TS sense — see note in *ast.StarExpr handling.
-		return map[string]interface{}{"type": "string", "format": "date-time"}
+		// DeletedAt.MarshalJSON returns null for an active row.
+		return map[string]interface{}{"type": "string", "format": "date-time", "nullable": true}
 	case "json.RawMessage":
 		return map[string]interface{}{"description": "Raw JSON value."}
 	case "decimal.Decimal":
