@@ -43,6 +43,9 @@ func TestGetAPICustomCreateAndInitializeRetainsPAT(t *testing.T) {
 	}
 	require.NoError(t, common.Unmarshal(created.Body.Bytes(), &env))
 	old := env.Data.AccessToken
+	var legacyUser model.User
+	require.NoError(t, model.DB.First(&legacyUser, env.Data.UserID).Error)
+	assert.Equal(t, "default", legacyUser.Group)
 	init := req(fmt.Sprintf("/api/getapi/users/%d/pat", env.Data.UserID), `{"expected_username":"retain-user","apply":false}`, "", "")
 	assert.Equal(t, http.StatusOK, init.Code)
 	assert.Contains(t, init.Body.String(), "would_reuse")
@@ -62,7 +65,7 @@ func TestGetAPICreateRejectsUnknownNullDuplicate(t *testing.T) {
 	t.Setenv("GETAPI_INTEGRATIONS", string(cfg))
 	r := gin.New()
 	r.POST("/api/getapi/users", middleware.GetAPIAuth("getapi.users.provision"), ProvisionGetAPIUser)
-	for _, body := range []string{`{"username":"x","password":"safe-password","display_name":"x","external_account_id":"bad"}`, `{"username":"x","password":null,"display_name":"x"}`, `{"username":"x","username":"y","password":"safe-password","display_name":"x"}`} {
+	for _, body := range []string{`{"username":"x","password":"safe-password","display_name":"x","external_account_id":"bad"}`, `{"username":"x","password":null,"display_name":"x"}`, `{"username":"x","username":"y","password":"safe-password","display_name":"x"}`, `{"username":"x","password":"safe-password","display_name":"x","group":null}`, `{"username":"x","password":"safe-password","display_name":"x","group":""}`} {
 		q := httptest.NewRequest(http.MethodPost, "/api/getapi/users", strings.NewReader(body))
 		q.Header.Set("Authorization", "Bearer "+pat)
 		q.Header.Set("Idempotency-Key", "x")
@@ -70,6 +73,48 @@ func TestGetAPICreateRejectsUnknownNullDuplicate(t *testing.T) {
 		r.ServeHTTP(w, q)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	}
+}
+
+func TestGetAPIProvisionPersistsRequestedGroupAndRejectsUnknownGroup(t *testing.T) {
+	principal, pat := setupAccessTokenAudit(t)
+	cfg, err := common.Marshal([]map[string]interface{}{{"integration_id": "test", "principal_user_id": principal.Id, "capabilities": []string{"getapi.users.provision"}}})
+	require.NoError(t, err)
+	t.Setenv("GETAPI_INTEGRATIONS", string(cfg))
+	r := gin.New()
+	r.POST("/api/getapi/users", middleware.GetAPIAuth("getapi.users.provision"), ProvisionGetAPIUser)
+	post := func(body string) *httptest.ResponseRecorder {
+		q := httptest.NewRequest(http.MethodPost, "/api/getapi/users", strings.NewReader(body))
+		q.Header.Set("Authorization", "Bearer "+pat)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, q)
+		return w
+	}
+	suffix := fmt.Sprintf("%d", common.GetTimestamp())
+	if len(suffix) > 8 {
+		suffix = suffix[len(suffix)-8:]
+	}
+	username := "grp" + suffix
+	created := post(fmt.Sprintf(`{"username":%q,"password":"safe-password","display_name":"Group User","group":"vip"}`, username))
+	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
+	var envelope struct {
+		Data struct {
+			UserID      int    `json:"user_id"`
+			AccessToken string `json:"access_token"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(created.Body.Bytes(), &envelope))
+	require.NotEmpty(t, envelope.Data.AccessToken)
+	var persisted model.User
+	require.NoError(t, model.DB.First(&persisted, envelope.Data.UserID).Error)
+	assert.Equal(t, "vip", persisted.Group)
+	assert.Equal(t, envelope.Data.AccessToken, persisted.GetAccessToken())
+
+	invalidUsername := "bad" + suffix
+	invalid := post(fmt.Sprintf(`{"username":%q,"password":"safe-password","display_name":"Invalid","group":"does-not-exist"}`, invalidUsername))
+	assert.Equal(t, http.StatusBadRequest, invalid.Code, invalid.Body.String())
+	var count int64
+	require.NoError(t, model.DB.Model(&model.User{}).Where("username = ?", invalidUsername).Count(&count).Error)
+	assert.Zero(t, count)
 }
 
 func TestGetAPIPATSurvivesNativeBlockEnableAndIsDeniedWhileBlocked(t *testing.T) {

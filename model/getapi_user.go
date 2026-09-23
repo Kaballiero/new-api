@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	sqlitedriver "github.com/glebarez/go-sqlite"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -42,6 +43,7 @@ type GetAPICreateUserRequest struct {
 	Username    string `json:"username"`
 	Password    string `json:"password"`
 	DisplayName string `json:"display_name"`
+	Group       string `json:"group,omitempty"`
 }
 type GetAPICredential struct {
 	UserID      int     `json:"user_id"`
@@ -66,9 +68,12 @@ type GetAPIInitializePATResult struct {
 }
 
 func ProvisionGetAPIUser(principalRole int, request GetAPICreateUserRequest) (*GetAPICreateCredential, error) {
+	if request.Group != "" && !ratio_setting.ContainsGroupRatio(request.Group) {
+		return nil, ErrGetAPIInvalidRequest
+	}
 	var credential *GetAPICreateCredential
 	err := DB.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)}).Transaction(func(tx *gorm.DB) error {
-		user := User{Username: strings.TrimSpace(request.Username), Password: request.Password, DisplayName: request.DisplayName, Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+		user := User{Username: strings.TrimSpace(request.Username), Password: request.Password, DisplayName: request.DisplayName, Group: request.Group, Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 		if user.DisplayName == "" {
 			user.DisplayName = user.Username
 		}
