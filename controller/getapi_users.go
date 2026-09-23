@@ -16,12 +16,29 @@ import (
 func ProvisionGetAPIUser(c *gin.Context) {
 	raw, e := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 4096))
 	var fields map[string]json.RawMessage
-	if e != nil || common.HasDuplicateJSONKeys(raw) || common.Unmarshal(raw, &fields) != nil || len(fields) != 3 {
+	if e != nil || common.HasDuplicateJSONKeys(raw) || common.Unmarshal(raw, &fields) != nil || len(fields) < 3 || len(fields) > 4 {
 		writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
 		return
 	}
+	for name := range fields {
+		if name != "username" && name != "password" && name != "display_name" && name != "group" {
+			writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
+			return
+		}
+	}
 	for _, n := range []string{"username", "password", "display_name"} {
 		if common.GetJsonType(fields[n]) != "string" {
+			writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
+			return
+		}
+	}
+	if value, exists := fields["group"]; exists {
+		if common.GetJsonType(value) != "string" {
+			writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
+			return
+		}
+		var group string
+		if common.Unmarshal(value, &group) != nil || strings.TrimSpace(group) == "" {
 			writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
 			return
 		}
