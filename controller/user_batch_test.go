@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -13,7 +14,43 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func setupUserBatchTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	dialect := os.Getenv("TEST_USER_BATCH_DIALECT")
+	if dialect == "" {
+		dialect = "sqlite"
+	}
+	databaseTypes := map[string]common.DatabaseType{
+		"sqlite": common.DatabaseTypeSQLite, "mysql": common.DatabaseTypeMySQL, "postgres": common.DatabaseTypePostgreSQL,
+	}
+	require.Contains(t, databaseTypes, dialect)
+	dsn := os.Getenv("TEST_" + strings.ToUpper(dialect) + "_DSN")
+	db, _ := newAuditTestDatabase(t, dialect, dsn)
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis := common.RedisEnabled
+	model.DB, model.LOG_DB = db, db
+	common.SetDatabaseTypes(databaseTypes[dialect], databaseTypes[dialect])
+	common.RedisEnabled = false
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousMain, previousLog)
+		common.RedisEnabled = previousRedis
+	})
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}, &model.Log{}, &model.AuditLog{}))
+	versionQuery := "SELECT version()"
+	if dialect == "sqlite" {
+		versionQuery = "SELECT sqlite_version()"
+	}
+	var version string
+	require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
+	t.Logf("database: %s %s", dialect, version)
+	return db
+}
 
 type userBatchEnvelope struct {
 	Success bool   `json:"success"`
@@ -26,7 +63,7 @@ type userBatchEnvelope struct {
 }
 
 func TestGetUsersBatchResultsAndVisibility(t *testing.T) {
-	db := openUserControllerTestDB(t)
+	db := setupUserBatchTestDB(t)
 	first := seedUser(t, db, "batchfirst", common.RoleCommonUser, "default")
 	second := seedUser(t, db, "batchsecond", common.RoleCommonUser, "default")
 	admin := seedUser(t, db, "batchadmin", common.RoleAdminUser, "default")
@@ -81,7 +118,7 @@ func TestGetUsersBatchResultsAndVisibility(t *testing.T) {
 }
 
 func TestGetUsersBatchMatchesSingleUserFields(t *testing.T) {
-	db := openUserControllerTestDB(t)
+	db := setupUserBatchTestDB(t)
 	user := seedUser(t, db, "batchparity", common.RoleCommonUser, "default")
 	require.NoError(t, db.Model(user).Updates(map[string]any{"quota": 30, "used_quota": 11, "request_count": 7}).Error)
 
@@ -105,7 +142,7 @@ func TestGetUsersBatchMatchesSingleUserFields(t *testing.T) {
 }
 
 func TestGetUsersBatchInvalidInputAndDatabaseError(t *testing.T) {
-	db := openUserControllerTestDB(t)
+	db := setupUserBatchTestDB(t)
 	for _, ids := range []string{"", "0", "-1", "abc", "1,", "1,,2", "999999999999999999999999", strings.Repeat("1,", 100) + "1"} {
 		t.Run(ids, func(t *testing.T) {
 			ctx, rec := newRestContext(t, http.MethodGet, "/api/user/batch?ids="+ids, nil, nil, common.RoleAdminUser)
@@ -122,7 +159,7 @@ func TestGetUsersBatchInvalidInputAndDatabaseError(t *testing.T) {
 }
 
 func TestGetUsersBatchRequiresAdminAuth(t *testing.T) {
-	openUserControllerTestDB(t)
+	setupUserBatchTestDB(t)
 	router := gin.New()
 	router.GET("/api/user/batch", middleware.AdminAuth(), GetUsersBatch)
 	recorder := httptest.NewRecorder()
