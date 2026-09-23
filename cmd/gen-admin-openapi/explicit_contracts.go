@@ -81,6 +81,16 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 			}
 			op["parameters"] = parameters
 		}
+		if route.HandlerName == "GetUsersBatch" {
+			parameters, _ := op["parameters"].([]interface{})
+			for _, parameter := range parameters {
+				entry, _ := parameter.(map[string]interface{})
+				if entry["name"] == "ids" && entry["in"] == "query" {
+					entry["required"] = true
+					entry["description"] = "Comma-separated list of 1 to 100 positive user IDs. Duplicate IDs are returned once in request order."
+				}
+			}
+		}
 		if route.HandlerName == "VerifyLogin" || route.HandlerName == "LoginPasskeyFinish" {
 			op["responses"].(map[string]interface{})["200"] = buildResponse(respSpec{Custom: "LoginSessionResponse"})["200"]
 		}

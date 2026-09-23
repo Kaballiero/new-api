@@ -753,6 +753,23 @@
         ],
         "type": "object"
       },
+      "ApiResponseOfGetUsersBatchResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GetUsersBatchResponse"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "type": "object"
+      },
       "ApiResponseOfInt": {
         "properties": {
           "data": {
@@ -4189,6 +4206,29 @@
         ],
         "type": "object"
       },
+      "GetUsersBatchResponse": {
+        "properties": {
+          "not_found_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "skipped_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/UserBatchRow"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "HardwareType": {
         "properties": {
           "available": {
@@ -6840,6 +6880,33 @@
           },
           "token_ref": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UserBatchRow": {
+        "properties": {
+          "DeletedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "quota": {
+            "type": "integer"
+          },
+          "request_count": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "used_quota": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -38891,6 +38958,177 @@
         "summary": "刷新面板登录",
         "tags": [
           "用户登陆注册"
+        ]
+      }
+    },
+    "/api/user/batch": {
+      "get": {
+        "deprecated": false,
+        "description": "Auto-generated entry. Add a manual summary/description in api.json.",
+        "parameters": [
+          {
+            "description": "Comma-separated list of 1 to 100 positive user IDs. Duplicate IDs are returned once in request order.",
+            "in": "query",
+            "name": "ids",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfGetUsersBatchResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_params": {
+                    "summary": "invalid_params",
+                    "value": {
+                      "code": "invalid_params",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request — invalid_params, validation failed, or other client error",
+            "x-error-codes": [
+              "invalid_params"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized — missing or invalid auth credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "permission_denied": {
+                    "summary": "permission_denied",
+                    "value": {
+                      "code": "permission_denied",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden — insufficient role/permission or feature disabled",
+            "x-error-codes": [
+              "permission_denied"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "user_not_found": {
+                    "summary": "user_not_found",
+                    "value": {
+                      "code": "user_not_found",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Not found — referenced resource does not exist",
+            "x-error-codes": [
+              "user_not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict — resource already exists or state precludes the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable entity — well-formed but semantically invalid input"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "code": "internal_error",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error — DB transaction failure or unhandled exception",
+            "x-error-codes": [
+              "internal_error"
+            ]
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad gateway — upstream provider (LLM API, model registry) failed"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "get /api/user/batch",
+        "tags": [
+          "User Management"
         ]
       }
     },

@@ -533,6 +533,27 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+// UserBatchRow contains the fields needed for the admin batch response and role check.
+type UserBatchRow struct {
+	Id           int            `json:"id"`
+	Role         int            `json:"-"`
+	Status       int            `json:"status"`
+	Quota        int            `json:"quota"`
+	UsedQuota    int            `json:"used_quota"`
+	RequestCount int            `json:"request_count"`
+	Group        string         `json:"group"`
+	DeletedAt    gorm.DeletedAt `json:"DeletedAt"`
+}
+
+func GetUsersBatch(ids []int) ([]UserBatchRow, error) {
+	var users []UserBatchRow
+	err := DB.Model(&User{}).
+		Select("id", "role", "status", "quota", "used_quota", "request_count", "group", "deleted_at").
+		Where("id IN ?", ids).
+		Find(&users).Error
+	return users, err
+}
+
 // GetSelfUserById reads dashboard profile data and password existence in one
 // query. The password hash and management access token are never selected.
 func GetSelfUserById(id int) (*User, error) {
