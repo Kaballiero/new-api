@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -39,6 +40,8 @@ var (
 	ErrGetAPICredentialUnavailable = errors.New("GETAPI_CREDENTIAL_UNAVAILABLE")
 )
 
+const maxProvisionedUserGroupRunes = 64
+
 type GetAPICreateUserRequest struct {
 	Username    string `json:"username"`
 	Password    string `json:"password"`
@@ -68,7 +71,7 @@ type GetAPIInitializePATResult struct {
 }
 
 func ProvisionGetAPIUser(principalRole int, request GetAPICreateUserRequest) (*GetAPICreateCredential, error) {
-	if request.Group != "" && !ratio_setting.ContainsGroupRatio(request.Group) {
+	if utf8.RuneCountInString(request.Group) > maxProvisionedUserGroupRunes || (request.Group != "" && !ratio_setting.ContainsGroupRatio(request.Group)) {
 		return nil, ErrGetAPIInvalidRequest
 	}
 	var credential *GetAPICreateCredential
