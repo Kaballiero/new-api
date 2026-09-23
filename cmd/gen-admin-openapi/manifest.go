@@ -76,6 +76,7 @@ var manifest = map[string]map[string]respSpec{
 	// === User management ===
 	"/api/user/":            {"get": {Type: "User", Paged: true}, "post": {Empty: true}, "put": {Type: "User"}},
 	"/api/user/{id}":        {"get": {Type: "User"}, "delete": {Empty: true}},
+	"/api/user/batch":       {"get": {Type: "GetUsersBatchResponse"}},
 	"/api/user/search":      {"get": {Type: "User", Paged: true}},
 	"/api/user/manage":      {"post": {Type: "ManageUserResponse"}},
 	"/api/user/group/batch": {"post": {Type: "BulkUpdateUserGroupResponse", Body: "BulkUpdateUserGroupRequest"}},

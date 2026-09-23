@@ -753,6 +753,23 @@
         ],
         "type": "object"
       },
+      "ApiResponseOfGetUsersBatchResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GetUsersBatchResponse"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "type": "object"
+      },
       "ApiResponseOfInt": {
         "properties": {
           "data": {
@@ -4189,6 +4206,29 @@
         ],
         "type": "object"
       },
+      "GetUsersBatchResponse": {
+        "properties": {
+          "not_found_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "skipped_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/components/schemas/UserBatchRow"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "HardwareType": {
         "properties": {
           "available": {
@@ -5781,6 +5821,7 @@
         "properties": {
           "DeletedAt": {
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "count": {
@@ -6723,6 +6764,7 @@
         "properties": {
           "DeletedAt": {
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "admin_permissions": {
@@ -6840,6 +6882,34 @@
           },
           "token_ref": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UserBatchRow": {
+        "properties": {
+          "DeletedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "quota": {
+            "type": "integer"
+          },
+          "request_count": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "used_quota": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -8011,6 +8081,7 @@
         "properties": {
           "DeletedAt": {
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "accessed_time": {
@@ -8075,6 +8146,7 @@
         "properties": {
           "DeletedAt": {
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "accessed_time": {
@@ -38891,6 +38963,177 @@
         "summary": "刷新面板登录",
         "tags": [
           "用户登陆注册"
+        ]
+      }
+    },
+    "/api/user/batch": {
+      "get": {
+        "deprecated": false,
+        "description": "Auto-generated entry. Add a manual summary/description in api.json.",
+        "parameters": [
+          {
+            "description": "Comma-separated list of 1 to 100 positive user IDs. Duplicate IDs are returned once in request order.",
+            "in": "query",
+            "name": "ids",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfGetUsersBatchResponse"
+                }
+              }
+            },
+            "description": "Успех",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_params": {
+                    "summary": "invalid_params",
+                    "value": {
+                      "code": "invalid_params",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Неверный запрос — invalid_params, провалена валидация или другая клиентская ошибка",
+            "x-error-codes": [
+              "invalid_params"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Не авторизован — отсутствуют или невалидные учётные данные"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "permission_denied": {
+                    "summary": "permission_denied",
+                    "value": {
+                      "code": "permission_denied",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Доступ запрещён — недостаточно прав/роли или функция отключена",
+            "x-error-codes": [
+              "permission_denied"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "user_not_found": {
+                    "summary": "user_not_found",
+                    "value": {
+                      "code": "user_not_found",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Не найдено — ресурс не существует",
+            "x-error-codes": [
+              "user_not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Конфликт — ресурс уже существует или состояние не допускает операцию"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Невозможно обработать — корректный синтаксис, но семантически невалидно"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "code": "internal_error",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Внутренняя ошибка сервера — сбой транзакции БД или необработанное исключение",
+            "x-error-codes": [
+              "internal_error"
+            ]
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Ошибка шлюза — upstream провайдер (LLM API, реестр моделей) недоступен"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "get /api/user/batch",
+        "tags": [
+          "User Management"
         ]
       }
     },

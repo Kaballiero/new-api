@@ -382,6 +382,68 @@ func canManageTargetRole(myRole int, targetRole int) bool {
 	return myRole == common.RoleRootUser || myRole > targetRole
 }
 
+type GetUsersBatchResponse struct {
+	Users       []model.UserBatchRow `json:"users"`
+	SkippedIDs  []int                `json:"skipped_ids"`
+	NotFoundIDs []int                `json:"not_found_ids"`
+}
+
+func GetUsersBatch(c *gin.Context) {
+	rawIDs := c.Query("ids")
+	ids := make([]int, 0)
+	seen := make(map[int]bool)
+	count := 0
+	for rawID := range strings.SplitSeq(rawIDs, ",") {
+		count++
+		if count > 100 {
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
+			return
+		}
+		id, err := strconv.Atoi(strings.TrimSpace(rawID))
+		if err != nil || id <= 0 {
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
+			return
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	users, err := model.GetUsersBatch(ids)
+	if err != nil {
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		return
+	}
+	byID := make(map[int]model.UserBatchRow, len(users))
+	for _, user := range users {
+		byID[user.Id] = user
+	}
+	visible := make([]model.UserBatchRow, 0, len(users))
+	skippedIDs := make([]int, 0)
+	notFoundIDs := make([]int, 0)
+	for _, id := range ids {
+		user, exists := byID[id]
+		if !exists {
+			notFoundIDs = append(notFoundIDs, id)
+			continue
+		}
+		if !canManageTargetRole(c.GetInt("role"), user.Role) {
+			skippedIDs = append(skippedIDs, id)
+			continue
+		}
+		visible = append(visible, user)
+	}
+	if len(visible) == 0 {
+		if len(skippedIDs) > 0 {
+			common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "permission_denied", i18n.MsgUserNoPermissionSameLevel)
+		} else {
+			common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "user_not_found", i18n.MsgUserNotExists)
+		}
+		return
+	}
+	common.ApiSuccess(c, GetUsersBatchResponse{Users: visible, SkippedIDs: skippedIDs, NotFoundIDs: notFoundIDs})
+}
+
 func GetUser(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {

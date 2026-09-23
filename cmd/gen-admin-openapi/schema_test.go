@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestChannelSettingsSchemaIncludesRelaykitDiscoveryConfiguration(t *testing.T) {
@@ -29,4 +30,16 @@ func TestEmbeddedTokenSchemaPreservesFieldsAndAutoGroupOverride(t *testing.T) {
 	properties := schema["properties"].(map[string]interface{})
 	assert.Equal(t, map[string]interface{}{"type": "string"}, properties["name"])
 	assert.Equal(t, map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}}, properties["auto_groups"])
+}
+
+func TestUserDeletedAtSchemasAllowActiveUserNull(t *testing.T) {
+	require.NoError(t, parseModels("../../model"))
+	for _, name := range []string{"User", "UserBatchRow"} {
+		require.Contains(t, modelTypes, name)
+		properties := structToSchema(modelTypes[name])["properties"].(map[string]interface{})
+		assert.Equal(t, map[string]interface{}{"type": "string", "format": "date-time", "nullable": true}, properties["DeletedAt"], name)
+	}
+	data, err := (gorm.DeletedAt{}).MarshalJSON()
+	require.NoError(t, err)
+	assert.JSONEq(t, "null", string(data))
 }
