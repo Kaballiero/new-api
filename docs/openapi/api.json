@@ -5821,6 +5821,7 @@
         "properties": {
           "DeletedAt": {
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "count": {
@@ -6763,6 +6764,7 @@
         "properties": {
           "DeletedAt": {
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "admin_permissions": {
@@ -6888,6 +6890,7 @@
         "properties": {
           "DeletedAt": {
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "group": {
@@ -8078,6 +8081,7 @@
         "properties": {
           "DeletedAt": {
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "accessed_time": {
@@ -8142,6 +8146,7 @@
         "properties": {
           "DeletedAt": {
             "format": "date-time",
+            "nullable": true,
             "type": "string"
           },
           "accessed_time": {
