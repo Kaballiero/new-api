@@ -55,8 +55,9 @@ type GetAPICredential struct {
 }
 
 type GetAPICreateCredential struct {
-	UserID      int    `json:"user_id"`
-	AccessToken string `json:"access_token"`
+	UserID       int    `json:"user_id"`
+	AccessToken  string `json:"access_token"`
+	InitialQuota int    `json:"initial_quota"`
 }
 type GetAPIInitializePATRequest struct {
 	UserID           int    `json:"user_id"`
@@ -108,7 +109,11 @@ func ProvisionGetAPIUser(principalRole int, request GetAPICreateUserRequest) (*G
 		if user.Role >= principalRole {
 			return ErrGetAPICapabilityDenied
 		}
-		credential = &GetAPICreateCredential{UserID: user.Id, AccessToken: token}
+		credential = &GetAPICreateCredential{
+			UserID:       user.Id,
+			AccessToken:  token,
+			InitialQuota: user.Quota,
+		}
 		return nil
 	})
 	return credential, err
