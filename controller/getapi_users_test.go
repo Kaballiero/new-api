@@ -18,6 +18,10 @@ import (
 )
 
 func TestGetAPICustomCreateAndInitializeRetainsPAT(t *testing.T) {
+	previousQuota := common.QuotaForNewUser
+	common.QuotaForNewUser = 50_000
+	t.Cleanup(func() { common.QuotaForNewUser = previousQuota })
+
 	principal, adminPAT := setupAccessTokenAudit(t)
 	cfg, _ := common.Marshal([]map[string]interface{}{{"integration_id": "test", "principal_user_id": principal.Id, "capabilities": []string{"getapi.users.provision", "getapi.users.initialize-pat"}}})
 	t.Setenv("GETAPI_INTEGRATIONS", string(cfg))
@@ -38,15 +42,18 @@ func TestGetAPICustomCreateAndInitializeRetainsPAT(t *testing.T) {
 	require.Equal(t, http.StatusCreated, created.Code, created.Body.String())
 	var env struct {
 		Data struct {
-			UserID      int    `json:"user_id"`
-			AccessToken string `json:"access_token"`
+			UserID       int    `json:"user_id"`
+			AccessToken  string `json:"access_token"`
+			InitialQuota int    `json:"initial_quota"`
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(created.Body.Bytes(), &env))
+	assert.Equal(t, common.QuotaForNewUser, env.Data.InitialQuota)
 	old := env.Data.AccessToken
 	var legacyUser model.User
 	require.NoError(t, model.DB.First(&legacyUser, env.Data.UserID).Error)
 	assert.Equal(t, "default", legacyUser.Group)
+	assert.Equal(t, env.Data.InitialQuota, legacyUser.Quota)
 	init := req(fmt.Sprintf("/api/getapi/users/%d/pat", env.Data.UserID), `{"expected_username":"retain-user","apply":false}`, "", "")
 	assert.Equal(t, http.StatusOK, init.Code)
 	assert.Contains(t, init.Body.String(), "would_reuse")

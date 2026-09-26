@@ -4051,13 +4051,17 @@
           "access_token": {
             "type": "string"
           },
+          "initial_quota": {
+            "type": "integer"
+          },
           "user_id": {
             "type": "integer"
           }
         },
         "required": [
           "user_id",
-          "access_token"
+          "access_token",
+          "initial_quota"
         ],
         "type": "object"
       },
