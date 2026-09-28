@@ -45,6 +45,7 @@ var manifest = map[string]map[string]respSpec{
 	"/api/user-agreement":    {"get": {Wrap: "ApiResponseOfString"}},
 	"/api/privacy-policy":    {"get": {Wrap: "ApiResponseOfString"}},
 	"/api/pricing":           {"get": {Custom: "PricingResponse"}},
+	"/api/pricing/effective": {"get": {Custom: "EffectivePricingResponse"}},
 	"/api/setup":             {"get": {Wrap: "ApiResponseOfObject"}, "post": {Empty: true}},
 	"/api/status":            {"get": {Wrap: "ApiResponseOfObject"}},
 	"/api/status/test":       {"get": {Empty: true}},

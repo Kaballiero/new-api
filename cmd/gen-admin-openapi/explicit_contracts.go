@@ -91,6 +91,27 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				}
 			}
 		}
+		if route.HandlerName == "GetEffectivePricingByGroup" {
+			op["description"] = "Returns the complete effective-pricing projection for a configured user group. Requires root dashboard access. Models unavailable to that user group are omitted."
+			parameters, _ := op["parameters"].([]interface{})
+			for _, parameter := range parameters {
+				entry, _ := parameter.(map[string]interface{})
+				if entry["name"] != "group" || entry["in"] != "query" {
+					continue
+				}
+				entry["description"] = "Configured user group. Omitted or empty values use default."
+				entry["schema"] = map[string]interface{}{"type": "string", "default": "default"}
+			}
+			responses := op["responses"].(map[string]interface{})
+			responses["503"] = map[string]interface{}{
+				"description": translate(currentLocale, "err.503"),
+				"content": map[string]interface{}{
+					"application/json": map[string]interface{}{
+						"schema": map[string]interface{}{"$ref": "#/components/schemas/ApiErrorResponse"},
+					},
+				},
+			}
+		}
 		if route.HandlerName == "VerifyLogin" || route.HandlerName == "LoginPasskeyFinish" {
 			op["responses"].(map[string]interface{})["200"] = buildResponse(respSpec{Custom: "LoginSessionResponse"})["200"]
 		}

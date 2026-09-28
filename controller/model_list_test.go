@@ -223,6 +223,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 		{Group: "vip", Model: "zz-effective-ratio", ChannelId: 2, Enabled: true},
 		{Group: "vip", Model: "zz-effective-fixed", ChannelId: 2, Enabled: true},
 		{Group: "vip", Model: "zz-effective-expr", ChannelId: 2, Enabled: true},
+		{Group: "hidden", Model: "zz-effective-hidden", ChannelId: 3, Enabled: true},
 	}).Error)
 	withTieredBillingConfig(t, map[string]string{"zz-effective-expr": "tiered_expr"}, map[string]string{"zz-effective-expr": `tier("base", p * 2 + c * 6)`})
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"zz-effective-ratio":3}`))
@@ -275,6 +276,54 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 	assert.Equal(t, `tier("base", p * 2 + c * 6)`, expr.GroupPrices[0].Formula.Expression)
 	assert.InEpsilon(t, 500000*1.35/1000000, expr.GroupPrices[0].Formula.OutputToQuotaFactor, 1e-12)
 	assert.InEpsilon(t, 1.35/10000, expr.GroupPrices[0].Formula.OutputToRubFactor, 1e-12)
+	assert.NotContains(t, models, "zz-effective-hidden", "models unavailable to the selected user group are omitted")
+
+	groupResponses := make([]effectivePricingResponse, 0, 3)
+	for _, tc := range []struct {
+		query     string
+		wantGroup string
+	}{
+		{query: "", wantGroup: "default"},
+		{query: "?group=", wantGroup: "default"},
+		{query: "?group=default", wantGroup: "default"},
+		{query: "?group=vip", wantGroup: "vip"},
+	} {
+		groupRecorder := httptest.NewRecorder()
+		groupContext, _ := gin.CreateTestContext(groupRecorder)
+		groupContext.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective"+tc.query, nil)
+		GetEffectivePricingByGroup(groupContext)
+		require.Equal(t, http.StatusOK, groupRecorder.Code)
+		var groupEnvelope struct {
+			Success bool                     `json:"success"`
+			Data    effectivePricingResponse `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(groupRecorder.Body.Bytes(), &groupEnvelope))
+		require.True(t, groupEnvelope.Success)
+		assert.Equal(t, tc.wantGroup, groupEnvelope.Data.UserGroup)
+		if tc.wantGroup == "default" {
+			assert.Equal(t, envelope.Data, groupEnvelope.Data)
+			groupResponses = append(groupResponses, groupEnvelope.Data)
+		}
+	}
+	require.Len(t, groupResponses, 3)
+	assert.Equal(t, groupResponses[0], groupResponses[1])
+	assert.Equal(t, groupResponses[0], groupResponses[2])
+
+	for _, query := range []string{"?group=unknown", "?group=auto", "?group=default&group=vip"} {
+		invalidRecorder := httptest.NewRecorder()
+		invalidContext, _ := gin.CreateTestContext(invalidRecorder)
+		invalidContext.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective"+query, nil)
+		GetEffectivePricingByGroup(invalidContext)
+		assert.Equal(t, http.StatusBadRequest, invalidRecorder.Code)
+	}
+
+	cachedBefore, err := getEffectivePricingResponse("default")
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"vip":1.25}}`))
+	cachedAfter, err := getEffectivePricingResponse("default")
+	require.NoError(t, err)
+	assert.NotEqual(t, cachedBefore, cachedAfter, "group-keyed cache must invalidate when effective group ratios change")
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"vip":1.5}}`))
 
 	// The root preview uses the same projection as the authenticated self endpoint.
 	for _, query := range []string{"", "?user_group=default", "?user_group=vip"} {
@@ -323,7 +372,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 
 	// Both handlers fail closed on an invalid accounting basis, never nominal FX.
 	common.QuotaPerUnit = 1
-	for _, handler := range []gin.HandlerFunc{GetEffectivePricing, GetEffectivePricingPreview} {
+	for _, handler := range []gin.HandlerFunc{GetEffectivePricing, GetEffectivePricingPreview, GetEffectivePricingByGroup} {
 		unavailableRecorder := httptest.NewRecorder()
 		unavailableContext, _ := gin.CreateTestContext(unavailableRecorder)
 		unavailableContext.Request = httptest.NewRequest(http.MethodGet, "/?user_group=default", nil)
