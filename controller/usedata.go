@@ -32,6 +32,14 @@ func GetAllQuotaDates(c *gin.Context) {
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	username := c.Query("username")
+	granularity, ok := parseQuotaGranularity(c)
+	if !ok {
+		return
+	}
+	if granularity != "" {
+		respondAllBucketedQuotaDates(c, startTimestamp, endTimestamp, username, granularity)
+		return
+	}
 	dates, err := model.GetAllQuotaDates(startTimestamp, endTimestamp, username)
 	if err != nil {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
@@ -67,6 +75,14 @@ func GetUserQuotaDates(c *gin.Context) {
 	// 判断时间跨度是否超过 1 个月
 	if endTimestamp-startTimestamp > 2592000 {
 		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "time_span_exceeded", "时间跨度不能超过 1 个月")
+		return
+	}
+	granularity, ok := parseQuotaGranularity(c)
+	if !ok {
+		return
+	}
+	if granularity != "" {
+		respondBucketedQuotaDates(c, model.BucketedQuotaQuery{StartTime: startTimestamp, EndTime: endTimestamp, UserID: userId, TokenID: tokenId, Granularity: granularity})
 		return
 	}
 	dates, err := model.GetQuotaDataByUserId(userId, startTimestamp, endTimestamp, tokenId)

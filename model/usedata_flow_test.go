@@ -1,9 +1,13 @@
 package model
 
 import (
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -190,4 +194,337 @@ func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 	require.Equal(t, 60, rows[0].TokenUsed)
 	require.Equal(t, "default", rows[1].UseGroup)
 	require.Equal(t, 25, rows[1].Quota)
+}
+
+// GORM treats a field named CreatedAt as autoCreateTime and replaces a zero
+// value with the current time, so the bucket boundary at the epoch has to be
+// written back explicitly.
+func seedBucketQuotaData(t *testing.T, row QuotaData) {
+	t.Helper()
+	createdAt := row.CreatedAt
+	require.NoError(t, DB.Create(&row).Error)
+	require.NoError(t, DB.Table("quota_data").Where("id = ?", row.Id).Update("created_at", createdAt).Error)
+}
+
+func unixUTC(year int, month time.Month, day int, hour int, minute int, second int) int64 {
+	return time.Date(year, month, day, hour, minute, second, 0, time.UTC).Unix()
+}
+
+// Buckets are the SQL mirror of the consumer-side bucketTimestamp() reduction;
+// every supported database has to produce the same boundaries, so each case runs
+// against SQLite plus any configured MySQL/PostgreSQL instance.
+func runOnEveryQuotaDialect(t *testing.T, run func(t *testing.T)) {
+	t.Helper()
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			if dialect == "sqlite" {
+				truncateTables(t)
+				run(t)
+				return
+			}
+			env := "TEST_MYSQL_DSN"
+			if dialect == "postgres" {
+				env = "TEST_POSTGRES_DSN"
+			}
+			dsn := os.Getenv(env)
+			if dsn == "" {
+				t.Skip("test database DSN is not configured")
+			}
+			t.Setenv("QUOTA_BUCKET_TEST_DSN", dsn)
+			db, _, err := chooseDB("QUOTA_BUCKET_TEST_DSN", false)
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			require.NoError(t, db.Migrator().DropTable(&QuotaData{}))
+			require.NoError(t, db.AutoMigrate(&QuotaData{}))
+			previous := DB
+			DB = db
+			t.Cleanup(func() {
+				DB = previous
+				_ = db.Migrator().DropTable(&QuotaData{})
+				_ = sqlDB.Close()
+			})
+			run(t)
+		})
+	}
+}
+
+func TestGetBucketedQuotaDatesMatchesConsumerBucketBoundaries(t *testing.T) {
+	cases := []struct {
+		name        string
+		createdAt   int64
+		granularity string
+		expected    int64
+	}{
+		{"hour floors to the hour", unixUTC(2026, time.May, 6, 12, 37, 45), GranularityHour, unixUTC(2026, time.May, 6, 12, 0, 0)},
+		{"hour keeps an exact hour", unixUTC(2026, time.May, 6, 12, 0, 0), GranularityHour, unixUTC(2026, time.May, 6, 12, 0, 0)},
+		{"hour before an exact hour stays in the previous bucket", unixUTC(2026, time.May, 6, 12, 0, 0) - 1, GranularityHour, unixUTC(2026, time.May, 6, 11, 0, 0)},
+		{"day floors to UTC midnight", unixUTC(2026, time.May, 6, 23, 59, 59), GranularityDay, unixUTC(2026, time.May, 6, 0, 0, 0)},
+		{"day keeps UTC midnight", unixUTC(2026, time.May, 6, 0, 0, 0), GranularityDay, unixUTC(2026, time.May, 6, 0, 0, 0)},
+		{"day before UTC midnight stays in the previous bucket", unixUTC(2026, time.May, 6, 0, 0, 0) - 1, GranularityDay, unixUTC(2026, time.May, 5, 0, 0, 0)},
+		{"week from a Wednesday returns Monday", unixUTC(2026, time.May, 6, 12, 0, 0), GranularityWeek, unixUTC(2026, time.May, 4, 0, 0, 0)},
+		{"week from a Monday returns the same Monday", unixUTC(2026, time.May, 4, 5, 30, 0), GranularityWeek, unixUTC(2026, time.May, 4, 0, 0, 0)},
+		{"week from a Sunday returns the preceding Monday", unixUTC(2026, time.May, 10, 22, 0, 0), GranularityWeek, unixUTC(2026, time.May, 4, 0, 0, 0)},
+		{"week at the epoch Thursday returns the preceding Monday", 0, GranularityWeek, -259200},
+		{"week at the last second before the first Monday", 345599, GranularityWeek, -259200},
+		{"week at the first Monday after the epoch", 345600, GranularityWeek, 345600},
+		{"month in a leap February", unixUTC(2024, time.February, 29, 12, 0, 0), GranularityMonth, unixUTC(2024, time.February, 1, 0, 0, 0)},
+		{"month at the last second of January", unixUTC(2026, time.January, 31, 23, 59, 59), GranularityMonth, unixUTC(2026, time.January, 1, 0, 0, 0)},
+		{"month at the last hour of the year", unixUTC(2025, time.December, 31, 23, 0, 0), GranularityMonth, unixUTC(2025, time.December, 1, 0, 0, 0)},
+		{"day at the last hour of the year", unixUTC(2025, time.December, 31, 23, 0, 0), GranularityDay, unixUTC(2025, time.December, 31, 0, 0, 0)},
+		{"month on the last day of a non-leap February", unixUTC(2026, time.February, 28, 23, 0, 0), GranularityMonth, unixUTC(2026, time.February, 1, 0, 0, 0)},
+		{"month on the first day of March", unixUTC(2026, time.March, 1, 0, 0, 0), GranularityMonth, unixUTC(2026, time.March, 1, 0, 0, 0)},
+		{"month on the first hour of a new year", unixUTC(2026, time.January, 1, 0, 0, 0), GranularityMonth, unixUTC(2026, time.January, 1, 0, 0, 0)},
+		{"week on the first hour of a new year", unixUTC(2026, time.January, 1, 0, 0, 0), GranularityWeek, unixUTC(2025, time.December, 29, 0, 0, 0)},
+		{"week on the last hour of the previous year", unixUTC(2025, time.December, 31, 23, 0, 0), GranularityWeek, unixUTC(2025, time.December, 29, 0, 0, 0)},
+	}
+
+	runOnEveryQuotaDialect(t, func(t *testing.T) {
+		for _, testCase := range cases {
+			t.Run(testCase.name, func(t *testing.T) {
+				require.NoError(t, DB.Exec("DELETE FROM quota_data").Error)
+				seedBucketQuotaData(t, QuotaData{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: testCase.createdAt, Count: 1, Quota: 10, TokenUsed: 5})
+
+				rows, err := GetBucketedQuotaDates(BucketedQuotaQuery{
+					StartTime:   testCase.createdAt,
+					EndTime:     testCase.createdAt,
+					Granularity: testCase.granularity,
+				})
+				require.NoError(t, err)
+				require.Len(t, rows, 1)
+				assert.Equal(t, testCase.expected, rows[0].CreatedAt)
+				assert.Equal(t, "gpt-a", rows[0].ModelName)
+				assert.Equal(t, 1, rows[0].Count)
+			})
+		}
+	})
+}
+
+func TestGetBucketedQuotaDatesPreservesLegacyTotalsPerModel(t *testing.T) {
+	start := unixUTC(2026, time.April, 27, 0, 0, 0)
+	end := unixUTC(2026, time.May, 10, 23, 0, 0)
+	seed := []QuotaData{
+		{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 1, Quota: 10, TokenUsed: 100},
+		{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 27, 23, 0, 0), Count: 2, Quota: 20, TokenUsed: 200},
+		{UserID: 1, Username: "alice", ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.April, 27, 23, 0, 0), Count: 4, Quota: 40, TokenUsed: 400},
+		{UserID: 2, Username: "bob", ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 30, 12, 0, 0), Count: 8, Quota: 80, TokenUsed: 800},
+		{UserID: 2, Username: "bob", ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.May, 4, 0, 0, 0), Count: 16, Quota: 160, TokenUsed: 1600},
+		{UserID: 2, Username: "bob", ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.May, 10, 23, 0, 0), Count: 32, Quota: 320, TokenUsed: 3200},
+	}
+
+	runOnEveryQuotaDialect(t, func(t *testing.T) {
+		for _, row := range seed {
+			seedBucketQuotaData(t, row)
+		}
+
+		legacy, err := GetAllQuotaDates(start, end, "")
+		require.NoError(t, err)
+		legacyTotals := map[string][3]int{}
+		for _, row := range legacy {
+			totals := legacyTotals[row.ModelName]
+			legacyTotals[row.ModelName] = [3]int{totals[0] + row.Count, totals[1] + row.Quota, totals[2] + row.TokenUsed}
+		}
+		require.Equal(t, map[string][3]int{"gpt-a": {27, 270, 2700}, "gpt-b": {36, 360, 3600}}, legacyTotals)
+
+		for _, granularity := range []string{GranularityHour, GranularityDay, GranularityWeek, GranularityMonth} {
+			t.Run(granularity, func(t *testing.T) {
+				rows, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: granularity})
+				require.NoError(t, err)
+				bucketedTotals := map[string][3]int{}
+				for _, row := range rows {
+					totals := bucketedTotals[row.ModelName]
+					bucketedTotals[row.ModelName] = [3]int{totals[0] + row.Count, totals[1] + row.Quota, totals[2] + row.TokenUsed}
+					assert.Zero(t, row.UserID)
+					assert.Empty(t, row.Username)
+				}
+				assert.Equal(t, legacyTotals, bucketedTotals)
+			})
+		}
+
+		daily, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityDay})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedQuotaData{
+			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 3, Quota: 30, TokenUsed: 300},
+			{ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 4, Quota: 40, TokenUsed: 400},
+			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 30, 0, 0, 0), Count: 8, Quota: 80, TokenUsed: 800},
+			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.May, 4, 0, 0, 0), Count: 16, Quota: 160, TokenUsed: 1600},
+			{ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.May, 10, 0, 0, 0), Count: 32, Quota: 320, TokenUsed: 3200},
+		}, daily)
+
+		weekly, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityWeek})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedQuotaData{
+			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 11, Quota: 110, TokenUsed: 1100},
+			{ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 4, Quota: 40, TokenUsed: 400},
+			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.May, 4, 0, 0, 0), Count: 16, Quota: 160, TokenUsed: 1600},
+			{ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.May, 4, 0, 0, 0), Count: 32, Quota: 320, TokenUsed: 3200},
+		}, weekly)
+
+		monthly, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityMonth})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedQuotaData{
+			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 1, 0, 0, 0), Count: 11, Quota: 110, TokenUsed: 1100},
+			{ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.April, 1, 0, 0, 0), Count: 4, Quota: 40, TokenUsed: 400},
+			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.May, 1, 0, 0, 0), Count: 16, Quota: 160, TokenUsed: 1600},
+			{ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.May, 1, 0, 0, 0), Count: 32, Quota: 320, TokenUsed: 3200},
+		}, monthly)
+	})
+}
+
+func TestGetBucketedQuotaDatesScopesRowsToTheRequestedIdentity(t *testing.T) {
+	start := unixUTC(2026, time.May, 4, 0, 0, 0)
+	end := unixUTC(2026, time.May, 10, 23, 0, 0)
+
+	runOnEveryQuotaDialect(t, func(t *testing.T) {
+		seedBucketQuotaData(t, QuotaData{UserID: 1, Username: "alice", TokenID: 11, ModelName: "gpt-a", CreatedAt: start, Count: 1, Quota: 10, TokenUsed: 100})
+		seedBucketQuotaData(t, QuotaData{UserID: 1, Username: "alice", TokenID: 12, ModelName: "gpt-a", CreatedAt: start, Count: 2, Quota: 20, TokenUsed: 200})
+		seedBucketQuotaData(t, QuotaData{UserID: 2, Username: "bob", TokenID: 22, ModelName: "gpt-a", CreatedAt: start, Count: 4, Quota: 40, TokenUsed: 400})
+
+		byUser, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, UserID: 1, Granularity: GranularityWeek})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedQuotaData{
+			{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: start, Count: 3, Quota: 30, TokenUsed: 300},
+		}, byUser)
+
+		byToken, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, UserID: 1, TokenID: 12, Granularity: GranularityWeek})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedQuotaData{
+			{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: start, Count: 2, Quota: 20, TokenUsed: 200},
+		}, byToken)
+
+		byUsername, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Username: "bob", Granularity: GranularityWeek})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedQuotaData{
+			{UserID: 2, Username: "bob", ModelName: "gpt-a", CreatedAt: start, Count: 4, Quota: 40, TokenUsed: 400},
+		}, byUsername)
+	})
+}
+
+func TestGetBucketedQuotaDatesRejectsUnsupportedInput(t *testing.T) {
+	truncateTables(t)
+
+	_, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: 0, EndTime: 3600, Granularity: "quarter"})
+	require.ErrorIs(t, err, ErrInvalidQuotaGranularity)
+
+	start := unixUTC(2020, time.January, 1, 0, 0, 0)
+	_, err = GetBucketedQuotaDates(BucketedQuotaQuery{
+		StartTime:   start,
+		EndTime:     unixUTC(2030, time.February, 1, 0, 0, 0),
+		Granularity: GranularityMonth,
+	})
+	require.ErrorIs(t, err, ErrQuotaMonthSpanExceeded)
+
+	rows, err := GetBucketedQuotaDates(BucketedQuotaQuery{
+		StartTime:   start,
+		EndTime:     unixUTC(2029, time.December, 31, 23, 0, 0),
+		Granularity: GranularityMonth,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, rows)
+}
+
+func TestQuotaMonthBoundaries(t *testing.T) {
+	januaryFirst := func(year int) int64 { return unixUTC(year, time.January, 1, 0, 0, 0) }
+
+	for _, testCase := range []struct {
+		name      string
+		startTime int64
+		endTime   int64
+		expected  []int64
+	}{
+		{
+			name:      "a single month yields its own start and the next one",
+			startTime: unixUTC(2026, time.May, 6, 12, 0, 0),
+			endTime:   unixUTC(2026, time.May, 6, 13, 0, 0),
+			expected:  []int64{unixUTC(2026, time.May, 1, 0, 0, 0), unixUTC(2026, time.June, 1, 0, 0, 0)},
+		},
+		{
+			name:      "the range start snaps back to the first of its month",
+			startTime: unixUTC(2026, time.January, 31, 23, 59, 59),
+			endTime:   unixUTC(2026, time.March, 1, 0, 0, 0),
+			expected: []int64{
+				unixUTC(2026, time.January, 1, 0, 0, 0),
+				unixUTC(2026, time.February, 1, 0, 0, 0),
+				unixUTC(2026, time.March, 1, 0, 0, 0),
+				unixUTC(2026, time.April, 1, 0, 0, 0),
+			},
+		},
+		{
+			name:      "a boundary exactly on endTime still appends the following month",
+			startTime: unixUTC(2026, time.January, 15, 0, 0, 0),
+			endTime:   unixUTC(2026, time.February, 1, 0, 0, 0),
+			expected: []int64{
+				unixUTC(2026, time.January, 1, 0, 0, 0),
+				unixUTC(2026, time.February, 1, 0, 0, 0),
+				unixUTC(2026, time.March, 1, 0, 0, 0),
+			},
+		},
+		{
+			name:      "a leap February is one month like any other",
+			startTime: unixUTC(2024, time.February, 29, 12, 0, 0),
+			endTime:   unixUTC(2024, time.February, 29, 13, 0, 0),
+			expected:  []int64{unixUTC(2024, time.February, 1, 0, 0, 0), unixUTC(2024, time.March, 1, 0, 0, 0)},
+		},
+		{
+			name:      "a year rollover crosses into the next year",
+			startTime: unixUTC(2025, time.December, 31, 23, 0, 0),
+			endTime:   unixUTC(2026, time.January, 1, 0, 0, 0),
+			expected: []int64{
+				unixUTC(2025, time.December, 1, 0, 0, 0),
+				januaryFirst(2026),
+				unixUTC(2026, time.February, 1, 0, 0, 0),
+			},
+		},
+		{
+			name:      "endTime before startTime stops after the first step",
+			startTime: unixUTC(2026, time.May, 6, 12, 0, 0),
+			endTime:   unixUTC(2026, time.January, 1, 0, 0, 0),
+			expected:  []int64{unixUTC(2026, time.May, 1, 0, 0, 0), unixUTC(2026, time.June, 1, 0, 0, 0)},
+		},
+		{
+			name:      "startTime zero starts at the epoch month",
+			startTime: 0,
+			endTime:   unixUTC(1970, time.February, 15, 0, 0, 0),
+			expected: []int64{
+				unixUTC(1970, time.January, 1, 0, 0, 0),
+				unixUTC(1970, time.February, 1, 0, 0, 0),
+				unixUTC(1970, time.March, 1, 0, 0, 0),
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.expected, quotaMonthBoundaries(testCase.startTime, testCase.endTime))
+		})
+	}
+
+	t.Run("exactly MaxBucketedMonths months is accepted", func(t *testing.T) {
+		start := januaryFirst(2020)
+		end := time.Unix(start, 0).UTC().AddDate(0, MaxBucketedMonths, 0).Unix() - 1
+
+		boundaries := quotaMonthBoundaries(start, end)
+
+		require.Len(t, boundaries, MaxBucketedMonths+1)
+		assert.Equal(t, start, boundaries[0])
+		assert.Equal(t, januaryFirst(2030), boundaries[MaxBucketedMonths])
+		expression, err := quotaBucketExpression(GranularityMonth, start, end)
+		require.NoError(t, err)
+		assert.Equal(t, MaxBucketedMonths, strings.Count(expression, " WHEN "))
+	})
+
+	t.Run("one month past MaxBucketedMonths is rejected", func(t *testing.T) {
+		start := januaryFirst(2020)
+		end := time.Unix(start, 0).UTC().AddDate(0, MaxBucketedMonths, 0).Unix()
+
+		boundaries := quotaMonthBoundaries(start, end)
+
+		require.Len(t, boundaries, MaxBucketedMonths+2)
+		_, err := quotaBucketExpression(GranularityMonth, start, end)
+		require.ErrorIs(t, err, ErrQuotaMonthSpanExceeded)
+	})
+
+	t.Run("the boundary slice never grows past the cap guard", func(t *testing.T) {
+		boundaries := quotaMonthBoundaries(januaryFirst(2020), januaryFirst(2500))
+
+		assert.Len(t, boundaries, MaxBucketedMonths+2)
+	})
 }
