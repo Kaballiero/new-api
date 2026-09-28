@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 const (
@@ -19,12 +21,38 @@ const (
 var (
 	ErrInvalidQuotaGranularity = errors.New("granularity must be one of hour, day, week, month")
 	ErrQuotaMonthSpanExceeded  = errors.New("granularity month supports at most 120 months per request")
+	ErrInvalidQuotaGrouping    = errors.New("bucketed quota query requires an explicit grouping")
 )
+
+// QuotaBucketGrouping names the dimension set a bucketed query reports. Each
+// legacy endpoint reports a different one, so the caller states it instead of
+// letting the query infer it from whichever filters happen to be set.
+type QuotaBucketGrouping string
+
+const (
+	QuotaBucketByModel        QuotaBucketGrouping = "model"
+	QuotaBucketByUserAndModel QuotaBucketGrouping = "user_model"
+	QuotaBucketByUser         QuotaBucketGrouping = "user"
+)
+
+var quotaBucketDimensions = map[QuotaBucketGrouping]struct{ columns, order string }{
+	QuotaBucketByModel:        {"model_name", "bucket_start, model_name"},
+	QuotaBucketByUserAndModel: {"user_id, username, model_name", "bucket_start, model_name"},
+	QuotaBucketByUser:         {"username", "bucket_start, username"},
+}
 
 type BucketedQuotaData struct {
 	UserID    int    `json:"user_id" gorm:"column:user_id"`
 	Username  string `json:"username" gorm:"column:username"`
 	ModelName string `json:"model_name" gorm:"column:model_name"`
+	CreatedAt int64  `json:"created_at" gorm:"column:bucket_start"`
+	TokenUsed int    `json:"token_used" gorm:"column:token_used"`
+	Count     int    `json:"count" gorm:"column:count"`
+	Quota     int    `json:"quota" gorm:"column:quota"`
+}
+
+type BucketedUserQuotaData struct {
+	Username  string `json:"username" gorm:"column:username"`
 	CreatedAt int64  `json:"created_at" gorm:"column:bucket_start"`
 	TokenUsed int    `json:"token_used" gorm:"column:token_used"`
 	Count     int    `json:"count" gorm:"column:count"`
@@ -38,6 +66,7 @@ type BucketedQuotaQuery struct {
 	UserID      int
 	TokenID     int
 	Granularity string
+	Grouping    QuotaBucketGrouping
 }
 
 func IsValidQuotaGranularity(granularity string) bool {
@@ -49,15 +78,33 @@ func IsValidQuotaGranularity(granularity string) bool {
 }
 
 func GetBucketedQuotaDates(q BucketedQuotaQuery) ([]*BucketedQuotaData, error) {
+	query, err := bucketedQuotaQuery(q)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]*BucketedQuotaData, 0)
+	return rows, query.Find(&rows).Error
+}
+
+func GetBucketedQuotaDatesByUser(q BucketedQuotaQuery) ([]*BucketedUserQuotaData, error) {
+	query, err := bucketedQuotaQuery(q)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]*BucketedUserQuotaData, 0)
+	return rows, query.Find(&rows).Error
+}
+
+func bucketedQuotaQuery(q BucketedQuotaQuery) (*gorm.DB, error) {
+	dimensions, ok := quotaBucketDimensions[q.Grouping]
+	if !ok {
+		return nil, ErrInvalidQuotaGrouping
+	}
 	bucket, err := quotaBucketExpression(q.Granularity, q.StartTime, q.EndTime)
 	if err != nil {
 		return nil, err
 	}
-	dimensions := "model_name"
-	if q.Username != "" || q.UserID > 0 {
-		dimensions = "user_id, username, model_name"
-	}
-	selection := dimensions + ", " + bucket + " as bucket_start, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used"
+	selection := dimensions.columns + ", " + bucket + " as bucket_start, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used"
 	query := DB.Table("quota_data").
 		Select(selection).
 		Where("created_at >= ? and created_at <= ?", q.StartTime, q.EndTime)
@@ -70,12 +117,7 @@ func GetBucketedQuotaDates(q BucketedQuotaQuery) ([]*BucketedQuotaData, error) {
 	if q.TokenID > 0 {
 		query = query.Where("token_id = ?", q.TokenID)
 	}
-	rows := make([]*BucketedQuotaData, 0)
-	err = query.
-		Group(dimensions + ", bucket_start").
-		Order("bucket_start, model_name").
-		Find(&rows).Error
-	return rows, err
+	return query.Group(dimensions.columns + ", bucket_start").Order(dimensions.order), nil
 }
 
 func quotaBucketExpression(granularity string, startTime int64, endTime int64) (string, error) {

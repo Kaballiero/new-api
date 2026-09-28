@@ -85,6 +85,30 @@ func declareErrorCodes(op map[string]interface{}, status string, codes ...string
 	}
 }
 
+// declareGranularityParameter documents the bucketing parameter shared by the
+// /api/data family. The generator discovers the query key from the AST but types
+// it as a bare string, so the enum and the projection each endpoint reports have
+// to be stated here.
+func declareGranularityParameter(op map[string]interface{}, projection string) {
+	parameters, _ := op["parameters"].([]interface{})
+	schema := map[string]interface{}{"type": "string", "enum": []string{"hour", "day", "week", "month"}}
+	description := "Aggregation bucket. Omitted or empty returns the unchanged legacy rows. Any value — hour included — switches to a reduced aggregate projection whose created_at is the UTC start of the bucket; weeks start on Monday and month spans are limited to 120 months per request. " + projection + " Bucket boundaries match the reference floor semantics only for created_at >= 0: the SQL % operator truncates toward zero while the reference rounds down. Stored created_at is never negative, so the two do not diverge in practice."
+	found := false
+	for _, parameter := range parameters {
+		entry, _ := parameter.(map[string]interface{})
+		if entry["name"] != "granularity" || entry["in"] != "query" {
+			continue
+		}
+		entry["schema"] = schema
+		entry["description"] = description
+		found = true
+	}
+	if !found {
+		parameters = append(parameters, map[string]interface{}{"name": "granularity", "in": "query", "required": false, "description": description, "schema": schema})
+	}
+	op["parameters"] = parameters
+}
+
 // AST discovery cannot infer validation expressed in ordinary control flow.
 // Keep the native sync preconditions explicit rather than documenting a legacy
 // no-body apply operation that the server deliberately rejects.
@@ -123,29 +147,17 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 			}
 			op["parameters"] = parameters
 		}
-		if route.HandlerName == "GetAllQuotaDates" || route.HandlerName == "GetUserQuotaDates" {
-			parameters, _ := op["parameters"].([]interface{})
-			schema := map[string]interface{}{"type": "string", "enum": []string{"hour", "day", "week", "month"}}
-			description := "Aggregation bucket. Omitted or empty returns the unchanged legacy rows. Any value — hour included — switches to the reduced aggregate projection (user_id, username, model_name, created_at, count, quota, token_used) whose created_at is the UTC start of the bucket; weeks start on Monday and month spans are limited to 120 months per request."
-			found := false
-			for _, parameter := range parameters {
-				entry, _ := parameter.(map[string]interface{})
-				if entry["name"] != "granularity" || entry["in"] != "query" {
-					continue
-				}
-				entry["schema"] = schema
-				entry["description"] = description
-				found = true
-			}
-			if !found {
-				parameters = append(parameters, map[string]interface{}{"name": "granularity", "in": "query", "required": false, "description": description, "schema": schema})
-			}
-			op["parameters"] = parameters
-			if route.HandlerName == "GetAllQuotaDates" {
-				declareErrorCodes(op, "400", "invalid_params", "invalid_granularity", "month_span_exceeded")
-			} else {
-				declareErrorCodes(op, "400", "invalid_granularity")
-			}
+		if route.HandlerName == "GetAllQuotaDates" {
+			declareGranularityParameter(op, "Without the username query parameter rows are grouped by model alone: model_name, created_at, count, quota, token_used carry data while user_id is 0 and username is empty in every row. With username set rows are grouped per user and model, and user_id and username are populated.")
+			declareErrorCodes(op, "400", "invalid_params", "invalid_granularity", "month_span_exceeded")
+		}
+		if route.HandlerName == "GetUserQuotaDates" {
+			declareGranularityParameter(op, "Rows are grouped per user and model and report user_id, username, model_name, created_at, count, quota, token_used.")
+			declareErrorCodes(op, "400", "invalid_granularity")
+		}
+		if route.HandlerName == "GetQuotaDatesByUser" {
+			declareGranularityParameter(op, "Rows are grouped per user and report username, created_at, count, quota, token_used.")
+			declareErrorCodes(op, "400", "invalid_params", "invalid_granularity", "month_span_exceeded")
 		}
 		if route.HandlerName == "GetUsersBatch" {
 			parameters, _ := op["parameters"].([]interface{})
