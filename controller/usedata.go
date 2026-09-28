@@ -51,6 +51,14 @@ func GetAllQuotaDates(c *gin.Context) {
 func GetQuotaDatesByUser(c *gin.Context) {
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	granularity, ok := parseQuotaGranularity(c)
+	if !ok {
+		return
+	}
+	if granularity != "" {
+		respondUserBucketedQuotaDates(c, startTimestamp, endTimestamp, granularity)
+		return
+	}
 	dates, err := model.GetQuotaDataGroupByUser(startTimestamp, endTimestamp)
 	if err != nil {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
@@ -82,7 +90,7 @@ func GetUserQuotaDates(c *gin.Context) {
 		return
 	}
 	if granularity != "" {
-		respondBucketedQuotaDates(c, model.BucketedQuotaQuery{StartTime: startTimestamp, EndTime: endTimestamp, UserID: userId, TokenID: tokenId, Granularity: granularity})
+		respondBucketedQuotaDates(c, model.BucketedQuotaQuery{StartTime: startTimestamp, EndTime: endTimestamp, UserID: userId, TokenID: tokenId, Granularity: granularity, Grouping: model.QuotaBucketByUserAndModel})
 		return
 	}
 	dates, err := model.GetQuotaDataByUserId(userId, startTimestamp, endTimestamp, tokenId)

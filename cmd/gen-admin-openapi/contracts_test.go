@@ -208,8 +208,12 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 		assert.Equal(t, false, tokenID["required"])
 		assert.Equal(t, map[string]interface{}{"type": "integer", "minimum": 1}, tokenID["schema"])
 	}
-	for _, path := range []string{"/api/data/", "/api/data/self"} {
-		op := operation(path, "get")
+	for _, bucketed := range []struct{ path, projection string }{
+		{"/api/data/", "user_id is 0 and username is empty in every row"},
+		{"/api/data/self", "user_id, username, model_name, created_at, count, quota, token_used"},
+		{"/api/data/users", "Rows are grouped per user and report username, created_at, count, quota, token_used."},
+	} {
+		op := operation(bucketed.path, "get")
 		var granularity map[string]interface{}
 		for _, parameter := range op["parameters"].([]interface{}) {
 			entry := parameter.(map[string]interface{})
@@ -221,6 +225,8 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 		require.NotNil(t, granularity)
 		assert.Equal(t, false, granularity["required"])
 		assert.Equal(t, map[string]interface{}{"type": "string", "enum": []string{"hour", "day", "week", "month"}}, granularity["schema"])
+		assert.Contains(t, granularity["description"], bucketed.projection)
+		assert.Contains(t, granularity["description"], "created_at >= 0")
 
 		response := op["responses"].(map[string]interface{})["400"].(map[string]interface{})
 		assert.Contains(t, response["x-error-codes"], "invalid_granularity")
@@ -233,9 +239,8 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	assert.Equal(t, []interface{}{"invalid_params", "invalid_granularity", "month_span_exceeded"}, dataResponse["x-error-codes"])
 	selfResponse := operation("/api/data/self", "get")["responses"].(map[string]interface{})["400"].(map[string]interface{})
 	assert.Equal(t, []interface{}{"invalid_token_id", "time_span_exceeded", "invalid_granularity"}, selfResponse["x-error-codes"])
-	for _, parameter := range operation("/api/data/users", "get")["parameters"].([]interface{}) {
-		assert.NotEqual(t, "granularity", parameter.(map[string]interface{})["name"])
-	}
+	usersResponse := operation("/api/data/users", "get")["responses"].(map[string]interface{})["400"].(map[string]interface{})
+	assert.Equal(t, []interface{}{"invalid_params", "invalid_granularity", "month_span_exceeded"}, usersResponse["x-error-codes"])
 }
 
 func TestAllGeneratedSecurityReferencesAndAnonymousExceptions(t *testing.T) {

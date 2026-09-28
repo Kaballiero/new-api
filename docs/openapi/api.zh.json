@@ -15187,7 +15187,7 @@
             }
           },
           {
-            "description": "Aggregation bucket. Omitted or empty returns the unchanged legacy rows. Any value — hour included — switches to the reduced aggregate projection (user_id, username, model_name, created_at, count, quota, token_used) whose created_at is the UTC start of the bucket; weeks start on Monday and month spans are limited to 120 months per request.",
+            "description": "Aggregation bucket. Omitted or empty returns the unchanged legacy rows. Any value — hour included — switches to a reduced aggregate projection whose created_at is the UTC start of the bucket; weeks start on Monday and month spans are limited to 120 months per request. Without the username query parameter rows are grouped by model alone: model_name, created_at, count, quota, token_used carry data while user_id is 0 and username is empty in every row. With username set rows are grouped per user and model, and user_id and username are populated. Bucket boundaries match the reference floor semantics only for created_at \u003e= 0: the SQL % operator truncates toward zero while the reference rounds down. Stored created_at is never negative, so the two do not diverge in practice.",
             "in": "query",
             "name": "granularity",
             "required": false,
@@ -15612,7 +15612,7 @@
             }
           },
           {
-            "description": "Aggregation bucket. Omitted or empty returns the unchanged legacy rows. Any value — hour included — switches to the reduced aggregate projection (user_id, username, model_name, created_at, count, quota, token_used) whose created_at is the UTC start of the bucket; weeks start on Monday and month spans are limited to 120 months per request.",
+            "description": "Aggregation bucket. Omitted or empty returns the unchanged legacy rows. Any value — hour included — switches to a reduced aggregate projection whose created_at is the UTC start of the bucket; weeks start on Monday and month spans are limited to 120 months per request. Rows are grouped per user and model and report user_id, username, model_name, created_at, count, quota, token_used. Bucket boundaries match the reference floor semantics only for created_at \u003e= 0: the SQL % operator truncates toward zero while the reference rounds down. Stored created_at is never negative, so the two do not diverge in practice.",
             "in": "query",
             "name": "granularity",
             "required": false,
@@ -15797,6 +15797,21 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "description": "Aggregation bucket. Omitted or empty returns the unchanged legacy rows. Any value — hour included — switches to a reduced aggregate projection whose created_at is the UTC start of the bucket; weeks start on Monday and month spans are limited to 120 months per request. Rows are grouped per user and report username, created_at, count, quota, token_used. Bucket boundaries match the reference floor semantics only for created_at \u003e= 0: the SQL % operator truncates toward zero while the reference rounds down. Stored created_at is never negative, so the two do not diverge in practice.",
+            "in": "query",
+            "name": "granularity",
+            "required": false,
+            "schema": {
+              "enum": [
+                "hour",
+                "day",
+                "week",
+                "month"
+              ],
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -15814,12 +15829,43 @@
           "400": {
             "content": {
               "application/json": {
+                "examples": {
+                  "invalid_granularity": {
+                    "summary": "invalid_granularity",
+                    "value": {
+                      "code": "invalid_granularity",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  },
+                  "invalid_params": {
+                    "summary": "invalid_params",
+                    "value": {
+                      "code": "invalid_params",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  },
+                  "month_span_exceeded": {
+                    "summary": "month_span_exceeded",
+                    "value": {
+                      "code": "month_span_exceeded",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             },
-            "description": "请求错误 — 参数无效、校验失败或其他客户端错误"
+            "description": "请求错误 — 参数无效、校验失败或其他客户端错误",
+            "x-error-codes": [
+              "invalid_params",
+              "invalid_granularity",
+              "month_span_exceeded"
+            ]
           },
           "401": {
             "content": {

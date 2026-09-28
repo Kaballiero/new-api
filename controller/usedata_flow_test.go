@@ -229,6 +229,7 @@ func TestQuotaDatesRejectUnsupportedGranularity(t *testing.T) {
 	}{
 		{"all", GetAllQuotaDates, "/api/data?start_timestamp=1000&end_timestamp=2000&granularity=quarter"},
 		{"self", GetUserQuotaDates, "/api/data/self?start_timestamp=1000&end_timestamp=2000&granularity=quarter"},
+		{"users", GetQuotaDatesByUser, "/api/data/users?start_timestamp=1000&end_timestamp=2000&granularity=quarter"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			recorder := requestQuotaDates(t, testCase.handler, testCase.target, 1)
@@ -335,5 +336,94 @@ func TestGetAllQuotaDatesRejectsNonPositiveRangeOnlyWhenBucketed(t *testing.T) {
 		payload := decodeQuotaDatesResponse(t, recorder)
 		require.True(t, payload.Success, payload.Message)
 		assert.Empty(t, payload.Data)
+	})
+}
+
+// The /api/data/users rows carry the legacy dimension set of that endpoint —
+// username and the bucket start only — so the raw JSON keys are asserted rather
+// than decoded into a struct that would hide an extra or a missing field.
+func decodeQuotaDatesRows(t *testing.T, recorder *httptest.ResponseRecorder) []map[string]any {
+	t.Helper()
+	var payload struct {
+		Success bool             `json:"success"`
+		Message string           `json:"message"`
+		Data    []map[string]any `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.True(t, payload.Success, payload.Message)
+	return payload.Data
+}
+
+func TestGetQuotaDatesByUserKeepsLegacyRowsWithoutGranularity(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	recorder := requestQuotaDates(t, GetQuotaDatesByUser, "/api/data/users?start_timestamp=1000&end_timestamp=2000", 1)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	rows := decodeQuotaDatesRows(t, recorder)
+	assert.Equal(t, []map[string]any{
+		{"id": float64(0), "user_id": float64(0), "username": "alice", "model_name": "", "created_at": float64(1100), "use_group": "", "token_id": float64(0), "channel_id": float64(0), "node_name": "", "token_used": float64(40), "count": float64(2), "quota": float64(100)},
+		{"id": float64(0), "user_id": float64(0), "username": "bob", "model_name": "", "created_at": float64(1200), "use_group": "", "token_id": float64(0), "channel_id": float64(0), "node_name": "", "token_used": float64(30), "count": float64(1), "quota": float64(70)},
+	}, rows)
+}
+
+func TestGetQuotaDatesByUserBucketsRowsWithoutModelDimension(t *testing.T) {
+	setupFlowControllerTestDB(t)
+	require.NoError(t, model.DB.Create(&model.QuotaData{UserID: 1, Username: "alice", TokenID: 11, ModelName: "gpt-b", CreatedAt: 1100, Count: 3, Quota: 30, TokenUsed: 10}).Error)
+	require.NoError(t, model.DB.Create(&model.QuotaData{UserID: 1, Username: "alice", TokenID: 11, ModelName: "gpt-a", CreatedAt: 90000, Count: 5, Quota: 250, TokenUsed: 90}).Error)
+
+	recorder := requestQuotaDates(t, GetQuotaDatesByUser, "/api/data/users?start_timestamp=1000&end_timestamp=100000&granularity=day", 1)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	rows := decodeQuotaDatesRows(t, recorder)
+	assert.Equal(t, []map[string]any{
+		{"username": "alice", "created_at": float64(0), "token_used": float64(50), "count": float64(5), "quota": float64(130)},
+		{"username": "bob", "created_at": float64(0), "token_used": float64(30), "count": float64(1), "quota": float64(70)},
+		{"username": "alice", "created_at": float64(86400), "token_used": float64(90), "count": float64(5), "quota": float64(250)},
+	}, rows)
+}
+
+func TestGetQuotaDatesByUserRejectsMonthSpanBeyondCap(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	recorder := requestQuotaDates(t, GetQuotaDatesByUser, "/api/data/users?start_timestamp=1577836800&end_timestamp=1896134400&granularity=month", 1)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	payload := decodeQuotaDatesResponse(t, recorder)
+	assert.False(t, payload.Success)
+	assert.Equal(t, "month_span_exceeded", payload.Code)
+}
+
+func TestGetQuotaDatesByUserRejectsNonPositiveRangeOnlyWhenBucketed(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	for _, testCase := range []struct {
+		name   string
+		target string
+	}{
+		{"missing start_timestamp", "/api/data/users?end_timestamp=1790000000&granularity=month"},
+		{"missing end_timestamp", "/api/data/users?start_timestamp=1000&granularity=day"},
+		{"non-numeric start_timestamp", "/api/data/users?start_timestamp=abc&end_timestamp=2000&granularity=day"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := requestQuotaDates(t, GetQuotaDatesByUser, testCase.target, 1)
+
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			payload := decodeQuotaDatesResponse(t, recorder)
+			assert.False(t, payload.Success)
+			assert.Equal(t, "invalid_params", payload.Code)
+		})
+	}
+
+	t.Run("legacy path keeps its unvalidated behaviour", func(t *testing.T) {
+		recorder := requestQuotaDates(t, GetQuotaDatesByUser, "/api/data/users?end_timestamp=1790000000", 1)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		payload := decodeQuotaDatesResponse(t, recorder)
+		require.True(t, payload.Success, payload.Message)
+		assert.Equal(t, []quotaDateRow{
+			{Username: "alice", CreatedAt: 1100, Count: 2, Quota: 100, TokenUsed: 40},
+			{Username: "bob", CreatedAt: 1200, Count: 1, Quota: 70, TokenUsed: 30},
+		}, payload.Data)
 	})
 }

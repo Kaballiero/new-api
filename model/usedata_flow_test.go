@@ -289,12 +289,24 @@ func TestGetBucketedQuotaDatesMatchesConsumerBucketBoundaries(t *testing.T) {
 					StartTime:   testCase.createdAt,
 					EndTime:     testCase.createdAt,
 					Granularity: testCase.granularity,
+					Grouping:    QuotaBucketByModel,
 				})
 				require.NoError(t, err)
 				require.Len(t, rows, 1)
 				assert.Equal(t, testCase.expected, rows[0].CreatedAt)
 				assert.Equal(t, "gpt-a", rows[0].ModelName)
 				assert.Equal(t, 1, rows[0].Count)
+
+				byUser, err := GetBucketedQuotaDatesByUser(BucketedQuotaQuery{
+					StartTime:   testCase.createdAt,
+					EndTime:     testCase.createdAt,
+					Granularity: testCase.granularity,
+					Grouping:    QuotaBucketByUser,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, []*BucketedUserQuotaData{
+					{Username: "alice", CreatedAt: testCase.expected, Count: 1, Quota: 10, TokenUsed: 5},
+				}, byUser)
 			})
 		}
 	})
@@ -328,7 +340,7 @@ func TestGetBucketedQuotaDatesPreservesLegacyTotalsPerModel(t *testing.T) {
 
 		for _, granularity := range []string{GranularityHour, GranularityDay, GranularityWeek, GranularityMonth} {
 			t.Run(granularity, func(t *testing.T) {
-				rows, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: granularity})
+				rows, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: granularity, Grouping: QuotaBucketByModel})
 				require.NoError(t, err)
 				bucketedTotals := map[string][3]int{}
 				for _, row := range rows {
@@ -341,7 +353,7 @@ func TestGetBucketedQuotaDatesPreservesLegacyTotalsPerModel(t *testing.T) {
 			})
 		}
 
-		daily, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityDay})
+		daily, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityDay, Grouping: QuotaBucketByModel})
 		require.NoError(t, err)
 		assert.Equal(t, []*BucketedQuotaData{
 			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 3, Quota: 30, TokenUsed: 300},
@@ -351,7 +363,7 @@ func TestGetBucketedQuotaDatesPreservesLegacyTotalsPerModel(t *testing.T) {
 			{ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.May, 10, 0, 0, 0), Count: 32, Quota: 320, TokenUsed: 3200},
 		}, daily)
 
-		weekly, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityWeek})
+		weekly, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityWeek, Grouping: QuotaBucketByModel})
 		require.NoError(t, err)
 		assert.Equal(t, []*BucketedQuotaData{
 			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 11, Quota: 110, TokenUsed: 1100},
@@ -360,7 +372,7 @@ func TestGetBucketedQuotaDatesPreservesLegacyTotalsPerModel(t *testing.T) {
 			{ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.May, 4, 0, 0, 0), Count: 32, Quota: 320, TokenUsed: 3200},
 		}, weekly)
 
-		monthly, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityMonth})
+		monthly, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityMonth, Grouping: QuotaBucketByModel})
 		require.NoError(t, err)
 		assert.Equal(t, []*BucketedQuotaData{
 			{ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 1, 0, 0, 0), Count: 11, Quota: 110, TokenUsed: 1100},
@@ -380,19 +392,19 @@ func TestGetBucketedQuotaDatesScopesRowsToTheRequestedIdentity(t *testing.T) {
 		seedBucketQuotaData(t, QuotaData{UserID: 1, Username: "alice", TokenID: 12, ModelName: "gpt-a", CreatedAt: start, Count: 2, Quota: 20, TokenUsed: 200})
 		seedBucketQuotaData(t, QuotaData{UserID: 2, Username: "bob", TokenID: 22, ModelName: "gpt-a", CreatedAt: start, Count: 4, Quota: 40, TokenUsed: 400})
 
-		byUser, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, UserID: 1, Granularity: GranularityWeek})
+		byUser, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, UserID: 1, Granularity: GranularityWeek, Grouping: QuotaBucketByUserAndModel})
 		require.NoError(t, err)
 		assert.Equal(t, []*BucketedQuotaData{
 			{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: start, Count: 3, Quota: 30, TokenUsed: 300},
 		}, byUser)
 
-		byToken, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, UserID: 1, TokenID: 12, Granularity: GranularityWeek})
+		byToken, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, UserID: 1, TokenID: 12, Granularity: GranularityWeek, Grouping: QuotaBucketByUserAndModel})
 		require.NoError(t, err)
 		assert.Equal(t, []*BucketedQuotaData{
 			{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: start, Count: 2, Quota: 20, TokenUsed: 200},
 		}, byToken)
 
-		byUsername, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Username: "bob", Granularity: GranularityWeek})
+		byUsername, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Username: "bob", Granularity: GranularityWeek, Grouping: QuotaBucketByUserAndModel})
 		require.NoError(t, err)
 		assert.Equal(t, []*BucketedQuotaData{
 			{UserID: 2, Username: "bob", ModelName: "gpt-a", CreatedAt: start, Count: 4, Quota: 40, TokenUsed: 400},
@@ -400,17 +412,102 @@ func TestGetBucketedQuotaDatesScopesRowsToTheRequestedIdentity(t *testing.T) {
 	})
 }
 
+// The /api/data/users projection groups by username alone: rows of different
+// models collapse into one user row, and neither model_name nor user_id is
+// reported — exactly the legacy GetQuotaDataGroupByUser dimension set with
+// created_at replaced by the bucket start.
+func TestGetBucketedQuotaDatesByUserPreservesLegacyUserTotals(t *testing.T) {
+	start := unixUTC(2026, time.April, 27, 0, 0, 0)
+	end := unixUTC(2026, time.May, 10, 23, 0, 0)
+	seed := []QuotaData{
+		{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 1, Quota: 10, TokenUsed: 100},
+		{UserID: 1, Username: "alice", ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 2, Quota: 20, TokenUsed: 200},
+		{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.April, 30, 12, 0, 0), Count: 4, Quota: 40, TokenUsed: 400},
+		{UserID: 2, Username: "bob", ModelName: "gpt-a", CreatedAt: unixUTC(2026, time.May, 4, 0, 0, 0), Count: 8, Quota: 80, TokenUsed: 800},
+		{UserID: 2, Username: "bob", ModelName: "gpt-b", CreatedAt: unixUTC(2026, time.May, 10, 23, 0, 0), Count: 16, Quota: 160, TokenUsed: 1600},
+	}
+
+	runOnEveryQuotaDialect(t, func(t *testing.T) {
+		for _, row := range seed {
+			seedBucketQuotaData(t, row)
+		}
+
+		legacy, err := GetQuotaDataGroupByUser(start, end)
+		require.NoError(t, err)
+		legacyTotals := map[string][3]int{}
+		for _, row := range legacy {
+			totals := legacyTotals[row.Username]
+			legacyTotals[row.Username] = [3]int{totals[0] + row.Count, totals[1] + row.Quota, totals[2] + row.TokenUsed}
+		}
+		require.Equal(t, map[string][3]int{"alice": {7, 70, 700}, "bob": {24, 240, 2400}}, legacyTotals)
+
+		for _, granularity := range []string{GranularityHour, GranularityDay, GranularityWeek, GranularityMonth} {
+			t.Run(granularity, func(t *testing.T) {
+				rows, err := GetBucketedQuotaDatesByUser(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: granularity, Grouping: QuotaBucketByUser})
+				require.NoError(t, err)
+				bucketedTotals := map[string][3]int{}
+				for _, row := range rows {
+					totals := bucketedTotals[row.Username]
+					bucketedTotals[row.Username] = [3]int{totals[0] + row.Count, totals[1] + row.Quota, totals[2] + row.TokenUsed}
+				}
+				assert.Equal(t, legacyTotals, bucketedTotals)
+			})
+		}
+
+		daily, err := GetBucketedQuotaDatesByUser(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityDay, Grouping: QuotaBucketByUser})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedUserQuotaData{
+			{Username: "alice", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 3, Quota: 30, TokenUsed: 300},
+			{Username: "alice", CreatedAt: unixUTC(2026, time.April, 30, 0, 0, 0), Count: 4, Quota: 40, TokenUsed: 400},
+			{Username: "bob", CreatedAt: unixUTC(2026, time.May, 4, 0, 0, 0), Count: 8, Quota: 80, TokenUsed: 800},
+			{Username: "bob", CreatedAt: unixUTC(2026, time.May, 10, 0, 0, 0), Count: 16, Quota: 160, TokenUsed: 1600},
+		}, daily)
+
+		weekly, err := GetBucketedQuotaDatesByUser(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityWeek, Grouping: QuotaBucketByUser})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedUserQuotaData{
+			{Username: "alice", CreatedAt: unixUTC(2026, time.April, 27, 0, 0, 0), Count: 7, Quota: 70, TokenUsed: 700},
+			{Username: "bob", CreatedAt: unixUTC(2026, time.May, 4, 0, 0, 0), Count: 24, Quota: 240, TokenUsed: 2400},
+		}, weekly)
+
+		monthly, err := GetBucketedQuotaDatesByUser(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: GranularityMonth, Grouping: QuotaBucketByUser})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedUserQuotaData{
+			{Username: "alice", CreatedAt: unixUTC(2026, time.April, 1, 0, 0, 0), Count: 7, Quota: 70, TokenUsed: 700},
+			{Username: "bob", CreatedAt: unixUTC(2026, time.May, 1, 0, 0, 0), Count: 24, Quota: 240, TokenUsed: 2400},
+		}, monthly)
+	})
+}
+
 func TestGetBucketedQuotaDatesRejectsUnsupportedInput(t *testing.T) {
 	truncateTables(t)
 
-	_, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: 0, EndTime: 3600, Granularity: "quarter"})
+	_, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: 0, EndTime: 3600, Granularity: "quarter", Grouping: QuotaBucketByModel})
 	require.ErrorIs(t, err, ErrInvalidQuotaGranularity)
+
+	_, err = GetBucketedQuotaDatesByUser(BucketedQuotaQuery{StartTime: 0, EndTime: 3600, Granularity: "quarter", Grouping: QuotaBucketByUser})
+	require.ErrorIs(t, err, ErrInvalidQuotaGranularity)
+
+	_, err = GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: 0, EndTime: 3600, Granularity: GranularityHour})
+	require.ErrorIs(t, err, ErrInvalidQuotaGrouping)
+
+	_, err = GetBucketedQuotaDatesByUser(BucketedQuotaQuery{StartTime: 0, EndTime: 3600, Granularity: GranularityHour, Grouping: "everything"})
+	require.ErrorIs(t, err, ErrInvalidQuotaGrouping)
 
 	start := unixUTC(2020, time.January, 1, 0, 0, 0)
 	_, err = GetBucketedQuotaDates(BucketedQuotaQuery{
 		StartTime:   start,
 		EndTime:     unixUTC(2030, time.February, 1, 0, 0, 0),
 		Granularity: GranularityMonth,
+		Grouping:    QuotaBucketByModel,
+	})
+	require.ErrorIs(t, err, ErrQuotaMonthSpanExceeded)
+
+	_, err = GetBucketedQuotaDatesByUser(BucketedQuotaQuery{
+		StartTime:   start,
+		EndTime:     unixUTC(2030, time.February, 1, 0, 0, 0),
+		Granularity: GranularityMonth,
+		Grouping:    QuotaBucketByUser,
 	})
 	require.ErrorIs(t, err, ErrQuotaMonthSpanExceeded)
 
@@ -418,6 +515,7 @@ func TestGetBucketedQuotaDatesRejectsUnsupportedInput(t *testing.T) {
 		StartTime:   start,
 		EndTime:     unixUTC(2029, time.December, 31, 23, 0, 0),
 		Granularity: GranularityMonth,
+		Grouping:    QuotaBucketByModel,
 	})
 	require.NoError(t, err)
 	assert.Empty(t, rows)
