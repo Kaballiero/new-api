@@ -1,15 +1,19 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -63,14 +67,29 @@ func TestEffectivePricingPreviewRequiresRoot(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AuditLog{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AuditLog{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.ModelCostFXRow{}))
 	model.DB, model.LOG_DB = db, db
 	common.RedisEnabled = false
 	common.GlobalApiRateLimitEnable = false
+	oldQuotaPerUnit := common.QuotaPerUnit
+	oldExchangeRate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	oldGroupRatio := ratio_setting.GroupRatio2JSONString()
+	common.QuotaPerUnit = 500000
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+	now := time.Now().Unix()
+	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+		Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90},
+	}, 0))
+	model.InvalidatePricingCache()
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = oldDB, oldLogDB
 		common.RedisEnabled = oldRedis
 		common.GlobalApiRateLimitEnable = oldRateLimit
+		common.QuotaPerUnit = oldQuotaPerUnit
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = oldExchangeRate
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroupRatio))
+		model.InvalidatePricingCache()
 		require.NoError(t, sqlDB.Close())
 	})
 	gin.SetMode(gin.TestMode)
@@ -101,6 +120,31 @@ func TestEffectivePricingPreviewRequiresRoot(t *testing.T) {
 			if tc.role == common.RoleRootUser {
 				assert.Contains(t, recorder.Header().Get("Cache-Control"), "no-store")
 				assert.Contains(t, recorder.Body.String(), "invalid user pricing group")
+			}
+		})
+	}
+
+	for _, tc := range []struct {
+		name   string
+		role   int
+		status int
+	}{
+		{name: "anonymous", status: http.StatusUnauthorized},
+		{name: "user", role: common.RoleCommonUser, status: http.StatusForbidden},
+		{name: "admin", role: common.RoleAdminUser, status: http.StatusForbidden},
+		{name: "root", role: common.RoleRootUser, status: http.StatusOK},
+	} {
+		t.Run("group_effective_"+tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/pricing/effective", nil)
+			if tc.role != 0 {
+				request.Header.Set("Authorization", "Bearer preview-test-"+tc.name)
+			}
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			assert.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			if tc.role == common.RoleRootUser {
+				assert.Contains(t, recorder.Header().Get("Cache-Control"), "no-store")
+				assert.Contains(t, recorder.Body.String(), "\"user_group\":\"default\"")
 			}
 		})
 	}

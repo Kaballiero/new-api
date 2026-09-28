@@ -7,7 +7,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -77,13 +76,13 @@ func GetEffectivePricingPreview(c *gin.Context) {
 		}
 		group = user.Group
 	}
-	basis, err := service.CurrentBillingFXBasis()
+	effectivePricing, err := getEffectivePricingResponse(group)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 	response := effectivePricingPreviewResponse{
-		effectivePricingResponse: buildEffectivePricingResponse(group, basis, model.GetPricing()),
+		effectivePricingResponse: effectivePricing,
 		AvailableUserGroups:      availableGroups,
 	}
 	common.ApiSuccess(c, response)

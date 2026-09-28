@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -55,6 +56,7 @@ var (
 	supportedEndpointMap map[string]common.EndpointInfo
 	lastGetPricingTime   time.Time
 	updatePricingLock    sync.Mutex
+	pricingRevision      atomic.Uint64
 
 	// 缓存映射：模型名 -> 启用分组 / 计费类型
 	modelEnableGroups     = make(map[string][]string)
@@ -79,6 +81,13 @@ func GetPricing() []Pricing {
 		}
 	}
 	return pricingMap
+}
+
+// GetPricingRevision identifies the currently published in-memory pricing
+// snapshot. Callers should read it after GetPricing so an expired snapshot has
+// already been refreshed.
+func GetPricingRevision() uint64 {
+	return pricingRevision.Load()
 }
 
 func InvalidatePricingCache() {
@@ -426,6 +435,7 @@ func updatePricing() {
 	modelEnableGroupsLock.Unlock()
 
 	lastGetPricingTime = time.Now()
+	pricingRevision.Add(1)
 }
 
 // GetSupportedEndpointMap 返回全局端点到路径的映射

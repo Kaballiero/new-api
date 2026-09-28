@@ -52,6 +52,7 @@ var translations = map[string]map[string]string{
 		"err.422":                "Unprocessable entity — well-formed but semantically invalid input",
 		"err.500":                "Internal server error — DB transaction failure or unhandled exception",
 		"err.502":                "Bad gateway — upstream provider (LLM API, model registry) failed",
+		"err.503":                "Service unavailable — current billing FX basis is unavailable or invalid",
 	},
 	"zh": {
 		"info.title":             "后台管理接口",
@@ -81,6 +82,7 @@ var translations = map[string]map[string]string{
 		"err.422":                "无法处理 — 请求格式正确但语义无效",
 		"err.500":                "服务器内部错误 — 数据库事务失败或未处理异常",
 		"err.502":                "网关错误 — 上游提供商（LLM API、模型注册表）失败",
+		"err.503":                "服务不可用 — 当前计费汇率基准不可用或无效",
 	},
 	"ru": {
 		"info.title":             "API администрирования и панели new-api",
@@ -110,6 +112,7 @@ var translations = map[string]map[string]string{
 		"err.422":                "Невозможно обработать — корректный синтаксис, но семантически невалидно",
 		"err.500":                "Внутренняя ошибка сервера — сбой транзакции БД или необработанное исключение",
 		"err.502":                "Ошибка шлюза — upstream провайдер (LLM API, реестр моделей) недоступен",
+		"err.503":                "Сервис недоступен — текущая база валютного пересчёта биллинга недоступна или некорректна",
 	},
 }
 

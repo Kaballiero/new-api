@@ -4060,8 +4060,7 @@
         },
         "required": [
           "user_id",
-          "access_token",
-          "initial_quota"
+          "access_token"
         ],
         "type": "object"
       },
@@ -28449,6 +28448,136 @@
         "summary": "获取定价信息",
         "tags": [
           "系统"
+        ]
+      }
+    },
+    "/api/pricing/effective": {
+      "get": {
+        "deprecated": false,
+        "description": "Returns the complete effective-pricing projection for a configured user group. Requires root dashboard access. Models unavailable to that user group are omitted.",
+        "parameters": [
+          {
+            "description": "Configured user group. Omitted or empty values use default.",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "default": "default",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectivePricingResponse"
+                }
+              }
+            },
+            "description": "Успех",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Неверный запрос — invalid_params, провалена валидация или другая клиентская ошибка"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Не авторизован — отсутствуют или невалидные учётные данные"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Доступ запрещён — недостаточно прав/роли или функция отключена"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Не найдено — ресурс не существует"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Конфликт — ресурс уже существует или состояние не допускает операцию"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Невозможно обработать — корректный синтаксис, но семантически невалидно"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Внутренняя ошибка сервера — сбой транзакции БД или необработанное исключение"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Ошибка шлюза — upstream провайдер (LLM API, реестр моделей) недоступен"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Сервис недоступен — текущая база валютного пересчёта биллинга недоступна или некорректна"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "get /api/pricing/effective",
+        "tags": [
+          "Uncategorized"
         ]
       }
     },

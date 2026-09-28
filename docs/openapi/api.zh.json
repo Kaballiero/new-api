@@ -4060,8 +4060,7 @@
         },
         "required": [
           "user_id",
-          "access_token",
-          "initial_quota"
+          "access_token"
         ],
         "type": "object"
       },
@@ -28449,6 +28448,136 @@
         "summary": "获取定价信息",
         "tags": [
           "系统"
+        ]
+      }
+    },
+    "/api/pricing/effective": {
+      "get": {
+        "deprecated": false,
+        "description": "Returns the complete effective-pricing projection for a configured user group. Requires root dashboard access. Models unavailable to that user group are omitted.",
+        "parameters": [
+          {
+            "description": "Configured user group. Omitted or empty values use default.",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "default": "default",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectivePricingResponse"
+                }
+              }
+            },
+            "description": "成功",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求错误 — 参数无效、校验失败或其他客户端错误"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "未授权 — 缺少或无效的认证凭据"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "禁止访问 — 角色/权限不足或功能未启用"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "未找到 — 引用的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "冲突 — 资源已存在或当前状态不允许此操作"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "无法处理 — 请求格式正确但语义无效"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务器内部错误 — 数据库事务失败或未处理异常"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "网关错误 — 上游提供商（LLM API、模型注册表）失败"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务不可用 — 当前计费汇率基准不可用或无效"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "get /api/pricing/effective",
+        "tags": [
+          "Uncategorized"
         ]
       }
     },

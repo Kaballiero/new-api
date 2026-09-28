@@ -3,7 +3,9 @@ package controller
 import (
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -138,6 +140,20 @@ type effectivePricingFormula struct {
 	OutputToRubFactor   float64 `json:"output_to_rub_factor"`
 }
 
+type effectivePricingCacheEntry struct {
+	pricingRevision uint64
+	basis           service.BillingFXBasis
+	usableGroups    map[string]string
+	autoGroups      []string
+	groupRatios     map[string]float64
+	response        effectivePricingResponse
+}
+
+var effectivePricingCache = struct {
+	sync.RWMutex
+	entries map[string]effectivePricingCacheEntry
+}{entries: make(map[string]effectivePricingCacheEntry)}
+
 // GetEffectivePricing returns a read-only per-user tariff projection. It does
 // not reuse /api/pricing's response contract and does not call debit paths.
 func GetEffectivePricing(c *gin.Context) {
@@ -146,14 +162,74 @@ func GetEffectivePricing(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to resolve user pricing group"})
 		return
 	}
-	basis, err := service.CurrentBillingFXBasis()
+	response, err := getEffectivePricingResponse(user.Group)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-
-	response := buildEffectivePricingResponse(user.Group, basis, model.GetPricing())
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
+}
+
+// GetEffectivePricingByGroup returns the same projection as the per-user
+// endpoint for a configured group without requiring a user in that group.
+func GetEffectivePricingByGroup(c *gin.Context) {
+	values := c.QueryArray("group")
+	if len(values) > 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid user pricing group"})
+		return
+	}
+	group := strings.TrimSpace(c.Query("group"))
+	if group == "" {
+		group = "default"
+	}
+	if group == "auto" || !ratio_setting.ContainsGroupRatio(group) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid user pricing group"})
+		return
+	}
+
+	response, err := getEffectivePricingResponse(group)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
+}
+
+func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, error) {
+	basis, err := service.CurrentBillingFXBasis()
+	if err != nil {
+		return effectivePricingResponse{}, err
+	}
+	pricing := model.GetPricing()
+	pricingRevision := model.GetPricingRevision()
+	usableGroups := service.GetUserUsableGroups(userGroup)
+	autoGroups := service.GetUserAutoGroup(userGroup)
+	groupRatios := make(map[string]float64, len(usableGroups))
+	for group := range usableGroups {
+		groupRatios[group] = service.GetUserGroupRatio(userGroup, group)
+	}
+
+	effectivePricingCache.RLock()
+	cached, ok := effectivePricingCache.entries[userGroup]
+	effectivePricingCache.RUnlock()
+	if ok && cached.pricingRevision == pricingRevision && cached.basis == basis &&
+		maps.Equal(cached.usableGroups, usableGroups) && slices.Equal(cached.autoGroups, autoGroups) &&
+		maps.Equal(cached.groupRatios, groupRatios) {
+		return cached.response, nil
+	}
+
+	response := buildEffectivePricingResponse(userGroup, basis, pricing)
+	effectivePricingCache.Lock()
+	effectivePricingCache.entries[userGroup] = effectivePricingCacheEntry{
+		pricingRevision: pricingRevision,
+		basis:           basis,
+		usableGroups:    maps.Clone(usableGroups),
+		autoGroups:      slices.Clone(autoGroups),
+		groupRatios:     maps.Clone(groupRatios),
+		response:        response,
+	}
+	effectivePricingCache.Unlock()
+	return response, nil
 }
 
 func buildEffectivePricingResponse(userGroup string, basis service.BillingFXBasis, pricing []model.Pricing) effectivePricingResponse {

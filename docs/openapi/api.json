@@ -4060,8 +4060,7 @@
         },
         "required": [
           "user_id",
-          "access_token",
-          "initial_quota"
+          "access_token"
         ],
         "type": "object"
       },
@@ -28449,6 +28448,136 @@
         "summary": "获取定价信息",
         "tags": [
           "系统"
+        ]
+      }
+    },
+    "/api/pricing/effective": {
+      "get": {
+        "deprecated": false,
+        "description": "Returns the complete effective-pricing projection for a configured user group. Requires root dashboard access. Models unavailable to that user group are omitted.",
+        "parameters": [
+          {
+            "description": "Configured user group. Omitted or empty values use default.",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "default": "default",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectivePricingResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request — invalid_params, validation failed, or other client error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized — missing or invalid auth credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden — insufficient role/permission or feature disabled"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Not found — referenced resource does not exist"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict — resource already exists or state precludes the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable entity — well-formed but semantically invalid input"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error — DB transaction failure or unhandled exception"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad gateway — upstream provider (LLM API, model registry) failed"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable — current billing FX basis is unavailable or invalid"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "get /api/pricing/effective",
+        "tags": [
+          "Uncategorized"
         ]
       }
     },
