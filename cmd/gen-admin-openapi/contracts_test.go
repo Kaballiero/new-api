@@ -208,6 +208,34 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 		assert.Equal(t, false, tokenID["required"])
 		assert.Equal(t, map[string]interface{}{"type": "integer", "minimum": 1}, tokenID["schema"])
 	}
+	for _, path := range []string{"/api/data/", "/api/data/self"} {
+		op := operation(path, "get")
+		var granularity map[string]interface{}
+		for _, parameter := range op["parameters"].([]interface{}) {
+			entry := parameter.(map[string]interface{})
+			if entry["name"] == "granularity" && entry["in"] == "query" {
+				granularity = entry
+				break
+			}
+		}
+		require.NotNil(t, granularity)
+		assert.Equal(t, false, granularity["required"])
+		assert.Equal(t, map[string]interface{}{"type": "string", "enum": []string{"hour", "day", "week", "month"}}, granularity["schema"])
+
+		response := op["responses"].(map[string]interface{})["400"].(map[string]interface{})
+		assert.Contains(t, response["x-error-codes"], "invalid_granularity")
+		examples := response["content"].(map[string]interface{})["application/json"].(map[string]interface{})["examples"].(map[string]interface{})
+		for _, code := range response["x-error-codes"].([]interface{}) {
+			assert.Contains(t, examples, code)
+		}
+	}
+	dataResponse := operation("/api/data/", "get")["responses"].(map[string]interface{})["400"].(map[string]interface{})
+	assert.Equal(t, []interface{}{"invalid_params", "invalid_granularity", "month_span_exceeded"}, dataResponse["x-error-codes"])
+	selfResponse := operation("/api/data/self", "get")["responses"].(map[string]interface{})["400"].(map[string]interface{})
+	assert.Equal(t, []interface{}{"invalid_token_id", "time_span_exceeded", "invalid_granularity"}, selfResponse["x-error-codes"])
+	for _, parameter := range operation("/api/data/users", "get")["parameters"].([]interface{}) {
+		assert.NotEqual(t, "granularity", parameter.(map[string]interface{})["name"])
+	}
 }
 
 func TestAllGeneratedSecurityReferencesAndAnonymousExceptions(t *testing.T) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -43,6 +44,47 @@ func normalizeGetAPIErrorSchema(schemas map[string]interface{}) {
 	code["enum"] = append([]string(nil), getAPIErrorCodes...)
 }
 
+// declareErrorCodes appends codes to an operation's x-error-codes catalog and
+// mirrors them into the response examples. analyzeHandler only inspects the
+// handler's own body, so codes emitted from a helper it calls stay invisible to
+// enrichErrorResponses and have to be declared here instead.
+func declareErrorCodes(op map[string]interface{}, status string, codes ...string) {
+	responses, _ := op["responses"].(map[string]interface{})
+	response, _ := responses[status].(map[string]interface{})
+	if response == nil {
+		return
+	}
+	catalog, _ := response["x-error-codes"].([]interface{})
+	catalog = append([]interface{}(nil), catalog...)
+	for _, code := range codes {
+		if !slices.Contains(catalog, interface{}(code)) {
+			catalog = append(catalog, code)
+		}
+	}
+	response["x-error-codes"] = catalog
+	content, _ := response["content"].(map[string]interface{})
+	appJSON, _ := content["application/json"].(map[string]interface{})
+	if appJSON == nil {
+		return
+	}
+	examples, _ := appJSON["examples"].(map[string]interface{})
+	if examples == nil {
+		examples = map[string]interface{}{}
+		appJSON["examples"] = examples
+	}
+	for _, entry := range catalog {
+		code, _ := entry.(string)
+		examples[code] = map[string]interface{}{
+			"summary": code,
+			"value": map[string]interface{}{
+				"success": false,
+				"code":    code,
+				"message": "<localized message>",
+			},
+		}
+	}
+}
+
 // AST discovery cannot infer validation expressed in ordinary control flow.
 // Keep the native sync preconditions explicit rather than documenting a legacy
 // no-body apply operation that the server deliberately rejects.
@@ -80,6 +122,30 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				parameters = append(parameters, map[string]interface{}{"name": "token_id", "in": "query", "required": false, "description": "", "schema": map[string]interface{}{"type": "integer", "minimum": 1}})
 			}
 			op["parameters"] = parameters
+		}
+		if route.HandlerName == "GetAllQuotaDates" || route.HandlerName == "GetUserQuotaDates" {
+			parameters, _ := op["parameters"].([]interface{})
+			schema := map[string]interface{}{"type": "string", "enum": []string{"hour", "day", "week", "month"}}
+			description := "Aggregation bucket. Omitted or empty returns the unchanged legacy rows. Any value — hour included — switches to the reduced aggregate projection (user_id, username, model_name, created_at, count, quota, token_used) whose created_at is the UTC start of the bucket; weeks start on Monday and month spans are limited to 120 months per request."
+			found := false
+			for _, parameter := range parameters {
+				entry, _ := parameter.(map[string]interface{})
+				if entry["name"] != "granularity" || entry["in"] != "query" {
+					continue
+				}
+				entry["schema"] = schema
+				entry["description"] = description
+				found = true
+			}
+			if !found {
+				parameters = append(parameters, map[string]interface{}{"name": "granularity", "in": "query", "required": false, "description": description, "schema": schema})
+			}
+			op["parameters"] = parameters
+			if route.HandlerName == "GetAllQuotaDates" {
+				declareErrorCodes(op, "400", "invalid_params", "invalid_granularity", "month_span_exceeded")
+			} else {
+				declareErrorCodes(op, "400", "invalid_granularity")
+			}
 		}
 		if route.HandlerName == "GetUsersBatch" {
 			parameters, _ := op["parameters"].([]interface{})

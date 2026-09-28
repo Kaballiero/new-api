@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -181,4 +182,158 @@ func TestGetUserFlowQuotaDatesRejectsInvalidTimeRange(t *testing.T) {
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
 	require.False(t, payload.Success)
 	require.Equal(t, "invalid start_timestamp", payload.Message)
+}
+
+type quotaDateRow struct {
+	UserID    int    `json:"user_id"`
+	Username  string `json:"username"`
+	ModelName string `json:"model_name"`
+	CreatedAt int64  `json:"created_at"`
+	TokenUsed int    `json:"token_used"`
+	Count     int    `json:"count"`
+	Quota     int    `json:"quota"`
+}
+
+type quotaDatesResponse struct {
+	Success bool           `json:"success"`
+	Message string         `json:"message"`
+	Code    string         `json:"code"`
+	Data    []quotaDateRow `json:"data"`
+}
+
+func requestQuotaDates(t *testing.T, handler gin.HandlerFunc, target string, userID int) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("id", userID)
+	ctx.Set("role", common.RoleRootUser)
+	ctx.Request = httptest.NewRequest(http.MethodGet, target, nil)
+	handler(ctx)
+	return recorder
+}
+
+func decodeQuotaDatesResponse(t *testing.T, recorder *httptest.ResponseRecorder) quotaDatesResponse {
+	t.Helper()
+	var payload quotaDatesResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	return payload
+}
+
+func TestQuotaDatesRejectUnsupportedGranularity(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	for _, testCase := range []struct {
+		name    string
+		handler gin.HandlerFunc
+		target  string
+	}{
+		{"all", GetAllQuotaDates, "/api/data?start_timestamp=1000&end_timestamp=2000&granularity=quarter"},
+		{"self", GetUserQuotaDates, "/api/data/self?start_timestamp=1000&end_timestamp=2000&granularity=quarter"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := requestQuotaDates(t, testCase.handler, testCase.target, 1)
+
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			payload := decodeQuotaDatesResponse(t, recorder)
+			assert.False(t, payload.Success)
+			assert.Equal(t, "invalid_granularity", payload.Code)
+			assert.Equal(t, "granularity must be one of hour, day, week, month", payload.Message)
+		})
+	}
+}
+
+func TestGetUserQuotaDatesKeepsLegacyRowsWithoutGranularity(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	recorder := requestQuotaDates(t, GetUserQuotaDates, "/api/data/self?start_timestamp=1000&end_timestamp=2000", 1)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	payload := decodeQuotaDatesResponse(t, recorder)
+	require.True(t, payload.Success, payload.Message)
+	assert.Equal(t, []quotaDateRow{
+		{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: 1100, Count: 2, Quota: 100, TokenUsed: 40},
+	}, payload.Data)
+}
+
+func TestGetUserQuotaDatesBucketsRowsByGranularity(t *testing.T) {
+	setupFlowControllerTestDB(t)
+	require.NoError(t, model.DB.Create(&model.QuotaData{UserID: 1, Username: "alice", TokenID: 11, ModelName: "gpt-a", CreatedAt: 90000, Count: 5, Quota: 250, TokenUsed: 90}).Error)
+
+	recorder := requestQuotaDates(t, GetUserQuotaDates, "/api/data/self?start_timestamp=1000&end_timestamp=100000&granularity=day", 1)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	payload := decodeQuotaDatesResponse(t, recorder)
+	require.True(t, payload.Success, payload.Message)
+	assert.Equal(t, []quotaDateRow{
+		{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: 0, Count: 2, Quota: 100, TokenUsed: 40},
+		{UserID: 1, Username: "alice", ModelName: "gpt-a", CreatedAt: 86400, Count: 5, Quota: 250, TokenUsed: 90},
+	}, payload.Data)
+}
+
+func TestGetAllQuotaDatesBucketsRowsWithoutUserDimensions(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	recorder := requestQuotaDates(t, GetAllQuotaDates, "/api/data?start_timestamp=1000&end_timestamp=2000&granularity=week", 1)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	payload := decodeQuotaDatesResponse(t, recorder)
+	require.True(t, payload.Success, payload.Message)
+	assert.Equal(t, []quotaDateRow{
+		{ModelName: "gpt-a", CreatedAt: -259200, Count: 2, Quota: 100, TokenUsed: 40},
+		{ModelName: "gpt-b", CreatedAt: -259200, Count: 1, Quota: 70, TokenUsed: 30},
+	}, payload.Data)
+}
+
+func TestGetAllQuotaDatesRejectsMonthSpanBeyondCap(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	recorder := requestQuotaDates(t, GetAllQuotaDates, "/api/data?start_timestamp=1577836800&end_timestamp=1896134400&granularity=month", 1)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	payload := decodeQuotaDatesResponse(t, recorder)
+	assert.False(t, payload.Success)
+	assert.Equal(t, "month_span_exceeded", payload.Code)
+}
+
+func TestGetAllQuotaDatesRejectsNonPositiveRangeOnlyWhenBucketed(t *testing.T) {
+	setupFlowControllerTestDB(t)
+
+	for _, testCase := range []struct {
+		name   string
+		target string
+	}{
+		{"missing start_timestamp", "/api/data?end_timestamp=1790000000&granularity=month"},
+		{"missing end_timestamp", "/api/data?start_timestamp=1000&granularity=day"},
+		{"non-numeric start_timestamp", "/api/data?start_timestamp=abc&end_timestamp=2000&granularity=day"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := requestQuotaDates(t, GetAllQuotaDates, testCase.target, 1)
+
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			payload := decodeQuotaDatesResponse(t, recorder)
+			assert.False(t, payload.Success)
+			assert.Equal(t, "invalid_params", payload.Code)
+		})
+	}
+
+	t.Run("legacy path keeps its unvalidated behaviour", func(t *testing.T) {
+		recorder := requestQuotaDates(t, GetAllQuotaDates, "/api/data?end_timestamp=1790000000", 1)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		payload := decodeQuotaDatesResponse(t, recorder)
+		require.True(t, payload.Success, payload.Message)
+		assert.Equal(t, []quotaDateRow{
+			{ModelName: "gpt-a", CreatedAt: 1100, Count: 2, Quota: 100, TokenUsed: 40},
+			{ModelName: "gpt-b", CreatedAt: 1200, Count: 1, Quota: 70, TokenUsed: 30},
+		}, payload.Data)
+	})
+
+	t.Run("legacy path still returns an empty list without end_timestamp", func(t *testing.T) {
+		recorder := requestQuotaDates(t, GetAllQuotaDates, "/api/data?start_timestamp=1000", 1)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		payload := decodeQuotaDatesResponse(t, recorder)
+		require.True(t, payload.Success, payload.Message)
+		assert.Empty(t, payload.Data)
+	})
 }
