@@ -125,6 +125,55 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 			responses[strconv.Itoa(h.RespStatus)] = responses["200"]
 			delete(responses, "200")
 		}
+		if route.Method == "GET" && route.Path == "/api/system-task/current" && route.HandlerName == "GetCurrentSystemTask" {
+			parameters, _ := op["parameters"].([]any)
+			for _, parameter := range parameters {
+				entry, _ := parameter.(map[string]any)
+				if entry["name"] == "type" && entry["in"] == "query" {
+					entry["schema"] = map[string]any{"type": "string"}
+					entry["required"] = true
+				}
+			}
+			data := structToSchema(modelTypes["SystemTaskResponse"])
+			data["nullable"] = true
+			response := op["responses"].(map[string]any)["200"].(map[string]any)
+			response["content"].(map[string]any)["application/json"].(map[string]any)["schema"] = wrapResponse(data)
+		}
+		if route.Method == "GET" && route.Path == "/api/channel/test" && route.HandlerName == "TestAllChannels" {
+			for _, status := range []string{"200", "409"} {
+				properties := map[string]any{
+					"task_id": map[string]any{"type": "string"},
+					"status":  map[string]any{"type": "string"},
+				}
+				required := []string{"task_id", "status"}
+				if status == "409" {
+					properties["type"] = map[string]any{"type": "string"}
+					required = append(required, "type")
+				}
+				schema := wrapResponse(map[string]any{"type": "object", "properties": properties, "required": required})
+				schema["required"] = []string{"success", "message", "data"}
+				schema["properties"].(map[string]any)["success"] = map[string]any{"type": "boolean", "enum": []bool{status == "200"}}
+				response := op["responses"].(map[string]any)[status].(map[string]any)
+				response["content"].(map[string]any)["application/json"].(map[string]any)["schema"] = schema
+			}
+		}
+		if route.Method == "GET" && route.Path == "/api/channel/test/{id}" && route.HandlerName == "TestChannel" {
+			for _, status := range []string{"422", "502"} {
+				schema := map[string]any{
+					"type":     "object",
+					"required": []string{"success", "code", "message", "time", "data"},
+					"properties": map[string]any{
+						"success": map[string]any{"type": "boolean", "enum": []bool{false}},
+						"code":    map[string]any{"type": "string", "enum": []string{"channel_test_failed"}},
+						"message": map[string]any{"type": "string"},
+						"time":    map[string]any{"type": "number"},
+						"data":    map[string]any{"$ref": "#/components/schemas/ChannelTestResponse"},
+					},
+				}
+				response := op["responses"].(map[string]any)[status].(map[string]any)
+				response["content"].(map[string]any)["application/json"].(map[string]any)["schema"] = schema
+			}
+		}
 		if route.HandlerName == "ProvisionGetAPIUser" {
 			enrichGetAPIContract(op, true)
 		}
@@ -192,6 +241,56 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 		}
 		if route.HandlerName == "VerifyLogin" || route.HandlerName == "LoginPasskeyFinish" {
 			op["responses"].(map[string]interface{})["200"] = buildResponse(respSpec{Custom: "LoginSessionResponse"})["200"]
+		}
+		if route.Method == "GET" && route.Path == "/api/ratio_sync/channels" && route.HandlerName == "GetSyncableChannels" {
+			referencedTypes["SyncableChannel"] = true
+			schema := wrapResponse(map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/SyncableChannel"}})
+			schema["required"] = []string{"success", "message", "data"}
+			op["responses"].(map[string]any)["200"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)["schema"] = schema
+		}
+		if route.HandlerName == "FetchUpstreamRatios" {
+			referencedTypes["DifferenceItem"] = true
+			referencedTypes["TestResult"] = true
+			op["responses"].(map[string]interface{})["200"] = buildResponse(respSpec{Custom: "RatioSyncResponse"})["200"]
+		}
+		if route.HandlerName == "UpdateChannel" {
+			schema := structToSchema(modelTypes["Channel"])
+			properties := schema["properties"].(map[string]any)
+			delete(properties, "status")
+			properties["key_mode"] = map[string]any{"type": "string", "nullable": true, "enum": []any{"append", "replace", nil}}
+			properties["multi_key_mode"] = map[string]any{"type": "string", "nullable": true, "enum": []any{"random", "polling", nil}}
+			delete(schema, "required")
+			op["requestBody"] = map[string]any{
+				"required": true,
+				"content": map[string]any{
+					"application/json": map[string]any{"schema": schema},
+				},
+			}
+		}
+		if route.HandlerName == "GetModelPricingConfig" {
+			parameters, _ := op["parameters"].([]any)
+			parameters = slices.DeleteFunc(parameters, func(parameter any) bool {
+				entry, _ := parameter.(map[string]any)
+				return entry["name"] == "model" && entry["in"] == "query"
+			})
+			op["parameters"] = append(parameters, map[string]any{
+				"name":     "model",
+				"in":       "query",
+				"required": false,
+				"style":    "form",
+				"explode":  true,
+				"schema": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
+			})
+		}
+		if route.HandlerName == "UpdateModelPricingConfig" {
+			body := op["requestBody"].(map[string]interface{})
+			body["required"] = true
+			schema := body["content"].(map[string]interface{})["application/json"].(map[string]interface{})["schema"].(map[string]interface{})
+			schema["required"] = []string{"changes"}
+			schema["properties"].(map[string]interface{})["changes"].(map[string]interface{})["minItems"] = 1
 		}
 		if route.HandlerName == "SyncUpstreamModels" {
 			body := op["requestBody"].(map[string]interface{})
@@ -330,4 +429,58 @@ func enrichGetAPIContract(op map[string]interface{}, provision bool) {
 		op["parameters"] = []interface{}{}
 		op["requestBody"] = map[string]interface{}{"required": true, "content": map[string]interface{}{"application/json": map[string]interface{}{"schema": map[string]interface{}{"$ref": "#/components/schemas/GetApiCreateUserRequest"}}}}
 	}
+}
+
+func enrichPricingTransportSchemas(schemas map[string]interface{}) {
+	for name, fields := range map[string][]string{
+		"ModelPricingSnapshot": {"entries", "options", "empty_version"},
+		"ModelPricingEntry":    {"model_name", "version", "configured", "effective"},
+		"ModelPricingChange":   {"model_name", "expected_version"},
+		"DifferenceItem":       {"current", "upstreams", "confidence"},
+		"TestResult":           {"name", "status"},
+		"SyncableChannel":      {"id", "name", "base_url", "status", "type"},
+		"UpstreamDTO":          {"name", "base_url"},
+	} {
+		if schema, ok := schemas[name].(map[string]interface{}); ok {
+			schema["required"] = fields
+		}
+	}
+	if schema, ok := schemas["ModelPricingChange"].(map[string]interface{}); ok {
+		schema["properties"].(map[string]interface{})["pricing"] = map[string]interface{}{
+			"type": "object", "additionalProperties": exprToSchema(modelMaps["PricingValues"].Value), "nullable": true,
+		}
+	}
+	if schema, ok := schemas["TestResult"].(map[string]any); ok {
+		schema["properties"].(map[string]any)["status"] = map[string]any{"type": "string", "enum": []string{"success", "error"}}
+	}
+	scalar := map[string]any{"oneOf": []any{map[string]any{"type": "number", "nullable": true}, map[string]any{"type": "string"}}}
+	if schema, ok := schemas["DifferenceItem"].(map[string]any); ok {
+		properties := schema["properties"].(map[string]any)
+		properties["current"] = scalar
+		properties["upstreams"] = map[string]any{"type": "object", "additionalProperties": scalar}
+	}
+	pricingProperties := map[string]any{}
+	for _, field := range []string{"model_ratio", "completion_ratio", "cache_ratio", "create_cache_ratio", "image_ratio", "audio_ratio", "audio_completion_ratio", "model_price"} {
+		pricingProperties[field] = map[string]any{"type": "number", "minimum": 0}
+	}
+	pricingProperties["billing_mode"] = map[string]any{"type": "string", "enum": []string{"ratio", "tiered_expr"}}
+	pricingProperties["billing_expr"] = map[string]any{"type": "string"}
+	schemas["UpstreamPricingValues"] = map[string]any{"type": "object", "properties": pricingProperties, "additionalProperties": false}
+	schemas["RatioSyncData"] = map[string]interface{}{
+		"type":     "object",
+		"required": []string{"differences", "prices", "test_results"},
+		"properties": map[string]interface{}{
+			"differences": map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"$ref": "#/components/schemas/DifferenceItem"}}},
+			"prices": map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{
+				"type": "object", "required": []string{"current", "upstreams"},
+				"properties": map[string]interface{}{
+					"current":   map[string]interface{}{"$ref": "#/components/schemas/UpstreamPricingValues"},
+					"upstreams": map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"$ref": "#/components/schemas/UpstreamPricingValues"}},
+				},
+			}},
+			"test_results": map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/TestResult"}},
+		},
+	}
+	schemas["RatioSyncResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/RatioSyncData"})
+	schemas["RatioSyncResponse"].(map[string]interface{})["required"] = []string{"success", "data"}
 }

@@ -14,6 +14,8 @@ import (
 // Populated by parseModels.
 var modelTypes = map[string]*ast.StructType{}
 
+var modelMaps = map[string]*ast.MapType{}
+
 // modelAliases maps non-struct type aliases (e.g. type TaskStatus string) → underlying primitive.
 var modelAliases = map[string]string{}
 
@@ -221,6 +223,8 @@ func parseModels(dir string) error {
 					case *ast.StructType:
 						modelTypes[ts.Name.Name] = t
 						recordStructFields(ts.Name.Name, t)
+					case *ast.MapType:
+						modelMaps[ts.Name.Name] = t
 					case *ast.Ident:
 						modelAliases[ts.Name.Name] = t.Name
 					case *ast.SelectorExpr:
@@ -288,6 +292,10 @@ func buildSchemas() map[string]interface{} {
 	// so the recursive loop below builds them and wrappers can $ref them.
 	referencedTypes["Pricing"] = true
 	referencedTypes["Vendor"] = true
+	referencedTypes["ModelPricingSnapshot"] = true
+	referencedTypes["ModelPricingChange"] = true
+	referencedTypes["DifferenceItem"] = true
+	referencedTypes["TestResult"] = true
 
 	// Recursively add transitive deps.
 	for {
@@ -296,11 +304,13 @@ func buildSchemas() map[string]interface{} {
 			if _, done := out[name]; done {
 				continue
 			}
-			st, ok := modelTypes[name]
-			if !ok {
+			if st, ok := modelTypes[name]; ok {
+				out[name] = structToSchema(st)
+			} else if mt, ok := modelMaps[name]; ok {
+				out[name] = exprToSchema(mt)
+			} else {
 				continue
 			}
-			out[name] = structToSchema(st)
 			added = true
 		}
 		if !added {
@@ -668,11 +678,13 @@ func buildSchemas() map[string]interface{} {
 			if _, done := out[name]; done {
 				continue
 			}
-			st, ok := modelTypes[name]
-			if !ok {
+			if st, ok := modelTypes[name]; ok {
+				out[name] = structToSchema(st)
+			} else if mt, ok := modelMaps[name]; ok {
+				out[name] = exprToSchema(mt)
+			} else {
 				continue
 			}
-			out[name] = structToSchema(st)
 			added = true
 		}
 		if !added {
@@ -680,6 +692,7 @@ func buildSchemas() map[string]interface{} {
 		}
 	}
 
+	enrichPricingTransportSchemas(out)
 	return out
 }
 
@@ -871,6 +884,10 @@ func identToSchema(name string) map[string]interface{} {
 	// Alias to primitive?
 	if alias, ok := modelAliases[name]; ok {
 		return identToSchema(alias)
+	}
+	if _, ok := modelMaps[name]; ok {
+		referencedTypes[name] = true
+		return map[string]interface{}{"$ref": "#/components/schemas/" + name}
 	}
 	// Struct type from model package — emit $ref and queue.
 	if _, ok := modelTypes[name]; ok {

@@ -60,7 +60,7 @@ func bootstrap() error {
 	if err := parseModels("./model"); err != nil {
 		return fmt.Errorf("parse models: %w", err)
 	}
-	for _, dir := range []string{"./dto", "./relaykit/dto", "./pkg/ionet"} {
+	for _, dir := range []string{"./dto", "./relaykit/dto", "./pkg/ionet", "./pkg/jsplugin"} {
 		if err := parseModels(dir); err != nil {
 			return fmt.Errorf("parse %s: %w", dir, err)
 		}

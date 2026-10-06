@@ -3469,6 +3469,47 @@
         },
         "type": "object"
       },
+      "DifferenceItem": {
+        "properties": {
+          "confidence": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object"
+          },
+          "current": {
+            "oneOf": [
+              {
+                "nullable": true,
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "upstreams": {
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "nullable": true,
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "current",
+          "upstreams",
+          "confidence"
+        ],
+        "type": "object"
+      },
       "DiskCacheInfo": {
         "properties": {
           "exists": {
@@ -4302,6 +4343,12 @@
         },
         "type": "object"
       },
+      "LocalizedText": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
       "Location": {
         "properties": {
           "available": {
@@ -5101,23 +5148,37 @@
           "model_name": {
             "type": "string"
           },
-          "pricing": {},
+          "pricing": {
+            "additionalProperties": {
+              "description": "Any value."
+            },
+            "nullable": true,
+            "type": "object"
+          },
           "reset": {
             "type": "boolean"
           }
         },
+        "required": [
+          "model_name",
+          "expected_version"
+        ],
         "type": "object"
       },
       "ModelPricingEntry": {
         "properties": {
-          "configured": {},
-          "effective": {},
+          "configured": {
+            "$ref": "#/components/schemas/PricingValues"
+          },
+          "effective": {
+            "$ref": "#/components/schemas/PricingValues"
+          },
           "model_name": {
             "type": "string"
           },
           "usage_schema": {
             "additionalProperties": {
-              "type": "string"
+              "$ref": "#/components/schemas/UsageFieldSchema"
             },
             "type": "object"
           },
@@ -5125,6 +5186,12 @@
             "type": "string"
           }
         },
+        "required": [
+          "model_name",
+          "version",
+          "configured",
+          "effective"
+        ],
         "type": "object"
       },
       "ModelPricingSnapshot": {
@@ -5145,6 +5212,11 @@
             "type": "object"
           }
         },
+        "required": [
+          "entries",
+          "options",
+          "empty_version"
+        ],
         "type": "object"
       },
       "ModelValidationResult": {
@@ -5514,13 +5586,13 @@
           },
           "billing_usage_examples": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/UsageExample"
             },
             "type": "array"
           },
           "billing_usage_schema": {
             "additionalProperties": {
-              "type": "string"
+              "$ref": "#/components/schemas/UsageFieldSchema"
             },
             "type": "object"
           },
@@ -5623,6 +5695,12 @@
             },
             "type": "array"
           }
+        },
+        "type": "object"
+      },
+      "PricingValues": {
+        "additionalProperties": {
+          "description": "Any value."
         },
         "type": "object"
       },
@@ -5818,6 +5896,70 @@
             "type": "object"
           }
         },
+        "type": "object"
+      },
+      "RatioSyncData": {
+        "properties": {
+          "differences": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/DifferenceItem"
+              },
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "prices": {
+            "additionalProperties": {
+              "properties": {
+                "current": {
+                  "$ref": "#/components/schemas/UpstreamPricingValues"
+                },
+                "upstreams": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/UpstreamPricingValues"
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "current",
+                "upstreams"
+              ],
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "test_results": {
+            "items": {
+              "$ref": "#/components/schemas/TestResult"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "differences",
+          "prices",
+          "test_results"
+        ],
+        "type": "object"
+      },
+      "RatioSyncResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RatioSyncData"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
         "type": "object"
       },
       "Redemption": {
@@ -6165,6 +6307,13 @@
             "type": "integer"
           }
         },
+        "required": [
+          "id",
+          "name",
+          "base_url",
+          "status",
+          "type"
+        ],
         "type": "object"
       },
       "SystemInstanceResponse": {
@@ -6359,9 +6508,17 @@
             "type": "string"
           },
           "status": {
+            "enum": [
+              "success",
+              "error"
+            ],
             "type": "string"
           }
         },
+        "required": [
+          "name",
+          "status"
+        ],
         "type": "object"
       },
       "TokenBatch": {
@@ -6710,6 +6867,58 @@
             "type": "string"
           }
         },
+        "required": [
+          "name",
+          "base_url"
+        ],
+        "type": "object"
+      },
+      "UpstreamPricingValues": {
+        "additionalProperties": false,
+        "properties": {
+          "audio_completion_ratio": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "audio_ratio": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "billing_expr": {
+            "type": "string"
+          },
+          "billing_mode": {
+            "enum": [
+              "ratio",
+              "tiered_expr"
+            ],
+            "type": "string"
+          },
+          "cache_ratio": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "completion_ratio": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "create_cache_ratio": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "image_ratio": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "model_price": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "model_ratio": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
         "type": "object"
       },
       "UpstreamRequest": {
@@ -6759,6 +6968,46 @@
           },
           "uptime": {
             "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "UsageExample": {
+        "properties": {
+          "facts": {
+            "additionalProperties": {
+              "description": "Any value."
+            },
+            "type": "object"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UsageFieldSchema": {
+        "properties": {
+          "description": {
+            "$ref": "#/components/schemas/LocalizedText"
+          },
+          "enum": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enumLabels": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LocalizedText"
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -9210,10 +9459,118 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Channel"
+                "properties": {
+                  "auto_ban": {
+                    "type": "integer"
+                  },
+                  "balance": {
+                    "type": "number"
+                  },
+                  "balance_updated_time": {
+                    "type": "integer"
+                  },
+                  "base_url": {
+                    "type": "string"
+                  },
+                  "channel_info": {
+                    "$ref": "#/components/schemas/ChannelInfo"
+                  },
+                  "created_time": {
+                    "type": "integer"
+                  },
+                  "group": {
+                    "type": "string"
+                  },
+                  "header_override": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "integer"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "key_mode": {
+                    "enum": [
+                      "append",
+                      "replace",
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "model_mapping": {
+                    "type": "string"
+                  },
+                  "models": {
+                    "type": "string"
+                  },
+                  "multi_key_mode": {
+                    "enum": [
+                      "random",
+                      "polling",
+                      null
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "openai_organization": {
+                    "type": "string"
+                  },
+                  "other": {
+                    "type": "string"
+                  },
+                  "other_info": {
+                    "type": "string"
+                  },
+                  "param_override": {
+                    "type": "string"
+                  },
+                  "priority": {
+                    "type": "integer"
+                  },
+                  "remark": {
+                    "type": "string"
+                  },
+                  "response_time": {
+                    "type": "integer"
+                  },
+                  "setting": {
+                    "type": "string"
+                  },
+                  "settings": {
+                    "type": "string"
+                  },
+                  "status_code_mapping": {
+                    "type": "string"
+                  },
+                  "tag": {
+                    "type": "string"
+                  },
+                  "test_model": {
+                    "type": "string"
+                  },
+                  "test_time": {
+                    "type": "integer"
+                  },
+                  "type": {
+                    "type": "integer"
+                  },
+                  "used_quota": {
+                    "type": "integer"
+                  },
+                  "weight": {
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -12086,7 +12443,38 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponseOfChannelTestResponse"
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "status": {
+                          "type": "string"
+                        },
+                        "task_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "task_id",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "enum": [
+                        true
+                      ],
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -12137,7 +12525,42 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "status": {
+                          "type": "string"
+                        },
+                        "task_id": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "task_id",
+                        "status",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -12320,7 +12743,37 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "channel_test_failed"
+                      ],
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ChannelTestResponse"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    },
+                    "time": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "code",
+                    "message",
+                    "time",
+                    "data"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -12353,7 +12806,37 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "channel_test_failed"
+                      ],
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ChannelTestResponse"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    },
+                    "time": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "code",
+                    "message",
+                    "time",
+                    "data"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -24319,7 +24802,21 @@
       "get": {
         "deprecated": false,
         "description": "Auto-generated entry. Add a manual summary/description in api.json.",
-        "parameters": [],
+        "parameters": [
+          {
+            "explode": true,
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "style": "form"
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -24436,13 +24933,18 @@
                     "items": {
                       "$ref": "#/components/schemas/ModelPricingChange"
                     },
+                    "minItems": 1,
                     "type": "array"
                   }
                 },
+                "required": [
+                  "changes"
+                ],
                 "type": "object"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -29063,7 +29565,10 @@
                 "schema": {
                   "properties": {
                     "data": {
-                      "$ref": "#/components/schemas/SyncableChannel"
+                      "items": {
+                        "$ref": "#/components/schemas/SyncableChannel"
+                      },
+                      "type": "array"
                     },
                     "message": {
                       "type": "string"
@@ -29072,6 +29577,11 @@
                       "type": "boolean"
                     }
                   },
+                  "required": [
+                    "success",
+                    "message",
+                    "data"
+                  ],
                   "type": "object"
                 }
               }
@@ -29190,25 +29700,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "data": {
-                      "properties": {
-                        "differences": {},
-                        "prices": {},
-                        "test_results": {
-                          "$ref": "#/components/schemas/TestResult"
-                        }
-                      },
-                      "type": "object"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "boolean"
-                    }
-                  },
-                  "type": "object"
+                  "$ref": "#/components/schemas/RatioSyncResponse"
                 }
               }
             },
@@ -34361,9 +34853,9 @@
             "description": "",
             "in": "query",
             "name": "type",
-            "required": false,
+            "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             }
           }
         ],
@@ -34372,7 +34864,60 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponseOfSystemTaskResponse"
+                  "properties": {
+                    "data": {
+                      "nullable": true,
+                      "properties": {
+                        "active_key": {
+                          "type": "string"
+                        },
+                        "created_at": {
+                          "type": "integer"
+                        },
+                        "error": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "integer"
+                        },
+                        "locked_by": {
+                          "type": "string"
+                        },
+                        "payload": {
+                          "description": "Any value."
+                        },
+                        "result": {
+                          "description": "Any value."
+                        },
+                        "state": {
+                          "description": "Any value."
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "task_id": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "updated_at": {
+                          "type": "integer"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "type": "object"
                 }
               }
             },
