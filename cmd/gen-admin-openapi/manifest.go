@@ -131,7 +131,7 @@ var manifest = map[string]map[string]respSpec{
 	"/api/channel/{id}":                {"get": {Type: "Channel"}, "delete": {Empty: true}},
 	"/api/channel/{id}/key":            {"post": {Type: "ChannelKeyResponse"}},
 	"/api/channel/search":              {"get": {Type: "SearchChannelsResponse"}},
-	"/api/channel/test":                {"get": {Type: "ChannelTestResponse"}},
+	"/api/channel/test":                {"get": {Empty: true}},
 	"/api/channel/test/{id}":           {"get": {Type: "ChannelTestResponse"}},
 	"/api/channel/update_balance":      {"get": {Empty: true}},
 	"/api/channel/update_balance/{id}": {"get": {Custom: "ChannelBalanceEnvelope"}},
