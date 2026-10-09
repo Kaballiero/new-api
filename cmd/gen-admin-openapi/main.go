@@ -178,6 +178,11 @@ func run(locale string) error {
 			}
 			if name == "GetApiCreateUserRequest" {
 				schema["required"] = []string{"username", "password", "display_name"}
+				props := schema["properties"].(map[string]interface{})
+				props["initial_quota"] = map[string]interface{}{
+					"type": "integer", "minimum": 0, "maximum": 2147483647,
+					"description": "Initial user quota in quota units. Omit to use the configured new-user quota; zero disables the initial grant.",
+				}
 			}
 		}
 	}

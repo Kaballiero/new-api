@@ -43,10 +43,11 @@ var (
 const maxProvisionedUserGroupRunes = 64
 
 type GetAPICreateUserRequest struct {
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	DisplayName string `json:"display_name"`
-	Group       string `json:"group,omitempty"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+	DisplayName  string `json:"display_name"`
+	Group        string `json:"group,omitempty"`
+	InitialQuota *int   `json:"initial_quota,omitempty"`
 }
 type GetAPICredential struct {
 	UserID      int     `json:"user_id"`
@@ -72,6 +73,9 @@ type GetAPIInitializePATResult struct {
 }
 
 func ProvisionGetAPIUser(principalRole int, request GetAPICreateUserRequest) (*GetAPICreateCredential, error) {
+	if request.InitialQuota != nil && (*request.InitialQuota < 0 || *request.InitialQuota > common.MaxQuota) {
+		return nil, ErrGetAPIInvalidRequest
+	}
 	if utf8.RuneCountInString(request.Group) > maxProvisionedUserGroupRunes || (request.Group != "" && !ratio_setting.ContainsGroupRatio(request.Group)) {
 		return nil, ErrGetAPIInvalidRequest
 	}
@@ -108,6 +112,12 @@ func ProvisionGetAPIUser(principalRole int, request GetAPICreateUserRequest) (*G
 		}
 		if user.Role >= principalRole {
 			return ErrGetAPICapabilityDenied
+		}
+		if request.InitialQuota != nil {
+			user.Quota = *request.InitialQuota
+			if err := tx.Model(&user).Update("quota", user.Quota).Error; err != nil {
+				return ErrGetAPICredentialUnavailable
+			}
 		}
 		credential = &GetAPICreateCredential{
 			UserID:       user.Id,

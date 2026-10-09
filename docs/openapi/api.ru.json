@@ -4181,6 +4181,12 @@
             "maxLength": 20,
             "type": "string"
           },
+          "initial_quota": {
+            "description": "Initial user quota in quota units. Omit to use the configured new-user quota; zero disables the initial grant.",
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
           "password": {
             "maxLength": 128,
             "minLength": 8,
