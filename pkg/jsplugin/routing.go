@@ -348,6 +348,7 @@ var reservedRouteNamespaces = []string{
 	"/assets",
 	"/setup",
 	"/v1/tasks",
+	"/v1/batches",
 	"/console",
 	"/login",
 	"/forbidden",

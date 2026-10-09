@@ -28,7 +28,7 @@ import { createAppQueryClient } from '@/lib/query-client'
 import { useAuthStore } from '@/stores/auth-store'
 import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 
-import type { ModelPricingConfig } from '../api'
+import type { ModelPricingChange, ModelPricingConfig } from '../api'
 import { ModelPricingPanel } from '../model-pricing-panel'
 import { pricingOptions } from '../pricing'
 
@@ -178,6 +178,10 @@ it.each([200, 400])(
     ).toHaveTextContent('85.46 ₽ / 1M tokens')
     await user.clear(price)
     await user.type(price, '3')
+    const batch = screen.getByRole('textbox', {
+      name: 'Batch pricing expression',
+    })
+    await user.type(batch, 'p * 0.5 + c * 1')
     const save = screen.getByRole('button', { name: 'Save model prices' })
     await user.click(save)
     await waitFor(() =>
@@ -185,6 +189,7 @@ it.each([200, 400])(
     )
     expect(await screen.findByRole('alert')).toHaveTextContent(message)
     expect(price).toHaveValue('3')
+    expect(batch).toHaveValue('p * 0.5 + c * 1')
     await waitFor(() => expect(save).toBeEnabled())
     await user.click(save)
     await waitFor(() =>
@@ -195,5 +200,93 @@ it.each([200, 400])(
     )
     expect(requests).toHaveLength(2)
     expect(requests[0]).toContain('p * 3')
+    expect(requests[0]).toContain(
+      '"billing_setting.batch_billing_expr":"p * 0.5 + c * 1"'
+    )
   }
 )
+
+it('saves and clears Batch pricing while preserving ordinary pricing after readback', async () => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 1, username: 'administrator', role: 100 })
+  const snapshot: ModelPricingConfig = {
+    entries: [
+      {
+        model_name: 'example',
+        version: 'v1',
+        configured: { ModelPrice: 1 },
+        effective: { ModelPrice: 1 },
+      },
+    ],
+    options: pricingOptions({}),
+    empty_version: 'empty',
+  }
+  const changes: ModelPricingChange[] = []
+  api.defaults.adapter = async (config) => {
+    let data: unknown = { success: true, data: [] }
+    if (config.url === '/api/status') {
+      data = { success: true, data: {} }
+    }
+    if (config.url === '/api/pricing') {
+      data = { success: true, data: [], vendors: [] }
+    }
+    if (config.url === '/api/option/effective_pricing') {
+      data = {
+        success: true,
+        data: {
+          currency: 'RUB',
+          user_group: 'default',
+          fx: { usd_rate: 90, publication_version: 1, fetched_at: 1 },
+          data: [],
+        },
+      }
+    }
+    if (config.url === '/api/option/model_pricing') {
+      if (config.method === 'patch') {
+        const change = (
+          JSON.parse(config.data) as { changes: ModelPricingChange[] }
+        ).changes[0]
+        changes.push(change)
+        snapshot.entries[0] = {
+          model_name: 'example',
+          version: `v${changes.length + 1}`,
+          configured: change.pricing,
+          effective: change.pricing,
+        }
+      }
+      data = { success: true, data: snapshot }
+    }
+    return { data, status: 200, statusText: 'OK', headers: {}, config }
+  }
+  client = createAppQueryClient()
+  const dirty = vi.fn()
+  render(
+    <QueryClientProvider client={client}>
+      <ModelPricingPanel modelName='example' onDirtyChange={dirty} />
+    </QueryClientProvider>
+  )
+  const user = userEvent.setup()
+  const batch = await screen.findByRole('textbox', {
+    name: 'Batch pricing expression',
+  })
+  await user.type(batch, 'p * 0.5 + c * 1')
+  await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(true))
+  await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+  await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false))
+  expect(changes[0].pricing).toMatchObject({
+    ModelPrice: 1,
+    'billing_setting.batch_billing_expr': 'p * 0.5 + c * 1',
+  })
+  expect(batch).toHaveValue('p * 0.5 + c * 1')
+  await user.clear(batch)
+  await user.click(screen.getByRole('button', { name: 'Save model prices' }))
+  await waitFor(() => expect(dirty).toHaveBeenLastCalledWith(false))
+  expect(changes).toHaveLength(2)
+  expect(changes[1].expected_version).toBe('v2')
+  expect(changes[1].pricing).toMatchObject({ ModelPrice: 1 })
+  expect(changes[1].pricing).not.toHaveProperty(
+    'billing_setting.batch_billing_expr'
+  )
+  expect(batch).toHaveValue('')
+})

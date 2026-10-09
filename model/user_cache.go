@@ -9,21 +9,24 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-const userCacheSchemaVersion = 2
+const userCacheSchemaVersion = 3
 
 type UserBase struct {
-	Id          int    `json:"id"`
-	Group       string `json:"group"`
-	Email       string `json:"email"`
-	Quota       int    `json:"quota"`
-	Status      int    `json:"status"`
-	Role        int    `json:"role"`
-	Username    string `json:"username"`
-	Setting     string `json:"setting"`
-	AuthVersion int64  `json:"-"`
-	CacheSchema int    `json:"-"`
+	Id                int    `json:"id"`
+	Group             string `json:"group"`
+	Email             string `json:"email"`
+	Quota             int    `json:"quota"`
+	BatchHeldQuota    int64  `json:"-"`
+	BatchQuotaVersion int64  `json:"-"`
+	Status            int    `json:"status"`
+	Role              int    `json:"role"`
+	Username          string `json:"username"`
+	Setting           string `json:"setting"`
+	AuthVersion       int64  `json:"-"`
+	CacheSchema       int    `json:"-"`
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {
@@ -95,21 +98,34 @@ func GetUserCache(userId int) (*UserBase, error) {
 	// Redis misses and read failures both fall back to the shared database. A
 	// version fence newer than the database is the one exception: allowing that
 	// snapshot would re-authorize a user while a restrictive update is pending.
-	user, err := GetUserById(userId, false)
-	if err != nil {
-		return nil, err
+	var user User
+	if !common.RedisEnabled {
+		loaded, err := GetUserById(userId, false)
+		if err != nil {
+			return nil, err
+		}
+		return loaded.ToBaseUser(), nil
 	}
-	if common.RedisEnabled {
+	// Serialize cold fills with Batch account changes. Otherwise a DB snapshot
+	// read before settlement could be published after its cache event was acked.
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Omit("password", "access_token").First(&user, userId).Error; err != nil {
+			return err
+		}
 		floor, floorErr := getUserAuthVersionFloor(userId)
 		if floorErr == nil && floor > user.AuthVersion {
-			return nil, ErrUserAuthCachePending
+			return ErrUserAuthCachePending
 		}
-		if err := populateUserCache(*user); err != nil {
+		if err := populateUserCache(user); err != nil {
 			if errors.Is(err, ErrUserAuthCachePending) {
-				return nil, err
+				return err
 			}
 			common.SysLog("failed to synchronously populate user cache: " + err.Error())
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return user.ToBaseUser(), nil
 }

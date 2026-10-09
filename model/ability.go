@@ -206,6 +206,9 @@ func filterAbilitiesByConstraints(abilities []Ability, modelName string, filters
 
 func identityFilterRequiresKey(filters []dto.ChannelFilter) bool {
 	for _, filter := range filters {
+		if filter.Kind == dto.FilterBatchEndpoint {
+			return true
+		}
 		if filter.Kind == dto.FilterTaskPluginIdentity && filter.TaskPluginKey != "" {
 			return true
 		}

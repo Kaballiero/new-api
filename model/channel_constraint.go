@@ -5,11 +5,13 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/batch"
 )
 
 var filterEvalOrder = []dto.ChannelFilterKind{
 	dto.FilterRequestPath,
 	dto.FilterTaskPluginIdentity,
+	dto.FilterBatchEndpoint,
 }
 
 // ChannelSatisfiesFilters reports whether ch passes every filter.
@@ -88,6 +90,8 @@ func candidatePassesKindFilters(ch *Channel, exists bool, modelName string, kind
 
 func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilter) bool {
 	switch filter.Kind {
+	case dto.FilterBatchEndpoint:
+		return batch.Supports(ch.Type, filter.BatchEndpoint)
 	case dto.FilterRequestPath:
 		if filter.RequestPath == "" {
 			return true

@@ -348,6 +348,18 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "billing_setting.batch_billing_expr":
+		var expressions map[string]string
+		if err := common.UnmarshalJsonStr(option.Value.(string), &expressions); err != nil || expressions == nil {
+			common.ApiErrorMsg(c, "batch billing expressions must be a JSON object")
+			return
+		}
+		for name, expression := range expressions {
+			if err := billing_setting.SmokeTestExpr(expression); err != nil {
+				common.ApiErrorMsg(c, fmt.Sprintf("invalid batch expression for %s: %v", name, err))
+				return
+			}
+		}
 	case "billing_setting.billing_expr":
 		expressions := make(map[string]string)
 		if err = common.UnmarshalJsonStr(option.Value.(string), &expressions); err != nil {

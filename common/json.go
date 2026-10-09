@@ -49,6 +49,23 @@ func DecodeJson(reader io.Reader, v any) error {
 	return kitutil.DecodeJson(reader, v)
 }
 
+// JSONStreamDecoder exposes incremental decoding for upstream result streams.
+// Keep the streaming engine here alongside hostJSONCodec, rather than letting
+// provider implementations select their own JSON engine.
+type JSONStreamDecoder struct {
+	decoder *json.Decoder
+}
+
+func NewJSONStreamDecoder(reader io.Reader) *JSONStreamDecoder {
+	return &JSONStreamDecoder{decoder: json.NewDecoder(reader)}
+}
+
+func (d *JSONStreamDecoder) Decode(value any) error     { return d.decoder.Decode(value) }
+func (d *JSONStreamDecoder) Token() (json.Token, error) { return d.decoder.Token() }
+func (d *JSONStreamDecoder) UseNumber()                 { d.decoder.UseNumber() }
+func (d *JSONStreamDecoder) More() bool                 { return d.decoder.More() }
+func (d *JSONStreamDecoder) InputOffset() int64         { return d.decoder.InputOffset() }
+
 func HasDuplicateJSONKeys(data []byte) bool {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	token, err := decoder.Token()

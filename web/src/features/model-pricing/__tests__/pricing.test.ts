@@ -88,7 +88,10 @@ describe('shared model pricing', () => {
         {
           model_name: 'edited',
           version: 'v1',
-          configured: { ModelPrice: 1 },
+          configured: {
+            ModelPrice: 1,
+            'billing_setting.batch_billing_expr': 'p * 0.5 + c',
+          },
           effective: { ModelPrice: 1 },
         },
         {
@@ -111,7 +114,11 @@ describe('shared model pricing', () => {
       {
         model_name: 'edited',
         expected_version: 'v1',
-        pricing: { ModelPrice: 2, 'billing_setting.billing_mode': 'ratio' },
+        pricing: {
+          ModelPrice: 2,
+          'billing_setting.billing_mode': 'ratio',
+          'billing_setting.batch_billing_expr': 'p * 0.5 + c',
+        },
       },
     ])
   })

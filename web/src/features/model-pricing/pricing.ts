@@ -41,7 +41,9 @@ export const PRICING_KEYS = [
   'billing_setting.billing_expr',
 ] as const
 export type PricingKey = (typeof PRICING_KEYS)[number]
-export type PricingValues = Partial<Record<PricingKey, number | string>>
+export type PricingValues = Partial<Record<PricingKey, number | string>> & {
+  'billing_setting.batch_billing_expr'?: string
+}
 export type PricingOptions = Record<PricingKey, string>
 
 export function modelPricingDisplay(

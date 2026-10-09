@@ -121,6 +121,10 @@ func GetAndValidateEmbeddingRequest(c *gin.Context, relayMode int) (*dto.Embeddi
 // overflow the conversion and corrupt billing.
 const maxTokensLimit = math.MaxInt32 / 2
 
+// MaxTokensLimit is shared with asynchronous Batch validation. Both paths
+// must reject the same unsigned values before any quota calculation.
+const MaxTokensLimit = maxTokensLimit
+
 func exceedsMaxTokensLimit(values ...*uint) bool {
 	for _, v := range values {
 		if lo.FromPtrOr(v, uint(0)) > maxTokensLimit {

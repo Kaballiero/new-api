@@ -96,6 +96,8 @@ type User struct {
 	AccessToken          *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	AccessTokenCreatedAt *int64                     `json:"-" gorm:"type:bigint;column:access_token_created_at"`
 	Quota                int                        `json:"quota" gorm:"type:int;default:0"`
+	BatchHeldQuota       int64                      `json:"-" gorm:"not null;default:0"`
+	BatchQuotaVersion    int64                      `json:"-" gorm:"not null;default:0"`
 	UsedQuota            int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
 	RequestCount         int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group                string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
@@ -117,16 +119,18 @@ type User struct {
 
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
-		Id:          user.Id,
-		Group:       user.Group,
-		Quota:       user.Quota,
-		Status:      user.Status,
-		Role:        user.Role,
-		Username:    user.Username,
-		Setting:     user.Setting,
-		Email:       user.Email,
-		AuthVersion: user.AuthVersion,
-		CacheSchema: userCacheSchemaVersion,
+		Id:                user.Id,
+		Group:             user.Group,
+		Quota:             user.Quota,
+		BatchHeldQuota:    user.BatchHeldQuota,
+		BatchQuotaVersion: user.BatchQuotaVersion,
+		Status:            user.Status,
+		Role:              user.Role,
+		Username:          user.Username,
+		Setting:           user.Setting,
+		Email:             user.Email,
+		AuthVersion:       user.AuthVersion,
+		CacheSchema:       userCacheSchemaVersion,
 	}
 	return cache
 }
@@ -1121,6 +1125,19 @@ func (user *User) HardDelete() error {
 	var tokens []Token
 	var deletedAuthVersion int64
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		// A financial owner cannot disappear while a provider can still charge it.
+		var owner User
+		if err := lockForUpdate(tx.Unscoped()).First(&owner, user.Id).Error; err != nil {
+			return err
+		}
+		var unresolved int64
+		if err := tx.Model(&BatchJob{}).Where("user_id = ? AND (reserved_quota > 0 OR billing_status <> ? OR purchase_status <> ?)", user.Id, "settled", "settled").Count(&unresolved).Error; err != nil {
+			return err
+		}
+		if unresolved > 0 {
+			return ErrBatchConflict
+		}
+
 		var err error
 		deletedAuthVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
 		if err != nil {
