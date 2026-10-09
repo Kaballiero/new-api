@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -321,4 +322,111 @@ func TestGetAPICustomCreateConcurrentUsernameConflict(t *testing.T) {
 	assert.Equal(t, int64(1), persisted)
 	_, err := model.ProvisionGetAPIUser(common.RoleAdminUser, req)
 	assert.ErrorIs(t, err, model.ErrGetAPICreateConflict)
+}
+
+func TestGetAPIProvisionInitialQuota(t *testing.T) {
+	for _, database := range []struct {
+		name, env string
+		kind      common.DatabaseType
+	}{
+		{"sqlite", "", common.DatabaseTypeSQLite},
+		{"mysql", "AUDIT_MYSQL_DSN", common.DatabaseTypeMySQL},
+		{"postgres", "AUDIT_POSTGRES_DSN", common.DatabaseTypePostgreSQL},
+	} {
+		t.Run(database.name, func(t *testing.T) {
+			dsn := os.Getenv(database.env)
+			if database.env != "" && dsn == "" {
+				t.Skip(database.env + " is not configured")
+			}
+			principal, pat := setupAccessTokenAudit(t)
+			if database.env != "" {
+				db, _ := newAuditTestDatabase(t, database.name, dsn)
+				require.NoError(t, db.AutoMigrate(&model.User{}, &model.AuditLog{}))
+				model.DB, model.LOG_DB = db, db
+				common.SetDatabaseTypes(database.kind, database.kind)
+				principal.Id = 0
+				require.NoError(t, db.Create(principal).Error)
+			}
+			versionSQL := "SELECT version()"
+			if database.name == "sqlite" {
+				versionSQL = "SELECT sqlite_version()"
+			}
+			var version string
+			require.NoError(t, model.DB.Raw(versionSQL).Scan(&version).Error)
+			t.Logf("database version: %s", version)
+			previousQuota := common.QuotaForNewUser
+			common.QuotaForNewUser = 50_000
+			t.Cleanup(func() { common.QuotaForNewUser = previousQuota })
+			config, err := common.Marshal([]map[string]any{{"integration_id": "quota-test", "principal_user_id": principal.Id, "capabilities": []string{"getapi.users.provision"}}})
+			require.NoError(t, err)
+			t.Setenv("GETAPI_INTEGRATIONS", string(config))
+			router := gin.New()
+			router.POST("/api/getapi/users", middleware.GetAPIAuth("getapi.users.provision"), ProvisionGetAPIUser)
+			post := func(body, token string) *httptest.ResponseRecorder {
+				request := httptest.NewRequest(http.MethodPost, "/api/getapi/users", strings.NewReader(body))
+				request.Header.Set("Authorization", "Bearer "+token)
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, request)
+				return response
+			}
+			for index, test := range []struct {
+				name, field string
+				quota       int
+				status      int
+			}{
+				{"omitted", "", 50_000, http.StatusCreated},
+				{"zero", `,"initial_quota":0`, 0, http.StatusCreated},
+				{"positive_with_group", `,"initial_quota":12345,"group":"default"`, 12345, http.StatusCreated},
+				{"maximum", `,"initial_quota":2147483647`, common.MaxQuota, http.StatusCreated},
+				{"negative", `,"initial_quota":-1`, 0, http.StatusBadRequest},
+				{"fraction", `,"initial_quota":1.5`, 0, http.StatusBadRequest},
+				{"null", `,"initial_quota":null`, 0, http.StatusBadRequest},
+				{"string", `,"initial_quota":"1"`, 0, http.StatusBadRequest},
+				{"boolean", `,"initial_quota":false`, 0, http.StatusBadRequest},
+				{"too_large", `,"initial_quota":2147483648`, 0, http.StatusBadRequest},
+				{"overflow", `,"initial_quota":9223372036854775808`, 0, http.StatusBadRequest},
+				{"duplicate", `,"initial_quota":0,"initial_quota":1`, 0, http.StatusBadRequest},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					username := fmt.Sprintf("quota-user-%d", index)
+					body := fmt.Sprintf(`{"username":%q,"password":"safe-password","display_name":"Quota"%s}`, username, test.field)
+					response := post(body, pat)
+					require.Equal(t, test.status, response.Code, response.Body.String())
+					var count int64
+					require.NoError(t, model.DB.Model(&model.User{}).Where("username = ?", username).Count(&count).Error)
+					if test.status != http.StatusCreated {
+						assert.Zero(t, count)
+						return
+					}
+					var envelope struct {
+						Data model.GetAPICreateCredential `json:"data"`
+					}
+					require.NoError(t, common.Unmarshal(response.Body.Bytes(), &envelope))
+					assert.Equal(t, test.quota, envelope.Data.InitialQuota)
+					var user model.User
+					require.NoError(t, model.DB.First(&user, envelope.Data.UserID).Error)
+					assert.Equal(t, test.quota, user.Quota)
+					assert.Equal(t, envelope.Data.AccessToken, user.GetAccessToken())
+					replay := post(body, pat)
+					assert.Equal(t, http.StatusConflict, replay.Code, replay.Body.String())
+					require.NoError(t, model.DB.First(&user, envelope.Data.UserID).Error)
+					assert.Equal(t, test.quota, user.Quota)
+				})
+			}
+			deniedBody := `{"username":"quota-denied","password":"safe-password","display_name":"Denied","initial_quota":123}`
+			denied := post(deniedBody, "invalid-token")
+			assert.Equal(t, http.StatusUnauthorized, denied.Code)
+			t.Setenv("GETAPI_INTEGRATIONS", "[]")
+			denied = post(deniedBody, pat)
+			assert.Equal(t, http.StatusForbidden, denied.Code)
+			var deniedCount int64
+			require.NoError(t, model.DB.Model(&model.User{}).Where("username = ?", "quota-denied").Count(&deniedCount).Error)
+			assert.Zero(t, deniedCount)
+			quota := 123
+			_, err = model.ProvisionGetAPIUser(common.RoleCommonUser, model.GetAPICreateUserRequest{Username: "quota-rollback", Password: "safe-password", InitialQuota: &quota})
+			require.ErrorIs(t, err, model.ErrGetAPICapabilityDenied)
+			require.NoError(t, model.DB.Model(&model.User{}).Where("username = ?", "quota-rollback").Count(&deniedCount).Error)
+			assert.Zero(t, deniedCount)
+		})
+	}
 }

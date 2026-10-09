@@ -16,12 +16,12 @@ import (
 func ProvisionGetAPIUser(c *gin.Context) {
 	raw, e := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 4096))
 	var fields map[string]json.RawMessage
-	if e != nil || common.HasDuplicateJSONKeys(raw) || common.Unmarshal(raw, &fields) != nil || len(fields) < 3 || len(fields) > 4 {
+	if e != nil || common.HasDuplicateJSONKeys(raw) || common.Unmarshal(raw, &fields) != nil || len(fields) < 3 || len(fields) > 5 {
 		writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
 		return
 	}
 	for name := range fields {
-		if name != "username" && name != "password" && name != "display_name" && name != "group" {
+		if name != "username" && name != "password" && name != "display_name" && name != "group" && name != "initial_quota" {
 			writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
 			return
 		}
@@ -44,6 +44,10 @@ func ProvisionGetAPIUser(c *gin.Context) {
 		}
 	}
 	var req model.GetAPICreateUserRequest
+	if value, exists := fields["initial_quota"]; exists && common.GetJsonType(value) != "number" {
+		writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
+		return
+	}
 	if common.Unmarshal(raw, &req) != nil || strings.TrimSpace(req.Username) == "" || req.Password == "" {
 		writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
 		return
