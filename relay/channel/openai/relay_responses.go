@@ -79,6 +79,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	imageCounter := &relaycommon.ImageGenerationCallCounter{}
 	imageCommitted := false
 	var projectionErr error
+	started := false
+	providerFailed := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -90,18 +92,22 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Stop(err)
 			return
 		}
-		if err := sendResponsesStreamData(c, streamResponse, data); err != nil {
-			projectionErr = err
-			sr.Stop(err)
-			return
+		started = true
+		if streamResponse.Type == "error" || streamResponse.Type == "response.error" || streamResponse.Type == "response.failed" ||
+			(streamResponse.Response != nil && strings.TrimSpace(string(streamResponse.Response.Status)) == `"failed"`) {
+			providerFailed = true
+		}
+		if streamResponse.Response != nil {
+			if streamResponse.Response.Usage != nil {
+				usage = dto.MergeUsageNonZero(usage, relayconvert.NormalizeResponsesUsage(streamResponse.Response.Usage))
+			}
+			if responseTextBuilder.Len() == 0 {
+				responseTextBuilder.WriteString(relayconvert.ExtractOutputTextFromResponses(streamResponse.Response))
+			}
 		}
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			if streamResponse.Response != nil {
-				if streamResponse.Response.Usage != nil {
-					incomingUsage := relayconvert.NormalizeResponsesUsage(streamResponse.Response.Usage)
-					usage = dto.MergeUsageNonZero(usage, incomingUsage)
-				}
 				if !imageCommitted {
 					if relaycommon.IsNonBillableResponsesStatus(streamResponse.Response.Status) {
 						imageCounter.Reset()
@@ -126,7 +132,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCounter.Commit(info)
 				imageCommitted = true
 			}
-		case "response.output_text.delta":
+		case "response.output_text.delta", "response.function_call_arguments.delta",
+			"response.reasoning_summary_text.delta", "response.reasoning_text.delta", "response.refusal.delta":
 			// 处理输出文本
 			responseTextBuilder.WriteString(streamResponse.Delta)
 		case dto.ResponsesOutputTypeItemDone:
@@ -145,6 +152,16 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				}
 			}
 		}
+		// Account for the received event before writing: a disconnected client
+		// does not undo usage already incurred at the provider.
+		if err := sendResponsesStreamData(c, streamResponse, data); err != nil {
+			// Projection rejects unsafe provider payloads independently of transport.
+			// Keep that failure visible while retaining usage on client disconnects.
+			if _, validationErr := common.ProjectClientResponseString(c, data); validationErr != nil {
+				projectionErr = validationErr
+			}
+			sr.Stop(err)
+		}
 	})
 
 	if projectionErr != nil {
@@ -161,7 +178,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	}
 
-	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+	if usage.PromptTokens == 0 && (usage.CompletionTokens != 0 || (started && !providerFailed)) {
 		usage.PromptTokens = info.GetEstimatePromptTokens()
 	}
 

@@ -102,6 +102,9 @@ func HasOpenAIUsageTokens(usage *Usage) bool {
 		usage.CompletionTokenDetails.AudioTokens != 0 {
 		return true
 	}
+	if usage.OutputTokensDetails != nil && *usage.OutputTokensDetails != (OutputTokenDetails{}) {
+		return true
+	}
 	if usage.InputTokensDetails == nil {
 		return false
 	}
@@ -271,6 +274,9 @@ func (usage *BillingUsage) canonicalOpenAIUsage() *Usage {
 		mergeInputTokenDetails(&filled, canonical.PromptTokensDetails)
 		canonical.PromptTokensDetails = filled
 	}
+	if canonical.OutputTokensDetails != nil {
+		MergeUsageNonZero(canonical, &Usage{CompletionTokenDetails: *canonical.OutputTokensDetails})
+	}
 	if canonical.PromptTokensDetails.CachedTokens == 0 && canonical.PromptCacheHitTokens > 0 {
 		canonical.PromptTokensDetails.CachedTokens = canonical.PromptCacheHitTokens
 	}
@@ -388,6 +394,10 @@ func cloneOpenAIUsage(usage *Usage) *Usage {
 	if usage.InputTokensDetails != nil {
 		inputTokensDetails := *usage.InputTokensDetails
 		clone.InputTokensDetails = &inputTokensDetails
+	}
+	if usage.OutputTokensDetails != nil {
+		outputTokensDetails := *usage.OutputTokensDetails
+		clone.OutputTokensDetails = &outputTokensDetails
 	}
 	return &clone
 }

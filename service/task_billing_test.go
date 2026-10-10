@@ -58,6 +58,24 @@ func TestMain(m *testing.M) {
 	previousLogConsumeEnabled := common.LogConsumeEnabled
 	model.DB, model.LOG_DB = mainDB, logDB
 	common.SetDatabaseTypes(databaseType, databaseType)
+	// Production initializes dialect column names during database startup. Reuse
+	// the no-DSN, non-master log initializer without migrations or connections.
+	previousMaster := common.IsMasterNode
+	previousLogDSN, hadLogDSN := os.LookupEnv("LOG_SQL_DSN")
+	common.IsMasterNode = false
+	if err := os.Unsetenv("LOG_SQL_DSN"); err != nil {
+		panic(err)
+	}
+	if err := model.InitLogDB(); err != nil {
+		panic(err)
+	}
+	model.LOG_DB = logDB
+	common.IsMasterNode = previousMaster
+	if hadLogDSN {
+		if err := os.Setenv("LOG_SQL_DSN", previousLogDSN); err != nil {
+			panic(err)
+		}
+	}
 	common.RedisEnabled = false
 	common.BatchUpdateEnabled = false
 	common.LogConsumeEnabled = true

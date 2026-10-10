@@ -77,6 +77,23 @@ func MergeUsageNonZero(current *Usage, incoming *Usage) *Usage {
 	if incoming.UsageSource != "" {
 		current.UsageSource = incoming.UsageSource
 	}
+	if incoming.OutputTokensDetails != nil {
+		if current.OutputTokensDetails == nil {
+			current.OutputTokensDetails = &OutputTokenDetails{}
+		}
+		if incoming.OutputTokensDetails.TextTokens > 0 {
+			current.OutputTokensDetails.TextTokens = incoming.OutputTokensDetails.TextTokens
+		}
+		if incoming.OutputTokensDetails.AudioTokens > 0 {
+			current.OutputTokensDetails.AudioTokens = incoming.OutputTokensDetails.AudioTokens
+		}
+		if incoming.OutputTokensDetails.ImageTokens > 0 {
+			current.OutputTokensDetails.ImageTokens = incoming.OutputTokensDetails.ImageTokens
+		}
+		if incoming.OutputTokensDetails.ReasoningTokens > 0 {
+			current.OutputTokensDetails.ReasoningTokens = incoming.OutputTokensDetails.ReasoningTokens
+		}
+	}
 	if incoming.BillingUsage != nil {
 		current.BillingUsage = MergeBillingUsageNonZero(current.BillingUsage, incoming.BillingUsage)
 	}

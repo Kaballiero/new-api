@@ -2,6 +2,9 @@ package openai
 
 import (
 	"context"
+	"fmt"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -446,4 +449,34 @@ func TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent(t *testing.T) {
 	// is still forwarded in the data: payload (stream ID 77).
 	require.Contains(t, recorder.Body.String(), `event: upstream_error`)
 	require.Contains(t, recorder.Body.String(), `stream ID 77`)
+}
+
+func TestOpenaiImageOutputTokenDetails(t *testing.T) {
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprint(stream), func(t *testing.T) {
+			usageJSON := `"usage":{"input_tokens":2,"output_tokens":5,"output_tokens_details":{"image_tokens":4,"text_tokens":1}}`
+			body := `{"data":[{"b64_json":"image"}],` + usageJSON + `}`
+			contentType := "application/json"
+			if stream {
+				body = "data: {\"type\":\"image_generation.completed\"," + usageJSON + "}\n\ndata: [DONE]\n\n"
+				contentType = "text/event-stream"
+			}
+			c, _, resp, info := newImageTestContext(t, body, contentType, stream)
+			var usage *dto.Usage
+			var apiErr *types.NewAPIError
+			if stream {
+				usage, apiErr = OpenaiImageStreamHandler(c, info, resp)
+			} else {
+				usage, apiErr = OpenaiImageHandler(c, info, resp)
+			}
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			require.Equal(t, 5, usage.CompletionTokens)
+			require.Equal(t, 4, usage.CompletionTokenDetails.ImageTokens)
+			require.Equal(t, 1, usage.CompletionTokenDetails.TextTokens)
+		})
+	}
 }

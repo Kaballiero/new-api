@@ -545,3 +545,11 @@ func mustStreamChunks(t *testing.T, state *ResponsesToChatStreamState, event *dt
 	require.NoError(t, err)
 	return chunks
 }
+
+func TestNormalizeResponsesOutputTokenDetails(t *testing.T) {
+	usage := NormalizeResponsesUsage(&dto.Usage{InputTokens: 10, OutputTokens: 9, InputTokensDetails: &dto.InputTokenDetails{CachedTokens: 3, AudioTokens: 2}, CompletionTokenDetails: dto.OutputTokenDetails{ReasoningTokens: 1}, OutputTokensDetails: &dto.OutputTokenDetails{ImageTokens: 5, TextTokens: 2, AudioTokens: 1}})
+	require.NotNil(t, usage)
+	assert.Equal(t, dto.OutputTokenDetails{ReasoningTokens: 1, ImageTokens: 5, TextTokens: 2, AudioTokens: 1}, usage.CompletionTokenDetails)
+	assert.Equal(t, 3, usage.PromptTokensDetails.CachedTokens)
+	assert.Equal(t, 2, usage.PromptTokensDetails.AudioTokens)
+}
