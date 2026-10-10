@@ -27,13 +27,15 @@ const (
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr
 type BillingSetting struct {
-	BillingMode map[string]string `json:"billing_mode"`
-	BillingExpr map[string]string `json:"billing_expr"`
+	BillingMode      map[string]string `json:"billing_mode"`
+	BillingExpr      map[string]string `json:"billing_expr"`
+	BatchBillingExpr map[string]string `json:"batch_billing_expr"`
 }
 
 var billingSetting = BillingSetting{
-	BillingMode: make(map[string]string),
-	BillingExpr: make(map[string]string),
+	BillingMode:      make(map[string]string),
+	BillingExpr:      make(map[string]string),
+	BatchBillingExpr: make(map[string]string),
 }
 
 func init() {
@@ -71,6 +73,11 @@ func GetBillingExpr(model string) (string, bool) {
 		return expr, ok
 	}
 	return "", false
+}
+
+func GetBatchBillingExpr(model string) (string, bool) {
+	expression, ok := billingSetting.BatchBillingExpr[model]
+	return expression, ok && expression != ""
 }
 
 func GetBuiltinBillingExpr(model string) (string, bool) {

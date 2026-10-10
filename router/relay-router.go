@@ -72,6 +72,15 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.TokenAuth())
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
 	{
+		batches := relayV1Router.Group("/batches")
+		batches.POST("", controller.PrepareBatchRequest, middleware.Distribute(), controller.CreateBatch)
+		batches.GET("", controller.ListBatches)
+		batches.GET("/:id", controller.GetBatch)
+		batches.GET("/:id/results", controller.GetBatchResults)
+		batches.POST("/:id/cancel", controller.CancelBatch)
+		batches.DELETE("/:id", controller.DeleteBatch)
+	}
+	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")
 		wsRouter.Use(middleware.Distribute())

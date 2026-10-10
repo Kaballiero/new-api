@@ -3,14 +3,17 @@ package billingexpr
 import (
 	"crypto/sha256"
 	"fmt"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 )
 
 type RequestInput struct {
-	Headers map[string]string
-	Body    []byte
-	Usage   map[string]any
+	// EvaluatedAt pins asynchronous pricing probes; zero uses the current clock.
+	EvaluatedAt time.Time
+	Headers     map[string]string
+	Body        []byte
+	Usage       map[string]any
 }
 
 // TokenParams holds all token dimensions passed into an Expr evaluation.

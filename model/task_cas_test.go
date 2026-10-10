@@ -39,6 +39,7 @@ func TestMain(m *testing.M) {
 	if err := db.AutoMigrate(
 		&Task{},
 		&User{},
+		&BatchJob{}, &BatchItem{}, &BatchQuotaEvent{}, &BatchLogEvent{}, &BatchLogReceipt{},
 		&UserSession{},
 		&AuthFlow{},
 		&ExternalIdentityClaim{},

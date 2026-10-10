@@ -12,6 +12,7 @@ import (
 )
 
 type Token struct {
+	CacheSchema        int            `json:"-" gorm:"-:all"`
 	Id                 int            `json:"id"`
 	UserId             int            `json:"user_id" gorm:"index"`
 	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
@@ -21,6 +22,8 @@ type Token struct {
 	AccessedTime       int64          `json:"accessed_time" gorm:"bigint"`
 	ExpiredTime        int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
 	RemainQuota        int            `json:"remain_quota" gorm:"default:0"`
+	BatchHeldQuota     int64          `json:"-" gorm:"not null;default:0"`
+	BatchQuotaVersion  int64          `json:"-" gorm:"not null;default:0"`
 	UnlimitedQuota     bool           `json:"unlimited_quota"`
 	ModelLimitsEnabled bool           `json:"model_limits_enabled"`
 	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
@@ -287,15 +290,26 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	token = &Token{}
-	if err = DB.Where(commonKeyCol+" = ?", key).First(token).Error; err != nil {
-		return nil, err
+	if !common.RedisEnabled {
+		err = DB.Where(commonKeyCol+" = ?", key).First(token).Error
+		if err != nil {
+			return nil, err
+		}
+		return token, nil
 	}
-	if common.RedisEnabled {
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where(commonKeyCol+" = ?", key).First(token).Error; err != nil {
+			return err
+		}
 		// 冷缓存时用数据库快照初始化；已存在的哈希只刷新 TTL，
 		// 避免快照覆盖 Redis 中已被原子预扣的余额。初始化失败不影响本次读取。
 		if _, cacheErr := cacheInitToken(*token); cacheErr != nil {
 			common.SysLog("failed to init token cache: " + cacheErr.Error())
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return token, nil
 }

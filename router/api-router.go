@@ -44,6 +44,8 @@ func SetApiRouter(router *gin.Engine) {
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
+		apiRouter.POST("/batches/:id/purchase", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ConfirmBatchPurchase)
+		apiRouter.POST("/batches/:id/recover", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RecoverBatch)
 		apiRouter.GET("/pricing/effective", middleware.RootAuth(), middleware.DisableCache(), controller.GetEffectivePricingByGroup)
 		perfMetricsRoute := apiRouter.Group("/perf-metrics")
 		perfMetricsRoute.Use(middleware.HeaderNavModulePublicOrUserAuth("pricing"))

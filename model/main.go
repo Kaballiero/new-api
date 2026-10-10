@@ -351,6 +351,11 @@ func migrateDB() error {
 		&TopUp{},
 		&QuotaData{},
 		&Task{},
+		&BatchJob{},
+		&BatchItem{},
+		&BatchQuotaEvent{},
+		&BatchLogEvent{},
+		&BatchLogReceipt{},
 		&TaskPlugin{},
 		&Model{},
 		&Vendor{},
@@ -400,7 +405,7 @@ func migrateLOGDB() error {
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		return migrateClickHouseLogDB()
 	}
-	return LOG_DB.AutoMigrate(&Log{})
+	return LOG_DB.AutoMigrate(&Log{}, &BatchLogReceipt{})
 }
 
 func migrateClickHouseLogDB() error {

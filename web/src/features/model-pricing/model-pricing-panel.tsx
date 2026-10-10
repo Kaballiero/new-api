@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -24,6 +24,8 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Textarea } from '@/components/ui/textarea'
 import { EffectivePrice } from '@/features/pricing/components/effective-price'
 import { useEffectivePricing } from '@/features/pricing/effective-pricing'
 import {
@@ -52,6 +54,19 @@ export function ModelPricingPanel(props: {
   const query = useModelPricing([props.modelName], Boolean(props.modelName))
   const save = useSaveModelPricing()
   const [entry, setEntry] = useState<ModelPricingEntry | null>(null)
+  const [batchDraft, setBatchDraft] = useState<{
+    modelName: string
+    expression: string
+  } | null>(null)
+  const [syncDirty, setSyncDirty] = useState(false)
+  const batchId = useId()
+  const storedBatchExpression =
+    entry?.configured['billing_setting.batch_billing_expr'] ?? ''
+  const batchExpression =
+    batchDraft?.modelName === props.modelName
+      ? batchDraft.expression
+      : storedBatchExpression
+  const onDirtyChange = props.onDirtyChange
   const [resetOpen, setResetOpen] = useState(false)
   const editor = useRef<ModelPricingEditorPanelHandle>(null)
   const editData = useMemo(() => {
@@ -74,16 +89,24 @@ export function ModelPricingPanel(props: {
     }
   }, [query.data, entry, props.modelName])
 
+  useEffect(() => {
+    onDirtyChange?.(syncDirty || batchExpression !== storedBatchExpression)
+  }, [onDirtyChange, syncDirty, batchExpression, storedBatchExpression])
+
   const persist = async (reset = false) => {
     if (!entry) return
     try {
       const draft = reset ? null : await editor.current?.commitDraft()
       if (!reset && !draft) return
+      const pricing = draft ? pricingFromDraft(draft) : {}
+      if (!reset && batchExpression.trim()) {
+        pricing['billing_setting.batch_billing_expr'] = batchExpression
+      }
       await save.mutateAsync([
         {
           model_name: entry.model_name,
           expected_version: entry.version,
-          pricing: draft ? pricingFromDraft(draft) : {},
+          pricing,
           reset,
         },
       ])
@@ -93,6 +116,7 @@ export function ModelPricingPanel(props: {
           (item) => item.model_name === props.modelName
         ) ?? null
       )
+      setBatchDraft(null)
       setResetOpen(false)
       toast.success(t('Model pricing saved'))
     } catch (error) {
@@ -124,7 +148,7 @@ export function ModelPricingPanel(props: {
         ref={editor}
         editData={editData}
         usageSchema={entry.usage_schema}
-        onDirtyChange={props.onDirtyChange}
+        onDirtyChange={setSyncDirty}
         onSave={() => persist()}
         isSaving={save.isPending}
         className='rounded-none border-0'
@@ -174,6 +198,29 @@ export function ModelPricingPanel(props: {
                 'Edit base model prices below. Customer tariffs are calculated separately; wallet conversion is unchanged.'
               )}
             </p>
+            <Field>
+              <FieldLabel htmlFor={batchId}>
+                {t('Batch pricing expression')}
+              </FieldLabel>
+              <Textarea
+                id={batchId}
+                aria-describedby={`${batchId}-description`}
+                value={batchExpression}
+                onChange={(event) =>
+                  setBatchDraft({
+                    modelName: props.modelName,
+                    expression: event.target.value,
+                  })
+                }
+                disabled={save.isPending}
+                className='font-mono'
+              />
+              <FieldDescription id={`${batchId}-description`}>
+                {t(
+                  'Provider Batch rates in USD per million tokens. The group multiplier is applied separately. Leave empty to disable Batch for this model.'
+                )}
+              </FieldDescription>
+            </Field>
             {save.isError && (
               <div>
                 <p role='alert' className='text-destructive mb-2 text-sm'>
@@ -189,6 +236,7 @@ export function ModelPricingPanel(props: {
                     )
                     if (loaded) {
                       setEntry(loaded)
+                      setBatchDraft(null)
                       save.reset()
                     }
                   }}

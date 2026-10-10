@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -51,7 +52,7 @@ var ErrModelPricingConflict = errors.New("model pricing changed; reload before s
 var modelPricingOptionKeys = []string{
 	"AudioCompletionRatio", "AudioRatio", "CacheRatio", "CompletionRatio",
 	"CreateCacheRatio", "ImageRatio", "ModelPrice", "ModelRatio",
-	"billing_setting.billing_expr", "billing_setting.billing_mode",
+	"billing_setting.batch_billing_expr", "billing_setting.billing_expr", "billing_setting.billing_mode",
 }
 
 var modelPricingMutationMu sync.Mutex
@@ -227,6 +228,19 @@ func ValidateModelPricing(name string, values PricingValues) error {
 		if key == "billing_setting.billing_mode" {
 			if value != "ratio" && value != "tiered_expr" {
 				return errors.New("invalid billing mode")
+			}
+			continue
+		}
+		if key == "billing_setting.batch_billing_expr" {
+			expression, ok := value.(string)
+			if !ok || strings.TrimSpace(expression) == "" {
+				return errors.New("Batch billing expression is required")
+			}
+			if billingexpr.UsedVars(expression)["header"] {
+				return errors.New("Batch billing expressions using header() are not supported")
+			}
+			if err := billing_setting.SmokeTestExpr(expression); err != nil {
+				return fmt.Errorf("model %s Batch: %w", name, err)
 			}
 			continue
 		}

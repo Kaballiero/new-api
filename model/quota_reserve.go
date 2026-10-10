@@ -24,7 +24,8 @@ if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') ~= tonumber(ARGV[2])
   return -1
 end
 local quota = tonumber(redis.call('HGET', KEYS[1], 'Quota'))
-if quota == nil or quota < tonumber(ARGV[1]) then
+local held = tonumber(redis.call('HGET', KEYS[1], 'BatchHeldQuota') or '0')
+if quota == nil or held == nil or quota - held < tonumber(ARGV[1]) then
   return 0
 end
 redis.call('HINCRBY', KEYS[1], 'Quota', -tonumber(ARGV[1]))
@@ -46,7 +47,8 @@ if tonumber(redis.call('HGET', KEYS[1], 'Id') or '0') ~= tonumber(ARGV[2])
   return -1
 end
 local remain = tonumber(redis.call('HGET', KEYS[1], 'RemainQuota'))
-if remain == nil or remain < tonumber(ARGV[1]) then
+local held = tonumber(redis.call('HGET', KEYS[1], 'BatchHeldQuota') or '0')
+if remain == nil or held == nil or remain - held < tonumber(ARGV[1]) then
   return 0
 end
 redis.call('HINCRBY', KEYS[1], 'RemainQuota', -tonumber(ARGV[1]))
@@ -143,14 +145,14 @@ func persistTokenQuotaDelta(id int, delta int) error {
 
 func reserveUserQuotaDB(id int, quota int) (bool, error) {
 	result := DB.Model(&User{}).
-		Where("id = ? AND quota >= ?", id, quota).
+		Where("id = ? AND quota - batch_held_quota >= ?", id, quota).
 		Update("quota", gorm.Expr("quota - ?", quota))
 	return result.RowsAffected == 1, result.Error
 }
 
 func reserveTokenQuotaDB(id int, quota int) (bool, error) {
 	result := DB.Model(&Token{}).
-		Where("id = ? AND remain_quota >= ?", id, quota).
+		Where("id = ? AND remain_quota - batch_held_quota >= ?", id, quota).
 		Updates(map[string]any{
 			"remain_quota":  gorm.Expr("remain_quota - ?", quota),
 			"used_quota":    gorm.Expr("used_quota + ?", quota),
