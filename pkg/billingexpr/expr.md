@@ -46,6 +46,22 @@ Powered by [expr-lang/expr](https://github.com/expr-lang/expr). Expressions are 
 | `img_o` | 图片输出 token 数 |
 | `ao` | 音频输出 token 数 |
 
+`provider_cost` is the validated native OpenRouter Image API cost in USD, not
+a token count. Built-in image expressions use
+`tier("openrouter", provider_cost * 1000000)` with the existing v1 quota
+conversion. Reservation supplies an estimate from the selected endpoint's
+published image/request/megapixel/token tariff; settlement supplies actual
+`usage.cost`. Estimates use the highest published variant rate and conservative
+volume estimates and are not assertions of actual provider token or pixel
+conversion. Missing tariffs block submission. Missing/null actual cost is an
+error, never an implicit zero. An explicit zero remains valid.
+
+Native image failures and unknown outcomes use the existing error/refund
+policy, with no automatic paid retry. Unknown outcomes are audited and any
+unconfirmed provider spend is borne by the gateway. Administrator expressions
+and explicit legacy prices keep their existing precedence. Chat image models
+continue through their existing relay.
+
 #### `p` 和 `c` 的自动排除机制
 
 `p` 和 `c` 是"兜底变量"——它们代表**所有没有被表达式单独定价的 token**。系统会根据表达式实际使用了哪些变量，自动从 `p` / `c` 中减去对应的子类别 token，避免重复计费。

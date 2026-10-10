@@ -56,6 +56,8 @@ func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, params TokenP
 	headers := normalizeHeaders(request.Headers)
 
 	env := map[string]any{
+		"provider_cost": params.ProviderCost,
+
 		"p":     params.P,
 		"c":     params.C,
 		"len":   params.Len,

@@ -2,6 +2,7 @@ package helper
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -352,10 +353,20 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 		return hosttypes.PriceData{}, err
 	}
 
+	providerCost := float64(0)
+	if billingexpr.UsedVars(exprStr)["provider_cost"] {
+		var valid bool
+		providerCost, valid = requestInput.Usage["provider_cost"].(float64)
+		if !valid || providerCost < 0 || math.IsNaN(providerCost) || math.IsInf(providerCost, 0) {
+			return hosttypes.PriceData{}, fmt.Errorf("model %s requires a validated provider cost estimate", billingModelName)
+		}
+	}
+
 	rawCost, trace, err := billingexpr.RunExprWithRequest(exprStr, billingexpr.TokenParams{
-		P:   float64(promptTokens),
-		C:   float64(estimatedCompletionTokens),
-		Len: float64(promptTokens),
+		P:            float64(promptTokens),
+		C:            float64(estimatedCompletionTokens),
+		Len:          float64(promptTokens),
+		ProviderCost: providerCost,
 	}, requestInput)
 	if err != nil {
 		return hosttypes.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", billingModelName, err)

@@ -30,6 +30,8 @@ type TokenParams struct {
 	ImgO float64 // image output tokens
 	AI   float64 // audio input tokens
 	AO   float64 // audio output tokens
+
+	ProviderCost float64 // validated upstream request cost in USD; opt-in via provider_cost
 }
 
 // RequestRuleTrace describes one request-dependent multiplier detected at compile time.

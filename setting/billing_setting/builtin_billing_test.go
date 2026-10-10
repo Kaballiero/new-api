@@ -109,3 +109,97 @@ func TestGPT6AstraBuiltinBilling(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenRouterImageBuiltinBilling(t *testing.T) {
+	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
+	saved := *settings
+	savedRatios, savedPrices := ratio_setting.ModelRatio2JSONString(), ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		*settings = saved
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedRatios))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedPrices))
+	})
+	*settings = billing_setting.BillingSetting{BillingMode: map[string]string{}, BillingExpr: map[string]string{}}
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{}`))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+	for _, tc := range []struct {
+		model  string
+		priced bool
+	}{
+		{"tencent/hy-image-v3.5-preview", true},
+		{"bytedance-seed/seedream-5-0-flash", true},
+		{"black-forest-labs/flux-3-image", true},
+		{"inclusionai/ming-image-0.1-design-layer", true},
+		{"recraft/recraft-v4.1-flash", true},
+		{"inclusionai/ming-image-0.1-design", true},
+		{"openai/gpt-image-2.5-sunburst", true},
+		{"openai/gpt-image-2.5-flare", true},
+		{"microsoft/mai-image-2.6", true},
+		{"microsoft/mai-image-2.6-flash", true},
+		{"meta/muse-image", true},
+		{"recraft/recraft-v4-styles-pro", true},
+		{"recraft/recraft-v4-styles-vector", true},
+		{"recraft/recraft-v4-styles-pro-vector", true},
+		{"recraft/recraft-v4-styles", true},
+		{"bytedance-seed/seedream-5-0-lite", true},
+		{"bytedance-seed/seedream-5-0-pro", true},
+		{"x-ai/grok-imagine-image-2.0", true},
+		{"qwen/qwen-image-3-pro", true},
+		{"qwen/qwen-image-3", true},
+		{"microsoft/mai-image-2.5-pro", true},
+		{"krea/krea-2-large", true},
+		{"krea/krea-2-medium", true},
+		{"krea/krea-2-medium-turbo", true},
+		{"openai/gpt-image-2", true},
+		{"openai/gpt-image-1-mini", true},
+		{"openai/gpt-image-1", true},
+		{"sourceful/riverflow-v2.5-pro", true},
+		{"sourceful/riverflow-v2.5-fast", true},
+		{"microsoft/mai-image-2.5", true},
+		{"x-ai/grok-imagine-image-quality", true},
+		{"recraft/recraft-v4.1-pro-vector", true},
+		{"recraft/recraft-v4.1-vector", true},
+		{"recraft/recraft-v4.1-utility-pro", true},
+		{"recraft/recraft-v4.1-utility", true},
+		{"recraft/recraft-v4.1-pro", true},
+		{"recraft/recraft-v4.1", true},
+		{"recraft/recraft-v4-pro-vector", true},
+		{"recraft/recraft-v4-vector", true},
+		{"recraft/recraft-v4-pro", true},
+		{"recraft/recraft-v4", true},
+		{"recraft/recraft-v3", true},
+		{"sourceful/riverflow-v2-pro", true},
+		{"sourceful/riverflow-v2-fast", true},
+		{"black-forest-labs/flux.2-klein-4b", true},
+		{"bytedance-seed/seedream-4.5", true},
+		{"black-forest-labs/flux.2-max", true},
+		{"black-forest-labs/flux.2-flex", true},
+		{"black-forest-labs/flux.2-pro", true},
+	} {
+		expression, exists := billing_setting.GetBuiltinBillingExpr(tc.model)
+		assert.Equal(t, tc.priced, exists, tc.model)
+		if !tc.priced {
+			continue
+		}
+		assert.Equal(t, `tier("openrouter", provider_cost * 1000000)`, expression)
+		assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode(tc.model))
+		for _, cost := range []float64{0, 0.01, 0.607} {
+			params := service.BuildTieredTokenParams(&dto.Usage{Cost: cost}, false, billingexpr.UsedVars(expression))
+			result, err := billingexpr.ComputeTieredQuota(&billingexpr.BillingSnapshot{ExprString: expression, ExprHash: billingexpr.ExprHashString(expression), GroupRatio: 1.5, QuotaPerUnit: 500000}, params)
+			require.NoError(t, err)
+			assert.Equal(t, common.QuotaRound(cost*500000*1.5), result.ActualQuotaAfterGroup)
+		}
+	}
+	assert.NotContains(t, billing_setting.GetBuiltinBillingExprCopy(), "google/gemini-3-pro-image-preview")
+	const modelName = "black-forest-labs/flux-3-image"
+	settings.BillingExpr[modelName] = `tier("admin", fixed(0.2))`
+	expression, exists := billing_setting.GetBillingExpr(modelName)
+	require.True(t, exists)
+	assert.Equal(t, settings.BillingExpr[modelName], expression)
+	delete(settings.BillingExpr, modelName)
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"black-forest-labs/flux-3-image":0}`))
+	assert.Equal(t, billing_setting.BillingModeRatio, billing_setting.GetBillingMode(modelName))
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{}`))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"black-forest-labs/flux-3-image":0.1}`))
+	assert.Equal(t, billing_setting.BillingModeRatio, billing_setting.GetBillingMode(modelName))
+}

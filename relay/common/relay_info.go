@@ -81,6 +81,18 @@ type TokenCountMeta struct {
 	estimatePromptTokens int
 }
 
+// NativeImageInfo belongs to one selected channel and one paid image attempt.
+// The request is validated before reservation and is never rebuilt after send.
+type NativeImageInfo struct {
+	RequestBody      []byte
+	EstimatedCostUSD float64
+	ActualCostUSD    *float64
+	ChannelID        int
+	Sent             bool
+	OutcomeUnknown   bool
+	ProviderTag      string
+}
+
 type RelayInfo struct {
 	TokenId           int
 	TokenKey          string
@@ -191,6 +203,7 @@ type RelayInfo struct {
 	// and again before settlement. Non-nil only when billing mode is "tiered_expr".
 	TieredBillingSnapshot *billingexpr.BillingSnapshot
 	BillingRequestInput   *billingexpr.RequestInput
+	NativeImage           *NativeImageInfo
 
 	Request dto.Request
 

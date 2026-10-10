@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -979,6 +981,45 @@ func TestModelPriceHelperPerCallAppliesCapturedFX(t *testing.T) {
 			assert.Equal(t, 1.45, priceData.GroupRatioInfo.GroupRatio)
 			assert.Equal(t, 1.45*testCase.rate/100, priceData.EffectiveGroupRatio())
 			assert.Equal(t, testCase.rate, info.BillingFXRate)
+		})
+	}
+}
+
+func TestProviderCostEstimateAndSettlement(t *testing.T) {
+	const modelName = "black-forest-labs/flux-3-image"
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	for _, tc := range []struct {
+		name                    string
+		estimate                any
+		actual                  float64
+		wantReserve, wantSettle int
+		invalid                 bool
+	}{
+		{"actual below reserve", 0.1, 0.04, 75000, 30000, false},
+		{"actual above reserve", 0.02, 0.04, 15000, 30000, false},
+		{"explicit zero", float64(0), 0, 0, 0, false},
+		{"missing estimate", nil, 0, 0, 0, true},
+		{"wrong type", "0.1", 0, 0, 0, true},
+		{"negative estimate", -0.1, 0, 0, 0, true},
+		{"nan estimate", math.NaN(), 0, 0, 0, true},
+		{"infinite estimate", math.Inf(1), 0, 0, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{BillingRequestInput: &billingexpr.RequestInput{Usage: map[string]any{"provider_cost": tc.estimate}}}
+			price, err := modelPriceHelperTiered(ctx, info, modelName, 0, &types.TokenCountMeta{}, hosttypes.GroupRatioInfo{GroupRatio: 1.5}, 1.5)
+			if tc.invalid {
+				require.Error(t, err)
+				assert.Nil(t, info.TieredBillingSnapshot)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantReserve, price.QuotaToPreConsume)
+			params := service.BuildTieredTokenParams(&dto.Usage{Cost: tc.actual}, false, billingexpr.UsedVars(info.TieredBillingSnapshot.ExprString))
+			result, err := billingexpr.ComputeTieredQuota(info.TieredBillingSnapshot, params)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantSettle, result.ActualQuotaAfterGroup)
+			assert.False(t, info.TieredBillingSnapshot.TaskUsageBilling)
 		})
 	}
 }
