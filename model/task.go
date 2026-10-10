@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
+	"gorm.io/gorm"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -130,7 +132,25 @@ type TaskPrivateData struct {
 	// only replaced when a hook explicitly returns state.
 	PluginState json.RawMessage `json:"plugin_state,omitempty"`
 	// PollFailures counts consecutive unrecognized or transient poll outcomes.
-	PollFailures int `json:"poll_failures,omitempty"`
+	PollFailures   int                 `json:"poll_failures,omitempty"`
+	Reconciliation *TaskReconciliation `json:"reconciliation,omitempty"`
+}
+
+// TaskReconciliation records uncertainty independently of the public task
+// status. Pending financial operations are never automatically replayed.
+type TaskReconciliation struct {
+	ReservedQuota         int     `json:"reserved_quota"`
+	ReservationPending    bool    `json:"reservation_pending,omitempty"`
+	SubmissionPending     bool    `json:"submission_pending,omitempty"`
+	RefundPending         bool    `json:"refund_pending,omitempty"`
+	Required              bool    `json:"required,omitempty"`
+	SettlementPending     bool    `json:"settlement_pending,omitempty"`
+	MainApplied           bool    `json:"main_applied,omitempty"`
+	TargetQuota           int     `json:"target_quota,omitempty"`
+	Finalized             bool    `json:"finalized,omitempty"`
+	HasUpstreamCost       bool    `json:"has_upstream_cost,omitempty"`
+	UpstreamCostConfirmed bool    `json:"upstream_cost_confirmed,omitempty"`
+	UpstreamCostUSD       float64 `json:"upstream_cost_usd,omitempty"`
 }
 
 type TaskExecutionSnapshot struct {
@@ -156,7 +176,10 @@ type TaskPluginAuthorSnapshot struct {
 }
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
+const TaskSettlementOpenRouterCostV1 = "openrouter_cost_v1"
+
 type TaskBillingContext struct {
+	SettlementMode  string                       `json:"settlement_mode,omitempty"`
 	ModelPrice      float64                      `json:"model_price,omitempty"`       // 模型单价
 	GroupRatio      float64                      `json:"group_ratio,omitempty"`       // 分组倍率
 	ModelRatio      float64                      `json:"model_ratio,omitempty"`       // 模型倍率
@@ -195,6 +218,7 @@ type TaskBillingSubmitGroup struct {
 // validator so malformed history cannot be mistaken for absent legacy data.
 func (c *TaskBillingContext) UnmarshalJSON(data []byte) error {
 	var wire struct {
+		SettlementMode  string                       `json:"settlement_mode,omitempty"`
 		ModelPrice      float64                      `json:"model_price,omitempty"`
 		GroupRatio      float64                      `json:"group_ratio,omitempty"`
 		ModelRatio      float64                      `json:"model_ratio,omitempty"`
@@ -221,7 +245,8 @@ func (c *TaskBillingContext) UnmarshalJSON(data []byte) error {
 		submitGroupRaw = raw
 	}
 	*c = TaskBillingContext{
-		ModelPrice: wire.ModelPrice, GroupRatio: wire.GroupRatio, ModelRatio: wire.ModelRatio,
+		SettlementMode: wire.SettlementMode,
+		ModelPrice:     wire.ModelPrice, GroupRatio: wire.GroupRatio, ModelRatio: wire.ModelRatio,
 		OtherRatios: wire.OtherRatios, OriginModelName: wire.OriginModelName, PerCallBilling: wire.PerCallBilling,
 		TieredSnapshot: wire.TieredSnapshot, billingFXRaw: append(json.RawMessage(nil), billingFXRaw...),
 		submitGroupRaw: append(json.RawMessage(nil), submitGroupRaw...),
@@ -306,6 +331,7 @@ func (c TaskBillingContext) MarshalJSON() ([]byte, error) {
 		submitGroup = data
 	}
 	return common.Marshal(struct {
+		SettlementMode  string                       `json:"settlement_mode,omitempty"`
 		ModelPrice      float64                      `json:"model_price,omitempty"`
 		GroupRatio      float64                      `json:"group_ratio,omitempty"`
 		ModelRatio      float64                      `json:"model_ratio,omitempty"`
@@ -315,7 +341,7 @@ func (c TaskBillingContext) MarshalJSON() ([]byte, error) {
 		TieredSnapshot  *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
 		BillingFX       json.RawMessage              `json:"billing_fx,omitempty"`
 		SubmitGroup     json.RawMessage              `json:"submit_group,omitempty"`
-	}{c.ModelPrice, c.GroupRatio, c.ModelRatio, c.OtherRatios, c.OriginModelName, c.PerCallBilling, c.TieredSnapshot, billingFX, submitGroup})
+	}{c.SettlementMode, c.ModelPrice, c.GroupRatio, c.ModelRatio, c.OtherRatios, c.OriginModelName, c.PerCallBilling, c.TieredSnapshot, billingFX, submitGroup})
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
@@ -354,7 +380,7 @@ func (p TaskPrivateData) Value() (driver.Value, error) {
 	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" &&
 		p.Execution == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
 		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
-		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 {
+		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 && p.Reconciliation == nil {
 		return nil, nil
 	}
 	// 同 Properties.Value:string 避免 PG simple protocol 的 bytea 编码。
@@ -517,10 +543,16 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 }
 
 func GetAllUnFinishSyncTasks(limit int) []*Task {
+	return GetUnfinishedSyncTaskPage(limit, 0)
+}
+
+// GetUnfinishedSyncTaskPage permits callers to skip attempts awaiting manual
+// reconciliation without starving later tasks behind the query limit.
+func GetUnfinishedSyncTaskPage(limit int, afterID int64) []*Task {
 	var tasks []*Task
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	err = DB.Where("id > ?", afterID).Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
@@ -630,15 +662,16 @@ func (Task *Task) InsertWithContext(ctx context.Context) error {
 }
 
 type taskSnapshot struct {
-	Status       TaskStatus
-	Progress     string
-	StartTime    int64
-	FinishTime   int64
-	FailReason   string
-	ResultURL    string
-	Data         json.RawMessage
-	PluginState  json.RawMessage
-	PollFailures int
+	Status         TaskStatus
+	Progress       string
+	StartTime      int64
+	FinishTime     int64
+	FailReason     string
+	ResultURL      string
+	Data           json.RawMessage
+	PluginState    json.RawMessage
+	PollFailures   int
+	Reconciliation TaskReconciliation
 }
 
 func (s taskSnapshot) Equal(other taskSnapshot) bool {
@@ -650,20 +683,25 @@ func (s taskSnapshot) Equal(other taskSnapshot) bool {
 		s.ResultURL == other.ResultURL &&
 		bytes.Equal(s.Data, other.Data) &&
 		bytes.Equal(s.PluginState, other.PluginState) &&
-		s.PollFailures == other.PollFailures
+		s.PollFailures == other.PollFailures && s.Reconciliation == other.Reconciliation
 }
 
 func (t *Task) Snapshot() taskSnapshot {
+	var reconciliation TaskReconciliation
+	if t.PrivateData.Reconciliation != nil {
+		reconciliation = *t.PrivateData.Reconciliation
+	}
 	return taskSnapshot{
-		Status:       t.Status,
-		Progress:     t.Progress,
-		StartTime:    t.StartTime,
-		FinishTime:   t.FinishTime,
-		FailReason:   t.FailReason,
-		ResultURL:    t.PrivateData.ResultURL,
-		Data:         t.Data,
-		PluginState:  t.PrivateData.PluginState,
-		PollFailures: t.PrivateData.PollFailures,
+		Status:         t.Status,
+		Progress:       t.Progress,
+		StartTime:      t.StartTime,
+		FinishTime:     t.FinishTime,
+		FailReason:     t.FailReason,
+		ResultURL:      t.PrivateData.ResultURL,
+		Data:           t.Data,
+		PluginState:    t.PrivateData.PluginState,
+		PollFailures:   t.PrivateData.PollFailures,
+		Reconciliation: reconciliation,
 	}
 }
 
@@ -677,6 +715,24 @@ func (t *Task) UpdateQuota() error {
 	return DB.Model(t).Update("quota", t.Quota).Error
 }
 
+// ClaimReconciledTaskRefund claims the refund before any financial effect.
+// Crashes and failed legs leave RefundPending for reconciliation instead of
+// replaying a potentially completed transfer.
+func (t *Task) ClaimReconciledTaskRefund(quota int) (bool, error) {
+	t.PrivateData.Reconciliation.RefundPending = true
+	t.PrivateData.Reconciliation.Required = true
+	result := DB.Model(t).Where("status = ? AND quota = ?", TaskStatusFailure, quota).
+		Updates(map[string]any{"quota": 0, "private_data": t.PrivateData})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return false, nil
+	}
+	t.Quota = 0
+	return true, nil
+}
+
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Returns (true, nil) if this caller won the update, (false, nil) if
 // another process already moved the task out of fromStatus. MySQL commonly
@@ -687,6 +743,9 @@ func (t *Task) UpdateQuota() error {
 // falls back to INSERT ON CONFLICT when the WHERE-guarded UPDATE matches
 // zero rows, which silently bypasses the CAS guard.
 func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
+	if bc := t.PrivateData.BillingContext; bc != nil && bc.SettlementMode != "" && (fromStatus == TaskStatusSuccess || fromStatus == TaskStatusFailure) {
+		return false, nil
+	}
 	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
 	if result.Error != nil {
 		return false, result.Error
@@ -788,4 +847,148 @@ func (t *Task) ToOpenAIVideo() *dto.OpenAIVideo {
 		}
 	}
 	return openAIVideo
+}
+
+// ApplyTaskCostSettlement commits the main-database legs once. Cache and log
+// uncertainty is deliberately left pending for manual reconciliation.
+func (t *Task) ApplyTaskCostSettlement() (string, error) {
+	tokenKey := ""
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var saved Task
+		if err := lockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
+			return err
+		}
+		expected, state := t.PrivateData.Reconciliation, saved.PrivateData.Reconciliation
+		if expected == nil || state == nil || !state.SettlementPending || state.MainApplied || state.Finalized ||
+			saved.TaskID != t.TaskID || saved.UserId != t.UserId || saved.ChannelId != t.ChannelId ||
+			saved.PrivateData.TokenId != t.PrivateData.TokenId || saved.PrivateData.BillingSource != t.PrivateData.BillingSource ||
+			saved.PrivateData.SubscriptionId != t.PrivateData.SubscriptionId || saved.Status != t.Status ||
+			saved.PrivateData.BillingContext == nil || saved.PrivateData.BillingContext.SettlementMode != TaskSettlementOpenRouterCostV1 ||
+			state.TargetQuota != expected.TargetQuota || state.ReservedQuota != expected.ReservedQuota || saved.Quota != state.ReservedQuota {
+			return fmt.Errorf("task settlement claim changed or already applied")
+		}
+		if saved.PrivateData.BillingSource != "wallet" && saved.PrivateData.BillingSource != "subscription" {
+			return fmt.Errorf("unknown task funding source")
+		}
+		if saved.PrivateData.BillingSource == "subscription" && saved.PrivateData.SubscriptionId <= 0 {
+			return fmt.Errorf("missing task subscription")
+		}
+		delta := state.TargetQuota - state.ReservedQuota
+		// The conditional write also claims the SQLite row before any balances move.
+		state.MainApplied = true
+		result := tx.Model(&Task{}).Where("id = ? AND status = ? AND quota = ?", saved.ID, saved.Status, saved.Quota).
+			Updates(map[string]any{"quota": state.TargetQuota, "private_data": saved.PrivateData})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("task settlement claim lost")
+		}
+		if delta == 0 {
+			return nil
+		}
+		if saved.PrivateData.BillingSource == "subscription" && saved.PrivateData.SubscriptionId > 0 {
+			var sub UserSubscription
+			if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", saved.PrivateData.SubscriptionId, saved.UserId).First(&sub).Error; err != nil {
+				return err
+			}
+			used := max(sub.AmountUsed+int64(delta), 0)
+			if sub.AmountTotal > 0 && used > sub.AmountTotal {
+				return fmt.Errorf("subscription used exceeds total")
+			}
+			if err := tx.Model(&sub).Update("amount_used", used).Error; err != nil {
+				return err
+			}
+		}
+		userUpdates := map[string]any{"used_quota": gorm.Expr("used_quota + ?", delta)}
+		if saved.PrivateData.BillingSource != "subscription" {
+			userUpdates["quota"] = gorm.Expr("quota - ?", delta)
+		}
+		result = tx.Model(&User{}).Where("id = ?", saved.UserId).Updates(userUpdates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("task user missing")
+		}
+		result = tx.Model(&Channel{}).Where("id = ?", saved.ChannelId).Update("used_quota", gorm.Expr("used_quota + ?", delta))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("task channel missing")
+		}
+		if saved.PrivateData.TokenId > 0 {
+			var token Token
+			if err := tx.Where("id = ? AND user_id = ?", saved.PrivateData.TokenId, saved.UserId).First(&token).Error; err != nil {
+				return err
+			}
+			tokenKey = token.Key
+			result = tx.Model(&token).Updates(map[string]any{"remain_quota": gorm.Expr("remain_quota - ?", delta), "used_quota": gorm.Expr("used_quota + ?", delta)})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return fmt.Errorf("task token missing")
+			}
+		}
+		return nil
+	})
+	if err == nil {
+		t.Quota = t.PrivateData.Reconciliation.TargetQuota
+		t.PrivateData.Reconciliation.MainApplied = true
+	}
+	return tokenKey, err
+}
+
+// SyncTaskCostSettlementCache applies only the committed additive delta, never
+// a stale absolute balance (initial reservations may still be queued).
+func (t *Task) SyncTaskCostSettlementCache(tokenKey string) error {
+	delta := t.PrivateData.Reconciliation.TargetQuota - t.PrivateData.Reconciliation.ReservedQuota
+	if delta == 0 || !common.RedisEnabled {
+		return nil
+	}
+	if t.PrivateData.BillingSource != "subscription" {
+		if err := cacheIncrUserQuota(t.UserId, -int64(delta)); err != nil {
+			return err
+		}
+	}
+	if t.PrivateData.TokenId > 0 {
+		_, err := cacheApplyTokenQuotaDelta(t.PrivateData.TokenId, tokenKey, -int64(delta))
+		return err
+	}
+	return nil
+}
+
+// FinalizeTaskCostSettlement clears uncertainty only after cache and log success.
+func (t *Task) FinalizeTaskCostSettlement() error {
+	var committed TaskPrivateData
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var saved Task
+		if err := lockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
+			return err
+		}
+		state, expected := saved.PrivateData.Reconciliation, t.PrivateData.Reconciliation
+		if state == nil || expected == nil || !state.MainApplied || !state.SettlementPending || state.Finalized ||
+			saved.TaskID != t.TaskID || saved.Status != t.Status || saved.Quota != expected.TargetQuota ||
+			state.TargetQuota != expected.TargetQuota || state.ReservedQuota != expected.ReservedQuota {
+			return fmt.Errorf("task settlement finalization claim changed")
+		}
+		state.Finalized = true
+		state.Required = false
+		state.SettlementPending = false
+		result := tx.Model(&Task{}).Where("id = ? AND status = ? AND quota = ?", saved.ID, saved.Status, saved.Quota).Update("private_data", saved.PrivateData)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("task settlement finalization claim lost")
+		}
+		committed = saved.PrivateData
+		return nil
+	})
+	if err == nil {
+		t.PrivateData = committed
+	}
+	return err
 }

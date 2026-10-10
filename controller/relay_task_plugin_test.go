@@ -3,8 +3,10 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -15,10 +17,13 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay"
+	jspluginadaptor "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relaykittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -376,6 +381,44 @@ func TestExecuteTaskSubmissionRefundsCancellationBeforeDurableBarrier(t *testing
 	assert.False(t, c.Writer.Written())
 }
 
+func TestExecuteTaskSubmissionAmbiguousOpenRouterAttemptUsesStandardRetryAndRefund(t *testing.T) {
+	for _, disconnect := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disconnect=%t", disconnect), func(t *testing.T) {
+			events := make([]string, 0)
+			setupTaskSubmissionDatabase(t, true, &events)
+			billing := &taskSubmissionTestBilling{events: &events}
+			c := taskSubmissionTestContext()
+			c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: &pluginruntime.LoadedPlugin{Meta: pluginruntime.Meta{Key: "openrouter-video"}}})
+			ctx, cancel := context.WithCancel(c.Request.Context())
+			defer cancel()
+			c.Request = c.Request.WithContext(ctx)
+			previousRetries := common.RetryTimes
+			common.RetryTimes = 3
+			t.Cleanup(func() { common.RetryTimes = previousRetries })
+			attempts := 0
+			outcome, taskErr := executeTaskSubmissionWith(c, taskSubmissionRelayInfo(billing), func(c *gin.Context, _ *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+				attempts++
+				if disconnect {
+					cancel()
+				}
+				return nil, service.TaskErrorWrapper(errors.New("unknown paid submission outcome"), "do_request_failed", http.StatusBadGateway)
+			})
+			assert.Nil(t, outcome)
+			require.NotNil(t, taskErr)
+			expectedAttempts := 4
+			if disconnect {
+				expectedAttempts = 1
+			}
+			assert.Equal(t, expectedAttempts, attempts)
+			assert.Equal(t, 1, billing.refunds)
+			assert.Equal(t, []string{"refund"}, events)
+			var taskCount int64
+			require.NoError(t, model.DB.Model(&model.Task{}).Count(&taskCount).Error)
+			assert.Zero(t, taskCount)
+		})
+	}
+}
+
 func TestExecuteTaskSubmissionDisconnectBeforeUpstreamAcceptanceSkipsSubmitAndRefunds(t *testing.T) {
 	events := make([]string, 0, 1)
 	setupTaskSubmissionDatabase(t, true, &events)
@@ -509,5 +552,111 @@ func taskSubmissionRelayInfo(billing relaycommon.BillingSettler) *relaycommon.Re
 			LockedChannel: &model.Channel{Id: 1, Type: constant.ChannelTypeTaskPlugin, Name: "plugin"},
 		},
 		ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 1, ChannelType: constant.ChannelTypeTaskPlugin},
+	}
+}
+
+func TestExecuteOpenRouterSubmissionAccepts202BeforePersistingTask(t *testing.T) {
+	events := []string{}
+	database := setupTaskSubmissionDatabase(t, true, &events)
+	require.NoError(t, database.AutoMigrate(&model.User{}, &model.Channel{}, &model.ModelCostFXRow{}))
+	require.NoError(t, database.Create(&model.User{Id: 1, Username: "openrouter-submitter", AffCode: "openrouter-submitter", Quota: 10000}).Error)
+	require.NoError(t, database.Create(&model.Channel{Id: 1, Type: constant.ChannelTypeOpenRouter, Key: "accepted-provider-key"}).Error)
+	logDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, logDB.AutoMigrate(&model.Log{}))
+	previousLogDB, previousRedis, previousBatch, previousLogEnabled := model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
+	model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = logDB, false, false, false
+	previousRate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	t.Cleanup(func() {
+		model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousLogDB, previousRedis, previousBatch, previousLogEnabled
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousRate
+	})
+	current, _ := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	version := max(current.Version+1, 1)
+	require.NoError(t, database.Create(&model.ModelCostFXRow{Source: "cbr-xml-daily.ru", Version: version, EffectiveAt: time.Now().Unix(), FetchedAt: time.Now().Unix(), RatesJSON: `{"USD":100}`}).Error)
+	require.NoError(t, model.LoadModelCostFX(t.Context(), "cbr-xml-daily.ru"))
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { savedConfig[key] = value; return nil }))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig)) })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"google/veo-3.1-lite":"tiered_expr"}`,
+		"billing_setting.billing_expr":    `{"google/veo-3.1-lite":"tier(\"reserve\", u(\"requested_seconds\") * 0.000025)"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`, "group_ratio_setting.group_group_ratio": `{}`,
+	}))
+	source, err := plugins.Source("openrouter-video")
+	require.NoError(t, err)
+	stamp := regexp.MustCompile(`"fetched_at": "([^"]+)"`).FindStringSubmatch(source)
+	require.Len(t, stamp, 2)
+	fetchedAt, err := time.Parse(time.RFC3339Nano, stamp[1])
+	require.NoError(t, err)
+	plugin, err := pluginruntime.NewRegistry().RegisterFactory(source, pluginruntime.Options{Key: "openrouter-video", Now: func() time.Time { return fetchedAt }})
+	require.NoError(t, err)
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		assert.Equal(t, "/v1/videos", r.URL.Path)
+		assert.Equal(t, "Bearer accepted-provider-key", r.Header.Get("Authorization"))
+		var count int64
+		require.NoError(t, database.Model(&model.Task{}).Count(&count).Error)
+		assert.Zero(t, count, "no task is persisted before a successful submission")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"id":"accepted-job","status":"pending"}`))
+	}))
+	t.Cleanup(server.Close)
+	service.InitHttpClient()
+	c := taskSubmissionTestContext()
+	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: plugin})
+	c.Set("group", "default")
+	c.Set("task_request", map[string]any{"prompt": "ocean waves", "seconds": 4, "metadata": map[string]any{"resolution": "720p"}})
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeOpenRouter)
+	common.SetContextKey(c, constant.ContextKeyChannelId, 1)
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, server.URL)
+	common.SetContextKey(c, constant.ContextKeyChannelKey, "accepted-provider-key")
+	billing := &taskSubmissionTestBilling{events: &events}
+	info := taskSubmissionRelayInfo(billing)
+	info.OriginModelName = "google/veo-3.1-lite"
+	info.UserGroup = "default"
+	info.BillingSource = service.BillingSourceWallet
+	billing.onSettle = func() {
+		var saved model.Task
+		require.NoError(t, database.Where("task_id = ?", info.PublicTaskID).First(&saved).Error)
+		require.NotNil(t, saved.PrivateData.Reconciliation)
+		assert.True(t, saved.PrivateData.Reconciliation.ReservationPending)
+	}
+	events = nil
+	outcome, taskErr := executeTaskSubmissionWith(c, info, relay.RelayTaskSubmit)
+	require.Nil(t, taskErr)
+	require.NotNil(t, outcome)
+	assert.Equal(t, 1, calls)
+	assert.Equal(t, []string{"reserve", "insert", "settle"}, events)
+	assert.Zero(t, billing.refunds)
+	var saved model.Task
+	require.NoError(t, database.First(&saved, outcome.Task.ID).Error)
+	assert.Equal(t, constant.TaskPlatform("openrouter-video"), saved.Platform)
+	assert.Equal(t, "accepted-job", saved.GetUpstreamTaskID())
+	assert.Equal(t, "accepted-provider-key", saved.PrivateData.Key)
+	assert.Equal(t, model.TaskSettlementOpenRouterCostV1, saved.PrivateData.BillingContext.SettlementMode)
+	assert.Equal(t, 50, saved.PrivateData.Reconciliation.ReservedQuota)
+	assert.False(t, saved.PrivateData.Reconciliation.ReservationPending)
+	assert.False(t, saved.PrivateData.Reconciliation.SubmissionPending)
+	assert.False(t, saved.PrivateData.Reconciliation.Required)
+	var logs []model.Log
+	require.NoError(t, logDB.Find(&logs).Error)
+	require.Len(t, logs, 1)
+	assert.Equal(t, 50, logs[0].Quota)
+	adaptor := jspluginadaptor.New(plugin)
+	for _, tc := range []struct {
+		usage     string
+		confirmed bool
+	}{
+		{`{"cost":0.01,"is_byok":false}`, true}, {`{"cost":0.01,"is_byok":true}`, false}, {`{"cost":0.01}`, false},
+	} {
+		result, err := adaptor.ParseTaskResult(&saved, &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}, []byte(`{"id":"accepted-job","status":"completed","usage":`+tc.usage+`}`))
+		require.NoError(t, err)
+		require.NotNil(t, result.UpstreamCostUSD)
+		assert.Equal(t, 0.01, *result.UpstreamCostUSD)
+		assert.Equal(t, tc.confirmed, result.UpstreamCostConfirmed)
 	}
 }

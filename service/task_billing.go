@@ -20,7 +20,7 @@ import (
 
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
 // 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
-func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model.Task) {
+func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model.Task) error {
 	tokenName := c.GetString("token_name")
 	logContent := fmt.Sprintf("操作 %s", info.Action)
 	// 支持任务仅按次计费
@@ -70,18 +70,30 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 	}
 	appendTaskLogInfo(task, other)
 	attachQuotaSaturation(c, info, other)
-	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
-		ChannelId: info.ChannelId,
-		ModelName: info.OriginModelName,
-		TokenName: tokenName,
-		Quota:     info.PriceData.Quota,
-		Content:   logContent,
-		TokenId:   info.TokenId,
-		Group:     info.UsingGroup,
-		Other:     other,
-	})
+	var logErr error
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.SettlementMode == model.TaskSettlementOpenRouterCostV1 {
+		other.SetPublic("settlement_mode", bc.SettlementMode)
+		other.SetPublic("reserved_quota", task.Quota)
+		logErr = model.RecordTaskBillingLogWithError(model.RecordTaskBillingLogParams{
+			UserId: info.UserId, LogType: model.LogTypeConsume, ChannelId: info.ChannelId, ModelName: info.OriginModelName,
+			TokenId: info.TokenId, Quota: info.PriceData.Quota, Content: logContent, Group: info.UsingGroup, Other: other, NodeName: task.PrivateData.NodeName,
+		})
+	} else {
+		model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
+			ChannelId: info.ChannelId,
+			ModelName: info.OriginModelName,
+			TokenName: tokenName,
+			Quota:     info.PriceData.Quota,
+			Content:   logContent,
+			TokenId:   info.TokenId,
+			Group:     info.UsingGroup,
+			Other:     other,
+		})
+	}
+
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
+	return logErr
 }
 
 // ---------------------------------------------------------------------------
@@ -117,13 +129,13 @@ func taskAdjustFunding(task *model.Task, delta int) error {
 
 // taskAdjustTokenQuota 调整任务的令牌额度，delta > 0 表示扣费，delta < 0 表示退还。
 // 需要通过 resolveTokenKey 运行时获取 key（不从 PrivateData 中读取）。
-func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
+func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) error {
 	if task.PrivateData.TokenId <= 0 || delta == 0 {
-		return
+		return nil
 	}
 	tokenKey := resolveTokenKey(ctx, task.PrivateData.TokenId, task.TaskID)
 	if tokenKey == "" {
-		return
+		return fmt.Errorf("task token is unavailable")
 	}
 	var err error
 	if delta > 0 {
@@ -134,6 +146,7 @@ func taskAdjustTokenQuota(ctx context.Context, task *model.Task, delta int) {
 	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("调整令牌额度失败 (delta=%d, task=%s): %s", delta, task.TaskID, err.Error()))
 	}
+	return err
 }
 
 // taskBillingOther 从 task 的 BillingContext 构建日志 Other 字段。
@@ -257,7 +270,7 @@ func hasIndependentTaskRefundEntitlement(task *model.Task) bool {
 		return false
 	}
 	bc := task.PrivateData.BillingContext
-	return bc != nil && (bc.PerCallBilling || bc.TieredSnapshot != nil)
+	return bc != nil && bc.SettlementMode == "" && (bc.PerCallBilling || bc.TieredSnapshot != nil)
 }
 
 func appendTaskLogInfo(task *model.Task, other *model.LogOther) {
@@ -304,9 +317,25 @@ func taskModelName(task *model.Task) string {
 // 当异步任务失败时，退还资金与令牌额度，并回减用户和渠道用量。
 // 返回资金来源是否已成功退还；失败时保留 quota，供显式重试或人工对账。
 func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool {
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.SettlementMode != "" {
+		return false
+	}
+	reconciliation := task.PrivateData.Reconciliation
+	if reconciliation != nil {
+		if reconciliation.RefundPending || reconciliation.ReservationPending || reconciliation.SubmissionPending || !reconciliation.HasUpstreamCost || !reconciliation.UpstreamCostConfirmed || reconciliation.UpstreamCostUSD != 0 {
+			reconciliation.Required = true
+			return false
+		}
+	}
 	quota := task.Quota
 	if quota == 0 {
 		return true
+	}
+	if reconciliation != nil {
+		won, err := task.ClaimReconciledTaskRefund(quota)
+		if err != nil || !won {
+			return false
+		}
 	}
 
 	// 1. 退还资金来源（钱包或订阅）
@@ -316,7 +345,7 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	}
 
 	// 2. 退还令牌额度
-	taskAdjustTokenQuota(ctx, task, -quota)
+	tokenErr := taskAdjustTokenQuota(ctx, task, -quota)
 
 	// 3. 回减预扣时累计的用户和渠道用量，请求次数保持不变
 	model.UpdateUserUsedQuota(task.UserId, -quota)
@@ -341,6 +370,19 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 	// 5. 资金退款完成后再清除持久化标记。
 	// 回写失败必须显式告警，避免漏掉潜在的重复退款风险。
 	task.Quota = 0
+	if reconciliation != nil {
+		if tokenErr != nil {
+			return false
+		}
+		reconciliation.RefundPending = false
+		reconciliation.Required = false
+		reconciliation.Finalized = true
+		if _, err := task.UpdateWithStatus(task.Status); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("task %s refund completed but reconciliation marker is pending", task.TaskID))
+			return false
+		}
+		return true
+	}
 	if err := task.UpdateQuota(); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("退款成功但清除 task quota 失败 task %s: %s", task.TaskID, err.Error()))
 	}
@@ -531,4 +573,119 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	}
 	recalculateTaskQuota(ctx, task, actualQuota, reason, projection, clamp)
 	return true
+}
+
+// InitTaskSubmission freezes billing and execution identity after the upstream
+// submission succeeds, before the standard task persistence barrier.
+func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInfo *relaycommon.RelayInfo) *model.Task {
+	task := model.InitTask(platform, relayInfo)
+	task.PrivateData.Execution = TaskExecutionSnapshotFromContext(c)
+	task.PrivateData.BillingSource = relayInfo.BillingSource
+	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
+	task.PrivateData.TokenId = relayInfo.TokenId
+	task.PrivateData.NodeName = common.NodeName
+	var specialRatio *float64
+	if relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio {
+		ratio := relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio
+		specialRatio = &ratio
+	}
+	task.PrivateData.BillingContext = &model.TaskBillingContext{
+		ModelPrice:      relayInfo.PriceData.ModelPrice,
+		GroupRatio:      relayInfo.PriceData.EffectiveGroupRatio(),
+		ModelRatio:      relayInfo.PriceData.ModelRatio,
+		OtherRatios:     relayInfo.PriceData.OtherRatios(),
+		OriginModelName: relayInfo.OriginModelName,
+		PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+		TieredSnapshot:  relayInfo.TieredBillingSnapshot,
+		BillingFX: &model.TaskBillingFX{
+			SchemaVersion:      1,
+			Source:             relayInfo.BillingFXSource,
+			Rate:               relayInfo.BillingFXRate,
+			PublicationVersion: relayInfo.BillingFXPublicationVersion,
+			EffectiveAt:        relayInfo.BillingFXEffectiveAt,
+			FetchedAt:          relayInfo.BillingFXFetchedAt,
+		},
+		SubmitGroup: &model.TaskBillingSubmitGroup{
+			PureRatio:       relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+			HasSpecialRatio: relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio,
+			SpecialRatio:    specialRatio,
+		},
+	}
+	if task.PrivateData.Execution != nil && task.PrivateData.Execution.TaskPlugin != nil && task.PrivateData.Execution.TaskPlugin.Key == "openrouter-video" {
+		task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV1
+		// Polling must use the provider account that accepted this task, including
+		// a selected key from a multi-key channel or before a later key rotation.
+		task.PrivateData.Key = relayInfo.ChannelMeta.ApiKey
+		task.PrivateData.Reconciliation = &model.TaskReconciliation{
+			ReservedQuota: relayInfo.PriceData.Quota, ReservationPending: true, Required: true,
+		}
+	}
+	task.Quota = relayInfo.PriceData.Quota
+	task.Action = relayInfo.Action
+	return task
+}
+
+// prepareOpenRouterCostSettlement freezes a validated target in the terminal
+// status claim, before the winning poller can move any funds.
+func prepareOpenRouterCostSettlement(task *model.Task) {
+	r, bc := task.PrivateData.Reconciliation, task.PrivateData.BillingContext
+	if bc == nil || bc.SettlementMode != model.TaskSettlementOpenRouterCostV1 || r == nil {
+		return
+	}
+	r.Required = true
+	r.Finalized = false
+	if r.SettlementPending || r.MainApplied || r.ReservationPending || r.SubmissionPending ||
+		!r.HasUpstreamCost || !r.UpstreamCostConfirmed || r.UpstreamCostUSD < 0 || math.IsNaN(r.UpstreamCostUSD) || math.IsInf(r.UpstreamCostUSD, 0) {
+		return
+	}
+	if _, modern, err := taskBillingFXFactor(bc); err != nil || !modern || bc.TieredSnapshot == nil {
+		return
+	}
+	snap := bc.TieredSnapshot
+	amount := decimal.NewFromFloat(r.UpstreamCostUSD).Mul(decimal.NewFromFloat(snap.GroupRatio)).Mul(decimal.NewFromFloat(snap.QuotaPerUnit))
+	target, clamp := common.QuotaFromDecimalChecked(amount)
+	if clamp != nil {
+		return
+	}
+	r.TargetQuota = target
+	r.SettlementPending = true
+}
+
+func settleOpenRouterCost(task *model.Task) error {
+	r := task.PrivateData.Reconciliation
+	if r == nil || !r.SettlementPending || r.MainApplied || r.Finalized {
+		return nil
+	}
+	tokenKey, err := task.ApplyTaskCostSettlement()
+	if err != nil {
+		return err
+	}
+	if err := task.SyncTaskCostSettlementCache(tokenKey); err != nil {
+		return err
+	}
+	delta := r.TargetQuota - r.ReservedQuota
+	if delta != 0 {
+		other := model.NewLogOther()
+		appendTaskLogInfo(task, other)
+		other.SetPublic("settlement_mode", model.TaskSettlementOpenRouterCostV1)
+		other.SetPublic("pre_consumed_quota", r.ReservedQuota)
+		other.SetPublic("actual_quota", r.TargetQuota)
+		bc := task.PrivateData.BillingContext
+		other.SetAdmin("upstream_cost_usd", r.UpstreamCostUSD)
+		other.SetAdmin("billing_fx", bc.BillingFX)
+		other.SetAdmin("billing_submit_group", bc.SubmitGroup)
+		other.SetAdmin("effective_group_ratio", bc.TieredSnapshot.GroupRatio)
+		logType, quota := model.LogTypeConsume, delta
+		if delta < 0 {
+			logType, quota = model.LogTypeRefund, -delta
+		}
+		if err := model.RecordTaskBillingLogWithError(model.RecordTaskBillingLogParams{
+			UserId: task.UserId, ChannelId: task.ChannelId, ModelName: taskModelName(task), TokenId: task.PrivateData.TokenId,
+			LogType: logType, Quota: quota, Group: task.Group, Other: other, NodeName: task.PrivateData.NodeName,
+			Content: "OpenRouter confirmed cost settlement",
+		}); err != nil {
+			return err
+		}
+	}
+	return task.FinalizeTaskCostSettlement()
 }

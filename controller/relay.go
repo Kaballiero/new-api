@@ -756,40 +756,8 @@ func executeTaskSubmissionWith(
 	}
 
 	stage = "insert"
-	task := model.InitTask(result.Platform, relayInfo)
-	task.PrivateData.Execution = service.TaskExecutionSnapshotFromContext(c)
+	task := service.InitTaskSubmission(c, result.Platform, relayInfo)
 	task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
-	task.PrivateData.BillingSource = relayInfo.BillingSource
-	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
-	task.PrivateData.TokenId = relayInfo.TokenId
-	task.PrivateData.NodeName = common.NodeName
-	var specialRatio *float64
-	if relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio {
-		ratio := relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio
-		specialRatio = &ratio
-	}
-	task.PrivateData.BillingContext = &model.TaskBillingContext{
-		ModelPrice:      relayInfo.PriceData.ModelPrice,
-		GroupRatio:      relayInfo.PriceData.EffectiveGroupRatio(),
-		ModelRatio:      relayInfo.PriceData.ModelRatio,
-		OtherRatios:     relayInfo.PriceData.OtherRatios(),
-		OriginModelName: relayInfo.OriginModelName,
-		PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
-		TieredSnapshot:  relayInfo.TieredBillingSnapshot,
-		BillingFX: &model.TaskBillingFX{
-			SchemaVersion:      1,
-			Source:             relayInfo.BillingFXSource,
-			Rate:               relayInfo.BillingFXRate,
-			PublicationVersion: relayInfo.BillingFXPublicationVersion,
-			EffectiveAt:        relayInfo.BillingFXEffectiveAt,
-			FetchedAt:          relayInfo.BillingFXFetchedAt,
-		},
-		SubmitGroup: &model.TaskBillingSubmitGroup{
-			PureRatio:       relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			HasSpecialRatio: relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio,
-			SpecialRatio:    specialRatio,
-		},
-	}
 	task.Quota = result.Quota
 	task.Data = result.TaskData
 	if len(result.PluginState) > 0 {
@@ -829,7 +797,21 @@ func executeTaskSubmissionWith(
 		diagnostics.failed("settle", "billing_error", taskErr, true)
 		return nil, taskErr
 	}
-	service.LogTaskConsumption(c, relayInfo, task)
+	if logErr := service.LogTaskConsumption(c, relayInfo, task); logErr != nil {
+		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to record task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
+		diagnostics.failed("settle", "billing_log_error", taskErr, true)
+		return nil, taskErr
+	}
+	if state := task.PrivateData.Reconciliation; state != nil {
+		state.ReservationPending = false
+		state.Required = false
+		won, err := task.UpdateWithStatus(task.Status)
+		if err != nil || !won {
+			taskErr = service.TaskErrorWrapperLocal(errors.New("failed to confirm task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
+			diagnostics.failed("settle", "billing_state_error", taskErr, true)
+			return nil, taskErr
+		}
+	}
 	diagnostics.complete(task, result.Quota)
 
 	return &taskSubmissionOutcome{Result: result, Task: task, RelayInfo: relayInfo}, nil

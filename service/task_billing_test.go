@@ -21,8 +21,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -969,6 +971,177 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	assert.Equal(t, "test-model", log.ModelName)
 	assert.Zero(t, task.Quota)
 	assert.Zero(t, getTaskQuota(t, task.ID))
+}
+
+func TestRefundTaskQuota_ReconciledEvidenceAndStaleWorker(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		evidence model.TaskReconciliation
+		refund   bool
+	}{
+		{"missing cost", model.TaskReconciliation{}, false},
+		{"unconfirmed zero", model.TaskReconciliation{HasUpstreamCost: true}, false},
+		{"paid failure", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, UpstreamCostUSD: 0.1}, false},
+		{"reservation pending", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, ReservationPending: true}, false},
+		{"submission pending", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, SubmissionPending: true}, false},
+		{"refund pending", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, RefundPending: true}, false},
+		{"confirmed zero", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			const charged = 3000
+			seedUser(t, 1, 10000)
+			seedToken(t, 1, 1, "sk-test-key", 5000)
+			seedChannel(t, 1)
+			seedChargedAccounting(t, 1, 1, 1, charged, 1)
+			task := makeTask(1, 1, charged, 1, BillingSourceWallet, 0)
+			task.Status = model.TaskStatusFailure
+			tc.evidence.ReservedQuota = charged
+			task.PrivateData.Reconciliation = &tc.evidence
+			require.NoError(t, model.DB.Create(task).Error)
+			// A second process loaded the charged task before the first refund.
+			var stale model.Task
+			require.NoError(t, model.DB.First(&stale, task.ID).Error)
+			assert.Equal(t, tc.refund, RefundTaskQuota(t.Context(), task, "fixture failure"))
+			assert.False(t, RefundTaskQuota(t.Context(), &stale, "stale worker"))
+			wantQuota, wantToken, wantCharged := 10000, 5000, charged
+			if tc.refund {
+				wantQuota += charged
+				wantToken += charged
+				wantCharged = 0
+			}
+			assert.Equal(t, wantQuota, getUserQuota(t, 1))
+			assert.Equal(t, wantToken, getTokenRemainQuota(t, 1))
+			assert.Equal(t, wantCharged, getTaskQuota(t, task.ID))
+			assert.Equal(t, int64(wantCharged), getChannelUsedQuota(t, 1))
+			var loaded model.Task
+			require.NoError(t, model.DB.First(&loaded, task.ID).Error)
+			require.NotNil(t, loaded.PrivateData.Reconciliation)
+			assert.Equal(t, tc.refund, loaded.PrivateData.Reconciliation.Finalized)
+			assert.Equal(t, charged, loaded.PrivateData.Reconciliation.ReservedQuota)
+		})
+	}
+}
+
+func TestReconciledRefundInterruptionRetainsHoldAfterReload(t *testing.T) {
+	for _, stage := range []string{"after claim", "wallet unavailable", "token unavailable"} {
+		t.Run(stage, func(t *testing.T) {
+			truncate(t)
+			const charged = 3000
+			seedUser(t, 1, 10000)
+			seedToken(t, 1, 1, "sk-refund-interruption-fixture", 5000)
+			seedChannel(t, 1)
+			seedChargedAccounting(t, 1, 1, 1, charged, 1)
+			task := makeTask(1, 1, charged, 1, BillingSourceWallet, 0)
+			task.Status = model.TaskStatusFailure
+			task.PrivateData.Reconciliation = &model.TaskReconciliation{
+				ReservedQuota: charged, HasUpstreamCost: true, UpstreamCostConfirmed: true,
+			}
+			require.NoError(t, model.DB.Create(task).Error)
+			var stale model.Task
+			require.NoError(t, model.DB.First(&stale, task.ID).Error)
+			if stage == "after claim" {
+				won, err := task.ClaimReconciledTaskRefund(charged)
+				require.NoError(t, err)
+				require.True(t, won)
+			} else {
+				failedTable := "users"
+				if stage == "token unavailable" {
+					failedTable = "tokens"
+				}
+				callback := "test:refund_interruption"
+				require.NoError(t, model.DB.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+					if tx.Statement.Table == failedTable {
+						tx.AddError(fmt.Errorf("injected %s update failure", failedTable))
+					}
+				}))
+				t.Cleanup(func() { _ = model.DB.Callback().Update().Remove(callback) })
+				assert.False(t, RefundTaskQuota(t.Context(), task, "interruption fixture"))
+				require.NoError(t, model.DB.Callback().Update().Remove(callback))
+			}
+
+			// The failing dependency is healthy again. A new DB connection and a
+			// stale worker must still leave the unresolved transfer alone.
+			withTaskBillingOtherNode(t, func() {
+				var loaded model.Task
+				require.NoError(t, model.DB.First(&loaded, task.ID).Error)
+				require.NotNil(t, loaded.PrivateData.Reconciliation)
+				assert.True(t, loaded.PrivateData.Reconciliation.RefundPending)
+				assert.True(t, loaded.PrivateData.Reconciliation.Required)
+				assert.False(t, loaded.PrivateData.Reconciliation.Finalized)
+				assert.Equal(t, charged, loaded.PrivateData.Reconciliation.ReservedQuota)
+				assert.Zero(t, loaded.Quota)
+				assert.False(t, RefundTaskQuota(t.Context(), &loaded, "after reconnect"))
+				assert.False(t, RefundTaskQuota(t.Context(), &stale, "stale worker"))
+				wantWallet, wantUsed, wantLogs := 10000, charged, int64(0)
+				if stage == "token unavailable" {
+					wantWallet, wantUsed, wantLogs = 13000, 0, 1
+				}
+				assert.Equal(t, wantWallet, getUserQuota(t, 1))
+				assert.Equal(t, 5000, getTokenRemainQuota(t, 1))
+				assert.Equal(t, int64(wantUsed), getChannelUsedQuota(t, 1))
+				var user model.User
+				require.NoError(t, model.DB.First(&user, 1).Error)
+				assert.Equal(t, wantUsed, user.UsedQuota)
+				assert.Equal(t, 1, user.RequestCount)
+				var token model.Token
+				require.NoError(t, model.DB.First(&token, 1).Error)
+				assert.Equal(t, charged, token.UsedQuota)
+				var refundLogs int64
+				require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("type = ?", model.LogTypeRefund).Count(&refundLogs).Error)
+				assert.Equal(t, wantLogs, refundLogs)
+			})
+		})
+	}
+}
+
+func TestReconciledSubmissionManualEvidenceThenRefundOnce(t *testing.T) {
+	truncate(t)
+	const charged = 3000
+	seedUser(t, 1, 10000)
+	seedToken(t, 1, 1, "sk-manual-evidence-fixture", 5000)
+	seedChannel(t, 1)
+	seedChargedAccounting(t, 1, 1, 1, charged, 1)
+	task := makeTask(1, 1, charged, 1, BillingSourceWallet, 0)
+	task.Status = model.TaskStatusFailure
+	task.PrivateData.Reconciliation = &model.TaskReconciliation{
+		ReservedQuota: charged, SubmissionPending: true, Required: true,
+	}
+	require.NoError(t, model.DB.Create(task).Error)
+	assert.False(t, RefundTaskQuota(t.Context(), task, "unknown submission"))
+	assert.Equal(t, 10000, getUserQuota(t, 1))
+
+	withTaskBillingOtherNode(t, func() {
+		var loaded model.Task
+		require.NoError(t, model.DB.First(&loaded, task.ID).Error)
+		// Operator fixture: reservation is independently known complete and
+		// the exact upstream job has a terminal non-BYOK failure costing zero.
+		// This data edit rehearses the evidence handoff, not a production UI.
+		loaded.PrivateData.UpstreamTaskID = "operator-confirmed-zero-cost-job"
+		loaded.PrivateData.Reconciliation.SubmissionPending = false
+		loaded.PrivateData.Reconciliation.HasUpstreamCost = true
+		loaded.PrivateData.Reconciliation.UpstreamCostConfirmed = true
+		won, err := loaded.UpdateWithStatus(model.TaskStatusFailure)
+		require.NoError(t, err)
+		require.True(t, won)
+		var stale model.Task
+		require.NoError(t, model.DB.First(&stale, task.ID).Error)
+		require.True(t, RefundTaskQuota(t.Context(), &loaded, "operator confirmed zero-cost failure"))
+		assert.False(t, RefundTaskQuota(t.Context(), &stale, "duplicate operator"))
+		var finished model.Task
+		require.NoError(t, model.DB.First(&finished, task.ID).Error)
+		assert.True(t, RefundTaskQuota(t.Context(), &finished, "repeated check"))
+		assert.True(t, finished.PrivateData.Reconciliation.Finalized)
+		assert.False(t, finished.PrivateData.Reconciliation.Required)
+		assert.False(t, finished.PrivateData.Reconciliation.RefundPending)
+		assert.Zero(t, finished.Quota)
+		assert.Equal(t, 13000, getUserQuota(t, 1))
+		assert.Equal(t, 8000, getTokenRemainQuota(t, 1))
+		assert.Zero(t, getChannelUsedQuota(t, 1))
+		var refundLogs int64
+		require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("type = ?", model.LogTypeRefund).Count(&refundLogs).Error)
+		assert.Equal(t, int64(1), refundLogs)
+	})
 }
 
 func TestRefundTaskQuota_Subscription(t *testing.T) {
@@ -2458,6 +2631,343 @@ func TestTaskBillingCompletionAppliedGroup(t *testing.T) {
 			logsBefore := countLogs(t)
 			RecalculateTaskQuota(context.Background(), &loaded, loaded.Quota, "unchanged")
 			assert.Equal(t, logsBefore, countLogs(t))
+		})
+	}
+}
+
+func TestOpenRouterCostSettlement(t *testing.T) {
+	for _, tc := range []struct {
+		name                                                                string
+		cost                                                                float64
+		confirmed, present, failed, legacy, missingToken, logFailure, batch bool
+		unknown, invalidBasis                                               bool
+		target                                                              int
+	}{
+		{name: "lower", cost: 0.00002, confirmed: true, present: true, target: 40},
+		{name: "higher", cost: 0.00005, confirmed: true, present: true, target: 100},
+		{name: "equal", cost: 0.000025, confirmed: true, present: true, target: 50},
+		{name: "zero_success", confirmed: true, present: true},
+		{name: "zero_failure", confirmed: true, present: true, failed: true},
+		{name: "paid_failure", cost: 0.00002, confirmed: true, present: true, failed: true, target: 40},
+		{name: "missing", target: 50},
+		{name: "unknown_mode", unknown: true, cost: 0.00002, confirmed: true, present: true, target: 50},
+		{name: "invalid_basis", invalidBasis: true, cost: 0.00002, confirmed: true, present: true, target: 50},
+
+		{name: "byok_or_unknown", cost: 0.00002, present: true, target: 50},
+		{name: "invalid_negative", cost: -1, confirmed: true, present: true, target: 50},
+		{name: "legacy", cost: 0.00002, confirmed: true, present: true, legacy: true, target: 50},
+		{name: "missing_token_rollback", cost: 0.00002, confirmed: true, present: true, missingToken: true, target: 50},
+		{name: "log_failure_no_replay", cost: 0.00002, confirmed: true, present: true, logFailure: true, target: 40},
+		{name: "batch_enabled", cost: 0.00002, confirmed: true, present: true, batch: true, target: 40},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			const id = 819
+			seedUser(t, id, 9950)
+			seedChannel(t, id)
+			if !tc.missingToken {
+				seedToken(t, id, id, "cost-token", 9950)
+			}
+			seedChargedAccounting(t, id, id, id, 50, 1)
+			task := makeTask(id, id, 50, id, BillingSourceWallet, 0)
+			task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV1
+			if tc.legacy {
+				task.PrivateData.BillingContext.SettlementMode = ""
+			}
+			if tc.unknown {
+				task.PrivateData.BillingContext.SettlementMode = "future_mode"
+			}
+			bc := task.PrivateData.BillingContext
+			bc.GroupRatio = 4
+			bc.BillingFX = testTaskBillingFX(200)
+			bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+			if tc.invalidBasis {
+				bc.BillingFX.Rate = 300
+			}
+			bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000, ExprString: "tier(\"reserve\", 0.000025)"}
+			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, HasUpstreamCost: tc.present, UpstreamCostConfirmed: tc.confirmed, UpstreamCostUSD: tc.cost}
+			require.NoError(t, model.DB.Create(task).Error)
+			var stale model.Task
+			require.NoError(t, model.DB.First(&stale, task.ID).Error)
+			// Reload proves the manual snapshot wire format carries settlement mode.
+			require.Equal(t, bc.SettlementMode, stale.PrivateData.BillingContext.SettlementMode)
+			task.Status = model.TaskStatusSuccess
+			if tc.failed {
+				task.Status = model.TaskStatusFailure
+			}
+			prepareOpenRouterCostSettlement(task)
+			won, err := task.UpdateWithStatus(model.TaskStatusInProgress)
+			require.NoError(t, err)
+			require.True(t, won)
+			oldBatch, oldLogging := common.BatchUpdateEnabled, common.LogConsumeEnabled
+			common.BatchUpdateEnabled, common.LogConsumeEnabled = tc.batch, false
+			t.Cleanup(func() { common.BatchUpdateEnabled, common.LogConsumeEnabled = oldBatch, oldLogging })
+			if tc.logFailure {
+				require.NoError(t, model.LOG_DB.Callback().Create().Before("gorm:create").Register("cost_log_failure", func(tx *gorm.DB) { tx.AddError(fmt.Errorf("injected log failure")) }))
+			}
+			settled, err := settleTaskBillingOnComplete(context.Background(), &mockAdaptor{}, task, &relaycommon.TaskInfo{})
+			require.True(t, settled)
+			if tc.logFailure {
+				require.NoError(t, model.LOG_DB.Callback().Create().Remove("cost_log_failure"))
+			}
+			if tc.missingToken || tc.logFailure {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			stale.Status = task.Status
+			stale.PrivateData = task.PrivateData
+			won, err = stale.UpdateWithStatus(model.TaskStatusInProgress)
+			require.NoError(t, err)
+			assert.False(t, won)
+			var saved model.Task
+			require.NoError(t, model.DB.First(&saved, task.ID).Error)
+			if tc.missingToken {
+				require.Error(t, settleOpenRouterCost(&saved))
+			} else {
+				require.NoError(t, settleOpenRouterCost(&saved))
+			}
+			assert.Equal(t, tc.target, saved.Quota)
+			var user model.User
+			require.NoError(t, model.DB.First(&user, id).Error)
+			assert.Equal(t, 10000-tc.target, user.Quota)
+			assert.Equal(t, tc.target, user.UsedQuota)
+			assert.Equal(t, 1, user.RequestCount)
+			var channel model.Channel
+			require.NoError(t, model.DB.First(&channel, id).Error)
+			assert.Equal(t, int64(tc.target), channel.UsedQuota)
+			if !tc.missingToken {
+				var token model.Token
+				require.NoError(t, model.DB.First(&token, id).Error)
+				assert.Equal(t, 10000-tc.target, token.RemainQuota)
+				assert.Equal(t, tc.target, token.UsedQuota)
+			}
+			var logs []model.Log
+			require.NoError(t, model.LOG_DB.Find(&logs).Error)
+			wantLogs := 0
+			if tc.target != 50 && !tc.logFailure {
+				wantLogs = 1
+			}
+			require.Len(t, logs, wantLogs)
+			if wantLogs == 1 {
+				expectedDelta := tc.target - 50
+				if expectedDelta < 0 {
+					expectedDelta = -expectedDelta
+				}
+				assert.Equal(t, expectedDelta, logs[0].Quota)
+				if tc.target < 50 {
+					assert.Equal(t, model.LogTypeRefund, logs[0].Type)
+				} else {
+					assert.Equal(t, model.LogTypeConsume, logs[0].Type)
+				}
+				assert.Contains(t, logs[0].Other, "openrouter_cost_v1")
+				assert.Contains(t, logs[0].Other, "admin_info")
+				assert.NotContains(t, logs[0].Other, "expr_b64")
+			}
+			r := saved.PrivateData.Reconciliation
+			if tc.logFailure {
+				assert.True(t, r.MainApplied)
+				assert.True(t, r.SettlementPending)
+				assert.False(t, r.Finalized)
+			}
+			if tc.missingToken {
+				assert.False(t, r.MainApplied)
+				assert.True(t, r.SettlementPending)
+			}
+		})
+	}
+}
+
+func TestOpenRouterCostSettlementCacheAndSubscription(t *testing.T) {
+	for _, tc := range []struct {
+		name                                     string
+		subscription, overage, hot, cacheFailure bool
+	}{
+		{name: "subscription", subscription: true}, {name: "subscription_overage", subscription: true, overage: true},
+		{name: "hot_cache_concurrent_reserve", hot: true}, {name: "cold_cache"}, {name: "cache_failure_no_replay", hot: true, cacheFailure: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			const id = 820
+			seedUser(t, id, 9950)
+			seedChannel(t, id)
+			seedToken(t, id, id, "cost-cache-token", 9950)
+			seedChargedAccounting(t, id, id, id, 50, 1)
+			source, subID := BillingSourceWallet, 0
+			if tc.subscription {
+				source, subID = BillingSourceSubscription, id
+				total := int64(1000)
+				if tc.overage {
+					total = 60
+				}
+				seedSubscription(t, id, id, total, 50)
+			}
+			task := makeTask(id, id, 50, id, source, subID)
+			bc := task.PrivateData.BillingContext
+			bc.SettlementMode = model.TaskSettlementOpenRouterCostV1
+			bc.GroupRatio = 4
+			bc.BillingFX = testTaskBillingFX(200)
+			bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+			bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000}
+			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, HasUpstreamCost: true, UpstreamCostConfirmed: true, UpstreamCostUSD: 0.00005}
+			require.NoError(t, model.DB.Create(task).Error)
+			oldGroups := ratio_setting.GroupRatio2JSONString()
+			t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroups)) })
+			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":17}`))
+			task.Status = model.TaskStatusSuccess
+			prepareOpenRouterCostSettlement(task)
+			require.Equal(t, 100, task.PrivateData.Reconciliation.TargetQuota)
+			won, err := task.UpdateWithStatus(model.TaskStatusInProgress)
+			require.NoError(t, err)
+			require.True(t, won)
+			server := miniredis.RunT(t)
+			previousRedis, previousClient, previousBatch := common.RedisEnabled, common.RDB, common.BatchUpdateEnabled
+			client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: -1})
+			common.RedisEnabled, common.RDB, common.BatchUpdateEnabled = true, client, true
+			t.Cleanup(func() {
+				common.RedisEnabled, common.RDB, common.BatchUpdateEnabled = previousRedis, previousClient, previousBatch
+				client.Close()
+			})
+			userKey, tokenKey := fmt.Sprintf("user:%d", id), "token:"+common.GenerateHMAC("cost-cache-token")
+			if tc.hot {
+				_, err := model.GetUserCache(id)
+				require.NoError(t, err)
+				require.NoError(t, client.HSet(context.Background(), tokenKey, "Id", id, "RemainQuota", 9950, "UsedQuota", 50).Err())
+				// Another initial reservation has updated Redis while its DB delta is queued.
+				require.NoError(t, client.HIncrBy(context.Background(), userKey, "Quota", -70).Err())
+				require.NoError(t, client.HIncrBy(context.Background(), tokenKey, "RemainQuota", -70).Err())
+				require.NoError(t, client.HIncrBy(context.Background(), tokenKey, "UsedQuota", 70).Err())
+			}
+			if tc.cacheFailure {
+				server.Close()
+			}
+			err = settleOpenRouterCost(task)
+			if tc.overage || tc.cacheFailure {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			var saved model.Task
+			require.NoError(t, model.DB.First(&saved, task.ID).Error)
+			expected := 100
+			if tc.overage {
+				expected = 50
+			}
+			assert.Equal(t, expected, saved.Quota)
+			if tc.cacheFailure {
+				require.NoError(t, settleOpenRouterCost(&saved))
+				assert.True(t, saved.PrivateData.Reconciliation.MainApplied)
+				assert.True(t, saved.PrivateData.Reconciliation.SettlementPending)
+			}
+			if tc.hot && !tc.cacheFailure {
+				assert.Equal(t, "9830", server.HGet(userKey, "Quota"))
+				assert.Equal(t, "9830", server.HGet(tokenKey, "RemainQuota"))
+				assert.Equal(t, "170", server.HGet(tokenKey, "UsedQuota"))
+			}
+			if !tc.hot {
+				assert.False(t, server.Exists(userKey))
+				assert.False(t, server.Exists(tokenKey))
+			}
+			if tc.subscription {
+				var sub model.UserSubscription
+				require.NoError(t, model.DB.First(&sub, id).Error)
+				assert.Equal(t, int64(expected), sub.AmountUsed)
+				var user model.User
+				require.NoError(t, model.DB.First(&user, id).Error)
+				assert.Equal(t, 9950, user.Quota)
+			}
+		})
+	}
+}
+
+func TestOpenRouterCostReservationLogRequired(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			truncate(t)
+			const id = 821
+			seedUser(t, id, 9950)
+			seedChannel(t, id)
+			task := makeTask(id, id, 50, 0, BillingSourceWallet, 0)
+			task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV1
+			info := &relaycommon.RelayInfo{UserId: id, OriginModelName: "test-model", UsingGroup: "default", ChannelMeta: &relaycommon.ChannelMeta{ChannelId: id}, TaskRelayInfo: &relaycommon.TaskRelayInfo{Action: "GENERATE"}, PriceData: types.PriceData{Quota: 50, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}}}
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+			old := common.LogConsumeEnabled
+			common.LogConsumeEnabled = false
+			t.Cleanup(func() { common.LogConsumeEnabled = old })
+			if fail {
+				require.NoError(t, model.LOG_DB.Callback().Create().Before("gorm:create").Register("cost_reserve_log_failure", func(tx *gorm.DB) { tx.AddError(fmt.Errorf("injected reservation log failure")) }))
+			}
+			err := LogTaskConsumption(ctx, info, task)
+			if fail {
+				require.NoError(t, model.LOG_DB.Callback().Create().Remove("cost_reserve_log_failure"))
+				require.Error(t, err)
+				assert.Zero(t, countLogs(t))
+			} else {
+				require.NoError(t, err)
+				log := getLastLog(t)
+				require.NotNil(t, log)
+				assert.Equal(t, 50, log.Quota)
+				assert.Equal(t, model.LogTypeConsume, log.Type)
+				assert.Contains(t, log.Other, "reserved_quota")
+				assert.Contains(t, log.Other, "openrouter_cost_v1")
+			}
+		})
+	}
+}
+
+func TestOpenRouterCostPerTaskPolling(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status model.TaskStatus
+		cost   float64
+		target int
+	}{
+		{"lower", model.TaskStatusSuccess, 0.00002, 40}, {"higher", model.TaskStatusSuccess, 0.00005, 100},
+		{"zero", model.TaskStatusSuccess, 0, 0}, {"paid_failure", model.TaskStatusFailure, 0.00002, 40},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			const id = 822
+			seedUser(t, id, 9950)
+			seedChannel(t, id)
+			seedToken(t, id, id, "poll-cost-token", 9950)
+			seedChargedAccounting(t, id, id, id, 50, 1)
+			task := makeTask(id, id, 50, id, BillingSourceWallet, 0)
+			task.PrivateData.UpstreamTaskID = "upstream-cost-task"
+			bc := task.PrivateData.BillingContext
+			bc.SettlementMode = model.TaskSettlementOpenRouterCostV1
+			bc.GroupRatio = 4
+			bc.BillingFX = testTaskBillingFX(200)
+			bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+			bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000}
+			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50}
+			require.NoError(t, model.DB.Create(task).Error)
+			var stale model.Task
+			require.NoError(t, model.DB.First(&stale, task.ID).Error)
+			adaptor := &scriptedPollingAdaptor{body: []byte(`{}`), parse: &relaycommon.TaskInfo{Status: string(tc.status), UpstreamCostUSD: &tc.cost, UpstreamCostConfirmed: true}}
+			channel := &model.Channel{Id: id, Type: constant.ChannelTypeOpenRouter, Key: "fixture"}
+			require.NoError(t, updateVideoSingleTask(t.Context(), adaptor, channel, task.GetUpstreamTaskID(), map[string]*model.Task{task.GetUpstreamTaskID(): task}))
+			// A stale nonterminal poller loses the terminal claim; a reloaded terminal
+			// poller cannot overwrite finalized private state or replay settlement.
+			require.NoError(t, updateVideoSingleTask(t.Context(), adaptor, channel, stale.GetUpstreamTaskID(), map[string]*model.Task{stale.GetUpstreamTaskID(): &stale}))
+			var loaded model.Task
+			require.NoError(t, model.DB.First(&loaded, task.ID).Error)
+			require.NoError(t, updateVideoSingleTask(t.Context(), adaptor, channel, loaded.GetUpstreamTaskID(), map[string]*model.Task{loaded.GetUpstreamTaskID(): &loaded}))
+			require.NoError(t, model.DB.First(&loaded, task.ID).Error)
+			assert.Equal(t, tc.status, loaded.Status)
+			assert.Equal(t, tc.target, loaded.Quota)
+			assert.True(t, loaded.PrivateData.Reconciliation.Finalized)
+			assert.True(t, loaded.PrivateData.Reconciliation.MainApplied)
+			assert.False(t, loaded.PrivateData.Reconciliation.Required)
+			assert.False(t, loaded.PrivateData.Reconciliation.SettlementPending)
+			assert.Equal(t, 10000-tc.target, getUserQuota(t, id))
+			assert.Equal(t, 10000-tc.target, getTokenRemainQuota(t, id))
+			used, count := getUserUsageAccounting(t, id)
+			assert.Equal(t, tc.target, used)
+			assert.Equal(t, 1, count)
+			assert.Equal(t, int64(tc.target), getChannelUsedQuota(t, id))
+			assert.Equal(t, int64(1), countLogs(t))
 		})
 	}
 }

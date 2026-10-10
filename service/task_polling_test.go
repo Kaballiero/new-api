@@ -657,6 +657,50 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	assert.Equal(t, int64(1), countLogs(t))
 }
 
+func TestRunTaskPollingOncePendingAttemptsDoNotStarveLaterTasks(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		limit   int
+		wantIDs []string
+	}{
+		{"limited", 1, []string{"ordinary-first"}},
+		{"unlimited", -1, []string{"ordinary-first", "ordinary-second"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			previousLimit, previousTimeout, previousFactory := constant.TaskQueryLimit, constant.TaskTimeoutMinutes, GetTaskAdaptorFunc
+			constant.TaskQueryLimit, constant.TaskTimeoutMinutes = tc.limit, 0
+			adaptor := &taskPollingFetchAdaptor{}
+			GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+			seedChannel(t, 1)
+			t.Cleanup(func() {
+				constant.TaskQueryLimit, constant.TaskTimeoutMinutes, GetTaskAdaptorFunc = previousLimit, previousTimeout, previousFactory
+			})
+			for i := range 2 {
+				task := makeTask(1, 0, 100, 0, BillingSourceWallet, 0)
+				task.TaskID = []string{"pending-reservation", "pending-submit"}[i]
+				task.SubmitTime = time.Now().Unix()
+				task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 100, Required: true, ReservationPending: i == 0, SubmissionPending: i == 1}
+				require.NoError(t, model.DB.Create(task).Error)
+			}
+			// Ordinary tasks behind pending attempts must still be polled.
+			for _, id := range []string{"ordinary-first", "ordinary-second"} {
+				ordinary := makeTask(1, 1, 100, 0, BillingSourceWallet, 0)
+				ordinary.TaskID = id
+				ordinary.PrivateData.UpstreamTaskID = id
+				ordinary.SubmitTime = time.Now().Unix()
+				require.NoError(t, model.DB.Create(ordinary).Error)
+			}
+			summary := RunTaskPollingOnce(t.Context(), nil)
+			assert.Equal(t, len(tc.wantIDs), summary.UnfinishedTasks)
+			assert.ElementsMatch(t, tc.wantIDs, adaptor.fetchedTaskIDs())
+			var unfinishedCount int64
+			require.NoError(t, model.DB.Model(&model.Task{}).Where("status = ?", model.TaskStatusInProgress).Count(&unfinishedCount).Error)
+			assert.Equal(t, int64(4), unfinishedCount)
+		})
+	}
+}
+
 func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {
 	truncate(t)
 
@@ -762,6 +806,66 @@ func (a *scriptedPollingAdaptor) ParseTaskResult(*model.Task, *http.Response, []
 }
 func (a *scriptedPollingAdaptor) AdjustBillingOnComplete(*model.Task, *relaycommon.TaskInfo) int {
 	return 0
+}
+
+func TestReconciledTaskTerminalPurchaseEvidence(t *testing.T) {
+	zero, paid := 0.0, 0.12
+	for _, tc := range []struct {
+		name      string
+		status    model.TaskStatus
+		cost      *float64
+		confirmed bool
+		refund    bool
+	}{
+		{"failed missing final evidence", model.TaskStatusFailure, nil, false, false},
+		{"failed paid", model.TaskStatusFailure, &paid, true, false},
+		{"failed unconfirmed zero", model.TaskStatusFailure, &zero, false, false},
+		{"failed confirmed zero", model.TaskStatusFailure, &zero, true, true},
+		{"success without usage", model.TaskStatusSuccess, nil, false, false},
+		{"success with purchase evidence", model.TaskStatusSuccess, &paid, true, false},
+		{"unknown state hides upstream diagnostics", model.TaskStatusUnknown, nil, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			seedUser(t, 1, 10000)
+			seedToken(t, 1, 1, "sk-test-key", 5000)
+			seedChannel(t, 1)
+			seedChargedAccounting(t, 1, 1, 1, 3000, 1)
+			task := makeTask(1, 1, 3000, 1, BillingSourceWallet, 0)
+			task.PrivateData.UpstreamTaskID = "upstream-fixture"
+			// Provisional zero observed before completion is not final evidence.
+			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 3000, HasUpstreamCost: true, UpstreamCostConfirmed: true}
+			require.NoError(t, model.DB.Create(task).Error)
+			adaptor := &scriptedPollingAdaptor{
+				body:  []byte(`{"error":"Bearer secret-value","unsigned_urls":["https://example.com?token=secret-value"]}`),
+				parse: &relaycommon.TaskInfo{Status: string(tc.status), Reason: "OpenRouter video generation failed", UpstreamCostUSD: tc.cost, UpstreamCostConfirmed: tc.confirmed},
+			}
+			previousMaxFailures := constant.TaskPollMaxFailures
+			constant.TaskPollMaxFailures = 1
+			t.Cleanup(func() { constant.TaskPollMaxFailures = previousMaxFailures })
+			ch := &model.Channel{Id: 1, Type: constant.ChannelTypeOpenRouter, Key: "fixture"}
+			require.NoError(t, updateVideoSingleTask(t.Context(), adaptor, ch, task.GetUpstreamTaskID(), map[string]*model.Task{task.GetUpstreamTaskID(): task}))
+			var loaded model.Task
+			require.NoError(t, model.DB.First(&loaded, task.ID).Error)
+			wantStatus := tc.status
+			if tc.status == model.TaskStatusUnknown {
+				wantStatus = model.TaskStatusFailure
+			}
+			assert.Equal(t, wantStatus, loaded.Status)
+			assert.NotContains(t, loaded.FailReason, "secret-value")
+			assert.NotContains(t, string(loaded.Data), "secret-value")
+			if tc.status != model.TaskStatusUnknown {
+				assert.Equal(t, tc.cost != nil, loaded.PrivateData.Reconciliation.HasUpstreamCost)
+			}
+			wantQuota := 3000
+			if tc.refund {
+				wantQuota = 0
+			}
+			assert.Equal(t, wantQuota, loaded.Quota)
+			assert.Equal(t, 13000-wantQuota, getUserQuota(t, 1))
+			assert.Equal(t, !tc.refund && !(tc.status == model.TaskStatusSuccess && tc.confirmed), loaded.PrivateData.Reconciliation.Required)
+		})
+	}
 }
 
 type scriptedBatchPollingAdaptor struct {

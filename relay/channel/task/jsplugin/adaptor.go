@@ -733,6 +733,17 @@ func (a *TaskAdaptor) ParseTaskResult(task *model.Task, resp *http.Response, bod
 		CompletionTokens: positiveInt(parsed.CompletionTokens),
 		TotalTokens:      positiveInt(parsed.TotalTokens),
 	}
+	if a.plugin.Meta.Key == "openrouter-video" {
+		if payload, ok := input.(map[string]any); ok {
+			if usage, ok := payload["usage"].(map[string]any); ok {
+				if cost, ok := usage["cost"].(float64); ok && !math.IsNaN(cost) && !math.IsInf(cost, 0) && cost >= 0 {
+					result.UpstreamCostUSD = &cost
+					byok, known := usage["is_byok"].(bool)
+					result.UpstreamCostConfirmed = known && !byok
+				}
+			}
+		}
+	}
 	if pluginState, present := encodeReturnedPluginState(value); present {
 		if len(pluginState) > maxTaskPluginPersistedJSONBytes {
 			logger.LogWarn(context.Background(), fmt.Sprintf("task plugin %s rejected oversized poll state (%d bytes)", a.plugin.Meta.Key, len(pluginState)))
