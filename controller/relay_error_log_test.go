@@ -1,18 +1,29 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
+	"image"
+	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -248,4 +259,221 @@ func TestRelayPricingAdmissionPresentersAreSafeAndLocal(t *testing.T) {
 		require.NoError(t, database.First(&user, 7).Error)
 		assert.Equal(t, 1_000_000, user.Quota, "free baseline and missing-USD rejection must not consume funding")
 	})
+}
+
+func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMemory, previousRedis, previousBatch := common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled
+	previousConsume, previousError := common.LogConsumeEnabled, constant.ErrorLogEnabled
+	previousCount, previousRetries := constant.CountToken, common.RetryTimes
+	previousPrices := ratio_setting.ModelPrice2JSONString()
+	previousRate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { savedConfig[key] = value; return nil }))
+	common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = false, false, false
+	common.LogConsumeEnabled, constant.ErrorLogEnabled = true, true
+	constant.CountToken, common.RetryTimes = false, 3
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = previousMemory, previousRedis, previousBatch
+		common.LogConsumeEnabled, constant.ErrorLogEnabled = previousConsume, previousError
+		constant.CountToken, common.RetryTimes = previousCount, previousRetries
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousRate
+		common.SetDatabaseTypes(previousMain, previousLog)
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices))
+	})
+	var bitmap bytes.Buffer
+	require.NoError(t, png.Encode(&bitmap, image.NewRGBA(image.Rect(0, 0, 1, 1))))
+	encoded := base64.StdEncoding.EncodeToString(bitmap.Bytes())
+	const defaultImageModel = "black-forest-labs/flux.2-pro"
+	for _, tc := range []struct {
+		name, cost, expression, model, metadata string
+		status, quota, reserved                 int
+		unknown, transport, stream, legacy      bool
+	}{
+		{name: "Muse documented price with empty discovery", model: "meta/muse-image", metadata: `{"id":"meta/muse-image","endpoints":[]}`, cost: "0.01", status: 200, quota: 10000, reserved: 10000},
+		{name: "Krea Turbo documented price with empty pricing", model: "krea/krea-2-medium-turbo", metadata: `{"id":"krea/krea-2-medium-turbo","endpoints":[{"provider_tag":"krea","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[]}]}`, cost: "0.015", status: 200, quota: 15000, reserved: 15000},
+		{name: "actual below estimate", cost: "0.02", status: 200, quota: 20000, reserved: 40000},
+		{name: "actual above estimate", cost: "0.06", status: 200, quota: 60000, reserved: 40000},
+		{name: "explicit zero cost", cost: "0", status: 200, reserved: 40000},
+		{name: "administrator expression", cost: "0.02", expression: `tier("admin", provider_cost * 2000000)`, status: 200, quota: 40000, reserved: 80000},
+		{name: "administrator fixed image price", cost: "0.02", legacy: true, status: 200, quota: 30000, reserved: 30000},
+		{name: "stream completed image", cost: "0.02", stream: true, status: 200, quota: 20000, reserved: 40000},
+		{name: "upstream rejection", status: 429, reserved: 40000},
+		{name: "missing actual cost", status: 502, reserved: 40000, unknown: true},
+		{name: "interrupted paid request", status: 502, reserved: 40000, unknown: true, transport: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			imageModel := tc.model
+			if imageModel == "" {
+				imageModel = defaultImageModel
+			}
+			database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := database.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+			require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}, &model.ModelCostFXRow{}))
+			model.DB, model.LOG_DB = database, database
+			seedNativeRouteFX(t, database)
+			mode, expr := `{}`, `{}`
+			if tc.expression != "" {
+				mode = fmt.Sprintf(`{%q:"tiered_expr"}`, imageModel)
+				expr = fmt.Sprintf(`{%q:%q}`, imageModel, tc.expression)
+			}
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				"billing_setting.billing_mode": mode, "billing_setting.billing_expr": expr,
+				"group_ratio_setting.group_ratio": `{"default":2}`, "group_ratio_setting.group_group_ratio": `{}`,
+			}))
+			prices := `{}`
+			if tc.legacy {
+				prices = fmt.Sprintf(`{%q:0.03}`, imageModel)
+			}
+			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(prices))
+			const initial = 1000000
+			require.NoError(t, database.Create(&model.User{Id: 7, Username: "image-owner", Group: "default", Quota: initial}).Error)
+			require.NoError(t, database.Create(&model.Token{Id: 11, UserId: 7, Key: "fixture-token", Name: "image-token", RemainQuota: initial}).Error)
+			var paidCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Bearer fixture-provider", r.Header.Get("Authorization"))
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodGet {
+					assert.Equal(t, "/v1/images/models/"+imageModel+"/endpoints", r.URL.Path)
+					metadata := tc.metadata
+					if metadata == "" {
+						metadata = fmt.Sprintf(`{"id":%q,"endpoints":[{"provider_tag":"fixture","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[{"billable":"output_image","unit":"image","cost_usd":0.04}]}]}`, imageModel)
+					}
+					_, _ = io.WriteString(w, metadata)
+					return
+				}
+				paidCalls.Add(1)
+				assert.Equal(t, http.MethodPost, r.Method)
+				assert.Equal(t, "/v1/images", r.URL.Path)
+				if tc.metadata != "" {
+					var payload map[string]any
+					assert.NoError(t, common.DecodeJson(r.Body, &payload))
+					assert.Equal(t, imageModel, payload["model"])
+					assert.NotContains(t, payload, "input_references")
+					assert.NotContains(t, payload, "size")
+					if tc.model == "meta/muse-image" {
+						assert.Equal(t, map[string]any{"model": imageModel, "prompt": "a red square", "provider": map[string]any{"allow_fallbacks": false}}, payload)
+					} else {
+						assert.Equal(t, map[string]any{"only": []any{"krea"}, "allow_fallbacks": false}, payload["provider"])
+					}
+				}
+
+				var user model.User
+				var token model.Token
+				assert.NoError(t, database.First(&user, 7).Error)
+				assert.NoError(t, database.First(&token, 11).Error)
+				assert.Equal(t, initial-tc.reserved, user.Quota, "wallet reserved before provider dispatch")
+				assert.Equal(t, initial-tc.reserved, token.RemainQuota, "token reserved before provider dispatch")
+				if tc.transport {
+					connection, _, hijackErr := w.(http.Hijacker).Hijack()
+					if assert.NoError(t, hijackErr) {
+						_ = connection.Close()
+					}
+					return
+				}
+				w.Header().Set("X-Request-Id", "provider-image-fixture")
+				if tc.status == 429 {
+					w.WriteHeader(http.StatusTooManyRequests)
+					_, _ = io.WriteString(w, `{"error":{"code":429,"message":"rate limited","metadata":{"raw":"fixture-provider secret"}}}`)
+					return
+				}
+				usage := ""
+				if tc.cost != "" {
+					usage = `,"usage":{"cost":` + tc.cost + `}`
+				}
+				_, _ = io.WriteString(w, fmt.Sprintf(`{"created":123,"data":[{"b64_json":%q,"media_type":"image/png"}]%s}`, encoded, usage))
+			}))
+			t.Cleanup(upstream.Close)
+			selected := model.Channel{Id: 21, Type: constant.ChannelTypeOpenRouter, Name: "fixture-image", Key: "fixture-provider", BaseURL: &upstream.URL, Status: common.ChannelStatusEnabled, Models: imageModel, Group: "default"}
+			require.NoError(t, database.Create(&selected).Error)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(fmt.Sprintf(`{"model":%q,"prompt":"a red square","response_format":"url","stream":%t}`, imageModel, tc.stream)))
+			c.Request.Header.Set("Content-Type", "application/json")
+			common.SetContextKey(c, common.RequestIdKey, "image-relay-"+strings.ReplaceAll(tc.name, " ", "-"))
+			common.SetContextKey(c, constant.ContextKeyUserId, 7)
+			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyTokenGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUserQuota, initial)
+			common.SetContextKey(c, constant.ContextKeyUserSetting, dto.UserSetting{BillingPreference: "wallet_only"})
+			common.SetContextKey(c, constant.ContextKeyTokenId, 11)
+			common.SetContextKey(c, constant.ContextKeyTokenKey, "fixture-token")
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, imageModel)
+			c.Set("username", "image-owner")
+			c.Set("token_name", "image-token")
+			require.Nil(t, middleware.SetupContextForSelectedChannel(c, &selected, imageModel))
+			Relay(c, types.RelayFormatOpenAIImage)
+			require.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			assert.Equal(t, int32(1), paidCalls.Load(), "never replay paid generation even when retries are enabled")
+			if tc.status == http.StatusOK && tc.stream {
+				assert.Contains(t, recorder.Body.String(), `"type":"image_generation.completed"`)
+				assert.Contains(t, recorder.Body.String(), `"created_at":123`)
+				assert.Contains(t, recorder.Body.String(), encoded)
+			} else if tc.status == http.StatusOK {
+				var response dto.ImageResponse
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+				require.Len(t, response.Data, 1)
+				decoded, err := base64.StdEncoding.DecodeString(response.Data[0].B64Json)
+				require.NoError(t, err)
+				_, format, err := image.Decode(bytes.NewReader(decoded))
+				require.NoError(t, err)
+				assert.Equal(t, "png", format)
+			} else {
+				assert.Contains(t, recorder.Body.String(), `"error"`)
+				assert.NotContains(t, recorder.Body.String(), "fixture-provider")
+			}
+			require.Eventually(t, func() bool {
+				var user model.User
+				var token model.Token
+				if database.First(&user, 7).Error != nil || database.First(&token, 11).Error != nil {
+					return false
+				}
+				return user.Quota == initial-tc.quota && token.RemainQuota == initial-tc.quota
+			}, 5*time.Second, 10*time.Millisecond, "wallet/token must settle actual cost or refund full reservation")
+			var user model.User
+			var token model.Token
+			var channel model.Channel
+			require.NoError(t, database.First(&user, 7).Error)
+			require.NoError(t, database.First(&token, 11).Error)
+			require.NoError(t, database.First(&channel, 21).Error)
+			assert.Equal(t, tc.quota, user.UsedQuota)
+			assert.Equal(t, tc.quota, token.UsedQuota)
+			assert.Equal(t, int64(tc.quota), channel.UsedQuota)
+			var logs []model.Log
+			require.NoError(t, database.Find(&logs).Error)
+			require.Len(t, logs, 1, "one terminal consume/error audit per generation")
+			assert.Equal(t, 21, logs[0].ChannelId)
+			assert.Equal(t, 11, logs[0].TokenId)
+			assert.Equal(t, tc.quota, logs[0].Quota)
+			if !tc.transport {
+				assert.Equal(t, "provider-image-fixture", logs[0].UpstreamRequestId)
+			}
+			assert.NotContains(t, logs[0].Content, "fixture-provider secret")
+			other, err := common.StrToMap(logs[0].Other)
+			require.NoError(t, err)
+			admin, ok := other["admin_info"].(map[string]any)
+			require.True(t, ok)
+			if tc.unknown {
+				assert.Equal(t, "unknown", admin["image_financial_outcome"])
+				assert.Equal(t, "refund_without_retry", admin["image_error_policy"])
+				assert.Equal(t, model.LogTypeError, logs[0].Type)
+			} else if tc.status == http.StatusOK {
+				assert.Contains(t, admin, "image_actual_cost_usd")
+				assert.Equal(t, model.LogTypeConsume, logs[0].Type)
+				assert.NotContains(t, admin, "image_financial_outcome")
+			}
+		})
+	}
 }

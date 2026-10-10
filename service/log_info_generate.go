@@ -99,6 +99,17 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	}
 	other.SetAdmin("use_channel", ctx.GetStringSlice("use_channel"))
 	if relayInfo != nil {
+		if native := relayInfo.NativeImage; native != nil {
+			other.SetAdmin("image_estimated_cost_usd", native.EstimatedCostUSD)
+			other.SetAdmin("image_provider", native.ProviderTag)
+			if native.ActualCostUSD != nil {
+				other.SetAdmin("image_actual_cost_usd", *native.ActualCostUSD)
+			}
+			if native.OutcomeUnknown {
+				other.SetAdmin("image_financial_outcome", "unknown")
+				other.SetAdmin("image_error_policy", "refund_without_retry")
+			}
+		}
 		if billingModel := relayInfo.GetBillingModelName(); billingModel != "" && billingModel != relayInfo.OriginModelName {
 			other.SetAdmin("billing_model", billingModel)
 		}

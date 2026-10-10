@@ -82,6 +82,7 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 		c = 0
 	}
 
+	providerCost, _ := usage.Cost.(float64)
 	return billingexpr.TokenParams{
 		P:    p,
 		C:    c,
@@ -93,6 +94,8 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 		ImgO: imgO,
 		AI:   ai,
 		AO:   ao,
+
+		ProviderCost: providerCost,
 	}
 }
 

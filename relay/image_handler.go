@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -19,6 +21,53 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// PrepareOpenRouterImage runs discovery and capability validation before the
+// ordinary price helper and BillingSession reserve funds. It never generates.
+func PrepareOpenRouterImage(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
+	if c.GetInt("channel_type") != constant.ChannelTypeOpenRouter {
+		return nil
+	}
+	request, ok := info.Request.(*dto.ImageRequest)
+	if !ok {
+		return nil
+	}
+	previousMeta := info.ChannelMeta
+	defer func() { info.ChannelMeta = previousMeta }()
+	info.InitChannelMeta(c)
+	// ImageRequest.MarshalJSON intentionally omits Extra. A JSON deep copy
+	// would silently lose native resolution/seed/reference parameters.
+	copy := *request
+	copy.Extra = maps.Clone(request.Extra)
+	if err := helper.ModelMappedHelper(c, info, &copy); err != nil {
+		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+	}
+	if len(info.ParamOverride) > 0 || model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+		return types.NewErrorWithStatusCode(fmt.Errorf("native OpenRouter images require capability validation; body passthrough and parameter overrides are unsupported"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	adaptor := &openrouter.ImageAdaptor{Adaptor: GetAdaptor(info.ApiType)}
+	adaptor.Init(info)
+	if err := adaptor.Prepare(c, info, copy); err != nil {
+		if apiErr, ok := err.(*types.NewAPIError); ok {
+			return apiErr
+		}
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	input, err := helper.ResolveIncomingBillingExprRequestInput(c, info)
+	if err != nil {
+		return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
+	}
+	if len(input.Body) == 0 {
+		input, err = helper.BuildBillingExprRequestInputFromRequest(request, info.RequestHeaders)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
+		}
+	}
+	input.Usage = map[string]any{"provider_cost": info.NativeImage.EstimatedCostUSD}
+	info.BillingRequestInput = &input
+	info.ForcePreConsume = true
+	return nil
+}
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
@@ -42,6 +91,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	if adaptor == nil {
 		return types.NewError(fmt.Errorf("invalid api type: %d", info.ApiType), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
 	}
+	if info.ChannelType == constant.ChannelTypeOpenRouter {
+		adaptor = &openrouter.ImageAdaptor{Adaptor: adaptor}
+	}
 	adaptor.Init(info)
 
 	var requestBody io.Reader
@@ -55,6 +107,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	} else {
 		convertedRequest, err := adaptor.ConvertImageRequest(c, info, *request)
 		if err != nil {
+			if info.ChannelType == constant.ChannelTypeOpenRouter {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeConvertRequestFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed)
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
@@ -76,7 +131,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				}
 			}
 
-			logger.LogDebug(c, "image request body: %s", jsonData)
+			if info.NativeImage == nil {
+				logger.LogDebug(c, "image request body: %s", jsonData)
+			}
 			body, closer, err := relaycommon.NewOutboundJSONBody(jsonData)
 			if err != nil {
 				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
@@ -91,6 +148,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
+		if info.NativeImage != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeDoRequestFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}
 	var httpResp *http.Response
@@ -98,6 +158,11 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		httpResp = resp.(*http.Response)
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 		if httpResp.StatusCode != http.StatusOK {
+			if info.NativeImage != nil {
+				newAPIError = openrouter.ImageError(c, httpResp, info)
+				service.ResetStatusCode(newAPIError, statusCodeMappingStr)
+				return newAPIError
+			}
 			if httpResp.StatusCode == http.StatusCreated && info.ApiType == constant.APITypeReplicate {
 				// replicate channel returns 201 Created when using Prefer: wait, treat it as success.
 				httpResp.StatusCode = http.StatusOK
@@ -122,10 +187,10 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		imageN = *request.N
 	}
 
-	if usage.(*dto.Usage).TotalTokens == 0 {
+	if info.NativeImage == nil && usage.(*dto.Usage).TotalTokens == 0 {
 		usage.(*dto.Usage).TotalTokens = 1
 	}
-	if usage.(*dto.Usage).PromptTokens == 0 {
+	if info.NativeImage == nil && usage.(*dto.Usage).PromptTokens == 0 {
 		usage.(*dto.Usage).PromptTokens = 1
 	}
 

@@ -130,6 +130,8 @@ var (
 
 // compileEnvPrototypeV1 is the v1 type-checking prototype used at compile time.
 var compileEnvPrototypeV1 = map[string]any{
+	"provider_cost": float64(0),
+
 	"p":          float64(0),
 	"c":          float64(0),
 	"len":        float64(0),
