@@ -84,6 +84,11 @@ func sweepTimedOutTasks(ctx context.Context) {
 	timedOutCount := 0
 
 	for _, task := range tasks {
+		if reconciliation := task.PrivateData.Reconciliation; reconciliation != nil {
+			reconciliation.Required = true
+			reconciliation.HasUpstreamCost = false
+			reconciliation.UpstreamCostConfirmed = false
+		}
 		isLegacy := task.SubmitTime > 0 && task.SubmitTime < model.TaskRefundLegacyCutoff
 
 		oldStatus := task.Status
@@ -143,7 +148,27 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 
 	common.SysLog("任务进度轮询开始")
 	sweepTimedOutTasks(ctx)
-	allTasks := model.GetAllUnFinishSyncTasks(constant.TaskQueryLimit)
+	var allTasks []*model.Task
+	var afterID int64
+	for ctx.Err() == nil {
+		page := model.GetUnfinishedSyncTaskPage(constant.TaskQueryLimit, afterID)
+		if len(page) == 0 {
+			break
+		}
+		for _, task := range page {
+			afterID = task.ID
+			if reconciliation := task.PrivateData.Reconciliation; reconciliation != nil && (reconciliation.ReservationPending || reconciliation.SubmissionPending) {
+				continue
+			}
+			allTasks = append(allTasks, task)
+			if constant.TaskQueryLimit > 0 && len(allTasks) >= constant.TaskQueryLimit {
+				break
+			}
+		}
+		if constant.TaskQueryLimit < 0 || (constant.TaskQueryLimit > 0 && (len(allTasks) >= constant.TaskQueryLimit || len(page) < constant.TaskQueryLimit)) {
+			break
+		}
+	}
 	summary.UnfinishedTasks = len(allTasks)
 	platformTask := make(map[constant.TaskPlatform][]*model.Task)
 	for _, t := range allTasks {
@@ -362,6 +387,12 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 		}
 
 		isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+		if isDone && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV1 {
+			if snap.Status == model.TaskStatusSuccess || snap.Status == model.TaskStatusFailure {
+				continue
+			}
+			prepareOpenRouterCostSettlement(task)
+		}
 		terminalTransition := isDone && snap.Status != task.Status
 		won, updateErr := task.UpdateWithStatus(snap.Status)
 		if updateErr != nil {
@@ -511,7 +542,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		return recordPollFailure(ctx, adaptor, task, snap.Status, pollClassTransport, resp.StatusCode, err.Error())
 	}
 
-	logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
+	if task.PrivateData.Reconciliation == nil {
+		logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
+	}
 
 	switch classifyPollHTTP(resp.StatusCode) {
 	case pollClassNotFound:
@@ -527,7 +560,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	// try parse as New API response format
 	var responseItems taskdto.TaskResponse[model.Task]
 	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
-		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
+		if task.PrivateData.Reconciliation == nil {
+			logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
+		}
 		t := responseItems.Data
 		taskResult.TaskID = t.TaskID
 		taskResult.Status = string(t.Status)
@@ -539,7 +574,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		return recordPollFailure(ctx, adaptor, task, snap.Status, pollClassHookError, resp.StatusCode, err.Error())
 	}
 
-	logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
+	if task.PrivateData.Reconciliation == nil {
+		logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
+	}
 
 	parsedStatus := model.TaskStatus(taskResult.Status)
 	if parsedStatus == model.TaskStatusUnknown || parsedStatus == "" || !knownPollStatus(parsedStatus) {
@@ -550,6 +587,35 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	task.Data = redactVideoResponseBody(responseBody)
+	if reconciliation := task.PrivateData.Reconciliation; reconciliation != nil {
+		// Private download URLs and provider errors can contain credentials.
+		// The plugin retains the required job identity in PluginState; purchase
+		// evidence is recorded below in private financial state.
+		task.Data, err = common.Marshal(map[string]any{"status": parsedStatus})
+		if err != nil {
+			return err
+		}
+		if parsedStatus == model.TaskStatusSuccess || parsedStatus == model.TaskStatusFailure {
+			// Only evidence from the terminal response can authorize settlement.
+			// An earlier provisional zero must never authorize a later refund.
+			reconciliation.HasUpstreamCost = false
+			reconciliation.UpstreamCostConfirmed = false
+			reconciliation.UpstreamCostUSD = 0
+		}
+		if (parsedStatus == model.TaskStatusSuccess || parsedStatus == model.TaskStatusFailure) && taskResult.UpstreamCostUSD != nil {
+			reconciliation.HasUpstreamCost = true
+			reconciliation.UpstreamCostUSD = *taskResult.UpstreamCostUSD
+			reconciliation.UpstreamCostConfirmed = taskResult.UpstreamCostConfirmed
+		}
+		if parsedStatus == model.TaskStatusSuccess {
+			reconciliation.Finalized = reconciliation.HasUpstreamCost && reconciliation.UpstreamCostConfirmed && (task.PrivateData.BillingContext == nil || task.PrivateData.BillingContext.SettlementMode == "")
+			reconciliation.Required = !reconciliation.Finalized
+		} else if parsedStatus == model.TaskStatusFailure {
+			// Keep the durable reconciliation marker until the refund completes.
+			// A crash after terminal CAS must not hide a still-charged failure.
+			reconciliation.Required = true
+		}
+	}
 	if len(taskResult.PluginState) > 0 {
 		task.PrivateData.PluginState = taskResult.PluginState
 	}
@@ -588,7 +654,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 		shouldFinalizeBilling = true
 	case model.TaskStatusFailure:
-		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
+		if task.PrivateData.Reconciliation == nil {
+			logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
+		}
 		task.Status = model.TaskStatusFailure
 		task.Progress = taskcommon.ProgressComplete
 		if task.FinishTime == 0 {
@@ -604,6 +672,13 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+	if isDone && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV1 {
+		if snap.Status == model.TaskStatusSuccess || snap.Status == model.TaskStatusFailure {
+			return nil
+		}
+		prepareOpenRouterCostSettlement(task)
+	}
+
 	if isDone && snap.Status != task.Status {
 		won, err := task.UpdateWithStatus(snap.Status)
 		if err != nil {
@@ -679,6 +754,19 @@ func truncateBase64(s string) string {
 //
 // 表达式求值失败会保留预扣额度，因此也视为已接管，避免错误全退。
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) (bool, error) {
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.SettlementMode != "" {
+		if bc.SettlementMode != model.TaskSettlementOpenRouterCostV1 {
+			return true, nil
+		}
+		return true, settleOpenRouterCost(task)
+	}
+	if reconciliation := task.PrivateData.Reconciliation; reconciliation != nil {
+		// The frozen customer tariff is independent of purchase-cost evidence.
+		if task.Status == model.TaskStatusFailure && reconciliation.HasUpstreamCost && reconciliation.UpstreamCostConfirmed && reconciliation.UpstreamCostUSD == 0 && !reconciliation.ReservationPending && !reconciliation.SubmissionPending {
+			return false, nil
+		}
+		return true, nil
+	}
 	if _, modern, err := taskBillingFXFactor(task.PrivateData.BillingContext); modern && err != nil {
 		return false, err
 	}
@@ -785,6 +873,11 @@ func unrecognizedPollDetail(reason string, body []byte) string {
 }
 
 func recordPollFailure(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, fromStatus model.TaskStatus, class string, statusCode int, detail string) error {
+	if task.PrivateData.Reconciliation != nil {
+		// Upstream diagnostics, including hook/transport failures and unknown
+		// states, are untrusted and may contain usable credentials.
+		detail = "upstream task requires reconciliation"
+	}
 	task.PrivateData.PollFailures++
 	if class == pollClassUnrecognized || class == pollClassHookError {
 		// The redacted body is intentionally not persisted to Task.Data on these
@@ -817,6 +910,13 @@ func recordPollFailureForTasks(ctx context.Context, adaptor TaskPollingAdaptor, 
 }
 
 func failTaskFromPoll(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, fromStatus model.TaskStatus, reason string) error {
+	if reconciliation := task.PrivateData.Reconciliation; reconciliation != nil {
+		reconciliation.Required = true
+		// A local timeout, missing job or parser failure does not establish the
+		// final provider charge, even if an earlier response reported zero.
+		reconciliation.HasUpstreamCost = false
+		reconciliation.UpstreamCostConfirmed = false
+	}
 	now := time.Now().Unix()
 	task.Status = model.TaskStatusFailure
 	task.Progress = taskcommon.ProgressComplete

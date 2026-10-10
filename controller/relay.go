@@ -625,6 +625,9 @@ func executeTaskSubmissionWith(
 	durable := false
 	stage := "start"
 	defer func() {
+		if _, pending := c.Get(service.TaskSubmissionContextKey); pending {
+			return
+		}
 		if !durable && relayInfo.Billing != nil {
 			diagnostics.refund(stage)
 			relayInfo.Billing.Refund(c)
@@ -691,6 +694,9 @@ func executeTaskSubmissionWith(
 
 		stage = "submit"
 		result, taskErr = submit(c, relayInfo)
+		if _, pending := c.Get(service.TaskSubmissionContextKey); pending {
+			durable = true
+		}
 		if requestErr := c.Request.Context().Err(); requestErr != nil {
 			diagnostics.cancelled("after_submit", retryParam.GetRetry()+1)
 			taskErr = service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
@@ -698,6 +704,9 @@ func executeTaskSubmissionWith(
 		}
 		if taskErr == nil {
 			diagnostics.attemptSucceeded(retryParam.GetRetry()+1, result)
+			break
+		}
+		if durable {
 			break
 		}
 
@@ -731,6 +740,11 @@ func executeTaskSubmissionWith(
 		diagnostics.failed("submit", "missing_result", taskErr, false)
 		return nil, taskErr
 	}
+	if pending, exists := c.Get(service.TaskSubmissionContextKey); exists {
+		if task, valid := pending.(*model.Task); valid {
+			return &taskSubmissionOutcome{Result: result, Task: task, RelayInfo: relayInfo}, nil
+		}
+	}
 	if requestErr := c.Request.Context().Err(); requestErr != nil {
 		diagnostics.cancelled("before_reserve", retryParam.GetRetry()+1)
 		return nil, service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
@@ -756,40 +770,8 @@ func executeTaskSubmissionWith(
 	}
 
 	stage = "insert"
-	task := model.InitTask(result.Platform, relayInfo)
-	task.PrivateData.Execution = service.TaskExecutionSnapshotFromContext(c)
+	task := service.InitTaskSubmission(c, result.Platform, relayInfo)
 	task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
-	task.PrivateData.BillingSource = relayInfo.BillingSource
-	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
-	task.PrivateData.TokenId = relayInfo.TokenId
-	task.PrivateData.NodeName = common.NodeName
-	var specialRatio *float64
-	if relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio {
-		ratio := relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio
-		specialRatio = &ratio
-	}
-	task.PrivateData.BillingContext = &model.TaskBillingContext{
-		ModelPrice:      relayInfo.PriceData.ModelPrice,
-		GroupRatio:      relayInfo.PriceData.EffectiveGroupRatio(),
-		ModelRatio:      relayInfo.PriceData.ModelRatio,
-		OtherRatios:     relayInfo.PriceData.OtherRatios(),
-		OriginModelName: relayInfo.OriginModelName,
-		PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
-		TieredSnapshot:  relayInfo.TieredBillingSnapshot,
-		BillingFX: &model.TaskBillingFX{
-			SchemaVersion:      1,
-			Source:             relayInfo.BillingFXSource,
-			Rate:               relayInfo.BillingFXRate,
-			PublicationVersion: relayInfo.BillingFXPublicationVersion,
-			EffectiveAt:        relayInfo.BillingFXEffectiveAt,
-			FetchedAt:          relayInfo.BillingFXFetchedAt,
-		},
-		SubmitGroup: &model.TaskBillingSubmitGroup{
-			PureRatio:       relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			HasSpecialRatio: relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio,
-			SpecialRatio:    specialRatio,
-		},
-	}
 	task.Quota = result.Quota
 	task.Data = result.TaskData
 	if len(result.PluginState) > 0 {

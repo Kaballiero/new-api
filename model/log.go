@@ -416,12 +416,22 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	if params.LogType == LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
-	username, _ := GetUsernameById(params.UserId, false)
+	if err := RecordTaskBillingLogWithError(params); err != nil {
+		common.SysLog("failed to record task billing log: " + err.Error())
+	}
+}
+
+// RecordTaskBillingLogWithError persists required financial evidence even when
+// ordinary consume logging is disabled.
+func RecordTaskBillingLogWithError(params RecordTaskBillingLogParams) error {
+	var user User
+	_ = DB.Select("username").Where("id = ?", params.UserId).First(&user).Error
+	username := user.Username
 	tokenName := ""
 	if params.TokenId > 0 {
-		if token, err := GetTokenById(params.TokenId); err == nil {
-			tokenName = token.Name
-		}
+		var token Token
+		_ = DB.Select("name").Where("id = ?", params.TokenId).First(&token).Error
+		tokenName = token.Name
 	}
 	createdAt := common.GetTimestamp()
 	log := &Log{
@@ -440,7 +450,7 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 	err := createLog(log)
 	if err != nil {
-		common.SysLog("failed to record task billing log: " + err.Error())
+		return err
 	}
 	if params.LogType == LogTypeConsume && common.DataExportEnabled {
 		nodeName := params.NodeName
@@ -459,6 +469,7 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 			NodeName:  nodeName,
 		})
 	}
+	return nil
 }
 
 func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {

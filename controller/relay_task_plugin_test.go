@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -374,6 +375,37 @@ func TestExecuteTaskSubmissionRefundsCancellationBeforeDurableBarrier(t *testing
 	assert.Equal(t, []string{"refund"}, events)
 	assert.Equal(t, 1, billing.refunds)
 	assert.False(t, c.Writer.Written())
+}
+
+func TestExecuteTaskSubmissionDurableAttemptNeverRetriesOrRefunds(t *testing.T) {
+	for _, disconnect := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disconnect=%t", disconnect), func(t *testing.T) {
+			events := make([]string, 0)
+			setupTaskSubmissionDatabase(t, true, &events)
+			billing := &taskSubmissionTestBilling{events: &events}
+			c := taskSubmissionTestContext()
+			ctx, cancel := context.WithCancel(c.Request.Context())
+			defer cancel()
+			c.Request = c.Request.WithContext(ctx)
+			previousRetries := common.RetryTimes
+			common.RetryTimes = 3
+			t.Cleanup(func() { common.RetryTimes = previousRetries })
+			attempts := 0
+			outcome, taskErr := executeTaskSubmissionWith(c, taskSubmissionRelayInfo(billing), func(c *gin.Context, _ *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+				attempts++
+				c.Set(service.TaskSubmissionContextKey, &model.Task{TaskID: "durable-attempt"})
+				if disconnect {
+					cancel()
+				}
+				return nil, service.TaskErrorWrapper(errors.New("unknown paid submission outcome"), "do_request_failed", http.StatusBadGateway)
+			})
+			assert.Nil(t, outcome)
+			require.NotNil(t, taskErr)
+			assert.Equal(t, 1, attempts)
+			assert.Zero(t, billing.refunds)
+			assert.Empty(t, events)
+		})
+	}
 }
 
 func TestExecuteTaskSubmissionDisconnectBeforeUpstreamAcceptanceSkipsSubmitAndRefunds(t *testing.T) {

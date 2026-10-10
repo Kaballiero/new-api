@@ -79,25 +79,26 @@ func (t *LocalizedText) UnmarshalJSON(data []byte) error {
 }
 
 type Meta struct {
-	SortPriority  int                         `json:"sortPriority,omitempty"`
-	Website       string                      `json:"website,omitempty"`
-	APIVersion    int                         `json:"apiVersion"`
-	Key           string                      `json:"key"`
-	Name          string                      `json:"name"`
-	Icon          string                      `json:"icon,omitempty"`
-	Description   LocalizedText               `json:"description,omitempty"`
-	Version       string                      `json:"version"`
-	Author        AuthorMeta                  `json:"author"`
-	BaseURL       string                      `json:"baseUrl,omitempty"`
-	ChannelTypes  []int                       `json:"channelTypes,omitempty"`
-	Models        []string                    `json:"models"`
-	FetchMode     string                      `json:"fetchMode"`
-	AllowedHosts  []string                    `json:"allowedHosts"`
-	Routes        []Route                     `json:"routes"`
-	Protocols     []ProtocolClaim             `json:"protocols"`
-	UsageSchema   map[string]UsageFieldSchema `json:"usageSchema,omitempty"`
-	UsageExamples []UsageExample              `json:"usageExamples,omitempty"`
-	Auth          AuthMeta                    `json:"auth"`
+	SortPriority     int                         `json:"sortPriority,omitempty"`
+	Website          string                      `json:"website,omitempty"`
+	APIVersion       int                         `json:"apiVersion"`
+	Key              string                      `json:"key"`
+	Name             string                      `json:"name"`
+	Icon             string                      `json:"icon,omitempty"`
+	Description      LocalizedText               `json:"description,omitempty"`
+	Version          string                      `json:"version"`
+	Author           AuthorMeta                  `json:"author"`
+	BaseURL          string                      `json:"baseUrl,omitempty"`
+	ChannelTypes     []int                       `json:"channelTypes,omitempty"`
+	Models           []string                    `json:"models"`
+	FetchMode        string                      `json:"fetchMode"`
+	SubmissionPolicy string                      `json:"submissionPolicy,omitempty"`
+	AllowedHosts     []string                    `json:"allowedHosts"`
+	Routes           []Route                     `json:"routes"`
+	Protocols        []ProtocolClaim             `json:"protocols"`
+	UsageSchema      map[string]UsageFieldSchema `json:"usageSchema,omitempty"`
+	UsageExamples    []UsageExample              `json:"usageExamples,omitempty"`
+	Auth             AuthMeta                    `json:"auth"`
 }
 
 // ProtocolSupports reports whether the named protocol claim includes mode.
@@ -911,7 +912,7 @@ func decodeMeta(value any) (Meta, error) {
 	}
 	for field := range object {
 		switch field {
-		case "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "routes", "protocols", "usageSchema", "usageExamples", "auth", "endpoints", "submitPaths", "actions":
+		case "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "submissionPolicy", "allowedHosts", "routes", "protocols", "usageSchema", "usageExamples", "auth", "endpoints", "submitPaths", "actions":
 		default:
 			return Meta{}, fmt.Errorf("plugin meta has unknown field %q", field)
 		}
@@ -976,6 +977,9 @@ func decodeMeta(value any) (Meta, error) {
 		return Meta{}, err
 	}
 	if meta.FetchMode, err = stringMetaField(object, "fetchMode"); err != nil {
+		return Meta{}, err
+	}
+	if meta.SubmissionPolicy, err = stringMetaField(object, "submissionPolicy"); err != nil {
 		return Meta{}, err
 	}
 	meta.Models, err = strictStringSlice(object, "models")
@@ -1143,6 +1147,12 @@ func normalizeV1Meta(meta *Meta) error {
 	}
 	if meta.FetchMode != "per_task" && meta.FetchMode != "batch" {
 		return fmt.Errorf("plugin meta fetchMode must be per_task or batch")
+	}
+	if meta.SubmissionPolicy != "" && meta.SubmissionPolicy != "reconcile" {
+		return fmt.Errorf("plugin meta submissionPolicy must be reconcile or omitted")
+	}
+	if meta.SubmissionPolicy == "reconcile" && meta.FetchMode != "per_task" {
+		return fmt.Errorf("reconcile submissionPolicy requires per_task polling")
 	}
 	if len(meta.Models) == 0 {
 		return fmt.Errorf("plugin meta models must contain at least one model")
