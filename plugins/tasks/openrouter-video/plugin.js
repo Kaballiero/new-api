@@ -1667,7 +1667,6 @@ export const meta = {
   channelTypes: [20],
   models: catalog.models.map(function (model) { return model.id; }),
   fetchMode: "per_task",
-  submissionPolicy: "reconcile",
   protocols: ["openai_video"],
   usageSchema: {
     requested_seconds: { type: "number", unit: "second", description: { en: "Requested video generation unit price", zh: "请求视频生成单价" } },

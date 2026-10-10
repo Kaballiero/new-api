@@ -625,9 +625,6 @@ func executeTaskSubmissionWith(
 	durable := false
 	stage := "start"
 	defer func() {
-		if _, pending := c.Get(service.TaskSubmissionContextKey); pending {
-			return
-		}
 		if !durable && relayInfo.Billing != nil {
 			diagnostics.refund(stage)
 			relayInfo.Billing.Refund(c)
@@ -694,9 +691,6 @@ func executeTaskSubmissionWith(
 
 		stage = "submit"
 		result, taskErr = submit(c, relayInfo)
-		if _, pending := c.Get(service.TaskSubmissionContextKey); pending {
-			durable = true
-		}
 		if requestErr := c.Request.Context().Err(); requestErr != nil {
 			diagnostics.cancelled("after_submit", retryParam.GetRetry()+1)
 			taskErr = service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
@@ -704,9 +698,6 @@ func executeTaskSubmissionWith(
 		}
 		if taskErr == nil {
 			diagnostics.attemptSucceeded(retryParam.GetRetry()+1, result)
-			break
-		}
-		if durable {
 			break
 		}
 
@@ -739,11 +730,6 @@ func executeTaskSubmissionWith(
 		taskErr = service.TaskErrorWrapperLocal(errors.New("task submission returned no result"), "task_submit_failed", http.StatusInternalServerError)
 		diagnostics.failed("submit", "missing_result", taskErr, false)
 		return nil, taskErr
-	}
-	if pending, exists := c.Get(service.TaskSubmissionContextKey); exists {
-		if task, valid := pending.(*model.Task); valid {
-			return &taskSubmissionOutcome{Result: result, Task: task, RelayInfo: relayInfo}, nil
-		}
 	}
 	if requestErr := c.Request.Context().Err(); requestErr != nil {
 		diagnostics.cancelled("before_reserve", retryParam.GetRetry()+1)
@@ -811,7 +797,21 @@ func executeTaskSubmissionWith(
 		diagnostics.failed("settle", "billing_error", taskErr, true)
 		return nil, taskErr
 	}
-	service.LogTaskConsumption(c, relayInfo, task)
+	if logErr := service.LogTaskConsumption(c, relayInfo, task); logErr != nil {
+		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to record task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
+		diagnostics.failed("settle", "billing_log_error", taskErr, true)
+		return nil, taskErr
+	}
+	if state := task.PrivateData.Reconciliation; state != nil {
+		state.ReservationPending = false
+		state.Required = false
+		won, err := task.UpdateWithStatus(task.Status)
+		if err != nil || !won {
+			taskErr = service.TaskErrorWrapperLocal(errors.New("failed to confirm task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
+			diagnostics.failed("settle", "billing_state_error", taskErr, true)
+			return nil, taskErr
+		}
+	}
 	diagnostics.complete(task, result.Quota)
 
 	return &taskSubmissionOutcome{Result: result, Task: task, RelayInfo: relayInfo}, nil

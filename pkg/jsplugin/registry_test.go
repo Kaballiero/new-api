@@ -57,25 +57,6 @@ func TestRegistryRejectsPluginKeyLongerThanTaskPlatformColumn(t *testing.T) {
 	require.ErrorContains(t, err, "must not exceed 30 characters")
 }
 
-func TestValidateV1SubmissionPolicyContract(t *testing.T) {
-	for _, tc := range []struct {
-		policy, fetchMode, wantError string
-	}{
-		{"", "per_task", ""},
-		{"reconcile", "per_task", ""},
-		{"reconcile", "batch", "requires per_task"},
-		{"retry-paid", "per_task", "must be reconcile or omitted"},
-	} {
-		meta := Meta{APIVersion: 1, Key: "policy", Name: "Policy", Version: "1.0.0", Author: AuthorMeta{Name: "Test"}, Models: []string{"model"}, FetchMode: tc.fetchMode, SubmissionPolicy: tc.policy}
-		err := ValidateV1Meta(meta)
-		if tc.wantError == "" {
-			require.NoError(t, err)
-		} else {
-			require.ErrorContains(t, err, tc.wantError)
-		}
-	}
-}
-
 func TestValidateV1MetaEnforcesTaskPluginKeyLength(t *testing.T) {
 	meta := Meta{APIVersion: 1, Key: strings.Repeat("a", 30), Name: "Test", Version: "1.0.0", Author: AuthorMeta{Name: "Test"}, Models: []string{"model"}, FetchMode: "per_task"}
 	require.NoError(t, ValidateV1Meta(meta))

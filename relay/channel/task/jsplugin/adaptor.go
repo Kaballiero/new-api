@@ -89,7 +89,6 @@ type TaskAdaptor struct {
 
 func New(plugin *pluginruntime.LoadedPlugin) *TaskAdaptor { return &TaskAdaptor{plugin: plugin} }
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo)   { a.info = info }
-func (a *TaskAdaptor) SubmissionPolicy() string           { return a.plugin.Meta.SubmissionPolicy }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskError {
 	if pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedEndpoint); exists {
@@ -734,7 +733,7 @@ func (a *TaskAdaptor) ParseTaskResult(task *model.Task, resp *http.Response, bod
 		CompletionTokens: positiveInt(parsed.CompletionTokens),
 		TotalTokens:      positiveInt(parsed.TotalTokens),
 	}
-	if a.SubmissionPolicy() == "reconcile" {
+	if a.plugin.Meta.Key == "openrouter-video" {
 		if payload, ok := input.(map[string]any); ok {
 			if usage, ok := payload["usage"].(map[string]any); ok {
 				if cost, ok := usage["cost"].(float64); ok && !math.IsNaN(cost) && !math.IsInf(cost, 0) && cost >= 0 {

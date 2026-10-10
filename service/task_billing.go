@@ -18,59 +18,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const TaskSubmissionContextKey = "durable_paid_task_submission"
-
-// BeginTaskReservation persists the intent before invoking the existing
-// funding service. A crash anywhere after this barrier leaves an auditable
-// task and cannot trigger an automatic replay or refund.
-func BeginTaskReservation(c *gin.Context, platform constant.TaskPlatform, info *relaycommon.RelayInfo) (*model.Task, error) {
-	task := InitTaskSubmission(c, platform, info)
-	if task.PrivateData.Execution != nil && task.PrivateData.Execution.TaskPlugin != nil && task.PrivateData.Execution.TaskPlugin.Key == "openrouter-video" {
-		task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV1
-	}
-	// Polling and private content must use the account that accepted this job,
-	// even after a channel key rotation or multi-key selection.
-	task.PrivateData.Key = info.ChannelMeta.ApiKey
-	task.Quota = 0
-	task.PrivateData.Reconciliation = &model.TaskReconciliation{
-		ReservedQuota: info.PriceData.Quota, ReservationPending: true,
-		SubmissionPending: true, Required: true,
-	}
-	if err := task.InsertWithContext(c.Request.Context()); err != nil {
-		return nil, err
-	}
-	c.Set(TaskSubmissionContextKey, task)
-	return task, nil
-}
-
-// ConfirmTaskReservation uses the existing BillingSession exactly once. Its
-// pending marker remains durable until every accounting step is confirmed.
-func ConfirmTaskReservation(c *gin.Context, task *model.Task, info *relaycommon.RelayInfo) error {
-	task.PrivateData.BillingSource = info.BillingSource
-	task.PrivateData.SubscriptionId = info.SubscriptionId
-	task.Quota = info.PriceData.Quota
-	if won, err := task.UpdateWithStatus(task.Status); err != nil {
-		return err
-	} else if !won {
-		return fmt.Errorf("task reservation state changed before accounting")
-	}
-	if err := SettleBilling(c, info, task.Quota); err != nil {
-		return err
-	}
-	if err := LogTaskConsumption(c, info, task); err != nil {
-		return err
-	}
-	task.PrivateData.Reconciliation.ReservationPending = false
-	won, err := task.UpdateWithStatus(task.Status)
-	if err != nil {
-		return err
-	}
-	if !won {
-		return fmt.Errorf("task reservation state changed after accounting")
-	}
-	return nil
-}
-
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
 // 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
 func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model.Task) error {
@@ -628,8 +575,8 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 	return true
 }
 
-// InitTaskSubmission freezes the same billing and execution identity for both
-// ordinary submissions and attempts persisted before a paid upstream request.
+// InitTaskSubmission freezes billing and execution identity after the upstream
+// submission succeeds, before the standard task persistence barrier.
 func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInfo *relaycommon.RelayInfo) *model.Task {
 	task := model.InitTask(platform, relayInfo)
 	task.PrivateData.Execution = TaskExecutionSnapshotFromContext(c)
@@ -663,6 +610,15 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 			HasSpecialRatio: relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio,
 			SpecialRatio:    specialRatio,
 		},
+	}
+	if task.PrivateData.Execution != nil && task.PrivateData.Execution.TaskPlugin != nil && task.PrivateData.Execution.TaskPlugin.Key == "openrouter-video" {
+		task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV1
+		// Polling must use the provider account that accepted this task, including
+		// a selected key from a multi-key channel or before a later key rotation.
+		task.PrivateData.Key = relayInfo.ChannelMeta.ApiKey
+		task.PrivateData.Reconciliation = &model.TaskReconciliation{
+			ReservedQuota: relayInfo.PriceData.Quota, ReservationPending: true, Required: true,
+		}
 	}
 	task.Quota = relayInfo.PriceData.Quota
 	task.Action = relayInfo.Action
