@@ -861,3 +861,48 @@ func mustAdvancedCustomRawMessage(t *testing.T, value any) []byte {
 	require.NoError(t, err)
 	return raw
 }
+
+func TestCrossProtocolChatStreamUsageOptions(t *testing.T) {
+	for _, protocol := range []struct {
+		path, converter string
+		format          types.RelayFormat
+	}{
+		{"/v1/messages", relayconvert.ConverterClaudeMessagesToOpenAIChat, types.RelayFormatClaude},
+		{"/v1beta/models/gpt-test:generateContent", relayconvert.ConverterGeminiContentToOpenAIChat, types.RelayFormatGemini},
+		{"/v1/responses", relayconvert.ConverterOpenAIResponsesToOpenAIChat, types.RelayFormatOpenAIResponses},
+	} {
+		for _, flags := range []struct {
+			name              string
+			stream, supported bool
+		}{{"supported stream", true, true}, {"unsupported stream", true, false}, {"nonstream", false, true}} {
+			t.Run(protocol.converter+"/"+flags.name, func(t *testing.T) {
+				info := advancedCustomRelayInfo(&dto.AdvancedCustomConfig{Routes: []dto.AdvancedCustomRoute{{IncomingPath: protocol.path, UpstreamPath: "/v1/chat/completions", Converter: protocol.converter}}})
+				info.RequestURLPath = protocol.path
+				info.RelayFormat = protocol.format
+				info.IsStream = flags.stream
+				info.SupportStreamOptions = flags.supported
+				c := advancedCustomGinContext(protocol.path)
+				a := &Adaptor{}
+				var result any
+				var err error
+				switch protocol.format {
+				case types.RelayFormatClaude:
+					result, err = a.ConvertClaudeRequest(c, info, &dto.ClaudeRequest{Model: "gpt-test", Messages: []dto.ClaudeMessage{{Role: "user", Content: "hello"}}})
+				case types.RelayFormatGemini:
+					result, err = a.ConvertGeminiRequest(c, info, &dto.GeminiChatRequest{Contents: []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: "hello"}}}}})
+				case types.RelayFormatOpenAIResponses:
+					result, err = a.ConvertOpenAIResponsesRequest(c, info, dto.OpenAIResponsesRequest{Model: "gpt-test", Input: mustAdvancedCustomRawMessage(t, "hello")})
+				}
+				require.NoError(t, err)
+				chat, ok := result.(*dto.GeneralOpenAIRequest)
+				require.True(t, ok)
+				if flags.stream && flags.supported {
+					require.NotNil(t, chat.StreamOptions)
+					assert.True(t, chat.StreamOptions.IncludeUsage)
+				} else {
+					assert.Nil(t, chat.StreamOptions)
+				}
+			})
+		}
+	}
+}

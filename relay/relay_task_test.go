@@ -459,6 +459,85 @@ func TestMidjourneyClampRefusalEmitsOneCorrelatedWarning(t *testing.T) {
 	}
 }
 
+func TestRelayTaskSubmitRequiresInitialWalletCoverage(t *testing.T) {
+	settings := operation_setting.GetGeneralSetting()
+	previousRate := settings.CustomCurrencyExchangeRate
+	previousRedis, previousBatch := common.RedisEnabled, common.BatchUpdateEnabled
+	settings.CustomCurrencyExchangeRate = 100
+	common.RedisEnabled, common.BatchUpdateEnabled = false, false
+	t.Cleanup(func() {
+		settings.CustomCurrencyExchangeRate = previousRate
+		common.RedisEnabled, common.BatchUpdateEnabled = previousRedis, previousBatch
+	})
+	seedRelayTaskTestFX(t)
+	saveBillingConfig(t)
+	savedPrices := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedPrices)) })
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"declared-model":1}`))
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":          `{}`,
+		"group_ratio_setting.group_ratio":       `{"default":1}`,
+		"group_ratio_setting.group_group_ratio": `{}`,
+	}))
+	require.NoError(t, model.DB.AutoMigrate(&model.User{}))
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(upstream.Close)
+	priceQuota := int(common.QuotaPerUnit)
+	for i, tc := range []struct {
+		name    string
+		balance int
+		allowed bool
+	}{
+		{"empty wallet", 0, false},
+		{"one quota short", priceQuota - 1, false},
+		{"exact coverage", priceQuota, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			userID := 4470 + i
+			require.NoError(t, model.DB.Create(&model.User{
+				Id: userID, Username: fmt.Sprintf("task-coverage-%d", i), AffCode: fmt.Sprintf("cv%d", i),
+				Quota: tc.balance, Group: "default",
+			}).Error)
+			c, info := newTaskSubmitContext(t, "declared-model", "")
+			c.Set("group", "default")
+			common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
+			info.OriginModelName, info.UserGroup, info.UsingGroup = "declared-model", "default", "default"
+			info.UserId, info.IsPlayground = userID, true
+			info.UserSetting.BillingPreference = "wallet_only"
+			pinMappingOrderPlugin(t, c, billingFallbackPlugin)
+			callsBefore := upstreamCalls.Load()
+
+			result, taskErr := RelayTaskSubmit(c, info)
+
+			assert.Equal(t, priceQuota, info.PriceData.Quota)
+			var user model.User
+			require.NoError(t, model.DB.First(&user, userID).Error)
+			if !tc.allowed {
+				require.Nil(t, result)
+				require.NotNil(t, taskErr)
+				assert.Equal(t, http.StatusForbidden, taskErr.StatusCode)
+				assert.Equal(t, "insufficient_user_quota", taskErr.Code)
+				assert.Equal(t, callsBefore, upstreamCalls.Load())
+				assert.Equal(t, tc.balance, user.Quota)
+				assert.Nil(t, info.Billing)
+				assert.Zero(t, info.FinalPreConsumedQuota)
+				return
+			}
+			require.Nil(t, taskErr)
+			require.NotNil(t, result)
+			assert.Equal(t, callsBefore+1, upstreamCalls.Load())
+			assert.Zero(t, user.Quota)
+			require.NotNil(t, info.Billing)
+			assert.Equal(t, priceQuota, info.Billing.GetPreConsumedQuota())
+		})
+	}
+}
+
 func TestRelayTaskExpressionFXRateMatrix(t *testing.T) {
 	settings := operation_setting.GetGeneralSetting()
 	previousRate := settings.CustomCurrencyExchangeRate

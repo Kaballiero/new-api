@@ -85,6 +85,9 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 		if !ok {
 			return nil, fmt.Errorf("expected OpenAI chat completions request, got %T", result.Value)
 		}
+		if info.SupportStreamOptions && info.IsStream {
+			chatRequest.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
+		}
 		return a.convertOpenAICompatibleRequest(c, info, chatRequest)
 	default:
 		return nil, fmt.Errorf("converter %q does not support Anthropic Messages requests", converter)
@@ -109,6 +112,9 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 		if !ok {
 			return nil, fmt.Errorf("expected OpenAI chat completions request, got %T", result.Value)
 		}
+		if info.SupportStreamOptions && info.IsStream {
+			chatRequest.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
+		}
 		return a.convertOpenAICompatibleRequest(c, info, chatRequest)
 	default:
 		return nil, fmt.Errorf("converter %q does not support Gemini generateContent requests", converter)
@@ -131,6 +137,9 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 		chatRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
 		if !ok {
 			return nil, fmt.Errorf("expected OpenAI chat completions request, got %T", result.Value)
+		}
+		if info.SupportStreamOptions && info.IsStream {
+			chatRequest.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
 		}
 		return a.convertOpenAICompatibleRequest(c, info, chatRequest)
 	case relayconvert.ConverterOpenAIResponsesToGemini:

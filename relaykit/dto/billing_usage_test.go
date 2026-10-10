@@ -119,3 +119,27 @@ func TestBillingUsageJSONUsesProtocolNamedFields(t *testing.T) {
 	assert.Nil(t, clone.ClaudeUsage.BillingUsage)
 	assert.Nil(t, clone.GeminiUsageMetadata.BillingUsage)
 }
+
+func TestResponsesBillingUsagePreservesOutputTokenDetails(t *testing.T) {
+	absentJSON, err := kitutil.Marshal(&Usage{})
+	require.NoError(t, err)
+	assert.NotContains(t, string(absentJSON), `"output_tokens_details"`)
+	presentJSON, err := kitutil.Marshal(&Usage{OutputTokensDetails: &OutputTokenDetails{ImageTokens: 5}})
+	require.NoError(t, err)
+	assert.Contains(t, string(presentJSON), `"output_tokens_details":{"text_tokens":0,"audio_tokens":0,"image_tokens":5,"reasoning_tokens":0}`)
+	usage := &Usage{InputTokens: 10, OutputTokens: 9, InputTokensDetails: &InputTokenDetails{CachedTokens: 3, AudioTokens: 2}, CompletionTokenDetails: OutputTokenDetails{ReasoningTokens: 1}, OutputTokensDetails: &OutputTokenDetails{ImageTokens: 5, TextTokens: 2, AudioTokens: 1}}
+	billing := NewOpenAIResponsesBillingUsage(usage)
+	require.NotNil(t, billing)
+	canonical, ok := billing.CanonicalUsage()
+	require.True(t, ok)
+	assert.Equal(t, OutputTokenDetails{ReasoningTokens: 1, ImageTokens: 5, TextTokens: 2, AudioTokens: 1}, canonical.CompletionTokenDetails)
+	assert.Equal(t, 3, canonical.PromptTokensDetails.CachedTokens)
+	assert.Equal(t, 2, canonical.PromptTokensDetails.AudioTokens)
+	merged := MergeBillingUsageNonZero(NewOpenAIResponsesBillingUsage(&Usage{InputTokens: 10}), billing)
+	mergedCanonical, ok := merged.CanonicalUsage()
+	require.True(t, ok)
+	assert.Equal(t, canonical.CompletionTokenDetails, mergedCanonical.CompletionTokenDetails)
+	usage.OutputTokensDetails.ImageTokens = 99
+	assert.Equal(t, 5, billing.OpenAIUsage.OutputTokensDetails.ImageTokens)
+	require.NotNil(t, NewOpenAIResponsesBillingUsage(&Usage{OutputTokensDetails: &OutputTokenDetails{ImageTokens: 5}}))
+}

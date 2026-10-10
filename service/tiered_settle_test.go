@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	kittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -861,15 +863,11 @@ func TestPrepareTieredBillingForSelectedGroupPaidToFreeKeepsFreeModelFalse(t *te
 	assert.Equal(t, 50_000, relayInfo.FinalPreConsumedQuota)
 }
 
-func TestPrepareTieredBillingForSelectedGroupTopUpArrearsAllowsNegativeBalance(t *testing.T) {
+func TestPrepareTieredBillingForSelectedGroupRejectsUncoveredTopUp(t *testing.T) {
 	truncate(t)
 
 	const userID = 701
-	// Balance covers the initial 50k pre-consume (already deducted before this
-	// test's seed) but not the 50k top-up to the more expensive retry group.
-	// The top-up must NOT abort the request: the full delta is deducted, the
-	// uncovered 30k becomes arrears (negative balance), mirroring how
-	// settlement charges a positive delta unconditionally.
+	// Initial 50k has already been reserved; remaining 20k cannot cover another 50k.
 	seedUser(t, userID, 20_000)
 
 	relayInfo := &relaycommon.RelayInfo{
@@ -896,22 +894,15 @@ func TestPrepareTieredBillingForSelectedGroupTopUpArrearsAllowsNegativeBalance(t
 	}
 	relayInfo.Billing = session
 
-	require.Nil(t, PrepareTieredBillingForSelectedGroup(nil, relayInfo))
-
-	// Full reservation recorded; wallet charged the full delta into arrears.
-	assert.Equal(t, 100_000, session.GetPreConsumedQuota())
-	assert.Equal(t, 100_000, relayInfo.FinalPreConsumedQuota)
-	assert.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+	apiErr := PrepareTieredBillingForSelectedGroup(nil, relayInfo)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, kittypes.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
+	assert.Equal(t, 403, apiErr.StatusCode)
+	assert.Equal(t, 50_000, session.GetPreConsumedQuota())
+	assert.Equal(t, 50_000, relayInfo.FinalPreConsumedQuota)
 	userQuota, err := model.GetUserQuota(userID, false)
 	require.NoError(t, err)
-	assert.Equal(t, -30_000, userQuota)
-
-	// Settlement still reconciles against the full reservation: actual 80k
-	// refunds the 20k over-reserve, landing at seed - (actual - initial) = -10k.
-	require.NoError(t, session.Settle(80_000))
-	userQuota, err = model.GetUserQuota(userID, false)
-	require.NoError(t, err)
-	assert.Equal(t, -10_000, userQuota)
+	assert.Equal(t, 20_000, userQuota)
 }
 
 func TestBillingSessionReserveWalletTopUpDecrementsBalance(t *testing.T) {
@@ -1448,4 +1439,150 @@ func BenchmarkRatioBilling_Parallel(b *testing.B) {
 			ratioQuota(usage, false, 1.5, 5.0, 0.1, 1.0, 1.5)
 		}
 	})
+}
+
+// Runs with the service TestMain real SQLite/MySQL/PostgreSQL fixtures.
+func TestBillingSessionConcurrentReservations(t *testing.T) {
+	for _, tc := range []struct {
+		name                         string
+		balance, tokenQuota, reserve int
+		wantCode                     kittypes.ErrorCode
+	}{
+		{"last wallet balance", 100, 200, 100, kittypes.ErrorCodeInsufficientUserQuota},
+		{"shared limited token", 200, 100, 100, kittypes.ErrorCodePreConsumeTokenQuotaFailed},
+		{"trust threshold still reserves", common.GetTrustQuota() * 2, common.GetTrustQuota() * 4, common.GetTrustQuota() * 3 / 2, kittypes.ErrorCodeInsufficientUserQuota},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			seedUser(t, 710, tc.balance)
+			seedToken(t, 710, 710, "reservation-shared", tc.tokenQuota)
+			sqlDB, err := model.DB.DB()
+			require.NoError(t, err)
+			if common.MainDatabaseType() == common.DatabaseTypeSQLite {
+				sqlDB.SetMaxOpenConns(1)
+				t.Cleanup(func() { sqlDB.SetMaxOpenConns(0) })
+			}
+			start := make(chan struct{})
+			results := make(chan *kittypes.NewAPIError, 2)
+			var workers sync.WaitGroup
+			for range 2 {
+				workers.Go(func() {
+					ctx, _ := gin.CreateTestContext(nil)
+					ctx.Set("token_quota", tc.tokenQuota)
+					info := &relaycommon.RelayInfo{UserId: 710, UserQuota: tc.balance, TokenId: 710, TokenKey: "reservation-shared"}
+					session := &BillingSession{relayInfo: info, funding: &WalletFunding{userId: 710}}
+					<-start
+					results <- session.preConsume(ctx, tc.reserve)
+				})
+			}
+			close(start)
+			workers.Wait()
+			close(results)
+			successes := 0
+			for apiErr := range results {
+				if apiErr == nil {
+					successes++
+					continue
+				}
+				assert.Equal(t, tc.wantCode, apiErr.GetErrorCode())
+				assert.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+			}
+			assert.Equal(t, 1, successes)
+			quota, err := model.GetUserQuota(710, false)
+			require.NoError(t, err)
+			assert.Equal(t, tc.balance-tc.reserve, quota)
+			token, err := model.GetTokenByKey("reservation-shared", false)
+			require.NoError(t, err)
+			assert.Equal(t, tc.tokenQuota-tc.reserve, token.RemainQuota)
+			assert.Equal(t, tc.reserve, token.UsedQuota)
+		})
+	}
+}
+
+func TestBillingSessionReserveRollbackAndRefund(t *testing.T) {
+	truncate(t)
+	seedUser(t, 711, 200)
+	seedToken(t, 711, 711, "reservation-rollback", 100)
+	ctx, _ := gin.CreateTestContext(nil)
+	info := &relaycommon.RelayInfo{UserId: 711, TokenId: 711, TokenKey: "reservation-rollback", UserSetting: dto.UserSetting{BillingPreference: "wallet_only"}}
+	session, apiErr := NewBillingSession(ctx, info, 50)
+	require.Nil(t, apiErr)
+	// Wallet can cover the extra 60, but the token cannot. Roll back only the extra.
+	err := session.Reserve(110)
+	require.Error(t, err)
+	var reserveErr *kittypes.NewAPIError
+	require.ErrorAs(t, err, &reserveErr)
+	assert.Equal(t, kittypes.ErrorCodePreConsumeTokenQuotaFailed, reserveErr.GetErrorCode())
+	quota, err := model.GetUserQuota(711, false)
+	require.NoError(t, err)
+	assert.Equal(t, 150, quota)
+	assert.Equal(t, 50, session.GetPreConsumedQuota())
+	require.NoError(t, session.Reserve(80))
+	assert.Equal(t, 80, session.GetPreConsumedQuota())
+	session.Refund(ctx)
+	session.Refund(ctx)
+	require.Eventually(t, func() bool {
+		var user model.User
+		var token model.Token
+		if model.DB.First(&user, 711).Error != nil || model.DB.First(&token, 711).Error != nil {
+			return false
+		}
+		return user.Quota == 200 && token.RemainQuota == 100 && token.UsedQuota == 0
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.False(t, session.NeedsRefund())
+}
+
+func TestBillingSessionActualAboveEstimateSettlesOnce(t *testing.T) {
+	truncate(t)
+	seedUser(t, 712, 100)
+	seedToken(t, 712, 712, "reservation-debt", 100)
+	ctx, _ := gin.CreateTestContext(nil)
+	info := &relaycommon.RelayInfo{UserId: 712, TokenId: 712, TokenKey: "reservation-debt", UserSetting: dto.UserSetting{BillingPreference: "wallet_only"}}
+	session, apiErr := NewBillingSession(ctx, info, 80)
+	require.Nil(t, apiErr)
+	// Provider liability above the estimate remains debt; do not discard valid usage.
+	require.NoError(t, session.Settle(120))
+	require.NoError(t, session.Settle(120))
+	session.Refund(ctx)
+	quota, err := model.GetUserQuota(712, false)
+	require.NoError(t, err)
+	assert.Equal(t, -20, quota)
+	token, err := model.GetTokenByKey("reservation-debt", false)
+	require.NoError(t, err)
+	assert.Equal(t, -20, token.RemainQuota)
+	assert.Equal(t, 120, token.UsedQuota)
+}
+
+func TestBillingSessionConcurrentAdministrativeAdjustment(t *testing.T) {
+	truncate(t)
+	seedUser(t, 713, 100)
+	sqlDB, err := model.DB.DB()
+	require.NoError(t, err)
+	if common.MainDatabaseType() == common.DatabaseTypeSQLite {
+		sqlDB.SetMaxOpenConns(1)
+		t.Cleanup(func() { sqlDB.SetMaxOpenConns(0) })
+	}
+	ctx, _ := gin.CreateTestContext(nil)
+	session := &BillingSession{relayInfo: &relaycommon.RelayInfo{UserId: 713, IsPlayground: true}, funding: &WalletFunding{userId: 713}}
+	start := make(chan struct{})
+	adjustmentResult := make(chan error, 1)
+	reserveResult := make(chan *kittypes.NewAPIError, 1)
+	go func() {
+		<-start
+		_, err := model.AdjustUserQuota(713, common.RoleRootUser, "add", 50)
+		adjustmentResult <- err
+	}()
+	go func() { <-start; reserveResult <- session.preConsume(ctx, 80) }()
+	close(start)
+	require.NoError(t, <-adjustmentResult)
+	require.Nil(t, <-reserveResult)
+	quota, err := model.GetUserQuota(713, false)
+	require.NoError(t, err)
+	assert.Equal(t, 70, quota)
+	require.NoError(t, session.Settle(80))
+	// Administrative subtract is still allowed to create debt.
+	adjustment, err := model.AdjustUserQuota(713, common.RoleRootUser, "subtract", 100)
+	require.NoError(t, err)
+	assert.Equal(t, 70, adjustment.Before)
+	assert.Equal(t, -30, adjustment.After)
 }
