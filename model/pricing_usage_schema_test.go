@@ -1,7 +1,10 @@
 package model
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +15,132 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSoraLegacyPriceBasisFollowsPluginRouteAndUsage(t *testing.T) {
+	source, err := os.ReadFile("../plugins/tasks/sora/plugin.js")
+	require.NoError(t, err)
+	registry := jsplugin.NewRegistry()
+	plugin, err := registry.Register(string(source), jsplugin.Options{})
+	require.NoError(t, err)
+	for _, action := range []string{constant.TaskActionTextToVideo, constant.TaskActionImageToVideo, constant.TaskActionRemix} {
+		usage, err := plugin.Engine.Call(context.Background(), "extractUsage", map[string]any{
+			"action": action, "requestBody": map[string]any{"seconds": 8},
+		})
+		require.NoError(t, err)
+		facts, ok := usage.(map[string]any)
+		require.True(t, ok)
+		basis := plugin.Meta.LegacyPriceBasis[action]
+		if action == constant.TaskActionRemix {
+			assert.Empty(t, facts)
+			assert.Equal(t, "call", basis.Unit)
+		} else {
+			assert.EqualValues(t, 8, facts[basis.UsageField])
+			assert.Equal(t, "second", basis.Unit)
+		}
+	}
+	mapping := `{"video-alias":"sora-2"}`
+	channel := &Channel{Type: constant.ChannelTypeOpenAI, ModelMapping: &mapping}
+	actual, found := legacyVideoPriceBasis(registry.Generation(), channel, "video-alias")
+	require.True(t, found)
+	assert.Equal(t, plugin.Meta.LegacyPriceBasis, actual)
+	_, found = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: constant.ChannelTypeOpenRouter}, "sora-2")
+	assert.False(t, found)
+	_, found = legacyVideoPriceBasis(registry.Generation(), channel, "unknown")
+	assert.False(t, found)
+	snapshot := registry.Snapshot()
+	require.Len(t, snapshot.Override, 1)
+	delete(snapshot.Override[0].LegacyPriceBasis, constant.TaskActionRemix)
+	assert.Contains(t, plugin.Meta.LegacyPriceBasis, constant.TaskActionRemix)
+
+	otherSource := strings.Replace(string(source), `key: "sora"`, `key: "other-sora"`, 1)
+	otherSource = strings.Replace(otherSource, "channelTypes: [55, 1]", "channelTypes: [56]", 1)
+	otherSource = strings.ReplaceAll(otherSource, `{ unit: "second", usageField: "seconds" }`, `{ unit: "call" }`)
+	otherPlugin, err := registry.Register(otherSource, jsplugin.Options{})
+	require.NoError(t, err)
+	actual, found = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: 56}, "sora-2")
+	require.True(t, found)
+	assert.Equal(t, otherPlugin.Meta.LegacyPriceBasis, actual)
+	bound := &Channel{Type: constant.ChannelTypeTaskPlugin}
+	bound.SetSetting(dto.ChannelSettings{TaskPluginKey: "other-sora"})
+	actual, found = legacyVideoPriceBasis(registry.Generation(), bound, "sora-2")
+	require.True(t, found)
+	assert.Equal(t, otherPlugin.Meta.LegacyPriceBasis, actual)
+	actual, found = legacyVideoPriceBasis(registry.Generation(), channel, "sora-2")
+	require.True(t, found)
+	assert.Equal(t, plugin.Meta.LegacyPriceBasis, actual)
+}
+
+func TestLegacyPriceBasisMetadataRejectsInvalidDeclarations(t *testing.T) {
+	source := pricingUsagePluginSource("1.0.0", `{seconds: {type: "number", unit: "second"}}`)
+	for _, declaration := range []string{
+		`null`, `{}`, `{generate: {unit: "call"}}`,
+		`{text_to_video: {unit: "second", usageField: "missing"}}`,
+		`{text_to_video: {unit: "call", usageField: "seconds"}}`,
+		`{text_to_video: {unit: "token", usageField: "seconds"}}`,
+		`{text_to_video: {unit: "second", usageField: "seconds", price: 1}}`,
+	} {
+		t.Run(declaration, func(t *testing.T) {
+			invalid := strings.Replace(source, "usageSchema:", "legacyPriceBasis: "+declaration+", usageSchema:", 1)
+			_, err := jsplugin.CompilePlugin(invalid, jsplugin.Options{})
+			require.ErrorContains(t, err, "legacyPriceBasis")
+		})
+	}
+	plugin, err := jsplugin.CompilePlugin(source, jsplugin.Options{})
+	require.NoError(t, err)
+	assert.Nil(t, plugin.Meta.LegacyPriceBasis)
+}
+
+func TestPricingSoraBasisFollowsEnabledGroupRoutes(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	source, err := os.ReadFile("../plugins/tasks/sora/plugin.js")
+	require.NoError(t, err)
+	previousRegistry := jsplugin.DefaultRegistry
+	registry := jsplugin.NewRegistry()
+	jsplugin.DefaultRegistry = registry
+	t.Cleanup(func() {
+		jsplugin.DefaultRegistry = previousRegistry
+		InvalidatePricingCache()
+	})
+	_, err = registry.Register(string(source), jsplugin.Options{})
+	require.NoError(t, err)
+	orSource := strings.Replace(string(source), `key: "sora"`, `key: "or-video-probe"`, 1)
+	orSource = strings.Replace(orSource, "channelTypes: [55, 1]", "channelTypes: [20]", 1)
+	_, err = registry.Register(orSource, jsplugin.Options{})
+	require.NoError(t, err)
+
+	mapping := `{"video-alias":"sora-2"}`
+	require.NoError(t, DB.Create(&Channel{Id: 931, Type: constant.ChannelTypeOpenAI, Key: "test", Status: 1, Models: "sora-2,video-alias,ordinary-model", ModelMapping: &mapping}).Error)
+	insertPricingEndpointAbility(t, 931, "sora-2")
+	insertPricingEndpointAbility(t, 931, "video-alias")
+	insertPricingEndpointAbility(t, 931, "ordinary-model")
+	insertPricingEndpointChannel(t, 932, constant.ChannelTypeOpenRouter, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 932, "sora-2")
+	InitChannelCache()
+	pricing := pricingByModel(GetPricing())
+	assert.Equal(t, []string{BillingSourceConfiguredTariff, BillingSourceOpenRouterActualCost}, pricing["sora-2"].BillingSourcesForGroup("default")[constant.EndpointTypeOpenAIVideo])
+	basis, known := pricing["sora-2"].LegacyVideoPriceBasisForGroup("default")
+	require.True(t, known)
+	assert.Equal(t, "second", basis[constant.TaskActionTextToVideo].Unit)
+	aliasBasis, known := pricing["video-alias"].LegacyVideoPriceBasisForGroup("default")
+	require.True(t, known)
+	assert.Equal(t, basis, aliasBasis)
+	assert.NotContains(t, pricing["ordinary-model"].BillingSourcesForGroup("default"), constant.EndpointTypeOpenAIVideo)
+	_, known = pricing["sora-2"].LegacyVideoPriceBasisForGroup("premium")
+	assert.False(t, known)
+
+	otherSource := strings.Replace(string(source), `key: "sora"`, `key: "other-sora"`, 1)
+	otherSource = strings.Replace(otherSource, "channelTypes: [55, 1]", "channelTypes: [56]", 1)
+	otherSource = strings.ReplaceAll(otherSource, `{ unit: "second", usageField: "seconds" }`, `{ unit: "call" }`)
+	_, err = registry.Register(otherSource, jsplugin.Options{})
+	require.NoError(t, err)
+	insertPricingEndpointChannel(t, 933, 56, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 933, "sora-2")
+	InitChannelCache()
+	InvalidatePricingCache()
+	pricing = pricingByModel(GetPricing())
+	_, known = pricing["sora-2"].LegacyVideoPriceBasisForGroup("default")
+	assert.False(t, known)
+}
 
 func pricingUsagePluginSource(version, usageSchema string) string {
 	return fmt.Sprintf(`

@@ -87,6 +87,44 @@ func buildOperationTariff(item model.Pricing, group effectiveGroupPricing, endpo
 		useExpression = true
 	}
 	if !useExpression {
+		if endpoint == constant.EndpointTypeOpenAIVideo && item.QuotaType == 1 {
+			tariff.BillingSurface = "task"
+			basis, known := item.LegacyVideoPriceBasisForGroup(group.UsingGroup)
+			perCall := slices.Contains(constant.TaskPricePatches, item.ModelName)
+			if !known && !perCall {
+				tariff.Limitations = []string{"legacy_price_basis_unavailable"}
+				return tariff
+			}
+			amount := item.ModelPrice * group.EffectiveBillingRatio * 100
+			if math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 {
+				tariff.Status, tariff.Limitations = "unavailable", []string{"invalid_display_price"}
+				return tariff
+			}
+			if !known {
+				tariff.BillingSurface, tariff.Status = "per_call", "priced"
+				tariff.Tiers = []effectivePricingTier{{UnitPrices: []effectiveUnitPrice{{Component: "base", Unit: "call", AmountRub: amount}}}}
+				return tariff
+			}
+			for _, action := range []string{constant.TaskActionTextToVideo, constant.TaskActionImageToVideo, constant.TaskActionRemix} {
+				actionBasis, declared := basis[action]
+				if !declared {
+					continue
+				}
+				unit := actionBasis.Unit
+				if perCall {
+					unit = "call"
+				}
+				tariff.Tiers = append(tariff.Tiers, effectivePricingTier{
+					Label: action,
+					Condition: &effectivePricingTierCondition{Kind: "task_action", Guards: []billingexpr.DisplayUsageGuard{
+						{Values: map[string]string{"action": action}},
+					}},
+					UnitPrices: []effectiveUnitPrice{{Component: "base", Unit: unit, AmountRub: amount}},
+				})
+			}
+			tariff.Status = "priced"
+			return tariff
+		}
 		for _, tier := range group.Tiers {
 			for _, price := range tier.UnitPrices {
 				if math.IsNaN(price.AmountRub) || math.IsInf(price.AmountRub, 0) || price.AmountRub < 0 {

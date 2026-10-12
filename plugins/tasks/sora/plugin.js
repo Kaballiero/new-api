@@ -12,6 +12,11 @@ export const meta = {
   author: { name: "QuantumNous" },
   models: ["sora-2", "sora-2-pro"],
   fetchMode: "per_task",
+  legacyPriceBasis: {
+    text_to_video: { unit: "second", usageField: "seconds" },
+    image_to_video: { unit: "second", usageField: "seconds" },
+    remix: { unit: "call" },
+  },
   usageSchema: {
     // Requested video duration in seconds.
     seconds: {
