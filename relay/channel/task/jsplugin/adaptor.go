@@ -26,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
@@ -128,6 +129,58 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	if _, err := a.buildSubmit(c, info); err != nil {
 		return service.TaskErrorWrapperLocal(err, "plugin_request_invalid", http.StatusBadRequest)
 	}
+	return nil
+}
+
+// PrepareOpenRouterCost consumes the validated cached descriptor. It runs
+// before the task expression and multipliers, which are display-only here.
+func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.RelayInfo) error {
+	if a.plugin.Meta.Key != "openrouter-video" {
+		return fmt.Errorf("not an OpenRouter video plugin")
+	}
+	if a.submit == nil {
+		return fmt.Errorf("OpenRouter reservation unavailable: missing prepared descriptor")
+	}
+	body, err := common.Marshal(a.submit.Body)
+	if err != nil {
+		return err
+	}
+	estimate, err := openrouter.EstimateVideo(c, info, body)
+	if err != nil {
+		return err
+	}
+	basis := relaycommon.NewOpenRouterCostBasis(info, estimate)
+	basis.Version = model.TaskSettlementOpenRouterCostV2
+	quota, clamp, err := basis.Quota(estimate)
+	if err != nil {
+		return err
+	}
+	info.QuotaClamp = clamp
+	var order openrouter.VideoPriceOrder
+	if err := common.Unmarshal(body, &order); err != nil {
+		return err
+	}
+	images, videos, audios := len(order.FrameImages), 0, 0
+	for _, reference := range order.InputReferences {
+		switch reference.Type {
+		case "image_url":
+			images++
+		case "video_url":
+			videos++
+		case "audio_url":
+			audios++
+		}
+	}
+	facts := map[string]any{"images": images, "videos": videos, "audios": audios, "jobs": 1, "resolution": order.Resolution, "size": order.Size, "aspect_ratio": order.AspectRatio}
+	if order.Duration != nil {
+		facts["requested_seconds"] = *order.Duration
+	}
+	if order.GenerateAudio != nil {
+		facts["generate_audio"] = *order.GenerateAudio
+	}
+	c.Set("openrouter_video_order_facts", facts)
+	info.OpenRouterCost = &relaycommon.OpenRouterCostState{Basis: basis}
+	info.PriceData.Quota, info.PriceData.QuotaToPreConsume = quota, quota
 	return nil
 }
 
@@ -740,6 +793,9 @@ func (a *TaskAdaptor) ParseTaskResult(task *model.Task, resp *http.Response, bod
 					result.UpstreamCostUSD = &cost
 					byok, known := usage["is_byok"].(bool)
 					result.UpstreamCostConfirmed = known && !byok
+					if task != nil && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV2 {
+						result.UpstreamCostConfirmed = true
+					}
 				}
 			}
 		}

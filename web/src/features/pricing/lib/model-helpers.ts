@@ -107,3 +107,19 @@ export function replaceModelInPath(path: string, modelName: string): string {
 export function isTokenBasedModel(model: PricingModel): boolean {
   return model.quota_type === QUOTA_TYPE_VALUES.TOKEN
 }
+
+export function hasOpenRouterPricing(
+  model: PricingModel,
+  selectedGroup?: string
+): boolean {
+  return Object.entries(model.billing_sources_by_group ?? {}).some(
+    ([group, endpoints]) =>
+      (!selectedGroup ||
+        selectedGroup === 'all' ||
+        group === 'all' ||
+        group === selectedGroup) &&
+      Object.values(endpoints).some((sources) =>
+        sources.includes('openrouter_actual_cost')
+      )
+  )
+}

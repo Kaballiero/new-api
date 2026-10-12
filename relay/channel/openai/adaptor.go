@@ -731,6 +731,27 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.ChannelType == constant.ChannelTypeOpenRouter {
+		operation := "chat/completions"
+		switch info.RelayMode {
+		case relayconstant.RelayModeEmbeddings:
+			operation = "embeddings"
+		case relayconstant.RelayModeResponses, relayconstant.RelayModeResponsesCompact:
+			operation = "responses"
+		case relayconstant.RelayModeCompletions:
+			operation = "completions"
+		case relayconstant.RelayModeChatCompletions:
+		default:
+			return nil, types.NewErrorWithStatusCode(fmt.Errorf("OpenRouter operation lacks a validated cost reservation contract"), types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		prepared, err := openrouter.PrepareRequest(c, info, a, requestBody, operation)
+		if err != nil {
+			return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		requestBody = prepared
+		info.OpenRouterCost.Sent = true
+	}
+
 	if info.RelayMode == relayconstant.RelayModeAudioTranscription ||
 		info.RelayMode == relayconstant.RelayModeAudioTranslation ||
 		(info.RelayMode == relayconstant.RelayModeImagesEdits && !isJSONRequest(c)) {
@@ -743,6 +764,25 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.OpenRouterCost != nil {
+		if !info.IsStream {
+			if costErr := openrouter.ValidateResponse(resp, info); costErr != nil {
+				return nil, costErr
+			}
+		}
+		defer func() {
+
+			if !info.OpenRouterCost.Final {
+				usage = nil
+				err = openrouter.CostError("OpenRouter terminal usage.cost is missing or invalid")
+				return
+			}
+			if result, ok := usage.(*dto.Usage); ok {
+				result.Cost = info.OpenRouterCost.CostUSD
+			}
+		}()
+	}
+
 	switch info.RelayMode {
 	case relayconstant.RelayModeRealtime:
 		err, usage = OpenaiRealtimeHandler(c, info)

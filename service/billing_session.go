@@ -36,7 +36,25 @@ type BillingSession struct {
 	refunded          bool // Refund 已调用
 	wssFundingDirect  int
 	wssTokenDirect    int
+	openRouterOutcome OpenRouterSettlementOutcome
 	mu                sync.Mutex
+}
+
+// OpenRouterSettlementOutcome records money actually applied by each ledger.
+// A known provider price whose delta fails is retained for manual repair.
+type OpenRouterSettlementOutcome struct {
+	TargetQuota         int    `json:"target_quota"`
+	ReservedQuota       int    `json:"reserved_quota"`
+	FundingAppliedQuota int    `json:"funding_applied_quota"`
+	TokenAppliedQuota   int    `json:"token_applied_quota"`
+	SettlementStatus    string `json:"settlement_status"`
+	FailureStage        string `json:"failure_stage,omitempty"`
+}
+
+func (s *BillingSession) OpenRouterSettlementOutcome() OpenRouterSettlementOutcome {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.openRouterOutcome
 }
 
 func (s *BillingSession) RecordWssDirectCharge(quota int, fundingApplied, tokenApplied bool) {
@@ -101,6 +119,10 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	if s.settled {
 		return nil
 	}
+	openRouter := s.relayInfo.OpenRouterCost != nil
+	if openRouter {
+		s.openRouterOutcome = OpenRouterSettlementOutcome{TargetQuota: actualQuota, ReservedQuota: s.preConsumedQuota, FundingAppliedQuota: s.preConsumedQuota, TokenAppliedQuota: s.tokenConsumed, SettlementStatus: "settled"}
+	}
 	delta := actualQuota - s.preConsumedQuota
 	if delta == 0 {
 		s.settled = true
@@ -109,9 +131,17 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	// 1) 调整资金来源（仅在尚未提交时执行，防止重复调用）
 	if !s.fundingSettled {
 		if err := s.funding.Settle(delta); err != nil {
+			if openRouter {
+				s.openRouterOutcome.SettlementStatus = "funding_delta_failed"
+				s.openRouterOutcome.FailureStage = "funding_delta"
+				s.settled = true
+			}
 			return err
 		}
 		s.fundingSettled = true
+	}
+	if openRouter {
+		s.openRouterOutcome.FundingAppliedQuota = actualQuota
 	}
 	// 2) 调整令牌额度
 	var tokenErr error
@@ -125,6 +155,14 @@ func (s *BillingSession) Settle(actualQuota int) error {
 			// 资金来源已提交，令牌调整失败只能记录日志；标记 settled 防止 Refund 误退资金
 			common.SysLog(fmt.Sprintf("error adjusting token quota after funding settled (userId=%d, tokenId=%d, delta=%d): %s",
 				s.relayInfo.UserId, s.relayInfo.TokenId, delta, tokenErr.Error()))
+		}
+	}
+	if openRouter {
+		if tokenErr != nil {
+			s.openRouterOutcome.SettlementStatus = "token_delta_failed"
+			s.openRouterOutcome.FailureStage = "token_delta"
+		} else if !s.relayInfo.IsPlayground {
+			s.openRouterOutcome.TokenAppliedQuota = actualQuota
 		}
 	}
 	// 3) 更新 relayInfo 上的订阅 PostDelta（用于日志）
@@ -210,6 +248,9 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.trusted && s.relayInfo.OpenRouterCost != nil {
+		s.trusted = false
+	}
 	if s.settled || s.refunded || s.trusted || targetQuota <= s.preConsumedQuota {
 		return nil
 	}
@@ -299,6 +340,17 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 func (s *BillingSession) reserveFunding(delta int) error {
 	switch funding := s.funding.(type) {
 	case *WalletFunding:
+		if s.relayInfo.OpenRouterCost != nil {
+			reserved, err := model.TryReserveUserQuota(funding.userId, delta)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+			}
+			if !reserved {
+				return types.NewErrorWithStatusCode(ErrInsufficientWalletQuota, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+			}
+			funding.consumed += delta
+			return nil
+		}
 		// 与结算补扣（SettleBilling 正差额 → WalletFunding.Settle）语义一致：
 		// 全额无条件扣减，余额不足的部分记为欠费（余额可为负），不中断请求，
 		// 保证日志记录的预扣额度与用户余额的实际变动始终对账一致。

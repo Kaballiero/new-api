@@ -82,6 +82,12 @@ func TestBatchBillingUsesProviderBase(t *testing.T) {
 	settings.BatchBillingExpr = map[string]string{"provider-base": `tier("batch", p * 1 + c * 2)`}
 	snapshot, err := CaptureBatchBilling("provider-base", "default", "default", nil)
 	require.NoError(t, err)
+	orSnapshot, err := CaptureOpenRouterBatchBilling("no-display-expression", "default", "default", nil)
+	require.NoError(t, err)
+	require.NotNil(t, orSnapshot.OpenRouterCost)
+	assert.Equal(t, BatchSettlementOpenRouterCostV1, orSnapshot.SettlementMode)
+	assert.InDelta(t, 1.8, orSnapshot.OpenRouterCost.EffectiveGroupRatio, 1e-12)
+	assert.Empty(t, orSnapshot.Client.ExprString, "display availability does not gate OR admission")
 	settings.BatchBillingExpr["provider-base"] = `tier("changed", p * 100)`
 	result := batch.Result{StatusCode: 200, Body: []byte(`{"usage":{"prompt_tokens":200,"completion_tokens":50}}`)}
 	job := &model.BatchJob{ChannelType: constant.ChannelTypeOpenAI, Endpoint: "/v1/chat/completions"}
@@ -330,6 +336,69 @@ func TestBatchCanonicalPurchaseUsage(t *testing.T) {
 			require.NoError(t, db.Where("batch_id = ? AND custom_id = ?", job.ID, "missing").First(&missingItem).Error)
 			assert.Equal(t, "reconciliation_required", missingItem.BillingStatus)
 
+		})
+	}
+}
+
+func TestBatchOpenRouterActualCost(t *testing.T) {
+	require.NoError(t, model.DB.AutoMigrate(&model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}, &model.BatchLogEvent{}))
+	for _, tc := range []struct {
+		name, body        string
+		want              int
+		settled, unbilled bool
+	}{
+		{name: "cost only higher", body: `{"usage":{"cost":0.00004,"is_byok":true,"cost_details":{"upstream_inference_cost":9}}}`, want: 80, settled: true},
+		{name: "cost only lower", body: `{"usage":{"cost":0.00001}}`, want: 20, settled: true},
+		{name: "known zero", body: `{"usage":{"cost":0}}`, settled: true},
+		{name: "missing individual cost", body: `{"usage":{"prompt_tokens":10,"completion_tokens":3}}`, want: 50},
+		{name: "null", body: `{"usage":{"cost":null}}`, want: 50},
+		{name: "string", body: `{"usage":{"cost":"0"}}`, want: 50},
+		{name: "negative", body: `{"usage":{"cost":-1}}`, want: 50},
+		{name: "proven unbilled", body: `{}`, settled: true, unbilled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			t.Cleanup(func() {
+				for _, table := range []string{"batch_log_events", "batch_quota_events", "batch_items", "batch_jobs"} {
+					require.NoError(t, model.DB.Exec("DELETE FROM "+table).Error)
+				}
+			})
+			seedUser(t, 835, 10000)
+			seedToken(t, 835, 835, "or-batch-cost", 10000)
+			seedChannel(t, 835)
+			basis := common.OpenRouterCostBasis{Version: BatchSettlementOpenRouterCostV1, EffectiveGroupRatio: 4, QuotaPerUnit: 500000, EstimatedUSD: 0.000025}
+			encoded, err := common.Marshal(BatchBillingSnapshot{SettlementMode: BatchSettlementOpenRouterCostV1, OpenRouterCost: &basis})
+			require.NoError(t, err)
+			job := &model.BatchJob{PublicID: "or-cost-test", UserID: 835, TokenID: 835, ChannelID: 835, ChannelType: constant.ChannelTypeOpenRouter, Model: "or/model", Endpoint: "/v1/chat/completions", BillingSnapshot: string(encoded), RequestCount: 1, ReservedQuota: 50, UpstreamUsage: `{"cost":99}`}
+			require.NoError(t, model.CreateBatchReservation(job, []model.BatchItem{{CustomID: "item", Body: `{}`, UpstreamBody: `{}`, ReservedQuota: 50, BillingStatus: "reserved"}}))
+			result, err := common.Marshal(batch.Result{CustomID: "item", StatusCode: 200, Body: []byte(tc.body), Unbilled: tc.unbilled})
+			require.NoError(t, err)
+			require.NoError(t, model.StoreBatchResult(job.ID, "item", string(result), "result"))
+			require.NoError(t, SettleBatchResults(job))
+			require.NoError(t, SettleBatchResults(job))
+			var item model.BatchItem
+			require.NoError(t, model.DB.Where("batch_id = ?", job.ID).First(&item).Error)
+			var user model.User
+			require.NoError(t, model.DB.First(&user, 835).Error)
+			var token model.Token
+			require.NoError(t, model.DB.First(&token, 835).Error)
+			if tc.settled {
+				assert.Equal(t, "settled", item.BillingStatus)
+				assert.EqualValues(t, tc.want, item.ChargedQuota)
+				assert.Equal(t, 10000-tc.want, user.Quota)
+				assert.Equal(t, 10000-tc.want, token.RemainQuota)
+				if !tc.unbilled {
+					assert.Contains(t, item.FinancialDetails, BatchSettlementOpenRouterCostV1)
+					assert.NotContains(t, item.FinancialDetails, "matched_tier")
+				}
+			} else {
+				assert.Equal(t, "reconciliation_required", item.BillingStatus)
+				assert.Zero(t, item.ChargedQuota)
+				assert.Equal(t, 10000, user.Quota, "aggregate cost never allocates to unknown item")
+				assert.Equal(t, 10000, token.RemainQuota)
+				assert.EqualValues(t, 50, user.BatchHeldQuota)
+				assert.EqualValues(t, 50, token.BatchHeldQuota)
+			}
 		})
 	}
 }

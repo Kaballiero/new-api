@@ -2640,9 +2640,14 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 		name                                                                string
 		cost                                                                float64
 		confirmed, present, failed, legacy, missingToken, logFailure, batch bool
-		unknown, invalidBasis                                               bool
+		unknown, invalidBasis, v2                                           bool
 		target                                                              int
 	}{
+		{name: "v2_lower", v2: true, cost: 0.00002, confirmed: true, present: true, target: 40},
+		{name: "v2_zero", v2: true, confirmed: true, present: true},
+		{name: "v2_missing", v2: true, target: 50},
+		{name: "v2_invalid_basis", v2: true, invalidBasis: true, cost: 0.00002, confirmed: true, present: true, target: 50},
+		{name: "v2_missing_token_rollback", v2: true, cost: 0.00002, confirmed: true, present: true, missingToken: true, target: 50},
 		{name: "lower", cost: 0.00002, confirmed: true, present: true, target: 40},
 		{name: "higher", cost: 0.00005, confirmed: true, present: true, target: 100},
 		{name: "equal", cost: 0.000025, confirmed: true, present: true, target: 50},
@@ -2685,12 +2690,25 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 				bc.BillingFX.Rate = 300
 			}
 			bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000, ExprString: "tier(\"reserve\", 0.000025)"}
+			if tc.v2 {
+				bc.SettlementMode = model.TaskSettlementOpenRouterCostV2
+				bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: model.TaskSettlementOpenRouterCostV2, EffectiveGroupRatio: 4, QuotaPerUnit: 500000, EstimatedUSD: 0.000025}
+				bc.TieredSnapshot = nil
+				bc.OpenRouterOrderFacts = map[string]any{"requested_seconds": float64(5), "images": float64(1)}
+				if tc.invalidBasis {
+					bc.OpenRouterCost.Version = "unknown_version"
+				}
+			}
 			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, HasUpstreamCost: tc.present, UpstreamCostConfirmed: tc.confirmed, UpstreamCostUSD: tc.cost}
 			require.NoError(t, model.DB.Create(task).Error)
 			var stale model.Task
 			require.NoError(t, model.DB.First(&stale, task.ID).Error)
 			// Reload proves the manual snapshot wire format carries settlement mode.
 			require.Equal(t, bc.SettlementMode, stale.PrivateData.BillingContext.SettlementMode)
+			if tc.v2 {
+				assert.Equal(t, bc.OpenRouterCost, stale.PrivateData.BillingContext.OpenRouterCost)
+				assert.Equal(t, bc.OpenRouterOrderFacts, stale.PrivateData.BillingContext.OpenRouterOrderFacts)
+			}
 			task.Status = model.TaskStatusSuccess
 			if tc.failed {
 				task.Status = model.TaskStatusFailure
@@ -2760,7 +2778,7 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 				} else {
 					assert.Equal(t, model.LogTypeConsume, logs[0].Type)
 				}
-				assert.Contains(t, logs[0].Other, "openrouter_cost_v1")
+				assert.Contains(t, logs[0].Other, bc.SettlementMode)
 				assert.Contains(t, logs[0].Other, "admin_info")
 				assert.NotContains(t, logs[0].Other, "expr_b64")
 			}
@@ -2780,10 +2798,12 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 
 func TestOpenRouterCostSettlementCacheAndSubscription(t *testing.T) {
 	for _, tc := range []struct {
-		name                                     string
-		subscription, overage, hot, cacheFailure bool
+		name                                         string
+		subscription, overage, hot, cacheFailure, v2 bool
 	}{
 		{name: "subscription", subscription: true}, {name: "subscription_overage", subscription: true, overage: true},
+		{name: "v2_subscription", subscription: true, v2: true}, {name: "v2_subscription_overage", subscription: true, overage: true, v2: true},
+		{name: "v2_hot_cache", hot: true, v2: true}, {name: "v2_cache_failure", hot: true, cacheFailure: true, v2: true},
 		{name: "hot_cache_concurrent_reserve", hot: true}, {name: "cold_cache"}, {name: "cache_failure_no_replay", hot: true, cacheFailure: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2809,6 +2829,11 @@ func TestOpenRouterCostSettlementCacheAndSubscription(t *testing.T) {
 			bc.BillingFX = testTaskBillingFX(200)
 			bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
 			bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000}
+			if tc.v2 {
+				bc.SettlementMode = model.TaskSettlementOpenRouterCostV2
+				bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: model.TaskSettlementOpenRouterCostV2, EffectiveGroupRatio: 4, QuotaPerUnit: 500000, EstimatedUSD: 0.000025}
+				bc.TieredSnapshot = nil
+			}
 			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, HasUpstreamCost: true, UpstreamCostConfirmed: true, UpstreamCostUSD: 0.00005}
 			require.NoError(t, model.DB.Create(task).Error)
 			oldGroups := ratio_setting.GroupRatio2JSONString()

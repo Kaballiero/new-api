@@ -202,6 +202,7 @@ func ApplyOriginTaskAffinity(c *gin.Context, info *relaycommon.RelayInfo) *dto.T
 // 共享控制器编排负责未落库退款、最终额度预留、落库和结算。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
 	info.InitChannelMeta(c)
+	info.OpenRouterCost = nil
 
 	// 1. 确定 platform → 创建适配器 → 验证请求
 	platform := constant.TaskPlatform(c.GetString("platform"))
@@ -274,7 +275,24 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			}
 		}
 	}
-	if useTiered {
+	if platform == "openrouter-video" {
+		groupRatioInfo := helper.HandleGroupRatio(c, info)
+		effective, applyErr := service.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
+		if applyErr != nil {
+			return nil, service.TaskErrorWrapperLocal(applyErr, "model_price_error", http.StatusBadRequest)
+		}
+		info.PriceData = types.PriceData{GroupRatioInfo: groupRatioInfo, BillingGroupRatio: effective}
+		preparer, ok := adaptor.(interface {
+			PrepareOpenRouterCost(*gin.Context, *relaycommon.RelayInfo) error
+		})
+		if !ok {
+			return nil, service.TaskErrorWrapperLocal(errors.New("OpenRouter reservation unavailable: unsupported video adaptor"), "model_price_error", http.StatusBadRequest)
+		}
+		if err := preparer.PrepareOpenRouterCost(c, info); err != nil {
+			return nil, service.TaskErrorWrapperLocal(err, "model_price_error", http.StatusBadRequest)
+		}
+		priceData = info.PriceData
+	} else if useTiered {
 		provider, supported := adaptor.(channel.TaskUsageFactsProvider)
 		if billingexpr.UsesFixedPricing(exprStr) {
 			return nil, service.TaskErrorWrapper(fmt.Errorf("fixed pricing is not supported for task usage expressions"), "model_price_error", http.StatusBadRequest)
@@ -326,7 +344,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 5. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）
 	//    必须在 ModelPriceHelperPerCall 之后调用（它会重建 PriceData）。
 	//    ResolveOriginTask 可能已在 remix 路径中预设了 OtherRatios，此处合并。
-	if info.TieredBillingSnapshot == nil {
+	if info.OpenRouterCost == nil && info.TieredBillingSnapshot == nil {
 		var estimatedRatios map[string]float64
 		if validatedProvider, ok := adaptor.(channel.TaskValidatedBillingProvider); ok {
 			estimatedRatios, err = validatedProvider.EstimateBillingValidated(c, info)
@@ -344,7 +362,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 6. 将 OtherRatios 应用到基础额度（饱和转换，防止溢出成负数）
-	if info.TieredBillingSnapshot == nil && !common.StringsContains(constant.TaskPricePatches, modelName) {
+	if info.OpenRouterCost == nil && info.TieredBillingSnapshot == nil && !common.StringsContains(constant.TaskPricePatches, modelName) {
 		quotaWithRatios := info.PriceData.ApplyOtherRatiosToFloat(float64(info.PriceData.Quota))
 		quota, clamp := common.QuotaFromFloatChecked(quotaWithRatios)
 		info.PriceData.Quota = quota
@@ -355,9 +373,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
-	if platform == "openrouter-video" && (info.TieredBillingSnapshot == nil || info.PriceData.Quota <= 0) {
-		return nil, service.TaskErrorWrapperLocal(errors.New("OpenRouter video requires a positive configured usage reserve"), "model_price_error", http.StatusBadRequest)
-	}
+
 	if info.Billing == nil && !info.PriceData.FreeModel {
 		info.ForcePreConsume = true
 		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
@@ -395,7 +411,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
 	finalQuota := info.PriceData.Quota
-	if info.TieredBillingSnapshot == nil {
+	if info.OpenRouterCost == nil && info.TieredBillingSnapshot == nil {
 		if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, parsed.TaskData); len(adjustedRatios) > 0 {
 			if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
 				// 基于调整后的 ratios 重新计算 quota

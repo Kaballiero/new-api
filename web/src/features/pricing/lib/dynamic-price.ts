@@ -237,6 +237,26 @@ export function getDynamicPricingTiers(
   return parseTiersFromExpr(billingExpr)
 }
 
+/** Display-only lower bounds across supported tiers; direct summaries retain their selected tier. */
+export function getIndicativePriceEntries(
+  model: PricingModel,
+  options: DynamicPriceOptions
+): DynamicPriceEntry[] {
+  const minima = new Map<string, DynamicPriceEntry>()
+  for (const tier of getDynamicPricingTiers(model)) {
+    for (const entry of getDynamicPriceEntries(tier, {
+      ...options,
+      usageSchema: model.billing_usage_schema,
+    })) {
+      const previous = minima.get(entry.key)
+      if (!previous || entry.value < previous.value) {
+        minima.set(entry.key, entry)
+      }
+    }
+  }
+  return [...minima.values()]
+}
+
 export function hasDynamicRequestRules(model: PricingModel): boolean {
   if (!isDynamicPricingModel(model)) return false
   const { requestRuleExpr } = splitBillingExprAndRequestRules(

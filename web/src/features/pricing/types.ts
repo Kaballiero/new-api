@@ -46,7 +46,11 @@ export type BillingUsageExample = {
   facts: Record<string, string | number>
 }
 
+export type BillingSource = 'configured_tariff' | 'openrouter_actual_cost'
+
 export type PricingModel = {
+  billing_sources_by_group?: Record<string, Record<string, BillingSource[]>>
+  indicative_billing_expr_by_endpoint?: Record<string, string>
   /** Undefined preserves base-price consumers; null explicitly forbids a raw-price fallback. */
   effective_pricing?: EffectivePricingModel | null
   id: number

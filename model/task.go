@@ -151,6 +151,9 @@ type TaskReconciliation struct {
 	HasUpstreamCost       bool    `json:"has_upstream_cost,omitempty"`
 	UpstreamCostConfirmed bool    `json:"upstream_cost_confirmed,omitempty"`
 	UpstreamCostUSD       float64 `json:"upstream_cost_usd,omitempty"`
+	UpstreamIsBYOK        *bool   `json:"upstream_is_byok,omitempty"`
+	UpstreamCostDetails   string  `json:"upstream_cost_details,omitempty"`
+	QuotaSaturation       string  `json:"quota_saturation,omitempty"`
 }
 
 type TaskExecutionSnapshot struct {
@@ -177,20 +180,23 @@ type TaskPluginAuthorSnapshot struct {
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 const TaskSettlementOpenRouterCostV1 = "openrouter_cost_v1"
+const TaskSettlementOpenRouterCostV2 = "openrouter_cost_v2"
 
 type TaskBillingContext struct {
-	SettlementMode  string                       `json:"settlement_mode,omitempty"`
-	ModelPrice      float64                      `json:"model_price,omitempty"`       // 模型单价
-	GroupRatio      float64                      `json:"group_ratio,omitempty"`       // 分组倍率
-	ModelRatio      float64                      `json:"model_ratio,omitempty"`       // 模型倍率
-	OtherRatios     map[string]float64           `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
-	OriginModelName string                       `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
-	PerCallBilling  bool                         `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
-	TieredSnapshot  *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
-	BillingFX       *TaskBillingFX               `json:"billing_fx,omitempty"`
-	SubmitGroup     *TaskBillingSubmitGroup      `json:"submit_group,omitempty"`
-	billingFXRaw    json.RawMessage
-	submitGroupRaw  json.RawMessage
+	SettlementMode       string                       `json:"settlement_mode,omitempty"`
+	OpenRouterCost       *common.OpenRouterCostBasis  `json:"openrouter_cost,omitempty"`
+	OpenRouterOrderFacts map[string]any               `json:"openrouter_order_facts,omitempty"`
+	ModelPrice           float64                      `json:"model_price,omitempty"`       // 模型单价
+	GroupRatio           float64                      `json:"group_ratio,omitempty"`       // 分组倍率
+	ModelRatio           float64                      `json:"model_ratio,omitempty"`       // 模型倍率
+	OtherRatios          map[string]float64           `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
+	OriginModelName      string                       `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
+	PerCallBilling       bool                         `json:"per_call_billing,omitempty"`  // 按次计费：跳过轮询阶段的差额结算
+	TieredSnapshot       *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
+	BillingFX            *TaskBillingFX               `json:"billing_fx,omitempty"`
+	SubmitGroup          *TaskBillingSubmitGroup      `json:"submit_group,omitempty"`
+	billingFXRaw         json.RawMessage
+	submitGroupRaw       json.RawMessage
 }
 
 // TaskBillingFX is the immutable schema-1 publication basis accepted when a
@@ -218,16 +224,18 @@ type TaskBillingSubmitGroup struct {
 // validator so malformed history cannot be mistaken for absent legacy data.
 func (c *TaskBillingContext) UnmarshalJSON(data []byte) error {
 	var wire struct {
-		SettlementMode  string                       `json:"settlement_mode,omitempty"`
-		ModelPrice      float64                      `json:"model_price,omitempty"`
-		GroupRatio      float64                      `json:"group_ratio,omitempty"`
-		ModelRatio      float64                      `json:"model_ratio,omitempty"`
-		OtherRatios     map[string]float64           `json:"other_ratios,omitempty"`
-		OriginModelName string                       `json:"origin_model_name,omitempty"`
-		PerCallBilling  bool                         `json:"per_call_billing,omitempty"`
-		TieredSnapshot  *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
-		BillingFX       json.RawMessage              `json:"billing_fx"`
-		SubmitGroup     json.RawMessage              `json:"submit_group"`
+		SettlementMode       string                       `json:"settlement_mode,omitempty"`
+		OpenRouterCost       *common.OpenRouterCostBasis  `json:"openrouter_cost,omitempty"`
+		OpenRouterOrderFacts map[string]any               `json:"openrouter_order_facts,omitempty"`
+		ModelPrice           float64                      `json:"model_price,omitempty"`
+		GroupRatio           float64                      `json:"group_ratio,omitempty"`
+		ModelRatio           float64                      `json:"model_ratio,omitempty"`
+		OtherRatios          map[string]float64           `json:"other_ratios,omitempty"`
+		OriginModelName      string                       `json:"origin_model_name,omitempty"`
+		PerCallBilling       bool                         `json:"per_call_billing,omitempty"`
+		TieredSnapshot       *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
+		BillingFX            json.RawMessage              `json:"billing_fx"`
+		SubmitGroup          json.RawMessage              `json:"submit_group"`
 	}
 	if err := common.Unmarshal(data, &wire); err != nil {
 		return err
@@ -245,8 +253,8 @@ func (c *TaskBillingContext) UnmarshalJSON(data []byte) error {
 		submitGroupRaw = raw
 	}
 	*c = TaskBillingContext{
-		SettlementMode: wire.SettlementMode,
-		ModelPrice:     wire.ModelPrice, GroupRatio: wire.GroupRatio, ModelRatio: wire.ModelRatio,
+		SettlementMode: wire.SettlementMode, OpenRouterCost: wire.OpenRouterCost, OpenRouterOrderFacts: wire.OpenRouterOrderFacts,
+		ModelPrice: wire.ModelPrice, GroupRatio: wire.GroupRatio, ModelRatio: wire.ModelRatio,
 		OtherRatios: wire.OtherRatios, OriginModelName: wire.OriginModelName, PerCallBilling: wire.PerCallBilling,
 		TieredSnapshot: wire.TieredSnapshot, billingFXRaw: append(json.RawMessage(nil), billingFXRaw...),
 		submitGroupRaw: append(json.RawMessage(nil), submitGroupRaw...),
@@ -331,17 +339,19 @@ func (c TaskBillingContext) MarshalJSON() ([]byte, error) {
 		submitGroup = data
 	}
 	return common.Marshal(struct {
-		SettlementMode  string                       `json:"settlement_mode,omitempty"`
-		ModelPrice      float64                      `json:"model_price,omitempty"`
-		GroupRatio      float64                      `json:"group_ratio,omitempty"`
-		ModelRatio      float64                      `json:"model_ratio,omitempty"`
-		OtherRatios     map[string]float64           `json:"other_ratios,omitempty"`
-		OriginModelName string                       `json:"origin_model_name,omitempty"`
-		PerCallBilling  bool                         `json:"per_call_billing,omitempty"`
-		TieredSnapshot  *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
-		BillingFX       json.RawMessage              `json:"billing_fx,omitempty"`
-		SubmitGroup     json.RawMessage              `json:"submit_group,omitempty"`
-	}{c.SettlementMode, c.ModelPrice, c.GroupRatio, c.ModelRatio, c.OtherRatios, c.OriginModelName, c.PerCallBilling, c.TieredSnapshot, billingFX, submitGroup})
+		SettlementMode       string                       `json:"settlement_mode,omitempty"`
+		OpenRouterCost       *common.OpenRouterCostBasis  `json:"openrouter_cost,omitempty"`
+		OpenRouterOrderFacts map[string]any               `json:"openrouter_order_facts,omitempty"`
+		ModelPrice           float64                      `json:"model_price,omitempty"`
+		GroupRatio           float64                      `json:"group_ratio,omitempty"`
+		ModelRatio           float64                      `json:"model_ratio,omitempty"`
+		OtherRatios          map[string]float64           `json:"other_ratios,omitempty"`
+		OriginModelName      string                       `json:"origin_model_name,omitempty"`
+		PerCallBilling       bool                         `json:"per_call_billing,omitempty"`
+		TieredSnapshot       *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
+		BillingFX            json.RawMessage              `json:"billing_fx,omitempty"`
+		SubmitGroup          json.RawMessage              `json:"submit_group,omitempty"`
+	}{c.SettlementMode, c.OpenRouterCost, c.OpenRouterOrderFacts, c.ModelPrice, c.GroupRatio, c.ModelRatio, c.OtherRatios, c.OriginModelName, c.PerCallBilling, c.TieredSnapshot, billingFX, submitGroup})
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
@@ -863,7 +873,7 @@ func (t *Task) ApplyTaskCostSettlement() (string, error) {
 			saved.TaskID != t.TaskID || saved.UserId != t.UserId || saved.ChannelId != t.ChannelId ||
 			saved.PrivateData.TokenId != t.PrivateData.TokenId || saved.PrivateData.BillingSource != t.PrivateData.BillingSource ||
 			saved.PrivateData.SubscriptionId != t.PrivateData.SubscriptionId || saved.Status != t.Status ||
-			saved.PrivateData.BillingContext == nil || saved.PrivateData.BillingContext.SettlementMode != TaskSettlementOpenRouterCostV1 ||
+			saved.PrivateData.BillingContext == nil || (saved.PrivateData.BillingContext.SettlementMode != TaskSettlementOpenRouterCostV1 && saved.PrivateData.BillingContext.SettlementMode != TaskSettlementOpenRouterCostV2) ||
 			state.TargetQuota != expected.TargetQuota || state.ReservedQuota != expected.ReservedQuota || saved.Quota != state.ReservedQuota {
 			return fmt.Errorf("task settlement claim changed or already applied")
 		}

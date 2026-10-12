@@ -272,6 +272,17 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens
 	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
 	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
+	if state := relayInfo.OpenRouterCost; state != nil {
+		summary.ProviderCostBilling = true
+		if state.Final && state.Valid {
+			quota, clamp, err := state.Basis.Quota(state.CostUSD)
+			if err == nil {
+				summary.Quota = quota
+				relayInfo.QuotaClamp = clamp
+			}
+		}
+		return summary
+	}
 	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
@@ -426,7 +437,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if billingUsage == nil && snap != nil && billingexpr.UsesFixedPricing(snap.ExprString) {
 		billingUsage = &dto.Usage{PromptTokens: summary.PromptTokens, CompletionTokens: summary.CompletionTokens, TotalTokens: summary.TotalTokens}
 	}
-	if billingUsage != nil {
+	if billingUsage != nil && relayInfo.OpenRouterCost == nil {
 		var tieredUsedVars map[string]bool
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
 			tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
@@ -464,7 +475,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if !summary.hasBillableUsage() {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
-	} else {
+	} else if relayInfo.OpenRouterCost == nil {
 		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
@@ -473,6 +484,20 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 	}
 
+	var costOutcome *OpenRouterSettlementOutcome
+	if relayInfo.OpenRouterCost != nil {
+		if session, ok := relayInfo.Billing.(*BillingSession); ok {
+			result := session.OpenRouterSettlementOutcome()
+			costOutcome = &result
+			summary.Quota = result.FundingAppliedQuota
+			if result.SettlementStatus != "settled" {
+				extraContent = append(extraContent, "OpenRouter settlement requires manual repair")
+				logger.LogWarn(ctx, fmt.Sprintf("OpenRouter settlement unresolved: status=%s target=%d funding_applied=%d token_applied=%d", result.SettlementStatus, result.TargetQuota, result.FundingAppliedQuota, result.TokenAppliedQuota))
+			}
+		}
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
+		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
+	}
 	logModel := summary.ModelName
 	if strings.HasPrefix(logModel, "gpt-4-gizmo") {
 		logModel = "gpt-4-gizmo-*"
@@ -496,6 +521,21 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		other.SetPublic("usage_semantic", "anthropic")
 	} else {
 		other = GenerateTextOtherInfo(ctx, relayInfo, summary.ModelRatio, summary.GroupRatio, summary.CompletionRatio, summary.CacheTokens, summary.CacheRatio, summary.ModelPrice, relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio)
+	}
+	if state := relayInfo.OpenRouterCost; state != nil {
+		other.SetPublic("settlement_mode", "openrouter_actual_cost")
+		other.SetAdmin("openrouter_cost_basis", state.Basis)
+		other.SetAdmin("upstream_cost_usd", state.CostUSD)
+		other.SetAdmin("reserved_quota", relayInfo.FinalPreConsumedQuota)
+		if costOutcome != nil {
+			other.SetPublic("settlement_status", costOutcome.SettlementStatus)
+			other.SetAdmin("openrouter_settlement", *costOutcome)
+			if costOutcome.SettlementStatus == "settled" {
+				other.SetAdmin("actual_quota", costOutcome.TargetQuota)
+			} else {
+				other.SetAdmin("requested_quota", costOutcome.TargetQuota)
+			}
+		}
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	if adminRejectReason != "" {

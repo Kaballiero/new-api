@@ -173,7 +173,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
 
 	if priceData.FreeModel {
-		logger.LogInfo(c, fmt.Sprintf("Model %s is free, skipping pre-consumption", relayInfo.OriginModelName))
+		if relayInfo.OpenRouterPricingDeferred {
+			logger.LogInfo(c, "OpenRouter reservation deferred until final upstream payload")
+		} else {
+			logger.LogInfo(c, fmt.Sprintf("Model %s is free, skipping pre-consumption", relayInfo.OriginModelName))
+		}
 	} else {
 		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
 		if newAPIError != nil {
@@ -185,6 +189,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Only return quota if downstream failed and quota was actually pre-consumed
 		if newAPIError != nil {
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
+			if relayInfo.OpenRouterCost != nil && relayInfo.OpenRouterCost.Sent && !relayInfo.OpenRouterCost.Final {
+				logger.LogWarn(c, fmt.Sprintf("OpenRouter financial outcome unknown; returning reservation without retry: channel=%d reserve=%d reason=%s", relayInfo.ChannelId, relayInfo.FinalPreConsumedQuota, relayInfo.OpenRouterCost.UnknownReason))
+			}
 			if relayInfo.NativeImage != nil && relayInfo.NativeImage.OutcomeUnknown {
 				logger.LogWarn(c, fmt.Sprintf("OpenRouter image financial outcome unknown; returning reservation without retry: channel=%d estimated_cost_usd=%g upstream_request_id=%s", relayInfo.NativeImage.ChannelID, relayInfo.NativeImage.EstimatedCostUSD, c.GetString(common.UpstreamRequestIdKey)))
 			}
@@ -214,6 +221,26 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		addUsedChannel(c, channel.Id)
+		if channel.Type != constant.ChannelTypeOpenRouter && relayInfo.OpenRouterPricingDeferred {
+			relayInfo.OpenRouterCost = nil
+			relayInfo.ForcePreConsume = false
+			relayInfo.OpenRouterPricingDeferred = false
+			directPrice, priceErr := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
+			if priceErr != nil {
+				newAPIError = types.NewError(priceErr, types.ErrorCodeModelPriceError, types.ErrOptionWithSkipRetry())
+				break
+			}
+			if !directPrice.FreeModel {
+				if relayInfo.Billing == nil {
+					newAPIError = service.PreConsumeBilling(c, directPrice.QuotaToPreConsume, relayInfo)
+				} else if reserveErr := relayInfo.Billing.Reserve(directPrice.QuotaToPreConsume); reserveErr != nil {
+					newAPIError = types.NewError(reserveErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+				}
+				if newAPIError != nil {
+					break
+				}
+			}
+		}
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
 			break
@@ -252,6 +279,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
+		if relayInfo.OpenRouterCost != nil && relayInfo.OpenRouterCost.Sent {
+			logger.LogWarn(c, "OpenRouter submitted request failed; refunding synchronous hold without paid replay")
+			break
+		}
 		if relayInfo.NativeImage != nil && relayInfo.NativeImage.Sent {
 			break
 		}

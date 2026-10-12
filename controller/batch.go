@@ -17,7 +17,9 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	hostdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/batch"
+	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -227,7 +229,17 @@ func CreateBatch(c *gin.Context) {
 	info.TokenGroup = common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
 	info.UsingGroup = usingGroup
 	info.RequestURLPath = request.Endpoint
-	snapshot, err := service.CaptureBatchBilling(request.Model, common.GetContextKeyString(c, constant.ContextKeyUserGroup), usingGroup, headers)
+	var snapshot service.BatchBillingSnapshot
+	var estimator *openrouter.RequestEstimator
+	if channel.Type == constant.ChannelTypeOpenRouter {
+		snapshot, err = service.CaptureOpenRouterBatchBilling(request.Model, info.UserGroup, usingGroup, headers)
+		info.InitChannelMeta(c)
+		info.UpstreamModelName = upstreamModel
+		info.OriginModelName = request.Model
+		estimator = openrouter.NewRequestEstimator()
+	} else {
+		snapshot, err = service.CaptureBatchBilling(request.Model, info.UserGroup, usingGroup, headers)
+	}
 	if err != nil {
 		batchError(c, 503, "batch_pricing_unavailable", err.Error())
 		return
@@ -264,7 +276,63 @@ func CreateBatch(c *gin.Context) {
 			batchError(c, 400, "invalid_channel_parameters", err.Error())
 			return
 		}
-		quota, err := service.EstimateBatchItem(c, snapshot, request.Endpoint, body, maxOutput)
+		var quota int
+		if estimator != nil {
+			promptTokens, countErr := service.CountBatchItemTokens(c, request.Model, request.Endpoint, body)
+			if countErr != nil {
+				batchError(c, 400, "invalid_batch_price", countErr.Error())
+				return
+			}
+			info.SetEstimatePromptTokens(promptTokens)
+			// OpenRouter publishes dedicated :batch endpoint prices. Discover once
+			// per possible final model; never infer a universal synchronous discount.
+			models, modelErr := openrouter.ModelsFromRequest(body)
+			if modelErr != nil {
+				batchError(c, 400, "invalid_batch_price", modelErr.Error())
+				return
+			}
+			if len(models) == 0 {
+				models = []string{upstreamModel}
+			}
+			adaptor := relay.GetAdaptor(info.ApiType)
+			if adaptor == nil {
+				batchError(c, 400, "invalid_batch_price", "unsupported OpenRouter adaptor")
+				return
+			}
+			adaptor.Init(info)
+			for _, name := range models {
+				batchModel := strings.TrimSuffix(name, ":batch") + ":batch"
+				if err = estimator.Discover(c, info, adaptor, batchModel); err != nil {
+					break
+				}
+				estimator.Models[name] = estimator.Models[batchModel]
+			}
+			if err == nil {
+				pricingBody := body
+				// Some Batch wire formats supply the model only in the envelope.
+				if _, present := fields["model"]; !present {
+					var prepared map[string]json.RawMessage
+					if err = common.Unmarshal(body, &prepared); err == nil {
+						prepared["model"], _ = common.Marshal(upstreamModel)
+						pricingBody, err = common.Marshal(prepared)
+					}
+				}
+				if err == nil {
+					estimate, estimateErr := estimator.Estimate(info, pricingBody, "batch_"+strings.TrimPrefix(request.Endpoint, "/v1/"))
+					err = estimateErr
+					if err == nil {
+						var clamp *common.QuotaClamp
+						quota, clamp, err = snapshot.OpenRouterCost.Quota(estimate)
+						if clamp != nil {
+							err = clamp
+						}
+						snapshot.OpenRouterCost.EstimatedUSD += estimate
+					}
+				}
+			}
+		} else {
+			quota, err = service.EstimateBatchItem(c, snapshot, request.Endpoint, body, maxOutput)
+		}
 		if err != nil {
 			batchError(c, 400, "invalid_batch_price", err.Error())
 			return

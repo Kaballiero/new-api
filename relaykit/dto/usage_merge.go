@@ -1,7 +1,6 @@
 package dto
 
 import (
-	"reflect"
 	"strings"
 )
 
@@ -80,7 +79,7 @@ func MergeUsageNonZero(current *Usage, incoming *Usage) *Usage {
 	if incoming.BillingUsage != nil {
 		current.BillingUsage = MergeBillingUsageNonZero(current.BillingUsage, incoming.BillingUsage)
 	}
-	if incoming.Cost != nil && !reflect.ValueOf(incoming.Cost).IsZero() {
+	if incoming.Cost != nil {
 		current.Cost = incoming.Cost
 	}
 	if total := current.PromptTokens + current.CompletionTokens; total > current.TotalTokens {

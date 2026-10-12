@@ -25,11 +25,11 @@ import {
   getDynamicPricingSummary,
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import { isTokenBasedModel, hasOpenRouterPricing } from '../lib/model-helpers'
 import { formatPrice, stripTrailingZeros } from '../lib/price'
 import type { PricingModel } from '../types'
 import { EffectivePrice } from './effective-price'
-import type { ModelPriceCellOptions } from './model-price-cell'
+import { ModelPriceCell, type ModelPriceCellOptions } from './model-price-cell'
 
 export function CachedPriceCell(props: {
   model: PricingModel
@@ -41,6 +41,16 @@ export function CachedPriceCell(props: {
         model={props.model.effective_pricing}
         selectedGroup={props.options?.selectedGroup}
         compact
+        components={['cache_read', 'cache_write', 'cache_write_1h']}
+      />
+    )
+  }
+  if (hasOpenRouterPricing(props.model, props.options.selectedGroup)) {
+    return (
+      <ModelPriceCell
+        model={props.model}
+        options={props.options}
+        showExpression={false}
         components={['cache_read', 'cache_write', 'cache_write_1h']}
       />
     )

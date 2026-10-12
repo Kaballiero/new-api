@@ -198,3 +198,33 @@ func TestWalletQuotaFromDecimalStrict(t *testing.T) {
 	assert.Equal(t, "WalletQuotaFromDecimal", clamp.Op)
 	assert.Equal(t, QuotaClampOverflow, clamp.Kind)
 }
+
+func TestOpenRouterAuthoritativeCost(t *testing.T) {
+	for _, tc := range []struct {
+		raw   string
+		valid bool
+		want  float64
+	}{{"0", true, 0}, {"0.125", true, .125}, {"null", false, 0}, {`"0"`, false, 0}, {"true", false, 0}, {"-1", false, 0}, {"1e999", false, 0}, {"", false, 0}} {
+		t.Run(tc.raw, func(t *testing.T) {
+			value, err := ValidateOpenRouterCost([]byte(tc.raw))
+			if tc.valid {
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, value)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+	basis := OpenRouterCostBasis{EffectiveGroupRatio: 1.5, QuotaPerUnit: 500000, EstimatedUSD: .1}
+	quota, clamp, err := basis.Quota(.2)
+	require.NoError(t, err)
+	require.Nil(t, clamp)
+	assert.Equal(t, 150000, quota)
+	quota, clamp, err = basis.Quota(0)
+	require.NoError(t, err)
+	require.Nil(t, clamp)
+	assert.Zero(t, quota)
+	_, clamp, err = basis.Quota(1e100)
+	require.NoError(t, err)
+	require.NotNil(t, clamp)
+}

@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -327,6 +328,11 @@ func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.B
 // estimate before sending. If the initial group was free and skipped
 // pre-consume, switching to a paid group creates the session at that point.
 func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if c != nil && c.GetInt("channel_type") == constant.ChannelTypeOpenRouter {
+		relayInfo.TieredBillingSnapshot = nil
+		relayInfo.OpenRouterPricingDeferred = true
+		return nil
+	}
 	snap, err := refreshTieredBillingGroup(relayInfo)
 	if err != nil {
 		if admissionErr := BillingAdmissionError(c, relayInfo, err); admissionErr != nil {

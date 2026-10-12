@@ -2,6 +2,7 @@ package openai
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -315,4 +316,124 @@ func TestOaiStreamHandlerRecordsErrorEventWriteFailure(t *testing.T) {
 	require.NotNil(t, usage)
 	require.True(t, info.StreamStatus.HasErrors())
 	require.GreaterOrEqual(t, info.StreamStatus.TotalErrorCount(), 2)
+}
+
+func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		valid      bool
+		cost       float64
+	}{
+		{"cost only positive", `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":0.03}}`, true, .03},
+		{"cost explicit zero", `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":0}}`, true, 0},
+		{"missing cost", `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, false, 0},
+		{"null cost", `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":null}}`, false, 0},
+		{"string cost", `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":"0"}}`, false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, recorder, resp, info := newEmbeddedErrorTestRequest(tc.body, http.StatusOK)
+			info.ChannelType = constant.ChannelTypeOpenRouter
+			info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
+			info.SetEstimatePromptTokens(12)
+			usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+			if !tc.valid {
+				require.NotNil(t, apiErr)
+				assert.Empty(t, recorder.Body.String())
+				return
+			}
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			assert.Equal(t, tc.cost, usage.(*dto.Usage).Cost)
+			assert.Contains(t, recorder.Body.String(), "ok")
+		})
+	}
+}
+
+func TestOpenRouterStreamRequiresTerminalCost(t *testing.T) {
+	setStreamTestTimeout(t)
+	for _, tc := range []struct {
+		name, frames string
+		valid        bool
+		cost         float64
+	}{
+		{"final cost zero replaces provisional", "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\ndata: {\"choices\":[],\"usage\":{\"cost\":0}}\n\ndata: [DONE]\n\n", true, 0},
+		{"null final invalidates provisional", "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\ndata: {\"choices\":[],\"usage\":{\"cost\":null}}\n\ndata: [DONE]\n\n", false, 0},
+		{"disconnect without terminal", "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\n", false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, resp, info := newEmbeddedErrorTestRequest(tc.frames, http.StatusOK)
+			resp.Header.Set("Content-Type", "text/event-stream")
+			info.ChannelType = constant.ChannelTypeOpenRouter
+			info.IsStream = true
+			info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
+			info.DisablePing = true
+			usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+			if !tc.valid {
+				require.NotNil(t, apiErr)
+				return
+			}
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			assert.Equal(t, tc.cost, usage.(*dto.Usage).Cost)
+		})
+	}
+}
+
+func TestOpenRouterResponsesBillableTerminals(t *testing.T) {
+	setStreamTestTimeout(t)
+	for _, tc := range []struct {
+		name, event, status, cost string
+		valid                     bool
+		want                      float64
+	}{
+		{"capped incomplete", "response.incomplete", "incomplete", `0.1`, true, .1},
+		{"capped incomplete zero", "response.incomplete", "incomplete", `0`, true, 0},
+		{"done without DONE marker", "response.done", "completed", `0.2`, true, .2},
+		{"missing incomplete cost", "response.incomplete", "incomplete", ``, false, 0},
+		{"null incomplete cost", "response.incomplete", "incomplete", `null`, false, 0},
+		{"string incomplete cost", "response.incomplete", "incomplete", `"0"`, false, 0},
+		{"failed event with cost", "response.failed", "failed", `0.1`, false, 0},
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", tc.name, stream), func(t *testing.T) {
+				costField := ""
+				if tc.cost != "" {
+					costField = `,"cost":` + tc.cost
+				}
+				response := fmt.Sprintf(`{"id":"resp_cost","object":"response","status":%q,"incomplete_details":{"reason":"max_output_tokens"},"output":[],"usage":{"input_tokens":11,"output_tokens":7,"total_tokens":18%s}}`, tc.status, costField)
+				body := response
+				if stream {
+					body = "data: " + fmt.Sprintf(`{"type":%q,"response":%s}`, tc.event, response) + "\n\n"
+				}
+				c, recorder, resp, info := newEmbeddedErrorTestRequest(body, http.StatusOK)
+				info.ChannelType = constant.ChannelTypeOpenRouter
+				info.RelayMode = relayconstant.RelayModeResponses
+				info.RelayFormat = types.RelayFormatOpenAIResponses
+				info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
+				info.IsStream = stream
+				info.DisablePing = true
+				if stream {
+					resp.Header.Set("Content-Type", "text/event-stream")
+				}
+				usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+				if !tc.valid {
+					require.NotNil(t, apiErr)
+					assert.False(t, info.OpenRouterCost.Final)
+					if !stream {
+						assert.Empty(t, recorder.Body.String())
+					}
+					return
+				}
+				require.Nil(t, apiErr)
+				require.NotNil(t, usage)
+				actual := usage.(*dto.Usage)
+				assert.Equal(t, tc.want, actual.Cost)
+				assert.Equal(t, 11, actual.PromptTokens)
+				assert.Equal(t, 7, actual.CompletionTokens)
+				assert.Equal(t, 18, actual.TotalTokens)
+				assert.True(t, info.OpenRouterCost.Final)
+				assert.Contains(t, recorder.Body.String(), tc.status)
+			})
+		}
+	}
 }

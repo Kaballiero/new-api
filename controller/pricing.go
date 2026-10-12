@@ -64,6 +64,15 @@ func GetPricing(c *gin.Context) {
 
 	usableGroup = service.GetUserUsableGroups(group)
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
+	for i := range pricing {
+		sourcesByGroup := make(map[string]map[constant.EndpointType][]string)
+		for _, group := range effectivePricingGroups(pricing[i].EnableGroup, usableGroup) {
+			if sources := pricing[i].BillingSourcesForGroup(group); len(sources) > 0 {
+				sourcesByGroup[group] = sources
+			}
+		}
+		pricing[i].BillingSourcesByGroup = sourcesByGroup
+	}
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
 		if _, ok := usableGroup[group]; !ok {
@@ -113,18 +122,20 @@ type effectivePricingModel struct {
 }
 
 type effectiveGroupPricing struct {
-	UsingGroup            string                               `json:"using_group"`
-	PureGroupRatio        float64                              `json:"pure_group_ratio"`
-	EffectiveBillingRatio float64                              `json:"effective_billing_ratio"`
-	BillingMode           string                               `json:"billing_mode"`
-	BillingSurface        string                               `json:"billing_surface"`
-	Status                string                               `json:"status"`
-	UnitPrices            []effectiveUnitPrice                 `json:"unit_prices,omitempty"`
-	Tiers                 []effectivePricingTier               `json:"tiers"`
-	IsFree                bool                                 `json:"is_free"`
-	Formula               *effectivePricingFormula             `json:"formula,omitempty"`
-	Limitations           []string                             `json:"limitations,omitempty"`
-	UsageSchema           map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
+	BillingSourcesByEndpoint    map[constant.EndpointType][]string               `json:"billing_sources_by_endpoint,omitempty"`
+	OpenRouterIndicativeTariffs map[constant.EndpointType]*effectiveGroupPricing `json:"openrouter_indicative_tariffs,omitempty"`
+	UsingGroup                  string                                           `json:"using_group"`
+	PureGroupRatio              float64                                          `json:"pure_group_ratio"`
+	EffectiveBillingRatio       float64                                          `json:"effective_billing_ratio"`
+	BillingMode                 string                                           `json:"billing_mode"`
+	BillingSurface              string                                           `json:"billing_surface"`
+	Status                      string                                           `json:"status"`
+	UnitPrices                  []effectiveUnitPrice                             `json:"unit_prices,omitempty"`
+	Tiers                       []effectivePricingTier                           `json:"tiers"`
+	IsFree                      bool                                             `json:"is_free"`
+	Formula                     *effectivePricingFormula                         `json:"formula,omitempty"`
+	Limitations                 []string                                         `json:"limitations,omitempty"`
+	UsageSchema                 map[string]jsplugin.UsageFieldSchema             `json:"usage_schema,omitempty"`
 }
 
 type effectiveUnitPrice struct {
@@ -272,9 +283,39 @@ func buildEffectivePricingModel(userGroup string, usableGroups map[string]string
 		pure := service.GetUserGroupRatio(userGroup, group)
 		effective, err := service.ApplyBillingFX(pure, fxFactor)
 		groupPrice := buildEffectiveGroupPricing(item, group, pure, effective)
+		sourcesByEndpoint := item.BillingSourcesForGroup(group)
+		groupPrice.BillingSourcesByEndpoint = sourcesByEndpoint
+		for endpoint, sources := range sourcesByEndpoint {
+			if !slices.Contains(sources, model.BillingSourceOpenRouterActualCost) {
+				continue
+			}
+			if groupPrice.OpenRouterIndicativeTariffs == nil {
+				groupPrice.OpenRouterIndicativeTariffs = make(map[constant.EndpointType]*effectiveGroupPricing)
+			}
+			expression := strings.TrimSpace(item.IndicativeBillingExprByEndpoint[endpoint])
+			tariff := effectiveGroupPricing{UsingGroup: group, Status: "unavailable", Tiers: []effectivePricingTier{}, Limitations: []string{"missing_display_expression"}}
+			if expression != "" {
+				displayItem := item
+				displayItem.BillingMode = billing_setting.BillingModeTieredExpr
+				displayItem.BillingExpr = expression
+				tariff = buildEffectiveGroupPricing(displayItem, group, pure, effective)
+				// Cost variables have no token-unit price; preserve the formula only.
+				for _, tier := range tariff.Tiers {
+					for _, price := range tier.UnitPrices {
+						if price.Component == "provider_cost" {
+							tariff.setTiers([]effectivePricingTier{})
+						}
+					}
+				}
+			}
+			groupPrice.OpenRouterIndicativeTariffs[endpoint] = &tariff
+		}
 		if err != nil {
 			groupPrice.Status = "unavailable"
 			groupPrice.Limitations = append(groupPrice.Limitations, "invalid_group_ratio")
+			for _, tariff := range groupPrice.OpenRouterIndicativeTariffs {
+				tariff.Status = "unavailable"
+			}
 		}
 		result.GroupPrices = append(result.GroupPrices, groupPrice)
 	}

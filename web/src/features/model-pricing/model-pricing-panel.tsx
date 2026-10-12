@@ -143,6 +143,11 @@ export function ModelPricingPanel(props: {
 
   return (
     <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'For OpenRouter channels, expressions only display indicative prices. Charges use OpenRouter cost × effective group and exchange-rate factor; expression rules and local tool fees are not added.'
+        )}
+      </p>
       <ModelPricingEditorPanel
         embedded
         ref={editor}
