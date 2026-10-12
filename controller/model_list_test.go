@@ -239,6 +239,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 	GetEffectivePricing(c)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), `"operation_tariffs":`)
 	var envelope struct {
 		Success bool                     `json:"success"`
 		Data    effectivePricingResponse `json:"data"`
@@ -293,6 +294,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 		groupContext.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective"+tc.query, nil)
 		GetEffectivePricingByGroup(groupContext)
 		require.Equal(t, http.StatusOK, groupRecorder.Code)
+		assert.Contains(t, groupRecorder.Body.String(), `"operation_tariffs":`)
 		var groupEnvelope struct {
 			Success bool                     `json:"success"`
 			Data    effectivePricingResponse `json:"data"`
@@ -334,6 +336,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 		previewContext.Set("group", "default")
 		GetEffectivePricingPreview(previewContext)
 		require.Equal(t, http.StatusOK, previewRecorder.Code)
+		assert.NotContains(t, previewRecorder.Body.String(), `"operation_tariffs":`)
 		var preview struct {
 			Success bool                            `json:"success"`
 			Data    effectivePricingPreviewResponse `json:"data"`
@@ -342,7 +345,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 		require.True(t, preview.Success)
 		assert.Equal(t, []string{"default", "vip"}, preview.Data.AvailableUserGroups)
 		if query != "?user_group=vip" {
-			assert.Equal(t, envelope.Data, preview.Data.effectivePricingResponse)
+			assert.Equal(t, cachedBefore, preview.Data.effectivePricingResponse)
 		} else {
 			assert.Equal(t, "vip", preview.Data.UserGroup)
 			for _, item := range preview.Data.Data {

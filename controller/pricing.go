@@ -122,6 +122,7 @@ type effectivePricingModel struct {
 }
 
 type effectiveGroupPricing struct {
+	OperationTariffs            *[]effectiveOperationTariff                      `json:"operation_tariffs,omitempty"`
 	BillingSourcesByEndpoint    map[constant.EndpointType][]string               `json:"billing_sources_by_endpoint,omitempty"`
 	OpenRouterIndicativeTariffs map[constant.EndpointType]*effectiveGroupPricing `json:"openrouter_indicative_tariffs,omitempty"`
 	UsingGroup                  string                                           `json:"using_group"`
@@ -178,7 +179,7 @@ func GetEffectivePricing(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": withOperationTariffs(response, model.GetPricing())})
 }
 
 // GetEffectivePricingByGroup returns the same projection as the per-user
@@ -203,7 +204,7 @@ func GetEffectivePricingByGroup(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": withOperationTariffs(response, model.GetPricing())})
 }
 
 func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, error) {
