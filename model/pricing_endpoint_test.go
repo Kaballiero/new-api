@@ -292,3 +292,39 @@ func TestCacheUpdateChannelSyncsAdvancedCustomConfig(t *testing.T) {
 
 	assert.Nil(t, channel2advancedCustomConfig[401])
 }
+
+func TestPricingBillingSourcesFollowChannelsAndExpandAllGroups(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	insertPricingEndpointChannel(t, 991, constant.ChannelTypeOpenRouter, dto.ChannelOtherSettings{})
+	insertPricingEndpointChannel(t, 992, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 991, "same-vendor-model")
+	insertPricingEndpointAbility(t, 992, "same-vendor-model")
+	setting := `{"task_plugin_key":"openrouter-video"}`
+	require.NoError(t, DB.Create(&Channel{Id: 993, Type: constant.ChannelTypeTaskPlugin, Key: "video-key", Status: common.ChannelStatusEnabled, Name: "video", Setting: &setting}).Error)
+	insertPricingEndpointAbility(t, 993, "same-vendor-video")
+	for index, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeAnthropic, constant.ChannelTypeGemini, constant.ChannelTypeAzure} {
+		channelID := 994 + index
+		modelName := fmt.Sprintf("batch-source-%d", channelType)
+		insertPricingEndpointChannel(t, channelID, channelType, dto.ChannelOtherSettings{})
+		insertPricingEndpointAbility(t, channelID, modelName)
+	}
+
+	require.NoError(t, DB.Create(&Ability{Group: "all", Model: "only-openrouter", ChannelId: 991, Enabled: true}).Error)
+	InitChannelCache()
+	pricing := pricingByModel(GetPricing())
+	mixed := pricing["same-vendor-model"].BillingSourcesForGroup("default")
+	assert.ElementsMatch(t, []string{BillingSourceConfiguredTariff, BillingSourceOpenRouterActualCost}, mixed[constant.EndpointTypeOpenAI])
+	assert.ElementsMatch(t, []string{BillingSourceConfiguredTariff, BillingSourceOpenRouterActualCost}, mixed[PricingEndpointBatch])
+	for _, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeAnthropic, constant.ChannelTypeGemini} {
+		assert.Equal(t, []string{BillingSourceConfiguredTariff}, pricing[fmt.Sprintf("batch-source-%d", channelType)].BillingSourcesForGroup("default")[PricingEndpointBatch])
+	}
+	assert.NotContains(t, pricing[fmt.Sprintf("batch-source-%d", constant.ChannelTypeAzure)].BillingSourcesForGroup("default"), PricingEndpointBatch)
+	assert.Equal(t, []string{BillingSourceOpenRouterActualCost}, mixed[constant.EndpointTypeOpenAIResponse])
+	assert.Equal(t, []string{BillingSourceOpenRouterActualCost}, mixed[constant.EndpointTypeEmbeddings])
+	universal := pricing["only-openrouter"].BillingSourcesForGroup("premium")
+	assert.Equal(t, []string{BillingSourceOpenRouterActualCost}, universal[constant.EndpointTypeOpenAI])
+	assert.Contains(t, universal, PricingEndpointBatch)
+	assert.Equal(t, []string{BillingSourceOpenRouterActualCost}, pricing["same-vendor-video"].BillingSourcesForGroup("default")[constant.EndpointTypeOpenAIVideo])
+	assert.Contains(t, pricing["only-openrouter"].IndicativeBillingExprByEndpoint, PricingEndpointBatch)
+	assert.Empty(t, pricing["only-openrouter"].IndicativeBillingExprByEndpoint[PricingEndpointBatch])
+}

@@ -23,6 +23,8 @@ import { ROLE } from '@/lib/roles'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { useAuthStore } from '@/stores/auth-store'
 
+import type { BillingSource, BillingUsageSchema } from './types'
+
 export type EffectiveUnitPrice = {
   component: string
   unit: string
@@ -43,6 +45,8 @@ export type EffectivePricingTier = {
 }
 
 export type EffectiveGroupPricing = {
+  billing_sources_by_endpoint?: Record<string, BillingSource[]>
+  openrouter_indicative_tariffs?: Record<string, EffectiveGroupPricing>
   using_group: string
   billing_mode: string
   billing_surface: string
@@ -50,6 +54,7 @@ export type EffectiveGroupPricing = {
   is_free: boolean
   tiers: EffectivePricingTier[]
   unit_prices?: EffectiveUnitPrice[]
+  usage_schema?: BillingUsageSchema
   formula?: { expression: string; kind: string; output_to_rub_factor: number }
   limitations?: string[]
 }

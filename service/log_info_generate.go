@@ -99,6 +99,23 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	}
 	other.SetAdmin("use_channel", ctx.GetStringSlice("use_channel"))
 	if relayInfo != nil {
+		if state := relayInfo.OpenRouterCost; state != nil {
+			other.SetAdmin("openrouter_cost_basis", state.Basis)
+			other.SetAdmin("reserved_quota", relayInfo.FinalPreConsumedQuota)
+			if len(state.CostDetails) > 0 {
+				other.SetAdmin("openrouter_cost_details", state.CostDetails)
+			}
+			if state.IsBYOK != nil {
+				other.SetAdmin("openrouter_is_byok", *state.IsBYOK)
+			}
+			if state.Final {
+				other.SetAdmin("upstream_cost_usd", state.CostUSD)
+			} else if state.Sent {
+				other.SetAdmin("openrouter_financial_outcome", "unknown")
+				other.SetAdmin("openrouter_unknown_reason", state.UnknownReason)
+				other.SetAdmin("openrouter_error_policy", "refund_without_retry")
+			}
+		}
 		if native := relayInfo.NativeImage; native != nil {
 			other.SetAdmin("image_estimated_cost_usd", native.EstimatedCostUSD)
 			other.SetAdmin("image_provider", native.ProviderTag)

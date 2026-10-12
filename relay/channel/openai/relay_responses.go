@@ -121,6 +121,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				imageCommitted = true
 			}
 		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
+			// A capped OpenRouter response remains billable; preserve its
+			// authoritative accounting tokens alongside the separately read cost.
+			if streamResponse.Type == "response.incomplete" && info.OpenRouterCost != nil && streamResponse.Response != nil && streamResponse.Response.Usage != nil {
+				usage = dto.MergeUsageNonZero(usage, relayconvert.NormalizeResponsesUsage(streamResponse.Response.Usage))
+			}
+
 			if !imageCommitted {
 				imageCounter.Reset()
 				imageCounter.Commit(info)

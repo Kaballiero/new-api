@@ -543,3 +543,42 @@ func TestRelayTaskExpressionFXRateMatrix(t *testing.T) {
 	}
 	assert.Equal(t, int32(3), upstreamCalls.Load())
 }
+
+func TestOpenRouterVideoRejectsUnpricedOrderBeforePaidPOST(t *testing.T) {
+	seedRelayTaskTestFX(t)
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posts++
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"id":"should-not-submit"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"runway/gen-4.5","supported_durations":[5],"pricing_skus":{"cents_per_second_output":"12","unknown_billable_sku":"1"}}]}`))
+	}))
+	defer server.Close()
+	source := `
+export const meta={apiVersion:1,key:"openrouter-video",name:"OR Video",version:"1.0.0",author:{name:"Test"},models:["runway/gen-4.5"],fetchMode:"per_task"};
+export function buildSubmitRequest(ctx){return {url:ctx.baseUrl+"/v1/videos",method:"POST",body:{model:ctx.upstreamModel,prompt:"p",duration:5}};}
+export function parseSubmitResponse(){return {taskId:"id"};}
+export function buildQueryRequest(ctx){return {url:ctx.baseUrl+"/v1/videos/id"};}
+export function parseTaskResult(){return {status:"SUCCESS"};}
+`
+	c, info := newTaskSubmitContext(t, "runway/gen-4.5", "")
+	info.OriginModelName = "runway/gen-4.5"
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, server.URL)
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeOpenRouter)
+	c.Set("platform", "openrouter-video")
+	pinMappingOrderPlugin(t, c, source)
+	general := operation_setting.GetGeneralSetting()
+	oldRate := general.CustomCurrencyExchangeRate
+	general.CustomCurrencyExchangeRate = 100
+	t.Cleanup(func() { general.CustomCurrencyExchangeRate = oldRate })
+	_, taskErr := RelayTaskSubmit(c, info)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "model_price_error", taskErr.Code)
+	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+	assert.Contains(t, taskErr.Message, "unknown video pricing SKU")
+	assert.Zero(t, posts)
+	assert.Nil(t, info.Billing)
+}

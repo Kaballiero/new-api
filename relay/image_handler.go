@@ -53,18 +53,6 @@ func PrepareOpenRouterImage(c *gin.Context, info *relaycommon.RelayInfo) *types.
 		}
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
-	input, err := helper.ResolveIncomingBillingExprRequestInput(c, info)
-	if err != nil {
-		return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
-	}
-	if len(input.Body) == 0 {
-		input, err = helper.BuildBillingExprRequestInputFromRequest(request, info.RequestHeaders)
-		if err != nil {
-			return types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
-		}
-	}
-	input.Usage = map[string]any{"provider_cost": info.NativeImage.EstimatedCostUSD}
-	info.BillingRequestInput = &input
 	info.ForcePreConsume = true
 	return nil
 }

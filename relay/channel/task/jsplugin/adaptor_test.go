@@ -1435,3 +1435,38 @@ export function parseBatchResult(){return [];}
 	assert.Equal(t, []any{"model-a", "model-b"}, captured["models"])
 	assert.Equal(t, false, captured["hasRequestBody"])
 }
+
+func TestOpenRouterVideoCostConfirmationVersions(t *testing.T) {
+	source := `
+export const meta = {apiVersion:1,key:"openrouter-video",name:"OR Video",version:"1.0.0",author:{name:"Test"},models:["m"],fetchMode:"per_task"};
+export function buildSubmitRequest(ctx){return {url:ctx.baseUrl+"/v1/videos"};}
+export function parseSubmitResponse(){return {taskId:"id"};}
+export function buildQueryRequest(ctx){return {url:ctx.baseUrl+"/v1/videos/id"};}
+export function parseTaskResult(){return {status:"SUCCESS"};}
+`
+	plugin, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
+	require.NoError(t, err)
+	adaptor := New(plugin)
+	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://openrouter.ai", ApiKey: "test"}})
+	for _, tc := range []struct {
+		name, mode, usage  string
+		present, confirmed bool
+	}{
+		{"legacy BYOK holds", model.TaskSettlementOpenRouterCostV1, `{"cost":0.002,"is_byok":true}`, true, false},
+		{"legacy unknown BYOK holds", model.TaskSettlementOpenRouterCostV1, `{"cost":0.002}`, true, false},
+		{"v2 BYOK fee is account cost", model.TaskSettlementOpenRouterCostV2, `{"cost":0.002,"is_byok":true}`, true, true},
+		{"v2 account cost no BYOK flag", model.TaskSettlementOpenRouterCostV2, `{"cost":0.002}`, true, true},
+		{"v2 zero valid", model.TaskSettlementOpenRouterCostV2, `{"cost":0}`, true, true},
+		{"v2 null unknown", model.TaskSettlementOpenRouterCostV2, `{"cost":null}`, false, false},
+		{"v2 string invalid", model.TaskSettlementOpenRouterCostV2, `{"cost":"0"}`, false, false},
+		{"v2 negative invalid", model.TaskSettlementOpenRouterCostV2, `{"cost":-1}`, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{SettlementMode: tc.mode}}}
+			result, err := adaptor.ParseTaskResult(task, &http.Response{StatusCode: 200, Header: make(http.Header)}, []byte(`{"usage":`+tc.usage+`}`))
+			require.NoError(t, err)
+			assert.Equal(t, tc.present, result.UpstreamCostUSD != nil)
+			assert.Equal(t, tc.confirmed, result.UpstreamCostConfirmed)
+		})
+	}
+}

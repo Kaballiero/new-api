@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"sync"
@@ -18,29 +19,52 @@ import (
 	"github.com/QuantumNous/new-api/types"
 )
 
+const (
+	BillingSourceConfiguredTariff                           = "configured_tariff"
+	BillingSourceOpenRouterActualCost                       = "openrouter_actual_cost"
+	PricingEndpointBatch              constant.EndpointType = "openai_batch"
+)
+
 type Pricing struct {
-	ModelName              string                               `json:"model_name"`
-	Description            string                               `json:"description,omitempty"`
-	Icon                   string                               `json:"icon,omitempty"`
-	Tags                   string                               `json:"tags,omitempty"`
-	VendorID               int                                  `json:"vendor_id,omitempty"`
-	QuotaType              int                                  `json:"quota_type"`
-	ModelRatio             float64                              `json:"model_ratio"`
-	ModelPrice             float64                              `json:"model_price"`
-	OwnerBy                string                               `json:"owner_by"`
-	CompletionRatio        float64                              `json:"completion_ratio"`
-	CacheRatio             *float64                             `json:"cache_ratio,omitempty"`
-	CreateCacheRatio       *float64                             `json:"create_cache_ratio,omitempty"`
-	ImageRatio             *float64                             `json:"image_ratio,omitempty"`
-	AudioRatio             *float64                             `json:"audio_ratio,omitempty"`
-	AudioCompletionRatio   *float64                             `json:"audio_completion_ratio,omitempty"`
-	EnableGroup            []string                             `json:"enable_groups"`
-	SupportedEndpointTypes []constant.EndpointType              `json:"supported_endpoint_types"`
-	BillingMode            string                               `json:"billing_mode,omitempty"`
-	BillingExpr            string                               `json:"billing_expr,omitempty"`
-	BillingUsageSchema     map[string]jsplugin.UsageFieldSchema `json:"billing_usage_schema,omitempty"`
-	BillingUsageExamples   []jsplugin.UsageExample              `json:"billing_usage_examples,omitempty"`
-	PricingVersion         string                               `json:"pricing_version,omitempty"`
+	BillingSourcesByGroup           map[string]map[constant.EndpointType][]string `json:"billing_sources_by_group,omitempty"`
+	IndicativeBillingExprByEndpoint map[constant.EndpointType]string              `json:"indicative_billing_expr_by_endpoint,omitempty"`
+	ModelName                       string                                        `json:"model_name"`
+	Description                     string                                        `json:"description,omitempty"`
+	Icon                            string                                        `json:"icon,omitempty"`
+	Tags                            string                                        `json:"tags,omitempty"`
+	VendorID                        int                                           `json:"vendor_id,omitempty"`
+	QuotaType                       int                                           `json:"quota_type"`
+	ModelRatio                      float64                                       `json:"model_ratio"`
+	ModelPrice                      float64                                       `json:"model_price"`
+	OwnerBy                         string                                        `json:"owner_by"`
+	CompletionRatio                 float64                                       `json:"completion_ratio"`
+	CacheRatio                      *float64                                      `json:"cache_ratio,omitempty"`
+	CreateCacheRatio                *float64                                      `json:"create_cache_ratio,omitempty"`
+	ImageRatio                      *float64                                      `json:"image_ratio,omitempty"`
+	AudioRatio                      *float64                                      `json:"audio_ratio,omitempty"`
+	AudioCompletionRatio            *float64                                      `json:"audio_completion_ratio,omitempty"`
+	EnableGroup                     []string                                      `json:"enable_groups"`
+	SupportedEndpointTypes          []constant.EndpointType                       `json:"supported_endpoint_types"`
+	BillingMode                     string                                        `json:"billing_mode,omitempty"`
+	BillingExpr                     string                                        `json:"billing_expr,omitempty"`
+	BillingUsageSchema              map[string]jsplugin.UsageFieldSchema          `json:"billing_usage_schema,omitempty"`
+	BillingUsageExamples            []jsplugin.UsageExample                       `json:"billing_usage_examples,omitempty"`
+	PricingVersion                  string                                        `json:"pricing_version,omitempty"`
+}
+
+// BillingSourcesForGroup expands universal abilities without modifying the cached snapshot.
+func (p Pricing) BillingSourcesForGroup(group string) map[constant.EndpointType][]string {
+	sourcesByEndpoint := make(map[constant.EndpointType][]string)
+	for _, sourceGroup := range []string{"all", group} {
+		for endpoint, sources := range p.BillingSourcesByGroup[sourceGroup] {
+			for _, source := range sources {
+				if !slices.Contains(sourcesByEndpoint[endpoint], source) {
+					sourcesByEndpoint[endpoint] = append(sourcesByEndpoint[endpoint], source)
+				}
+			}
+		}
+	}
+	return sourcesByEndpoint
 }
 
 type PricingVendor struct {
@@ -122,7 +146,8 @@ func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
 
 func getPricingEndpointTypesForAbility(ability AbilityWithChannel, advancedCustomConfigs map[int]*dto.AdvancedCustomConfig) []constant.EndpointType {
 	if ability.ChannelType != constant.ChannelTypeAdvancedCustom {
-		return common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
+		endpoints := common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
+		return endpoints
 	}
 	if config := advancedCustomConfigs[ability.ChannelId]; config != nil {
 		return config.SupportedEndpointTypesForModel(ability.Model)
@@ -243,10 +268,56 @@ func updatePricing() {
 	modelSupportEndpointsStr := make(map[string][]string)
 	advancedCustomConfigs := loadPricingAdvancedCustomConfigs(enableAbilities)
 
+	billingSources := make(map[string]map[string]map[constant.EndpointType][]string)
+	taskPluginKeys := make(map[int]string)
+	for _, ability := range enableAbilities {
+		if ability.ChannelType != constant.ChannelTypeTaskPlugin {
+			continue
+		}
+		if _, loaded := taskPluginKeys[ability.ChannelId]; loaded {
+			continue
+		}
+		channel, err := CacheGetChannel(ability.ChannelId)
+		if err != nil {
+			common.SysLog(fmt.Sprintf("load pricing task channel error: channel_id=%d, error=%v", ability.ChannelId, err))
+			continue
+		}
+		taskPluginKeys[ability.ChannelId] = channel.GetSetting().TaskPluginKey
+	}
+
 	// 先根据已有能力填充原生端点
 	for _, ability := range enableAbilities {
 		endpoints := modelSupportEndpointsStr[ability.Model]
 		channelTypes := getPricingEndpointTypesForAbility(ability, advancedCustomConfigs)
+		if billingSources[ability.Model] == nil {
+			billingSources[ability.Model] = make(map[string]map[constant.EndpointType][]string)
+		}
+		if billingSources[ability.Model][ability.Group] == nil {
+			billingSources[ability.Model][ability.Group] = make(map[constant.EndpointType][]string)
+		}
+		source := BillingSourceConfiguredTariff
+		openRouterVideo := ability.ChannelType == constant.ChannelTypeTaskPlugin && taskPluginKeys[ability.ChannelId] == "openrouter-video"
+		if ability.ChannelType == constant.ChannelTypeOpenRouter || openRouterVideo {
+			source = BillingSourceOpenRouterActualCost
+		}
+		// Batch is an operation with a separate display expression, not a sync discount.
+		operationTypes := slices.Clone(channelTypes)
+		if ability.ChannelType == constant.ChannelTypeOpenRouter {
+			operationTypes = append(operationTypes, constant.EndpointTypeOpenAIResponse, constant.EndpointTypeOpenAIResponseCompact, constant.EndpointTypeEmbeddings, constant.EndpointTypeAnthropic, constant.EndpointTypeGemini)
+		}
+		if openRouterVideo {
+			operationTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
+		}
+		switch ability.ChannelType {
+		case constant.ChannelTypeOpenAI, constant.ChannelTypeOpenRouter, constant.ChannelTypeAnthropic, constant.ChannelTypeGemini:
+			operationTypes = append(operationTypes, PricingEndpointBatch)
+		}
+		for _, endpoint := range operationTypes {
+			sources := billingSources[ability.Model][ability.Group][endpoint]
+			if !slices.Contains(sources, source) {
+				billingSources[ability.Model][ability.Group][endpoint] = append(sources, source)
+			}
+		}
 		for _, channelType := range channelTypes {
 			if !common.StringsContains(endpoints, string(channelType)) {
 				endpoints = append(endpoints, string(channelType))
@@ -329,6 +400,7 @@ func updatePricing() {
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
 			ModelName:              model,
+			BillingSourcesByGroup:  billingSources[model],
 			EnableGroup:            groups.Items(),
 			SupportedEndpointTypes: modelSupportEndpointTypes[model],
 		}
@@ -414,6 +486,23 @@ func updatePricing() {
 						Facts: facts,
 					}
 				}
+			}
+		}
+		pricing.IndicativeBillingExprByEndpoint = make(map[constant.EndpointType]string)
+		syncExpression, _ := billing_setting.GetBillingExpr(model)
+		if len(pricing.BillingUsageSchema) > 0 {
+			syncExpression = pricing.BillingExpr
+		}
+		for _, endpoints := range pricing.BillingSourcesByGroup {
+			for endpoint, sources := range endpoints {
+				if !slices.Contains(sources, BillingSourceOpenRouterActualCost) {
+					continue
+				}
+				expression := syncExpression
+				if endpoint == PricingEndpointBatch {
+					expression, _ = billing_setting.GetBatchBillingExpr(model)
+				}
+				pricing.IndicativeBillingExprByEndpoint[endpoint] = expression
 			}
 		}
 		pricingMap = append(pricingMap, pricing)

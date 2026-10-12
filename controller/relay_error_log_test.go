@@ -302,8 +302,8 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 		{name: "actual below estimate", cost: "0.02", status: 200, quota: 20000, reserved: 40000},
 		{name: "actual above estimate", cost: "0.06", status: 200, quota: 60000, reserved: 40000},
 		{name: "explicit zero cost", cost: "0", status: 200, reserved: 40000},
-		{name: "administrator expression", cost: "0.02", expression: `tier("admin", provider_cost * 2000000)`, status: 200, quota: 40000, reserved: 80000},
-		{name: "administrator fixed image price", cost: "0.02", legacy: true, status: 200, quota: 30000, reserved: 30000},
+		{name: "administrator expression", cost: "0.02", expression: `tier("admin", provider_cost * 2000000)`, status: 200, quota: 20000, reserved: 40000},
+		{name: "administrator fixed image price", cost: "0.02", legacy: true, status: 200, quota: 20000, reserved: 40000},
 		{name: "stream completed image", cost: "0.02", stream: true, status: 200, quota: 20000, reserved: 40000},
 		{name: "upstream rejection", status: 429, reserved: 40000},
 		{name: "missing actual cost", status: 502, reserved: 40000, unknown: true},
@@ -348,7 +348,7 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 					assert.Equal(t, "/v1/images/models/"+imageModel+"/endpoints", r.URL.Path)
 					metadata := tc.metadata
 					if metadata == "" {
-						metadata = fmt.Sprintf(`{"id":%q,"endpoints":[{"provider_tag":"fixture","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[{"billable":"output_image","unit":"image","cost_usd":0.04}]}]}`, imageModel)
+						metadata = fmt.Sprintf(`{"id":%q,"endpoints":[{"provider_tag":"fixture-cheap","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[{"billable":"output_image","unit":"image","cost_usd":0.02}]},{"provider_tag":"fixture-expensive","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[{"billable":"output_image","unit":"image","cost_usd":0.04}]}]}`, imageModel)
 					}
 					_, _ = io.WriteString(w, metadata)
 					return
@@ -369,6 +369,11 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 					}
 				}
 
+				if tc.metadata == "" {
+					var payload map[string]any
+					require.NoError(t, common.DecodeJson(r.Body, &payload))
+					assert.Equal(t, map[string]any{"only": []any{"fixture-cheap"}, "allow_fallbacks": false}, payload["provider"], "cheapest endpoint stays pinned while max compatible tariff is reserved")
+				}
 				var user model.User
 				var token model.Token
 				assert.NoError(t, database.First(&user, 7).Error)

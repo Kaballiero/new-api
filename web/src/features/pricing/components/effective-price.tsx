@@ -20,15 +20,18 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type {
+  EffectiveGroupPricing,
   EffectivePricingModel,
   EffectivePricingTier,
 } from '../effective-pricing'
+import { parseTaskTiersFromExpr, parseTiersFromExpr } from '../lib/billing-expr'
 
 export function EffectivePrice(props: {
   model: EffectivePricingModel | null
   selectedGroup?: string
   compact?: boolean
   components?: string[]
+  indicative?: boolean
 }) {
   const { t, i18n } = useTranslation()
   const labels: Record<string, string> = {
@@ -60,12 +63,78 @@ export function EffectivePrice(props: {
   return (
     <span className='block min-w-0 space-y-3 text-xs'>
       {groups.map((group) => {
+        const sources = Object.values(group.billing_sources_by_endpoint ?? {})
+        if (
+          sources.some((values) => values.includes('openrouter_actual_cost'))
+        ) {
+          const direct = sources.some((values) =>
+            values.includes('configured_tariff')
+          )
+          const tariffs = new Map<
+            string,
+            { tariff: EffectiveGroupPricing; operations: string[] }
+          >()
+          for (const [endpoint, tariff] of Object.entries(
+            group.openrouter_indicative_tariffs ?? {}
+          )) {
+            const identity = JSON.stringify(tariff)
+            const display = tariffs.get(identity) ?? { tariff, operations: [] }
+            display.operations.push(endpoint)
+            tariffs.set(identity, display)
+          }
+          const directGroup = {
+            ...group,
+            billing_sources_by_endpoint: undefined,
+            openrouter_indicative_tariffs: undefined,
+          }
+          return (
+            <span className='block space-y-2' key={group.using_group}>
+              {direct && (
+                <EffectivePrice
+                  {...props}
+                  model={{
+                    model_name: props.model?.model_name ?? '',
+                    group_prices: [directGroup],
+                  }}
+                />
+              )}
+              {[...tariffs.entries()].map(
+                ([identity, { tariff, operations }]) => (
+                  <span className='block space-y-1' key={identity}>
+                    <span className='text-muted-foreground block'>
+                      OpenRouter · {operations.join(', ')}
+                    </span>
+                    <EffectivePrice
+                      {...props}
+                      model={{
+                        model_name: props.model?.model_name ?? '',
+                        group_prices: [tariff],
+                      }}
+                      indicative
+                    />
+                  </span>
+                )
+              )}
+              <span className='text-muted-foreground block'>
+                {t(
+                  'OpenRouter prices are indicative. Final charge: OpenRouter cost × effective group and exchange-rate factor.'
+                )}
+              </span>
+            </span>
+          )
+        }
         const unavailable =
           group.status === 'unavailable' ||
           !['unit_prices', 'formula'].includes(group.status)
-        const tiers = group.tiers.length
+        let tiers = group.tiers.length
           ? group.tiers
           : [{ unit_prices: group.unit_prices ?? [] }]
+        if (
+          props.indicative &&
+          !tiers.some((tier) => tier.unit_prices.length)
+        ) {
+          tiers = indicativeFormulaTiers(group)
+        }
         const hasPrices = tiers.some((tier) => tier.unit_prices.length > 0)
         const occurrences = new Map<string, number>()
         let pricesContent: ReactNode
@@ -87,6 +156,7 @@ export function EffectivePrice(props: {
               props.components
                 ? props.components.includes(price.component)
                 : !props.compact ||
+                  props.indicative ||
                   ['input', 'output', 'base'].includes(price.component)
             )
             return (
@@ -102,6 +172,10 @@ export function EffectivePrice(props: {
                   let unit = price.unit
                   if (unit === 'million_tokens') unit = t('1M tokens')
                   if (unit === 'call') unit = t('request')
+                  if (unit === 'second') unit = t('s')
+                  if (unit === 'count') unit = t('unit')
+                  if (unit === 'credit') unit = t('credit')
+                  if (unit === 'token') unit = t('1M token')
                   const amount = price.amount_rub
                   const valid = Number.isFinite(amount) && amount >= 0
                   let value = t('Tariff unavailable')
@@ -119,7 +193,14 @@ export function EffectivePrice(props: {
                       <span className='text-muted-foreground'>
                         {labels[price.component] ?? price.component}:{' '}
                       </span>
-                      <span className='font-mono tabular-nums'>{value}</span>
+                      <span className='font-mono tabular-nums'>
+                        {props.indicative && valid
+                          ? t('From {{price}}', {
+                              price: value,
+                              interpolation: { escapeValue: false },
+                            })
+                          : value}
+                      </span>
                     </span>
                   )
                 })}
@@ -190,4 +271,61 @@ function EffectiveTierCondition(props: { tier: EffectivePricingTier }) {
         : condition.unit}
     </span>
   )
+}
+
+// Reuse the pricing parser for canonical task/fixed shapes the token-only API
+// projection cannot express. Custom formulas remain request dependent.
+function indicativeFormulaTiers(
+  group: EffectiveGroupPricing
+): EffectivePricingTier[] {
+  const formula = group.formula
+  if (!formula) return []
+  if (formula.kind === 'task_usage_expression' && group.usage_schema) {
+    return parseTaskTiersFromExpr(formula.expression, group.usage_schema).map(
+      (tier) => ({
+        label: [
+          tier.label,
+          ...tier.conditions.map(
+            (condition) => `${condition.field}=${condition.value}`
+          ),
+        ].join(' · '),
+        unit_prices: [
+          ...Object.entries(tier.unitPrices).map(([field, amount]) => ({
+            component: field,
+            unit: group.usage_schema?.[field]?.unit ?? 'count',
+            amount_rub: amount * formula.output_to_rub_factor,
+          })),
+          ...(tier.constant > 0
+            ? [
+                {
+                  component: 'base',
+                  unit: 'call',
+                  amount_rub: tier.constant * formula.output_to_rub_factor,
+                },
+              ]
+            : []),
+        ],
+      })
+    )
+  }
+  const tiers = parseTiersFromExpr(formula.expression)
+  if (
+    !tiers.length ||
+    tiers.some(
+      (tier) => tier.billingUnit !== 'request' || tier.fixedPrice === undefined
+    )
+  ) {
+    return []
+  }
+  return tiers.map((tier) => ({
+    label: tier.label,
+    unit_prices: [
+      {
+        component: 'base',
+        unit: 'call',
+        amount_rub:
+          (tier.fixedPrice ?? 0) * 1_000_000 * formula.output_to_rub_factor,
+      },
+    ],
+  }))
 }

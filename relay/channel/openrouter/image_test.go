@@ -261,3 +261,181 @@ func TestNativeImageUpstreamDiagnostics(t *testing.T) {
 		})
 	}
 }
+
+func TestVideoOperationMonetaryEstimates(t *testing.T) {
+	audioOff := false
+	for _, tc := range []struct {
+		name, model string
+		prices      map[string]string
+		order       VideoPriceOrder
+		sizes       []string
+		want        float64
+		errorText   string
+	}{
+		{name: "cents output plus input images", model: "x-ai/grok-imagine-video", prices: map[string]string{"cents_per_video_output_second_480p": "2", "cents_per_video_output_second_720p": "3", "cents_per_image_input": "1"}, order: VideoPriceOrder{Resolution: "480p", FrameImages: []struct {
+			Type string `json:"type"`
+		}{{Type: "image_url"}}}, want: 0.11},
+		{name: "omitted resolution takes maximum", model: "x-ai/grok-imagine-video", prices: map[string]string{"cents_per_video_output_second_480p": "2", "cents_per_video_output_second_720p": "3"}, want: 0.15},
+		{name: "USD seconds audio alternative", model: "google/veo-3.1", prices: map[string]string{"duration_seconds_with_audio": "0.4", "duration_seconds_without_audio": "0.2"}, order: VideoPriceOrder{GenerateAudio: &audioOff}, want: 1},
+		{name: "reference conditioned output not source duration", model: "heygen/heygen-video-1", prices: map[string]string{"duration_seconds_480p": "0.2", "reference_duration_seconds_480p": "0.4"}, order: VideoPriceOrder{InputReferences: []struct {
+			Type string `json:"type"`
+		}{{Type: "video_url"}}}, want: 2},
+		{name: "first five images free", model: "minimax/hailuo-3", prices: map[string]string{"duration_seconds": "0.2", "reference_images": "0.1"}, order: VideoPriceOrder{InputReferences: []struct {
+			Type string `json:"type"`
+		}{{Type: "image_url"}, {Type: "image_url"}, {Type: "image_url"}, {Type: "image_url"}, {Type: "image_url"}, {Type: "image_url"}}}, want: 1.1},
+		{name: "token formula exact size", model: "bytedance/seedance-2.0", prices: map[string]string{"video_tokens": "0.00001"}, order: VideoPriceOrder{Size: "1280x720"}, sizes: []string{"640x480", "1280x720"}, want: 1.08},
+		{name: "finite size superset avoids guessed resolution map", model: "bytedance/seedance-2.5", prices: map[string]string{"video_tokens": "0.00001"}, order: VideoPriceOrder{Resolution: "480p"}, sizes: []string{"640x480", "1280x720"}, want: 1.08},
+		{name: "edit conservative 15 second maximum", model: "black-forest-labs/flux-video-edit", prices: map[string]string{"cents_per_second_output": "12"}, want: 1.8},
+		{name: "unknown SKU rejected", model: "runway/gen-4.5", prices: map[string]string{"cents_per_second_output": "12", "unexplained": "9"}, errorText: "unknown video pricing SKU"},
+		{name: "avatar quantity unavailable", model: "heygen/avatar-iv", prices: map[string]string{"duration_seconds": "0.1"}, errorText: "source media quantity"},
+		{name: "aleph quantity unavailable despite floor", model: "runway/aleph-2", prices: map[string]string{"cents_per_second_output": "10", "minimum_cents_per_generation": "50"}, errorText: "source media quantity"},
+		{name: "upscale quantity unavailable", model: "black-forest-labs/flux-video-upscale", prices: map[string]string{"cents_per_megapixel_second_precise": "1"}, errorText: "source media quantity"},
+		{name: "source video tokens unavailable", model: "bytedance/seedance-2.0", prices: map[string]string{"video_tokens": "0.1"}, order: VideoPriceOrder{InputReferences: []struct {
+			Type string `json:"type"`
+		}{{Type: "video_url"}}}, sizes: []string{"1280x720"}, errorText: "source video token quantity"},
+		{name: "invalid cents", model: "runway/gen-4.5", prices: map[string]string{"cents_per_second_output": "-12"}, errorText: "invalid video tariff"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.order.Model = tc.model
+			model := VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedDurations: []int{3, 5}, SupportedSizes: tc.sizes, SupportedResolutions: []string{"480p", "720p"}}
+			cost, err := EstimateVideoOrder(model, tc.order)
+			if tc.errorText != "" {
+				require.ErrorContains(t, err, tc.errorText)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
+		})
+	}
+}
+
+func TestVideoFreshDiscoveryBeforeTransport(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/v1/videos/models", r.URL.Path)
+		assert.Equal(t, "Bearer selected-key", r.Header.Get("Authorization"))
+		_, _ = io.WriteString(w, `{"data":[{"id":"runway/gen-4.5","supported_durations":[5,10],"pricing_skus":{"cents_per_second_output":"30"}}]}`)
+	}))
+	defer server.Close()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ApiKey: "selected-key", ChannelBaseUrl: server.URL, UpstreamModelName: "runway/gen-4.5"}}
+	cost, err := EstimateVideo(c, info, []byte(`{"model":"runway/gen-4.5","prompt":"p"}`))
+	require.NoError(t, err)
+	assert.InDelta(t, 3, cost, 1e-12, "fresh tariff and maximum supported duration replace embedded catalog prices")
+	assert.Equal(t, 1, requests)
+}
+
+func TestEndpointRequestReservation(t *testing.T) {
+	rate := func(prompt, completion string) map[string]json.RawMessage {
+		return map[string]json.RawMessage{"prompt": json.RawMessage(`"` + prompt + `"`), "completion": json.RawMessage(`"` + completion + `"`)}
+	}
+	endpoints := []PricedEndpoint{
+		{Tag: "cheap/base", ContextLength: 10000, MaxCompletionTokens: 100, Pricing: rate("0.001", "0.002")},
+		{Tag: "expensive/base", ContextLength: 10000, MaxCompletionTokens: 200, Pricing: rate("0.003", "0.004")},
+	}
+	estimator := NewRequestEstimator()
+	estimator.Models["test/model"] = endpoints
+	info := &relaycommon.RelayInfo{}
+	info.SetEstimatePromptTokens(1000)
+	for _, tc := range []struct {
+		name, body string
+		want       float64
+		fail       bool
+	}{
+		{"complete endpoint maximum", `{"model":"test/model","max_tokens":10}`, 3.04, false},
+		{"only restricts", `{"model":"test/model","max_tokens":10,"provider":{"only":["cheap"]}}`, 1.02, false},
+		{"ignore variant", `{"model":"test/model","max_tokens":10,"provider":{"ignore":["expensive"]}}`, 1.02, false},
+		{"order retains fallbacks", `{"model":"test/model","max_tokens":10,"provider":{"order":["cheap"]}}`, 3.04, false},
+		{"fallback disabled", `{"model":"test/model","max_tokens":10,"provider":{"order":["cheap"],"allow_fallbacks":false}}`, 1.02, false},
+		{"omitted cap uses finite metadata", `{"model":"test/model"}`, 3.8, false},
+		{"explicit zero cap", `{"model":"test/model","max_tokens":0}`, 3, false},
+		{"unpriced hosted tool", `{"model":"test/model","tools":[{"type":"web_search"}]}`, 0, true},
+		{"unresolved preset", `{"model":"test/model","preset":"private"}`, 0, true},
+		{"fallback models require discovery", `{"model":"test/model","models":["other/model"]}`, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			value, err := estimator.Estimate(info, []byte(tc.body), "chat/completions")
+			if tc.fail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.InDelta(t, tc.want, value, 1e-9)
+			}
+		})
+	}
+	estimator.Models["test/model"][0].MaxCompletionTokens = 0
+	_, err := estimator.Estimate(info, []byte(`{"model":"test/model"}`), "chat/completions")
+	require.Error(t, err)
+}
+
+func TestEndpointContextPricingAndRoutingDimensions(t *testing.T) {
+	estimator := NewRequestEstimator()
+	base := map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "web_search": json.RawMessage(`"0.01"`), "overrides": json.RawMessage(`[{"min_prompt_tokens":1000,"prompt":"0.003","completion":"0.006"}]`)}
+	estimator.Models["test/model"] = []PricedEndpoint{{Tag: "openai", MaxCompletionTokens: 100, Pricing: base}, {Tag: "openai/fast", MaxCompletionTokens: 100, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.005"`), "completion": json.RawMessage(`"0.01"`)}}}
+	estimator.Models["test/model"] = append(estimator.Models["test/model"], PricedEndpoint{Tag: "openai/flex", MaxCompletionTokens: 100, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.0005"`), "completion": json.RawMessage(`"0.001"`)}})
+	info := &relaycommon.RelayInfo{}
+	for _, tc := range []struct {
+		name, body string
+		prompt     int
+		want       float64
+		fail       bool
+	}{
+		{"below threshold", `{"model":"test/model","max_tokens":10}`, 999, 1.019, false},
+		{"threshold inclusive complete tariff", `{"model":"test/model","max_tokens":10}`, 1000, 3.06, false},
+		{"base provider excludes service tier", `{"model":"test/model","max_tokens":10,"provider":{"only":["openai"]}}`, 1000, 3.06, false},
+		{"flex restricts eligible tier", `{"model":"test/model","max_tokens":10,"service_tier":"flex"}`, 1000, .51, false},
+		{"top-level priority includes tier", `{"model":"test/model","max_tokens":10,"service_tier":"priority"}`, 1000, 5.1, false},
+		{"priority slug aliases fast", `{"model":"test/model","max_tokens":10,"provider":{"only":["openai/priority"]}}`, 1000, 5.1, false},
+		{"max price USD per million", `{"model":"test/model","max_tokens":10,"provider":{"max_price":{"prompt":2000}}}`, 999, 1.019, false},
+		{"requested hosted search rejects", `{"model":"test/model","max_tokens":10,"web_search_options":{}}`, 999, 0, true},
+		{"oversized override cap rejects", `{"model":"test/model","max_tokens":2147483647}`, 999, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info.SetEstimatePromptTokens(tc.prompt)
+			cost, err := estimator.Estimate(info, []byte(tc.body), "chat/completions")
+			if tc.fail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.InDelta(t, tc.want, cost, 1e-9)
+			}
+		})
+	}
+}
+
+func TestEndpointMediaQuantitiesUseProtocolContent(t *testing.T) {
+	estimator := NewRequestEstimator()
+	estimator.Models["test/model"] = []PricedEndpoint{{Tag: "provider", MaxCompletionTokens: 100, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "image": json.RawMessage(`"1"`), "web_search": json.RawMessage(`"0.01"`)}}}
+	info := &relaycommon.RelayInfo{}
+	info.SetEstimatePromptTokens(1000)
+	schema := `"tools":[{"type":"function","function":{"name":"inspect_record","parameters":{"type":"object","properties":{"audio_url":{"type":"string"},"input_audio":{"type":"string"},"video_url":{"type":"string"},"web_search_options":{"type":"string"},"image_url":{"type":"string"},"input_image":{"type":"string"}}}}}]`
+	for _, tc := range []struct {
+		name, body, operation string
+		want                  float64
+		fail                  bool
+	}{
+		{"chat function schema", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":"inspect audio_url and image_url"}],` + schema + `}`, "chat/completions", 1.02, false},
+		{"Responses function schema", `{"model":"test/model","max_output_tokens":10,"input":[{"role":"user","content":[{"type":"input_text","text":"web_search_options"}]}],` + schema + `}`, "responses", 1.02, false},
+		{"Batch function schema", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":"input_audio"}],` + schema + `}`, "batch_chat/completions", 1.02, false},
+		{"actual chat image", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/image.png"}}]}]}`, "chat/completions", 2.02, false},
+		{"actual Responses image counted once", `{"model":"test/model","max_output_tokens":10,"input":[{"role":"user","content":[{"type":"input_image","image_url":"https://example.test/image.png"}]}]}`, "responses", 2.02, false},
+		{"actual native Claude Batch image", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://example.test/image.png"}}]}]}`, "batch_messages", 2.02, false},
+		{"actual chat audio", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"a","format":"wav"}}]}]}`, "chat/completions", 0, true},
+		{"actual Responses video", `{"model":"test/model","max_output_tokens":10,"input":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"https://example.test/v.mp4"}}]}]}`, "responses", 0, true},
+		{"actual Batch audio", `{"model":"test/model","max_tokens":10,"messages":[{"role":"user","content":[{"type":"audio_url","audio_url":{"url":"https://example.test/a.wav"}}]}]}`, "batch_chat/completions", 0, true},
+		{"actual hosted search", `{"model":"test/model","max_tokens":10,"web_search_options":{}}`, "chat/completions", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cost, err := estimator.Estimate(info, []byte(tc.body), tc.operation)
+			if tc.fail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.InDelta(t, tc.want, cost, 1e-9)
+			}
+		})
+	}
+}

@@ -36,13 +36,14 @@ import {
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import { isTokenBasedModel, hasOpenRouterPricing } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import { taskPriceLabel } from '../lib/task-price-display'
 import type { PricingModel, PriceType, TokenUnit } from '../types'
 import { EffectivePrice } from './effective-price'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
+import { ModelPriceCell } from './model-price-cell'
 
 export interface ModelCardProps {
   model: PricingModel
@@ -105,6 +106,21 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           model={props.model.effective_pricing}
           selectedGroup={props.selectedGroup}
           compact
+        />
+      </div>
+    )
+  } else if (hasOpenRouterPricing(props.model, props.selectedGroup)) {
+    priceSummary = (
+      <div className='col-span-full min-w-0'>
+        <ModelPriceCell
+          model={props.model}
+          options={{
+            tokenUnit,
+            priceRate,
+            usdExchangeRate,
+            showRechargePrice,
+            selectedGroup: props.selectedGroup,
+          }}
         />
       </div>
     )

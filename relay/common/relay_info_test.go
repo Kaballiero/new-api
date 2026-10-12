@@ -285,3 +285,31 @@ func TestInitChannelMetaResetsPerAttemptStreamStateAndPreservesRequestState(t *t
 func ptr[T any](value T) *T {
 	return &value
 }
+
+func TestOpenRouterCostSnapshots(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		frames []string
+		want   float64
+		final  bool
+	}{
+		{"cost without tokens", []string{`{"usage":{"cost":0.1}}`}, .1, true},
+		{"explicit final zero", []string{`{"usage":{"cost":0.1}}`, `{"usage":{"cost":0}}`}, 0, true},
+		{"final null invalidates provisional", []string{`{"usage":{"cost":0.1}}`, `{"usage":{"cost":null}}`}, 0, false},
+		{"missing final invalidates provisional", []string{`{"usage":{"cost":0.1}}`, `{"usage":{"total_tokens":1}}`}, 0, false},
+		{"responses complete", []string{`{"type":"response.completed","response":{"usage":{"cost":0}}}`}, 0, true},
+		{"responses failed", []string{`{"usage":{"cost":0.1}}`, `{"type":"response.failed","response":{"usage":{"cost":0.1},"error":{"message":"failed"}}}`}, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := OpenRouterCostState{}
+			for _, frame := range tc.frames {
+				state.Observe([]byte(frame), false)
+			}
+			state.Final = state.Valid
+			assert.Equal(t, tc.final, state.Final)
+			if tc.final {
+				assert.Equal(t, tc.want, state.CostUSD)
+			}
+		})
+	}
+}

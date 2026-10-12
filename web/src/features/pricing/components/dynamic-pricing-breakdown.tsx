@@ -49,6 +49,7 @@ import { formatBillingCondition } from '../lib/billing-expression/condition-disp
 import { isBreakdownTierMatched } from '../lib/breakdown-tier-match'
 import {
   formatTaskUsageUnitPrice,
+  formatDynamicUnitPrice,
   type DynamicPriceLabelKind,
   type DynamicPriceOptions,
 } from '../lib/dynamic-price'
@@ -84,9 +85,13 @@ type DynamicPricingBreakdownProps = {
    */
   compact?: boolean
   usageSchema?: BillingUsageSchema
+  /** Optional group projection also applies to token columns; absent keeps the existing base tariff. */
   taskPriceOptions?: Pick<
     DynamicPriceOptions,
-    'showRechargePrice' | 'priceRate' | 'usdExchangeRate'
+    | 'showRechargePrice'
+    | 'priceRate'
+    | 'usdExchangeRate'
+    | 'groupRatioMultiplier'
   >
   /**
    * Settlement usage facts from the consume log. Used to highlight the
@@ -198,10 +203,25 @@ function formatBreakdownPrice(
   t: (key: string) => string,
   taskPriceOptions: DynamicPricingBreakdownProps['taskPriceOptions']
 ): string {
-  const amount =
-    field.labelKind === 'schema' || field.unit === 'request'
-      ? formatTaskUsageUnitPrice(value, { tokenUnit: 'M', ...taskPriceOptions })
-      : `${symbol}${(value * rate).toFixed(4)}`
+  let amount: string
+  if (
+    field.labelKind !== 'schema' &&
+    field.unit !== 'request' &&
+    taskPriceOptions?.groupRatioMultiplier !== undefined
+  ) {
+    amount = formatDynamicUnitPrice(value, {
+      tokenUnit: 'M',
+      ...taskPriceOptions,
+    })
+  } else {
+    amount =
+      field.labelKind === 'schema' || field.unit === 'request'
+        ? formatTaskUsageUnitPrice(value, {
+            tokenUnit: 'M',
+            ...taskPriceOptions,
+          })
+        : `${symbol}${(value * rate).toFixed(4)}`
+  }
   if (field.unit === 'second') return `${amount}/${t('s')}`
   if (field.unit === 'count') return `${amount}/${t('unit')}`
   if (field.unit === 'credit') return `${amount}/${t('credit')}`

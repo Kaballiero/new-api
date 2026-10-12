@@ -245,3 +245,110 @@ function Preview() {
     </>
   )
 }
+
+it('hides OR-only legacy amounts and keeps operation-specific missing-expression display', () => {
+  const { container } = render(
+    <EffectivePrice
+      model={{
+        ...model,
+        group_prices: [
+          {
+            ...model.group_prices[0],
+            billing_sources_by_endpoint: {
+              openai: ['openrouter_actual_cost'],
+              openai_batch: ['openrouter_actual_cost'],
+            },
+            openrouter_indicative_tariffs: {
+              openai: {
+                ...model.group_prices[0],
+                tiers: [],
+                formula: {
+                  expression: 'tier("cost", provider_cost * 1000000)',
+                  kind: 'token_expression',
+                  output_to_rub_factor: 0.0001,
+                },
+              },
+              openai_batch: {
+                ...model.group_prices[0],
+                status: 'unavailable',
+                tiers: [],
+              },
+            },
+          },
+        ],
+      }}
+    />
+  )
+  expect(screen.getByText('Price depends on the request')).toBeInTheDocument()
+  expect(screen.getByText('Tariff unavailable')).toBeInTheDocument()
+  expect(container.textContent).not.toContain('170.92')
+  expect(container.textContent).not.toContain('0.00')
+})
+
+it('keeps mixed direct tariff and labels OR expression tariffs from without applying FX twice', () => {
+  render(
+    <EffectivePrice
+      model={{
+        ...model,
+        group_prices: [
+          {
+            ...model.group_prices[0],
+            billing_sources_by_endpoint: {
+              openai: ['configured_tariff', 'openrouter_actual_cost'],
+            },
+            openrouter_indicative_tariffs: {
+              openai: { ...model.group_prices[0] },
+            },
+          },
+        ],
+      }}
+    />
+  )
+  expect(screen.getByText('170.92 ₽ / 1M tokens')).toBeInTheDocument()
+  expect(screen.getByText('From 170.92 ₽ / 1M tokens')).toBeInTheDocument()
+})
+
+it.each([
+  {
+    kind: 'token_expression',
+    expression: 'tier("call", fixed(0.02))',
+    factor: 0.0001,
+    unit: 'request',
+    amount: '2.00',
+  },
+  {
+    kind: 'task_usage_expression',
+    expression: 'tier("video", u("seconds") * 0.4)',
+    factor: 100,
+    unit: 's',
+    amount: '40.00',
+  },
+])(
+  'projects canonical indicative $kind prices through the existing expression parser',
+  ({ kind, expression, factor, unit, amount }) => {
+    render(
+      <EffectivePrice
+        model={{
+          ...model,
+          group_prices: [
+            {
+              ...model.group_prices[0],
+              billing_sources_by_endpoint: {
+                operation: ['openrouter_actual_cost'],
+              },
+              openrouter_indicative_tariffs: {
+                operation: {
+                  ...model.group_prices[0],
+                  tiers: [],
+                  usage_schema: { seconds: { type: 'number', unit: 'second' } },
+                  formula: { kind, expression, output_to_rub_factor: factor },
+                },
+              },
+            },
+          ],
+        }}
+      />
+    )
+    expect(screen.getByText(`From ${amount} ₽ / ${unit}`)).toBeInTheDocument()
+  }
+)

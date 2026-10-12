@@ -142,12 +142,14 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 	}
 	var lastErr error
 	var selected *relaycommon.NativeImageInfo
+	var maximumEstimate float64
 	for _, endpoint := range catalog.Endpoints {
 		body, estimate, convertErr := ConvertImageRequest(c, request, endpoint)
 		if convertErr != nil {
 			lastErr = convertErr
 			continue
 		}
+		maximumEstimate = max(maximumEstimate, estimate)
 		if selected == nil || estimate < selected.EstimatedCostUSD {
 			selected = &relaycommon.NativeImageInfo{RequestBody: body, EstimatedCostUSD: estimate, ChannelID: info.ChannelId, ProviderTag: endpoint.ProviderTag}
 		}
@@ -155,6 +157,7 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 	if selected == nil {
 		return lastErr
 	}
+	selected.EstimatedCostUSD = maximumEstimate
 	info.NativeImage = selected
 	return nil
 }
@@ -470,6 +473,9 @@ func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, re
 	if info.NativeImage == nil || info.NativeImage.Sent {
 		return nil, errors.New("OpenRouter image paid request cannot be repeated")
 	}
+	if err := ReserveCost(c, info, info.NativeImage.EstimatedCostUSD); err != nil {
+		return nil, err
+	}
 	endpoint, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, err
@@ -491,6 +497,7 @@ func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, re
 	}
 	req.Header.Set("Content-Type", "application/json")
 	info.DisablePing = true
+	info.OpenRouterCost.Sent = true
 	info.NativeImage.Sent = true
 	c.Set(common.UpstreamRequestIdKey, "") // Discovery IDs do not identify the paid generation.
 	resp, err := channel.DoRequest(c, req, info)
@@ -538,6 +545,10 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 	}
 	cost := *result.Usage.Cost
 	info.NativeImage.ActualCostUSD = &cost
+	info.OpenRouterCost.Observe(responseBody, true)
+	info.OpenRouterCost.CostUSD = cost
+	info.OpenRouterCost.Valid = true
+	info.OpenRouterCost.Final = true
 	if info.PriceData.UsePrice {
 		info.PriceData.AddOtherRatio("n", float64(len(result.Data)))
 	}

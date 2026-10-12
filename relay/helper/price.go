@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -91,6 +92,12 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		return hosttypes.PriceData{}, err
 	}
 
+	if c.GetInt("channel_type") == constant.ChannelTypeOpenRouter {
+		info.TieredBillingSnapshot = nil
+		info.OpenRouterPricingDeferred = true
+		info.PriceData = hosttypes.PriceData{GroupRatioInfo: groupRatioInfo, BillingGroupRatio: billingGroupRatio, FreeModel: true}
+		return info.PriceData, nil
+	}
 	// Check if this model uses tiered_expr billing
 	if billing_setting.GetBillingMode(billingModelName) == billing_setting.BillingModeTieredExpr {
 		return modelPriceHelperTiered(c, info, billingModelName, promptTokens, meta, groupRatioInfo, billingGroupRatio)

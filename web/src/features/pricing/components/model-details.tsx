@@ -30,7 +30,7 @@ import {
   Sparkles,
   Timer,
 } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
@@ -76,7 +76,11 @@ import {
   type DynamicPriceEntry,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
+import {
+  getAvailableGroups,
+  isTokenBasedModel,
+  hasOpenRouterPricing,
+} from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import {
   evaluateTaskUsageExamples,
@@ -100,6 +104,7 @@ import { EffectivePrice } from './effective-price'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { ModelPriceCell } from './model-price-cell'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -1393,6 +1398,27 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
     simpleTaskPricing ||
     taskTiers.length === 0
 
+  const rawOpenRouter =
+    props.model.effective_pricing === undefined &&
+    hasOpenRouterPricing(props.model)
+  const directGroups = Object.entries(
+    props.model.billing_sources_by_group ?? {}
+  )
+    .filter(([, endpoints]) =>
+      Object.values(endpoints).some((sources) =>
+        sources.includes('configured_tariff')
+      )
+    )
+    .map(([group]) => group)
+  const directModel = rawOpenRouter
+    ? { ...props.model, enable_groups: directGroups }
+    : props.model
+  const showDirectPricing = !rawOpenRouter || directGroups.length > 0
+
+  let routedPrice: ReactNode
+  if (props.model.effective_pricing !== undefined) {
+    routedPrice = <EffectivePrice model={props.model.effective_pricing} />
+  }
   return (
     <div className='@container/details space-y-4'>
       <ModelHeader model={props.model} />
@@ -1419,41 +1445,52 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
 
           <section className='bg-card/60 space-y-5 rounded-xl border p-4 shadow-sm'>
             <SectionTitle>{t('Pricing')}</SectionTitle>
-            {props.model.effective_pricing !== undefined ? (
-              <EffectivePrice model={props.model.effective_pricing} />
-            ) : (
-              <>
-                {showBasePrices && (
-                  <PriceSection
-                    model={props.model}
+            {routedPrice ??
+              (showDirectPricing && (
+                <>
+                  {showBasePrices && (
+                    <PriceSection
+                      model={directModel}
+                      priceRate={props.priceRate}
+                      usdExchangeRate={props.usdExchangeRate}
+                      tokenUnit={props.tokenUnit}
+                      showRechargePrice={showRechargePrice}
+                    />
+                  )}
+                  {isDynamic && !simpleTaskPricing && (
+                    <DynamicPricingBreakdown
+                      billingExpr={props.model.billing_expr}
+                      usageSchema={props.model.billing_usage_schema}
+                      taskPriceOptions={{
+                        showRechargePrice,
+                        priceRate: props.priceRate,
+                        usdExchangeRate: props.usdExchangeRate,
+                      }}
+                    />
+                  )}
+                  <GroupPricingSection
+                    model={directModel}
+                    groupRatio={props.groupRatio}
+                    usableGroup={props.usableGroup}
+                    autoGroups={props.autoGroups}
                     priceRate={props.priceRate}
                     usdExchangeRate={props.usdExchangeRate}
                     tokenUnit={props.tokenUnit}
                     showRechargePrice={showRechargePrice}
                   />
-                )}
-                {isDynamic && !simpleTaskPricing && (
-                  <DynamicPricingBreakdown
-                    billingExpr={props.model.billing_expr}
-                    usageSchema={props.model.billing_usage_schema}
-                    taskPriceOptions={{
-                      showRechargePrice,
-                      priceRate: props.priceRate,
-                      usdExchangeRate: props.usdExchangeRate,
-                    }}
-                  />
-                )}
-                <GroupPricingSection
-                  model={props.model}
-                  groupRatio={props.groupRatio}
-                  usableGroup={props.usableGroup}
-                  autoGroups={props.autoGroups}
-                  priceRate={props.priceRate}
-                  usdExchangeRate={props.usdExchangeRate}
-                  tokenUnit={props.tokenUnit}
-                  showRechargePrice={showRechargePrice}
-                />
-              </>
+                </>
+              ))}
+            {rawOpenRouter && (
+              <ModelPriceCell
+                model={props.model}
+                details
+                options={{
+                  priceRate: props.priceRate,
+                  usdExchangeRate: props.usdExchangeRate,
+                  tokenUnit: props.tokenUnit,
+                  showRechargePrice,
+                }}
+              />
             )}
           </section>
 

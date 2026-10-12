@@ -262,6 +262,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			if data == "" {
 				continue
 			}
+			if info.OpenRouterCost != nil {
+				if strings.HasPrefix(data, "[DONE]") {
+					info.OpenRouterCost.Final = info.OpenRouterCost.Valid
+				} else {
+					info.OpenRouterCost.Observe([]byte(data), false)
+				}
+			}
 			if !strings.HasPrefix(data, "[DONE]") {
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++

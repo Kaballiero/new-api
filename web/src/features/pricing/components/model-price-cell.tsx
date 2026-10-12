@@ -27,11 +27,13 @@ import {
   getDynamicDisplayGroupRatio,
   getDynamicPriceUnitLabelKey,
   getDynamicPricingSummary,
+  getIndicativePriceEntries,
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import { isTokenBasedModel, hasOpenRouterPricing } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
-import type { PricingModel, TokenUnit } from '../types'
+import type { PricingModel, PriceType, TokenUnit } from '../types'
+import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { EffectivePrice } from './effective-price'
 
 export type ModelPriceCellOptions = {
@@ -46,6 +48,8 @@ export function ModelPriceCell(props: {
   model: PricingModel
   options?: ModelPriceCellOptions
   showExpression?: boolean
+  components?: string[]
+  details?: boolean
 }) {
   if (props.model.effective_pricing !== undefined) {
     return (
@@ -53,16 +57,126 @@ export function ModelPriceCell(props: {
         model={props.model.effective_pricing}
         selectedGroup={props.options?.selectedGroup}
         compact
+        components={props.components}
+      />
+    )
+  }
+  if (hasOpenRouterPricing(props.model, props.options?.selectedGroup)) {
+    return (
+      <OpenRouterPrice
+        model={props.model}
+        options={props.options}
+        components={props.components}
+        details={props.details}
       />
     )
   }
   return <LegacyModelPriceCell {...props} />
 }
 
+function OpenRouterPrice(props: {
+  details?: boolean
+  components?: string[]
+  model: PricingModel
+  options?: ModelPriceCellOptions
+}) {
+  const { t } = useTranslation()
+  const groups = Object.entries(
+    props.model.billing_sources_by_group ?? {}
+  ).filter(
+    ([group]) =>
+      !props.options?.selectedGroup ||
+      props.options.selectedGroup === 'all' ||
+      group === 'all' ||
+      group === props.options.selectedGroup
+  )
+  return (
+    <span className='block min-w-0 space-y-3'>
+      {groups.map(([group, endpoints]) => {
+        const tariffs = new Map<string, string[]>()
+        for (const [endpoint, sources] of Object.entries(endpoints)) {
+          if (!sources.includes('openrouter_actual_cost')) continue
+          const expression =
+            props.model.indicative_billing_expr_by_endpoint?.[endpoint] ?? ''
+          const operations = tariffs.get(expression) ?? []
+          operations.push(endpoint)
+          tariffs.set(expression, operations)
+        }
+        return (
+          <span className='block space-y-1' key={group}>
+            <span className='text-muted-foreground block text-xs'>
+              {t('Using group: {{group}}', { group })}
+            </span>
+            {!props.details &&
+              Object.values(endpoints).some((sources) =>
+                sources.includes('configured_tariff')
+              ) && (
+                <LegacyModelPriceCell
+                  components={props.components}
+                  model={{ ...props.model, enable_groups: [group] }}
+                  options={{ ...props.options, selectedGroup: group }}
+                />
+              )}
+            {[...tariffs.entries()].map(([expression, operations]) => {
+              const endpoint = operations.join(', ')
+              return (
+                <span className='block space-y-1' key={endpoint}>
+                  <span className='text-muted-foreground block text-xs'>
+                    OpenRouter · {endpoint}
+                  </span>
+                  {expression?.trim() ? (
+                    <span className='block space-y-3'>
+                      <LegacyModelPriceCell
+                        components={props.components}
+                        model={{
+                          ...props.model,
+                          enable_groups: [group],
+                          billing_mode: 'tiered_expr',
+                          billing_expr: expression,
+                        }}
+                        options={{ ...props.options, selectedGroup: group }}
+                        indicative
+                      />
+                      {props.details && (
+                        <DynamicPricingBreakdown
+                          billingExpr={expression}
+                          usageSchema={props.model.billing_usage_schema}
+                          taskPriceOptions={{
+                            ...props.options,
+                            groupRatioMultiplier: getDynamicDisplayGroupRatio(
+                              { ...props.model, enable_groups: [group] },
+                              group
+                            ),
+                          }}
+                        />
+                      )}
+                    </span>
+                  ) : (
+                    <span className='text-muted-foreground text-xs'>
+                      {t('Tariff unavailable')}
+                    </span>
+                  )}
+                </span>
+              )
+            })}
+          </span>
+        )
+      })}
+      <span className='text-muted-foreground block text-xs'>
+        {t(
+          'OpenRouter prices are indicative. Final charge: OpenRouter cost × effective group and exchange-rate factor.'
+        )}
+      </span>
+    </span>
+  )
+}
+
 function LegacyModelPriceCell(props: {
+  indicative?: boolean
   model: PricingModel
   options?: ModelPriceCellOptions
   showExpression?: boolean
+  components?: string[]
 }) {
   const { t } = useTranslation()
   const currency = useSystemConfigStore((state) => state.config.currency)
@@ -106,31 +220,67 @@ function LegacyModelPriceCell(props: {
     const hasRequestPrice = dynamic.primaryEntries.some(
       (entry) => entry.unit === 'request'
     )
-    metrics = dynamic.primaryEntries
-      .slice(0, hasRequestPrice ? 3 : 2)
-      .map((entry) => {
-        const unit = getDynamicPriceUnitLabelKey(entry)
-        let suffix = unit ? `/${t(unit)}` : ''
-        if (hasRequestPrice && entry.unit === 'token') {
-          suffix = `/${t('{{unit}} tokens', { unit: tokenUnitLabel })}`
-        }
-        return {
-          label:
-            entry.labelKind === 'schema'
-              ? entry.shortLabel
-              : t(entry.shortLabel),
-          value: `${entry.formattedRange ?? entry.formatted}${suffix}`,
-        }
+    const components: Record<string, string> = {
+      p: 'input',
+      c: 'output',
+      cr: 'cache_read',
+      cc: 'cache_write',
+      cc1h: 'cache_write_1h',
+      img: 'image_input',
+      img_o: 'image_output',
+      ai: 'audio_input',
+      ao: 'audio_output',
+      fixed: 'base',
+    }
+    let entries = dynamic.entries
+    if (props.indicative) {
+      entries = getIndicativePriceEntries(props.model, {
+        ...options,
+        tokenUnit,
+        showCurrencySymbol: false,
+        groupRatioMultiplier: getDynamicDisplayGroupRatio(
+          props.model,
+          options.selectedGroup
+        ),
       })
-    if (metrics.length === 0) {
-      return (
-        <span className='text-muted-foreground text-sm'>
-          {t('Dynamic Pricing')}
-        </span>
+    }
+    if (props.components) {
+      entries = entries.filter((entry) =>
+        props.components?.includes(components[entry.key] ?? entry.key)
       )
+    } else if (props.indicative) {
+      entries = entries.filter((entry) =>
+        dynamic.isTaskUsage
+          ? entry.unit !== 'request'
+          : entry.unit === 'request' ||
+            entry.field === 'inputPrice' ||
+            entry.field === 'outputPrice'
+      )
+    } else {
+      entries = dynamic.primaryEntries
+    }
+    metrics = entries.slice(0, hasRequestPrice ? 3 : 2).map((entry) => {
+      const unit = getDynamicPriceUnitLabelKey(entry)
+      let suffix = unit ? `/${t(unit)}` : ''
+      if (hasRequestPrice && entry.unit === 'token') {
+        suffix = `/${t('{{unit}} tokens', { unit: tokenUnitLabel })}`
+      }
+      return {
+        label:
+          entry.labelKind === 'schema' ? entry.shortLabel : t(entry.shortLabel),
+        value: `${entry.formattedRange ?? entry.formatted}${suffix}`,
+      }
+    })
+    if (metrics.length === 0) {
+      let emptyLabel = t('Dynamic Pricing')
+      if (props.indicative) emptyLabel = t('Price depends on the request')
+      if (props.components) emptyLabel = t('See tariff details')
+      return <span className='text-muted-foreground text-sm'>{emptyLabel}</span>
     }
     if (dynamic.isTaskUsage || hasRequestPrice) caption = currencyLabel
-    if (dynamic.isTimePricing) caption += ` · ${t('Current period price')}`
+    if (dynamic.isTimePricing && !props.indicative) {
+      caption += ` · ${t('Current period price')}`
+    }
     if (dynamic.isMixedBilling) {
       caption += ` · ${t('Token or per-call pricing')}`
     }
@@ -203,6 +353,52 @@ function LegacyModelPriceCell(props: {
       caption = `${currencyLabel} / ${t('request')}`
     }
   }
+  if (props.components && !dynamic) {
+    const componentTypes: Array<{
+      component: string
+      type: PriceType
+      label: string
+      ratio?: number | null
+    }> = [
+      {
+        component: 'cache_read',
+        type: 'cache',
+        label: t('Cache Read'),
+        ratio: props.model.cache_ratio,
+      },
+      {
+        component: 'cache_write',
+        type: 'create_cache',
+        label: t('Cache write'),
+        ratio: props.model.create_cache_ratio,
+      },
+    ]
+    metrics = componentTypes
+      .filter(
+        (entry) =>
+          props.components?.includes(entry.component) && entry.ratio != null
+      )
+      .map((entry) => ({
+        label: entry.label,
+        value: formatPrice(
+          props.model,
+          entry.type,
+          tokenUnit,
+          options.showRechargePrice,
+          options.priceRate,
+          options.usdExchangeRate,
+          options.selectedGroup,
+          false
+        ),
+      }))
+    if (!metrics.length) {
+      return (
+        <span className='text-muted-foreground text-xs'>
+          {t('See tariff details')}
+        </span>
+      )
+    }
+  }
   return (
     <span className='block w-full max-w-full min-w-0 space-y-1.5'>
       <span
@@ -223,7 +419,12 @@ function LegacyModelPriceCell(props: {
               className='min-w-0 font-mono text-sm break-words whitespace-normal tabular-nums'
               title={metric.value}
             >
-              {metric.value}
+              {props.indicative
+                ? t('From {{price}}', {
+                    price: metric.value,
+                    interpolation: { escapeValue: false },
+                  })
+                : metric.value}
             </span>
           </span>
         ))}

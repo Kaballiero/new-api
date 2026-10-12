@@ -581,7 +581,7 @@ func TestExecuteOpenRouterSubmissionAccepts202BeforePersistingTask(t *testing.T)
 	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig)) })
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
 		"billing_setting.billing_mode":    `{"google/veo-3.1-lite":"tiered_expr"}`,
-		"billing_setting.billing_expr":    `{"google/veo-3.1-lite":"tier(\"reserve\", u(\"requested_seconds\") * 0.000025)"}`,
+		"billing_setting.billing_expr":    `{"google/veo-3.1-lite":"tier(\"reserve\", 999999)"}`,
 		"group_ratio_setting.group_ratio": `{"default":1}`, "group_ratio_setting.group_group_ratio": `{}`,
 	}))
 	source, err := plugins.Source("openrouter-video")
@@ -593,7 +593,14 @@ func TestExecuteOpenRouterSubmissionAccepts202BeforePersistingTask(t *testing.T)
 	plugin, err := pluginruntime.NewRegistry().RegisterFactory(source, pluginruntime.Options{Key: "openrouter-video", Now: func() time.Time { return fetchedAt }})
 	require.NoError(t, err)
 	calls := 0
+	discoveries := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			discoveries++
+			assert.Equal(t, "/v1/videos/models", r.URL.Path)
+			_, _ = w.Write([]byte(`{"data":[{"id":"google/veo-3.1-lite","supported_durations":[4,6,8],"supported_resolutions":["720p"],"pricing_skus":{"duration_seconds_without_audio":"0.000025"}}]}`))
+			return
+		}
 		calls++
 		assert.Equal(t, "/v1/videos", r.URL.Path)
 		assert.Equal(t, "Bearer accepted-provider-key", r.Header.Get("Authorization"))
@@ -630,6 +637,7 @@ func TestExecuteOpenRouterSubmissionAccepts202BeforePersistingTask(t *testing.T)
 	require.Nil(t, taskErr)
 	require.NotNil(t, outcome)
 	assert.Equal(t, 1, calls)
+	assert.Equal(t, 1, discoveries)
 	assert.Equal(t, []string{"reserve", "insert", "settle"}, events)
 	assert.Zero(t, billing.refunds)
 	var saved model.Task
@@ -637,7 +645,10 @@ func TestExecuteOpenRouterSubmissionAccepts202BeforePersistingTask(t *testing.T)
 	assert.Equal(t, constant.TaskPlatform("openrouter-video"), saved.Platform)
 	assert.Equal(t, "accepted-job", saved.GetUpstreamTaskID())
 	assert.Equal(t, "accepted-provider-key", saved.PrivateData.Key)
-	assert.Equal(t, model.TaskSettlementOpenRouterCostV1, saved.PrivateData.BillingContext.SettlementMode)
+	assert.Equal(t, model.TaskSettlementOpenRouterCostV2, saved.PrivateData.BillingContext.SettlementMode)
+	require.NotNil(t, saved.PrivateData.BillingContext.OpenRouterCost)
+	assert.InDelta(t, 0.0001, saved.PrivateData.BillingContext.OpenRouterCost.EstimatedUSD, 1e-12)
+	assert.EqualValues(t, 4, saved.PrivateData.BillingContext.OpenRouterOrderFacts["requested_seconds"])
 	assert.Equal(t, 50, saved.PrivateData.Reconciliation.ReservedQuota)
 	assert.False(t, saved.PrivateData.Reconciliation.ReservationPending)
 	assert.False(t, saved.PrivateData.Reconciliation.SubmissionPending)
@@ -651,7 +662,7 @@ func TestExecuteOpenRouterSubmissionAccepts202BeforePersistingTask(t *testing.T)
 		usage     string
 		confirmed bool
 	}{
-		{`{"cost":0.01,"is_byok":false}`, true}, {`{"cost":0.01,"is_byok":true}`, false}, {`{"cost":0.01}`, false},
+		{`{"cost":0.01,"is_byok":false}`, true}, {`{"cost":0.01,"is_byok":true}`, true}, {`{"cost":0.01}`, true},
 	} {
 		result, err := adaptor.ParseTaskResult(&saved, &http.Response{StatusCode: http.StatusOK, Header: make(http.Header)}, []byte(`{"id":"accepted-job","status":"completed","usage":`+tc.usage+`}`))
 		require.NoError(t, err)

@@ -3,6 +3,7 @@ package controller
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/stretchr/testify/assert"
@@ -172,5 +173,58 @@ func TestEffectiveGroupPricingExpressionAudioPricesIgnoreLegacyRatios(t *testing
 		assert.Equal(t, expected.Component, actual.Component)
 		assert.Equal(t, expected.Unit, actual.Unit)
 		assert.InDelta(t, expected.AmountRub, actual.AmountRub, 1e-9)
+	}
+}
+
+func TestOpenRouterIndicativeTariffsKeepGroupEndpointAndExpressionOwnership(t *testing.T) {
+	for _, mixed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "openrouter only", true: "mixed direct and openrouter"}[mixed], func(t *testing.T) {
+			sources := []string{model.BillingSourceOpenRouterActualCost}
+			if mixed {
+				sources = append(sources, model.BillingSourceConfiguredTariff)
+			}
+			item := model.Pricing{
+				ModelName: "vendor-independent-model", EnableGroup: []string{"all"}, ModelRatio: 9, CompletionRatio: 2,
+				BillingSourcesByGroup:           map[string]map[constant.EndpointType][]string{"all": {constant.EndpointTypeOpenAI: sources, model.PricingEndpointBatch: sources}},
+				IndicativeBillingExprByEndpoint: map[constant.EndpointType]string{constant.EndpointTypeOpenAI: `tier("display", p * 2)`},
+			}
+			result := buildEffectivePricingModel("default", map[string]string{"default": ""}, prodFXFactor, item)
+			require.Len(t, result.GroupPrices, 1)
+			group := result.GroupPrices[0]
+			assert.Equal(t, sources, group.BillingSourcesByEndpoint[constant.EndpointTypeOpenAI])
+			assert.Equal(t, sources, group.BillingSourcesByEndpoint[model.PricingEndpointBatch])
+			require.Len(t, group.Tiers, 1) // Public legacy fields remain compatible.
+			sync := group.OpenRouterIndicativeTariffs[constant.EndpointTypeOpenAI]
+			require.NotNil(t, sync)
+			require.Len(t, sync.Tiers, 1)
+			assert.InDelta(t, group.EffectiveBillingRatio*200, sync.Tiers[0].UnitPrices[0].AmountRub, 1e-9)
+			batch := group.OpenRouterIndicativeTariffs[model.PricingEndpointBatch]
+			require.NotNil(t, batch)
+			assert.Equal(t, "unavailable", batch.Status)
+			assert.Equal(t, []string{"missing_display_expression"}, batch.Limitations)
+			assert.Empty(t, batch.Tiers)
+		})
+	}
+}
+
+func TestOpenRouterMissingOrCostOnlyDisplayNeverUsesLegacyAmounts(t *testing.T) {
+	for _, expression := range []string{"", `tier("cost", provider_cost * 1000000)`} {
+		t.Run(expression, func(t *testing.T) {
+			item := model.Pricing{EnableGroup: []string{"default"}, ModelRatio: 99, CompletionRatio: 9,
+				BillingSourcesByGroup:           map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {model.BillingSourceOpenRouterActualCost}}},
+				IndicativeBillingExprByEndpoint: map[constant.EndpointType]string{constant.EndpointTypeOpenAI: expression},
+			}
+			group := buildEffectivePricingModel("default", map[string]string{"default": ""}, 1, item).GroupPrices[0]
+			tariff := group.OpenRouterIndicativeTariffs[constant.EndpointTypeOpenAI]
+			require.NotNil(t, tariff)
+			assert.Empty(t, tariff.Tiers)
+			assert.Empty(t, tariff.UnitPrices)
+			assert.False(t, tariff.IsFree)
+			if expression == "" {
+				assert.Equal(t, "unavailable", tariff.Status)
+			} else {
+				assert.Equal(t, "formula", tariff.Status)
+			}
+		})
 	}
 }

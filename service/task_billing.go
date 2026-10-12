@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -71,9 +72,13 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 	appendTaskLogInfo(task, other)
 	attachQuotaSaturation(c, info, other)
 	var logErr error
-	if bc := task.PrivateData.BillingContext; bc != nil && bc.SettlementMode == model.TaskSettlementOpenRouterCostV1 {
+	if bc := task.PrivateData.BillingContext; bc != nil && (bc.SettlementMode == model.TaskSettlementOpenRouterCostV1 || bc.SettlementMode == model.TaskSettlementOpenRouterCostV2) {
 		other.SetPublic("settlement_mode", bc.SettlementMode)
 		other.SetPublic("reserved_quota", task.Quota)
+		if bc.OpenRouterCost != nil {
+			other.SetAdmin("openrouter_cost_basis", bc.OpenRouterCost)
+			other.SetAdmin("openrouter_order_facts", bc.OpenRouterOrderFacts)
+		}
 		logErr = model.RecordTaskBillingLogWithError(model.RecordTaskBillingLogParams{
 			UserId: info.UserId, LogType: model.LogTypeConsume, ChannelId: info.ChannelId, ModelName: info.OriginModelName,
 			TokenId: info.TokenId, Quota: info.PriceData.Quota, Content: logContent, Group: info.UsingGroup, Other: other, NodeName: task.PrivateData.NodeName,
@@ -613,6 +618,16 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 	}
 	if task.PrivateData.Execution != nil && task.PrivateData.Execution.TaskPlugin != nil && task.PrivateData.Execution.TaskPlugin.Key == "openrouter-video" {
 		task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV1
+		if relayInfo.OpenRouterCost != nil {
+			basis := relayInfo.OpenRouterCost.Basis
+			task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV2
+			task.PrivateData.BillingContext.OpenRouterCost = &basis
+			if value, ok := c.Get("openrouter_video_order_facts"); ok {
+				if facts, valid := value.(map[string]any); valid {
+					task.PrivateData.BillingContext.OpenRouterOrderFacts = facts
+				}
+			}
+		}
 		// Polling must use the provider account that accepted this task, including
 		// a selected key from a multi-key channel or before a later key rotation.
 		task.PrivateData.Key = relayInfo.ChannelMeta.ApiKey
@@ -629,13 +644,37 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 // status claim, before the winning poller can move any funds.
 func prepareOpenRouterCostSettlement(task *model.Task) {
 	r, bc := task.PrivateData.Reconciliation, task.PrivateData.BillingContext
-	if bc == nil || bc.SettlementMode != model.TaskSettlementOpenRouterCostV1 || r == nil {
+	if bc == nil || (bc.SettlementMode != model.TaskSettlementOpenRouterCostV1 && bc.SettlementMode != model.TaskSettlementOpenRouterCostV2) || r == nil {
 		return
 	}
 	r.Required = true
 	r.Finalized = false
 	if r.SettlementPending || r.MainApplied || r.ReservationPending || r.SubmissionPending ||
 		!r.HasUpstreamCost || !r.UpstreamCostConfirmed || r.UpstreamCostUSD < 0 || math.IsNaN(r.UpstreamCostUSD) || math.IsInf(r.UpstreamCostUSD, 0) {
+		return
+	}
+	if bc.SettlementMode == model.TaskSettlementOpenRouterCostV2 {
+		if bc.OpenRouterCost == nil || bc.OpenRouterCost.Version != model.TaskSettlementOpenRouterCostV2 {
+			return
+		}
+		target, clamp, err := bc.OpenRouterCost.Quota(r.UpstreamCostUSD)
+		if err != nil {
+			return
+		}
+		if clamp != nil {
+			marker, marshalErr := common.Marshal(clamp.AuditMap())
+			if marshalErr != nil {
+				return
+			}
+			r.QuotaSaturation = string(marker)
+			requestID := task.TaskID
+			if task.PrivateData.Execution != nil && task.PrivateData.Execution.RequestID != "" {
+				requestID = task.PrivateData.Execution.RequestID
+			}
+			ctx := context.WithValue(context.Background(), common.RequestIdKey, requestID)
+			logger.LogWarn(ctx, fmt.Sprintf("task %s OpenRouter quota saturation: %v", task.TaskID, clamp))
+		}
+		r.TargetQuota, r.SettlementPending = target, true
 		return
 	}
 	if _, modern, err := taskBillingFXFactor(bc); err != nil || !modern || bc.TieredSnapshot == nil {
@@ -667,14 +706,28 @@ func settleOpenRouterCost(task *model.Task) error {
 	if delta != 0 {
 		other := model.NewLogOther()
 		appendTaskLogInfo(task, other)
-		other.SetPublic("settlement_mode", model.TaskSettlementOpenRouterCostV1)
+		other.SetPublic("settlement_mode", task.PrivateData.BillingContext.SettlementMode)
 		other.SetPublic("pre_consumed_quota", r.ReservedQuota)
 		other.SetPublic("actual_quota", r.TargetQuota)
 		bc := task.PrivateData.BillingContext
 		other.SetAdmin("upstream_cost_usd", r.UpstreamCostUSD)
+		if r.QuotaSaturation != "" {
+			other.SetAdmin("quota_saturation", json.RawMessage(r.QuotaSaturation))
+		}
+		if r.UpstreamIsBYOK != nil {
+			other.SetAdmin("upstream_is_byok", *r.UpstreamIsBYOK)
+		}
+		if len(r.UpstreamCostDetails) > 0 {
+			other.SetAdmin("upstream_cost_details", json.RawMessage(r.UpstreamCostDetails))
+		}
 		other.SetAdmin("billing_fx", bc.BillingFX)
 		other.SetAdmin("billing_submit_group", bc.SubmitGroup)
-		other.SetAdmin("effective_group_ratio", bc.TieredSnapshot.GroupRatio)
+		if bc.OpenRouterCost != nil {
+			other.SetAdmin("openrouter_cost_basis", bc.OpenRouterCost)
+			other.SetAdmin("openrouter_order_facts", bc.OpenRouterOrderFacts)
+		} else if bc.TieredSnapshot != nil {
+			other.SetAdmin("effective_group_ratio", bc.TieredSnapshot.GroupRatio)
+		}
 		logType, quota := model.LogTypeConsume, delta
 		if delta < 0 {
 			logType, quota = model.LogTypeRefund, -delta

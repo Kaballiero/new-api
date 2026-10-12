@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -387,7 +388,7 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 		}
 
 		isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
-		if isDone && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV1 {
+		if isDone && task.PrivateData.BillingContext != nil && (task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV1 || task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV2) {
 			if snap.Status == model.TaskStatusSuccess || snap.Status == model.TaskStatusFailure {
 				continue
 			}
@@ -607,6 +608,18 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			reconciliation.UpstreamCostUSD = *taskResult.UpstreamCostUSD
 			reconciliation.UpstreamCostConfirmed = taskResult.UpstreamCostConfirmed
 		}
+		if (parsedStatus == model.TaskStatusSuccess || parsedStatus == model.TaskStatusFailure) && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV2 {
+			var evidence struct {
+				Usage struct {
+					IsBYOK      *bool           `json:"is_byok"`
+					CostDetails json.RawMessage `json:"cost_details"`
+				} `json:"usage"`
+			}
+			if common.Unmarshal(responseBody, &evidence) == nil {
+				reconciliation.UpstreamIsBYOK = evidence.Usage.IsBYOK
+				reconciliation.UpstreamCostDetails = string(evidence.Usage.CostDetails)
+			}
+		}
 		if parsedStatus == model.TaskStatusSuccess {
 			reconciliation.Finalized = reconciliation.HasUpstreamCost && reconciliation.UpstreamCostConfirmed && (task.PrivateData.BillingContext == nil || task.PrivateData.BillingContext.SettlementMode == "")
 			reconciliation.Required = !reconciliation.Finalized
@@ -672,7 +685,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
-	if isDone && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV1 {
+	if isDone && task.PrivateData.BillingContext != nil && (task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV1 || task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV2) {
 		if snap.Status == model.TaskStatusSuccess || snap.Status == model.TaskStatusFailure {
 			return nil
 		}
@@ -755,7 +768,7 @@ func truncateBase64(s string) string {
 // 表达式求值失败会保留预扣额度，因此也视为已接管，避免错误全退。
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) (bool, error) {
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.SettlementMode != "" {
-		if bc.SettlementMode != model.TaskSettlementOpenRouterCostV1 {
+		if bc.SettlementMode != model.TaskSettlementOpenRouterCostV1 && bc.SettlementMode != model.TaskSettlementOpenRouterCostV2 {
 			return true, nil
 		}
 		return true, settleOpenRouterCost(task)

@@ -28,9 +28,13 @@ import (
 	"gorm.io/gorm"
 )
 
+const BatchSettlementOpenRouterCostV1 = "openrouter_cost_v1"
+
 type BatchBillingSnapshot struct {
-	EvaluatedAt time.Time                   `json:"evaluated_at"`
-	Client      billingexpr.BillingSnapshot `json:"client"`
+	SettlementMode string                      `json:"settlement_mode,omitempty"`
+	OpenRouterCost *common.OpenRouterCostBasis `json:"openrouter_cost,omitempty"`
+	EvaluatedAt    time.Time                   `json:"evaluated_at"`
+	Client         billingexpr.BillingSnapshot `json:"client"`
 	// Preserve the procurement basis of existing batches. New batches freeze
 	// the same expression used for client billing, before group/FX multipliers.
 	PurchaseExpression string            `json:"purchase_expression"`
@@ -66,9 +70,28 @@ func CaptureBatchBilling(modelName, userGroup, usingGroup string, headers map[st
 	return snapshot, nil
 }
 
-func EstimateBatchItem(c *gin.Context, snapshot BatchBillingSnapshot, endpoint string, body []byte, maxOutput int) (int, error) {
+// CaptureOpenRouterBatchBilling freezes group/FX independently of the optional
+// display expression. Existing snapshots without the marker retain their rules.
+func CaptureOpenRouterBatchBilling(modelName, userGroup, usingGroup string, headers map[string]string) (BatchBillingSnapshot, error) {
+	fx, err := CurrentBillingFXBasis()
+	if err != nil {
+		return BatchBillingSnapshot{}, err
+	}
+	group, ok := ratio_setting.GetGroupGroupRatio(userGroup, usingGroup)
+	if !ok {
+		group = ratio_setting.GetGroupRatio(usingGroup)
+	}
+	effective, err := ApplyBillingFX(group, fx.Factor)
+	if err != nil {
+		return BatchBillingSnapshot{}, err
+	}
+	basis := common.OpenRouterCostBasis{Version: BatchSettlementOpenRouterCostV1, EffectiveGroupRatio: effective, QuotaPerUnit: common.QuotaPerUnit}
+	return BatchBillingSnapshot{EvaluatedAt: time.Now().UTC(), SettlementMode: BatchSettlementOpenRouterCostV1, OpenRouterCost: &basis, FX: fx, PureGroupRatio: group, Headers: headers}, nil
+}
+
+func CountBatchItemTokens(c *gin.Context, modelName, endpoint string, body []byte) (int, error) {
 	var request dto.Request
-	info := &relaycommon.RelayInfo{OriginModelName: snapshot.Client.ModelName, RelayMode: relayconstant.Path2RelayMode(endpoint)}
+	info := &relaycommon.RelayInfo{OriginModelName: modelName, RelayMode: relayconstant.Path2RelayMode(endpoint)}
 	switch endpoint {
 	case "/v1/chat/completions":
 		request, info.RelayFormat = &dto.GeneralOpenAIRequest{}, types.RelayFormatOpenAI
@@ -90,8 +113,12 @@ func EstimateBatchItem(c *gin.Context, snapshot BatchBillingSnapshot, endpoint s
 	}
 	// Metadata extraction never re-marshals the prepared provider payload.
 	itemContext := c.Copy()
-	common.SetContextKey(itemContext, constant.ContextKeyOriginalModel, snapshot.Client.ModelName)
-	inputTokens, err := CountRequestToken(itemContext, request.GetTokenCountMeta(), info)
+	common.SetContextKey(itemContext, constant.ContextKeyOriginalModel, modelName)
+	return CountRequestToken(itemContext, request.GetTokenCountMeta(), info)
+}
+
+func EstimateBatchItem(c *gin.Context, snapshot BatchBillingSnapshot, endpoint string, body []byte, maxOutput int) (int, error) {
+	inputTokens, err := CountBatchItemTokens(c, snapshot.Client.ModelName, endpoint, body)
 	if err != nil {
 		return 0, err
 	}
@@ -154,7 +181,49 @@ func SettleBatchResults(job *model.BatchJob) error {
 			zero := 0.0
 			details.PurchaseUSD = &zero
 			details.PurchaseStatus = "unbilled"
+		} else if snapshot.SettlementMode == BatchSettlementOpenRouterCostV1 {
+			var envelope struct {
+				Usage map[string]json.RawMessage `json:"usage"`
+			}
+			err := common.Unmarshal(result.Body, &envelope)
+			cost, costErr := common.ValidateOpenRouterCost(envelope.Usage["cost"])
+			if err != nil || costErr != nil || (snapshot.OpenRouterCost == nil || snapshot.OpenRouterCost.Version != BatchSettlementOpenRouterCostV1) || result.StatusCode < 200 || result.StatusCode >= 300 {
+				if err := model.DB.Model(&item).Update("billing_status", "reconciliation_required").Error; err != nil {
+					return err
+				}
+				continue
+			}
+			var clamp *common.QuotaClamp
+			quota, clamp, err = snapshot.OpenRouterCost.Quota(cost)
+			if err != nil {
+				return err
+			}
+			details.PurchaseUSD, details.PurchaseStatus = &cost, "calculated"
+			// Tokens are optional accounting evidence; their absence or malformed
+			// projection cannot invalidate independently authoritative item cost.
+			details.Usage, _ = batchResultUsage(job, result)
+			details.Other = model.NewLogOther()
+			details.Other.SetPublic("settlement_mode", snapshot.SettlementMode)
+			details.Other.SetPublic("reserved_quota", item.ReservedQuota)
+			details.Other.SetPublic("actual_quota", quota)
+			details.Other.SetAdmin("upstream_cost_usd", cost)
+			if raw, ok := envelope.Usage["is_byok"]; ok {
+				details.Other.SetAdmin("upstream_is_byok", raw)
+			}
+			if raw, ok := envelope.Usage["cost_details"]; ok {
+				details.Other.SetAdmin("upstream_cost_details", raw)
+			}
+			details.Other.SetAdmin("openrouter_cost_basis", snapshot.OpenRouterCost)
+			attachQuotaSaturationToOther(details.Other, clamp)
+			if clamp != nil {
+				requestID := fmt.Sprintf("%x", sha256.Sum256([]byte(job.PublicID+":"+item.CustomID)))
+				ctx := context.WithValue(context.Background(), common.RequestIdKey, requestID)
+				logger.LogWarn(ctx, fmt.Sprintf("batch %s item %s quota saturation: %v", job.PublicID, item.CustomID, clamp))
+			}
 		} else {
+			if snapshot.SettlementMode != "" {
+				return errors.New("unknown batch settlement mode")
+			}
 			usage, err := batchResultUsage(job, result)
 			if err != nil {
 				if err := model.DB.Model(&item).Update("billing_status", "reconciliation_required").Error; err != nil {

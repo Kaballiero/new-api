@@ -46,15 +46,22 @@ Powered by [expr-lang/expr](https://github.com/expr-lang/expr). Expressions are 
 | `img_o` | 图片输出 token 数 |
 | `ao` | 音频输出 token 数 |
 
-`provider_cost` is the validated native OpenRouter Image API cost in USD, not
-a token count. Built-in image expressions use
-`tier("openrouter", provider_cost * 1000000)` with the existing v1 quota
-conversion. Reservation supplies an estimate from the selected endpoint's
-published image/request/megapixel/token tariff; settlement supplies actual
-`usage.cost`. Estimates use the highest published variant rate and conservative
-volume estimates and are not assertions of actual provider token or pixel
-conversion. Missing tariffs block submission. Missing/null actual cost is an
-error, never an implicit zero. An explicit zero remains valid.
+For OpenRouter synchronous text, Responses, embeddings and native images,
+administrator expressions (including `provider_cost` and request rules) are
+indicative display tariffs only. Admission reserves the maximum complete
+estimate among compatible discovered endpoints; native images preserve their
+existing cheapest-endpoint pin while reserving the preselection maximum.
+Settlement charges validated numeric `usage.cost` in USD, multiplied once by
+the frozen effective group/FX ratio and quota unit. No local tool fees or
+expression rules are added. Explicit zero is valid; missing, null or invalid
+cost is an unknown financial outcome, never an estimated customer charge.
+Synchronous unknown outcomes refund the existing hold without replay, so the
+gateway may bear upstream spend. Known-cost settlement failures retain applied
+money and record the funding/token discrepancy for manual repair.
+
+`provider_cost` remains available to expressions for unchanged direct-provider
+and frozen legacy durable billing contracts. OpenRouter estimates are volume
+estimates rather than price locks or guaranteed spend ceilings.
 
 Native image failures and unknown outcomes use the existing error/refund
 policy, with no automatic paid retry. Unknown outcomes are audited and any

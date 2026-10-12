@@ -223,3 +223,220 @@ it('filters all-group catalog models using the concrete groups in the server tar
   expect(filterByGroup(result.current.models, 'default')).toHaveLength(1)
   expect(filterByGroup(result.current.models, 'unavailable')).toHaveLength(0)
 })
+
+it.each(['card', 'price', 'cached', 'details'])(
+  'renders OR-only %s tariffs unavailable when only legacy prices exist',
+  (surface) => {
+    const value: PricingModel = {
+      ...model,
+      billing_sources_by_group: {
+        default: { openai: ['openrouter_actual_cost'] },
+      },
+      indicative_billing_expr_by_endpoint: { openai: '' },
+    }
+    let view: ReactNode
+    if (surface === 'card') view = <ModelCard model={value} onClick={vi.fn()} />
+    else if (surface === 'price') view = <ModelPriceCell model={value} />
+    else if (surface === 'cached') {
+      view = <CachedPriceCell model={value} options={{}} />
+    } else {
+      view = (
+        <ModelDetailsContent
+          model={value}
+          groupRatio={{ default: 1 }}
+          usableGroup={{ default: { desc: '', ratio: 1 } }}
+          endpointMap={{}}
+          autoGroups={[]}
+          priceRate={1}
+          usdExchangeRate={1}
+          tokenUnit='M'
+        />
+      )
+    }
+    const { container } = render(view, { wrapper })
+    expect(screen.getByText('Tariff unavailable')).toBeInTheDocument()
+    expect(container.textContent).not.toContain('990')
+    expect(
+      screen.getByText(/OpenRouter prices are indicative/)
+    ).toBeInTheDocument()
+  }
+)
+
+it('shows direct legacy pricing alongside an unavailable OR tariff in a mixed scope', () => {
+  render(
+    <ModelPriceCell
+      model={{
+        ...model,
+        billing_mode: undefined,
+        billing_expr: undefined,
+        billing_sources_by_group: {
+          default: { openai: ['configured_tariff', 'openrouter_actual_cost'] },
+        },
+        indicative_billing_expr_by_endpoint: { openai: '' },
+      }}
+    />
+  )
+  expect(screen.getByText('Tariff unavailable')).toBeInTheDocument()
+  expect(screen.getByText('Input')).toBeInTheDocument()
+  expect(screen.getByText('Output')).toBeInTheDocument()
+})
+
+it('takes OR indicative amounts only from its operation expression and selected group', () => {
+  const { container } = render(
+    <ModelPriceCell
+      model={{
+        ...model,
+        group_ratio: { default: 2, premium: 5 },
+        enable_groups: ['default', 'premium'],
+        billing_sources_by_group: {
+          default: { openai: ['configured_tariff'] },
+          premium: {
+            openai: ['openrouter_actual_cost'],
+            openai_batch: ['openrouter_actual_cost'],
+          },
+        },
+        indicative_billing_expr_by_endpoint: {
+          openai: 'tier("display", p * 2 + c * 4)',
+          openai_batch: '',
+        },
+      }}
+      options={{ selectedGroup: 'premium' }}
+    />
+  )
+  expect(screen.getByText('From 10')).toBeInTheDocument()
+  expect(screen.getByText('From 20')).toBeInTheDocument()
+  expect(screen.getByText('Tariff unavailable')).toBeInTheDocument()
+  expect(container.textContent).not.toContain('990')
+})
+
+it.each(['price', 'card', 'cached'])(
+  'uses the cheaper later OR tier for the raw %s starting price',
+  (surface) => {
+    const value: PricingModel = {
+      ...model,
+      group_ratio: { default: 2 },
+      billing_sources_by_group: {
+        default: { openai: ['openrouter_actual_cost'] },
+      },
+      indicative_billing_expr_by_endpoint: {
+        openai:
+          'len <= 100 ? tier("short", p * 10 + c * 20 + cr * 1) : tier("long", p * 2 + c * 4 + cr * 0.5)',
+      },
+    }
+    let view: ReactNode = (
+      <ModelPriceCell model={value} options={{ selectedGroup: 'default' }} />
+    )
+    if (surface === 'card') {
+      view = (
+        <ModelCard model={value} onClick={vi.fn()} selectedGroup='default' />
+      )
+    }
+    if (surface === 'cached') {
+      view = (
+        <CachedPriceCell model={value} options={{ selectedGroup: 'default' }} />
+      )
+    }
+    render(view)
+    if (surface === 'cached') {
+      expect(screen.getByText('From 1')).toBeInTheDocument()
+    } else {
+      expect(screen.getByText('From 4')).toBeInTheDocument()
+      expect(screen.getByText('From 8')).toBeInTheDocument()
+      expect(screen.queryByText('From 20')).not.toBeInTheDocument()
+    }
+  }
+)
+
+it('preserves full direct and OR raw details with conditions, cache and audio categories', () => {
+  const value: PricingModel = {
+    ...model,
+    group_ratio: { default: 2 },
+    billing_expr: 'tier("direct-standard", p * 3 + c * 6 + cr * 0.3 + ai * 8)',
+    billing_sources_by_group: {
+      default: { openai: ['configured_tariff', 'openrouter_actual_cost'] },
+    },
+    indicative_billing_expr_by_endpoint: {
+      openai:
+        'len <= 100 ? tier("short", p * 10 + c * 20 + cr * 1 + ai * 12) : tier("long", p * 2 + c * 4 + cr * 0.5 + ai * 5)',
+    },
+  }
+  render(
+    <ModelDetailsContent
+      model={value}
+      groupRatio={{ default: 2 }}
+      usableGroup={{ default: { desc: '', ratio: 2 } }}
+      endpointMap={{}}
+      autoGroups={[]}
+      priceRate={1}
+      usdExchangeRate={1}
+      tokenUnit='M'
+    />,
+    { wrapper }
+  )
+  expect(screen.getAllByText('direct-standard').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('short').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('long').length).toBeGreaterThan(0)
+  expect(
+    screen.getAllByRole('columnheader', { name: 'Cache Read' }).length
+  ).toBeGreaterThan(1)
+  expect(
+    screen.getAllByRole('columnheader', { name: 'Audio In' }).length
+  ).toBeGreaterThan(1)
+  expect(screen.getAllByText(/≤ 100/).length).toBeGreaterThan(0)
+  expect(screen.getAllByText(/\$24/).length).toBeGreaterThan(0)
+})
+
+it('shows all three OR task components and the fixed additional charge in raw details', () => {
+  const value: PricingModel = {
+    ...model,
+    group_ratio: { default: 2 },
+    billing_usage_schema: {
+      seconds: {
+        type: 'number',
+        unit: 'second',
+        description: { en: 'Duration charge' },
+      },
+      clips: {
+        type: 'number',
+        unit: 'count',
+        description: { en: 'Clip charge' },
+      },
+      units: {
+        type: 'number',
+        unit: 'credit',
+        description: { en: 'Credit charge' },
+      },
+    },
+    billing_sources_by_group: {
+      default: { 'openai-video': ['openrouter_actual_cost'] },
+    },
+    indicative_billing_expr_by_endpoint: {
+      'openai-video':
+        'tier("video", 0.1 + u("seconds") * 0.4 + u("clips") * 0.2 + u("units") * 0.3)',
+    },
+  }
+  render(
+    <ModelDetailsContent
+      model={value}
+      groupRatio={{ default: 2 }}
+      usableGroup={{ default: { desc: '', ratio: 2 } }}
+      endpointMap={{}}
+      autoGroups={[]}
+      priceRate={1}
+      usdExchangeRate={1}
+      tokenUnit='M'
+    />,
+    { wrapper }
+  )
+  for (const label of [
+    'Duration charge',
+    'Clip charge',
+    'Credit charge',
+    'Additional charge',
+  ]) {
+    expect(
+      screen.getByRole('columnheader', { name: label })
+    ).toBeInTheDocument()
+  }
+  expect(screen.getAllByText(/\$0.2\/request/).length).toBeGreaterThan(0)
+})
