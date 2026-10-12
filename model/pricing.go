@@ -67,23 +67,23 @@ func (p Pricing) LegacyVideoPriceBasisForGroup(group string) (map[string]jsplugi
 	return maps.Clone(basis), len(basis) > 0
 }
 
-func legacyVideoPriceBasis(generation *jsplugin.RoutingGeneration, channel *Channel, modelName string) (map[string]jsplugin.LegacyPriceBasis, bool) {
+func legacyVideoPriceBasis(generation *jsplugin.RoutingGeneration, channel *Channel, modelName string) (map[string]jsplugin.LegacyPriceBasis, bool, bool) {
 	if channel == nil {
-		return nil, false
+		return nil, false, false
 	}
 	declared, known := generation.CanonicalModel(modelName)
 	if !known {
 		mapping := make(map[string]string)
 		if err := common.UnmarshalJsonStr(channel.GetModelMapping(), &mapping); err != nil {
-			return nil, false
+			return nil, false, false
 		}
 		tail, cyclic := followChannelModelMapping(mapping, modelName)
 		if cyclic {
-			return nil, false
+			return nil, false, false
 		}
 		declared, known = generation.CanonicalModel(tail)
 		if !known {
-			return nil, false
+			return nil, false, false
 		}
 	}
 	for _, candidate := range generation.LookupEndpointCandidates("POST", "/v1/videos", declared) {
@@ -98,9 +98,9 @@ func legacyVideoPriceBasis(generation *jsplugin.RoutingGeneration, channel *Chan
 		} else if !slices.Contains(meta.ChannelTypes, channel.Type) {
 			continue
 		}
-		return maps.Clone(meta.LegacyPriceBasis), true
+		return maps.Clone(meta.LegacyPriceBasis), true, len(meta.Protocols) == 1 && meta.Protocols[0].Name == "openai_video"
 	}
-	return nil, false
+	return nil, false, false
 }
 
 // BillingSourcesForGroup expands universal abilities without modifying the cached snapshot.
@@ -356,7 +356,12 @@ func updatePricing() {
 		if ability.ChannelType == constant.ChannelTypeOpenRouter || openRouterVideo {
 			source = BillingSourceOpenRouterActualCost
 		}
-		legacyBasis, videoRoute := legacyVideoPriceBasis(pluginGeneration, pricingChannels[ability.ChannelId], ability.Model)
+		legacyBasis, videoRoute, videoOnly := legacyVideoPriceBasis(pluginGeneration, pricingChannels[ability.ChannelId], ability.Model)
+		if videoOnly && ability.ChannelType != constant.ChannelTypeAdvancedCustom {
+			channelTypes = slices.DeleteFunc(slices.Clone(channelTypes), func(endpoint constant.EndpointType) bool {
+				return endpoint == constant.EndpointTypeImageGeneration
+			})
+		}
 		if videoRoute && !slices.Contains(channelTypes, constant.EndpointTypeOpenAIVideo) {
 			channelTypes = append(channelTypes, constant.EndpointTypeOpenAIVideo)
 		}

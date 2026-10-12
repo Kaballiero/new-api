@@ -40,12 +40,12 @@ func TestSoraLegacyPriceBasisFollowsPluginRouteAndUsage(t *testing.T) {
 	}
 	mapping := `{"video-alias":"sora-2"}`
 	channel := &Channel{Type: constant.ChannelTypeOpenAI, ModelMapping: &mapping}
-	actual, found := legacyVideoPriceBasis(registry.Generation(), channel, "video-alias")
+	actual, found, _ := legacyVideoPriceBasis(registry.Generation(), channel, "video-alias")
 	require.True(t, found)
 	assert.Equal(t, plugin.Meta.LegacyPriceBasis, actual)
-	_, found = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: constant.ChannelTypeOpenRouter}, "sora-2")
+	_, found, _ = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: constant.ChannelTypeOpenRouter}, "sora-2")
 	assert.False(t, found)
-	_, found = legacyVideoPriceBasis(registry.Generation(), channel, "unknown")
+	_, found, _ = legacyVideoPriceBasis(registry.Generation(), channel, "unknown")
 	assert.False(t, found)
 	snapshot := registry.Snapshot()
 	require.Len(t, snapshot.Override, 1)
@@ -57,15 +57,15 @@ func TestSoraLegacyPriceBasisFollowsPluginRouteAndUsage(t *testing.T) {
 	otherSource = strings.ReplaceAll(otherSource, `{ unit: "second", usageField: "seconds" }`, `{ unit: "call" }`)
 	otherPlugin, err := registry.Register(otherSource, jsplugin.Options{})
 	require.NoError(t, err)
-	actual, found = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: 56}, "sora-2")
+	actual, found, _ = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: 56}, "sora-2")
 	require.True(t, found)
 	assert.Equal(t, otherPlugin.Meta.LegacyPriceBasis, actual)
 	bound := &Channel{Type: constant.ChannelTypeTaskPlugin}
 	bound.SetSetting(dto.ChannelSettings{TaskPluginKey: "other-sora"})
-	actual, found = legacyVideoPriceBasis(registry.Generation(), bound, "sora-2")
+	actual, found, _ = legacyVideoPriceBasis(registry.Generation(), bound, "sora-2")
 	require.True(t, found)
 	assert.Equal(t, otherPlugin.Meta.LegacyPriceBasis, actual)
-	actual, found = legacyVideoPriceBasis(registry.Generation(), channel, "sora-2")
+	actual, found, _ = legacyVideoPriceBasis(registry.Generation(), channel, "sora-2")
 	require.True(t, found)
 	assert.Equal(t, plugin.Meta.LegacyPriceBasis, actual)
 }
@@ -135,11 +135,51 @@ func TestPricingSoraBasisFollowsEnabledGroupRoutes(t *testing.T) {
 	require.NoError(t, err)
 	insertPricingEndpointChannel(t, 933, 56, dto.ChannelOtherSettings{})
 	insertPricingEndpointAbility(t, 933, "sora-2")
+	insertPricingEndpointChannel(t, 942, constant.ChannelTypeAdvancedCustom, pricingEndpointAdvancedCustomConfig(dto.AdvancedCustomRoute{IncomingPath: "/v1/images/generations", UpstreamPath: "/v1/images/generations"}))
+	insertPricingEndpointAbility(t, 942, "flux-video-edit")
 	InitChannelCache()
 	InvalidatePricingCache()
 	pricing = pricingByModel(GetPricing())
 	_, known = pricing["sora-2"].LegacyVideoPriceBasisForGroup("default")
 	assert.False(t, known)
+}
+
+func TestPricingVideoPluginReplacesOnlyInferredImageEndpoint(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	source, err := os.ReadFile("../plugins/tasks/openrouter-video/plugin.js")
+	require.NoError(t, err)
+	previousRegistry := jsplugin.DefaultRegistry
+	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+	t.Cleanup(func() { jsplugin.DefaultRegistry = previousRegistry; InvalidatePricingCache() })
+	_, err = jsplugin.DefaultRegistry.Register(string(source), jsplugin.Options{})
+	require.NoError(t, err)
+	mapping := `{"flux-3-video":"black-forest-labs/flux-3-video","flux-video-edit":"black-forest-labs/flux-video-edit","flux-video-upscale":"black-forest-labs/flux-video-upscale","grok-imagine-video":"x-ai/grok-imagine-video","grok-imagine-video-1.5":"x-ai/grok-imagine-video-1.5","grok-imagine-video-1.5-lite":"x-ai/grok-imagine-video-1.5-lite"}`
+	models := []string{"flux-3-video", "flux-video-edit", "flux-video-upscale", "grok-imagine-video", "grok-imagine-video-1.5", "grok-imagine-video-1.5-lite"}
+	require.NoError(t, DB.Create(&Channel{Id: 940, Type: constant.ChannelTypeOpenRouter, Key: "test", Status: 1, Models: strings.Join(models, ","), ModelMapping: &mapping}).Error)
+	for _, name := range models {
+		insertPricingEndpointAbility(t, 940, name)
+	}
+	InitChannelCache()
+	pricing := pricingByModel(GetPricing())
+	for _, name := range models {
+		assert.Contains(t, pricing[name].SupportedEndpointTypes, constant.EndpointTypeOpenAIVideo)
+		assert.NotContains(t, pricing[name].SupportedEndpointTypes, constant.EndpointTypeImageGeneration)
+		assert.NotContains(t, pricing[name].BillingSourcesForGroup("default"), constant.EndpointTypeImageGeneration)
+	}
+	require.NoError(t, DB.Create(&Model{ModelName: "flux-3-video", Endpoints: `{"image-generation":"/v1/images/generations"}`}).Error)
+	insertPricingEndpointChannel(t, 941, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 941, "grok-imagine-video")
+	insertPricingEndpointChannel(t, 942, constant.ChannelTypeAdvancedCustom, pricingEndpointAdvancedCustomConfig(dto.AdvancedCustomRoute{IncomingPath: "/v1/images/generations", UpstreamPath: "/v1/images/generations"}))
+	insertPricingEndpointAbility(t, 942, "flux-video-edit")
+	InitChannelCache()
+	InvalidatePricingCache()
+	pricing = pricingByModel(GetPricing())
+	assert.Contains(t, pricing["flux-3-video"].SupportedEndpointTypes, constant.EndpointTypeImageGeneration)
+	assert.Contains(t, pricing["grok-imagine-video"].SupportedEndpointTypes, constant.EndpointTypeImageGeneration)
+	assert.Contains(t, pricing["grok-imagine-video"].BillingSourcesForGroup("default"), constant.EndpointTypeImageGeneration)
+	assert.Contains(t, pricing["flux-video-edit"].SupportedEndpointTypes, constant.EndpointTypeImageGeneration)
+	assert.Equal(t, []string{BillingSourceConfiguredTariff}, pricing["flux-video-edit"].BillingSourcesForGroup("default")[constant.EndpointTypeImageGeneration])
+	assert.Equal(t, []string{BillingSourceOpenRouterActualCost}, pricing["flux-video-edit"].BillingSourcesForGroup("default")[constant.EndpointTypeOpenAIVideo])
 }
 
 func pricingUsagePluginSource(version, usageSchema string) string {

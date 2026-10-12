@@ -232,9 +232,9 @@ In other words, a task expression already returns the request's dollar cost.
 For example, `u("seconds") * 0.4` means $0.40 per second. Engine semantics do
 not divide task output by one million.
 
-The visual editor generates, and public pricing displays recognize, exactly
-these canonical task shapes. Expressions outside these shapes remain valid in
-raw mode but fall back to the special-expression display:
+The visual editor generates these canonical task shapes. Public pricing also
+recognizes the bounded display-only subset described below. Other expressions
+remain valid in raw mode and fall back to the special-expression display:
 
 ```
 # Flat unit pricing
@@ -267,6 +267,17 @@ between declared enum fields and values, optionally joined by `&&`, with
 chained ternaries following the same ordering rules as token tiers. Numeric
 range tiers are not part of the current canonical shape. Request rules after
 `|||` remain orthogonal and use the same syntax as token expressions.
+
+Display projection additionally expands piecewise-affine second/count/credit
+prices: sums, products with a constant operand, positive constant divisors and
+constant-only `max`. Nested enum equality or numeric `u(field) > threshold`
+conditions may combine with AND/OR. Numeric thresholds are finite and
+non-negative; guards carry their declared unit and exact negation. Other
+comparators and nonlinear quantities remain request-dependent. Canonical token
+scaling is unchanged. Expansion is bounded to 256 branches, depth 64 and 4096
+work steps; unsupported or exhausted projections expose no partial tariffs.
+A duration fallback yields a conditional fixed call charge, not a free tier.
+Projection does not execute expressions or change task billing.
 
 Before saving, the host compiles every expression, rejects literal `u()` keys
 that the selected task plugin did not declare, and smoke-tests usage vectors.

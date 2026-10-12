@@ -449,11 +449,22 @@ func buildSchemas() map[string]interface{} {
 		},
 		"required": []string{"start_hour", "end_hour"},
 	}
+	out["EffectivePricingNumericGuard"] = map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"field":    map[string]any{"type": "string", "minLength": 1},
+			"unit":     map[string]any{"type": "string", "enum": []string{"second", "count", "credit"}},
+			"operator": map[string]any{"type": "string", "enum": []string{"gt"}},
+			"value":    map[string]any{"type": "number", "minimum": 0},
+		},
+		"required": []string{"field", "unit", "operator", "value"},
+	}
 	out["EffectivePricingUsageGuard"] = map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
 			"values":  map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}},
 			"negated": map[string]interface{}{"type": "boolean"},
+			"numeric": map[string]any{"$ref": "#/components/schemas/EffectivePricingNumericGuard"},
 		},
 		"required": []string{"values", "negated"},
 	}

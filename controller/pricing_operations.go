@@ -159,6 +159,12 @@ func buildOperationTariff(item model.Pricing, group effectiveGroupPricing, endpo
 		condition := classifyTierConditions(tier.Conditions)
 		if len(tier.UsageGuards) > 0 {
 			condition = &effectivePricingTierCondition{Kind: "usage_enum", Guards: tier.UsageGuards}
+			for _, guard := range tier.UsageGuards {
+				if guard.Numeric != nil {
+					condition.Kind = "usage_conditions"
+					break
+				}
+			}
 		}
 		if condition != nil && condition.Kind == "other" {
 			tariff.Limitations = []string{"condition_not_projected"}

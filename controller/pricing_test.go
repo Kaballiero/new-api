@@ -113,6 +113,36 @@ func TestEffectiveOperationTariffsSoraActionsRespectBillingScope(t *testing.T) {
 	})
 }
 
+func TestEffectiveOperationTariffsNumericUsageConditions(t *testing.T) {
+	expression := `tier("base", (u("requested_seconds") > 0 ? u("requested_seconds") : 10) * 0.1)`
+	item := tieredPricing(expression)
+	item.BillingUsageSchema = map[string]jsplugin.UsageFieldSchema{"requested_seconds": {Type: "number", Unit: "second"}}
+	item.IndicativeBillingExprByEndpoint = map[constant.EndpointType]string{constant.EndpointTypeOpenAIVideo: expression}
+	tariff := buildOperationTariff(item, effectiveGroupPricing{EffectiveBillingRatio: 1.5}, constant.EndpointTypeOpenAIVideo, model.BillingSourceOpenRouterActualCost)
+	require.Equal(t, "priced", tariff.Status)
+	assert.Equal(t, model.BillingSourceOpenRouterActualCost, tariff.Source)
+	require.Len(t, tariff.Tiers, 2)
+	for index, tier := range tariff.Tiers {
+		require.NotNil(t, tier.Condition)
+		assert.Equal(t, "usage_conditions", tier.Condition.Kind)
+		require.Len(t, tier.Condition.Guards, 1)
+		guard := tier.Condition.Guards[0]
+		assert.NotNil(t, guard.Values)
+		assert.Empty(t, guard.Values)
+		assert.Equal(t, index == 1, guard.Negated)
+		require.NotNil(t, guard.Numeric)
+		assert.Equal(t, "requested_seconds", guard.Numeric.Field)
+		assert.Equal(t, "gt", guard.Numeric.Operator)
+		assert.Equal(t, "second", guard.Numeric.Unit)
+		assert.Zero(t, guard.Numeric.Value)
+	}
+	require.Len(t, tariff.Tiers[0].UnitPrices, 1)
+	assert.Equal(t, "requested_seconds", tariff.Tiers[0].UnitPrices[0].Component)
+	assert.Equal(t, "second", tariff.Tiers[0].UnitPrices[0].Unit)
+	assert.InDelta(t, 15, tariff.Tiers[0].UnitPrices[0].AmountRub, 1e-12)
+	assert.Equal(t, []effectiveUnitPrice{{Component: "base", Unit: "call", AmountRub: 150}}, tariff.Tiers[1].UnitPrices)
+}
+
 func TestEffectiveOperationTariffsProjectDisplayUnitsWithoutEvaluating(t *testing.T) {
 	usageSchema := map[string]jsplugin.UsageFieldSchema{
 		"seconds": {Type: "number", Unit: "second"},
