@@ -1,14 +1,177 @@
 package controller
 
 import (
+	"math"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEffectiveOperationTariffsProjectDisplayUnitsWithoutEvaluating(t *testing.T) {
+	usageSchema := map[string]jsplugin.UsageFieldSchema{
+		"seconds": {Type: "number", Unit: "second"},
+		"clips":   {Type: "number", Unit: "count"},
+		"tokens":  {Type: "number", Unit: "token"},
+		"units":   {Type: "number", Unit: "credit"},
+		"mode":    {Type: "enum", Enum: []string{"pro", "standard"}},
+		"quality": {Type: "enum", Enum: []string{"high", "normal"}},
+	}
+	for _, test := range []struct {
+		name       string
+		expression string
+		schema     map[string]jsplugin.UsageFieldSchema
+		status     string
+		prices     map[string]effectiveUnitPrice
+	}{
+		{name: "token zero preserved", expression: `tier("base", p * 2 + c * 0)`, status: "priced", prices: map[string]effectiveUnitPrice{
+			"input":  {Component: "input", Unit: "million_tokens", AmountRub: 300},
+			"output": {Component: "output", Unit: "million_tokens", AmountRub: 0},
+		}},
+		{name: "fixed zero preserved", expression: `tier("request", fixed(0))`, status: "priced", prices: map[string]effectiveUnitPrice{"base": {Component: "base", Unit: "call", AmountRub: 0}}},
+		{name: "fixed request", expression: `tier("request", fixed(0.02))`, status: "priced", prices: map[string]effectiveUnitPrice{"base": {Component: "base", Unit: "call", AmountRub: 3}}},
+		{name: "task units", expression: `tier("base", 0.1 + u("seconds") * 0.4 + u("clips") * 0.05 + u("tokens") * 9.8 / 1000000 + u("units") * 0.14)`, schema: usageSchema, status: "priced", prices: map[string]effectiveUnitPrice{
+			"base":    {Component: "base", Unit: "call", AmountRub: 15},
+			"seconds": {Component: "seconds", Unit: "second", AmountRub: 60},
+			"clips":   {Component: "clips", Unit: "count", AmountRub: 7.5},
+			"tokens":  {Component: "tokens", Unit: "million_tokens", AmountRub: 1470},
+			"units":   {Component: "units", Unit: "credit", AmountRub: 21},
+		}},
+		{name: "provider cost is not tokens", expression: `tier("cost", provider_cost * 1000000)`, status: "request_dependent"},
+		{name: "unknown quantity", expression: `tier("base", len * 2)`, status: "request_dependent"},
+		{name: "nonlinear", expression: `tier("base", max(p, c) * 2)`, status: "request_dependent"},
+		{name: "request multiplier", expression: `tier("base", p * 2) * (param("fast") == true ? 2 : 1)`, status: "request_dependent"},
+		{name: "unknown condition", expression: `header("x-tier") == "fast" ? tier("fast", p * 2) : tier("base", p)`, status: "request_dependent"},
+		{name: "other numeric condition", expression: `len == 1000 ? tier("exact", p * 2) : tier("base", p)`, status: "request_dependent"},
+		{name: "task unknown key", expression: `tier("base", u("unknown") * 2)`, schema: usageSchema, status: "request_dependent"},
+		{name: "task token scale missing", expression: `tier("base", u("tokens") * 2)`, schema: usageSchema, status: "request_dependent"},
+		{name: "task reserve fixed rejected", expression: `tier("OpenRouter reserve", fixed(1))`, schema: usageSchema, status: "request_dependent"},
+		{name: "negative literal", expression: `tier("base", p * -2)`, status: "request_dependent"},
+		{name: "overflow literal", expression: `tier("base", p * 1e309)`, status: "request_dependent"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			item := tieredPricing(test.expression)
+			item.BillingUsageSchema = test.schema
+			for _, source := range []string{model.BillingSourceConfiguredTariff, model.BillingSourceOpenRouterActualCost} {
+				item.IndicativeBillingExprByEndpoint = map[constant.EndpointType]string{constant.EndpointTypeOpenAI: test.expression}
+				tariff := buildOperationTariff(item, effectiveGroupPricing{EffectiveBillingRatio: 1.5, BillingSurface: "token"}, constant.EndpointTypeOpenAI, source)
+				assert.Equal(t, test.status, tariff.Status, source)
+				if test.status != "priced" {
+					assert.Empty(t, tariff.Tiers)
+					continue
+				}
+				require.Len(t, tariff.Tiers, 1)
+				expectedSurface := "token"
+				if test.schema != nil {
+					expectedSurface = "task"
+				} else if test.name == "fixed zero preserved" || test.name == "fixed request" {
+					expectedSurface = "per_call"
+				}
+				assert.Equal(t, expectedSurface, tariff.BillingSurface)
+				assert.Len(t, tariff.Tiers[0].UnitPrices, len(test.prices))
+				for _, price := range tariff.Tiers[0].UnitPrices {
+					expected, found := test.prices[price.Component]
+					require.True(t, found, price.Component)
+					assert.Equal(t, expected.Unit, price.Unit)
+					assert.InDelta(t, expected.AmountRub, price.AmountRub, 1e-9)
+				}
+			}
+		})
+	}
+}
+
+func TestEffectiveOperationTariffsPreserveConditionsAndWholeTiers(t *testing.T) {
+	group := effectiveGroupPricing{EffectiveBillingRatio: 1, BillingSurface: "token"}
+	item := tieredPricing(`len <= 32000 ? tier("short", fixed(0.01)) : tier("long", p * 2 + c * 8)`)
+	tariff := buildOperationTariff(item, group, constant.EndpointTypeOpenAI, model.BillingSourceConfiguredTariff)
+	require.Equal(t, "priced", tariff.Status)
+	require.Len(t, tariff.Tiers, 2)
+	assert.Equal(t, "token", tariff.BillingSurface)
+	assert.Equal(t, "token", group.BillingSurface)
+	assert.Equal(t, &effectivePricingTierCondition{Kind: "context_length", Unit: "token", MaxValue: float(32000)}, tariff.Tiers[0].Condition)
+	assert.Equal(t, &effectivePricingTierCondition{Kind: "context_length", Unit: "token", MinValue: float(32000)}, tariff.Tiers[1].Condition)
+	assert.Equal(t, []effectiveUnitPrice{{Component: "base", Unit: "call", AmountRub: 1}}, tariff.Tiers[0].UnitPrices)
+	assert.Len(t, tariff.Tiers[1].UnitPrices, 2)
+	item = tieredPricing(`u("mode") == "pro" && u("quality") == "high" ? tier("pro", u("seconds") * 0.8) : u("mode") == "standard" ? tier("standard", u("seconds") * 0.4) : tier("other", u("seconds") * 0.6)`)
+	item.BillingUsageSchema = map[string]jsplugin.UsageFieldSchema{
+		"seconds": {Type: "number", Unit: "second"},
+		"mode":    {Type: "enum", Enum: []string{"pro", "standard"}},
+		"quality": {Type: "enum", Enum: []string{"high", "normal"}},
+	}
+	tariff = buildOperationTariff(item, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+	require.Equal(t, "priced", tariff.Status)
+	require.Len(t, tariff.Tiers, 3)
+	first := tariff.Tiers[0].Condition
+	require.NotNil(t, first)
+	assert.Equal(t, "usage_enum", first.Kind)
+	require.Len(t, first.Guards, 1)
+	assert.Equal(t, map[string]string{"mode": "pro", "quality": "high"}, first.Guards[0].Values)
+	assert.False(t, first.Guards[0].Negated)
+	second := tariff.Tiers[1].Condition
+	require.NotNil(t, second)
+	require.Len(t, second.Guards, 2)
+	assert.True(t, second.Guards[0].Negated)
+	assert.False(t, second.Guards[1].Negated)
+	assert.Equal(t, map[string]string{"mode": "standard"}, second.Guards[1].Values)
+	third := tariff.Tiers[2].Condition
+	require.NotNil(t, third)
+	require.Len(t, third.Guards, 2)
+	assert.True(t, third.Guards[0].Negated)
+	assert.True(t, third.Guards[1].Negated)
+	assert.Equal(t, "task", tariff.BillingSurface)
+}
+
+func TestEffectiveOperationTariffsKeepBatchAndSourcesSeparateWithoutMutatingCache(t *testing.T) {
+	withTieredBillingConfig(t, nil, nil)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.batch_billing_expr": `{"operation-test":"tier(\"batch\", p * 0.5)"}`}))
+	item := tieredPricing(`tier("sync", p * 2)`)
+	item.ModelName = "operation-test"
+	item.BillingSourcesByGroup = map[string]map[constant.EndpointType][]string{"default": {
+		constant.EndpointTypeOpenAI: {model.BillingSourceConfiguredTariff, model.BillingSourceOpenRouterActualCost},
+		model.PricingEndpointBatch:  {model.BillingSourceConfiguredTariff, model.BillingSourceOpenRouterActualCost},
+	}}
+	item.IndicativeBillingExprByEndpoint = map[constant.EndpointType]string{constant.EndpointTypeOpenAI: `tier("display", p * 1)`}
+	legacy := effectivePricingResponse{Data: []effectivePricingModel{{ModelName: item.ModelName, GroupPrices: []effectiveGroupPricing{buildEffectiveGroupPricing(item, "default", 1, 1)}}}}
+	enriched := withOperationTariffs(legacy, []model.Pricing{item})
+	require.Nil(t, legacy.Data[0].GroupPrices[0].OperationTariffs)
+	legacyBytes, err := common.Marshal(legacy)
+	require.NoError(t, err)
+	assert.NotContains(t, string(legacyBytes), "operation_tariffs")
+	actual := enriched.Data[0].GroupPrices[0].OperationTariffs
+	require.NotNil(t, actual)
+	require.Len(t, *actual, 4)
+	for _, tariff := range *actual {
+		if tariff.EndpointType == model.PricingEndpointBatch && tariff.Source == model.BillingSourceOpenRouterActualCost {
+			assert.Equal(t, "request_dependent", tariff.Status)
+			assert.Empty(t, tariff.Tiers)
+			continue
+		}
+		require.Equal(t, "priced", tariff.Status)
+		require.Len(t, tariff.Tiers, 1)
+		require.Len(t, tariff.Tiers[0].UnitPrices, 1)
+		expected := 200.0
+		if tariff.EndpointType == model.PricingEndpointBatch {
+			expected = 50
+		} else if tariff.Source == model.BillingSourceOpenRouterActualCost {
+			expected = 100
+		}
+		assert.Equal(t, expected, tariff.Tiers[0].UnitPrices[0].AmountRub)
+	}
+	item.BillingSourcesByGroup = nil
+	missing := withOperationTariffs(legacy, []model.Pricing{item})
+	missingBytes, err := common.Marshal(missing)
+	require.NoError(t, err)
+	assert.Contains(t, string(missingBytes), `"operation_tariffs":null`)
+	tariff := buildOperationTariff(item, effectiveGroupPricing{EffectiveBillingRatio: math.Inf(1)}, constant.EndpointTypeOpenAI, model.BillingSourceConfiguredTariff)
+	assert.Equal(t, "unavailable", tariff.Status)
+	assert.Empty(t, tariff.Tiers)
+}
 
 const prodFXFactor = 0.854594
 

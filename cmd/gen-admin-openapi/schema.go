@@ -449,6 +449,14 @@ func buildSchemas() map[string]interface{} {
 		},
 		"required": []string{"start_hour", "end_hour"},
 	}
+	out["EffectivePricingUsageGuard"] = map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"values":  map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}},
+			"negated": map[string]interface{}{"type": "boolean"},
+		},
+		"required": []string{"values", "negated"},
+	}
 	out["EffectivePricingTierCondition"] = map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -458,6 +466,7 @@ func buildSchemas() map[string]interface{} {
 			"max_value":    map[string]interface{}{"type": "number"},
 			"time_zone":    map[string]interface{}{"type": "string"},
 			"time_windows": map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingTimeWindow"}},
+			"guards":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingUsageGuard"}},
 		},
 		"required": []string{"kind"},
 	}
@@ -470,9 +479,22 @@ func buildSchemas() map[string]interface{} {
 		},
 		"required": []string{"unit_prices"},
 	}
+	out["EffectivePricingOperationTariff"] = map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"endpoint_type":   map[string]interface{}{"type": "string"},
+			"source":          map[string]interface{}{"type": "string", "enum": []string{"configured_tariff", "openrouter_actual_cost"}},
+			"billing_surface": map[string]interface{}{"type": "string", "enum": []string{"token", "per_call", "task"}},
+			"status":          map[string]interface{}{"type": "string", "enum": []string{"priced", "request_dependent", "unavailable"}},
+			"tiers":           map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingTier"}},
+			"limitations":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+		},
+		"required": []string{"endpoint_type", "source", "billing_surface", "status", "tiers"},
+	}
 	out["EffectiveGroupPricing"] = map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
+			"operation_tariffs":       map[string]interface{}{"type": "array", "nullable": true, "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingOperationTariff"}},
 			"using_group":             map[string]interface{}{"type": "string"},
 			"pure_group_ratio":        map[string]interface{}{"type": "number"},
 			"effective_billing_ratio": map[string]interface{}{"type": "number"},
