@@ -16,8 +16,16 @@ type DisplayUsageField struct {
 }
 
 type DisplayUsageGuard struct {
-	Values  map[string]string `json:"values"`
-	Negated bool              `json:"negated"`
+	Values  map[string]string    `json:"values"`
+	Negated bool                 `json:"negated"`
+	Numeric *DisplayNumericGuard `json:"numeric,omitempty"`
+}
+
+type DisplayNumericGuard struct {
+	Field    string  `json:"field"`
+	Unit     string  `json:"unit"`
+	Operator string  `json:"operator"`
+	Value    float64 `json:"value"`
 }
 
 type DisplayPrice struct {
@@ -47,7 +55,11 @@ func EnumerateDisplayTiers(expression string, usageSchema map[string]DisplayUsag
 			return nil, err
 		}
 	}
-	return collectDisplayTiers(tree.Node, nil, nil, usageSchema)
+	tiers, err := collectDisplayTiers(tree.Node, nil, nil, usageSchema)
+	if err != nil && len(usageSchema) > 0 {
+		return projectTaskDisplay(tree.Node, usageSchema)
+	}
+	return tiers, err
 }
 
 func collectDisplayTiers(node ast.Node, conditions []TierCondition, usageGuards []DisplayUsageGuard, schema map[string]DisplayUsageField) ([]DisplayTier, error) {

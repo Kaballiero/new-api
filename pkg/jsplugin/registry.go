@@ -98,6 +98,13 @@ type Meta struct {
 	UsageSchema   map[string]UsageFieldSchema `json:"usageSchema,omitempty"`
 	UsageExamples []UsageExample              `json:"usageExamples,omitempty"`
 	Auth          AuthMeta                    `json:"auth"`
+
+	LegacyPriceBasis map[string]LegacyPriceBasis `json:"legacyPriceBasis,omitempty"`
+}
+
+type LegacyPriceBasis struct {
+	Unit       string `json:"unit"`
+	UsageField string `json:"usageField,omitempty"`
 }
 
 // ProtocolSupports reports whether the named protocol claim includes mode.
@@ -791,6 +798,7 @@ func (r *Registry) Snapshot() RegistrySnapshot {
 }
 
 func cloneMeta(meta Meta) Meta {
+	meta.LegacyPriceBasis = maps.Clone(meta.LegacyPriceBasis)
 	meta.ChannelTypes = append([]int(nil), meta.ChannelTypes...)
 	meta.Models = append([]string(nil), meta.Models...)
 	meta.AllowedHosts = append([]string(nil), meta.AllowedHosts...)
@@ -911,7 +919,7 @@ func decodeMeta(value any) (Meta, error) {
 	}
 	for field := range object {
 		switch field {
-		case "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "routes", "protocols", "usageSchema", "usageExamples", "auth", "endpoints", "submitPaths", "actions":
+		case "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "routes", "protocols", "usageSchema", "usageExamples", "legacyPriceBasis", "auth", "endpoints", "submitPaths", "actions":
 		default:
 			return Meta{}, fmt.Errorf("plugin meta has unknown field %q", field)
 		}
@@ -1007,6 +1015,32 @@ func decodeMeta(value any) (Meta, error) {
 		meta.UsageExamples, err = decodeUsageExamples(usageExamples)
 		if err != nil {
 			return Meta{}, err
+		}
+	}
+	if raw, exists := object["legacyPriceBasis"]; exists {
+		entries, ok := raw.(map[string]any)
+		if !ok || len(entries) == 0 {
+			return Meta{}, fmt.Errorf("plugin meta legacyPriceBasis must be a non-empty object")
+		}
+		meta.LegacyPriceBasis = make(map[string]LegacyPriceBasis, len(entries))
+		for action, rawBasis := range entries {
+			basisObject, ok := rawBasis.(map[string]any)
+			if !ok {
+				return Meta{}, fmt.Errorf("plugin meta legacyPriceBasis %q must be an object", action)
+			}
+			for field := range basisObject {
+				if field != "unit" && field != "usageField" {
+					return Meta{}, fmt.Errorf("plugin meta legacyPriceBasis %q has unknown field %q", action, field)
+				}
+			}
+			basis := LegacyPriceBasis{}
+			if basis.Unit, err = stringMetaField(basisObject, "unit"); err != nil {
+				return Meta{}, err
+			}
+			if basis.UsageField, err = stringMetaField(basisObject, "usageField"); err != nil {
+				return Meta{}, err
+			}
+			meta.LegacyPriceBasis[action] = basis
 		}
 	}
 	for _, removedField := range []string{"submitPaths", "actions"} {
@@ -1268,6 +1302,18 @@ func normalizeV1Meta(meta *Meta) error {
 	}
 	if err := validateUsageExamples(meta.UsageSchema, meta.UsageExamples); err != nil {
 		return err
+	}
+	for action, basis := range meta.LegacyPriceBasis {
+		if !slices.Contains([]string{constant.TaskActionTextToVideo, constant.TaskActionImageToVideo, constant.TaskActionRemix}, action) {
+			return fmt.Errorf("plugin meta legacyPriceBasis has unsupported action %q", action)
+		}
+		if basis.Unit == "call" && basis.UsageField == "" {
+			continue
+		}
+		field, declared := meta.UsageSchema[basis.UsageField]
+		if basis.Unit != "second" || !declared || field.Type != "number" || field.Unit != basis.Unit {
+			return fmt.Errorf("plugin meta legacyPriceBasis %q must use call or a declared second usage field", action)
+		}
 	}
 	return nil
 }

@@ -3837,6 +3837,39 @@
         ],
         "type": "object"
       },
+      "EffectivePricingNumericGuard": {
+        "properties": {
+          "field": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "operator": {
+            "enum": [
+              "gt"
+            ],
+            "type": "string"
+          },
+          "unit": {
+            "enum": [
+              "second",
+              "count",
+              "credit"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "field",
+          "unit",
+          "operator",
+          "value"
+        ],
+        "type": "object"
+      },
       "EffectivePricingOperationTariff": {
         "properties": {
           "billing_surface": {
@@ -3979,6 +4012,9 @@
         "properties": {
           "negated": {
             "type": "boolean"
+          },
+          "numeric": {
+            "$ref": "#/components/schemas/EffectivePricingNumericGuard"
           },
           "values": {
             "additionalProperties": {

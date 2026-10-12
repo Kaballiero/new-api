@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"maps"
 	"math"
 	"testing"
 
@@ -13,6 +14,134 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestEffectiveOperationTariffsSoraActionsRespectBillingScope(t *testing.T) {
+	basis := map[string]jsplugin.LegacyPriceBasis{
+		constant.TaskActionTextToVideo:  {Unit: "second", UsageField: "seconds"},
+		constant.TaskActionImageToVideo: {Unit: "second", UsageField: "seconds"},
+		constant.TaskActionRemix:        {Unit: "call"},
+	}
+	item := model.Pricing{
+		ModelName: "sora-2", QuotaType: 1, ModelPrice: 0.3,
+		LegacyVideoPriceBasisByGroup: map[string][]map[string]jsplugin.LegacyPriceBasis{"default": {basis}},
+	}
+	group := buildEffectiveGroupPricing(item, "default", 1.45, 1.21677185)
+	tariff := buildOperationTariff(item, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+	require.Equal(t, "priced", tariff.Status)
+	assert.Equal(t, "task", tariff.BillingSurface)
+	require.Len(t, tariff.Tiers, 3)
+	for index, action := range []string{constant.TaskActionTextToVideo, constant.TaskActionImageToVideo, constant.TaskActionRemix} {
+		tier := tariff.Tiers[index]
+		require.NotNil(t, tier.Condition)
+		assert.Equal(t, "task_action", tier.Condition.Kind)
+		require.Len(t, tier.Condition.Guards, 1)
+		assert.Equal(t, map[string]string{"action": action}, tier.Condition.Guards[0].Values)
+		assert.False(t, tier.Condition.Guards[0].Negated)
+		assert.Equal(t, basis[action].Unit, tier.UnitPrices[0].Unit)
+		assert.InDelta(t, 36.5031555, tier.UnitPrices[0].AmountRub, 1e-9)
+	}
+	assert.Equal(t, "call", group.Tiers[0].UnitPrices[0].Unit)
+	encoded, err := common.Marshal(item)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "LegacyVideoPriceBasis")
+
+	t.Run("pro price", func(t *testing.T) {
+		pro := item
+		pro.ModelName, pro.ModelPrice = "sora-2-pro", 0.5
+		actual := buildOperationTariff(pro, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+		require.Equal(t, "priced", actual.Status)
+		assert.InDelta(t, 60.8385925, actual.Tiers[0].UnitPrices[0].AmountRub, 1e-9)
+	})
+
+	t.Run("zero", func(t *testing.T) {
+		free := item
+		free.ModelPrice = 0
+		actual := buildOperationTariff(free, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+		require.Equal(t, "priced", actual.Status)
+		assert.Zero(t, actual.Tiers[0].UnitPrices[0].AmountRub)
+	})
+	t.Run("group and mixed routes", func(t *testing.T) {
+		mixed := item
+		mixed.LegacyVideoPriceBasisByGroup = maps.Clone(item.LegacyVideoPriceBasisByGroup)
+		mixed.LegacyVideoPriceBasisByGroup["all"] = []map[string]jsplugin.LegacyPriceBasis{nil}
+		actual := buildOperationTariff(mixed, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+		assert.Equal(t, "request_dependent", actual.Status)
+		assert.Empty(t, actual.Tiers)
+		assert.Equal(t, []string{"legacy_price_basis_unavailable"}, actual.Limitations)
+		mixed.LegacyVideoPriceBasisByGroup["all"] = []map[string]jsplugin.LegacyPriceBasis{basis}
+		actual = buildOperationTariff(mixed, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+		assert.Equal(t, "priced", actual.Status)
+		other := group
+		other.UsingGroup = "premium"
+		actual = buildOperationTariff(item, other, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+		assert.Equal(t, "request_dependent", actual.Status)
+		conflicting := maps.Clone(basis)
+		conflicting[constant.TaskActionTextToVideo] = jsplugin.LegacyPriceBasis{Unit: "call"}
+		mixed.LegacyVideoPriceBasisByGroup["all"] = []map[string]jsplugin.LegacyPriceBasis{conflicting}
+		assert.Equal(t, "request_dependent", buildOperationTariff(mixed, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff).Status)
+	})
+	t.Run("per call exemption", func(t *testing.T) {
+		previous := constant.TaskPricePatches
+		constant.TaskPricePatches = []string{item.ModelName}
+		t.Cleanup(func() { constant.TaskPricePatches = previous })
+		actual := buildOperationTariff(item, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+		require.Len(t, actual.Tiers, 3)
+		for _, tier := range actual.Tiers {
+			assert.Equal(t, "call", tier.UnitPrices[0].Unit)
+		}
+		unknown := item
+		unknown.LegacyVideoPriceBasisByGroup = nil
+		actual = buildOperationTariff(unknown, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+		assert.Equal(t, "priced", actual.Status)
+		assert.Equal(t, "call", actual.Tiers[0].UnitPrices[0].Unit)
+	})
+	t.Run("expressions and other endpoints", func(t *testing.T) {
+		actual := buildOperationTariff(item, group, constant.EndpointTypeOpenAI, model.BillingSourceConfiguredTariff)
+		assert.Equal(t, group.Tiers, actual.Tiers)
+		actual = buildOperationTariff(item, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceOpenRouterActualCost)
+		assert.Equal(t, "request_dependent", actual.Status)
+		assert.Equal(t, []string{"missing_display_expression"}, actual.Limitations)
+		expressionItem := item
+		expressionItem.BillingMode = billing_setting.BillingModeTieredExpr
+		expressionItem.BillingExpr = `tier("rate", u("seconds") * 0.9)`
+		expressionItem.BillingUsageSchema = map[string]jsplugin.UsageFieldSchema{"seconds": {Type: "number", Unit: "second"}}
+		actual = buildOperationTariff(expressionItem, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceConfiguredTariff)
+		require.Equal(t, "priced", actual.Status)
+		require.Len(t, actual.Tiers, 1)
+		assert.Nil(t, actual.Tiers[0].Condition)
+		assert.InDelta(t, 109.5094665, actual.Tiers[0].UnitPrices[0].AmountRub, 1e-9)
+	})
+}
+
+func TestEffectiveOperationTariffsNumericUsageConditions(t *testing.T) {
+	expression := `tier("base", (u("requested_seconds") > 0 ? u("requested_seconds") : 10) * 0.1)`
+	item := tieredPricing(expression)
+	item.BillingUsageSchema = map[string]jsplugin.UsageFieldSchema{"requested_seconds": {Type: "number", Unit: "second"}}
+	item.IndicativeBillingExprByEndpoint = map[constant.EndpointType]string{constant.EndpointTypeOpenAIVideo: expression}
+	tariff := buildOperationTariff(item, effectiveGroupPricing{EffectiveBillingRatio: 1.5}, constant.EndpointTypeOpenAIVideo, model.BillingSourceOpenRouterActualCost)
+	require.Equal(t, "priced", tariff.Status)
+	assert.Equal(t, model.BillingSourceOpenRouterActualCost, tariff.Source)
+	require.Len(t, tariff.Tiers, 2)
+	for index, tier := range tariff.Tiers {
+		require.NotNil(t, tier.Condition)
+		assert.Equal(t, "usage_conditions", tier.Condition.Kind)
+		require.Len(t, tier.Condition.Guards, 1)
+		guard := tier.Condition.Guards[0]
+		assert.NotNil(t, guard.Values)
+		assert.Empty(t, guard.Values)
+		assert.Equal(t, index == 1, guard.Negated)
+		require.NotNil(t, guard.Numeric)
+		assert.Equal(t, "requested_seconds", guard.Numeric.Field)
+		assert.Equal(t, "gt", guard.Numeric.Operator)
+		assert.Equal(t, "second", guard.Numeric.Unit)
+		assert.Zero(t, guard.Numeric.Value)
+	}
+	require.Len(t, tariff.Tiers[0].UnitPrices, 1)
+	assert.Equal(t, "requested_seconds", tariff.Tiers[0].UnitPrices[0].Component)
+	assert.Equal(t, "second", tariff.Tiers[0].UnitPrices[0].Unit)
+	assert.InDelta(t, 15, tariff.Tiers[0].UnitPrices[0].AmountRub, 1e-12)
+	assert.Equal(t, []effectiveUnitPrice{{Component: "base", Unit: "call", AmountRub: 150}}, tariff.Tiers[1].UnitPrices)
+}
 
 func TestEffectiveOperationTariffsProjectDisplayUnitsWithoutEvaluating(t *testing.T) {
 	usageSchema := map[string]jsplugin.UsageFieldSchema{

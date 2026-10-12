@@ -50,6 +50,57 @@ type Pricing struct {
 	BillingUsageSchema              map[string]jsplugin.UsageFieldSchema          `json:"billing_usage_schema,omitempty"`
 	BillingUsageExamples            []jsplugin.UsageExample                       `json:"billing_usage_examples,omitempty"`
 	PricingVersion                  string                                        `json:"pricing_version,omitempty"`
+
+	LegacyVideoPriceBasisByGroup map[string][]map[string]jsplugin.LegacyPriceBasis `json:"-"`
+}
+
+func (p Pricing) LegacyVideoPriceBasisForGroup(group string) (map[string]jsplugin.LegacyPriceBasis, bool) {
+	var basis map[string]jsplugin.LegacyPriceBasis
+	for _, sourceGroup := range []string{"all", group} {
+		for _, routeBasis := range p.LegacyVideoPriceBasisByGroup[sourceGroup] {
+			if len(routeBasis) == 0 || (basis != nil && !maps.Equal(basis, routeBasis)) {
+				return nil, false
+			}
+			basis = routeBasis
+		}
+	}
+	return maps.Clone(basis), len(basis) > 0
+}
+
+func legacyVideoPriceBasis(generation *jsplugin.RoutingGeneration, channel *Channel, modelName string) (map[string]jsplugin.LegacyPriceBasis, bool, bool) {
+	if channel == nil {
+		return nil, false, false
+	}
+	declared, known := generation.CanonicalModel(modelName)
+	if !known {
+		mapping := make(map[string]string)
+		if err := common.UnmarshalJsonStr(channel.GetModelMapping(), &mapping); err != nil {
+			return nil, false, false
+		}
+		tail, cyclic := followChannelModelMapping(mapping, modelName)
+		if cyclic {
+			return nil, false, false
+		}
+		declared, known = generation.CanonicalModel(tail)
+		if !known {
+			return nil, false, false
+		}
+	}
+	for _, candidate := range generation.LookupEndpointCandidates("POST", "/v1/videos", declared) {
+		if candidate.Plugin == nil {
+			continue
+		}
+		meta := candidate.Plugin.Meta
+		if channel.Type == constant.ChannelTypeTaskPlugin {
+			if channel.GetSetting().TaskPluginKey != meta.Key {
+				continue
+			}
+		} else if !slices.Contains(meta.ChannelTypes, channel.Type) {
+			continue
+		}
+		return maps.Clone(meta.LegacyPriceBasis), true, len(meta.Protocols) == 1 && meta.Protocols[0].Name == "openai_video"
+	}
+	return nil, false, false
 }
 
 // BillingSourcesForGroup expands universal abilities without modifying the cached snapshot.
@@ -269,15 +320,20 @@ func updatePricing() {
 	advancedCustomConfigs := loadPricingAdvancedCustomConfigs(enableAbilities)
 
 	billingSources := make(map[string]map[string]map[constant.EndpointType][]string)
+	legacyVideoBases := make(map[string]map[string][]map[string]jsplugin.LegacyPriceBasis)
+	pluginGeneration := jsplugin.DefaultRegistry.Generation()
+	pricingChannels := make(map[int]*Channel)
 	taskPluginKeys := make(map[int]string)
 	for _, ability := range enableAbilities {
-		if ability.ChannelType != constant.ChannelTypeTaskPlugin {
+		_, taskChannel := pluginGeneration.GetByChannelType(ability.ChannelType)
+		if !taskChannel && ability.ChannelType != constant.ChannelTypeTaskPlugin && !slices.Contains(getPricingEndpointTypesForAbility(ability, advancedCustomConfigs), constant.EndpointTypeOpenAIVideo) {
 			continue
 		}
-		if _, loaded := taskPluginKeys[ability.ChannelId]; loaded {
+		if _, loaded := pricingChannels[ability.ChannelId]; loaded {
 			continue
 		}
 		channel, err := CacheGetChannel(ability.ChannelId)
+		pricingChannels[ability.ChannelId] = channel
 		if err != nil {
 			common.SysLog(fmt.Sprintf("load pricing task channel error: channel_id=%d, error=%v", ability.ChannelId, err))
 			continue
@@ -300,6 +356,15 @@ func updatePricing() {
 		if ability.ChannelType == constant.ChannelTypeOpenRouter || openRouterVideo {
 			source = BillingSourceOpenRouterActualCost
 		}
+		legacyBasis, videoRoute, videoOnly := legacyVideoPriceBasis(pluginGeneration, pricingChannels[ability.ChannelId], ability.Model)
+		if videoOnly && ability.ChannelType != constant.ChannelTypeAdvancedCustom {
+			channelTypes = slices.DeleteFunc(slices.Clone(channelTypes), func(endpoint constant.EndpointType) bool {
+				return endpoint == constant.EndpointTypeImageGeneration
+			})
+		}
+		if videoRoute && !slices.Contains(channelTypes, constant.EndpointTypeOpenAIVideo) {
+			channelTypes = append(channelTypes, constant.EndpointTypeOpenAIVideo)
+		}
 		// Batch is an operation with a separate display expression, not a sync discount.
 		operationTypes := slices.Clone(channelTypes)
 		if ability.ChannelType == constant.ChannelTypeOpenRouter {
@@ -313,6 +378,12 @@ func updatePricing() {
 			operationTypes = append(operationTypes, PricingEndpointBatch)
 		}
 		for _, endpoint := range operationTypes {
+			if endpoint == constant.EndpointTypeOpenAIVideo && source == BillingSourceConfiguredTariff {
+				if legacyVideoBases[ability.Model] == nil {
+					legacyVideoBases[ability.Model] = make(map[string][]map[string]jsplugin.LegacyPriceBasis)
+				}
+				legacyVideoBases[ability.Model][ability.Group] = append(legacyVideoBases[ability.Model][ability.Group], legacyBasis)
+			}
 			sources := billingSources[ability.Model][ability.Group][endpoint]
 			if !slices.Contains(sources, source) {
 				billingSources[ability.Model][ability.Group][endpoint] = append(sources, source)
@@ -396,13 +467,13 @@ func updatePricing() {
 	}
 
 	pricingMap = make([]Pricing, 0)
-	pluginGeneration := jsplugin.DefaultRegistry.Generation()
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
-			ModelName:              model,
-			BillingSourcesByGroup:  billingSources[model],
-			EnableGroup:            groups.Items(),
-			SupportedEndpointTypes: modelSupportEndpointTypes[model],
+			LegacyVideoPriceBasisByGroup: legacyVideoBases[model],
+			ModelName:                    model,
+			BillingSourcesByGroup:        billingSources[model],
+			EnableGroup:                  groups.Items(),
+			SupportedEndpointTypes:       modelSupportEndpointTypes[model],
 		}
 
 		// 补充模型元数据（描述、标签、供应商、状态）
