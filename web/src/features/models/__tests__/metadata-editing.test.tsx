@@ -24,6 +24,7 @@ import { AxiosError } from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { pricingOptions } from '@/features/model-pricing/pricing'
+import type { EffectivePricingResponse } from '@/features/pricing/effective-pricing'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -45,6 +46,14 @@ const model = {
   supported_endpoints: ['openai'],
   created_time: 1,
   updated_time: 1,
+}
+
+const emptyPricingPreview: EffectivePricingResponse = {
+  user_group: 'default',
+  currency: 'RUB',
+  fx: { usd_rate: 90, publication_version: 1, fetched_at: 1 },
+  available_user_groups: ['default'],
+  data: [],
 }
 
 afterEach(() => {
@@ -73,6 +82,9 @@ describe('model pricing entry', () => {
     const channelModel = { ...model, id: 0, model_name: 'channel-only' }
     let storedPrice = 1.5
     const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
+      if (url === '/api/option/effective_pricing') {
+        return { data: { success: true, data: emptyPricingPreview } }
+      }
       if (url === '/api/option/model_pricing') {
         return {
           data: {
@@ -150,6 +162,9 @@ describe('model pricing entry', () => {
       }
     )
     vi.spyOn(api, 'get').mockImplementation(async (url) => {
+      if (url === '/api/option/effective_pricing') {
+        return { data: { success: true, data: emptyPricingPreview } }
+      }
       if (url === '/api/models/7') return detail
       if (url === '/api/option/model_pricing') {
         return {
@@ -235,6 +250,9 @@ describe('model pricing entry', () => {
       matched_models: ['example-concrete'],
     }
     const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
+      if (url === '/api/option/effective_pricing') {
+        return { data: { success: true, data: emptyPricingPreview } }
+      }
       if (url === '/api/models/7') {
         return { data: { success: true, data: matchedModel } }
       }
@@ -445,6 +463,9 @@ describe('metadata editing', () => {
     let version = 'v1'
     let storedPrice = 1.5
     const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
+      if (url === '/api/option/effective_pricing') {
+        return { data: { success: true, data: emptyPricingPreview } }
+      }
       if (url === '/api/models/7') {
         return { data: { success: true, data: model } }
       }
