@@ -7,7 +7,6 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 )
@@ -122,7 +121,7 @@ func consumerOperations(item model.Pricing, group string, ratio float64, validRa
 			useExpression = true
 		}
 		if useExpression {
-			for _, prices := range billingexpr.CatalogPrices(expression) {
+			for _, prices := range item.ConfiguredPrices[expression] {
 				offer := model.CatalogOffer{Operation: operation, Mode: mode, MainComponent: main, ID: "configured:" + expression}
 				if len(prices) == 1 && prices[0].Component == "base" {
 					offer.MainComponent = "base"

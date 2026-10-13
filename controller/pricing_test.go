@@ -1,16 +1,23 @@
 package controller
 
 import (
+	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/gin-gonic/gin"
@@ -21,7 +28,7 @@ import (
 const prodFXFactor = 0.854594
 
 func tieredPricing(expr string) model.Pricing {
-	return model.Pricing{BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: expr}
+	return model.Pricing{BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: expr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expr: billingexpr.CatalogPrices(expr)}}
 }
 
 func float(v float64) *float64 { return &v }
@@ -461,6 +468,8 @@ func TestConsumerPricingBatchIsConfiguredAndIndependent(t *testing.T) {
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.batch_billing_expr": `{"catalog-batch":"tier(\"batch\",p * 4 + c * 7)"}`}))
 	item := tieredPricing(`len <= 1000 ? tier("short",p * 8 + c * 2) : tier("long",p * 1 + c * 9)`)
 	item.ModelName = "catalog-batch"
+	batchExpression, _ := billing_setting.GetBatchBillingExpr(item.ModelName)
+	item.ConfiguredPrices[batchExpression] = billingexpr.CatalogPrices(batchExpression)
 	item.BillingSourcesByGroup = map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {model.BillingSourceConfiguredTariff}, model.PricingEndpointBatch: {model.BillingSourceConfiguredTariff}}}
 	rows := consumerOperations(item, "default", 1, true)
 	require.Len(t, rows, 2)
@@ -535,4 +544,250 @@ func TestConsumerPricingPageUsesNativeChannelVideoPluginBinding(t *testing.T) {
 		require.NotNil(t, prices[0].AmountRub)
 		assert.Equal(t, amountRub, *prices[0].AmountRub)
 	}
+}
+
+func TestPricingCatalogNormalizeCoherentEndpointVariants(t *testing.T) {
+	body := []byte(`{"data":{"id":"provider/model","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"tag":"a","context_length":100,"pricing":{"prompt":"0.000001","completion":"0.000009","input_cache_read":"0","overrides":[{"min_prompt_tokens":0,"prompt":"0.000007","completion":"0.000003"},{"min_prompt_tokens":200,"completion":"0.0000001"}]}},{"tag":"b","pricing":{"prompt":"0.0000001","completion":"0.000008"}}]}}`)
+	offers, err := normalizeEndpointPricing("provider/model", "text", "output", body)
+	require.NoError(t, err)
+	require.Len(t, offers, 2)
+	reduced := selectPricingCatalogOffers(offers)
+	require.Len(t, reduced, 1)
+	selected := model.SelectCatalogOffer(reduced)
+	require.NotNil(t, selected)
+	prices := map[string]*float64{}
+	for _, price := range selected.Prices {
+		prices[price.Component] = price.AmountUSD
+	}
+	assert.InDelta(t, 7, *prices["input"], 1e-9)
+	assert.InDelta(t, 3, *prices["output"], 1e-9)
+	assert.Equal(t, 0.0, *prices["cache_read"])
+}
+
+func TestPricingCatalogReductionPreservesSelection(t *testing.T) {
+	for _, scenario := range []struct {
+		name   string
+		offers []model.CatalogOffer
+	}{
+		{"tie", []model.CatalogOffer{{ID: "z", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: float(1)}, {Component: "input", Unit: "million_tokens", AmountUSD: float(2)}}}, {ID: "a", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: float(1)}, {Component: "input", Unit: "million_tokens", AmountUSD: float(9)}}}}},
+		{"zero_unknown", []model.CatalogOffer{{ID: "null", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "output", Unit: "million_tokens"}}}, {ID: "zero", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: float(0)}}}}},
+		{"unlike_units", []model.CatalogOffer{{ID: "image", MainComponent: "image_output", Prices: []model.CatalogPrice{{Component: "image_output", Unit: "image", AmountUSD: float(1)}}}, {ID: "mp", MainComponent: "image_output", Prices: []model.CatalogPrice{{Component: "image_output", Unit: "megapixel", AmountUSD: float(.01)}}}}},
+		{"unknown_main", []model.CatalogOffer{{ID: "null", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: float(0)}}}}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			for index := range scenario.offers {
+				scenario.offers[index].Operation = "text"
+				scenario.offers[index].Mode = "sync"
+			}
+			before := model.SelectCatalogOffer(scenario.offers)
+			after := model.SelectCatalogOffer(selectPricingCatalogOffers(scenario.offers))
+			assert.Equal(t, before, after)
+		})
+	}
+}
+
+func TestPricingCatalogNativeImageUnitsAndUnknownVariants(t *testing.T) {
+	for _, scenario := range []struct {
+		name, body, unit string
+		amount           *float64
+	}{
+		{"first_megapixel", `{"id":"provider/image","endpoints":[{"provider_tag":"native","pricing":[{"billable":"output_image","unit":"megapixel","cost_usd":0.03}]}]}`, "megapixel", float(.03)},
+		{"token", `{"id":"provider/image","endpoints":[{"pricing":[{"billable":"output_image","unit":"token","cost_usd":0.00003}]}]}`, "million_tokens", float(30)},
+		{"free", `{"id":"provider/image","endpoints":[{"pricing":[{"billable":"output_image","unit":"image","cost_usd":0}]}]}`, "image", float(0)},
+		{"opaque_variant", `{"id":"provider/image","endpoints":[{"pricing":[{"billable":"output_image","unit":"image","cost_usd":0.001,"variant":"opaque"}]}]}`, "", nil},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			offers, err := normalizeImagePricing("provider/image", []byte(scenario.body))
+			require.NoError(t, err)
+			selected := model.SelectCatalogOffer(selectPricingCatalogOffers(offers))
+			if scenario.amount == nil {
+				assert.Nil(t, selected)
+				return
+			}
+			require.NotNil(t, selected)
+			require.Len(t, selected.Prices, 1)
+			assert.Equal(t, scenario.unit, selected.Prices[0].Unit)
+			assert.InDelta(t, *scenario.amount, *selected.Prices[0].AmountUSD, 1e-9)
+		})
+	}
+	_, err := normalizeImagePricing("provider/image", []byte(`{"id":"provider/image","endpoints":[{"pricing":[{"billable":"output_image","unit":"image"}]}]}`))
+	require.Error(t, err)
+}
+
+func TestPricingCatalogRefreshPartialFailureAndCancellation(t *testing.T) {
+	sources := make([]pricingCatalogSource, 12)
+	for index := range sources {
+		sources[index].upstream = string(rune('a' + index))
+	}
+	var calls, published, active, maximum atomic.Int64
+	gate := make(chan struct{})
+	ready := make(chan struct{}, pricingCatalogWorkers)
+	done := make(chan pricingCatalogRefreshSummary, 1)
+	go func() {
+		summary, err := refreshPricingCatalogSources(context.Background(), sources, func(ctx context.Context, source pricingCatalogSource) (model.PricingCatalogEntry, error) {
+			count := active.Add(1)
+			defer active.Add(-1)
+			for previous := maximum.Load(); count > previous && !maximum.CompareAndSwap(previous, count); previous = maximum.Load() {
+			}
+			if calls.Add(1) <= pricingCatalogWorkers {
+				ready <- struct{}{}
+				<-gate
+			}
+			if source.upstream == "a" {
+				return model.PricingCatalogEntry{}, errors.New("fixture failed metadata")
+			}
+			return model.PricingCatalogEntry{UpstreamModel: source.upstream}, nil
+		}, func(entry model.PricingCatalogEntry) error { published.Add(1); return nil })
+		assert.ErrorContains(t, err, "failed for 1 of 12 sources")
+		done <- summary
+	}()
+	for range pricingCatalogWorkers {
+		<-ready
+	}
+	close(gate)
+	summary := <-done
+	assert.Equal(t, 11, summary.Published)
+	assert.Equal(t, 1, summary.Failed)
+	assert.EqualValues(t, pricingCatalogWorkers, maximum.Load())
+	assert.EqualValues(t, 11, published.Load())
+	for _, failure := range []string{"fetch", "persist"} {
+		t.Run("all_"+failure+"_fail", func(t *testing.T) {
+			summary, err := refreshPricingCatalogSources(context.Background(), sources, func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error) {
+				if failure == "fetch" {
+					return model.PricingCatalogEntry{}, errors.New("metadata unavailable")
+				}
+				return model.PricingCatalogEntry{}, nil
+			}, func(model.PricingCatalogEntry) error {
+				if failure == "fetch" {
+					t.Error("failed fetch was published")
+				}
+				return errors.New("persistence unavailable")
+			})
+			require.ErrorContains(t, err, "failed for 12 of 12 sources")
+			assert.Equal(t, 12, summary.Failed)
+			assert.Zero(t, summary.Published)
+		})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := refreshPricingCatalogSources(ctx, sources, func(ctx context.Context, source pricingCatalogSource) (model.PricingCatalogEntry, error) {
+		return model.PricingCatalogEntry{}, ctx.Err()
+	}, func(model.PricingCatalogEntry) error { t.Fatal("cancelled task published"); return nil })
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestConsumerPricingUsesSnapshotAndActualBillingSource(t *testing.T) {
+	item := tieredPricing(`tier("base",p*2+c*3)`)
+	item.SupportedEndpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
+	item.BillingSourcesByGroup = map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {model.BillingSourceConfiguredTariff}}}
+	// Consumer uses the already projected snapshot even when the raw expression
+	// text is unavailable, and never reinterprets it as an actual-cost tariff.
+	delete(item.ConfiguredPrices, item.BillingExpr)
+	rows := consumerOperations(item, "default", 1, true)
+	require.Len(t, rows, 1)
+	assert.Empty(t, rows[0].Prices)
+	item.ConfiguredPrices[item.BillingExpr] = billingexpr.CatalogPrices(item.BillingExpr)
+	rows = consumerOperations(item, "default", 1, true)
+	require.Len(t, rows[0].Prices, 2)
+	item.BillingSourcesByGroup["default"][constant.EndpointTypeOpenAI] = []string{model.BillingSourceOpenRouterActualCost}
+	rows = consumerOperations(item, "default", 1, true)
+	assert.Empty(t, rows[0].Prices)
+}
+
+type pricingCatalogTestTransport func(*http.Request) (*http.Response, error)
+
+func (transport pricingCatalogTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
+}
+
+func TestPricingCatalogFetchUsesBoundedMetadataAndConsumerDoesNoHTTP(t *testing.T) {
+	client := service.GetHttpClient()
+	if client == nil {
+		client = http.DefaultClient
+	}
+	previousTransport := client.Transport
+	t.Cleanup(func() { client.Transport = previousTransport })
+	var attempts atomic.Int64
+	body := `{"data":{"id":"provider/model","architecture":{"input_modalities":["text"],"output_modalities":["text","audio"]},"endpoints":[{"tag":"native","pricing":{"prompt":"0.000001","completion":"0.000002","internal_reasoning":"0.000003","audio_output":"0.0005","web_search":"0.01"}}]}}`
+	client.Transport = pricingCatalogTestTransport(func(request *http.Request) (*http.Response, error) {
+		attempts.Add(1)
+		assert.Equal(t, http.MethodGet, request.Method)
+		assert.Equal(t, "https://openrouter.ai/api/v1/models/provider/model/endpoints", request.URL.String())
+		assert.Equal(t, "Bearer secret-fixture", request.Header.Get("Authorization"))
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	channel := &model.Channel{Id: 990, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "secret-fixture", Models: "provider/model"}
+	source := pricingCatalogSource{channel: channel, upstream: "provider/model", endpoint: constant.EndpointTypeOpenAI, fingerprint: model.PricingCatalogSourceFingerprint(channel, "provider/model", constant.EndpointTypeOpenAI)}
+	entry, err := fetchPricingCatalogSource(context.Background(), source)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, attempts.Load())
+	require.Len(t, entry.Offers, 1)
+	prices := map[string]model.CatalogPrice{}
+	for _, price := range entry.Offers[0].Prices {
+		prices[price.Component] = price
+	}
+	assert.Equal(t, "million_tokens", prices["reasoning_output"].Unit)
+	assert.Equal(t, 3.0, *prices["reasoning_output"].AmountUSD)
+	assert.Equal(t, "search", prices["web_search"].Unit)
+	assert.Equal(t, .01, *prices["web_search"].AmountUSD)
+	assert.NotContains(t, prices, "audio_output")
+	item := model.Pricing{ModelName: "provider/model", EnableGroup: []string{"default"}, CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": entry.Offers}}
+	for range 3 {
+		rows := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item)
+		require.Len(t, rows.GroupPrices[0].Operations, 1)
+	}
+	assert.EqualValues(t, 1, attempts.Load())
+	body = strings.Repeat("x", pricingCatalogBodyLimit+1)
+	_, err = fetchPricingCatalogSource(context.Background(), source)
+	require.ErrorContains(t, err, "body limit")
+	started := make(chan struct{})
+	client.Transport = pricingCatalogTestTransport(func(request *http.Request) (*http.Response, error) {
+		close(started)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := refreshPricingCatalogSources(ctx, []pricingCatalogSource{source}, fetchPricingCatalogSource, func(model.PricingCatalogEntry) error { t.Error("cancelled metadata was published"); return nil })
+		done <- err
+	}()
+	<-started
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+}
+
+func TestPricingCatalogNativeTextRequiresArchitectureProof(t *testing.T) {
+	for _, architecture := range []string{`{}`, `{"input_modalities":["text"],"output_modalities":["audio"]}`, `{"input_modalities":["text"],"output_modalities":["image"]}`} {
+		body := []byte(`{"data":{"id":"provider/model","architecture":` + architecture + `,"endpoints":[{"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`)
+		_, err := normalizeEndpointPricing("provider/model", "text", "output", body)
+		require.ErrorContains(t, err, "text-only")
+	}
+}
+
+func TestPricingCatalogImageFontInputPreservesNativeCoherentPrice(t *testing.T) {
+	body := []byte(`{"id":"sourceful/riverflow","endpoints":[{"provider_tag":"sourceful","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.06},{"billable":"input_font","unit":"image","cost_usd":0.03}]}]}`)
+	offers, err := normalizeImagePricing("sourceful/riverflow", body)
+	require.NoError(t, err)
+	selected := model.SelectCatalogOffer(selectPricingCatalogOffers(offers))
+	require.NotNil(t, selected)
+	require.Len(t, selected.Prices, 2)
+	assert.Equal(t, "image_output", selected.Prices[0].Component)
+	assert.Equal(t, 0.06, *selected.Prices[0].AmountUSD)
+	assert.Equal(t, "font_input", selected.Prices[1].Component)
+	assert.Equal(t, "image", selected.Prices[1].Unit)
+	assert.Equal(t, 0.03, *selected.Prices[1].AmountUSD)
+	item := model.Pricing{CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": {*selected}}}
+	rows := consumerOperations(item, "default", 1, true)
+	require.Len(t, rows, 1)
+	require.Len(t, rows[0].Prices, 2)
+	for _, price := range rows[0].Prices {
+		if price.Component == "font_input" {
+			assert.Equal(t, "image", price.Unit)
+			require.NotNil(t, price.AmountRub)
+			assert.Equal(t, 3.0, *price.AmountRub)
+			return
+		}
+	}
+	t.Fatal("font_input native price lost in consumer projection")
 }

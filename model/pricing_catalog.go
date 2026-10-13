@@ -1,8 +1,6 @@
 package model
 
 import (
-	_ "embed"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"math"
 	"slices"
@@ -37,22 +35,3 @@ func SelectCatalogOffer(offers []CatalogOffer) *CatalogOffer {
 	}
 	return selected
 }
-
-//go:embed pricing_catalog.json
-var pricingCatalogJSON []byte
-
-type catalogSource struct {
-	Source    string         `json:"source"`
-	FetchedAt string         `json:"fetched_at"`
-	Offers    []CatalogOffer `json:"offers"`
-}
-
-var pricingCatalog = func() map[string]catalogSource {
-	var snapshot struct {
-		Models map[string]catalogSource `json:"models"`
-	}
-	if err := common.Unmarshal(pricingCatalogJSON, &snapshot); err != nil {
-		panic(err)
-	}
-	return snapshot.Models
-}()

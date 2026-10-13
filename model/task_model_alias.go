@@ -210,3 +210,12 @@ func followChannelModelMapping(modelMap map[string]string, start string) (string
 		current = mapped
 	}
 }
+
+func ResolvePricingUpstreamModel(channel *Channel, modelName string) (string, bool) {
+	var mapping map[string]string
+	if common.UnmarshalJsonStr(channel.GetModelMapping(), &mapping) != nil {
+		return "", false
+	}
+	upstream, cyclic := followChannelModelMapping(mapping, modelName)
+	return upstream, !cyclic
+}

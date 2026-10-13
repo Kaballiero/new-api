@@ -1315,7 +1315,7 @@ func normalizeV1Meta(meta *Meta) error {
 	if err := validateUsageExamples(meta.UsageSchema, meta.UsageExamples); err != nil {
 		return err
 	}
-	if err := meta.PriceCatalog.validate(meta.Models); err != nil {
+	if err := meta.PriceCatalog.Validate(meta.Models); err != nil {
 		return err
 	}
 	for action, basis := range meta.LegacyPriceBasis {

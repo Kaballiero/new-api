@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -250,6 +251,10 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == PricingCatalogOptionKey {
+		_, err := decodePricingCatalog(value)
+		return err
+	}
 	switch canonicalGroupRatioOption(key) {
 	case "GroupRatio":
 		return ratio_setting.CheckGroupRatio(value)
@@ -269,7 +274,7 @@ func validateOptionValue(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
-	if canonicalGroupRatioOption(key) != "" {
+	if canonicalGroupRatioOption(key) != "" || key == PricingCatalogOptionKey {
 		return UpdateOptionsBulk(map[string]string{key: value})
 	}
 	if IsModelPricingOption(key) {
@@ -299,6 +304,19 @@ func UpdateOption(key string, value string) error {
 // is touched — safe for callers that must commit a set of related options
 // atomically (e.g. payment gateway binding).
 func UpdateOptionsBulk(values map[string]string) error {
+	groupRatioOptionMutex.Lock()
+	defer groupRatioOptionMutex.Unlock()
+	return updateOptionsBulkLocked(values)
+}
+
+func updateOptionsBulkLocked(values map[string]string) error {
+	return updateOptionsBulkLockedContext(context.Background(), values)
+}
+
+func updateOptionsBulkLockedContext(ctx context.Context, values map[string]string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(values) == 0 {
 		return nil
 	}
@@ -323,10 +341,8 @@ func UpdateOptionsBulk(values map[string]string) error {
 		}
 	}
 	// Do not let an older synchronization snapshot overwrite a completed write.
-	groupRatioOptionMutex.Lock()
-	defer groupRatioOptionMutex.Unlock()
 	keys := slices.Sorted(maps.Keys(values))
-	err := DB.Transaction(func(tx *gorm.DB) error {
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, k := range keys {
 			v := values[k]
 			option := Option{Key: k}
@@ -355,6 +371,17 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if key == PricingCatalogOptionKey {
+		snapshot, err := decodePricingCatalog(value)
+		if err != nil {
+			return err
+		}
+		loadPricingCatalog(snapshot)
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap[key] = value
+		common.OptionMapRWMutex.Unlock()
+		return nil
+	}
 	if key == retiredThemeOptionKey {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)

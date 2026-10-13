@@ -26,7 +26,7 @@ type PriceCatalog struct {
 	Models    map[string][]CatalogOffer `json:"models"`
 }
 
-func (catalog *PriceCatalog) validate(models []string) error {
+func (catalog *PriceCatalog) Validate(models []string) error {
 	if catalog == nil {
 		return nil
 	}
@@ -46,7 +46,7 @@ func (catalog *PriceCatalog) validate(models []string) error {
 			}
 			components := make(map[string]bool)
 			for _, price := range offer.Prices {
-				if price.Component == "" || components[price.Component] || !slices.Contains([]string{"million_tokens", "image", "megapixel", "second", "call", "megapixel_second"}, price.Unit) {
+				if price.Component == "" || components[price.Component] || !slices.Contains([]string{"million_tokens", "image", "megapixel", "second", "call", "megapixel_second", "search"}, price.Unit) {
 					return fmt.Errorf("plugin price catalog component is invalid")
 				}
 				components[price.Component] = true

@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -26,6 +27,7 @@ const (
 )
 
 type Pricing struct {
+	ConfiguredPrices                map[string][][]billingexpr.DisplayPrice       `json:"-"`
 	PriceConfigured                 bool                                          `json:"-"`
 	CatalogOffersByGroup            map[string][]CatalogOffer                     `json:"-"`
 	BillingSourcesByGroup           map[string]map[constant.EndpointType][]string `json:"billing_sources_by_group,omitempty"`
@@ -486,7 +488,11 @@ func updatePricing() {
 			continue
 		}
 		if channel.Type == constant.ChannelTypeOpenRouter {
-			if strings.TrimRight(channel.GetBaseURL(), "/") != "https://openrouter.ai/api" {
+			baseURL := channel.GetBaseURL()
+			if baseURL == "" {
+				baseURL = constant.GetChannelBaseURL(channel.Type)
+			}
+			if strings.TrimRight(baseURL, "/") != "https://openrouter.ai/api" {
 				continue
 			}
 			if channel.ParamOverride != nil && strings.TrimSpace(*channel.ParamOverride) != "" && strings.TrimSpace(*channel.ParamOverride) != "{}" {
@@ -517,8 +523,13 @@ func updatePricing() {
 			}
 		}
 		if offers == nil && channel.Type == constant.ChannelTypeOpenRouter {
-			if source, known := pricingCatalog[upstream]; known {
-				offers = source.Offers
+			for endpoint, sources := range billingSources[ability.Model][ability.Group] {
+				if !slices.Contains(sources, BillingSourceOpenRouterActualCost) {
+					continue
+				}
+				if source, known := GetPricingCatalogEntry(channel, upstream, endpoint); known {
+					offers = append(offers, source.Offers...)
+				}
 			}
 		}
 		if len(offers) == 0 {
@@ -533,6 +544,7 @@ func updatePricing() {
 		}
 	}
 	pricingMap = make([]Pricing, 0)
+	projectedExpressions := make(map[string][][]billingexpr.DisplayPrice)
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
 			CatalogOffersByGroup:         catalogOffers[model],
@@ -625,6 +637,27 @@ func updatePricing() {
 						Facts: facts,
 					}
 				}
+			}
+		}
+		pricing.ConfiguredPrices = make(map[string][][]billingexpr.DisplayPrice)
+		for _, endpoints := range pricing.BillingSourcesByGroup {
+			for endpoint, sources := range endpoints {
+				if !slices.Contains(sources, BillingSourceConfiguredTariff) {
+					continue
+				}
+				expression := pricing.BillingExpr
+				if endpoint == PricingEndpointBatch {
+					expression, _ = billing_setting.GetBatchBillingExpr(model)
+				}
+				if expression == "" {
+					continue
+				}
+				prices, exists := projectedExpressions[expression]
+				if !exists {
+					prices = billingexpr.CatalogPrices(expression)
+					projectedExpressions[expression] = prices
+				}
+				pricing.ConfiguredPrices[expression] = prices
 			}
 		}
 		pricing.IndicativeBillingExprByEndpoint = make(map[constant.EndpointType]string)
