@@ -8,15 +8,17 @@ import (
 )
 
 type effectivePricingTier struct {
-	Label      string                         `json:"label,omitempty"`
-	Condition  *effectivePricingTierCondition `json:"condition,omitempty"`
-	UnitPrices []effectiveUnitPrice           `json:"unit_prices"`
+	Label            string                         `json:"label,omitempty"`
+	Condition        *effectivePricingTierCondition `json:"condition,omitempty"`
+	UnitPrices       []effectiveUnitPrice           `json:"unit_prices"`
+	PriceComposition string                         `json:"price_composition,omitempty"`
 }
 
 // effectivePricingTierCondition describes what selects a tier without exposing
 // expression text. Numeric kinds carry an exclusive MinValue and an inclusive
 // MaxValue in tokens; time_of_day carries half-open [start, end) hour windows.
 type effectivePricingTierCondition struct {
+	AnyOf       []effectivePricingGuardSet      `json:"any_of,omitempty"`
 	Guards      []billingexpr.DisplayUsageGuard `json:"guards,omitempty"`
 	Kind        string                          `json:"kind"`
 	Unit        string                          `json:"unit,omitempty"`
@@ -24,6 +26,10 @@ type effectivePricingTierCondition struct {
 	MaxValue    *float64                        `json:"max_value,omitempty"`
 	TimeZone    string                          `json:"time_zone,omitempty"`
 	TimeWindows []effectivePricingTimeWindow    `json:"time_windows,omitempty"`
+}
+
+type effectivePricingGuardSet struct {
+	Guards []billingexpr.DisplayUsageGuard `json:"guards"`
 }
 
 type effectivePricingTimeWindow struct {

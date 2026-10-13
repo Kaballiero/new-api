@@ -12,13 +12,20 @@ import (
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 )
 
+type effectivePricingSummary struct {
+	Kind       string               `json:"kind"`
+	UnitPrices []effectiveUnitPrice `json:"unit_prices"`
+	IsFrom     bool                 `json:"is_from"`
+}
+
 type effectiveOperationTariff struct {
-	EndpointType   constant.EndpointType  `json:"endpoint_type"`
-	Source         string                 `json:"source"`
-	BillingSurface string                 `json:"billing_surface"`
-	Status         string                 `json:"status"`
-	Tiers          []effectivePricingTier `json:"tiers"`
-	Limitations    []string               `json:"limitations,omitempty"`
+	Summary        *effectivePricingSummary `json:"summary,omitempty"`
+	EndpointType   constant.EndpointType    `json:"endpoint_type"`
+	Source         string                   `json:"source"`
+	BillingSurface string                   `json:"billing_surface"`
+	Status         string                   `json:"status"`
+	Tiers          []effectivePricingTier   `json:"tiers"`
+	Limitations    []string                 `json:"limitations,omitempty"`
 }
 
 func withOperationTariffs(response effectivePricingResponse, pricing []model.Pricing) effectivePricingResponse {
@@ -58,7 +65,7 @@ func operationTariffs(item model.Pricing, group effectiveGroupPricing) []effecti
 			if source != model.BillingSourceConfiguredTariff && source != model.BillingSourceOpenRouterActualCost {
 				continue
 			}
-			tariffs = append(tariffs, buildOperationTariff(item, group, endpoint, source))
+			tariffs = append(tariffs, compactOperationTariff(buildOperationTariff(item, group, endpoint, source)))
 		}
 	}
 	return tariffs
