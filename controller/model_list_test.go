@@ -218,6 +218,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 	}, 0))
 
 	require.NoError(t, db.Create(&model.User{Id: 2101, Username: "effective-pricing-user", Password: "password", Group: "default", Status: common.UserStatusEnabled}).Error)
+	require.NoError(t, db.Create(&[]model.Channel{{Id: 1, Type: constant.ChannelTypeOpenAI, Status: 1}, {Id: 2, Type: constant.ChannelTypeOpenAI, Status: 1}, {Id: 3, Type: constant.ChannelTypeOpenAI, Status: 1}}).Error)
 	require.NoError(t, db.Create(&[]model.Ability{
 		{Group: "default", Model: "zz-effective-ratio", ChannelId: 1, Enabled: true},
 		{Group: "vip", Model: "zz-effective-ratio", ChannelId: 2, Enabled: true},
@@ -239,47 +240,46 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 	GetEffectivePricing(c)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), `"operation_tariffs":`)
+	assert.Contains(t, recorder.Body.String(), `"operations":`)
+	assert.NotContains(t, recorder.Body.String(), `"formula":`)
 	var envelope struct {
-		Success bool                     `json:"success"`
-		Data    effectivePricingResponse `json:"data"`
+		Success bool                    `json:"success"`
+		Data    consumerPricingResponse `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &envelope))
 	require.True(t, envelope.Success)
 	assert.Equal(t, "default", envelope.Data.UserGroup)
-	assert.Equal(t, 0.9, envelope.Data.FX.Factor)
+	assert.Equal(t, "v2", envelope.Data.SchemaVersion)
 
-	models := map[string]effectivePricingModel{}
+	models := map[string]consumerPricingModel{}
 	for _, item := range envelope.Data.Data {
 		models[item.ModelName] = item
 	}
 	ratioModel := models["zz-effective-ratio"]
 	require.Len(t, ratioModel.GroupPrices, 2)
-	groups := map[string]effectiveGroupPricing{}
+	groups := map[string]consumerGroupPricing{}
 	for _, price := range ratioModel.GroupPrices {
 		groups[price.UsingGroup] = price
 	}
-	assert.Equal(t, 0.9, groups["default"].EffectiveBillingRatio)
-	assert.Equal(t, 1.35, groups["vip"].EffectiveBillingRatio, "special override replaces vip base ratio before FX")
-	assert.InEpsilon(t, 3*1.35*200, groups["vip"].UnitPrices[0].AmountRub, 1e-12)
-	assert.InEpsilon(t, 3*1.35*200*4, groups["vip"].UnitPrices[1].AmountRub, 1e-12)
+	require.Len(t, groups["default"].Operations, 1)
+	require.Len(t, groups["vip"].Operations, 1)
+	assert.InEpsilon(t, 3*1.35*200, *groups["vip"].Operations[0].Prices[0].AmountRub, 1e-12)
+	assert.InEpsilon(t, 3*1.35*200*4, *groups["vip"].Operations[0].Prices[1].AmountRub, 1e-12)
 
 	fixed := models["zz-effective-fixed"]
 	require.Len(t, fixed.GroupPrices, 1)
 	assert.Equal(t, "vip", fixed.GroupPrices[0].UsingGroup)
-	assert.InEpsilon(t, 2*100*1.35, fixed.GroupPrices[0].UnitPrices[0].AmountRub, 1e-12)
+	assert.InEpsilon(t, 2*100*1.35, *fixed.GroupPrices[0].Operations[0].Prices[0].AmountRub, 1e-12)
 
 	expr := models["zz-effective-expr"]
 	require.Len(t, expr.GroupPrices, 1)
-	require.NotNil(t, expr.GroupPrices[0].Formula)
-	assert.Equal(t, "formula", expr.GroupPrices[0].Status)
-	assert.Equal(t, "token_expression", expr.GroupPrices[0].Formula.Kind)
-	assert.Equal(t, `tier("base", p * 2 + c * 6)`, expr.GroupPrices[0].Formula.Expression)
-	assert.InEpsilon(t, 500000*1.35/1000000, expr.GroupPrices[0].Formula.OutputToQuotaFactor, 1e-12)
-	assert.InEpsilon(t, 1.35/10000, expr.GroupPrices[0].Formula.OutputToRubFactor, 1e-12)
+	require.Len(t, expr.GroupPrices[0].Operations, 1)
+	require.Len(t, expr.GroupPrices[0].Operations[0].Prices, 2)
+	assert.InEpsilon(t, 270, *expr.GroupPrices[0].Operations[0].Prices[0].AmountRub, 1e-12)
+	assert.InEpsilon(t, 810, *expr.GroupPrices[0].Operations[0].Prices[1].AmountRub, 1e-12)
 	assert.NotContains(t, models, "zz-effective-hidden", "models unavailable to the selected user group are omitted")
 
-	groupResponses := make([]effectivePricingResponse, 0, 3)
+	groupResponses := make([]consumerPricingResponse, 0, 3)
 	for _, tc := range []struct {
 		query     string
 		wantGroup string
@@ -294,10 +294,10 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 		groupContext.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective"+tc.query, nil)
 		GetEffectivePricingByGroup(groupContext)
 		require.Equal(t, http.StatusOK, groupRecorder.Code)
-		assert.Contains(t, groupRecorder.Body.String(), `"operation_tariffs":`)
+		assert.Contains(t, groupRecorder.Body.String(), `"operations":`)
 		var groupEnvelope struct {
-			Success bool                     `json:"success"`
-			Data    effectivePricingResponse `json:"data"`
+			Success bool                    `json:"success"`
+			Data    consumerPricingResponse `json:"data"`
 		}
 		require.NoError(t, common.Unmarshal(groupRecorder.Body.Bytes(), &groupEnvelope))
 		require.True(t, groupEnvelope.Success)
@@ -327,7 +327,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 	assert.NotEqual(t, cachedBefore, cachedAfter, "group-keyed cache must invalidate when effective group ratios change")
 	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"vip":1.5}}`))
 
-	// The root preview uses the same projection as the authenticated self endpoint.
+	// The root preview retains the rich editor projection.
 	for _, query := range []string{"", "?user_group=default", "?user_group=vip"} {
 		previewRecorder := httptest.NewRecorder()
 		previewContext, _ := gin.CreateTestContext(previewRecorder)

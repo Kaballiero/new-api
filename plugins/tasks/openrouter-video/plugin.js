@@ -1,7 +1,7 @@
 // The catalog is refreshed outside synchronous hooks by update-catalog.py.
 // BEGIN VIDEO CATALOG
 const catalog = {
-  "fetched_at": "2026-10-09T20:02:55.839033+00:00",
+  "fetched_at": "2026-10-13T13:41:19.105487+00:00",
   "models": [
     {
       "id": "x-ai/grok-imagine-video-1.5-lite",
@@ -1655,7 +1655,41 @@ const catalog = {
 };
 // END VIDEO CATALOG
 
+function videoPriceCatalog() {
+  const models = {};
+  const pattern = /^(?:(text_to_video|image_to_video)_)?(duration_seconds|reference_duration_seconds|video_tokens|cents_per_video_output_second|cents_per_second_output|cents_per_second_video_continuation)(?:_(with_audio|without_audio))?(?:_(480p|720p|768p|1080p|2k|4k))?(?:_(with_video_input))?$/;
+  catalog.models.forEach(function (model) {
+    const offers = [];
+    const skus = model.pricing_skus || {};
+    const unsupported = Object.keys(skus).some(function (key) {
+      return key !== "cents_per_image_input" && key !== "reference_images" && !pattern.test(key);
+    });
+    if (!unsupported) Object.keys(skus).sort().forEach(function (key) {
+      const match = pattern.exec(key);
+      if (!match || (match[2] === "video_tokens" && match[5])) return;
+      const rate = Number(skus[key]);
+      if (!Number.isFinite(rate) || rate < 0) return;
+      const unit = match[2] === "video_tokens" ? "million_tokens" : "second";
+      const amount = match[2] === "video_tokens" ? rate * 1000000 : match[2].indexOf("cents_") === 0 ? rate / 100 : rate;
+      let operations = match[1] ? [match[1]] : ["text_to_video"];
+      if (!match[1] && (model.input_modalities || []).indexOf("image") >= 0 && !(model.id === "heygen/heygen-video-1" && match[2] === "duration_seconds")) operations.push("image_to_video");
+      if (match[2] === "reference_duration_seconds") operations = ["image_to_video", "video_to_video"];
+      if (match[5] || match[2] === "cents_per_second_video_continuation") operations = ["video_to_video"];
+      if (model.id === "black-forest-labs/flux-video-edit") operations = ["video_editing"];
+      operations.forEach(function (operation) {
+        const prices = [{ component: "video_output", unit: unit, amount_usd: amount }];
+        if (operation === "image_to_video" && skus.cents_per_image_input !== undefined) prices.push({ component: "image_input", unit: "image", amount_usd: Number(skus.cents_per_image_input) / 100 });
+        if (operation === "image_to_video" && skus.reference_images !== undefined) prices.push({ component: "additional_reference_input", unit: "image", amount_usd: Number(skus.reference_images) });
+        offers.push({ id: key + ":" + operation, operation: operation, mode: "sync", main_component: "video_output", prices: prices });
+      });
+    });
+    models[model.id] = offers;
+  });
+  return { fetched_at: catalog.fetched_at, models: models };
+}
+
 export const meta = {
+  priceCatalog: videoPriceCatalog(),
   apiVersion: 1,
   key: "openrouter-video",
   name: "OpenRouter Video",

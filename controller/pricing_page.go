@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -27,13 +26,13 @@ type effectivePricingCreator struct {
 }
 
 type effectivePricingPageItem struct {
-	effectivePricingModel
+	consumerPricingModel
 	Modality string                   `json:"modality"`
 	Creator  *effectivePricingCreator `json:"creator"`
 }
 
 type effectivePricingPageData struct {
-	effectivePricingResponse
+	consumerPricingResponse
 	Offset     int                        `json:"offset"`
 	Limit      int                        `json:"limit"`
 	TotalCount int                        `json:"total_count"`
@@ -53,7 +52,8 @@ type effectivePricingPageQuery struct {
 }
 
 type effectivePricingPageContext struct {
-	metadata     effectivePricingResponse
+	metadata     consumerPricingResponse
+	fxFactor     float64
 	pricing      []model.Pricing
 	vendors      []model.PricingVendor
 	usableGroups map[string]string
@@ -196,7 +196,7 @@ func serveEffectivePricingPage(c *gin.Context, userGroup, usingGroup string, que
 	}
 	pricing, vendors := model.GetPricingCatalogue()
 	context := effectivePricingPageContext{
-		metadata: buildEffectivePricingResponse(userGroup, basis, nil), pricing: pricing, vendors: vendors,
+		metadata: buildConsumerPricingResponse(userGroup, basis, nil), fxFactor: basis.Factor, pricing: pricing, vendors: vendors,
 		usableGroups: usableGroups, groupRatios: make(map[string]float64, len(usableGroups)), usingGroup: usingGroup,
 	}
 	for group := range usableGroups {
@@ -209,14 +209,8 @@ func serveEffectivePricingPage(c *gin.Context, userGroup, usingGroup string, que
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 }
 
-func (context effectivePricingPageContext) project(item model.Pricing) effectivePricingModel {
-	result := buildEffectivePricingModelWithRatios(context.usableGroups, context.groupRatios, context.metadata.FX.Factor, item)
-	for index := range result.GroupPrices {
-		group := &result.GroupPrices[index]
-		tariffs := operationTariffs(item, *group)
-		group.OperationTariffs = &tariffs
-	}
-	return result
+func (context effectivePricingPageContext) project(item model.Pricing) consumerPricingModel {
+	return buildConsumerPricingModel(context.usableGroups, context.groupRatios, context.fxFactor, item)
 }
 
 type effectivePricingPageCandidate struct {
@@ -226,8 +220,8 @@ type effectivePricingPageCandidate struct {
 	price    *float64
 }
 
-func buildEffectivePricingPage(context effectivePricingPageContext, query effectivePricingPageQuery, project func(model.Pricing) effectivePricingModel) effectivePricingPageData {
-	response := effectivePricingPageData{effectivePricingResponse: context.metadata, Offset: query.offset, Limit: query.limit, Creators: []effectivePricingCreator{}, Data: []effectivePricingPageItem{}}
+func buildEffectivePricingPage(context effectivePricingPageContext, query effectivePricingPageQuery, project func(model.Pricing) consumerPricingModel) effectivePricingPageData {
+	response := effectivePricingPageData{consumerPricingResponse: context.metadata, Offset: query.offset, Limit: query.limit, Creators: []effectivePricingCreator{}, Data: []effectivePricingPageItem{}}
 	creators := make(map[int]*effectivePricingCreator, len(context.vendors))
 	for _, vendor := range context.vendors {
 		if name := trimPricingText(vendor.Name); name != "" {
@@ -242,7 +236,7 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 			continue
 		}
 		if context.usingGroup != "" && len(item.BillingSourcesForGroup(context.usingGroup)) == 0 {
-			if _, err := service.ApplyBillingFX(context.groupRatios[context.usingGroup], context.metadata.FX.Factor); err != nil {
+			if _, err := service.ApplyBillingFX(context.groupRatios[context.usingGroup], context.fxFactor); err != nil {
 				continue
 			}
 		}
@@ -311,7 +305,7 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 	start := min(query.offset, len(candidates))
 	end := start + min(query.limit, len(candidates)-start)
 	for _, candidate := range candidates[start:end] {
-		response.Data = append(response.Data, effectivePricingPageItem{effectivePricingModel: project(context.pricing[candidate.index]), Modality: candidate.modality, Creator: candidate.creator})
+		response.Data = append(response.Data, effectivePricingPageItem{consumerPricingModel: project(context.pricing[candidate.index]), Modality: candidate.modality, Creator: candidate.creator})
 	}
 	return response
 }
@@ -355,7 +349,7 @@ func effectivePricingModality(item model.Pricing) string {
 	return "TEXT"
 }
 
-func effectivePricingPageKeys(item effectivePricingModel, orderBy string) (string, *float64) {
+func effectivePricingPageKeys(item consumerPricingModel, orderBy string) (string, *float64) {
 	unit := "UNCONFIGURED"
 	var minimum *float64
 	component := "input"
@@ -363,50 +357,30 @@ func effectivePricingPageKeys(item effectivePricingModel, orderBy string) (strin
 		component = "output"
 	}
 	for _, group := range item.GroupPrices {
-		if group.OperationTariffs != nil && *group.OperationTariffs != nil {
-			for _, tariff := range *group.OperationTariffs {
-				unit = effectivePricingUnit(unit, tariff.BillingSurface)
-				if tariff.EndpointType == model.PricingEndpointBatch || tariff.Status == "unavailable" || tariff.BillingSurface != "token" {
+		for _, operation := range group.Operations {
+			if operation.Mode == "batch" {
+				continue
+			}
+			for _, price := range operation.Prices {
+				if price.AmountRub == nil {
 					continue
 				}
-				for _, tier := range tariff.Tiers {
-					minimum = effectivePricingMinimum(minimum, tier.UnitPrices, component)
+				if unit == "UNCONFIGURED" {
+					unit = "NATIVE"
+				}
+				if price.Unit == "call" {
+					unit = "CALLS"
+				} else if price.Unit == "million_tokens" && unit != "CALLS" {
+					unit = "TOKENS"
+				}
+				if price.Component == component && price.Unit == "million_tokens" && (minimum == nil || *price.AmountRub < *minimum) {
+					amount := *price.AmountRub
+					minimum = &amount
 				}
 			}
-			continue
-		}
-		unit = effectivePricingUnit(unit, group.BillingSurface)
-		if group.Status == "unavailable" || group.BillingSurface != "token" {
-			continue
-		}
-		for _, tier := range group.Tiers {
-			minimum = effectivePricingMinimum(minimum, tier.UnitPrices, component)
-		}
-		if group.Status == "unit_prices" {
-			minimum = effectivePricingMinimum(minimum, group.UnitPrices, component)
 		}
 	}
 	return unit, minimum
-}
-
-func effectivePricingUnit(current, surface string) string {
-	if surface == "per_call" {
-		return "CALLS"
-	}
-	if current != "CALLS" && surface == "token" {
-		return "TOKENS"
-	}
-	return current
-}
-
-func effectivePricingMinimum(current *float64, prices []effectiveUnitPrice, component string) *float64 {
-	for _, price := range prices {
-		if price.Component == component && price.Unit == "million_tokens" && !math.IsNaN(price.AmountRub) && !math.IsInf(price.AmountRub, 0) && (current == nil || price.AmountRub < *current) {
-			amount := price.AmountRub
-			current = &amount
-		}
-	}
-	return current
 }
 
 func trimPricingText(value string) string {

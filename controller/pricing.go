@@ -122,21 +122,19 @@ type effectivePricingModel struct {
 }
 
 type effectiveGroupPricing struct {
-	OperationTariffs            *[]effectiveOperationTariff                      `json:"operation_tariffs,omitempty"`
-	BillingSourcesByEndpoint    map[constant.EndpointType][]string               `json:"billing_sources_by_endpoint,omitempty"`
-	OpenRouterIndicativeTariffs map[constant.EndpointType]*effectiveGroupPricing `json:"openrouter_indicative_tariffs,omitempty"`
-	UsingGroup                  string                                           `json:"using_group"`
-	PureGroupRatio              float64                                          `json:"pure_group_ratio"`
-	EffectiveBillingRatio       float64                                          `json:"effective_billing_ratio"`
-	BillingMode                 string                                           `json:"billing_mode"`
-	BillingSurface              string                                           `json:"billing_surface"`
-	Status                      string                                           `json:"status"`
-	UnitPrices                  []effectiveUnitPrice                             `json:"unit_prices,omitempty"`
-	Tiers                       []effectivePricingTier                           `json:"tiers"`
-	IsFree                      bool                                             `json:"is_free"`
-	Formula                     *effectivePricingFormula                         `json:"formula,omitempty"`
-	Limitations                 []string                                         `json:"limitations,omitempty"`
-	UsageSchema                 map[string]jsplugin.UsageFieldSchema             `json:"usage_schema,omitempty"`
+	BillingSourcesByEndpoint map[constant.EndpointType][]string   `json:"billing_sources_by_endpoint,omitempty"`
+	UsingGroup               string                               `json:"using_group"`
+	PureGroupRatio           float64                              `json:"pure_group_ratio"`
+	EffectiveBillingRatio    float64                              `json:"effective_billing_ratio"`
+	BillingMode              string                               `json:"billing_mode"`
+	BillingSurface           string                               `json:"billing_surface"`
+	Status                   string                               `json:"status"`
+	UnitPrices               []effectiveUnitPrice                 `json:"unit_prices,omitempty"`
+	Tiers                    []effectivePricingTier               `json:"tiers"`
+	IsFree                   bool                                 `json:"is_free"`
+	Formula                  *effectivePricingFormula             `json:"formula,omitempty"`
+	Limitations              []string                             `json:"limitations,omitempty"`
+	UsageSchema              map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
 }
 
 type effectiveUnitPrice struct {
@@ -158,7 +156,7 @@ type effectivePricingCacheEntry struct {
 	usableGroups    map[string]string
 	autoGroups      []string
 	groupRatios     map[string]float64
-	response        effectivePricingResponse
+	response        consumerPricingResponse
 }
 
 var effectivePricingCache = struct {
@@ -177,12 +175,12 @@ func GetEffectivePricing(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to resolve user pricing group"})
 		return
 	}
-	response, err := getEffectivePricingResponse(user.Group)
+	response, err := getConsumerPricingResponse(user.Group)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": withOperationTariffs(response, model.GetPricing())})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 }
 
 // GetEffectivePricingByGroup returns the same projection as the per-user
@@ -205,18 +203,18 @@ func GetEffectivePricingByGroup(c *gin.Context) {
 		return
 	}
 
-	response, err := getEffectivePricingResponse(group)
+	response, err := getConsumerPricingResponse(group)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": withOperationTariffs(response, model.GetPricing())})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 }
 
-func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, error) {
+func getConsumerPricingResponse(userGroup string) (consumerPricingResponse, error) {
 	basis, err := service.CurrentBillingFXBasis()
 	if err != nil {
-		return effectivePricingResponse{}, err
+		return consumerPricingResponse{}, err
 	}
 	pricing := model.GetPricing()
 	pricingRevision := model.GetPricingRevision()
@@ -236,7 +234,7 @@ func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, er
 		return cached.response, nil
 	}
 
-	response := buildEffectivePricingResponse(userGroup, basis, pricing)
+	response := buildConsumerPricingResponse(userGroup, basis, pricing)
 	effectivePricingCache.Lock()
 	effectivePricingCache.entries[userGroup] = effectivePricingCacheEntry{
 		pricingRevision: pricingRevision,
@@ -248,6 +246,13 @@ func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, er
 	}
 	effectivePricingCache.Unlock()
 	return response, nil
+}
+func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, error) {
+	basis, err := service.CurrentBillingFXBasis()
+	if err != nil {
+		return effectivePricingResponse{}, err
+	}
+	return buildEffectivePricingResponse(userGroup, basis, model.GetPricing()), nil
 }
 
 func buildEffectivePricingResponse(userGroup string, basis service.BillingFXBasis, pricing []model.Pricing) effectivePricingResponse {
@@ -300,37 +305,10 @@ func buildEffectivePricingModelWithRatios(usableGroups map[string]string, groupR
 		groupPrice := buildEffectiveGroupPricing(item, group, pure, effective)
 		sourcesByEndpoint := item.BillingSourcesForGroup(group)
 		groupPrice.BillingSourcesByEndpoint = sourcesByEndpoint
-		for endpoint, sources := range sourcesByEndpoint {
-			if !slices.Contains(sources, model.BillingSourceOpenRouterActualCost) {
-				continue
-			}
-			if groupPrice.OpenRouterIndicativeTariffs == nil {
-				groupPrice.OpenRouterIndicativeTariffs = make(map[constant.EndpointType]*effectiveGroupPricing)
-			}
-			expression := strings.TrimSpace(item.IndicativeBillingExprByEndpoint[endpoint])
-			tariff := effectiveGroupPricing{UsingGroup: group, Status: "unavailable", Tiers: []effectivePricingTier{}, Limitations: []string{"missing_display_expression"}}
-			if expression != "" {
-				displayItem := item
-				displayItem.BillingMode = billing_setting.BillingModeTieredExpr
-				displayItem.BillingExpr = expression
-				tariff = buildEffectiveGroupPricing(displayItem, group, pure, effective)
-				// Cost variables have no token-unit price; preserve the formula only.
-				for _, tier := range tariff.Tiers {
-					for _, price := range tier.UnitPrices {
-						if price.Component == "provider_cost" {
-							tariff.setTiers([]effectivePricingTier{})
-						}
-					}
-				}
-			}
-			groupPrice.OpenRouterIndicativeTariffs[endpoint] = &tariff
-		}
+
 		if err != nil {
 			groupPrice.Status = "unavailable"
 			groupPrice.Limitations = append(groupPrice.Limitations, "invalid_group_ratio")
-			for _, tariff := range groupPrice.OpenRouterIndicativeTariffs {
-				tariff.Status = "unavailable"
-			}
 		}
 		result.GroupPrices = append(result.GroupPrices, groupPrice)
 	}

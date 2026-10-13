@@ -26,6 +26,8 @@ const (
 )
 
 type Pricing struct {
+	PriceConfigured                 bool                                          `json:"-"`
+	CatalogOffersByGroup            map[string][]CatalogOffer                     `json:"-"`
 	BillingSourcesByGroup           map[string]map[constant.EndpointType][]string `json:"billing_sources_by_group,omitempty"`
 	IndicativeBillingExprByEndpoint map[constant.EndpointType]string              `json:"indicative_billing_expr_by_endpoint,omitempty"`
 	ModelName                       string                                        `json:"model_name"`
@@ -337,7 +339,7 @@ func updatePricing() {
 	taskPluginKeys := make(map[int]string)
 	for _, ability := range enableAbilities {
 		_, taskChannel := pluginGeneration.GetByChannelType(ability.ChannelType)
-		if !taskChannel && ability.ChannelType != constant.ChannelTypeTaskPlugin && !slices.Contains(getPricingEndpointTypesForAbility(ability, advancedCustomConfigs), constant.EndpointTypeOpenAIVideo) {
+		if !taskChannel && ability.ChannelType != constant.ChannelTypeOpenRouter && ability.ChannelType != constant.ChannelTypeTaskPlugin && !slices.Contains(getPricingEndpointTypesForAbility(ability, advancedCustomConfigs), constant.EndpointTypeOpenAIVideo) {
 			continue
 		}
 		if _, loaded := pricingChannels[ability.ChannelId]; loaded {
@@ -477,9 +479,63 @@ func updatePricing() {
 		}
 	}
 
+	catalogOffers := make(map[string]map[string][]CatalogOffer)
+	for _, ability := range enableAbilities {
+		channel := pricingChannels[ability.ChannelId]
+		if channel == nil || channel.Status != 1 {
+			continue
+		}
+		if channel.Type == constant.ChannelTypeOpenRouter {
+			if strings.TrimRight(channel.GetBaseURL(), "/") != "https://openrouter.ai/api" {
+				continue
+			}
+			if channel.ParamOverride != nil && strings.TrimSpace(*channel.ParamOverride) != "" && strings.TrimSpace(*channel.ParamOverride) != "{}" {
+				continue
+			}
+		}
+		mapping := make(map[string]string)
+		if err := common.UnmarshalJsonStr(channel.GetModelMapping(), &mapping); err != nil {
+			continue
+		}
+		upstream, cyclic := followChannelModelMapping(mapping, ability.Model)
+		if cyclic {
+			continue
+		}
+		plugin, known := pluginGeneration.GetByChannelType(channel.Type)
+		if channel.Type == constant.ChannelTypeTaskPlugin {
+			plugin, known = pluginGeneration.Get(channel.GetSetting().TaskPluginKey)
+		}
+		var offers []CatalogOffer
+		if known && plugin.Meta.PriceCatalog != nil {
+			if declared, declaredModel := pluginGeneration.CanonicalModel(upstream); declaredModel {
+				for _, candidate := range pluginGeneration.LookupEndpointCandidates("POST", "/v1/videos", declared) {
+					if candidate.Plugin == plugin {
+						offers = plugin.Meta.PriceCatalog.Models[declared]
+						break
+					}
+				}
+			}
+		}
+		if offers == nil && channel.Type == constant.ChannelTypeOpenRouter {
+			if source, known := pricingCatalog[upstream]; known {
+				offers = source.Offers
+			}
+		}
+		if len(offers) == 0 {
+			continue
+		}
+		if catalogOffers[ability.Model] == nil {
+			catalogOffers[ability.Model] = make(map[string][]CatalogOffer)
+		}
+		for _, offer := range offers {
+			offer.ID = fmt.Sprintf("%d:%s:%s", ability.ChannelId, upstream, offer.ID)
+			catalogOffers[ability.Model][ability.Group] = append(catalogOffers[ability.Model][ability.Group], offer)
+		}
+	}
 	pricingMap = make([]Pricing, 0)
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
+			CatalogOffersByGroup:         catalogOffers[model],
 			LegacyVideoPriceBasisByGroup: legacyVideoBases[model],
 			ModelName:                    model,
 			BillingSourcesByGroup:        billingSources[model],
@@ -499,6 +555,7 @@ func updatePricing() {
 			pricing.VendorID = meta.VendorID
 		}
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
+		pricing.PriceConfigured = findPrice || ratio_setting.HasConfiguredModelRatio(model)
 		if findPrice {
 			pricing.ModelPrice = modelPrice
 			pricing.QuotaType = 1
