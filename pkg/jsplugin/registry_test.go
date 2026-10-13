@@ -1058,3 +1058,28 @@ func TestPluginDisplayMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestRegistryPriceCatalogPublishesValidatedImmutableSource(t *testing.T) {
+	source := routingTestPluginSource("price-catalog", 0, `["model"]`, `priceCatalog:{fetched_at:"2026-10-13T13:41:19Z",models:{model:[{id:"native",operation:"image_generation",mode:"sync",main_component:"image_output",prices:[{component:"image_output",unit:"image",amount_usd:0},{component:"image_input",unit:"image",amount_usd:null}]}]}},`, "")
+	plugin, err := CompilePlugin(source, Options{})
+	require.NoError(t, err)
+	registry := NewRegistry()
+	require.NoError(t, registry.ReplaceOverrides([]*LoadedPlugin{plugin}))
+	generation := registry.Generation().Number
+	published, known := registry.Get("price-catalog")
+	require.True(t, known)
+	prices := published.Meta.PriceCatalog.Models["model"][0].Prices
+	require.NotNil(t, prices[0].AmountUSD)
+	assert.Zero(t, *prices[0].AmountUSD)
+	assert.Nil(t, prices[1].AmountUSD)
+	snapshot := registry.Snapshot()
+	*snapshot.Override[0].PriceCatalog.Models["model"][0].Prices[0].AmountUSD = 9
+	published, known = registry.Get("price-catalog")
+	require.True(t, known)
+	assert.Zero(t, *published.Meta.PriceCatalog.Models["model"][0].Prices[0].AmountUSD)
+	for _, invalid := range []string{strings.Replace(source, `amount_usd:0`, `amount_usd:-1`, 1), strings.Replace(source, `unit:"image"`, `unit:"unproven"`, 1), strings.Replace(source, `2026-10-13T13:41:19Z`, `invalid`, 1)} {
+		_, err := CompilePlugin(invalid, Options{})
+		require.Error(t, err)
+		assert.Equal(t, generation, registry.Generation().Number)
+	}
+}

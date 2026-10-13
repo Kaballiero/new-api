@@ -787,6 +787,7 @@ func syncTaskPluginsOnceContext(ctx context.Context) error {
 		)
 		return syncErr
 	}
+	model.InvalidatePricingCache()
 	taskPluginSyncState.hashes = nextHashes
 	for key := range taskPluginSyncState.errors {
 		if !seen[key] {

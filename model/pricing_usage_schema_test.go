@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"github.com/QuantumNous/new-api/common"
 	"os"
 	"strings"
 	"testing"
@@ -307,4 +308,64 @@ func pricingByModel(pricings []Pricing) map[string]Pricing {
 		result[pricing.ModelName] = pricing
 	}
 	return result
+}
+
+func TestPricingHeygenReferenceOperationsUseEligibleTariff(t *testing.T) {
+	source, err := os.ReadFile("../plugins/tasks/openrouter-video/plugin.js")
+	require.NoError(t, err)
+	plugin, err := jsplugin.CompilePlugin(string(source), jsplugin.Options{})
+	require.NoError(t, err)
+	require.NotNil(t, plugin.Meta.PriceCatalog)
+	offers := plugin.Meta.PriceCatalog.Models["heygen/heygen-video-1"]
+	require.NotEmpty(t, offers)
+	for _, scenario := range []struct {
+		operation string
+		amountUSD float64
+	}{{"text_to_video", .02}, {"image_to_video", .04}, {"video_to_video", .04}} {
+		t.Run(scenario.operation, func(t *testing.T) {
+			eligible := make([]CatalogOffer, 0)
+			for _, offer := range offers {
+				if offer.Operation == scenario.operation {
+					eligible = append(eligible, offer)
+				}
+			}
+			selected := SelectCatalogOffer(eligible)
+			require.NotNil(t, selected)
+			require.Len(t, selected.Prices, 1)
+			assert.Equal(t, "video_output", selected.Prices[0].Component)
+			assert.Equal(t, "second", selected.Prices[0].Unit)
+			require.NotNil(t, selected.Prices[0].AmountUSD)
+			assert.Equal(t, scenario.amountUSD, *selected.Prices[0].AmountUSD)
+		})
+	}
+}
+
+func TestPricingConfiguredFormulaProjectionUsesActualRouteSource(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { saved[key] = value; return nil }))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)); InvalidatePricingCache() })
+	names := []string{"direct-openai", "direct-anthropic", "direct-gemini", "actualcost-or"}
+	modes := map[string]string{}
+	expressions := map[string]string{}
+	for index, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeAnthropic, constant.ChannelTypeGemini, constant.ChannelTypeOpenRouter} {
+		insertPricingEndpointChannel(t, 980+index, channelType, dto.ChannelOtherSettings{})
+		insertPricingEndpointAbility(t, 980+index, names[index])
+		modes[names[index]] = "tiered_expr"
+		expressions[names[index]] = `tier("base",p*2+c*3)`
+	}
+	modeJSON, err := common.Marshal(modes)
+	require.NoError(t, err)
+	exprJSON, err := common.Marshal(expressions)
+	require.NoError(t, err)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.billing_mode": string(modeJSON), "billing_setting.billing_expr": string(exprJSON)}))
+	InitChannelCache()
+	pricing := pricingByModel(GetPricing())
+	for _, name := range names[:3] {
+		item := pricing[name]
+		require.Contains(t, item.ConfiguredPrices, expressions[name])
+		require.Len(t, item.ConfiguredPrices[expressions[name]], 1)
+		assert.Len(t, item.ConfiguredPrices[expressions[name]][0], 2)
+	}
+	assert.Empty(t, pricing["actualcost-or"].ConfiguredPrices)
 }

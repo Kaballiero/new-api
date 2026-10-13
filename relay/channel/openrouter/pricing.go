@@ -118,6 +118,18 @@ func readRate(raw json.RawMessage) (decimal.Decimal, error) {
 	return rate, nil
 }
 
+func ReadEndpointPrice(raw json.RawMessage) (float64, error) {
+	rate, err := readRate(raw)
+	if err != nil {
+		return 0, err
+	}
+	amount, _ := rate.Float64()
+	if amount == 0 && !rate.IsZero() {
+		return 0, errors.New("native endpoint price underflows display precision")
+	}
+	return amount, nil
+}
+
 // Estimate takes the complete maximum over eligible endpoints, preserving the
 // actual routing payload. Price strings are USD per token/request/image.
 func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, operation string) (float64, error) {

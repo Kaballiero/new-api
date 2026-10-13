@@ -401,144 +401,25 @@ func buildSchemas() map[string]interface{} {
 	referencedTypes["Pricing"] = true
 	referencedTypes["Vendor"] = true
 
-	out["EffectivePricingFX"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"usd_rate":            map[string]interface{}{"type": "number"},
-			"factor":              map[string]interface{}{"type": "number"},
-			"source":              map[string]interface{}{"type": "string"},
-			"publication_version": map[string]interface{}{"type": "integer", "format": "int64"},
-			"effective_at":        map[string]interface{}{"type": "integer", "format": "int64"},
-			"fetched_at":          map[string]interface{}{"type": "integer", "format": "int64"},
-		},
-		"required": []string{"usd_rate", "factor", "source", "publication_version", "effective_at", "fetched_at"},
-	}
-	out["EffectivePricingAccounting"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"quota_per_unit": map[string]interface{}{"type": "number"},
-			"rub_per_unit":   map[string]interface{}{"type": "number"},
-			"quota_per_rub":  map[string]interface{}{"type": "number"},
-		},
-		"required": []string{"quota_per_unit", "rub_per_unit", "quota_per_rub"},
-	}
-	out["EffectiveUnitPrice"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"component":  map[string]interface{}{"type": "string"},
-			"unit":       map[string]interface{}{"type": "string"},
-			"amount_rub": map[string]interface{}{"type": "number", "minimum": 0},
-		},
-		"required": []string{"component", "unit", "amount_rub"},
-	}
-	out["EffectivePricingFormula"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"expression":             map[string]interface{}{"type": "string"},
-			"kind":                   map[string]interface{}{"type": "string", "enum": []string{"token_expression", "task_usage_expression"}},
-			"output_to_quota_factor": map[string]interface{}{"type": "number"},
-			"output_to_rub_factor":   map[string]interface{}{"type": "number"},
-		},
-		"required": []string{"expression", "kind", "output_to_quota_factor", "output_to_rub_factor"},
-	}
-	out["EffectivePricingTimeWindow"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"start_hour": map[string]interface{}{"type": "integer"},
-			"end_hour":   map[string]interface{}{"type": "integer"},
-		},
-		"required": []string{"start_hour", "end_hour"},
-	}
-	out["EffectivePricingNumericGuard"] = map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"field":    map[string]any{"type": "string", "minLength": 1},
-			"unit":     map[string]any{"type": "string", "enum": []string{"second", "count", "credit"}},
-			"operator": map[string]any{"type": "string", "enum": []string{"gt"}},
-			"value":    map[string]any{"type": "number", "minimum": 0},
-		},
-		"required": []string{"field", "unit", "operator", "value"},
-	}
-	out["EffectivePricingUsageGuard"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"values":  map[string]interface{}{"type": "object", "additionalProperties": map[string]interface{}{"type": "string"}},
-			"negated": map[string]interface{}{"type": "boolean"},
-			"numeric": map[string]any{"$ref": "#/components/schemas/EffectivePricingNumericGuard"},
-		},
-		"required": []string{"values", "negated"},
-	}
-	out["EffectivePricingGuardSet"] = map[string]any{
-		"type": "object", "properties": map[string]any{"guards": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectivePricingUsageGuard"}}}, "required": []string{"guards"},
-	}
-	out["EffectivePricingTierCondition"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"kind":         map[string]interface{}{"type": "string"},
-			"unit":         map[string]interface{}{"type": "string"},
-			"min_value":    map[string]interface{}{"type": "number"},
-			"max_value":    map[string]interface{}{"type": "number"},
-			"time_zone":    map[string]interface{}{"type": "string"},
-			"time_windows": map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingTimeWindow"}},
-			"guards":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingUsageGuard"}},
-			"any_of":       map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectivePricingGuardSet"}},
-		},
-		"required": []string{"kind"},
-	}
-	out["EffectivePricingTier"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"label":             map[string]interface{}{"type": "string"},
-			"price_composition": map[string]any{"type": "string", "enum": []string{"additive"}},
-			"condition":         map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingTierCondition"},
-			"unit_prices":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectiveUnitPrice"}},
-		},
-		"required": []string{"unit_prices"},
-	}
-	out["EffectivePricingSummary"] = map[string]any{
+	out["EffectiveUnitPrice"] = map[string]any{
 		"type": "object", "properties": map[string]any{
-			"kind":        map[string]any{"type": "string", "enum": []string{"unit_prices", "additive", "conditional", "request_dependent", "unavailable"}},
-			"unit_prices": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectiveUnitPrice"}},
-			"is_from":     map[string]any{"type": "boolean"},
-		}, "required": []string{"kind", "unit_prices", "is_from"},
+			"component":  map[string]any{"type": "string"},
+			"unit":       map[string]any{"type": "string"},
+			"amount_rub": map[string]any{"type": "number", "minimum": 0, "nullable": true},
+		}, "required": []string{"component", "unit", "amount_rub"},
 	}
-	out["EffectivePricingOperationTariff"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"summary":         map[string]any{"$ref": "#/components/schemas/EffectivePricingSummary"},
-			"endpoint_type":   map[string]interface{}{"type": "string"},
-			"source":          map[string]interface{}{"type": "string", "enum": []string{"configured_tariff", "openrouter_actual_cost"}},
-			"billing_surface": map[string]interface{}{"type": "string", "enum": []string{"token", "per_call", "task"}},
-			"status":          map[string]interface{}{"type": "string", "enum": []string{"priced", "request_dependent", "unavailable"}},
-			"tiers":           map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingTier"}},
-			"limitations":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-		},
-		"required": []string{"endpoint_type", "source", "billing_surface", "status", "tiers", "summary"},
+	out["EffectivePricingOperation"] = map[string]any{
+		"type": "object", "properties": map[string]any{
+			"operation": map[string]any{"type": "string"},
+			"mode":      map[string]any{"type": "string", "enum": []string{"sync", "batch"}},
+			"prices":    map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectiveUnitPrice"}},
+		}, "required": []string{"operation", "mode", "prices"},
 	}
-	out["EffectiveGroupPricing"] = map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"operation_tariffs":       map[string]interface{}{"type": "array", "nullable": true, "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingOperationTariff"}},
-			"using_group":             map[string]interface{}{"type": "string"},
-			"pure_group_ratio":        map[string]interface{}{"type": "number"},
-			"effective_billing_ratio": map[string]interface{}{"type": "number"},
-			"billing_mode":            map[string]interface{}{"type": "string", "enum": []string{"ratio", "tiered_expr"}},
-			"billing_surface":         map[string]interface{}{"type": "string", "enum": []string{"token", "task", "per_call"}},
-			"status":                  map[string]interface{}{"type": "string", "enum": []string{"unit_prices", "formula", "unavailable"}},
-			"unit_prices": map[string]interface{}{
-				"type":  "array",
-				"items": map[string]interface{}{"$ref": "#/components/schemas/EffectiveUnitPrice"},
-			},
-			"tiers":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingTier"}},
-			"is_free":     map[string]interface{}{"type": "boolean"},
-			"formula":     map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingFormula"},
-			"limitations": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-			"usage_schema": map[string]interface{}{
-				"type":                 "object",
-				"additionalProperties": true,
-			},
-		},
-		"required": []string{"using_group", "pure_group_ratio", "effective_billing_ratio", "billing_mode", "billing_surface", "status", "tiers", "is_free"},
+	out["EffectiveGroupPricing"] = map[string]any{
+		"type": "object", "properties": map[string]any{
+			"using_group": map[string]any{"type": "string"},
+			"operations":  map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectivePricingOperation"}},
+		}, "required": []string{"using_group", "operations"},
 	}
 	out["EffectivePricingModel"] = map[string]interface{}{
 		"type": "object",
@@ -557,17 +438,13 @@ func buildSchemas() map[string]interface{} {
 	out["EffectivePricingData"] = map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"schema_version": map[string]interface{}{"type": "string", "enum": []string{"v1"}},
+			"schema_version": map[string]interface{}{"type": "string", "enum": []string{"v2"}},
 			"user_group":     map[string]interface{}{"type": "string"},
 			"currency":       map[string]interface{}{"type": "string", "enum": []string{"RUB"}},
-			"price_kind":     map[string]interface{}{"type": "string", "enum": []string{"current_tariff"}},
-			"price_scope":    map[string]interface{}{"type": "string", "enum": []string{"user_group"}},
-			"fx":             map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingFX"},
-			"accounting":     map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingAccounting"},
 			"auto_groups":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
 			"data":           map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingModel"}},
 		},
-		"required": []string{"schema_version", "user_group", "currency", "price_kind", "price_scope", "fx", "accounting", "auto_groups", "data"},
+		"required": []string{"schema_version", "user_group", "currency", "auto_groups", "data"},
 	}
 	out["EffectivePricingResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingData"})
 	out["EffectivePricingResponse"].(map[string]interface{})["required"] = []string{"success", "data"}

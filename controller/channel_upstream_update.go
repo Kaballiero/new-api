@@ -821,6 +821,7 @@ func refreshChannelRuntimeCache() {
 			model.InitChannelCache()
 		}()
 	}
+	enqueuePricingCatalogRefresh()
 }
 
 func shouldSendUpstreamModelUpdateNotification(now int64, changedChannels int, failedChannels int) bool {

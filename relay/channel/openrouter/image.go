@@ -54,6 +54,22 @@ type ImageEndpoint struct {
 	SupportedParameters map[string]ImageCapability `json:"supported_parameters"`
 	Pricing             []ImagePrice               `json:"pricing"`
 }
+
+func PublishedImageEndpoint(model string, endpoint ImageEndpoint) ImageEndpoint {
+	if len(endpoint.Pricing) != 0 || endpoint.ProviderTag != "krea" {
+		return endpoint
+	}
+	rate, known := map[string]float64{"krea/krea-2-large": 0.06, "krea/krea-2-medium": 0.03, "krea/krea-2-medium-turbo": 0.015}[model]
+	if known {
+		endpoint.Pricing = []ImagePrice{{Billable: "output_image", Unit: "image", CostUSD: rate}}
+	}
+	return endpoint
+}
+
+func PublishedMuseImageEndpoint(model string) (ImageEndpoint, bool) {
+	return ImageEndpoint{PromptOnly: true, Pricing: []ImagePrice{{Billable: "output_image", Unit: "image", CostUSD: 0.01}}}, model == "meta/muse-image"
+}
+
 type imageReference struct {
 	Type     string `json:"type"`
 	ImageURL struct {
@@ -135,7 +151,8 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 		// request and $0.01/image, while image endpoint discovery is empty.
 		// Do not infer reference/size/count capabilities from chat metadata.
 		// https://openrouter.ai/meta/muse-image
-		catalog.Endpoints = []ImageEndpoint{{PromptOnly: true, Pricing: []ImagePrice{{Billable: "output_image", Unit: "image", CostUSD: 0.01}}}}
+		endpoint, _ := PublishedMuseImageEndpoint(request.Model)
+		catalog.Endpoints = []ImageEndpoint{endpoint}
 	}
 	if len(catalog.Endpoints) == 0 {
 		return errors.New("OpenRouter image model has no documented image endpoint")
@@ -178,10 +195,7 @@ func ConvertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 		// https://openrouter.ai/krea/krea-2-large
 		// https://openrouter.ai/krea/krea-2-medium
 		// https://openrouter.ai/krea/krea-2-medium-turbo
-		rate, known := map[string]float64{"krea/krea-2-large": 0.06, "krea/krea-2-medium": 0.03, "krea/krea-2-medium-turbo": 0.015}[request.Model]
-		if known {
-			endpoint.Pricing = []ImagePrice{{Billable: "output_image", Unit: "image", CostUSD: rate}}
-		}
+		endpoint = PublishedImageEndpoint(request.Model, endpoint)
 	}
 	if len(endpoint.Pricing) == 0 {
 		return nil, 0, errors.New("OpenRouter image endpoint has no published tariff")

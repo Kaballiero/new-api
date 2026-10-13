@@ -79,6 +79,7 @@ func (t *LocalizedText) UnmarshalJSON(data []byte) error {
 }
 
 type Meta struct {
+	PriceCatalog  *PriceCatalog               `json:"priceCatalog,omitempty"`
 	SortPriority  int                         `json:"sortPriority,omitempty"`
 	Website       string                      `json:"website,omitempty"`
 	APIVersion    int                         `json:"apiVersion"`
@@ -798,6 +799,7 @@ func (r *Registry) Snapshot() RegistrySnapshot {
 }
 
 func cloneMeta(meta Meta) Meta {
+	meta.PriceCatalog = meta.PriceCatalog.clone()
 	meta.LegacyPriceBasis = maps.Clone(meta.LegacyPriceBasis)
 	meta.ChannelTypes = append([]int(nil), meta.ChannelTypes...)
 	meta.Models = append([]string(nil), meta.Models...)
@@ -919,7 +921,7 @@ func decodeMeta(value any) (Meta, error) {
 	}
 	for field := range object {
 		switch field {
-		case "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "routes", "protocols", "usageSchema", "usageExamples", "legacyPriceBasis", "auth", "endpoints", "submitPaths", "actions":
+		case "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "routes", "protocols", "usageSchema", "usageExamples", "legacyPriceBasis", "priceCatalog", "auth", "endpoints", "submitPaths", "actions":
 		default:
 			return Meta{}, fmt.Errorf("plugin meta has unknown field %q", field)
 		}
@@ -1015,6 +1017,16 @@ func decodeMeta(value any) (Meta, error) {
 		meta.UsageExamples, err = decodeUsageExamples(usageExamples)
 		if err != nil {
 			return Meta{}, err
+		}
+	}
+	if raw, exists := object["priceCatalog"]; exists {
+		data, marshalErr := common.Marshal(raw)
+		if marshalErr != nil {
+			return Meta{}, marshalErr
+		}
+		meta.PriceCatalog = &PriceCatalog{}
+		if err := common.Unmarshal(data, meta.PriceCatalog); err != nil {
+			return Meta{}, fmt.Errorf("invalid plugin price catalog: %w", err)
 		}
 	}
 	if raw, exists := object["legacyPriceBasis"]; exists {
@@ -1301,6 +1313,9 @@ func normalizeV1Meta(meta *Meta) error {
 		}
 	}
 	if err := validateUsageExamples(meta.UsageSchema, meta.UsageExamples); err != nil {
+		return err
+	}
+	if err := meta.PriceCatalog.Validate(meta.Models); err != nil {
 		return err
 	}
 	for action, basis := range meta.LegacyPriceBasis {

@@ -3575,69 +3575,11 @@
       },
       "EffectiveGroupPricing": {
         "properties": {
-          "billing_mode": {
-            "enum": [
-              "ratio",
-              "tiered_expr"
-            ],
-            "type": "string"
-          },
-          "billing_surface": {
-            "enum": [
-              "token",
-              "task",
-              "per_call"
-            ],
-            "type": "string"
-          },
-          "effective_billing_ratio": {
-            "type": "number"
-          },
-          "formula": {
-            "$ref": "#/components/schemas/EffectivePricingFormula"
-          },
-          "is_free": {
-            "type": "boolean"
-          },
-          "limitations": {
+          "operations": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/EffectivePricingOperation"
             },
             "type": "array"
-          },
-          "operation_tariffs": {
-            "items": {
-              "$ref": "#/components/schemas/EffectivePricingOperationTariff"
-            },
-            "nullable": true,
-            "type": "array"
-          },
-          "pure_group_ratio": {
-            "type": "number"
-          },
-          "status": {
-            "enum": [
-              "unit_prices",
-              "formula",
-              "unavailable"
-            ],
-            "type": "string"
-          },
-          "tiers": {
-            "items": {
-              "$ref": "#/components/schemas/EffectivePricingTier"
-            },
-            "type": "array"
-          },
-          "unit_prices": {
-            "items": {
-              "$ref": "#/components/schemas/EffectiveUnitPrice"
-            },
-            "type": "array"
-          },
-          "usage_schema": {
-            "additionalProperties": true,
-            "type": "object"
           },
           "using_group": {
             "type": "string"
@@ -3645,32 +3587,7 @@
         },
         "required": [
           "using_group",
-          "pure_group_ratio",
-          "effective_billing_ratio",
-          "billing_mode",
-          "billing_surface",
-          "status",
-          "tiers",
-          "is_free"
-        ],
-        "type": "object"
-      },
-      "EffectivePricingAccounting": {
-        "properties": {
-          "quota_per_rub": {
-            "type": "number"
-          },
-          "quota_per_unit": {
-            "type": "number"
-          },
-          "rub_per_unit": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "quota_per_unit",
-          "rub_per_unit",
-          "quota_per_rub"
+          "operations"
         ],
         "type": "object"
       },
@@ -3691,9 +3608,6 @@
       },
       "EffectivePricingData": {
         "properties": {
-          "accounting": {
-            "$ref": "#/components/schemas/EffectivePricingAccounting"
-          },
           "auto_groups": {
             "items": {
               "type": "string"
@@ -3719,9 +3633,6 @@
             },
             "type": "array"
           },
-          "fx": {
-            "$ref": "#/components/schemas/EffectivePricingFX"
-          },
           "limit": {
             "description": "Required when limit selects page mode.",
             "minimum": 0,
@@ -3732,21 +3643,9 @@
             "minimum": 0,
             "type": "integer"
           },
-          "price_kind": {
-            "enum": [
-              "current_tariff"
-            ],
-            "type": "string"
-          },
-          "price_scope": {
-            "enum": [
-              "user_group"
-            ],
-            "type": "string"
-          },
           "schema_version": {
             "enum": [
-              "v1"
+              "v2"
             ],
             "type": "string"
           },
@@ -3763,87 +3662,8 @@
           "schema_version",
           "user_group",
           "currency",
-          "price_kind",
-          "price_scope",
-          "fx",
-          "accounting",
           "auto_groups",
           "data"
-        ],
-        "type": "object"
-      },
-      "EffectivePricingFX": {
-        "properties": {
-          "effective_at": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "factor": {
-            "type": "number"
-          },
-          "fetched_at": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "publication_version": {
-            "format": "int64",
-            "type": "integer"
-          },
-          "source": {
-            "type": "string"
-          },
-          "usd_rate": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "usd_rate",
-          "factor",
-          "source",
-          "publication_version",
-          "effective_at",
-          "fetched_at"
-        ],
-        "type": "object"
-      },
-      "EffectivePricingFormula": {
-        "properties": {
-          "expression": {
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "token_expression",
-              "task_usage_expression"
-            ],
-            "type": "string"
-          },
-          "output_to_quota_factor": {
-            "type": "number"
-          },
-          "output_to_rub_factor": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "expression",
-          "kind",
-          "output_to_quota_factor",
-          "output_to_rub_factor"
-        ],
-        "type": "object"
-      },
-      "EffectivePricingGuardSet": {
-        "properties": {
-          "guards": {
-            "items": {
-              "$ref": "#/components/schemas/EffectivePricingUsageGuard"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "guards"
         ],
         "type": "object"
       },
@@ -3910,90 +3730,29 @@
         ],
         "type": "object"
       },
-      "EffectivePricingNumericGuard": {
+      "EffectivePricingOperation": {
         "properties": {
-          "field": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "operator": {
+          "mode": {
             "enum": [
-              "gt"
+              "sync",
+              "batch"
             ],
             "type": "string"
           },
-          "unit": {
-            "enum": [
-              "second",
-              "count",
-              "credit"
-            ],
+          "operation": {
             "type": "string"
           },
-          "value": {
-            "minimum": 0,
-            "type": "number"
-          }
-        },
-        "required": [
-          "field",
-          "unit",
-          "operator",
-          "value"
-        ],
-        "type": "object"
-      },
-      "EffectivePricingOperationTariff": {
-        "properties": {
-          "billing_surface": {
-            "enum": [
-              "token",
-              "per_call",
-              "task"
-            ],
-            "type": "string"
-          },
-          "endpoint_type": {
-            "type": "string"
-          },
-          "limitations": {
+          "prices": {
             "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "source": {
-            "enum": [
-              "configured_tariff",
-              "openrouter_actual_cost"
-            ],
-            "type": "string"
-          },
-          "status": {
-            "enum": [
-              "priced",
-              "request_dependent",
-              "unavailable"
-            ],
-            "type": "string"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/EffectivePricingSummary"
-          },
-          "tiers": {
-            "items": {
-              "$ref": "#/components/schemas/EffectivePricingTier"
+              "$ref": "#/components/schemas/EffectiveUnitPrice"
             },
             "type": "array"
           }
         },
         "required": [
-          "endpoint_type",
-          "source",
-          "billing_surface",
-          "status",
-          "tiers",
-          "summary"
+          "operation",
+          "mode",
+          "prices"
         ],
         "type": "object"
       },
@@ -4015,142 +3774,11 @@
         ],
         "type": "object"
       },
-      "EffectivePricingSummary": {
-        "properties": {
-          "is_from": {
-            "type": "boolean"
-          },
-          "kind": {
-            "enum": [
-              "unit_prices",
-              "additive",
-              "conditional",
-              "request_dependent",
-              "unavailable"
-            ],
-            "type": "string"
-          },
-          "unit_prices": {
-            "items": {
-              "$ref": "#/components/schemas/EffectiveUnitPrice"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "kind",
-          "unit_prices",
-          "is_from"
-        ],
-        "type": "object"
-      },
-      "EffectivePricingTier": {
-        "properties": {
-          "condition": {
-            "$ref": "#/components/schemas/EffectivePricingTierCondition"
-          },
-          "label": {
-            "type": "string"
-          },
-          "price_composition": {
-            "enum": [
-              "additive"
-            ],
-            "type": "string"
-          },
-          "unit_prices": {
-            "items": {
-              "$ref": "#/components/schemas/EffectiveUnitPrice"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "unit_prices"
-        ],
-        "type": "object"
-      },
-      "EffectivePricingTierCondition": {
-        "properties": {
-          "any_of": {
-            "items": {
-              "$ref": "#/components/schemas/EffectivePricingGuardSet"
-            },
-            "type": "array"
-          },
-          "guards": {
-            "items": {
-              "$ref": "#/components/schemas/EffectivePricingUsageGuard"
-            },
-            "type": "array"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "max_value": {
-            "type": "number"
-          },
-          "min_value": {
-            "type": "number"
-          },
-          "time_windows": {
-            "items": {
-              "$ref": "#/components/schemas/EffectivePricingTimeWindow"
-            },
-            "type": "array"
-          },
-          "time_zone": {
-            "type": "string"
-          },
-          "unit": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind"
-        ],
-        "type": "object"
-      },
-      "EffectivePricingTimeWindow": {
-        "properties": {
-          "end_hour": {
-            "type": "integer"
-          },
-          "start_hour": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "start_hour",
-          "end_hour"
-        ],
-        "type": "object"
-      },
-      "EffectivePricingUsageGuard": {
-        "properties": {
-          "negated": {
-            "type": "boolean"
-          },
-          "numeric": {
-            "$ref": "#/components/schemas/EffectivePricingNumericGuard"
-          },
-          "values": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object"
-          }
-        },
-        "required": [
-          "values",
-          "negated"
-        ],
-        "type": "object"
-      },
       "EffectiveUnitPrice": {
         "properties": {
           "amount_rub": {
             "minimum": 0,
+            "nullable": true,
             "type": "number"
           },
           "component": {

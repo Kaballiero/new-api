@@ -18,18 +18,12 @@ type effectivePricingTier struct {
 // expression text. Numeric kinds carry an exclusive MinValue and an inclusive
 // MaxValue in tokens; time_of_day carries half-open [start, end) hour windows.
 type effectivePricingTierCondition struct {
-	AnyOf       []effectivePricingGuardSet      `json:"any_of,omitempty"`
-	Guards      []billingexpr.DisplayUsageGuard `json:"guards,omitempty"`
-	Kind        string                          `json:"kind"`
-	Unit        string                          `json:"unit,omitempty"`
-	MinValue    *float64                        `json:"min_value,omitempty"`
-	MaxValue    *float64                        `json:"max_value,omitempty"`
-	TimeZone    string                          `json:"time_zone,omitempty"`
-	TimeWindows []effectivePricingTimeWindow    `json:"time_windows,omitempty"`
-}
-
-type effectivePricingGuardSet struct {
-	Guards []billingexpr.DisplayUsageGuard `json:"guards"`
+	Kind        string                       `json:"kind"`
+	Unit        string                       `json:"unit,omitempty"`
+	MinValue    *float64                     `json:"min_value,omitempty"`
+	MaxValue    *float64                     `json:"max_value,omitempty"`
+	TimeZone    string                       `json:"time_zone,omitempty"`
+	TimeWindows []effectivePricingTimeWindow `json:"time_windows,omitempty"`
 }
 
 type effectivePricingTimeWindow struct {
