@@ -320,6 +320,30 @@ func compareEffectivePricingNames(left, right string) int {
 }
 
 func effectivePricingModality(item model.Pricing) string {
+	proved := make(map[string]bool)
+	for _, offers := range item.CatalogOffersByGroup {
+		for _, offer := range offers {
+			switch offer.Operation {
+			case "image_generation", "image_editing":
+				proved["IMAGE"] = true
+			case "text_to_video", "image_to_video", "video_to_video", "video_editing", "video_upscaling", "remix":
+				proved["VIDEO"] = true
+			case "embeddings":
+				proved["EMBEDDINGS"] = true
+			case "rerank":
+				proved["RERANK"] = true
+			case "speech_generation", "transcription", "realtime":
+				proved["OTHER"] = true
+			case "text":
+				proved["TEXT"] = true
+			}
+		}
+	}
+	for _, modality := range []string{"IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER", "TEXT"} {
+		if proved[modality] {
+			return modality
+		}
+	}
 	endpoints := make([]string, 0, len(item.SupportedEndpointTypes))
 	name := strings.ToLower(item.ModelName[strings.LastIndex(item.ModelName, "/")+1:])
 	for _, endpoint := range item.SupportedEndpointTypes {

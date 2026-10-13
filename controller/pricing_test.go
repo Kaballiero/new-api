@@ -974,3 +974,61 @@ func TestEffectivePricingPageFoldsBatchBeforePagingAndKeepsGroupFX(t *testing.T)
 	assert.Len(t, context.pricing, 2)
 	assert.Equal(t, "canonical:batch", context.pricing[1].ModelName)
 }
+
+func TestEffectivePricingPageUsesProvedAliasOperationsForModality(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	previousMemory := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { saved[key] = value; return nil }))
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = previousMemory
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+		model.InvalidatePricingCache()
+	})
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.billing_mode": `{"semantic-index":"tiered_expr"}`, "billing_setting.billing_expr": `{"semantic-index":"tier(\"base\",p*.13)"}`}))
+	mapping := `{"semantic-index":"text-embedding-3-large"}`
+	require.NoError(t, db.Create(&model.Channel{Id: 993, Type: constant.ChannelTypeOpenAI, Status: 1, Key: "fixture", Models: "semantic-index", ModelMapping: &mapping}).Error)
+	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "semantic-index", ChannelId: 993, Enabled: true}).Error)
+	require.NoError(t, db.Create(&model.Vendor{Id: 11, Name: "Embedding source"}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "semantic-index", VendorID: 11}).Error)
+	model.InitChannelCache()
+	items := model.GetPricing()
+	require.Len(t, items, 1)
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, items[0].SupportedEndpointTypes)
+	imageOffers, err := normalizeImagePricing("sourceful/riverflow", []byte(`{"id":"sourceful/riverflow","endpoints":[{"provider_tag":"sourceful","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.06}]}]}`))
+	require.NoError(t, err)
+	textOffers, err := normalizeEndpointPricing("google/gemini-image", "text", "output", []byte(`{"data":{"id":"google/gemini-image","architecture":{"input_modalities":["text"],"output_modalities":["text","image"]},"endpoints":[{"pricing":{"prompt":"0.000001","completion":"0.000002","image_output":"0.00003"}}]}}`))
+	require.NoError(t, err)
+	items = append(items,
+		model.Pricing{ModelName: "visual-route", VendorID: 12, EnableGroup: []string{"default"}, SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAI}, CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": imageOffers}},
+		model.Pricing{ModelName: "mixed-route", VendorID: 12, EnableGroup: []string{"default"}, SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAI}, CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": append(append([]model.CatalogOffer{}, imageOffers...), textOffers...)}},
+	)
+	context := effectivePricingPageContext{metadata: consumerPricingResponse{SchemaVersion: "v2", Currency: "RUB", UserGroup: "default"}, pricing: items, usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1}, fxFactor: 1, vendors: []model.PricingVendor{{ID: 11, Name: "Embedding source"}, {ID: 12, Name: "Image source"}}}
+	query, err := parseEffectivePricingPageQuery(url.Values{"modality": {"EMBEDDINGS"}, "limit": {"1"}}, true)
+	require.NoError(t, err)
+	page := buildEffectivePricingPage(context, query, context.project)
+	require.Equal(t, 1, page.TotalCount)
+	require.Len(t, page.Data, 1)
+	assert.Equal(t, "semantic-index", page.Data[0].ModelName)
+	assert.Equal(t, "EMBEDDINGS", page.Data[0].Modality)
+	assert.Equal(t, "embeddings", page.Data[0].GroupPrices[0].Operations[0].Operation)
+	assert.Equal(t, []effectivePricingCreator{{ID: 11, Name: "Embedding source"}, {ID: 12, Name: "Image source"}}, page.Creators)
+	query.modality = "IMAGE"
+	query.limit = 20
+	page = buildEffectivePricingPage(context, query, context.project)
+	require.Equal(t, 2, page.TotalCount)
+	require.Len(t, page.Data, 2)
+	assert.Equal(t, "mixed-route", page.Data[0].ModelName)
+	assert.Equal(t, "visual-route", page.Data[1].ModelName)
+	operations := page.Data[0].GroupPrices[0].Operations
+	require.Len(t, operations, 2)
+	assert.Equal(t, "image_generation", operations[0].Operation)
+	assert.Equal(t, "text", operations[1].Operation)
+	query.creatorID = new(int)
+	*query.creatorID = 11
+	page = buildEffectivePricingPage(context, query, context.project)
+	assert.Zero(t, page.TotalCount)
+	assert.Empty(t, page.Data)
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, items[0].SupportedEndpointTypes)
+}

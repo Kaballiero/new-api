@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 type pricingOperation struct{ operation, main, basis string }
@@ -184,11 +185,23 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 	for _, extra := range []struct {
 		component string
 		ratio     *float64
-	}{{"cache_read", pricing.CacheRatio}, {"cache_write", pricing.CreateCacheRatio}, {"image_input", pricing.ImageRatio}, {"audio_input", pricing.AudioRatio}} {
+	}{{"cache_read", pricing.CacheRatio}, {"cache_write", pricing.CreateCacheRatio}, {"image_input", pricing.ImageRatio}} {
 		if extra.ratio != nil {
 			amount := input * *extra.ratio
 			unknown.Prices = append(unknown.Prices, CatalogPrice{Component: extra.component, Unit: "million_tokens", AmountUSD: &amount})
 		}
+	}
+	if pricing.AudioRatio != nil || pricing.AudioCompletionRatio != nil {
+		audioInput := input * ratio_setting.GetAudioRatio(pricing.ModelName)
+		audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(pricing.ModelName)
+		if pricing.AudioRatio != nil {
+			audioInput = input * *pricing.AudioRatio
+		}
+		if pricing.AudioCompletionRatio != nil {
+			audioCompletionRatio = *pricing.AudioCompletionRatio
+		}
+		audioOutput := audioInput * audioCompletionRatio
+		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "audio_input", Unit: "million_tokens", AmountUSD: &audioInput}, CatalogPrice{Component: "audio_output", Unit: "million_tokens", AmountUSD: &audioOutput})
 	}
 	return []CatalogOffer{unknown}
 }

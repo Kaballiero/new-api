@@ -567,3 +567,30 @@ func TestPricingConfiguredImageUsesActualOutputUmbrellaAndCountBasis(t *testing.
 		}
 	}
 }
+
+func TestPricingConfiguredAudioRatioKeepsCompleteSplitOutputVector(t *testing.T) {
+	inputAudioRatio, outputAudioRatio := 2.0, 3.0
+	profile := configuredPricingOperation(&Channel{Type: constant.ChannelTypeOpenAI}, "gpt-audio", "gpt-audio", constant.EndpointTypeOpenAI)
+	item := Pricing{PriceConfigured: true, ModelRatio: .625, CompletionRatio: 4, AudioRatio: &inputAudioRatio, AudioCompletionRatio: &outputAudioRatio}
+	offers := configuredOperationOffers(item, profile, "sync", "")
+	selected := SelectCatalogOffer(offers)
+	require.NotNil(t, selected)
+	prices := map[string]float64{}
+	for _, price := range selected.Prices {
+		require.NotNil(t, price.AmountUSD)
+		assert.Equal(t, "million_tokens", price.Unit)
+		prices[price.Component] = *price.AmountUSD
+	}
+	assert.Equal(t, map[string]float64{"input": 1.25, "output": 5, "audio_input": 2.5, "audio_output": 7.5}, prices)
+	textInput, textOutput, audioInput, audioOutput := 11.0, 13.0, 17.0, 19.0
+	projectedUSD := (textInput*prices["input"] + textOutput*prices["output"] + audioInput*prices["audio_input"] + audioOutput*prices["audio_output"]) / 1e6
+	actualQuota := (textInput + textOutput*item.CompletionRatio + audioInput*inputAudioRatio + audioOutput*inputAudioRatio*outputAudioRatio) * item.ModelRatio
+	assert.InDelta(t, actualQuota/500000, projectedUSD, 1e-15)
+	zero := 0.0
+	item.AudioCompletionRatio = &zero
+	freeAudio := SelectCatalogOffer(configuredOperationOffers(item, profile, "sync", ""))
+	require.NotNil(t, freeAudio)
+	assert.Zero(t, *freeAudio.Prices[len(freeAudio.Prices)-1].AmountUSD)
+	mini := configuredPricingOperation(&Channel{Type: constant.ChannelTypeOpenAI}, "gpt-4o-mini-tts", "gpt-4o-mini-tts", constant.EndpointTypeOpenAI)
+	assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(item, mini, "sync", "")))
+}
