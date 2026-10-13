@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -742,4 +743,142 @@ func TestEffectivePricingPageUnicodeGolden(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "i\u0307", query.search)
 	assert.Negative(t, compareEffectivePricingNames("ΟΣ", "οσ"))
+}
+
+func TestCompactPricingCapturedTaskTruthSets(t *testing.T) {
+	fixtures := []struct {
+		name, expression, schema string
+		groups                   int
+	}{
+		{"seedance-2.0-mini", `tier("base", ((u("requested_seconds") > 0 ? u("requested_seconds") : 15) + 1.0 / 24 + 30 * u("videos")) * (u("size") == "480x480" ? 230400 : (u("size") == "480x640" ? 307200 : (u("size") == "480x854" ? 409920 : (u("size") == "640x480" ? 307200 : (u("size") == "854x480" ? 409920 : (u("size") == "1120x480" ? 537600 : (u("size") == "720x720" ? 518400 : (u("size") == "720x960" ? 691200 : (u("size") == "720x1280" ? 921600 : (u("size") == "720x1680" ? 1209600 : (u("size") == "960x720" ? 691200 : (u("size") == "1280x720" ? 921600 : (u("size") == "1680x720" ? 1209600 : ((u("resolution") == "480p" || u("size") == "480x480" || u("size") == "480x640" || u("size") == "480x854" || u("size") == "640x480" || u("size") == "854x480" || u("size") == "1120x480") ? 537600 : ((u("resolution") == "720p" || u("size") == "720x720" || u("size") == "720x960" || u("size") == "720x1280" || u("size") == "720x1680" || u("size") == "960x720" || u("size") == "1280x720" || u("size") == "1680x720") ? 1209600 : 1209600))))))))))))))) * 24 / 1024 * (u("videos") > 0 ? ((u("resolution") == "480p" || u("size") == "480x480" || u("size") == "480x640" || u("size") == "480x854" || u("size") == "640x480" || u("size") == "854x480" || u("size") == "1120x480") ? 0.0000021 : ((u("resolution") == "720p" || u("size") == "720x720" || u("size") == "720x960" || u("size") == "720x1280" || u("size") == "720x1680" || u("size") == "960x720" || u("size") == "1280x720" || u("size") == "1680x720") ? 0.0000021 : 0.0000021)) : ((u("resolution") == "480p" || u("size") == "480x480" || u("size") == "480x640" || u("size") == "480x854" || u("size") == "640x480" || u("size") == "854x480" || u("size") == "1120x480") ? (u("audio") == "disabled" ? 0.0000035 : 0.0000035) : ((u("resolution") == "720p" || u("size") == "720x720" || u("size") == "720x960" || u("size") == "720x1280" || u("size") == "720x1680" || u("size") == "960x720" || u("size") == "1280x720" || u("size") == "1680x720") ? (u("audio") == "disabled" ? 0.0000035 : 0.0000035) : 0.0000035))))`, `{"audio":{"enum":["default","enabled","disabled"]},"requested_seconds":{"type":"number","unit":"second"},"resolution":{"enum":["default","360p","480p","720p","768p","1080p","1K","2K","4K"]},"size":{"enum":["default","480x480","480x640","480x854","640x480","854x480","1120x480","720x720","720x960","720x1280","720x1680","960x720","1280x720","1680x720","752x560","640x640","560x752","992x432","1112x834","960x960","834x1112","1470x630","1920x1080","1080x1920","1080x1080","1440x1080","1080x1440","2520x1080","1080x2520","720x480","1080x720","480x720","720x1080","3840x2160","2160x3840","2160x2160","2880x2160","2160x2880","5040x2160","480x1120"]},"videos":{"type":"number","unit":"count"}}`, 32},
+		{"seedance-2.0-fast", `tier("base", ((u("requested_seconds") > 0 ? u("requested_seconds") : 15) + 1.0 / 24 + 30 * u("videos")) * (u("size") == "480x480" ? 230400 : (u("size") == "480x640" ? 307200 : (u("size") == "480x854" ? 409920 : (u("size") == "640x480" ? 307200 : (u("size") == "854x480" ? 409920 : (u("size") == "1120x480" ? 537600 : (u("size") == "720x720" ? 518400 : (u("size") == "720x960" ? 691200 : (u("size") == "720x1280" ? 921600 : (u("size") == "720x1680" ? 1209600 : (u("size") == "960x720" ? 691200 : (u("size") == "1280x720" ? 921600 : (u("size") == "1680x720" ? 1209600 : ((u("resolution") == "480p" || u("size") == "480x480" || u("size") == "480x640" || u("size") == "480x854" || u("size") == "640x480" || u("size") == "854x480" || u("size") == "1120x480") ? 537600 : ((u("resolution") == "720p" || u("size") == "720x720" || u("size") == "720x960" || u("size") == "720x1280" || u("size") == "720x1680" || u("size") == "960x720" || u("size") == "1280x720" || u("size") == "1680x720") ? 1209600 : 1209600))))))))))))))) * 24 / 1024 * (u("videos") > 0 ? ((u("resolution") == "480p" || u("size") == "480x480" || u("size") == "480x640" || u("size") == "480x854" || u("size") == "640x480" || u("size") == "854x480" || u("size") == "1120x480") ? 0.000002475 : ((u("resolution") == "720p" || u("size") == "720x720" || u("size") == "720x960" || u("size") == "720x1280" || u("size") == "720x1680" || u("size") == "960x720" || u("size") == "1280x720" || u("size") == "1680x720") ? 0.000002475 : 0.000002475)) : ((u("resolution") == "480p" || u("size") == "480x480" || u("size") == "480x640" || u("size") == "480x854" || u("size") == "640x480" || u("size") == "854x480" || u("size") == "1120x480") ? (u("audio") == "disabled" ? 0.0000042 : 0.0000042) : ((u("resolution") == "720p" || u("size") == "720x720" || u("size") == "720x960" || u("size") == "720x1280" || u("size") == "720x1680" || u("size") == "960x720" || u("size") == "1280x720" || u("size") == "1680x720") ? (u("audio") == "disabled" ? 0.0000042 : 0.0000042) : 0.0000042))))`, `{"audio":{"enum":["default","enabled","disabled"]},"requested_seconds":{"type":"number","unit":"second"},"resolution":{"enum":["default","360p","480p","720p","768p","1080p","1K","2K","4K"]},"size":{"enum":["default","480x480","480x640","480x854","640x480","854x480","1120x480","720x720","720x960","720x1280","720x1680","960x720","1280x720","1680x720","752x560","640x640","560x752","992x432","1112x834","960x960","834x1112","1470x630","1920x1080","1080x1920","1080x1080","1440x1080","1080x1440","2520x1080","1080x2520","720x480","1080x720","480x720","720x1080","3840x2160","2160x3840","2160x2160","2880x2160","2160x2880","5040x2160","480x1120"]},"videos":{"type":"number","unit":"count"}}`, 32},
+		{"seedance-2.5", `tier("base", ((u("requested_seconds") > 0 ? u("requested_seconds") : 30) + 1.0 / 24 + 30 * u("videos")) * (u("size") == "854x480" ? 409920 : (u("size") == "752x560" ? 421120 : (u("size") == "640x640" ? 409600 : (u("size") == "560x752" ? 421120 : (u("size") == "480x854" ? 409920 : (u("size") == "992x432" ? 428544 : (u("size") == "1280x720" ? 921600 : (u("size") == "1112x834" ? 927408 : (u("size") == "960x960" ? 921600 : (u("size") == "834x1112" ? 927408 : (u("size") == "720x1280" ? 921600 : (u("size") == "1470x630" ? 926100 : ((u("resolution") == "480p" || u("size") == "854x480" || u("size") == "480x854") ? 409920 : ((u("resolution") == "720p" || u("size") == "1280x720" || u("size") == "720x1280") ? 921600 : 921600)))))))))))))) * 24 / 1024 * (u("videos") > 0 ? ((u("resolution") == "480p" || u("size") == "854x480" || u("size") == "480x854") ? 0.0000064 : ((u("resolution") == "720p" || u("size") == "1280x720" || u("size") == "720x1280") ? 0.0000064 : 0.0000064)) : ((u("resolution") == "480p" || u("size") == "854x480" || u("size") == "480x854") ? (u("audio") == "disabled" ? 0.0000107 : 0.0000107) : ((u("resolution") == "720p" || u("size") == "1280x720" || u("size") == "720x1280") ? (u("audio") == "disabled" ? 0.0000107 : 0.0000107) : 0.0000107))))`, `{"audio":{"enum":["default","enabled","disabled"]},"requested_seconds":{"type":"number","unit":"second"},"resolution":{"enum":["default","360p","480p","720p","768p","1080p","1K","2K","4K"]},"size":{"enum":["default","480x480","480x640","480x854","640x480","854x480","1120x480","720x720","720x960","720x1280","720x1680","960x720","1280x720","1680x720","752x560","640x640","560x752","992x432","1112x834","960x960","834x1112","1470x630","1920x1080","1080x1920","1080x1080","1440x1080","1080x1440","2520x1080","1080x2520","720x480","1080x720","480x720","720x1080","3840x2160","2160x3840","2160x2160","2880x2160","2160x2880","5040x2160","480x1120"]},"videos":{"type":"number","unit":"count"}}`, 28},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			var schema map[string]jsplugin.UsageFieldSchema
+			require.NoError(t, common.Unmarshal([]byte(fixture.schema), &schema))
+			item := model.Pricing{ModelName: fixture.name, BillingMode: "tiered_expr", BillingExpr: fixture.expression, BillingUsageSchema: schema, IndicativeBillingExprByEndpoint: map[constant.EndpointType]string{constant.EndpointTypeOpenAIVideo: fixture.expression}}
+			group := effectiveGroupPricing{EffectiveBillingRatio: 1, Status: "unit_prices"}
+			original := buildOperationTariff(item, group, constant.EndpointTypeOpenAIVideo, model.BillingSourceOpenRouterActualCost)
+			before, err := common.Marshal(original)
+			require.NoError(t, err)
+			compact := compactOperationTariff(original)
+			require.Len(t, compact.Tiers, fixture.groups)
+			require.Equal(t, "conditional", compact.Summary.Kind)
+			require.Empty(t, compact.Summary.UnitPrices)
+			after, err := common.Marshal(original)
+			require.NoError(t, err)
+			require.Equal(t, string(before), string(after))
+			compactBytes, err := common.Marshal(compact)
+			require.NoError(t, err)
+			secondPass, err := common.Marshal(compactOperationTariff(compact))
+			require.NoError(t, err)
+			require.Equal(t, string(compactBytes), string(secondPass))
+			require.Less(t, len(compactBytes), len(before))
+			for _, size := range append(slices.Clone(schema["size"].Enum), "other") {
+				for _, resolution := range append(slices.Clone(schema["resolution"].Enum), "other") {
+					for _, audio := range append(slices.Clone(schema["audio"].Enum), "other") {
+						for _, videos := range []float64{0, 1} {
+							for _, seconds := range []float64{0, 0.5, 4} {
+								facts := map[string]any{"size": size, "resolution": resolution, "audio": audio, "videos": videos, "requested_seconds": seconds}
+								assert.Equal(t, matchingPricingVectors(original.Tiers, facts), matchingPricingVectors(compact.Tiers, facts), facts)
+							}
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func matchingPricingVectors(tiers []effectivePricingTier, facts map[string]any) map[string]bool {
+	matches := make(map[string]bool)
+	for _, tier := range tiers {
+		condition := tier.Condition
+		applies := condition == nil
+		if condition != nil {
+			applies = pricingGuardsMatch(condition.Guards, facts)
+			if len(condition.AnyOf) > 0 {
+				any := false
+				for _, alternative := range condition.AnyOf {
+					any = any || pricingGuardsMatch(alternative.Guards, facts)
+				}
+				applies = applies && any
+			}
+		}
+		if applies {
+			matches[pricingVectorKey(tier)] = true
+		}
+	}
+	return matches
+}
+
+func pricingGuardsMatch(guards []billingexpr.DisplayUsageGuard, facts map[string]any) bool {
+	for _, guard := range guards {
+		matches := true
+		for field, value := range guard.Values {
+			matches = matches && facts[field] == value
+		}
+		if guard.Numeric != nil {
+			value, known := facts[guard.Numeric.Field].(float64)
+			matches = matches && known && value > guard.Numeric.Value
+		}
+		if matches == guard.Negated {
+			return false
+		}
+	}
+	return true
+}
+
+func TestCompactPricingBooleanAndSummaryContracts(t *testing.T) {
+	numeric := func(value float64, negated bool) billingexpr.DisplayUsageGuard {
+		return billingexpr.DisplayUsageGuard{Values: map[string]string{}, Negated: negated, Numeric: &billingexpr.DisplayNumericGuard{Field: "seconds", Unit: "second", Operator: "gt", Value: value}}
+	}
+	price := []effectiveUnitPrice{{Component: "seconds", Unit: "second", AmountRub: 1}}
+	cases := []struct {
+		name           string
+		alternatives   [][]billingexpr.DisplayUsageGuard
+		expectedGroups int
+	}{
+		{"true", [][]billingexpr.DisplayUsageGuard{{{Values: map[string]string{"audio": "disabled"}}}, {{Values: map[string]string{"audio": "disabled"}, Negated: true}}}, 1},
+		{"false", [][]billingexpr.DisplayUsageGuard{{numeric(4, false), numeric(4, true)}}, 0},
+		{"contradictory equalities", [][]billingexpr.DisplayUsageGuard{{{Values: map[string]string{"size": "480x480"}}, {Values: map[string]string{"size": "720x720"}}}}, 0},
+		{"redundant negatives", [][]billingexpr.DisplayUsageGuard{{{Values: map[string]string{"size": "480x480"}}, {Values: map[string]string{"size": "720x720"}, Negated: true}, {Values: map[string]string{"size": "720x720"}, Negated: true}}}, 1},
+		{"negated conjunction", [][]billingexpr.DisplayUsageGuard{{{Values: map[string]string{"size": "480x480"}}, {Values: map[string]string{"size": "480x480", "audio": "disabled"}, Negated: true}}}, 1},
+		{"numeric bounds", [][]billingexpr.DisplayUsageGuard{{numeric(2, false), numeric(4, false), numeric(8, true), numeric(10, true)}}, 1},
+		{"absorption", [][]billingexpr.DisplayUsageGuard{{numeric(4, false)}, {numeric(4, false), {Values: map[string]string{"audio": "disabled"}}}}, 1},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			original := make([]effectivePricingTier, 0, len(test.alternatives))
+			for _, guards := range test.alternatives {
+				original = append(original, effectivePricingTier{Condition: &effectivePricingTierCondition{Kind: "usage_conditions", Guards: guards}, UnitPrices: price})
+			}
+			normalized := compactPricingTiers(original)
+			require.Len(t, normalized, test.expectedGroups)
+			for _, seconds := range []float64{0, 2, 3.5, 4, 4.5, 8, 8.5, 10} {
+				for _, audio := range []string{"disabled", "enabled", "other"} {
+					for _, size := range []string{"480x480", "720x720", "other"} {
+						facts := map[string]any{"seconds": seconds, "audio": audio, "size": size}
+						assert.Equal(t, matchingPricingVectors(original, facts), matchingPricingVectors(normalized, facts), facts)
+					}
+				}
+			}
+			if test.name == "true" {
+				require.Nil(t, normalized[0].Condition)
+			}
+		})
+	}
+	additive := compactOperationTariff(effectiveOperationTariff{Status: "priced", BillingSurface: "task", Tiers: []effectivePricingTier{{UnitPrices: []effectiveUnitPrice{{Component: "base", Unit: "call", AmountRub: 1}, {Component: "seconds", Unit: "second", AmountRub: 2}}}}})
+	require.Equal(t, "additive", additive.Summary.Kind)
+	require.Len(t, additive.Summary.UnitPrices, 2)
+	require.Equal(t, "additive", additive.Tiers[0].PriceComposition)
+	conditional := additive
+	conditional.Tiers = append(slices.Clone(additive.Tiers), effectivePricingTier{UnitPrices: []effectiveUnitPrice{{Component: "base", Unit: "call", AmountRub: 3}}})
+	require.Equal(t, "conditional", compactOperationTariff(conditional).Summary.Kind)
+	require.Empty(t, compactOperationTariff(conditional).Summary.UnitPrices)
+	require.Equal(t, "request_dependent", compactOperationTariff(effectiveOperationTariff{Status: "request_dependent"}).Summary.Kind)
+	require.Equal(t, "unavailable", compactOperationTariff(effectiveOperationTariff{Status: "unavailable"}).Summary.Kind)
+	require.Equal(t, "request_dependent", compactOperationTariff(effectiveOperationTariff{Status: "priced", BillingSurface: "task"}).Summary.Kind)
 }

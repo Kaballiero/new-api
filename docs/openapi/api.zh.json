@@ -3833,6 +3833,20 @@
         ],
         "type": "object"
       },
+      "EffectivePricingGuardSet": {
+        "properties": {
+          "guards": {
+            "items": {
+              "$ref": "#/components/schemas/EffectivePricingUsageGuard"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "guards"
+        ],
+        "type": "object"
+      },
       "EffectivePricingModel": {
         "properties": {
           "creator": {
@@ -3963,6 +3977,9 @@
             ],
             "type": "string"
           },
+          "summary": {
+            "$ref": "#/components/schemas/EffectivePricingSummary"
+          },
           "tiers": {
             "items": {
               "$ref": "#/components/schemas/EffectivePricingTier"
@@ -3975,7 +3992,8 @@
           "source",
           "billing_surface",
           "status",
-          "tiers"
+          "tiers",
+          "summary"
         ],
         "type": "object"
       },
@@ -3997,12 +4015,47 @@
         ],
         "type": "object"
       },
+      "EffectivePricingSummary": {
+        "properties": {
+          "is_from": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "unit_prices",
+              "additive",
+              "conditional",
+              "request_dependent",
+              "unavailable"
+            ],
+            "type": "string"
+          },
+          "unit_prices": {
+            "items": {
+              "$ref": "#/components/schemas/EffectiveUnitPrice"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "unit_prices",
+          "is_from"
+        ],
+        "type": "object"
+      },
       "EffectivePricingTier": {
         "properties": {
           "condition": {
             "$ref": "#/components/schemas/EffectivePricingTierCondition"
           },
           "label": {
+            "type": "string"
+          },
+          "price_composition": {
+            "enum": [
+              "additive"
+            ],
             "type": "string"
           },
           "unit_prices": {
@@ -4019,6 +4072,12 @@
       },
       "EffectivePricingTierCondition": {
         "properties": {
+          "any_of": {
+            "items": {
+              "$ref": "#/components/schemas/EffectivePricingGuardSet"
+            },
+            "type": "array"
+          },
           "guards": {
             "items": {
               "$ref": "#/components/schemas/EffectivePricingUsageGuard"
