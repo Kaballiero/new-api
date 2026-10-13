@@ -366,6 +366,204 @@ func TestPricingConfiguredFormulaProjectionUsesActualRouteSource(t *testing.T) {
 		require.Contains(t, item.ConfiguredPrices, expressions[name])
 		require.Len(t, item.ConfiguredPrices[expressions[name]], 1)
 		assert.Len(t, item.ConfiguredPrices[expressions[name]][0], 2)
+		selected := SelectCatalogOffer(item.CatalogOffersForGroup("default"))
+		require.NotNil(t, selected)
+		assert.Equal(t, "text", selected.Operation)
+		assert.Len(t, selected.Prices, 2)
 	}
 	assert.Empty(t, pricing["actualcost-or"].ConfiguredPrices)
+	assert.Nil(t, SelectCatalogOffer(pricing["actualcost-or"].CatalogOffersForGroup("default")))
+}
+
+func TestPricingOperationCounterProfilesAndFixedPrecedence(t *testing.T) {
+	previousCount := constant.CountToken
+	constant.CountToken = true
+	t.Cleanup(func() { constant.CountToken = previousCount })
+	channel := &Channel{Type: constant.ChannelTypeOpenAI}
+	for _, scenario := range []struct {
+		public, upstream, operation, unit string
+		ratio, amount                     float64
+	}{
+		{"tts-1", "tts-1", "speech_generation", "million_characters", 7.5, 15},
+		{"tts-1-hd", "tts-1-hd", "speech_generation", "million_characters", 15, 30},
+		{"whisper-1", "whisper-1", "transcription", "minute", 15, .03},
+	} {
+		t.Run(scenario.public, func(t *testing.T) {
+			profile := configuredPricingOperation(channel, scenario.public, scenario.upstream, constant.EndpointTypeOpenAI)
+			offers := configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: scenario.ratio, CompletionRatio: 1}, profile, "sync", "")
+			selected := SelectCatalogOffer(offers)
+			require.NotNil(t, selected)
+			assert.Equal(t, scenario.operation, selected.Operation)
+			require.Len(t, selected.Prices, 1)
+			assert.Equal(t, scenario.unit, selected.Prices[0].Unit)
+			assert.InDelta(t, scenario.amount, *selected.Prices[0].AmountUSD, 1e-12)
+		})
+	}
+	for _, pair := range [][2]string{{"gpt-alias", "tts-1"}, {"alias", "whisper-1"}, {"gpt-4o-mini-tts", "gpt-4o-mini-tts"}, {"gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe"}} {
+		profile := configuredPricingOperation(channel, pair[0], pair[1], constant.EndpointTypeOpenAI)
+		assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: .625, CompletionRatio: 4}, profile, "sync", "")))
+		fixed := configuredOperationOffers(Pricing{PriceConfigured: true, QuotaType: 1, ModelPrice: .02}, profile, "sync", "")
+		require.Len(t, fixed, 1)
+		selected := SelectCatalogOffer(fixed)
+		require.NotNil(t, selected)
+		assert.Equal(t, "call", selected.Prices[0].Unit)
+		assert.Equal(t, .02, *selected.Prices[0].AmountUSD)
+	}
+	constant.CountToken = false
+	profile := configuredPricingOperation(channel, "tts-1", "tts-1", constant.EndpointTypeOpenAI)
+	assert.Equal(t, "unknown", profile.basis)
+}
+
+func TestPricingEmbeddingProjectionUsesInputMainAndIndependentBatch(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { saved[key] = value; return nil }))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)); InvalidatePricingCache() })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":       `{"embedding-alias":"tiered_expr"}`,
+		"billing_setting.billing_expr":       `{"embedding-alias":"tier(\"base\",p*.13)"}`,
+		"billing_setting.batch_billing_expr": `{"embedding-alias":"tier(\"batch\",p*.065)"}`,
+	}))
+	mapping := `{"embedding-alias":"text-embedding-3-large"}`
+	require.NoError(t, DB.Create(&Channel{Id: 988, Type: constant.ChannelTypeOpenAI, Status: 1, ModelMapping: &mapping}).Error)
+	insertPricingEndpointAbility(t, 988, "embedding-alias")
+	InitChannelCache()
+	item := pricingByModel(GetPricing())["embedding-alias"]
+	offers := item.CatalogOffersForGroup("default")
+	require.Len(t, offers, 2)
+	for _, offer := range offers {
+		assert.Equal(t, "embeddings", offer.Operation)
+		assert.Equal(t, "input", offer.MainComponent)
+		selected := SelectCatalogOffer([]CatalogOffer{offer})
+		require.NotNil(t, selected)
+		require.Len(t, selected.Prices, 1)
+		assert.Equal(t, "input", selected.Prices[0].Component)
+		expected := .13
+		if offer.Mode == "batch" {
+			expected = .065
+		}
+		assert.Equal(t, expected, *selected.Prices[0].AmountUSD)
+	}
+}
+
+func TestPricingBatchCanonicalPairIsGroupScopedAndMappingProved(t *testing.T) {
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { saved[key] = value; return nil }))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.batch_billing_expr": `{"public:batch":"tier(\"batch\",provider_cost)"}`}))
+	mapping := `{"public":"anthropic/claude-fable-5.1","public:batch":"anthropic/claude-fable-5.1:batch"}`
+	channels := map[int]*Channel{989: {Id: 989, Type: constant.ChannelTypeOpenRouter, Status: 1, ModelMapping: &mapping}}
+	abilities := []AbilityWithChannel{
+		{Ability: Ability{ChannelId: 989, Model: "public", Group: "default", Enabled: true}, ChannelType: constant.ChannelTypeOpenRouter},
+		{Ability: Ability{ChannelId: 989, Model: "public:batch", Group: "default", Enabled: true}, ChannelType: constant.ChannelTypeOpenRouter},
+		{Ability: Ability{ChannelId: 989, Model: "public:batch", Group: "premium", Enabled: true}, ChannelType: constant.ChannelTypeOpenRouter},
+	}
+	zero := 0.0
+	alias := Pricing{ModelName: "public:batch", EnableGroup: []string{"default", "premium"}, CatalogOffersByGroup: map[string][]CatalogOffer{"default": {{ID: "989:anthropic/claude-fable-5.1:batch:native", Operation: "text", Mode: "batch", MainComponent: "output", Prices: []CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: &zero}}}}}}
+	projectPricingOperations(&alias, abilities, channels, jsplugin.NewRegistry().Generation(), nil)
+	assert.Equal(t, map[string]string{"default": "public"}, alias.ConsumerCanonicalModelsByGroup)
+	base := Pricing{ModelName: "public", EnableGroup: []string{"default"}}
+	visible := ConsumerPricingCatalogue([]Pricing{base, alias}, map[string]string{"default": "Default", "premium": "Premium"})
+	require.Len(t, visible, 2)
+	indexed := pricingByModel(visible)
+	require.Len(t, indexed["public"].CatalogOffersForGroup("default"), 1)
+	selected := SelectCatalogOffer(indexed["public"].CatalogOffersForGroup("default"))
+	require.NotNil(t, selected)
+	assert.Zero(t, *selected.Prices[0].AmountUSD)
+	assert.Empty(t, indexed["public"].CatalogOffersForGroup("premium"))
+	assert.Equal(t, []string{"premium"}, indexed["public:batch"].EnableGroup)
+	assert.Equal(t, "batch", indexed["public:batch"].CatalogOffersForGroup("premium")[0].Mode)
+	assert.Equal(t, "public:batch", alias.ModelName)
+	badMapping := `{"public":"different/model","public:batch":"anthropic/claude-fable-5.1:batch"}`
+	channels[989].ModelMapping = &badMapping
+	_, paired := pairedPricingBatchBase(abilities[1], "anthropic/claude-fable-5.1:batch", abilities, channels)
+	assert.False(t, paired)
+}
+
+func TestPricingUpstreamIdentityMissingMappingAndMalformedMapping(t *testing.T) {
+	channel := &Channel{}
+	name, known := ResolvePricingUpstreamModel(channel, "sora-2")
+	assert.True(t, known)
+	assert.Equal(t, "sora-2", name)
+	for _, mapping := range []string{"", "  ", "{}"} {
+		channel.ModelMapping = &mapping
+		name, known = ResolvePricingUpstreamModel(channel, "direct")
+		assert.True(t, known)
+		assert.Equal(t, "direct", name)
+	}
+	for _, mapping := range []string{"{", `{"a":"b","b":"a"}`} {
+		channel.ModelMapping = &mapping
+		_, known = ResolvePricingUpstreamModel(channel, "a")
+		assert.False(t, known)
+	}
+	_, known = ResolvePricingUpstreamModel(nil, "a")
+	assert.False(t, known)
+	_, known = ResolvePricingUpstreamModel(channel, " ")
+	assert.False(t, known)
+}
+
+func TestPricingNativeImageProofReplacesDefaultsAndPreservesMixedText(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	previousState := pricingCatalogState.Load()
+	t.Cleanup(func() { pricingCatalogState.Store(previousState); InvalidatePricingCache() })
+	mapping := `{"pure-image":"sourceful/riverflow","mixed-image":"google/gemini-image"}`
+	channel := &Channel{Id: 992, Type: constant.ChannelTypeOpenRouter, Status: 1, ModelMapping: &mapping}
+	require.NoError(t, DB.Create(channel).Error)
+	for _, name := range []string{"pure-image", "mixed-image"} {
+		insertPricingEndpointAbility(t, 992, name)
+	}
+	entries := map[string]PricingCatalogEntry{}
+	amount := .06
+	for _, upstream := range []string{"sourceful/riverflow", "google/gemini-image"} {
+		image := PricingCatalogEntry{ChannelID: 992, UpstreamModel: upstream, Endpoint: constant.EndpointTypeImageGeneration, Fingerprint: PricingCatalogSourceFingerprint(channel, upstream, constant.EndpointTypeImageGeneration), Offers: []CatalogOffer{{ID: "native:image", Operation: "image_generation", Mode: "sync", MainComponent: "image_output", Prices: []CatalogPrice{{Component: "image_output", Unit: "image", AmountUSD: &amount}}}}}
+		entries[pricingCatalogEntryKey(image)] = image
+		text := PricingCatalogEntry{ChannelID: 992, UpstreamModel: upstream, Endpoint: constant.EndpointTypeOpenAI, Fingerprint: PricingCatalogSourceFingerprint(channel, upstream, constant.EndpointTypeOpenAI), Offers: []CatalogOffer{}}
+		if upstream == "google/gemini-image" {
+			text.Offers = []CatalogOffer{{ID: "native:text", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: &amount}}}}
+		}
+		entries[pricingCatalogEntryKey(text)] = text
+	}
+	loadPricingCatalog(PricingCatalogSnapshot{Version: 1, Entries: entries})
+	InitChannelCache()
+	indexed := pricingByModel(GetPricing())
+	pure := indexed["pure-image"].CatalogOffersForGroup("default")
+	require.Len(t, pure, 1)
+	assert.Equal(t, "image_generation", pure[0].Operation)
+	mixed := indexed["mixed-image"].CatalogOffersForGroup("default")
+	require.Len(t, mixed, 2)
+	operations := []string{mixed[0].Operation, mixed[1].Operation}
+	assert.ElementsMatch(t, []string{"image_generation", "text"}, operations)
+}
+
+func TestPricingConfiguredImageUsesActualOutputUmbrellaAndCountBasis(t *testing.T) {
+	channel := &Channel{Type: constant.ChannelTypeOpenAI}
+	imageRatio, cacheRatio := 2.0, .25
+	for _, name := range []string{"gpt-image-2-2026-04-21", "gpt-image-2.5-flare-2026-09-08", "gpt-image-2.5-sunburst-2026-09-08"} {
+		for _, public := range []string{name, "image-alias"} {
+			profile := configuredPricingOperation(channel, public, name, constant.EndpointTypeOpenAI)
+			require.Equal(t, "image_generation", profile.operation)
+			offers := configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: 2.5, CompletionRatio: 6, ImageRatio: &imageRatio, CacheRatio: &cacheRatio}, profile, "sync", "")
+			selected := SelectCatalogOffer(offers)
+			require.NotNil(t, selected)
+			assert.Equal(t, "output", selected.MainComponent)
+			prices := map[string]CatalogPrice{}
+			for _, price := range selected.Prices {
+				prices[price.Component] = price
+				assert.Equal(t, "million_tokens", price.Unit)
+			}
+			assert.Equal(t, 5.0, *prices["input"].AmountUSD)
+			assert.Equal(t, 30.0, *prices["output"].AmountUSD)
+			assert.Equal(t, 10.0, *prices["image_input"].AmountUSD)
+			assert.Equal(t, 1.25, *prices["cache_read"].AmountUSD)
+			assert.NotContains(t, prices, "image_output")
+			zero := configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: 0, CompletionRatio: 6}, profile, "sync", "")
+			free := SelectCatalogOffer(zero)
+			require.NotNil(t, free)
+			assert.Zero(t, *free.Prices[1].AmountUSD)
+			assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(Pricing{}, profile, "sync", "")))
+			fixed := SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, QuotaType: 1, ModelPrice: .04}, profile, "sync", ""))
+			require.NotNil(t, fixed)
+			assert.Equal(t, "image", fixed.Prices[0].Unit)
+		}
+	}
 }

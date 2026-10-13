@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -213,8 +214,16 @@ func pricingPageFixture() effectivePricingPageContext {
 			endpoint = constant.EndpointTypeImageGeneration
 		}
 		item.BillingSourcesByGroup = map[string]map[constant.EndpointType][]string{}
+		item.CatalogOffersByGroup = map[string][]model.CatalogOffer{}
 		for _, group := range item.EnableGroup {
 			item.BillingSourcesByGroup[group] = map[constant.EndpointType][]string{endpoint: {model.BillingSourceConfiguredTariff}}
+			offer := model.CatalogOffer{ID: "fixture", Operation: "text", Mode: "sync", MainComponent: "output"}
+			if item.QuotaType == 1 {
+				offer.Operation, offer.MainComponent = "image_generation", "image_output"
+			} else {
+				offer.Prices = []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: float(item.ModelRatio * 2)}, {Component: "output", Unit: "million_tokens", AmountUSD: float(item.ModelRatio * item.CompletionRatio * 2)}}
+			}
+			item.CatalogOffersByGroup[group] = []model.CatalogOffer{offer}
 		}
 	}
 	return context
@@ -463,48 +472,6 @@ func TestConsumerPricingZeroUnknownAndIncompatibleUnits(t *testing.T) {
 	}
 }
 
-func TestConsumerPricingBatchIsConfiguredAndIndependent(t *testing.T) {
-	withTieredBillingConfig(t, nil, nil)
-	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.batch_billing_expr": `{"catalog-batch":"tier(\"batch\",p * 4 + c * 7)"}`}))
-	item := tieredPricing(`len <= 1000 ? tier("short",p * 8 + c * 2) : tier("long",p * 1 + c * 9)`)
-	item.ModelName = "catalog-batch"
-	batchExpression, _ := billing_setting.GetBatchBillingExpr(item.ModelName)
-	item.ConfiguredPrices[batchExpression] = billingexpr.CatalogPrices(batchExpression)
-	item.BillingSourcesByGroup = map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {model.BillingSourceConfiguredTariff}, model.PricingEndpointBatch: {model.BillingSourceConfiguredTariff}}}
-	rows := consumerOperations(item, "default", 1, true)
-	require.Len(t, rows, 2)
-	assert.Equal(t, "batch", rows[0].Mode)
-	assert.Equal(t, 400.0, *rows[0].Prices[0].AmountRub)
-	assert.Equal(t, 700.0, *rows[0].Prices[1].AmountRub)
-	assert.Equal(t, "sync", rows[1].Mode)
-	assert.Equal(t, 800.0, *rows[1].Prices[0].AmountRub)
-	assert.Equal(t, 200.0, *rows[1].Prices[1].AmountRub)
-	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.batch_billing_expr": `{}`}))
-	assert.Len(t, consumerOperations(item, "default", 1, true), 1)
-	item.BillingExpr = `tier("cost",provider_cost)`
-	rows = consumerOperations(item, "default", 1, true)
-	require.Len(t, rows, 1)
-	assert.Empty(t, rows[0].Prices)
-}
-
-func TestConsumerPricingSoraRetainsOperationPriceBasis(t *testing.T) {
-	item := model.Pricing{ModelName: "sora-2", PriceConfigured: true, QuotaType: 1, ModelPrice: .3,
-		BillingSourcesByGroup:        map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAIVideo: {model.BillingSourceConfiguredTariff}}},
-		LegacyVideoPriceBasisByGroup: map[string][]map[string]jsplugin.LegacyPriceBasis{"default": {{"text_to_video": {Unit: "second", UsageField: "seconds"}, "image_to_video": {Unit: "second", UsageField: "seconds"}, "remix": {Unit: "call"}}}},
-	}
-	rows := consumerOperations(item, "default", 1.2, true)
-	require.Len(t, rows, 3)
-	for _, row := range rows {
-		require.Len(t, row.Prices, 1)
-		assert.Equal(t, 36.0, *row.Prices[0].AmountRub)
-		if row.Operation == "remix" {
-			assert.Equal(t, "call", row.Prices[0].Unit)
-		} else {
-			assert.Equal(t, "second", row.Prices[0].Unit)
-		}
-	}
-}
-
 func TestConsumerPricingPageUsesNativeChannelVideoPluginBinding(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	previousRegistry := jsplugin.DefaultRegistry
@@ -676,22 +643,16 @@ func TestPricingCatalogRefreshPartialFailureAndCancellation(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-func TestConsumerPricingUsesSnapshotAndActualBillingSource(t *testing.T) {
+func TestConsumerPricingUsesProjectedSnapshotOnly(t *testing.T) {
 	item := tieredPricing(`tier("base",p*2+c*3)`)
-	item.SupportedEndpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI}
-	item.BillingSourcesByGroup = map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {model.BillingSourceConfiguredTariff}}}
-	// Consumer uses the already projected snapshot even when the raw expression
-	// text is unavailable, and never reinterprets it as an actual-cost tariff.
-	delete(item.ConfiguredPrices, item.BillingExpr)
+	item.CatalogOffersByGroup = map[string][]model.CatalogOffer{"default": {{ID: "actual", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: float(7)}}}}}
 	rows := consumerOperations(item, "default", 1, true)
 	require.Len(t, rows, 1)
-	assert.Empty(t, rows[0].Prices)
-	item.ConfiguredPrices[item.BillingExpr] = billingexpr.CatalogPrices(item.BillingExpr)
-	rows = consumerOperations(item, "default", 1, true)
-	require.Len(t, rows[0].Prices, 2)
-	item.BillingSourcesByGroup["default"][constant.EndpointTypeOpenAI] = []string{model.BillingSourceOpenRouterActualCost}
-	rows = consumerOperations(item, "default", 1, true)
-	assert.Empty(t, rows[0].Prices)
+	require.Len(t, rows[0].Prices, 1)
+	assert.Equal(t, 700.0, *rows[0].Prices[0].AmountRub)
+	item.BillingExpr = `tier("changed",p*200+c*300)`
+	item.ConfiguredPrices = nil
+	assert.Equal(t, rows, consumerOperations(item, "default", 1, true))
 }
 
 type pricingCatalogTestTransport func(*http.Request) (*http.Response, error)
@@ -708,7 +669,7 @@ func TestPricingCatalogFetchUsesBoundedMetadataAndConsumerDoesNoHTTP(t *testing.
 	previousTransport := client.Transport
 	t.Cleanup(func() { client.Transport = previousTransport })
 	var attempts atomic.Int64
-	body := `{"data":{"id":"provider/model","architecture":{"input_modalities":["text"],"output_modalities":["text","audio"]},"endpoints":[{"tag":"native","pricing":{"prompt":"0.000001","completion":"0.000002","internal_reasoning":"0.000003","audio_output":"0.0005","web_search":"0.01"}}]}}`
+	body := `{"data":{"id":"provider/model","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"tag":"native","pricing":{"prompt":"0.000001","completion":"0.000002","internal_reasoning":"0.000003","audio_output":"0.0005","web_search":"0.01"}}]}}`
 	client.Transport = pricingCatalogTestTransport(func(request *http.Request) (*http.Response, error) {
 		attempts.Add(1)
 		assert.Equal(t, http.MethodGet, request.Method)
@@ -758,10 +719,11 @@ func TestPricingCatalogFetchUsesBoundedMetadataAndConsumerDoesNoHTTP(t *testing.
 }
 
 func TestPricingCatalogNativeTextRequiresArchitectureProof(t *testing.T) {
-	for _, architecture := range []string{`{}`, `{"input_modalities":["text"],"output_modalities":["audio"]}`, `{"input_modalities":["text"],"output_modalities":["image"]}`} {
+	for _, architecture := range []string{`{"input_modalities":["text"],"output_modalities":["audio"]}`, `{"input_modalities":["text"],"output_modalities":["image"]}`} {
 		body := []byte(`{"data":{"id":"provider/model","architecture":` + architecture + `,"endpoints":[{"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`)
-		_, err := normalizeEndpointPricing("provider/model", "text", "output", body)
-		require.ErrorContains(t, err, "text-only")
+		offers, err := normalizeEndpointPricing("provider/model", "text", "output", body)
+		require.NoError(t, err)
+		assert.Empty(t, offers)
 	}
 }
 
@@ -790,4 +752,225 @@ func TestPricingCatalogImageFontInputPreservesNativeCoherentPrice(t *testing.T) 
 		}
 	}
 	t.Fatal("font_input native price lost in consumer projection")
+}
+
+func TestConsumerPricingNativeVideoOperationsMatchBoundSourceDescriptors(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	previousPrices := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices))
+		model.InvalidatePricingCache()
+	})
+	prices := map[string]float64{}
+	require.NoError(t, common.UnmarshalJsonStr(previousPrices, &prices))
+	prices["sora-2"] = .3
+	encoded, err := common.Marshal(prices)
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(encoded)))
+	previousRegistry, previousMemoryCache := jsplugin.DefaultRegistry, common.MemoryCacheEnabled
+	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() {
+		jsplugin.DefaultRegistry = previousRegistry
+		common.MemoryCacheEnabled = previousMemoryCache
+		model.InvalidatePricingCache()
+	})
+	for _, path := range []string{"../plugins/tasks/openrouter-video/plugin.js", "../plugins/tasks/sora/plugin.js"} {
+		source, err := os.ReadFile(path)
+		require.NoError(t, err)
+		_, err = jsplugin.DefaultRegistry.Register(string(source), jsplugin.Options{})
+		require.NoError(t, err)
+	}
+	mapping := `{"aleph-alias":"runway/aleph-2","avatar-alias":"heygen/avatar-iv","edit-alias":"black-forest-labs/flux-video-edit","flux-alias":"black-forest-labs/flux-3-video","seedance-alias":"bytedance/seedance-2.5"}`
+	names := []string{"aleph-alias", "avatar-alias", "edit-alias", "flux-alias", "seedance-alias"}
+	require.NoError(t, db.Create(&model.Channel{Id: 991, Type: constant.ChannelTypeOpenRouter, Status: 1, Key: "fixture", Models: strings.Join(names, ","), ModelMapping: &mapping}).Error)
+	for _, name := range names {
+		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 991, Enabled: true}).Error)
+	}
+	require.NoError(t, db.Create(&model.Channel{Id: 992, Type: constant.ChannelTypeOpenAI, Status: 1, Key: "fixture", Models: "sora-2"}).Error)
+	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "sora-2", ChannelId: 992, Enabled: true}).Error)
+	model.InitChannelCache()
+	items := map[string]model.Pricing{}
+	for _, item := range model.GetPricing() {
+		items[item.ModelName] = item
+	}
+	for _, name := range append(names, "sora-2") {
+		item, exists := items[name]
+		require.True(t, exists)
+		rows := consumerOperations(item, "default", 1, true)
+		operations := map[string]consumerPricingOperation{}
+		for _, row := range rows {
+			operations[row.Operation] = row
+			assert.NotEqual(t, "text", row.Operation, name)
+		}
+		switch name {
+		case "aleph-alias":
+			require.Len(t, operations, 1)
+			require.Contains(t, operations, "video_editing")
+			assert.Empty(t, operations["video_editing"].Prices)
+		case "avatar-alias":
+			require.Len(t, operations, 1)
+			require.Contains(t, operations, "image_to_video")
+		case "edit-alias":
+			require.Len(t, operations, 1)
+			require.Contains(t, operations, "video_editing")
+		case "flux-alias", "seedance-alias":
+			require.Contains(t, operations, "text_to_video")
+			require.Contains(t, operations, "image_to_video")
+		case "sora-2":
+			require.Len(t, operations, 3)
+			require.Contains(t, operations, "remix")
+			require.Len(t, operations["remix"].Prices, 1)
+			assert.Equal(t, "call", operations["remix"].Prices[0].Unit)
+			assert.Equal(t, 30.0, *operations["remix"].Prices[0].AmountRub)
+		}
+	}
+	// A genuinely separate text route sharing an alias remains independently supported.
+	require.NoError(t, db.Create(&model.Channel{Id: 993, Type: constant.ChannelTypeOpenAI, Status: 1, Key: "fixture", Models: "edit-alias"}).Error)
+	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "edit-alias", ChannelId: 993, Enabled: true}).Error)
+	model.InitChannelCache()
+	for _, item := range model.GetPricing() {
+		if item.ModelName == "edit-alias" {
+			rows := consumerOperations(item, "default", 1, true)
+			operations := []string{}
+			for _, row := range rows {
+				operations = append(operations, row.Operation)
+			}
+			assert.Contains(t, operations, "text")
+			assert.Contains(t, operations, "video_editing")
+		}
+	}
+}
+
+func TestPricingCatalogVariantIdentityAndMixedOutputBasis(t *testing.T) {
+	for _, suffix := range []string{":batch", ":free"} {
+		upstream := "provider/model" + suffix
+		body := []byte(`{"data":{"id":"` + upstream + `","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"model_id":"` + upstream + `","pricing":{"prompt":"0.000005","completion":"0.000025"}}]}}`)
+		offers, err := normalizeEndpointPricing(upstream, "text", "output", body)
+		require.NoError(t, err)
+		selected := model.SelectCatalogOffer(offers)
+		require.NotNil(t, selected)
+		assert.Equal(t, "output", selected.Prices[0].Component)
+		assert.Equal(t, 25.0, *selected.Prices[0].AmountUSD)
+		mismatched := strings.Replace(string(body), `"model_id":"`+upstream+`"`, `"model_id":"provider/model"`, 1)
+		_, err = normalizeEndpointPricing(upstream, "text", "output", []byte(mismatched))
+		require.ErrorContains(t, err, "identity")
+	}
+	for _, output := range []string{"image", "audio"} {
+		dimension := output + "_output"
+		body := []byte(`{"data":{"id":"provider/model","architecture":{"input_modalities":["text"],"output_modalities":["text","` + output + `"]},"endpoints":[{"pricing":{"prompt":"0.000001","completion":"0.000002","` + dimension + `":"0.00003"}}]}}`)
+		offers, err := normalizeEndpointPricing("provider/model", "text", "output", body)
+		require.NoError(t, err)
+		require.Len(t, offers, 1)
+		assert.Equal(t, "text", offers[0].Operation)
+		assert.Nil(t, model.SelectCatalogOffer(offers))
+	}
+	body := []byte(`{"data":{"id":"provider/model:free","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[]}}`)
+	offers, err := normalizeEndpointPricing("provider/model:free", "text", "output", body)
+	require.NoError(t, err)
+	require.Len(t, offers, 1)
+	assert.Nil(t, model.SelectCatalogOffer(offers))
+	_, err = normalizeEndpointPricing("provider/model", "text", "output", []byte(`{"data":{"id":"provider/model","architecture":{},"endpoints":[]}}`))
+	require.ErrorContains(t, err, "operation")
+}
+
+func TestPricingCatalogSourceJobsUseNativeCapabilitiesAndExactBatch(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	previousMemory := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { saved[key] = value; return nil }))
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = previousMemory
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+		model.InvalidatePricingCache()
+	})
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.batch_billing_expr": `{"fable:batch":"tier(\"batch\",provider_cost)"}`}))
+	mapping := `{"image-alias":"sourceful/riverflow","fable":"anthropic/claude-fable-5.1","fable:batch":"anthropic/claude-fable-5.1:batch","free":"qwen/qwen3.5-9b:free","unsupported":"provider/model:nitro"}`
+	require.NoError(t, db.Create(&model.Channel{Id: 991, Type: constant.ChannelTypeOpenRouter, Status: 1, Key: "fixture", Models: "image-alias,fable,fable:batch,free,unsupported", ModelMapping: &mapping}).Error)
+	for _, name := range []string{"image-alias", "fable", "fable:batch", "free", "unsupported"} {
+		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 991, Enabled: true}).Error)
+	}
+	model.InitChannelCache()
+	client := service.GetHttpClient()
+	if client == nil {
+		client = http.DefaultClient
+	}
+	previousTransport := client.Transport
+	t.Cleanup(func() { client.Transport = previousTransport })
+	attempts := 0
+	client.Transport = pricingCatalogTestTransport(func(request *http.Request) (*http.Response, error) {
+		attempts++
+		require.Equal(t, "https://openrouter.ai/api/v1/images/models", request.URL.String())
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"sourceful/riverflow"}]}`)), Header: make(http.Header)}, nil
+	})
+	sources, err := pricingCatalogSources(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, attempts)
+	found := map[string]map[constant.EndpointType]bool{}
+	for _, source := range sources {
+		if found[source.upstream] == nil {
+			found[source.upstream] = map[constant.EndpointType]bool{}
+		}
+		found[source.upstream][source.endpoint] = true
+	}
+	assert.True(t, found["sourceful/riverflow"][constant.EndpointTypeImageGeneration])
+	assert.Equal(t, map[constant.EndpointType]bool{model.PricingEndpointBatch: true}, found["anthropic/claude-fable-5.1:batch"])
+	assert.False(t, found["anthropic/claude-fable-5.1"][model.PricingEndpointBatch])
+	assert.NotEmpty(t, found["qwen/qwen3.5-9b:free"])
+	assert.NotContains(t, found, "provider/model:nitro")
+	client.Transport = pricingCatalogTestTransport(func(request *http.Request) (*http.Response, error) {
+		require.Equal(t, "https://openrouter.ai/api/v1/models/anthropic/claude-fable-5.1:batch/endpoints", request.URL.String())
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":{"id":"anthropic/claude-fable-5.1:batch","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"model_id":"anthropic/claude-fable-5.1:batch","pricing":{"prompt":"0.000005","completion":"0.000025"}}]}}`)), Header: make(http.Header)}, nil
+	})
+	for _, source := range sources {
+		if source.endpoint != model.PricingEndpointBatch {
+			continue
+		}
+		entry, err := fetchPricingCatalogSource(context.Background(), source)
+		require.NoError(t, err)
+		require.Len(t, entry.Offers, 1)
+		assert.Equal(t, "batch", entry.Offers[0].Mode)
+		assert.Equal(t, 25.0, *entry.Offers[0].Prices[0].AmountUSD)
+	}
+}
+
+func TestEffectivePricingPageFoldsBatchBeforePagingAndKeepsGroupFX(t *testing.T) {
+	context := effectivePricingPageContext{
+		metadata:     consumerPricingResponse{SchemaVersion: "v2", Currency: "RUB", UserGroup: "default"},
+		usableGroups: map[string]string{"default": "Default", "premium": "Premium"}, groupRatios: map[string]float64{"default": 2, "premium": 3}, fxFactor: .5,
+		pricing: []model.Pricing{
+			{ModelName: "canonical", EnableGroup: []string{"default"}, CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": {{ID: "sync", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: float(10)}}}}}},
+			{ModelName: "canonical:batch", EnableGroup: []string{"default", "premium"}, ConsumerCanonicalModelsByGroup: map[string]string{"default": "canonical"}, CatalogOffersByGroup: map[string][]model.CatalogOffer{
+				"default": {{ID: "batch-default", Operation: "text", Mode: "batch", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: float(7)}}}},
+				"premium": {{ID: "batch-premium", Operation: "text", Mode: "batch", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: float(9)}}}},
+			}},
+		},
+	}
+	query, err := parseEffectivePricingPageQuery(url.Values{"limit": {"1"}}, true)
+	require.NoError(t, err)
+	page := buildEffectivePricingPage(context, query, context.project)
+	require.Equal(t, 2, page.TotalCount)
+	require.Len(t, page.Data, 1)
+	assert.Equal(t, "canonical", page.Data[0].ModelName)
+	groups := page.Data[0].GroupPrices
+	require.Len(t, groups, 1)
+	require.Len(t, groups[0].Operations, 2)
+	assert.Equal(t, "batch", groups[0].Operations[0].Mode)
+	assert.Equal(t, 700.0, *groups[0].Operations[0].Prices[0].AmountRub)
+	query.offset = 1
+	page = buildEffectivePricingPage(context, query, context.project)
+	require.Len(t, page.Data, 1)
+	assert.Equal(t, "canonical:batch", page.Data[0].ModelName)
+	require.Len(t, page.Data[0].GroupPrices, 1)
+	assert.Equal(t, "premium", page.Data[0].GroupPrices[0].UsingGroup)
+	assert.Equal(t, 1350.0, *page.Data[0].GroupPrices[0].Operations[0].Prices[0].AmountRub)
+	context.usableGroups = map[string]string{"default": "Default"}
+	query.offset = 0
+	page = buildEffectivePricingPage(context, query, context.project)
+	assert.Equal(t, 1, page.TotalCount)
+	require.Len(t, page.Data, 1)
+	assert.Equal(t, "canonical", page.Data[0].ModelName)
+	assert.Len(t, context.pricing, 2)
+	assert.Equal(t, "canonical:batch", context.pricing[1].ModelName)
 }

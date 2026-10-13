@@ -221,6 +221,7 @@ type effectivePricingPageCandidate struct {
 }
 
 func buildEffectivePricingPage(context effectivePricingPageContext, query effectivePricingPageQuery, project func(model.Pricing) consumerPricingModel) effectivePricingPageData {
+	context.pricing = model.ConsumerPricingCatalogue(context.pricing, context.usableGroups)
 	response := effectivePricingPageData{consumerPricingResponse: context.metadata, Offset: query.offset, Limit: query.limit, Creators: []effectivePricingCreator{}, Data: []effectivePricingPageItem{}}
 	creators := make(map[int]*effectivePricingCreator, len(context.vendors))
 	for _, vendor := range context.vendors {

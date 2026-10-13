@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -212,6 +213,12 @@ func followChannelModelMapping(modelMap map[string]string, start string) (string
 }
 
 func ResolvePricingUpstreamModel(channel *Channel, modelName string) (string, bool) {
+	if channel == nil || strings.TrimSpace(modelName) == "" {
+		return "", false
+	}
+	if strings.TrimSpace(channel.GetModelMapping()) == "" {
+		return modelName, true
+	}
 	var mapping map[string]string
 	if common.UnmarshalJsonStr(channel.GetModelMapping(), &mapping) != nil {
 		return "", false
