@@ -281,7 +281,7 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 					switch key {
 					case "min_prompt_tokens":
 						continue
-					case "prompt", "completion", "input_cache_read", "input_cache_write", "request", "image":
+					case "prompt", "completion", "input_cache_read", "input_cache_write", "input_cache_write_1h", "request", "image":
 					default:
 						return 0, fmt.Errorf("OpenRouter pricing override has unsupported dimension %s", key)
 					}
@@ -430,7 +430,7 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 			if err != nil {
 				return 0, err
 			}
-			for _, key := range []string{"input_cache_read", "input_cache_write"} {
+			for _, key := range []string{"input_cache_read", "input_cache_write", "input_cache_write_1h"} {
 				if raw, ok := endpoint.Pricing[key]; ok {
 					rate, err := readRate(raw)
 					if err != nil {
@@ -467,7 +467,7 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 			for key, raw := range endpoint.Pricing {
 				switch key {
-				case "prompt", "completion", "request", "input_cache_read", "input_cache_write", "discount", "image":
+				case "prompt", "completion", "request", "input_cache_read", "input_cache_write", "input_cache_write_1h", "discount", "image":
 					continue
 				}
 				if key == "audio" || key == "input_audio" || key == "output_audio" || key == "web_search" {
