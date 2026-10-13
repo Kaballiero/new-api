@@ -3674,6 +3674,21 @@
         ],
         "type": "object"
       },
+      "EffectivePricingCreator": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "EffectivePricingData": {
         "properties": {
           "accounting": {
@@ -3682,6 +3697,13 @@
           "auto_groups": {
             "items": {
               "type": "string"
+            },
+            "type": "array"
+          },
+          "creators": {
+            "description": "Required in page mode. Global eligible creators before filters.",
+            "items": {
+              "$ref": "#/components/schemas/EffectivePricingCreator"
             },
             "type": "array"
           },
@@ -3700,6 +3722,16 @@
           "fx": {
             "$ref": "#/components/schemas/EffectivePricingFX"
           },
+          "limit": {
+            "description": "Required when limit selects page mode.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "offset": {
+            "description": "Required when limit selects page mode.",
+            "minimum": 0,
+            "type": "integer"
+          },
           "price_kind": {
             "enum": [
               "current_tariff"
@@ -3717,6 +3749,11 @@
               "v1"
             ],
             "type": "string"
+          },
+          "total_count": {
+            "description": "Required when limit selects page mode.",
+            "minimum": 0,
+            "type": "integer"
           },
           "user_group": {
             "type": "string"
@@ -3798,6 +3835,16 @@
       },
       "EffectivePricingModel": {
         "properties": {
+          "creator": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EffectivePricingCreator"
+              }
+            ],
+            "description": "Required when limit selects page mode; null when vendor metadata is unavailable.",
+            "nullable": true,
+            "type": "object"
+          },
           "description": {
             "type": "string"
           },
@@ -3808,6 +3855,18 @@
             "type": "array"
           },
           "icon": {
+            "type": "string"
+          },
+          "modality": {
+            "description": "Required when limit selects page mode.",
+            "enum": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "EMBEDDINGS",
+              "RERANK",
+              "OTHER"
+            ],
             "type": "string"
           },
           "model_name": {
@@ -29482,8 +29541,61 @@
     "/api/pricing/effective": {
       "get": {
         "deprecated": false,
-        "description": "Returns the complete effective-pricing projection for a configured user group. Requires root dashboard access. Models unavailable to that user group are omitted.",
+        "description": "Explicit limit selects native filtered pricing page mode with global creator facets; page metadata and row modality/creator are then required. No limit and no pagination parameters preserves the full legacy response. Pagination parameters without limit are rejected. Personal page mode rejects group overrides. Requires root dashboard access; group selects user context and using_group selects one usable price group in page mode.",
         "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "creator_id",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "modality",
+            "required": false,
+            "schema": {
+              "enum": [
+                "TEXT",
+                "IMAGE",
+                "VIDEO",
+                "EMBEDDINGS",
+                "RERANK",
+                "OTHER"
+              ],
+              "type": "string"
+            }
+          },
           {
             "description": "Configured user group. Omitted or empty values use default.",
             "in": "query",
@@ -29491,6 +29603,14 @@
             "required": false,
             "schema": {
               "default": "default",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "using_group",
+            "required": false,
+            "schema": {
               "type": "string"
             }
           }
@@ -40741,8 +40861,100 @@
     "/api/user/effective-pricing": {
       "get": {
         "deprecated": false,
-        "description": "Auto-generated entry. Add a manual summary/description in api.json.",
-        "parameters": [],
+        "description": "Explicit limit selects native filtered pricing page mode with global creator facets; page metadata and row modality/creator are then required. No limit and no pagination parameters preserves the full legacy response. Pagination parameters without limit are rejected. Personal page mode rejects group overrides.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "creator_id",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "modality",
+            "required": false,
+            "schema": {
+              "enum": [
+                "TEXT",
+                "IMAGE",
+                "VIDEO",
+                "EMBEDDINGS",
+                "RERANK",
+                "OTHER"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pricing_unit",
+            "required": false,
+            "schema": {
+              "enum": [
+                "TOKENS",
+                "CALLS",
+                "UNCONFIGURED"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order_by",
+            "required": false,
+            "schema": {
+              "enum": [
+                "NAME",
+                "INPUT_PRICE",
+                "OUTPUT_PRICE"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -40834,6 +41046,16 @@
               }
             },
             "description": "网关错误 — 上游提供商（LLM API、模型注册表）失败"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务不可用 — 当前计费汇率基准不可用或无效"
           }
         },
         "security": [

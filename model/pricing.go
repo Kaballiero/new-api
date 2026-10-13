@@ -144,6 +144,17 @@ var (
 	modelSupportEndpointsLock = sync.RWMutex{}
 )
 
+func GetPricingCatalogue() ([]Pricing, []PricingVendor) {
+	updatePricingLock.Lock()
+	defer updatePricingLock.Unlock()
+	if time.Since(lastGetPricingTime) > time.Minute || len(pricingMap) == 0 {
+		modelSupportEndpointsLock.Lock()
+		defer modelSupportEndpointsLock.Unlock()
+		updatePricing()
+	}
+	return pricingMap, vendorsList
+}
+
 func GetPricing() []Pricing {
 	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
 		updatePricingLock.Lock()

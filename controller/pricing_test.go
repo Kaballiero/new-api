@@ -3,14 +3,20 @@ package controller
 import (
 	"maps"
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"slices"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -519,4 +525,221 @@ func TestOpenRouterMissingOrCostOnlyDisplayNeverUsesLegacyAmounts(t *testing.T) 
 			}
 		})
 	}
+}
+
+func pricingPageFixture() effectivePricingPageContext {
+	return effectivePricingPageContext{
+		metadata:     effectivePricingResponse{SchemaVersion: "v1", UserGroup: "default", Currency: "RUB", PriceKind: "current_tariff", PriceScope: "user_group", AutoGroups: []string{}, Accounting: effectiveAccounting{QuotaPerUnit: 500000, RubPerUnit: 100, QuotaPerRub: 5000}, FX: service.BillingFXBasis{Factor: 1, USDRate: 100, Source: "cbr", PublicationVersion: 1, EffectiveAt: 1, FetchedAt: 1}},
+		usableGroups: map[string]string{"default": "Default", "premium": "Premium"},
+		groupRatios:  map[string]float64{"default": 1, "premium": 2},
+		vendors:      []model.PricingVendor{{ID: 1, Name: " OpenAI "}, {ID: 2, Name: "Anthropic"}, {ID: 3, Name: " "}, {ID: 0, Name: "omitted"}},
+		pricing: []model.Pricing{
+			{ModelName: "z-text", VendorID: 2, EnableGroup: []string{"default", "premium"}, ModelRatio: 2, CompletionRatio: 2, SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAI}},
+			{ModelName: "vendor/gpt-image-1", VendorID: 1, EnableGroup: []string{"default"}, QuotaType: 1, ModelPrice: 1, SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAI}},
+			{ModelName: "a-text", VendorID: 3, EnableGroup: []string{"default"}, ModelRatio: 1, CompletionRatio: 3, SupportedEndpointTypes: []constant.EndpointType{}},
+			{ModelName: "private", VendorID: 2, EnableGroup: []string{"unusable"}, SupportedEndpointTypes: []constant.EndpointType{}},
+			{ModelName: "premium-only", VendorID: 1, EnableGroup: []string{"premium"}, ModelRatio: 0.5, SupportedEndpointTypes: []constant.EndpointType{}},
+		},
+	}
+}
+
+func TestEffectivePricingPageSelectionAndProjectionBound(t *testing.T) {
+	context := pricingPageFixture()
+	query, err := parseEffectivePricingPageQuery(url.Values{"limit": {"1"}, "offset": {"1"}}, true)
+	require.NoError(t, err)
+	for range 2 {
+		calls := 0
+		page := buildEffectivePricingPage(context, query, func(item model.Pricing) effectivePricingModel { calls++; return context.project(item) })
+		assert.Equal(t, 4, page.TotalCount)
+		require.Len(t, page.Data, 1)
+		assert.Equal(t, "premium-only", page.Data[0].ModelName)
+		assert.Equal(t, 1, calls)
+		assert.Equal(t, []effectivePricingCreator{{ID: 2, Name: "Anthropic"}, {ID: 1, Name: "OpenAI"}}, page.Creators)
+	}
+	for _, values := range []url.Values{{"limit": {"0"}}, {"offset": {"9007199254740991"}}} {
+		query, err = parseEffectivePricingPageQuery(values, true)
+		require.NoError(t, err)
+		page := buildEffectivePricingPage(context, query, func(model.Pricing) effectivePricingModel {
+			t.Fatal("empty page projected tariffs")
+			return effectivePricingModel{}
+		})
+		assert.Equal(t, 4, page.TotalCount)
+		assert.Empty(t, page.Data)
+		assert.NotNil(t, page.Data)
+	}
+	query, err = parseEffectivePricingPageQuery(url.Values{"search": {"  GPT-IMAGE  "}, "modality": {"IMAGE"}, "creator_id": {"1"}}, true)
+	require.NoError(t, err)
+	page := buildEffectivePricingPage(context, query, context.project)
+	require.Len(t, page.Data, 1)
+	assert.Equal(t, "vendor/gpt-image-1", page.Data[0].ModelName)
+	assert.Len(t, page.Creators, 2)
+	query.creatorID = new(int)
+	assert.Empty(t, buildEffectivePricingPage(context, query, context.project).Data)
+}
+
+func TestEffectivePricingPagePublicVisibilityAndLegacyWire(t *testing.T) {
+	context := pricingPageFixture()
+	context.usingGroup = "default"
+	context.usableGroups = map[string]string{"default": "Default"}
+	query, err := parseEffectivePricingPageQuery(url.Values{}, false)
+	require.NoError(t, err)
+	page := buildEffectivePricingPage(context, query, context.project)
+	require.Len(t, page.Data, 3)
+	for _, row := range page.Data {
+		require.Len(t, row.GroupPrices, 1)
+		assert.Equal(t, "default", row.GroupPrices[0].UsingGroup)
+		legacy := withOperationTariffs(effectivePricingResponse{Data: []effectivePricingModel{buildEffectivePricingModelWithRatios(context.usableGroups, context.groupRatios, 1, context.pricing[slices.IndexFunc(context.pricing, func(item model.Pricing) bool { return item.ModelName == row.ModelName })])}}, context.pricing)
+		expected, err := common.Marshal(legacy.Data[0])
+		require.NoError(t, err)
+		actual, err := common.Marshal(row.effectivePricingModel)
+		require.NoError(t, err)
+		assert.JSONEq(t, string(expected), string(actual))
+		assert.Contains(t, string(actual), `"operation_tariffs":null`)
+		assert.NotContains(t, string(actual), `"billing_sources_by_endpoint"`)
+	}
+	context.groupRatios["default"] = -1
+	assert.Empty(t, buildEffectivePricingPage(context, query, context.project).Data)
+	context.pricing[0].BillingSourcesByGroup = map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {"unknown"}}}
+	page = buildEffectivePricingPage(context, query, context.project)
+	require.Len(t, page.Data, 1)
+	encoded, err := common.Marshal(page)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"operation_tariffs":[]`)
+	assert.Equal(t, "unavailable", page.Data[0].GroupPrices[0].Status)
+	context.usingGroup = ""
+	context.usableGroups["premium"] = "Premium"
+	assert.Equal(t, 4, buildEffectivePricingPage(context, query, context.project).TotalCount)
+}
+
+func TestEffectivePricingPagePersonalPricesAndUnit(t *testing.T) {
+	context := pricingPageFixture()
+	query, err := parseEffectivePricingPageQuery(url.Values{"order_by": {"INPUT_PRICE"}, "direction": {"desc"}}, true)
+	require.NoError(t, err)
+	page := buildEffectivePricingPage(context, query, context.project)
+	names := []string{}
+	for _, item := range page.Data {
+		names = append(names, item.ModelName)
+	}
+	assert.Equal(t, []string{"z-text", "a-text", "premium-only", "vendor/gpt-image-1"}, names)
+	require.Len(t, page.Data[0].GroupPrices, 2)
+	query.direction = "asc"
+	page = buildEffectivePricingPage(context, query, context.project)
+	names = nil
+	for _, item := range page.Data {
+		names = append(names, item.ModelName)
+	}
+	assert.Equal(t, []string{"a-text", "premium-only", "z-text", "vendor/gpt-image-1"}, names)
+	query.pricingUnit = "CALLS"
+	query.limit = 0
+	calls := 0
+	page = buildEffectivePricingPage(context, query, func(item model.Pricing) effectivePricingModel { calls++; return context.project(item) })
+	assert.Equal(t, 1, page.TotalCount)
+	assert.Empty(t, page.Data)
+	assert.Equal(t, 4, calls)
+	batch := []effectiveOperationTariff{{EndpointType: model.PricingEndpointBatch, BillingSurface: "per_call", Status: "unavailable"}, {EndpointType: constant.EndpointTypeOpenAI, BillingSurface: "token", Status: "priced", Tiers: []effectivePricingTier{{UnitPrices: []effectiveUnitPrice{{Component: "input", Unit: "million_tokens", AmountRub: 3}}}}}}
+	unit, price := effectivePricingPageKeys(effectivePricingModel{GroupPrices: []effectiveGroupPricing{{OperationTariffs: &batch}}}, "INPUT_PRICE")
+	assert.Equal(t, "CALLS", unit)
+	require.NotNil(t, price)
+	assert.Equal(t, 3.0, *price)
+	empty := []effectiveOperationTariff{}
+	unit, price = effectivePricingPageKeys(effectivePricingModel{GroupPrices: []effectiveGroupPricing{{OperationTariffs: &empty, BillingSurface: "token"}}}, "INPUT_PRICE")
+	assert.Equal(t, "UNCONFIGURED", unit)
+	assert.Nil(t, price)
+}
+
+func TestEffectivePricingPageValidationAndMetadata(t *testing.T) {
+	for _, raw := range []string{"limit=101", "limit=-1", "limit=", "limit=1.2", "limit=1&limit=2", "offset=9007199254740992", "offset=-1", "offset=99999999999999999999", "creator_id=2147483648", "creator_id=x", "creator_id=1&creator_id=1", "modality=audio", "modality=TEXT&modality=IMAGE", "search=a&search=b", "pricing_unit=TASK", "order_by=PRICE", "direction=up", "group=default", "using_group=default"} {
+		t.Run(raw, func(t *testing.T) {
+			values, err := url.ParseQuery(raw)
+			require.NoError(t, err)
+			_, err = parseEffectivePricingPageQuery(values, true)
+			require.Error(t, err)
+		})
+	}
+	for _, raw := range []string{"limit=0", "limit=100", "creator_id=-2", "creator_id=0", "offset=9007199254740991", "search=%EF%BB%BFABC%EF%BB%BF"} {
+		values, err := url.ParseQuery(raw)
+		require.NoError(t, err)
+		_, err = parseEffectivePricingPageQuery(values, true)
+		require.NoError(t, err)
+	}
+	for _, test := range []struct {
+		name      string
+		endpoints []constant.EndpointType
+		want      string
+	}{
+		{"vendor/sora-2", []constant.EndpointType{"openai"}, "VIDEO"},
+		{"GPT-IMAGE-1", []constant.EndpointType{"OPENAI"}, "IMAGE"},
+		{"vendor/text-embedding-3", []constant.EndpointType{"openai"}, "EMBEDDINGS"},
+		{"tts-1", []constant.EndpointType{"openai"}, "OTHER"},
+		{"gpt-4o-transcribe", []constant.EndpointType{"openai"}, "OTHER"},
+		{"mixed", []constant.EndpointType{"audio", "rerank", "embeddings", "video", "image-generation"}, "IMAGE"},
+		{"plain", nil, "TEXT"},
+	} {
+		assert.Equal(t, test.want, effectivePricingModality(model.Pricing{ModelName: test.name, SupportedEndpointTypes: test.endpoints}))
+	}
+	assert.Negative(t, compareEffectivePricingNames("A", "a"))
+	assert.Negative(t, compareEffectivePricingNames("𐀀", "\ue000"))
+	assert.Zero(t, compareEffectivePricingNames("İ", "İ"))
+	assert.Equal(t, "abc", trimPricingText("\ufeffabc\ufeff"))
+	assert.Equal(t, "\u0085", trimPricingText("\u0085"))
+}
+
+func TestEffectivePricingPageModeIsExplicit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, test := range []struct {
+		query    string
+		personal bool
+		handled  bool
+		status   int
+	}{
+		{"", false, false, 200}, {"?group=default", false, false, 200}, {"?group=ignored", true, false, 200},
+		{"?offset=0", false, true, 400}, {"?search=", true, true, 400}, {"?using_group=default", false, true, 400},
+		{"?limit=", false, true, 400}, {"?limit=1&limit=2", false, true, 400}, {"?limit=1&group=default", true, true, 400},
+		{"?limit=1&using_group=default", true, true, 400}, {"?limit=1&group=auto", false, true, 400},
+		{"?limit=1&using_group=not-authorized", false, true, 400},
+		{"?limit=%ZZ", false, true, 400}, {"?limit=1;offset=0", false, true, 400},
+		{"?limit=1&limit=%ZZ", false, true, 400}, {"?limit=1&modality=%ZZ", false, true, 400},
+		{"?limit=1&group=%ZZ", true, true, 400}, {"?limit=1&using_group=%ZZ", true, true, 400},
+		{"?limit=1&unknown=%ZZ", false, true, 400}, {"?%ZZ=1", false, true, 400},
+		{"?%6cimit=%ZZ", false, true, 400}, {"?modality=%ZZ", true, true, 400},
+		{"?group=%64efault", false, false, 200}, {"?unknown=%76alid", false, false, 200},
+	} {
+		t.Run(test.query, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			context.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective"+test.query, nil)
+			assert.Equal(t, test.handled, routeEffectivePricingPage(context, test.personal))
+			assert.Equal(t, test.status, recorder.Code)
+			if test.handled {
+				assert.Contains(t, recorder.Body.String(), `"success":false`)
+			}
+		})
+	}
+}
+
+func TestEffectivePricingPageUnicodeGolden(t *testing.T) {
+	context := pricingPageFixture()
+	names := []string{"éclair", "Eclair", "eclair", "Å", "a", "Z", "same", "Ä", "Ö", "same"}
+	context.pricing = nil
+	context.vendors = nil
+	for index, name := range names {
+		id := index + 1
+		context.vendors = append(context.vendors, model.PricingVendor{ID: id, Name: name})
+		context.pricing = append(context.pricing, model.Pricing{ModelName: name, VendorID: id, EnableGroup: []string{"default"}})
+	}
+	query, err := parseEffectivePricingPageQuery(url.Values{}, true)
+	require.NoError(t, err)
+	page := buildEffectivePricingPage(context, query, context.project)
+	actual := []effectivePricingCreator{}
+	actual = append(actual, page.Creators...)
+	assert.Equal(t, []effectivePricingCreator{{ID: 5, Name: "a"}, {ID: 4, Name: "Å"}, {ID: 8, Name: "Ä"}, {ID: 3, Name: "eclair"}, {ID: 2, Name: "Eclair"}, {ID: 1, Name: "éclair"}, {ID: 9, Name: "Ö"}, {ID: 7, Name: "same"}, {ID: 10, Name: "same"}, {ID: 6, Name: "Z"}}, actual)
+	models := []string{}
+	for _, item := range page.Data {
+		models = append(models, item.ModelName)
+	}
+	assert.Equal(t, []string{"a", "Eclair", "eclair", "same", "same", "Z", "Ä", "Å", "éclair", "Ö"}, models)
+	query, err = parseEffectivePricingPageQuery(url.Values{"search": {"İ"}}, true)
+	require.NoError(t, err)
+	assert.Equal(t, "i\u0307", query.search)
+	assert.Negative(t, compareEffectivePricingNames("ΟΣ", "οσ"))
 }

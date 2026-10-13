@@ -558,6 +558,16 @@ func buildSchemas() map[string]interface{} {
 	}
 	out["EffectivePricingResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingData"})
 	out["EffectivePricingResponse"].(map[string]interface{})["required"] = []string{"success", "data"}
+	out["EffectivePricingCreator"] = map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "integer"}, "name": map[string]any{"type": "string"}}, "required": []string{"id", "name"}}
+
+	modelProperties := out["EffectivePricingModel"].(map[string]any)["properties"].(map[string]any)
+	modelProperties["modality"] = map[string]any{"type": "string", "enum": []string{"TEXT", "IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER"}, "description": "Required when limit selects page mode."}
+	modelProperties["creator"] = map[string]any{"type": "object", "nullable": true, "allOf": []any{map[string]any{"$ref": "#/components/schemas/EffectivePricingCreator"}}, "description": "Required when limit selects page mode; null when vendor metadata is unavailable."}
+	pageProperties := out["EffectivePricingData"].(map[string]any)["properties"].(map[string]any)
+	pageProperties["creators"] = map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectivePricingCreator"}, "description": "Required in page mode. Global eligible creators before filters."}
+	for _, key := range []string{"offset", "limit", "total_count"} {
+		pageProperties[key] = map[string]any{"type": "integer", "minimum": 0, "description": "Required when limit selects page mode."}
+	}
 
 	// /api/log/{,self/}stat → ApiResponseOfStat (data = {quota, rpm, tpm}).
 	// Stat type lives in model/log.go and is auto-discovered by parseModels.
