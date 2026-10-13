@@ -188,7 +188,9 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 		assert.NotContains(t, effectiveData["required"], field)
 	}
 	assert.Contains(t, effectiveByGroup["description"], "Explicit limit")
-	assert.Len(t, effective["parameters"], 8)
+	assert.Len(t, effective["parameters"], 9)
+	assert.Contains(t, effectiveData["required"], "catalog_revision")
+	assert.Contains(t, effectiveByGroup["responses"], "409")
 
 	groupPrice := components["schemas"].(map[string]interface{})["EffectiveGroupPricing"].(map[string]interface{})
 	groupProps := groupPrice["properties"].(map[string]interface{})

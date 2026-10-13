@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -517,7 +518,7 @@ func TestPricingCatalogNormalizeCoherentEndpointVariants(t *testing.T) {
 	body := []byte(`{"data":{"id":"provider/model","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"tag":"a","context_length":100,"pricing":{"prompt":"0.000001","completion":"0.000009","input_cache_read":"0","overrides":[{"min_prompt_tokens":0,"prompt":"0.000007","completion":"0.000003"},{"min_prompt_tokens":200,"completion":"0.0000001"}]}},{"tag":"b","pricing":{"prompt":"0.0000001","completion":"0.000008"}}]}}`)
 	offers, err := normalizeEndpointPricing("provider/model", "text", "output", body)
 	require.NoError(t, err)
-	require.Len(t, offers, 2)
+	require.Len(t, offers, 3)
 	reduced := selectPricingCatalogOffers(offers)
 	require.Len(t, reduced, 1)
 	selected := model.SelectCatalogOffer(reduced)
@@ -863,7 +864,12 @@ func TestPricingCatalogVariantIdentityAndMixedOutputBasis(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, offers, 1)
 		assert.Equal(t, "text", offers[0].Operation)
-		assert.Nil(t, model.SelectCatalogOffer(offers))
+		if output == "audio" {
+			require.NotNil(t, model.SelectCatalogOffer(offers))
+			assert.Contains(t, offers[0].Prices, model.CatalogPrice{Component: "audio_output", Unit: "million_tokens", AmountUSD: float(30)})
+		} else {
+			assert.Nil(t, model.SelectCatalogOffer(offers))
+		}
 	}
 	body := []byte(`{"data":{"id":"provider/model:free","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[]}}`)
 	offers, err := normalizeEndpointPricing("provider/model:free", "text", "output", body)
@@ -1031,4 +1037,217 @@ func TestEffectivePricingPageUsesProvedAliasOperationsForModality(t *testing.T) 
 	assert.Zero(t, page.TotalCount)
 	assert.Empty(t, page.Data)
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, items[0].SupportedEndpointTypes)
+}
+
+func TestPricingRevisionIncludesCapturedContextAndGuardsBeforePage(t *testing.T) {
+	context := pricingPageFixture()
+	context.metadata.UserGroup = "default"
+	revision, err := consumerPricingRevision("source", context)
+	require.NoError(t, err)
+	require.NotEmpty(t, revision)
+	permuted := context
+	permuted.usableGroups = map[string]string{"premium": "Premium", "default": "Default"}
+	permuted.groupRatios = map[string]float64{"premium": 2, "default": 1}
+	same, err := consumerPricingRevision("source", permuted)
+	require.NoError(t, err)
+	assert.Equal(t, revision, same)
+	for _, change := range []func(*effectivePricingPageContext){
+		func(value *effectivePricingPageContext) { value.fxFactor = 2 },
+		func(value *effectivePricingPageContext) {
+			value.groupRatios = map[string]float64{"default": 3, "premium": 2}
+		},
+		func(value *effectivePricingPageContext) { value.usableGroups = map[string]string{"default": "Default"} },
+		func(value *effectivePricingPageContext) { value.metadata.AutoGroups = []string{"premium"} },
+	} {
+		changed := context
+		change(&changed)
+		current, err := consumerPricingRevision("source", changed)
+		require.NoError(t, err)
+		assert.NotEqual(t, revision, current)
+	}
+	context.metadata.CatalogRevision = revision
+	for _, limit := range []string{"0", "7"} {
+		query, err := parseEffectivePricingPageQuery(url.Values{"limit": {limit}, "expected_revision": {revision}}, true)
+		require.NoError(t, err)
+		recorder := httptest.NewRecorder()
+		ginContext, _ := gin.CreateTestContext(recorder)
+		require.True(t, pricingRevisionMatches(ginContext, query.expectedRevision, context.metadata.CatalogRevision))
+		page := buildEffectivePricingPage(context, query, context.project)
+		assert.Equal(t, revision, page.CatalogRevision)
+		assert.Equal(t, 4, page.TotalCount)
+	}
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	assert.False(t, pricingRevisionMatches(ginContext, "stale", revision))
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	assert.JSONEq(t, `{"success":false,"code":"pricing_catalog_revision_mismatch","message":"Pricing catalog revision changed"}`, recorder.Body.String())
+	for _, raw := range []string{"expected_revision=", "expected_revision=a&expected_revision=b"} {
+		values, err := url.ParseQuery(raw)
+		require.NoError(t, err)
+		_, err = expectedPricingRevision(values)
+		require.Error(t, err)
+	}
+}
+
+func TestPricingCatalogGeminiKeepsWholeAudioVectorsAndContextOverrides(t *testing.T) {
+	body := []byte(`{"data":{"id":"google/gemini-2.5-pro:batch","architecture":{"input_modalities":["text","audio"],"output_modalities":["text"]},"endpoints":[{"model_id":"google/gemini-2.5-pro:batch","tag":"google","pricing":{"prompt":"0.000000625","completion":"0.000005","audio":"0.000000625","input_audio_cache":"0.000000125","input_cache_read":"0.000000125","overrides":[{"min_prompt_tokens":200000,"prompt":"0.00000125","completion":"0.0000075","audio":"0.00000125","input_audio_cache":"0.00000025"}]}}]}}`)
+	offers, err := normalizeEndpointPricing("google/gemini-2.5-pro:batch", "text", "output", body)
+	require.NoError(t, err)
+	require.Len(t, offers, 2)
+	for index, offer := range offers {
+		prices := map[string]float64{}
+		for _, price := range offer.Prices {
+			require.NotNil(t, price.AmountUSD)
+			assert.Equal(t, "million_tokens", price.Unit)
+			prices[price.Component] = *price.AmountUSD
+		}
+		factor := float64(index + 1)
+		assert.Equal(t, .625*factor, prices["input"])
+		assert.Equal(t, .625*factor, prices["audio_input"])
+		assert.Equal(t, .125*factor, prices["audio_cache_read"])
+		assert.NotContains(t, prices, "audio_output")
+	}
+	selected := model.SelectCatalogOffer(offers)
+	require.NotNil(t, selected)
+	assert.Equal(t, offers[0], *selected)
+	item := model.Pricing{CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": offers}}
+	rows := consumerOperations(item, "default", 1.2, true)
+	require.Len(t, rows, 1)
+	audioCache := []consumerUnitPrice{}
+	for _, price := range rows[0].Prices {
+		if price.Component == "audio_cache_read" {
+			audioCache = append(audioCache, price)
+		}
+	}
+	require.Len(t, audioCache, 1)
+	assert.Equal(t, 15.0, *audioCache[0].AmountRub)
+	zeroBody := strings.Replace(string(body), `"audio":"0.000000625"`, `"audio":"0"`, 1)
+	zero, err := normalizeEndpointPricing("google/gemini-2.5-pro:batch", "text", "output", []byte(zeroBody))
+	require.NoError(t, err)
+	require.NotNil(t, model.SelectCatalogOffer(zero))
+	for _, price := range zero[0].Prices {
+		if price.Component == "audio_input" {
+			assert.Zero(t, *price.AmountUSD)
+		}
+	}
+}
+
+func TestPricingCatalogCalendarOverridesAreReachableWholeVectors(t *testing.T) {
+	body := []byte(`{"data":{"id":"provider/calendar","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"tag":"calendar","pricing":{"prompt":"0","completion":"0","input_cache_read":"0","overrides":[{"utc_start":0,"utc_end":1400,"prompt":"0.00000132","completion":"0.00000396","input_cache_read":"0.000000132"},{"utc_start":1400,"utc_end":0,"prompt":"0.00000066","completion":"0.00000198","input_cache_read":"0.000000066"}]}}]}}`)
+	offers, err := normalizeEndpointPricing("provider/calendar", "text", "output", body)
+	require.NoError(t, err)
+	require.Len(t, offers, 2)
+	selected := model.SelectCatalogOffer(offers)
+	require.NotNil(t, selected)
+	prices := map[string]float64{}
+	for _, price := range selected.Prices {
+		prices[price.Component] = *price.AmountUSD
+	}
+	require.Len(t, prices, 3)
+	for component, expected := range map[string]float64{"input": .66, "output": 1.98, "cache_read": .066} {
+		assert.InDelta(t, expected, prices[component], 1e-12)
+	}
+	overlap := []byte(`{"data":{"id":"provider/calendar","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"tag":"calendar","pricing":{"prompt":"0.000009","completion":"0.000004","overrides":[{"utc_days":["saturday","sunday"],"prompt":"0.000007","completion":"0.000002"},{"utc_start":2300,"utc_end":100,"completion":"0.000001"}]}}]}}`)
+	offers, err = normalizeEndpointPricing("provider/calendar", "text", "output", overlap)
+	require.NoError(t, err)
+	pairs := [][2]float64{}
+	for _, offer := range offers {
+		rates := map[string]float64{}
+		for _, price := range offer.Prices {
+			rates[price.Component] = *price.AmountUSD
+		}
+		pairs = append(pairs, [2]float64{rates["input"], rates["output"]})
+	}
+	assert.ElementsMatch(t, [][2]float64{{9, 1}, {7, 1}, {9, 4}, {7, 2}}, pairs)
+	selected = model.SelectCatalogOffer(offers)
+	require.NotNil(t, selected)
+	assert.Equal(t, 9.0, *selected.Prices[1].AmountUSD)
+	assert.Equal(t, 1.0, *selected.Prices[0].AmountUSD)
+}
+
+func TestPricingCatalogCalendarValidatesGatesAndContextReachability(t *testing.T) {
+	for _, condition := range []string{
+		`"utc_start":1260,"utc_end":1400`, `"utc_start":2400,"utc_end":100`,
+		`"utc_start":-1,"utc_end":100`, `"utc_start":"14:00","utc_end":100`,
+		`"utc_start":0`, `"utc_start":0,"utc_end":0`,
+		`"utc_start":null,"utc_end":100`, `"utc_start":0,"utc_end":null`, `"utc_start": null ,"utc_end":100`,
+		`"utc_days":[]`, `"utc_days":[0]`, `"utc_days":["Sunday"]`, `"utc_days":["sunday","sunday"]`,
+		`"min_prompt_tokens":-1`, `"unrecognized_gate":true`,
+		`"min_prompt_tokens":null`, `"min_prompt_tokens": null `,
+	} {
+		body := []byte(`{"data":{"id":"provider/calendar","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"pricing":{"prompt":"0.000001","completion":"0.000002","overrides":[{` + condition + `,"completion":"0"}]}}]}}`)
+		_, err := normalizeEndpointPricing("provider/calendar", "text", "output", body)
+		require.Error(t, err, condition)
+	}
+	body := []byte(`{"data":{"id":"provider/calendar","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"context_length":100,"max_prompt_tokens":50,"pricing":{"prompt":"0.000001","completion":"0.000002","overrides":[{"min_prompt_tokens":75,"utc_days":["saturday","sunday"],"completion":"0"}]}}]}}`)
+	offers, err := normalizeEndpointPricing("provider/calendar", "text", "output", body)
+	require.NoError(t, err)
+	require.Len(t, offers, 1)
+	selected := model.SelectCatalogOffer(offers)
+	require.NotNil(t, selected)
+	assert.Equal(t, 2.0, *selected.Prices[0].AmountUSD)
+}
+
+func TestPricingCatalogFailureDiagnosticsAreBoundedAndSanitized(t *testing.T) {
+	sources := make([]pricingCatalogSource, pricingCatalogFailureLimit+4)
+	for index := range sources {
+		sources[index] = pricingCatalogSource{channel: &model.Channel{Id: 43, Key: "super-secret"}, upstream: fmt.Sprintf("public/model-%02d", index), endpoint: constant.EndpointTypeOpenAI}
+	}
+	summary, err := refreshPricingCatalogSources(context.Background(), sources, func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error) {
+		return model.PricingCatalogEntry{}, errors.New("https://private.invalid super-secret native endpoint pricing response")
+	}, func(model.PricingCatalogEntry) error { t.Fatal("failed metadata published"); return nil })
+	require.Error(t, err)
+	assert.Equal(t, len(sources), summary.Failed)
+	assert.True(t, summary.FailuresTruncated)
+	require.Len(t, summary.FailedSources, pricingCatalogFailureLimit)
+	assert.Equal(t, pricingCatalogFailure{ChannelID: 43, UpstreamModel: "public/model-00", Endpoint: constant.EndpointTypeOpenAI, Class: "metadata_identity_or_schema_invalid"}, summary.FailedSources[0])
+	encoded, err := common.Marshal(summary)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "super-secret")
+	assert.NotContains(t, string(encoded), "private.invalid")
+	summary, err = refreshPricingCatalogSources(context.Background(), sources[:1], func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error) {
+		return model.PricingCatalogEntry{}, nil
+	}, func(model.PricingCatalogEntry) error { return errors.New("super-secret DB failure") })
+	require.Error(t, err)
+	require.Len(t, summary.FailedSources, 1)
+	assert.Equal(t, "publication_failed", summary.FailedSources[0].Class)
+}
+
+func TestPricingCatalogPromptThresholdRequiresReachableStrictSuccessor(t *testing.T) {
+	for _, scenario := range []struct {
+		name                       string
+		context, prompt, threshold int
+		expected                   float64
+	}{
+		{"equal_context_limit", 100, 0, 100, 2},
+		{"equal_prompt_limit", 0, 100, 100, 2},
+		{"equal_smaller_limit", 200, 100, 100, 2},
+		{"one_below_context_limit", 100, 0, 99, 0},
+		{"one_below_prompt_limit", 0, 100, 99, 0},
+		{"explicit_zero_reachable", 1, 1, 0, 0},
+		{"max_int_unreachable", 0, 0, int(^uint(0) >> 1), 2},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			body := []byte(fmt.Sprintf(`{"data":{"id":"provider/boundary","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"context_length":%d,"max_prompt_tokens":%d,"pricing":{"prompt":"0.000001","completion":"0.000002","overrides":[{"min_prompt_tokens":%d,"completion":"0"}]}}]}}`, scenario.context, scenario.prompt, scenario.threshold))
+			offers, err := normalizeEndpointPricing("provider/boundary", "text", "output", body)
+			require.NoError(t, err)
+			selected := model.SelectCatalogOffer(offers)
+			require.NotNil(t, selected)
+			for _, price := range selected.Prices {
+				if price.Component == "output" {
+					require.NotNil(t, price.AmountUSD)
+					assert.Equal(t, scenario.expected, *price.AmountUSD)
+				}
+			}
+		})
+	}
+	for _, gate := range []string{`"utc_days":["sunday"]`, `"utc_start":0,"utc_end":1200`} {
+		body := []byte(`{"data":{"id":"provider/boundary","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"context_length":1,"max_prompt_tokens":1,"pricing":{"prompt":"0.000001","completion":"0.000002","overrides":[{` + gate + `,"completion":"0"}]}}]}}`)
+		offers, err := normalizeEndpointPricing("provider/boundary", "text", "output", body)
+		require.NoError(t, err)
+		require.Len(t, offers, 2)
+		selected := model.SelectCatalogOffer(offers)
+		require.NotNil(t, selected)
+		assert.Zero(t, *selected.Prices[0].AmountUSD)
+	}
 }

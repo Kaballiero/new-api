@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -25,6 +24,7 @@ import (
 const pricingCatalogWorkers = 5
 const pricingCatalogBodyLimit = 2 << 20
 const pricingCatalogTimeout = 20 * time.Second
+const pricingCatalogFailureLimit = 20
 
 func refreshChannelPricingCache() {
 	model.InitChannelCache()
@@ -64,9 +64,17 @@ func (pricingCatalogHandler) Run(ctx context.Context, task *model.SystemTask, ru
 }
 
 type pricingCatalogRefreshSummary struct {
-	Sources   int `json:"sources"`
-	Published int `json:"published"`
-	Failed    int `json:"failed"`
+	Sources           int                     `json:"sources"`
+	Published         int                     `json:"published"`
+	Failed            int                     `json:"failed"`
+	FailedSources     []pricingCatalogFailure `json:"failed_sources,omitempty"`
+	FailuresTruncated bool                    `json:"failures_truncated,omitempty"`
+}
+type pricingCatalogFailure struct {
+	ChannelID     int                   `json:"channel_id"`
+	UpstreamModel string                `json:"upstream_model"`
+	Endpoint      constant.EndpointType `json:"endpoint"`
+	Class         string                `json:"class"`
 }
 type pricingCatalogSource struct {
 	channel     *model.Channel
@@ -203,13 +211,34 @@ func refreshPricingCatalogSources(ctx context.Context, sources []pricingCatalogS
 	for range pricingCatalogWorkers {
 		workers.Go(func() {
 			for source := range jobs {
+				failureClass := "metadata_failed"
 				entry, err := fetch(ctx, source)
 				if err == nil && ctx.Err() == nil {
+					failureClass = "publication_failed"
 					err = publish(entry)
 				}
 				resultLock.Lock()
 				if err != nil || ctx.Err() != nil {
 					summary.Failed++
+					if ctx.Err() != nil {
+						failureClass = "cancelled"
+					} else if failureClass == "metadata_failed" {
+						if strings.Contains(err.Error(), "override") || strings.Contains(err.Error(), "threshold") {
+							failureClass = "pricing_override_invalid"
+						}
+						if strings.Contains(err.Error(), "identity") || strings.Contains(err.Error(), "endpoint pricing response") {
+							failureClass = "metadata_identity_or_schema_invalid"
+						}
+					}
+					channelID := 0
+					if source.channel != nil {
+						channelID = source.channel.Id
+					}
+					upstream := source.upstream
+					if len(upstream) > 256 {
+						upstream = upstream[:256]
+					}
+					summary.FailedSources = append(summary.FailedSources, pricingCatalogFailure{channelID, upstream, source.endpoint, failureClass})
 				} else {
 					summary.Published++
 				}
@@ -227,6 +256,19 @@ enqueue:
 	}
 	close(jobs)
 	workers.Wait()
+	slices.SortFunc(summary.FailedSources, func(left, right pricingCatalogFailure) int {
+		if left.ChannelID != right.ChannelID {
+			return left.ChannelID - right.ChannelID
+		}
+		if order := strings.Compare(left.UpstreamModel, right.UpstreamModel); order != 0 {
+			return order
+		}
+		return strings.Compare(string(left.Endpoint), string(right.Endpoint))
+	})
+	if len(summary.FailedSources) > pricingCatalogFailureLimit {
+		summary.FailuresTruncated = true
+		summary.FailedSources = summary.FailedSources[:pricingCatalogFailureLimit]
+	}
 	if err := ctx.Err(); err != nil {
 		return summary, err
 	}
@@ -342,48 +384,9 @@ func normalizeEndpointPricing(upstream, operation, main string, body []byte) ([]
 		offers = append(offers, model.CatalogOffer{ID: "native:unknown", Operation: operation, Mode: "sync", MainComponent: main})
 	}
 	for index, endpoint := range response.Data.Endpoints {
-		prices := maps.Clone(endpoint.Pricing)
-		raw, hasOverrides := prices["overrides"]
-		delete(prices, "overrides")
-		vectors := []map[string]json.RawMessage{prices}
-		if hasOverrides && string(raw) != "null" {
-			var overrides []map[string]json.RawMessage
-			if common.Unmarshal(raw, &overrides) != nil || len(overrides) > 128 {
-				return nil, errors.New("invalid native pricing overrides")
-			}
-			thresholds := make([]int, len(overrides))
-			for index, override := range overrides {
-				var threshold int
-				if common.Unmarshal(override["min_prompt_tokens"], &threshold) != nil || threshold < 0 {
-					return nil, errors.New("invalid native pricing threshold")
-				}
-				if threshold == 0 {
-					vectors = nil
-				}
-				thresholds[index] = threshold
-				for key := range override {
-					if !slices.Contains([]string{"min_prompt_tokens", "prompt", "completion", "input_cache_read", "input_cache_write", "input_cache_write_1h", "request", "image", "audio", "audio_output", "input_audio_cache", "image_output", "internal_reasoning", "web_search"}, key) {
-						return nil, errors.New("unsupported native pricing override condition or dimension")
-					}
-				}
-			}
-			for _, threshold := range thresholds {
-				if endpoint.ContextLength > 0 && threshold > endpoint.ContextLength || endpoint.MaxPromptTokens > 0 && threshold > endpoint.MaxPromptTokens {
-					continue
-				}
-				vector := maps.Clone(prices)
-				for overrideIndex, override := range overrides {
-					if thresholds[overrideIndex] > threshold {
-						continue
-					}
-					for key, value := range override {
-						if key != "min_prompt_tokens" {
-							vector[key] = value
-						}
-					}
-				}
-				vectors = append(vectors, vector)
-			}
+		vectors, err := nativePricingVectors(endpoint)
+		if err != nil {
+			return nil, err
 		}
 		for variant, vector := range vectors {
 			offer := model.CatalogOffer{ID: fmt.Sprintf("%s:%d:%d", endpoint.Tag, index, variant), Operation: operation, Mode: "sync", MainComponent: main, Prices: []model.CatalogPrice{}}
@@ -427,12 +430,31 @@ func normalizeEndpointPricing(upstream, operation, main string, body []byte) ([]
 					multiplier = 1
 				case "discount":
 					continue
-				case "audio", "audio_output", "input_audio_cache", "image_output":
+				case "audio", "input_audio_cache":
+					if !slices.Contains(response.Data.Architecture.InputModalities, "audio") {
+						if _, err := openrouter.ReadEndpointPrice(vector[key]); err != nil {
+							return nil, err
+						}
+						continue
+					}
+					component = "audio_input"
+					if key == "input_audio_cache" {
+						component = "audio_cache_read"
+					}
+				case "audio_output":
+					if !slices.Contains(response.Data.Architecture.OutputModalities, "audio") {
+						if _, err := openrouter.ReadEndpointPrice(vector[key]); err != nil {
+							return nil, err
+						}
+						continue
+					}
+					component = "audio_output"
+				case "image_output":
 					amount, err := openrouter.ReadEndpointPrice(vector[key])
 					if err != nil {
 						return nil, err
 					}
-					if amount != 0 && (key == "image_output" && slices.Contains(response.Data.Architecture.OutputModalities, "image") || key == "audio_output" && slices.Contains(response.Data.Architecture.OutputModalities, "audio") || (key == "audio" || key == "input_audio_cache") && slices.Contains(response.Data.Architecture.InputModalities, "audio")) {
+					if amount != 0 && slices.Contains(response.Data.Architecture.OutputModalities, "image") {
 						unprojectable = true
 					}
 					continue

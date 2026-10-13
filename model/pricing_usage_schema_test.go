@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -399,7 +401,7 @@ func TestPricingOperationCounterProfilesAndFixedPrecedence(t *testing.T) {
 			assert.InDelta(t, scenario.amount, *selected.Prices[0].AmountUSD, 1e-12)
 		})
 	}
-	for _, pair := range [][2]string{{"gpt-alias", "tts-1"}, {"alias", "whisper-1"}, {"gpt-4o-mini-tts", "gpt-4o-mini-tts"}, {"gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe"}} {
+	for _, pair := range [][2]string{{"gpt-alias", "tts-1"}, {"alias", "whisper-1"}, {"rune-alias", "gpt-4o-mini-tts"}, {"gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe"}} {
 		profile := configuredPricingOperation(channel, pair[0], pair[1], constant.EndpointTypeOpenAI)
 		assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: .625, CompletionRatio: 4}, profile, "sync", "")))
 		fixed := configuredOperationOffers(Pricing{PriceConfigured: true, QuotaType: 1, ModelPrice: .02}, profile, "sync", "")
@@ -593,4 +595,112 @@ func TestPricingConfiguredAudioRatioKeepsCompleteSplitOutputVector(t *testing.T)
 	assert.Zero(t, *freeAudio.Prices[len(freeAudio.Prices)-1].AmountUSD)
 	mini := configuredPricingOperation(&Channel{Type: constant.ChannelTypeOpenAI}, "gpt-4o-mini-tts", "gpt-4o-mini-tts", constant.EndpointTypeOpenAI)
 	assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(item, mini, "sync", "")))
+}
+
+func TestPricingMiniTTSKeepsTextInputAndExplicitUnknownOutput(t *testing.T) {
+	previousCount := constant.CountToken
+	constant.CountToken = true
+	t.Cleanup(func() { constant.CountToken = previousCount })
+	expression := `tier("base",p*.6+c*12+ao*12)`
+	for _, name := range []string{"gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-03-20", "gpt-4o-mini-tts-2025-12-15"} {
+		profile := configuredPricingOperation(&Channel{Type: constant.ChannelTypeOpenAI}, name, name, constant.EndpointTypeOpenAI)
+		for _, item := range []Pricing{
+			{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}},
+			{PriceConfigured: true, ModelRatio: .3, CompletionRatio: 20},
+		} {
+			offers := configuredOperationOffers(item, profile, "sync", expression)
+			selected := SelectCatalogOffer(offers)
+			require.NotNil(t, selected)
+			assert.Equal(t, "input", selected.MainComponent)
+			require.Len(t, selected.Prices, 2)
+			assert.Equal(t, "input", selected.Prices[0].Component)
+			assert.Equal(t, "million_tokens", selected.Prices[0].Unit)
+			assert.Equal(t, .6, *selected.Prices[0].AmountUSD)
+			assert.Equal(t, CatalogPrice{Component: "audio_output", Unit: "unknown"}, selected.Prices[1])
+		}
+	}
+	profile := configuredPricingOperation(&Channel{Type: constant.ChannelTypeOpenAI}, "gpt-4o-mini-tts", "gpt-4o-mini-tts", constant.EndpointTypeOpenAI)
+	zeroExpression := `tier("base",p*0+c*12+ao*12)`
+	selected := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{zeroExpression: billingexpr.CatalogPrices(zeroExpression)}}, profile, "sync", zeroExpression))
+	require.NotNil(t, selected)
+	assert.Zero(t, *selected.Prices[0].AmountUSD)
+	assert.Nil(t, selected.Prices[1].AmountUSD)
+	free := SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: 0}, profile, "sync", ""))
+	require.NotNil(t, free)
+	require.Len(t, free.Prices, 2)
+	assert.Zero(t, *free.Prices[0].AmountUSD)
+	assert.Zero(t, *free.Prices[1].AmountUSD)
+	fixedExpression := `fixed(.02)`
+	fixed := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{fixedExpression: billingexpr.CatalogPrices(fixedExpression)}}, profile, "sync", fixedExpression))
+	require.NotNil(t, fixed)
+	require.Len(t, fixed.Prices, 1)
+	assert.Equal(t, "call", fixed.Prices[0].Unit)
+	constant.CountToken = false
+	assert.Equal(t, "unknown", configuredPricingOperation(&Channel{Type: constant.ChannelTypeOpenAI}, "gpt-4o-mini-tts", "gpt-4o-mini-tts", constant.EndpointTypeOpenAI).basis)
+}
+
+func TestPricingCatalogueFingerprintIsCanonicalAndTracksConsumerChanges(t *testing.T) {
+	fixture := func() []Pricing {
+		input, output := 1.0, 2.0
+		return []Pricing{
+			{ModelName: "alpha", VendorID: 1, EnableGroup: []string{"premium", "default"}, SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAIResponse, constant.EndpointTypeOpenAI}, ConsumerCanonicalModelsByGroup: map[string]string{"premium": "alpha", "default": "alpha"}, CatalogOffersByGroup: map[string][]CatalogOffer{"default": {{ID: "b", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: &output}, {Component: "input", Unit: "million_tokens", AmountUSD: &input}}}, {ID: "a", Operation: "text", Mode: "batch", MainComponent: "output", Prices: []CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: &input}}}}}},
+			{ModelName: "beta", EnableGroup: []string{"default"}},
+		}
+	}
+	vendors := []PricingVendor{{ID: 2, Name: "Second"}, {ID: 1, Name: "First"}}
+	original := fixture()
+	before, err := pricingCatalogueFingerprint(original, vendors)
+	require.NoError(t, err)
+	permuted := fixture()
+	permuted[0].EnableGroup = []string{"default", "premium"}
+	permuted[0].SupportedEndpointTypes = []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}
+	offers := permuted[0].CatalogOffersByGroup["default"]
+	offers[0].Prices[0], offers[0].Prices[1] = offers[0].Prices[1], offers[0].Prices[0]
+	offers[0], offers[1] = offers[1], offers[0]
+	permuted[0], permuted[1] = permuted[1], permuted[0]
+	after, err := pricingCatalogueFingerprint(permuted, []PricingVendor{vendors[1], vendors[0]})
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+	assert.Equal(t, []string{"premium", "default"}, original[0].EnableGroup)
+	assert.Equal(t, "output", original[0].CatalogOffersByGroup["default"][0].Prices[0].Component)
+	for _, change := range []func([]Pricing){
+		func(items []Pricing) {
+			value := 3.0
+			items[0].CatalogOffersByGroup["default"][0].Prices[0].AmountUSD = &value
+		},
+		func(items []Pricing) { items[0].CatalogOffersByGroup["default"][0].Operation = "embeddings" },
+		func(items []Pricing) { items[0].EnableGroup = []string{"default"} },
+		func(items []Pricing) { items[0].ConsumerCanonicalModelsByGroup["default"] = "other" },
+	} {
+		changed := fixture()
+		change(changed)
+		revision, err := pricingCatalogueFingerprint(changed, vendors)
+		require.NoError(t, err)
+		assert.NotEqual(t, before, revision)
+	}
+}
+
+func TestPricingCatalogueSnapshotKeepsCapturedRowsWithTheirRevision(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	insertPricingEndpointChannel(t, 994, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 994, "snapshot-model")
+	InitChannelCache()
+	rows, vendors, revision, err := GetPricingCatalogueSnapshot()
+	require.NoError(t, err)
+	require.NotEmpty(t, revision)
+	captured, err := pricingCatalogueFingerprint(rows, vendors)
+	require.NoError(t, err)
+	assert.Equal(t, revision, captured)
+	require.NoError(t, DB.Create(&Model{ModelName: "snapshot-model", Description: "new description"}).Error)
+	changed := make(chan string, 1)
+	go func() {
+		InvalidatePricingCache()
+		_, _, current, _ := GetPricingCatalogueSnapshot()
+		changed <- current
+	}()
+	current := <-changed
+	assert.NotEqual(t, revision, current)
+	captured, err = pricingCatalogueFingerprint(rows, vendors)
+	require.NoError(t, err)
+	assert.Equal(t, revision, captured)
 }

@@ -307,6 +307,43 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 			groupResponses = append(groupResponses, groupEnvelope.Data)
 		}
 	}
+
+	require.NotEmpty(t, envelope.Data.CatalogRevision)
+	for _, handler := range []gin.HandlerFunc{GetEffectivePricing, GetEffectivePricingByGroup} {
+		for _, limit := range []string{"0", "7"} {
+			requestPage := func(expected string) *httptest.ResponseRecorder {
+				response := httptest.NewRecorder()
+				ctx, _ := gin.CreateTestContext(response)
+				path := "/api/user/effective-pricing?limit=" + limit
+				if expected != "" {
+					path += "&expected_revision=" + expected
+				}
+				ctx.Request = httptest.NewRequest(http.MethodGet, path, nil)
+				ctx.Set("id", 2101)
+				handler(ctx)
+				return response
+			}
+			first := requestPage("")
+			require.Equal(t, http.StatusOK, first.Code)
+			var initial struct {
+				Data effectivePricingPageData `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(first.Body.Bytes(), &initial))
+			require.NotEmpty(t, initial.Data.CatalogRevision)
+			matching := requestPage(initial.Data.CatalogRevision)
+			require.Equal(t, http.StatusOK, matching.Code)
+			assert.JSONEq(t, first.Body.String(), matching.Body.String())
+			stale := requestPage("stale")
+			require.Equal(t, http.StatusConflict, stale.Code)
+			assert.JSONEq(t, `{"success":false,"code":"pricing_catalog_revision_mismatch","message":"Pricing catalog revision changed"}`, stale.Body.String())
+		}
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/user/effective-pricing?expected_revision=stale", nil)
+		ctx.Set("id", 2101)
+		handler(ctx)
+		assert.Equal(t, http.StatusConflict, recorder.Code)
+	}
 	require.Len(t, groupResponses, 3)
 	assert.Equal(t, groupResponses[0], groupResponses[1])
 	assert.Equal(t, groupResponses[0], groupResponses[2])

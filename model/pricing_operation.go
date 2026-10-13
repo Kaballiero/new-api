@@ -40,7 +40,10 @@ func configuredPricingOperation(channel *Channel, public, upstream string, endpo
 		case "gpt-4o-transcribe", "gpt-4o-transcribe-diarize", "gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe-2025-03-20", "gpt-4o-mini-transcribe-2025-12-15", "gpt-transcribe":
 			return pricingOperation{"transcription", "input", "unknown"}
 		case "gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-03-20", "gpt-4o-mini-tts-2025-12-15":
-			return pricingOperation{"speech_generation", "audio_output", "unknown"}
+			if constant.CountToken && (&dto.AudioRequest{Model: public}).GetTokenCountMeta().TokenType == types.TokenTypeTokenizer {
+				return pricingOperation{"speech_generation", "input", "speech_input_tokens"}
+			}
+			return pricingOperation{"speech_generation", "input", "unknown"}
 		case "gpt-realtime", "gpt-realtime-2025-08-28", "gpt-realtime-1.5", "gpt-realtime-2", "gpt-realtime-2.1", "gpt-realtime-mini", "gpt-realtime-mini-2025-12-15", "gpt-realtime-2.1-mini", "gpt-realtime-translate", "gpt-realtime-whisper":
 			return pricingOperation{"realtime", "audio_output", "unknown"}
 		}
@@ -112,9 +115,20 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 			if profile.basis == "unknown" && !fixed {
 				continue
 			}
-			valid := true
+			valid, outputPresent, outputPayable := true, false, false
 			for _, price := range row {
 				component, unit, amount := pricingComponent(price.Component), price.Unit, price.AmountUSD
+				if profile.basis == "speech_input_tokens" && !fixed {
+					if component == "output" || component == "audio_output" {
+						outputPresent = true
+						outputPayable = outputPayable || amount != 0
+						continue
+					}
+					if component != "input" {
+						valid = false
+						break
+					}
+				}
 				if !fixed && profile.basis == "characters" {
 					if component != "input" {
 						valid = false
@@ -140,6 +154,14 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 				offer.Prices = append(offer.Prices, CatalogPrice{Component: component, Unit: unit, AmountUSD: &amount})
 			}
 			if valid {
+				if outputPresent {
+					var amount *float64
+					if !outputPayable {
+						zero := 0.0
+						amount = &zero
+					}
+					offer.Prices = append(offer.Prices, CatalogPrice{Component: "audio_output", Unit: "unknown", AmountUSD: amount})
+				}
 				offers = append(offers, offer)
 			}
 		}
@@ -175,6 +197,15 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 		input = pricing.ModelRatio / 500
 	}
 	unknown.Prices = []CatalogPrice{{Component: component, Unit: unit, AmountUSD: &input}}
+	if profile.basis == "speech_input_tokens" {
+		var amount *float64
+		if pricing.ModelRatio == 0 {
+			zero := 0.0
+			amount = &zero
+		}
+		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "audio_output", Unit: "unknown", AmountUSD: amount})
+		return []CatalogOffer{unknown}
+	}
 	if profile.basis != "tokens" && profile.basis != "image_tokens" {
 		return []CatalogOffer{unknown}
 	}

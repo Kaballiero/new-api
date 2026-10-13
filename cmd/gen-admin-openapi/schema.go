@@ -438,13 +438,14 @@ func buildSchemas() map[string]interface{} {
 	out["EffectivePricingData"] = map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
-			"schema_version": map[string]interface{}{"type": "string", "enum": []string{"v2"}},
-			"user_group":     map[string]interface{}{"type": "string"},
-			"currency":       map[string]interface{}{"type": "string", "enum": []string{"RUB"}},
-			"auto_groups":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-			"data":           map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingModel"}},
+			"schema_version":   map[string]interface{}{"type": "string", "enum": []string{"v2"}},
+			"catalog_revision": map[string]interface{}{"type": "string", "minLength": 1, "description": "Opaque immutable catalog and pricing-context revision; reuse as expected_revision across pages."},
+			"user_group":       map[string]interface{}{"type": "string"},
+			"currency":         map[string]interface{}{"type": "string", "enum": []string{"RUB"}},
+			"auto_groups":      map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"data":             map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingModel"}},
 		},
-		"required": []string{"schema_version", "user_group", "currency", "auto_groups", "data"},
+		"required": []string{"schema_version", "catalog_revision", "user_group", "currency", "auto_groups", "data"},
 	}
 	out["EffectivePricingResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/EffectivePricingData"})
 	out["EffectivePricingResponse"].(map[string]interface{})["required"] = []string{"success", "data"}
