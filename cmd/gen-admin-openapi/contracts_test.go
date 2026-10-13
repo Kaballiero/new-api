@@ -168,8 +168,15 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	assert.Equal(t, defaultSecurity(), effectiveByGroup["security"])
 	assert.Contains(t, effectiveByGroup["description"], "Requires root dashboard access")
 	groupParameters := effectiveByGroup["parameters"].([]interface{})
-	require.Len(t, groupParameters, 7)
-	groupParameter := groupParameters[5].(map[string]interface{})
+	require.Len(t, groupParameters, 8)
+	var groupParameter map[string]interface{}
+	for _, parameter := range groupParameters {
+		entry := parameter.(map[string]interface{})
+		if entry["name"] == "group" {
+			groupParameter = entry
+		}
+	}
+	require.NotNil(t, groupParameter)
 	assert.Equal(t, "group", groupParameter["name"])
 	assert.Equal(t, false, groupParameter["required"])
 	assert.Equal(t, map[string]interface{}{"type": "string", "default": "default"}, groupParameter["schema"])
@@ -191,6 +198,20 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	assert.Len(t, effective["parameters"], 9)
 	assert.Contains(t, effectiveData["required"], "catalog_revision")
 	assert.Contains(t, effectiveByGroup["responses"], "409")
+	for _, effectiveOperation := range []map[string]interface{}{effective, effectiveByGroup} {
+		var revisionParameter map[string]interface{}
+		for _, parameter := range effectiveOperation["parameters"].([]interface{}) {
+			entry := parameter.(map[string]interface{})
+			if entry["name"] == "expected_revision" {
+				revisionParameter = entry
+			}
+		}
+		require.NotNil(t, revisionParameter)
+		assert.Equal(t, map[string]interface{}{
+			"name": "expected_revision", "in": "query", "required": false,
+			"schema": map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 256},
+		}, revisionParameter)
+	}
 
 	groupPrice := components["schemas"].(map[string]interface{})["EffectiveGroupPricing"].(map[string]interface{})
 	groupProps := groupPrice["properties"].(map[string]interface{})
