@@ -218,8 +218,42 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				}
 			}
 		}
+
+		if route.HandlerName == "GetEffectivePricingByGroup" || route.HandlerName == "GetEffectivePricing" {
+			parameters := []any{}
+			for _, parameter := range []struct {
+				name   string
+				schema map[string]any
+			}{
+				{"limit", map[string]any{"type": "integer", "minimum": 0, "maximum": 100}},
+				{"offset", map[string]any{"type": "integer", "default": 0, "minimum": 0, "maximum": 9007199254740991}},
+				{"search", map[string]any{"type": "string"}},
+				{"creator_id", map[string]any{"type": "integer"}},
+				{"modality", map[string]any{"type": "string", "enum": []string{"TEXT", "IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER"}}},
+			} {
+				parameters = append(parameters, map[string]any{"name": parameter.name, "in": "query", "required": false, "schema": parameter.schema})
+			}
+			if route.HandlerName == "GetEffectivePricingByGroup" {
+				for _, name := range []string{"group", "using_group"} {
+					parameters = append(parameters, map[string]any{"name": name, "in": "query", "required": false, "schema": map[string]any{"type": "string"}})
+				}
+			} else {
+				for _, parameter := range []struct {
+					name   string
+					values []string
+				}{{"pricing_unit", []string{"TOKENS", "CALLS", "UNCONFIGURED"}}, {"order_by", []string{"NAME", "INPUT_PRICE", "OUTPUT_PRICE"}}, {"direction", []string{"asc", "desc"}}} {
+					parameters = append(parameters, map[string]any{"name": parameter.name, "in": "query", "required": false, "schema": map[string]any{"type": "string", "enum": parameter.values}})
+				}
+			}
+			op["parameters"] = parameters
+			op["description"] = "Explicit limit selects native filtered pricing page mode with global creator facets; page metadata and row modality/creator are then required. No limit and no pagination parameters preserves the full legacy response. Pagination parameters without limit are rejected. Personal page mode rejects group overrides."
+			responses := op["responses"].(map[string]any)
+			for _, code := range []string{"400", "503"} {
+				responses[code] = map[string]any{"description": translate(currentLocale, "err."+code), "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiErrorResponse"}}}}
+			}
+		}
 		if route.HandlerName == "GetEffectivePricingByGroup" {
-			op["description"] = "Returns the complete effective-pricing projection for a configured user group. Requires root dashboard access. Models unavailable to that user group are omitted."
+			op["description"] = op["description"].(string) + " Requires root dashboard access; group selects user context and using_group selects one usable price group in page mode."
 			parameters, _ := op["parameters"].([]interface{})
 			for _, parameter := range parameters {
 				entry, _ := parameter.(map[string]interface{})

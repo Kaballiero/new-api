@@ -168,8 +168,8 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	assert.Equal(t, defaultSecurity(), effectiveByGroup["security"])
 	assert.Contains(t, effectiveByGroup["description"], "Requires root dashboard access")
 	groupParameters := effectiveByGroup["parameters"].([]interface{})
-	require.Len(t, groupParameters, 1)
-	groupParameter := groupParameters[0].(map[string]interface{})
+	require.Len(t, groupParameters, 7)
+	groupParameter := groupParameters[5].(map[string]interface{})
 	assert.Equal(t, "group", groupParameter["name"])
 	assert.Equal(t, false, groupParameter["required"])
 	assert.Equal(t, map[string]interface{}{"type": "string", "default": "default"}, groupParameter["schema"])
@@ -181,6 +181,13 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	assert.Equal(t, []string{"v1"}, effectiveProps["schema_version"].(map[string]interface{})["enum"])
 	assert.Equal(t, []string{"RUB"}, effectiveProps["currency"].(map[string]interface{})["enum"])
 	assert.Equal(t, []string{"current_tariff"}, effectiveProps["price_kind"].(map[string]interface{})["enum"])
+	for _, field := range []string{"limit", "offset", "total_count", "creators"} {
+		assert.Contains(t, effectiveProps, field)
+		assert.NotContains(t, effectiveData["required"], field)
+	}
+	assert.Contains(t, effectiveByGroup["description"], "Explicit limit")
+	assert.Len(t, effective["parameters"], 8)
+
 	groupPrice := components["schemas"].(map[string]interface{})["EffectiveGroupPricing"].(map[string]interface{})
 	groupProps := groupPrice["properties"].(map[string]interface{})
 	assert.Equal(t, []string{"unit_prices", "formula", "unavailable"}, groupProps["status"].(map[string]interface{})["enum"])

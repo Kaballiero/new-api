@@ -169,6 +169,9 @@ var effectivePricingCache = struct {
 // GetEffectivePricing returns a read-only per-user tariff projection. It does
 // not reuse /api/pricing's response contract and does not call debit paths.
 func GetEffectivePricing(c *gin.Context) {
+	if routeEffectivePricingPage(c, true) {
+		return
+	}
 	user, err := model.GetUserCache(c.GetInt("id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to resolve user pricing group"})
@@ -185,6 +188,9 @@ func GetEffectivePricing(c *gin.Context) {
 // GetEffectivePricingByGroup returns the same projection as the per-user
 // endpoint for a configured group without requiring a user in that group.
 func GetEffectivePricingByGroup(c *gin.Context) {
+	if routeEffectivePricingPage(c, false) {
+		return
+	}
 	values := c.QueryArray("group")
 	if len(values) > 1 {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid user pricing group"})
@@ -269,6 +275,14 @@ func buildEffectivePricingResponse(userGroup string, basis service.BillingFXBasi
 }
 
 func buildEffectivePricingModel(userGroup string, usableGroups map[string]string, fxFactor float64, item model.Pricing) effectivePricingModel {
+	groupRatios := make(map[string]float64, len(usableGroups))
+	for group := range usableGroups {
+		groupRatios[group] = service.GetUserGroupRatio(userGroup, group)
+	}
+	return buildEffectivePricingModelWithRatios(usableGroups, groupRatios, fxFactor, item)
+}
+
+func buildEffectivePricingModelWithRatios(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item model.Pricing) effectivePricingModel {
 	result := effectivePricingModel{
 		ModelName:              item.ModelName,
 		Description:            item.Description,
@@ -281,7 +295,7 @@ func buildEffectivePricingModel(userGroup string, usableGroups map[string]string
 	groups := effectivePricingGroups(item.EnableGroup, usableGroups)
 	result.GroupPrices = make([]effectiveGroupPricing, 0, len(groups))
 	for _, group := range groups {
-		pure := service.GetUserGroupRatio(userGroup, group)
+		pure := groupRatios[group]
 		effective, err := service.ApplyBillingFX(pure, fxFactor)
 		groupPrice := buildEffectiveGroupPricing(item, group, pure, effective)
 		sourcesByEndpoint := item.BillingSourcesForGroup(group)
