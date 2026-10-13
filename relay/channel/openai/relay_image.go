@@ -51,12 +51,15 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 
 	updateOpenAIImageCount(info, gjson.GetBytes(responseBody, "data.#").Int())
 
+	if err := normalizeOpenAIUsage(&usageResp.Usage, responseBody); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+	}
+
 	// 写入新的 response body
 	if err := service.IOCopyBytesGracefully(c, resp, responseBody); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
 
-	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 	return &usageResp.Usage, nil
 }
@@ -69,15 +72,37 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 // previous additive (+=) behavior while avoiding any future double-counting if
 // both field sets are ever populated. Do not reuse this on chat/embedding paths
 // without revisiting the overwrite semantics.
-func normalizeOpenAIUsage(usage *dto.Usage) {
+func normalizeOpenAIUsage(usage *dto.Usage, responseBody []byte) error {
 	if usage == nil {
-		return
+		return nil
 	}
 	if usage.InputTokens != 0 {
 		usage.PromptTokens = usage.InputTokens
 	}
 	if usage.OutputTokens != 0 {
 		usage.CompletionTokens = usage.OutputTokens
+	}
+	if !gjson.GetBytes(responseBody, "usage.completion_tokens_details.image_tokens").Exists() {
+		if usage.OutputTokens < 0 {
+			return fmt.Errorf("image output token total must be non-negative")
+		}
+		outputDetails := gjson.GetBytes(responseBody, "usage.output_tokens_details")
+		if outputDetails.Exists() {
+			imageTokens := outputDetails.Get("image_tokens")
+			if !imageTokens.Exists() {
+				return fmt.Errorf("image output token details must contain image_tokens")
+			}
+			var outputImageTokens *int
+			if err := common.Unmarshal([]byte(imageTokens.Raw), &outputImageTokens); err != nil {
+				return fmt.Errorf("invalid image output token details: %w", err)
+			}
+			if outputImageTokens == nil || *outputImageTokens < 0 || *outputImageTokens > usage.OutputTokens {
+				return fmt.Errorf("image output tokens must be between zero and output_tokens")
+			}
+			usage.CompletionTokenDetails.ImageTokens = *outputImageTokens
+		} else if usage.OutputTokens != 0 {
+			usage.CompletionTokenDetails.ImageTokens = usage.OutputTokens
+		}
 	}
 	if usage.InputTokensDetails != nil {
 		usage.PromptTokensDetails.CachedTokens = usage.InputTokensDetails.CachedTokens
@@ -90,6 +115,7 @@ func normalizeOpenAIUsage(usage *dto.Usage) {
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
+	return nil
 }
 
 func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -129,7 +155,12 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 			Usage dto.Usage `json:"usage"`
 		}
 		if err := common.Unmarshal(raw, &chunk); err == nil {
-			normalizeOpenAIUsage(&chunk.Usage)
+			if err := normalizeOpenAIUsage(&chunk.Usage, raw); err != nil {
+				projectionErr = err
+				sr.Error(err)
+				sr.Stop(err)
+				return
+			}
 			if service.ValidUsage(&chunk.Usage) {
 				usage = &chunk.Usage
 			}
@@ -259,7 +290,9 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	if relayError := embeddedOpenAIError(usageResp.GetOpenAIError(), resp.StatusCode); relayError != nil {
 		return nil, relayError
 	}
-	normalizeOpenAIUsage(&usageResp.Usage)
+	if err := normalizeOpenAIUsage(&usageResp.Usage, responseBody); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+	}
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 
 	imageCount := gjson.GetBytes(responseBody, "data.#").Int()
