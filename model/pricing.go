@@ -27,6 +27,7 @@ const (
 )
 
 type Pricing struct {
+	ConsumerCanonicalModelsByGroup  map[string]string                             `json:"-"`
 	ConfiguredPrices                map[string][][]billingexpr.DisplayPrice       `json:"-"`
 	PriceConfigured                 bool                                          `json:"-"`
 	CatalogOffersByGroup            map[string][]CatalogOffer                     `json:"-"`
@@ -340,10 +341,6 @@ func updatePricing() {
 	pricingChannels := make(map[int]*Channel)
 	taskPluginKeys := make(map[int]string)
 	for _, ability := range enableAbilities {
-		_, taskChannel := pluginGeneration.GetByChannelType(ability.ChannelType)
-		if !taskChannel && ability.ChannelType != constant.ChannelTypeOpenRouter && ability.ChannelType != constant.ChannelTypeTaskPlugin && !slices.Contains(getPricingEndpointTypesForAbility(ability, advancedCustomConfigs), constant.EndpointTypeOpenAIVideo) {
-			continue
-		}
 		if _, loaded := pricingChannels[ability.ChannelId]; loaded {
 			continue
 		}
@@ -385,11 +382,10 @@ func updatePricing() {
 		if ability.ChannelType == constant.ChannelTypeOpenRouter {
 			operationTypes = append(operationTypes, constant.EndpointTypeOpenAIResponse, constant.EndpointTypeOpenAIResponseCompact, constant.EndpointTypeEmbeddings, constant.EndpointTypeAnthropic, constant.EndpointTypeGemini)
 		}
-		if openRouterVideo {
+		if videoRoute || openRouterVideo {
 			operationTypes = []constant.EndpointType{constant.EndpointTypeOpenAIVideo}
 		}
-		switch ability.ChannelType {
-		case constant.ChannelTypeOpenAI, constant.ChannelTypeOpenRouter, constant.ChannelTypeAnthropic, constant.ChannelTypeGemini:
+		if !videoRoute && slices.Contains([]int{constant.ChannelTypeOpenAI, constant.ChannelTypeOpenRouter, constant.ChannelTypeAnthropic, constant.ChannelTypeGemini}, ability.ChannelType) {
 			operationTypes = append(operationTypes, PricingEndpointBatch)
 		}
 		for _, endpoint := range operationTypes {
@@ -499,12 +495,8 @@ func updatePricing() {
 				continue
 			}
 		}
-		mapping := make(map[string]string)
-		if err := common.UnmarshalJsonStr(channel.GetModelMapping(), &mapping); err != nil {
-			continue
-		}
-		upstream, cyclic := followChannelModelMapping(mapping, ability.Model)
-		if cyclic {
+		upstream, resolved := ResolvePricingUpstreamModel(channel, ability.Model)
+		if !resolved {
 			continue
 		}
 		plugin, known := pluginGeneration.GetByChannelType(channel.Type)
@@ -523,7 +515,13 @@ func updatePricing() {
 			}
 		}
 		if offers == nil && channel.Type == constant.ChannelTypeOpenRouter {
+			if source, known := GetPricingCatalogEntry(channel, upstream, constant.EndpointTypeImageGeneration); known {
+				offers = append(offers, source.Offers...)
+			}
 			for endpoint, sources := range billingSources[ability.Model][ability.Group] {
+				if endpoint == constant.EndpointTypeImageGeneration {
+					continue
+				}
 				if !slices.Contains(sources, BillingSourceOpenRouterActualCost) {
 					continue
 				}
@@ -677,6 +675,7 @@ func updatePricing() {
 				pricing.IndicativeBillingExprByEndpoint[endpoint] = expression
 			}
 		}
+		projectPricingOperations(&pricing, enableAbilities, pricingChannels, pluginGeneration, advancedCustomConfigs)
 		pricingMap = append(pricingMap, pricing)
 	}
 

@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 )
 
 const pricingCatalogWorkers = 5
@@ -74,7 +75,7 @@ type pricingCatalogSource struct {
 	fingerprint string
 }
 
-func pricingCatalogSources() ([]pricingCatalogSource, error) {
+func pricingCatalogSources(ctx context.Context) ([]pricingCatalogSource, error) {
 	abilities, err := model.GetAllEnableAbilityWithChannels()
 	if err != nil {
 		return nil, err
@@ -84,6 +85,8 @@ func pricingCatalogSources() ([]pricingCatalogSource, error) {
 		pricing[item.ModelName] = item
 	}
 	channels := make(map[int]*model.Channel)
+	imageModels := make(map[int]map[string]bool)
+	var discoveryError error
 	seen := make(map[string]bool)
 	sources := []pricingCatalogSource{}
 	for _, ability := range abilities {
@@ -114,43 +117,82 @@ func pricingCatalogSources() ([]pricingCatalogSource, error) {
 			continue
 		}
 		upstream, resolved := model.ResolvePricingUpstreamModel(channel, ability.Model)
-		if !resolved || strings.Contains(upstream, ":") {
+		if !resolved || strings.Contains(upstream, ":") && !strings.HasSuffix(upstream, ":batch") && !strings.HasSuffix(upstream, ":free") {
 			continue
 		}
+		if _, loaded := imageModels[channel.Id]; !loaded {
+			imageModels[channel.Id] = make(map[string]bool)
+			body, fetchErr := fetchPricingMetadata(ctx, channel, "https://openrouter.ai/api/v1/images/models")
+			var response struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			if fetchErr == nil {
+				fetchErr = common.Unmarshal(body, &response)
+			}
+			if fetchErr != nil || response.Data == nil {
+				discoveryError = errors.Join(discoveryError, errors.New("native image capability discovery failed"))
+			} else {
+				for _, item := range response.Data {
+					imageModels[channel.Id][item.ID] = true
+				}
+			}
+		}
+		appendSource := func(endpoint constant.EndpointType) {
+			key := fmt.Sprintf("%d:%s:%s", channel.Id, upstream, endpoint)
+			if seen[key] {
+				return
+			}
+			seen[key] = true
+			sources = append(sources, pricingCatalogSource{channel, upstream, endpoint, model.PricingCatalogSourceFingerprint(channel, upstream, endpoint)})
+		}
 		for endpoint, billingSources := range pricing[ability.Model].BillingSourcesForGroup(ability.Group) {
-			if !slices.Contains(billingSources, model.BillingSourceOpenRouterActualCost) {
+			if !slices.Contains(billingSources, model.BillingSourceOpenRouterActualCost) || endpoint == constant.EndpointTypeOpenAIVideo {
 				continue
 			}
-			// Video has a typed catalog owned and published by the existing task plugin.
-			if endpoint == constant.EndpointTypeOpenAIVideo || endpoint == model.PricingEndpointBatch {
+			if endpoint == model.PricingEndpointBatch {
+				expression, configured := billing_setting.GetBatchBillingExpr(ability.Model)
+				if configured && expression != "" {
+					appendSource(endpoint)
+				}
+				continue
+			}
+			if strings.HasSuffix(upstream, ":batch") {
 				continue
 			}
 			if !slices.Contains(pricing[ability.Model].SupportedEndpointTypes, endpoint) {
+				continue
+			}
+			if endpoint == constant.EndpointTypeImageGeneration {
+				if imageModels[channel.Id][upstream] {
+					appendSource(endpoint)
+				}
 				continue
 			}
 			operation, _ := consumerOperation(endpoint)
 			if operation == "" {
 				continue
 			}
-			key := fmt.Sprintf("%d:%s:%s", channel.Id, upstream, endpoint)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			sources = append(sources, pricingCatalogSource{channel, upstream, endpoint, model.PricingCatalogSourceFingerprint(channel, upstream, endpoint)})
+			appendSource(endpoint)
 		}
+		if imageModels[channel.Id][upstream] {
+			appendSource(constant.EndpointTypeImageGeneration)
+		}
+
 	}
-	return sources, nil
+	return sources, discoveryError
 }
 
 func refreshPricingCatalog(ctx context.Context) (pricingCatalogRefreshSummary, error) {
-	sources, err := pricingCatalogSources()
-	if err != nil {
-		return pricingCatalogRefreshSummary{}, err
-	}
-	return refreshPricingCatalogSources(ctx, sources, fetchPricingCatalogSource, func(entry model.PricingCatalogEntry) error {
+	sources, discoveryErr := pricingCatalogSources(ctx)
+	summary, refreshErr := refreshPricingCatalogSources(ctx, sources, fetchPricingCatalogSource, func(entry model.PricingCatalogEntry) error {
 		return model.PublishPricingCatalogEntryContext(ctx, entry)
 	})
+	if discoveryErr != nil {
+		summary.Failed++
+	}
+	return summary, errors.Join(discoveryErr, refreshErr)
 }
 
 func refreshPricingCatalogSources(ctx context.Context, sources []pricingCatalogSource, fetch func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error), publish func(model.PricingCatalogEntry) error) (pricingCatalogRefreshSummary, error) {
@@ -196,7 +238,11 @@ enqueue:
 
 func fetchPricingCatalogSource(ctx context.Context, source pricingCatalogSource) (model.PricingCatalogEntry, error) {
 	entry := model.PricingCatalogEntry{}
-	parts := strings.Split(source.upstream, "/")
+	discoveryModel := source.upstream
+	if source.endpoint == model.PricingEndpointBatch {
+		discoveryModel = strings.TrimSuffix(source.upstream, ":batch") + ":batch"
+	}
+	parts := strings.Split(discoveryModel, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return entry, errors.New("invalid native pricing model identity")
 	}
@@ -205,38 +251,9 @@ func fetchPricingCatalogSource(ctx context.Context, source pricingCatalogSource)
 		path = "/v1/images/models/"
 	}
 	endpointURL := "https://openrouter.ai/api" + path + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1]) + "/endpoints"
-	key, err := selectChannelUpstreamModelDiscoveryKey(source.channel)
-	if err != nil {
-		return entry, errors.New("pricing discovery authentication unavailable")
-	}
-	headers, err := buildFetchModelsHeaders(source.channel, key)
-	if err != nil {
-		return entry, errors.New("pricing discovery headers unavailable")
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpointURL, nil)
+	body, err := fetchPricingMetadata(ctx, source.channel, endpointURL)
 	if err != nil {
 		return entry, err
-	}
-	request.Header = headers
-	settings := source.channel.GetSetting()
-	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
-	if err != nil {
-		return entry, errors.New("pricing discovery transport unavailable")
-	}
-	metadataClient := *client
-	metadataClient.Timeout = pricingCatalogTimeout
-	metadataClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	response, err := metadataClient.Do(request)
-	if err != nil {
-		return entry, errors.New("pricing metadata request failed")
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return entry, fmt.Errorf("pricing metadata HTTP %d", response.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, pricingCatalogBodyLimit+1))
-	if err != nil || len(body) > pricingCatalogBodyLimit {
-		return entry, errors.New("pricing metadata exceeds body limit")
 	}
 	var offers []model.CatalogOffer
 	if source.endpoint == constant.EndpointTypeImageGeneration {
@@ -251,7 +268,12 @@ func fetchPricingCatalogSource(ctx context.Context, source pricingCatalogSource)
 		}
 	} else {
 		operation, main := consumerOperation(source.endpoint)
-		offers, err = normalizeEndpointPricing(source.upstream, operation, main, body)
+		offers, err = normalizeEndpointPricing(discoveryModel, operation, main, body)
+		if source.endpoint == model.PricingEndpointBatch {
+			for index := range offers {
+				offers[index].Mode = "batch"
+			}
+		}
 	}
 	if err != nil {
 		return entry, err
@@ -304,10 +326,21 @@ func normalizeEndpointPricing(upstream, operation, main string, body []byte) ([]
 	if common.Unmarshal(body, &response) != nil || response.Data.ID != upstream || response.Data.Endpoints == nil {
 		return nil, errors.New("invalid native endpoint pricing response")
 	}
+	for _, endpoint := range response.Data.Endpoints {
+		if strings.Contains(upstream, ":") && endpoint.ModelID != upstream {
+			return nil, errors.New("native variant endpoint identity mismatch")
+		}
+	}
 	if operation == "text" && (!slices.Contains(response.Data.Architecture.InputModalities, "text") || !slices.Contains(response.Data.Architecture.OutputModalities, "text")) {
-		return nil, errors.New("native endpoint has no proved text-only operation")
+		if len(response.Data.Architecture.InputModalities) == 0 || len(response.Data.Architecture.OutputModalities) == 0 {
+			return nil, errors.New("native endpoint has no proved operation")
+		}
+		return []model.CatalogOffer{}, nil
 	}
 	offers := []model.CatalogOffer{}
+	if len(response.Data.Endpoints) == 0 {
+		offers = append(offers, model.CatalogOffer{ID: "native:unknown", Operation: operation, Mode: "sync", MainComponent: main})
+	}
 	for index, endpoint := range response.Data.Endpoints {
 		prices := maps.Clone(endpoint.Pricing)
 		raw, hasOverrides := prices["overrides"]
@@ -395,8 +428,12 @@ func normalizeEndpointPricing(upstream, operation, main string, body []byte) ([]
 				case "discount":
 					continue
 				case "audio", "audio_output", "input_audio_cache", "image_output":
-					if _, err := openrouter.ReadEndpointPrice(vector[key]); err != nil {
+					amount, err := openrouter.ReadEndpointPrice(vector[key])
+					if err != nil {
 						return nil, err
+					}
+					if amount != 0 && (key == "image_output" && slices.Contains(response.Data.Architecture.OutputModalities, "image") || key == "audio_output" && slices.Contains(response.Data.Architecture.OutputModalities, "audio") || (key == "audio" || key == "input_audio_cache") && slices.Contains(response.Data.Architecture.InputModalities, "audio")) {
+						unprojectable = true
 					}
 					continue
 				default:
@@ -516,6 +553,9 @@ func normalizeImagePricing(upstream string, body []byte) ([]model.CatalogOffer, 
 			offers = append(offers, offer)
 		}
 	}
+	if len(offers) == 0 {
+		offers = append(offers, model.CatalogOffer{ID: "native:image:unknown", Operation: "image_generation", Mode: "sync", MainComponent: "image_output"})
+	}
 	return offers, nil
 }
 
@@ -537,4 +577,41 @@ func imagePricingVariantSupported(variant string, parameters map[string]openrout
 		}
 	}
 	return true
+}
+
+func fetchPricingMetadata(ctx context.Context, channel *model.Channel, endpointURL string) ([]byte, error) {
+	key, err := selectChannelUpstreamModelDiscoveryKey(channel)
+	if err != nil {
+		return nil, errors.New("pricing discovery authentication unavailable")
+	}
+	headers, err := buildFetchModelsHeaders(channel, key)
+	if err != nil {
+		return nil, errors.New("pricing discovery headers unavailable")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpointURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header = headers
+	settings := channel.GetSetting()
+	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
+	if err != nil {
+		return nil, errors.New("pricing discovery transport unavailable")
+	}
+	metadataClient := *client
+	metadataClient.Timeout = pricingCatalogTimeout
+	metadataClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := metadataClient.Do(request)
+	if err != nil {
+		return nil, errors.New("pricing metadata request failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("pricing metadata HTTP %d", response.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, pricingCatalogBodyLimit+1))
+	if err != nil || len(body) > pricingCatalogBodyLimit {
+		return nil, errors.New("pricing metadata exceeds body limit")
+	}
+	return body, nil
 }

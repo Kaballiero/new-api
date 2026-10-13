@@ -1676,6 +1676,7 @@ function videoPriceCatalog() {
       if (match[2] === "reference_duration_seconds") operations = ["image_to_video", "video_to_video"];
       if (match[5] || match[2] === "cents_per_second_video_continuation") operations = ["video_to_video"];
       if (model.id === "black-forest-labs/flux-video-edit") operations = ["video_editing"];
+      if (model.id === "heygen/avatar-iv") operations = ["image_to_video"];
       operations.forEach(function (operation) {
         const prices = [{ component: "video_output", unit: unit, amount_usd: amount }];
         if (operation === "image_to_video" && skus.cents_per_image_input !== undefined) prices.push({ component: "image_input", unit: "image", amount_usd: Number(skus.cents_per_image_input) / 100 });
@@ -1683,6 +1684,15 @@ function videoPriceCatalog() {
         offers.push({ id: key + ":" + operation, operation: operation, mode: "sync", main_component: "video_output", prices: prices });
       });
     });
+    if (!offers.length) {
+      let operations = ["text_to_video"];
+      if ((model.input_modalities || []).indexOf("image") >= 0) operations.push("image_to_video");
+      if (model.id === "runway/aleph-2") operations = ["video_editing"];
+      if (model.id === "black-forest-labs/flux-video-upscale") operations = ["video_upscaling"];
+      operations.forEach(function (operation) {
+        offers.push({ id: "capability:" + operation, operation: operation, mode: "sync", main_component: "video_output", prices: [] });
+      });
+    }
     models[model.id] = offers;
   });
   return { fetched_at: catalog.fetched_at, models: models };

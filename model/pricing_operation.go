@@ -1,0 +1,369 @@
+package model
+
+import (
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+)
+
+type pricingOperation struct{ operation, main, basis string }
+
+func configuredPricingOperation(channel *Channel, public, upstream string, endpoint constant.EndpointType) pricingOperation {
+	if channel.Type == constant.ChannelTypeOpenAI {
+		if endpoint == constant.EndpointTypeOpenAI && slices.Contains(common.GetEndpointTypesByChannelType(channel.Type, upstream), constant.EndpointTypeImageGeneration) {
+			return pricingOperation{"image_generation", "output", "image_tokens"}
+		}
+		switch upstream {
+		case "text-embedding-3-large", "text-embedding-3-small", "text-embedding-ada-002":
+			return pricingOperation{"embeddings", "input", "tokens"}
+		case "tts-1", "tts-1-1106", "tts-1-hd", "tts-1-hd-1106":
+			basis := "unknown"
+			if constant.CountToken && (&dto.AudioRequest{Model: public}).GetTokenCountMeta().TokenType == types.TokenTypeTextNumber {
+				basis = "characters"
+			}
+			return pricingOperation{"speech_generation", "input", basis}
+		case "whisper-1":
+			basis := "unknown"
+			if constant.CountToken && public == upstream {
+				basis = "duration"
+			}
+			return pricingOperation{"transcription", "audio_input", basis}
+		case "gpt-4o-transcribe", "gpt-4o-transcribe-diarize", "gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe-2025-03-20", "gpt-4o-mini-transcribe-2025-12-15", "gpt-transcribe":
+			return pricingOperation{"transcription", "input", "unknown"}
+		case "gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-03-20", "gpt-4o-mini-tts-2025-12-15":
+			return pricingOperation{"speech_generation", "audio_output", "unknown"}
+		case "gpt-realtime", "gpt-realtime-2025-08-28", "gpt-realtime-1.5", "gpt-realtime-2", "gpt-realtime-2.1", "gpt-realtime-mini", "gpt-realtime-mini-2025-12-15", "gpt-realtime-2.1-mini", "gpt-realtime-translate", "gpt-realtime-whisper":
+			return pricingOperation{"realtime", "audio_output", "unknown"}
+		}
+	}
+	switch endpoint {
+	case constant.EndpointTypeEmbeddings:
+		return pricingOperation{"embeddings", "input", "tokens"}
+	case constant.EndpointTypeJinaRerank:
+		return pricingOperation{"rerank", "input", "tokens"}
+	case constant.EndpointTypeImageGeneration:
+		if channel.Type == constant.ChannelTypeOpenAI {
+			return pricingOperation{"image_generation", "output", "image_tokens"}
+		}
+		return pricingOperation{"image_generation", "image_output", "image"}
+	case constant.EndpointTypeOpenAIVideo:
+		return pricingOperation{"text_to_video", "video_output", "unknown"}
+	case constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse, constant.EndpointTypeOpenAIResponseCompact, constant.EndpointTypeAnthropic, constant.EndpointTypeGemini, PricingEndpointBatch:
+		return pricingOperation{"text", "output", "tokens"}
+	}
+	return pricingOperation{}
+}
+
+func pricingComponent(variable string) string {
+	switch variable {
+	case "p":
+		return "input"
+	case "c":
+		return "output"
+	case "cr":
+		return "cache_read"
+	case "cc":
+		return "cache_write"
+	case "cc1h":
+		return "cache_write_1h"
+	case "img":
+		return "image_input"
+	case "img_o":
+		return "image_output"
+	case "ai":
+		return "audio_input"
+	case "ao":
+		return "audio_output"
+	}
+	return variable
+}
+
+func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, expression string) []CatalogOffer {
+	if profile.operation == "" {
+		return nil
+	}
+	unknown := CatalogOffer{ID: "configured:unknown", Operation: profile.operation, Mode: mode, MainComponent: profile.main, Prices: []CatalogPrice{}}
+	formula := pricing.BillingMode == billing_setting.BillingModeTieredExpr || mode == "batch"
+	if formula {
+		offers := []CatalogOffer{}
+		for index, row := range pricing.ConfiguredPrices[expression] {
+			offer := unknown
+			offer.ID = fmt.Sprintf("configured:%d:%s", index, expression)
+			fixed := len(row) == 1 && row[0].Component == "base"
+			if fixed {
+				offer.MainComponent = "base"
+			}
+			if profile.basis == "image_tokens" && !fixed {
+				for _, price := range row {
+					if price.Component == "img_o" {
+						offer.MainComponent = "image_output"
+					}
+				}
+			}
+			if profile.basis == "unknown" && !fixed {
+				continue
+			}
+			valid := true
+			for _, price := range row {
+				component, unit, amount := pricingComponent(price.Component), price.Unit, price.AmountUSD
+				if !fixed && profile.basis == "characters" {
+					if component != "input" {
+						valid = false
+						break
+					}
+					unit = "million_characters"
+				}
+				if !fixed && profile.basis == "duration" {
+					if component != "input" {
+						valid = false
+						break
+					}
+					component = "audio_input"
+					unit = "minute"
+					amount /= 1000
+				}
+				if profile.operation == "embeddings" && component == "output" {
+					if amount != 0 {
+						valid = false
+					}
+					continue
+				}
+				offer.Prices = append(offer.Prices, CatalogPrice{Component: component, Unit: unit, AmountUSD: &amount})
+			}
+			if valid {
+				offers = append(offers, offer)
+			}
+		}
+		if len(offers) > 0 {
+			return offers
+		}
+		return []CatalogOffer{unknown}
+	}
+	if !pricing.PriceConfigured {
+		return []CatalogOffer{unknown}
+	}
+	if pricing.QuotaType == 1 {
+		amount := pricing.ModelPrice
+		component, unit := "base", "call"
+		if profile.operation == "image_generation" {
+			component, unit = "image_output", "image"
+		}
+		unknown.MainComponent = component
+		unknown.Prices = []CatalogPrice{{Component: component, Unit: unit, AmountUSD: &amount}}
+		return []CatalogOffer{unknown}
+	}
+	if profile.basis == "unknown" || profile.basis == "image" {
+		return []CatalogOffer{unknown}
+	}
+	input := pricing.ModelRatio * 2
+	unit, component := "million_tokens", "input"
+	if profile.basis == "characters" {
+		unit = "million_characters"
+	}
+	if profile.basis == "duration" {
+		unit = "minute"
+		component = "audio_input"
+		input = pricing.ModelRatio / 500
+	}
+	unknown.Prices = []CatalogPrice{{Component: component, Unit: unit, AmountUSD: &input}}
+	if profile.basis != "tokens" && profile.basis != "image_tokens" {
+		return []CatalogOffer{unknown}
+	}
+	if profile.operation == "text" || profile.operation == "image_generation" {
+		output := input * pricing.CompletionRatio
+		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "output", Unit: unit, AmountUSD: &output})
+	}
+	for _, extra := range []struct {
+		component string
+		ratio     *float64
+	}{{"cache_read", pricing.CacheRatio}, {"cache_write", pricing.CreateCacheRatio}, {"image_input", pricing.ImageRatio}} {
+		if extra.ratio != nil {
+			amount := input * *extra.ratio
+			unknown.Prices = append(unknown.Prices, CatalogPrice{Component: extra.component, Unit: "million_tokens", AmountUSD: &amount})
+		}
+	}
+	if pricing.AudioRatio != nil || pricing.AudioCompletionRatio != nil {
+		audioInput := input * ratio_setting.GetAudioRatio(pricing.ModelName)
+		audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(pricing.ModelName)
+		if pricing.AudioRatio != nil {
+			audioInput = input * *pricing.AudioRatio
+		}
+		if pricing.AudioCompletionRatio != nil {
+			audioCompletionRatio = *pricing.AudioCompletionRatio
+		}
+		audioOutput := audioInput * audioCompletionRatio
+		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "audio_input", Unit: "million_tokens", AmountUSD: &audioInput}, CatalogPrice{Component: "audio_output", Unit: "million_tokens", AmountUSD: &audioOutput})
+	}
+	return []CatalogOffer{unknown}
+}
+
+func projectPricingOperations(pricing *Pricing, abilities []AbilityWithChannel, channels map[int]*Channel, generation *jsplugin.RoutingGeneration, advanced map[int]*dto.AdvancedCustomConfig) {
+	native := pricing.CatalogOffersByGroup
+	pricing.CatalogOffersByGroup = make(map[string][]CatalogOffer)
+	pricing.ConsumerCanonicalModelsByGroup = make(map[string]string)
+	unpairedGroups := make(map[string]bool)
+	for _, ability := range abilities {
+		if ability.Model != pricing.ModelName {
+			continue
+		}
+		channel := channels[ability.ChannelId]
+		if channel == nil || channel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		upstream, resolved := ResolvePricingUpstreamModel(channel, ability.Model)
+		if !resolved {
+			continue
+		}
+		prefix := fmt.Sprintf("%d:%s:", channel.Id, upstream)
+		var offers []CatalogOffer
+		for _, offer := range native[ability.Group] {
+			if strings.HasPrefix(offer.ID, prefix) {
+				offers = append(offers, offer)
+			}
+		}
+		legacy, video, _ := legacyVideoPriceBasis(generation, channel, ability.Model)
+		actual := channel.Type == constant.ChannelTypeOpenRouter || channel.Type == constant.ChannelTypeTaskPlugin && channel.GetSetting().TaskPluginKey == "openrouter-video"
+		batchAlias := strings.HasSuffix(ability.Model, ":batch")
+		if batchAlias && actual {
+			base, paired := pairedPricingBatchBase(ability, upstream, abilities, channels)
+			if paired {
+				pricing.ConsumerCanonicalModelsByGroup[ability.Group] = base
+			} else {
+				unpairedGroups[ability.Group] = true
+			}
+			batchOffers := []CatalogOffer{}
+			for _, offer := range offers {
+				if offer.Mode == "batch" {
+					batchOffers = append(batchOffers, offer)
+				}
+			}
+			if len(batchOffers) == 0 {
+				batchOffers = append(batchOffers, CatalogOffer{ID: prefix + "batch:unknown", Operation: "text", Mode: "batch", MainComponent: "output"})
+			}
+			pricing.CatalogOffersByGroup[ability.Group] = append(pricing.CatalogOffersByGroup[ability.Group], batchOffers...)
+			continue
+		}
+		if video {
+			if !actual && len(legacy) > 0 {
+				for action, basis := range legacy {
+					profile := pricingOperation{action, "video_output", "unknown"}
+					if pricing.QuotaType == 1 && pricing.PriceConfigured && pricing.BillingMode != billing_setting.BillingModeTieredExpr {
+						amount := pricing.ModelPrice
+						unit := basis.Unit
+						if slices.Contains(constant.TaskPricePatches, pricing.ModelName) {
+							unit = "call"
+						}
+						offers = append(offers, CatalogOffer{ID: prefix + action, Operation: action, Mode: "sync", MainComponent: "video_output", Prices: []CatalogPrice{{Component: "video_output", Unit: unit, AmountUSD: &amount}}})
+					} else {
+						offers = append(offers, configuredOperationOffers(*pricing, profile, "sync", pricing.BillingExpr)...)
+					}
+				}
+			}
+			pricing.CatalogOffersByGroup[ability.Group] = append(pricing.CatalogOffersByGroup[ability.Group], offers...)
+			continue
+		}
+		if actual {
+			if len(offers) == 0 {
+				if source, known := GetPricingCatalogEntry(channel, upstream, constant.EndpointTypeOpenAI); known && len(source.Offers) == 0 {
+					continue
+				}
+				operation, main := "text", "output"
+				if slices.Contains(pricing.SupportedEndpointTypes, constant.EndpointTypeImageGeneration) {
+					operation, main = "image_generation", "image_output"
+				}
+				offers = append(offers, CatalogOffer{ID: prefix + "unknown", Operation: operation, Mode: "sync", MainComponent: main})
+			}
+			pricing.CatalogOffersByGroup[ability.Group] = append(pricing.CatalogOffersByGroup[ability.Group], offers...)
+			continue
+		}
+		endpoints := getPricingEndpointTypesForAbility(ability, advanced)
+		if slices.Contains(endpoints, constant.EndpointTypeImageGeneration) {
+			endpoints = []constant.EndpointType{constant.EndpointTypeImageGeneration}
+		}
+		for _, endpoint := range endpoints {
+			profile := configuredPricingOperation(channel, ability.Model, upstream, endpoint)
+			offers = append(offers, configuredOperationOffers(*pricing, profile, "sync", pricing.BillingExpr)...)
+			batchSources := pricing.BillingSourcesForGroup(ability.Group)[PricingEndpointBatch]
+			if expression, known := billing_setting.GetBatchBillingExpr(ability.Model); known && expression != "" && slices.Contains(batchSources, BillingSourceConfiguredTariff) && (profile.operation == "text" || profile.operation == "embeddings") {
+				offers = append(offers, configuredOperationOffers(*pricing, profile, "batch", expression)...)
+			}
+		}
+		pricing.CatalogOffersByGroup[ability.Group] = append(pricing.CatalogOffersByGroup[ability.Group], offers...)
+	}
+	for group := range unpairedGroups {
+		delete(pricing.ConsumerCanonicalModelsByGroup, group)
+	}
+}
+
+func pairedPricingBatchBase(ability AbilityWithChannel, upstream string, abilities []AbilityWithChannel, channels map[int]*Channel) (string, bool) {
+	if ability.ChannelType != constant.ChannelTypeOpenRouter || !strings.HasSuffix(upstream, ":batch") {
+		return "", false
+	}
+	if expression, known := billing_setting.GetBatchBillingExpr(ability.Model); !known || expression == "" {
+		return "", false
+	}
+	base := strings.TrimSuffix(ability.Model, ":batch")
+	for _, candidate := range abilities {
+		if candidate.ChannelId != ability.ChannelId || candidate.Group != ability.Group || candidate.Model != base {
+			continue
+		}
+		mapped, known := ResolvePricingUpstreamModel(channels[candidate.ChannelId], candidate.Model)
+		if known && mapped == strings.TrimSuffix(upstream, ":batch") {
+			return base, true
+		}
+	}
+	return "", false
+}
+
+func ConsumerPricingCatalogue(pricing []Pricing, usableGroups map[string]string) []Pricing {
+	byName := make(map[string]int, len(pricing))
+	for index, item := range pricing {
+		byName[item.ModelName] = index
+	}
+	result := []Pricing{}
+	positions := make(map[int]int)
+	groups := slices.Sorted(maps.Keys(usableGroups))
+	for sourceIndex, item := range pricing {
+		for _, group := range groups {
+			if !slices.Contains(item.EnableGroup, group) && !slices.Contains(item.EnableGroup, "all") {
+				continue
+			}
+			canonical := item.ConsumerCanonicalModelsByGroup[group]
+			if canonical == "" && slices.Contains(item.EnableGroup, "all") {
+				canonical = item.ConsumerCanonicalModelsByGroup["all"]
+			}
+			if canonical == "" {
+				canonical = item.ModelName
+			}
+			baseIndex := sourceIndex
+			if canonical != item.ModelName {
+				if targetIndex, exists := byName[canonical]; exists {
+					baseIndex = targetIndex
+				}
+			}
+			base := pricing[baseIndex]
+			index, exists := positions[baseIndex]
+			if !exists {
+				index = len(result)
+				positions[baseIndex] = index
+				base.EnableGroup = []string{}
+				base.CatalogOffersByGroup = make(map[string][]CatalogOffer)
+				result = append(result, base)
+			}
+			if !slices.Contains(result[index].EnableGroup, group) {
+				result[index].EnableGroup = append(result[index].EnableGroup, group)
+			}
+			result[index].CatalogOffersByGroup[group] = append(result[index].CatalogOffersByGroup[group], item.CatalogOffersForGroup(group)...)
+		}
+	}
+	return result
+}

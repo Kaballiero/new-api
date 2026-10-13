@@ -25,6 +25,7 @@ import (
 )
 
 type PricedEndpoint struct {
+	ModelID             string                     `json:"model_id"`
 	Tag                 string                     `json:"tag"`
 	ContextLength       int                        `json:"context_length"`
 	MaxPromptTokens     int                        `json:"max_prompt_tokens"`
