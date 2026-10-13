@@ -439,3 +439,82 @@ func TestEndpointMediaQuantitiesUseProtocolContent(t *testing.T) {
 		})
 	}
 }
+
+func TestEndpointOneHourCachePublishedSyncAndBatchPricing(t *testing.T) {
+	for _, scenario := range []struct {
+		name, model, operation, pricing string
+		want                            float64
+	}{
+		{"sync", "anthropic/claude-fable-5.1", "chat/completions", `{"prompt":"0.00001","completion":"0.00005","input_cache_read":"0.00000025","input_cache_write":"0.0000125","input_cache_write_1h":"0.00002","web_search":"0.01","discount":0}`, .0205},
+		{"batch_base_model", "anthropic/claude-fable-5.1", "batch_chat/completions", `{"prompt":"0.000005","completion":"0.000025","input_cache_read":"0.000000125","input_cache_write":"0.00000625","input_cache_write_1h":"0.00001","web_search":"0.01","discount":0}`, .01025},
+		{"batch_model_alias", "anthropic/claude-fable-5.1:batch", "batch_messages", `{"prompt":"0.000005","completion":"0.000025","input_cache_read":"0.000000125","input_cache_write":"0.00000625","input_cache_write_1h":"0.00001","web_search":"0.01","discount":0}`, .01025},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			var prices map[string]json.RawMessage
+			require.NoError(t, common.Unmarshal([]byte(scenario.pricing), &prices))
+			estimator := NewRequestEstimator()
+			estimator.Models[scenario.model] = []PricedEndpoint{{Tag: "anthropic", MaxCompletionTokens: 100, Pricing: prices}}
+			info := &relaycommon.RelayInfo{}
+			info.SetEstimatePromptTokens(1000)
+			for _, cache := range []string{"", `,"cache_control":{"type":"ephemeral"}`, `,"cache_control":{"type":"ephemeral","ttl":"1h"}`, `,"messages":[{"role":"user","content":[{"type":"text","text":"hour prefix","cache_control":{"type":"ephemeral","ttl":"1h"}},{"type":"text","text":"short prefix","cache_control":{"type":"ephemeral","ttl":"5m"}}]}]`} {
+				body := []byte(`{"model":"` + scenario.model + `","max_tokens":10` + cache + `}`)
+				cost, err := estimator.Estimate(info, body, scenario.operation)
+				require.NoError(t, err)
+				assert.InDelta(t, scenario.want, cost, 1e-12)
+			}
+		})
+	}
+}
+
+func TestEndpointOneHourCacheOverrideAndWholeEndpointBound(t *testing.T) {
+	estimator := NewRequestEstimator()
+	estimator.Models["test/model"] = []PricedEndpoint{
+		{Tag: "provider-a", MaxCompletionTokens: 10, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.1"`), "input_cache_write": json.RawMessage(`"0.002"`), "input_cache_write_1h": json.RawMessage(`"0.004"`), "overrides": json.RawMessage(`[{"min_prompt_tokens":1000,"input_cache_write_1h":"0.006","completion":"0.15"}]`)}},
+		{Tag: "provider-b", MaxCompletionTokens: 10, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.002"`), "completion": json.RawMessage(`"0.2"`), "input_cache_write_1h": json.RawMessage(`"0.003"`)}},
+	}
+	info := &relaycommon.RelayInfo{}
+	for _, scenario := range []struct {
+		prompt int
+		want   float64
+	}{{999, 4.997}, {1000, 7.5}} {
+		info.SetEstimatePromptTokens(scenario.prompt)
+		cost, err := estimator.Estimate(info, []byte(`{"model":"test/model","max_tokens":10}`), "chat/completions")
+		require.NoError(t, err)
+		assert.InDelta(t, scenario.want, cost, 1e-12)
+	}
+}
+
+func TestEndpointOneHourCacheStrictRateAndUnknownDimensions(t *testing.T) {
+	for _, scenario := range []struct {
+		name, key, rate string
+		want            float64
+		fail            bool
+	}{
+		{"optional_absent", "", "", 1.27, false},
+		{"explicit_zero", "input_cache_write_1h", `"0"`, 1.27, false},
+		{"invalid", "input_cache_write_1h", `"invalid"`, 0, true},
+		{"negative", "input_cache_write_1h", `"-0.1"`, 0, true},
+		{"null", "input_cache_write_1h", `null`, 0, true},
+		{"nan", "input_cache_write_1h", `"NaN"`, 0, true},
+		{"infinity", "input_cache_write_1h", `"Infinity"`, 0, true},
+		{"unknown_nonzero", "input_cache_write_2h", `"0.003"`, 0, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			prices := map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "input_cache_write": json.RawMessage(`"0.00125"`)}
+			if scenario.key != "" {
+				prices[scenario.key] = json.RawMessage(scenario.rate)
+			}
+			estimator := NewRequestEstimator()
+			estimator.Models["test/model"] = []PricedEndpoint{{Tag: "provider", MaxCompletionTokens: 10, Pricing: prices}}
+			info := &relaycommon.RelayInfo{}
+			info.SetEstimatePromptTokens(1000)
+			cost, err := estimator.Estimate(info, []byte(`{"model":"test/model","max_tokens":10}`), "batch_chat/completions")
+			if scenario.fail {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, scenario.want, cost, 1e-12)
+		})
+	}
+}
