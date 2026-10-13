@@ -10,9 +10,12 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -446,4 +449,132 @@ func TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent(t *testing.T) {
 	// is still forwarded in the data: payload (stream ID 77).
 	require.Contains(t, recorder.Body.String(), `event: upstream_error`)
 	require.Contains(t, recorder.Body.String(), `stream ID 77`)
+}
+
+func TestOpenaiImageOutputTokenBilling(t *testing.T) {
+	formulas := []struct {
+		model      string
+		expression string
+		expected   float64
+		completion float64
+	}{
+		{"gpt-image-1", `tier("base", p * 5 + c * 40 + cr * 1.25 + img * 10)`, 40600, 1000},
+		{"gpt-image-1-mini", `tier("base", p * 2 + c * 8 + cr * 0.2 + img * 2.5)`, 8210, 1000},
+		{"gpt-image-1.5", `tier("base", p * 5 + c * 10 + cr * 1.25 + img * 8 + img_o * 32)`, 32560, 0},
+		{"gpt-image-2", `v1:tier("base", p*8 + c*8 + img_o*30 + cr*2)`, 30800, 0},
+	}
+	const body = `{"data":[{"b64_json":"image"}],"usage":{"input_tokens":100,"output_tokens":1000,"input_tokens_details":{"text_tokens":80,"image_tokens":20}}}`
+	for _, formula := range formulas {
+		t.Run(formula.model, func(t *testing.T) {
+			c, recorder, response, info := newImageTestContext(t, body, "application/json", false)
+			usage, apiErr := OpenaiImageHandler(c, info, response)
+			require.Nil(t, apiErr)
+			assert.Equal(t, body, recorder.Body.String())
+			assert.Equal(t, 1100, usage.TotalTokens)
+			params := service.BuildTieredTokenParams(usage, false, billingexpr.UsedVars(formula.expression))
+			assert.Equal(t, formula.completion, params.C)
+			assert.Equal(t, float64(1000), params.ImgO)
+			actual, _, err := billingexpr.RunExpr(formula.expression, params)
+			require.NoError(t, err)
+			assert.Equal(t, formula.expected, actual)
+			snapshot := &billingexpr.BillingSnapshot{
+				BillingMode: "tiered_expr", ExprString: formula.expression,
+				ExprHash: billingexpr.ExprHashString(formula.expression), ExprVersion: 1,
+				GroupRatio: 1, QuotaPerUnit: 1000000,
+			}
+			settlement, err := billingexpr.ComputeTieredQuota(snapshot, params)
+			require.NoError(t, err)
+			assert.EqualValues(t, formula.expected, settlement.ActualQuotaAfterGroup)
+		})
+	}
+}
+
+func TestOpenaiImageOutputTokenDetails(t *testing.T) {
+	setStreamTestTimeout(t)
+	fixtures := []struct {
+		name       string
+		usage      string
+		completion int
+		image      int
+	}{
+		{"zero native image detail", `"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0}`, 0, 0},
+		{"image total", `"output_tokens":1000`, 1000, 1000},
+		{"explicit image detail", `"output_tokens":1000,"completion_tokens_details":{"image_tokens":400}`, 1000, 400},
+		{"native mixed output detail", `"output_tokens":1000,"output_tokens_details":{"image_tokens":400,"text_tokens":600}`, 1000, 400},
+		{"native zero image detail", `"output_tokens":1000,"output_tokens_details":{"image_tokens":0,"text_tokens":1000}`, 1000, 0},
+		{"canonical detail takes precedence", `"output_tokens":1000,"output_tokens_details":{"image_tokens":400},"completion_tokens_details":{"image_tokens":200}`, 1000, 200},
+		{"explicit zero image detail", `"output_tokens":1000,"completion_tokens_details":{"image_tokens":0}`, 1000, 0},
+		{"legacy completion", `"completion_tokens":1000`, 1000, 0},
+		{"legacy image detail", `"completion_tokens":1000,"completion_tokens_details":{"image_tokens":400}`, 1000, 400},
+		{"no usage", ``, 0, 0},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			for _, transport := range []string{"json", "sse", "json as stream"} {
+				t.Run(transport, func(t *testing.T) {
+					body := `{"data":[{"b64_json":"image"}],"usage":{` + fixture.usage + `}}`
+					contentType := "application/json"
+					if transport == "sse" {
+						body = "data: " + body + "\n\ndata: [DONE]\n\n"
+						contentType = "text/event-stream"
+					}
+					c, _, response, info := newImageTestContext(t, body, contentType, transport != "json")
+					info.ChannelType = constant.ChannelTypeOpenAI
+					handler := OpenaiImageHandler
+					if info.IsStream {
+						handler = OpenaiImageStreamHandler
+					}
+					usage, apiErr := handler(c, info, response)
+					require.Nil(t, apiErr)
+					assert.Equal(t, fixture.completion, usage.CompletionTokens)
+					assert.Equal(t, fixture.image, usage.CompletionTokenDetails.ImageTokens)
+				})
+			}
+		})
+	}
+}
+
+func TestOpenaiChatCompletionTokensRemainGeneric(t *testing.T) {
+	const body = `{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":1000,"total_tokens":1100}}`
+	c, _, response, info := newImageTestContext(t, body, "application/json", false)
+	info.ChannelType = constant.ChannelTypeOpenAI
+	usage, apiErr := OpenaiHandler(c, info, response)
+	require.Nil(t, apiErr)
+	params := service.BuildTieredTokenParams(usage, false, map[string]bool{"img_o": true})
+	assert.Equal(t, float64(1000), params.C)
+	assert.Zero(t, params.ImgO)
+}
+
+func TestOpenaiImageRejectsInvalidOutputTokenDetails(t *testing.T) {
+	setStreamTestTimeout(t)
+	for _, outputDetails := range []string{
+		`{"image_tokens":"0"}`, `{"image_tokens":null}`, `{"image_tokens":-1}`,
+		`{"image_tokens":0.5}`, `{"image_tokens":1001}`, `{"image_tokens":9223372036854775808}`,
+		`{"image_tokens":{}}`, `{"image_tokens":true}`, `{"text_tokens":600}`, `null`, `true`, `[]`, "negative total",
+	} {
+		t.Run(outputDetails, func(t *testing.T) {
+			for _, transport := range []string{"json", "sse", "json as stream"} {
+				t.Run(transport, func(t *testing.T) {
+					body := `{"data":[{"b64_json":"image"}],"usage":{"output_tokens":1000,"output_tokens_details":` + outputDetails + `}}`
+					if outputDetails == "negative total" {
+						body = `{"data":[{"b64_json":"image"}],"usage":{"output_tokens":-1}}`
+					}
+					contentType := "application/json"
+					if transport == "sse" {
+						body = "data: " + body + "\n\ndata: [DONE]\n\n"
+						contentType = "text/event-stream"
+					}
+					c, recorder, response, info := newImageTestContext(t, body, contentType, transport != "json")
+					handler := OpenaiImageHandler
+					if info.IsStream {
+						handler = OpenaiImageStreamHandler
+					}
+					usage, apiErr := handler(c, info, response)
+					require.NotNil(t, apiErr)
+					assert.Nil(t, usage)
+					assert.Empty(t, recorder.Body.String())
+				})
+			}
+		})
+	}
 }
