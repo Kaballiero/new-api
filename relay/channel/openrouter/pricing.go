@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -253,48 +252,13 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 				hasFlex = true
 			}
 		}
-		// A published long-context override is another complete endpoint
-		// tariff. Select applicable thresholds using the same prompt estimate,
-		// then maximize whole costs rather than unrelated rate components.
 		var tariffs []PricedEndpoint
 		for _, endpoint := range endpoints {
-			prices := maps.Clone(endpoint.Pricing)
-			raw, hasOverrides := prices["overrides"]
-			delete(prices, "overrides")
-			endpoint.Pricing = prices
-			tariffs = append(tariffs, endpoint)
-			if !hasOverrides || string(raw) == "null" {
-				continue
+			variants, err := endpointPricingTariffs(endpoint, prompt)
+			if err != nil {
+				return 0, err
 			}
-			var overrides []map[string]json.RawMessage
-			if common.Unmarshal(raw, &overrides) != nil {
-				return 0, errors.New("invalid OpenRouter endpoint pricing overrides")
-			}
-			for _, override := range overrides {
-				var threshold int
-				thresholdRaw, ok := override["min_prompt_tokens"]
-				if !ok || common.Unmarshal(thresholdRaw, &threshold) != nil || threshold < 0 || threshold > helper.MaxTokensLimit {
-					return 0, errors.New("invalid OpenRouter pricing override token threshold")
-				}
-				variant := endpoint
-				variant.Pricing = maps.Clone(prices)
-				for key, value := range override {
-					switch key {
-					case "min_prompt_tokens":
-						continue
-					case "prompt", "completion", "input_cache_read", "input_cache_write", "input_cache_write_1h", "request", "image":
-					default:
-						return 0, fmt.Errorf("OpenRouter pricing override has unsupported dimension %s", key)
-					}
-					if _, err := readRate(value); err != nil {
-						return 0, err
-					}
-					variant.Pricing[key] = value
-				}
-				if prompt >= threshold {
-					tariffs = append(tariffs, variant)
-				}
-			}
+			tariffs = append(tariffs, variants...)
 		}
 		for _, endpoint := range tariffs {
 			if endpoint.Tag == "" {
@@ -448,6 +412,15 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 				if err != nil {
 					return 0, err
 				}
+				if raw, ok := endpoint.Pricing["internal_reasoning"]; ok && strings.HasPrefix(model, "google/gemini-") {
+					reasoningRate, err := readRate(raw)
+					if err != nil {
+						return 0, err
+					}
+					if reasoningRate.GreaterThan(rate) {
+						rate = reasoningRate
+					}
+				}
 				cost = cost.Add(rate.Mul(decimal.NewFromInt(int64(output))).Mul(decimal.NewFromInt(int64(count))))
 			}
 			if raw, ok := endpoint.Pricing["request"]; ok {
@@ -471,7 +444,13 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 				case "prompt", "completion", "request", "input_cache_read", "input_cache_write", "input_cache_write_1h", "discount", "image":
 					continue
 				}
-				if key == "audio" || key == "input_audio" || key == "output_audio" || key == "web_search" {
+				if key == "audio" || key == "input_audio_cache" || key == "internal_reasoning" && strings.HasPrefix(model, "google/gemini-") {
+					if _, err := readRate(raw); err != nil {
+						return 0, err
+					}
+					continue
+				}
+				if key == "input_audio" || key == "output_audio" || key == "web_search" {
 					continue
 				}
 				if key == "overrides" {
