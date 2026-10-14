@@ -115,20 +115,17 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 			if profile.basis == "unknown" && !fixed {
 				continue
 			}
-			valid, outputPresent, outputPayable := true, false, false
+			valid, outputPayable := true, false
 			for _, price := range row {
 				component, unit, amount := pricingComponent(price.Component), price.Unit, price.AmountUSD
 				if profile.basis == "transcription_output_tokens" && !fixed && component == "input" {
-					var value *float64
-					if amount == 0 {
-						value = &amount
+					if amount != 0 {
+						offer.Prices = append(offer.Prices, CatalogPrice{Component: component, Unit: "unknown"})
 					}
-					offer.Prices = append(offer.Prices, CatalogPrice{Component: component, Unit: "unknown", AmountUSD: value})
 					continue
 				}
 				if profile.basis == "speech_input_tokens" && !fixed {
 					if component == "output" || component == "audio_output" {
-						outputPresent = true
 						outputPayable = outputPayable || amount != 0
 						continue
 					}
@@ -162,13 +159,8 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 				offer.Prices = append(offer.Prices, CatalogPrice{Component: component, Unit: unit, AmountUSD: &amount})
 			}
 			if valid {
-				if outputPresent {
-					var amount *float64
-					if !outputPayable {
-						zero := 0.0
-						amount = &zero
-					}
-					offer.Prices = append(offer.Prices, CatalogPrice{Component: "audio_output", Unit: "unknown", AmountUSD: amount})
+				if outputPayable {
+					offer.Prices = append(offer.Prices, CatalogPrice{Component: "audio_output", Unit: "unknown"})
 				}
 				offers = append(offers, offer)
 			}
@@ -206,21 +198,26 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 	}
 	unknown.Prices = []CatalogPrice{{Component: component, Unit: unit, AmountUSD: &input}}
 	if profile.basis == "speech_input_tokens" {
-		var amount *float64
-		if pricing.ModelRatio == 0 {
-			zero := 0.0
-			amount = &zero
+		audioRatio := ratio_setting.GetAudioRatio(pricing.ModelName)
+		if pricing.AudioRatio != nil {
+			audioRatio = *pricing.AudioRatio
 		}
-		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "audio_output", Unit: "unknown", AmountUSD: amount})
+		audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(pricing.ModelName)
+		if pricing.AudioCompletionRatio != nil {
+			audioCompletionRatio = *pricing.AudioCompletionRatio
+		}
+		if pricing.ModelRatio != 0 && (pricing.CompletionRatio != 0 || audioRatio*audioCompletionRatio != 0) {
+			unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "audio_output", Unit: "unknown"})
+		}
 		return []CatalogOffer{unknown}
 	}
 	if profile.basis == "transcription_output_tokens" {
-		var amount *float64
-		if input == 0 {
-			amount = &input
+		unknown.Prices = []CatalogPrice{}
+		if input != 0 {
+			unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "input", Unit: "unknown"})
 		}
 		output := input * pricing.CompletionRatio
-		unknown.Prices = []CatalogPrice{{Component: "input", Unit: "unknown", AmountUSD: amount}, {Component: "output", Unit: "million_tokens", AmountUSD: &output}}
+		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "output", Unit: "million_tokens", AmountUSD: &output})
 		return []CatalogOffer{unknown}
 	}
 	if profile.basis != "tokens" && profile.basis != "image_tokens" && profile.basis != "realtime_tokens" {
