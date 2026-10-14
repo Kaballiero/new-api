@@ -3614,6 +3614,11 @@
             },
             "type": "array"
           },
+          "catalog_revision": {
+            "description": "Opaque immutable catalog and pricing-context revision; reuse as expected_revision across pages.",
+            "minLength": 1,
+            "type": "string"
+          },
           "creators": {
             "description": "Required in page mode. Global eligible creators before filters.",
             "items": {
@@ -3660,6 +3665,7 @@
         },
         "required": [
           "schema_version",
+          "catalog_revision",
           "user_group",
           "currency",
           "auto_groups",
@@ -29242,6 +29248,16 @@
           },
           {
             "in": "query",
+            "name": "expected_revision",
+            "required": false,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "offset",
             "required": false,
             "schema": {
@@ -29358,11 +29374,33 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "pricing_catalog_revision_mismatch"
+                      ],
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
                 }
               }
             },
-            "description": "Конфликт — ресурс уже существует или состояние не допускает операцию"
+            "description": "Catalog changed; restart traversal. Machine code: pricing_catalog_revision_mismatch."
           },
           "422": {
             "content": {
@@ -40562,6 +40600,16 @@
           },
           {
             "in": "query",
+            "name": "expected_revision",
+            "required": false,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "offset",
             "required": false,
             "schema": {
@@ -40698,11 +40746,33 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "pricing_catalog_revision_mismatch"
+                      ],
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "enum": [
+                        false
+                      ],
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
                 }
               }
             },
-            "description": "Конфликт — ресурс уже существует или состояние не допускает операцию"
+            "description": "Catalog changed; restart traversal. Machine code: pricing_catalog_revision_mismatch."
           },
           "422": {
             "content": {

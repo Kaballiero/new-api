@@ -3,7 +3,6 @@ package controller
 import (
 	"maps"
 	"net/http"
-	"slices"
 	"strings"
 	"sync"
 
@@ -150,14 +149,7 @@ type effectivePricingFormula struct {
 	OutputToRubFactor   float64 `json:"output_to_rub_factor"`
 }
 
-type effectivePricingCacheEntry struct {
-	pricingRevision uint64
-	basis           service.BillingFXBasis
-	usableGroups    map[string]string
-	autoGroups      []string
-	groupRatios     map[string]float64
-	response        consumerPricingResponse
-}
+type effectivePricingCacheEntry struct{ response consumerPricingResponse }
 
 var effectivePricingCache = struct {
 	sync.RWMutex
@@ -178,6 +170,14 @@ func GetEffectivePricing(c *gin.Context) {
 	response, err := getConsumerPricingResponse(user.Group)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	expected, revisionErr := expectedPricingRevision(c.Request.URL.Query())
+	if revisionErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": revisionErr.Error()})
+		return
+	}
+	if !pricingRevisionMatches(c, expected, response.CatalogRevision) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
@@ -208,42 +208,34 @@ func GetEffectivePricingByGroup(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	expected, revisionErr := expectedPricingRevision(c.Request.URL.Query())
+	if revisionErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": revisionErr.Error()})
+		return
+	}
+	if !pricingRevisionMatches(c, expected, response.CatalogRevision) {
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 }
 
 func getConsumerPricingResponse(userGroup string) (consumerPricingResponse, error) {
-	basis, err := service.CurrentBillingFXBasis()
+	context, err := loadConsumerPricingContext(userGroup, "")
 	if err != nil {
 		return consumerPricingResponse{}, err
 	}
-	pricing := model.GetPricing()
-	pricingRevision := model.GetPricingRevision()
-	usableGroups := service.GetUserUsableGroups(userGroup)
-	autoGroups := service.GetUserAutoGroup(userGroup)
-	groupRatios := make(map[string]float64, len(usableGroups))
-	for group := range usableGroups {
-		groupRatios[group] = service.GetUserGroupRatio(userGroup, group)
-	}
-
 	effectivePricingCache.RLock()
-	cached, ok := effectivePricingCache.entries[userGroup]
+	cached, known := effectivePricingCache.entries[userGroup]
 	effectivePricingCache.RUnlock()
-	if ok && cached.pricingRevision == pricingRevision && cached.basis == basis &&
-		maps.Equal(cached.usableGroups, usableGroups) && slices.Equal(cached.autoGroups, autoGroups) &&
-		maps.Equal(cached.groupRatios, groupRatios) {
+	if known && cached.response.CatalogRevision == context.metadata.CatalogRevision {
 		return cached.response, nil
 	}
-
-	response := buildConsumerPricingResponse(userGroup, basis, pricing)
-	effectivePricingCache.Lock()
-	effectivePricingCache.entries[userGroup] = effectivePricingCacheEntry{
-		pricingRevision: pricingRevision,
-		basis:           basis,
-		usableGroups:    maps.Clone(usableGroups),
-		autoGroups:      slices.Clone(autoGroups),
-		groupRatios:     maps.Clone(groupRatios),
-		response:        response,
+	response := context.metadata
+	for _, item := range model.ConsumerPricingCatalogue(context.pricing, context.usableGroups) {
+		response.Data = append(response.Data, context.project(item))
 	}
+	effectivePricingCache.Lock()
+	effectivePricingCache.entries[userGroup] = effectivePricingCacheEntry{response: response}
 	effectivePricingCache.Unlock()
 	return response, nil
 }

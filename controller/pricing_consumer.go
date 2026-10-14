@@ -11,11 +11,12 @@ import (
 )
 
 type consumerPricingResponse struct {
-	SchemaVersion string                 `json:"schema_version"`
-	UserGroup     string                 `json:"user_group"`
-	Currency      string                 `json:"currency"`
-	AutoGroups    []string               `json:"auto_groups"`
-	Data          []consumerPricingModel `json:"data"`
+	SchemaVersion   string                 `json:"schema_version"`
+	CatalogRevision string                 `json:"catalog_revision"`
+	UserGroup       string                 `json:"user_group"`
+	Currency        string                 `json:"currency"`
+	AutoGroups      []string               `json:"auto_groups"`
+	Data            []consumerPricingModel `json:"data"`
 }
 
 type consumerPricingModel struct {
@@ -100,7 +101,7 @@ func consumerOperations(item model.Pricing, group string, ratio float64, validRa
 				row.Prices = append(row.Prices, consumerUnitPrice{Component: price.Component, Unit: price.Unit, AmountRub: amount})
 			}
 		}
-		components := []string{"base", "input", "output", "cache_read", "cache_write", "cache_write_1h", "image_input", "image_output", "audio_input", "audio_output", "video_output", "reference_input", "additional_reference_input", "font_input"}
+		components := []string{"base", "input", "output", "cache_read", "cache_write", "cache_write_1h", "image_input", "image_output", "audio_input", "audio_cache_read", "audio_output", "video_output", "reference_input", "additional_reference_input", "font_input"}
 		slices.SortStableFunc(row.Prices, func(left, right consumerUnitPrice) int {
 			leftIndex, rightIndex := slices.Index(components, left.Component), slices.Index(components, right.Component)
 			if leftIndex < 0 {

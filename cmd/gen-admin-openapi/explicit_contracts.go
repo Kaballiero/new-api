@@ -226,6 +226,7 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				schema map[string]any
 			}{
 				{"limit", map[string]any{"type": "integer", "minimum": 0, "maximum": 100}},
+				{"expected_revision", map[string]any{"type": "string", "minLength": 1, "maxLength": 256}},
 				{"offset", map[string]any{"type": "integer", "default": 0, "minimum": 0, "maximum": 9007199254740991}},
 				{"search", map[string]any{"type": "string"}},
 				{"creator_id", map[string]any{"type": "integer"}},
@@ -251,6 +252,7 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 			for _, code := range []string{"400", "503"} {
 				responses[code] = map[string]any{"description": translate(currentLocale, "err."+code), "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiErrorResponse"}}}}
 			}
+			responses["409"] = map[string]any{"description": "Catalog changed; restart traversal. Machine code: pricing_catalog_revision_mismatch.", "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"type": "object", "properties": map[string]any{"success": map[string]any{"type": "boolean", "enum": []bool{false}}, "code": map[string]any{"type": "string", "enum": []string{"pricing_catalog_revision_mismatch"}}, "message": map[string]any{"type": "string"}}, "required": []string{"success", "code", "message"}}}}}
 		}
 		if route.HandlerName == "GetEffectivePricingByGroup" {
 			op["description"] = op["description"].(string) + " Requires root dashboard access; group selects user context and using_group selects one usable price group in page mode."

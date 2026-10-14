@@ -41,14 +41,15 @@ type effectivePricingPageData struct {
 }
 
 type effectivePricingPageQuery struct {
-	limit       int
-	offset      int
-	search      string
-	modality    string
-	creatorID   *int
-	pricingUnit string
-	orderBy     string
-	direction   string
+	limit            int
+	offset           int
+	search           string
+	modality         string
+	creatorID        *int
+	pricingUnit      string
+	orderBy          string
+	direction        string
+	expectedRevision string
 }
 
 type effectivePricingPageContext struct {
@@ -67,6 +68,11 @@ var pricingTranscriptionFamily = regexp.MustCompile(`(^whisper-)|(-transcribe(-|
 
 func parseEffectivePricingPageQuery(values url.Values, personal bool) (effectivePricingPageQuery, error) {
 	query := effectivePricingPageQuery{limit: 20, orderBy: "NAME", direction: "asc"}
+	revision, err := expectedPricingRevision(values)
+	if err != nil {
+		return query, err
+	}
+	query.expectedRevision = revision
 	for key, entries := range values {
 		if len(entries) != 1 {
 			return query, fmt.Errorf("invalid %s", key)
@@ -182,28 +188,17 @@ func getEffectivePricingPageByGroup(c *gin.Context, values url.Values) {
 }
 
 func serveEffectivePricingPage(c *gin.Context, userGroup, usingGroup string, query effectivePricingPageQuery) {
-	usableGroups := service.GetUserUsableGroups(userGroup)
-	if usingGroup != "" {
-		if _, allowed := usableGroups[usingGroup]; !allowed {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid using_group"})
-			return
-		}
-	}
-	basis, err := service.CurrentBillingFXBasis()
+	context, err := loadConsumerPricingContext(userGroup, usingGroup)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
+		status := http.StatusServiceUnavailable
+		if err == errPricingUsingGroup {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	pricing, vendors := model.GetPricingCatalogue()
-	context := effectivePricingPageContext{
-		metadata: buildConsumerPricingResponse(userGroup, basis, nil), fxFactor: basis.Factor, pricing: pricing, vendors: vendors,
-		usableGroups: usableGroups, groupRatios: make(map[string]float64, len(usableGroups)), usingGroup: usingGroup,
-	}
-	for group := range usableGroups {
-		context.groupRatios[group] = service.GetUserGroupRatio(userGroup, group)
-	}
-	if usingGroup != "" {
-		context.usableGroups = map[string]string{usingGroup: usableGroups[usingGroup]}
+	if !pricingRevisionMatches(c, query.expectedRevision, context.metadata.CatalogRevision) {
+		return
 	}
 	response := buildEffectivePricingPage(context, query, context.project)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})

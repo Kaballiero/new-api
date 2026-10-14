@@ -150,14 +150,16 @@ var (
 )
 
 func GetPricingCatalogue() ([]Pricing, []PricingVendor) {
-	updatePricingLock.Lock()
-	defer updatePricingLock.Unlock()
+	pricing, vendors, _, _ := GetPricingCatalogueSnapshot()
+	return pricing, vendors
+}
+
+func refreshPricingCatalogueLocked() {
 	if time.Since(lastGetPricingTime) > time.Minute || len(pricingMap) == 0 {
 		modelSupportEndpointsLock.Lock()
 		defer modelSupportEndpointsLock.Unlock()
 		updatePricing()
 	}
-	return pricingMap, vendorsList
 }
 
 func GetPricing() []Pricing {
@@ -694,6 +696,7 @@ func updatePricing() {
 	}
 	modelEnableGroupsLock.Unlock()
 
+	pricingCatalogueRevision, pricingCatalogueRevisionError = pricingCatalogueFingerprint(pricingMap, vendorsList)
 	lastGetPricingTime = time.Now()
 	pricingRevision.Add(1)
 }
