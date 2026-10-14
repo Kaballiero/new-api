@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -21,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -1257,5 +1259,77 @@ func TestPricingCatalogPromptThresholdRequiresReachableStrictSuccessor(t *testin
 		selected := model.SelectCatalogOffer(offers)
 		require.NotNil(t, selected)
 		assert.Zero(t, *selected.Prices[0].AmountUSD)
+	}
+}
+
+func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.ModelCostFXRow{}))
+	previousQuota := common.QuotaPerUnit
+	previousExchange := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	common.QuotaPerUnit = 500000
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQuota
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousExchange
+	})
+	previousMemory := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemory; model.InvalidatePricingCache() })
+	now := time.Now().Unix()
+	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	require.NoError(t, db.Create(&model.User{Id: 2198, Username: "audio-pricing-user", Password: "fixture", Group: "default", Status: common.UserStatusEnabled}).Error)
+	require.NoError(t, db.Create(&model.Channel{Id: 998, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: "gpt-realtime-mini,gpt-4o-transcribe-diarize"}).Error)
+	for _, name := range []string{"gpt-realtime-mini", "gpt-4o-transcribe-diarize"} {
+		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 998, Enabled: true}).Error)
+	}
+	withTieredBillingConfig(t, map[string]string{"gpt-realtime-mini": "tiered_expr", "gpt-4o-transcribe-diarize": "tiered_expr"}, map[string]string{"gpt-realtime-mini": `tier("base",p*.6+c*2.4+cr*.06+ai*10+ao*20+img*.8)`, "gpt-4o-transcribe-diarize": `tier("base",p*2.5+c*10)`})
+	model.InitChannelCache()
+	var expected []consumerPricingModel
+	for _, handler := range []gin.HandlerFunc{GetEffectivePricing, GetEffectivePricingByGroup} {
+		for _, query := range []string{"", "?limit=100"} {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/pricing"+query, nil)
+			ctx.Set("id", 2198)
+			handler(ctx)
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			var envelope struct {
+				Data struct {
+					Data []consumerPricingModel `json:"data"`
+				} `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &envelope))
+			require.Len(t, envelope.Data.Data, 2)
+			if expected == nil {
+				expected = envelope.Data.Data
+			} else {
+				assert.ElementsMatch(t, expected, envelope.Data.Data)
+			}
+			for _, item := range envelope.Data.Data {
+				require.Len(t, item.GroupPrices, 1)
+				require.Len(t, item.GroupPrices[0].Operations, 1)
+				operation := item.GroupPrices[0].Operations[0]
+				prices := map[string]consumerUnitPrice{}
+				for _, price := range operation.Prices {
+					prices[price.Component] = price
+				}
+				if item.ModelName == "gpt-realtime-mini" {
+					assert.Equal(t, "realtime", operation.Operation)
+					require.Len(t, prices, 6)
+					for _, price := range prices {
+						assert.Equal(t, "million_tokens", price.Unit)
+						require.NotNil(t, price.AmountRub)
+					}
+				} else {
+					assert.Equal(t, "transcription", operation.Operation)
+					require.Len(t, prices, 2)
+					assert.Equal(t, "unknown", prices["input"].Unit)
+					assert.Nil(t, prices["input"].AmountRub)
+					assert.Equal(t, "million_tokens", prices["output"].Unit)
+					require.NotNil(t, prices["output"].AmountRub)
+				}
+			}
+		}
 	}
 }

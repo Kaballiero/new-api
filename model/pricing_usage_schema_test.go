@@ -401,7 +401,7 @@ func TestPricingOperationCounterProfilesAndFixedPrecedence(t *testing.T) {
 			assert.InDelta(t, scenario.amount, *selected.Prices[0].AmountUSD, 1e-12)
 		})
 	}
-	for _, pair := range [][2]string{{"gpt-alias", "tts-1"}, {"alias", "whisper-1"}, {"rune-alias", "gpt-4o-mini-tts"}, {"gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe"}} {
+	for _, pair := range [][2]string{{"gpt-alias", "tts-1"}, {"alias", "whisper-1"}, {"rune-alias", "gpt-4o-mini-tts"}} {
 		profile := configuredPricingOperation(channel, pair[0], pair[1], constant.EndpointTypeOpenAI)
 		assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: .625, CompletionRatio: 4}, profile, "sync", "")))
 		fixed := configuredOperationOffers(Pricing{PriceConfigured: true, QuotaType: 1, ModelPrice: .02}, profile, "sync", "")
@@ -703,4 +703,75 @@ func TestPricingCatalogueSnapshotKeepsCapturedRowsWithTheirRevision(t *testing.T
 	captured, err = pricingCatalogueFingerprint(rows, vendors)
 	require.NoError(t, err)
 	assert.Equal(t, revision, captured)
+}
+
+func TestPricingRealtimeProjectsConfiguredTokenCounters(t *testing.T) {
+	channel := &Channel{Type: constant.ChannelTypeOpenAI}
+	expression := `tier("base",p*.6+c*2.4+cr*.06+ai*10+ao*20+img*.8)`
+	for _, name := range []string{"gpt-realtime", "gpt-realtime-2025-08-28", "gpt-realtime-1.5", "gpt-realtime-2", "gpt-realtime-2.1", "gpt-realtime-mini", "gpt-realtime-mini-2025-12-15", "gpt-realtime-2.1-mini", "gpt-realtime-translate", "gpt-realtime-whisper"} {
+		t.Run(name, func(t *testing.T) {
+			profile := configuredPricingOperation(channel, name, name, constant.EndpointTypeOpenAI)
+			item := Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}}
+			selected := SelectCatalogOffer(configuredOperationOffers(item, profile, "sync", expression))
+			require.NotNil(t, selected)
+			assert.Equal(t, "realtime", selected.Operation)
+			assert.Equal(t, "input", selected.MainComponent)
+			prices := map[string]float64{}
+			for _, price := range selected.Prices {
+				require.NotNil(t, price.AmountUSD)
+				assert.Equal(t, "million_tokens", price.Unit)
+				prices[price.Component] = *price.AmountUSD
+			}
+			assert.Equal(t, map[string]float64{"input": .6, "output": 2.4, "cache_read": .06, "audio_input": 10, "audio_output": 20, "image_input": .8}, prices)
+		})
+	}
+	profile := configuredPricingOperation(channel, "gpt-realtime-whisper", "gpt-realtime-whisper", constant.EndpointTypeOpenAI)
+	inputOnly := `tier("base",p*17)`
+	selected := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{inputOnly: billingexpr.CatalogPrices(inputOnly)}}, profile, "sync", inputOnly))
+	require.NotNil(t, selected)
+	require.Len(t, selected.Prices, 1)
+	assert.Equal(t, 17.0, *selected.Prices[0].AmountUSD)
+	audio, completion, cache, image := 2.0, 3.0, .1, 4.0
+	item := Pricing{PriceConfigured: true, ModelRatio: .625, CompletionRatio: 4, AudioRatio: &audio, AudioCompletionRatio: &completion, CacheRatio: &cache, ImageRatio: &image}
+	selected = SelectCatalogOffer(configuredOperationOffers(item, profile, "sync", ""))
+	require.NotNil(t, selected)
+	prices := map[string]float64{}
+	for _, price := range selected.Prices {
+		require.NotNil(t, price.AmountUSD)
+		prices[price.Component] = *price.AmountUSD
+	}
+	assert.Equal(t, map[string]float64{"input": 1.25, "output": 5, "audio_input": 2.5, "audio_output": 7.5}, prices)
+}
+
+func TestPricingTranscriptionKeepsMixedInputUnknownAndTokenOutput(t *testing.T) {
+	channel := &Channel{Type: constant.ChannelTypeOpenAI}
+	expression := `tier("base",p*1.25+c*5)`
+	for _, name := range []string{"gpt-4o-transcribe", "gpt-4o-transcribe-diarize", "gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe-2025-03-20", "gpt-4o-mini-transcribe-2025-12-15", "gpt-transcribe"} {
+		t.Run(name, func(t *testing.T) {
+			profile := configuredPricingOperation(channel, name, name, constant.EndpointTypeOpenAI)
+			for _, item := range []Pricing{
+				{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}},
+				{PriceConfigured: true, ModelRatio: .625, CompletionRatio: 4},
+			} {
+				selected := SelectCatalogOffer(configuredOperationOffers(item, profile, "sync", expression))
+				require.NotNil(t, selected)
+				assert.Equal(t, "transcription", selected.Operation)
+				assert.Equal(t, "output", selected.MainComponent)
+				require.Len(t, selected.Prices, 2)
+				prices := map[string]CatalogPrice{}
+				for _, price := range selected.Prices {
+					prices[price.Component] = price
+				}
+				assert.Equal(t, CatalogPrice{Component: "input", Unit: "unknown"}, prices["input"])
+				assert.Equal(t, "million_tokens", prices["output"].Unit)
+				require.NotNil(t, prices["output"].AmountUSD)
+				assert.Equal(t, 5.0, *prices["output"].AmountUSD)
+			}
+			inputOnly := `tier("base",p*4.5)`
+			assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{inputOnly: billingexpr.CatalogPrices(inputOnly)}}, profile, "sync", inputOnly)))
+			fixed := SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, QuotaType: 1, ModelPrice: .02}, profile, "sync", ""))
+			require.NotNil(t, fixed)
+			assert.Equal(t, "call", fixed.Prices[0].Unit)
+		})
+	}
 }
