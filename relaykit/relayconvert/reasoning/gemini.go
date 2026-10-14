@@ -62,6 +62,9 @@ func geminiCapabilitiesFor(model string) geminiCapabilities {
 }
 
 func RenderGemini(model string, intent Intent, maxOutputTokens *uint, adapterBudgetPercentage float64) (GeminiRender, error) {
+	if intent.ExecutionMode != "" {
+		return GeminiRender{}, fmt.Errorf("reasoning.mode cannot be represented by this provider")
+	}
 	intent, err := normalizeIntent(intent)
 	if err != nil {
 		return GeminiRender{}, err
