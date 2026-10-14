@@ -454,13 +454,11 @@ func normalizeEndpointPricing(upstream, operation, main string, body []byte) ([]
 					}
 					component = "audio_output"
 				case "image_output":
-					amount, err := openrouter.ReadEndpointPrice(vector[key])
-					if err != nil {
+					if _, err := openrouter.ReadEndpointPrice(vector[key]); err != nil {
 						return nil, err
 					}
-					if amount != 0 && slices.Contains(response.Data.Architecture.OutputModalities, "image") {
-						unprojectable = true
-					}
+					// Image units come from native image metadata; keep this text
+					// endpoint's independent token rates for the same provider.
 					continue
 				default:
 					amount, err := openrouter.ReadEndpointPrice(vector[key])

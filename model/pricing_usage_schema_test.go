@@ -746,7 +746,7 @@ func TestPricingRealtimeProjectsConfiguredTokenCounters(t *testing.T) {
 	assert.Equal(t, map[string]float64{"input": 1.25, "output": 5, "audio_input": 2.5, "audio_output": 7.5}, prices)
 }
 
-func TestPricingTranscriptionKeepsMixedInputUnknownAndTokenOutput(t *testing.T) {
+func TestPricingTranscriptionPublishesConfiguredBillingTokens(t *testing.T) {
 	channel := &Channel{Type: constant.ChannelTypeOpenAI}
 	expression := `tier("base",p*1.25+c*5)`
 	for _, name := range []string{"gpt-4o-transcribe", "gpt-4o-transcribe-diarize", "gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe-2025-03-20", "gpt-4o-mini-transcribe-2025-12-15", "gpt-transcribe"} {
@@ -759,19 +759,25 @@ func TestPricingTranscriptionKeepsMixedInputUnknownAndTokenOutput(t *testing.T) 
 				selected := SelectCatalogOffer(configuredOperationOffers(item, profile, "sync", expression))
 				require.NotNil(t, selected)
 				assert.Equal(t, "transcription", selected.Operation)
-				assert.Equal(t, "output", selected.MainComponent)
+				assert.Equal(t, "input", selected.MainComponent)
 				require.Len(t, selected.Prices, 2)
 				prices := map[string]CatalogPrice{}
 				for _, price := range selected.Prices {
 					prices[price.Component] = price
 				}
-				assert.Equal(t, CatalogPrice{Component: "input", Unit: "unknown"}, prices["input"])
+				assert.Equal(t, "million_tokens", prices["input"].Unit)
+				require.NotNil(t, prices["input"].AmountUSD)
+				assert.Equal(t, 1.25, *prices["input"].AmountUSD)
 				assert.Equal(t, "million_tokens", prices["output"].Unit)
 				require.NotNil(t, prices["output"].AmountUSD)
 				assert.Equal(t, 5.0, *prices["output"].AmountUSD)
 			}
 			inputOnly := `tier("base",p*4.5)`
-			assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{inputOnly: billingexpr.CatalogPrices(inputOnly)}}, profile, "sync", inputOnly)))
+			selected := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{inputOnly: billingexpr.CatalogPrices(inputOnly)}}, profile, "sync", inputOnly))
+			require.NotNil(t, selected)
+			require.Len(t, selected.Prices, 1)
+			assert.Equal(t, "million_tokens", selected.Prices[0].Unit)
+			assert.Equal(t, 4.5, *selected.Prices[0].AmountUSD)
 			fixed := SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, QuotaType: 1, ModelPrice: .02}, profile, "sync", ""))
 			require.NotNil(t, fixed)
 			assert.Equal(t, "call", fixed.Prices[0].Unit)
@@ -831,10 +837,17 @@ func TestPricingOmitsUnchargedUnknownAudioComponents(t *testing.T) {
 	} {
 		selected := SelectCatalogOffer(configuredOperationOffers(item, transcription, "sync", expression))
 		require.NotNil(t, selected)
-		require.Len(t, selected.Prices, 1)
-		assert.Equal(t, "output", selected.Prices[0].Component)
-		assert.Equal(t, "million_tokens", selected.Prices[0].Unit)
-		require.NotNil(t, selected.Prices[0].AmountUSD)
+		require.Len(t, selected.Prices, 2)
+		prices := map[string]CatalogPrice{}
+		for _, price := range selected.Prices {
+			prices[price.Component] = price
+		}
+		require.Contains(t, prices, "input")
+		require.NotNil(t, prices["input"].AmountUSD)
+		assert.Zero(t, *prices["input"].AmountUSD)
+		assert.Equal(t, "million_tokens", prices["input"].Unit)
+		require.Contains(t, prices, "output")
+		require.NotNil(t, prices["output"].AmountUSD)
 	}
 }
 
