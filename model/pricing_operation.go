@@ -38,14 +38,14 @@ func configuredPricingOperation(channel *Channel, public, upstream string, endpo
 			}
 			return pricingOperation{"transcription", "audio_input", basis}
 		case "gpt-4o-transcribe", "gpt-4o-transcribe-diarize", "gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe-2025-03-20", "gpt-4o-mini-transcribe-2025-12-15", "gpt-transcribe":
-			return pricingOperation{"transcription", "input", "unknown"}
+			return pricingOperation{"transcription", "output", "transcription_output_tokens"}
 		case "gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-03-20", "gpt-4o-mini-tts-2025-12-15":
 			if constant.CountToken && (&dto.AudioRequest{Model: public}).GetTokenCountMeta().TokenType == types.TokenTypeTokenizer {
 				return pricingOperation{"speech_generation", "input", "speech_input_tokens"}
 			}
 			return pricingOperation{"speech_generation", "input", "unknown"}
 		case "gpt-realtime", "gpt-realtime-2025-08-28", "gpt-realtime-1.5", "gpt-realtime-2", "gpt-realtime-2.1", "gpt-realtime-mini", "gpt-realtime-mini-2025-12-15", "gpt-realtime-2.1-mini", "gpt-realtime-translate", "gpt-realtime-whisper":
-			return pricingOperation{"realtime", "audio_output", "unknown"}
+			return pricingOperation{"realtime", "input", "realtime_tokens"}
 		}
 	}
 	switch endpoint {
@@ -118,6 +118,14 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 			valid, outputPresent, outputPayable := true, false, false
 			for _, price := range row {
 				component, unit, amount := pricingComponent(price.Component), price.Unit, price.AmountUSD
+				if profile.basis == "transcription_output_tokens" && !fixed && component == "input" {
+					var value *float64
+					if amount == 0 {
+						value = &amount
+					}
+					offer.Prices = append(offer.Prices, CatalogPrice{Component: component, Unit: "unknown", AmountUSD: value})
+					continue
+				}
 				if profile.basis == "speech_input_tokens" && !fixed {
 					if component == "output" || component == "audio_output" {
 						outputPresent = true
@@ -206,10 +214,19 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "audio_output", Unit: "unknown", AmountUSD: amount})
 		return []CatalogOffer{unknown}
 	}
-	if profile.basis != "tokens" && profile.basis != "image_tokens" {
+	if profile.basis == "transcription_output_tokens" {
+		var amount *float64
+		if input == 0 {
+			amount = &input
+		}
+		output := input * pricing.CompletionRatio
+		unknown.Prices = []CatalogPrice{{Component: "input", Unit: "unknown", AmountUSD: amount}, {Component: "output", Unit: "million_tokens", AmountUSD: &output}}
 		return []CatalogOffer{unknown}
 	}
-	if profile.operation == "text" || profile.operation == "image_generation" {
+	if profile.basis != "tokens" && profile.basis != "image_tokens" && profile.basis != "realtime_tokens" {
+		return []CatalogOffer{unknown}
+	}
+	if profile.operation == "text" || profile.operation == "image_generation" || profile.operation == "realtime" {
 		output := input * pricing.CompletionRatio
 		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "output", Unit: unit, AmountUSD: &output})
 	}
@@ -217,12 +234,12 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 		component string
 		ratio     *float64
 	}{{"cache_read", pricing.CacheRatio}, {"cache_write", pricing.CreateCacheRatio}, {"image_input", pricing.ImageRatio}} {
-		if extra.ratio != nil {
+		if extra.ratio != nil && profile.basis != "realtime_tokens" {
 			amount := input * *extra.ratio
 			unknown.Prices = append(unknown.Prices, CatalogPrice{Component: extra.component, Unit: "million_tokens", AmountUSD: &amount})
 		}
 	}
-	if pricing.AudioRatio != nil || pricing.AudioCompletionRatio != nil {
+	if pricing.AudioRatio != nil || pricing.AudioCompletionRatio != nil || profile.basis == "realtime_tokens" {
 		audioInput := input * ratio_setting.GetAudioRatio(pricing.ModelName)
 		audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(pricing.ModelName)
 		if pricing.AudioRatio != nil {
