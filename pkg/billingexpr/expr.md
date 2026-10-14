@@ -85,6 +85,21 @@ continue through their existing relay.
 | `p * 3 + c * 15 + cr * 0.3` | 800 | 用了 `cr`，缓存 200 从 `p` 中扣除，按 $0.3 单独计费；图片仍在 `p` 里按 $3 计费 |
 | `p * 3 + c * 15 + cr * 0.3 + img * 2` | 700 | 用了 `cr` 和 `img`，都从 `p` 中扣除，各自按自己的价格计费 |
 
+Cache reads can overlap image/audio input totals. When an expression uses both
+`cr` and a modality variable, normalization removes the explicitly reported
+cached overlap from that modality before subtracting it from `p`. Thus 1000
+input tokens with 800 image tokens and 400 cached image tokens become `p=200`,
+`img=400`, `cr=400`. `len` remains 1000. Missing or inconsistent required overlap
+details reject actual expression evaluation; synchronous settlement retains its
+reservation through the existing evaluation-error policy, while durable Batch
+settlement returns an error without releasing the hold. No overlap is inferred
+from aggregate cache counts. Claude normalization is unchanged.
+
+The single `cr` coefficient still prices all cached modalities equally. Models
+with different cached text/image/audio prices require a separate expression
+contract extension before their published tariffs can be represented correctly.
+Fixing overlap does not fix an incorrect administrator `cr` coefficient.
+
 输出侧同理（假设 completion_tokens=500，其中包含 100 audio output）：
 
 | 表达式 | `c` 的值 | 说明 |

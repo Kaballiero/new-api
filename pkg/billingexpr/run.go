@@ -49,6 +49,9 @@ func RunExprByHashWithRequest(exprStr, hash string, params TokenParams, request 
 }
 
 func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, params TokenParams, request RequestInput) (float64, TraceResult, error) {
+	if params.NormalizationError != nil {
+		return 0, TraceResult{}, params.NormalizationError
+	}
 	trace := TraceResult{
 		BillingUnit:  BillingUnitToken,
 		RequestRules: append([]RequestRuleTrace(nil), requestRules...),

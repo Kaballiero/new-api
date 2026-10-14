@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -50,7 +51,23 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 		inputLen = p + cr + cc5m + cc1h
 	}
 
+	var normalizationError error
 	if !isClaudeUsageSemantic {
+		if usedVars["cr"] && (usedVars["img"] || usedVars["ai"]) {
+			// Cache is an overlapping subset of modality totals, not an extra
+			// modality. Only use an overlap explicitly reported by the provider.
+			cacheUsage := &dto.RealtimeUsage{InputTokens: usage.PromptTokens, InputTokenDetails: usage.PromptTokensDetails}
+			if issue := RealtimeCacheDiscountIssue(cacheUsage, usedVars); issue != "" {
+				normalizationError = fmt.Errorf("multimodal cache normalization: %s", issue)
+			} else if details := usage.PromptTokensDetails.CachedTokensDetails; details != nil {
+				if usedVars["img"] && details.ImageTokens != nil {
+					img -= float64(*details.ImageTokens)
+				}
+				if usedVars["ai"] && details.AudioTokens != nil {
+					ai -= float64(*details.AudioTokens)
+				}
+			}
+		}
 		if usedVars["cr"] {
 			p -= cr
 		}
@@ -96,7 +113,8 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 		AI:   ai,
 		AO:   ao,
 
-		ProviderCost: providerCost,
+		ProviderCost:       providerCost,
+		NormalizationError: normalizationError,
 	}
 }
 
@@ -401,6 +419,9 @@ func tryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 
 	tr, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, requestInput)
 	if err != nil {
+		if params.NormalizationError != nil {
+			common.SysError(fmt.Sprintf("tiered settlement retained reservation: %v", params.NormalizationError))
+		}
 		if rejectInvalidFinal {
 			return true, 0, nil, fmt.Errorf("invalid final tiered quota: %w", err)
 		}
