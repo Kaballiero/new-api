@@ -11,9 +11,33 @@ import (
 // BatchLogEvent belongs to the same transaction as its wallet receipt.
 type BatchLogEvent struct {
 	ID      int64
-	ItemID  int64  `gorm:"not null;uniqueIndex"`
+	ItemID  *int64 `gorm:"uniqueIndex"`
+	BatchID *int64 `gorm:"uniqueIndex"`
 	Payload string `gorm:"size:1048576;not null"`
 	State   string `gorm:"size:32;not null;index"`
+}
+
+// migrateBatchLogScope explicitly removes the deployed item-only NOT NULL
+// constraint. Some drivers do not relax it during AutoMigrate. Re-running the
+// model migration restores indexes after SQLite's required table rebuild.
+func migrateBatchLogScope(db *gorm.DB) error {
+	columns, err := db.Migrator().ColumnTypes(&BatchLogEvent{})
+	if err != nil {
+		return err
+	}
+	for _, column := range columns {
+		if column.Name() != "item_id" {
+			continue
+		}
+		nullable, known := column.Nullable()
+		if known && !nullable {
+			if err := db.Migrator().AlterColumn(&BatchLogEvent{}, "ItemID"); err != nil {
+				return err
+			}
+			return db.AutoMigrate(&BatchLogEvent{})
+		}
+	}
+	return nil
 }
 
 // BatchLogReceipt lives in the SQL log database. Its unique business key and

@@ -76,6 +76,8 @@ func readOpenAIStatus(reader io.Reader, emit func(Result) error, openRouter bool
 			return stream.decode(&snapshot.OutputFileID)
 		case "error_file_id":
 			return stream.decode(&snapshot.ErrorFileID)
+		case "request_counts":
+			return stream.decode(&snapshot.RequestCounts)
 		case "usage":
 			return stream.decode(&snapshot.Usage)
 		case "error", "errors":

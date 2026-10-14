@@ -40,6 +40,7 @@ type BatchJob struct {
 	ErrorFileID       string `json:"-" gorm:"size:191"`
 	BillingSnapshot   string `json:"-" gorm:"size:1048576;not null"`
 	UpstreamUsage     string `json:"-" gorm:"size:1048576"`
+	FinancialDetails  string `json:"-" gorm:"size:1048576"`
 	LastError         string `json:"-" gorm:"size:4096"`
 	RequestCount      int    `json:"request_count"`
 	ResultCount       int    `json:"result_count"`
@@ -53,6 +54,38 @@ type BatchJob struct {
 	CleanupDone       bool   `json:"-" gorm:"not null"`
 	LeaseUntil        int64  `json:"-" gorm:"index;not null;default:0"`
 	LeaseOwner        string `json:"-" gorm:"size:64"`
+}
+
+// BatchFailure contains only normalized provider diagnostics. Arbitrary provider
+// messages, response bodies and headers must never be persisted here.
+type BatchFailure struct {
+	Version    int    `json:"version"`
+	Phase      string `json:"phase"`
+	Code       string `json:"code"`
+	Message    string `json:"message"`
+	HTTPStatus int    `json:"http_status,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
+}
+
+func (job BatchJob) MarshalJSON() ([]byte, error) {
+	type batchJob BatchJob
+	type publicFailure struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	var failure *publicFailure
+	if job.Status == "failed" {
+		failure = &publicFailure{Code: "batch_failed", Message: "The Batch operation failed."}
+		var diagnostic BatchFailure
+		if len(job.LastError) <= 4096 && common.UnmarshalJsonStr(job.LastError, &diagnostic) == nil && diagnostic.Version == 1 && diagnostic.Phase == "create" && diagnostic.HTTPStatus >= 400 && diagnostic.HTTPStatus < 500 {
+			failure.Code = "batch_creation_rejected"
+			failure.Message = "The provider rejected Batch creation."
+		}
+	}
+	return common.Marshal(struct {
+		batchJob
+		Error *publicFailure `json:"error,omitempty"`
+	}{batchJob: batchJob(job), Error: failure})
 }
 
 type BatchItem struct {

@@ -1,6 +1,8 @@
 package model
 
 import (
+	"errors"
+	"fmt"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
@@ -290,10 +292,24 @@ func TestBatchDurableAccounting(t *testing.T) {
 			for range 2 {
 				require.NoError(t, db.AutoMigrate(models...))
 			}
+			upgradeReads := db
+			if dialect == "postgres" {
+				// Startup follows schema migration in a new process. Reusing
+				// this fixture's pre-upgrade pgx connection would retain cached
+				// SELECT * plans for the deliberately replaced released schema.
+				restarted, err := gorm.Open(postgres.Open(os.Getenv("TEST_POSTGRES_DSN")), &gorm.Config{NamingStrategy: db.Config.NamingStrategy})
+				require.NoError(t, err)
+				upgradeReads = restarted
+				t.Cleanup(func() {
+					sqlDB, err := restarted.DB()
+					require.NoError(t, err)
+					require.NoError(t, sqlDB.Close())
+				})
+			}
 			var upgradedUser User
 			var upgradedToken Token
-			require.NoError(t, db.First(&upgradedUser, legacyUser.Id).Error)
-			require.NoError(t, db.First(&upgradedToken, legacyToken.Id).Error)
+			require.NoError(t, upgradeReads.First(&upgradedUser, legacyUser.Id).Error)
+			require.NoError(t, upgradeReads.First(&upgradedToken, legacyToken.Id).Error)
 			assert.Equal(t, 567, upgradedUser.Quota)
 			assert.Equal(t, 89, upgradedUser.UsedQuota)
 			assert.EqualValues(t, 7, upgradedUser.AuthVersion)
@@ -303,7 +319,7 @@ func TestBatchDurableAccounting(t *testing.T) {
 			assert.Equal(t, 78, upgradedToken.UsedQuota)
 			assert.Zero(t, upgradedToken.BatchHeldQuota)
 			assert.Zero(t, upgradedToken.BatchQuotaVersion)
-			assert.Error(t, db.Create(&Token{UserId: legacyUser.Id, Key: legacyToken.Key}).Error, "token uniqueness survives upgrade")
+			assert.Error(t, upgradeReads.Create(&Token{UserId: legacyUser.Id, Key: legacyToken.Key}).Error, "token uniqueness survives upgrade")
 
 		})
 	}
@@ -440,7 +456,7 @@ func TestBatchSeparateLogDatabase(t *testing.T) {
 			}
 			payload, err := common.Marshal(Log{UserId: 1, Type: LogTypeConsume, RequestId: "batch-log-contract", Quota: 10, CreatedAt: common.GetTimestamp(), Other: `{"admin_info":{"quota_saturation":{"kind":"overflow"}}}`})
 			require.NoError(t, err)
-			event := BatchLogEvent{ItemID: 1, State: "pending", Payload: string(payload)}
+			event := BatchLogEvent{ItemID: common.GetPointer(int64(1)), State: "pending", Payload: string(payload)}
 			require.NoError(t, primary.Create(&event).Error)
 			require.NoError(t, SyncBatchConsumeLogs(10))
 			state := "pending"
@@ -453,10 +469,21 @@ func TestBatchSeparateLogDatabase(t *testing.T) {
 			var count int64
 			require.NoError(t, logs.Model(&Log{}).Where("request_id = ?", "batch-log-contract").Count(&count).Error)
 			assert.EqualValues(t, 1, count, "lost acknowledgement must not duplicate log or expense statistics")
+			// A job-scoped receipt uses the same delivery guarantees without a
+			// synthetic item identity, including a separately configured log DB.
+			payload, err = common.Marshal(Log{UserId: 1, Type: LogTypeConsume, RequestId: "batch-job-log-contract", Quota: 7, CreatedAt: common.GetTimestamp()})
+			require.NoError(t, err)
+			jobEvent := BatchLogEvent{BatchID: common.GetPointer(int64(1)), State: "pending", Payload: string(payload)}
+			require.NoError(t, primary.Create(&jobEvent).Error)
+			require.NoError(t, SyncBatchConsumeLogs(10))
+			require.NoError(t, primary.Model(&jobEvent).Update("state", state).Error)
+			require.NoError(t, SyncBatchConsumeLogs(10))
+			require.NoError(t, logs.Model(&Log{}).Where("request_id = ?", "batch-job-log-contract").Count(&count).Error)
+			assert.EqualValues(t, 1, count, "job receipts must not duplicate the aggregate consume log")
 			if dialect == "clickhouse" {
 				payload, err = common.Marshal(Log{RequestId: "ambiguous-before-insert", CreatedAt: common.GetTimestamp()})
 				require.NoError(t, err)
-				require.NoError(t, primary.Create(&BatchLogEvent{ItemID: 2, State: "writing", Payload: string(payload)}).Error)
+				require.NoError(t, primary.Create(&BatchLogEvent{ItemID: common.GetPointer(int64(2)), State: "writing", Payload: string(payload)}).Error)
 				require.Error(t, SyncBatchConsumeLogs(10))
 				require.NoError(t, logs.Model(&Log{}).Where("request_id = ?", "ambiguous-before-insert").Count(&count).Error)
 				assert.Zero(t, count, "unknown insert must not be resent")
@@ -531,6 +558,188 @@ func TestBatchModelPricing(t *testing.T) {
 			cleared, err := GetModelPricingSnapshot([]string{change.ModelName})
 			require.NoError(t, err)
 			assert.Equal(t, PricingValues{"ModelRatio": float64(1)}, cleared.Entries[0].Configured)
+		})
+	}
+}
+
+func TestBatchAggregateCostAccounting(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := openModelCostFXTestDB(t, dialect)
+			if dialect == "sqlite" {
+				sqlDB, err := db.DB()
+				require.NoError(t, err)
+				sqlDB.SetMaxOpenConns(1)
+			}
+			db.Config.NamingStrategy = schema.NamingStrategy{TablePrefix: "batch_aggregate_"}
+			previousDB, previousLogDB, previousRedis, previousConsume := DB, LOG_DB, common.RedisEnabled, common.LogConsumeEnabled
+			DB, LOG_DB, common.RedisEnabled, common.LogConsumeEnabled = db, db, false, true
+			t.Cleanup(func() {
+				DB, LOG_DB, common.RedisEnabled, common.LogConsumeEnabled = previousDB, previousLogDB, previousRedis, previousConsume
+			})
+			models := []any{&User{}, &Token{}, &Channel{}, &BatchJob{}, &BatchItem{}, &BatchQuotaEvent{}, &BatchLogEvent{}, &BatchLogReceipt{}, &Log{}}
+			require.NoError(t, db.AutoMigrate(models...))
+			t.Cleanup(func() {
+				for i := len(models) - 1; i >= 0; i-- {
+					_ = db.Migrator().DropTable(models[i])
+				}
+			})
+			user := createReserveTestUser(t, 1000)
+			token := createReserveTestToken(t, 1000)
+			channel := Channel{Type: 20, Key: "unused"}
+			require.NoError(t, db.Create(&channel).Error)
+			basis := common.OpenRouterCostBasis{Version: BatchSettlementOpenRouterJobCostV2, EffectiveGroupRatio: 1.45, QuotaPerUnit: 500000}
+			encoded, err := common.Marshal(map[string]any{"settlement_mode": BatchSettlementOpenRouterJobCostV2, "openrouter_cost": basis})
+			require.NoError(t, err)
+			for i, tc := range []struct {
+				name, status, usage string
+				want                int
+				invalid             bool
+			}{
+				{"aggregate only", "completed", `{"cost":0.0000017,"prompt_tokens":3,"completion_tokens":1}`, 1, false},
+				{"mixed and missing outputs", "failed", `{"cost":0.000003}`, 2, false},
+				{"explicit zero", "cancelled", `{"cost":0}`, 0, false},
+				{"null", "completed", `{"cost":null}`, 0, true},
+				{"missing", "completed", `{}`, 0, true},
+				{"negative", "completed", `{"cost":-1}`, 0, true},
+				{"string", "completed", `{"cost":"0.1"}`, 0, true},
+				{"clamp", "completed", `{"cost":1e20}`, 0, true},
+				{"nonterminal", "in_progress", `{"cost":0.000003}`, 0, false},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					job := BatchJob{PublicID: fmt.Sprintf("aggregate-%d", i), UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: fmt.Sprint(i), RequestHash: "hash", Status: tc.status, SubmitState: "submitted", UpstreamID: fmt.Sprintf("native-%d", i), BillingSnapshot: string(encoded), UpstreamUsage: tc.usage, BillingStatus: "reserved", RequestCount: 2, ReservedQuota: 10}
+					require.NoError(t, CreateBatchReservation(&job, []BatchItem{{CustomID: "one", Body: `{}`, ReservedQuota: 5, BillingStatus: "reserved"}, {CustomID: "two", Body: `{}`, ReservedQuota: 5, BillingStatus: "reserved"}}))
+					var before User
+					require.NoError(t, db.First(&before, user.Id).Error)
+					var err error
+					if tc.name == "aggregate only" {
+						start := make(chan struct{})
+						outcomes := make(chan error, 2)
+						for range 2 {
+							go func() { <-start; outcomes <- SettleBatchJobCost(job.ID) }()
+						}
+						close(start)
+						require.NoError(t, <-outcomes)
+						err = <-outcomes
+					} else {
+						err = SettleBatchJobCost(job.ID)
+					}
+					if tc.invalid {
+						require.Error(t, err)
+					} else {
+						require.NoError(t, err)
+					}
+					var after User
+					require.NoError(t, db.First(&after, user.Id).Error)
+					if tc.invalid || tc.status == "in_progress" {
+						assert.Equal(t, before.Quota, after.Quota)
+						require.NoError(t, db.First(&job, job.ID).Error)
+						assert.Empty(t, job.FinancialDetails)
+						if tc.invalid {
+							assert.Equal(t, "reconciliation_required", job.BillingStatus)
+						}
+						assert.EqualValues(t, 10, job.ReservedQuota)
+						return
+					}
+					if tc.name == "aggregate only" {
+						transient := errors.New("injected transient database failure")
+						require.NoError(t, db.Callback().Query().Before("gorm:query").Register("aggregate_transient", func(query *gorm.DB) {
+							if query.Statement.Table == "batch_aggregate_users" {
+								query.AddError(transient)
+							}
+						}))
+						retryErr := SettleBatchJobCost(job.ID)
+						require.NoError(t, db.Callback().Query().Remove("aggregate_transient"))
+						require.ErrorIs(t, retryErr, transient)
+						require.NoError(t, db.First(&job, job.ID).Error)
+						assert.Equal(t, "pending_cache", job.BillingStatus, "transient failure cannot poison a committed receipt")
+					}
+					require.NoError(t, SettleBatchJobCost(job.ID))
+					require.ErrorIs(t, SettleBatchItem(job.ID, "one", 1, `{"purchase_status":"calculated"}`), ErrBatchConflict)
+					assert.Equal(t, before.Quota-tc.want, after.Quota)
+					assert.Equal(t, before.RequestCount+2, after.RequestCount)
+					var items []BatchItem
+					require.NoError(t, db.Where("batch_id = ?", job.ID).Find(&items).Error)
+					for _, item := range items {
+						assert.Zero(t, item.ChargedQuota)
+						assert.Empty(t, item.FinancialDetails)
+						assert.Equal(t, "settled_at_batch", item.BillingStatus)
+					}
+					var events int64
+					require.NoError(t, db.Model(&BatchLogEvent{}).Where("batch_id = ? AND item_id IS NULL", job.ID).Count(&events).Error)
+					assert.EqualValues(t, 1, events)
+					// Pending durable cache effects must keep the reservation.
+					require.NoError(t, db.Model(&BatchQuotaEvent{}).Where("batch_id = ?", job.ID).Update("applied", false).Error)
+					require.NoError(t, ReleaseSettledBatchHolds(job.ID))
+					require.NoError(t, db.First(&job, job.ID).Error)
+					assert.EqualValues(t, 10, job.ReservedQuota)
+					require.NoError(t, SyncBatchQuotaEvents(1000))
+					releaseStart := make(chan struct{})
+					releaseOutcomes := make(chan error, 2)
+					for range 2 {
+						go func() { <-releaseStart; releaseOutcomes <- ReleaseSettledBatchHolds(job.ID) }()
+					}
+					close(releaseStart)
+					require.NoError(t, <-releaseOutcomes)
+					require.NoError(t, <-releaseOutcomes)
+					require.NoError(t, SyncBatchConsumeLogs(1000))
+					require.NoError(t, SyncBatchConsumeLogs(1000))
+					require.NoError(t, db.First(&job, job.ID).Error)
+					if tc.name == "aggregate only" {
+						var aggregateLog Log
+						require.NoError(t, db.Where("content = ?", "Batch aggregate").Order("id asc").First(&aggregateLog).Error)
+						assert.Equal(t, 3, aggregateLog.PromptTokens)
+						assert.Equal(t, 1, aggregateLog.CompletionTokens)
+					}
+					assert.Equal(t, "settled", job.BillingStatus)
+					assert.Zero(t, job.ReservedQuota)
+					// A provider correction cannot rewrite the original debit.
+					require.NoError(t, db.Model(&job).Update("upstream_usage", `{"cost":1}`).Error)
+					require.ErrorIs(t, SettleBatchJobCost(job.ID), ErrBatchConflict)
+					require.NoError(t, db.First(&job, job.ID).Error)
+					assert.Equal(t, "reconciliation_required", job.BillingStatus)
+
+					var final User
+					require.NoError(t, db.First(&final, user.Id).Error)
+					assert.Equal(t, after.Quota, final.Quota)
+				})
+			}
+		})
+	}
+}
+
+// Deployed Batch outbox schema before job-scope receipts.
+type batchItemLogEventBeforeAggregate struct {
+	ID      int64
+	ItemID  int64  `gorm:"not null;uniqueIndex"`
+	Payload string `gorm:"size:1048576;not null"`
+	State   string `gorm:"size:32;not null;index"`
+}
+
+func TestBatchAggregateLogMigration(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := openModelCostFXTestDB(t, dialect)
+			db.Config.NamingStrategy = schema.NamingStrategy{TablePrefix: "batch_upgrade_"}
+			const table = "batch_upgrade_batch_log_events"
+			t.Cleanup(func() { _ = db.Migrator().DropTable(table) })
+			require.NoError(t, db.Table(table).AutoMigrate(&batchItemLogEventBeforeAggregate{}))
+			require.NoError(t, db.Table(table).Create(&batchItemLogEventBeforeAggregate{ItemID: 71, Payload: `{"legacy":true}`, State: "pending"}).Error)
+			for range 2 {
+				require.NoError(t, db.AutoMigrate(&BatchLogEvent{}))
+				require.NoError(t, migrateBatchLogScope(db))
+			}
+			var legacy BatchLogEvent
+			require.NoError(t, db.Where("item_id = ?", 71).First(&legacy).Error)
+			require.NotNil(t, legacy.ItemID)
+			assert.EqualValues(t, 71, *legacy.ItemID)
+			assert.Nil(t, legacy.BatchID)
+			assert.Equal(t, `{"legacy":true}`, legacy.Payload)
+			require.Error(t, db.Create(&BatchLogEvent{ItemID: common.GetPointer(int64(71)), Payload: "duplicate", State: "pending"}).Error)
+			for _, id := range []int64{1, 2} {
+				require.NoError(t, db.Create(&BatchLogEvent{BatchID: common.GetPointer(id), Payload: "job", State: "pending"}).Error)
+			}
+			require.Error(t, db.Create(&BatchLogEvent{BatchID: common.GetPointer(int64(1)), Payload: "duplicate", State: "pending"}).Error)
 		})
 	}
 }

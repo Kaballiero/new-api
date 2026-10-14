@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -43,6 +44,17 @@ func SettleBatchItem(batchID int64, customID string, quota int, details string) 
 		}
 		if err := lockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
+		}
+		var settlement struct {
+			Mode string `json:"settlement_mode"`
+		}
+		if job.BillingSnapshot != "" {
+			if err := common.UnmarshalJsonStr(job.BillingSnapshot, &settlement); err != nil {
+				return err
+			}
+		}
+		if job.FinancialDetails != "" || (settlement.Mode == BatchSettlementOpenRouterJobCostV2 && !(job.UpstreamID == "" && job.SubmitState == "rejected" && quota == 0 && receipt.PurchaseStatus == "unbilled")) {
+			return ErrBatchConflict
 		}
 		var item BatchItem
 		if err := lockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID, fmt.Sprintf("%x", sha256.Sum256([]byte(customID)))).First(&item).Error; err != nil {
@@ -110,7 +122,7 @@ func SettleBatchItem(batchID int64, customID string, quota int, details string) 
 			if err != nil {
 				return err
 			}
-			if err := tx.Create(&BatchLogEvent{ItemID: item.ID, Payload: string(payload), State: "pending"}).Error; err != nil {
+			if err := tx.Create(&BatchLogEvent{ItemID: &item.ID, Payload: string(payload), State: "pending"}).Error; err != nil {
 				return err
 			}
 		}
@@ -317,6 +329,34 @@ func ReleaseSettledBatchHolds(batchID int64) error {
 		if pending != 0 {
 			return nil
 		}
+		if job.FinancialDetails != "" {
+			if job.BillingStatus == "reconciliation_required" {
+				return nil
+			}
+			var receipt BatchJobCostReceipt
+			if err := common.UnmarshalJsonStr(job.FinancialDetails, &receipt); err != nil {
+				return err
+			}
+			if receipt.Version != BatchSettlementOpenRouterJobCostV2 || int64(receipt.Quota) != job.ChargedQuota || job.SettledCount != job.RequestCount {
+				return ErrBatchConflict
+			}
+			release := job.ReservedQuota
+			if release < 0 || release > user.BatchHeldQuota || release > token.BatchHeldQuota {
+				return ErrBatchConflict
+			}
+			if job.BillingStatus == "settled" && release == 0 {
+				return nil
+			}
+			user.BatchHeldQuota -= release
+			token.BatchHeldQuota -= release
+			if err := tx.Model(&BatchItem{}).Where("batch_id = ?", batchID).Updates(map[string]any{"reserved_quota": 0, "cache_pending": false}).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&job).Updates(map[string]any{"reserved_quota": 0, "billing_status": "settled"}).Error; err != nil {
+				return err
+			}
+			return saveBatchAccountEvents(tx, &user, &token, batchID, 0, 0)
+		}
 		var items []BatchItem
 		if err := lockForUpdate(tx).Select("id", "reserved_quota").Where("batch_id = ? AND cache_pending = ?", batchID, true).Find(&items).Error; err != nil {
 			return err
@@ -377,4 +417,159 @@ func ConfirmBatchPurchaseCost(publicID, costUSD, evidence string) error {
 		}
 		return tx.Model(&job).Updates(map[string]any{"purchase_status": "settled", "purchase_usd": costUSD, "purchase_evidence": evidence}).Error
 	})
+}
+
+const BatchSettlementOpenRouterJobCostV2 = "openrouter_job_cost_v2"
+
+// BatchJobCostReceipt is the immutable, job-scoped monetary fact. No part of
+// this total is attributed to individual output rows.
+type BatchJobCostReceipt struct {
+	Version    string                     `json:"version"`
+	UpstreamID string                     `json:"upstream_id"`
+	CostUSD    float64                    `json:"cost_usd"`
+	Basis      common.OpenRouterCostBasis `json:"basis"`
+	Quota      int                        `json:"quota"`
+}
+
+// SettleBatchJobCost commits a native final total once, with the same durable
+// cache and log delivery guarantees as item settlement.
+func SettleBatchJobCost(batchID int64) error {
+	var job BatchJob
+	if err := DB.First(&job, batchID).Error; err != nil {
+		return err
+	}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+			return err
+		}
+		var token Token
+		if err := lockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+			return err
+		}
+		if err := lockForUpdate(tx).First(&job, batchID).Error; err != nil {
+			return err
+		}
+		var snapshot struct {
+			Mode  string                      `json:"settlement_mode"`
+			Basis *common.OpenRouterCostBasis `json:"openrouter_cost"`
+		}
+		if err := common.UnmarshalJsonStr(job.BillingSnapshot, &snapshot); err != nil {
+			return fmt.Errorf("%w: invalid aggregate billing snapshot", ErrBatchConflict)
+		}
+		if snapshot.Mode != BatchSettlementOpenRouterJobCostV2 || snapshot.Basis == nil || snapshot.Basis.Version != BatchSettlementOpenRouterJobCostV2 {
+			return ErrBatchConflict
+		}
+		switch job.Status {
+		case "completed", "failed", "expired", "cancelled":
+		default:
+			return nil
+		}
+		if job.UpstreamID == "" || (job.SubmitState != "submitted" && job.SubmitState != "cancel_requested" && job.SubmitState != "cancel_sent") {
+			return ErrBatchConflict
+		}
+		var usage map[string]json.RawMessage
+		if err := common.UnmarshalJsonStr(job.UpstreamUsage, &usage); err != nil {
+			return fmt.Errorf("%w: invalid aggregate usage", ErrBatchConflict)
+		}
+		cost, err := common.ValidateOpenRouterCost(usage["cost"])
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrBatchConflict, err)
+		}
+		quota, clamp, err := snapshot.Basis.Quota(cost)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrBatchConflict, err)
+		}
+		if clamp != nil {
+			return fmt.Errorf("%w: %v", ErrBatchConflict, clamp)
+		}
+		receipt := BatchJobCostReceipt{Version: BatchSettlementOpenRouterJobCostV2, UpstreamID: job.UpstreamID, CostUSD: cost, Basis: *snapshot.Basis, Quota: quota}
+		encoded, err := common.Marshal(receipt)
+		if err != nil {
+			return err
+		}
+		if job.FinancialDetails != "" {
+			if job.FinancialDetails != string(encoded) {
+				return ErrBatchConflict
+			}
+			return nil
+		}
+		if job.ChargedQuota != 0 || job.SettledCount != 0 || job.RequestCount <= 0 {
+			return ErrBatchConflict
+		}
+		var conflicting int64
+		if err := tx.Model(&BatchItem{}).Where("batch_id = ? AND (charged_quota <> 0 OR financial_details <> '' OR billing_status IN ?)", batchID, []string{"settled", "settled_at_batch"}).Count(&conflicting).Error; err != nil {
+			return err
+		}
+		if conflicting != 0 {
+			return ErrBatchConflict
+		}
+		var channel Channel
+		if err := lockForUpdate(tx).First(&channel, job.ChannelID).Error; err != nil {
+			return err
+		}
+		if int64(user.Quota) < math.MinInt32+int64(quota) || int64(user.UsedQuota) > math.MaxInt32-int64(quota) || job.RequestCount > math.MaxInt32 || user.RequestCount > math.MaxInt32-job.RequestCount || token.RemainQuota < math.MinInt+quota || token.UsedQuota > math.MaxInt-quota || channel.UsedQuota > math.MaxInt64-int64(quota) {
+			return fmt.Errorf("%w: batch settlement arithmetic overflow", ErrBatchConflict)
+		}
+		if job.ReservedQuota < 0 || user.BatchHeldQuota < job.ReservedQuota || token.BatchHeldQuota < job.ReservedQuota {
+			return ErrBatchConflict
+		}
+		if err := tx.Unscoped().Model(&user).Updates(map[string]any{"quota": gorm.Expr("quota - ?", quota), "used_quota": gorm.Expr("used_quota + ?", quota), "request_count": gorm.Expr("request_count + ?", job.RequestCount)}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Model(&token).Updates(map[string]any{"remain_quota": gorm.Expr("remain_quota - ?", quota), "used_quota": gorm.Expr("used_quota + ?", quota), "accessed_time": common.GetTimestamp()}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&channel).Update("used_quota", gorm.Expr("used_quota + ?", quota)).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&BatchItem{}).Where("batch_id = ?", batchID).Update("billing_status", "settled_at_batch").Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&job).Updates(map[string]any{"charged_quota": quota, "settled_count": job.RequestCount, "financial_details": string(encoded), "billing_status": "pending_cache"}).Error; err != nil {
+			return err
+		}
+		if common.LogConsumeEnabled {
+			other := NewLogOther()
+			other.SetPublic("batch_id", job.PublicID)
+			other.SetPublic("settlement_scope", "job")
+			other.SetPublic("settlement_mode", BatchSettlementOpenRouterJobCostV2)
+			other.SetPublic("actual_quota", quota)
+			other.SetAdmin("upstream_cost_usd", cost)
+			other.SetAdmin("openrouter_cost_basis", snapshot.Basis)
+			otherJSON, err := common.Marshal(other)
+			if err != nil {
+				return err
+			}
+			requestID := fmt.Sprintf("%x", sha256.Sum256([]byte(job.PublicID+":aggregate:v2")))
+			log := Log{UserId: user.Id, Username: user.Username, TokenName: token.Name, TokenId: token.Id, ChannelId: job.ChannelID, ModelName: job.Model, Group: job.UsingGroup, Quota: quota, Type: LogTypeConsume, CreatedAt: common.GetTimestamp(), RequestId: requestID, Other: string(otherJSON), Content: "Batch aggregate"}
+			var tokens struct {
+				Prompt     *int `json:"prompt_tokens"`
+				Completion *int `json:"completion_tokens"`
+			}
+			if common.UnmarshalJsonStr(job.UpstreamUsage, &tokens) == nil {
+				if tokens.Prompt != nil && *tokens.Prompt >= 0 && *tokens.Prompt <= math.MaxInt32 {
+					log.PromptTokens = *tokens.Prompt
+				}
+				if tokens.Completion != nil && *tokens.Completion >= 0 && *tokens.Completion <= math.MaxInt32 {
+					log.CompletionTokens = *tokens.Completion
+				}
+			}
+			payload, err := common.Marshal(log)
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(&BatchLogEvent{BatchID: &job.ID, Payload: string(payload), State: "pending"}).Error; err != nil {
+				return err
+			}
+		}
+		return saveBatchAccountEvents(tx, &user, &token, batchID, 0, int64(quota))
+	})
+	// Database/cache infrastructure failures remain retryable. Only invalid
+	// monetary evidence or an immutable-receipt conflict requires intervention.
+	if errors.Is(err, ErrBatchConflict) {
+		marked := DB.Model(&BatchJob{}).Where("id = ?", batchID).Update("billing_status", "reconciliation_required").Error
+		return errors.Join(err, marked)
+	}
+	return err
 }

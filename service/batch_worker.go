@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
@@ -12,6 +13,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/batch"
 	"io"
 	"os"
+	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -64,7 +67,7 @@ func RunBatchPollingOnce(ctx context.Context, runnerID string) error {
 			common.SysError(fmt.Sprintf("batch %s: %v", job.PublicID, err))
 		}
 		updates := map[string]any{"lease_until": 0, "lease_owner": "", "updated_at": time.Now().Unix()}
-		if err != nil || job.Status != "failed" {
+		if job.Status != "failed" || (err != nil && job.LastError == "") {
 			updates["last_error"] = message
 		}
 		if err := model.DB.Model(&model.BatchJob{}).Where("id = ? AND lease_owner = ?", job.ID, runnerID).Updates(updates).Error; err != nil {
@@ -218,7 +221,9 @@ func submitBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter
 				return err
 			}
 			job.SubmitState = "rejected"
-			return rejectUnsubmittedBatch(job, fmt.Sprintf("creation HTTP %d", response.StatusCode))
+			body, _ := io.ReadAll(io.LimitReader(response.Body, 16<<10))
+			diagnostic := normalizedBatchFailure("create", response.StatusCode, response.Header.Get("X-Request-Id"), body)
+			return rejectUnsubmittedBatch(job, diagnostic)
 		}
 		return fmt.Errorf("ambiguous batch creation HTTP %d", response.StatusCode)
 	}
@@ -231,7 +236,12 @@ func submitBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter
 		if state == "" {
 			state = batch.Validating
 		}
-		changed := model.DB.Model(job).Where("submit_state = ?", "submission_unknown").Updates(map[string]any{"upstream_id": snapshot.ID, "submit_state": "submitted", "status": state})
+		updates := map[string]any{"upstream_id": snapshot.ID, "submit_state": "submitted", "status": state}
+		if state == batch.Failed {
+			job.LastError = normalizedBatchFailure("create", response.StatusCode, response.Header.Get("X-Request-Id"), snapshot.Error)
+			updates["last_error"] = job.LastError
+		}
+		changed := model.DB.Model(job).Where("submit_state = ?", "submission_unknown").Updates(updates)
 		if changed.Error != nil {
 			return changed.Error
 		}
@@ -278,6 +288,30 @@ func pollBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter, 
 	if snapshot.ID != job.UpstreamID {
 		return errors.New("upstream batch identity mismatch")
 	}
+	if job.ChannelType == constant.ChannelTypeOpenRouter && len(snapshot.RequestCounts) != 0 && string(snapshot.RequestCounts) != "null" {
+		var counts map[string]*int
+		if err := common.Unmarshal(snapshot.RequestCounts, &counts); err != nil {
+			return errors.New("invalid upstream batch request counts")
+		}
+		var sum, finished int
+		for key, value := range counts {
+			if value == nil || *value < 0 || *value > job.RequestCount {
+				return errors.New("upstream batch request counts mismatch")
+			}
+			if key == "completed" || key == "failed" || key == "pending" {
+				sum += *value
+			}
+			if key == "completed" || key == "failed" {
+				finished += *value
+			}
+		}
+		if total, ok := counts["total"]; ok && *total != job.RequestCount {
+			return errors.New("upstream batch request counts mismatch")
+		}
+		if sum > job.RequestCount || (snapshot.State == batch.Completed && finished != job.RequestCount) {
+			return errors.New("upstream batch request counts mismatch")
+		}
+	}
 	if _, err := staged.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
@@ -295,7 +329,12 @@ func pollBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter, 
 			return err
 		}
 	}
-	if err := model.DB.Model(job).Where("lease_owner = ?", runnerID).Updates(map[string]any{"status": snapshot.State, "output_file_id": snapshot.OutputFileID, "error_file_id": snapshot.ErrorFileID, "upstream_usage": string(snapshot.Usage)}).Error; err != nil {
+	updates := map[string]any{"status": snapshot.State, "output_file_id": snapshot.OutputFileID, "error_file_id": snapshot.ErrorFileID, "upstream_usage": string(snapshot.Usage)}
+	if snapshot.State == batch.Failed && (job.Status != "failed" || job.LastError == "" || (len(snapshot.Error) > 0 && string(snapshot.Error) != "null")) {
+		job.LastError = normalizedBatchFailure("poll", response.StatusCode, response.Header.Get("X-Request-Id"), snapshot.Error)
+		updates["last_error"] = job.LastError
+	}
+	if err := model.DB.Model(job).Where("lease_owner = ?", runnerID).Updates(updates).Error; err != nil {
 		return err
 	}
 	job.Status = string(snapshot.State)
@@ -511,4 +550,52 @@ func RecoverBatchIdentity(ctx context.Context, job *model.BatchJob, upstreamID, 
 		return model.ErrBatchConflict
 	}
 	return nil
+}
+
+var batchProviderRequestID = regexp.MustCompile(`^(req[-_][0-9a-fA-F-]{1,120}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
+
+// normalizedBatchFailure keeps an allowlisted classification rather than trying
+// to redact arbitrary provider text, which can contain credentials or prompts.
+func normalizedBatchFailure(phase string, status int, requestID string, body []byte) string {
+	diagnostic := model.BatchFailure{Version: 1, Phase: phase, Code: "provider_error", Message: "The provider could not process the Batch operation.", HTTPStatus: status}
+	if batchProviderRequestID.MatchString(requestID) {
+		diagnostic.RequestID = requestID
+	}
+	if len(body) <= 16<<10 {
+		var native struct {
+			Code  json.RawMessage `json:"code"`
+			Error *struct {
+				Code json.RawMessage `json:"code"`
+			} `json:"error"`
+		}
+		if common.Unmarshal(body, &native) == nil {
+			rawCode := native.Code
+			if native.Error != nil {
+				rawCode = native.Error.Code
+			}
+			var code string
+			if common.Unmarshal(rawCode, &code) != nil {
+				var numericCode int
+				if common.Unmarshal(rawCode, &numericCode) == nil && numericCode >= 100 && numericCode <= 599 {
+					diagnostic.Code = strconv.Itoa(numericCode)
+				}
+			}
+			switch code {
+			case "invalid_request", "invalid_request_error", "invalid_argument":
+				diagnostic.Code = code
+				diagnostic.Message = "The provider rejected the Batch request."
+			case "model_not_found", "no_endpoints_found":
+				diagnostic.Code = code
+				diagnostic.Message = "The provider has no eligible endpoint for this Batch request."
+			case "rate_limit_exceeded":
+				diagnostic.Code = code
+				diagnostic.Message = "The provider could not accept the Batch request because of a rate limit."
+			case "batch_expired":
+				diagnostic.Code = code
+				diagnostic.Message = "The provider Batch expired."
+			}
+		}
+	}
+	encoded, _ := common.Marshal(diagnostic)
+	return string(encoded)
 }

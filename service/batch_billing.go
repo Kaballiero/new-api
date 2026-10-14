@@ -29,6 +29,7 @@ import (
 )
 
 const BatchSettlementOpenRouterCostV1 = "openrouter_cost_v1"
+const BatchSettlementOpenRouterJobCostV2 = model.BatchSettlementOpenRouterJobCostV2
 
 type BatchBillingSnapshot struct {
 	SettlementMode string                      `json:"settlement_mode,omitempty"`
@@ -85,8 +86,8 @@ func CaptureOpenRouterBatchBilling(modelName, userGroup, usingGroup string, head
 	if err != nil {
 		return BatchBillingSnapshot{}, err
 	}
-	basis := common.OpenRouterCostBasis{Version: BatchSettlementOpenRouterCostV1, EffectiveGroupRatio: effective, QuotaPerUnit: common.QuotaPerUnit}
-	return BatchBillingSnapshot{EvaluatedAt: time.Now().UTC(), SettlementMode: BatchSettlementOpenRouterCostV1, OpenRouterCost: &basis, FX: fx, PureGroupRatio: group, Headers: headers}, nil
+	basis := common.OpenRouterCostBasis{Version: BatchSettlementOpenRouterJobCostV2, EffectiveGroupRatio: effective, QuotaPerUnit: common.QuotaPerUnit}
+	return BatchBillingSnapshot{EvaluatedAt: time.Now().UTC(), SettlementMode: BatchSettlementOpenRouterJobCostV2, OpenRouterCost: &basis, FX: fx, PureGroupRatio: group, Headers: headers}, nil
 }
 
 func CountBatchItemTokens(c *gin.Context, modelName, endpoint string, body []byte) (int, error) {
@@ -158,6 +159,9 @@ func SettleBatchResults(job *model.BatchJob) error {
 	var snapshot BatchBillingSnapshot
 	if err := common.UnmarshalJsonStr(job.BillingSnapshot, &snapshot); err != nil {
 		return err
+	}
+	if snapshot.SettlementMode == BatchSettlementOpenRouterJobCostV2 {
+		return model.SettleBatchJobCost(job.ID)
 	}
 	// Each row is bounded; do not collect an entire batch's output in memory.
 	var cursor int64

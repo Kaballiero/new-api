@@ -59,13 +59,14 @@ type Request struct {
 }
 
 type Snapshot struct {
-	ID           string
-	State        State
-	NativeState  string
-	OutputFileID string
-	ErrorFileID  string
-	Usage        json.RawMessage
-	Error        json.RawMessage
+	ID            string
+	State         State
+	NativeState   string
+	OutputFileID  string
+	ErrorFileID   string
+	RequestCounts json.RawMessage
+	Usage         json.RawMessage
+	Error         json.RawMessage
 }
 
 type Result struct {
