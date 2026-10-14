@@ -27,6 +27,39 @@ func openRouterVideoFixture(t *testing.T) (*jsplugin.LoadedPlugin, time.Time) {
 	return plugin, now
 }
 
+func TestOpenRouterVideoNativeEditingPriceUnits(t *testing.T) {
+	plugin, _ := openRouterVideoFixture(t)
+	catalog := plugin.Meta.PriceCatalog
+	require.NotNil(t, catalog)
+	require.NoError(t, catalog.Validate(plugin.Meta.Models))
+	for _, scenario := range []struct {
+		model     string
+		operation string
+		unit      string
+		rates     []float64
+	}{
+		{"runway/aleph-2", "video_editing", "second", []float64{0.28}},
+		{"black-forest-labs/flux-video-upscale", "video_upscaling", "megapixel_second", []float64{0.105, 0.075}},
+	} {
+		t.Run(scenario.model, func(t *testing.T) {
+			offers := catalog.Models[scenario.model]
+			require.Len(t, offers, len(scenario.rates))
+			rates := make([]float64, 0, len(offers))
+			for _, offer := range offers {
+				assert.Equal(t, scenario.operation, offer.Operation)
+				assert.Equal(t, "video_output", offer.MainComponent)
+				require.Len(t, offer.Prices, 1)
+				price := offer.Prices[0]
+				assert.Equal(t, "video_output", price.Component)
+				assert.Equal(t, scenario.unit, price.Unit)
+				require.NotNil(t, price.AmountUSD)
+				rates = append(rates, *price.AmountUSD)
+			}
+			assert.ElementsMatch(t, scenario.rates, rates)
+		})
+	}
+}
+
 func TestOpenRouterVideoOrder(t *testing.T) {
 	plugin, _ := openRouterVideoFixture(t)
 	ctx := map[string]any{
