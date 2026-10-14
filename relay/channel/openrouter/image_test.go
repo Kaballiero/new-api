@@ -518,3 +518,166 @@ func TestEndpointOneHourCacheStrictRateAndUnknownDimensions(t *testing.T) {
 		})
 	}
 }
+
+func TestEndpointCalendarAdmissionWholeReachableTariffs(t *testing.T) {
+	for _, scenario := range []struct {
+		name, overrides string
+		want            float64
+	}{
+		{"daily opposite rates exclude unreachable base", `[{"utc_start":0,"utc_end":1200,"prompt":"0.002","completion":"0.001"},{"utc_start":1200,"utc_end":0,"prompt":"0.001","completion":"0.05"}]`, 2.01},
+		{"overlapping overrides combine in declaration order", `[{"utc_start":0,"utc_end":1200,"prompt":"0.003"},{"utc_start":1000,"utc_end":1400,"completion":"0.2"}]`, 5},
+		{"weekend whole day plus wrapping weekday", `[{"utc_days":["saturday","sunday"],"prompt":"0.004","completion":"0.001"},{"utc_start":2300,"utc_end":100,"utc_days":["monday"],"prompt":"0.002","completion":"0.03"}]`, 4.01},
+		{"calendar threshold excluded below prompt", `[{"min_prompt_tokens":1001,"utc_start":0,"utc_end":1200,"prompt":"0.01"},{"utc_start":1200,"utc_end":0,"prompt":"0.002","completion":"0.001"}]`, 2.01},
+		{"calendar threshold equality retains actual base", `[{"min_prompt_tokens":1000,"utc_start":0,"utc_end":1200,"prompt":"0.003","completion":"0.002"}]`, 2},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			estimator := NewRequestEstimator()
+			estimator.Models["test/model"] = []PricedEndpoint{{Tag: "provider", MaxCompletionTokens: 10, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.1"`), "overrides": json.RawMessage(scenario.overrides)}}}
+			info := &relaycommon.RelayInfo{}
+			info.SetEstimatePromptTokens(1000)
+			cost, err := estimator.Estimate(info, []byte(`{"model":"test/model","max_tokens":10}`), "chat/completions")
+			require.NoError(t, err)
+			assert.InDelta(t, scenario.want, cost, 1e-12)
+		})
+	}
+}
+
+func TestEndpointCalendarAdmissionRejectsMalformedConditions(t *testing.T) {
+	for _, declaration := range []string{
+		`{"utc_start":1200,"prompt":"0.002"}`,
+		`{"utc_start":null,"utc_end":1400,"prompt":"0.002"}`,
+		`{"min_prompt_tokens":null,"utc_days":["monday"],"prompt":"0.002"}`,
+		`{"utc_start":1260,"utc_end":1400,"prompt":"0.002"}`,
+		`{"utc_start":2400,"utc_end":1400,"prompt":"0.002"}`,
+		`{"utc_start":1200,"utc_end":1200,"prompt":"0.002"}`,
+		`{"utc_start":"1200","utc_end":1400,"prompt":"0.002"}`,
+		`{"utc_days":[],"prompt":"0.002"}`,
+		`{"utc_days":["Monday"],"prompt":"0.002"}`,
+		`{"utc_days":["monday","monday"],"prompt":"0.002"}`,
+		`{"utc_days":null,"prompt":"0.002"}`,
+		`{"utc_days":["monday"],"prompt":null}`,
+		`{"utc_days":["monday"],"prompt":"-1"}`,
+		`{"utc_days":["monday"],"unknown_charge":"1"}`,
+		`{"utc_days":["monday"],"utc_month":1,"prompt":"0.002"}`,
+		`{"prompt":"0.002"}`,
+	} {
+		t.Run(declaration, func(t *testing.T) {
+			estimator := NewRequestEstimator()
+			estimator.Models["test/model"] = []PricedEndpoint{{Tag: "provider", MaxCompletionTokens: 10, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "overrides": json.RawMessage("[" + declaration + "]")}}}
+			info := &relaycommon.RelayInfo{}
+			info.SetEstimatePromptTokens(1000)
+			_, err := estimator.Estimate(info, []byte(`{"model":"test/model","max_tokens":10}`), "chat/completions")
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestEndpointGeminiTextAdmissionReasoningEnvelope(t *testing.T) {
+	for _, scenario := range []struct {
+		name, model, rate, extra string
+		want                     float64
+		fail                     bool
+	}{
+		{"Gemini25 higher reasoning", "google/gemini-2.5-pro", `"0.003"`, "", 1.03, false},
+		{"Gemini3 text conditional audio", "google/gemini-3.1-pro-preview", `"0.003"`, `,"overrides":[{"min_prompt_tokens":999,"audio":"0.04","input_audio_cache":"0.03","completion":"0.004"}]`, 1.04, false},
+		{"explicit free reasoning", "google/gemini-2.5-pro", `"0"`, "", 1.02, false},
+		{"other model has no combined budget proof", "other/reasoner", `"0.003"`, "", 0, true},
+		{"public alias is not native proof", "gemini-2.5-pro", `"0.003"`, "", 0, true},
+		{"malformed reasoning", "google/gemini-2.5-pro", `null`, "", 0, true},
+		{"negative reasoning", "google/gemini-2.5-pro", `"-1"`, "", 0, true},
+		{"unknown billable dimension", "google/gemini-2.5-pro", `"0.003"`, `,"unpriced_dimension":"1"`, 0, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			var prices map[string]json.RawMessage
+			require.NoError(t, common.Unmarshal([]byte(`{"prompt":"0.001","completion":"0.002","audio":"0.02","input_audio_cache":"0.01","internal_reasoning":`+scenario.rate+scenario.extra+`}`), &prices))
+			estimator := NewRequestEstimator()
+			estimator.Models[scenario.model] = []PricedEndpoint{{ModelID: scenario.model, Tag: "google-ai-studio", MaxCompletionTokens: 10, Pricing: prices}}
+			info := &relaycommon.RelayInfo{}
+			info.SetEstimatePromptTokens(1000)
+			cost, err := estimator.Estimate(info, []byte(`{"model":"`+scenario.model+`","max_tokens":10,"messages":[{"role":"user","content":"hello"}]}`), "chat/completions")
+			if scenario.fail {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, scenario.want, cost, 1e-12)
+			_, err = estimator.Estimate(info, []byte(`{"model":"`+scenario.model+`","max_tokens":10,"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"a","format":"wav"}}]}]}`), "chat/completions")
+			require.ErrorContains(t, err, "media duration quantity is unpriced")
+		})
+	}
+}
+
+func TestEndpointSavedNativeCalendarAndGeminiMetadata(t *testing.T) {
+	for _, scenario := range []struct {
+		model, metadata string
+		want            float64
+	}{
+		{`deepseek/deepseek-v4-pro-0813`, `{"model_id":"deepseek/deepseek-v4-pro-0813","tag":"deepseek","context_length":1048576,"max_prompt_tokens":null,"max_completion_tokens":393216,"pricing":{"prompt":"0.00000066","completion":"0.00000198","input_cache_read":"0.000000022","discount":0,"overrides":[{"utc_days":["saturday","sunday"],"prompt":"0.00000066","completion":"0.00000198","input_cache_read":"0.000000022"},{"utc_start":0,"utc_end":100,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000066","completion":"0.00000198","input_cache_read":"0.000000022"},{"utc_start":100,"utc_end":400,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000132","completion":"0.00000396","input_cache_read":"0.000000044"},{"utc_start":400,"utc_end":600,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000066","completion":"0.00000198","input_cache_read":"0.000000022"},{"utc_start":600,"utc_end":1000,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000132","completion":"0.00000396","input_cache_read":"0.000000044"},{"utc_start":1000,"utc_end":0,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000066","completion":"0.00000198","input_cache_read":"0.000000022"}]}}`, 0.0013596},
+		{`deepseek/deepseek-v4-flash-0731`, `{"model_id":"deepseek/deepseek-v4-flash-0731","tag":"alibaba","context_length":1000000,"max_prompt_tokens":null,"max_completion_tokens":393216,"pricing":{"prompt":"0.000000176","completion":"0.000000528","input_cache_read":"0.0000000176","discount":0,"overrides":[{"utc_start":0,"utc_end":1400,"prompt":"0.000000352","completion":"0.000001056","input_cache_read":"0.0000000352"},{"utc_start":1400,"utc_end":0,"prompt":"0.000000176","completion":"0.000000528","input_cache_read":"0.0000000176"}]}}`, 0.00036256},
+		{`tencent/hy3`, `{"model_id":"tencent/hy3","tag":"tencent/fp8","context_length":262144,"max_prompt_tokens":null,"max_completion_tokens":128000,"pricing":{"prompt":"0.0000000825","completion":"0.00000033","input_cache_read":"0.000000020625","discount":0,"overrides":[{"utc_start":0,"utc_end":1600,"prompt":"0.000000132","completion":"0.000000528","input_cache_read":"0.000000033"},{"utc_start":1600,"utc_end":0,"prompt":"0.0000000825","completion":"0.00000033","input_cache_read":"0.000000020625"}]}}`, 0.00013728},
+		{`deepseek/deepseek-v4.1-flash`, `{"model_id":"deepseek/deepseek-v4.1-flash","tag":"deepseek","context_length":1048576,"max_prompt_tokens":null,"max_completion_tokens":393216,"pricing":{"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003","discount":0,"overrides":[{"utc_days":["saturday","sunday"],"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003"},{"utc_start":0,"utc_end":100,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003"},{"utc_start":100,"utc_end":400,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.0000003","completion":"0.0000012","input_cache_read":"0.000000006"},{"utc_start":400,"utc_end":600,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003"},{"utc_start":600,"utc_end":1000,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.0000003","completion":"0.0000012","input_cache_read":"0.000000006"},{"utc_start":1000,"utc_end":0,"utc_days":["monday","tuesday","wednesday","thursday","friday"],"prompt":"0.00000015","completion":"0.0000006","input_cache_read":"0.000000003"}]}}`, 0.000312},
+		{`tencent/hy4-preview`, `{"model_id":"tencent/hy4-preview","tag":"tencent/fp8","context_length":1048576,"max_prompt_tokens":null,"max_completion_tokens":64000,"pricing":{"prompt":"0.0000007506","completion":"0.0000022509","input_cache_read":"0.0000000378","discount":0,"overrides":[{"utc_start":0,"utc_end":1600,"prompt":"0.000000834","completion":"0.000002501","input_cache_read":"0.000000042"},{"utc_start":1600,"utc_end":0,"prompt":"0.0000007506","completion":"0.0000022509","input_cache_read":"0.0000000378"}]}}`, 0.00085901},
+		{`google/gemini-2.5-pro`, `{"model_id":"google/gemini-2.5-pro","tag":"google-ai-studio","context_length":1048576,"max_prompt_tokens":null,"max_completion_tokens":65536,"pricing":{"prompt":"0.00000125","completion":"0.00001","image":"0.00000125","audio":"0.00000125","input_audio_cache":"0.000000125","web_search":"0.014","internal_reasoning":"0.00001","input_cache_read":"0.000000125","input_cache_write":"0.000000375","discount":0,"overrides":[{"min_prompt_tokens":200000,"prompt":"0.0000025","completion":"0.000015","audio":"0.0000025","input_audio_cache":"0.00000025","input_cache_read":"0.00000025"}]}}`, 0.00135},
+	} {
+		t.Run(scenario.model, func(t *testing.T) {
+			var endpoint PricedEndpoint
+			require.NoError(t, common.Unmarshal([]byte(scenario.metadata), &endpoint))
+			estimator := NewRequestEstimator()
+			estimator.Models[scenario.model] = []PricedEndpoint{endpoint}
+			info := &relaycommon.RelayInfo{}
+			info.SetEstimatePromptTokens(1000)
+			cost, err := estimator.Estimate(info, []byte(`{"model":"`+scenario.model+`","max_tokens":10}`), "chat/completions")
+			require.NoError(t, err)
+			assert.InDelta(t, scenario.want, cost, 1e-12)
+		})
+	}
+}
+
+func TestEndpointCalendarReservationPreservesRoutingAndCaps(t *testing.T) {
+	estimator := NewRequestEstimator()
+	estimator.Models["test/model"] = []PricedEndpoint{
+		{Tag: "provider-a", MaxCompletionTokens: 10, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "overrides": json.RawMessage(`[{"utc_start":0,"utc_end":1200,"prompt":"0.004","completion":"0.003"}]`)}},
+		{Tag: "provider-b", MaxCompletionTokens: 20, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.002"`), "completion": json.RawMessage(`"0.01"`)}},
+	}
+	info := &relaycommon.RelayInfo{}
+	info.SetEstimatePromptTokens(1000)
+	for _, scenario := range []struct {
+		name, body string
+		want       float64
+	}{
+		{"whole calendar maximum", `{"model":"test/model","max_tokens":10}`, 4.03},
+		{"provider only", `{"model":"test/model","max_tokens":10,"provider":{"only":["provider-b"]}}`, 2.1},
+		{"provider ignore", `{"model":"test/model","max_tokens":10,"provider":{"ignore":["provider-a"]}}`, 2.1},
+		{"provider max price", `{"model":"test/model","max_tokens":10,"provider":{"max_price":{"prompt":3000}}}`, 2.1},
+		{"explicit zero output", `{"model":"test/model","max_tokens":0}`, 4},
+		{"incompatible output cap", `{"model":"test/model","max_tokens":11}`, 2.11},
+		{"finite default cap", `{"model":"test/model"}`, 4.03},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			cost, err := estimator.Estimate(info, []byte(scenario.body), "chat/completions")
+			require.NoError(t, err)
+			assert.InDelta(t, scenario.want, cost, 1e-12)
+		})
+	}
+}
+
+func TestEndpointGeminiAudioMetadataStrictRates(t *testing.T) {
+	for _, key := range []string{"audio", "input_audio_cache"} {
+		for _, rate := range []string{`"0"`, `null`, `"-1"`, `"NaN"`, `"Infinity"`} {
+			t.Run(key+"/"+rate, func(t *testing.T) {
+				prices := map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), key: json.RawMessage(rate)}
+				estimator := NewRequestEstimator()
+				estimator.Models["google/gemini-2.5-pro"] = []PricedEndpoint{{ModelID: "google/gemini-2.5-pro", Tag: "google-ai-studio", MaxCompletionTokens: 10, Pricing: prices}}
+				info := &relaycommon.RelayInfo{}
+				info.SetEstimatePromptTokens(1000)
+				cost, err := estimator.Estimate(info, []byte(`{"model":"google/gemini-2.5-pro","max_tokens":10}`), "chat/completions")
+				if rate != `"0"` {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				assert.InDelta(t, 1.02, cost, 1e-12)
+			})
+		}
+	}
+}
