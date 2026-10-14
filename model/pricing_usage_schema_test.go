@@ -627,9 +627,8 @@ func TestPricingMiniTTSKeepsTextInputAndExplicitUnknownOutput(t *testing.T) {
 	assert.Nil(t, selected.Prices[1].AmountUSD)
 	free := SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: 0}, profile, "sync", ""))
 	require.NotNil(t, free)
-	require.Len(t, free.Prices, 2)
+	require.Len(t, free.Prices, 1)
 	assert.Zero(t, *free.Prices[0].AmountUSD)
-	assert.Zero(t, *free.Prices[1].AmountUSD)
 	fixedExpression := `fixed(.02)`
 	fixed := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{fixedExpression: billingexpr.CatalogPrices(fixedExpression)}}, profile, "sync", fixedExpression))
 	require.NotNil(t, fixed)
@@ -773,5 +772,64 @@ func TestPricingTranscriptionKeepsMixedInputUnknownAndTokenOutput(t *testing.T) 
 			require.NotNil(t, fixed)
 			assert.Equal(t, "call", fixed.Prices[0].Unit)
 		})
+	}
+}
+
+func TestPricingOmitsUnchargedUnknownAudioComponents(t *testing.T) {
+	previousCount := constant.CountToken
+	constant.CountToken = true
+	t.Cleanup(func() { constant.CountToken = previousCount })
+	channel := &Channel{Type: constant.ChannelTypeOpenAI}
+	speech := configuredPricingOperation(channel, "gpt-4o-mini-tts", "gpt-4o-mini-tts", constant.EndpointTypeOpenAI)
+	zero, one := 0.0, 1.0
+	for _, scenario := range []struct {
+		name          string
+		expression    string
+		pricing       Pricing
+		unknownOutput bool
+	}{
+		{name: "input_only_formula", expression: `tier("base",p*.6)`},
+		{name: "zero_completion_formula", expression: `tier("base",p*.6+c*0)`},
+		{name: "zero_audio_formula", expression: `tier("base",p*.6+ao*0)`},
+		{name: "paid_completion_formula", expression: `tier("base",p*.6+c*12+ao*0)`, unknownOutput: true},
+		{name: "paid_audio_formula", expression: `tier("base",p*.6+c*0+ao*12)`, unknownOutput: true},
+		{name: "zero_output_ratios", pricing: Pricing{PriceConfigured: true, ModelRatio: .3, AudioRatio: &one, AudioCompletionRatio: &zero}},
+		{name: "zero_audio_input_ratio", pricing: Pricing{PriceConfigured: true, ModelRatio: .3, AudioRatio: &zero, AudioCompletionRatio: &one}},
+		{name: "paid_stream_completion_ratio", pricing: Pricing{PriceConfigured: true, ModelRatio: .3, CompletionRatio: 20, AudioRatio: &one, AudioCompletionRatio: &zero}, unknownOutput: true},
+		{name: "paid_nonstream_audio_ratio", pricing: Pricing{PriceConfigured: true, ModelRatio: .3, AudioRatio: &one, AudioCompletionRatio: &one}, unknownOutput: true},
+		{name: "free_model_ratio", pricing: Pricing{PriceConfigured: true, AudioRatio: &one, AudioCompletionRatio: &one}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			item := scenario.pricing
+			if scenario.expression != "" {
+				item.BillingMode = billing_setting.BillingModeTieredExpr
+				item.ConfiguredPrices = map[string][][]billingexpr.DisplayPrice{scenario.expression: billingexpr.CatalogPrices(scenario.expression)}
+			}
+			selected := SelectCatalogOffer(configuredOperationOffers(item, speech, "sync", scenario.expression))
+			require.NotNil(t, selected)
+			expectedCount := 1
+			if scenario.unknownOutput {
+				expectedCount++
+			}
+			require.Len(t, selected.Prices, expectedCount)
+			require.NotNil(t, selected.Prices[0].AmountUSD)
+			assert.Equal(t, "million_tokens", selected.Prices[0].Unit)
+			if scenario.unknownOutput {
+				assert.Equal(t, CatalogPrice{Component: "audio_output", Unit: "unknown"}, selected.Prices[1])
+			}
+		})
+	}
+	transcription := configuredPricingOperation(channel, "gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe", constant.EndpointTypeOpenAI)
+	expression := `tier("base",p*0+c*5)`
+	for _, item := range []Pricing{
+		{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}},
+		{PriceConfigured: true, CompletionRatio: 4},
+	} {
+		selected := SelectCatalogOffer(configuredOperationOffers(item, transcription, "sync", expression))
+		require.NotNil(t, selected)
+		require.Len(t, selected.Prices, 1)
+		assert.Equal(t, "output", selected.Prices[0].Component)
+		assert.Equal(t, "million_tokens", selected.Prices[0].Unit)
+		require.NotNil(t, selected.Prices[0].AmountUSD)
 	}
 }
