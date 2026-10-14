@@ -37,17 +37,51 @@ type PricingCatalogEntry struct {
 var pricingCatalogState atomic.Pointer[PricingCatalogSnapshot]
 
 func PricingCatalogSourceFingerprint(channel *Channel, upstream string, endpoint constant.EndpointType) string {
+	var mapping map[string]string
+	if raw := strings.TrimSpace(channel.GetModelMapping()); raw != "" {
+		if err := common.UnmarshalJsonStr(raw, &mapping); err != nil {
+			return ""
+		}
+	}
+	routed := false
+	for _, name := range channel.GetModels() {
+		target, cyclic := followChannelModelMapping(mapping, name)
+		if !cyclic && target == upstream {
+			routed = true
+			break
+		}
+	}
+	return pricingCatalogFingerprint(channel, upstream, endpoint, []any{"route-v2", routed})
+}
+
+func pricingCatalogFingerprint(channel *Channel, upstream string, endpoint constant.EndpointType, routeIdentity []any) string {
 	baseURL := channel.GetBaseURL()
 	if baseURL == "" {
 		baseURL = constant.GetChannelBaseURL(channel.Type)
 	}
-	basis := []any{channel.Id, channel.Type, channel.Status, strings.TrimRight(baseURL, "/"), channel.Group, channel.Models, channel.GetModelMapping(), channel.Key, channel.Setting, channel.OtherSettings, channel.ParamOverride, channel.HeaderOverride, upstream, endpoint}
+	basis := []any{channel.Id, channel.Type, channel.Status, strings.TrimRight(baseURL, "/"), channel.Group}
+	basis = append(basis, routeIdentity...)
+	basis = append(basis, channel.Key, channel.Setting, channel.OtherSettings, channel.ParamOverride, channel.HeaderOverride, upstream, endpoint)
 	data, err := common.Marshal(basis)
 	if err != nil {
 		return ""
 	}
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:])
+}
+
+func pricingCatalogSourceMatches(entry PricingCatalogEntry, channel *Channel) bool {
+	current := PricingCatalogSourceFingerprint(channel, entry.UpstreamModel, entry.Endpoint)
+	if current == "" {
+		return false
+	}
+	if entry.Fingerprint == current {
+		return true
+	}
+	// Retain existing snapshots only when their original full channel identity
+	// still matches; never reinterpret a stale legacy fingerprint as valid.
+	legacy := pricingCatalogFingerprint(channel, entry.UpstreamModel, entry.Endpoint, []any{channel.Models, channel.GetModelMapping()})
+	return entry.Fingerprint == legacy
 }
 
 func pricingCatalogEntryKey(entry PricingCatalogEntry) string {
@@ -95,7 +129,7 @@ func GetPricingCatalogEntry(channel *Channel, upstream string, endpoint constant
 	}
 	identity := PricingCatalogEntry{ChannelID: channel.Id, UpstreamModel: upstream, Endpoint: endpoint}
 	entry, known := snapshot.Entries[pricingCatalogEntryKey(identity)]
-	if !known || channel.Status != common.ChannelStatusEnabled || entry.Fingerprint != PricingCatalogSourceFingerprint(channel, upstream, endpoint) {
+	if !known || channel.Status != common.ChannelStatusEnabled || !pricingCatalogSourceMatches(entry, channel) {
 		return PricingCatalogEntry{}, false
 	}
 	return entry, true
@@ -115,7 +149,7 @@ func PublishPricingCatalogEntryContext(ctx context.Context, entry PricingCatalog
 	if err := DB.WithContext(ctx).First(channel, "id = ?", entry.ChannelID).Error; err != nil {
 		return err
 	}
-	if channel.Status != common.ChannelStatusEnabled || entry.Fingerprint != PricingCatalogSourceFingerprint(channel, entry.UpstreamModel, entry.Endpoint) {
+	if channel.Status != common.ChannelStatusEnabled || !pricingCatalogSourceMatches(entry, channel) {
 		return fmt.Errorf("pricing catalog source changed before publication")
 	}
 	snapshot := PricingCatalogSnapshot{Version: 1, Entries: make(map[string]PricingCatalogEntry)}

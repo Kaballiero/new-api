@@ -56,6 +56,53 @@ func TestPricingCatalogOptionsPersistReloadAndRevision(t *testing.T) {
 	assert.Greater(t, GetPricingRevision(), revision)
 }
 
+func TestPricingCatalogSourceSurvivesUnrelatedRoutes(t *testing.T) {
+	db, channel, entry := pricingCatalogOptionFixture(t)
+	require.NoError(t, PublishPricingCatalogEntry(entry))
+	mapping := `{"neighbor":"other/upstream","alias":"upstream/model"}`
+	changed := *channel
+	changed.Models = "neighbor,alias"
+	changed.ModelMapping = &mapping
+	require.NoError(t, db.Model(&Channel{}).Where("id = ?", channel.Id).Updates(map[string]any{
+		"models": changed.Models, "model_mapping": mapping,
+	}).Error)
+	_, known := GetPricingCatalogEntry(&changed, entry.UpstreamModel, entry.Endpoint)
+	assert.True(t, known, "another route must not invalidate this upstream price")
+	require.NoError(t, PublishPricingCatalogEntry(entry), "unrelated route changes must not reject in-flight publication")
+
+	remapped := `{"alias":"different/upstream"}`
+	for _, change := range []struct {
+		name    string
+		channel Channel
+	}{
+		{"model removed", Channel{Models: "neighbor", ModelMapping: &mapping}},
+		{"alias remapped", Channel{Models: "alias", ModelMapping: &remapped}},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			replaced := changed
+			replaced.Models = change.channel.Models
+			replaced.ModelMapping = change.channel.ModelMapping
+			_, known := GetPricingCatalogEntry(&replaced, entry.UpstreamModel, entry.Endpoint)
+			assert.False(t, known)
+		})
+	}
+	changed.Key = "rotated-fixture"
+	_, known = GetPricingCatalogEntry(&changed, entry.UpstreamModel, entry.Endpoint)
+	assert.False(t, known, "credential changes must invalidate source prices")
+}
+
+func TestPricingCatalogLegacyFingerprintCompatibility(t *testing.T) {
+	_, channel, entry := pricingCatalogOptionFixture(t)
+	entry.Fingerprint = pricingCatalogFingerprint(channel, entry.UpstreamModel, entry.Endpoint, []any{channel.Models, channel.GetModelMapping()})
+	require.NoError(t, PublishPricingCatalogEntry(entry))
+	_, known := GetPricingCatalogEntry(channel, entry.UpstreamModel, entry.Endpoint)
+	assert.True(t, known)
+	changed := *channel
+	changed.Models += ",neighbor"
+	_, known = GetPricingCatalogEntry(&changed, entry.UpstreamModel, entry.Endpoint)
+	assert.False(t, known, "stale legacy fingerprints require fresh metadata")
+}
+
 func TestPricingCatalogOptionsRejectInvalidAndRetainSiblings(t *testing.T) {
 	db, channel, entry := pricingCatalogOptionFixture(t)
 	require.NoError(t, PublishPricingCatalogEntry(entry))
