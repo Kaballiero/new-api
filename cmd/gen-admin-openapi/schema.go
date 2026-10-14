@@ -627,6 +627,7 @@ func buildSchemas() map[string]interface{} {
 	}
 
 	enrichPricingTransportSchemas(out)
+	addPublicPricingModelsSchemas(out)
 	return out
 }
 
@@ -857,4 +858,36 @@ func qualifiedToSchema(qname string) map[string]interface{} {
 	}
 	// constant.* and other typed strings/ints — opaque scalar.
 	return map[string]interface{}{"type": "string"}
+}
+
+func addPublicPricingModelsSchemas(out map[string]interface{}) {
+	text := map[string]any{"type": "string"}
+	price := map[string]any{"$ref": "#/components/schemas/EffectiveUnitPrice"}
+	prices := map[string]any{"type": "array", "items": price}
+	out["PublicPricingCondition"] = map[string]any{"type": "object", "properties": map[string]any{
+		"kind":    map[string]any{"type": "string", "enum": []string{"comparison", "all_of", "any_of", "not"}},
+		"subject": text, "argument": text, "unit": text, "operator": text, "value": map[string]any{"type": "number"},
+		"conditions": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/PublicPricingCondition"}},
+	}, "required": []string{"kind"}}
+	out["PublicPricingTier"] = map[string]any{"type": "object", "properties": map[string]any{"condition": map[string]any{"$ref": "#/components/schemas/PublicPricingCondition"}, "prices": prices}, "required": []string{"prices"}}
+	out["PublicPricingOperation"] = map[string]any{"type": "object", "properties": map[string]any{
+		"operation": text, "mode": map[string]any{"type": "string", "enum": []string{"sync", "batch"}}, "prices": prices,
+		"tiers":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/PublicPricingTier"}},
+		"is_from": map[string]any{"type": "boolean"}, "is_free": map[string]any{"type": "boolean"},
+	}, "required": []string{"operation", "mode", "prices", "tiers", "is_from", "is_free"}}
+	out["PublicModelTariff"] = map[string]any{"type": "object", "properties": map[string]any{"operations": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/PublicPricingOperation"}}}, "required": []string{"operations"}}
+	out["PublicPricingModel"] = map[string]any{"type": "object", "properties": map[string]any{
+		"model_name": text, "description": text, "icon": text, "tags": map[string]any{"type": "array", "items": text}, "owner_by": text,
+		"supported_endpoint_types": map[string]any{"type": "array", "items": text},
+		"creator":                  map[string]any{"type": "object", "nullable": true, "allOf": []any{map[string]any{"$ref": "#/components/schemas/EffectivePricingCreator"}}},
+		"tariff":                   map[string]any{"$ref": "#/components/schemas/PublicModelTariff"},
+	}, "required": []string{"model_name", "tags", "owner_by", "supported_endpoint_types", "creator", "tariff"}}
+	out["PublicPricingModelsPage"] = map[string]any{"type": "object", "properties": map[string]any{
+		"schema_version": map[string]any{"type": "string", "enum": []string{"v1"}}, "catalog_revision": map[string]any{"type": "string", "minLength": 1},
+		"currency": map[string]any{"type": "string", "enum": []string{"RUB"}}, "p": map[string]any{"type": "integer", "minimum": 1},
+		"page_size": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}, "total_count": map[string]any{"type": "integer", "minimum": 0},
+		"data": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/PublicPricingModel"}},
+	}, "required": []string{"schema_version", "catalog_revision", "currency", "p", "page_size", "total_count", "data"}}
+	out["PublicPricingModelsResponse"] = wrapResponse(map[string]any{"$ref": "#/components/schemas/PublicPricingModelsPage"})
+	out["PublicPricingModelsResponse"].(map[string]any)["required"] = []string{"success", "data"}
 }

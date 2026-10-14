@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -349,7 +350,9 @@ func selectPricingCatalogOffers(offers []model.CatalogOffer) []model.CatalogOffe
 			unknown.Prices = nil
 			selected = &unknown
 		}
-		result = append(result, *selected)
+		chosen := *selected
+		chosen.PublicAlternatives = slices.Clone(groups[key])
+		result = append(result, chosen)
 	}
 	return result
 }
@@ -384,12 +387,13 @@ func normalizeEndpointPricing(upstream, operation, main string, body []byte) ([]
 		offers = append(offers, model.CatalogOffer{ID: "native:unknown", Operation: operation, Mode: "sync", MainComponent: main})
 	}
 	for index, endpoint := range response.Data.Endpoints {
-		vectors, err := nativePricingVectors(endpoint)
+		var conditions [][]billingexpr.TierCondition
+		vectors, err := nativePricingVectors(endpoint, &conditions)
 		if err != nil {
 			return nil, err
 		}
 		for variant, vector := range vectors {
-			offer := model.CatalogOffer{ID: fmt.Sprintf("%s:%d:%d", endpoint.Tag, index, variant), Operation: operation, Mode: "sync", MainComponent: main, Prices: []model.CatalogPrice{}}
+			offer := model.CatalogOffer{PublicConditions: conditions[variant], PublicConditional: len(conditions[variant]) > 0, ID: fmt.Sprintf("%s:%d:%d", endpoint.Tag, index, variant), Operation: operation, Mode: "sync", MainComponent: main, Prices: []model.CatalogPrice{}}
 			keys := make([]string, 0, len(vector))
 			for key := range vector {
 				keys = append(keys, key)

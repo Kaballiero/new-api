@@ -2,6 +2,7 @@ package jsplugin
 
 import (
 	"fmt"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"math"
 	"slices"
 	"time"
@@ -14,11 +15,14 @@ type CatalogPrice struct {
 }
 
 type CatalogOffer struct {
-	ID            string         `json:"id"`
-	Operation     string         `json:"operation"`
-	Mode          string         `json:"mode"`
-	MainComponent string         `json:"main_component"`
-	Prices        []CatalogPrice `json:"prices"`
+	PublicAlternatives []CatalogOffer              `json:"display_alternatives,omitempty"`
+	PublicConditions   []billingexpr.TierCondition `json:"display_conditions,omitempty"`
+	PublicConditional  bool                        `json:"display_conditional,omitempty"`
+	ID                 string                      `json:"id"`
+	Operation          string                      `json:"operation"`
+	Mode               string                      `json:"mode"`
+	MainComponent      string                      `json:"main_component"`
+	Prices             []CatalogPrice              `json:"prices"`
 }
 
 type PriceCatalog struct {

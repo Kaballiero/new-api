@@ -575,6 +575,12 @@ func TestPricingCatalogReductionPreservesSelection(t *testing.T) {
 			}
 			before := model.SelectCatalogOffer(scenario.offers)
 			after := model.SelectCatalogOffer(selectPricingCatalogOffers(scenario.offers))
+			if after != nil {
+				require.NotEmpty(t, after.PublicAlternatives)
+				copied := *after
+				copied.PublicAlternatives = nil
+				after = &copied
+			}
 			assert.Equal(t, before, after)
 		})
 	}
@@ -1364,4 +1370,219 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestPublicPricingModelsTagsPagingAndSafeTariffs(t *testing.T) {
+	ctx := pricingPageFixture()
+	ctx.groupRatios["default"] = 3
+	for i := range ctx.pricing {
+		ctx.pricing[i].Tags = "TOP, text;Featured| audio"
+	}
+	ctx.pricing[1].Tags = "top image"
+	ctx.pricing = append(ctx.pricing, model.Pricing{ModelName: "not-top", Tags: "stopping,text", EnableGroup: []string{"default"}})
+	before, err := common.Marshal(ctx.pricing)
+	require.NoError(t, err)
+	query, err := parsePublicPricingModelsQuery("tag=%20TOP%20&tag=TEXT&page_size=1")
+	require.NoError(t, err)
+	page := buildPublicPricingModelsPage(ctx, query)
+	assert.Equal(t, 2, page.TotalCount)
+	require.Len(t, page.Data, 1)
+	assert.Equal(t, "a-text", page.Data[0].ModelName)
+	require.Len(t, page.Data[0].Tariff.Operations, 1)
+	operation := page.Data[0].Tariff.Operations[0]
+	assert.Equal(t, 600., *operation.Prices[0].AmountRub)
+	query.page = 2
+	page = buildPublicPricingModelsPage(ctx, query)
+	require.Len(t, page.Data, 1)
+	assert.Equal(t, "z-text", page.Data[0].ModelName)
+	query.page = 9007199254740991
+	assert.Empty(t, buildPublicPricingModelsPage(ctx, query).Data)
+	query.tags = []string{"unknown"}
+	assert.Zero(t, buildPublicPricingModelsPage(ctx, query).TotalCount)
+	after, err := common.Marshal(ctx.pricing)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after))
+	bytes, err := common.Marshal(page)
+	require.NoError(t, err)
+	for _, forbidden := range []string{"amount_usd", "ratio", "formula", "accounting", "billing_sources", "expression", "group_prices"} {
+		assert.NotContains(t, string(bytes), `"`+forbidden+`"`)
+	}
+	query, err = parsePublicPricingModelsQuery("tag=top")
+	require.NoError(t, err)
+	assert.Equal(t, 10, query.pageSize)
+	assert.Equal(t, 1, query.page)
+	ctx.pricing = nil
+	for i := range 12 {
+		ctx.pricing = append(ctx.pricing, model.Pricing{ModelName: fmt.Sprintf("model-%02d", i), Tags: "top", EnableGroup: []string{"default"}})
+	}
+	page = buildPublicPricingModelsPage(ctx, query)
+	assert.Len(t, page.Data, 10)
+	assert.Equal(t, 12, page.TotalCount)
+}
+
+func TestPublicPricingModelsInvalidQuery(t *testing.T) {
+	for _, raw := range []string{"", "tag=", "tag=top,text", "tag=top%20text", "tag=top;", "tag=%zz", "tag=top&p=0", "tag=top&p=-1", "tag=top&p=1.1", "tag=top&p=+1", "tag=top&p=1&p=2", "tag=top&page_size=0", "tag=top&page_size=101", "tag=top&page_size=1&page_size=1", "tag=top&group=default", "tag=top&using_group=premium", "tag=top&limit=10", "tag=top&p=9007199254740992"} {
+		t.Run(raw, func(t *testing.T) { _, err := parsePublicPricingModelsQuery(raw); require.Error(t, err) })
+	}
+}
+
+func TestPublicPricingModelsConditionalAlternativesAndUnknown(t *testing.T) {
+	ctx := pricingPageFixture()
+	ctx.groupRatios["default"] = 2
+	ctx.fxFactor = .9
+	offers := []model.CatalogOffer{
+		{ID: "conditional:a", Operation: "speech_generation", Mode: "sync", MainComponent: "input", PublicConditional: true, PublicConditions: []billingexpr.TierCondition{{Var: "len", Op: "<=", Value: 100}}, Prices: []model.CatalogPrice{{Component: "input", Unit: "million_characters", AmountUSD: float(0)}}},
+		{ID: "conditional:b", Operation: "speech_generation", Mode: "sync", MainComponent: "input", PublicConditional: true, PublicConditions: []billingexpr.TierCondition{{Var: "len", Op: "<=", Value: 100, Negated: true}}, Prices: []model.CatalogPrice{{Component: "input", Unit: "million_characters", AmountUSD: float(5)}}},
+		{ID: "unknown", Operation: "transcription", Mode: "sync", MainComponent: "audio_input", Prices: []model.CatalogPrice{{Component: "audio_input", Unit: "minute"}}},
+	}
+	item := model.Pricing{PublicCatalogOffersByGroup: map[string][]model.CatalogOffer{"default": offers}}
+	result := buildPublicModelTariff(ctx, item)
+	require.Len(t, result.Operations, 2)
+	speech := result.Operations[0]
+	assert.True(t, speech.IsFrom)
+	assert.False(t, speech.IsFree)
+	require.Len(t, speech.Tiers, 2)
+	assert.Equal(t, 0., *speech.Tiers[0].Prices[0].AmountRub)
+	assert.Equal(t, 900., *speech.Tiers[1].Prices[0].AmountRub)
+	assert.Equal(t, "million_characters", speech.Tiers[1].Prices[0].Unit)
+	assert.Equal(t, "not", speech.Tiers[1].Condition.Kind)
+	unknown := result.Operations[1]
+	assert.False(t, unknown.IsFree)
+	require.Len(t, unknown.Tiers, 1)
+	assert.Nil(t, unknown.Tiers[0].Prices[0].AmountRub)
+	guard := publicPricingGuard(billingexpr.TierCondition{Op: "||", Operands: []billingexpr.TierCondition{{Var: "hour", Arg: "UTC", Op: "<", Value: 4}, {Op: "&&", Operands: []billingexpr.TierCondition{{Var: "p", Op: ">", Value: 3}, {Var: "c", Op: "==", Value: 0}}}}, Negated: true})
+	assert.Equal(t, "not", guard.Kind)
+	require.Len(t, guard.Conditions, 1)
+	assert.Equal(t, "any_of", guard.Conditions[0].Kind)
+	assert.Equal(t, "all_of", guard.Conditions[0].Conditions[1].Kind)
+}
+
+func TestPublicNativePricingGuardsRetainCalendarAndThreshold(t *testing.T) {
+	body := []byte(`{"data":{"id":"provider/guarded","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"pricing":{"prompt":"0.000001","completion":"0.000002","overrides":[{"min_prompt_tokens":100,"utc_start":2200,"utc_end":200,"utc_days":["monday"],"completion":"0"}]}}]}}`)
+	offers, err := normalizeEndpointPricing("provider/guarded", "text", "output", body)
+	require.NoError(t, err)
+	require.Len(t, offers, 2)
+	for _, offer := range offers {
+		require.NotEmpty(t, offer.PublicConditions)
+		assert.True(t, offer.PublicConditional)
+	}
+	encoded, err := common.Marshal(offers)
+	require.NoError(t, err)
+	var restored []model.CatalogOffer
+	require.NoError(t, common.Unmarshal(encoded, &restored))
+	assert.Equal(t, offers, restored)
+	ctx := pricingPageFixture()
+	item := model.Pricing{PublicCatalogOffersByGroup: map[string][]model.CatalogOffer{"default": restored}}
+	tariff := buildPublicModelTariff(ctx, item)
+	require.Len(t, tariff.Operations, 1)
+	require.Len(t, tariff.Operations[0].Tiers, 2)
+	wire, err := common.Marshal(tariff)
+	require.NoError(t, err)
+	assert.Contains(t, string(wire), "utc_minute")
+	assert.Contains(t, string(wire), "weekday")
+	assert.Contains(t, string(wire), "any_of")
+	assert.Contains(t, string(wire), "input")
+	assert.NotContains(t, string(wire), "amount_usd")
+	assert.NotContains(t, string(wire), "native:")
+}
+
+func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	common.OptionMapRWMutex.Lock()
+	previousOptions := common.OptionMap
+	previousCatalog := previousOptions[model.PricingCatalogOptionKey]
+	if previousCatalog == "" {
+		previousCatalog = `{"version":1,"entries":{}}`
+	}
+	common.OptionMap = make(map[string]string)
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		require.NoError(t, model.UpdateOption(model.PricingCatalogOptionKey, previousCatalog))
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousOptions
+		common.OptionMapRWMutex.Unlock()
+	})
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.ModelCostFXRow{}))
+	previousMemory := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemory; model.InvalidatePricingCache() })
+	previousQuota := common.QuotaPerUnit
+	previousExchange := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	common.QuotaPerUnit = 500000
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQuota
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousExchange
+	})
+	now := time.Now().Unix()
+	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	channel := &model.Channel{Id: 990, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "secret-fixture", Models: "provider/model", Group: "default"}
+	require.NoError(t, db.Create(channel).Error)
+	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "provider/model", ChannelId: channel.Id, Enabled: true}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "provider/model", Tags: "top text", Status: 1, NameRule: model.NameRuleExact}).Error)
+	client := service.GetHttpClient()
+	if client == nil {
+		client = http.DefaultClient
+	}
+	oldTransport := client.Transport
+	t.Cleanup(func() { client.Transport = oldTransport })
+	attempts := 0
+	client.Transport = pricingCatalogTestTransport(func(*http.Request) (*http.Response, error) {
+		attempts++
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"data":{"id":"provider/model","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[{"tag":"native","pricing":{"prompt":"0.000001","completion":"0.000002","overrides":[{"min_prompt_tokens":100,"completion":"0"}]}}]}}`))}, nil
+	})
+	entry, err := fetchPricingCatalogSource(context.Background(), pricingCatalogSource{channel: channel, upstream: "provider/model", endpoint: constant.EndpointTypeOpenAI, fingerprint: model.PricingCatalogSourceFingerprint(channel, "provider/model", constant.EndpointTypeOpenAI)})
+	require.NoError(t, err)
+	require.Len(t, entry.Offers, 1)
+	require.Len(t, entry.Offers[0].PublicAlternatives, 2)
+	require.NoError(t, model.PublishPricingCatalogEntry(entry))
+	model.InitChannelCache()
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?tag=top&tag=text", nil)
+	GetPublicPricingModels(ctx)
+	require.Equal(t, 200, recorder.Code, recorder.Body.String())
+	var wire struct {
+		Data publicPricingModelsPage `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &wire))
+	require.Len(t, wire.Data.Data, 1)
+	operations := wire.Data.Data[0].Tariff.Operations
+	require.Len(t, operations, 1)
+	require.Len(t, operations[0].Tiers, 2)
+	assert.True(t, operations[0].IsFrom)
+	assert.False(t, operations[0].IsFree)
+	for _, tier := range operations[0].Tiers {
+		require.NotEmpty(t, tier.Prices)
+		require.NotNil(t, tier.Condition)
+		for _, price := range tier.Prices {
+			require.NotNil(t, price.AmountRub)
+		}
+	}
+	assert.Equal(t, 1, attempts)
+	require.Len(t, entry.Offers[0].PublicAlternatives, 2)
+	assert.Equal(t, "native:0:0", entry.Offers[0].PublicAlternatives[0].ID)
+	revision := wire.Data.CatalogRevision
+	require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", "provider/model").Update("tags", "top video").Error)
+	model.RefreshPricing()
+	for _, category := range []string{"text", "video"} {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?tag=top&tag="+category, nil)
+		GetPublicPricingModels(ctx)
+		require.Equal(t, 200, recorder.Code, recorder.Body.String())
+		var updated struct {
+			Data publicPricingModelsPage `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &updated))
+		assert.NotEqual(t, revision, updated.Data.CatalogRevision)
+		if category == "text" {
+			assert.Empty(t, updated.Data.Data)
+		} else {
+			require.Len(t, updated.Data.Data, 1)
+			assert.Equal(t, []string{"top", "video"}, updated.Data.Data[0].Tags)
+		}
+	}
+	assert.Equal(t, []string{"text", "top"}, wire.Data.Data[0].Tags)
+	assert.Equal(t, 1, attempts)
 }

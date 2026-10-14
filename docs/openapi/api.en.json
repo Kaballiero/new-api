@@ -5608,6 +5608,232 @@
         },
         "type": "object"
       },
+      "PublicModelTariff": {
+        "properties": {
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/PublicPricingOperation"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "operations"
+        ],
+        "type": "object"
+      },
+      "PublicPricingCondition": {
+        "properties": {
+          "argument": {
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/PublicPricingCondition"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "comparison",
+              "all_of",
+              "any_of",
+              "not"
+            ],
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "PublicPricingModel": {
+        "properties": {
+          "creator": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EffectivePricingCreator"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "owner_by": {
+            "type": "string"
+          },
+          "supported_endpoint_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tariff": {
+            "$ref": "#/components/schemas/PublicModelTariff"
+          }
+        },
+        "required": [
+          "model_name",
+          "tags",
+          "owner_by",
+          "supported_endpoint_types",
+          "creator",
+          "tariff"
+        ],
+        "type": "object"
+      },
+      "PublicPricingModelsPage": {
+        "properties": {
+          "catalog_revision": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "currency": {
+            "enum": [
+              "RUB"
+            ],
+            "type": "string"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PublicPricingModel"
+            },
+            "type": "array"
+          },
+          "p": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page_size": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "schema_version": {
+            "enum": [
+              "v1"
+            ],
+            "type": "string"
+          },
+          "total_count": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "schema_version",
+          "catalog_revision",
+          "currency",
+          "p",
+          "page_size",
+          "total_count",
+          "data"
+        ],
+        "type": "object"
+      },
+      "PublicPricingModelsResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PublicPricingModelsPage"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "type": "object"
+      },
+      "PublicPricingOperation": {
+        "properties": {
+          "is_free": {
+            "type": "boolean"
+          },
+          "is_from": {
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "sync",
+              "batch"
+            ],
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "prices": {
+            "items": {
+              "$ref": "#/components/schemas/EffectiveUnitPrice"
+            },
+            "type": "array"
+          },
+          "tiers": {
+            "items": {
+              "$ref": "#/components/schemas/PublicPricingTier"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "operation",
+          "mode",
+          "prices",
+          "tiers",
+          "is_from",
+          "is_free"
+        ],
+        "type": "object"
+      },
+      "PublicPricingTier": {
+        "properties": {
+          "condition": {
+            "$ref": "#/components/schemas/PublicPricingCondition"
+          },
+          "prices": {
+            "items": {
+              "$ref": "#/components/schemas/EffectiveUnitPrice"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "prices"
+        ],
+        "type": "object"
+      },
       "QuotaDataRow": {
         "properties": {
           "count": {
@@ -29449,6 +29675,160 @@
           }
         ],
         "summary": "get /api/pricing/effective",
+        "tags": [
+          "Uncategorized"
+        ]
+      }
+    },
+    "/api/pricing/effective/models": {
+      "get": {
+        "deprecated": false,
+        "description": "Anonymous default-group customer tariffs. Required repeated tag parameters are normalized lowercase exact tokens and combined with AND. Filtering precedes deterministic model-name ordering and pagination. Unknown tags return an empty page. All other parameters, group overrides, duplicate singleton values, and malformed values are rejected. Prices include the default group markup; null means unknown and zero means free. Conditional alternatives retain structured guards.",
+        "parameters": [
+          {
+            "description": "Repeated exact single tags; AND semantics. Commas, semicolons, pipes and internal whitespace are rejected.",
+            "explode": true,
+            "in": "query",
+            "name": "tag",
+            "required": true,
+            "schema": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "p",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicPricingModelsResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request — invalid_params, validation failed, or other client error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized — missing or invalid auth credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden — insufficient role/permission or feature disabled"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Not found — referenced resource does not exist"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict — resource already exists or state precludes the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable entity — well-formed but semantically invalid input"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error — DB transaction failure or unhandled exception"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad gateway — upstream provider (LLM API, model registry) failed"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable — current billing FX basis is unavailable or invalid"
+          }
+        },
+        "security": [],
+        "summary": "get /api/pricing/effective/models",
         "tags": [
           "Uncategorized"
         ]
