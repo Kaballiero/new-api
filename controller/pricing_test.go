@@ -908,7 +908,9 @@ func TestPricingCatalogVariantIdentityAndMixedOutputBasis(t *testing.T) {
 			require.NotNil(t, model.SelectCatalogOffer(offers))
 			assert.Contains(t, offers[0].Prices, model.CatalogPrice{Component: "audio_output", Unit: "million_tokens", AmountUSD: float(30)})
 		} else {
-			assert.Nil(t, model.SelectCatalogOffer(offers))
+			require.NotNil(t, model.SelectCatalogOffer(offers))
+			assert.Contains(t, offers[0].Prices, model.CatalogPrice{Component: "input", Unit: "million_tokens", AmountUSD: float(1)})
+			assert.Contains(t, offers[0].Prices, model.CatalogPrice{Component: "output", Unit: "million_tokens", AmountUSD: float(2)})
 		}
 	}
 	body := []byte(`{"data":{"id":"provider/model:free","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[]}}`)
@@ -918,6 +920,17 @@ func TestPricingCatalogVariantIdentityAndMixedOutputBasis(t *testing.T) {
 	assert.Nil(t, model.SelectCatalogOffer(offers))
 	_, err = normalizeEndpointPricing("provider/model", "text", "output", []byte(`{"data":{"id":"provider/model","architecture":{},"endpoints":[]}}`))
 	require.ErrorContains(t, err, "operation")
+	for _, fee := range []string{"0", "0.0001"} {
+		body := []byte(`{"data":{"id":"provider/model","architecture":{"input_modalities":["text"],"output_modalities":["text","image"]},"endpoints":[{"pricing":{"prompt":"0.000001","completion":"0.000002","image_output":"0.00003","unknown_fee":"` + fee + `"}}]}}`)
+		offers, err := normalizeEndpointPricing("provider/model", "text", "output", body)
+		require.NoError(t, err)
+		if fee == "0" {
+			require.NotNil(t, model.SelectCatalogOffer(offers))
+		} else {
+			assert.Nil(t, model.SelectCatalogOffer(offers))
+		}
+	}
+
 }
 
 func TestPricingCatalogSourceJobsUseNativeCapabilitiesAndExactBatch(t *testing.T) {
@@ -1312,11 +1325,11 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 	now := time.Now().Unix()
 	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
 	require.NoError(t, db.Create(&model.User{Id: 2198, Username: "audio-pricing-user", Password: "fixture", Group: "default", Status: common.UserStatusEnabled}).Error)
-	require.NoError(t, db.Create(&model.Channel{Id: 998, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: "gpt-realtime-mini,gpt-4o-transcribe-diarize,gpt-4o-mini-tts"}).Error)
-	for _, name := range []string{"gpt-realtime-mini", "gpt-4o-transcribe-diarize", "gpt-4o-mini-tts"} {
+	require.NoError(t, db.Create(&model.Channel{Id: 998, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: "gpt-realtime-mini,gpt-4o-transcribe-diarize,gpt-4o-mini-tts,gpt-transcribe"}).Error)
+	for _, name := range []string{"gpt-realtime-mini", "gpt-4o-transcribe-diarize", "gpt-4o-mini-tts", "gpt-transcribe"} {
 		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 998, Enabled: true}).Error)
 	}
-	withTieredBillingConfig(t, map[string]string{"gpt-realtime-mini": "tiered_expr", "gpt-4o-transcribe-diarize": "tiered_expr", "gpt-4o-mini-tts": "tiered_expr"}, map[string]string{"gpt-realtime-mini": `tier("base",p*.6+c*2.4+cr*.06+ai*10+ao*20+img*.8)`, "gpt-4o-transcribe-diarize": `tier("base",p*2.5+c*10)`, "gpt-4o-mini-tts": `tier("base",p*.6+c*12+ao*12)`})
+	withTieredBillingConfig(t, map[string]string{"gpt-realtime-mini": "tiered_expr", "gpt-4o-transcribe-diarize": "tiered_expr", "gpt-4o-mini-tts": "tiered_expr", "gpt-transcribe": "tiered_expr"}, map[string]string{"gpt-realtime-mini": `tier("base",p*.6+c*2.4+cr*.06+ai*10+ao*20+img*.8)`, "gpt-4o-transcribe-diarize": `tier("base",p*2.5+c*10)`, "gpt-4o-mini-tts": `tier("base",p*.6+c*12+ao*12)`, "gpt-transcribe": `tier("base",p*4.5)`})
 	model.InitChannelCache()
 	var expected []consumerPricingModel
 	for _, handler := range []gin.HandlerFunc{GetEffectivePricing, GetEffectivePricingByGroup} {
@@ -1333,7 +1346,7 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 				} `json:"data"`
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &envelope))
-			require.Len(t, envelope.Data.Data, 3)
+			require.Len(t, envelope.Data.Data, 4)
 			if expected == nil {
 				expected = envelope.Data.Data
 			} else {
@@ -1362,10 +1375,16 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 					assert.InDelta(t, 54.0, *prices["input"].AmountRub, 1e-9)
 				} else {
 					assert.Equal(t, "transcription", operation.Operation)
-					require.Len(t, prices, 1)
-					assert.NotContains(t, prices, "input")
-					assert.Equal(t, "million_tokens", prices["output"].Unit)
-					require.NotNil(t, prices["output"].AmountRub)
+					assert.Equal(t, "million_tokens", prices["input"].Unit)
+					require.NotNil(t, prices["input"].AmountRub)
+					if item.ModelName == "gpt-transcribe" {
+						require.Len(t, prices, 1)
+						assert.InDelta(t, 405.0, *prices["input"].AmountRub, 1e-9)
+					} else {
+						require.Len(t, prices, 2)
+						assert.Equal(t, "million_tokens", prices["output"].Unit)
+						require.NotNil(t, prices["output"].AmountRub)
+					}
 				}
 			}
 		}
@@ -1585,4 +1604,41 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	}
 	assert.Equal(t, []string{"text", "top"}, wire.Data.Data[0].Tags)
 	assert.Equal(t, 1, attempts)
+	imageChannel := &model.Channel{Id: 992, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "fixture", Models: "google/gemini-image", Group: "default"}
+	require.NoError(t, db.Create(imageChannel).Error)
+	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "google/gemini-image", ChannelId: 992, Enabled: true}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "google/gemini-image", Tags: "top image", Status: 1, NameRule: model.NameRuleExact}).Error)
+	textOffers, err := normalizeEndpointPricing("google/gemini-image", "text", "output", []byte(`{"data":{"id":"google/gemini-image","architecture":{"input_modalities":["text","image"],"output_modalities":["text","image"]},"endpoints":[{"tag":"studio","pricing":{"prompt":"0.0000005","completion":"0.000003","image_output":"0.00006"}}]}}`))
+	require.NoError(t, err)
+	imageOffers, err := normalizeImagePricing("google/gemini-image", []byte(`{"id":"google/gemini-image","endpoints":[{"provider_tag":"studio","pricing":[{"billable":"output_image","unit":"token","cost_usd":0.00006}]}]}`))
+	require.NoError(t, err)
+	for endpoint, offers := range map[constant.EndpointType][]model.CatalogOffer{constant.EndpointTypeOpenAI: textOffers, constant.EndpointTypeImageGeneration: imageOffers} {
+		require.NoError(t, model.PublishPricingCatalogEntry(model.PricingCatalogEntry{ChannelID: 992, UpstreamModel: "google/gemini-image", Endpoint: endpoint, Source: "https://openrouter.ai/api/v1/models/google/gemini-image/endpoints", FetchedAt: time.Now().UTC().Format(time.RFC3339Nano), Fingerprint: model.PricingCatalogSourceFingerprint(imageChannel, "google/gemini-image", endpoint), Offers: selectPricingCatalogOffers(offers)}))
+	}
+	model.InitChannelCache()
+	imageRecorder := httptest.NewRecorder()
+	imageContext, _ := gin.CreateTestContext(imageRecorder)
+	imageContext.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?tag=top&tag=image", nil)
+	GetPublicPricingModels(imageContext)
+	require.Equal(t, http.StatusOK, imageRecorder.Code, imageRecorder.Body.String())
+	require.NoError(t, common.Unmarshal(imageRecorder.Body.Bytes(), &wire))
+	require.Len(t, wire.Data.Data, 1)
+	var imagePrices []consumerUnitPrice
+	for _, operation := range wire.Data.Data[0].Tariff.Operations {
+		if operation.Operation == "image_generation" {
+			imagePrices = operation.Prices
+		}
+	}
+	require.Len(t, imagePrices, 2)
+	for _, price := range imagePrices {
+		require.NotNil(t, price.AmountRub)
+		assert.Equal(t, "million_tokens", price.Unit)
+		if price.Component == "input" {
+			assert.InDelta(t, 45., *price.AmountRub, 1e-9)
+		} else {
+			assert.Equal(t, "image_output", price.Component)
+			assert.InDelta(t, 5400., *price.AmountRub, 1e-9)
+		}
+	}
+
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -39,7 +40,7 @@ func configuredPricingOperation(channel *Channel, public, upstream string, endpo
 			}
 			return pricingOperation{"transcription", "audio_input", basis}
 		case "gpt-4o-transcribe", "gpt-4o-transcribe-diarize", "gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe-2025-03-20", "gpt-4o-mini-transcribe-2025-12-15", "gpt-transcribe":
-			return pricingOperation{"transcription", "output", "transcription_output_tokens"}
+			return pricingOperation{"transcription", "input", "tokens"}
 		case "gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-03-20", "gpt-4o-mini-tts-2025-12-15":
 			if constant.CountToken && (&dto.AudioRequest{Model: public}).GetTokenCountMeta().TokenType == types.TokenTypeTokenizer {
 				return pricingOperation{"speech_generation", "input", "speech_input_tokens"}
@@ -133,12 +134,7 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 			valid, outputPayable := true, false
 			for _, price := range row {
 				component, unit, amount := pricingComponent(price.Component), price.Unit, price.AmountUSD
-				if profile.basis == "transcription_output_tokens" && !fixed && component == "input" {
-					if amount != 0 {
-						offer.Prices = append(offer.Prices, CatalogPrice{Component: component, Unit: "unknown"})
-					}
-					continue
-				}
+
 				if profile.basis == "speech_input_tokens" && !fixed {
 					if component == "output" || component == "audio_output" {
 						outputPayable = outputPayable || amount != 0
@@ -174,6 +170,9 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 				offer.Prices = append(offer.Prices, CatalogPrice{Component: component, Unit: unit, AmountUSD: &amount})
 			}
 			if valid {
+				if profile.operation == "transcription" && !slices.ContainsFunc(offer.Prices, func(price CatalogPrice) bool { return price.Component == "input" }) && slices.ContainsFunc(offer.Prices, func(price CatalogPrice) bool { return price.Component == "output" }) {
+					offer.MainComponent = "output"
+				}
 				if outputPayable {
 					offer.Prices = append(offer.Prices, CatalogPrice{Component: "audio_output", Unit: "unknown"})
 				}
@@ -226,19 +225,11 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 		}
 		return []CatalogOffer{unknown}
 	}
-	if profile.basis == "transcription_output_tokens" {
-		unknown.Prices = []CatalogPrice{}
-		if input != 0 {
-			unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "input", Unit: "unknown"})
-		}
-		output := input * pricing.CompletionRatio
-		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "output", Unit: "million_tokens", AmountUSD: &output})
-		return []CatalogOffer{unknown}
-	}
+
 	if profile.basis != "tokens" && profile.basis != "image_tokens" && profile.basis != "realtime_tokens" {
 		return []CatalogOffer{unknown}
 	}
-	if profile.operation == "text" || profile.operation == "image_generation" || profile.operation == "realtime" {
+	if profile.operation == "text" || profile.operation == "image_generation" || profile.operation == "realtime" || profile.operation == "transcription" {
 		output := input * pricing.CompletionRatio
 		unknown.Prices = append(unknown.Prices, CatalogPrice{Component: "output", Unit: unit, AmountUSD: &output})
 	}
@@ -356,6 +347,7 @@ func projectPricingOperationsMode(pricing *Pricing, abilities []AbilityWithChann
 			continue
 		}
 		if actual {
+			offers = imagePricingWithTokenInputs(offers)
 			if len(offers) == 0 {
 				if source, known := GetPricingCatalogEntry(channel, upstream, constant.EndpointTypeOpenAI); known && len(source.Offers) == 0 {
 					continue
@@ -450,6 +442,87 @@ func ConsumerPricingCatalogue(pricing []Pricing, usableGroups map[string]string)
 			result[index].CatalogOffersByGroup[group] = append(result[index].CatalogOffersByGroup[group], item.CatalogOffersForGroup(group)...)
 			result[index].PublicCatalogOffersByGroup[group] = append(result[index].PublicCatalogOffersByGroup[group], item.PublicCatalogOffersByGroup["all"]...)
 			result[index].PublicCatalogOffersByGroup[group] = append(result[index].PublicCatalogOffersByGroup[group], item.PublicCatalogOffersByGroup[group]...)
+		}
+	}
+	return result
+}
+
+func catalogOfferProviderKey(id string) string {
+	last := strings.LastIndex(id, ":")
+	if last < 0 {
+		return ""
+	}
+	previous := strings.LastIndex(id[:last], ":")
+	if previous < 0 {
+		return ""
+	}
+	if _, err := strconv.ParseUint(id[previous+1:last], 10, 64); err != nil {
+		return ""
+	}
+	key := id[:previous]
+	if strings.Count(key, ":") < 2 || strings.HasSuffix(key, ":") {
+		return ""
+	}
+	return key
+}
+
+func imagePricingWithTokenInputs(offers []CatalogOffer) []CatalogOffer {
+	result := slices.Clone(offers)
+	for index, offer := range offers {
+		if offer.Operation != "image_generation" {
+			continue
+		}
+		images := offer.PublicAlternatives
+		if len(images) == 0 {
+			images = []CatalogOffer{offer}
+		}
+		combined := []CatalogOffer{}
+		for _, image := range images {
+			provider := catalogOfferProviderKey(image.ID)
+			matched := false
+			for _, tokenOffer := range offers {
+				if tokenOffer.Operation != "text" || tokenOffer.Mode != image.Mode {
+					continue
+				}
+				tokens := tokenOffer.PublicAlternatives
+				if len(tokens) == 0 {
+					tokens = []CatalogOffer{tokenOffer}
+				}
+				for _, token := range tokens {
+					if provider == "" || catalogOfferProviderKey(token.ID) != provider {
+						continue
+					}
+					merged := image
+					merged.Prices = slices.Clone(image.Prices)
+					merged.PublicAlternatives = nil
+					added := false
+					for _, price := range token.Prices {
+						if !slices.Contains([]string{"input", "cache_read", "cache_write", "cache_write_1h"}, price.Component) {
+							continue
+						}
+						if slices.ContainsFunc(merged.Prices, func(existing CatalogPrice) bool { return existing.Component == price.Component }) {
+							continue
+						}
+						merged.Prices = append(merged.Prices, price)
+						added = true
+					}
+					if !added {
+						continue
+					}
+					merged.ID = image.ID + ":tokens:" + token.ID
+					merged.PublicConditions = append(slices.Clone(image.PublicConditions), token.PublicConditions...)
+					merged.PublicConditional = image.PublicConditional || token.PublicConditional
+					combined = append(combined, merged)
+					matched = true
+				}
+			}
+			if !matched {
+				combined = append(combined, image)
+			}
+		}
+		if selected := SelectCatalogOffer(combined); selected != nil {
+			result[index] = *selected
+			result[index].PublicAlternatives = combined
 		}
 	}
 	return result
