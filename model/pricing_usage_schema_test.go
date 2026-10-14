@@ -641,10 +641,15 @@ func TestPricingMiniTTSKeepsTextInputAndExplicitUnknownOutput(t *testing.T) {
 func TestPricingCatalogueFingerprintIsCanonicalAndTracksConsumerChanges(t *testing.T) {
 	fixture := func() []Pricing {
 		input, output := 1.0, 2.0
-		return []Pricing{
+		items := []Pricing{
 			{ModelName: "alpha", VendorID: 1, EnableGroup: []string{"premium", "default"}, SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAIResponse, constant.EndpointTypeOpenAI}, ConsumerCanonicalModelsByGroup: map[string]string{"premium": "alpha", "default": "alpha"}, CatalogOffersByGroup: map[string][]CatalogOffer{"default": {{ID: "b", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: &output}, {Component: "input", Unit: "million_tokens", AmountUSD: &input}}}, {ID: "a", Operation: "text", Mode: "batch", MainComponent: "output", Prices: []CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: &input}}}}}},
 			{ModelName: "beta", EnableGroup: []string{"default"}},
 		}
+		items[0].PublicCatalogOffersByGroup = map[string][]CatalogOffer{"default": {
+			{ID: "video", Operation: "text_to_video", Mode: "sync", MainComponent: "video_output", Prices: []CatalogPrice{{Component: "video_output", Unit: "second", AmountUSD: &output}, {Component: "input", Unit: "million_tokens", AmountUSD: &input}}},
+			{ID: "image", Operation: "image_generation", Mode: "sync", MainComponent: "image_output", Prices: []CatalogPrice{{Component: "image_output", Unit: "image", AmountUSD: &input}}},
+		}}
+		return items
 	}
 	vendors := []PricingVendor{{ID: 2, Name: "Second"}, {ID: 1, Name: "First"}}
 	original := fixture()
@@ -656,12 +661,17 @@ func TestPricingCatalogueFingerprintIsCanonicalAndTracksConsumerChanges(t *testi
 	offers := permuted[0].CatalogOffersByGroup["default"]
 	offers[0].Prices[0], offers[0].Prices[1] = offers[0].Prices[1], offers[0].Prices[0]
 	offers[0], offers[1] = offers[1], offers[0]
+	publicOffers := permuted[0].PublicCatalogOffersByGroup["default"]
+	publicOffers[0].Prices[0], publicOffers[0].Prices[1] = publicOffers[0].Prices[1], publicOffers[0].Prices[0]
+	publicOffers[0], publicOffers[1] = publicOffers[1], publicOffers[0]
 	permuted[0], permuted[1] = permuted[1], permuted[0]
 	after, err := pricingCatalogueFingerprint(permuted, []PricingVendor{vendors[1], vendors[0]})
 	require.NoError(t, err)
 	assert.Equal(t, before, after)
 	assert.Equal(t, []string{"premium", "default"}, original[0].EnableGroup)
 	assert.Equal(t, "output", original[0].CatalogOffersByGroup["default"][0].Prices[0].Component)
+	assert.Equal(t, "video", original[0].PublicCatalogOffersByGroup["default"][0].ID)
+	assert.Equal(t, "video_output", original[0].PublicCatalogOffersByGroup["default"][0].Prices[0].Component)
 	for _, change := range []func([]Pricing){
 		func(items []Pricing) {
 			value := 3.0
@@ -670,8 +680,18 @@ func TestPricingCatalogueFingerprintIsCanonicalAndTracksConsumerChanges(t *testi
 		func(items []Pricing) { items[0].CatalogOffersByGroup["default"][0].Operation = "embeddings" },
 		func(items []Pricing) { items[0].EnableGroup = []string{"default"} },
 		func(items []Pricing) { items[0].Tags = "top text" },
+		func(items []Pricing) { items[0].Description = "new description" },
 		func(items []Pricing) {
-			items[0].PublicCatalogOffersByGroup = map[string][]CatalogOffer{"default": {{PublicConditions: []billingexpr.TierCondition{{Var: "len", Op: ">", Value: 100}}}}}
+			value := 3.0
+			items[0].PublicCatalogOffersByGroup["default"][0].Prices[0].AmountUSD = &value
+		},
+		func(items []Pricing) { items[0].PublicCatalogOffersByGroup["default"][0].Operation = "image_to_video" },
+		func(items []Pricing) {
+			items[0].PublicCatalogOffersByGroup["premium"] = items[0].PublicCatalogOffersByGroup["default"]
+			delete(items[0].PublicCatalogOffersByGroup, "default")
+		},
+		func(items []Pricing) {
+			items[0].PublicCatalogOffersByGroup["default"][0].PublicConditions = []billingexpr.TierCondition{{Var: "len", Op: ">", Value: 100}}
 		},
 		func(items []Pricing) { items[0].ConsumerCanonicalModelsByGroup["default"] = "other" },
 	} {
@@ -706,6 +726,71 @@ func TestPricingCatalogueSnapshotKeepsCapturedRowsWithTheirRevision(t *testing.T
 	captured, err = pricingCatalogueFingerprint(rows, vendors)
 	require.NoError(t, err)
 	assert.Equal(t, revision, captured)
+}
+
+func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
+	for _, field := range []string{"billing_mode", "billing_expr", "batch_billing_expr"} {
+		t.Run(field, func(t *testing.T) {
+			resetPricingEndpointTestTables(t)
+			insertPricingEndpointChannel(t, 995, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+			insertPricingEndpointAbility(t, 995, "snapshot-model")
+			cfg := config.GlobalConfig.Get("billing_setting")
+			previous, err := config.ConfigToMap(cfg)
+			require.NoError(t, err)
+			previousOptions := common.OptionMap
+			common.OptionMap = map[string]string{}
+			t.Cleanup(func() {
+				require.NoError(t, config.UpdateConfigFromMap(cfg, previous))
+				common.OptionMap = previousOptions
+				InvalidatePricingCache()
+			})
+			key := "billing_setting." + field
+			value := `{"snapshot-model":"p*1", "other":"p*2"}`
+			if field == "billing_mode" {
+				value = `{"snapshot-model":"ratio", "other":"tiered_expr"}`
+			}
+			require.NoError(t, updateOptionMap(key, value))
+			InitChannelCache()
+			rows, _, _, err := GetPricingCatalogueSnapshot()
+			require.NoError(t, err)
+			require.NotEmpty(t, rows)
+			revision := GetPricingRevision()
+
+			// Database synchronization reapplies the same raw value.
+			require.NoError(t, updateOptionMap(key, value))
+			_, _, _, err = GetPricingCatalogueSnapshot()
+			require.NoError(t, err)
+			assert.Equal(t, revision, GetPricingRevision(), "unchanged option must retain the published snapshot")
+
+			// JSON whitespace and key order do not change the effective map.
+			reordered := `{"other":"p*2","snapshot-model":"p*1"}`
+			if field == "billing_mode" {
+				reordered = `{"other":"tiered_expr","snapshot-model":"ratio"}`
+			}
+			require.NoError(t, updateOptionMap(key, reordered))
+			_, _, _, err = GetPricingCatalogueSnapshot()
+			require.NoError(t, err)
+			assert.Equal(t, revision, GetPricingRevision(), "equivalent JSON must retain the published snapshot")
+			assert.Equal(t, reordered, common.OptionMap[key])
+
+			// The same database value must still restore changed in-memory state.
+			require.NoError(t, config.UpdateConfigFromMap(cfg, map[string]string{field: `{}`}))
+			require.NoError(t, updateOptionMap(key, reordered))
+			current, err := config.ConfigToMap(cfg)
+			require.NoError(t, err)
+			assert.JSONEq(t, reordered, current[field])
+			_, _, _, err = GetPricingCatalogueSnapshot()
+			require.NoError(t, err)
+			assert.Greater(t, GetPricingRevision(), revision, "restoring drift must invalidate the snapshot")
+			revision = GetPricingRevision()
+
+			// Removing configured models is a real pricing change.
+			require.NoError(t, updateOptionMap(key, `{}`))
+			_, _, _, err = GetPricingCatalogueSnapshot()
+			require.NoError(t, err)
+			assert.Greater(t, GetPricingRevision(), revision)
+		})
+	}
 }
 
 func TestPricingRealtimeProjectsConfiguredTokenCounters(t *testing.T) {

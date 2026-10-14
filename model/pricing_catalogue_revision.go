@@ -30,19 +30,13 @@ func pricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (st
 		slices.Sort(groups)
 		endpoints := append([]constant.EndpointType{}, item.SupportedEndpointTypes...)
 		slices.Sort(endpoints)
-		offers := make(map[string][]string, len(item.CatalogOffersByGroup))
-		for group, candidates := range item.CatalogOffersByGroup {
-			offers[group] = make([]string, 0, len(candidates))
-			for _, offer := range candidates {
-				offer.Prices = append([]CatalogPrice{}, offer.Prices...)
-				slices.SortFunc(offer.Prices, func(left, right CatalogPrice) int { return comparePricingFingerprintPrices(left, right) })
-				value, err := common.Marshal(offer)
-				if err != nil {
-					return "", err
-				}
-				offers[group] = append(offers[group], string(value))
-			}
-			slices.Sort(offers[group])
+		offers, err := pricingFingerprintOffers(item.CatalogOffersByGroup)
+		if err != nil {
+			return "", err
+		}
+		publicOffers, err := pricingFingerprintOffers(item.PublicCatalogOffersByGroup)
+		if err != nil {
+			return "", err
 		}
 		canonical := make(map[string]string, len(item.ConsumerCanonicalModelsByGroup))
 		for group, base := range item.ConsumerCanonicalModelsByGroup {
@@ -55,8 +49,8 @@ func pricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (st
 			Endpoints                                   []constant.EndpointType
 			Offers                                      map[string][]string
 			CanonicalGroups                             map[string]string
-			PublicOffers                                map[string][]CatalogOffer
-		}{item.ModelName, item.Description, item.Icon, item.Tags, item.OwnerBy, item.VendorID, groups, endpoints, offers, canonical, item.PublicCatalogOffersByGroup}
+			PublicOffers                                map[string][]string
+		}{item.ModelName, item.Description, item.Icon, item.Tags, item.OwnerBy, item.VendorID, groups, endpoints, offers, canonical, publicOffers}
 		value, err := common.Marshal(row)
 		if err != nil {
 			return "", err
@@ -75,6 +69,24 @@ func pricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (st
 	}
 	digest := sha256.Sum256(value)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+func pricingFingerprintOffers(byGroup map[string][]CatalogOffer) (map[string][]string, error) {
+	offers := make(map[string][]string, len(byGroup))
+	for group, candidates := range byGroup {
+		offers[group] = make([]string, 0, len(candidates))
+		for _, offer := range candidates {
+			offer.Prices = append([]CatalogPrice{}, offer.Prices...)
+			slices.SortFunc(offer.Prices, comparePricingFingerprintPrices)
+			value, err := common.Marshal(offer)
+			if err != nil {
+				return nil, err
+			}
+			offers[group] = append(offers[group], string(value))
+		}
+		slices.Sort(offers[group])
+	}
+	return offers, nil
 }
 
 func comparePricingFingerprintPrices(left, right CatalogPrice) int {
