@@ -148,7 +148,7 @@ function converted(ctx) {
   if (!params.resolution && req.size) params.resolution = resolutionForSize(req.size);
   if (!params.aspectRatio && req.size) params.aspectRatio = aspectForSize(req.size);
   if (params.resolution) params.resolution = String(params.resolution).toLowerCase();
-  params.numberOfVideos = 1;
+  params.sampleCount = 1;
   const instance = { prompt: req.prompt };
   const image = imageInput((req.images || [])[0], ctx.files);
   if (image) instance.image = image;
@@ -176,9 +176,7 @@ export function parseSubmitResponse(ctx, resp) {
   if (!String(body.name || "").trim()) throw new Error("missing operation name");
   const result = { taskId: utils.base64URL(body.name), taskData: body };
   if (body.done && !(body.error && body.error.message)) {
-    const videos = ((body.response || {}).generateVideoResponse || {}).generatedVideos || [];
-    const uri = videos.length && videos[0].video ? videos[0].video.uri || "" : "";
-    result.immediate = { taskId: result.taskId, status: "SUCCESS", progress: "100%", remoteUrl: uri };
+    result.immediate = { taskId: result.taskId, status: "SUCCESS", progress: "100%", remoteUrl: generatedVideoURI(body) };
   }
   return result;
 }
@@ -211,9 +209,7 @@ export function parseTaskResult(ctx, body) {
   // unrecognized.
   if (!body || typeof body !== "object" || !String(body.name || "").trim()) return { status: "UNKNOWN", reason: "unrecognized operation state" };
   if (body.done !== true) return { status: "IN_PROGRESS", progress: "50%" };
-  const videos = ((body.response || {}).generateVideoResponse || {}).generatedVideos || [];
-  const uri = videos.length && videos[0].video ? videos[0].video.uri || "" : "";
-  return { taskId: utils.base64URL(body.name || ""), status: "SUCCESS", progress: "100%", remoteUrl: uri };
+  return { taskId: utils.base64URL(body.name || ""), status: "SUCCESS", progress: "100%", remoteUrl: generatedVideoURI(body) };
 }
 
 function artifactData(ctx) {
@@ -222,9 +218,15 @@ function artifactData(ctx) {
   return data;
 }
 
-function artifactVideoURL(ctx) {
-  const videos = ((artifactData(ctx).response || {}).generateVideoResponse || {}).generatedVideos || [];
+// REST returns generatedSamples; generatedVideos is the SDK field name.
+function generatedVideoURI(body) {
+  const gvr = ((body || {}).response || {}).generateVideoResponse || {};
+  const videos = gvr.generatedSamples || gvr.generatedVideos || [];
   return videos.length && videos[0].video ? String(videos[0].video.uri || "").trim() : "";
+}
+
+function artifactVideoURL(ctx) {
+  return generatedVideoURI(artifactData(ctx));
 }
 
 export function listArtifacts(task) {
