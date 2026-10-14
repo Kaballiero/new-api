@@ -745,6 +745,67 @@ func TestPricingCatalogFetchUsesBoundedMetadataAndConsumerDoesNoHTTP(t *testing.
 	require.ErrorIs(t, <-done, context.Canceled)
 }
 
+func TestPricingCatalogFreeTextUsesConfirmedPublishedPrice(t *testing.T) {
+	page := `<html><script type="application/ld+json">{"@type":"SoftwareApplication","url":"https://openrouter.ai/apodex/apodex-1.1-mini","featureList":["Input modalities: text","Output modalities: text"],"offers":[{"@type":"Offer","price":0,"priceCurrency":"USD"}]}</script></html>`
+	for _, scenario := range []struct {
+		name     string
+		upstream string
+		page     string
+		free     bool
+	}{
+		{"confirmed zero", "apodex/apodex-1.1-mini:free", page, true},
+		{"exact variant URL", "apodex/apodex-1.1-mini:free", strings.Replace(page, `mini"`, `mini:free"`, 1), true},
+		{"name alone", "apodex/apodex-1.1-mini:free", `<html>Free</html>`, false},
+		{"paid variant", "apodex/apodex-1.1-mini", page, false},
+		{"another model", "other/model:free", page, false},
+		{"positive price", "apodex/apodex-1.1-mini:free", strings.Replace(page, `"price":0`, `"price":1`, 1), false},
+		{"missing price", "apodex/apodex-1.1-mini:free", strings.Replace(page, `"price":0,`, ``, 1), false},
+		{"null price", "apodex/apodex-1.1-mini:free", strings.Replace(page, `"price":0`, `"price":null`, 1), false},
+		{"wrong currency", "apodex/apodex-1.1-mini:free", strings.Replace(page, `"USD"`, `"EUR"`, 1), false},
+		{"different modalities", "apodex/apodex-1.1-mini:free", strings.Replace(page, `Output modalities: text`, `Output modalities: image`, 1), false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			offers := publishedFreeTextPricing(scenario.upstream, []byte(scenario.page))
+			if !scenario.free {
+				assert.Nil(t, offers)
+				return
+			}
+			require.NotNil(t, model.SelectCatalogOffer(offers))
+			item := model.Pricing{CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": offers}}
+			rows := consumerOperations(item, "default", 1.2, true)
+			require.Len(t, rows, 1)
+			assert.Equal(t, []consumerUnitPrice{{Component: "input", Unit: "million_tokens", AmountRub: float(0)}, {Component: "output", Unit: "million_tokens", AmountRub: float(0)}}, rows[0].Prices)
+		})
+	}
+	client := service.GetHttpClient()
+	if client == nil {
+		client = http.DefaultClient
+	}
+	previousTransport := client.Transport
+	t.Cleanup(func() { client.Transport = previousTransport })
+	requests := []string{}
+	client.Transport = pricingCatalogTestTransport(func(request *http.Request) (*http.Response, error) {
+		requests = append(requests, request.URL.String())
+		body := page
+		if strings.HasSuffix(request.URL.Path, "/endpoints") {
+			body = `{"data":{"id":"apodex/apodex-1.1-mini:free","architecture":{"input_modalities":["text"],"output_modalities":["text"]},"endpoints":[]}}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	channel := &model.Channel{Id: 990, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "secret-fixture", Models: "apodex-1.1-mini:free"}
+	source := pricingCatalogSource{channel: channel, upstream: "apodex/apodex-1.1-mini:free", endpoint: constant.EndpointTypeOpenAI, fingerprint: model.PricingCatalogSourceFingerprint(channel, "apodex/apodex-1.1-mini:free", constant.EndpointTypeOpenAI)}
+	entry, err := fetchPricingCatalogSource(context.Background(), source)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://openrouter.ai/api/v1/models/apodex/apodex-1.1-mini:free/endpoints", "https://openrouter.ai/apodex/apodex-1.1-mini:free"}, requests)
+	assert.Equal(t, "https://openrouter.ai/apodex/apodex-1.1-mini:free", entry.Source)
+	require.NotNil(t, model.SelectCatalogOffer(entry.Offers))
+	page = strings.Replace(page, `"price":0`, `"price":1`, 1)
+	entry, err = fetchPricingCatalogSource(context.Background(), source)
+	require.NoError(t, err)
+	assert.Nil(t, model.SelectCatalogOffer(entry.Offers))
+	assert.Contains(t, entry.Source, "/endpoints")
+}
+
 func TestPricingCatalogNativeTextRequiresArchitectureProof(t *testing.T) {
 	for _, architecture := range []string{`{"input_modalities":["text"],"output_modalities":["audio"]}`, `{"input_modalities":["text"],"output_modalities":["image"]}`} {
 		body := []byte(`{"data":{"id":"provider/model","architecture":` + architecture + `,"endpoints":[{"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`)

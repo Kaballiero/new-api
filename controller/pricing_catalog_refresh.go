@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"golang.org/x/net/html"
 )
 
 const pricingCatalogWorkers = 5
@@ -311,6 +312,15 @@ func fetchPricingCatalogSource(ctx context.Context, source pricingCatalogSource)
 	} else {
 		operation, main := consumerOperation(source.endpoint)
 		offers, err = normalizeEndpointPricing(discoveryModel, operation, main, body)
+		if err == nil && operation == "text" && source.endpoint != model.PricingEndpointBatch && strings.HasSuffix(discoveryModel, ":free") && len(offers) == 1 && offers[0].ID == "native:unknown" {
+			pageURL := "https://openrouter.ai/" + url.PathEscape(parts[0]) + "/" + url.PathEscape(parts[1])
+			if page, fetchErr := fetchPricingMetadata(ctx, source.channel, pageURL); fetchErr == nil {
+				if published := publishedFreeTextPricing(discoveryModel, page); published != nil {
+					offers = published
+					endpointURL = pageURL
+				}
+			}
+		}
 		if source.endpoint == model.PricingEndpointBatch {
 			for index := range offers {
 				offers[index].Mode = "batch"
@@ -321,6 +331,54 @@ func fetchPricingCatalogSource(ctx context.Context, source pricingCatalogSource)
 		return entry, err
 	}
 	return model.PricingCatalogEntry{ChannelID: source.channel.Id, UpstreamModel: source.upstream, Endpoint: source.endpoint, Source: endpointURL, FetchedAt: time.Now().UTC().Format(time.RFC3339Nano), Fingerprint: source.fingerprint, Offers: selectPricingCatalogOffers(offers)}, nil
+}
+
+func publishedFreeTextPricing(upstream string, body []byte) []model.CatalogOffer {
+	if !strings.HasSuffix(upstream, ":free") {
+		return nil
+	}
+	tokenizer := html.NewTokenizer(strings.NewReader(string(body)))
+	for {
+		switch tokenizer.Next() {
+		case html.ErrorToken:
+			return nil
+		case html.StartTagToken:
+			token := tokenizer.Token()
+			if token.Data != "script" || !slices.ContainsFunc(token.Attr, func(attribute html.Attribute) bool {
+				return attribute.Key == "type" && attribute.Val == "application/ld+json"
+			}) || tokenizer.Next() != html.TextToken {
+				continue
+			}
+			var application struct {
+				Type        string   `json:"@type"`
+				URL         string   `json:"url"`
+				FeatureList []string `json:"featureList"`
+				Offers      []struct {
+					Type          string          `json:"@type"`
+					Price         json.RawMessage `json:"price"`
+					PriceCurrency string          `json:"priceCurrency"`
+				} `json:"offers"`
+			}
+			if common.Unmarshal(tokenizer.Text(), &application) != nil || application.Type != "SoftwareApplication" || len(application.Offers) != 1 {
+				continue
+			}
+			if application.URL != "https://openrouter.ai/"+upstream && application.URL != "https://openrouter.ai/"+strings.TrimSuffix(upstream, ":free") {
+				continue
+			}
+			if !slices.Contains(application.FeatureList, "Input modalities: text") || !slices.Contains(application.FeatureList, "Output modalities: text") {
+				continue
+			}
+			offer := application.Offers[0]
+			amount, err := openrouter.ReadEndpointPrice(offer.Price)
+			if err != nil || amount != 0 || offer.Type != "Offer" || offer.PriceCurrency != "USD" {
+				return nil
+			}
+			return []model.CatalogOffer{{ID: "published:free", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []model.CatalogPrice{
+				{Component: "input", Unit: "million_tokens", AmountUSD: &amount},
+				{Component: "output", Unit: "million_tokens", AmountUSD: &amount},
+			}}}
+		}
+	}
 }
 
 func selectPricingCatalogOffers(offers []model.CatalogOffer) []model.CatalogOffer {
