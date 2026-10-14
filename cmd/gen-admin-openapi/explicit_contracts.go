@@ -219,6 +219,20 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 			}
 		}
 
+		if route.HandlerName == "GetPublicPricingModels" {
+			op["security"] = []any{}
+			op["description"] = "Anonymous default-group customer tariffs. Required repeated tag parameters are normalized lowercase exact tokens and combined with AND. Filtering precedes deterministic model-name ordering and pagination. Unknown tags return an empty page. All other parameters, group overrides, duplicate singleton values, and malformed values are rejected. Prices include the default group markup; null means unknown and zero means free. Conditional alternatives retain structured guards."
+			op["parameters"] = []any{
+				map[string]any{"name": "tag", "in": "query", "required": true, "style": "form", "explode": true, "schema": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "minLength": 1}}, "description": "Repeated exact single tags; AND semantics. Commas, semicolons, pipes and internal whitespace are rejected."},
+				map[string]any{"name": "p", "in": "query", "required": false, "schema": map[string]any{"type": "integer", "default": 1, "minimum": 1, "maximum": 9007199254740991}},
+				map[string]any{"name": "page_size", "in": "query", "required": false, "schema": map[string]any{"type": "integer", "default": 10, "minimum": 1, "maximum": 100}},
+			}
+			responses := op["responses"].(map[string]any)
+			responses["200"] = buildResponse(respSpec{Custom: "PublicPricingModelsResponse"})["200"]
+			for _, code := range []string{"400", "503"} {
+				responses[code] = map[string]any{"description": translate(currentLocale, "err."+code), "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiErrorResponse"}}}}
+			}
+		}
 		if route.HandlerName == "GetEffectivePricingByGroup" || route.HandlerName == "GetEffectivePricing" {
 			parameters := []any{}
 			for _, parameter := range []struct {

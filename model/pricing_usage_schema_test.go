@@ -669,6 +669,10 @@ func TestPricingCatalogueFingerprintIsCanonicalAndTracksConsumerChanges(t *testi
 		},
 		func(items []Pricing) { items[0].CatalogOffersByGroup["default"][0].Operation = "embeddings" },
 		func(items []Pricing) { items[0].EnableGroup = []string{"default"} },
+		func(items []Pricing) { items[0].Tags = "top text" },
+		func(items []Pricing) {
+			items[0].PublicCatalogOffersByGroup = map[string][]CatalogOffer{"default": {{PublicConditions: []billingexpr.TierCondition{{Var: "len", Op: ">", Value: 100}}}}}
+		},
 		func(items []Pricing) { items[0].ConsumerCanonicalModelsByGroup["default"] = "other" },
 	} {
 		changed := fixture()
@@ -831,5 +835,65 @@ func TestPricingOmitsUnchargedUnknownAudioComponents(t *testing.T) {
 		assert.Equal(t, "output", selected.Prices[0].Component)
 		assert.Equal(t, "million_tokens", selected.Prices[0].Unit)
 		require.NotNil(t, selected.Prices[0].AmountUSD)
+	}
+}
+
+func TestPublicConfiguredOperationOffersPreserveAudioUnitsAndConditions(t *testing.T) {
+	for _, scenario := range []struct {
+		basis, unit, component string
+		expression             string
+	}{
+		{"characters", "million_characters", "input", `len <= 100 ? tier("private",p*0) : tier("private",p*5)`},
+		{"duration", "minute", "audio_input", `len <= 100 ? tier("private",p*1000) : tier("private",p*2000)`},
+		{"tokens", "million_tokens", "input", `(hour("UTC") < 4 || hour("UTC") > 20) ? tier("private",p*1) : tier("private",p*2)`},
+	} {
+		t.Run(scenario.basis, func(t *testing.T) {
+			item := Pricing{BillingMode: billing_setting.BillingModeTieredExpr}
+			offers := configuredOperationOffers(item, pricingOperation{"speech_generation", scenario.component, scenario.basis}, "sync", scenario.expression, true)
+			require.Len(t, offers, 2)
+			for _, offer := range offers {
+				require.Len(t, offer.Prices, 1)
+				assert.Equal(t, scenario.unit, offer.Prices[0].Unit)
+				assert.Equal(t, scenario.component, offer.Prices[0].Component)
+				require.Len(t, offer.PublicConditions, 1)
+				assert.True(t, offer.PublicConditional)
+			}
+			assert.True(t, offers[1].PublicConditions[0].Negated)
+			if scenario.basis == "duration" {
+				assert.Equal(t, 1., *offers[0].Prices[0].AmountUSD)
+			}
+			if scenario.basis == "tokens" {
+				assert.Equal(t, "||", offers[0].PublicConditions[0].Op)
+			}
+		})
+	}
+	unknown := configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr}, pricingOperation{"text_to_video", "video_output", "unknown"}, "sync", `tier("private",u("seconds")*.4)`, true)
+	require.Len(t, unknown, 1)
+	assert.Empty(t, unknown[0].Prices)
+	assert.True(t, unknown[0].PublicConditional)
+}
+
+func TestPublicNativeLegacySnapshotIsUnknownUntilMetadataRefresh(t *testing.T) {
+	amount := 1.
+	native := CatalogOffer{ID: "989:provider/model:native", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: &amount}}}
+	channels := map[int]*Channel{989: {Id: 989, Type: constant.ChannelTypeOpenRouter, Status: 1}}
+	abilities := []AbilityWithChannel{{Ability: Ability{ChannelId: 989, Model: "provider/model", Group: "default", Enabled: true}, ChannelType: constant.ChannelTypeOpenRouter}}
+	for _, fresh := range []bool{false, true} {
+		stored := native
+		if fresh {
+			stored.PublicAlternatives = []CatalogOffer{native}
+		}
+		item := Pricing{ModelName: "provider/model", EnableGroup: []string{"default"}, CatalogOffersByGroup: map[string][]CatalogOffer{"default": {stored}}, BillingSourcesByGroup: map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {BillingSourceOpenRouterActualCost}}}}
+		projectPricingOperations(&item, abilities, channels, jsplugin.NewRegistry().Generation(), nil)
+		require.Len(t, item.CatalogOffersByGroup["default"], 1)
+		require.Len(t, item.CatalogOffersByGroup["default"][0].Prices, 1)
+		assert.Equal(t, 1., *item.CatalogOffersByGroup["default"][0].Prices[0].AmountUSD)
+		require.Len(t, item.PublicCatalogOffersByGroup["default"], 1)
+		if fresh {
+			require.Len(t, item.PublicCatalogOffersByGroup["default"][0].Prices, 1)
+		} else {
+			assert.Empty(t, item.PublicCatalogOffersByGroup["default"][0].Prices)
+			assert.True(t, item.PublicCatalogOffersByGroup["default"][0].PublicConditional)
+		}
 	}
 }

@@ -148,4 +148,23 @@ func TestEffectivePricingPreviewRequiresRoot(t *testing.T) {
 			}
 		})
 	}
+	for _, tc := range []struct {
+		query  string
+		status int
+	}{
+		{"tag=top", http.StatusOK},
+		{"tag=unknown", http.StatusOK},
+		{"tag=top&group=premium", http.StatusBadRequest},
+		{"tag=top&using_group=premium", http.StatusBadRequest},
+		{"tag=top&page_size=101", http.StatusBadRequest},
+	} {
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?"+tc.query, nil))
+		assert.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+		if tc.status == http.StatusOK {
+			assert.Contains(t, recorder.Body.String(), "\"page_size\":10")
+			assert.Contains(t, recorder.Body.String(), "\"data\":[]")
+		}
+	}
+
 }

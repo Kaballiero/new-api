@@ -27,6 +27,7 @@ const (
 )
 
 type Pricing struct {
+	PublicCatalogOffersByGroup      map[string][]CatalogOffer                     `json:"-"`
 	ConsumerCanonicalModelsByGroup  map[string]string                             `json:"-"`
 	ConfiguredPrices                map[string][][]billingexpr.DisplayPrice       `json:"-"`
 	PriceConfigured                 bool                                          `json:"-"`
@@ -539,7 +540,12 @@ func updatePricing() {
 			catalogOffers[ability.Model] = make(map[string][]CatalogOffer)
 		}
 		for _, offer := range offers {
-			offer.ID = fmt.Sprintf("%d:%s:%s", ability.ChannelId, upstream, offer.ID)
+			prefix := fmt.Sprintf("%d:%s:", ability.ChannelId, upstream)
+			offer.ID = prefix + offer.ID
+			offer.PublicAlternatives = slices.Clone(offer.PublicAlternatives)
+			for i := range offer.PublicAlternatives {
+				offer.PublicAlternatives[i].ID = prefix + offer.PublicAlternatives[i].ID
+			}
 			catalogOffers[ability.Model][ability.Group] = append(catalogOffers[ability.Model][ability.Group], offer)
 		}
 	}

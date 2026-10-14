@@ -55,7 +55,8 @@ func pricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (st
 			Endpoints                                   []constant.EndpointType
 			Offers                                      map[string][]string
 			CanonicalGroups                             map[string]string
-		}{item.ModelName, item.Description, item.Icon, item.Tags, item.OwnerBy, item.VendorID, groups, endpoints, offers, canonical}
+			PublicOffers                                map[string][]CatalogOffer
+		}{item.ModelName, item.Description, item.Icon, item.Tags, item.OwnerBy, item.VendorID, groups, endpoints, offers, canonical, item.PublicCatalogOffersByGroup}
 		value, err := common.Marshal(row)
 		if err != nil {
 			return "", err

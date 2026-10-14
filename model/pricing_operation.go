@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -90,7 +91,7 @@ func pricingComponent(variable string) string {
 	return variable
 }
 
-func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, expression string) []CatalogOffer {
+func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, expression string, public ...bool) []CatalogOffer {
 	if profile.operation == "" {
 		return nil
 	}
@@ -98,9 +99,23 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 	formula := pricing.BillingMode == billing_setting.BillingModeTieredExpr || mode == "batch"
 	if formula {
 		offers := []CatalogOffer{}
-		for index, row := range pricing.ConfiguredPrices[expression] {
+		rows := pricing.ConfiguredPrices[expression]
+		var publicTiers []billingexpr.CatalogPriceTier
+		if len(public) > 0 && public[0] {
+			publicTiers = billingexpr.CatalogPriceTiers(expression)
+			rows = make([][]billingexpr.DisplayPrice, len(publicTiers))
+			for i, tier := range publicTiers {
+				rows[i] = tier.Prices
+			}
+			unknown.PublicConditional = true
+		}
+		for index, row := range rows {
 			offer := unknown
 			offer.ID = fmt.Sprintf("configured:%d:%s", index, expression)
+			if len(publicTiers) > 0 {
+				offer.PublicConditions = publicTiers[index].Conditions
+				offer.PublicConditional = len(publicTiers) > 1 || len(offer.PublicConditions) > 0
+			}
 			fixed := len(row) == 1 && row[0].Component == "base"
 			if fixed {
 				offer.MainComponent = "base"
@@ -252,6 +267,30 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 }
 
 func projectPricingOperations(pricing *Pricing, abilities []AbilityWithChannel, channels map[int]*Channel, generation *jsplugin.RoutingGeneration, advanced map[int]*dto.AdvancedCustomConfig) {
+	public := *pricing
+	public.CatalogOffersByGroup = make(map[string][]CatalogOffer, len(pricing.CatalogOffersByGroup))
+	for group, offers := range pricing.CatalogOffersByGroup {
+		for _, offer := range offers {
+			if len(offer.PublicAlternatives) > 0 {
+				public.CatalogOffersByGroup[group] = append(public.CatalogOffersByGroup[group], offer.PublicAlternatives...)
+			} else {
+				for _, sources := range pricing.BillingSourcesForGroup(group) {
+					if slices.Contains(sources, BillingSourceOpenRouterActualCost) {
+						offer.Prices = nil
+						offer.PublicConditional = true
+						break
+					}
+				}
+				public.CatalogOffersByGroup[group] = append(public.CatalogOffersByGroup[group], offer)
+			}
+		}
+	}
+	projectPricingOperationsMode(pricing, abilities, channels, generation, advanced, false)
+	projectPricingOperationsMode(&public, abilities, channels, generation, advanced, true)
+	pricing.PublicCatalogOffersByGroup = public.CatalogOffersByGroup
+}
+
+func projectPricingOperationsMode(pricing *Pricing, abilities []AbilityWithChannel, channels map[int]*Channel, generation *jsplugin.RoutingGeneration, advanced map[int]*dto.AdvancedCustomConfig, public bool) {
 	native := pricing.CatalogOffersByGroup
 	pricing.CatalogOffersByGroup = make(map[string][]CatalogOffer)
 	pricing.ConsumerCanonicalModelsByGroup = make(map[string]string)
@@ -309,7 +348,7 @@ func projectPricingOperations(pricing *Pricing, abilities []AbilityWithChannel, 
 						}
 						offers = append(offers, CatalogOffer{ID: prefix + action, Operation: action, Mode: "sync", MainComponent: "video_output", Prices: []CatalogPrice{{Component: "video_output", Unit: unit, AmountUSD: &amount}}})
 					} else {
-						offers = append(offers, configuredOperationOffers(*pricing, profile, "sync", pricing.BillingExpr)...)
+						offers = append(offers, configuredOperationOffers(*pricing, profile, "sync", pricing.BillingExpr, public)...)
 					}
 				}
 			}
@@ -336,10 +375,10 @@ func projectPricingOperations(pricing *Pricing, abilities []AbilityWithChannel, 
 		}
 		for _, endpoint := range endpoints {
 			profile := configuredPricingOperation(channel, ability.Model, upstream, endpoint)
-			offers = append(offers, configuredOperationOffers(*pricing, profile, "sync", pricing.BillingExpr)...)
+			offers = append(offers, configuredOperationOffers(*pricing, profile, "sync", pricing.BillingExpr, public)...)
 			batchSources := pricing.BillingSourcesForGroup(ability.Group)[PricingEndpointBatch]
 			if expression, known := billing_setting.GetBatchBillingExpr(ability.Model); known && expression != "" && slices.Contains(batchSources, BillingSourceConfiguredTariff) && (profile.operation == "text" || profile.operation == "embeddings") {
-				offers = append(offers, configuredOperationOffers(*pricing, profile, "batch", expression)...)
+				offers = append(offers, configuredOperationOffers(*pricing, profile, "batch", expression, public)...)
 			}
 		}
 		pricing.CatalogOffersByGroup[ability.Group] = append(pricing.CatalogOffersByGroup[ability.Group], offers...)
@@ -402,12 +441,15 @@ func ConsumerPricingCatalogue(pricing []Pricing, usableGroups map[string]string)
 				positions[baseIndex] = index
 				base.EnableGroup = []string{}
 				base.CatalogOffersByGroup = make(map[string][]CatalogOffer)
+				base.PublicCatalogOffersByGroup = make(map[string][]CatalogOffer)
 				result = append(result, base)
 			}
 			if !slices.Contains(result[index].EnableGroup, group) {
 				result[index].EnableGroup = append(result[index].EnableGroup, group)
 			}
 			result[index].CatalogOffersByGroup[group] = append(result[index].CatalogOffersByGroup[group], item.CatalogOffersForGroup(group)...)
+			result[index].PublicCatalogOffersByGroup[group] = append(result[index].PublicCatalogOffersByGroup[group], item.PublicCatalogOffersByGroup["all"]...)
+			result[index].PublicCatalogOffersByGroup[group] = append(result[index].PublicCatalogOffersByGroup[group], item.PublicCatalogOffersByGroup[group]...)
 		}
 	}
 	return result

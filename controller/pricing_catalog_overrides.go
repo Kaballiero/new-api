@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 )
 
@@ -30,11 +31,14 @@ func nativePricingClock(raw json.RawMessage) (int, error) {
 	return clock/100*60 + clock%100, nil
 }
 
-func nativePricingVectors(endpoint openrouter.PricedEndpoint) ([]map[string]json.RawMessage, error) {
+func nativePricingVectors(endpoint openrouter.PricedEndpoint, conditions ...*[][]billingexpr.TierCondition) ([]map[string]json.RawMessage, error) {
 	prices := maps.Clone(endpoint.Pricing)
 	raw, hasOverrides := prices["overrides"]
 	delete(prices, "overrides")
 	if !hasOverrides || string(raw) == "null" {
+		if len(conditions) > 0 {
+			*conditions[0] = [][]billingexpr.TierCondition{nil}
+		}
 		return []map[string]json.RawMessage{prices}, nil
 	}
 	var declarations []map[string]json.RawMessage
@@ -112,9 +116,10 @@ func nativePricingVectors(endpoint openrouter.PricedEndpoint) ([]map[string]json
 		return nil, errors.New("native pricing context limit exceeded")
 	}
 	vectors := []map[string]json.RawMessage{}
-	seen := map[string]bool{}
-	for _, threshold := range thresholds {
-		for _, minute := range minutes {
+	seen := map[string]int{}
+	guards := [][]billingexpr.TierCondition{}
+	for thresholdIndex, threshold := range thresholds {
+		for minuteIndex, minute := range minutes {
 			for _, day := range days {
 				vector := maps.Clone(prices)
 				for _, override := range overrides {
@@ -138,12 +143,41 @@ func nativePricingVectors(endpoint openrouter.PricedEndpoint) ([]map[string]json
 				if err != nil {
 					return nil, err
 				}
-				if !seen[string(encoded)] {
-					seen[string(encoded)] = true
+				context := []billingexpr.TierCondition{}
+				if len(thresholds) > 1 {
+					context = append(context, billingexpr.TierCondition{Var: "p", Op: ">=", Value: float64(threshold)})
+					if thresholdIndex+1 < len(thresholds) {
+						context = append(context, billingexpr.TierCondition{Var: "p", Op: "<", Value: float64(thresholds[thresholdIndex+1])})
+					}
+				}
+				if len(minutes) > 1 {
+					context = append(context, billingexpr.TierCondition{Var: "utc_minute", Arg: "UTC", Op: ">=", Value: float64(minute)})
+					upper := 24 * 60
+					if minuteIndex+1 < len(minutes) {
+						upper = minutes[minuteIndex+1]
+					}
+					context = append(context, billingexpr.TierCondition{Var: "utc_minute", Arg: "UTC", Op: "<", Value: float64(upper)})
+				}
+				if len(days) > 1 {
+					context = append(context, billingexpr.TierCondition{Var: "weekday", Arg: "UTC", Op: "==", Value: float64((slices.Index(weekdays, day) + 1) % 7)})
+				}
+				if index, exists := seen[string(encoded)]; exists {
+					alternative := billingexpr.TierCondition{Op: "&&", Operands: context}
+					if len(guards[index]) == 1 && guards[index][0].Op == "||" {
+						guards[index][0].Operands = append(guards[index][0].Operands, alternative)
+					} else {
+						guards[index] = []billingexpr.TierCondition{{Op: "||", Operands: []billingexpr.TierCondition{{Op: "&&", Operands: guards[index]}, alternative}}}
+					}
+				} else {
+					seen[string(encoded)] = len(vectors)
 					vectors = append(vectors, vector)
+					guards = append(guards, context)
 				}
 			}
 		}
+	}
+	if len(conditions) > 0 {
+		*conditions[0] = guards
 	}
 	return vectors, nil
 }
