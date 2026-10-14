@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -418,7 +419,7 @@ func TestEffectivePricingPageUnicodeGolden(t *testing.T) {
 	assert.Negative(t, compareEffectivePricingNames("ΟΣ", "οσ"))
 }
 
-func TestConsumerPricingKeepsCompleteCheapestOfferAndNativeUnits(t *testing.T) {
+func TestConsumerPricingKeepsKnownPricesOfCheapestOfferAndNativeUnits(t *testing.T) {
 	offers := []model.CatalogOffer{
 		{ID: "cheap-input", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: float(1)}, {Component: "output", Unit: "million_tokens", AmountUSD: float(9)}}},
 		{ID: "cheap-output", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: float(7)}, {Component: "output", Unit: "million_tokens", AmountUSD: float(3)}, {Component: "cache_read", Unit: "million_tokens", AmountUSD: nil}}},
@@ -429,10 +430,9 @@ func TestConsumerPricingKeepsCompleteCheapestOfferAndNativeUnits(t *testing.T) {
 	for index, multiplier := range []float64{1, 2} {
 		require.Len(t, result.GroupPrices[index].Operations, 1)
 		prices := result.GroupPrices[index].Operations[0].Prices
-		require.Len(t, prices, 3)
+		require.Len(t, prices, 2)
 		assert.InDelta(t, 7*100*.8*multiplier, *prices[0].AmountRub, 1e-9)
 		assert.InDelta(t, 3*100*.8*multiplier, *prices[1].AmountRub, 1e-9)
-		assert.Nil(t, prices[2].AmountRub)
 	}
 	for _, unit := range []string{"image", "megapixel", "million_tokens", "second", "call"} {
 		t.Run(unit, func(t *testing.T) {
@@ -471,6 +471,30 @@ func TestConsumerPricingZeroUnknownAndIncompatibleUnits(t *testing.T) {
 				require.NotNil(t, rows[0].Prices[0].AmountRub)
 				assert.Equal(t, *scenario.want, *rows[0].Prices[0].AmountRub)
 			}
+		})
+	}
+}
+
+func TestConsumerPricingOmitsUnpricedComponentsWithoutChangingSource(t *testing.T) {
+	for _, operation := range []string{"transcription", "speech_generation", "text", "image_generation", "text_to_video"} {
+		t.Run(operation, func(t *testing.T) {
+			prices := []model.CatalogPrice{
+				{Component: "input", Unit: "million_tokens", AmountUSD: float(.6)},
+				{Component: "audio_output", Unit: "unknown"},
+				{Component: "output", Unit: "million_tokens"},
+				{Component: "cache_read", Unit: "million_tokens", AmountUSD: float(0)},
+				{Component: "image_input", Unit: "unknown", AmountUSD: float(1)},
+				{Component: "image_output", Unit: "", AmountUSD: float(1)},
+				{Component: "reference_input", Unit: "image", AmountUSD: float(math.NaN())},
+				{Component: "additional_reference_input", Unit: "image", AmountUSD: float(math.Inf(1))},
+				{Component: "font_input", Unit: "image", AmountUSD: float(-1)},
+			}
+			item := model.Pricing{CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": {{ID: "source", Operation: operation, Mode: "sync", MainComponent: "input", Prices: prices}}}}
+			rows := consumerOperations(item, "default", 2, true)
+			require.Len(t, rows, 1)
+			assert.Equal(t, []consumerUnitPrice{{Component: "input", Unit: "million_tokens", AmountRub: float(120)}, {Component: "cache_read", Unit: "million_tokens", AmountRub: float(0)}}, rows[0].Prices)
+			require.Len(t, item.CatalogOffersByGroup["default"][0].Prices, len(prices))
+			assert.Nil(t, item.CatalogOffersByGroup["default"][0].Prices[1].AmountUSD)
 		})
 	}
 }
@@ -1265,6 +1289,9 @@ func TestPricingCatalogPromptThresholdRequiresReachableStrictSuccessor(t *testin
 func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.ModelCostFXRow{}))
+	previousCountToken := constant.CountToken
+	constant.CountToken = true
+	t.Cleanup(func() { constant.CountToken = previousCountToken })
 	previousQuota := common.QuotaPerUnit
 	previousExchange := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
 	common.QuotaPerUnit = 500000
@@ -1279,11 +1306,11 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 	now := time.Now().Unix()
 	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
 	require.NoError(t, db.Create(&model.User{Id: 2198, Username: "audio-pricing-user", Password: "fixture", Group: "default", Status: common.UserStatusEnabled}).Error)
-	require.NoError(t, db.Create(&model.Channel{Id: 998, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: "gpt-realtime-mini,gpt-4o-transcribe-diarize"}).Error)
-	for _, name := range []string{"gpt-realtime-mini", "gpt-4o-transcribe-diarize"} {
+	require.NoError(t, db.Create(&model.Channel{Id: 998, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: "gpt-realtime-mini,gpt-4o-transcribe-diarize,gpt-4o-mini-tts"}).Error)
+	for _, name := range []string{"gpt-realtime-mini", "gpt-4o-transcribe-diarize", "gpt-4o-mini-tts"} {
 		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 998, Enabled: true}).Error)
 	}
-	withTieredBillingConfig(t, map[string]string{"gpt-realtime-mini": "tiered_expr", "gpt-4o-transcribe-diarize": "tiered_expr"}, map[string]string{"gpt-realtime-mini": `tier("base",p*.6+c*2.4+cr*.06+ai*10+ao*20+img*.8)`, "gpt-4o-transcribe-diarize": `tier("base",p*2.5+c*10)`})
+	withTieredBillingConfig(t, map[string]string{"gpt-realtime-mini": "tiered_expr", "gpt-4o-transcribe-diarize": "tiered_expr", "gpt-4o-mini-tts": "tiered_expr"}, map[string]string{"gpt-realtime-mini": `tier("base",p*.6+c*2.4+cr*.06+ai*10+ao*20+img*.8)`, "gpt-4o-transcribe-diarize": `tier("base",p*2.5+c*10)`, "gpt-4o-mini-tts": `tier("base",p*.6+c*12+ao*12)`})
 	model.InitChannelCache()
 	var expected []consumerPricingModel
 	for _, handler := range []gin.HandlerFunc{GetEffectivePricing, GetEffectivePricingByGroup} {
@@ -1300,7 +1327,7 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 				} `json:"data"`
 			}
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &envelope))
-			require.Len(t, envelope.Data.Data, 2)
+			require.Len(t, envelope.Data.Data, 3)
 			if expected == nil {
 				expected = envelope.Data.Data
 			} else {
@@ -1321,11 +1348,16 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 						assert.Equal(t, "million_tokens", price.Unit)
 						require.NotNil(t, price.AmountRub)
 					}
+				} else if item.ModelName == "gpt-4o-mini-tts" {
+					assert.Equal(t, "speech_generation", operation.Operation)
+					require.Len(t, prices, 1)
+					assert.Equal(t, "million_tokens", prices["input"].Unit)
+					require.NotNil(t, prices["input"].AmountRub)
+					assert.InDelta(t, 54.0, *prices["input"].AmountRub, 1e-9)
 				} else {
 					assert.Equal(t, "transcription", operation.Operation)
-					require.Len(t, prices, 2)
-					assert.Equal(t, "unknown", prices["input"].Unit)
-					assert.Nil(t, prices["input"].AmountRub)
+					require.Len(t, prices, 1)
+					assert.NotContains(t, prices, "input")
 					assert.Equal(t, "million_tokens", prices["output"].Unit)
 					require.NotNil(t, prices["output"].AmountRub)
 				}
