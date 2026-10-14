@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
@@ -756,12 +757,28 @@ func handleConfigUpdate(key, value string) bool {
 	configMap := map[string]string{
 		configKey: value,
 	}
+	billing, _ := cfg.(*billing_setting.BillingSetting)
+	var previousBilling billing_setting.BillingSetting
+	if configName == "billing_setting" && billing != nil {
+		previousBilling = billing_setting.BillingSetting{
+			BillingMode:      maps.Clone(billing.BillingMode),
+			BillingExpr:      maps.Clone(billing.BillingExpr),
+			BatchBillingExpr: maps.Clone(billing.BatchBillingExpr),
+		}
+	}
 	config.UpdateConfigFromMap(cfg, configMap)
 
 	// 特定配置的后处理
 	if configName == "performance_setting" {
 		performance_setting.UpdateAndSync()
 	} else if configName == "billing_setting" {
+		// Compare applied configuration so equivalent JSON is a no-op while
+		// reapplying a database option still restores changed in-memory values.
+		if billing != nil && maps.Equal(previousBilling.BillingMode, billing.BillingMode) &&
+			maps.Equal(previousBilling.BillingExpr, billing.BillingExpr) &&
+			maps.Equal(previousBilling.BatchBillingExpr, billing.BatchBillingExpr) {
+			return true
+		}
 		InvalidatePricingCache()
 		ratio_setting.InvalidateExposedDataCache()
 	}
