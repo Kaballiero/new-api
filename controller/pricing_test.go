@@ -782,8 +782,8 @@ func TestConsumerPricingNativeVideoOperationsMatchBoundSourceDescriptors(t *test
 		_, err = jsplugin.DefaultRegistry.Register(string(source), jsplugin.Options{})
 		require.NoError(t, err)
 	}
-	mapping := `{"aleph-alias":"runway/aleph-2","avatar-alias":"heygen/avatar-iv","edit-alias":"black-forest-labs/flux-video-edit","flux-alias":"black-forest-labs/flux-3-video","seedance-alias":"bytedance/seedance-2.5"}`
-	names := []string{"aleph-alias", "avatar-alias", "edit-alias", "flux-alias", "seedance-alias"}
+	mapping := `{"aleph-alias":"runway/aleph-2","avatar-alias":"heygen/avatar-iv","edit-alias":"black-forest-labs/flux-video-edit","flux-alias":"black-forest-labs/flux-3-video","seedance-alias":"bytedance/seedance-2.5","upscale-alias":"black-forest-labs/flux-video-upscale"}`
+	names := []string{"aleph-alias", "avatar-alias", "edit-alias", "flux-alias", "seedance-alias", "upscale-alias"}
 	require.NoError(t, db.Create(&model.Channel{Id: 991, Type: constant.ChannelTypeOpenRouter, Status: 1, Key: "fixture", Models: strings.Join(names, ","), ModelMapping: &mapping}).Error)
 	for _, name := range names {
 		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 991, Enabled: true}).Error)
@@ -808,7 +808,15 @@ func TestConsumerPricingNativeVideoOperationsMatchBoundSourceDescriptors(t *test
 		case "aleph-alias":
 			require.Len(t, operations, 1)
 			require.Contains(t, operations, "video_editing")
-			assert.Empty(t, operations["video_editing"].Prices)
+			require.Len(t, operations["video_editing"].Prices, 1)
+			assert.Equal(t, "second", operations["video_editing"].Prices[0].Unit)
+			assert.InDelta(t, 28.0, *operations["video_editing"].Prices[0].AmountRub, 1e-9)
+		case "upscale-alias":
+			require.Len(t, operations, 1)
+			require.Contains(t, operations, "video_upscaling")
+			require.Len(t, operations["video_upscaling"].Prices, 1)
+			assert.Equal(t, "megapixel_second", operations["video_upscaling"].Prices[0].Unit)
+			assert.InDelta(t, 7.5, *operations["video_upscaling"].Prices[0].AmountRub, 1e-9)
 		case "avatar-alias":
 			require.Len(t, operations, 1)
 			require.Contains(t, operations, "image_to_video")
