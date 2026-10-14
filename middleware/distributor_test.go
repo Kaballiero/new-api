@@ -2,8 +2,14 @@ package middleware
 
 import (
 	"fmt"
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -199,4 +205,67 @@ func TestNoAvailableChannelMessageNamesClaimingTaskPlugin(t *testing.T) {
 	generic := noAvailableChannelMessage(plain, "default", "gpt-4o")
 	assert.NotContains(t, generic, "task plugin")
 	assert.Contains(t, generic, "gpt-4o")
+}
+
+func TestAffinityCannotBypassHighestEligiblePriority(t *testing.T) {
+	oldDB, oldMemory := model.DB, common.MemoryCacheEnabled
+	setting := operation_setting.GetChannelAffinitySetting()
+	oldSetting := *setting
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	model.DB = db
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() {
+		model.DB = oldDB
+		common.MemoryCacheEnabled = oldMemory
+		*setting = oldSetting
+		if oldMemory && oldDB != nil {
+			model.InitChannelCache()
+		}
+	})
+	*setting = operation_setting.ChannelAffinitySetting{Enabled: true, SwitchOnSuccess: true, DefaultTTLSeconds: 60, MaxEntries: 100, Rules: []operation_setting.ChannelAffinityRule{{Name: "priority-regression", ModelRegex: []string{"^affinity-model$"}, KeySources: []operation_setting.ChannelAffinityKeySource{{Type: "request_header", Key: "X-Affinity-Test"}}, IncludeUsingGroup: true}}}
+	high, low := int64(2), int64(0)
+	for _, ch := range []model.Channel{{Id: 9101, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Priority: &high, Group: "affinity-test", Models: "affinity-model", Key: "fixture"}, {Id: 9102, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Priority: &low, Group: "affinity-test", Models: "affinity-model", Key: "fixture"}} {
+		require.NoError(t, db.Create(&ch).Error)
+		require.NoError(t, db.Create(&model.Ability{Group: "affinity-test", Model: "affinity-model", ChannelId: ch.Id, Enabled: true, Priority: ch.Priority}).Error)
+	}
+
+	incompatiblePriority := int64(3)
+	incompatible := model.Channel{Id: 9103, Type: constant.ChannelTypeAdvancedCustom, Status: common.ChannelStatusEnabled, Priority: &incompatiblePriority, Group: "affinity-test", Models: "affinity-model", Key: "fixture"}
+	incompatible.SetOtherSettings(dto.ChannelOtherSettings{AdvancedCustom: &dto.AdvancedCustomConfig{Routes: []dto.AdvancedCustomRoute{{IncomingPath: "/v1/responses", Models: []string{"affinity-model"}}}}})
+	require.NoError(t, db.Create(&incompatible).Error)
+	require.NoError(t, db.Create(&model.Ability{Group: "affinity-test", Model: "affinity-model", ChannelId: 9103, Enabled: true, Priority: &incompatiblePriority}).Error)
+	model.InitChannelCache()
+	for _, tc := range []struct {
+		name         string
+		preferred    int
+		highPriority int64
+		want         int
+	}{
+		{name: "lower affinity never replaces developer", preferred: 9102, highPriority: 2, want: 9101},
+		{name: "same priority affinity still works", preferred: 9102, highPriority: 0, want: 9102},
+		{name: "higher priority incompatible affinity is excluded", preferred: 9103, highPriority: 2, want: 9101},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", 9101).Update("priority", tc.highPriority).Error)
+			require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", 9101).Update("priority", tc.highPriority).Error)
+			model.InitChannelCache()
+			contextForTest := func() *gin.Context {
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"affinity-model"}`))
+				c.Request.Header.Set("Content-Type", "application/json")
+				c.Request.Header.Set("X-Affinity-Test", tc.name)
+				common.SetContextKey(c, constant.ContextKeyUsingGroup, "affinity-test")
+				return c
+			}
+			prime := contextForTest()
+			service.GetPreferredChannelByAffinity(prime, "affinity-model", "affinity-test")
+			service.RecordChannelAffinity(prime, tc.preferred)
+			c := contextForTest()
+			Distribute()(c)
+			assert.False(t, c.IsAborted())
+			assert.Equal(t, tc.want, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
+		})
+	}
 }
