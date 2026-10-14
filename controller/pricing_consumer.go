@@ -91,14 +91,14 @@ func consumerOperations(item model.Pricing, group string, ratio float64, validRa
 		row := consumerPricingOperation{Operation: operation, Mode: mode, Prices: []consumerUnitPrice{}}
 		if selected != nil && validRatio {
 			for _, price := range selected.Prices {
-				var amount *float64
-				if price.AmountUSD != nil {
-					converted := *price.AmountUSD * 100 * ratio
-					if converted >= 0 && !math.IsNaN(converted) && !math.IsInf(converted, 0) {
-						amount = &converted
-					}
+				if price.AmountUSD == nil || price.Unit == "" || price.Unit == "unknown" || *price.AmountUSD < 0 {
+					continue
 				}
-				row.Prices = append(row.Prices, consumerUnitPrice{Component: price.Component, Unit: price.Unit, AmountRub: amount})
+				amount := *price.AmountUSD * 100 * ratio
+				if amount < 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+					continue
+				}
+				row.Prices = append(row.Prices, consumerUnitPrice{Component: price.Component, Unit: price.Unit, AmountRub: &amount})
 			}
 		}
 		components := []string{"base", "input", "output", "cache_read", "cache_write", "cache_write_1h", "image_input", "image_output", "audio_input", "audio_cache_read", "audio_output", "video_output", "reference_input", "additional_reference_input", "font_input"}
