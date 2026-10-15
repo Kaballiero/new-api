@@ -36,6 +36,8 @@ type consumerGroupPricing struct {
 }
 
 type consumerPricingOperation struct {
+	Tiers     []publicPricingTier `json:"tiers,omitempty"`
+	IsFrom    *bool               `json:"is_from,omitempty"`
 	Operation string              `json:"operation"`
 	Mode      string              `json:"mode"`
 	Prices    []consumerUnitPrice `json:"prices"`
@@ -67,6 +69,17 @@ func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[s
 	for _, group := range groups {
 		ratio, err := service.ApplyBillingFX(groupRatios[group], fxFactor)
 		operations := consumerOperations(item, group, ratio, err == nil)
+		if slices.ContainsFunc(item.PublicCatalogOffersByGroup[group], func(offer model.CatalogOffer) bool { return len(offer.PublicUsageConditions) > 0 }) {
+			tariff := buildCatalogModelTariff(effectivePricingPageContext{groupRatios: groupRatios, fxFactor: fxFactor}, item, group)
+			for index := range operations {
+				for _, operation := range tariff.Operations {
+					if operations[index].Operation == operation.Operation && operations[index].Mode == operation.Mode {
+						operations[index].Tiers = operation.Tiers
+						operations[index].IsFrom = &operation.IsFrom
+					}
+				}
+			}
+		}
 		result.GroupPrices = append(result.GroupPrices, consumerGroupPricing{UsingGroup: group, Operations: operations})
 	}
 	return result

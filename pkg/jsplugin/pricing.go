@@ -14,15 +14,23 @@ type CatalogPrice struct {
 	AmountUSD *float64 `json:"amount_usd"`
 }
 
+// CatalogUsageCondition is a display-only enum comparison from a task usage schema.
+type CatalogUsageCondition struct {
+	Field   string `json:"field"`
+	Value   string `json:"value"`
+	Negated bool   `json:"negated,omitempty"`
+}
+
 type CatalogOffer struct {
-	PublicAlternatives []CatalogOffer              `json:"display_alternatives,omitempty"`
-	PublicConditions   []billingexpr.TierCondition `json:"display_conditions,omitempty"`
-	PublicConditional  bool                        `json:"display_conditional,omitempty"`
-	ID                 string                      `json:"id"`
-	Operation          string                      `json:"operation"`
-	Mode               string                      `json:"mode"`
-	MainComponent      string                      `json:"main_component"`
-	Prices             []CatalogPrice              `json:"prices"`
+	PublicUsageConditions []CatalogUsageCondition     `json:"display_usage_conditions,omitempty"`
+	PublicAlternatives    []CatalogOffer              `json:"display_alternatives,omitempty"`
+	PublicConditions      []billingexpr.TierCondition `json:"display_conditions,omitempty"`
+	PublicConditional     bool                        `json:"display_conditional,omitempty"`
+	ID                    string                      `json:"id"`
+	Operation             string                      `json:"operation"`
+	Mode                  string                      `json:"mode"`
+	MainComponent         string                      `json:"main_component"`
+	Prices                []CatalogPrice              `json:"prices"`
 }
 
 type PriceCatalog struct {
@@ -50,7 +58,7 @@ func (catalog *PriceCatalog) Validate(models []string) error {
 			}
 			components := make(map[string]bool)
 			for _, price := range offer.Prices {
-				if price.Component == "" || components[price.Component] || !slices.Contains([]string{"million_tokens", "image", "megapixel", "second", "call", "megapixel_second", "search"}, price.Unit) {
+				if price.Component == "" || components[price.Component] || !slices.Contains([]string{"million_tokens", "image", "megapixel", "second", "call", "megapixel_second", "search", "song"}, price.Unit) {
 					return fmt.Errorf("plugin price catalog component is invalid")
 				}
 				components[price.Component] = true
@@ -71,6 +79,7 @@ func (catalog *PriceCatalog) clone() *PriceCatalog {
 	for model, offers := range catalog.Models {
 		copied := slices.Clone(offers)
 		for index := range copied {
+			copied[index].PublicUsageConditions = slices.Clone(copied[index].PublicUsageConditions)
 			copied[index].Prices = slices.Clone(copied[index].Prices)
 			for priceIndex := range copied[index].Prices {
 				if value := copied[index].Prices[priceIndex].AmountUSD; value != nil {
