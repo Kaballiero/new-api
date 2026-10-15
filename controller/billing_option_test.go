@@ -111,9 +111,10 @@ func setupBillingAliasOptionDB(t *testing.T) {
 	previousCache := common.MemoryCacheEnabled
 	previousMap := common.OptionMap
 	previousRedis := common.RedisEnabled
+	initModelListColumnNames(t)
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, database.AutoMigrate(&model.Channel{}, &model.Option{}, &model.Log{}, &model.AuditLog{}, &model.User{}))
+	require.NoError(t, database.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Option{}, &model.Log{}, &model.AuditLog{}, &model.User{}))
 	model.DB = database
 	model.LOG_DB = database
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
