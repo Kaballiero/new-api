@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 
@@ -37,7 +36,7 @@ const (
 
 var quotaBucketDimensions = map[QuotaBucketGrouping]struct{ columns, order string }{
 	QuotaBucketByModel:        {"model_name", "bucket_start, model_name"},
-	QuotaBucketByUserAndModel: {"user_id, username, model_name", "bucket_start, model_name"},
+	QuotaBucketByUserAndModel: {"user_id, username, model_name", "bucket_start, model_name, user_id, username"},
 	QuotaBucketByUser:         {"username", "bucket_start, username"},
 }
 
@@ -46,17 +45,17 @@ type BucketedQuotaData struct {
 	Username  string `json:"username" gorm:"column:username"`
 	ModelName string `json:"model_name" gorm:"column:model_name"`
 	CreatedAt int64  `json:"created_at" gorm:"column:bucket_start"`
-	TokenUsed int    `json:"token_used" gorm:"column:token_used"`
-	Count     int    `json:"count" gorm:"column:count"`
-	Quota     int    `json:"quota" gorm:"column:quota"`
+	TokenUsed int64  `json:"token_used" gorm:"column:token_used"`
+	Count     int64  `json:"count" gorm:"column:count"`
+	Quota     int64  `json:"quota" gorm:"column:quota"`
 }
 
 type BucketedUserQuotaData struct {
 	Username  string `json:"username" gorm:"column:username"`
 	CreatedAt int64  `json:"created_at" gorm:"column:bucket_start"`
-	TokenUsed int    `json:"token_used" gorm:"column:token_used"`
-	Count     int    `json:"count" gorm:"column:count"`
-	Quota     int    `json:"quota" gorm:"column:quota"`
+	TokenUsed int64  `json:"token_used" gorm:"column:token_used"`
+	Count     int64  `json:"count" gorm:"column:count"`
+	Quota     int64  `json:"quota" gorm:"column:quota"`
 }
 
 type BucketedQuotaQuery struct {
@@ -83,7 +82,8 @@ func GetBucketedQuotaDates(q BucketedQuotaQuery) ([]*BucketedQuotaData, error) {
 		return nil, err
 	}
 	rows := make([]*BucketedQuotaData, 0)
-	return rows, query.Find(&rows).Error
+	err = query.Find(&rows).Error
+	return rows, err
 }
 
 func GetBucketedQuotaDatesByUser(q BucketedQuotaQuery) ([]*BucketedUserQuotaData, error) {
@@ -92,7 +92,8 @@ func GetBucketedQuotaDatesByUser(q BucketedQuotaQuery) ([]*BucketedUserQuotaData
 		return nil, err
 	}
 	rows := make([]*BucketedUserQuotaData, 0)
-	return rows, query.Find(&rows).Error
+	err = query.Find(&rows).Error
+	return rows, err
 }
 
 func bucketedQuotaQuery(q BucketedQuotaQuery) (*gorm.DB, error) {
@@ -100,13 +101,13 @@ func bucketedQuotaQuery(q BucketedQuotaQuery) (*gorm.DB, error) {
 	if !ok {
 		return nil, ErrInvalidQuotaGrouping
 	}
-	bucket, err := quotaBucketExpression(q.Granularity, q.StartTime, q.EndTime)
+	bucket, args, err := quotaBucketExpression(q.Granularity, q.StartTime, q.EndTime)
 	if err != nil {
 		return nil, err
 	}
 	selection := dimensions.columns + ", " + bucket + " as bucket_start, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used"
 	query := DB.Table("quota_data").
-		Select(selection).
+		Select(selection, args...).
 		Where("created_at >= ? and created_at <= ?", q.StartTime, q.EndTime)
 	if q.Username != "" {
 		query = query.Where("username = ?", q.Username)
@@ -120,29 +121,31 @@ func bucketedQuotaQuery(q BucketedQuotaQuery) (*gorm.DB, error) {
 	return query.Group(dimensions.columns + ", bucket_start").Order(dimensions.order), nil
 }
 
-func quotaBucketExpression(granularity string, startTime int64, endTime int64) (string, error) {
+func quotaBucketExpression(granularity string, startTime int64, endTime int64) (string, []any, error) {
 	switch granularity {
 	case GranularityHour:
-		return "created_at - (created_at % 3600)", nil
+		return "created_at - (created_at % 3600)", nil, nil
 	case GranularityDay:
-		return "created_at - (created_at % 86400)", nil
+		return "created_at - (created_at % 86400)", nil, nil
 	case GranularityWeek:
-		return "created_at - ((created_at + 259200) % 604800)", nil
+		return "created_at - (((created_at % 604800) + 259200) % 604800)", nil, nil
 	case GranularityMonth:
 		boundaries := quotaMonthBoundaries(startTime, endTime)
 		if len(boundaries)-1 > MaxBucketedMonths {
-			return "", ErrQuotaMonthSpanExceeded
+			return "", nil, ErrQuotaMonthSpanExceeded
 		}
 		expression := strings.Builder{}
-		expression.WriteString("CASE")
+		args := make([]any, 0, 2*len(boundaries)-1)
+		expression.WriteString("CAST(CASE")
 		for i := 1; i < len(boundaries); i++ {
-			expression.WriteString(" WHEN created_at < " + strconv.FormatInt(boundaries[i], 10) +
-				" THEN " + strconv.FormatInt(boundaries[i-1], 10))
+			expression.WriteString(" WHEN created_at < ? THEN ?")
+			args = append(args, boundaries[i], boundaries[i-1])
 		}
-		expression.WriteString(" ELSE " + strconv.FormatInt(boundaries[len(boundaries)-1], 10) + " END")
-		return expression.String(), nil
+		expression.WriteString(" ELSE ? END AS DECIMAL(20,0))")
+		args = append(args, boundaries[len(boundaries)-1])
+		return expression.String(), args, nil
 	}
-	return "", ErrInvalidQuotaGranularity
+	return "", nil, ErrInvalidQuotaGranularity
 }
 
 func quotaMonthBoundaries(startTime int64, endTime int64) []int64 {
