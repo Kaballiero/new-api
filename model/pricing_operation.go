@@ -20,6 +20,12 @@ import (
 type pricingOperation struct{ operation, main, basis string }
 
 func configuredPricingOperation(channel *Channel, public, upstream string, endpoint constant.EndpointType) pricingOperation {
+	if channel.Type == constant.ChannelTypeGemini && (upstream == "lyria-3-clip-preview" || upstream == "lyria-3-pro-preview" || upstream == "lyria-3.5") {
+		return pricingOperation{"music_generation", "audio_output", "song"}
+	}
+	if channel.Type == constant.ChannelTypeGemini && (strings.HasPrefix(upstream, "text-embedding") || strings.HasPrefix(upstream, "embedding") || strings.HasPrefix(upstream, "gemini-embedding")) {
+		return pricingOperation{"embeddings", "input", "tokens"}
+	}
 	if channel.Type == constant.ChannelTypeOpenAI {
 		if endpoint == constant.EndpointTypeOpenAI && slices.Contains(common.GetEndpointTypesByChannelType(channel.Type, upstream), constant.EndpointTypeImageGeneration) {
 			return pricingOperation{"image_generation", "output", "image_tokens"}
@@ -97,6 +103,9 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 		return nil
 	}
 	unknown := CatalogOffer{ID: "configured:unknown", Operation: profile.operation, Mode: mode, MainComponent: profile.main, Prices: []CatalogPrice{}}
+	if profile.basis == "song" && pricing.BillingMode == billing_setting.BillingModeTieredExpr {
+		return []CatalogOffer{unknown}
+	}
 	formula := pricing.BillingMode == billing_setting.BillingModeTieredExpr || mode == "batch"
 	if formula {
 		offers := []CatalogOffer{}
@@ -192,12 +201,14 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 		component, unit := "base", "call"
 		if profile.operation == "image_generation" {
 			component, unit = "image_output", "image"
+		} else if profile.basis == "song" {
+			component, unit = "audio_output", "song"
 		}
 		unknown.MainComponent = component
 		unknown.Prices = []CatalogPrice{{Component: component, Unit: unit, AmountUSD: &amount}}
 		return []CatalogOffer{unknown}
 	}
-	if profile.basis == "unknown" || profile.basis == "image" {
+	if profile.basis == "unknown" || profile.basis == "image" || profile.basis == "song" {
 		return []CatalogOffer{unknown}
 	}
 	input := pricing.ModelRatio * 2
@@ -328,6 +339,9 @@ func projectPricingOperationsMode(pricing *Pricing, abilities []AbilityWithChann
 			continue
 		}
 		if video {
+			if !actual && pricing.BillingMode == billing_setting.BillingModeTieredExpr && channel.Type == constant.ChannelTypeGemini && strings.HasPrefix(upstream, "veo-") {
+				offers = append(offers, configuredVeoUsageOffers(*pricing, channel, upstream, generation)...)
+			}
 			if !actual && len(legacy) > 0 {
 				for action, basis := range legacy {
 					profile := pricingOperation{action, "video_output", "unknown"}
