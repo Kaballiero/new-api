@@ -162,13 +162,15 @@ var manifest = map[string]map[string]respSpec{
 	"/api/token/batch":  {"post": {Wrap: "ApiResponseOfObject"}},
 
 	// === Logs ===
-	"/api/log/":            {"get": {Type: "Log", Paged: true}},
-	"/api/log/search":      {"get": {Type: "Log", Paged: true}},
-	"/api/log/self":        {"get": {Type: "Log", Paged: true}},
-	"/api/log/self/search": {"get": {Type: "Log", Paged: true}},
-	"/api/log/self/stat":   {"get": {Type: "Stat"}},
-	"/api/log/stat":        {"get": {Type: "Stat"}},
-	"/api/log/token":       {"get": {Type: "Log", Paged: true}},
+	"/api/log/":               {"get": {Type: "Log", Paged: true}},
+	"/api/log/user/{user_id}": {"get": {Type: "Log", Paged: true}},
+	"/api/log/query":          {"post": {Type: "Log", Paged: true, Body: "AdminLogQueryRequest"}},
+	"/api/log/search":         {"get": {Type: "Log", Paged: true}},
+	"/api/log/self":           {"get": {Type: "Log", Paged: true}},
+	"/api/log/self/search":    {"get": {Type: "Log", Paged: true}},
+	"/api/log/self/stat":      {"get": {Type: "Stat"}},
+	"/api/log/stat":           {"get": {Type: "Stat"}},
+	"/api/log/token":          {"get": {Type: "Log", Paged: true}},
 
 	// === Redemption ===
 	"/api/redemption/":        {"get": {Type: "Redemption", Paged: true}, "post": {Empty: true}, "put": {Empty: true}},

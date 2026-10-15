@@ -30,6 +30,14 @@ func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm
 	return tx.Where(column+" = ?", value), nil
 }
 
+func ValidateLogModelFilter(value string) error {
+	if !strings.Contains(value, "%") {
+		return nil
+	}
+	_, _, err := buildLogLikeCondition("logs.model_name", value)
+	return err
+}
+
 func buildLogLikeCondition(column string, value string) (string, string, error) {
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		pattern, err := sanitizeClickHouseLikePattern(value)
@@ -507,6 +515,31 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if group != "" {
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
+	return readAdminLogs(tx, startIdx, num)
+}
+
+func GetLogsByUserIDs(userIDs []int, logType int, startTimestamp, endTimestamp int64, modelName string, startIdx, num int) ([]*Log, int64, error) {
+	if len(userIDs) == 0 {
+		return []*Log{}, 0, nil
+	}
+	tx := LOG_DB.Where("logs.user_id IN ?", userIDs)
+	if logType != LogTypeUnknown {
+		tx = tx.Where("logs.type = ?", logType)
+	}
+	var err error
+	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
+		return nil, 0, err
+	}
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	return readAdminLogs(tx, startIdx, num)
+}
+
+func readAdminLogs(tx *gorm.DB, startIdx, num int) (logs []*Log, total int64, err error) {
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {
 		return nil, 0, err

@@ -20803,6 +20803,239 @@
         ]
       }
     },
+    "/api/log/query": {
+      "post": {
+        "deprecated": false,
+        "description": "Admin log page scoped to numeric user IDs. Inclusive nonzero time bounds; start must not exceed end. Empty IDs return an empty page. Relational order: created_at DESC, id DESC. ClickHouse order: created_at DESC, request_id DESC, with display IDs assigned after pagination; equal sort keys have unspecified order. Separate COUNT and SELECT do not provide snapshot consistency. Invalid input or exceeded limits returns HTTP 400.",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "end_timestamp": {
+                    "default": 0,
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "model_name": {
+                    "description": "At most 16384 UTF-8 bytes. Existing percent wildcard semantics apply.",
+                    "type": "string"
+                  },
+                  "p": {
+                    "default": 1,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "page_size": {
+                    "default": 10,
+                    "maximum": 100,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "start_timestamp": {
+                    "default": 0,
+                    "format": "int64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": {
+                    "default": 0,
+                    "maximum": 7,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "user_ids": {
+                    "description": "Required; duplicates are removed. The size limit applies before deduplication. Empty means no users.",
+                    "items": {
+                      "maximum": 2147483647,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "maxItems": 16384,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "user_ids"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "At most 262144 bytes. Null fields are invalid.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Log"
+                          },
+                          "type": "array"
+                        },
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "page_size",
+                        "total",
+                        "items"
+                      ],
+                      "type": "object"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_params": {
+                    "summary": "invalid_params",
+                    "value": {
+                      "code": "invalid_params",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request — invalid_params, validation failed, or other client error",
+            "x-error-codes": [
+              "invalid_params"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized — missing or invalid auth credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden — insufficient role/permission or feature disabled"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Not found — referenced resource does not exist"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict — resource already exists or state precludes the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable entity — well-formed but semantically invalid input"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "code": "internal_error",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error — DB transaction failure or unhandled exception",
+            "x-error-codes": [
+              "internal_error"
+            ]
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad gateway — upstream provider (LLM API, model registry) failed"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "post /api/log/query",
+        "tags": [
+          "Logs"
+        ]
+      }
+    },
     "/api/log/search": {
       "get": {
         "deprecated": false,
@@ -21787,6 +22020,254 @@
         "summary": "通过令牌获取日志",
         "tags": [
           "日志"
+        ]
+      }
+    },
+    "/api/log/user/{user_id}": {
+      "get": {
+        "deprecated": false,
+        "description": "Admin log page scoped to numeric user IDs. Inclusive nonzero time bounds; start must not exceed end. Empty IDs return an empty page. Relational order: created_at DESC, id DESC. ClickHouse order: created_at DESC, request_id DESC, with display IDs assigned after pagination; equal sort keys have unspecified order. Separate COUNT and SELECT do not provide snapshot consistency. Invalid input or exceeded limits returns HTTP 400.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 7,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_timestamp",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_timestamp",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model_name",
+            "required": false,
+            "schema": {
+              "description": "At most 16384 UTF-8 bytes. Existing percent wildcard semantics apply.",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "p",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "items": {
+                          "items": {
+                            "$ref": "#/components/schemas/Log"
+                          },
+                          "type": "array"
+                        },
+                        "page": {
+                          "type": "integer"
+                        },
+                        "page_size": {
+                          "type": "integer"
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "page_size",
+                        "total",
+                        "items"
+                      ],
+                      "type": "object"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "message",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_params": {
+                    "summary": "invalid_params",
+                    "value": {
+                      "code": "invalid_params",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request — invalid_params, validation failed, or other client error",
+            "x-error-codes": [
+              "invalid_params"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized — missing or invalid auth credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden — insufficient role/permission or feature disabled"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Not found — referenced resource does not exist"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict — resource already exists or state precludes the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable entity — well-formed but semantically invalid input"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "code": "internal_error",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error — DB transaction failure or unhandled exception",
+            "x-error-codes": [
+              "internal_error"
+            ]
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad gateway — upstream provider (LLM API, model registry) failed"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "get /api/log/user/{user_id}",
+        "tags": [
+          "Logs"
         ]
       }
     },

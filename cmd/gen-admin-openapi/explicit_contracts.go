@@ -120,6 +120,39 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 		if op == nil || h == nil {
 			continue
 		}
+		if route.HandlerName == "GetAdminUserLogs" || route.HandlerName == "QueryAdminLogs" {
+			properties := map[string]any{
+				"type":            map[string]any{"type": "integer", "minimum": 0, "maximum": 7, "default": 0},
+				"start_timestamp": map[string]any{"type": "integer", "format": "int64", "minimum": 0, "default": 0},
+				"end_timestamp":   map[string]any{"type": "integer", "format": "int64", "minimum": 0, "default": 0},
+				"model_name":      map[string]any{"type": "string", "description": "At most 16384 UTF-8 bytes. Existing percent wildcard semantics apply."},
+				"p":               map[string]any{"type": "integer", "minimum": 1, "default": 1},
+				"page_size":       map[string]any{"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+			}
+			idSchema := map[string]any{"type": "integer", "minimum": 1, "maximum": 2147483647}
+			op["description"] = "Admin log page scoped to numeric user IDs. Inclusive nonzero time bounds; start must not exceed end. Empty IDs return an empty page. Relational order: created_at DESC, id DESC. ClickHouse order: created_at DESC, request_id DESC, with display IDs assigned after pagination; equal sort keys have unspecified order. Separate COUNT and SELECT do not provide snapshot consistency. Invalid input or exceeded limits returns HTTP 400."
+			if route.HandlerName == "GetAdminUserLogs" {
+				parameters := []any{map[string]any{"name": "user_id", "in": "path", "required": true, "schema": idSchema}}
+				for _, name := range []string{"type", "start_timestamp", "end_timestamp", "model_name", "p", "page_size"} {
+					parameters = append(parameters, map[string]any{"name": name, "in": "query", "required": false, "schema": properties[name]})
+				}
+				op["parameters"] = parameters
+			} else {
+				properties["user_ids"] = map[string]any{"type": "array", "maxItems": 16384, "items": idSchema, "description": "Required; duplicates are removed. The size limit applies before deduplication. Empty means no users."}
+				op["parameters"] = []any{}
+				op["requestBody"] = map[string]any{"required": true, "description": "At most 262144 bytes. Null fields are invalid.", "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"type": "object", "properties": properties, "required": []string{"user_ids"}}}}}
+			}
+			response := op["responses"].(map[string]any)["200"].(map[string]any)
+			page := map[string]any{"type": "object", "required": []string{"page", "page_size", "total", "items"}, "properties": map[string]any{
+				"page": map[string]any{"type": "integer"}, "page_size": map[string]any{"type": "integer"}, "total": map[string]any{"type": "integer"},
+				"items": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/Log"}},
+			}}
+			envelope := wrapResponse(page)
+			envelope["required"] = []string{"success", "message", "data"}
+			response["content"].(map[string]any)["application/json"].(map[string]any)["schema"] = envelope
+			declareErrorCodes(op, "400", "invalid_params")
+			declareErrorCodes(op, "500", "internal_error")
+		}
 		if route.Path == "/api/log/aggregate" || route.Path == "/api/usage/aggregate" {
 			op["requestBody"].(map[string]any)["required"] = true
 			op["description"] = "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log totals include CONSUME only."
