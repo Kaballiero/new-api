@@ -1122,3 +1122,121 @@ func TestPricingColdBuildIgnoresUnusedAndDisabledMalformedChannels(t *testing.T)
 		assert.Equal(t, invalid, *row.Setting)
 	}
 }
+
+func TestPricingNativeGeminiEmbeddingsPreserveInputTariff(t *testing.T) {
+	for _, scenario := range []struct {
+		public, upstream, expression string
+		amount                       float64
+	}{
+		{"gemini-embedding-001", "gemini-embedding-001", `tier("embedding", p * 0.15)`, .15},
+		{"gemini-embedding-2", "gemini-embedding-2", `tier("embedding", p * 0.20)`, .20},
+		{"gemini-embedding-2-preview", "gemini-embedding-2-preview", `tier("embedding", p * 0.20)`, .20},
+		{"embedding-alias", "gemini-embedding-001", `tier("embedding", p * 0.15 + c * 0)`, .15},
+		{"text-embedding-004", "text-embedding-004", `tier("embedding", p * 0.10)`, .10},
+	} {
+		t.Run(scenario.public, func(t *testing.T) {
+			mapping, err := common.Marshal(map[string]string{scenario.public: scenario.upstream})
+			require.NoError(t, err)
+			mappingJSON := string(mapping)
+			channel := &Channel{Id: 991, Type: constant.ChannelTypeGemini, Status: common.ChannelStatusEnabled, ModelMapping: &mappingJSON}
+			item := Pricing{ModelName: scenario.public, PriceConfigured: true, BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: scenario.expression, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{scenario.expression: billingexpr.CatalogPrices(scenario.expression)}}
+			abilities := []AbilityWithChannel{{Ability: Ability{ChannelId: channel.Id, Model: scenario.public, Group: "default", Enabled: true}, ChannelType: channel.Type}}
+			projectPricingOperations(&item, abilities, map[int]*Channel{channel.Id: channel}, jsplugin.NewRegistry().Generation(), nil, nil)
+			for _, offers := range [][]CatalogOffer{item.CatalogOffersForGroup("default"), item.PublicCatalogOffersByGroup["default"]} {
+				selected := SelectCatalogOffer(offers)
+				require.NotNil(t, selected)
+				assert.Equal(t, "embeddings", selected.Operation)
+				assert.Equal(t, "input", selected.MainComponent)
+				require.Len(t, selected.Prices, 1)
+				assert.Equal(t, "input", selected.Prices[0].Component)
+				assert.Equal(t, "million_tokens", selected.Prices[0].Unit)
+				require.NotNil(t, selected.Prices[0].AmountUSD)
+				assert.Equal(t, scenario.amount, *selected.Prices[0].AmountUSD)
+			}
+		})
+	}
+	for _, channelType := range []int{constant.ChannelTypeGemini, constant.ChannelTypeOpenAI} {
+		profile := configuredPricingOperation(&Channel{Type: channelType}, "gemini-2.5-flash", "gemini-2.5-flash", constant.EndpointTypeOpenAI)
+		offers := configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: .15, CompletionRatio: 2}, profile, "sync", "")
+		selected := SelectCatalogOffer(offers)
+		require.NotNil(t, selected)
+		assert.Equal(t, "text", selected.Operation)
+		assert.Equal(t, "output", selected.MainComponent)
+		require.Len(t, selected.Prices, 2)
+		assert.Equal(t, .6, *selected.Prices[1].AmountUSD)
+	}
+	profile := configuredPricingOperation(&Channel{Type: constant.ChannelTypeGemini}, "gemini-embedding-001", "gemini-embedding-001", constant.EndpointTypeGemini)
+	expression := `tier("unsupported", p * .15 + c * .1)`
+	offers := configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}}, profile, "sync", expression)
+	assert.Nil(t, SelectCatalogOffer(offers), "payable output must not be silently discarded for an embedding tariff")
+}
+
+func TestPricingNativeLyriaSongAndVeoEnumTariffs(t *testing.T) {
+	source, err := os.ReadFile("../plugins/tasks/google/plugin.js")
+	require.NoError(t, err)
+	registry := jsplugin.NewRegistry()
+	_, err = registry.Register(string(source), jsplugin.Options{})
+	require.NoError(t, err)
+	for _, scenario := range []struct {
+		name   string
+		amount float64
+	}{{"lyria-3-clip-preview", .04}, {"lyria-3-pro-preview", .08}, {"lyria-3.5", .08}} {
+		t.Run(scenario.name, func(t *testing.T) {
+			profile := configuredPricingOperation(&Channel{Type: constant.ChannelTypeGemini}, "music-alias", scenario.name, constant.EndpointTypeGemini)
+			selected := SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, QuotaType: 1, ModelPrice: scenario.amount}, profile, "sync", ""))
+			require.NotNil(t, selected)
+			assert.Equal(t, "music_generation", selected.Operation)
+			assert.Equal(t, "audio_output", selected.MainComponent)
+			require.Len(t, selected.Prices, 1)
+			assert.Equal(t, "song", selected.Prices[0].Unit)
+			assert.Equal(t, scenario.amount, *selected.Prices[0].AmountUSD)
+			assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, ModelRatio: 0}, profile, "sync", "")))
+			assert.Nil(t, SelectCatalogOffer(configuredOperationOffers(Pricing{}, profile, "sync", "")))
+			free := SelectCatalogOffer(configuredOperationOffers(Pricing{PriceConfigured: true, QuotaType: 1, ModelPrice: 0}, profile, "sync", ""))
+			require.NotNil(t, free)
+			assert.Zero(t, *free.Prices[0].AmountUSD)
+		})
+	}
+	channel := &Channel{Id: 992, Type: constant.ChannelTypeGemini, Status: common.ChannelStatusEnabled}
+	for _, scenario := range []struct {
+		name, expression string
+		amounts          []float64
+	}{
+		{"veo-3.1-fast-generate-preview", `tier("video", u("seconds") * (u("resolution") == "4k" ? 0.30 : (u("resolution") == "1080p" ? 0.12 : 0.10)))`, []float64{.30, .12, .10}},
+		{"veo-3.1-generate-preview", `tier("video", u("seconds") * (u("resolution") == "4k" ? 0.60 : 0.40))`, []float64{.60, .40}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			item := Pricing{ModelName: scenario.name, BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: scenario.expression}
+			abilities := []AbilityWithChannel{{Ability: Ability{ChannelId: channel.Id, Model: scenario.name, Group: "default", Enabled: true}, ChannelType: channel.Type}}
+			projectPricingOperations(&item, abilities, map[int]*Channel{channel.Id: channel}, registry.Generation(), nil, nil)
+			for _, offers := range [][]CatalogOffer{item.CatalogOffersForGroup("default"), item.PublicCatalogOffersByGroup["default"]} {
+				require.Len(t, offers, len(scenario.amounts)*2)
+				for index, amount := range scenario.amounts {
+					for actionIndex, action := range []string{constant.TaskActionTextToVideo, constant.TaskActionImageToVideo} {
+						offer := offers[index*2+actionIndex]
+						assert.Equal(t, action, offer.Operation)
+						assert.Equal(t, "video_output", offer.MainComponent)
+						require.Len(t, offer.Prices, 1)
+						assert.Equal(t, "second", offer.Prices[0].Unit)
+						assert.Equal(t, amount, *offer.Prices[0].AmountUSD)
+						require.NotEmpty(t, offer.PublicUsageConditions)
+						assert.Equal(t, "resolution", offer.PublicUsageConditions[0].Field)
+						assert.Equal(t, "4k", offer.PublicUsageConditions[0].Value)
+						assert.Equal(t, index > 0, offer.PublicUsageConditions[0].Negated)
+					}
+				}
+			}
+		})
+	}
+	free := configuredVeoUsageOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: `tier("video", u("seconds") * (u("resolution") == "4k" ? 0 : .2))`}, channel, "veo-3.1-generate-preview", registry.Generation())
+	require.Len(t, free, 4)
+	selected := SelectCatalogOffer(free)
+	require.NotNil(t, selected)
+	assert.Zero(t, *selected.Prices[0].AmountUSD, "reachable explicit zero remains free")
+	for _, expression := range []string{`tier("video", u("seconds") * u("seconds"))`, `tier("video", u("missing") * .4)`, `tier("video", u("seconds") * (u("resolution") == "invalid" ? .3 : .1))`, `tier("video", u("seconds") * .4 + 1)`, `tier("video", u("seconds") * (u("resolution") == "4k" ? .4 : (u("resolution") == "4k" ? 0 : .2)))`} {
+		unknown := configuredVeoUsageOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: expression}, channel, "veo-3.1-generate-preview", registry.Generation())
+		require.Len(t, unknown, 2)
+		assert.Nil(t, SelectCatalogOffer(unknown))
+		assert.Empty(t, unknown[0].Prices)
+	}
+}

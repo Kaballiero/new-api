@@ -410,6 +410,8 @@ func buildSchemas() map[string]interface{} {
 	}
 	out["EffectivePricingOperation"] = map[string]any{
 		"type": "object", "properties": map[string]any{
+			"tiers":     map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/PublicPricingTier"}},
+			"is_from":   map[string]any{"type": "boolean"},
 			"operation": map[string]any{"type": "string"},
 			"mode":      map[string]any{"type": "string", "enum": []string{"sync", "batch"}},
 			"prices":    map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectiveUnitPrice"}},
@@ -876,8 +878,9 @@ func addPublicPricingModelsSchemas(out map[string]interface{}) {
 	price := map[string]any{"$ref": "#/components/schemas/EffectiveUnitPrice"}
 	prices := map[string]any{"type": "array", "items": price}
 	out["PublicPricingCondition"] = map[string]any{"type": "object", "properties": map[string]any{
-		"kind":    map[string]any{"type": "string", "enum": []string{"comparison", "all_of", "any_of", "not"}},
-		"subject": text, "argument": text, "unit": text, "operator": text, "value": map[string]any{"type": "number"},
+		"string_value": map[string]any{"type": "string"},
+		"kind":         map[string]any{"type": "string", "enum": []string{"comparison", "all_of", "any_of", "not"}},
+		"subject":      text, "argument": text, "unit": text, "operator": text, "value": map[string]any{"type": "number"},
 		"conditions": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/PublicPricingCondition"}},
 	}, "required": []string{"kind"}}
 	out["PublicPricingTier"] = map[string]any{"type": "object", "properties": map[string]any{"condition": map[string]any{"$ref": "#/components/schemas/PublicPricingCondition"}, "prices": prices}, "required": []string{"prices"}}

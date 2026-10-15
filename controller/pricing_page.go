@@ -339,7 +339,7 @@ func effectivePricingModality(item model.Pricing) string {
 				proved["EMBEDDINGS"] = true
 			case "rerank":
 				proved["RERANK"] = true
-			case "speech_generation", "transcription", "realtime":
+			case "speech_generation", "music_generation", "transcription", "realtime":
 				proved["OTHER"] = true
 			case "text":
 				proved["TEXT"] = true

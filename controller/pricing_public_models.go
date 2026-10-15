@@ -58,13 +58,14 @@ type publicPricingTier struct {
 }
 
 type publicPricingCondition struct {
-	Kind       string                   `json:"kind"`
-	Subject    string                   `json:"subject,omitempty"`
-	Argument   string                   `json:"argument,omitempty"`
-	Unit       string                   `json:"unit,omitempty"`
-	Operator   string                   `json:"operator,omitempty"`
-	Value      *float64                 `json:"value,omitempty"`
-	Conditions []publicPricingCondition `json:"conditions,omitempty"`
+	Kind        string                   `json:"kind"`
+	Subject     string                   `json:"subject,omitempty"`
+	Argument    string                   `json:"argument,omitempty"`
+	Unit        string                   `json:"unit,omitempty"`
+	Operator    string                   `json:"operator,omitempty"`
+	StringValue *string                  `json:"string_value,omitempty"`
+	Value       *float64                 `json:"value,omitempty"`
+	Conditions  []publicPricingCondition `json:"conditions,omitempty"`
 }
 
 type publicPricingModelsQuery struct {
@@ -202,10 +203,14 @@ func publicPricingGuard(guard billingexpr.TierCondition, units ...map[string]str
 }
 
 func buildPublicModelTariff(context effectivePricingPageContext, item model.Pricing) publicModelTariff {
+	return buildCatalogModelTariff(context, item, "default")
+}
+
+func buildCatalogModelTariff(context effectivePricingPageContext, item model.Pricing, group string) publicModelTariff {
 	result := publicModelTariff{Operations: []publicPricingOperation{}}
-	offers := item.PublicCatalogOffersByGroup["default"]
+	offers := item.PublicCatalogOffersByGroup[group]
 	if len(offers) == 0 {
-		offers = item.CatalogOffersForGroup("default")
+		offers = item.CatalogOffersForGroup(group)
 	}
 	byOperation := make(map[string][]model.CatalogOffer)
 	for _, offer := range offers {
@@ -217,13 +222,13 @@ func buildPublicModelTariff(context effectivePricingPageContext, item model.Pric
 		keys = append(keys, key)
 	}
 	slices.Sort(keys)
-	ratio, ratioErr := service.ApplyBillingFX(context.groupRatios["default"], context.fxFactor)
+	ratio, ratioErr := service.ApplyBillingFX(context.groupRatios[group], context.fxFactor)
 	for _, key := range keys {
 		operation, mode, _ := strings.Cut(key, ":")
 		row := publicPricingOperation{Operation: operation, Mode: mode, Prices: []consumerUnitPrice{}, Tiers: []publicPricingTier{}, IsFree: true}
 		candidates := byOperation[key]
 		selected := model.SelectCatalogOffer(candidates)
-		sources := item.BillingSourcesForGroup("default")
+		sources := item.BillingSourcesForGroup(group)
 		actualCost := false
 		for _, values := range sources {
 			actualCost = actualCost || slices.Contains(values, model.BillingSourceOpenRouterActualCost)
@@ -233,7 +238,7 @@ func buildPublicModelTariff(context effectivePricingPageContext, item model.Pric
 		seen := make(map[string]bool)
 		for _, offer := range candidates {
 			tier := publicPricingTier{Prices: []consumerUnitPrice{}}
-			if len(offer.PublicConditions) > 0 {
+			if len(offer.PublicConditions) > 0 || len(offer.PublicUsageConditions) > 0 {
 				condition := publicPricingCondition{Kind: "all_of"}
 				units := make(map[string]string)
 				for _, price := range offer.Prices {
@@ -245,6 +250,13 @@ func buildPublicModelTariff(context effectivePricingPageContext, item model.Pric
 				}
 				for _, guard := range offer.PublicConditions {
 					condition.Conditions = append(condition.Conditions, publicPricingGuard(guard, units))
+				}
+				for _, guard := range offer.PublicUsageConditions {
+					comparison := publicPricingCondition{Kind: "comparison", Subject: "usage", Argument: guard.Field, Operator: "==", StringValue: &guard.Value}
+					if guard.Negated {
+						comparison = publicPricingCondition{Kind: "not", Conditions: []publicPricingCondition{comparison}}
+					}
+					condition.Conditions = append(condition.Conditions, comparison)
 				}
 				if len(condition.Conditions) == 1 {
 					condition = condition.Conditions[0]
