@@ -233,6 +233,22 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				responses[code] = map[string]any{"description": translate(currentLocale, "err."+code), "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiErrorResponse"}}}}
 			}
 		}
+		if route.HandlerName == "GetEffectivePricingOverview" {
+			op["description"] = "Bounded first pages for all six modalities from one immutable catalog and pricing context. Requires root dashboard access."
+			parameters := []any{}
+			for _, name := range []string{"limit", "search", "group", "using_group"} {
+				schema := map[string]any{"type": "string"}
+				if name == "limit" {
+					schema = map[string]any{"type": "integer", "default": 4, "minimum": 0, "maximum": 100}
+				}
+				parameters = append(parameters, map[string]any{"name": name, "in": "query", "required": false, "schema": schema})
+			}
+			op["parameters"] = parameters
+			responses := op["responses"].(map[string]any)
+			for _, code := range []string{"400", "503"} {
+				responses[code] = map[string]any{"description": translate(currentLocale, "err."+code), "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiErrorResponse"}}}}
+			}
+		}
 		if route.HandlerName == "GetEffectivePricingByGroup" || route.HandlerName == "GetEffectivePricing" {
 			parameters := []any{}
 			for _, parameter := range []struct {

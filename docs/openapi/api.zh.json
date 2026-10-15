@@ -3771,6 +3771,187 @@
         ],
         "type": "object"
       },
+      "EffectivePricingOverviewData": {
+        "properties": {
+          "auto_groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "catalog_revision": {
+            "description": "Opaque immutable catalog and pricing-context revision; reuse as expected_revision across pages.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "creators": {
+            "description": "Required in page mode. Global eligible creators before filters.",
+            "items": {
+              "$ref": "#/components/schemas/EffectivePricingCreator"
+            },
+            "type": "array"
+          },
+          "currency": {
+            "enum": [
+              "RUB"
+            ],
+            "type": "string"
+          },
+          "schema_version": {
+            "enum": [
+              "v2"
+            ],
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/EffectivePricingOverviewSection"
+            },
+            "type": "array"
+          },
+          "user_group": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "catalog_revision",
+          "user_group",
+          "currency",
+          "auto_groups",
+          "creators",
+          "sections"
+        ],
+        "type": "object"
+      },
+      "EffectivePricingOverviewResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EffectivePricingOverviewData"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "type": "object"
+      },
+      "EffectivePricingOverviewSection": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/EffectivePricingPageModel"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "description": "Required when limit selects page mode.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "modality": {
+            "description": "Required when limit selects page mode.",
+            "enum": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "EMBEDDINGS",
+              "RERANK",
+              "OTHER"
+            ],
+            "type": "string"
+          },
+          "offset": {
+            "description": "Required when limit selects page mode.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_count": {
+            "description": "Required when limit selects page mode.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "modality",
+          "offset",
+          "limit",
+          "total_count",
+          "data"
+        ],
+        "type": "object"
+      },
+      "EffectivePricingPageModel": {
+        "properties": {
+          "creator": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EffectivePricingCreator"
+              }
+            ],
+            "description": "Required when limit selects page mode; null when vendor metadata is unavailable.",
+            "nullable": true,
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "group_prices": {
+            "items": {
+              "$ref": "#/components/schemas/EffectiveGroupPricing"
+            },
+            "type": "array"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "modality": {
+            "description": "Required when limit selects page mode.",
+            "enum": [
+              "TEXT",
+              "IMAGE",
+              "VIDEO",
+              "EMBEDDINGS",
+              "RERANK",
+              "OTHER"
+            ],
+            "type": "string"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "owner_by": {
+            "type": "string"
+          },
+          "supported_endpoint_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tags": {
+            "type": "string"
+          },
+          "vendor_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model_name",
+          "owner_by",
+          "supported_endpoint_types",
+          "group_prices",
+          "modality",
+          "creator"
+        ],
+        "type": "object"
+      },
       "EffectivePricingResponse": {
         "properties": {
           "data": {
@@ -29841,6 +30022,161 @@
         },
         "security": [],
         "summary": "get /api/pricing/effective/models",
+        "tags": [
+          "Uncategorized"
+        ]
+      }
+    },
+    "/api/pricing/effective/overview": {
+      "get": {
+        "deprecated": false,
+        "description": "Bounded first pages for all six modalities from one immutable catalog and pricing context. Requires root dashboard access.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 4,
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "using_group",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectivePricingOverviewResponse"
+                }
+              }
+            },
+            "description": "成功",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "请求错误 — 参数无效、校验失败或其他客户端错误"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "未授权 — 缺少或无效的认证凭据"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "禁止访问 — 角色/权限不足或功能未启用"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "未找到 — 引用的资源不存在"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "冲突 — 资源已存在或当前状态不允许此操作"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "无法处理 — 请求格式正确但语义无效"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务器内部错误 — 数据库事务失败或未处理异常"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "网关错误 — 上游提供商（LLM API、模型注册表）失败"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "服务不可用 — 当前计费汇率基准不可用或无效"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "get /api/pricing/effective/overview",
         "tags": [
           "Uncategorized"
         ]

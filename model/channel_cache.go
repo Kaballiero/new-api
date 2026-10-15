@@ -24,26 +24,67 @@ var channelsIDM map[int]*Channel                     // all channels include dis
 var channel2advancedCustomConfig map[int]*kitdto.AdvancedCustomConfig
 var channelSyncLock sync.RWMutex
 
+var channelPricingSyncFingerprint string
+var channelPricingIdentities map[int]string
+var channelPricingSyncMutex sync.Mutex
+
 func InitChannelCache() {
-	if !common.MemoryCacheEnabled {
+	if !common.MemoryCacheEnabled && DB == nil {
 		InvalidatePricingCache()
 		rebuildTaskAliasView()
 		return
 	}
+	channelPricingSyncMutex.Lock()
+	defer channelPricingSyncMutex.Unlock()
 	newChannelId2channel := make(map[int]*Channel)
 	newChannel2advancedCustomConfig := make(map[int]*kitdto.AdvancedCustomConfig)
 	var channels []*Channel
-	DB.Find(&channels)
+	if err := DB.Find(&channels).Error; err != nil {
+		return
+	}
 	for _, channel := range channels {
 		newChannelId2channel[channel.Id] = channel
-		if channel.Type == constant.ChannelTypeAdvancedCustom {
+		if common.MemoryCacheEnabled && channel.Type == constant.ChannelTypeAdvancedCustom {
 			if config := channel.GetOtherSettings().AdvancedCustom; config != nil {
 				newChannel2advancedCustomConfig[channel.Id] = config
 			}
 		}
 	}
 	var abilities []*Ability
-	DB.Find(&abilities)
+	if err := DB.Find(&abilities).Error; err != nil {
+		return
+	}
+	enabledAbilities := make([]AbilityWithChannel, 0, len(abilities))
+	for _, ability := range abilities {
+		if ability.Enabled {
+			enabledAbilities = append(enabledAbilities, AbilityWithChannel{Ability: *ability})
+		}
+	}
+	fingerprint, err := pricingPersistedInputFingerprint(nil, nil, channels, enabledAbilities)
+	if err != nil {
+		return
+	}
+	changed := fingerprint != channelPricingSyncFingerprint
+	if observed := pricingObservedChannels.Load(); observed != nil && *observed == fingerprint {
+		changed = false
+	}
+	channelPricingSyncFingerprint = fingerprint
+	identities := make(map[int]string, len(channels))
+	for _, channel := range channels {
+		identity, err := pricingChannelInputIdentity(channel)
+		if err != nil {
+			return
+		}
+		identities[channel.Id] = identity
+	}
+	if !common.MemoryCacheEnabled {
+		if changed {
+			InvalidatePricingCache()
+			channelPricingSyncFingerprint = fingerprint
+		}
+		rebuildTaskAliasView()
+		return
+	}
 	groups := make(map[string]bool)
 	for _, ability := range abilities {
 		groups[ability.Group] = true
@@ -79,6 +120,7 @@ func InitChannelCache() {
 	}
 
 	channelSyncLock.Lock()
+	channelPricingIdentities = identities
 	group2model2channels = newGroup2model2channels
 	//channelsIDM = newChannelId2channel
 	for i, channel := range newChannelId2channel {
@@ -97,11 +139,11 @@ func InitChannelCache() {
 	channelsIDM = newChannelId2channel
 	channel2advancedCustomConfig = newChannel2advancedCustomConfig
 	channelSyncLock.Unlock()
-	// Lock ordering: InvalidatePricingCache acquires updatePricingLock, and
-	// GetPricing (holding updatePricingLock) nests channelSyncLock.RLock via
-	// loadPricingAdvancedCustomConfigs. channelSyncLock MUST be released before
-	// invalidating the pricing cache, otherwise the reversed order deadlocks.
-	InvalidatePricingCache()
+
+	if changed {
+		InvalidatePricingCache()
+		channelPricingSyncFingerprint = fingerprint
+	}
 	rebuildTaskAliasView()
 	common.SysLog("channels synced from database")
 }
@@ -277,7 +319,17 @@ func CacheUpdateChannel(channel *Channel) {
 	if !common.MemoryCacheEnabled {
 		return
 	}
+	identity, err := pricingChannelInputIdentity(channel)
+	if err != nil {
+		return
+	}
 	channelSyncLock.Lock()
+	pricingChanged := channelPricingIdentities[channel.Id] != identity
+	if channelPricingIdentities == nil {
+		channelPricingIdentities = make(map[int]string)
+	}
+	channelPricingIdentities[channel.Id] = identity
+
 	if channel == nil {
 		channelSyncLock.Unlock()
 		return
@@ -300,10 +352,9 @@ func CacheUpdateChannel(channel *Channel) {
 		}
 	}
 	logger.LogDebug(nil, "CacheUpdateChannel after: id=%d, name=%s, status=%d, polling_index=%d", channel.Id, channel.Name, channel.Status, channel.ChannelInfo.MultiKeyPollingIndex)
-	// Lock ordering: do NOT hold channelSyncLock while calling
-	// InvalidatePricingCache. GetPricing acquires updatePricingLock first and then
-	// channelSyncLock.RLock (via loadPricingAdvancedCustomConfigs); acquiring
-	// updatePricingLock while holding channelSyncLock would be an AB-BA deadlock.
+
 	channelSyncLock.Unlock()
-	InvalidatePricingCache()
+	if pricingChanged {
+		InvalidatePricingCache()
+	}
 }

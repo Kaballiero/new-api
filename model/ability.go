@@ -334,11 +334,19 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 }
 
 func UpdateAbilityStatus(channelId int, status bool) error {
-	return DB.Model(&Ability{}).Where("channel_id = ?", channelId).Select("enabled").Update("enabled", status).Error
+	result := DB.Model(&Ability{}).Where("channel_id = ? AND enabled <> ?", channelId, status).Select("enabled").Update("enabled", status)
+	if result.Error == nil && result.RowsAffected > 0 {
+		InvalidatePricingCache()
+	}
+	return result.Error
 }
 
 func UpdateAbilityStatusByTag(tag string, status bool) error {
-	return DB.Model(&Ability{}).Where("tag = ?", tag).Select("enabled").Update("enabled", status).Error
+	result := DB.Model(&Ability{}).Where("tag = ? AND enabled <> ?", tag, status).Select("enabled").Update("enabled", status)
+	if result.Error == nil && result.RowsAffected > 0 {
+		InvalidatePricingCache()
+	}
+	return result.Error
 }
 
 func UpdateAbilityByTag(tag string, newTag *string, priority *int64, weight *uint) error {

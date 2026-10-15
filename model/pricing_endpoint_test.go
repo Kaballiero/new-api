@@ -229,7 +229,7 @@ func TestInitChannelCacheInvalidatesPricingCache(t *testing.T) {
 	}, updated["gemini-3.5-flash"])
 }
 
-func TestInitChannelCacheInvalidatesStartupPricingBuiltBeforeChannelCache(t *testing.T) {
+func TestStartupPricingUsesChannelSourceBeforeChannelCacheInitialization(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 
 	insertPricingEndpointChannel(t, 302, constant.ChannelTypeAdvancedCustom, pricingEndpointAdvancedCustomConfig(
@@ -247,7 +247,7 @@ func TestInitChannelCacheInvalidatesStartupPricingBuiltBeforeChannelCache(t *tes
 	insertPricingEndpointAbility(t, 302, "gemini-3.5-flash")
 
 	staleByModel := pricingEndpointTypesFromPricing(GetPricing())
-	require.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, staleByModel["gemini-3.5-flash"])
+	require.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeOpenAIResponse}, staleByModel["gemini-3.5-flash"], "cold initialization reads the actual source instead of a cache-dependent fallback")
 
 	InitChannelCache()
 

@@ -3,10 +3,14 @@ package model
 import (
 	"context"
 	"errors"
+	"github.com/glebarez/sqlite"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -51,9 +55,10 @@ func TestPricingCatalogOptionsPersistReloadAndRevision(t *testing.T) {
 	reloaded, known := GetPricingCatalogEntry(channel, entry.UpstreamModel, entry.Endpoint)
 	require.True(t, known)
 	assert.Equal(t, entry, reloaded)
+	revision = GetPricingRevision()
 	entry.FetchedAt = "2026-10-13T14:41:19Z"
 	require.NoError(t, PublishPricingCatalogEntry(entry))
-	assert.Greater(t, GetPricingRevision(), revision)
+	assert.Equal(t, revision, GetPricingRevision(), "timestamp-only metadata refresh preserves projection")
 }
 
 func TestPricingCatalogSourceSurvivesUnrelatedRoutes(t *testing.T) {
@@ -283,4 +288,116 @@ func TestImagePricingTokenInputsStayWithTheirProvider(t *testing.T) {
 		assert.Equal(t, conditional.PublicConditions, result[0].PublicAlternatives[1].PublicConditions)
 		assert.True(t, result[0].PublicAlternatives[1].PublicConditional)
 	})
+}
+
+func TestPricingCatalogPublicationLocksSourceUntilCommit(t *testing.T) {
+	path := "file:" + filepath.Join(t.TempDir(), "catalog.db") + "?_pragma=busy_timeout(100)&_pragma=journal_mode(WAL)&_pragma=synchronous(OFF)"
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	require.NoError(t, err)
+	writer, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	require.NoError(t, err)
+	previousDB, previousState, previousOptions := DB, pricingCatalogState.Load(), common.OptionMap
+	DB = db
+	pricingCatalogState.Store(nil)
+	common.OptionMap = map[string]string{}
+	t.Cleanup(func() {
+		DB = previousDB
+		pricingCatalogState.Store(previousState)
+		common.OptionMap = previousOptions
+		for _, handle := range []*gorm.DB{db, writer} {
+			sqlDB, err := handle.DB()
+			require.NoError(t, err)
+			require.NoError(t, sqlDB.Close())
+		}
+	})
+	require.NoError(t, db.AutoMigrate(&Channel{}, &Option{}))
+	channel := &Channel{Id: 980, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "fixture", Models: "upstream/model", Group: "default"}
+	require.NoError(t, db.Create(channel).Error)
+	amount := .01
+	entry := PricingCatalogEntry{ChannelID: channel.Id, UpstreamModel: "upstream/model", Endpoint: constant.EndpointTypeOpenAI, Source: "https://openrouter.ai/api/v1/models/upstream/model/endpoints", FetchedAt: "2026-10-15T00:00:00Z", Fingerprint: PricingCatalogSourceFingerprint(channel, "upstream/model", constant.EndpointTypeOpenAI), Offers: []CatalogOffer{{ID: "native", Operation: "text", Mode: "sync", MainComponent: "input", Prices: []CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: &amount}}}}}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	require.NoError(t, db.Callback().Query().After("gorm:query").Register("test:source_locked", func(tx *gorm.DB) {
+		if tx.Statement.Table == "channels" {
+			once.Do(func() { close(entered); <-release })
+		}
+	}))
+	done := make(chan error, 1)
+	go func() { done <- PublishPricingCatalogEntry(entry) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("publication did not reach source fence")
+	}
+	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	err = writer.WithContext(writeCtx).Model(&Channel{}).Where("id = ?", channel.Id).Update("models", "other/model").Error
+	cancelWrite()
+	assert.Error(t, err, "second real SQLite connection cannot mutate source between identity read and catalog commit")
+	close(release)
+	require.NoError(t, <-done)
+	require.NoError(t, writer.Model(&Channel{}).Where("id = ?", channel.Id).Update("models", "other/model").Error)
+	changed := *channel
+	changed.Models = "other/model"
+	_, known := GetPricingCatalogEntry(&changed, entry.UpstreamModel, entry.Endpoint)
+	assert.False(t, known)
+}
+
+func TestPricingCatalogBulkCommitKeepsOnlyMatchingLastGood(t *testing.T) {
+	db, channel, entry := pricingCatalogOptionFixture(t)
+	require.NoError(t, PublishPricingCatalogEntry(entry))
+	sibling := entry
+	sibling.UpstreamModel = "upstream/sibling"
+	sibling.Fingerprint = PricingCatalogSourceFingerprint(channel, sibling.UpstreamModel, sibling.Endpoint)
+	require.NoError(t, PublishPricingCatalogEntry(sibling))
+	stale := entry
+	stale.Fingerprint = strings.Repeat("0", 64)
+	count, err := PublishPricingCatalogContext(context.Background(), []PricingCatalogEntry{stale, sibling})
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+	_, known := GetPricingCatalogEntry(channel, entry.UpstreamModel, entry.Endpoint)
+	assert.True(t, known, "a rejected staged source cannot replace a still-matching last good entry")
+	_, known = GetPricingCatalogEntry(channel, sibling.UpstreamModel, sibling.Endpoint)
+	assert.True(t, known)
+	saved := requireOptionValue(t, db, PricingCatalogOptionKey)
+	snapshot, err := decodePricingCatalog(saved)
+	require.NoError(t, err)
+	assert.Len(t, snapshot.Entries, 2)
+}
+
+func TestPricingCatalogSourceMutationWaitsForPublication(t *testing.T) {
+	if os.Getenv("GROUP_RATIO_TEST_MYSQL_DSN") == "" && os.Getenv("GROUP_RATIO_TEST_POSTGRES_DSN") == "" {
+		t.Skip("real MySQL/PostgreSQL isolated DSN is not configured; SQLite lock is covered separately")
+	}
+	db, channel, entry := pricingCatalogOptionFixture(t)
+	writer, err := gorm.Open(db.Dialector, &gorm.Config{})
+	require.NoError(t, err)
+	t.Cleanup(func() { handle, err := writer.DB(); require.NoError(t, err); require.NoError(t, handle.Close()) })
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	require.NoError(t, db.Callback().Query().After("gorm:query").Register("test:source_locked", func(tx *gorm.DB) {
+		if tx.Statement.Table == "channels" {
+			once.Do(func() { close(entered); <-release })
+		}
+	}))
+	t.Cleanup(func() { db.Callback().Query().Remove("test:source_locked") })
+	done := make(chan error, 1)
+	go func() { done <- PublishPricingCatalogEntry(entry) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("publication did not reach source fence")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	err = writer.WithContext(ctx).Model(&Channel{}).Where("id = ?", channel.Id).Update("models", "other/model").Error
+	cancel()
+	assert.Error(t, err, "source update must wait for publication's real database lock")
+	close(release)
+	require.NoError(t, <-done)
+	require.NoError(t, writer.Model(&Channel{}).Where("id = ?", channel.Id).Update("models", "other/model").Error)
+	changed := *channel
+	changed.Models = "other/model"
+	_, known := GetPricingCatalogEntry(&changed, entry.UpstreamModel, entry.Endpoint)
+	assert.False(t, known)
 }

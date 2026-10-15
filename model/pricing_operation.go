@@ -268,7 +268,7 @@ func configuredOperationOffers(pricing Pricing, profile pricingOperation, mode, 
 	return []CatalogOffer{unknown}
 }
 
-func projectPricingOperations(pricing *Pricing, abilities []AbilityWithChannel, channels map[int]*Channel, generation *jsplugin.RoutingGeneration, advanced map[int]*dto.AdvancedCustomConfig) {
+func projectPricingOperations(pricing *Pricing, abilities []AbilityWithChannel, channels map[int]*Channel, generation *jsplugin.RoutingGeneration, advanced map[int]*dto.AdvancedCustomConfig, taskPluginKeys map[int]string) {
 	public := *pricing
 	public.CatalogOffersByGroup = make(map[string][]CatalogOffer, len(pricing.CatalogOffersByGroup))
 	for group, offers := range pricing.CatalogOffersByGroup {
@@ -287,12 +287,12 @@ func projectPricingOperations(pricing *Pricing, abilities []AbilityWithChannel, 
 			}
 		}
 	}
-	projectPricingOperationsMode(pricing, abilities, channels, generation, advanced, false)
-	projectPricingOperationsMode(&public, abilities, channels, generation, advanced, true)
+	projectPricingOperationsMode(pricing, abilities, channels, generation, advanced, false, taskPluginKeys)
+	projectPricingOperationsMode(&public, abilities, channels, generation, advanced, true, taskPluginKeys)
 	pricing.PublicCatalogOffersByGroup = public.CatalogOffersByGroup
 }
 
-func projectPricingOperationsMode(pricing *Pricing, abilities []AbilityWithChannel, channels map[int]*Channel, generation *jsplugin.RoutingGeneration, advanced map[int]*dto.AdvancedCustomConfig, public bool) {
+func projectPricingOperationsMode(pricing *Pricing, abilities []AbilityWithChannel, channels map[int]*Channel, generation *jsplugin.RoutingGeneration, advanced map[int]*dto.AdvancedCustomConfig, public bool, taskPluginKeys map[int]string) {
 	native := pricing.CatalogOffersByGroup
 	pricing.CatalogOffersByGroup = make(map[string][]CatalogOffer)
 	pricing.ConsumerCanonicalModelsByGroup = make(map[string]string)
@@ -316,8 +316,8 @@ func projectPricingOperationsMode(pricing *Pricing, abilities []AbilityWithChann
 				offers = append(offers, offer)
 			}
 		}
-		legacy, video, _ := legacyVideoPriceBasis(generation, channel, ability.Model)
-		actual := channel.Type == constant.ChannelTypeOpenRouter || channel.Type == constant.ChannelTypeTaskPlugin && channel.GetSetting().TaskPluginKey == "openrouter-video"
+		legacy, video, _ := legacyVideoPriceBasis(generation, channel, ability.Model, taskPluginKeys[channel.Id])
+		actual := channel.Type == constant.ChannelTypeOpenRouter || channel.Type == constant.ChannelTypeTaskPlugin && taskPluginKeys[channel.Id] == "openrouter-video"
 		batchAlias := strings.HasSuffix(ability.Model, ":batch")
 		if batchAlias && actual {
 			base, paired := pairedPricingBatchBase(ability, upstream, abilities, channels)

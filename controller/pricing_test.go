@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 const prodFXFactor = 0.854594
@@ -518,6 +520,7 @@ func TestConsumerPricingPageUsesNativeChannelVideoPluginBinding(t *testing.T) {
 	require.NoError(t, db.Create(&model.Channel{Id: 950, Type: constant.ChannelTypeOpenRouter, Status: 1, Key: "fixture", Models: "heygen-alias", ModelMapping: &mapping}).Error)
 	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "heygen-alias", ChannelId: 950, Enabled: true}).Error)
 	model.InitChannelCache()
+	model.RefreshPricing()
 	context := effectivePricingPageContext{metadata: consumerPricingResponse{SchemaVersion: "v2", UserGroup: "default", Currency: "RUB"}, fxFactor: 1, pricing: model.GetPricing(), usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1}, usingGroup: "default"}
 	query, err := parseEffectivePricingPageQuery(url.Values{"limit": {"20"}, "modality": {"VIDEO"}}, false)
 	require.NoError(t, err)
@@ -619,7 +622,7 @@ func TestPricingCatalogRefreshPartialFailureAndCancellation(t *testing.T) {
 	for index := range sources {
 		sources[index].upstream = string(rune('a' + index))
 	}
-	var calls, published, active, maximum atomic.Int64
+	var calls, published, publications, active, maximum atomic.Int64
 	gate := make(chan struct{})
 	ready := make(chan struct{}, pricingCatalogWorkers)
 	done := make(chan pricingCatalogRefreshSummary, 1)
@@ -637,7 +640,11 @@ func TestPricingCatalogRefreshPartialFailureAndCancellation(t *testing.T) {
 				return model.PricingCatalogEntry{}, errors.New("fixture failed metadata")
 			}
 			return model.PricingCatalogEntry{UpstreamModel: source.upstream}, nil
-		}, func(entry model.PricingCatalogEntry) error { published.Add(1); return nil })
+		}, func(entries []model.PricingCatalogEntry) (int, error) {
+			publications.Add(1)
+			published.Add(int64(len(entries)))
+			return len(entries), nil
+		})
 		assert.ErrorContains(t, err, "failed for 1 of 12 sources")
 		done <- summary
 	}()
@@ -650,6 +657,7 @@ func TestPricingCatalogRefreshPartialFailureAndCancellation(t *testing.T) {
 	assert.Equal(t, 1, summary.Failed)
 	assert.EqualValues(t, pricingCatalogWorkers, maximum.Load())
 	assert.EqualValues(t, 11, published.Load())
+	assert.EqualValues(t, 1, publications.Load(), "all successful metadata must commit together")
 	for _, failure := range []string{"fetch", "persist"} {
 		t.Run("all_"+failure+"_fail", func(t *testing.T) {
 			summary, err := refreshPricingCatalogSources(context.Background(), sources, func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error) {
@@ -657,11 +665,11 @@ func TestPricingCatalogRefreshPartialFailureAndCancellation(t *testing.T) {
 					return model.PricingCatalogEntry{}, errors.New("metadata unavailable")
 				}
 				return model.PricingCatalogEntry{}, nil
-			}, func(model.PricingCatalogEntry) error {
+			}, func([]model.PricingCatalogEntry) (int, error) {
 				if failure == "fetch" {
 					t.Error("failed fetch was published")
 				}
-				return errors.New("persistence unavailable")
+				return 0, errors.New("persistence unavailable")
 			})
 			require.ErrorContains(t, err, "failed for 12 of 12 sources")
 			assert.Equal(t, 12, summary.Failed)
@@ -672,7 +680,7 @@ func TestPricingCatalogRefreshPartialFailureAndCancellation(t *testing.T) {
 	cancel()
 	_, err := refreshPricingCatalogSources(ctx, sources, func(ctx context.Context, source pricingCatalogSource) (model.PricingCatalogEntry, error) {
 		return model.PricingCatalogEntry{}, ctx.Err()
-	}, func(model.PricingCatalogEntry) error { t.Fatal("cancelled task published"); return nil })
+	}, func([]model.PricingCatalogEntry) (int, error) { t.Fatal("cancelled task published"); return 0, nil })
 	require.ErrorIs(t, err, context.Canceled)
 }
 
@@ -743,7 +751,10 @@ func TestPricingCatalogFetchUsesBoundedMetadataAndConsumerDoesNoHTTP(t *testing.
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := refreshPricingCatalogSources(ctx, []pricingCatalogSource{source}, fetchPricingCatalogSource, func(model.PricingCatalogEntry) error { t.Error("cancelled metadata was published"); return nil })
+		_, err := refreshPricingCatalogSources(ctx, []pricingCatalogSource{source}, fetchPricingCatalogSource, func([]model.PricingCatalogEntry) (int, error) {
+			t.Error("cancelled metadata was published")
+			return 0, nil
+		})
 		done <- err
 	}()
 	<-started
@@ -823,6 +834,7 @@ func TestConsumerPricingNativeVideoOperationsMatchBoundSourceDescriptors(t *test
 	require.NoError(t, db.Create(&model.Channel{Id: 992, Type: constant.ChannelTypeOpenAI, Status: 1, Key: "fixture", Models: "sora-2"}).Error)
 	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "sora-2", ChannelId: 992, Enabled: true}).Error)
 	model.InitChannelCache()
+	model.RefreshPricing()
 	items := map[string]model.Pricing{}
 	for _, item := range model.GetPricing() {
 		items[item.ModelName] = item
@@ -870,6 +882,7 @@ func TestConsumerPricingNativeVideoOperationsMatchBoundSourceDescriptors(t *test
 	require.NoError(t, db.Create(&model.Channel{Id: 993, Type: constant.ChannelTypeOpenAI, Status: 1, Key: "fixture", Models: "edit-alias"}).Error)
 	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "edit-alias", ChannelId: 993, Enabled: true}).Error)
 	model.InitChannelCache()
+	model.RefreshPricing()
 	for _, item := range model.GetPricing() {
 		if item.ModelName == "edit-alias" {
 			rows := consumerOperations(item, "default", 1, true)
@@ -951,6 +964,7 @@ func TestPricingCatalogSourceJobsUseNativeCapabilitiesAndExactBatch(t *testing.T
 		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 991, Enabled: true}).Error)
 	}
 	model.InitChannelCache()
+	model.RefreshPricing()
 	client := service.GetHttpClient()
 	if client == nil {
 		client = http.DefaultClient
@@ -1052,6 +1066,7 @@ func TestEffectivePricingPageUsesProvedAliasOperationsForModality(t *testing.T) 
 	require.NoError(t, db.Create(&model.Vendor{Id: 11, Name: "Embedding source"}).Error)
 	require.NoError(t, db.Create(&model.Model{ModelName: "semantic-index", VendorID: 11}).Error)
 	model.InitChannelCache()
+	model.RefreshPricing()
 	items := model.GetPricing()
 	require.Len(t, items, 1)
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, items[0].SupportedEndpointTypes)
@@ -1248,7 +1263,7 @@ func TestPricingCatalogFailureDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 	}
 	summary, err := refreshPricingCatalogSources(context.Background(), sources, func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error) {
 		return model.PricingCatalogEntry{}, errors.New("https://private.invalid super-secret native endpoint pricing response")
-	}, func(model.PricingCatalogEntry) error { t.Fatal("failed metadata published"); return nil })
+	}, func([]model.PricingCatalogEntry) (int, error) { t.Fatal("failed metadata published"); return 0, nil })
 	require.Error(t, err)
 	assert.Equal(t, len(sources), summary.Failed)
 	assert.True(t, summary.FailuresTruncated)
@@ -1260,7 +1275,7 @@ func TestPricingCatalogFailureDiagnosticsAreBoundedAndSanitized(t *testing.T) {
 	assert.NotContains(t, string(encoded), "private.invalid")
 	summary, err = refreshPricingCatalogSources(context.Background(), sources[:1], func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error) {
 		return model.PricingCatalogEntry{}, nil
-	}, func(model.PricingCatalogEntry) error { return errors.New("super-secret DB failure") })
+	}, func([]model.PricingCatalogEntry) (int, error) { return 0, errors.New("super-secret DB failure") })
 	require.Error(t, err)
 	require.Len(t, summary.FailedSources, 1)
 	assert.Equal(t, "publication_failed", summary.FailedSources[0].Class)
@@ -1331,6 +1346,7 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 	}
 	withTieredBillingConfig(t, map[string]string{"gpt-realtime-mini": "tiered_expr", "gpt-4o-transcribe-diarize": "tiered_expr", "gpt-4o-mini-tts": "tiered_expr", "gpt-transcribe": "tiered_expr"}, map[string]string{"gpt-realtime-mini": `tier("base",p*.6+c*2.4+cr*.06+ai*10+ao*20+img*.8)`, "gpt-4o-transcribe-diarize": `tier("base",p*2.5+c*10)`, "gpt-4o-mini-tts": `tier("base",p*.6+c*12+ao*12)`, "gpt-transcribe": `tier("base",p*4.5)`})
 	model.InitChannelCache()
+	model.RefreshPricing()
 	var expected []consumerPricingModel
 	for _, handler := range []gin.HandlerFunc{GetEffectivePricing, GetEffectivePricingByGroup} {
 		for _, query := range []string{"", "?limit=100"} {
@@ -1556,6 +1572,7 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	require.Len(t, entry.Offers[0].PublicAlternatives, 2)
 	require.NoError(t, model.PublishPricingCatalogEntry(entry))
 	model.InitChannelCache()
+	model.RefreshPricing()
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?tag=top&tag=text", nil)
@@ -1616,6 +1633,7 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 		require.NoError(t, model.PublishPricingCatalogEntry(model.PricingCatalogEntry{ChannelID: 992, UpstreamModel: "google/gemini-image", Endpoint: endpoint, Source: "https://openrouter.ai/api/v1/models/google/gemini-image/endpoints", FetchedAt: time.Now().UTC().Format(time.RFC3339Nano), Fingerprint: model.PricingCatalogSourceFingerprint(imageChannel, "google/gemini-image", endpoint), Offers: selectPricingCatalogOffers(offers)}))
 	}
 	model.InitChannelCache()
+	model.RefreshPricing()
 	imageRecorder := httptest.NewRecorder()
 	imageContext, _ := gin.CreateTestContext(imageRecorder)
 	imageContext.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?tag=top&tag=image", nil)
@@ -1641,4 +1659,221 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 		}
 	}
 
+}
+
+func TestEffectivePricingOverviewMatchesNativePagesFromCapturedContext(t *testing.T) {
+	context := effectivePricingPageContext{
+		metadata:     consumerPricingResponse{SchemaVersion: "v2", CatalogRevision: "captured-A", Currency: "RUB", UserGroup: "default", AutoGroups: []string{}},
+		usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1}, fxFactor: 1,
+		vendors: []model.PricingVendor{{ID: 7, Name: "Creator"}},
+	}
+	for _, modality := range []string{"TEXT", "IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER"} {
+		operation := map[string]string{"TEXT": "text", "IMAGE": "image_generation", "VIDEO": "text_to_video", "EMBEDDINGS": "embeddings", "RERANK": "rerank", "OTHER": "transcription"}[modality]
+		for _, name := range []string{"b", "A", "a", "unknown"} {
+			var amount *float64
+			if name != "unknown" {
+				amount = float(0)
+			}
+			context.pricing = append(context.pricing, model.Pricing{ModelName: modality + "/" + name, VendorID: 7, EnableGroup: []string{"default"}, CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": {{ID: name, Operation: operation, Mode: "sync", MainComponent: "input", Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: amount}}}}}})
+		}
+	}
+	for _, search := range []string{"", "/a", "unknown"} {
+		query := effectivePricingPageQuery{limit: 2, search: search, orderBy: "NAME", direction: "asc"}
+		overview := buildEffectivePricingOverview(context, query)
+		require.Len(t, overview.Sections, 6)
+		assert.Equal(t, "captured-A", overview.CatalogRevision)
+		for _, section := range overview.Sections {
+			query.modality = section.Modality
+			page := buildEffectivePricingPage(context, query, context.project)
+			assert.Equal(t, page.TotalCount, section.TotalCount)
+			assert.Equal(t, page.Data, section.Data)
+			assert.LessOrEqual(t, len(section.Data), 2)
+		}
+	}
+	// A new captured context cannot affect a previously constructed overview.
+	first := buildEffectivePricingOverview(context, effectivePricingPageQuery{limit: 1, orderBy: "NAME", direction: "asc"})
+	context.metadata.CatalogRevision = "captured-B"
+	context.groupRatios = map[string]float64{"default": 9}
+	second := buildEffectivePricingOverview(context, effectivePricingPageQuery{limit: 1, orderBy: "NAME", direction: "asc"})
+	assert.Equal(t, "captured-A", first.CatalogRevision)
+	assert.Equal(t, "captured-B", second.CatalogRevision)
+}
+
+func TestEffectivePricingOverviewUsesOneRevisionDuringControlledRebuild(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.ModelCostFXRow{}))
+	previousQuota, previousExchange := common.QuotaPerUnit, operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	common.QuotaPerUnit = 500000
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQuota
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousExchange
+	})
+
+	now := time.Now().Unix()
+	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	previousMemory := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemory; model.InvalidatePricingCache() })
+	names := []string{"chat-fixture", "gpt-image-1", "sora-2", "text-embedding-3-small", "rerank-fixture", "whisper-1"}
+	require.NoError(t, db.Create(&model.Channel{Id: 999, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: strings.Join(names, ","), Group: "default"}).Error)
+	require.NoError(t, db.Create(&model.Channel{Id: 1000, Type: constant.ChannelTypeJina, Status: common.ChannelStatusEnabled, Models: "rerank-fixture", Group: "default"}).Error)
+	for index, name := range names {
+		channelID := 999
+		if index == 4 {
+			channelID = 1000
+		}
+		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: channelID, Enabled: true}).Error)
+		endpoints := []string{"openai", "image-generation", "openai-video", "embeddings", string(constant.EndpointTypeJinaRerank), "audio-transcription"}
+		require.NoError(t, db.Create(&model.Model{ModelName: name, Description: "captured-old", Endpoints: fmt.Sprintf(`{"%s":"/fixture"}`, endpoints[index])}).Error)
+	}
+	model.InitChannelCache()
+	model.RefreshPricing()
+	require.NoError(t, db.Model(&model.Model{}).Where("model_name IN ?", names).Update("description", "captured-new").Error)
+	entered, release := make(chan struct{}), make(chan struct{})
+	releaseBuild := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseBuild)
+	var once sync.Once
+	require.NoError(t, db.Callback().Row().Before("gorm:row").Register("test:overview_build_gate", func(tx *gorm.DB) {
+		if tx.Statement.Table == "abilities" {
+			once.Do(func() { close(entered); <-release })
+		}
+	}))
+	t.Cleanup(func() { db.Callback().Row().Remove("test:overview_build_gate") })
+	model.InvalidatePricingCache()
+
+	var httpAttempts atomic.Int64
+	router := gin.New()
+	router.GET("/api/pricing/effective/overview", func(c *gin.Context) { httpAttempts.Add(1); GetEffectivePricingOverview(c) })
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+	client := server.Client()
+	client.Timeout = time.Second
+	type overviewResult struct {
+		Search  string
+		Data    effectivePricingOverviewData
+		Elapsed time.Duration
+		Err     error
+	}
+	invoke := func(search string) overviewResult {
+		result := overviewResult{Search: search}
+		started := time.Now()
+		response, err := client.Get(server.URL + "/api/pricing/effective/overview?limit=1&search=" + url.QueryEscape(search))
+		if err != nil {
+			result.Err = err
+			return result
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+		if response.StatusCode != http.StatusOK {
+			result.Err = fmt.Errorf("overview HTTP %d: %s", response.StatusCode, body)
+			return result
+		}
+		var wire struct {
+			Data effectivePricingOverviewData `json:"data"`
+		}
+		result.Err = common.Unmarshal(body, &wire)
+		result.Data = wire.Data
+		result.Elapsed = time.Since(started)
+		return result
+	}
+	answers := make(chan overviewResult, 2)
+	for _, search := range []string{"", "fixture"} {
+		go func() { answers <- invoke(search) }()
+	}
+	var first, searchResult overviewResult
+	for range 2 {
+		answer := <-answers
+		require.NoError(t, answer.Err)
+		if answer.Search == "" {
+			first = answer
+		} else {
+			searchResult = answer
+		}
+	}
+	assert.EqualValues(t, 2, httpAttempts.Load())
+	assert.Equal(t, first.Data.CatalogRevision, searchResult.Data.CatalogRevision)
+	for _, section := range searchResult.Data.Sections {
+		assert.LessOrEqual(t, len(section.Data), 1)
+		for _, item := range section.Data {
+			assert.Equal(t, "captured-old", item.Description)
+		}
+	}
+	t.Logf("parallel overview/search: HTTP attempts=%d, overview=%s, search=%s, one revision=%s", httpAttempts.Load(), first.Elapsed, searchResult.Elapsed, first.Data.CatalogRevision)
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		releaseBuild()
+		t.Fatal("background rebuild did not reach barrier")
+	}
+	releaseBuild()
+	model.RefreshPricing()
+	second := invoke("")
+	require.NoError(t, second.Err)
+	require.Len(t, first.Data.Sections, 6)
+	require.Len(t, second.Data.Sections, 6)
+	assert.NotEqual(t, first.Data.CatalogRevision, second.Data.CatalogRevision)
+	for index, section := range first.Data.Sections {
+		require.Len(t, section.Data, 1, section.Modality)
+		assert.Equal(t, "captured-old", section.Data[0].Description)
+		require.Len(t, second.Data.Sections[index].Data, 1)
+		assert.Equal(t, "captured-new", second.Data.Sections[index].Data[0].Description)
+	}
+}
+
+func TestLegacyPricingCapturesEndpointMapWithModels(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	previousMemory := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemory; model.InvalidatePricingCache() })
+	require.NoError(t, db.Create(&model.User{Id: 2200, Username: "snapshot-endpoint-user", Password: "fixture", Group: "default", Status: common.UserStatusEnabled}).Error)
+	require.NoError(t, db.Create(&model.Channel{Id: 1001, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: "snapshot-endpoint-model", Group: "default"}).Error)
+	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "snapshot-endpoint-model", ChannelId: 1001, Enabled: true}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "snapshot-endpoint-model", Description: "captured-old", Endpoints: `{"fixture-old":"/old-path"}`}).Error)
+	model.InitChannelCache()
+	model.RefreshPricing()
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("test:legacy_pricing_capture", func(tx *gorm.DB) {
+		if tx.Statement.Table == "users" {
+			once.Do(func() { close(entered); <-release })
+		}
+	}))
+	t.Cleanup(func() { db.Callback().Query().Remove("test:legacy_pricing_capture") })
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pricing", nil)
+	ctx.Set("id", 2200)
+	done := make(chan struct{})
+	go func() { GetPricing(ctx); close(done) }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("request did not reach captured-snapshot barrier")
+	}
+	require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", "snapshot-endpoint-model").Updates(map[string]any{"description": "captured-new", "endpoints": `{"fixture-new":"/new-path"}`}).Error)
+	model.InvalidatePricingCache()
+	model.RefreshPricing()
+	close(release)
+	<-done
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	var wire struct {
+		Data      []model.Pricing                `json:"data"`
+		Endpoints map[string]common.EndpointInfo `json:"supported_endpoint"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &wire))
+	require.Len(t, wire.Data, 1)
+	assert.Equal(t, "captured-old", wire.Data[0].Description)
+	assert.Contains(t, wire.Data[0].SupportedEndpointTypes, constant.EndpointType("fixture-old"))
+	assert.Equal(t, "/old-path", wire.Endpoints["fixture-old"].Path)
+	assert.NotContains(t, wire.Endpoints, "fixture-new")
+	current, _, _, err := model.GetPricingCatalogueSnapshot()
+	require.NoError(t, err)
+	require.Len(t, current, 1)
+	assert.Equal(t, "captured-new", current[0].Description)
 }

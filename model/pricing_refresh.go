@@ -10,5 +10,5 @@ func RefreshPricing() {
 	modelSupportEndpointsLock.Lock()
 	defer modelSupportEndpointsLock.Unlock()
 
-	updatePricing()
+	rebuildPricingCatalogueLocked()
 }

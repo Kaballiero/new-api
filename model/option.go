@@ -248,6 +248,7 @@ func SyncOptions(frequency int) {
 		time.Sleep(time.Duration(frequency) * time.Second)
 		common.SysLog("syncing options from database")
 		loadOptionsFromDatabase()
+		syncPricingCatalogueInputs()
 	}
 }
 
@@ -391,6 +392,15 @@ func updateOptionMap(key string, value string) (err error) {
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	previousPricing := legacyPricingOptionValue(key)
+	if previousPricing != "" {
+		previousStored := canonicalPricingOptionValue(common.OptionMap[key])
+		defer func() {
+			if err == nil && (previousPricing != legacyPricingOptionValue(key) || previousStored != canonicalPricingOptionValue(value)) {
+				InvalidatePricingCache()
+			}
+		}()
+	}
 	// Both API spellings publish the value used by the shared billing map.
 	if canonical := canonicalGroupRatioOption(key); canonical != "" {
 		switch canonical {
@@ -496,6 +506,9 @@ func updateOptionMap(key string, value string) (err error) {
 		case "DemoSiteEnabled":
 			operation_setting.DemoSiteEnabled = boolValue
 		case "SelfUseModeEnabled":
+			if operation_setting.SelfUseModeEnabled != boolValue {
+				InvalidatePricingCache()
+			}
 			operation_setting.SelfUseModeEnabled = boolValue
 		case "CheckSensitiveOnPromptEnabled":
 			setting.CheckSensitiveOnPromptEnabled = boolValue
@@ -784,4 +797,38 @@ func handleConfigUpdate(key, value string) bool {
 	}
 
 	return true // 已处理
+}
+
+func legacyPricingOptionValue(key string) string {
+	switch key {
+	case "ModelRatio":
+		return ratio_setting.ModelRatio2JSONString()
+	case "ModelPrice":
+		return ratio_setting.ModelPrice2JSONString()
+	case "CompletionRatio":
+		return ratio_setting.CompletionRatio2JSONString()
+	case "CacheRatio":
+		return ratio_setting.CacheRatio2JSONString()
+	case "CreateCacheRatio":
+		return ratio_setting.CreateCacheRatio2JSONString()
+	case "ImageRatio":
+		return ratio_setting.ImageRatio2JSONString()
+	case "AudioRatio":
+		return ratio_setting.AudioRatio2JSONString()
+	case "AudioCompletionRatio":
+		return ratio_setting.AudioCompletionRatio2JSONString()
+	}
+	return ""
+}
+
+func canonicalPricingOptionValue(value string) string {
+	var decoded any
+	if common.UnmarshalJsonStr(value, &decoded) != nil {
+		return value
+	}
+	encoded, err := common.Marshal(decoded)
+	if err != nil {
+		return value
+	}
+	return string(encoded)
 }

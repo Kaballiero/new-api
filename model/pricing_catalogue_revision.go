@@ -5,22 +5,96 @@ import (
 	"encoding/hex"
 	"errors"
 	"slices"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 )
 
 var pricingCatalogueRevision string
 var pricingCatalogueRevisionError error
 
+type publishedPricingCatalogue struct {
+	pricing          []Pricing
+	vendors          []PricingVendor
+	revision         string
+	endpoints        map[string]common.EndpointInfo
+	builtAt          time.Time
+	generation       uint64
+	pluginGeneration uint64
+}
+
+var publishedPricing atomic.Pointer[publishedPricingCatalogue]
+var pricingInputsGeneration atomic.Uint64
+var pricingPublicationLock sync.Mutex
+var pricingBuiltGeneration uint64
+var pricingBuiltPluginGeneration uint64
+
+const pricingBuildRetryDelay = 30 * time.Second
+
+var pricingAttemptGeneration atomic.Uint64
+var pricingAttemptPluginGeneration atomic.Uint64
+var pricingRetryAfter atomic.Int64
+var pricingRefreshRunning atomic.Bool
+
+func pricingBuildDue() bool {
+	return pricingAttemptGeneration.Load() != pricingInputsGeneration.Load() || pricingAttemptPluginGeneration.Load() != jsplugin.DefaultRegistry.Generation().Number || time.Now().UnixNano() >= pricingRetryAfter.Load()
+}
+
 func GetPricingCatalogueSnapshot() ([]Pricing, []PricingVendor, string, error) {
-	updatePricingLock.Lock()
-	defer updatePricingLock.Unlock()
-	refreshPricingCatalogueLocked()
-	if pricingCatalogueRevision == "" || lastGetPricingTime.IsZero() {
-		return nil, nil, "", errors.New("pricing catalogue unavailable")
+	snapshot, err := getPublishedPricingCatalogue()
+	if err != nil {
+		return nil, nil, "", err
 	}
-	return pricingMap, vendorsList, pricingCatalogueRevision, pricingCatalogueRevisionError
+	return snapshot.pricing, snapshot.vendors, snapshot.revision, nil
+}
+
+func GetPricingCatalogueSnapshotWithEndpoints() ([]Pricing, []PricingVendor, map[string]common.EndpointInfo, string, error) {
+	snapshot, err := getPublishedPricingCatalogue()
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	return snapshot.pricing, snapshot.vendors, snapshot.endpoints, snapshot.revision, nil
+}
+
+func getPublishedPricingCatalogue() (*publishedPricingCatalogue, error) {
+	snapshot := publishedPricing.Load()
+	if snapshot == nil {
+		// Cold startup initializes honestly; subsequent reads never wait for builds.
+		updatePricingLock.Lock()
+		if publishedPricing.Load() == nil && pricingBuildDue() {
+			modelSupportEndpointsLock.Lock()
+			rebuildPricingCatalogueLocked()
+			modelSupportEndpointsLock.Unlock()
+		}
+		updatePricingLock.Unlock()
+		snapshot = publishedPricing.Load()
+	} else if snapshot.generation != pricingInputsGeneration.Load() || snapshot.pluginGeneration != jsplugin.DefaultRegistry.Generation().Number {
+		if pricingBuildDue() && pricingRefreshRunning.CompareAndSwap(false, true) {
+			go func() {
+				defer pricingRefreshRunning.Store(false)
+				updatePricingLock.Lock()
+				defer updatePricingLock.Unlock()
+				current := publishedPricing.Load()
+				if current != nil && current.generation == pricingInputsGeneration.Load() && current.pluginGeneration == jsplugin.DefaultRegistry.Generation().Number {
+					return
+				}
+				if !pricingBuildDue() {
+					return
+				}
+				modelSupportEndpointsLock.Lock()
+				defer modelSupportEndpointsLock.Unlock()
+				rebuildPricingCatalogueLocked()
+			}()
+		}
+	}
+	if snapshot == nil {
+		return nil, errors.New("pricing catalogue unavailable")
+	}
+	return snapshot, nil
 }
 
 func pricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (string, error) {
