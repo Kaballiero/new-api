@@ -231,11 +231,14 @@ func runOnEveryQuotaDialect(t *testing.T, run func(t *testing.T)) {
 				t.Skip("test database DSN is not configured")
 			}
 			t.Setenv("QUOTA_BUCKET_TEST_DSN", dsn)
-			db, _, err := chooseDB("QUOTA_BUCKET_TEST_DSN", false)
+			db, databaseType, err := chooseDB("QUOTA_BUCKET_TEST_DSN", false)
 			require.NoError(t, err)
 			sqlDB, err := db.DB()
 			require.NoError(t, err)
 			require.Equal(t, "usage_granularity_test", db.Migrator().CurrentDatabase(), "fixtures require a dedicated isolated database")
+			previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+			common.SetDatabaseTypes(databaseType, previousLogType)
+			t.Cleanup(func() { common.SetDatabaseTypes(previousMainType, previousLogType) })
 			require.NoError(t, db.Migrator().DropTable(&QuotaData{}))
 			require.NoError(t, db.AutoMigrate(&QuotaData{}))
 			previous := DB

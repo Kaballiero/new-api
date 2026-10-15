@@ -2,6 +2,8 @@ package controller
 
 import (
 	"fmt"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,11 +13,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -690,4 +690,76 @@ func TestQuotaDatesAdminRangeErrors(t *testing.T) {
 			assert.JSONEq(t, legacy.Body.String(), empty.Body.String())
 		}
 	}
+}
+
+func TestAggregateEndpointsValidateScopeAndAccess(t *testing.T) {
+	setupFlowControllerTestDB(t)
+	db := model.DB
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.AuditLog{}))
+	for _, fixture := range []struct {
+		id, role  int
+		name, pat string
+	}{
+		{1, common.RoleCommonUser, "aggregate-member", "aggregate-test-member-pat"},
+		{2, common.RoleAdminUser, "aggregate-admin", "aggregate-test-admin-pat"},
+	} {
+		pat := fixture.pat
+		require.NoError(t, db.Create(&model.User{Id: fixture.id, Username: fixture.name, Role: fixture.role, Status: common.UserStatusEnabled, AccessToken: &pat, AuthVersion: 1, AffCode: fixture.name}).Error)
+	}
+	engine := gin.New()
+	engine.POST("/api/log/aggregate", middleware.AdminAuth(), GetLogAggregate)
+	engine.POST("/api/usage/aggregate", middleware.AdminAuth(), GetUsageAggregate)
+	for _, path := range []string{"/api/log/aggregate", "/api/usage/aggregate"} {
+		valid := `{"user_ids":[1],"start_timestamp":1000,"end_timestamp":2000,"granularity":"hour","group_by":"user"}`
+		for _, check := range []struct {
+			name, body, pat string
+			status          int
+		}{
+			{"anonymous", valid, "", http.StatusUnauthorized},
+			{"ordinary", valid, "aggregate-test-member-pat", http.StatusForbidden},
+			{"admin", valid, "aggregate-test-admin-pat", http.StatusOK},
+			{"empty", `{"user_ids":[],"start_timestamp":1000,"end_timestamp":2000}`, "aggregate-test-admin-pat", http.StatusBadRequest},
+			{"missing", `{}`, "aggregate-test-admin-pat", http.StatusBadRequest},
+			{"invalid", `{"user_ids":[0],"start_timestamp":1000,"end_timestamp":2000}`, "aggregate-test-admin-pat", http.StatusBadRequest},
+			{"fractional", `{"user_ids":[1.5],"start_timestamp":1000,"end_timestamp":2000}`, "aggregate-test-admin-pat", http.StatusBadRequest},
+			{"unknown", `{"user_ids":[999],"start_timestamp":1000,"end_timestamp":2000,"granularity":"hour","group_by":"user"}`, "aggregate-test-admin-pat", http.StatusNotFound},
+			{"oversize", strings.Repeat(" ", maxAggregateRequestBytes) + valid, "aggregate-test-admin-pat", http.StatusRequestEntityTooLarge},
+		} {
+			t.Run(path+"/"+check.name, func(t *testing.T) {
+				request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(check.body))
+				request.Header.Set("Content-Type", "application/json")
+				if check.pat != "" {
+					request.Header.Set("Authorization", "Bearer "+check.pat)
+				}
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+				assert.Equal(t, check.status, response.Code, response.Body.String())
+				if path == "/api/usage/aggregate" && check.name == "admin" {
+					var body struct {
+						Data []model.UsageAggregateRow `json:"data"`
+					}
+					require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+					require.Len(t, body.Data, 1)
+					assert.Equal(t, int64(100), body.Data[0].Quota)
+					assert.Equal(t, 1, *body.Data[0].UserID)
+				}
+			})
+		}
+	}
+}
+
+func TestAggregateResponseSizeIsAnErrorInsteadOfPartialSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	name := strings.Repeat("x", maxAggregateResponseBytes)
+	respondAggregate(ctx, []model.UsageAggregateRow{{ModelName: &name}}, nil)
+	assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
+	var body struct {
+		Success bool   `json:"success"`
+		Code    string `json:"code"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+	assert.False(t, body.Success)
+	assert.Equal(t, "aggregate_response_too_large", body.Code)
 }
