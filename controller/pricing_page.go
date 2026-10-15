@@ -33,11 +33,12 @@ type effectivePricingPageItem struct {
 
 type effectivePricingPageData struct {
 	consumerPricingResponse
-	Offset     int                        `json:"offset"`
-	Limit      int                        `json:"limit"`
-	TotalCount int                        `json:"total_count"`
-	Creators   []effectivePricingCreator  `json:"creators"`
-	Data       []effectivePricingPageItem `json:"data"`
+	Offset        int                        `json:"offset"`
+	Limit         int                        `json:"limit"`
+	TotalCount    int                        `json:"total_count"`
+	Creators      []effectivePricingCreator  `json:"creators"`
+	Data          []effectivePricingPageItem `json:"data"`
+	sectionCounts map[string]int
 }
 
 type effectivePricingPageQuery struct {
@@ -50,6 +51,7 @@ type effectivePricingPageQuery struct {
 	orderBy          string
 	direction        string
 	expectedRevision string
+	overview         bool
 }
 
 type effectivePricingPageContext struct {
@@ -298,6 +300,16 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 		return order
 	})
 	response.TotalCount = len(candidates)
+	if query.overview {
+		response.sectionCounts = make(map[string]int)
+		for _, candidate := range candidates {
+			response.sectionCounts[candidate.modality]++
+			if response.sectionCounts[candidate.modality] <= query.limit {
+				response.Data = append(response.Data, effectivePricingPageItem{consumerPricingModel: project(context.pricing[candidate.index]), Modality: candidate.modality, Creator: candidate.creator})
+			}
+		}
+		return response
+	}
 	start := min(query.offset, len(candidates))
 	end := start + min(query.limit, len(candidates)-start)
 	for _, candidate := range candidates[start:end] {
@@ -407,4 +419,84 @@ func trimPricingText(value string) string {
 	return strings.TrimFunc(value, func(character rune) bool {
 		return character == '\ufeff' || (character != '\u0085' && unicode.IsSpace(character))
 	})
+}
+
+// GetEffectivePricingOverview captures one context for every bounded section.
+func GetEffectivePricingOverview(c *gin.Context) {
+	values, err := url.ParseQuery(c.Request.URL.RawQuery)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid pricing query"})
+		return
+	}
+	for key := range values {
+		if !slices.Contains([]string{"limit", "search", "group", "using_group"}, key) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid pricing query"})
+			return
+		}
+	}
+	query, err := parseEffectivePricingPageQuery(values, false)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	if !values.Has("limit") {
+		query.limit = 4
+	}
+	query.overview = true
+	group := strings.TrimSpace(values.Get("group"))
+	if group == "" {
+		group = "default"
+	}
+	if group == "auto" || !ratio_setting.ContainsGroupRatio(group) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid user pricing group"})
+		return
+	}
+	usingGroup := strings.TrimSpace(values.Get("using_group"))
+	if usingGroup == "" {
+		usingGroup = group
+	}
+	context, err := loadConsumerPricingContext(group, usingGroup)
+	if err != nil {
+		status := http.StatusServiceUnavailable
+		if err == errPricingUsingGroup {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": buildEffectivePricingOverview(context, query)})
+}
+
+type effectivePricingOverviewSection struct {
+	Modality   string                     `json:"modality"`
+	Offset     int                        `json:"offset"`
+	Limit      int                        `json:"limit"`
+	TotalCount int                        `json:"total_count"`
+	Data       []effectivePricingPageItem `json:"data"`
+}
+
+type effectivePricingOverviewData struct {
+	SchemaVersion   string                            `json:"schema_version"`
+	CatalogRevision string                            `json:"catalog_revision"`
+	UserGroup       string                            `json:"user_group"`
+	Currency        string                            `json:"currency"`
+	AutoGroups      []string                          `json:"auto_groups"`
+	Creators        []effectivePricingCreator         `json:"creators"`
+	Sections        []effectivePricingOverviewSection `json:"sections"`
+}
+
+func buildEffectivePricingOverview(context effectivePricingPageContext, query effectivePricingPageQuery) effectivePricingOverviewData {
+	query.overview = true
+	page := buildEffectivePricingPage(context, query, context.project)
+	result := effectivePricingOverviewData{SchemaVersion: context.metadata.SchemaVersion, CatalogRevision: context.metadata.CatalogRevision, UserGroup: context.metadata.UserGroup, Currency: context.metadata.Currency, AutoGroups: context.metadata.AutoGroups, Creators: page.Creators, Sections: []effectivePricingOverviewSection{}}
+	for _, modality := range []string{"TEXT", "IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER"} {
+		section := effectivePricingOverviewSection{Modality: modality, Limit: query.limit, TotalCount: page.sectionCounts[modality], Data: []effectivePricingPageItem{}}
+		for _, item := range page.Data {
+			if item.Modality == modality {
+				section.Data = append(section.Data, item)
+			}
+		}
+		result.Sections = append(result.Sections, section)
+	}
+	return result
 }

@@ -195,8 +195,8 @@ func pricingCatalogSources(ctx context.Context) ([]pricingCatalogSource, error) 
 
 func refreshPricingCatalog(ctx context.Context) (pricingCatalogRefreshSummary, error) {
 	sources, discoveryErr := pricingCatalogSources(ctx)
-	summary, refreshErr := refreshPricingCatalogSources(ctx, sources, fetchPricingCatalogSource, func(entry model.PricingCatalogEntry) error {
-		return model.PublishPricingCatalogEntryContext(ctx, entry)
+	summary, refreshErr := refreshPricingCatalogSources(ctx, sources, fetchPricingCatalogSource, func(entries []model.PricingCatalogEntry) (int, error) {
+		return model.PublishPricingCatalogContext(ctx, entries)
 	})
 	if discoveryErr != nil {
 		summary.Failed++
@@ -204,20 +204,21 @@ func refreshPricingCatalog(ctx context.Context) (pricingCatalogRefreshSummary, e
 	return summary, errors.Join(discoveryErr, refreshErr)
 }
 
-func refreshPricingCatalogSources(ctx context.Context, sources []pricingCatalogSource, fetch func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error), publish func(model.PricingCatalogEntry) error) (pricingCatalogRefreshSummary, error) {
+func refreshPricingCatalogSources(ctx context.Context, sources []pricingCatalogSource, fetch func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error), publish func([]model.PricingCatalogEntry) (int, error)) (pricingCatalogRefreshSummary, error) {
 	summary := pricingCatalogRefreshSummary{Sources: len(sources)}
+	if err := ctx.Err(); err != nil {
+		return summary, err
+	}
 	jobs := make(chan pricingCatalogSource)
 	var workers sync.WaitGroup
 	var resultLock sync.Mutex
+	entries := []model.PricingCatalogEntry{}
 	for range pricingCatalogWorkers {
 		workers.Go(func() {
 			for source := range jobs {
 				failureClass := "metadata_failed"
 				entry, err := fetch(ctx, source)
-				if err == nil && ctx.Err() == nil {
-					failureClass = "publication_failed"
-					err = publish(entry)
-				}
+
 				resultLock.Lock()
 				if err != nil || ctx.Err() != nil {
 					summary.Failed++
@@ -241,7 +242,7 @@ func refreshPricingCatalogSources(ctx context.Context, sources []pricingCatalogS
 					}
 					summary.FailedSources = append(summary.FailedSources, pricingCatalogFailure{channelID, upstream, source.endpoint, failureClass})
 				} else {
-					summary.Published++
+					entries = append(entries, entry)
 				}
 				resultLock.Unlock()
 			}
@@ -272,6 +273,20 @@ enqueue:
 	}
 	if err := ctx.Err(); err != nil {
 		return summary, err
+	}
+	if len(entries) > 0 {
+		published, err := publish(entries)
+		if err != nil {
+			summary.Failed += len(entries)
+			for _, entry := range entries {
+				if len(summary.FailedSources) < pricingCatalogFailureLimit {
+					summary.FailedSources = append(summary.FailedSources, pricingCatalogFailure{entry.ChannelID, entry.UpstreamModel, entry.Endpoint, "publication_failed"})
+				}
+			}
+			return summary, fmt.Errorf("pricing catalog refresh failed for %d of %d sources: %w", summary.Failed, summary.Sources, err)
+		}
+		summary.Published = published
+		summary.Failed += len(entries) - published
 	}
 	if summary.Failed > 0 {
 		return summary, fmt.Errorf("pricing catalog refresh failed for %d of %d sources", summary.Failed, summary.Sources)

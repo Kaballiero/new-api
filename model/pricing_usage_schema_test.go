@@ -2,10 +2,12 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestSoraLegacyPriceBasisFollowsPluginRouteAndUsage(t *testing.T) {
@@ -43,12 +46,12 @@ func TestSoraLegacyPriceBasisFollowsPluginRouteAndUsage(t *testing.T) {
 	}
 	mapping := `{"video-alias":"sora-2"}`
 	channel := &Channel{Type: constant.ChannelTypeOpenAI, ModelMapping: &mapping}
-	actual, found, _ := legacyVideoPriceBasis(registry.Generation(), channel, "video-alias")
+	actual, found, _ := legacyVideoPriceBasis(registry.Generation(), channel, "video-alias", "")
 	require.True(t, found)
 	assert.Equal(t, plugin.Meta.LegacyPriceBasis, actual)
-	_, found, _ = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: constant.ChannelTypeOpenRouter}, "sora-2")
+	_, found, _ = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: constant.ChannelTypeOpenRouter}, "sora-2", "")
 	assert.False(t, found)
-	_, found, _ = legacyVideoPriceBasis(registry.Generation(), channel, "unknown")
+	_, found, _ = legacyVideoPriceBasis(registry.Generation(), channel, "unknown", "")
 	assert.False(t, found)
 	snapshot := registry.Snapshot()
 	require.Len(t, snapshot.Override, 1)
@@ -60,15 +63,15 @@ func TestSoraLegacyPriceBasisFollowsPluginRouteAndUsage(t *testing.T) {
 	otherSource = strings.ReplaceAll(otherSource, `{ unit: "second", usageField: "seconds" }`, `{ unit: "call" }`)
 	otherPlugin, err := registry.Register(otherSource, jsplugin.Options{})
 	require.NoError(t, err)
-	actual, found, _ = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: 56}, "sora-2")
+	actual, found, _ = legacyVideoPriceBasis(registry.Generation(), &Channel{Type: 56}, "sora-2", "")
 	require.True(t, found)
 	assert.Equal(t, otherPlugin.Meta.LegacyPriceBasis, actual)
 	bound := &Channel{Type: constant.ChannelTypeTaskPlugin}
 	bound.SetSetting(dto.ChannelSettings{TaskPluginKey: "other-sora"})
-	actual, found, _ = legacyVideoPriceBasis(registry.Generation(), bound, "sora-2")
+	actual, found, _ = legacyVideoPriceBasis(registry.Generation(), bound, "sora-2", "other-sora")
 	require.True(t, found)
 	assert.Equal(t, otherPlugin.Meta.LegacyPriceBasis, actual)
-	actual, found, _ = legacyVideoPriceBasis(registry.Generation(), channel, "sora-2")
+	actual, found, _ = legacyVideoPriceBasis(registry.Generation(), channel, "sora-2", "")
 	require.True(t, found)
 	assert.Equal(t, plugin.Meta.LegacyPriceBasis, actual)
 }
@@ -462,7 +465,7 @@ func TestPricingBatchCanonicalPairIsGroupScopedAndMappingProved(t *testing.T) {
 	}
 	zero := 0.0
 	alias := Pricing{ModelName: "public:batch", EnableGroup: []string{"default", "premium"}, CatalogOffersByGroup: map[string][]CatalogOffer{"default": {{ID: "989:anthropic/claude-fable-5.1:batch:native", Operation: "text", Mode: "batch", MainComponent: "output", Prices: []CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: &zero}}}}}}
-	projectPricingOperations(&alias, abilities, channels, jsplugin.NewRegistry().Generation(), nil)
+	projectPricingOperations(&alias, abilities, channels, jsplugin.NewRegistry().Generation(), nil, nil)
 	assert.Equal(t, map[string]string{"default": "public"}, alias.ConsumerCanonicalModelsByGroup)
 	base := Pricing{ModelName: "public", EnableGroup: []string{"default"}}
 	visible := ConsumerPricingCatalogue([]Pricing{base, alias}, map[string]string{"default": "Default", "premium": "Premium"})
@@ -708,6 +711,7 @@ func TestPricingCatalogueSnapshotKeepsCapturedRowsWithTheirRevision(t *testing.T
 	insertPricingEndpointChannel(t, 994, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
 	insertPricingEndpointAbility(t, 994, "snapshot-model")
 	InitChannelCache()
+	RefreshPricing()
 	rows, vendors, revision, err := GetPricingCatalogueSnapshot()
 	require.NoError(t, err)
 	require.NotEmpty(t, revision)
@@ -715,17 +719,52 @@ func TestPricingCatalogueSnapshotKeepsCapturedRowsWithTheirRevision(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, revision, captured)
 	require.NoError(t, DB.Create(&Model{ModelName: "snapshot-model", Description: "new description"}).Error)
-	changed := make(chan string, 1)
-	go func() {
-		InvalidatePricingCache()
-		_, _, current, _ := GetPricingCatalogueSnapshot()
-		changed <- current
-	}()
-	current := <-changed
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	require.NoError(t, DB.Callback().Row().Before("gorm:row").Register("test:catalog_build_gate", func(tx *gorm.DB) {
+		if tx.Statement.Table == "abilities" {
+			once.Do(func() { close(entered); <-release })
+		}
+	}))
+	t.Cleanup(func() { DB.Callback().Row().Remove("test:catalog_build_gate") })
+	InvalidatePricingCache()
+	_, _, current, err := GetPricingCatalogueSnapshot()
+	require.NoError(t, err)
+	assert.Equal(t, revision, current, "hot request keeps last good without waiting for build")
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("background builder did not reach query gate")
+	}
+	// A real source mutation during the build must fence that publication.
+	require.NoError(t, DB.Model(&Channel{}).Where("id = ?", 994).Update("key", "changed-fixture-key").Error)
+	InitChannelCache()
+	close(release)
+	require.Eventually(t, func() bool { return !pricingRefreshRunning.Load() }, time.Second, time.Millisecond)
+	assert.Equal(t, revision, publishedPricing.Load().revision)
+	RefreshPricing()
+	_, _, current, err = GetPricingCatalogueSnapshot()
+	require.NoError(t, err)
 	assert.NotEqual(t, revision, current)
 	captured, err = pricingCatalogueFingerprint(rows, vendors)
 	require.NoError(t, err)
 	assert.Equal(t, revision, captured)
+	good := publishedPricing.Load()
+	require.NoError(t, DB.Callback().Query().Before("gorm:query").Register("test:catalog_db_failure", func(tx *gorm.DB) {
+		if tx.Statement.Table == "models" {
+			tx.AddError(errors.New("metadata database unavailable"))
+		}
+	}))
+	InvalidatePricingCache()
+	RefreshPricing()
+	assert.Same(t, good, publishedPricing.Load(), "failed projection build retains last good publication")
+	require.NoError(t, DB.Callback().Query().Remove("test:catalog_db_failure"))
+	RefreshPricing()
+	InitChannelCache()
+	generation := pricingInputsGeneration.Load()
+	InitChannelCache()
+	assert.Equal(t, generation, pricingInputsGeneration.Load(), "no-op channel synchronization does not invalidate")
 }
 
 func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
@@ -751,6 +790,7 @@ func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
 			}
 			require.NoError(t, updateOptionMap(key, value))
 			InitChannelCache()
+			RefreshPricing()
 			rows, _, _, err := GetPricingCatalogueSnapshot()
 			require.NoError(t, err)
 			require.NotEmpty(t, rows)
@@ -776,6 +816,7 @@ func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
 			// The same database value must still restore changed in-memory state.
 			require.NoError(t, config.UpdateConfigFromMap(cfg, map[string]string{field: `{}`}))
 			require.NoError(t, updateOptionMap(key, reordered))
+			RefreshPricing()
 			current, err := config.ConfigToMap(cfg)
 			require.NoError(t, err)
 			assert.JSONEq(t, reordered, current[field])
@@ -786,6 +827,7 @@ func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
 
 			// Removing configured models is a real pricing change.
 			require.NoError(t, updateOptionMap(key, `{}`))
+			RefreshPricing()
 			_, _, _, err = GetPricingCatalogueSnapshot()
 			require.NoError(t, err)
 			assert.Greater(t, GetPricingRevision(), revision)
@@ -982,7 +1024,7 @@ func TestPublicNativeLegacySnapshotIsUnknownUntilMetadataRefresh(t *testing.T) {
 			stored.PublicAlternatives = []CatalogOffer{native}
 		}
 		item := Pricing{ModelName: "provider/model", EnableGroup: []string{"default"}, CatalogOffersByGroup: map[string][]CatalogOffer{"default": {stored}}, BillingSourcesByGroup: map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {BillingSourceOpenRouterActualCost}}}}
-		projectPricingOperations(&item, abilities, channels, jsplugin.NewRegistry().Generation(), nil)
+		projectPricingOperations(&item, abilities, channels, jsplugin.NewRegistry().Generation(), nil, nil)
 		require.Len(t, item.CatalogOffersByGroup["default"], 1)
 		require.Len(t, item.CatalogOffersByGroup["default"][0].Prices, 1)
 		assert.Equal(t, 1., *item.CatalogOffersByGroup["default"][0].Prices[0].AmountUSD)
@@ -993,5 +1035,90 @@ func TestPublicNativeLegacySnapshotIsUnknownUntilMetadataRefresh(t *testing.T) {
 			assert.Empty(t, item.PublicCatalogOffersByGroup["default"][0].Prices)
 			assert.True(t, item.PublicCatalogOffersByGroup["default"][0].PublicConditional)
 		}
+	}
+}
+
+func TestPricingRebuildNeverRepairsMalformedChannelSnapshots(t *testing.T) {
+	for _, field := range []string{"setting", "settings", "model_mapping"} {
+		t.Run(field, func(t *testing.T) {
+			resetPricingEndpointTestTables(t)
+			insertPricingEndpointChannel(t, 1100, constant.ChannelTypeAdvancedCustom, dto.ChannelOtherSettings{})
+			insertPricingEndpointAbility(t, 1100, "read-only-source")
+			InitChannelCache()
+			RefreshPricing()
+			good := publishedPricing.Load()
+			require.NotNil(t, good)
+			require.NoError(t, DB.Model(&Channel{}).Where("id = ?", 1100).Update(field, "{").Error)
+			loaded, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			require.NoError(t, DB.Callback().Query().After("gorm:query").Register("test:pricing_owned_row", func(tx *gorm.DB) {
+				if tx.Statement.Table == "channels" {
+					once.Do(func() { close(loaded); <-release })
+				}
+			}))
+			t.Cleanup(func() { DB.Callback().Query().Remove("test:pricing_owned_row") })
+			InvalidatePricingCache()
+			done := make(chan struct{})
+			go func() { RefreshPricing(); close(done) }()
+			select {
+			case <-loaded:
+			case <-time.After(time.Second):
+				close(release)
+				t.Fatal("builder did not capture channel source")
+			}
+			require.NoError(t, DB.Model(&Channel{}).Where("id = ?", 1100).Updates(map[string]any{"name": "concurrent-name", "key": "concurrent-key", "used_quota": 77}).Error)
+			writes := 0
+			require.NoError(t, DB.Callback().Update().Before("gorm:update").Register("test:pricing_read_only", func(tx *gorm.DB) { writes++ }))
+			t.Cleanup(func() { DB.Callback().Update().Remove("test:pricing_read_only") })
+			close(release)
+			<-done
+			assert.Zero(t, writes, "projection is read-only, including malformed configuration")
+			assert.Same(t, good, publishedPricing.Load(), "a malformed relevant source retains last good publication")
+			var current Channel
+			require.NoError(t, DB.First(&current, 1100).Error)
+			assert.Equal(t, "concurrent-name", current.Name)
+			assert.Equal(t, "concurrent-key", current.Key)
+			assert.Equal(t, int64(77), current.UsedQuota)
+			switch field {
+			case "setting":
+				require.NotNil(t, current.Setting)
+				assert.Equal(t, "{", *current.Setting)
+			case "settings":
+				assert.Equal(t, "{", current.OtherSettings)
+			case "model_mapping":
+				require.NotNil(t, current.ModelMapping)
+				assert.Equal(t, "{", *current.ModelMapping)
+			}
+			require.NoError(t, DB.Callback().Update().Remove("test:pricing_read_only"))
+			require.NoError(t, DB.Callback().Query().Remove("test:pricing_owned_row"))
+		})
+	}
+}
+
+func TestPricingColdBuildIgnoresUnusedAndDisabledMalformedChannels(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+	insertPricingEndpointChannel(t, 1110, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 1110, "active-model")
+	invalid := "{"
+	require.NoError(t, DB.Create(&Channel{Id: 1111, Type: constant.ChannelTypeAdvancedCustom, Key: "unused", Status: common.ChannelStatusEnabled, Setting: &invalid, OtherSettings: invalid}).Error)
+	require.NoError(t, DB.Create(&Channel{Id: 1112, Type: constant.ChannelTypeAdvancedCustom, Key: "disabled", Status: common.ChannelStatusManuallyDisabled, Setting: &invalid, OtherSettings: invalid}).Error)
+	require.NoError(t, DB.Create(&Ability{Group: "default", Model: "disabled-model", ChannelId: 1112, Enabled: true}).Error)
+	previous := publishedPricing.Load()
+	publishedPricing.Store(nil)
+	t.Cleanup(func() { publishedPricing.Store(previous) })
+	writes := 0
+	require.NoError(t, DB.Callback().Update().Before("gorm:update").Register("test:pricing_read_only", func(tx *gorm.DB) { writes++ }))
+	t.Cleanup(func() { DB.Callback().Update().Remove("test:pricing_read_only") })
+	InvalidatePricingCache()
+	RefreshPricing()
+	require.NotNil(t, publishedPricing.Load(), "unused/disabled malformed rows must not block honest cold initialization")
+	assert.Zero(t, writes)
+	var unchanged []Channel
+	require.NoError(t, DB.Where("id IN ?", []int{1111, 1112}).Find(&unchanged).Error)
+	require.Len(t, unchanged, 2)
+	for _, row := range unchanged {
+		assert.Equal(t, invalid, row.OtherSettings)
+		require.NotNil(t, row.Setting)
+		assert.Equal(t, invalid, *row.Setting)
 	}
 }

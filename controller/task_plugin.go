@@ -769,6 +769,7 @@ func syncTaskPluginsOnceContext(ctx context.Context) error {
 			plugin.Version,
 		)
 	}
+	previousGeneration := jsplugin.DefaultRegistry.Generation().Number
 	if err = jsplugin.DefaultRegistry.ReplaceOverrides(nextOverrides); err != nil {
 		syncErr := fmt.Errorf("publish task plugin generation: %w", err)
 		taskPluginSyncState.lastRebuild = taskPluginRebuildOutcome{
@@ -787,7 +788,9 @@ func syncTaskPluginsOnceContext(ctx context.Context) error {
 		)
 		return syncErr
 	}
-	model.InvalidatePricingCache()
+	if previousGeneration != jsplugin.DefaultRegistry.Generation().Number {
+		model.InvalidatePricingCache()
+	}
 	taskPluginSyncState.hashes = nextHashes
 	for key := range taskPluginSyncState.errors {
 		if !seen[key] {

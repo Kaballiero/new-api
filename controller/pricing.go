@@ -42,7 +42,11 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 }
 
 func GetPricing(c *gin.Context) {
-	pricing := model.GetPricing()
+	pricing, vendors, endpoints, _, err := model.GetPricingCatalogueSnapshotWithEndpoints()
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
+		return
+	}
 	userId, exists := c.Get("id")
 	usableGroup := map[string]string{}
 	groupRatio := map[string]float64{}
@@ -82,10 +86,10 @@ func GetPricing(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"success":            true,
 		"data":               pricing,
-		"vendors":            model.GetVendors(),
+		"vendors":            vendors,
 		"group_ratio":        groupRatio,
 		"usable_group":       usableGroup,
-		"supported_endpoint": model.GetSupportedEndpointMap(),
+		"supported_endpoint": endpoints,
 		"auto_groups":        service.GetUserAutoGroup(group),
 		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
@@ -244,7 +248,11 @@ func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, er
 	if err != nil {
 		return effectivePricingResponse{}, err
 	}
-	return buildEffectivePricingResponse(userGroup, basis, model.GetPricing()), nil
+	pricing, _, _, err := model.GetPricingCatalogueSnapshot()
+	if err != nil {
+		return effectivePricingResponse{}, err
+	}
+	return buildEffectivePricingResponse(userGroup, basis, pricing), nil
 }
 
 func buildEffectivePricingResponse(userGroup string, basis service.BillingFXBasis, pricing []model.Pricing) effectivePricingResponse {

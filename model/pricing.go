@@ -73,7 +73,7 @@ func (p Pricing) LegacyVideoPriceBasisForGroup(group string) (map[string]jsplugi
 	return maps.Clone(basis), len(basis) > 0
 }
 
-func legacyVideoPriceBasis(generation *jsplugin.RoutingGeneration, channel *Channel, modelName string) (map[string]jsplugin.LegacyPriceBasis, bool, bool) {
+func legacyVideoPriceBasis(generation *jsplugin.RoutingGeneration, channel *Channel, modelName, taskPluginKey string) (map[string]jsplugin.LegacyPriceBasis, bool, bool) {
 	if channel == nil {
 		return nil, false, false
 	}
@@ -98,7 +98,7 @@ func legacyVideoPriceBasis(generation *jsplugin.RoutingGeneration, channel *Chan
 		}
 		meta := candidate.Plugin.Meta
 		if channel.Type == constant.ChannelTypeTaskPlugin {
-			if channel.GetSetting().TaskPluginKey != meta.Key {
+			if taskPluginKey != meta.Key {
 				continue
 			}
 		} else if !slices.Contains(meta.ChannelTypes, channel.Type) {
@@ -156,24 +156,17 @@ func GetPricingCatalogue() ([]Pricing, []PricingVendor) {
 }
 
 func refreshPricingCatalogueLocked() {
-	if time.Since(lastGetPricingTime) > time.Minute || len(pricingMap) == 0 {
+	if (pricingBuiltGeneration != pricingInputsGeneration.Load() || lastGetPricingTime.IsZero() || pricingBuiltPluginGeneration != jsplugin.DefaultRegistry.Generation().Number) && pricingBuildDue() {
 		modelSupportEndpointsLock.Lock()
 		defer modelSupportEndpointsLock.Unlock()
-		updatePricing()
+		rebuildPricingCatalogueLocked()
 	}
 }
 
 func GetPricing() []Pricing {
-	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		updatePricingLock.Lock()
-		defer updatePricingLock.Unlock()
-		// Double check after acquiring the lock
-		if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-			modelSupportEndpointsLock.Lock()
-			defer modelSupportEndpointsLock.Unlock()
-			updatePricing()
-		}
-	}
+	updatePricingLock.Lock()
+	defer updatePricingLock.Unlock()
+	refreshPricingCatalogueLocked()
 	return pricingMap
 }
 
@@ -185,20 +178,15 @@ func GetPricingRevision() uint64 {
 }
 
 func InvalidatePricingCache() {
-	updatePricingLock.Lock()
-	defer updatePricingLock.Unlock()
-
-	pricingMap = nil
-	vendorsList = nil
-	lastGetPricingTime = time.Time{}
+	pricingPublicationLock.Lock()
+	defer pricingPublicationLock.Unlock()
+	pricingInputsGeneration.Add(1)
 }
 
-// GetVendors 返回当前定价接口使用到的供应商信息
 func GetVendors() []PricingVendor {
-	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		// 保证先刷新一次
-		GetPricing()
-	}
+	updatePricingLock.Lock()
+	defer updatePricingLock.Unlock()
+	refreshPricingCatalogueLocked()
 	return vendorsList
 }
 
@@ -225,59 +213,6 @@ func getPricingEndpointTypesForAbility(ability AbilityWithChannel, advancedCusto
 	return common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
 }
 
-// loadPricingAdvancedCustomConfigs runs inside updatePricing while
-// updatePricingLock is held, and nests channelSyncLock.RLock. This defines the
-// global lock order updatePricingLock -> channelSyncLock: any code path holding
-// channelSyncLock must release it before touching the pricing cache (see
-// InitChannelCache / CacheUpdateChannel), otherwise it deadlocks.
-// The returned configs are pointers shared with the channel cache; they are
-// replaced wholesale on update and never mutated in place, so reading them after
-// RUnlock is safe.
-func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) map[int]*dto.AdvancedCustomConfig {
-	channelIDs := make([]int, 0)
-	seen := make(map[int]struct{})
-	for _, ability := range enableAbilities {
-		if ability.ChannelType != constant.ChannelTypeAdvancedCustom {
-			continue
-		}
-		if _, exists := seen[ability.ChannelId]; exists {
-			continue
-		}
-		seen[ability.ChannelId] = struct{}{}
-		channelIDs = append(channelIDs, ability.ChannelId)
-	}
-	if len(channelIDs) == 0 {
-		return nil
-	}
-
-	configs := make(map[int]*dto.AdvancedCustomConfig, len(channelIDs))
-	if common.MemoryCacheEnabled {
-		channelSyncLock.RLock()
-		defer channelSyncLock.RUnlock()
-		for _, channelID := range channelIDs {
-			if config := channel2advancedCustomConfig[channelID]; config != nil {
-				configs[channelID] = config
-			}
-		}
-		return configs
-	}
-
-	for _, channelID := range channelIDs {
-		channel, err := CacheGetChannel(channelID)
-		if err != nil {
-			common.SysLog(fmt.Sprintf("load advanced custom channel settings error: channel_id=%d, error=%v", channelID, err))
-			continue
-		}
-		if channel.Type != constant.ChannelTypeAdvancedCustom {
-			continue
-		}
-		if config := channel.GetOtherSettings().AdvancedCustom; config != nil {
-			configs[channelID] = config
-		}
-	}
-	return configs
-}
-
 func appendPricingEndpoint(endpoints []string, endpoint string) []string {
 	if endpoint == "" || common.StringsContains(endpoints, endpoint) {
 		return endpoints
@@ -285,7 +220,17 @@ func appendPricingEndpoint(endpoints []string, endpoint string) []string {
 	return append(endpoints, endpoint)
 }
 
-func updatePricing() {
+func rebuildPricingCatalogueLocked() {
+	generation := pricingInputsGeneration.Load()
+	pluginGeneration := jsplugin.DefaultRegistry.Generation()
+	pricingAttemptGeneration.Store(generation)
+	pricingAttemptPluginGeneration.Store(pluginGeneration.Number)
+	published := false
+	defer func() {
+		if !published {
+			pricingRetryAfter.Store(time.Now().Add(pricingBuildRetryDelay).UnixNano())
+		}
+	}()
 	//modelRatios := common.GetModelRatios()
 	enableAbilities, err := GetAllEnableAbilityWithChannels()
 	if err != nil {
@@ -294,7 +239,9 @@ func updatePricing() {
 	}
 	// 预加载模型元数据与供应商一次，避免循环查询
 	var allMeta []Model
-	_ = DB.Find(&allMeta).Error
+	if err := DB.Find(&allMeta).Error; err != nil {
+		return
+	}
 	names := make([]string, 0, len(enableAbilities))
 	for _, ability := range enableAbilities {
 		names = append(names, ability.Model)
@@ -303,7 +250,21 @@ func updatePricing() {
 
 	// 预加载供应商
 	var vendors []Vendor
-	_ = DB.Find(&vendors).Error
+	if err := DB.Find(&vendors).Error; err != nil {
+		return
+	}
+	var channels []*Channel
+	if err := DB.Find(&channels).Error; err != nil {
+		return
+	}
+	sourceFingerprint, err := pricingPersistedInputFingerprint(allMeta, vendors, channels, enableAbilities)
+	if err != nil {
+		return
+	}
+	channelFingerprint, err := pricingPersistedInputFingerprint(nil, nil, channels, enableAbilities)
+	if err != nil {
+		return
+	}
 	vendorMap := make(map[int]*Vendor)
 	for i := range vendors {
 		vendorMap[vendors[i].Id] = &vendors[i]
@@ -313,9 +274,9 @@ func updatePricing() {
 	initDefaultVendorMapping(metaMap, vendorMap, enableAbilities)
 
 	// 构建对前端友好的供应商列表
-	vendorsList = make([]PricingVendor, 0, len(vendorMap))
+	nextVendors := make([]PricingVendor, 0, len(vendorMap))
 	for _, v := range vendorMap {
-		vendorsList = append(vendorsList, PricingVendor{
+		nextVendors = append(nextVendors, PricingVendor{
 			ID:          v.Id,
 			Name:        v.Name,
 			Description: v.Description,
@@ -336,24 +297,55 @@ func updatePricing() {
 
 	//这里使用切片而不是Set，因为一个模型可能支持多个端点类型，并且第一个端点是优先使用端点
 	modelSupportEndpointsStr := make(map[string][]string)
-	advancedCustomConfigs := loadPricingAdvancedCustomConfigs(enableAbilities)
-
+	pricingChannels := make(map[int]*Channel, len(channels))
+	advancedCustomConfigs := make(map[int]*dto.AdvancedCustomConfig)
+	taskPluginKeys := make(map[int]string)
+	referenced := make(map[int]bool)
+	for _, ability := range enableAbilities {
+		referenced[ability.ChannelId] = true
+	}
+	for _, channel := range channels {
+		if !referenced[channel.Id] {
+			continue
+		}
+		pricingChannels[channel.Id] = channel
+		if channel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		// Pricing owns a read-only source snapshot. Channel getters may repair and
+		// save malformed rows, so decode only relevant inputs without those getters.
+		var settings dto.ChannelSettings
+		if channel.Setting != nil && *channel.Setting != "" {
+			if err := common.UnmarshalJsonStr(*channel.Setting, &settings); err != nil {
+				common.SysLog(fmt.Sprintf("pricing channel setting invalid: channel_id=%d", channel.Id))
+				return
+			}
+		}
+		var other dto.ChannelOtherSettings
+		if channel.OtherSettings != "" {
+			if err := common.UnmarshalJsonStr(channel.OtherSettings, &other); err != nil {
+				common.SysLog(fmt.Sprintf("pricing channel settings invalid: channel_id=%d", channel.Id))
+				return
+			}
+		}
+		if channel.ModelMapping != nil && strings.TrimSpace(*channel.ModelMapping) != "" {
+			var mapping map[string]string
+			if err := common.UnmarshalJsonStr(*channel.ModelMapping, &mapping); err != nil {
+				common.SysLog(fmt.Sprintf("pricing channel mapping invalid: channel_id=%d", channel.Id))
+				return
+			}
+		}
+		taskPluginKeys[channel.Id] = settings.TaskPluginKey
+		if channel.Type == constant.ChannelTypeAdvancedCustom && other.AdvancedCustom != nil {
+			advancedCustomConfigs[channel.Id] = other.AdvancedCustom
+		}
+	}
 	billingSources := make(map[string]map[string]map[constant.EndpointType][]string)
 	legacyVideoBases := make(map[string]map[string][]map[string]jsplugin.LegacyPriceBasis)
-	pluginGeneration := jsplugin.DefaultRegistry.Generation()
-	pricingChannels := make(map[int]*Channel)
-	taskPluginKeys := make(map[int]string)
 	for _, ability := range enableAbilities {
-		if _, loaded := pricingChannels[ability.ChannelId]; loaded {
-			continue
+		if pricingChannels[ability.ChannelId] == nil {
+			return
 		}
-		channel, err := CacheGetChannel(ability.ChannelId)
-		pricingChannels[ability.ChannelId] = channel
-		if err != nil {
-			common.SysLog(fmt.Sprintf("load pricing task channel error: channel_id=%d, error=%v", ability.ChannelId, err))
-			continue
-		}
-		taskPluginKeys[ability.ChannelId] = channel.GetSetting().TaskPluginKey
 	}
 
 	// 先根据已有能力填充原生端点
@@ -371,7 +363,7 @@ func updatePricing() {
 		if ability.ChannelType == constant.ChannelTypeOpenRouter || openRouterVideo {
 			source = BillingSourceOpenRouterActualCost
 		}
-		legacyBasis, videoRoute, videoOnly := legacyVideoPriceBasis(pluginGeneration, pricingChannels[ability.ChannelId], ability.Model)
+		legacyBasis, videoRoute, videoOnly := legacyVideoPriceBasis(pluginGeneration, pricingChannels[ability.ChannelId], ability.Model, taskPluginKeys[ability.ChannelId])
 		if videoOnly && ability.ChannelType != constant.ChannelTypeAdvancedCustom {
 			channelTypes = slices.DeleteFunc(slices.Clone(channelTypes), func(endpoint constant.EndpointType) bool {
 				return endpoint == constant.EndpointTypeImageGeneration
@@ -431,24 +423,24 @@ func updatePricing() {
 		}
 	}
 
-	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
+	nextEndpointTypes := make(map[string][]constant.EndpointType)
 	for model, endpoints := range modelSupportEndpointsStr {
 		supportedEndpoints := make([]constant.EndpointType, 0)
 		for _, endpointStr := range endpoints {
 			endpointType := constant.EndpointType(endpointStr)
 			supportedEndpoints = append(supportedEndpoints, endpointType)
 		}
-		modelSupportEndpointTypes[model] = supportedEndpoints
+		nextEndpointTypes[model] = supportedEndpoints
 	}
 
-	// 构建全局 supportedEndpointMap（默认 + 自定义覆盖）
-	supportedEndpointMap = make(map[string]common.EndpointInfo)
+	// 构建全局 nextSupportedEndpoints（默认 + 自定义覆盖）
+	nextSupportedEndpoints := make(map[string]common.EndpointInfo)
 	// 1. 默认端点
-	for _, endpoints := range modelSupportEndpointTypes {
+	for _, endpoints := range nextEndpointTypes {
 		for _, et := range endpoints {
 			if info, ok := common.GetDefaultEndpointInfo(et); ok {
-				if _, exists := supportedEndpointMap[string(et)]; !exists {
-					supportedEndpointMap[string(et)] = info
+				if _, exists := nextSupportedEndpoints[string(et)]; !exists {
+					nextSupportedEndpoints[string(et)] = info
 				}
 			}
 		}
@@ -463,7 +455,7 @@ func updatePricing() {
 			for k, v := range raw {
 				switch val := v.(type) {
 				case string:
-					supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}
+					nextSupportedEndpoints[k] = common.EndpointInfo{Path: val, Method: "POST"}
 				case map[string]any:
 					ep := common.EndpointInfo{Method: "POST"}
 					if p, ok := val["path"].(string); ok {
@@ -472,7 +464,7 @@ func updatePricing() {
 					if m, ok := val["method"].(string); ok {
 						ep.Method = strings.ToUpper(m)
 					}
-					supportedEndpointMap[k] = ep
+					nextSupportedEndpoints[k] = ep
 				default:
 					// ignore unsupported types
 				}
@@ -504,7 +496,7 @@ func updatePricing() {
 		}
 		plugin, known := pluginGeneration.GetByChannelType(channel.Type)
 		if channel.Type == constant.ChannelTypeTaskPlugin {
-			plugin, known = pluginGeneration.Get(channel.GetSetting().TaskPluginKey)
+			plugin, known = pluginGeneration.Get(taskPluginKeys[channel.Id])
 		}
 		var offers []CatalogOffer
 		if known && plugin.Meta.PriceCatalog != nil {
@@ -549,7 +541,7 @@ func updatePricing() {
 			catalogOffers[ability.Model][ability.Group] = append(catalogOffers[ability.Model][ability.Group], offer)
 		}
 	}
-	pricingMap = make([]Pricing, 0)
+	nextPricing := make([]Pricing, 0)
 	projectedExpressions := make(map[string][][]billingexpr.DisplayPrice)
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
@@ -558,7 +550,7 @@ func updatePricing() {
 			ModelName:                    model,
 			BillingSourcesByGroup:        billingSources[model],
 			EnableGroup:                  groups.Items(),
-			SupportedEndpointTypes:       modelSupportEndpointTypes[model],
+			SupportedEndpointTypes:       nextEndpointTypes[model],
 		}
 
 		// 补充模型元数据（描述、标签、供应商、状态）
@@ -683,31 +675,52 @@ func updatePricing() {
 				pricing.IndicativeBillingExprByEndpoint[endpoint] = expression
 			}
 		}
-		projectPricingOperations(&pricing, enableAbilities, pricingChannels, pluginGeneration, advancedCustomConfigs)
-		pricingMap = append(pricingMap, pricing)
+		projectPricingOperations(&pricing, enableAbilities, pricingChannels, pluginGeneration, advancedCustomConfigs, taskPluginKeys)
+		nextPricing = append(nextPricing, pricing)
 	}
 
 	// 防止大更新后数据不通用
-	if len(pricingMap) > 0 {
-		pricingMap[0].PricingVersion = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f"
+	if len(nextPricing) > 0 {
+		nextPricing[0].PricingVersion = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f"
 	}
 
+	revision, err := pricingCatalogueFingerprint(nextPricing, nextVendors)
+	if err != nil {
+		return
+	}
+	pricingPublicationLock.Lock()
+	defer pricingPublicationLock.Unlock()
+	if generation != pricingInputsGeneration.Load() || pluginGeneration.Number != jsplugin.DefaultRegistry.Generation().Number {
+		return
+	}
+	pricingMap, vendorsList = nextPricing, nextVendors
+	modelSupportEndpointTypes, supportedEndpointMap = nextEndpointTypes, nextSupportedEndpoints
+	pricingCatalogueRevision, pricingCatalogueRevisionError = revision, nil
 	// 刷新缓存映射，供高并发快速查询
 	modelEnableGroupsLock.Lock()
 	modelEnableGroups = make(map[string][]string)
 	modelQuotaTypeMap = make(map[string]int)
-	for _, p := range pricingMap {
+	for _, p := range nextPricing {
 		modelEnableGroups[p.ModelName] = p.EnableGroup
 		modelQuotaTypeMap[p.ModelName] = p.QuotaType
 	}
 	modelEnableGroupsLock.Unlock()
-
-	pricingCatalogueRevision, pricingCatalogueRevisionError = pricingCatalogueFingerprint(pricingMap, vendorsList)
 	lastGetPricingTime = time.Now()
 	pricingRevision.Add(1)
+	pricingBuiltGeneration = generation
+	pricingBuiltPluginGeneration = pluginGeneration.Number
+	published = true
+	pricingRetryAfter.Store(0)
+	pricingObservedSource.Store(&sourceFingerprint)
+	pricingObservedChannels.Store(&channelFingerprint)
+	publishedPricing.Store(&publishedPricingCatalogue{pricing: nextPricing, vendors: nextVendors, revision: revision, endpoints: nextSupportedEndpoints, builtAt: lastGetPricingTime, generation: generation, pluginGeneration: pluginGeneration.Number})
 }
 
 // GetSupportedEndpointMap 返回全局端点到路径的映射
 func GetSupportedEndpointMap() map[string]common.EndpointInfo {
-	return supportedEndpointMap
+	snapshot := publishedPricing.Load()
+	if snapshot == nil {
+		return nil
+	}
+	return snapshot.endpoints
 }

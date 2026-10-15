@@ -460,6 +460,17 @@ func buildSchemas() map[string]interface{} {
 		pageProperties[key] = map[string]any{"type": "integer", "minimum": 0, "description": "Required when limit selects page mode."}
 	}
 
+	out["EffectivePricingPageModel"] = map[string]any{"type": "object", "properties": modelProperties, "required": []string{"model_name", "owner_by", "supported_endpoint_types", "group_prices", "modality", "creator"}}
+	overviewProperties := map[string]any{}
+	for _, key := range []string{"schema_version", "catalog_revision", "user_group", "currency", "auto_groups", "creators"} {
+		overviewProperties[key] = pageProperties[key]
+	}
+	out["EffectivePricingOverviewSection"] = map[string]any{"type": "object", "properties": map[string]any{"modality": modelProperties["modality"], "offset": pageProperties["offset"], "limit": pageProperties["limit"], "total_count": pageProperties["total_count"], "data": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectivePricingPageModel"}}}, "required": []string{"modality", "offset", "limit", "total_count", "data"}}
+	overviewProperties["sections"] = map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectivePricingOverviewSection"}}
+	out["EffectivePricingOverviewData"] = map[string]any{"type": "object", "properties": overviewProperties, "required": []string{"schema_version", "catalog_revision", "user_group", "currency", "auto_groups", "creators", "sections"}}
+	out["EffectivePricingOverviewResponse"] = wrapResponse(map[string]any{"$ref": "#/components/schemas/EffectivePricingOverviewData"})
+	out["EffectivePricingOverviewResponse"].(map[string]any)["required"] = []string{"success", "data"}
+
 	// /api/log/{,self/}stat → ApiResponseOfStat (data = {quota, rpm, tpm}).
 	// Stat type lives in model/log.go and is auto-discovered by parseModels.
 	// (Legacy synthetic LogStatRow {day, quota} schema removed — endpoint
