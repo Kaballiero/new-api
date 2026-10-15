@@ -269,6 +269,70 @@ func TestEffectivePricingPageSelectionAndProjectionBound(t *testing.T) {
 	assert.Empty(t, buildEffectivePricingPage(context, query, context.project).Data)
 }
 
+func TestEffectivePricingPageSearchIgnoresModelFormatting(t *testing.T) {
+	for _, test := range []struct {
+		name, modelName, search string
+		matches                 bool
+	}{
+		{"spaces", "openai/gpt-4.1-mini", "  GPT 4.1 MINI  ", true},
+		{"compact", "openai/gpt-4.1-mini", "gpt41mini", true},
+		{"separators", "openai/gpt-4.1-mini", "OpenAI_GPT_4_1_MINI", true},
+		{"display name", "Claude Sonnet 4.5", "claude-sonnet-4-5", true},
+		{"unicode dash", "Claude\u2011Sonnet\u20144.5", "claude sonnet 4.5", true},
+		{"unicode spaces", "DeepSeek\u00a0R1", "deep seek r1", true},
+		{"unicode width", "openai/gpt-4.1-mini", "ＧＰＴ４．１", true},
+		{"canonical unicode", "caf\u00e9-model", "cafe\u0301 model", true},
+		{"partial name", "google/gemini-2.5-pro-preview", "gemini 2.5 pro", true},
+		{"different version", "gpt-4.1-mini", "gpt4.2", false},
+		{"different family", "gpt-4.1-mini", "claude", false},
+		{"punctuation only", "gpt-4.1-mini", "???", false},
+		{"empty", "gpt-4.1-mini", " \t ", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, personal := range []bool{false, true} {
+				context := pricingPageFixture()
+				context.pricing = context.pricing[:1]
+				context.pricing[0].ModelName = test.modelName
+				query, err := parseEffectivePricingPageQuery(url.Values{"search": {test.search}}, personal)
+				require.NoError(t, err)
+				page := buildEffectivePricingPage(context, query, context.project)
+				if test.matches {
+					assert.Equal(t, 1, page.TotalCount)
+					require.Len(t, page.Data, 1)
+					assert.Equal(t, test.modelName, page.Data[0].ModelName)
+				} else {
+					assert.Zero(t, page.TotalCount)
+					assert.Empty(t, page.Data)
+				}
+			}
+		})
+	}
+}
+
+func TestEffectivePricingSmartSearchFiltersBeforePagination(t *testing.T) {
+	context := pricingPageFixture()
+	context.pricing[0].ModelName = "openai/gpt-4.1-mini"
+	context.pricing[2].ModelName = "openai/gpt-4.1"
+	context.pricing[2].VendorID = 2
+	for _, personal := range []bool{false, true} {
+		query, err := parseEffectivePricingPageQuery(url.Values{
+			"search": {"GPT 4.1"}, "limit": {"1"}, "offset": {"1"}, "modality": {"TEXT"}, "creator_id": {"2"},
+		}, personal)
+		require.NoError(t, err)
+		page := buildEffectivePricingPage(context, query, context.project)
+		assert.Equal(t, 2, page.TotalCount)
+		require.Len(t, page.Data, 1)
+		assert.Equal(t, "openai/gpt-4.1-mini", page.Data[0].ModelName)
+		query.offset = 0
+		query.modality = "IMAGE"
+		assert.Zero(t, buildEffectivePricingPage(context, query, context.project).TotalCount)
+		query.modality = "TEXT"
+		creatorID := 1
+		query.creatorID = &creatorID
+		assert.Zero(t, buildEffectivePricingPage(context, query, context.project).TotalCount)
+	}
+}
+
 func TestEffectivePricingPagePublicVisibilityAndSimpleWire(t *testing.T) {
 	context := pricingPageFixture()
 	context.usingGroup = "default"
