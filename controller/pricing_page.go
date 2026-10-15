@@ -18,6 +18,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
+	"golang.org/x/text/unicode/norm"
 )
 
 type effectivePricingCreator struct {
@@ -228,7 +229,7 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 	}
 	usedCreators := make(map[int]bool)
 	candidates := make([]effectivePricingPageCandidate, 0, len(context.pricing))
-	lower := cases.Lower(language.Und)
+	search := normalizeModelSearch(query.search)
 	for index, item := range context.pricing {
 		if len(effectivePricingGroups(item.EnableGroup, context.usableGroups)) == 0 {
 			continue
@@ -247,7 +248,7 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 			usedCreators[creator.ID] = true
 		}
 		modality := effectivePricingModality(item)
-		if query.search != "" && !strings.Contains(lower.String(item.ModelName), query.search) {
+		if search != "" && !strings.Contains(normalizeModelSearch(item.ModelName), search) {
 			continue
 		}
 		if query.modality != "" && modality != query.modality {
@@ -413,6 +414,20 @@ func effectivePricingPageKeys(item consumerPricingModel, orderBy string) (string
 		}
 	}
 	return unit, minimum
+}
+
+func normalizeModelSearch(value string) string {
+	value = cases.Lower(language.Und).String(norm.NFKC.String(trimPricingText(value)))
+	normalized := strings.Map(func(character rune) rune {
+		if unicode.IsLetter(character) || unicode.IsNumber(character) || unicode.IsMark(character) {
+			return character
+		}
+		return -1
+	}, value)
+	if normalized == "" {
+		return value
+	}
+	return normalized
 }
 
 func trimPricingText(value string) string {
