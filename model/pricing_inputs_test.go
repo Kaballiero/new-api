@@ -16,6 +16,22 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestPricingInputsNoMemorySyncWithoutDatabaseClearsAliases(t *testing.T) {
+	previousDB, previousMemory, previousAliases := DB, common.MemoryCacheEnabled, taskAliasViewPtr.Load()
+	t.Cleanup(func() {
+		DB = previousDB
+		common.MemoryCacheEnabled = previousMemory
+		taskAliasViewPtr.Store(previousAliases)
+	})
+	DB = nil
+	common.MemoryCacheEnabled = false
+	taskAliasViewPtr.Store(&taskAliasView{byFold: map[string]TaskAliasTarget{"stale-alias": {}}})
+
+	require.NotPanics(t, InitChannelCache)
+	require.NotNil(t, taskAliasViewPtr.Load())
+	assert.Empty(t, taskAliasViewPtr.Load().byFold)
+}
+
 func pricingInputFixture(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, channel, _ := pricingCatalogOptionFixture(t)

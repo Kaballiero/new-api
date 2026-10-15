@@ -29,6 +29,11 @@ var channelPricingIdentities map[int]string
 var channelPricingSyncMutex sync.Mutex
 
 func InitChannelCache() {
+	if !common.MemoryCacheEnabled && DB == nil {
+		InvalidatePricingCache()
+		rebuildTaskAliasView()
+		return
+	}
 	channelPricingSyncMutex.Lock()
 	defer channelPricingSyncMutex.Unlock()
 	newChannelId2channel := make(map[int]*Channel)
