@@ -36,6 +36,8 @@ type respSpec struct {
 // Methods are lowercase ("get", "post", "put", "delete", "patch").
 // Paths must match the existing api.json paths exactly (with {id} placeholders).
 var manifest = map[string]map[string]respSpec{
+	"/api/log/aggregate":              {"post": {Type: "LogAggregate", Body: "AggregateScope"}},
+	"/api/usage/aggregate":            {"post": {Type: "UsageAggregateRow", List: true, Body: "UsageAggregateQuery"}},
 	"/api/getapi/users":               {"post": {Custom: "GetApiCreateCredentialResponse", Body: "GetApiCreateUserRequest"}},
 	"/api/getapi/users/{user_id}/pat": {"post": {Custom: "GetApiInitializePATResponse", Body: "GetAPIInitializePATRequest"}},
 	// === System ===

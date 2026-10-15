@@ -1,15 +1,25 @@
 package controller
 
 import (
+	"fmt"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type flowQuotaResponse struct {
@@ -426,4 +436,330 @@ func TestGetQuotaDatesByUserRejectsNonPositiveRangeOnlyWhenBucketed(t *testing.T
 			{Username: "bob", CreatedAt: 1200, Count: 1, Quota: 70, TokenUsed: 30},
 		}, payload.Data)
 	})
+}
+
+func TestQuotaDatesContractMatrix(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var driver gorm.Dialector
+			switch dialect {
+			case "sqlite":
+				driver = sqlite.Open(":memory:")
+			case "mysql":
+				dsn := os.Getenv("TEST_MYSQL_DSN")
+				if dsn == "" {
+					t.Skip("isolated MySQL DSN not configured")
+				}
+				driver = mysql.Open(dsn)
+			case "postgres":
+				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				if dsn == "" {
+					t.Skip("isolated PostgreSQL DSN not configured")
+				}
+				driver = postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true})
+			}
+			db, err := gorm.Open(driver, &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			if dialect != "sqlite" {
+				require.Equal(t, "usage_granularity_test", db.Migrator().CurrentDatabase(), "fixtures require a dedicated isolated database")
+			}
+			previousDB := model.DB
+			model.DB = db
+			t.Cleanup(func() {
+				model.DB = previousDB
+				assert.NoError(t, db.Migrator().DropTable(&model.QuotaData{}))
+				assert.NoError(t, sqlDB.Close())
+			})
+			require.NoError(t, db.Migrator().DropTable(&model.QuotaData{}))
+			require.NoError(t, db.AutoMigrate(&model.QuotaData{}))
+			versionSQL := "SELECT version()"
+			if dialect == "sqlite" {
+				versionSQL = "SELECT sqlite_version()"
+			}
+			var version string
+			require.NoError(t, db.Raw(versionSQL).Scan(&version).Error)
+			t.Logf("database version: %s", version)
+
+			fixtures := []model.QuotaData{
+				{UserID: 1, Username: "alice", ModelName: "a", TokenID: 11, CreatedAt: 1709168400, Count: 1, Quota: 10, TokenUsed: 100},
+				{UserID: 1, Username: "alice", ModelName: "a", TokenID: 12, CreatedAt: 1709172000, Count: 2, Quota: 20, TokenUsed: 200},
+				{UserID: 1, Username: "alice", ModelName: "a", TokenID: 11, CreatedAt: 1709211600, Count: 4, Quota: 40, TokenUsed: 400},
+				{UserID: 1, Username: "alice", ModelName: "a", TokenID: 11, CreatedAt: 1709251200, Count: 8, Quota: 80, TokenUsed: 800},
+				{UserID: 1, Username: "alice", ModelName: "b", TokenID: 11, CreatedAt: 1709168400, Count: 16, Quota: 160, TokenUsed: 1600},
+				{UserID: 2, Username: "bob", ModelName: "a", TokenID: 22, CreatedAt: 1709168400, Count: 32, Quota: 320, TokenUsed: 3200},
+				{UserID: 2, Username: "bob", ModelName: "b", TokenID: 22, CreatedAt: 1709211600, Count: 0, Quota: 0, TokenUsed: 0},
+			}
+			for _, row := range fixtures {
+				require.NoError(t, db.Create(&row).Error)
+			}
+			for _, timestamp := range []int64{1709164800, 1709254800} {
+				row := model.QuotaData{UserID: 1, Username: "alice", ModelName: "a", TokenID: 11, CreatedAt: timestamp, Count: 999, Quota: 999, TokenUsed: 999}
+				require.NoError(t, db.Create(&row).Error)
+			}
+			for _, zone := range []string{"UTC", "offset"} {
+				t.Run(zone, func(t *testing.T) {
+					switch dialect {
+					case "mysql":
+						offset := "+00:00"
+						if zone == "offset" {
+							offset = "+05:30"
+						}
+						require.NoError(t, db.Exec("SET time_zone = ?", offset).Error)
+						var mode string
+						require.NoError(t, db.Raw("SELECT @@sql_mode").Scan(&mode).Error)
+						require.Contains(t, mode, "ONLY_FULL_GROUP_BY")
+					case "postgres":
+						if zone == "offset" {
+							require.NoError(t, db.Exec("SET TIME ZONE 'Pacific/Honolulu'").Error)
+						} else {
+							require.NoError(t, db.Exec("SET TIME ZONE 'UTC'").Error)
+						}
+					}
+					for _, endpoint := range []struct {
+						name, path, filter string
+						handler            gin.HandlerFunc
+					}{
+						{"all", "/api/data/", "", GetAllQuotaDates},
+						{"username", "/api/data/", "&username=alice", GetAllQuotaDates},
+						{"users", "/api/data/users", "", GetQuotaDatesByUser},
+						{"self", "/api/data/self", "", GetUserQuotaDates},
+						{"token", "/api/data/self", "&token_id=11", GetUserQuotaDates},
+						{"foreign_token", "/api/data/self", "&token_id=22", GetUserQuotaDates},
+					} {
+						t.Run(endpoint.name, func(t *testing.T) {
+							target := endpoint.path + "?start_timestamp=1709168400&end_timestamp=1709251200" + endpoint.filter
+							legacy := requestQuotaDates(t, endpoint.handler, target, 1)
+							empty := requestQuotaDates(t, endpoint.handler, target+"&granularity=", 1)
+							require.Equal(t, http.StatusOK, legacy.Code)
+							assert.JSONEq(t, legacy.Body.String(), empty.Body.String())
+							for _, granularity := range []string{"hour", "day", "week", "month"} {
+								t.Run(granularity, func(t *testing.T) {
+									expectedByKey := map[string]quotaDateRow{}
+									for _, row := range fixtures {
+										if (endpoint.name == "username" || endpoint.name == "self" || endpoint.name == "token" || endpoint.name == "foreign_token") && row.UserID != 1 {
+											continue
+										}
+										if endpoint.name == "token" && row.TokenID != 11 {
+											continue
+										}
+										if endpoint.name == "foreign_token" && row.TokenID != 22 {
+											continue
+										}
+										bucket := row.CreatedAt
+										switch granularity {
+										case "day":
+											bucket = 1709164800
+											if row.CreatedAt == 1709251200 {
+												bucket = 1709251200
+											}
+										case "week":
+											bucket = 1708905600
+										case "month":
+											bucket = 1706745600
+											if row.CreatedAt == 1709251200 {
+												bucket = 1709251200
+											}
+										}
+										value := quotaDateRow{CreatedAt: bucket}
+										if endpoint.name != "users" {
+											value.ModelName = row.ModelName
+										}
+										if endpoint.name != "all" {
+											value.Username = row.Username
+										}
+										if endpoint.name != "all" && endpoint.name != "users" {
+											value.UserID = row.UserID
+										}
+										key := fmt.Sprintf("%d/%s/%s/%d", value.UserID, value.Username, value.ModelName, bucket)
+										previous := expectedByKey[key]
+										value.Count = previous.Count + row.Count
+										value.Quota = previous.Quota + row.Quota
+										value.TokenUsed = previous.TokenUsed + row.TokenUsed
+										expectedByKey[key] = value
+									}
+									expected := make([]quotaDateRow, 0, len(expectedByKey))
+									for _, row := range expectedByKey {
+										expected = append(expected, row)
+									}
+									recorder := requestQuotaDates(t, endpoint.handler, target+"&granularity="+granularity, 1)
+									require.Equal(t, http.StatusOK, recorder.Code)
+									payload := decodeQuotaDatesResponse(t, recorder)
+									require.True(t, payload.Success, payload.Message)
+									assert.ElementsMatch(t, expected, payload.Data)
+									assert.True(t, sort.SliceIsSorted(payload.Data, func(i, j int) bool {
+										first, second := payload.Data[i], payload.Data[j]
+										if first.CreatedAt != second.CreatedAt {
+											return first.CreatedAt < second.CreatedAt
+										}
+										if endpoint.name == "users" {
+											return first.Username < second.Username
+										}
+										return first.ModelName < second.ModelName
+									}))
+									t.Logf("response %s/%s legacy_rows=%d aggregate_rows=%d legacy_bytes=%d aggregate_bytes=%d", endpoint.name, granularity, len(decodeQuotaDatesResponse(t, legacy).Data), len(payload.Data), legacy.Body.Len(), recorder.Body.Len())
+									if output := os.Getenv("USAGE_CONTRACT_OUTPUT_DIR"); output != "" && dialect == "sqlite" && zone == "UTC" {
+										require.NoError(t, os.MkdirAll(output, 0700))
+										require.NoError(t, os.WriteFile(filepath.Join(output, endpoint.name+"-legacy.json"), legacy.Body.Bytes(), 0600))
+										require.NoError(t, os.WriteFile(filepath.Join(output, endpoint.name+"-"+granularity+".json"), recorder.Body.Bytes(), 0600))
+									}
+								})
+							}
+							for _, suffix := range []string{"&granularity=hour", "&granularity=day", "&granularity=week", "&granularity=month"} {
+								noRows := requestQuotaDates(t, endpoint.handler, strings.Replace(target, "1709251200", "1709168000", 1)+suffix, 1)
+								require.Equal(t, http.StatusOK, noRows.Code)
+								assert.Empty(t, decodeQuotaDatesResponse(t, noRows).Data)
+							}
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestQuotaDatesAccessAndSelfRestrictions(t *testing.T) {
+	user, pat := setupAccessTokenAudit(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.QuotaData{}))
+	router := gin.New()
+	router.GET("/api/data/", middleware.AdminAuth(), GetAllQuotaDates)
+	router.GET("/api/data/users", middleware.AdminAuth(), GetQuotaDatesByUser)
+	router.GET("/api/data/self", middleware.UserAuth(), GetUserQuotaDates)
+	for _, path := range []string{"/api/data/", "/api/data/users", "/api/data/self"} {
+		assert.Equal(t, http.StatusUnauthorized, auditRequest(router, http.MethodGet, path+"?granularity=day", "").Code)
+	}
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleCommonUser).Error)
+	for _, path := range []string{"/api/data/", "/api/data/users"} {
+		assert.Equal(t, http.StatusForbidden, auditRequest(router, http.MethodGet, path+"?granularity=day", pat).Code)
+	}
+
+	require.NoError(t, model.DB.Create(&model.QuotaData{UserID: user.Id, Username: user.Username, ModelName: "own", TokenID: 11, CreatedAt: 1100, Count: 2, Quota: 20, TokenUsed: 200}).Error)
+	require.NoError(t, model.DB.Create(&model.QuotaData{UserID: user.Id + 1, Username: "foreign", ModelName: "foreign", TokenID: 22, CreatedAt: 1100, Count: 99, Quota: 990, TokenUsed: 9900}).Error)
+	for _, granularity := range []string{"hour", "day", "week", "month"} {
+		response := auditRequest(router, http.MethodGet, "/api/data/self?start_timestamp=1000&end_timestamp=2000&granularity="+granularity, pat)
+		require.Equal(t, http.StatusOK, response.Code)
+		ownRows := decodeQuotaDatesResponse(t, response).Data
+		require.Len(t, ownRows, 1)
+		assert.Equal(t, user.Id, ownRows[0].UserID)
+		assert.Equal(t, "own", ownRows[0].ModelName)
+		assert.Equal(t, 20, ownRows[0].Quota)
+		foreign := auditRequest(router, http.MethodGet, "/api/data/self?start_timestamp=1000&end_timestamp=2000&token_id=22&granularity="+granularity, pat)
+		require.Equal(t, http.StatusOK, foreign.Code)
+		assert.Empty(t, decodeQuotaDatesResponse(t, foreign).Data)
+
+		for _, testCase := range []struct{ query, code string }{
+			{"start_timestamp=1000&end_timestamp=2593001", "time_span_exceeded"},
+			{"start_timestamp=1000&end_timestamp=2000&token_id=0", "invalid_token_id"},
+			{"start_timestamp=1000&end_timestamp=2000&token_id=-1", "invalid_token_id"},
+			{"start_timestamp=1000&end_timestamp=2000&token_id=abc", "invalid_token_id"},
+		} {
+			response := auditRequest(router, http.MethodGet, "/api/data/self?"+testCase.query+"&granularity="+granularity, pat)
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			assert.Equal(t, testCase.code, decodeQuotaDatesResponse(t, response).Code)
+		}
+	}
+}
+
+func TestQuotaDatesAdminRangeErrors(t *testing.T) {
+	setupFlowControllerTestDB(t)
+	for _, endpoint := range []struct {
+		path    string
+		handler gin.HandlerFunc
+	}{
+		{"/api/data/", GetAllQuotaDates}, {"/api/data/users", GetQuotaDatesByUser},
+	} {
+		for _, testCase := range []struct{ query, code string }{
+			{"end_timestamp=1790000000&granularity=month", "invalid_params"},
+			{"start_timestamp=1000&granularity=day", "invalid_params"},
+			{"start_timestamp=abc&end_timestamp=2000&granularity=day", "invalid_params"},
+			{"start_timestamp=1577836800&end_timestamp=1896134400&granularity=month", "month_span_exceeded"},
+		} {
+			response := requestQuotaDates(t, endpoint.handler, endpoint.path+"?"+testCase.query, 1)
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			payload := decodeQuotaDatesResponse(t, response)
+			assert.False(t, payload.Success)
+			assert.Equal(t, testCase.code, payload.Code)
+		}
+		for _, query := range []string{"end_timestamp=1790000000", "start_timestamp=abc&end_timestamp=2000", "start_timestamp=1000"} {
+			legacy := requestQuotaDates(t, endpoint.handler, endpoint.path+"?"+query, 1)
+			empty := requestQuotaDates(t, endpoint.handler, endpoint.path+"?"+query+"&granularity=", 1)
+			require.Equal(t, http.StatusOK, legacy.Code)
+			assert.True(t, decodeQuotaDatesResponse(t, legacy).Success)
+			assert.JSONEq(t, legacy.Body.String(), empty.Body.String())
+		}
+	}
+}
+
+func TestAggregateEndpointsValidateScopeAndAccess(t *testing.T) {
+	setupFlowControllerTestDB(t)
+	db := model.DB
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.AuditLog{}))
+	for _, fixture := range []struct {
+		id, role  int
+		name, pat string
+	}{
+		{1, common.RoleCommonUser, "aggregate-member", "aggregate-test-member-pat"},
+		{2, common.RoleAdminUser, "aggregate-admin", "aggregate-test-admin-pat"},
+	} {
+		pat := fixture.pat
+		require.NoError(t, db.Create(&model.User{Id: fixture.id, Username: fixture.name, Role: fixture.role, Status: common.UserStatusEnabled, AccessToken: &pat, AuthVersion: 1, AffCode: fixture.name}).Error)
+	}
+	engine := gin.New()
+	engine.POST("/api/log/aggregate", middleware.AdminAuth(), GetLogAggregate)
+	engine.POST("/api/usage/aggregate", middleware.AdminAuth(), GetUsageAggregate)
+	for _, path := range []string{"/api/log/aggregate", "/api/usage/aggregate"} {
+		valid := `{"user_ids":[1],"start_timestamp":1000,"end_timestamp":2000,"granularity":"hour","group_by":"user"}`
+		for _, check := range []struct {
+			name, body, pat string
+			status          int
+		}{
+			{"anonymous", valid, "", http.StatusUnauthorized},
+			{"ordinary", valid, "aggregate-test-member-pat", http.StatusForbidden},
+			{"admin", valid, "aggregate-test-admin-pat", http.StatusOK},
+			{"empty", `{"user_ids":[],"start_timestamp":1000,"end_timestamp":2000}`, "aggregate-test-admin-pat", http.StatusBadRequest},
+			{"missing", `{}`, "aggregate-test-admin-pat", http.StatusBadRequest},
+			{"invalid", `{"user_ids":[0],"start_timestamp":1000,"end_timestamp":2000}`, "aggregate-test-admin-pat", http.StatusBadRequest},
+			{"fractional", `{"user_ids":[1.5],"start_timestamp":1000,"end_timestamp":2000}`, "aggregate-test-admin-pat", http.StatusBadRequest},
+			{"unknown", `{"user_ids":[999],"start_timestamp":1000,"end_timestamp":2000,"granularity":"hour","group_by":"user"}`, "aggregate-test-admin-pat", http.StatusNotFound},
+			{"oversize", strings.Repeat(" ", maxAggregateRequestBytes) + valid, "aggregate-test-admin-pat", http.StatusRequestEntityTooLarge},
+		} {
+			t.Run(path+"/"+check.name, func(t *testing.T) {
+				request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(check.body))
+				request.Header.Set("Content-Type", "application/json")
+				if check.pat != "" {
+					request.Header.Set("Authorization", "Bearer "+check.pat)
+				}
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+				assert.Equal(t, check.status, response.Code, response.Body.String())
+				if path == "/api/usage/aggregate" && check.name == "admin" {
+					var body struct {
+						Data []model.UsageAggregateRow `json:"data"`
+					}
+					require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+					require.Len(t, body.Data, 1)
+					assert.Equal(t, int64(100), body.Data[0].Quota)
+					assert.Equal(t, 1, *body.Data[0].UserID)
+				}
+			})
+		}
+	}
+}
+
+func TestAggregateResponseSizeIsAnErrorInsteadOfPartialSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	name := strings.Repeat("x", maxAggregateResponseBytes)
+	respondAggregate(ctx, []model.UsageAggregateRow{{ModelName: &name}}, nil)
+	assert.Equal(t, http.StatusUnprocessableEntity, response.Code)
+	var body struct {
+		Success bool   `json:"success"`
+		Code    string `json:"code"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+	assert.False(t, body.Success)
+	assert.Equal(t, "aggregate_response_too_large", body.Code)
 }

@@ -231,10 +231,14 @@ func runOnEveryQuotaDialect(t *testing.T, run func(t *testing.T)) {
 				t.Skip("test database DSN is not configured")
 			}
 			t.Setenv("QUOTA_BUCKET_TEST_DSN", dsn)
-			db, _, err := chooseDB("QUOTA_BUCKET_TEST_DSN", false)
+			db, databaseType, err := chooseDB("QUOTA_BUCKET_TEST_DSN", false)
 			require.NoError(t, err)
 			sqlDB, err := db.DB()
 			require.NoError(t, err)
+			require.Equal(t, "usage_granularity_test", db.Migrator().CurrentDatabase(), "fixtures require a dedicated isolated database")
+			previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+			common.SetDatabaseTypes(databaseType, previousLogType)
+			t.Cleanup(func() { common.SetDatabaseTypes(previousMainType, previousLogType) })
 			require.NoError(t, db.Migrator().DropTable(&QuotaData{}))
 			require.NoError(t, db.AutoMigrate(&QuotaData{}))
 			previous := DB
@@ -265,6 +269,8 @@ func TestGetBucketedQuotaDatesMatchesConsumerBucketBoundaries(t *testing.T) {
 		{"week from a Wednesday returns Monday", unixUTC(2026, time.May, 6, 12, 0, 0), GranularityWeek, unixUTC(2026, time.May, 4, 0, 0, 0)},
 		{"week from a Monday returns the same Monday", unixUTC(2026, time.May, 4, 5, 30, 0), GranularityWeek, unixUTC(2026, time.May, 4, 0, 0, 0)},
 		{"week from a Sunday returns the preceding Monday", unixUTC(2026, time.May, 10, 22, 0, 0), GranularityWeek, unixUTC(2026, time.May, 4, 0, 0, 0)},
+		{"week avoids overflow at the int64 timestamp boundary", 9223372036854775807, GranularityWeek, 9223372036854201600},
+		{"week at the next Monday starts a new bucket", unixUTC(2026, time.May, 11, 0, 0, 0), GranularityWeek, unixUTC(2026, time.May, 11, 0, 0, 0)},
 		{"week at the epoch Thursday returns the preceding Monday", 0, GranularityWeek, -259200},
 		{"week at the last second before the first Monday", 345599, GranularityWeek, -259200},
 		{"week at the first Monday after the epoch", 345600, GranularityWeek, 345600},
@@ -295,7 +301,7 @@ func TestGetBucketedQuotaDatesMatchesConsumerBucketBoundaries(t *testing.T) {
 				require.Len(t, rows, 1)
 				assert.Equal(t, testCase.expected, rows[0].CreatedAt)
 				assert.Equal(t, "gpt-a", rows[0].ModelName)
-				assert.Equal(t, 1, rows[0].Count)
+				assert.EqualValues(t, 1, rows[0].Count)
 
 				byUser, err := GetBucketedQuotaDatesByUser(BucketedQuotaQuery{
 					StartTime:   testCase.createdAt,
@@ -331,21 +337,21 @@ func TestGetBucketedQuotaDatesPreservesLegacyTotalsPerModel(t *testing.T) {
 
 		legacy, err := GetAllQuotaDates(start, end, "")
 		require.NoError(t, err)
-		legacyTotals := map[string][3]int{}
+		legacyTotals := map[string][3]int64{}
 		for _, row := range legacy {
 			totals := legacyTotals[row.ModelName]
-			legacyTotals[row.ModelName] = [3]int{totals[0] + row.Count, totals[1] + row.Quota, totals[2] + row.TokenUsed}
+			legacyTotals[row.ModelName] = [3]int64{totals[0] + int64(row.Count), totals[1] + int64(row.Quota), totals[2] + int64(row.TokenUsed)}
 		}
-		require.Equal(t, map[string][3]int{"gpt-a": {27, 270, 2700}, "gpt-b": {36, 360, 3600}}, legacyTotals)
+		require.Equal(t, map[string][3]int64{"gpt-a": {27, 270, 2700}, "gpt-b": {36, 360, 3600}}, legacyTotals)
 
 		for _, granularity := range []string{GranularityHour, GranularityDay, GranularityWeek, GranularityMonth} {
 			t.Run(granularity, func(t *testing.T) {
 				rows, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: granularity, Grouping: QuotaBucketByModel})
 				require.NoError(t, err)
-				bucketedTotals := map[string][3]int{}
+				bucketedTotals := map[string][3]int64{}
 				for _, row := range rows {
 					totals := bucketedTotals[row.ModelName]
-					bucketedTotals[row.ModelName] = [3]int{totals[0] + row.Count, totals[1] + row.Quota, totals[2] + row.TokenUsed}
+					bucketedTotals[row.ModelName] = [3]int64{totals[0] + int64(row.Count), totals[1] + int64(row.Quota), totals[2] + int64(row.TokenUsed)}
 					assert.Zero(t, row.UserID)
 					assert.Empty(t, row.Username)
 				}
@@ -434,21 +440,21 @@ func TestGetBucketedQuotaDatesByUserPreservesLegacyUserTotals(t *testing.T) {
 
 		legacy, err := GetQuotaDataGroupByUser(start, end)
 		require.NoError(t, err)
-		legacyTotals := map[string][3]int{}
+		legacyTotals := map[string][3]int64{}
 		for _, row := range legacy {
 			totals := legacyTotals[row.Username]
-			legacyTotals[row.Username] = [3]int{totals[0] + row.Count, totals[1] + row.Quota, totals[2] + row.TokenUsed}
+			legacyTotals[row.Username] = [3]int64{totals[0] + int64(row.Count), totals[1] + int64(row.Quota), totals[2] + int64(row.TokenUsed)}
 		}
-		require.Equal(t, map[string][3]int{"alice": {7, 70, 700}, "bob": {24, 240, 2400}}, legacyTotals)
+		require.Equal(t, map[string][3]int64{"alice": {7, 70, 700}, "bob": {24, 240, 2400}}, legacyTotals)
 
 		for _, granularity := range []string{GranularityHour, GranularityDay, GranularityWeek, GranularityMonth} {
 			t.Run(granularity, func(t *testing.T) {
 				rows, err := GetBucketedQuotaDatesByUser(BucketedQuotaQuery{StartTime: start, EndTime: end, Granularity: granularity, Grouping: QuotaBucketByUser})
 				require.NoError(t, err)
-				bucketedTotals := map[string][3]int{}
+				bucketedTotals := map[string][3]int64{}
 				for _, row := range rows {
 					totals := bucketedTotals[row.Username]
-					bucketedTotals[row.Username] = [3]int{totals[0] + row.Count, totals[1] + row.Quota, totals[2] + row.TokenUsed}
+					bucketedTotals[row.Username] = [3]int64{totals[0] + int64(row.Count), totals[1] + int64(row.Quota), totals[2] + int64(row.TokenUsed)}
 				}
 				assert.Equal(t, legacyTotals, bucketedTotals)
 			})
@@ -604,7 +610,7 @@ func TestQuotaMonthBoundaries(t *testing.T) {
 		require.Len(t, boundaries, MaxBucketedMonths+1)
 		assert.Equal(t, start, boundaries[0])
 		assert.Equal(t, januaryFirst(2030), boundaries[MaxBucketedMonths])
-		expression, err := quotaBucketExpression(GranularityMonth, start, end)
+		expression, _, err := quotaBucketExpression(GranularityMonth, start, end)
 		require.NoError(t, err)
 		assert.Equal(t, MaxBucketedMonths, strings.Count(expression, " WHEN "))
 	})
@@ -616,7 +622,7 @@ func TestQuotaMonthBoundaries(t *testing.T) {
 		boundaries := quotaMonthBoundaries(start, end)
 
 		require.Len(t, boundaries, MaxBucketedMonths+2)
-		_, err := quotaBucketExpression(GranularityMonth, start, end)
+		_, _, err := quotaBucketExpression(GranularityMonth, start, end)
 		require.ErrorIs(t, err, ErrQuotaMonthSpanExceeded)
 	})
 
@@ -624,5 +630,34 @@ func TestQuotaMonthBoundaries(t *testing.T) {
 		boundaries := quotaMonthBoundaries(januaryFirst(2020), januaryFirst(2500))
 
 		assert.Len(t, boundaries, MaxBucketedMonths+2)
+	})
+}
+
+func TestGetBucketedQuotaDatesKeepsLargeExactSums(t *testing.T) {
+	runOnEveryQuotaDialect(t, func(t *testing.T) {
+		for range 2 {
+			seedBucketQuotaData(t, QuotaData{UserID: 1, Username: "alice", ModelName: "a", CreatedAt: 1709168400, Count: 2147483647, Quota: 2147483647, TokenUsed: 2147483647})
+		}
+		for _, granularity := range []string{GranularityHour, GranularityDay, GranularityWeek, GranularityMonth} {
+			rows, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: 1709168400, EndTime: 1709168400, Granularity: granularity, Grouping: QuotaBucketByModel})
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+			assert.Equal(t, int64(4294967294), rows[0].Count)
+			assert.Equal(t, int64(4294967294), rows[0].Quota)
+			assert.Equal(t, int64(4294967294), rows[0].TokenUsed)
+		}
+	})
+}
+
+func TestGetBucketedQuotaDatesOrdersMonthBucketsNumerically(t *testing.T) {
+	runOnEveryQuotaDialect(t, func(t *testing.T) {
+		seedBucketQuotaData(t, QuotaData{UserID: 1, Username: "alice", ModelName: "a", CreatedAt: 999302400, Count: 1, Quota: 10, TokenUsed: 100})
+		seedBucketQuotaData(t, QuotaData{UserID: 1, Username: "alice", ModelName: "a", CreatedAt: 1001894400, Count: 2, Quota: 20, TokenUsed: 200})
+		rows, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: 999302400, EndTime: 1001894400, Granularity: GranularityMonth, Grouping: QuotaBucketByModel})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedQuotaData{
+			{ModelName: "a", CreatedAt: 999302400, Count: 1, Quota: 10, TokenUsed: 100},
+			{ModelName: "a", CreatedAt: 1001894400, Count: 2, Quota: 20, TokenUsed: 200},
+		}, rows)
 	})
 }
