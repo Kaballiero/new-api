@@ -120,6 +120,16 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 		if op == nil || h == nil {
 			continue
 		}
+		if route.Path == "/api/log/aggregate" || route.Path == "/api/usage/aggregate" {
+			op["requestBody"].(map[string]any)["required"] = true
+			op["description"] = "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log totals include CONSUME only."
+			responses := op["responses"].(map[string]any)
+			for status, code := range map[string]string{"400": "invalid_params", "404": "aggregate_user_not_found", "413": "aggregate_request_too_large", "422": "aggregate_response_too_large", "500": "aggregate_overflow"} {
+				responses[status] = map[string]any{"description": code, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiResponse"}}}}
+				declareErrorCodes(op, status, code)
+			}
+			declareErrorCodes(op, "500", "internal_error")
+		}
 		if h.RespStatus > 200 && h.RespStatus < 300 {
 			responses := op["responses"].(map[string]interface{})
 			responses[strconv.Itoa(h.RespStatus)] = responses["200"]
@@ -549,4 +559,36 @@ func enrichPricingTransportSchemas(schemas map[string]interface{}) {
 	}
 	schemas["RatioSyncResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/RatioSyncData"})
 	schemas["RatioSyncResponse"].(map[string]interface{})["required"] = []string{"success", "data"}
+}
+
+func normalizeAggregateSchemas(schemas map[string]any) {
+	for _, name := range []string{"AggregateScope", "UsageAggregateQuery"} {
+		schema := schemas[name].(map[string]any)
+		properties := schema["properties"].(map[string]any)
+		properties["user_ids"] = map[string]any{"type": "array", "minItems": 1, "maxItems": 100, "items": map[string]any{"type": "integer", "format": "int64", "minimum": 1, "maximum": 9007199254740991}}
+		for _, field := range []string{"start_timestamp", "end_timestamp"} {
+			properties[field] = map[string]any{"type": "integer", "format": "int64", "minimum": 0, "maximum": 9007199254740991}
+		}
+		required := []string{"user_ids", "start_timestamp", "end_timestamp"}
+		if name == "UsageAggregateQuery" {
+			properties["group_by"] = map[string]any{"type": "string", "enum": []string{"time", "model", "time_model", "user"}}
+			properties["granularity"] = map[string]any{"type": "string", "enum": []string{"hour", "day", "week", "month"}}
+			required = append(required, "group_by", "granularity")
+		}
+		schema["required"] = required
+	}
+	for _, name := range []string{"LogAggregate", "UsageAggregateRow"} {
+		schema := schemas[name].(map[string]any)
+		if name == "LogAggregate" {
+			schema["required"] = []string{"quota", "request_count"}
+		} else {
+			schema["required"] = []string{"quota", "count", "token_used"}
+		}
+		properties := schema["properties"].(map[string]any)
+		for _, field := range []string{"quota", "count", "token_used", "request_count"} {
+			if _, exists := properties[field]; exists {
+				properties[field] = map[string]any{"type": "integer", "format": "int64", "minimum": -9007199254740991, "maximum": 9007199254740991}
+			}
+		}
+	}
 }

@@ -187,6 +187,7 @@ func run(locale string) error {
 		}
 	}
 	normalizeGetAPIErrorSchema(existingSchemas)
+	normalizeAggregateSchemas(existingSchemas)
 	components["schemas"] = existingSchemas
 
 	// Sweep unreferenced schemas. The generator merges new schemas into the

@@ -94,6 +94,39 @@
         },
         "type": "object"
       },
+      "AggregateScope": {
+        "properties": {
+          "end_timestamp": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start_timestamp": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "user_ids": {
+            "items": {
+              "format": "int64",
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "user_ids",
+          "start_timestamp",
+          "end_timestamp"
+        ],
+        "type": "object"
+      },
       "AmountRequest": {
         "properties": {
           "amount": {
@@ -276,6 +309,26 @@
           "data": {
             "items": {
               "$ref": "#/components/schemas/UptimeGroupResult"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "type": "object"
+      },
+      "ApiResponseListOfUsageAggregateRow": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/UsageAggregateRow"
             },
             "type": "array"
           },
@@ -808,6 +861,23 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/Log"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "type": "object"
+      },
+      "ApiResponseOfLogAggregate": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LogAggregate"
           },
           "message": {
             "type": "string"
@@ -4514,6 +4584,27 @@
         },
         "type": "object"
       },
+      "LogAggregate": {
+        "properties": {
+          "quota": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "request_count": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "quota",
+          "request_count"
+        ],
+        "type": "object"
+      },
       "LogFileInfo": {
         "properties": {
           "mod_time": {
@@ -7282,6 +7373,96 @@
             "type": "number"
           }
         },
+        "type": "object"
+      },
+      "UsageAggregateQuery": {
+        "properties": {
+          "end_timestamp": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "granularity": {
+            "enum": [
+              "hour",
+              "day",
+              "week",
+              "month"
+            ],
+            "type": "string"
+          },
+          "group_by": {
+            "enum": [
+              "time",
+              "model",
+              "time_model",
+              "user"
+            ],
+            "type": "string"
+          },
+          "start_timestamp": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "user_ids": {
+            "items": {
+              "format": "int64",
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "user_ids",
+          "start_timestamp",
+          "end_timestamp",
+          "group_by",
+          "granularity"
+        ],
+        "type": "object"
+      },
+      "UsageAggregateRow": {
+        "properties": {
+          "count": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "integer"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "quota": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "token_used": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "user_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "quota",
+          "count",
+          "token_used"
+        ],
         "type": "object"
       },
       "UsageExample": {
@@ -20268,6 +20449,209 @@
         "summary": "获取所有日志",
         "tags": [
           "日志"
+        ]
+      }
+    },
+    "/api/log/aggregate": {
+      "post": {
+        "deprecated": false,
+        "description": "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log totals include CONSUME only.",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AggregateScope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseOfLogAggregate"
+                }
+              }
+            },
+            "description": "成功",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_params": {
+                    "summary": "invalid_params",
+                    "value": {
+                      "code": "invalid_params",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "invalid_params",
+            "x-error-codes": [
+              "invalid_params"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "未授权 — 缺少或无效的认证凭据"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "禁止访问 — 角色/权限不足或功能未启用"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "aggregate_user_not_found": {
+                    "summary": "aggregate_user_not_found",
+                    "value": {
+                      "code": "aggregate_user_not_found",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "aggregate_user_not_found",
+            "x-error-codes": [
+              "aggregate_user_not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "冲突 — 资源已存在或当前状态不允许此操作"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "aggregate_request_too_large": {
+                    "summary": "aggregate_request_too_large",
+                    "value": {
+                      "code": "aggregate_request_too_large",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "aggregate_request_too_large",
+            "x-error-codes": [
+              "aggregate_request_too_large"
+            ]
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "aggregate_response_too_large": {
+                    "summary": "aggregate_response_too_large",
+                    "value": {
+                      "code": "aggregate_response_too_large",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "aggregate_response_too_large",
+            "x-error-codes": [
+              "aggregate_response_too_large"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "aggregate_overflow": {
+                    "summary": "aggregate_overflow",
+                    "value": {
+                      "code": "aggregate_overflow",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  },
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "code": "internal_error",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "aggregate_overflow",
+            "x-error-codes": [
+              "aggregate_overflow",
+              "internal_error"
+            ]
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "网关错误 — 上游提供商（LLM API、模型注册表）失败"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "post /api/log/aggregate",
+        "tags": [
+          "Logs"
         ]
       }
     },
@@ -38620,6 +39004,209 @@
         "summary": "获取Uptime Kuma状态",
         "tags": [
           "系统"
+        ]
+      }
+    },
+    "/api/usage/aggregate": {
+      "post": {
+        "deprecated": false,
+        "description": "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log totals include CONSUME only.",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageAggregateQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListOfUsageAggregateRow"
+                }
+              }
+            },
+            "description": "成功",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "invalid_params": {
+                    "summary": "invalid_params",
+                    "value": {
+                      "code": "invalid_params",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "invalid_params",
+            "x-error-codes": [
+              "invalid_params"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "未授权 — 缺少或无效的认证凭据"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "禁止访问 — 角色/权限不足或功能未启用"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "aggregate_user_not_found": {
+                    "summary": "aggregate_user_not_found",
+                    "value": {
+                      "code": "aggregate_user_not_found",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "aggregate_user_not_found",
+            "x-error-codes": [
+              "aggregate_user_not_found"
+            ]
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "冲突 — 资源已存在或当前状态不允许此操作"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "aggregate_request_too_large": {
+                    "summary": "aggregate_request_too_large",
+                    "value": {
+                      "code": "aggregate_request_too_large",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "aggregate_request_too_large",
+            "x-error-codes": [
+              "aggregate_request_too_large"
+            ]
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "aggregate_response_too_large": {
+                    "summary": "aggregate_response_too_large",
+                    "value": {
+                      "code": "aggregate_response_too_large",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "aggregate_response_too_large",
+            "x-error-codes": [
+              "aggregate_response_too_large"
+            ]
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "aggregate_overflow": {
+                    "summary": "aggregate_overflow",
+                    "value": {
+                      "code": "aggregate_overflow",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  },
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "code": "internal_error",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "aggregate_overflow",
+            "x-error-codes": [
+              "aggregate_overflow",
+              "internal_error"
+            ]
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "网关错误 — 上游提供商（LLM API、模型注册表）失败"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "post /api/usage/aggregate",
+        "tags": [
+          "Uncategorized"
         ]
       }
     },
