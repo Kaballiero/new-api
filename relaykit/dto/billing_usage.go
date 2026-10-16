@@ -339,6 +339,30 @@ func (usage *BillingUsage) canonicalGeminiUsage() *Usage {
 	}
 	canonical.CompletionTokenDetails.ReasoningTokens = metadata.ThoughtsTokenCount
 	canonical.PromptTokensDetails.CachedTokens = metadata.CachedContentTokenCount
+	if len(metadata.CacheTokensDetails) > 0 {
+		details := &CachedTokenDetails{}
+		for _, detail := range metadata.CacheTokensDetails {
+			var target **int
+			switch normalizeGeminiModality(detail.Modality) {
+			case "TEXT":
+				target = &details.TextTokens
+			case "IMAGE":
+				target = &details.ImageTokens
+			case "AUDIO":
+				target = &details.AudioTokens
+			default:
+				continue
+			}
+			count := detail.TokenCount
+			if *target != nil {
+				// Duplicate modality entries are ambiguous; preserve an invalid
+				// marker so billing rejects the overlap instead of guessing.
+				count = -1
+			}
+			*target = &count
+		}
+		canonical.PromptTokensDetails.CachedTokensDetails = details
+	}
 
 	for _, detail := range metadata.PromptTokensDetails {
 		addGeminiInputTokenDetail(&canonical.PromptTokensDetails, detail)
@@ -385,8 +409,10 @@ func cloneOpenAIUsage(usage *Usage) *Usage {
 	}
 	clone := *usage
 	clone.BillingUsage = nil
+	clone.PromptTokensDetails.CachedTokensDetails = cloneCachedTokenDetails(usage.PromptTokensDetails.CachedTokensDetails)
 	if usage.InputTokensDetails != nil {
 		inputTokensDetails := *usage.InputTokensDetails
+		inputTokensDetails.CachedTokensDetails = cloneCachedTokenDetails(usage.InputTokensDetails.CachedTokensDetails)
 		clone.InputTokensDetails = &inputTokensDetails
 	}
 	return &clone
@@ -410,6 +436,7 @@ func cloneClaudeUsage(usage *ClaudeUsage) *ClaudeUsage {
 }
 
 func cloneGeminiUsageMetadata(metadata GeminiUsageMetadata) GeminiUsageMetadata {
+	metadata.CacheTokensDetails = append([]GeminiPromptTokensDetails(nil), metadata.CacheTokensDetails...)
 	metadata.PromptTokensDetails = append([]GeminiPromptTokensDetails{}, metadata.PromptTokensDetails...)
 	metadata.ToolUsePromptTokensDetails = append([]GeminiPromptTokensDetails{}, metadata.ToolUsePromptTokensDetails...)
 	metadata.CandidatesTokensDetails = append([]GeminiPromptTokensDetails{}, metadata.CandidatesTokensDetails...)
@@ -445,4 +472,21 @@ func HasGeminiUsageMetadataTokens(metadata *GeminiUsageMetadata) bool {
 		}
 	}
 	return false
+}
+
+func cloneCachedTokenDetails(details *CachedTokenDetails) *CachedTokenDetails {
+	if details == nil {
+		return nil
+	}
+	clone := *details
+	for _, pair := range []struct {
+		source *int
+		target **int
+	}{{details.TextTokens, &clone.TextTokens}, {details.ImageTokens, &clone.ImageTokens}, {details.AudioTokens, &clone.AudioTokens}} {
+		if pair.source != nil {
+			value := *pair.source
+			*pair.target = &value
+		}
+	}
+	return &clone
 }

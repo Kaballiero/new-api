@@ -32,6 +32,9 @@ type TokenParams struct {
 	AO   float64 // audio output tokens
 
 	ProviderCost float64 // validated upstream request cost in USD; opt-in via provider_cost
+	// NormalizationError prevents missing/invalid usage overlap from producing
+	// an invented actual charge. Settlement retains its existing error policy.
+	NormalizationError error `json:"-"`
 }
 
 // RequestRuleTrace describes one request-dependent multiplier detected at compile time.

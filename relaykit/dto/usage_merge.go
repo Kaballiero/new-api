@@ -247,8 +247,17 @@ func MergeGeminiUsageMetadataNonZero(current *GeminiUsageMetadata, incoming *Gem
 	if incoming.CachedContentTokenCount > 0 {
 		merged.CachedContentTokenCount = incoming.CachedContentTokenCount
 	}
-	merged.PromptTokensDetails = mergeGeminiTokenDetails(merged.PromptTokensDetails, incoming.PromptTokensDetails)
-	merged.ToolUsePromptTokensDetails = mergeGeminiTokenDetails(merged.ToolUsePromptTokensDetails, incoming.ToolUsePromptTokensDetails)
+	if incoming.CacheTokensDetails != nil {
+		merged.CacheTokensDetails = append([]GeminiPromptTokensDetails(nil), incoming.CacheTokensDetails...)
+	}
+	// Input modality details describe the same cumulative prompt snapshot as
+	// PromptTokenCount; replaying a snapshot must not add its tokens again.
+	if len(incoming.PromptTokensDetails) > 0 {
+		merged.PromptTokensDetails = append([]GeminiPromptTokensDetails(nil), incoming.PromptTokensDetails...)
+	}
+	if len(incoming.ToolUsePromptTokensDetails) > 0 {
+		merged.ToolUsePromptTokensDetails = append([]GeminiPromptTokensDetails(nil), incoming.ToolUsePromptTokensDetails...)
+	}
 	merged.CandidatesTokensDetails = mergeGeminiTokenDetails(merged.CandidatesTokensDetails, incoming.CandidatesTokensDetails)
 	if incoming.BillingUsage != nil {
 		merged.BillingUsage = MergeBillingUsageNonZero(merged.BillingUsage, incoming.BillingUsage)
@@ -285,6 +294,9 @@ func mergeGeminiTokenDetails(current []GeminiPromptTokensDetails, incoming []Gem
 }
 
 func mergeInputTokenDetails(current *InputTokenDetails, incoming InputTokenDetails) {
+	if incoming.CachedTokensDetails != nil {
+		current.CachedTokensDetails = cloneCachedTokenDetails(incoming.CachedTokensDetails)
+	}
 	if incoming.CachedTokens > 0 {
 		current.CachedTokens = incoming.CachedTokens
 	}

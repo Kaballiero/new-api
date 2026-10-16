@@ -85,12 +85,17 @@ func TestGeminiModalityKeysSettleConsistentlyAndDuplicateEntriesSum(t *testing.T
 			PromptTokensDetails: []GeminiPromptTokensDetails{{Modality: "AUDIO", TokenCount: 10}},
 		},
 		&GeminiUsageMetadata{
+			// Upstream usage metadata is cumulative: its modality count
+			// describes all 25 prompt tokens, not a 15-token delta.
 			PromptTokenCount:    25,
-			PromptTokensDetails: []GeminiPromptTokensDetails{{Modality: "audio", TokenCount: 15}},
+			PromptTokensDetails: []GeminiPromptTokensDetails{{Modality: "audio", TokenCount: 25}},
 		},
 	)
 	require.NotNil(t, streamMerged)
-	streamUsage, ok := NewGeminiChatBillingUsage(streamMerged).CanonicalUsage()
+	streamMerged = MergeGeminiUsageMetadataNonZero(streamMerged, streamMerged)
+	// A later output-only typed snapshot must retain the prior input details.
+	billing := MergeBillingUsageNonZero(NewGeminiChatBillingUsage(streamMerged), NewGeminiChatBillingUsage(&GeminiUsageMetadata{CandidatesTokenCount: 1}))
+	streamUsage, ok := billing.CanonicalUsage()
 	require.True(t, ok)
 
 	decodedUsage, ok := NewGeminiChatBillingUsage(&GeminiUsageMetadata{

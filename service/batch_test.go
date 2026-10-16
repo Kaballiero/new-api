@@ -428,7 +428,7 @@ func TestBatchCanonicalPurchaseUsage(t *testing.T) {
 		endpoint, body, expression string
 		cost                       float64
 	}{
-		{"/v1/chat/completions", `{"usage":{"prompt_tokens":1000,"completion_tokens":100,"prompt_tokens_details":{"cached_tokens":800,"image_tokens":50,"audio_tokens":20},"completion_tokens_details":{"audio_tokens":30,"image_tokens":10}}}`, `len >= 1000 ? tier("full",p*2+cr*0.2+img*3+ai*4+c*5+ao*6+img_o*7) : tier("wrong",0)`, 1200},
+		{"/v1/chat/completions", `{"usage":{"prompt_tokens":1000,"completion_tokens":100,"prompt_tokens_details":{"cached_tokens":800,"cached_tokens_details":{"text_tokens":800,"image_tokens":0,"audio_tokens":0},"image_tokens":50,"audio_tokens":20},"completion_tokens_details":{"audio_tokens":30,"image_tokens":10}}}`, `len >= 1000 ? tier("full",p*2+cr*0.2+img*3+ai*4+c*5+ao*6+img_o*7) : tier("wrong",0)`, 1200},
 		{"/v1/responses", `{"usage":{"input_tokens":1000,"output_tokens":10,"input_tokens_details":{"cached_tokens":800}}}`, `len >= 1000 ? tier("full",p*2+cr*0.2+c*3) : tier("wrong",0)`, 590},
 		{"/v1/messages", `{"usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":800,"cache_creation_input_tokens":300,"cache_creation":{"ephemeral_5m_input_tokens":100,"ephemeral_1h_input_tokens":200}}}`, `len >= 1200 ? tier("full",p*2+cr*0.2+cc*3+cc1h*4+c*5) : tier("wrong",0)`, 1510},
 	} {

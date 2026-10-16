@@ -1449,3 +1449,65 @@ func BenchmarkRatioBilling_Parallel(b *testing.B) {
 		}
 	})
 }
+
+func TestTieredMultimodalCacheOverlap(t *testing.T) {
+	value := func(n int) *int { return &n }
+	cases := []struct {
+		name, expression string
+		image, audio     int
+		expected         float64
+	}{
+		{"image", `tier("base", p * 5 + cr * 1.25 + img * 10)`, 800, 0, 5500},
+		{"audio", `tier("base", p * 0.3 + cr * 0.03 + ai)`, 0, 800, 472},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			details := &dto.CachedTokenDetails{TextTokens: value(0), ImageTokens: value(0), AudioTokens: value(0)}
+			if tc.image > 0 {
+				details.ImageTokens = value(400)
+			} else {
+				details.AudioTokens = value(400)
+			}
+			usage := &dto.Usage{PromptTokens: 1000, PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 400, ImageTokens: tc.image, AudioTokens: tc.audio, CachedTokensDetails: details}}
+			vars := billingexpr.UsedVars(tc.expression)
+			// Native OpenAI usage merging must retain the detailed overlap.
+			usage = dto.MergeUsageNonZero(&dto.Usage{}, usage)
+			params := BuildTieredTokenParams(usage, false, vars)
+			cost, _, err := billingexpr.RunExpr(tc.expression, params)
+			require.NoError(t, err)
+			assert.Equal(t, float64(200), params.P)
+			assert.Equal(t, float64(1000), params.Len)
+			assert.Equal(t, tc.expected, cost)
+			// Missing or inconsistent overlap cannot become an invented actual charge.
+			for _, invalid := range []*dto.CachedTokenDetails{nil, {AudioTokens: value(401), ImageTokens: value(401)}, {AudioTokens: value(-1), ImageTokens: value(-1)}} {
+				usage.PromptTokensDetails.CachedTokensDetails = invalid
+				params = BuildTieredTokenParams(usage, false, vars)
+				_, _, err = billingexpr.RunExpr(tc.expression, params)
+				require.Error(t, err)
+				info := &relaycommon.RelayInfo{FinalPreConsumedQuota: 123, TieredBillingSnapshot: &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ExprString: tc.expression, ExprHash: billingexpr.ExprHashString(tc.expression), GroupRatio: 1, QuotaPerUnit: testQuotaPerUnit}}
+				ok, quota, result := TryTieredSettle(info, params)
+				require.True(t, ok)
+				assert.Equal(t, 123, quota, "unknown normalization must retain the reservation")
+				assert.Nil(t, result, "reservation must not be reported as actual settlement")
+			}
+		})
+	}
+}
+
+func TestTieredGeminiCachedAudioMetadata(t *testing.T) {
+	raw := []byte(`{"promptTokenCount":1000,"cachedContentTokenCount":400,"promptTokensDetails":[{"modality":"TEXT","tokenCount":200},{"modality":"AUDIO","tokenCount":800}],"cacheTokensDetails":[{"modality":"TEXT","tokenCount":0},{"modality":"AUDIO","tokenCount":400}]}`)
+	var metadata dto.GeminiUsageMetadata
+	require.NoError(t, common.Unmarshal(raw, &metadata))
+	// Repeated cumulative stream snapshots must not double cached modality counts.
+	merged := dto.MergeGeminiUsageMetadataNonZero(&metadata, &metadata)
+	assert.Equal(t, metadata.CacheTokensDetails, merged.CacheTokensDetails)
+	usage, ok := dto.NewGeminiChatBillingUsage(merged).CanonicalUsage()
+	require.True(t, ok)
+	expression := `tier("base", p * 0.3 + ai + cr * 0.03)`
+	params := BuildTieredTokenParams(usage, false, billingexpr.UsedVars(expression))
+	cost, _, err := billingexpr.RunExpr(expression, params)
+	require.NoError(t, err)
+	assert.Equal(t, float64(472), cost)
+	assert.Equal(t, float64(200), params.P)
+	assert.Equal(t, float64(400), params.AI)
+}
