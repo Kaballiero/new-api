@@ -74,6 +74,7 @@ var (
 // Intent is the protocol-independent part of a request's reasoning controls.
 // Summary visibility is intentionally independent from reasoning strength.
 type Intent struct {
+	ExecutionMode   string
 	Mode            Mode
 	Effort          Effort
 	BudgetTokens    *int
@@ -87,7 +88,7 @@ func (i Intent) HasStrength() bool {
 }
 
 func (i Intent) IsEmpty() bool {
-	return !i.HasStrength() && i.IncludeThoughts == nil
+	return !i.HasStrength() && i.IncludeThoughts == nil && i.ExecutionMode == ""
 }
 
 // IntentFromState reconstructs a portable intent from host- or pivot-carried
@@ -97,6 +98,7 @@ func IntentFromState(state *dto.ReasoningConversionState) Intent {
 		return Intent{}
 	}
 	return Intent{
+		ExecutionMode:   state.ExecutionMode,
 		Mode:            Mode(state.Mode),
 		Effort:          Effort(state.Effort),
 		BudgetTokens:    state.BudgetTokens,
@@ -113,6 +115,7 @@ func StateFromIntent(intent Intent) *dto.ReasoningConversionState {
 		return nil
 	}
 	return &dto.ReasoningConversionState{
+		ExecutionMode:   intent.ExecutionMode,
 		Mode:            string(intent.Mode),
 		Effort:          string(intent.Effort),
 		BudgetTokens:    intent.BudgetTokens,
@@ -134,6 +137,9 @@ func ParseEffort(value string) (Effort, error) {
 }
 
 func normalizeIntent(intent Intent) (Intent, error) {
+	if intent.ExecutionMode != "" && intent.ExecutionMode != "standard" && intent.ExecutionMode != "pro" {
+		return Intent{}, fmt.Errorf("unsupported reasoning execution mode %q", intent.ExecutionMode)
+	}
 	effort, err := ParseEffort(string(intent.Effort))
 	if err != nil {
 		return Intent{}, err
@@ -189,13 +195,13 @@ func MergeExplicitAndSuffix(explicit Intent, suffix Intent, model string) (Inten
 		return Intent{}, err
 	}
 
-	if !explicit.HasStrength() {
+	if !explicit.HasStrength() && explicit.ExecutionMode == "" {
 		if explicit.IncludeThoughts != nil {
 			suffix.IncludeThoughts = explicit.IncludeThoughts
 		}
 		return suffix, nil
 	}
-	if !suffix.HasStrength() {
+	if !suffix.HasStrength() && suffix.ExecutionMode == "" {
 		if explicit.IncludeThoughts == nil {
 			explicit.IncludeThoughts = suffix.IncludeThoughts
 		}
@@ -219,6 +225,9 @@ func MergeExplicitAndSuffix(explicit Intent, suffix Intent, model string) (Inten
 	}
 
 	merged := suffix
+	if explicit.ExecutionMode != "" {
+		merged.ExecutionMode = explicit.ExecutionMode
+	}
 	if explicit.Mode != ModeUnset {
 		merged.Mode = explicit.Mode
 	}
@@ -270,7 +279,13 @@ func MergeExplicit(primary Intent, secondary Intent, model string) (Intent, erro
 		return Intent{}, fmt.Errorf("%w for model %q: explicit budgets %d and %d differ", ErrEffortConflict, model, *primary.BudgetTokens, *secondary.BudgetTokens)
 	}
 
+	if primary.ExecutionMode != "" && secondary.ExecutionMode != "" && primary.ExecutionMode != secondary.ExecutionMode {
+		return Intent{}, fmt.Errorf("%w: different execution modes", ErrEffortConflict)
+	}
 	merged := secondary
+	if primary.ExecutionMode != "" {
+		merged.ExecutionMode = primary.ExecutionMode
+	}
 	if primary.Mode != ModeUnset {
 		merged.Mode = primary.Mode
 	}
@@ -288,6 +303,7 @@ func MergeExplicit(primary Intent, secondary Intent, model string) (Intent, erro
 }
 
 type openRouterReasoning struct {
+	Mode      string `json:"mode,omitempty"`
 	Enabled   *bool  `json:"enabled,omitempty"`
 	Effort    string `json:"effort,omitempty"`
 	MaxTokens *int   `json:"max_tokens,omitempty"`
@@ -319,7 +335,7 @@ func FromOpenAIChat(req *dto.GeneralOpenAIRequest) (Intent, error) {
 		if err := kitutil.Unmarshal(req.Reasoning, &raw); err != nil {
 			return Intent{}, fmt.Errorf("invalid reasoning config: %w", err)
 		}
-		nested := Intent{BudgetTokens: raw.MaxTokens, Source: SourceExplicit, BudgetSource: SourceExplicit}
+		nested := Intent{ExecutionMode: raw.Mode, BudgetTokens: raw.MaxTokens, Source: SourceExplicit, BudgetSource: SourceExplicit}
 		if raw.Enabled != nil {
 			if *raw.Enabled {
 				nested.Mode = ModeEnabled
@@ -355,6 +371,7 @@ func FromOpenAIChat(req *dto.GeneralOpenAIRequest) (Intent, error) {
 		return normalizeIntent(intent)
 	}
 	pivot := Intent{
+		ExecutionMode:   req.ReasoningConversion.ExecutionMode,
 		Mode:            Mode(req.ReasoningConversion.Mode),
 		Effort:          Effort(req.ReasoningConversion.Effort),
 		BudgetTokens:    req.ReasoningConversion.BudgetTokens,
@@ -391,7 +408,27 @@ func ApplyToOpenAIChat(req *dto.GeneralOpenAIRequest, intent Intent) error {
 	if intent.IsEmpty() {
 		return nil
 	}
+	if intent.ExecutionMode != "" {
+		var raw map[string]any
+		if len(req.Reasoning) > 0 {
+			if err := kitutil.Unmarshal(req.Reasoning, &raw); err != nil {
+				return err
+			}
+		}
+		if raw == nil {
+			raw = make(map[string]any)
+		}
+		raw["mode"] = intent.ExecutionMode
+		if intent.Effort != "" {
+			raw["effort"] = string(intent.Effort)
+		}
+		req.Reasoning, err = kitutil.Marshal(raw)
+		if err != nil {
+			return err
+		}
+	}
 	req.ReasoningConversion = &dto.ReasoningConversionState{
+		ExecutionMode:   intent.ExecutionMode,
 		Mode:            string(intent.Mode),
 		Effort:          string(intent.Effort),
 		BudgetTokens:    intent.BudgetTokens,
@@ -423,10 +460,20 @@ func ApplyToOpenAIResponses(req *dto.OpenAIResponsesRequest, intent Intent) erro
 		}
 	}
 
+	if intent.ExecutionMode != "" {
+		if req.Reasoning == nil {
+			req.Reasoning = &dto.Reasoning{}
+		}
+		req.Reasoning.Mode, err = kitutil.Marshal(intent.ExecutionMode)
+		if err != nil {
+			return err
+		}
+	}
 	if intent.IsEmpty() {
 		return nil
 	}
 	state := &dto.ReasoningConversionState{
+		ExecutionMode:   intent.ExecutionMode,
 		Mode:            string(intent.Mode),
 		Effort:          string(intent.Effort),
 		BudgetTokens:    intent.BudgetTokens,
@@ -442,6 +489,11 @@ func FromOpenAIResponses(req *dto.OpenAIResponsesRequest) (Intent, error) {
 	}
 	var intent Intent
 	if req.Reasoning != nil {
+		if len(req.Reasoning.Mode) > 0 {
+			if err := kitutil.Unmarshal(req.Reasoning.Mode, &intent.ExecutionMode); err != nil {
+				return Intent{}, fmt.Errorf("invalid reasoning.mode: %w", err)
+			}
+		}
 		intent.Source = SourceExplicit
 		if req.Reasoning.Effort != "" {
 			effort, err := ParseEffort(req.Reasoning.Effort)
@@ -463,6 +515,7 @@ func FromOpenAIResponses(req *dto.OpenAIResponsesRequest) (Intent, error) {
 		return normalizeIntent(intent)
 	}
 	pivot := Intent{
+		ExecutionMode:   req.ReasoningConversion.ExecutionMode,
 		Mode:            Mode(req.ReasoningConversion.Mode),
 		Effort:          Effort(req.ReasoningConversion.Effort),
 		BudgetTokens:    req.ReasoningConversion.BudgetTokens,

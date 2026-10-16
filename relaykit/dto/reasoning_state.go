@@ -7,6 +7,7 @@ package dto
 // Converters that rebuild an OpenAI request must copy this state so exact
 // budgets and explicit include-thoughts choices survive multi-step routes.
 type ReasoningConversionState struct {
+	ExecutionMode   string
 	Mode            string
 	Effort          string
 	BudgetTokens    *int

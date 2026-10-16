@@ -1,6 +1,14 @@
 package openai
 
 import (
+	"context"
+	"encoding/json"
+	hostdto "github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel/openrouter"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
+	"github.com/QuantumNous/new-api/service"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -277,4 +285,108 @@ func requireOrderedSubstrings(t *testing.T, s string, parts ...string) {
 		require.NotEqualf(t, -1, idx, "missing %q after byte offset %d", part, offset)
 		offset += idx + len(part)
 	}
+}
+
+func TestExecutionModeRoutingAndReservation(t *testing.T) {
+	service.InitTokenEncoders()
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	for _, tc := range []struct {
+		name                string
+		channel             int
+		base, upstream      string
+		responsesOK, chatOK bool
+	}{
+		{"direct pro reservation blocked", constant.ChannelTypeOpenAI, "https://api.openai.com", "gpt-6.1-sol", false, false},
+		{"router", constant.ChannelTypeOpenRouter, "https://openrouter.ai/api", "openai/gpt-6.1-sol", true, true},
+		{"bedrock", constant.ChannelTypeAws, "https://bedrock-runtime.us-east-1.amazonaws.com", "gpt-6.1-sol", false, false},
+		{"unknown compatible", constant.ChannelTypeOpenAI, "https://proxy.example", "gpt-6.1-sol", false, false},
+		{"old pro contract", constant.ChannelTypeOpenRouter, "https://openrouter.ai/api", "openai/gpt-5.4", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{OriginModelName: "public", ChannelMeta: &relaycommon.ChannelMeta{ChannelType: tc.channel, ChannelBaseUrl: tc.base, UpstreamModelName: tc.upstream}}
+			mapping := `{"public":"intermediate","intermediate":"` + tc.upstream + `"}`
+			base := tc.base
+			ch := &model.Channel{Type: tc.channel, BaseURL: &base, ModelMapping: &mapping}
+			filters := []hostdto.ChannelFilter{{Kind: hostdto.FilterExecutionMode, ExecutionMode: "pro", RequestPath: "/v1/responses"}}
+			ok, _ := model.ChannelSatisfiesFilters(ch, "public", filters)
+			assert.Equal(t, tc.responsesOK, ok)
+			request := dto.OpenAIResponsesRequest{Model: tc.upstream, Reasoning: &dto.Reasoning{Mode: []byte(`"pro"`), Effort: "high"}}
+			out, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(c, info, request)
+			if !tc.responsesOK {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				raw, err := common.Marshal(out)
+				require.NoError(t, err)
+				assert.Contains(t, string(raw), `"mode":"pro"`)
+				assert.Contains(t, string(raw), `"effort":"high"`)
+			}
+			var chat dto.GeneralOpenAIRequest
+			require.NoError(t, common.Unmarshal([]byte(`{"model":"`+tc.upstream+`","messages":[{"role":"user","content":"test"}],"reasoning":{"mode":"pro","effort":"high"}}`), &chat))
+			out, err = (&Adaptor{}).ConvertOpenAIRequest(c, info, &chat)
+			if !tc.chatOK {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				raw, err := common.Marshal(out)
+				require.NoError(t, err)
+				assert.Contains(t, string(raw), `"mode":"pro"`)
+			}
+		})
+	}
+	estimator := openrouter.NewRequestEstimator()
+	estimator.Models["openai/gpt-6.1-sol-pro"] = []openrouter.PricedEndpoint{
+		{Tag: "OpenAI", MaxCompletionTokens: 100, Pricing: map[string]json.RawMessage{"prompt": []byte(`"0.001"`), "completion": []byte(`"0.002"`)}},
+		{Tag: "Amazon Bedrock", MaxCompletionTokens: 100, Pricing: map[string]json.RawMessage{"prompt": []byte(`"9"`), "completion": []byte(`"9"`)}},
+	}
+	info := &relaycommon.RelayInfo{}
+	info.SetEstimatePromptTokens(1000)
+	cost, err := estimator.Estimate(info, []byte(`{"model":"openai/gpt-6.1-sol","reasoning":{"mode":"pro"},"max_output_tokens":10}`), "responses")
+	require.NoError(t, err)
+	assert.InDelta(t, 1.02, cost, 0.000001)
+}
+
+func TestExecutionModeProtocolRoundTrip(t *testing.T) {
+	input := &dto.OpenAIResponsesRequest{Model: "gpt-6.1-sol", Input: []byte(`"test"`), Reasoning: &dto.Reasoning{Mode: []byte(`"pro"`), Effort: "high"}}
+	meta := &convmeta.Values{OriginModelName: input.Model, UpstreamModelName: input.Model, ChannelMetaAttached: true}
+	chat, err := relayconvert.ConvertRequest(context.Background(), meta, types.RelayFormatOpenAI, input)
+	require.NoError(t, err)
+	back, err := relayconvert.ConvertRequest(context.Background(), meta, types.RelayFormatOpenAIResponses, chat.Value)
+	require.NoError(t, err)
+	response, ok := back.Value.(*dto.OpenAIResponsesRequest)
+	require.True(t, ok)
+	assert.JSONEq(t, `"pro"`, string(response.Reasoning.Mode))
+	assert.Equal(t, "high", response.Reasoning.Effort)
+	for _, format := range []types.RelayFormat{types.RelayFormatClaude, types.RelayFormatGemini} {
+		_, err := relayconvert.ConvertRequest(context.Background(), meta, format, chat.Value)
+		require.Error(t, err, "an incompatible provider must not silently execute standard")
+	}
+	// Retries reuse the same immutable client DTO. Serializing it must retain both controls.
+	raw, err := common.Marshal(input)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"mode":"pro"`)
+}
+
+func TestExecutionModeCannotBeDowngradedByFinalOverrides(t *testing.T) {
+	input := &dto.OpenAIResponsesRequest{Model: "gpt-6.1-sol", Reasoning: &dto.Reasoning{Mode: []byte(`"pro"`)}}
+	info := &relaycommon.RelayInfo{Request: input, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI}}
+	for _, body := range []string{`{"model":"gpt-6.1-sol"}`, `{"reasoning":{"mode":"standard"}}`} {
+		_, err := (&Adaptor{}).DoRequest(nil, info, strings.NewReader(body))
+		require.ErrorContains(t, err, "final request changed reasoning.mode")
+	}
+}
+
+func TestExecutionModeDirectStandardWire(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI, ChannelBaseUrl: "https://api.openai.com", UpstreamModelName: "gpt-6.1-sol"}}
+	request := dto.OpenAIResponsesRequest{Model: info.UpstreamModelName, Reasoning: &dto.Reasoning{Mode: []byte(`"standard"`), Effort: "high"}}
+	out, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(c, info, request)
+	require.NoError(t, err)
+	raw, err := common.Marshal(out)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"mode":"standard"`)
+	assert.Contains(t, string(raw), `"effort":"high"`)
 }

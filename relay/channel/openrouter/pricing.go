@@ -18,6 +18,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -191,9 +192,9 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 		}
 	}
-	models := append([]string{}, request.Models...)
-	if request.Model != "" {
-		models = append(models, request.Model)
+	models, err := ModelsFromRequest(body)
+	if err != nil {
+		return 0, err
 	}
 	if len(models) == 0 {
 		return 0, errors.New("OpenRouter request model is required")
@@ -265,6 +266,15 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 				return 0, errors.New("OpenRouter endpoint tag is missing")
 			}
 			tag := strings.ToLower(endpoint.Tag)
+			var reasoning struct {
+				Mode string `json:"mode"`
+			}
+			if raw := fields["reasoning"]; len(raw) > 0 && common.Unmarshal(raw, &reasoning) != nil {
+				return 0, errors.New("invalid reasoning")
+			}
+			if reasoning.Mode == "pro" && !(tag == "openai" || strings.HasPrefix(tag, "openai/") || tag == "azure" || strings.HasPrefix(tag, "azure/")) {
+				continue
+			}
 			if base, ok := strings.CutSuffix(tag, "/priority"); ok {
 				tag = base + "/fast"
 			}
@@ -484,8 +494,11 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 // primary slug is the only provider routing candidate.
 func ModelsFromRequest(body []byte) ([]string, error) {
 	var request struct {
-		Model  string   `json:"model"`
-		Models []string `json:"models"`
+		Model     string   `json:"model"`
+		Models    []string `json:"models"`
+		Reasoning struct {
+			Mode string `json:"mode"`
+		} `json:"reasoning"`
 	}
 	if err := common.Unmarshal(body, &request); err != nil {
 		return nil, err
@@ -493,6 +506,13 @@ func ModelsFromRequest(body []byte) ([]string, error) {
 	models := request.Models
 	if request.Model != "" {
 		models = append(models, request.Model)
+	}
+	for i, m := range models {
+		resolved, err := kitreasoning.OpenRouterExecutionModel(m, request.Reasoning.Mode)
+		if err != nil {
+			return nil, err
+		}
+		models[i] = resolved
 	}
 	return slices.Compact(models), nil
 }

@@ -75,6 +75,9 @@ func claudeCapabilitiesFor(model string) claudeCapabilities {
 }
 
 func RenderClaude(model string, intent Intent, maxTokens *uint, adapterBudgetPercentage float64) (ClaudeRender, error) {
+	if intent.ExecutionMode != "" {
+		return ClaudeRender{}, fmt.Errorf("reasoning.mode cannot be represented by this provider")
+	}
 	disabledWithEffort := intent.Mode == ModeDisabled && intent.Effort != "" && intent.Effort != EffortNone
 	if disabledWithEffort {
 		effort, err := ParseEffort(string(intent.Effort))

@@ -1,7 +1,11 @@
 package model
 
 import (
+	"github.com/QuantumNous/new-api/common"
+	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
+	"net/url"
 	"slices"
+	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
@@ -10,6 +14,7 @@ import (
 
 var filterEvalOrder = []dto.ChannelFilterKind{
 	dto.FilterRequestPath,
+	dto.FilterExecutionMode,
 	dto.FilterTaskPluginIdentity,
 	dto.FilterBatchEndpoint,
 }
@@ -90,6 +95,21 @@ func candidatePassesKindFilters(ch *Channel, exists bool, modelName string, kind
 
 func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilter) bool {
 	switch filter.Kind {
+	case dto.FilterExecutionMode:
+		upstream := modelName
+		var mapping map[string]string
+		if raw := ch.GetModelMapping(); raw != "" && common.UnmarshalJsonStr(raw, &mapping) != nil {
+			return false
+		}
+		seen := map[string]bool{upstream: true}
+		for next := mapping[upstream]; next != "" && next != upstream; next = mapping[upstream] {
+			if seen[next] {
+				return false
+			}
+			seen[next] = true
+			upstream = next
+		}
+		return SupportsReasoningExecution(ch.Type, ch.GetBaseURL(), upstream, filter.RequestPath, filter.ExecutionMode)
 	case dto.FilterBatchEndpoint:
 		return batch.Supports(ch.Type, filter.BatchEndpoint)
 	case dto.FilterRequestPath:
@@ -109,4 +129,32 @@ func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilte
 	default:
 		return true
 	}
+}
+
+// SupportsReasoningExecution admits only documented provider/endpoint contracts.
+// A generic OpenAI-compatible channel is not evidence that mode is honored.
+func SupportsReasoningExecution(channelType int, baseURL, upstream, path, mode string) bool {
+	if mode != "pro" && mode != "standard" || !kitreasoning.SupportsExecutionMode(upstream) {
+		return false
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	switch channelType {
+	case constant.ChannelTypeOpenAI:
+		// Pro aggregates input work; the direct prompt estimate has no confirmed
+		// reservation bound. Keep direct Pro fail closed until that contract exists.
+		return mode == "standard" && host == "api.openai.com" && path == "/v1/responses"
+	case constant.ChannelTypeAzure:
+		return mode == "standard" && (strings.HasSuffix(host, ".openai.azure.com") || strings.HasSuffix(host, ".services.ai.azure.com")) && path == "/v1/responses"
+	case constant.ChannelTypeOpenRouter:
+		if host != "openrouter.ai" || !strings.HasPrefix(upstream, "openai/") || (path != "/v1/responses" && path != "/v1/chat/completions") {
+			return false
+		}
+		_, err := kitreasoning.OpenRouterExecutionModel(upstream, mode)
+		return err == nil
+	}
+	return false
 }

@@ -170,3 +170,24 @@ func TestOpenAIPivotDoesNotTreatMaxAndXHighAsEquivalent(t *testing.T) {
 	_, err = FromOpenAIResponses(responses)
 	require.ErrorIs(t, err, ErrEffortConflict)
 }
+
+func TestExecutionModeSurvivesOpenAIPivot(t *testing.T) {
+	for _, mode := range []string{"pro", "standard"} {
+		for _, effort := range []string{"", "high"} {
+			t.Run(mode+"/"+effort, func(t *testing.T) {
+				input := &dto.OpenAIResponsesRequest{Model: "gpt-6.1-sol", Reasoning: &dto.Reasoning{Mode: []byte(`"` + mode + `"`), Effort: effort}}
+				intent, err := FromOpenAIResponses(input)
+				require.NoError(t, err)
+				chat := &dto.GeneralOpenAIRequest{Model: input.Model}
+				require.NoError(t, ApplyToOpenAIChat(chat, intent))
+				restored, err := FromOpenAIChat(chat)
+				require.NoError(t, err)
+				output := &dto.OpenAIResponsesRequest{Model: input.Model}
+				require.NoError(t, ApplyToOpenAIResponses(output, restored))
+				require.NotNil(t, output.Reasoning)
+				assert.JSONEq(t, `"`+mode+`"`, string(output.Reasoning.Mode))
+				assert.Equal(t, effort, output.Reasoning.Effort)
+			})
+		}
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
 	"github.com/QuantumNous/new-api/relay/channel/lingyiwanwu"
@@ -245,6 +246,13 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {
 	if request == nil {
 		return nil, errors.New("request is nil")
+	}
+	intent, err := kitreasoning.FromOpenAIChat(request)
+	if err != nil {
+		return nil, kitreasoning.AsClientError(err)
+	}
+	if intent.ExecutionMode != "" && !model.SupportsReasoningExecution(info.ChannelType, info.ChannelBaseUrl, info.UpstreamModelName, "/v1/chat/completions", intent.ExecutionMode) {
+		return nil, kitreasoning.AsClientError(errors.New("reasoning.mode is unsupported by this chat route"))
 	}
 	if info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeAzure {
 		request.StreamOptions = nil
@@ -663,6 +671,25 @@ func detectImageMimeType(filename string) string {
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
+	intent, err := kitreasoning.FromOpenAIResponses(&request)
+	if err != nil {
+		return nil, kitreasoning.AsClientError(err)
+	}
+	if intent.ExecutionMode == "pro" && info != nil && (info.ChannelType == constant.ChannelTypeOpenAI || info.ChannelType == constant.ChannelTypeAzure) {
+		return nil, kitreasoning.AsClientError(errors.New("direct pro requires a confirmed aggregate-input reservation contract"))
+	}
+	if intent.ExecutionMode != "" && (info == nil || !model.SupportsReasoningExecution(info.ChannelType, info.ChannelBaseUrl, info.UpstreamModelName, "/v1/responses", intent.ExecutionMode)) {
+		return nil, kitreasoning.AsClientError(errors.New("reasoning.mode is unsupported by this responses route"))
+	}
+	if intent.ExecutionMode != "" {
+		if request.Reasoning == nil {
+			request.Reasoning = &dto.Reasoning{}
+		}
+		request.Reasoning.Mode, err = common.Marshal(intent.ExecutionMode)
+		if err != nil {
+			return nil, err
+		}
+	}
 	//  转换模型推理力度后缀
 	effort, originModel := reasoning.ParseOpenAIReasoningEffortFromModelSuffix(request.Model)
 	preserveSuffix := model_setting.ShouldPreserveThinkingSuffix(request.Model) || (info != nil && model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName))
@@ -731,6 +758,35 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	// Channel parameter overrides run after conversion. They must not downgrade
+	// an explicitly selected execution mode before the request reaches transport.
+	var intent kitreasoning.Intent
+	var intentErr error
+	switch original := info.Request.(type) {
+	case *dto.GeneralOpenAIRequest:
+		intent, intentErr = kitreasoning.FromOpenAIChat(original)
+	case *dto.OpenAIResponsesRequest:
+		intent, intentErr = kitreasoning.FromOpenAIResponses(original)
+	}
+	if intentErr != nil {
+		return nil, kitreasoning.AsClientError(intentErr)
+	}
+	if intent.ExecutionMode != "" {
+		body, err := io.ReadAll(io.LimitReader(requestBody, (32<<20)+1))
+		if err != nil || len(body) > 32<<20 {
+			return nil, kitreasoning.AsClientError(errors.New("cannot validate final reasoning.mode"))
+		}
+		var final struct {
+			Reasoning struct {
+				Mode string `json:"mode"`
+			} `json:"reasoning"`
+		}
+		if common.Unmarshal(body, &final) != nil || final.Reasoning.Mode != intent.ExecutionMode {
+			return nil, kitreasoning.AsClientError(errors.New("final request changed reasoning.mode"))
+		}
+		requestBody = bytes.NewReader(body)
+	}
+
 	if info.ChannelType == constant.ChannelTypeOpenRouter {
 		operation := "chat/completions"
 		switch info.RelayMode {

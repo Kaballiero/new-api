@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -199,4 +200,16 @@ func TestNoAvailableChannelMessageNamesClaimingTaskPlugin(t *testing.T) {
 	generic := noAvailableChannelMessage(plain, "default", "gpt-4o")
 	assert.NotContains(t, generic, "task plugin")
 	assert.Contains(t, generic, "gpt-4o")
+}
+
+func TestModelRequestPreservesExecutionMode(t *testing.T) {
+	for _, path := range []string{"/v1/responses", "/v1/chat/completions"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-6.1-sol","reasoning":{"mode":"pro","effort":"high"}}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		request, selectChannel, err := getModelRequest(c)
+		require.NoError(t, err)
+		require.True(t, selectChannel)
+		assert.Equal(t, "pro", request.Reasoning.Mode)
+	}
 }

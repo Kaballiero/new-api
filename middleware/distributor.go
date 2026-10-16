@@ -27,8 +27,11 @@ import (
 )
 
 type ModelRequest struct {
-	Model string `json:"model"`
-	Group string `json:"group,omitempty"`
+	Model     string `json:"model"`
+	Group     string `json:"group,omitempty"`
+	Reasoning struct {
+		Mode string `json:"mode,omitempty"`
+	} `json:"reasoning,omitempty"`
 }
 
 func Distribute() func(c *gin.Context) {
@@ -44,6 +47,13 @@ func Distribute() func(c *gin.Context) {
 		if err != nil {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
+		}
+		if mode := modelRequest.Reasoning.Mode; mode != "" {
+			if mode != "standard" && mode != "pro" {
+				abortWithOpenAiMessage(c, http.StatusBadRequest, "unsupported reasoning.mode")
+				return
+			}
+			constraints.AddFilter(taskdto.ChannelFilter{Kind: taskdto.FilterExecutionMode, ExecutionMode: mode, RequestPath: c.Request.URL.Path})
 		}
 		if pin, found, overridden := constraints.ResolvedPin(); found {
 			for _, lost := range overridden {
@@ -326,7 +336,7 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 		return nil, errors.New("model must be provided once")
 	}
 
-	values := gjson.GetManyBytes(requestBody, "model", "group")
+	values := gjson.GetManyBytes(requestBody, "model", "group", "reasoning.mode")
 	model, err := getJSONStringValue(values[0], "model")
 	if err != nil {
 		return nil, err
@@ -341,10 +351,13 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 	}
 	c.Request.Body = io.NopCloser(storage)
 
-	return &ModelRequest{
-		Model: model,
-		Group: group,
-	}, nil
+	mode, err := getJSONStringValue(values[2], "reasoning.mode")
+	if err != nil {
+		return nil, err
+	}
+	result := &ModelRequest{Model: model, Group: group}
+	result.Reasoning.Mode = mode
+	return result, nil
 }
 
 func countTopLevelJSONKey(data []byte, target string) int {
@@ -468,6 +481,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			}
 			if req != nil {
 				modelRequest.Model = req.Model
+				modelRequest.Reasoning = req.Reasoning
 			}
 		} else if c.Request.Method == http.MethodGet {
 			relayMode = relayconstant.RelayModeVideoFetchByID
@@ -483,6 +497,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 				return nil, false, err
 			}
 			modelRequest.Model = req.Model
+			modelRequest.Reasoning = req.Reasoning
 			relayMode = relayconstant.RelayModeVideoSubmit
 		} else if c.Request.Method == http.MethodGet {
 			relayMode = relayconstant.RelayModeVideoFetchByID
@@ -506,6 +521,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			return nil, false, err
 		}
 		modelRequest.Model = req.Model
+		modelRequest.Reasoning = req.Reasoning
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") {
 		//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
@@ -530,6 +546,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			req, err := getModelFromRequest(c)
 			if err == nil && req.Model != "" {
 				modelRequest.Model = req.Model
+				modelRequest.Reasoning = req.Reasoning
 			}
 		}
 	}
@@ -542,6 +559,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			// 先尝试从请求读取
 			if req, err := getModelFromRequest(c); err == nil && req.Model != "" {
 				modelRequest.Model = req.Model
+				modelRequest.Reasoning = req.Reasoning
 			}
 			modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "whisper-1")
 			relayMode = relayconstant.RelayModeAudioTranslation
@@ -549,6 +567,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			// 先尝试从请求读取
 			if req, err := getModelFromRequest(c); err == nil && req.Model != "" {
 				modelRequest.Model = req.Model
+				modelRequest.Reasoning = req.Reasoning
 			}
 			modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "whisper-1")
 			relayMode = relayconstant.RelayModeAudioTranscription
@@ -562,6 +581,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			return nil, false, err
 		}
 		modelRequest.Model = req.Model
+		modelRequest.Reasoning = req.Reasoning
 		modelRequest.Group = req.Group
 		common.SetContextKey(c, constant.ContextKeyTokenGroup, modelRequest.Group)
 	}
