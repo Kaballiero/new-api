@@ -42,8 +42,8 @@ func PrepareOpenRouterImage(c *gin.Context, info *relaycommon.RelayInfo) *types.
 	if err := helper.ModelMappedHelper(c, info, &copy); err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
-	if len(info.ParamOverride) > 0 || model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
-		return types.NewErrorWithStatusCode(fmt.Errorf("native OpenRouter images require capability validation; body passthrough and parameter overrides are unsupported"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+		return types.NewErrorWithStatusCode(fmt.Errorf("native OpenRouter images require capability validation; body passthrough is unsupported"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	adaptor := &openrouter.ImageAdaptor{Adaptor: GetAdaptor(info.ApiType)}
 	adaptor.Init(info)
@@ -112,7 +112,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 			}
 
 			// apply param override
-			if len(info.ParamOverride) > 0 {
+			if len(info.ParamOverride) > 0 && info.ChannelType != constant.ChannelTypeOpenRouter {
 				jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 				if err != nil {
 					return newAPIErrorFromParamOverride(err)

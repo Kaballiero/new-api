@@ -14,6 +14,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -36,6 +37,8 @@ import (
 // Chat completions continue through the ordinary OpenAI-compatible adaptor.
 type ImageAdaptor struct{ channel.Adaptor }
 
+var errImageTariff = errors.New("OpenRouter image tariff unavailable")
+
 type ImageCapability struct {
 	Type   string   `json:"type"`
 	Values []string `json:"values"`
@@ -43,11 +46,30 @@ type ImageCapability struct {
 	Max    int64    `json:"max"`
 }
 type ImagePrice struct {
-	Billable string  `json:"billable"`
-	Unit     string  `json:"unit"`
-	CostUSD  float64 `json:"cost_usd"`
-	Variant  string  `json:"variant"`
+	missingCost bool
+	Billable    string  `json:"billable"`
+	Unit        string  `json:"unit"`
+	CostUSD     float64 `json:"cost_usd"`
+	Variant     string  `json:"variant"`
 }
+
+// UnmarshalJSON distinguishes an explicitly free tariff from unknown pricing.
+func (price *ImagePrice) UnmarshalJSON(data []byte) error {
+	type priceFields ImagePrice
+	var decoded priceFields
+	if err := common.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := common.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	cost, exists := fields["cost_usd"]
+	decoded.missingCost = !exists || bytes.Equal(bytes.TrimSpace(cost), []byte("null"))
+	*price = ImagePrice(decoded)
+	return nil
+}
+
 type ImageEndpoint struct {
 	PromptOnly          bool                       `json:"-"`
 	ProviderTag         string                     `json:"provider_tag"`
@@ -101,9 +123,201 @@ func (a *ImageAdaptor) SetupRequestHeader(c *gin.Context, header *http.Header, i
 	return nil
 }
 
+// prepareImageOverrides confines administrator transformations to routing. Other
+// fields must remain visible to capability validation and the cost estimator.
+func prepareImageOverrides(request dto.ImageRequest, info *relaycommon.RelayInfo) (dto.ImageRequest, error) {
+	raw, err := common.Marshal(request)
+	if err != nil {
+		return request, err
+	}
+	fields := map[string]json.RawMessage{}
+	if err = common.Unmarshal(raw, &fields); err != nil {
+		return request, err
+	}
+	for key, value := range request.Extra {
+		fields[key] = value
+	}
+	var nestedProvider any
+	nestedPresent := false
+	if value, exists := fields["extra_body"]; exists {
+		var extra map[string]json.RawMessage
+		if common.Unmarshal(value, &extra) != nil || extra == nil {
+			return request, errors.New("invalid image extra_body")
+		}
+		for key := range extra {
+			if key != "provider" {
+				return request, errors.New("unsupported image extra_body field")
+			}
+		}
+		if value, exists := extra["provider"]; exists {
+			nestedPresent = true
+			if err = common.Unmarshal(value, &nestedProvider); err != nil {
+				return request, err
+			}
+			if direct, exists := fields["provider"]; exists {
+				var directProvider any
+				if common.Unmarshal(direct, &directProvider) != nil || !reflect.DeepEqual(directProvider, nestedProvider) {
+					return request, errors.New("conflicting direct and nested image provider")
+				}
+			}
+		}
+	}
+	for key, value := range info.ParamOverride {
+		if key == "provider" {
+			continue
+		}
+		if key != "operations" {
+			return request, errors.New("unsupported OpenRouter image parameter override")
+		}
+		encoded, err := common.Marshal(value)
+		if err != nil {
+			return request, err
+		}
+		var operations []map[string]any
+		if common.Unmarshal(encoded, &operations) != nil || operations == nil {
+			return request, errors.New("invalid image override operations")
+		}
+		for _, operation := range operations {
+			for field := range operation {
+				if !slices.Contains([]string{"path", "mode", "value", "from", "to", "keep_origin", "conditions", "logic"}, field) {
+					return request, errors.New("unsupported image override operation field")
+				}
+			}
+			mode, _ := operation["mode"].(string)
+			path, _ := operation["path"].(string)
+			from, _ := operation["from"].(string)
+			to, _ := operation["to"].(string)
+			switch mode {
+			case "set":
+				if path != "provider" || from != "" || to != "" {
+					return request, errors.New("unsupported image override set path")
+				}
+			case "move", "copy":
+				if from != "extra_body.provider" || to != "provider" || path != "" {
+					return request, errors.New("unsupported image override routing path")
+				}
+			case "delete":
+				if path != "extra_body" || from != "" || to != "" {
+					return request, errors.New("unsupported image override delete path")
+				}
+			default:
+				return request, errors.New("unsupported image override operation")
+			}
+		}
+	}
+	raw, err = common.Marshal(fields)
+	if err != nil {
+		return request, err
+	}
+	raw, err = relaycommon.ApplyParamOverride(raw, info.ParamOverride, relaycommon.BuildParamOverrideContext(info))
+	if err != nil {
+		return request, err
+	}
+	fields = map[string]json.RawMessage{}
+	if err = common.Unmarshal(raw, &fields); err != nil {
+		return request, err
+	}
+	if nestedPresent {
+		var finalProvider any
+		value, exists := fields["provider"]
+		if !exists || common.Unmarshal(value, &finalProvider) != nil || !reflect.DeepEqual(finalProvider, nestedProvider) {
+			return request, errors.New("image extra_body.provider was not preserved by routing overrides")
+		}
+	}
+	if value, exists := fields["extra_body"]; exists {
+		var extra map[string]json.RawMessage
+		if common.Unmarshal(value, &extra) != nil || len(extra) != 0 {
+			return request, errors.New("image extra_body.provider must be moved and cleaned up")
+		}
+		delete(fields, "extra_body")
+	}
+	raw, err = common.Marshal(fields)
+	if err != nil {
+		return request, err
+	}
+	var prepared dto.ImageRequest
+	err = common.Unmarshal(raw, &prepared)
+	return prepared, err
+}
+
+type imageRouting struct {
+	Only           []string
+	Order          []string
+	Ignore         []string
+	AllowFallbacks bool
+	Fields         map[string]json.RawMessage
+}
+
+func parseImageRouting(request dto.ImageRequest) (imageRouting, error) {
+	routing := imageRouting{AllowFallbacks: true}
+	raw, exists := request.Extra["provider"]
+	if !exists {
+		return routing, nil
+	}
+	if common.Unmarshal(raw, &routing.Fields) != nil || routing.Fields == nil {
+		return routing, errors.New("invalid image provider routing")
+	}
+	for key, value := range routing.Fields {
+		switch key {
+		case "only", "order", "ignore":
+			var list []string
+			if common.Unmarshal(value, &list) != nil || list == nil {
+				return routing, errors.New("invalid image provider list")
+			}
+			for _, tag := range list {
+				if strings.TrimSpace(tag) == "" {
+					return routing, errors.New("invalid image provider identifier")
+				}
+			}
+			switch key {
+			case "only":
+				routing.Only = list
+			case "order":
+				routing.Order = list
+			case "ignore":
+				routing.Ignore = list
+			}
+		case "allow_fallbacks":
+			if string(value) == "null" || common.Unmarshal(value, &routing.AllowFallbacks) != nil {
+				return routing, errors.New("invalid image allow_fallbacks")
+			}
+		case "sort":
+			var sort string
+			if common.Unmarshal(value, &sort) != nil || sort != "price" {
+				return routing, errors.New("unsupported image provider sort")
+			}
+		case "options":
+			var options map[string]json.RawMessage
+			if common.Unmarshal(value, &options) != nil || options == nil || len(options) != 0 {
+				return routing, errors.New("unsupported image provider options")
+			}
+		default:
+			return routing, errors.New("unsupported image provider routing field")
+		}
+	}
+	return routing, nil
+}
+
 // Prepare validates against definitive per-endpoint capabilities before any
 // paid request. Metadata GETs use the selected channel's key and transport.
 func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) error {
+	if c.Request.MultipartForm != nil {
+		for _, key := range []string{"provider", "extra_body"} {
+			if _, exists := c.Request.MultipartForm.Value[key]; exists {
+				return errors.New("OpenRouter image provider routing requires a JSON request; multipart routing fields are unsupported")
+			}
+		}
+	}
+
+	var err error
+	request, err = prepareImageOverrides(request, info)
+	if err != nil {
+		return err
+	}
+	routing, err := parseImageRouting(request)
+	if err != nil {
+		return err
+	}
 	modelParts := strings.Split(request.Model, "/")
 	if len(modelParts) != 2 || modelParts[0] == "" || modelParts[1] == "" {
 		return errors.New("invalid OpenRouter image model")
@@ -146,7 +360,7 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 	if err = common.DecodeJson(io.LimitReader(resp.Body, 1<<20), &catalog); err != nil || catalog.ID != request.Model {
 		return imageResponseError("invalid OpenRouter image capability response")
 	}
-	if len(catalog.Endpoints) == 0 && request.Model == "meta/muse-image" {
+	if len(catalog.Endpoints) == 0 && request.Model == "meta/muse-image" && len(routing.Fields) == 0 {
 		// The official model page documents this exact prompt-only Image API
 		// request and $0.01/image, while image endpoint discovery is empty.
 		// Do not infer reference/size/count capabilities from chat metadata.
@@ -160,18 +374,39 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 	var lastErr error
 	var selected *relaycommon.NativeImageInfo
 	var maximumEstimate float64
+	selectedRank := len(routing.Order)
 	for _, endpoint := range catalog.Endpoints {
+		if len(routing.Fields) > 0 && endpoint.ProviderTag == "" {
+			continue
+		}
+		if routing.Only != nil && !slices.Contains(routing.Only, endpoint.ProviderTag) || slices.Contains(routing.Ignore, endpoint.ProviderTag) {
+			continue
+		}
+		rank := slices.Index(routing.Order, endpoint.ProviderTag)
+		if rank < 0 {
+			rank = len(routing.Order)
+		}
+		if !routing.AllowFallbacks && len(routing.Order) > 0 && rank != 0 {
+			continue
+		}
 		body, estimate, convertErr := ConvertImageRequest(c, request, endpoint)
 		if convertErr != nil {
+			if errors.Is(convertErr, errImageTariff) {
+				return convertErr
+			}
 			lastErr = convertErr
 			continue
 		}
 		maximumEstimate = max(maximumEstimate, estimate)
-		if selected == nil || estimate < selected.EstimatedCostUSD {
+		if selected == nil || rank < selectedRank || rank == selectedRank && estimate < selected.EstimatedCostUSD {
+			selectedRank = rank
 			selected = &relaycommon.NativeImageInfo{RequestBody: body, EstimatedCostUSD: estimate, ChannelID: info.ChannelId, ProviderTag: endpoint.ProviderTag}
 		}
 	}
 	if selected == nil {
+		if lastErr == nil {
+			lastErr = errors.New("no compatible OpenRouter image provider")
+		}
 		return lastErr
 	}
 	selected.EstimatedCostUSD = maximumEstimate
@@ -183,6 +418,14 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 // but sends only supported native parameters. ResponseFormat is local: like
 // other base64-only adaptors, results are returned in data[].b64_json.
 func ConvertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint ImageEndpoint) ([]byte, float64, error) {
+	routing, err := parseImageRouting(request)
+	if err != nil {
+		return nil, 0, err
+	}
+	if routing.Only != nil && !slices.Contains(routing.Only, endpoint.ProviderTag) || slices.Contains(routing.Ignore, endpoint.ProviderTag) || !routing.AllowFallbacks && len(routing.Order) > 0 && routing.Order[0] != endpoint.ProviderTag {
+		return nil, 0, errors.New("requested provider is unsupported by this endpoint")
+	}
+
 	if strings.TrimSpace(request.Prompt) == "" {
 		return nil, 0, errors.New("prompt is required")
 	}
@@ -196,9 +439,6 @@ func ConvertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 		// https://openrouter.ai/krea/krea-2-medium
 		// https://openrouter.ai/krea/krea-2-medium-turbo
 		endpoint = PublishedImageEndpoint(request.Model, endpoint)
-	}
-	if len(endpoint.Pricing) == 0 {
-		return nil, 0, errors.New("OpenRouter image endpoint has no published tariff")
 	}
 	raw, err := common.Marshal(request)
 	if err != nil {
@@ -273,7 +513,7 @@ func ConvertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 			continue
 		}
 		switch key {
-		case "model", "prompt", "n", "response_format", "stream":
+		case "model", "prompt", "n", "response_format", "stream", "provider":
 			continue
 		case "image", "images", "input_references":
 			var input any
@@ -403,14 +643,18 @@ func ConvertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 	if len(references) > 0 {
 		payload["input_references"] = references
 	}
-	provider := map[string]any{"allow_fallbacks": false}
+	provider := map[string]any{}
+	for key, value := range routing.Fields {
+		provider[key] = value
+	}
+	provider["allow_fallbacks"] = false
 	if endpoint.ProviderTag != "" {
 		provider["only"] = []string{endpoint.ProviderTag}
 	}
 	payload["provider"] = provider
 	estimate, err := EstimateImageCost(endpoint.Pricing, int(count), len(references), payload)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("%w: %v", errImageTariff, err)
 	}
 	body, err := common.Marshal(payload)
 	return body, estimate, err
@@ -420,9 +664,12 @@ func ConvertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 // usage.cost. Variant tariffs use the highest published rate, since normalized
 // dimensions and token counts are provider-specific. Final usage reconciles it.
 func EstimateImageCost(prices []ImagePrice, count, references int, payload map[string]any) (float64, error) {
+	if len(prices) == 0 {
+		return 0, errors.New("OpenRouter image endpoint has no published tariff")
+	}
 	rates := map[string]ImagePrice{}
 	for _, price := range prices {
-		if math.IsNaN(price.CostUSD) || math.IsInf(price.CostUSD, 0) || price.CostUSD < 0 {
+		if price.missingCost || math.IsNaN(price.CostUSD) || math.IsInf(price.CostUSD, 0) || price.CostUSD < 0 {
 			return 0, errors.New("invalid OpenRouter image tariff")
 		}
 		key := price.Billable + "/" + price.Unit
@@ -483,8 +730,8 @@ func (a *ImageAdaptor) ConvertImageRequest(_ *gin.Context, info *relaycommon.Rel
 	return json.RawMessage(info.NativeImage.RequestBody), nil
 }
 
-func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
-	if info.NativeImage == nil || info.NativeImage.Sent {
+func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, _ io.Reader) (any, error) {
+	if info.NativeImage == nil || info.NativeImage.ChannelID != info.ChannelId || info.NativeImage.Sent {
 		return nil, errors.New("OpenRouter image paid request cannot be repeated")
 	}
 	if err := ReserveCost(c, info, info.NativeImage.EstimatedCostUSD); err != nil {
@@ -494,7 +741,7 @@ func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, re
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, endpoint, requestBody)
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, endpoint, bytes.NewReader(info.NativeImage.RequestBody))
 	if err != nil {
 		return nil, err
 	}

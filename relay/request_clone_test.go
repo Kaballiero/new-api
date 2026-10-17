@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -303,4 +306,59 @@ func BenchmarkRequestDeepCopy(b *testing.B) {
 			})
 		}
 	}
+}
+
+func TestPrepareOpenRouterImageMappedProvider(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Run("other channel is untouched", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set("channel_type", constant.ChannelTypeOpenAI)
+		request := &dto.ImageRequest{Model: "alias", Prompt: "x", Extra: map[string]json.RawMessage{"provider": json.RawMessage(`{"only":["expensive"]}`)}}
+		meta := &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenAI}
+		info := &relaycommon.RelayInfo{ChannelMeta: meta, Request: request}
+		require.Nil(t, PrepareOpenRouterImage(c, info))
+		assert.Same(t, meta, info.ChannelMeta)
+		assert.Nil(t, info.NativeImage)
+		assert.False(t, info.ForcePreConsume)
+		assert.Equal(t, "alias", request.Model)
+	})
+	t.Run("mapping precedes routing override and discovery", func(t *testing.T) {
+		gets, posts := 0, 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				posts++
+				return
+			}
+			gets++
+			assert.Equal(t, "/v1/images/models/test/image/endpoints", r.URL.Path)
+			_, _ = io.WriteString(w, `{"id":"test/image","endpoints":[{"provider_tag":"cheap","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.01}]},{"provider_tag":"expensive","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.09}]}]}`)
+		}))
+		defer server.Close()
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+		c.Set("channel_type", constant.ChannelTypeOpenRouter)
+		c.Set(string(constant.ContextKeyChannelType), constant.ChannelTypeOpenRouter)
+		c.Set(string(constant.ContextKeyChannelBaseUrl), server.URL)
+		c.Set(string(constant.ContextKeyChannelId), 42)
+		c.Set(string(constant.ContextKeyOriginalModel), "alias")
+		c.Set("model_mapping", `{"alias":"test/image"}`)
+		var override map[string]any
+		require.NoError(t, common.Unmarshal([]byte(`{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"upstream_model","mode":"full","value":"test/image"}]},{"mode":"delete","path":"extra_body"}]}`), &override))
+		c.Set(string(constant.ContextKeyChannelParamOverride), override)
+		var request dto.ImageRequest
+		require.NoError(t, common.Unmarshal([]byte(`{"model":"alias","prompt":"x","extra_body":{"provider":{"only":["expensive"],"allow_fallbacks":false}}}`), &request))
+		originalExtra := string(request.Extra["extra_body"])
+		meta := &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+		info := &relaycommon.RelayInfo{ChannelMeta: meta, Request: &request, OriginModelName: "alias"}
+		require.Nil(t, PrepareOpenRouterImage(c, info))
+		assert.Same(t, meta, info.ChannelMeta)
+		require.NotNil(t, info.NativeImage)
+		assert.Equal(t, "expensive", info.NativeImage.ProviderTag)
+		assert.InDelta(t, 0.09, info.NativeImage.EstimatedCostUSD, 1e-12)
+		assert.True(t, info.ForcePreConsume)
+		assert.Equal(t, "alias", request.Model)
+		assert.Equal(t, originalExtra, string(request.Extra["extra_body"]))
+		assert.Equal(t, 1, gets)
+		assert.Zero(t, posts)
+	})
 }
