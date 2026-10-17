@@ -33,6 +33,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/tidwall/gjson"
 )
 
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
@@ -430,9 +431,6 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
-	if types.IsChannelError(openaiErr) {
-		return true
-	}
 	if types.IsSkipRetryError(openaiErr) {
 		return false
 	}
@@ -442,6 +440,33 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if service.GetChannelConstraints(c).SuppressesRetry() {
 		return false
 	}
+	if c.Writer != nil && c.Writer.Written() {
+		return false
+	}
+	if c.Request != nil {
+		if c.Request.Context().Err() != nil {
+			return false
+		}
+		// Responses continuations reference state owned by a specific upstream.
+		// Automatic retry cannot establish that another attempt can resume it safely.
+		if strings.Contains(c.Request.URL.Path, "/responses") {
+			storage, err := common.GetBodyStorage(c)
+			if err != nil {
+				return false
+			}
+			body, err := storage.Bytes()
+			if err != nil {
+				return false
+			}
+			if previous := gjson.GetBytes(body, "previous_response_id"); previous.Exists() && previous.Type != gjson.Null && previous.String() != "" {
+				return false
+			}
+		}
+	}
+	if types.IsChannelError(openaiErr) {
+		return true
+	}
+
 	code := openaiErr.StatusCode
 	if code >= 200 && code < 300 {
 		return false
@@ -948,6 +973,19 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 	if service.GetChannelConstraints(c).SuppressesRetry() {
 		return false
 	}
+	if c.Writer != nil && c.Writer.Written() {
+		return false
+	}
+	if c.Request != nil && c.Request.Context().Err() != nil {
+		return false
+	}
+
+	// A transport failure supplies no authoritative rejection: submission may
+	// already have created a paid task. Do not replay an unknown outcome.
+	if taskErr.Code == "do_request_failed" {
+		return false
+	}
+
 	if taskErr.StatusCode == http.StatusTooManyRequests {
 		return true
 	}

@@ -381,7 +381,7 @@ func TestExecuteTaskSubmissionRefundsCancellationBeforeDurableBarrier(t *testing
 	assert.False(t, c.Writer.Written())
 }
 
-func TestExecuteTaskSubmissionAmbiguousOpenRouterAttemptUsesStandardRetryAndRefund(t *testing.T) {
+func TestExecuteTaskSubmissionAmbiguousOpenRouterAttemptDoesNotReplayAndRefunds(t *testing.T) {
 	for _, disconnect := range []bool{false, true} {
 		t.Run(fmt.Sprintf("disconnect=%t", disconnect), func(t *testing.T) {
 			events := make([]string, 0)
@@ -405,11 +405,7 @@ func TestExecuteTaskSubmissionAmbiguousOpenRouterAttemptUsesStandardRetryAndRefu
 			})
 			assert.Nil(t, outcome)
 			require.NotNil(t, taskErr)
-			expectedAttempts := 4
-			if disconnect {
-				expectedAttempts = 1
-			}
-			assert.Equal(t, expectedAttempts, attempts)
+			assert.Equal(t, 1, attempts)
 			assert.Equal(t, 1, billing.refunds)
 			assert.Equal(t, []string{"refund"}, events)
 			var taskCount int64

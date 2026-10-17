@@ -1,14 +1,16 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,4 +94,64 @@ func newPinRetryContext() *gin.Context {
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return c
+}
+
+func TestShouldRetryChannelErrorsRespectReplayGuards(t *testing.T) {
+	for _, tc := range []struct {
+		name                                        string
+		budget                                      int
+		skip, pin, written, cancelled, continuation bool
+		want                                        bool
+	}{
+		{name: "safe pre-submit channel failure", budget: 1, want: true},
+		{name: "exhausted budget", budget: 0},
+		{name: "explicit skip", budget: 1, skip: true},
+		{name: "single attempt pin", budget: 1, pin: true},
+		{name: "stream already emitted", budget: 1, written: true},
+		{name: "cancelled request", budget: 1, cancelled: true},
+		{name: "provider bound continuation", budget: 1, continuation: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newPinRetryContext()
+			if tc.written {
+				_, err := c.Writer.Write([]byte("data: partial\n\n"))
+				require.NoError(t, err)
+			}
+			if tc.cancelled {
+				ctx, cancel := context.WithCancel(c.Request.Context())
+				cancel()
+				c.Request = c.Request.WithContext(ctx)
+			}
+			if tc.continuation {
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"previous_response_id":"resp_provider_bound"}`))
+				c.Request.Header.Set("Content-Type", "application/json")
+			}
+			if tc.pin {
+				service.GetChannelConstraints(c).AddPin(dto.ChannelPin{ChannelId: 1, Source: dto.PinSourceToken, Rank: dto.PinRankToken, RetryMode: dto.PinRetrySingleAttempt})
+			}
+			opts := []types.NewAPIErrorOptions{}
+			if tc.skip {
+				opts = append(opts, types.ErrOptionWithSkipRetry())
+			}
+			err := types.NewError(errors.New("channel unavailable"), types.ErrorCodeChannelNoAvailableKey, opts...)
+			assert.Equal(t, tc.want, shouldRetry(c, err, tc.budget))
+		})
+	}
+}
+
+func TestShouldRetryTaskRelayDoesNotReplayAfterOutputOrCancellation(t *testing.T) {
+	for _, tc := range []string{"output", "cancel"} {
+		t.Run(tc, func(t *testing.T) {
+			c := newPinRetryContext()
+			if tc == "output" {
+				_, err := c.Writer.Write([]byte("partial"))
+				require.NoError(t, err)
+			} else {
+				ctx, cancel := context.WithCancel(c.Request.Context())
+				cancel()
+				c.Request = c.Request.WithContext(ctx)
+			}
+			assert.False(t, shouldRetryTaskRelay(c, 1, &dto.TaskError{StatusCode: http.StatusTooManyRequests}, 1))
+		})
+	}
 }
