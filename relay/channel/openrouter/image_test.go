@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
@@ -91,6 +92,7 @@ func TestNativeImageRequestContract(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
 		endpoint.Pricing = nil
+		endpoint.SupportedParameters["input_references"] = ImageCapability{Type: "range", Min: 0, Max: 2}
 		_, _, err := ConvertImageRequest(c, dto.ImageRequest{Model: "seed/image", Prompt: "x"}, endpoint)
 		require.ErrorContains(t, err, "no published tariff")
 	})
@@ -680,4 +682,219 @@ func TestEndpointGeminiAudioMetadataStrictRates(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestNativeImageProviderPreparation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name, extra, overrides, wantTag string
+		wantReserve                     float64
+		fail                            bool
+	}{
+		{name: "default cheapest reserves maximum", wantTag: "cheap", wantReserve: 0.09},
+		{name: "only expensive", extra: `"provider":{"only":["expensive"],"allow_fallbacks":false,"sort":"price","options":{}}`, wantTag: "expensive", wantReserve: 0.09},
+		{name: "ordered expensive", extra: `"provider":{"order":["expensive","cheap"]}`, wantTag: "expensive", wantReserve: 0.09},
+		{name: "ignore expensive", extra: `"provider":{"ignore":["expensive"]}`, wantTag: "cheap", wantReserve: 0.01},
+		{name: "first primary unavailable", extra: `"provider":{"order":["missing","cheap"],"allow_fallbacks":false}`, fail: true},
+		{name: "only unavailable", extra: `"provider":{"only":["missing"]}`, fail: true},
+		{name: "bad provider", extra: `"provider":[]`, fail: true},
+		{name: "bad only", extra: `"provider":{"only":"cheap"}`, fail: true},
+		{name: "empty identifier", extra: `"provider":{"only":[""]}`, fail: true},
+		{name: "null fallback", extra: `"provider":{"allow_fallbacks":null}`, fail: true},
+		{name: "unknown field", extra: `"provider":{"max_price":{}}`, fail: true},
+		{name: "options unsafe", extra: `"provider":{"options":{"cheap":{"x":1}}}`, fail: true},
+		{name: "latency unsafe", extra: `"provider":{"sort":"latency"}`, fail: true},
+		{name: "capability mismatch", extra: `"provider":{"only":["cheap"]},"resolution":"4K"`, fail: true},
+		{name: "legacy admin override", overrides: `{"provider":{"only":["expensive"]}}`, wantTag: "expensive", wantReserve: 0.09},
+		{name: "conditional move mapped model", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"upstream_model","mode":"full","value":"test/image"}]},{"mode":"delete","path":"extra_body"}]}`, wantTag: "expensive", wantReserve: 0.09},
+		{name: "copy cleanup", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"copy","from":"extra_body.provider","to":"provider"},{"mode":"delete","path":"extra_body"}]}`, wantTag: "expensive", wantReserve: 0.09},
+		{name: "literal equal cleanup", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"provider":{"only":["expensive"]},"operations":[{"mode":"delete","path":"extra_body"}]}`, wantTag: "expensive", wantReserve: 0.09},
+		{name: "mismatch cleanup cannot hide nested", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"model","mode":"full","value":"wrong"}]},{"mode":"delete","path":"extra_body"}]}`, fail: true},
+		{name: "direct nested conflict", extra: `"provider":{"only":["cheap"]},"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider"},{"mode":"delete","path":"extra_body"}]}`, fail: true},
+		{name: "condition mismatch retains unsafe extra body", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"model","mode":"full","value":"wrong"}]}]}`, fail: true},
+		{name: "cleanup cannot hide extra fields", extra: `"extra_body":{"provider":{},"n":100}`, overrides: `{"operations":[{"mode":"delete","path":"extra_body"}]}`, fail: true},
+		{name: "unsupported override", overrides: `{"operations":[{"mode":"set","path":"n","value":10}]}`, fail: true},
+		{name: "header override", overrides: `{"operations":[{"mode":"set_header","path":"Authorization","value":"secret"}]}`, fail: true},
+		{name: "wildcard override", overrides: `{"operations":[{"mode":"set","path":"provider.*","value":{}}]}`, fail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			posts := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					posts++
+					return
+				}
+				assert.Equal(t, "/v1/images/models/test/image/endpoints", r.URL.Path)
+				_, _ = io.WriteString(w, `{"id":"test/image","endpoints":[{"provider_tag":"cheap","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.01}]},{"provider_tag":"expensive","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.09}]}]}`)
+			}))
+			defer server.Close()
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+			body := `{"model":"test/image","prompt":"x"`
+			if tc.extra != "" {
+				body += "," + tc.extra
+			}
+			body += "}"
+			var request dto.ImageRequest
+			require.NoError(t, common.Unmarshal([]byte(body), &request))
+			originalExtra := request.Extra
+			info := &relaycommon.RelayInfo{OriginModelName: "alias", ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 42, ChannelBaseUrl: server.URL, UpstreamModelName: "test/image"}}
+			if tc.overrides != "" {
+				require.NoError(t, common.Unmarshal([]byte(tc.overrides), &info.ParamOverride))
+			}
+			a := &ImageAdaptor{Adaptor: &imageTestAdaptor{}}
+			err := a.Prepare(c, info, request)
+			assert.Equal(t, originalExtra, request.Extra)
+			if tc.fail {
+				require.Error(t, err)
+				assert.Nil(t, info.NativeImage)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantTag, info.NativeImage.ProviderTag)
+				assert.InDelta(t, tc.wantReserve, info.NativeImage.EstimatedCostUSD, 1e-12)
+				var wire map[string]json.RawMessage
+				require.NoError(t, common.Unmarshal(info.NativeImage.RequestBody, &wire))
+				var provider map[string]json.RawMessage
+				require.NoError(t, common.Unmarshal(wire["provider"], &provider))
+				assert.JSONEq(t, `["`+tc.wantTag+`"]`, string(provider["only"]))
+				assert.Equal(t, "false", string(provider["allow_fallbacks"]))
+				if strings.Contains(tc.extra, `"sort"`) {
+					assert.JSONEq(t, `"price"`, string(provider["sort"]))
+					assert.JSONEq(t, `{}`, string(provider["options"]))
+				}
+				info.ChannelId++
+				_, err = a.ConvertImageRequest(c, info, request)
+				require.ErrorContains(t, err, "not prepared for this channel")
+			}
+			assert.Zero(t, posts)
+		})
+	}
+}
+
+// imageTestAdaptor supplies the host header callback without importing the host
+// OpenAI adaptor, which itself depends on OpenRouter.
+type imageTestAdaptor struct{ channel.Adaptor }
+
+func (*imageTestAdaptor) SetupRequestHeader(_ *gin.Context, header *http.Header, _ *relaycommon.RelayInfo) error {
+	header.Set("Authorization", "Bearer selected-key")
+	return nil
+}
+
+type imageBillingSpy struct{ reserved int }
+
+func (s *imageBillingSpy) Reserve(quota int) error  { s.reserved = quota; return nil }
+func (s *imageBillingSpy) GetPreConsumedQuota() int { return s.reserved }
+func (*imageBillingSpy) Settle(int) error           { return nil }
+func (*imageBillingSpy) Refund(*gin.Context)        {}
+func (*imageBillingSpy) NeedsRefund() bool          { return false }
+
+func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var pngData bytes.Buffer
+	require.NoError(t, png.Encode(&pngData, image.NewRGBA(image.Rect(0, 0, 1, 1))))
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = io.WriteString(w, `{"id":"test/image","endpoints":[{"provider_tag":"cheap","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.01}]},{"provider_tag":"expensive","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.09}]}]}`)
+			return
+		}
+		posts++
+		data, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"model":"test/image","prompt":"x","provider":{"only":["expensive"],"allow_fallbacks":false}}`, string(data))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"data":[{"b64_json":%q}],"usage":{"cost":0.07}}`, base64.StdEncoding.EncodeToString(pngData.Bytes()))
+	}))
+	defer server.Close()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	billing := &imageBillingSpy{}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 42, ChannelBaseUrl: server.URL}, Billing: billing}
+	info.PriceData.BillingGroupRatio = 1
+	var request dto.ImageRequest
+	require.NoError(t, common.Unmarshal([]byte(`{"model":"test/image","prompt":"x","provider":{"only":["expensive"],"allow_fallbacks":false}}`), &request))
+	adaptor := &ImageAdaptor{Adaptor: &imageTestAdaptor{}}
+	require.NoError(t, adaptor.Prepare(c, info, request))
+	response, err := adaptor.DoRequest(c, info, bytes.NewReader(info.NativeImage.RequestBody))
+	require.NoError(t, err)
+	assert.Equal(t, int(0.09*common.QuotaPerUnit), billing.reserved)
+	_, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
+	require.Nil(t, apiErr)
+	require.NotNil(t, info.NativeImage.ActualCostUSD)
+	assert.InDelta(t, 0.07, *info.NativeImage.ActualCostUSD, 1e-12)
+	actual, clamp, err := info.OpenRouterCost.Basis.Quota(info.OpenRouterCost.CostUSD)
+	require.NoError(t, err)
+	require.Nil(t, clamp)
+	assert.Equal(t, int(0.07*common.QuotaPerUnit), actual, "settlement basis uses authoritative response cost")
+	_, err = adaptor.DoRequest(c, info, bytes.NewReader(info.NativeImage.RequestBody))
+	require.ErrorContains(t, err, "cannot be repeated")
+	assert.Equal(t, 1, posts)
+}
+
+func TestNativeImageUnknownReachableTariffFailsClosed(t *testing.T) {
+	for _, price := range []string{`[]`, `[{"billable":"output_image","unit":"image"}]`, `[{"billable":"output_image","unit":"image","cost_usd":null}]`, `[{"billable":"output_image","unit":"image","cost_usd":-1}]`, `[{"billable":"output_image","unit":"unknown","cost_usd":0.02}]`, `[{"billable":"unknown","unit":"image","cost_usd":0.02}]`} {
+		t.Run(price, func(t *testing.T) {
+			posts := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					posts++
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"id":"test/image","endpoints":[{"provider_tag":"known","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.01}]},{"provider_tag":"unknown","pricing":%s}]}`, price)
+			}))
+			defer server.Close()
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: server.URL}}
+			adaptor := &ImageAdaptor{Adaptor: &imageTestAdaptor{}}
+			err := adaptor.Prepare(c, info, dto.ImageRequest{Model: "test/image", Prompt: "x"})
+			require.ErrorIs(t, err, errImageTariff)
+			assert.Nil(t, info.NativeImage)
+			assert.Zero(t, posts)
+		})
+	}
+}
+
+func TestNativeImageExplicitFreeTariff(t *testing.T) {
+	var prices []ImagePrice
+	require.NoError(t, common.Unmarshal([]byte(`[{"billable":"output_image","unit":"image","cost_usd":0}]`), &prices))
+	cost, err := EstimateImageCost(prices, 1, 0, map[string]any{"prompt": "x"})
+	require.NoError(t, err)
+	assert.Zero(t, cost)
+}
+
+func TestNativeImageMultipartRoutingFailsClosed(t *testing.T) {
+	for _, field := range []string{"provider", "extra_body"} {
+		t.Run(field, func(t *testing.T) {
+			var form bytes.Buffer
+			writer := multipart.NewWriter(&form)
+			require.NoError(t, writer.WriteField(field, `{"only":["expensive"],"allow_fallbacks":false}`))
+			require.NoError(t, writer.Close())
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", &form)
+			c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+			require.NoError(t, c.Request.ParseMultipartForm(1<<20))
+			defer c.Request.MultipartForm.RemoveAll()
+			// No adaptor/URL is supplied: routing must fail before discovery or POST.
+			info := &relaycommon.RelayInfo{}
+			err := (&ImageAdaptor{}).Prepare(c, info, dto.ImageRequest{Model: "test/image", Prompt: "x"})
+			require.ErrorContains(t, err, "multipart routing fields are unsupported")
+			assert.Nil(t, info.NativeImage)
+		})
+	}
+}
+
+func TestNativeImageIncompatibleUnknownTariffExcluded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		_, _ = io.WriteString(w, `{"id":"test/image","endpoints":[{"provider_tag":"unknown","supported_parameters":{"input_references":{"type":"range","min":1,"max":2}},"pricing":[]},{"provider_tag":"known","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.01}]}]}`)
+	}))
+	defer server.Close()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: server.URL}}
+	adaptor := &ImageAdaptor{Adaptor: &imageTestAdaptor{}}
+	require.NoError(t, adaptor.Prepare(c, info, dto.ImageRequest{Model: "test/image", Prompt: "x"}))
+	assert.Equal(t, "known", info.NativeImage.ProviderTag)
+	assert.InDelta(t, 0.01, info.NativeImage.EstimatedCostUSD, 1e-12)
 }
