@@ -62,6 +62,8 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	}
 	var meta *types.TokenCountMeta
 	switch operation {
+	case "decisions":
+		// Native decisions have no measured input/output token quantities at admission.
 	case "audio/transcriptions":
 		// File bytes are not text tokens or measured seconds.
 	case "audio/speech":
@@ -125,7 +127,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 			input := billingexpr.RequestInput{Body: body, Headers: info.RequestHeaders, EvaluatedAt: time.Now().UTC()}
 			var unavailableVars []string
 			promptTokens := max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), models[0]))
-			if operation == "audio/transcriptions" {
+			if operation == "audio/transcriptions" || operation == "decisions" {
 				promptTokens = 0
 				unavailableVars = []string{"p", "c", "len"}
 			}
