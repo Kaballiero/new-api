@@ -305,54 +305,15 @@ func pollOpenRouterAudio(ctx context.Context, task *model.Task) error {
 
 func lookupOpenRouterAudioCost(ctx context.Context, task *model.Task) (float64, int, time.Duration, string) {
 	a := task.PrivateData.OpenRouterAudio
-	client, err := GetHttpClientWithProxySettings(a.Transport.Proxy, a.Transport)
-	if err != nil {
-		return 0, 0, 0, "transport_unavailable"
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, a.MetadataURL+"?id="+url.QueryEscape(task.PrivateData.UpstreamTaskID), nil)
-	if err != nil {
-		return 0, 0, 0, "permanent_http_error"
-	}
-	req.Header = http.Header(a.Headers).Clone()
-	req.Header.Del("Content-Length")
-	req.Header.Del("Content-Type")
-	req.Host = req.Header.Get("Host")
-	metadataClient := *client
-	metadataClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := metadataClient.Do(req)
-	if err != nil {
-		return 0, 0, 0, "transport_error"
-	}
-	defer resp.Body.Close()
-	status := resp.StatusCode
-	var retryAfter time.Duration
-	if seconds, err := strconv.ParseInt(resp.Header.Get("Retry-After"), 10, 32); err == nil && seconds > 0 {
-		retryAfter = time.Duration(seconds) * time.Second
-	} else if until, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil {
-		retryAfter = max(time.Until(until), 0)
-	}
-	if status == 401 || status == 403 {
-		return 0, status, 0, "auth"
-	}
-	if status == 404 || status == 429 || status >= 500 {
-		return 0, status, retryAfter, "temporary_http_error"
-	}
-	if status != 200 {
-		return 0, status, 0, "permanent_http_error"
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
-	if err != nil {
-		return 0, status, retryAfter, "transport_error"
-	}
-	if len(body) > 2<<20 {
-		return 0, status, 0, "identity_or_invalid_cost"
+	body, status, retryAfter, class := fetchOpenRouterAudioMetadata(ctx, task, a.MetadataURL+"?id="+url.QueryEscape(task.PrivateData.UpstreamTaskID))
+	if class != "" {
+		return 0, status, retryAfter, class
 	}
 	var result struct {
 		Data struct {
 			ID             string          `json:"id"`
 			Model          string          `json:"model"`
+			APIType        string          `json:"api_type"`
 			Cancelled      *bool           `json:"cancelled"`
 			GenerationTime *float64        `json:"generation_time"`
 			TotalCost      json.RawMessage `json:"total_cost"`
@@ -363,14 +324,40 @@ func lookupOpenRouterAudioCost(ctx context.Context, task *model.Task) (float64, 
 		return 0, status, 0, "identity_or_invalid_cost"
 	}
 	d := result.Data
-	modelName := strings.TrimSuffix(strings.TrimSuffix(task.Properties.UpstreamModelName, ":nitro"), ":floor")
-	if d.ID != task.PrivateData.UpstreamTaskID || d.Model != modelName || (len(result.Error) > 0 && string(result.Error) != "null") {
+	if d.ID != task.PrivateData.UpstreamTaskID || (len(result.Error) > 0 && string(result.Error) != "null") {
 		return 0, status, 0, "identity_or_invalid_cost"
 	}
-	if d.Cancelled == nil || *d.Cancelled || d.GenerationTime == nil {
+	modelName := strings.TrimSuffix(strings.TrimSuffix(task.Properties.UpstreamModelName, ":nitro"), ":floor")
+	if d.Model != modelName {
+		// Generation metadata uses the dated canonical slug. Verify the binding
+		// through this account's model metadata, never by trimming a date suffix.
+		base, ok := strings.CutSuffix(a.MetadataURL, "/generation")
+		author, slug, validModel := strings.Cut(modelName, "/")
+		if !ok || !validModel || author == "" || slug == "" {
+			return 0, status, 0, "identity_or_invalid_cost"
+		}
+		metadata, modelStatus, modelRetry, modelClass := fetchOpenRouterAudioMetadata(ctx, task, base+"/model/"+url.PathEscape(author)+"/"+url.PathEscape(slug))
+		if modelClass != "" {
+			return 0, modelStatus, modelRetry, modelClass
+		}
+		var modelMetadata struct {
+			Data struct {
+				ID            string `json:"id"`
+				CanonicalSlug string `json:"canonical_slug"`
+			} `json:"data"`
+			Error json.RawMessage `json:"error"`
+		}
+		if common.Unmarshal(metadata, &modelMetadata) != nil || modelMetadata.Data.ID != modelName || modelMetadata.Data.CanonicalSlug == "" || modelMetadata.Data.CanonicalSlug != d.Model || (len(modelMetadata.Error) > 0 && string(modelMetadata.Error) != "null") {
+			return 0, modelStatus, 0, "identity_or_invalid_cost"
+		}
+	}
+	// TTS does not populate generation_time. A fully persisted speech result,
+	// an uncancelled generation and a confirmed cost establish completion instead.
+	completedSpeech := d.APIType == "tts" && a.ResultReady && !a.ResultFailed && strings.HasPrefix(a.ResultMimeType, "audio/")
+	if d.Cancelled == nil || *d.Cancelled || d.GenerationTime == nil && !completedSpeech {
 		return 0, status, retryAfter, "incomplete_metadata"
 	}
-	if *d.GenerationTime < 0 || math.IsNaN(*d.GenerationTime) || math.IsInf(*d.GenerationTime, 0) {
+	if d.GenerationTime != nil && (*d.GenerationTime < 0 || math.IsNaN(*d.GenerationTime) || math.IsInf(*d.GenerationTime, 0)) {
 		return 0, status, 0, "identity_or_invalid_cost"
 	}
 	raw := bytes.TrimSpace(d.TotalCost)
@@ -382,4 +369,53 @@ func lookupOpenRouterAudioCost(ctx context.Context, task *model.Task) (float64, 
 		return 0, status, 0, "identity_or_invalid_cost"
 	}
 	return cost, status, 0, ""
+}
+
+func fetchOpenRouterAudioMetadata(ctx context.Context, task *model.Task, endpoint string) ([]byte, int, time.Duration, string) {
+	a := task.PrivateData.OpenRouterAudio
+	client, err := GetHttpClientWithProxySettings(a.Transport.Proxy, a.Transport)
+	if err != nil {
+		return nil, 0, 0, "transport_unavailable"
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, 0, 0, "permanent_http_error"
+	}
+	req.Header = http.Header(a.Headers).Clone()
+	req.Header.Del("Content-Length")
+	req.Header.Del("Content-Type")
+	req.Host = req.Header.Get("Host")
+	metadataClient := *client
+	metadataClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := metadataClient.Do(req)
+	if err != nil {
+		return nil, 0, 0, "transport_error"
+	}
+	defer resp.Body.Close()
+	status := resp.StatusCode
+	var retryAfter time.Duration
+	if seconds, err := strconv.ParseInt(resp.Header.Get("Retry-After"), 10, 32); err == nil && seconds > 0 {
+		retryAfter = time.Duration(seconds) * time.Second
+	} else if until, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil {
+		retryAfter = max(time.Until(until), 0)
+	}
+	if status == 401 || status == 403 {
+		return nil, status, 0, "auth"
+	}
+	if status == 404 || status == 429 || status >= 500 {
+		return nil, status, retryAfter, "temporary_http_error"
+	}
+	if status != 200 {
+		return nil, status, 0, "permanent_http_error"
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
+	if err != nil {
+		return nil, status, retryAfter, "transport_error"
+	}
+	if len(body) > 2<<20 {
+		return nil, status, 0, "identity_or_invalid_cost"
+	}
+	return body, status, retryAfter, ""
 }
