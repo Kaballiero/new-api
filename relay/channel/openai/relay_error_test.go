@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -435,5 +437,168 @@ func TestOpenRouterResponsesBillableTerminals(t *testing.T) {
 				assert.Contains(t, recorder.Body.String(), tc.status)
 			})
 		}
+	}
+}
+
+type sonarAdmissionTransport struct {
+	metadata string
+	gets     int
+	posts    int
+	body     []byte
+}
+
+func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	body := s.metadata
+	switch request.Method {
+	case http.MethodGet:
+		s.gets++
+	case http.MethodPost:
+		s.posts++
+		var err error
+		s.body, err = io.ReadAll(request.Body)
+		if err != nil {
+			return nil, err
+		}
+		body = `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"cost":0.47545,"cost_details":{"upstream_inference_cost":0.001032}}}`
+	default:
+		return nil, errors.New("unexpected request method")
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+}
+
+type sonarAdmissionBilling struct {
+	reserved int
+	err      error
+}
+
+func (s *sonarAdmissionBilling) Reserve(quota int) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.reserved = quota
+	return nil
+}
+func (s *sonarAdmissionBilling) GetPreConsumedQuota() int { return s.reserved }
+func (s *sonarAdmissionBilling) Settle(int) error         { return nil }
+func (s *sonarAdmissionBilling) Refund(*gin.Context)      {}
+func (s *sonarAdmissionBilling) NeedsRefund() bool        { return s.reserved > 0 }
+
+func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
+	const model = "perplexity/sonar-deep-research"
+	for _, tc := range []struct {
+		name, model, extra, endpoint, rateKey string
+		rate                                  any
+		reserve                               *float64
+		insufficient, knownAboveReserve       bool
+		wantError                             string
+	}{
+		{name: "disabled by default", wantError: "research reserve policy is disabled"},
+		{name: "zero reasoning rate cannot enable policy", rateKey: "internal_reasoning", rate: "0", wantError: "research reserve policy is disabled"},
+		{name: "enabled channel hold and full total cost", reserve: common.GetPointer(2.0)},
+		{name: "known subtotal exceeds approximate hold", reserve: common.GetPointer(2.0), rateKey: "completion", rate: "1", knownAboveReserve: true},
+		{name: "client cannot enable policy", extra: `,"openrouter_sonar_research_reserve_usd":2`, wantError: "research reserve policy is disabled"},
+		{name: "other model remains closed", model: "other/reasoner", reserve: common.GetPointer(2.0), wantError: "unsupported billable dimension internal_reasoning"},
+		{name: "another provider remains closed", endpoint: "other-provider", reserve: common.GetPointer(2.0), wantError: "requires the Perplexity endpoint"},
+		{name: "unknown charge remains closed", reserve: common.GetPointer(2.0), rateKey: "research_step", rate: "0.01", wantError: "unsupported billable dimension research_step"},
+		{name: "null reasoning rate", reserve: common.GetPointer(2.0), rateKey: "internal_reasoning", rate: nil, wantError: "invalid OpenRouter endpoint price"},
+		{name: "negative search rate", reserve: common.GetPointer(2.0), rateKey: "web_search", rate: "-1", wantError: "invalid OpenRouter endpoint price"},
+		{name: "zero reserve rejected", reserve: common.GetPointer(0.0), wantError: "invalid OpenRouter Sonar research reserve"},
+		{name: "negative reserve rejected", reserve: common.GetPointer(-2.0), wantError: "invalid OpenRouter Sonar research reserve"},
+		{name: "nan reserve rejected", reserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter Sonar research reserve"},
+		{name: "infinite reserve rejected", reserve: common.GetPointer(math.Inf(1)), wantError: "invalid OpenRouter Sonar research reserve"},
+		{name: "oversized reserve rejected", reserve: common.GetPointer(1e100), wantError: "quota"},
+		{name: "insufficient reserve stops before paid post", reserve: common.GetPointer(2.0), insufficient: true, wantError: "insufficient test quota"},
+		{name: "stream rejected", reserve: common.GetPointer(2.0), extra: `,"stream":true`, wantError: "one nonstream text chat response"},
+		{name: "multiple outputs rejected", reserve: common.GetPointer(2.0), extra: `,"n":2`, wantError: "one nonstream text chat response"},
+		{name: "fallback models rejected", reserve: common.GetPointer(2.0), extra: `,"models":["other/reasoner"]`, wantError: "one nonstream text chat response"},
+		{name: "tools rejected", reserve: common.GetPointer(2.0), extra: `,"tools":[{"type":"function","function":{"name":"f"}}]`, wantError: "one nonstream text chat response"},
+		{name: "hosted search rejected", reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, wantError: "hosted-search quantity is unpriced"},
+		{name: "preset rejected", reserve: common.GetPointer(2.0), extra: `,"preset":"some-preset"`, wantError: "unpriced execution dimensions"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requestedModel := tc.model
+			if requestedModel == "" {
+				requestedModel = model
+			}
+			tag := tc.endpoint
+			if tag == "" {
+				tag = "perplexity"
+			}
+			prices := map[string]any{"prompt": "0.000002", "completion": "0.000008", "internal_reasoning": "0.000003", "web_search": "0.005"}
+			if tc.rateKey != "" {
+				prices[tc.rateKey] = tc.rate
+			}
+			// Discovery includes fallback metadata; policy must reject the final
+			// models[] before reservation rather than merely checking its primary.
+			metadata, err := common.Marshal(map[string]any{"data": map[string]any{"endpoints": []any{map[string]any{"tag": tag, "context_length": 128000, "max_completion_tokens": 115200, "pricing": prices}}}})
+			require.NoError(t, err)
+			transport := &sonarAdmissionTransport{metadata: string(metadata)}
+			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			require.NoError(t, err)
+			oldTransport := client.Transport
+			client.Transport = transport
+			t.Cleanup(func() { client.Transport = oldTransport })
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"Reply OK."}],"max_tokens":128%s}`, requestedModel, tc.extra)
+			c, recorder, _, info := newEmbeddedErrorTestRequest(body, http.StatusOK)
+			info.ChannelType = constant.ChannelTypeOpenRouter
+			info.ChannelBaseUrl = "https://openrouter.test/api"
+			info.RequestURLPath = "/v1/chat/completions"
+			info.RelayMode = relayconstant.RelayModeChatCompletions
+			info.ChannelSetting.OpenRouterSonarResearchReserveUSD = tc.reserve
+			info.PriceData.BillingGroupRatio = 1.5
+			billing := &sonarAdmissionBilling{}
+			if tc.insufficient {
+				billing.err = errors.New("insufficient test quota")
+			}
+			info.Billing = billing
+			adaptor := &Adaptor{}
+			response, err := adaptor.DoRequest(c, info, strings.NewReader(body))
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				var apiErr *types.NewAPIError
+				require.ErrorAs(t, err, &apiErr)
+				assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+				assert.Equal(t, types.ErrorCodeModelPriceError, apiErr.GetErrorCode())
+				assert.True(t, types.IsSkipRetryError(apiErr))
+				assert.Equal(t, 0, transport.posts)
+				if info.OpenRouterCost != nil {
+					assert.False(t, info.OpenRouterCost.Sent)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, 1, transport.gets)
+			assert.Equal(t, 1, transport.posts)
+			assert.JSONEq(t, body, string(transport.body), "pricing and paid transport must inspect the same final body")
+			require.NotNil(t, info.OpenRouterCost)
+			assert.True(t, info.OpenRouterCost.Sent)
+			require.NotNil(t, info.OpenRouterCost.ApproximateResearchReserveUSD)
+			assert.Equal(t, 2.0, *info.OpenRouterCost.ApproximateResearchReserveUSD)
+			if tc.knownAboveReserve {
+				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 128.0)
+				assert.Greater(t, billing.reserved, 1500000)
+			} else {
+				assert.Equal(t, 2.0, info.OpenRouterCost.Basis.EstimatedUSD)
+				assert.Equal(t, 1500000, billing.reserved)
+			}
+			assert.Equal(t, billing.reserved, info.FinalPreConsumedQuota)
+			assert.True(t, info.ForcePreConsume)
+			// Changes after admission cannot reprice the authoritative total.
+			info.PriceData.BillingGroupRatio = 9
+			*tc.reserve = 7
+			usage, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
+			require.Nil(t, apiErr)
+			assert.Equal(t, .47545, usage.(*dto.Usage).Cost)
+			quota, clamp, err := info.OpenRouterCost.Basis.Quota(info.OpenRouterCost.CostUSD)
+			require.NoError(t, err)
+			require.Nil(t, clamp)
+			assert.Equal(t, 356588, quota, "total usage.cost, not upstream_inference_cost or local surcharges")
+			quota, clamp, err = info.OpenRouterCost.Basis.Quota(3)
+			require.NoError(t, err)
+			require.Nil(t, clamp)
+			assert.Equal(t, 2250000, quota, "full excess is charged, not capped to the approximate hold")
+			assert.Equal(t, 2.0, *info.OpenRouterCost.ApproximateResearchReserveUSD)
+			assert.Contains(t, recorder.Body.String(), "ok")
+		})
 	}
 }

@@ -92,6 +92,9 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if err := ReserveCost(c, info, estimate); err != nil {
 		return nil, err
 	}
+	if len(models) == 1 && models[0] == "perplexity/sonar-deep-research" && info.ChannelSetting.OpenRouterSonarResearchReserveUSD != nil {
+		info.OpenRouterCost.ApproximateResearchReserveUSD = common.GetPointer(*info.ChannelSetting.OpenRouterSonarResearchReserveUSD)
+	}
 	return bytes.NewReader(body), nil
 }
 
