@@ -53,8 +53,22 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if len(body) > 32<<20 {
 		return nil, errors.New("OpenRouter request exceeds pricing inspection limit")
 	}
+	originalBody := body
+	if operation == "audio/transcriptions" {
+		body, err = transcriptionReservationPayload(c.Request.Header.Get("Content-Type"), body)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var meta *types.TokenCountMeta
 	switch operation {
+	case "audio/transcriptions":
+		// File bytes are not text tokens or measured seconds.
+	case "audio/speech":
+		var request dto.AudioRequest
+		if common.Unmarshal(body, &request) == nil {
+			meta = request.GetTokenCountMeta()
+		}
 	case "responses":
 		var request dto.OpenAIResponsesRequest
 		if common.Unmarshal(body, &request) == nil {
@@ -109,7 +123,13 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 				completionTokens = meta.MaxTokens
 			}
 			input := billingexpr.RequestInput{Body: body, Headers: info.RequestHeaders, EvaluatedAt: time.Now().UTC()}
-			value, err := helper.EstimateConfiguredModelReservation(info.GetBillingModelName(), max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), models[0])), completionTokens, input)
+			var unavailableVars []string
+			promptTokens := max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), models[0]))
+			if operation == "audio/transcriptions" {
+				promptTokens = 0
+				unavailableVars = []string{"p", "c", "len"}
+			}
+			value, err := helper.EstimateConfiguredModelReservation(info.GetBillingModelName(), promptTokens, completionTokens, input, unavailableVars...)
 			if err != nil {
 				return nil, err
 			}
@@ -128,6 +148,15 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if err := ReserveCost(c, info, estimate); err != nil {
 		return nil, err
 	}
+	var output struct {
+		Modalities []string `json:"modalities"`
+	}
+	_ = common.Unmarshal(body, &output)
+	for _, modality := range output.Modalities {
+		if modality == "audio" {
+			info.OpenRouterCost.BufferedAudio = true
+		}
+	}
 	if local != nil {
 		info.OpenRouterCost.ConfiguredReserveUSD = common.GetPointer(local.USD)
 		info.OpenRouterCost.ConfiguredReserveModel = local.Model
@@ -144,7 +173,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		}
 	}
 
-	return bytes.NewReader(body), nil
+	return bytes.NewReader(originalBody), nil
 }
 
 func CostError(reason string) *types.NewAPIError {

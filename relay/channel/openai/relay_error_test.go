@@ -9,6 +9,7 @@ import (
 	"image/png"
 	"io"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -56,13 +57,13 @@ func newEmbeddedErrorTestRequest(body string, statusCode int) (*gin.Context, *ht
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return c, recorder, &http.Response{
-			StatusCode: statusCode,
-			Body:       io.NopCloser(strings.NewReader(body)),
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-		}, &relaycommon.RelayInfo{
-			ChannelMeta: &relaycommon.ChannelMeta{},
-			RelayFormat: types.RelayFormatOpenAI,
-		}
+		StatusCode: statusCode,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}, &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{},
+		RelayFormat: types.RelayFormatOpenAI,
+	}
 }
 
 func assertEmbeddedOpenAIError(t *testing.T, relayError *types.NewAPIError, recorder *httptest.ResponseRecorder, statusCode int) {
@@ -449,13 +450,16 @@ func TestOpenRouterResponsesBillableTerminals(t *testing.T) {
 }
 
 type sonarAdmissionTransport struct {
-	metadata       string
-	metadataStatus int
-	metadataError  error
-	response       string
-	gets           int
-	posts          int
-	body           []byte
+	generation       string
+	generationStatus int
+	responseHeaders  http.Header
+	metadata         string
+	metadataStatus   int
+	metadataError    error
+	response         string
+	gets             int
+	posts            int
+	body             []byte
 }
 
 func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -463,6 +467,13 @@ func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Respon
 	switch request.Method {
 	case http.MethodGet:
 		s.gets++
+		if request.URL.Path == "/api/v1/generation" {
+			status := http.StatusOK
+			if s.generationStatus != 0 {
+				status = s.generationStatus
+			}
+			return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(s.generation)), Request: request}, nil
+		}
 		if s.metadataError != nil {
 			return nil, s.metadataError
 		}
@@ -483,7 +494,11 @@ func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Respon
 	default:
 		return nil, errors.New("unexpected request method")
 	}
-	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	headers := http.Header{"Content-Type": []string{"application/json"}}
+	if request.Method == http.MethodPost && s.responseHeaders != nil {
+		headers = s.responseHeaders
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: headers, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
 }
 
 type sonarAdmissionBilling struct {
@@ -784,7 +799,7 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 		{name: "default source cannot cover missing tariff", price: 2, noPolicy: true, rateKey: "prompt", rate: "null", wantError: "estimate unavailable"},
 		{name: "upstream source cannot cover unknown quantity", price: 2, source: dto.OpenRouterReservationUpstream, rateKey: "render_step", rate: "1", wantError: "estimate unavailable"},
 		{name: "stream stays closed", price: 2, extra: `,"stream":true`, wantError: "one nonstream text chat response"},
-		{name: "audio output stays closed", price: 2, extra: `,"modalities":["text","audio"]`, wantError: "output modality tariff is unavailable"},
+		{name: "nonstream audio output stays closed", price: 2, extra: `,"modalities":["text","audio"]`, wantError: "audio output requires streaming"},
 		{name: "tools stay closed", price: 2, extra: `,"tools":[{"type":"function"}]`, wantError: "one nonstream text chat response"},
 		{name: "multiple responses stay closed", price: 2, extra: `,"n":2`, wantError: "one nonstream text chat response"},
 		{name: "fallback model cannot disable selected policy", price: 2, extra: `,"models":["other/fallback"]`, wantError: "only supports one nonstream text chat response"},
@@ -1161,6 +1176,226 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, 1, image.Bounds().Dx())
 			assert.Equal(t, 1, image.Bounds().Dy())
+		})
+	}
+}
+
+func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
+	const alias = "audio-client-alias"
+	const model = "vendor/audio-model"
+	const chunk = "data: {\"choices\":[{\"delta\":{\"audio\":{\"data\":\"UklGRg==\",\"transcript\":\"hello\"}}}]}\n\n"
+	service.InitTokenEncoders()
+	oldPrices := ratio_setting.ModelPrice2JSONString()
+	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
+	oldModes, oldExprs := settings.BillingMode, settings.BillingExpr
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(oldPrices))
+		settings.BillingMode, settings.BillingExpr = oldModes, oldExprs
+	})
+	for _, tc := range []struct {
+		name, kind, cost, extra, expression, wantError                                               string
+		noSource, zeroLocal, minimum, disabled, unknownCapability, insufficient                      bool
+		missingCost, noDone, provisional, badGeneration, incompleteGeneration, generationUnavailable bool
+	}{
+		{name: "Chat audio preserves delta with force format", kind: "chat", cost: "3"},
+		{name: "music with zero token tariff still holds", kind: "music", cost: "0.04"},
+		{name: "music zero configured price cannot imply free", kind: "music", zeroLocal: true, wantError: "positive reserve"},
+		{name: "explicit minimum covers music", kind: "music", zeroLocal: true, minimum: true, cost: "0.04"},
+		{name: "SSE explicit zero is authoritative", kind: "chat", cost: "0"},
+		{name: "Chat audio is opt in", kind: "chat", noSource: true, wantError: "requires configured_price"},
+		{name: "Chat audio cannot use nonstream protocol", kind: "chat", extra: `,"stream":false`, wantError: "requires streaming"},
+		{name: "disabled music provider not waived", kind: "music", disabled: true, wantError: "no compatible"},
+		{name: "audio capability must be confirmed", kind: "chat", unknownCapability: true, wantError: "capability is missing"},
+		{name: "audio tools remain closed", kind: "chat", extra: `,"tools":[{"type":"function"}]`, wantError: "without routing or tools"},
+		{name: "audio input media remains closed", kind: "chat", extra: `,"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]}]`, wantError: "duration quantity is unpriced"},
+		{name: "reserve fails before paid submission", kind: "chat", insufficient: true, wantError: "insufficient audio quota"},
+		{name: "missing stream cost yields no client bytes", kind: "chat", missingCost: true},
+		{name: "null stream cost yields no client bytes", kind: "chat", cost: "null", missingCost: true},
+		{name: "provisional cost cannot replace terminal cost", kind: "chat", provisional: true, missingCost: true},
+		{name: "cost without DONE is incomplete", kind: "chat", cost: "3", noDone: true, missingCost: true},
+		{name: "TTS confirms generation before raw audio", kind: "tts", cost: "3"},
+		{name: "TTS confirmed zero", kind: "tts", cost: "0"},
+		{name: "TTS numeric playback speed", kind: "tts", cost: "3", extra: `,"speed":1.2`},
+		{name: "TTS expression sees final request", kind: "tts", cost: "3", expression: `param("voice") == "alloy" ? tier("voice", fixed(2)) : tier("other", fixed(8))`},
+		{name: "TTS no source rejects before submission", kind: "tts", noSource: true, wantError: "requires configured_price"},
+		{name: "TTS unknown cost is not zero", kind: "tts", missingCost: true},
+		{name: "TTS null cost is not zero", kind: "tts", cost: "null", missingCost: true},
+		{name: "TTS mismatched record not billable", kind: "tts", cost: "3", badGeneration: true, missingCost: true},
+		{name: "TTS unfinished generation not free", kind: "tts", cost: "0", incompleteGeneration: true, missingCost: true},
+		{name: "TTS cost GET failure never repeats POST", kind: "tts", generationUnavailable: true, missingCost: true},
+		{name: "multipart STT final usage cost", kind: "stt", cost: "3"},
+		{name: "multipart STT confirmed zero", kind: "stt", cost: "0"},
+		{name: "STT expression sees outgoing form", kind: "stt", cost: "3", expression: `param("language") == "en" ? tier("english", fixed(2)) : tier("other", fixed(8))`},
+		{name: "STT missing cost emits no transcript", kind: "stt", missingCost: true},
+		{name: "STT rejects unmeasured token expression", kind: "stt", expression: `tier("tokens", p * 10)`, wantError: "unavailable p quantity"},
+		{name: "STT text format has no usage envelope", kind: "stt", extra: "text", wantError: "json or verbose_json"},
+		{name: "STT unsupported form field rejected", kind: "stt", extra: "provider", wantError: "unsupported OpenRouter transcription multipart field"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			price := 2.0
+			if tc.zeroLocal {
+				price = 0
+			}
+			prices, err := common.Marshal(map[string]float64{alias: price})
+			require.NoError(t, err)
+			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(prices)))
+			settings.BillingMode, settings.BillingExpr = map[string]string{}, map[string]string{}
+			if tc.expression != "" {
+				settings.BillingMode[alias], settings.BillingExpr[alias] = billing_setting.BillingModeTieredExpr, tc.expression
+			}
+			modality := "audio"
+			mode, format, path := relayconstant.RelayModeChatCompletions, types.RelayFormatOpenAI, "/v1/chat/completions"
+			stream := true
+			body := `{"model":"vendor/audio-model","messages":[{"role":"user","content":"hello"}],"modalities":["text","audio"],"audio":{"voice":"alloy","format":"wav"},"max_tokens":128,"stream":true` + tc.extra + `}`
+			if tc.kind == "music" {
+				body = `{"model":"vendor/audio-model","messages":[{"role":"user","content":"play a tune"}],"modalities":["audio"],"max_tokens":128,"stream":true}`
+			}
+			if tc.kind == "tts" {
+				mode, format, path, modality, stream = relayconstant.RelayModeAudioSpeech, types.RelayFormatOpenAIAudio, "/v1/audio/speech", "speech", false
+				body = `{"model":"vendor/audio-model","input":"hello","voice":"alloy","response_format":"mp3"` + tc.extra + `}`
+			}
+			contentType := "application/json"
+			if tc.kind == "stt" {
+				mode, format, path, modality, stream = relayconstant.RelayModeAudioTranscription, types.RelayFormatOpenAIAudio, "/v1/audio/transcriptions", "transcription", false
+				var b bytes.Buffer
+				writer := multipart.NewWriter(&b)
+				require.NoError(t, writer.WriteField("model", model))
+				require.NoError(t, writer.WriteField("language", "en"))
+				responseFormat := "verbose_json"
+				if tc.extra == "text" {
+					responseFormat = "text"
+				}
+				require.NoError(t, writer.WriteField("response_format", responseFormat))
+				if tc.extra == "provider" {
+					require.NoError(t, writer.WriteField("provider", `{"only":["absent"]}`))
+				}
+				file, err := writer.CreateFormFile("file", "sample.wav")
+				require.NoError(t, err)
+				_, err = file.Write([]byte("RIFF audio fixture"))
+				require.NoError(t, err)
+				require.NoError(t, writer.Close())
+				body, contentType = b.String(), writer.FormDataContentType()
+			}
+			status := 0
+			if tc.disabled {
+				status = -5
+			}
+			var modalities any = []string{"text", modality}
+			if tc.unknownCapability {
+				modalities = nil
+			}
+			metadata, err := common.Marshal(map[string]any{"data": map[string]any{"id": model, "architecture": map[string]any{"output_modalities": modalities}, "endpoints": []any{map[string]any{"tag": "audio-provider", "model_id": model, "status": status, "max_completion_tokens": 128, "pricing": map[string]string{"prompt": "0", "completion": "0"}}}}})
+			require.NoError(t, err)
+			cost := `"cost":` + tc.cost
+			if tc.cost == "" {
+				cost = ""
+			}
+			transport := &sonarAdmissionTransport{metadata: string(metadata)}
+			if tc.kind == "tts" {
+				transport.response, transport.responseHeaders = "RIFF upstream audio", http.Header{"Content-Type": []string{"audio/mpeg"}, "X-Generation-Id": []string{"gen-tts-fixture"}}
+				id, generationTime := "gen-tts-fixture", "12"
+				if tc.badGeneration {
+					id = "other-request"
+				}
+				if tc.incompleteGeneration {
+					generationTime = "null"
+				}
+				totalCost := tc.cost
+				if totalCost == "" {
+					totalCost = "null"
+				}
+				transport.generation = fmt.Sprintf(`{"data":{"id":%q,"model":%q,"cancelled":false,"generation_time":%s,"total_cost":%s}}`, id, model, generationTime, totalCost)
+				if tc.generationUnavailable {
+					transport.generationStatus = 404
+				}
+			} else if tc.kind == "stt" {
+				transport.response = `{"text":"hello transcript","usage":{` + cost + `}}`
+			} else {
+				transport.responseHeaders = http.Header{"Content-Type": []string{"text/event-stream"}}
+				transport.response = chunk
+				if tc.provisional {
+					transport.response += "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\n"
+				}
+				transport.response += "data: {\"choices\":[],\"usage\":{" + cost + "}}\n\n"
+				if !tc.noDone {
+					transport.response += "data: [DONE]\n\n"
+				}
+			}
+			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			require.NoError(t, err)
+			oldTransport := client.Transport
+			client.Transport = transport
+			t.Cleanup(func() { client.Transport = oldTransport })
+			c, recorder, _, info := newEmbeddedErrorTestRequest(body, http.StatusOK)
+			c.Request.Header.Set("Content-Type", contentType)
+			info.ChannelType, info.ChannelBaseUrl = constant.ChannelTypeOpenRouter, "https://openrouter.test/api"
+			info.OriginModelName, info.UpstreamModelName = alias, model
+			info.RelayMode, info.RelayFormat, info.RequestURLPath, info.IsStream = mode, format, path, stream
+			if strings.Contains(tc.extra, `"stream":false`) {
+				info.IsStream = false
+			}
+			info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent = true, true
+			info.PriceData.BillingGroupRatio = 1.5
+			if !tc.noSource {
+				info.ChannelSetting.OpenRouterReservationSource = map[string]dto.OpenRouterReservationSource{model: dto.OpenRouterReservationConfiguredPrice}
+			}
+			if tc.minimum {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: 2}
+			}
+			billing := &sonarAdmissionBilling{}
+			if tc.insufficient {
+				billing.err = errors.New("insufficient audio quota")
+			}
+			info.Billing = billing
+			adaptor := &Adaptor{}
+			response, err := adaptor.DoRequest(c, info, strings.NewReader(body))
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				assert.Zero(t, transport.posts)
+				assert.Empty(t, recorder.Body.String())
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, info.OpenRouterCost)
+			require.Equal(t, 1500000, billing.reserved)
+			assert.Equal(t, body, string(transport.body), "reservation must not rewrite the paid order")
+			assert.Equal(t, 1, transport.posts)
+			assert.Nil(t, info.TieredBillingSnapshot)
+			info.PriceData.BillingGroupRatio = 9
+			settings.BillingExpr[alias] = `tier("changed", fixed(999))`
+			usage, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
+			if tc.missingCost {
+				require.NotNil(t, apiErr)
+				assert.Empty(t, recorder.Body.String(), "unknown cost cannot publish successful audio/transcript")
+				assert.False(t, info.OpenRouterCost.Final)
+				assert.Equal(t, 1, transport.posts, "never replay a paid submission")
+				return
+			}
+			require.Nil(t, apiErr)
+			require.True(t, info.OpenRouterCost.Final)
+			assert.Equal(t, info.OpenRouterCost.CostUSD, usage.(*dto.Usage).Cost)
+			quota, clamp, err := info.OpenRouterCost.Basis.Quota(info.OpenRouterCost.CostUSD)
+			require.NoError(t, err)
+			require.Nil(t, clamp)
+			switch tc.cost {
+			case "3":
+				assert.Equal(t, 2250000, quota)
+			case "0":
+				assert.Zero(t, quota)
+			case "0.04":
+				assert.Equal(t, 30000, quota)
+			}
+			if tc.kind == "tts" {
+				assert.Equal(t, "RIFF upstream audio", recorder.Body.String())
+				assert.Equal(t, 2, transport.gets)
+				assert.Equal(t, "generation.total_cost", info.OpenRouterCost.CostSource)
+			} else if tc.kind == "stt" {
+				assert.Contains(t, recorder.Body.String(), "hello transcript")
+			} else {
+				assert.Contains(t, recorder.Body.String(), chunk)
+				assert.Contains(t, recorder.Body.String(), "data: [DONE]")
+				assert.NotContains(t, recorder.Body.String(), `"cost"`)
+			}
 		})
 	}
 }

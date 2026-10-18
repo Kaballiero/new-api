@@ -17,6 +17,9 @@ type OpenRouterCostState struct {
 	CostDetails   json.RawMessage
 	IsBYOK        *bool
 	UnknownReason string
+	BufferedAudio bool
+	GenerationID  string
+	CostSource    string
 	// ApproximateResearchReserveUSD records the accepted hold policy, not a
 	// guaranteed maximum charge. Actual cost always uses the frozen Basis.
 	ApproximateResearchReserveUSD *float64
