@@ -741,6 +741,10 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		case relayconstant.RelayModeCompletions:
 			operation = "completions"
 		case relayconstant.RelayModeChatCompletions:
+		case relayconstant.RelayModeAudioSpeech:
+			operation = "audio/speech"
+		case relayconstant.RelayModeAudioTranscription:
+			operation = "audio/transcriptions"
 		default:
 			return nil, types.NewErrorWithStatusCode(fmt.Errorf("OpenRouter operation lacks a validated cost reservation contract"), types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
@@ -765,6 +769,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	if info.OpenRouterCost != nil {
+		if info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech {
+			return openrouter.AudioResponse(c, resp, info, a)
+		}
 		if !info.IsStream {
 			if costErr := openrouter.ValidateResponse(resp, info); costErr != nil {
 				return nil, costErr

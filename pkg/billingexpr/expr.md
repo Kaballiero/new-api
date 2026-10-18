@@ -64,8 +64,11 @@ An explicit channel `setting.openrouter_reservation_source` entry of
 configured NewAPI price/ratio/expression for admission. The entry is keyed by
 the final upstream model ID; the local price lookup retains the normal client
 billing identity. Missing entries or `"upstream"` keep the default behavior.
-This path supports one nonstream Chat response without tools, fallback models
-or input media, in OpenAI Chat format. Image output requires an explicit
+This path supports one Chat response without tools, fallback models or input
+media, in OpenAI Chat format. Text/image responses remain nonstream. Explicit
+Chat audio output (including music) requires streaming; the gateway buffers
+the SSE response until terminal `usage.cost` and `[DONE]`, preserving audio
+fields and the normal client projection. Image/audio output requires an explicit
 configured-price source. Endpoint discovery and independent model/provider,
 capability, parameter and limit checks remain mandatory. After those checks,
 `EstimateUnavailableError` classifies incomplete/untrustworthy tariff metadata
@@ -74,7 +77,7 @@ cover such a failure with its local USD estimate and per-model minimum; a
 positive hold is required for an unavailable estimate or a nonzero image rate
 with unknown output quantity. Text token limits are not image spending bounds.
 Auth/network/server errors, malformed discovery, unavailable routes and failed
-eligibility checks never activate fallback. Other output modalities and
+eligibility checks never activate fallback. Other output modalities and text/image
 streaming remain unsupported. Complete compatible upstream estimates still
 contribute their maximum to the local/minimum hold; failed monetary estimates
 are never treated as free. Without configured-price selection they fail closed.
@@ -82,6 +85,31 @@ Expressions
 see the final payload; unmeasured cache/media/task usage and recursive
 `provider_cost` estimates are rejected. No customer-billing expression snapshot
 is installed, and final charges still use full terminal `usage.cost`.
+
+Dedicated OpenRouter speech and transcription also use the same exact-model
+`configured_price` selector, configured price/expression and per-model minimum.
+Audio rates may represent characters, seconds, audio tokens or songs; text token
+limits and zero token tariffs do not establish a complete audio estimate. These
+operations therefore require a positive local/minimum hold and discovered output
+capability (`speech`, `transcription` or Chat `audio`).
+
+Speech uses `/audio/speech` with the existing string-input Audio DTO. Raw audio
+is buffered through EOF; the gateway then makes one authenticated metadata GET
+`/generation?id=<X-Generation-Id>` on the same configured upstream. Only a matching
+model/ID, uncancelled record with completed generation timing and validated numeric
+`total_cost` may release the audio and settle. Missing, delayed or invalid metadata
+fails closed and refunds the synchronous hold without replay. The authoritative
+cost source and generation ID are recorded in the admin consume metadata.
+
+Transcription uses OpenAI multipart `/audio/transcriptions`, one file up to 25 MiB,
+and JSON/verbose JSON responses with terminal `usage.cost`. Reservation expressions
+see the outgoing scalar form fields plus `file.filename`/`file.size`; file bytes
+are not text, audio seconds or audio tokens. Expressions requiring unmeasured
+`p`, `c` or `len` are rejected. `fixed()` or request-field expressions can supply
+the hold. Chat provider routing filters are not applied by OR's dedicated audio
+endpoints and are rejected here instead of being treated as price-pool constraints.
+JSON transcription, TTS SSE, input media in Chat and async audio tasks are outside
+this admitted path. Async video submission/settlement remains unchanged.
 
 `provider_cost` remains available to expressions for unchanged direct-provider
 and frozen legacy durable billing contracts. OpenRouter estimates are volume

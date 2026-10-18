@@ -189,12 +189,12 @@ func (e *RequestEstimator) EstimateWithLocalPrice(info *relaycommon.RelayInfo, b
 
 func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, operation string, localUSD *float64) (float64, error) {
 	var request struct {
-		Model       string   `json:"model"`
-		Models      []string `json:"models"`
-		Route       string   `json:"route"`
-		Preset      string   `json:"preset"`
-		ServiceTier string   `json:"service_tier"`
-		Speed       string   `json:"speed"`
+		Model       string          `json:"model"`
+		Models      []string        `json:"models"`
+		Route       string          `json:"route"`
+		Preset      string          `json:"preset"`
+		ServiceTier string          `json:"service_tier"`
+		Speed       json.RawMessage `json:"speed"`
 		Provider    struct {
 			Only              []string                   `json:"only"`
 			Ignore            []string                   `json:"ignore"`
@@ -228,7 +228,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		request.Provider.MaxPrice = nil
 		request.Provider.RequireParameters = false
 		request.ServiceTier = ""
-		request.Speed = ""
+		request.Speed = nil
 	}
 
 	if request.Route != "" && request.Route != "fallback" || request.Preset != "" || len(request.Plugins) > 0 {
@@ -260,6 +260,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	}
 	var modalities []string
 	imageOutput := false
+	audioOutput := false
+	dedicatedAudio := operation == "audio/speech" || operation == "audio/transcriptions"
 	if raw, ok := fields["modalities"]; ok {
 		if common.Unmarshal(raw, &modalities) != nil {
 			return 0, errors.New("invalid OpenRouter modalities")
@@ -267,6 +269,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		for _, modality := range modalities {
 			if modality == "image" {
 				imageOutput = true
+			} else if modality == "audio" {
+				audioOutput = true
 			} else if modality != "text" {
 				return 0, errors.New("OpenRouter output modality tariff is unavailable")
 			}
@@ -275,11 +279,53 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if imageOutput && (localUSD == nil || info.RelayFormat != types.RelayFormatOpenAI) {
 		return 0, errors.New("OpenRouter image output requires configured_price reservation and OpenAI Chat format")
 	}
+	if audioOutput && (imageOutput || operation != "chat/completions" || localUSD == nil || info.RelayFormat != types.RelayFormatOpenAI) {
+		return 0, errors.New("OpenRouter audio output requires configured_price reservation and OpenAI Chat format")
+	}
+	if audioOutput && (!request.Stream || !info.IsStream) {
+		return 0, errors.New("OpenRouter Chat audio output requires streaming")
+	}
+	if dedicatedAudio {
+		if localUSD == nil || info.RelayFormat != types.RelayFormatOpenAIAudio {
+			return 0, errors.New("OpenRouter audio endpoint requires configured_price reservation and OpenAI Audio format")
+		}
+		if operation == "audio/speech" {
+			modalities = []string{"speech"}
+		} else {
+			modalities = []string{"transcription"}
+		}
+		if format, present := fields["response_format"]; present {
+			var value string
+			if common.Unmarshal(format, &value) != nil || operation == "audio/transcriptions" && value != "" && value != "json" && value != "verbose_json" {
+				return 0, errors.New("OpenRouter transcription requires json or verbose_json response format")
+			}
+		}
+		var provider map[string]json.RawMessage
+		if raw, present := fields["provider"]; present && common.Unmarshal(raw, &provider) != nil {
+			return 0, errors.New("invalid OpenRouter audio provider options")
+		}
+		// Speech/transcription do not apply Chat provider routing preferences.
+		// Never claim that a Chat filter restricted their discovered price pool.
+		for key := range provider {
+			if key != "zdr" && key != "data_collection" && key != "options" {
+				return 0, errors.New("OpenRouter audio endpoints do not support Chat provider routing filters")
+			}
+		}
+	}
+	routingSpeed := ""
+	if !dedicatedAudio && len(request.Speed) > 0 && string(request.Speed) != "null" {
+		if common.Unmarshal(request.Speed, &routingSpeed) != nil {
+			return 0, errors.New("invalid OpenRouter routing speed")
+		}
+	}
 	imageCount, err := requestInputMediaQuantities(fields)
 	if err != nil {
 		return 0, err
 	}
 	prompt := max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), request.Model))
+	if dedicatedAudio {
+		prompt = 0
+	}
 	count := 1
 	if request.N != nil {
 		count = *request.N
@@ -311,7 +357,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		if math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD < 0 || *reserveUSD == 0 && localUSD == nil {
 			return 0, errors.New("invalid OpenRouter approximate reserve")
 		}
-		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || operation != "chat/completions" || request.Stream || info.IsStream || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
+		streamAllowed := audioOutput && localUSD != nil && request.Stream && info.IsStream
+		operationAllowed := operation == "chat/completions" || dedicatedAudio && localUSD != nil
+		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
 			return 0, errors.New("OpenRouter approximate reserve only supports one nonstream text chat response without routing or tools")
 		}
 	}
@@ -321,10 +369,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 	}
 	if localUSD != nil {
-		if info.RelayFormat != types.RelayFormatOpenAI {
+		if info.RelayFormat != types.RelayFormatOpenAI && !dedicatedAudio {
 			return 0, errors.New("OpenRouter configured price reserve requires OpenAI Chat format")
 		}
-		if raw, present := fields["audio"]; present && string(bytes.TrimSpace(raw)) != "null" {
+		if raw, present := fields["audio"]; present && string(bytes.TrimSpace(raw)) != "null" && !audioOutput {
 			return 0, errors.New("OpenRouter audio output remains unsupported by configured price reserve")
 		}
 	}
@@ -340,6 +388,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		endpoints, ok := e.Models[model]
 		if !ok {
 			return 0, fmt.Errorf("OpenRouter endpoint discovery missing for %s", model)
+		}
+		if (audioOutput || dedicatedAudio) && len(e.OutputModalities[model]) == 0 {
+			return 0, errors.New("OpenRouter audio model output capability is missing")
 		}
 		if declared := e.OutputModalities[model]; declared != nil {
 			if localUSD != nil && len(modalities) == 0 {
@@ -413,7 +464,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				tier = "priority"
 			}
 			requestedTier := request.ServiceTier
-			if requestedTier == "fast" || request.Speed == "fast" {
+			if requestedTier == "fast" || routingSpeed == "fast" {
 				requestedTier = "priority"
 			}
 			explicitTier := slices.Contains(request.Provider.Only, tag) || slices.Contains(request.Provider.Order, tag)
@@ -446,7 +497,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 			output := 0
 			outputUnknown := false
-			if operation != "embeddings" {
+			if operation != "embeddings" && !dedicatedAudio {
 				cap := request.MaxOutputTokens
 				if cap == nil {
 					cap = request.MaxCompletionTokens
@@ -535,7 +586,11 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 				var cost decimal.Decimal
 				var estimateErr error
-				if pricingErr != nil {
+				if audioOutput || dedicatedAudio {
+					// Audio rates may be per character, second, token or song.
+					// Token caps and zero token tariffs do not price those quantities.
+					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter audio monetary quantity is unmeasured")}
+				} else if pricingErr != nil {
 					estimateErr = &EstimateUnavailableError{Cause: pricingErr}
 				} else if outputUnknown {
 					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter endpoint lacks a finite default completion cap")}

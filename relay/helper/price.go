@@ -3,6 +3,7 @@ package helper
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -417,7 +418,7 @@ func EstimateConfiguredTaskReservation(modelName string, input billingexpr.Reque
 	return result, nil
 }
 
-func EstimateConfiguredModelReservation(modelName string, promptTokens, completionTokens int, input billingexpr.RequestInput) (ModelReservationEstimate, error) {
+func EstimateConfiguredModelReservation(modelName string, promptTokens, completionTokens int, input billingexpr.RequestInput, unavailableVars ...string) (ModelReservationEstimate, error) {
 	modelName = resolveBillingModelName(modelName)
 	result := ModelReservationEstimate{Model: modelName}
 	if promptTokens < 0 || completionTokens < 0 || completionTokens > MaxTokensLimit {
@@ -431,9 +432,12 @@ func EstimateConfiguredModelReservation(modelName string, promptTokens, completi
 		if !ok || strings.TrimSpace(expression) == "" {
 			return result, fmt.Errorf("model %s has no configured reservation expression", modelName)
 		}
-		// This first text-only path has no measured cache or media subcategories.
+		// Reservation has no measured cache or media subcategories.
 		// Expressions depending on those facts must not receive invented zeroes.
 		for variable := range billingexpr.UsedVars(expression) {
+			if slices.Contains(unavailableVars, variable) {
+				return result, fmt.Errorf("local reservation expression requires unavailable %s quantity", variable)
+			}
 			switch variable {
 			case "cr", "cc", "cc1h", "img", "img_o", "ai", "ao", "u":
 				return result, fmt.Errorf("local reservation expression requires unavailable %s quantity", variable)
