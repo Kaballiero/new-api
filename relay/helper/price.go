@@ -341,6 +341,77 @@ func resolveBillingModelName(origin string) string {
 	return matched
 }
 
+// ModelReservationEstimate is a base USD estimate, before group/FX or quota
+// conversion. It does not install a final-billing snapshot on a request.
+type ModelReservationEstimate struct {
+	USD      float64
+	Model    string
+	ExprHash string
+}
+
+func EstimateConfiguredModelReservation(modelName string, promptTokens, completionTokens int, input billingexpr.RequestInput) (ModelReservationEstimate, error) {
+	modelName = resolveBillingModelName(modelName)
+	result := ModelReservationEstimate{Model: modelName}
+	if promptTokens < 0 || completionTokens < 0 || completionTokens > MaxTokensLimit {
+		return result, fmt.Errorf("invalid local reservation token estimate")
+	}
+	if billing_setting.GetBillingMode(modelName) == billing_setting.BillingModeTieredExpr {
+		if completionTokens == 0 {
+			completionTokens = defaultTieredPreConsumeMaxTokens
+		}
+		expression, ok := billing_setting.GetConfiguredBillingExpr(modelName)
+		if !ok || strings.TrimSpace(expression) == "" {
+			return result, fmt.Errorf("model %s has no configured reservation expression", modelName)
+		}
+		// This first text-only path has no measured cache or media subcategories.
+		// Expressions depending on those facts must not receive invented zeroes.
+		for variable := range billingexpr.UsedVars(expression) {
+			switch variable {
+			case "cr", "cc", "cc1h", "img", "img_o", "ai", "ao", "u":
+				return result, fmt.Errorf("local reservation expression requires unavailable %s quantity", variable)
+			}
+		}
+		usd, _, err := estimateModelExpressionUSD(modelName, expression, promptTokens, completionTokens, input)
+		if err != nil {
+			return result, err
+		}
+		result.USD, result.ExprHash = usd, billingexpr.ExprHashString(expression)
+	} else if price, ok := ratio_setting.GetModelPrice(modelName, false); ok {
+		result.USD = price
+	} else if ratio_setting.HasConfiguredModelRatio(modelName) {
+		ratio, _, _ := ratio_setting.GetModelRatio(modelName)
+		// Preserve the legacy reservation heuristic, not a claim about actual
+		// completion/cache rates. Convert the unrounded quota convention to USD.
+		result.USD = (float64(max(promptTokens, common.PreConsumedQuota)) + float64(completionTokens)) * ratio / common.QuotaPerUnit
+	} else {
+		return result, fmt.Errorf("model %s has no configured reservation price", modelName)
+	}
+	if math.IsNaN(result.USD) || math.IsInf(result.USD, 0) || result.USD < 0 {
+		return result, fmt.Errorf("invalid configured reservation price for %s", modelName)
+	}
+	return result, nil
+}
+
+// estimateModelExpressionUSD is shared with ordinary tiered pre-consumption;
+// callers decide whether to install a customer-billing snapshot.
+func estimateModelExpressionUSD(modelName, expression string, promptTokens, completionTokens int, input billingexpr.RequestInput) (float64, billingexpr.TraceResult, error) {
+	providerCost := float64(0)
+	if billingexpr.UsedVars(expression)["provider_cost"] {
+		var valid bool
+		providerCost, valid = input.Usage["provider_cost"].(float64)
+		if !valid || providerCost < 0 || math.IsNaN(providerCost) || math.IsInf(providerCost, 0) {
+			return 0, billingexpr.TraceResult{}, fmt.Errorf("model %s requires a validated provider cost estimate", modelName)
+		}
+	}
+	raw, trace, err := billingexpr.RunExprWithRequest(expression, billingexpr.TokenParams{
+		P: float64(promptTokens), C: float64(completionTokens), Len: float64(promptTokens), ProviderCost: providerCost,
+	}, input)
+	if err != nil {
+		return 0, trace, fmt.Errorf("model %s tiered expr run failed: %w", modelName, err)
+	}
+	return raw / 1_000_000, trace, nil
+}
+
 func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billingModelName string, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo hosttypes.GroupRatioInfo, billingGroupRatio float64) (hosttypes.PriceData, error) {
 	exprStr, ok := billing_setting.GetBillingExpr(billingModelName)
 	if !ok {
@@ -360,27 +431,13 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 		return hosttypes.PriceData{}, err
 	}
 
-	providerCost := float64(0)
-	if billingexpr.UsedVars(exprStr)["provider_cost"] {
-		var valid bool
-		providerCost, valid = requestInput.Usage["provider_cost"].(float64)
-		if !valid || providerCost < 0 || math.IsNaN(providerCost) || math.IsInf(providerCost, 0) {
-			return hosttypes.PriceData{}, fmt.Errorf("model %s requires a validated provider cost estimate", billingModelName)
-		}
-	}
-
-	rawCost, trace, err := billingexpr.RunExprWithRequest(exprStr, billingexpr.TokenParams{
-		P:            float64(promptTokens),
-		C:            float64(estimatedCompletionTokens),
-		Len:          float64(promptTokens),
-		ProviderCost: providerCost,
-	}, requestInput)
+	usd, trace, err := estimateModelExpressionUSD(billingModelName, exprStr, promptTokens, estimatedCompletionTokens, requestInput)
 	if err != nil {
-		return hosttypes.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", billingModelName, err)
+		return hosttypes.PriceData{}, err
 	}
 
 	// Expression coefficients are $/1M tokens prices; convert to quota the same way per-call billing does.
-	quotaBeforeGroup := rawCost / 1_000_000 * common.QuotaPerUnit
+	quotaBeforeGroup := usd * common.QuotaPerUnit
 	preConsumedQuota, err := billingexpr.QuotaRoundStrict(quotaBeforeGroup * billingGroupRatio)
 	if err != nil {
 		return hosttypes.PriceData{}, err

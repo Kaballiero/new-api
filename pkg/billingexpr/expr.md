@@ -59,6 +59,19 @@ Synchronous unknown outcomes refund the existing hold without replay, so the
 gateway may bear upstream spend. Known-cost settlement failures retain applied
 money and record the funding/token discrepancy for manual repair.
 
+An explicit channel `setting.openrouter_reservation_source` entry of
+`{"vendor/model":"configured_price"}` additionally evaluates that request's
+configured NewAPI price/ratio/expression for admission. The entry is keyed by
+the final upstream model ID; the local price lookup retains the normal client
+billing identity. Missing entries or `"upstream"` keep the default behavior.
+This first path supports one nonstream text Chat response only, without tools,
+fallback models or media. Endpoint discovery, required tariffs and unknown
+charged-dimension guards remain mandatory. The hold is the maximum of the local
+USD estimate, known upstream estimate and the per-model minimum. Expressions
+see the final payload; unmeasured cache/media/task usage and recursive
+`provider_cost` estimates are rejected. No customer-billing expression snapshot
+is installed, and final charges still use full terminal `usage.cost`.
+
 `provider_cost` remains available to expressions for unchanged direct-provider
 and frozen legacy durable billing contracts. OpenRouter estimates are volume
 estimates rather than price locks or guaranteed spend ceilings.

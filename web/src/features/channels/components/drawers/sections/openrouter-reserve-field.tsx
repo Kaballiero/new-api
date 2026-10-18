@@ -39,32 +39,61 @@ type OpenRouterReserveFieldProps = {
 export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
   const { t } = useTranslation()
   return (
-    <FormField
-      control={props.control}
-      name='openrouter_model_reserve_usd'
-      render={({ field }) => (
-        <FormItem>
-          <FormLabel>{t('OpenRouter model reserves (USD)')}</FormLabel>
-          <FormDescription>
-            {t(
-              'Exact upstream model IDs mapped to minimum holds in USD. Empty object disables the policy. One nonstream text chat response only; tariffs and terminal actual cost are required. Full actual cost is charged, including excess. Legacy Sonar settings are migrated on save.'
-            )}
-          </FormDescription>
-          <FormControl>
-            <JsonCodeEditor
-              value={field.value || ''}
-              onChange={field.onChange}
-              name={field.name}
-              onBlur={field.onBlur}
-              textareaRef={field.ref}
-              ariaLabel={t('OpenRouter model reserves (USD)')}
-              disabled={props.disabled}
-              placeholder='{"perplexity/sonar-deep-research": 2}'
-            />
-          </FormControl>
-          <FormMessage />
-        </FormItem>
-      )}
-    />
+    <>
+      <FormField
+        control={props.control}
+        name='openrouter_reservation_source'
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('OpenRouter reservation sources')}</FormLabel>
+            <FormDescription>
+              {t(
+                'Map exact upstream model IDs to configured_price to reserve using the configured NewAPI price or expression. Default: upstream. One nonstream text chat response only; endpoint tariffs remain required. Known upstream costs and minimum holds are never reduced. Final charges always use OpenRouter actual cost.'
+              )}
+            </FormDescription>
+            <FormControl>
+              <JsonCodeEditor
+                value={field.value || ''}
+                onChange={field.onChange}
+                name={field.name}
+                onBlur={field.onBlur}
+                textareaRef={field.ref}
+                ariaLabel={t('OpenRouter reservation sources')}
+                disabled={props.disabled}
+                placeholder='{"other/reasoner": "configured_price"}'
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={props.control}
+        name='openrouter_model_reserve_usd'
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('OpenRouter model reserves (USD)')}</FormLabel>
+            <FormDescription>
+              {t(
+                'Exact upstream model IDs mapped to minimum holds in USD. Empty object disables the policy. One nonstream text chat response only; tariffs and terminal actual cost are required. Full actual cost is charged, including excess. Legacy Sonar settings are migrated on save.'
+              )}
+            </FormDescription>
+            <FormControl>
+              <JsonCodeEditor
+                value={field.value || ''}
+                onChange={field.onChange}
+                name={field.name}
+                onBlur={field.onBlur}
+                textareaRef={field.ref}
+                ariaLabel={t('OpenRouter model reserves (USD)')}
+                disabled={props.disabled}
+                placeholder='{"perplexity/sonar-deep-research": 2}'
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+    </>
   )
 }

@@ -22,6 +22,9 @@ type OpenRouterCostState struct {
 	ApproximateResearchReserveUSD *float64
 	ApproximateReserveUSD         *float64
 	ApproximateReserveModel       string
+	ConfiguredReserveUSD          *float64
+	ConfiguredReserveModel        string
+	ConfiguredReserveExprHash     string
 }
 
 func NewOpenRouterCostBasis(info *RelayInfo, estimatedUSD float64) common.OpenRouterCostBasis {

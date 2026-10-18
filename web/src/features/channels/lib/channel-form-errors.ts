@@ -40,6 +40,7 @@ const ADVANCED_SETTINGS_FIELDS = new Set<FieldPath<ChannelFormValues>>([
   'pass_through_body_enabled',
   'proxy',
   'openrouter_model_reserve_usd',
+  'openrouter_reservation_source',
   'http_protocol',
   'http2_connection_shards',
   'system_prompt',

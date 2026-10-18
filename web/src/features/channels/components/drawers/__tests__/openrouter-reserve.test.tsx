@@ -40,6 +40,7 @@ function ReserveForm(props: { disabled: boolean }) {
       key: 'local',
       models: 'other/reasoner',
       openrouter_model_reserve_usd: '{"other/reasoner":2}',
+      openrouter_reservation_source: '{"other/reasoner":"configured_price"}',
     },
     mode: 'onBlur',
   })
@@ -54,6 +55,24 @@ function ReserveForm(props: { disabled: boolean }) {
 }
 
 describe('OpenRouter reserve editor', () => {
+  test('edits and validates the reservation source', async () => {
+    render(<ReserveForm disabled={false} />)
+    const editor = screen.getByRole('textbox', {
+      name: 'OpenRouter reservation sources',
+    })
+    expect(editor).toHaveValue('{"other/reasoner":"configured_price"}')
+    fireEvent.input(editor, {
+      target: { value: '{"other/reasoner":"invalid"}' },
+    })
+    fireEvent.blur(editor)
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'Use exact model IDs with upstream or configured_price'
+        )
+      ).toBeVisible()
+    )
+  })
   test('shows current policy and reports invalid amounts at the field', async () => {
     render(<ReserveForm disabled={false} />)
     const editor = screen.getByRole('textbox', {
@@ -81,6 +100,9 @@ describe('OpenRouter reserve editor', () => {
     render(<ReserveForm disabled />)
     expect(
       screen.getByRole('textbox', { name: 'OpenRouter model reserves (USD)' })
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('textbox', { name: 'OpenRouter reservation sources' })
     ).toBeDisabled()
   })
 })

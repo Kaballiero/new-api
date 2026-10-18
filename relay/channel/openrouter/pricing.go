@@ -134,6 +134,16 @@ func ReadEndpointPrice(raw json.RawMessage) (float64, error) {
 // Estimate takes the complete maximum over eligible endpoints, preserving the
 // actual routing payload. Price strings are USD per token/request/image.
 func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, operation string) (float64, error) {
+	return e.estimate(info, body, operation, nil)
+}
+
+// EstimateWithLocalPrice retains all endpoint and request guards. A configured
+// price is an additional admission estimate, never a replacement for known cost.
+func (e *RequestEstimator) EstimateWithLocalPrice(info *relaycommon.RelayInfo, body []byte, operation string, localUSD float64) (float64, error) {
+	return e.estimate(info, body, operation, &localUSD)
+}
+
+func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, operation string, localUSD *float64) (float64, error) {
 	var request struct {
 		Model       string   `json:"model"`
 		Models      []string `json:"models"`
@@ -232,10 +242,23 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 	if info.ChannelMeta != nil {
 		reserveUSD = info.ChannelSetting.OpenRouterReserveUSD(request.Model)
 	}
+	if localUSD != nil {
+		if math.IsNaN(*localUSD) || math.IsInf(*localUSD, 0) || *localUSD < 0 {
+			return 0, errors.New("invalid OpenRouter configured price reserve")
+		}
+		if reserveUSD != nil && (math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD <= 0) {
+			return 0, errors.New("invalid OpenRouter approximate reserve")
+		}
+		minimum := *localUSD
+		if reserveUSD != nil {
+			minimum = max(minimum, *reserveUSD)
+		}
+		reserveUSD = &minimum
+	}
 	approximateReserve := reserveUSD != nil
 	sonarModel := request.Model == "perplexity/sonar-deep-research"
 	if approximateReserve {
-		if math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD <= 0 {
+		if math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD < 0 || *reserveUSD == 0 && localUSD == nil {
 			return 0, errors.New("invalid OpenRouter approximate reserve")
 		}
 		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || operation != "chat/completions" || request.Stream || info.IsStream || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
@@ -422,8 +445,12 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 					if _, ok := endpoint.Pricing[key]; !ok && !sonarModel && (key == "internal_reasoning" || key == "web_search") {
 						continue
 					}
-					if _, err := readRate(endpoint.Pricing[key]); err != nil {
+					rate, err := readRate(endpoint.Pricing[key])
+					if err != nil {
 						return 0, err
+					}
+					if *reserveUSD == 0 && (key == "internal_reasoning" || key == "web_search") && !rate.IsZero() {
+						return 0, errors.New("OpenRouter unknown billable quantity requires a positive reserve")
 					}
 				}
 			}

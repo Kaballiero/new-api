@@ -45,6 +45,50 @@ function reserveForm(setting: Record<string, unknown>) {
 }
 
 describe('OpenRouter model reserve channel form', () => {
+  test('reads and saves reservation sources independently from minimum holds', () => {
+    const sources = {
+      'other/reasoner': 'configured_price',
+      'other/text': 'upstream',
+    }
+    const form = reserveForm({ openrouter_reservation_source: sources })
+    expect(channelFormSchema.safeParse(form).success).toBe(true)
+    expect(
+      JSON.parse(buildSettingJSON(form)).openrouter_reservation_source
+    ).toEqual(sources)
+    expect(
+      JSON.parse(buildSettingJSON(form)).openrouter_model_reserve_usd
+    ).toBeUndefined()
+    form.openrouter_reservation_source = '{}'
+    expect(
+      JSON.parse(buildSettingJSON(form)).openrouter_reservation_source
+    ).toBeUndefined()
+  })
+
+  test.each([
+    'null',
+    '[]',
+    '{',
+    '{"other/*":"configured_price"}',
+    '{"other/text":"invalid"}',
+    '{"other/text":2}',
+  ])('rejects invalid reservation source %s at the advanced field', (value) => {
+    const form = reserveForm({})
+    form.openrouter_reservation_source = value
+    const result = channelFormSchema.safeParse(form)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(
+        result.error.issues.some(
+          (issue) => issue.path[0] === 'openrouter_reservation_source'
+        )
+      ).toBe(true)
+    }
+    expect(
+      hasAdvancedSettingsErrors({
+        openrouter_reservation_source: { message: 'invalid' },
+      })
+    ).toBe(true)
+  })
   test('reads and saves exact per-model amounts with mapping unchanged', () => {
     const policy = { 'perplexity/sonar-deep-research': 2, 'other/reasoner': 3 }
     const form = reserveForm({ openrouter_model_reserve_usd: policy })

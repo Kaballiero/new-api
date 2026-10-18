@@ -5,10 +5,13 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -81,16 +84,54 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		return nil, err
 	}
 	for _, model := range models {
+		if info.ChannelMeta == nil {
+			continue
+		}
+		source, configured := info.ChannelSetting.OpenRouterReservationSource[model]
+		if configured && source != dto.OpenRouterReservationUpstream && source != dto.OpenRouterReservationConfiguredPrice {
+			return nil, errors.New("invalid OpenRouter reservation source")
+		}
+		if source == dto.OpenRouterReservationConfiguredPrice && len(models) != 1 {
+			return nil, errors.New("OpenRouter configured price reserve only supports one nonstream text chat response")
+		}
+	}
+	for _, model := range models {
 		if err := estimator.Discover(c, info, adaptor, model); err != nil {
 			return nil, err
 		}
 	}
-	estimate, err := estimator.Estimate(info, body, operation)
+	var local *helper.ModelReservationEstimate
+	if len(models) == 1 && info.ChannelMeta != nil {
+		source := info.ChannelSetting.OpenRouterReservationSource[models[0]]
+		if source == dto.OpenRouterReservationConfiguredPrice {
+			completionTokens := 0
+			if meta != nil {
+				completionTokens = meta.MaxTokens
+			}
+			input := billingexpr.RequestInput{Body: body, Headers: info.RequestHeaders, EvaluatedAt: time.Now().UTC()}
+			value, err := helper.EstimateConfiguredModelReservation(info.GetBillingModelName(), max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), models[0])), completionTokens, input)
+			if err != nil {
+				return nil, err
+			}
+			local = &value
+		}
+	}
+	var estimate float64
+	if local != nil {
+		estimate, err = estimator.EstimateWithLocalPrice(info, body, operation, local.USD)
+	} else {
+		estimate, err = estimator.Estimate(info, body, operation)
+	}
 	if err != nil {
 		return nil, err
 	}
 	if err := ReserveCost(c, info, estimate); err != nil {
 		return nil, err
+	}
+	if local != nil {
+		info.OpenRouterCost.ConfiguredReserveUSD = common.GetPointer(local.USD)
+		info.OpenRouterCost.ConfiguredReserveModel = local.Model
+		info.OpenRouterCost.ConfiguredReserveExprHash = local.ExprHash
 	}
 	if len(models) == 1 {
 		reserve := info.ChannelSetting.OpenRouterReserveUSD(models[0])

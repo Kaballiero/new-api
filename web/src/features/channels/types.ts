@@ -80,6 +80,10 @@ export type Channel = z.infer<typeof channelSchema>
 // ============================================================================
 
 export interface ChannelSettings {
+  openrouter_reservation_source?: Record<
+    string,
+    'upstream' | 'configured_price'
+  >
   openrouter_model_reserve_usd?: Record<string, number>
   openrouter_sonar_research_reserve_usd?: number
   task_plugin_key?: string

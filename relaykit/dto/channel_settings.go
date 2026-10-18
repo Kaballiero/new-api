@@ -11,6 +11,13 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
+type OpenRouterReservationSource string
+
+const (
+	OpenRouterReservationUpstream        OpenRouterReservationSource = "upstream"
+	OpenRouterReservationConfiguredPrice OpenRouterReservationSource = "configured_price"
+)
+
 type ChannelSettings struct {
 	TaskPluginKey          string `json:"task_plugin_key,omitempty"`
 	ForceFormat            bool   `json:"force_format,omitempty"`
@@ -22,6 +29,9 @@ type ChannelSettings struct {
 	// OpenRouterModelReserveUSD selects approximate holds by exact upstream model ID.
 	// It never caps settlement or enables unsupported request modes.
 	OpenRouterModelReserveUSD map[string]float64 `json:"openrouter_model_reserve_usd,omitempty"`
+	// Source selection is explicit and keyed by the final upstream model ID.
+	// It affects admission only; terminal usage.cost still determines the charge.
+	OpenRouterReservationSource map[string]OpenRouterReservationSource `json:"openrouter_reservation_source,omitempty"`
 	// OpenRouterSonarResearchReserveUSD opts this channel into an approximate
 	// hold for perplexity/sonar-deep-research. Nil keeps admission disabled.
 	// It is not a price ceiling: full actual cost, including excess, is settled.
@@ -79,6 +89,14 @@ func (s *ChannelSettings) OpenRouterReserveUSD(model string) *float64 {
 func (s *ChannelSettings) ValidateOpenRouterReserves() error {
 	if s == nil {
 		return nil
+	}
+	for model, source := range s.OpenRouterReservationSource {
+		if model == "" || strings.TrimSpace(model) != model || strings.ContainsAny(model, " \t\r\n*") {
+			return fmt.Errorf("invalid OpenRouter reservation model ID: %q", model)
+		}
+		if source != OpenRouterReservationUpstream && source != OpenRouterReservationConfiguredPrice {
+			return fmt.Errorf("invalid OpenRouter reservation source for %s: %q", model, source)
+		}
 	}
 	for model, reserve := range s.OpenRouterModelReserveUSD {
 		if model == "" || strings.TrimSpace(model) != model || strings.ContainsAny(model, " \t\r\n*") {
