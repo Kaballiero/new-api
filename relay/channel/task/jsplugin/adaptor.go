@@ -24,10 +24,12 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -133,7 +135,8 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 // PrepareOpenRouterCost consumes the validated cached descriptor. It runs
-// before the task expression and multipliers, which are display-only here.
+// before pre-consumption. Configured task prices can raise the hold, while
+// terminal billing always remains the confirmed OpenRouter account cost.
 func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.RelayInfo) error {
 	if a.plugin.Meta.Key != "openrouter-video" {
 		return fmt.Errorf("not an OpenRouter video plugin")
@@ -149,6 +152,31 @@ func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.Re
 	if err != nil {
 		return err
 	}
+	var order openrouter.VideoPriceOrder
+	if err := common.Unmarshal(body, &order); err != nil {
+		return err
+	}
+	facts := order.UsageFacts()
+	if _, err := a.validatedUsageRatios(facts); err != nil {
+		return err
+	}
+	var local *helper.ModelReservationEstimate
+	source := info.ChannelSetting.OpenRouterReservationSource[order.Model]
+	switch source {
+	case "", kitdto.OpenRouterReservationUpstream:
+	case kitdto.OpenRouterReservationConfiguredPrice:
+		value, err := helper.EstimateConfiguredTaskReservation(info.GetBillingModelName(), billingexpr.RequestInput{Body: body, Headers: info.RequestHeaders, Usage: facts, EvaluatedAt: time.Now().UTC()})
+		if err != nil {
+			return err
+		}
+		local = &value
+		estimate = max(estimate, value.USD)
+	default:
+		return fmt.Errorf("invalid OpenRouter reservation source")
+	}
+	if minimum := info.ChannelSetting.OpenRouterReserveUSD(order.Model); minimum != nil {
+		estimate = max(estimate, *minimum)
+	}
 	basis := relaycommon.NewOpenRouterCostBasis(info, estimate)
 	basis.Version = model.TaskSettlementOpenRouterCostV2
 	quota, clamp, err := basis.Quota(estimate)
@@ -156,30 +184,18 @@ func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.Re
 		return err
 	}
 	info.QuotaClamp = clamp
-	var order openrouter.VideoPriceOrder
-	if err := common.Unmarshal(body, &order); err != nil {
-		return err
+	if clamp != nil {
+		return clamp
 	}
-	images, videos, audios := len(order.FrameImages), 0, 0
-	for _, reference := range order.InputReferences {
-		switch reference.Type {
-		case "image_url":
-			images++
-		case "video_url":
-			videos++
-		case "audio_url":
-			audios++
-		}
-	}
-	facts := map[string]any{"images": images, "videos": videos, "audios": audios, "jobs": 1, "resolution": order.Resolution, "size": order.Size, "aspect_ratio": order.AspectRatio}
-	if order.Duration != nil {
-		facts["requested_seconds"] = *order.Duration
-	}
-	if order.GenerateAudio != nil {
-		facts["generate_audio"] = *order.GenerateAudio
+	state := &relaycommon.OpenRouterCostState{Basis: basis}
+	if local != nil {
+		state.ConfiguredReserveUSD = common.GetPointer(local.USD)
+		state.ConfiguredReserveModel = local.Model
+		state.ConfiguredReserveExprHash = local.ExprHash
+		facts["reservation"] = map[string]any{"source": source, "model": local.Model, "usd": local.USD, "expr_hash": local.ExprHash}
 	}
 	c.Set("openrouter_video_order_facts", facts)
-	info.OpenRouterCost = &relaycommon.OpenRouterCostState{Basis: basis}
+	info.OpenRouterCost = state
 	info.PriceData.Quota, info.PriceData.QuotaToPreConsume = quota, quota
 	return nil
 }

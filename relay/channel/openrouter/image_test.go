@@ -271,6 +271,7 @@ func TestVideoOperationMonetaryEstimates(t *testing.T) {
 		prices      map[string]string
 		order       VideoPriceOrder
 		sizes       []string
+		sourceBased bool
 		want        float64
 		errorText   string
 	}{
@@ -289,9 +290,9 @@ func TestVideoOperationMonetaryEstimates(t *testing.T) {
 		{name: "finite size superset avoids guessed resolution map", model: "bytedance/seedance-2.5", prices: map[string]string{"video_tokens": "0.00001"}, order: VideoPriceOrder{Resolution: "480p"}, sizes: []string{"640x480", "1280x720"}, want: 1.08},
 		{name: "edit conservative 15 second maximum", model: "black-forest-labs/flux-video-edit", prices: map[string]string{"cents_per_second_output": "12"}, want: 1.8},
 		{name: "unknown SKU rejected", model: "runway/gen-4.5", prices: map[string]string{"cents_per_second_output": "12", "unexplained": "9"}, errorText: "unknown video pricing SKU"},
-		{name: "avatar quantity unavailable", model: "heygen/avatar-iv", prices: map[string]string{"duration_seconds": "0.1"}, errorText: "source media quantity"},
-		{name: "aleph quantity unavailable despite floor", model: "runway/aleph-2", prices: map[string]string{"cents_per_second_output": "10", "minimum_cents_per_generation": "50"}, errorText: "source media quantity"},
-		{name: "upscale quantity unavailable", model: "black-forest-labs/flux-video-upscale", prices: map[string]string{"cents_per_megapixel_second_precise": "1"}, errorText: "source media quantity"},
+		{name: "avatar quantity unavailable", model: "heygen/avatar-iv", prices: map[string]string{"duration_seconds": "0.1"}, sourceBased: true, errorText: "source media quantity"},
+		{name: "aleph quantity unavailable despite floor", model: "runway/aleph-2", prices: map[string]string{"cents_per_second_output": "10", "minimum_cents_per_generation": "50"}, sourceBased: true, errorText: "source media quantity"},
+		{name: "upscale quantity unavailable", model: "black-forest-labs/flux-video-upscale", prices: map[string]string{"cents_per_megapixel_second_precise": "1"}, sourceBased: true, errorText: "source media quantity"},
 		{name: "source video tokens unavailable", model: "bytedance/seedance-2.0", prices: map[string]string{"video_tokens": "0.1"}, order: VideoPriceOrder{InputReferences: []struct {
 			Type string `json:"type"`
 		}{{Type: "video_url"}}}, sizes: []string{"1280x720"}, errorText: "source video token quantity"},
@@ -300,7 +301,75 @@ func TestVideoOperationMonetaryEstimates(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.order.Model = tc.model
 			model := VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedDurations: []int{3, 5}, SupportedSizes: tc.sizes, SupportedResolutions: []string{"480p", "720p"}}
+			if tc.sourceBased {
+				// These discovery records have no finite output durations. Do not
+				// fabricate quantities to exercise their monetary SKU.
+				model.SupportedDurations = nil
+			}
 			cost, err := EstimateVideoOrder(model, tc.order)
+			if tc.errorText != "" {
+				require.ErrorContains(t, err, tc.errorText)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
+		})
+	}
+}
+
+func TestHeyGenVideoReservation(t *testing.T) {
+	for _, tc := range []struct {
+		name, order      string
+		images           int
+		tariffKey, value string
+		want             float64
+		errorText        string
+	}{
+		{name: "text without references", order: `{"duration":5,"resolution":"480p"}`, want: 0.10},
+		{name: "first frame uses ordinary output", order: `{"duration":5,"resolution":"480p","frame_images":[{"type":"image_url"}]}`, want: 0.10},
+		{name: "one free reference", order: `{"duration":5,"resolution":"480p"}`, images: 1, want: 0.35},
+		{name: "two free references", order: `{"duration":5,"resolution":"480p"}`, images: 2, want: 0.35},
+		{name: "third reference is additive", order: `{"duration":5,"resolution":"480p"}`, images: 3, want: 0.39},
+		{name: "maximum image references", order: `{"duration":5,"resolution":"480p"}`, images: 9, want: 0.63},
+		{name: "reference tariff counts output seconds", order: `{"duration":5,"resolution":"480p","input_references":[{"type":"video_url"}]}`, want: 0.35},
+		{name: "uppercase capability matches SKU", order: `{"duration":5,"resolution":"2K"}`, want: 0.50},
+		{name: "uppercase reference resolution", order: `{"duration":5,"resolution":"2K"}`, images: 3, want: 0.94},
+		{name: "omitted duration and resolution reserve maximum", order: `{}`, want: 1.50},
+		{name: "omitted reference defaults reserve maximum plus inputs", order: `{}`, images: 3, want: 2.74},
+		{name: "explicit zero image tariff", order: `{"duration":5,"resolution":"480p"}`, images: 3, tariffKey: "reference_input_images", value: "0", want: 0.35},
+		{name: "missing image tariff with paid references", order: `{}`, images: 3, tariffKey: "reference_input_images", errorText: "missing reference image tariff"},
+		{name: "missing image tariff with free references", order: `{"duration":5,"resolution":"480p"}`, images: 2, tariffKey: "reference_input_images", want: 0.35},
+		{name: "negative image tariff", order: `{}`, tariffKey: "reference_input_images", value: "-0.04", errorText: "invalid video tariff"},
+		{name: "invalid image tariff", order: `{}`, tariffKey: "reference_input_images", value: "NaN", errorText: "invalid video tariff"},
+		{name: "unknown monetary SKU", order: `{}`, tariffKey: "unknown_charge", value: "1", errorText: "unknown video pricing SKU"},
+		{name: "too many references", order: `{}`, images: 10, errorText: "unsupported HeyGen reference quantities"},
+		{name: "mixed frame and references", order: `{"frame_images":[{"type":"image_url"}]}`, images: 1, errorText: "unsupported HeyGen reference quantities"},
+		{name: "audio remains unpriced", order: `{"input_references":[{"type":"image_url"},{"type":"audio_url"}]}`, errorText: "audio reference tariff is unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := VideoModelPricing{
+				ID: "heygen/heygen-video-1", SupportedDurations: []int{5, 15}, SupportedResolutions: []string{"480p", "768p", "2K"},
+				PricingSKUs: map[string]string{
+					"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036", "duration_seconds_2k": "0.1",
+					"reference_duration_seconds_480p": "0.07", "reference_duration_seconds_768p": "0.1", "reference_duration_seconds_2k": "0.18",
+					"reference_input_images": "0.04",
+				},
+			}
+			if tc.tariffKey != "" {
+				if tc.value == "" {
+					delete(model.PricingSKUs, tc.tariffKey)
+				} else {
+					model.PricingSKUs[tc.tariffKey] = tc.value
+				}
+			}
+			var order VideoPriceOrder
+			require.NoError(t, common.Unmarshal([]byte(tc.order), &order))
+			order.Model = model.ID
+			if tc.images > 0 {
+				references := "[" + strings.TrimSuffix(strings.Repeat(`{"type":"image_url"},`, tc.images), ",") + "]"
+				require.NoError(t, common.Unmarshal([]byte(references), &order.InputReferences))
+			}
+			cost, err := EstimateVideoOrder(model, order)
 			if tc.errorText != "" {
 				require.ErrorContains(t, err, tc.errorText)
 				return
@@ -328,6 +397,41 @@ func TestVideoFreshDiscoveryBeforeTransport(t *testing.T) {
 	require.NoError(t, err)
 	assert.InDelta(t, 3, cost, 1e-12, "fresh tariff and maximum supported duration replace embedded catalog prices")
 	assert.Equal(t, 1, requests)
+}
+
+func TestVideoQuantityContractsWithoutModelFamilies(t *testing.T) {
+	for _, tc := range []struct {
+		name, model, prices, order string
+		want                       float64
+		errorText                  string
+	}{
+		{"USD seconds", "catalog/new-seconds-model", `{"duration_seconds_480p":"0.02"}`, `{"resolution":"480p"}`, 0.1, ""},
+		{"cents seconds", "catalog/new-cents-model", `{"cents_per_second_output":"28"}`, `{}`, 1.4, ""},
+		{"minimum is a floor", "catalog/new-cents-model", `{"cents_per_second_output":"10","minimum_cents_per_generation":"56"}`, `{}`, 0.56, ""},
+		{"higher output exceeds minimum", "catalog/new-cents-model", `{"cents_per_second_output":"28","minimum_cents_per_generation":"56"}`, `{}`, 1.4, ""},
+		{"zero remains zero", "catalog/new-zero-model", `{"duration_seconds":"0","minimum_cents_per_generation":"0"}`, `{}`, 0, ""},
+		{"unknown image allowance is not guessed", "catalog/new-reference-model", `{"duration_seconds":"0.1","reference_input_images":"0.04"}`, `{}`, 0, "unknown video pricing SKU"},
+		{"unknown SKU remains closed", "catalog/new-seconds-model", `{"duration_seconds":"0.1","extra_charge":"1"}`, `{}`, 0, "unknown video pricing SKU"},
+		{"different output units cannot be max alternatives", "bytedance/seedance-2.0", `{"duration_seconds":"0.1","video_tokens":"0.001"}`, `{}`, 0, "incompatible video output quantity units"},
+		{"token price does not define a pixel meter", "catalog/new-token-model", `{"video_tokens":"0.001"}`, `{}`, 0, "video token quantity contract is unavailable"},
+		{"paid output format is not free", "runway/gen-4.5", `{"cents_per_second_output":"28"}`, `{"provider":{"options":{"runway":{"output_format":"prores"}}}}`, 0, "unpriced output format"},
+		{"ordinary mp4 output", "runway/gen-4.5", `{"cents_per_second_output":"28"}`, `{"provider":{"options":{"runway":{"output_format":"mp4"}}}}`, 1.4, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := VideoModelPricing{ID: tc.model, SupportedDurations: []int{3, 5}, SupportedResolutions: []string{"480p"}}
+			require.NoError(t, common.Unmarshal([]byte(tc.prices), &model.PricingSKUs))
+			var order VideoPriceOrder
+			require.NoError(t, common.Unmarshal([]byte(tc.order), &order))
+			order.Model = model.ID
+			cost, err := EstimateVideoOrder(model, order)
+			if tc.errorText != "" {
+				require.ErrorContains(t, err, tc.errorText)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
+		})
+	}
 }
 
 func TestEndpointRequestReservation(t *testing.T) {

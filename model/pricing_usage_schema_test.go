@@ -324,9 +324,10 @@ func TestPricingHeygenReferenceOperationsUseEligibleTariff(t *testing.T) {
 	offers := plugin.Meta.PriceCatalog.Models["heygen/heygen-video-1"]
 	require.NotEmpty(t, offers)
 	for _, scenario := range []struct {
-		operation string
-		amountUSD float64
-	}{{"text_to_video", .02}, {"image_to_video", .04}, {"video_to_video", .04}} {
+		operation      string
+		amountUSD      float64
+		referenceInput bool
+	}{{"text_to_video", .02, false}, {"image_to_video", .02, false}, {"video_to_video", .07, true}} {
 		t.Run(scenario.operation, func(t *testing.T) {
 			eligible := make([]CatalogOffer, 0)
 			for _, offer := range offers {
@@ -336,7 +337,15 @@ func TestPricingHeygenReferenceOperationsUseEligibleTariff(t *testing.T) {
 			}
 			selected := SelectCatalogOffer(eligible)
 			require.NotNil(t, selected)
-			require.Len(t, selected.Prices, 1)
+			if scenario.referenceInput {
+				require.Len(t, selected.Prices, 2)
+				assert.Equal(t, "additional_reference_input", selected.Prices[1].Component)
+				assert.Equal(t, "image", selected.Prices[1].Unit)
+				// A flat price cannot represent the first two reference images free.
+				assert.Nil(t, selected.Prices[1].AmountUSD)
+			} else {
+				require.Len(t, selected.Prices, 1)
+			}
 			assert.Equal(t, "video_output", selected.Prices[0].Component)
 			assert.Equal(t, "second", selected.Prices[0].Unit)
 			require.NotNil(t, selected.Prices[0].AmountUSD)

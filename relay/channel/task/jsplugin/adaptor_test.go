@@ -23,6 +23,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1434,6 +1436,99 @@ export function parseBatchResult(){return [];}
 	assert.Equal(t, []any{"task-a", "task-b"}, captured["ids"])
 	assert.Equal(t, []any{"model-a", "model-b"}, captured["models"])
 	assert.Equal(t, false, captured["hasRequestBody"])
+}
+
+func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
+	service.InitHttpClient()
+	source, err := plugins.Source("openrouter-video")
+	require.NoError(t, err)
+	plugin, err := pluginruntime.NewRegistry().RegisterFactory(source, pluginruntime.Options{Key: "openrouter-video"})
+	require.NoError(t, err)
+	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
+	previous := *settings
+	t.Cleanup(func() { *settings = previous })
+	for _, tc := range []struct {
+		name, model, expression, sourceKey, errorText string
+		minimum, want                                 float64
+		omitDuration, unknownTariff, sourceOnly       bool
+	}{
+		{name: "USD task units on Veo", model: "google/veo-3.1-lite", expression: `tier("video", u("requested_seconds") * 0.1)`, want: 0.4},
+		{name: "same contract on Runway", model: "runway/gen-4.5", expression: `tier("video", u("requested_seconds") * 0.1)`, want: 0.4},
+		{name: "upstream floor protects zero local price", expression: `tier("zero", u("jobs") * 0)`, want: 0.08},
+		{name: "independent minimum", expression: `tier("video", u("jobs") * 0.4)`, minimum: 0.6, want: 0.6},
+		{name: "selector uses final ID", sourceKey: "client-alias", expression: `invalid(`, want: 0.08},
+		{name: "missing quantity does not become zero", expression: `tier("video", u("source_seconds") ?? 0)`, errorText: "unavailable"},
+		{name: "omitted requested duration stays absent", expression: `tier("video", u("requested_seconds") * 0.1)`, omitDuration: true, errorText: "unavailable"},
+		{name: "token dimensions unavailable", expression: `tier("video", p * 2)`, errorText: "unavailable p"},
+		{name: "provider cost is not recursive", expression: `tier("video", provider_cost)`, errorText: "unavailable provider_cost"},
+		{name: "dynamic usage key rejected", expression: `tier("video", u(param("field")) ?? 0)`, errorText: "literal usage keys"},
+		{name: "unknown tariff cannot be bypassed", expression: `tier("video", u("jobs"))`, unknownTariff: true, errorText: "unknown video pricing SKU"},
+		{name: "source quantity cannot be bypassed", model: "heygen/avatar-iv", expression: `tier("video", u("jobs"))`, sourceOnly: true, errorText: "source media quantity"},
+		{name: "saturated hold is rejected", expression: `tier("video", u("jobs") * 1e300)`, errorText: "quota"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.model == "" {
+				tc.model = "google/veo-3.1-lite"
+			}
+			settings.BillingMode = map[string]string{"client-alias": billing_setting.BillingModeTieredExpr}
+			settings.BillingExpr = map[string]string{"client-alias": tc.expression}
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				require.Equal(t, http.MethodGet, r.Method, "pricing cannot dispatch a paid job")
+				require.Equal(t, "/v1/videos/models", r.URL.Path)
+				prices := map[string]string{"duration_seconds": "0.02"}
+				if tc.model == "runway/gen-4.5" {
+					prices = map[string]string{"cents_per_second_output": "2"}
+				}
+				if tc.unknownTariff {
+					prices["extra_charge"] = "1"
+				}
+				durations := []int{4, 5}
+				if tc.sourceOnly {
+					durations = nil
+				}
+				catalog, err := common.Marshal(map[string]any{"data": []any{map[string]any{"id": tc.model, "supported_durations": durations, "supported_resolutions": []string{"720p"}, "pricing_skus": prices}}})
+				require.NoError(t, err)
+				_, err = w.Write(catalog)
+				require.NoError(t, err)
+			}))
+			defer server.Close()
+			body := map[string]any{"model": tc.model, "duration": 4, "resolution": "720p"}
+			if tc.omitDuration || tc.sourceOnly {
+				delete(body, "duration")
+			}
+			adaptor := New(plugin)
+			adaptor.submit = &requestDescriptor{Body: body}
+			key := tc.model
+			if tc.sourceKey != "" {
+				key = tc.sourceKey
+			}
+			info := &relaycommon.RelayInfo{OriginModelName: "client-alias", ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: server.URL, ApiKey: "fixture-key", UpstreamModelName: tc.model,
+				ChannelSetting: dto.ChannelSettings{OpenRouterReservationSource: map[string]dto.OpenRouterReservationSource{key: dto.OpenRouterReservationConfiguredPrice}, OpenRouterModelReserveUSD: map[string]float64{tc.model: tc.minimum}}}}
+			info.PriceData.BillingGroupRatio = 2
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+			// An unrelated raw context must not replace the prepared order facts.
+			c.Set("task_request", map[string]any{"duration": 999})
+			err := adaptor.PrepareOpenRouterCost(c, info)
+			assert.Equal(t, 1, requests)
+			if tc.errorText != "" {
+				require.ErrorContains(t, err, tc.errorText)
+				assert.Nil(t, info.OpenRouterCost)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, info.OpenRouterCost)
+			assert.InDelta(t, tc.want, info.OpenRouterCost.Basis.EstimatedUSD, 1e-12)
+			assert.Equal(t, float64(2), info.OpenRouterCost.Basis.EffectiveGroupRatio)
+			assert.Nil(t, info.TieredBillingSnapshot, "local expression must not become final billing")
+			assert.Equal(t, model.TaskSettlementOpenRouterCostV2, info.OpenRouterCost.Basis.Version)
+			facts, ok := c.Get("openrouter_video_order_facts")
+			require.True(t, ok)
+			assert.Equal(t, "text_to_video", facts.(map[string]any)["generation_mode"])
+		})
+	}
 }
 
 func TestOpenRouterVideoCostConfirmationVersions(t *testing.T) {

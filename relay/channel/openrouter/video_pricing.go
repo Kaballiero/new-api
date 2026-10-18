@@ -29,12 +29,14 @@ type VideoModelPricing struct {
 }
 
 type VideoPriceOrder struct {
-	Model         string `json:"model"`
-	Duration      *int   `json:"duration"`
-	Resolution    string `json:"resolution"`
-	AspectRatio   string `json:"aspect_ratio"`
-	Size          string `json:"size"`
-	GenerateAudio *bool  `json:"generate_audio"`
+	Model         string   `json:"model"`
+	Duration      *int     `json:"duration"`
+	Resolution    string   `json:"resolution"`
+	AspectRatio   string   `json:"aspect_ratio"`
+	Size          string   `json:"size"`
+	GenerateAudio *bool    `json:"generate_audio"`
+	UpscaleFactor *float64 `json:"upscale_factor"`
+	Creativity    *int     `json:"creativity"`
 	FrameImages   []struct {
 		Type string `json:"type"`
 	} `json:"frame_images"`
@@ -44,6 +46,52 @@ type VideoPriceOrder struct {
 	Provider struct {
 		Options map[string]map[string]any `json:"options"`
 	} `json:"provider"`
+}
+
+// UsageFacts describes the prepared order, never measurements of source media.
+// Missing scalar quantities stay absent so expressions cannot price them as zero.
+func (order VideoPriceOrder) UsageFacts() map[string]any {
+	images, videos, audios := len(order.FrameImages), 0, 0
+	for _, reference := range order.InputReferences {
+		switch reference.Type {
+		case "image_url":
+			images++
+		case "video_url":
+			videos++
+		case "audio_url":
+			audios++
+		}
+	}
+	mode := "text_to_video"
+	if len(order.FrameImages) > 0 {
+		mode = "image_to_video"
+	} else if len(order.InputReferences) > 0 {
+		mode = "reference_to_video"
+	}
+	facts := map[string]any{"images": images, "frame_images": len(order.FrameImages), "reference_images": images - len(order.FrameImages), "videos": videos, "audios": audios, "jobs": 1, "generation_mode": mode, "audio": "default", "creativity": "default"}
+	for key, value := range map[string]string{"resolution": order.Resolution, "size": order.Size, "aspect_ratio": order.AspectRatio} {
+		if value == "" {
+			value = "default"
+		}
+		facts[key] = value
+	}
+	if order.Duration != nil {
+		facts["requested_seconds"] = *order.Duration
+	}
+	if order.GenerateAudio != nil {
+		if *order.GenerateAudio {
+			facts["audio"] = "enabled"
+		} else {
+			facts["audio"] = "disabled"
+		}
+	}
+	if order.UpscaleFactor != nil {
+		facts["upscale_factor"] = *order.UpscaleFactor
+	}
+	if order.Creativity != nil {
+		facts["creativity"] = strconv.Itoa(*order.Creativity)
+	}
+	return facts
 }
 
 // EstimateVideo prices the descriptor cached by plugin validation, using fresh
@@ -108,25 +156,31 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 	if model.ID != order.Model || len(model.PricingSKUs) == 0 {
 		return fail("missing operation tariff")
 	}
-	if slices.Contains([]string{"heygen/avatar-iv", "runway/aleph-2", "black-forest-labs/flux-video-upscale"}, model.ID) {
-		return fail("source media quantity is unavailable for " + model.ID)
+	// Unit/quantity contracts select the calculation. Model names never admit
+	// a monetary family; the few rules below fill gaps in public discovery.
+	videoTokens, referenceOutput, continuationOutput := false, false, false
+	quantityUnit := ""
+	for key := range model.PricingSKUs {
+		variant := videoSKUVariant.FindStringSubmatch(key)
+		if variant == nil {
+			continue
+		}
+		unit := "second"
+		if variant[2] == "video_tokens" {
+			unit = "token"
+		}
+		if quantityUnit != "" && quantityUnit != unit {
+			return fail("incompatible video output quantity units")
+		}
+		quantityUnit = unit
+		videoTokens = videoTokens || variant[2] == "video_tokens"
+		referenceOutput = referenceOutput || variant[2] == "reference_duration_seconds"
+		continuationOutput = continuationOutput || variant[2] == "cents_per_second_video_continuation"
 	}
-	family := ""
-	switch {
-	case slices.Contains([]string{"x-ai/grok-imagine-video", "x-ai/grok-imagine-video-1.5", "x-ai/grok-imagine-video-1.5-lite"}, model.ID):
-		family = "grok"
-	case model.ID == "heygen/heygen-video-1":
-		family = "heygen"
-	case model.ID == "minimax/hailuo-3":
-		family = "hailuo3"
-	case slices.Contains([]string{"black-forest-labs/flux-3-video", "runway/gen-4.5", "black-forest-labs/flux-video-edit"}, model.ID):
-		family = "cents"
-	case slices.Contains([]string{"bytedance/seedance-2.0", "bytedance/seedance-2.0-mini", "bytedance/seedance-2.0-fast", "bytedance/seedance-1-5-pro", "bytedance/seedance-2.5"}, model.ID):
-		family = "tokens"
-	case slices.Contains([]string{"minimax/hailuo-3-max", "alibaba/wan-3.0", "alibaba/wan-3.0-prime", "alibaba/happyhorse-1.0", "alibaba/happyhorse-1.1", "kwaivgi/kling-v3.0-pro", "kwaivgi/kling-v3.0-std", "google/veo-3.1", "google/veo-3.1-fast", "google/veo-3.1-lite", "kwaivgi/kling-video-o1", "minimax/hailuo-2.3", "alibaba/wan-2.7", "alibaba/wan-2.6"}, model.ID):
-		family = "seconds"
-	default:
-		return fail("unknown video monetary model family")
+	// Discovery exposes a token price, but not its pixel/FPS meter. Do not
+	// extend the documented 24fps/1024px quantity contract to unknown models.
+	if videoTokens && !slices.Contains([]string{"bytedance/seedance-2.0", "bytedance/seedance-2.0-mini", "bytedance/seedance-2.0-fast", "bytedance/seedance-1-5-pro", "bytedance/seedance-2.5"}, model.ID) {
+		return fail("video token quantity contract is unavailable")
 	}
 	images, videos, audios := len(order.FrameImages), 0, 0
 	for _, ref := range order.InputReferences {
@@ -141,18 +195,31 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 			return fail("unknown input reference quantity")
 		}
 	}
-	if family == "grok" && images > 0 {
+	referenceImages := images - len(order.FrameImages)
+	if model.ID == "heygen/heygen-video-1" {
+		if len(order.FrameImages) > 1 || len(order.FrameImages) > 0 && len(order.InputReferences) > 0 || referenceImages > 9 || videos > 3 || audios > 3 || len(order.InputReferences) > 12 {
+			return fail("unsupported HeyGen reference quantities")
+		}
+		if referenceImages > 2 {
+			if _, ok := model.PricingSKUs["reference_input_images"]; !ok {
+				return fail("missing reference image tariff")
+			}
+		}
+	}
+	// Discovery omits the image surcharge requirement and the free allowances.
+	// These documented compatibility rules do not select the output calculation.
+	if slices.Contains([]string{"x-ai/grok-imagine-video", "x-ai/grok-imagine-video-1.5", "x-ai/grok-imagine-video-1.5-lite"}, model.ID) && images > 0 {
 		if _, ok := model.PricingSKUs["cents_per_image_input"]; !ok {
 			return fail("missing image input tariff")
 		}
 	}
-	if family == "hailuo3" && images > 5 {
+	if model.ID == "minimax/hailuo-3" && images > 5 {
 		if _, ok := model.PricingSKUs["reference_images"]; !ok {
 			return fail("missing reference image tariff")
 		}
 	}
-	if family == "tokens" && videos > 0 {
-		return fail("Seedance source video token quantity is unavailable")
+	if videoTokens && videos > 0 {
+		return fail("source video token quantity is unavailable")
 	}
 	if audios > 0 {
 		return fail("audio reference tariff is unavailable")
@@ -160,7 +227,11 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 	// Only options documented as nonmonetary are admitted here. The plugin's
 	// broader protocol allowlist does not establish their pricing semantics.
 	for _, options := range order.Provider.Options {
-		for key := range options {
+		for key, value := range options {
+			// Output containers can carry a surcharge (e.g. Runway ProRes/HDR).
+			if key == "output_format" && value != "mp4" {
+				return fail("unpriced output format")
+			}
 			if !slices.Contains([]string{"watermark", "req_key", "negative_prompt", "cfg_scale", "output_format"}, key) {
 				return fail("unpriced provider option: " + key)
 			}
@@ -181,7 +252,7 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 		duration = 15
 	}
 	if duration <= 0 || duration > relaycommon.MaxTaskDurationSeconds {
-		return fail("bounded output duration is unavailable")
+		return fail("bounded output duration is unavailable: source media quantity is required")
 	}
 	if order.Resolution != "" && !slices.Contains(model.SupportedResolutions, order.Resolution) {
 		return fail("resolution absent from fresh capabilities")
@@ -193,7 +264,7 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 	if order.Size != "" && !slices.Contains(model.SupportedSizes, order.Size) {
 		return fail("size absent from fresh capabilities")
 	}
-	if order.Size == "" && family == "tokens" {
+	if order.Size == "" && videoTokens {
 		sizes = model.SupportedSizes
 	}
 	if len(sizes) == 0 {
@@ -202,18 +273,27 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 	maxCost := decimal.Zero
 	haveOutput := false
 	additive := decimal.Zero
+	minimum := decimal.Zero
 	for key, raw := range model.PricingSKUs {
 		rate, err := decimal.NewFromString(raw)
 		number, _ := rate.Float64()
 		if err != nil || rate.IsNegative() || math.IsNaN(number) || math.IsInf(number, 0) {
 			return fail("invalid video tariff")
 		}
-		if key == "cents_per_image_input" && family == "grok" {
+		if key == "cents_per_image_input" {
 			additive = additive.Add(rate.Mul(decimal.NewFromInt(int64(images))).Div(decimal.NewFromInt(100)))
 			continue
 		}
-		if key == "reference_images" && family == "hailuo3" {
+		if key == "reference_images" && model.ID == "minimax/hailuo-3" {
 			additive = additive.Add(rate.Mul(decimal.NewFromInt(int64(max(images-5, 0)))))
+			continue
+		}
+		if key == "reference_input_images" && model.ID == "heygen/heygen-video-1" {
+			additive = additive.Add(rate.Mul(decimal.NewFromInt(int64(max(referenceImages-2, 0)))))
+			continue
+		}
+		if key == "minimum_cents_per_generation" {
+			minimum = rate.Div(decimal.NewFromInt(100))
 			continue
 		}
 		variant := videoSKUVariant.FindStringSubmatch(key)
@@ -221,31 +301,27 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 			return fail("unknown video pricing SKU: " + key)
 		}
 		mode, unit, audio, resolution, source := variant[1], variant[2], variant[3], variant[4], variant[5]
-		allowed := family == "grok" && unit == "cents_per_video_output_second" || family == "seconds" && unit == "duration_seconds" || family == "hailuo3" && unit == "duration_seconds" || family == "heygen" && (unit == "duration_seconds" || unit == "reference_duration_seconds") || family == "tokens" && unit == "video_tokens" || family == "cents" && (unit == "cents_per_second_output" || unit == "cents_per_second_video_continuation")
-		if !allowed {
-			return fail("inconsistent video pricing SKU: " + key)
-		}
 		if mode == "text_to_video" && images > 0 || mode == "image_to_video" && images == 0 {
 			continue
 		}
 		if order.GenerateAudio != nil && (audio == "with_audio" && !*order.GenerateAudio || audio == "without_audio" && *order.GenerateAudio) {
 			continue
 		}
-		if resolution != "" && order.Resolution != "" && resolution != order.Resolution {
+		if resolution != "" && order.Resolution != "" && !strings.EqualFold(resolution, order.Resolution) {
 			continue
 		}
 		if source != "" && videos == 0 {
 			continue
 		}
-		if family == "heygen" && (unit == "reference_duration_seconds") != (images > 0 || videos > 0) {
+		if referenceOutput && (unit == "reference_duration_seconds") != (len(order.InputReferences) > 0) {
 			continue
 		}
-		if model.ID == "black-forest-labs/flux-3-video" && (unit == "cents_per_second_video_continuation") != (videos > 0) {
+		if continuationOutput && (unit == "cents_per_second_video_continuation") != (videos > 0) {
 			continue
 		}
 		for _, size := range sizes {
 			quantity := decimal.NewFromInt(int64(duration))
-			if family == "tokens" {
+			if unit == "video_tokens" {
 				widthText, heightText, ok := strings.Cut(size, "x")
 				width, e1 := strconv.Atoi(widthText)
 				height, e2 := strconv.Atoi(heightText)
@@ -279,9 +355,13 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 	if !haveOutput {
 		return fail("no compatible output tariff")
 	}
-	total, _ := maxCost.Add(additive).Float64()
-	if math.IsNaN(total) || math.IsInf(total, 0) {
+	total := maxCost.Add(additive)
+	if minimum.GreaterThan(total) {
+		total = minimum
+	}
+	usd, _ := total.Float64()
+	if math.IsNaN(usd) || math.IsInf(usd, 0) {
 		return fail("video estimate overflow")
 	}
-	return total, nil
+	return usd, nil
 }
