@@ -28,6 +28,8 @@ type ChannelSettings struct {
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
 	// OpenRouterModelReserveUSD selects approximate holds by exact upstream model ID.
 	// It never caps settlement or enables unsupported request modes.
+	// Dedicated speech/transcription may use it without a global model price;
+	// an explicit configured_price source still requires its configured price.
 	OpenRouterModelReserveUSD map[string]float64 `json:"openrouter_model_reserve_usd,omitempty"`
 	// Source selection is explicit and keyed by the final upstream model ID.
 	// It affects admission only; terminal usage.cost still determines the charge.

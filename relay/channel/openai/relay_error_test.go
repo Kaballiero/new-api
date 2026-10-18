@@ -63,13 +63,13 @@ func newEmbeddedErrorTestRequest(body string, statusCode int) (*gin.Context, *ht
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return c, recorder, &http.Response{
-		StatusCode: statusCode,
-		Body:       io.NopCloser(strings.NewReader(body)),
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-	}, &relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{},
-		RelayFormat: types.RelayFormatOpenAI,
-	}
+			StatusCode: statusCode,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+		}, &relaycommon.RelayInfo{
+			ChannelMeta: &relaycommon.ChannelMeta{},
+			RelayFormat: types.RelayFormatOpenAI,
+		}
 }
 
 func assertEmbeddedOpenAIError(t *testing.T, relayError *types.NewAPIError, recorder *httptest.ResponseRecorder, statusCode int) {
@@ -1233,7 +1233,8 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 	for _, tc := range []struct {
 		name, kind, cost, extra, expression, wantError                                                         string
 		noSource, zeroLocal, minimum, disabled, unknownCapability, insufficient, disconnected, storageDisabled bool
-		missingCost, noDone, provisional, noGenerationID                                                       bool
+		missingCost, noDone, provisional, noGenerationID, noLocal                                              bool
+		channelReserve                                                                                         *float64
 	}{
 		{name: "Chat audio preserves delta with force format", kind: "chat", cost: "3"},
 		{name: "durable storage required before reserve", kind: "chat", storageDisabled: true, wantError: "durable Task artifact storage"},
@@ -1261,6 +1262,22 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "TTS numeric playback speed", kind: "tts", cost: "3", extra: `,"speed":1.2`},
 		{name: "TTS expression sees final request", kind: "tts", cost: "3", expression: `param("voice") == "alloy" ? tier("voice", fixed(2)) : tier("other", fixed(8))`},
 		{name: "TTS no source rejects before submission", kind: "tts", noSource: true, wantError: "requires configured_price"},
+		{name: "STT without price or channel opt in fails closed", kind: "stt", noSource: true, noLocal: true, wantError: "requires configured_price"},
+		{name: "TTS channel reserve without global price", kind: "tts", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "STT channel reserve settles above hold", kind: "stt", cost: "3", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "STT channel reserve settles below hold", kind: "stt", cost: "0.04", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "STT channel reserve retains unknown cost", kind: "stt", missingCost: true, noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "channel reserve does not waive configured price", kind: "stt", noLocal: true, channelReserve: common.GetPointer(0.3), wantError: "no configured reservation price"},
+		{name: "configured price exceeds channel reserve", kind: "stt", cost: "3", channelReserve: common.GetPointer(0.3)},
+		{name: "channel reserve exceeds configured price", kind: "stt", cost: "3", channelReserve: common.GetPointer(4.0)},
+		{name: "zero channel reserve rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(0.0), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "negative channel reserve rejected", kind: "stt", noSource: true, channelReserve: common.GetPointer(-1.0), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "NaN channel reserve rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "infinite channel reserve rejected", kind: "stt", noSource: true, channelReserve: common.GetPointer(math.Inf(1)), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "oversize channel hold rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(1e20), wantError: "quota conversion"},
+		{name: "disabled endpoint cannot use channel reserve", kind: "tts", noSource: true, disabled: true, channelReserve: common.GetPointer(0.3), wantError: "no compatible"},
+		{name: "missing capability cannot use channel reserve", kind: "stt", noSource: true, unknownCapability: true, channelReserve: common.GetPointer(0.3), wantError: "capability is missing"},
+		{name: "Chat audio still requires configured price", kind: "chat", noSource: true, channelReserve: common.GetPointer(0.3), wantError: "requires configured_price"},
 		{name: "multipart STT final usage cost", kind: "stt", cost: "3"},
 		{name: "multipart STT confirmed zero", kind: "stt", cost: "0"},
 		{name: "STT expression sees outgoing form", kind: "stt", cost: "3", expression: `param("language") == "en" ? tier("english", fixed(2)) : tier("other", fixed(8))`},
@@ -1279,7 +1296,11 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			if tc.zeroLocal {
 				price = 0
 			}
-			prices, err := common.Marshal(map[string]float64{alias: price})
+			priceMap := map[string]float64{alias: price}
+			if tc.noLocal {
+				priceMap = map[string]float64{}
+			}
+			prices, err := common.Marshal(priceMap)
 			require.NoError(t, err)
 			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(prices)))
 			settings.BillingMode, settings.BillingExpr = map[string]string{}, map[string]string{}
@@ -1374,6 +1395,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			info.UserId, info.ChannelId, info.BillingSource = 1, 1, "wallet"
 			info.ChannelType, info.ChannelBaseUrl = constant.ChannelTypeOpenRouter, "https://openrouter.test/api"
 			info.OriginModelName, info.UpstreamModelName = alias, model
+			if tc.noLocal {
+				info.OriginModelName = model
+			}
 			info.RelayMode, info.RelayFormat, info.RequestURLPath, info.IsStream = mode, format, path, stream
 			if strings.Contains(tc.extra, `"stream":false`) {
 				info.IsStream = false
@@ -1385,6 +1409,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			}
 			if tc.minimum {
 				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: 2}
+			}
+			if tc.channelReserve != nil {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: *tc.channelReserve}
 			}
 			billing := &sonarAdmissionBilling{}
 			if tc.insufficient {
@@ -1401,11 +1428,30 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, info.OpenRouterCost)
-			require.Equal(t, 1500000, billing.reserved)
+			reserve := price
+			if tc.noSource {
+				reserve = 0
+			}
+			if tc.minimum {
+				reserve = max(reserve, 2)
+			}
+			if tc.channelReserve != nil {
+				reserve = max(reserve, *tc.channelReserve)
+				assert.Equal(t, tc.channelReserve, info.OpenRouterCost.ApproximateReserveUSD)
+			}
+			wantHold := common.QuotaRound(reserve * common.QuotaPerUnit * 1.5)
+			require.Equal(t, wantHold, billing.reserved)
+			if tc.noLocal {
+				assert.Nil(t, info.OpenRouterCost.ConfiguredReserveUSD)
+			}
 			assert.Equal(t, 1, billing.reserveCalls, "audio intent reserves once")
 			assert.Equal(t, body, string(transport.body), "reservation must not rewrite the paid order")
 			assert.Equal(t, 1, transport.posts)
 			assert.Nil(t, info.TieredBillingSnapshot)
+			if tc.channelReserve != nil {
+				info.ChannelSetting.OpenRouterModelReserveUSD[model] = 99
+				assert.Equal(t, tc.channelReserve, info.OpenRouterCost.ApproximateReserveUSD, "admitted reserve is a snapshot")
+			}
 			info.PriceData.BillingGroupRatio = 9
 			settings.BillingExpr[alias] = `tier("changed", fixed(999))`
 			usage, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
@@ -1444,7 +1490,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 				} else {
 					assert.Contains(t, recorder.Body.String(), "data: [DONE]")
 				}
-				assert.Equal(t, 1500000, task.Quota, "unknown cost retains the captured hold")
+				assert.Equal(t, wantHold, task.Quota, "unknown cost retains the captured hold")
 				assert.False(t, task.PrivateData.Reconciliation.Finalized)
 				assert.Equal(t, 1, transport.gets, "delivery never waits for a cost GET")
 				return
@@ -1463,6 +1509,8 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 				assert.Equal(t, 30000, quota)
 			}
 			if tc.kind == "stt" {
+				assert.Equal(t, quota, task.Quota, "actual cost replaces the hold using frozen multipliers")
+				assert.True(t, task.PrivateData.Reconciliation.Finalized)
 				assert.Contains(t, recorder.Body.String(), "hello transcript")
 			} else {
 				assert.Contains(t, recorder.Body.String(), chunk)

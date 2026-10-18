@@ -265,6 +265,12 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	imageOutput := false
 	audioOutput := false
 	dedicatedAudio := operation == "audio/speech" || operation == "audio/transcriptions"
+	// Dedicated audio may use an explicit channel hold without a global model
+	// price. This is an approximate reserve, never a ceiling on actual spend.
+	var reserveUSD *float64
+	if info.ChannelMeta != nil {
+		reserveUSD = info.ChannelSetting.OpenRouterReserveUSD(request.Model)
+	}
 	decisions := operation == "decisions"
 	if raw, ok := fields["modalities"]; ok {
 		if common.Unmarshal(raw, &modalities) != nil {
@@ -290,8 +296,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		return 0, errors.New("OpenRouter Chat audio output requires streaming")
 	}
 	if dedicatedAudio {
-		if localUSD == nil || info.RelayFormat != types.RelayFormatOpenAIAudio {
-			return 0, errors.New("OpenRouter audio endpoint requires configured_price reservation and OpenAI Audio format")
+		if localUSD == nil && reserveUSD == nil || info.RelayFormat != types.RelayFormatOpenAIAudio {
+			return 0, errors.New("OpenRouter audio endpoint requires configured_price or an explicit approximate channel reserve (not a spending limit) and OpenAI Audio format")
 		}
 		if operation == "audio/speech" {
 			modalities = []string{"speech"}
@@ -338,10 +344,6 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		return 0, errors.New("invalid OpenRouter output count")
 	}
 	// This server-owned policy accepts an approximate hold, not a spending bound.
-	var reserveUSD *float64
-	if info.ChannelMeta != nil {
-		reserveUSD = info.ChannelSetting.OpenRouterReserveUSD(request.Model)
-	}
 	if localUSD != nil {
 		if math.IsNaN(*localUSD) || math.IsInf(*localUSD, 0) || *localUSD < 0 {
 			return 0, errors.New("invalid OpenRouter configured price reserve")
@@ -362,7 +364,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			return 0, errors.New("invalid OpenRouter approximate reserve")
 		}
 		streamAllowed := audioOutput && localUSD != nil && request.Stream && info.IsStream
-		operationAllowed := operation == "chat/completions" || decisions || dedicatedAudio && localUSD != nil
+		operationAllowed := operation == "chat/completions" || decisions || dedicatedAudio
 		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
 			return 0, errors.New("OpenRouter approximate reserve only supports one nonstream text chat response without routing or tools")
 		}
@@ -615,7 +617,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 				if estimateErr != nil {
 					var unavailable *EstimateUnavailableError
-					if (localUSD == nil && !(decisions && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
+					if (localUSD == nil && !((decisions || dedicatedAudio) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
 						return 0, estimateErr
 					}
 					if *reserveUSD <= 0 {
