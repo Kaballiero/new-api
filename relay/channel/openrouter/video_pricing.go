@@ -141,6 +141,17 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 			return fail("unknown input reference quantity")
 		}
 	}
+	referenceImages := images - len(order.FrameImages)
+	if family == "heygen" {
+		if len(order.FrameImages) > 1 || len(order.FrameImages) > 0 && len(order.InputReferences) > 0 || referenceImages > 9 || videos > 3 || audios > 3 || len(order.InputReferences) > 12 {
+			return fail("unsupported HeyGen reference quantities")
+		}
+		if referenceImages > 2 {
+			if _, ok := model.PricingSKUs["reference_input_images"]; !ok {
+				return fail("missing reference image tariff")
+			}
+		}
+	}
 	if family == "grok" && images > 0 {
 		if _, ok := model.PricingSKUs["cents_per_image_input"]; !ok {
 			return fail("missing image input tariff")
@@ -216,6 +227,10 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 			additive = additive.Add(rate.Mul(decimal.NewFromInt(int64(max(images-5, 0)))))
 			continue
 		}
+		if key == "reference_input_images" && family == "heygen" {
+			additive = additive.Add(rate.Mul(decimal.NewFromInt(int64(max(referenceImages-2, 0)))))
+			continue
+		}
 		variant := videoSKUVariant.FindStringSubmatch(key)
 		if variant == nil {
 			return fail("unknown video pricing SKU: " + key)
@@ -231,13 +246,13 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 		if order.GenerateAudio != nil && (audio == "with_audio" && !*order.GenerateAudio || audio == "without_audio" && *order.GenerateAudio) {
 			continue
 		}
-		if resolution != "" && order.Resolution != "" && resolution != order.Resolution {
+		if resolution != "" && order.Resolution != "" && !strings.EqualFold(resolution, order.Resolution) {
 			continue
 		}
 		if source != "" && videos == 0 {
 			continue
 		}
-		if family == "heygen" && (unit == "reference_duration_seconds") != (images > 0 || videos > 0) {
+		if family == "heygen" && (unit == "reference_duration_seconds") != (len(order.InputReferences) > 0) {
 			continue
 		}
 		if model.ID == "black-forest-labs/flux-3-video" && (unit == "cents_per_second_video_continuation") != (videos > 0) {

@@ -311,6 +311,69 @@ func TestVideoOperationMonetaryEstimates(t *testing.T) {
 	}
 }
 
+func TestHeyGenVideoReservation(t *testing.T) {
+	for _, tc := range []struct {
+		name, order      string
+		images           int
+		tariffKey, value string
+		want             float64
+		errorText        string
+	}{
+		{name: "text without references", order: `{"duration":5,"resolution":"480p"}`, want: 0.10},
+		{name: "first frame uses ordinary output", order: `{"duration":5,"resolution":"480p","frame_images":[{"type":"image_url"}]}`, want: 0.10},
+		{name: "one free reference", order: `{"duration":5,"resolution":"480p"}`, images: 1, want: 0.35},
+		{name: "two free references", order: `{"duration":5,"resolution":"480p"}`, images: 2, want: 0.35},
+		{name: "third reference is additive", order: `{"duration":5,"resolution":"480p"}`, images: 3, want: 0.39},
+		{name: "maximum image references", order: `{"duration":5,"resolution":"480p"}`, images: 9, want: 0.63},
+		{name: "reference tariff counts output seconds", order: `{"duration":5,"resolution":"480p","input_references":[{"type":"video_url"}]}`, want: 0.35},
+		{name: "uppercase capability matches SKU", order: `{"duration":5,"resolution":"2K"}`, want: 0.50},
+		{name: "uppercase reference resolution", order: `{"duration":5,"resolution":"2K"}`, images: 3, want: 0.94},
+		{name: "omitted duration and resolution reserve maximum", order: `{}`, want: 1.50},
+		{name: "omitted reference defaults reserve maximum plus inputs", order: `{}`, images: 3, want: 2.74},
+		{name: "explicit zero image tariff", order: `{"duration":5,"resolution":"480p"}`, images: 3, tariffKey: "reference_input_images", value: "0", want: 0.35},
+		{name: "missing image tariff with paid references", order: `{}`, images: 3, tariffKey: "reference_input_images", errorText: "missing reference image tariff"},
+		{name: "missing image tariff with free references", order: `{"duration":5,"resolution":"480p"}`, images: 2, tariffKey: "reference_input_images", want: 0.35},
+		{name: "negative image tariff", order: `{}`, tariffKey: "reference_input_images", value: "-0.04", errorText: "invalid video tariff"},
+		{name: "invalid image tariff", order: `{}`, tariffKey: "reference_input_images", value: "NaN", errorText: "invalid video tariff"},
+		{name: "unknown monetary SKU", order: `{}`, tariffKey: "unknown_charge", value: "1", errorText: "unknown video pricing SKU"},
+		{name: "too many references", order: `{}`, images: 10, errorText: "unsupported HeyGen reference quantities"},
+		{name: "mixed frame and references", order: `{"frame_images":[{"type":"image_url"}]}`, images: 1, errorText: "unsupported HeyGen reference quantities"},
+		{name: "audio remains unpriced", order: `{"input_references":[{"type":"image_url"},{"type":"audio_url"}]}`, errorText: "audio reference tariff is unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := VideoModelPricing{
+				ID: "heygen/heygen-video-1", SupportedDurations: []int{5, 15}, SupportedResolutions: []string{"480p", "768p", "2K"},
+				PricingSKUs: map[string]string{
+					"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036", "duration_seconds_2k": "0.1",
+					"reference_duration_seconds_480p": "0.07", "reference_duration_seconds_768p": "0.1", "reference_duration_seconds_2k": "0.18",
+					"reference_input_images": "0.04",
+				},
+			}
+			if tc.tariffKey != "" {
+				if tc.value == "" {
+					delete(model.PricingSKUs, tc.tariffKey)
+				} else {
+					model.PricingSKUs[tc.tariffKey] = tc.value
+				}
+			}
+			var order VideoPriceOrder
+			require.NoError(t, common.Unmarshal([]byte(tc.order), &order))
+			order.Model = model.ID
+			if tc.images > 0 {
+				references := "[" + strings.TrimSuffix(strings.Repeat(`{"type":"image_url"},`, tc.images), ",") + "]"
+				require.NoError(t, common.Unmarshal([]byte(references), &order.InputReferences))
+			}
+			cost, err := EstimateVideoOrder(model, order)
+			if tc.errorText != "" {
+				require.ErrorContains(t, err, tc.errorText)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
+		})
+	}
+}
+
 func TestVideoFreshDiscoveryBeforeTransport(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

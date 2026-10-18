@@ -97,6 +97,78 @@ func TestOpenRouterVideoOrder(t *testing.T) {
 	assert.Empty(t, measured, "purchase cost must not overwrite the client tariff or invent measured seconds")
 }
 
+func TestOpenRouterHeyGenReferences(t *testing.T) {
+	plugin, _ := openRouterVideoFixture(t)
+	for _, tc := range []struct {
+		name                   string
+		images, videos, audios int
+		metadata               bool
+		wantError              string
+	}{
+		{name: "image references", images: 3},
+		{name: "maximum images", images: 9},
+		{name: "maximum total", images: 9, videos: 3},
+		{name: "too many images", images: 10, wantError: "HeyGen supports at most"},
+		{name: "too many videos", videos: 4, wantError: "HeyGen supports at most"},
+		{name: "too many audios", images: 1, audios: 4, wantError: "HeyGen supports at most"},
+		{name: "too many total", images: 9, videos: 3, audios: 1, wantError: "HeyGen supports at most"},
+		{name: "metadata cannot bypass cap", images: 10, metadata: true, wantError: "HeyGen supports at most"},
+		{name: "audio alone is not reference mode", audios: 1, wantError: "requires an image or video"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			references := make([]any, 0, tc.images+tc.videos+tc.audios)
+			for _, media := range []struct {
+				kind  string
+				count int
+			}{{"image_url", tc.images}, {"video_url", tc.videos}, {"audio_url", tc.audios}} {
+				for range media.count {
+					references = append(references, map[string]any{"type": media.kind, media.kind: map[string]any{"url": "https://example.com/media"}})
+				}
+			}
+			request := map[string]any{"prompt": "animate the scene", "input_references": references}
+			if tc.metadata {
+				delete(request, "input_references")
+				request["metadata"] = map[string]any{"input_references": references}
+			}
+			value, err := plugin.Engine.Call(t.Context(), "buildSubmitRequest", map[string]any{"model": "heygen/heygen-video-1", "baseUrl": "https://openrouter.ai/api", "requestBody": request})
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				return
+			}
+			require.NoError(t, err)
+			encoded, err := common.Marshal(value)
+			require.NoError(t, err)
+			var descriptor struct {
+				Body struct {
+					InputReferences []any `json:"input_references"`
+				} `json:"body"`
+			}
+			require.NoError(t, common.Unmarshal(encoded, &descriptor))
+			assert.Len(t, descriptor.Body.InputReferences, len(references))
+		})
+	}
+	// Publish the ordinary first-frame rate, but do not turn the reference
+	// surcharge (first two free) into an unconditional price per input image.
+	offers := plugin.Meta.PriceCatalog.Models["heygen/heygen-video-1"]
+	var haveFrame, haveReference bool
+	for _, offer := range offers {
+		if offer.ID == "duration_seconds_480p:image_to_video" {
+			haveFrame = true
+			require.Len(t, offer.Prices, 1)
+			require.NotNil(t, offer.Prices[0].AmountUSD)
+			assert.Equal(t, 0.02, *offer.Prices[0].AmountUSD)
+		}
+		if offer.ID == "reference_duration_seconds_480p:image_to_video" {
+			haveReference = true
+			require.Len(t, offer.Prices, 2)
+			assert.Equal(t, "additional_reference_input", offer.Prices[1].Component)
+			assert.Nil(t, offer.Prices[1].AmountUSD)
+		}
+	}
+	assert.True(t, haveFrame)
+	assert.True(t, haveReference)
+}
+
 func TestOpenRouterVideoValidation(t *testing.T) {
 	plugin, fetchedAt := openRouterVideoFixture(t)
 	for _, test := range []struct {

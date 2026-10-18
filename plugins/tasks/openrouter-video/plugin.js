@@ -98,12 +98,13 @@ const catalog = {
         "prompt_enhancement"
       ],
       "pricing_skus": {
-        "duration_seconds_2k": "0.09",
+        "duration_seconds_2k": "0.1",
         "duration_seconds_480p": "0.02",
-        "duration_seconds_768p": "0.03",
+        "duration_seconds_768p": "0.036",
+        "reference_input_images": "0.04",
         "reference_duration_seconds_2k": "0.18",
-        "reference_duration_seconds_480p": "0.04",
-        "reference_duration_seconds_768p": "0.06"
+        "reference_duration_seconds_480p": "0.07",
+        "reference_duration_seconds_768p": "0.1"
       },
       "input_modalities": [
         "text",
@@ -1665,7 +1666,7 @@ function videoPriceCatalog() {
     const invalidMinimum = minimum !== undefined &&
       ((typeof minimum !== "string" && typeof minimum !== "number") || (typeof minimum === "string" && minimum.trim() === "") || !Number.isFinite(Number(minimum)) || Number(minimum) < 0);
     const unsupported = invalidMinimum || Object.keys(skus).some(function (key) {
-      return key !== "cents_per_image_input" && key !== "reference_images" && key !== "minimum_cents_per_generation" && !pattern.test(key);
+      return key !== "cents_per_image_input" && key !== "reference_images" && key !== "minimum_cents_per_generation" && !(model.id === "heygen/heygen-video-1" && key === "reference_input_images") && !pattern.test(key);
     });
     if (!unsupported) Object.keys(skus).sort().forEach(function (key) {
       const match = pattern.exec(key);
@@ -1675,7 +1676,7 @@ function videoPriceCatalog() {
       const unit = match[2] === "video_tokens" ? "million_tokens" : match[2] === "cents_per_megapixel_second" ? "megapixel_second" : "second";
       const amount = match[2] === "video_tokens" ? rate * 1000000 : match[2].indexOf("cents_") === 0 ? rate / 100 : rate;
       let operations = match[1] ? [match[1]] : ["text_to_video"];
-      if (!match[1] && (model.input_modalities || []).indexOf("image") >= 0 && !(model.id === "heygen/heygen-video-1" && match[2] === "duration_seconds")) operations.push("image_to_video");
+      if (!match[1] && (model.input_modalities || []).indexOf("image") >= 0) operations.push("image_to_video");
       if (match[2] === "reference_duration_seconds") operations = ["image_to_video", "video_to_video"];
       if (match[5] || match[2] === "cents_per_second_video_continuation") operations = ["video_to_video"];
       if (model.id === "black-forest-labs/flux-video-edit") operations = ["video_editing"];
@@ -1686,6 +1687,10 @@ function videoPriceCatalog() {
         const prices = [{ component: "video_output", unit: unit, amount_usd: amount }];
         if (operation === "image_to_video" && skus.cents_per_image_input !== undefined) prices.push({ component: "image_input", unit: "image", amount_usd: Number(skus.cents_per_image_input) / 100 });
         if (operation === "image_to_video" && skus.reference_images !== undefined) prices.push({ component: "additional_reference_input", unit: "image", amount_usd: Number(skus.reference_images) });
+        // The catalog cannot express HeyGen's first two reference images free.
+        // Keep that component unknown rather than quote a flat per-image price.
+        if (model.id === "heygen/heygen-video-1" && match[2] === "reference_duration_seconds" && skus.reference_input_images !== undefined)
+          prices.push({ component: "additional_reference_input", unit: "image", amount_usd: null });
         offers.push({ id: key + ":" + operation, operation: operation, mode: "sync", main_component: "video_output", prices: prices });
       });
     });
@@ -1831,6 +1836,12 @@ function videoOrder(ctx) {
     if (reference.type === "audio_url") audioCount++;
   }
   if (normalizedFrames.length && references.length) throw new Error("Use frame_images or input_references, not both");
+  if (model === "heygen/heygen-video-1") {
+    if (imageCount > 9 || videoCount > 3 || audioCount > 3 || references.length > 12)
+      throw new Error("HeyGen supports at most 9 image, 3 video, 3 audio and 12 total references");
+    if (references.length && imageCount === 0 && videoCount === 0)
+      throw new Error("HeyGen reference mode requires an image or video");
+  }
   if (imageCount > 128) throw new Error("Too many input images");
   if (!body.prompt && !normalizedFrames.length && !references.length) throw new Error("Provide a prompt or reference input");
   if (normalizedFrames.length) body.frame_images = normalizedFrames;
