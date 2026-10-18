@@ -56,7 +56,7 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		return nil, err
 	}
 
-	voiceType := mapVoiceType(request.Voice)
+	voiceType := mapVoiceType(lo.FromPtr(request.Voice))
 	speedRatio := lo.FromPtrOr(request.Speed, 0.0)
 	encoding := mapEncoding(request.ResponseFormat)
 

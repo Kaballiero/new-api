@@ -37,7 +37,7 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		return nil, errors.New("unsupported audio relay mode")
 	}
 
-	voiceID := request.Voice
+	voiceID := lo.FromPtr(request.Voice)
 	speed := lo.FromPtrOr(request.Speed, 0.0)
 	outputFormat := request.ResponseFormat
 

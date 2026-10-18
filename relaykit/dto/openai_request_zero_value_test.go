@@ -10,6 +10,27 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestAudioRequestPreservesVoicePresence(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"omitted", `{"model":"bytedance-seed/seed-audio-1-0","input":"Hello."}`, `{"model":"bytedance-seed/seed-audio-1-0","input":"Hello."}`},
+		{"null", `{"model":"tts","input":"Hello.","voice":null}`, `{"model":"tts","input":"Hello."}`},
+		{"explicit empty", `{"model":"tts","input":"Hello.","voice":""}`, `{"model":"tts","input":"Hello.","voice":""}`},
+		{"named voice", `{"model":"tts","input":"Hello.","voice":"Kore"}`, `{"model":"tts","input":"Hello.","voice":"Kore"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var req AudioRequest
+			require.NoError(t, kitutil.Unmarshal([]byte(tc.raw), &req))
+			encoded, err := kitutil.Marshal(req)
+			require.NoError(t, err)
+			assert.JSONEq(t, tc.want, string(encoded))
+		})
+	}
+}
+
 func TestGeneralOpenAIRequestPreserveExplicitZeroValues(t *testing.T) {
 	raw := []byte(`{
 		"model":"gpt-4.1",
