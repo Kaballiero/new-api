@@ -46,7 +46,7 @@ Powered by [expr-lang/expr](https://github.com/expr-lang/expr). Expressions are 
 | `img_o` | 图片输出 token 数 |
 | `ao` | 音频输出 token 数 |
 
-For OpenRouter synchronous text, Responses, embeddings and native images,
+By default, for OpenRouter synchronous text, Responses, embeddings and native images,
 administrator expressions (including `provider_cost` and request rules) are
 indicative display tariffs only. Admission reserves the maximum complete
 estimate among compatible discovered endpoints; native images preserve their
@@ -64,10 +64,21 @@ An explicit channel `setting.openrouter_reservation_source` entry of
 configured NewAPI price/ratio/expression for admission. The entry is keyed by
 the final upstream model ID; the local price lookup retains the normal client
 billing identity. Missing entries or `"upstream"` keep the default behavior.
-This first path supports one nonstream text Chat response only, without tools,
-fallback models or media. Endpoint discovery, required tariffs and unknown
-charged-dimension guards remain mandatory. The hold is the maximum of the local
-USD estimate, known upstream estimate and the per-model minimum. Expressions
+This path supports one nonstream Chat response without tools, fallback models
+or input media, in OpenAI Chat format. Image output requires an explicit
+configured-price source. Endpoint discovery and independent model/provider,
+capability, parameter and limit checks remain mandatory. After those checks,
+`EstimateUnavailableError` classifies incomplete/untrustworthy tariff metadata
+or unknown monetary quantities. Only the explicit configured-price source may
+cover such a failure with its local USD estimate and per-model minimum; a
+positive hold is required for an unavailable estimate or a nonzero image rate
+with unknown output quantity. Text token limits are not image spending bounds.
+Auth/network/server errors, malformed discovery, unavailable routes and failed
+eligibility checks never activate fallback. Other output modalities and
+streaming remain unsupported. Complete compatible upstream estimates still
+contribute their maximum to the local/minimum hold; failed monetary estimates
+are never treated as free. Without configured-price selection they fail closed.
+Expressions
 see the final payload; unmeasured cache/media/task usage and recursive
 `provider_cost` estimates are rejected. No customer-billing expression snapshot
 is installed, and final charges still use full terminal `usage.cost`.

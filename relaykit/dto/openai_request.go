@@ -85,8 +85,9 @@ type GeneralOpenAIRequest struct {
 	// OpenAI Chat web search.
 	WebSearchOptions *WebSearchOptions `json:"web_search_options,omitempty"`
 	// OpenRouter Params
-	Usage     json.RawMessage `json:"usage,omitempty"`
-	Reasoning json.RawMessage `json:"reasoning,omitempty"`
+	ImageConfig json.RawMessage `json:"image_config,omitempty"`
+	Usage       json.RawMessage `json:"usage,omitempty"`
+	Reasoning   json.RawMessage `json:"reasoning,omitempty"`
 	// Ali Qwen Params
 	VlHighResolutionImages json.RawMessage `json:"vl_high_resolution_images,omitempty"`
 	EnableThinking         json.RawMessage `json:"enable_thinking,omitempty"`
@@ -429,7 +430,9 @@ type Message struct {
 	Tools json.RawMessage `json:"tools,omitempty"`
 	// Annotations is an official Chat response field. Keeping it on the shared
 	// message type also preserves annotations when clients replay assistant output.
-	Annotations   json.RawMessage `json:"annotations,omitempty"`
+	Annotations json.RawMessage `json:"annotations,omitempty"`
+	// Images preserves OpenRouter generated images, including force-format responses.
+	Images        json.RawMessage `json:"images,omitempty"`
 	parsedContent []MediaContent
 	//parsedStringContent *string
 }

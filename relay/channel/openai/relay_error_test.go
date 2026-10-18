@@ -1,8 +1,12 @@
 package openai
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"math"
 	"net/http"
@@ -52,13 +56,13 @@ func newEmbeddedErrorTestRequest(body string, statusCode int) (*gin.Context, *ht
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return c, recorder, &http.Response{
-		StatusCode: statusCode,
-		Body:       io.NopCloser(strings.NewReader(body)),
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-	}, &relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{},
-		RelayFormat: types.RelayFormatOpenAI,
-	}
+			StatusCode: statusCode,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+		}, &relaycommon.RelayInfo{
+			ChannelMeta: &relaycommon.ChannelMeta{},
+			RelayFormat: types.RelayFormatOpenAI,
+		}
 }
 
 func assertEmbeddedOpenAIError(t *testing.T, relayError *types.NewAPIError, recorder *httptest.ResponseRecorder, statusCode int) {
@@ -445,11 +449,13 @@ func TestOpenRouterResponsesBillableTerminals(t *testing.T) {
 }
 
 type sonarAdmissionTransport struct {
-	metadata string
-	response string
-	gets     int
-	posts    int
-	body     []byte
+	metadata       string
+	metadataStatus int
+	metadataError  error
+	response       string
+	gets           int
+	posts          int
+	body           []byte
 }
 
 func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -457,6 +463,12 @@ func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Respon
 	switch request.Method {
 	case http.MethodGet:
 		s.gets++
+		if s.metadataError != nil {
+			return nil, s.metadataError
+		}
+		if s.metadataStatus != 0 {
+			return &http.Response{StatusCode: s.metadataStatus, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+		}
 	case http.MethodPost:
 		s.posts++
 		var err error
@@ -767,10 +779,12 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 		{name: "cannot recursively use provider cost", expression: `tier("provider", provider_cost * 1000000)`, wantError: "requires a validated provider cost estimate"},
 		{name: "unmeasured audio expression rejected", expression: `p * 2 + ao * 50`, wantError: "unavailable ao quantity"},
 		{name: "unmeasured task expression rejected", expression: `u("seconds") * 2`, wantError: "unavailable u quantity"},
-		{name: "unknown dimension remains closed", price: 2, rateKey: "research_step", rate: "1", wantError: "unsupported billable dimension research_step"},
-		{name: "missing tariff remains closed", price: 2, rateKey: "prompt", rate: "null", wantError: "invalid OpenRouter endpoint price"},
+		{name: "unsupported quantity uses explicit local reserve", price: 2, rateKey: "research_step", rate: "1"},
+		{name: "unavailable tariff uses explicit local reserve", price: 2, rateKey: "prompt", rate: "null"},
+		{name: "default source cannot cover missing tariff", price: 2, noPolicy: true, rateKey: "prompt", rate: "null", wantError: "estimate unavailable"},
+		{name: "upstream source cannot cover unknown quantity", price: 2, source: dto.OpenRouterReservationUpstream, rateKey: "render_step", rate: "1", wantError: "estimate unavailable"},
 		{name: "stream stays closed", price: 2, extra: `,"stream":true`, wantError: "one nonstream text chat response"},
-		{name: "image output stays closed", price: 2, extra: `,"modalities":["text","image"]`, wantError: "output modality tariff is unavailable"},
+		{name: "audio output stays closed", price: 2, extra: `,"modalities":["text","audio"]`, wantError: "output modality tariff is unavailable"},
 		{name: "tools stay closed", price: 2, extra: `,"tools":[{"type":"function"}]`, wantError: "one nonstream text chat response"},
 		{name: "multiple responses stay closed", price: 2, extra: `,"n":2`, wantError: "one nonstream text chat response"},
 		{name: "fallback model cannot disable selected policy", price: 2, extra: `,"models":["other/fallback"]`, wantError: "only supports one nonstream text chat response"},
@@ -896,6 +910,257 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, clamp)
 			assert.Equal(t, 2250000, quota, "actual may exceed the hold, using the frozen ratio once")
+		})
+	}
+}
+
+func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
+	const alias = "chat-image-client-alias"
+	service.InitTokenEncoders()
+	var pngBytes bytes.Buffer
+	require.NoError(t, png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 1, 1))))
+	pngData := base64.StdEncoding.EncodeToString(pngBytes.Bytes())
+	oldPrices := ratio_setting.ModelPrice2JSONString()
+	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
+	oldModes, oldExprs := settings.BillingMode, settings.BillingExpr
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(oldPrices))
+		settings.BillingMode, settings.BillingExpr = oldModes, oldExprs
+	})
+	for _, tc := range []struct {
+		name, model, extra, imageRate, otherKey, otherRate string
+		cost, wantError, metadata, badExpression           string
+		metadataStatus                                     int
+		noPrices, noLocal, rawBody, secondEndpoint         bool
+		metadataFailure                                    bool
+		local, minimum                                     float64
+		noPolicy, wrongPolicy, missingRate, expression     bool
+		forceFormat, convertedFormat, responses, reject    bool
+	}{
+		{name: "Gemini metadata and raw image", model: "google/gemini-2.5-flash-image", local: 2, cost: "3", otherKey: "audio", otherRate: "0.000001"},
+		{name: "GPT image survives force format", model: "openai/gpt-5-image", local: 2, cost: "3", forceFormat: true},
+		{name: "configured expression sees image size", local: 2, cost: "3", expression: true},
+		{name: "explicit minimum wins", local: 2, minimum: 4, cost: "3"},
+		{name: "known upstream subtotal wins", local: 2, cost: "3", otherKey: "request", otherRate: "5"},
+		{name: "actual explicit zero", local: 2, cost: "0", forceFormat: true},
+		{name: "zero image rate preserves known subtotal", local: 0, imageRate: "0", cost: "0"},
+		{name: "positive minimum covers unknown quantity", local: 0, minimum: 2, cost: "3"},
+		{name: "positive image quantity policy required", local: 0, cost: "3", wantError: "requires a positive reserve"},
+		{name: "no implicit image enablement", local: 2, noPolicy: true, wantError: "image output requires configured_price"},
+		{name: "policy uses final model not alias", local: 2, wrongPolicy: true, wantError: "image output requires configured_price"},
+		{name: "missing image tariff falls back to local formula", local: 2, missingRate: true, expression: true, cost: "3"},
+		{name: "null image tariff falls back to local price", local: 2, imageRate: "null", cost: "3"},
+		{name: "invalid image tariff falls back to local price", local: 2, imageRate: "-1", cost: "3"},
+		{name: "unmeasured dimension falls back to local price", local: 2, otherKey: "render_step", otherRate: "1", cost: "3"},
+		{name: "invalid inactive tariff falls back to local price", local: 2, otherKey: "audio", otherRate: "null", cost: "3"},
+		{name: "stream remains closed", local: 2, extra: `,"stream":true`, wantError: "one nonstream"},
+		{name: "multiple results remain closed", local: 2, extra: `,"n":2`, wantError: "one nonstream"},
+		{name: "zero count invalid", local: 2, extra: `,"n":0`, wantError: "invalid OpenRouter output count"},
+		{name: "excessive count invalid", local: 2, extra: `,"n":1000000`, wantError: "invalid OpenRouter output count"},
+		{name: "tools remain closed", local: 2, extra: `,"tools":[{"type":"function"}]`, wantError: "one nonstream"},
+		{name: "input image remains closed", local: 2, extra: `,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,abc"}}]}]`, wantError: "one nonstream"},
+		{name: "replayed assistant images remain closed", local: 2, extra: `,"messages":[{"role":"assistant","content":null,"images":[{"image_url":{"url":"data:image/png;base64,abc"}}]}]`, wantError: "assistant image inputs are unpriced"},
+		{name: "converted output format remains closed", local: 2, convertedFormat: true, wantError: "OpenAI Chat format"},
+		{name: "Responses remains closed", local: 2, responses: true, wantError: "one nonstream"},
+		{name: "insufficient quota before paid dispatch", local: 2, reject: true, wantError: "insufficient image test quota"},
+		{name: "missing terminal cost", local: 2, cost: "", forceFormat: true},
+		{name: "null terminal cost", local: 2, cost: "null"},
+		{name: "negative terminal cost", local: 2, cost: "-1"},
+		{name: "no prices uses formula and minimum", local: 2, minimum: 4, noPrices: true, expression: true, cost: "3"},
+		{name: "unknown metadata plus zero cannot reserve", noPrices: true, wantError: "requires a positive reserve"},
+		{name: "zero local plus positive minimum covers unknown", minimum: 2, noPrices: true, cost: "3"},
+		{name: "missing local price never falls back", noPrices: true, noLocal: true, wantError: "has no configured reservation price"},
+		{name: "invalid local formula never falls back", noPrices: true, badExpression: `u("unknown") * 2`, wantError: "unavailable u quantity"},
+		{name: "incomplete candidate retains known candidate floor", local: 2, missingRate: true, secondEndpoint: true, cost: "3"},
+		{name: "empty pricing array still has a route", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","pricing":[]}]}}`, cost: "3"},
+		{name: "empty endpoints is unavailable model", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[]}}`, wantError: "no available endpoints"},
+		{name: "discovery identity mismatch never fallback", local: 2, metadata: `{"data":{"id":"other/wrong","endpoints":[{"tag":"image-provider"}]}}`, wantError: "discovery model mismatch"},
+		{name: "route identity mismatch never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","model_id":"other/wrong"}]}}`, wantError: "endpoint model does not match"},
+		{name: "disabled endpoint never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","status":-1}]}}`, wantError: "no compatible"},
+		{name: "missing default cap cannot waive context limit", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","context_length":1}]}}`, extra: `,"max_tokens":null`, wantError: "no compatible"},
+		{name: "negative endpoint limits never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","context_length":-1}]}}`, wantError: "invalid OpenRouter endpoint token limits"},
+		{name: "missing image capability never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","architecture":{"output_modalities":["text"]},"endpoints":[{"tag":"image-provider"}]}}`, wantError: "does not support requested output modality"},
+		{name: "provider filter never fallback", local: 2, noPrices: true, rawBody: true, extra: `,"provider":{"only":["absent-provider"]}`, wantError: "no compatible"},
+		{name: "explicit available provider remains eligible", local: 2, noPrices: true, rawBody: true, extra: `,"provider":{"order":["absent-provider","image-provider"],"allow_fallbacks":false}`, cost: "3"},
+		{name: "provider outside explicit order never fallback", local: 2, noPrices: true, rawBody: true, extra: `,"provider":{"order":["absent-provider"],"allow_fallbacks":false}`, wantError: "no compatible"},
+		{name: "all explicit providers contribute known floor", local: 2, secondEndpoint: true, rawBody: true, extra: `,"provider":{"order":["image-provider","other-provider"],"allow_fallbacks":false}`, cost: "3"},
+		{name: "audio output config never fallback", local: 2, noPrices: true, extra: `,"audio":{"voice":"alloy","format":"wav"}`, wantError: "audio output remains unsupported"},
+		{name: "implicit audio model never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","architecture":{"output_modalities":["audio"]},"endpoints":[{"tag":"image-provider"}]}}`, extra: `,"modalities":[]`, wantError: "explicit text/image modalities"},
+		{name: "required parameters never fallback", local: 2, noPrices: true, rawBody: true, extra: `,"provider":{"require_parameters":true}`, wantError: "no compatible"},
+		{name: "unknown max price cannot waive constraint", local: 2, noPrices: true, rawBody: true, extra: `,"provider":{"max_price":{"prompt":1}}`, wantError: "invalid OpenRouter endpoint price"},
+		{name: "invalid output limit never fallback", local: 2, noPrices: true, rawBody: true, extra: `,"max_completion_tokens":-1`, wantError: "invalid OpenRouter output cap"},
+		{name: "metadata authentication failure never fallback", local: 2, noPrices: true, metadataStatus: 401, wantError: "discovery HTTP 401"},
+		{name: "metadata access failure never fallback", local: 2, noPrices: true, metadataStatus: 403, wantError: "discovery HTTP 403"},
+		{name: "metadata model missing never fallback", local: 2, noPrices: true, metadataStatus: 404, wantError: "discovery HTTP 404"},
+		{name: "metadata server failure never fallback", local: 2, noPrices: true, metadataStatus: 503, wantError: "discovery HTTP 503"},
+		{name: "metadata transport failure never fallback", local: 2, noPrices: true, metadataFailure: true, wantError: "pricing discovery failed"},
+		{name: "malformed discovery never fallback", local: 2, metadata: `{"data":`, wantError: "invalid OpenRouter endpoint discovery metadata"},
+		{name: "fallback missing cost never artifact success", local: 2, noPrices: true, cost: "", forceFormat: true},
+		{name: "fallback null cost never artifact success", local: 2, noPrices: true, cost: "null"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := tc.model
+			if model == "" {
+				model = "other/image-model"
+			}
+			settings.BillingMode, settings.BillingExpr = map[string]string{}, map[string]string{}
+			prices, err := common.Marshal(map[string]float64{alias: tc.local})
+			require.NoError(t, err)
+			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(prices)))
+			if tc.noLocal {
+				require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+			}
+			if tc.badExpression != "" {
+				settings.BillingMode[alias], settings.BillingExpr[alias] = billing_setting.BillingModeTieredExpr, tc.badExpression
+			}
+			if tc.expression {
+				settings.BillingMode[alias] = billing_setting.BillingModeTieredExpr
+				settings.BillingExpr[alias] = `param("image_config.image_size") == "2K" ? tier("2k", fixed(2)) : tier("other", fixed(7))`
+			}
+			imageRate := tc.imageRate
+			if imageRate == "" {
+				imageRate = "0.00003"
+			}
+			tariff := map[string]any{"prompt": "0.0000003", "completion": "0.0000025", "image_output": imageRate}
+			if tc.missingRate {
+				delete(tariff, "image_output")
+			} else if imageRate == "null" {
+				tariff["image_output"] = nil
+			}
+			if tc.otherKey != "" {
+				tariff[tc.otherKey] = tc.otherRate
+				if tc.otherRate == "null" {
+					tariff[tc.otherKey] = nil
+				}
+			}
+			var publishedPrices any = tariff
+			if tc.noPrices {
+				publishedPrices = nil
+			}
+			endpoints := []any{map[string]any{"tag": "image-provider", "model_id": model, "max_completion_tokens": 128, "pricing": publishedPrices}}
+			if tc.secondEndpoint {
+				endpoints = append(endpoints, map[string]any{"tag": "other-provider", "model_id": model, "max_completion_tokens": 128, "pricing": map[string]any{"prompt": "0.0000003", "completion": "0.0000025", "image_output": "0.00003", "request": "5"}})
+			}
+			metadata, err := common.Marshal(map[string]any{"data": map[string]any{"id": model, "endpoints": endpoints}})
+			require.NoError(t, err)
+			if tc.metadata != "" {
+				metadata = []byte(tc.metadata)
+			}
+			costField := ""
+			if tc.cost != "" {
+				costField = `"cost":` + tc.cost
+			}
+			transport := &sonarAdmissionTransport{metadata: string(metadata), response: fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","content":null,"images":[{"image_url":{"url":"data:image/png;base64,%s"}}]},"finish_reason":"stop"}],"usage":{%s}}`, pngData, costField)}
+			transport.metadataStatus = tc.metadataStatus
+			if tc.metadataFailure {
+				transport.metadataError = errors.New("injected metadata connection failure")
+			}
+			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			require.NoError(t, err)
+			oldTransport := client.Transport
+			client.Transport = transport
+			t.Cleanup(func() { client.Transport = oldTransport })
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"Draw a dot."}],"max_tokens":128,"modalities":["text","image"],"image_config":{"image_size":"2K","aspect_ratio":"1:1"}%s}`, model, tc.extra)
+			c, recorder, _, info := newEmbeddedErrorTestRequest(body, http.StatusOK)
+			info.ChannelType, info.ChannelBaseUrl = constant.ChannelTypeOpenRouter, "https://openrouter.test/api"
+			info.RequestURLPath, info.RelayMode = "/v1/chat/completions", relayconstant.RelayModeChatCompletions
+			info.OriginModelName, info.UpstreamModelName = alias, model
+			info.PriceData.BillingGroupRatio = 1.5
+			info.ChannelSetting.ForceFormat = tc.forceFormat
+			if tc.responses {
+				info.RelayMode = relayconstant.RelayModeResponses
+			}
+			if tc.convertedFormat {
+				info.RelayFormat = types.RelayFormatClaude
+			}
+			if !tc.noPolicy {
+				policyModel := model
+				if tc.wrongPolicy {
+					policyModel = alias
+				}
+				info.ChannelSetting.OpenRouterReservationSource = map[string]dto.OpenRouterReservationSource{policyModel: dto.OpenRouterReservationConfiguredPrice}
+			}
+			if tc.minimum > 0 {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: tc.minimum}
+			}
+			billing := &sonarAdmissionBilling{}
+			if tc.reject {
+				billing.err = errors.New("insufficient image test quota")
+			}
+			info.Billing = billing
+			adaptor := &Adaptor{}
+			finalBody := []byte(body)
+			if !tc.rawBody {
+				var request dto.GeneralOpenAIRequest
+				require.NoError(t, common.Unmarshal([]byte(body), &request))
+				converted, err := adaptor.ConvertOpenAIRequest(c, info, &request)
+				require.NoError(t, err)
+				finalBody, err = common.Marshal(converted)
+				require.NoError(t, err)
+			}
+			response, err := adaptor.DoRequest(c, info, strings.NewReader(string(finalBody)))
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				assert.Zero(t, transport.posts)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, 1, transport.posts)
+			assert.JSONEq(t, string(finalBody), string(transport.body))
+			require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
+			assert.Equal(t, tc.local, *info.OpenRouterCost.ConfiguredReserveUSD)
+			assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, max(tc.local, tc.minimum))
+			if tc.otherKey == "request" || tc.secondEndpoint {
+				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 5.0)
+			}
+			assert.Nil(t, info.TieredBillingSnapshot)
+			assert.Nil(t, info.BillingRequestInput)
+			info.PriceData.BillingGroupRatio = 9
+			settings.BillingMode[alias] = billing_setting.BillingModeTieredExpr
+			settings.BillingExpr[alias] = `tier("changed-after-send", fixed(999))`
+			usage, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
+			if tc.cost == "" || tc.cost == "null" || tc.cost == "-1" {
+				require.NotNil(t, apiErr)
+				assert.Empty(t, recorder.Body.String())
+				assert.True(t, info.OpenRouterCost.Sent)
+				assert.False(t, info.OpenRouterCost.Final)
+				assert.Equal(t, 1, transport.posts, "unknown cost is never replayed")
+				return
+			}
+			require.Nil(t, apiErr)
+			assert.True(t, info.OpenRouterCost.Final)
+			assert.True(t, info.OpenRouterCost.Valid)
+			assert.Equal(t, info.OpenRouterCost.CostUSD, usage.(*dto.Usage).Cost)
+			quota, clamp, err := info.OpenRouterCost.Basis.Quota(info.OpenRouterCost.CostUSD)
+			require.NoError(t, err)
+			require.Nil(t, clamp)
+			if tc.cost == "0" {
+				assert.Zero(t, quota)
+			} else {
+				assert.Equal(t, 2250000, quota, "full actual cost, including excess, uses captured group ratio once")
+			}
+			var result struct {
+				Choices []struct {
+					Message struct {
+						Images []struct {
+							ImageURL struct {
+								URL string `json:"url"`
+							} `json:"image_url"`
+						} `json:"images"`
+					} `json:"message"`
+				} `json:"choices"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+			require.Len(t, result.Choices, 1)
+			require.Len(t, result.Choices[0].Message.Images, 1)
+			encoded, ok := strings.CutPrefix(result.Choices[0].Message.Images[0].ImageURL.URL, "data:image/png;base64,")
+			require.True(t, ok)
+			decoded, err := base64.StdEncoding.DecodeString(encoded)
+			require.NoError(t, err)
+			image, err := png.Decode(strings.NewReader(string(decoded)))
+			require.NoError(t, err)
+			assert.Equal(t, 1, image.Bounds().Dx())
+			assert.Equal(t, 1, image.Bounds().Dy())
 		})
 	}
 }

@@ -3035,7 +3035,7 @@
     "Manage your LinuxDO OAuth app": "管理你的 LinuxDO OAuth 應用程式",
     "Manage your security settings and account access": "管理您的安全設定和用戶存取",
     "Manual Disabled": "手動停用",
-    "Map exact upstream model IDs to configured_price to reserve using the configured NewAPI price or expression. Default: upstream. One nonstream text chat response only; endpoint tariffs remain required. Known upstream costs and minimum holds are never reduced. Final charges always use OpenRouter actual cost.": "將精確上游模型 ID 對應至 configured_price，以依設定的 NewAPI 價格或運算式預留額度。預設為 upstream。僅支援單個非串流文字聊天回應，仍需端點費率。不會降低已知上游成本或最低預留額。最終扣費一律採用 OpenRouter 實際成本。",
+    "Map exact upstream model IDs to configured_price to reserve using the configured NewAPI price or expression. Default: upstream. One nonstream Chat response only, including image output. If endpoint tariffs cannot provide an estimate, the local reserve and minimum apply. Complete upstream estimates and minimum holds are never reduced. Final charges always use OpenRouter actual cost.": "將精確的上游模型 ID 對應到 configured_price，使用已設定的 NewAPI 價格或運算式預留額度。預設：upstream。僅支援單個非串流 Chat 回應，包括圖像輸出。端點費率無法提供估算時，使用本機預留額與最低預留額。不會降低完整的上游估算或最低預留額。最終一律按 OpenRouter 實際費用結算。",
     "Map fields from the user info response to local user attributes. Supports nested paths (e.g. ocs.data.id).": "將用戶資訊回應中的欄位映射到本地用戶屬性。支援嵌套路徑（例如 ocs.data.id）。",
     "Map model identifiers to Gemini API versions. A `default` entry applies when no specific match is found.": "將模型標識符映射到 Gemini API 版本。當未找到特定匹配項時，將套用 `default` 條目。",
     "Map request model names to actual provider model names (JSON format)": "將請求模型名稱映射到實際供應商模型名稱 (JSON 格式)",
