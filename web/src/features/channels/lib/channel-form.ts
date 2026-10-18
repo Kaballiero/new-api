@@ -114,6 +114,26 @@ function isJsonObjectValue(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function isOpenRouterReservePolicy(value: string | undefined): boolean {
+  if (!value?.trim()) return true
+  try {
+    const policy: unknown = JSON.parse(value)
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
+      return false
+    }
+    return Object.entries(policy).every(
+      ([model, reserve]) =>
+        model.length > 0 &&
+        !/[\s*]/.test(model) &&
+        typeof reserve === 'number' &&
+        Number.isFinite(reserve) &&
+        reserve > 0
+    )
+  } catch {
+    return false
+  }
+}
+
 function isOptionalJsonObject(value: string | undefined): boolean {
   try {
     const parsed = parseOptionalJson(value)
@@ -261,6 +281,13 @@ export const channelFormSchema = z
       .string()
       .optional()
       .refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY),
+    openrouter_model_reserve_usd: z
+      .string()
+      .optional()
+      .refine(
+        isOpenRouterReservePolicy,
+        'Use exact model IDs and finite positive USD amounts'
+      ),
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
     pass_through_body_enabled: z.boolean().optional(),
@@ -442,6 +469,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   force_format: false,
   thinking_to_content: false,
   proxy: '',
+  openrouter_model_reserve_usd: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
   pass_through_body_enabled: false,
@@ -483,6 +511,7 @@ export function transformChannelToFormDefaults(
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    openrouter_model_reserve_usd: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
     pass_through_body_enabled: false,
@@ -502,6 +531,20 @@ export function transformChannelToFormDefaults(
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
+        // Saving migrates the legacy hold into the editable map. Exact entries win.
+        openrouter_model_reserve_usd: JSON.stringify(
+          {
+            ...(parsed.openrouter_sonar_research_reserve_usd == null
+              ? {}
+              : {
+                  'perplexity/sonar-deep-research':
+                    parsed.openrouter_sonar_research_reserve_usd,
+                }),
+            ...parsed.openrouter_model_reserve_usd,
+          },
+          null,
+          2
+        ),
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
@@ -628,6 +671,13 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
+  }
+
+  if (formData.openrouter_model_reserve_usd?.trim()) {
+    const reserves = JSON.parse(formData.openrouter_model_reserve_usd)
+    if (Object.keys(reserves).length > 0) {
+      settingObj.openrouter_model_reserve_usd = reserves
+    }
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)

@@ -80,6 +80,8 @@ export type Channel = z.infer<typeof channelSchema>
 // ============================================================================
 
 export interface ChannelSettings {
+  openrouter_model_reserve_usd?: Record<string, number>
+  openrouter_sonar_research_reserve_usd?: number
   task_plugin_key?: string
   force_format?: boolean
   thinking_to_content?: boolean

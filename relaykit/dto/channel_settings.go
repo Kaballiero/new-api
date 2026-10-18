@@ -2,6 +2,7 @@ package dto
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"regexp"
 	"strings"
@@ -18,6 +19,9 @@ type ChannelSettings struct {
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
 	SystemPrompt           string `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	// OpenRouterModelReserveUSD selects approximate holds by exact upstream model ID.
+	// It never caps settlement or enables unsupported request modes.
+	OpenRouterModelReserveUSD map[string]float64 `json:"openrouter_model_reserve_usd,omitempty"`
 	// OpenRouterSonarResearchReserveUSD opts this channel into an approximate
 	// hold for perplexity/sonar-deep-research. Nil keeps admission disabled.
 	// It is not a price ceiling: full actual cost, including excess, is settled.
@@ -52,6 +56,40 @@ func (s *ChannelSettings) ValidateHTTPTransport() error {
 	}
 	if protocol == HTTPProtocolHTTP1 && s.HTTP2ConnectionShards > 1 {
 		return fmt.Errorf("http2_connection_shards must be 1 when http_protocol is http1")
+	}
+	return nil
+}
+
+// OpenRouterReserveUSD resolves the model policy, with exact entries taking
+// precedence over the legacy Sonar setting. The returned value is a snapshot.
+func (s *ChannelSettings) OpenRouterReserveUSD(model string) *float64 {
+	if s == nil {
+		return nil
+	}
+	if reserve, ok := s.OpenRouterModelReserveUSD[model]; ok {
+		return &reserve
+	}
+	if model == "perplexity/sonar-deep-research" && s.OpenRouterSonarResearchReserveUSD != nil {
+		reserve := *s.OpenRouterSonarResearchReserveUSD
+		return &reserve
+	}
+	return nil
+}
+
+func (s *ChannelSettings) ValidateOpenRouterReserves() error {
+	if s == nil {
+		return nil
+	}
+	for model, reserve := range s.OpenRouterModelReserveUSD {
+		if model == "" || strings.TrimSpace(model) != model || strings.ContainsAny(model, " \t\r\n*") {
+			return fmt.Errorf("invalid OpenRouter reserve model ID: %q", model)
+		}
+		if math.IsNaN(reserve) || math.IsInf(reserve, 0) || reserve <= 0 {
+			return fmt.Errorf("invalid OpenRouter reserve USD for %s: must be finite and positive", model)
+		}
+	}
+	if reserve := s.OpenRouterSonarResearchReserveUSD; reserve != nil && (math.IsNaN(*reserve) || math.IsInf(*reserve, 0) || *reserve <= 0) {
+		return fmt.Errorf("invalid OpenRouter Sonar research reserve: must be finite and positive")
 	}
 	return nil
 }
