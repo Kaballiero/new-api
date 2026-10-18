@@ -203,6 +203,7 @@ import {
   ChannelEditorLoadingState,
   ChannelModelsSection,
 } from './sections'
+import { OpenRouterReserveField } from './sections/openrouter-reserve-field'
 
 type ChannelMutateDrawerProps = {
   open: boolean
@@ -297,6 +298,7 @@ const SENSITIVE_FORM_FIELDS = [
   'force_format',
   'thinking_to_content',
   'proxy',
+  'openrouter_model_reserve_usd',
   'http_protocol',
   'http2_connection_shards',
   'pass_through_body_enabled',
@@ -348,6 +350,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.remark?.trim() ||
     values.priority ||
     values.weight ||
+    hasConfiguredOverrideValue(values.openrouter_model_reserve_usd) ||
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
     values.force_format ||
@@ -720,6 +723,7 @@ export function ChannelMutateDrawer({
   const currentDisableTaskPollingSleep = form.watch(
     'disable_task_polling_sleep'
   )
+  const currentModelReserves = form.watch('openrouter_model_reserve_usd')
   const currentProxy = form.watch('proxy')
   const currentHttpProtocol = form.watch('http_protocol')
   const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
@@ -1010,6 +1014,7 @@ export function ChannelMutateDrawer({
     currentThinkingToContent ||
     currentPassThroughBodyEnabled ||
     currentDisableTaskPollingSleep ||
+    hasConfiguredOverrideValue(currentModelReserves) ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
     currentSystemPromptOverride ||
@@ -4295,6 +4300,13 @@ export function ChannelMutateDrawer({
                                 )}
                               />
                             </div>
+
+                            {currentType === 28 && (
+                              <OpenRouterReserveField
+                                control={form.control}
+                                disabled={sensitiveLocked || isSubmitting}
+                              />
+                            )}
 
                             <FormField
                               control={form.control}

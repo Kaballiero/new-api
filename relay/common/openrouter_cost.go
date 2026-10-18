@@ -20,6 +20,8 @@ type OpenRouterCostState struct {
 	// ApproximateResearchReserveUSD records the accepted hold policy, not a
 	// guaranteed maximum charge. Actual cost always uses the frozen Basis.
 	ApproximateResearchReserveUSD *float64
+	ApproximateReserveUSD         *float64
+	ApproximateReserveModel       string
 }
 
 func NewOpenRouterCostBasis(info *RelayInfo, estimatedUSD float64) common.OpenRouterCostBasis {
