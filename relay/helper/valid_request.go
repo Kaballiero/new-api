@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -22,6 +23,19 @@ func GetAndValidateRequest(c *gin.Context, format types.RelayFormat) (request dt
 	relayMode := relayconstant.Path2RelayMode(c.Request.URL.Path)
 
 	switch format {
+	case types.RelayFormatSystemOne:
+		var raw json.RawMessage
+		if err = common.UnmarshalBodyReusable(c, &raw); err != nil {
+			return nil, err
+		}
+		if common.HasDuplicateJSONKeys(raw) {
+			return nil, errors.New("duplicate System One request field")
+		}
+		r := &dto.SystemOneRequest{}
+		if err = common.Unmarshal(raw, r); err == nil {
+			err = r.Validate()
+		}
+		request = r
 	case types.RelayFormatOpenAI:
 		request, err = GetAndValidateTextRequest(c, relayMode)
 	case types.RelayFormatGemini:

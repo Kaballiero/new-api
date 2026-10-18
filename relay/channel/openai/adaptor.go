@@ -104,6 +104,9 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.ChannelType == constant.ChannelTypeOpenRouter && info.RelayMode == relayconstant.RelayModeSystemOne {
+		return strings.TrimRight(info.ChannelBaseUrl, "/") + "/alpha/decisions", nil
+	}
 	if info.RelayMode == relayconstant.RelayModeRealtime {
 		if after, ok := strings.CutPrefix(info.ChannelBaseUrl, "https://"); ok {
 			baseUrl := after
@@ -734,6 +737,8 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if info.ChannelType == constant.ChannelTypeOpenRouter {
 		operation := "chat/completions"
 		switch info.RelayMode {
+		case relayconstant.RelayModeSystemOne:
+			operation = "decisions"
 		case relayconstant.RelayModeEmbeddings:
 			operation = "embeddings"
 		case relayconstant.RelayModeResponses, relayconstant.RelayModeResponsesCompact:
@@ -857,4 +862,22 @@ func (a *Adaptor) GetChannelName() string {
 	default:
 		return ChannelName
 	}
+}
+
+// SupportsSystemOne advertises the native protocol only for providers with a
+// confirmed transport and billing contract.
+func (a *Adaptor) SupportsSystemOne(info *relaycommon.RelayInfo) bool {
+	return info.ChannelType == constant.ChannelTypeOpenRouter
+}
+
+func (a *Adaptor) ReadSystemOneResponse(resp *http.Response, info *relaycommon.RelayInfo) ([]byte, *types.NewAPIError) {
+	if apiErr := openrouter.ValidateResponse(resp, info); apiErr != nil {
+		return nil, apiErr
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, openrouter.CostError("System One response cannot be read")
+	}
+	return body, nil
 }

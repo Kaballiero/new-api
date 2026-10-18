@@ -3,6 +3,7 @@ package types
 type RelayFormat string
 
 const (
+	RelayFormatSystemOne                 RelayFormat = "systemone"
 	RelayFormatOpenAI                    RelayFormat = "openai"
 	RelayFormatClaude                                = "claude"
 	RelayFormatGemini                                = "gemini"

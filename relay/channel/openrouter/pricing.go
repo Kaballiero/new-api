@@ -134,6 +134,9 @@ func (e *RequestEstimator) Discover(c *gin.Context, info *relaycommon.RelayInfo,
 	if len(result.Data.Endpoints) == 0 {
 		return errors.New("OpenRouter model has no available endpoints")
 	}
+	if result.Data.ID == "" && info.RelayFormat == types.RelayFormatSystemOne {
+		return errors.New("OpenRouter decisions discovery model identity is missing")
+	}
 	if result.Data.ID != "" && result.Data.ID != discoveryModel {
 		return errors.New("OpenRouter pricing discovery model mismatch")
 	}
@@ -262,6 +265,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	imageOutput := false
 	audioOutput := false
 	dedicatedAudio := operation == "audio/speech" || operation == "audio/transcriptions"
+	decisions := operation == "decisions"
 	if raw, ok := fields["modalities"]; ok {
 		if common.Unmarshal(raw, &modalities) != nil {
 			return 0, errors.New("invalid OpenRouter modalities")
@@ -323,7 +327,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		return 0, err
 	}
 	prompt := max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), request.Model))
-	if dedicatedAudio {
+	if dedicatedAudio || decisions {
 		prompt = 0
 	}
 	count := 1
@@ -358,7 +362,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			return 0, errors.New("invalid OpenRouter approximate reserve")
 		}
 		streamAllowed := audioOutput && localUSD != nil && request.Stream && info.IsStream
-		operationAllowed := operation == "chat/completions" || dedicatedAudio && localUSD != nil
+		operationAllowed := operation == "chat/completions" || decisions || dedicatedAudio && localUSD != nil
 		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
 			return 0, errors.New("OpenRouter approximate reserve only supports one nonstream text chat response without routing or tools")
 		}
@@ -369,7 +373,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 	}
 	if localUSD != nil {
-		if info.RelayFormat != types.RelayFormatOpenAI && !dedicatedAudio {
+		if info.RelayFormat != types.RelayFormatOpenAI && !dedicatedAudio && !(decisions && info.RelayFormat == types.RelayFormatSystemOne) {
 			return 0, errors.New("OpenRouter configured price reserve requires OpenAI Chat format")
 		}
 		if raw, present := fields["audio"]; present && string(bytes.TrimSpace(raw)) != "null" && !audioOutput {
@@ -389,11 +393,14 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		if !ok {
 			return 0, fmt.Errorf("OpenRouter endpoint discovery missing for %s", model)
 		}
+		if decisions && !slices.Contains(e.OutputModalities[model], "decisions") {
+			return 0, errors.New("OpenRouter model does not declare decisions output capability")
+		}
 		if (audioOutput || dedicatedAudio) && len(e.OutputModalities[model]) == 0 {
 			return 0, errors.New("OpenRouter audio model output capability is missing")
 		}
 		if declared := e.OutputModalities[model]; declared != nil {
-			if localUSD != nil && len(modalities) == 0 {
+			if localUSD != nil && len(modalities) == 0 && !decisions {
 				for _, modality := range declared {
 					if modality != "text" && modality != "image" {
 						return 0, errors.New("OpenRouter configured price reserve requires explicit text/image modalities for this model")
@@ -497,7 +504,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 			output := 0
 			outputUnknown := false
-			if operation != "embeddings" && !dedicatedAudio {
+			if operation != "embeddings" && !dedicatedAudio && !decisions {
 				cap := request.MaxOutputTokens
 				if cap == nil {
 					cap = request.MaxCompletionTokens
@@ -533,6 +540,12 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				var fields map[string]json.RawMessage
 				_ = common.Unmarshal(body, &fields)
 				for key := range fields {
+					if decisions {
+						switch key {
+						case "state", "questions", "session_id", "trace", "user":
+							continue
+						}
+					}
 					switch key {
 					case "model", "models", "messages", "input", "prompt", "provider", "stream", "stream_options":
 						continue
@@ -586,7 +599,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 				var cost decimal.Decimal
 				var estimateErr error
-				if audioOutput || dedicatedAudio {
+				if decisions {
+					// State may contain arbitrary structures/media; token estimates are unmeasured.
+					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter decisions monetary quantity is unmeasured")}
+				} else if audioOutput || dedicatedAudio {
 					// Audio rates may be per character, second, token or song.
 					// Token caps and zero token tariffs do not price those quantities.
 					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter audio monetary quantity is unmeasured")}
@@ -599,7 +615,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 				if estimateErr != nil {
 					var unavailable *EstimateUnavailableError
-					if localUSD == nil || !errors.As(estimateErr, &unavailable) {
+					if (localUSD == nil && !(decisions && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
 						return 0, estimateErr
 					}
 					if *reserveUSD <= 0 {
