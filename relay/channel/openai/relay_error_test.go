@@ -2,9 +2,14 @@ package openai
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	modelpkg "github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 	"image"
 	"image/png"
 	"io"
@@ -12,6 +17,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -460,6 +466,7 @@ type sonarAdmissionTransport struct {
 	gets             int
 	posts            int
 	body             []byte
+	onPost           func(*http.Request)
 }
 
 func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -482,6 +489,9 @@ func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Respon
 		}
 	case http.MethodPost:
 		s.posts++
+		if s.onPost != nil {
+			s.onPost(request)
+		}
 		var err error
 		s.body, err = io.ReadAll(request.Body)
 		if err != nil {
@@ -502,11 +512,13 @@ func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Respon
 }
 
 type sonarAdmissionBilling struct {
-	reserved int
-	err      error
+	reserveCalls int
+	reserved     int
+	err          error
 }
 
 func (s *sonarAdmissionBilling) Reserve(quota int) error {
+	s.reserveCalls++
 	if s.err != nil {
 		return s.err
 	}
@@ -1181,6 +1193,32 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 }
 
 func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
+	previousDB, previousLogDB := modelpkg.DB, modelpkg.LOG_DB
+	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis, previousBatch, previousLog := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&modelpkg.Task{}, &modelpkg.User{}, &modelpkg.Token{}, &modelpkg.Channel{}, &modelpkg.Log{}))
+	modelpkg.DB, modelpkg.LOG_DB = db, db
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
+	require.NoError(t, db.Create(&modelpkg.User{Id: 1, Username: "audio-transport", Quota: 10000000}).Error)
+	require.NoError(t, db.Create(&modelpkg.Channel{Id: 1}).Error)
+	t.Cleanup(func() {
+		modelpkg.DB, modelpkg.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousType, previousLogType)
+		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousRedis, previousBatch, previousLog
+		_ = sqlDB.Close()
+	})
+	artifactRoot := t.TempDir()
+	require.NoError(t, os.Chmod(artifactRoot, 0700))
+	t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+	t.Setenv(system_setting.TaskArtifactStoreModeEnv, "filesystem")
+	t.Setenv(system_setting.TaskArtifactStoreRootEnv, artifactRoot)
+	require.NoError(t, service.InitTaskArtifactStore())
 	const alias = "audio-client-alias"
 	const model = "vendor/audio-model"
 	const chunk = "data: {\"choices\":[{\"delta\":{\"audio\":{\"data\":\"UklGRg==\",\"transcript\":\"hello\"}}}]}\n\n"
@@ -1193,11 +1231,13 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		settings.BillingMode, settings.BillingExpr = oldModes, oldExprs
 	})
 	for _, tc := range []struct {
-		name, kind, cost, extra, expression, wantError                                               string
-		noSource, zeroLocal, minimum, disabled, unknownCapability, insufficient                      bool
-		missingCost, noDone, provisional, badGeneration, incompleteGeneration, generationUnavailable bool
+		name, kind, cost, extra, expression, wantError                                                         string
+		noSource, zeroLocal, minimum, disabled, unknownCapability, insufficient, disconnected, storageDisabled bool
+		missingCost, noDone, provisional, noGenerationID                                                       bool
 	}{
 		{name: "Chat audio preserves delta with force format", kind: "chat", cost: "3"},
+		{name: "durable storage required before reserve", kind: "chat", storageDisabled: true, wantError: "durable Task artifact storage"},
+		{name: "client disconnect preserves paid response", kind: "chat", cost: "3", disconnected: true},
 		{name: "music with zero token tariff still holds", kind: "music", cost: "0.04"},
 		{name: "music zero configured price cannot imply free", kind: "music", zeroLocal: true, wantError: "positive reserve"},
 		{name: "explicit minimum covers music", kind: "music", zeroLocal: true, minimum: true, cost: "0.04"},
@@ -1209,29 +1249,32 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "audio tools remain closed", kind: "chat", extra: `,"tools":[{"type":"function"}]`, wantError: "without routing or tools"},
 		{name: "audio input media remains closed", kind: "chat", extra: `,"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]}]`, wantError: "duration quantity is unpriced"},
 		{name: "reserve fails before paid submission", kind: "chat", insufficient: true, wantError: "insufficient audio quota"},
-		{name: "missing stream cost yields no client bytes", kind: "chat", missingCost: true},
-		{name: "null stream cost yields no client bytes", kind: "chat", cost: "null", missingCost: true},
+		{name: "missing stream cost persists result with retained hold", kind: "chat", missingCost: true},
+		{name: "null stream cost retains hold", kind: "chat", cost: "null", missingCost: true},
+		{name: "invalid stream cost retains hold", kind: "chat", cost: "-1", missingCost: true},
+		{name: "unknown stream cost without identity fails", kind: "chat", missingCost: true, noGenerationID: true},
+		{name: "speech without identity fails", kind: "tts", noGenerationID: true},
+		{name: "unknown transcription without identity fails", kind: "stt", missingCost: true, noGenerationID: true},
 		{name: "provisional cost cannot replace terminal cost", kind: "chat", provisional: true, missingCost: true},
 		{name: "cost without DONE is incomplete", kind: "chat", cost: "3", noDone: true, missingCost: true},
-		{name: "TTS confirms generation before raw audio", kind: "tts", cost: "3"},
-		{name: "TTS confirmed zero", kind: "tts", cost: "0"},
+		{name: "TTS persists raw audio with retained hold", kind: "tts", cost: "3"},
 		{name: "TTS numeric playback speed", kind: "tts", cost: "3", extra: `,"speed":1.2`},
 		{name: "TTS expression sees final request", kind: "tts", cost: "3", expression: `param("voice") == "alloy" ? tier("voice", fixed(2)) : tier("other", fixed(8))`},
 		{name: "TTS no source rejects before submission", kind: "tts", noSource: true, wantError: "requires configured_price"},
-		{name: "TTS unknown cost is not zero", kind: "tts", missingCost: true},
-		{name: "TTS null cost is not zero", kind: "tts", cost: "null", missingCost: true},
-		{name: "TTS mismatched record not billable", kind: "tts", cost: "3", badGeneration: true, missingCost: true},
-		{name: "TTS unfinished generation not free", kind: "tts", cost: "0", incompleteGeneration: true, missingCost: true},
-		{name: "TTS cost GET failure never repeats POST", kind: "tts", generationUnavailable: true, missingCost: true},
 		{name: "multipart STT final usage cost", kind: "stt", cost: "3"},
 		{name: "multipart STT confirmed zero", kind: "stt", cost: "0"},
 		{name: "STT expression sees outgoing form", kind: "stt", cost: "3", expression: `param("language") == "en" ? tier("english", fixed(2)) : tier("other", fixed(8))`},
-		{name: "STT missing cost emits no transcript", kind: "stt", missingCost: true},
+		{name: "STT missing cost persists transcript with retained hold", kind: "stt", missingCost: true},
 		{name: "STT rejects unmeasured token expression", kind: "stt", expression: `tier("tokens", p * 10)`, wantError: "unavailable p quantity"},
 		{name: "STT text format has no usage envelope", kind: "stt", extra: "text", wantError: "json or verbose_json"},
 		{name: "STT unsupported form field rejected", kind: "stt", extra: "provider", wantError: "unsupported OpenRouter transcription multipart field"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.storageDisabled {
+				t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+				t.Setenv(system_setting.TaskArtifactStoreModeEnv, "upstream")
+				require.NoError(t, service.InitTaskArtifactStore())
+			}
 			price := 2.0
 			if tc.zeroLocal {
 				price = 0
@@ -1290,28 +1333,13 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			if tc.cost == "" {
 				cost = ""
 			}
-			transport := &sonarAdmissionTransport{metadata: string(metadata)}
+			transport := &sonarAdmissionTransport{metadata: string(metadata), responseHeaders: http.Header{"Content-Type": []string{"application/json"}, "X-Generation-Id": []string{"gen-audio-fixture"}}}
 			if tc.kind == "tts" {
 				transport.response, transport.responseHeaders = "RIFF upstream audio", http.Header{"Content-Type": []string{"audio/mpeg"}, "X-Generation-Id": []string{"gen-tts-fixture"}}
-				id, generationTime := "gen-tts-fixture", "12"
-				if tc.badGeneration {
-					id = "other-request"
-				}
-				if tc.incompleteGeneration {
-					generationTime = "null"
-				}
-				totalCost := tc.cost
-				if totalCost == "" {
-					totalCost = "null"
-				}
-				transport.generation = fmt.Sprintf(`{"data":{"id":%q,"model":%q,"cancelled":false,"generation_time":%s,"total_cost":%s}}`, id, model, generationTime, totalCost)
-				if tc.generationUnavailable {
-					transport.generationStatus = 404
-				}
 			} else if tc.kind == "stt" {
 				transport.response = `{"text":"hello transcript","usage":{` + cost + `}}`
 			} else {
-				transport.responseHeaders = http.Header{"Content-Type": []string{"text/event-stream"}}
+				transport.responseHeaders = http.Header{"Content-Type": []string{"text/event-stream"}, "X-Generation-Id": []string{"gen-audio-fixture"}}
 				transport.response = chunk
 				if tc.provisional {
 					transport.response += "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\n"
@@ -1321,6 +1349,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 					transport.response += "data: [DONE]\n\n"
 				}
 			}
+			if tc.noGenerationID {
+				transport.responseHeaders.Del("X-Generation-Id")
+			}
 			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 			require.NoError(t, err)
 			oldTransport := client.Transport
@@ -1328,6 +1359,19 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			t.Cleanup(func() { client.Transport = oldTransport })
 			c, recorder, _, info := newEmbeddedErrorTestRequest(body, http.StatusOK)
 			c.Request.Header.Set("Content-Type", contentType)
+			var paidContext context.Context
+			if tc.disconnected {
+				ctx, cancel := context.WithCancel(c.Request.Context())
+				defer cancel()
+				c.Request = c.Request.WithContext(ctx)
+				transport.onPost = func(req *http.Request) {
+					paidContext = req.Context()
+					cancel()
+					require.NoError(t, req.Context().Err(), "paid request owns a bounded independent context")
+					assert.Nil(t, req.GetBody, "paid request cannot replay")
+				}
+			}
+			info.UserId, info.ChannelId, info.BillingSource = 1, 1, "wallet"
 			info.ChannelType, info.ChannelBaseUrl = constant.ChannelTypeOpenRouter, "https://openrouter.test/api"
 			info.OriginModelName, info.UpstreamModelName = alias, model
 			info.RelayMode, info.RelayFormat, info.RequestURLPath, info.IsStream = mode, format, path, stream
@@ -1358,13 +1402,17 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, info.OpenRouterCost)
 			require.Equal(t, 1500000, billing.reserved)
+			assert.Equal(t, 1, billing.reserveCalls, "audio intent reserves once")
 			assert.Equal(t, body, string(transport.body), "reservation must not rewrite the paid order")
 			assert.Equal(t, 1, transport.posts)
 			assert.Nil(t, info.TieredBillingSnapshot)
 			info.PriceData.BillingGroupRatio = 9
 			settings.BillingExpr[alias] = `tier("changed", fixed(999))`
 			usage, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
-			if tc.missingCost {
+			if tc.disconnected {
+				require.ErrorIs(t, paidContext.Err(), context.Canceled, "closing response releases detached deadline")
+			}
+			if tc.noDone || tc.noGenerationID {
 				require.NotNil(t, apiErr)
 				assert.Empty(t, recorder.Body.String(), "unknown cost cannot publish successful audio/transcript")
 				assert.False(t, info.OpenRouterCost.Final)
@@ -1372,6 +1420,35 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 				return
 			}
 			require.Nil(t, apiErr)
+			task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			require.NoError(t, err)
+			require.True(t, exists)
+			require.NotNil(t, task.PrivateData.OpenRouterAudio)
+			assert.True(t, task.PrivateData.OpenRouterAudio.ResultReady)
+			assert.Equal(t, info.OpenRouterCost.TaskID, recorder.Header().Get("X-Task-Id"))
+			ref, err := service.GetTaskArtifactStore().Resolve(task, "result")
+			require.NoError(t, err)
+			require.NotNil(t, ref)
+			artifactRecorder := httptest.NewRecorder()
+			artifactContext, _ := gin.CreateTestContext(artifactRecorder)
+			artifactContext.Request = httptest.NewRequest(http.MethodGet, "/result", nil)
+			require.NoError(t, service.GetTaskArtifactStore().Serve(artifactContext, task, ref))
+			assert.Equal(t, recorder.Body.String(), artifactRecorder.Body.String(), "persisted result survives the original response")
+			assert.Equal(t, 1, transport.posts)
+			if tc.kind == "tts" || tc.missingCost {
+				assert.False(t, info.OpenRouterCost.Final)
+				if tc.kind == "tts" {
+					assert.Equal(t, "RIFF upstream audio", recorder.Body.String())
+				} else if tc.kind == "stt" {
+					assert.Contains(t, recorder.Body.String(), "hello transcript")
+				} else {
+					assert.Contains(t, recorder.Body.String(), "data: [DONE]")
+				}
+				assert.Equal(t, 1500000, task.Quota, "unknown cost retains the captured hold")
+				assert.False(t, task.PrivateData.Reconciliation.Finalized)
+				assert.Equal(t, 1, transport.gets, "delivery never waits for a cost GET")
+				return
+			}
 			require.True(t, info.OpenRouterCost.Final)
 			assert.Equal(t, info.OpenRouterCost.CostUSD, usage.(*dto.Usage).Cost)
 			quota, clamp, err := info.OpenRouterCost.Basis.Quota(info.OpenRouterCost.CostUSD)
@@ -1385,11 +1462,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			case "0.04":
 				assert.Equal(t, 30000, quota)
 			}
-			if tc.kind == "tts" {
-				assert.Equal(t, "RIFF upstream audio", recorder.Body.String())
-				assert.Equal(t, 2, transport.gets)
-				assert.Equal(t, "generation.total_cost", info.OpenRouterCost.CostSource)
-			} else if tc.kind == "stt" {
+			if tc.kind == "stt" {
 				assert.Contains(t, recorder.Body.String(), "hello transcript")
 			} else {
 				assert.Contains(t, recorder.Body.String(), chunk)

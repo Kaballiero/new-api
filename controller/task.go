@@ -127,6 +127,14 @@ func writeTaskArtifacts(c *gin.Context, task *model.Task, dashboard bool) {
 }
 
 func projectTaskArtifacts(task *model.Task) ([]relaychannel.TaskArtifact, error) {
+	if task != nil && task.PrivateData.OpenRouterAudio != nil && task.PrivateData.OpenRouterAudio.ResultReady {
+		mimeType := task.PrivateData.OpenRouterAudio.ResultMimeType
+		artifactType := "file"
+		if strings.HasPrefix(mimeType, "audio/") {
+			artifactType = "audio"
+		}
+		return validateProjectedTaskArtifacts([]relaychannel.TaskArtifact{{Key: "result", Type: artifactType, MimeType: mimeType}})
+	}
 	if task == nil || task.Status != model.TaskStatusSuccess || !taskHasPluginExecution(task) {
 		return []relaychannel.TaskArtifact{}, nil
 	}
@@ -289,6 +297,26 @@ func TaskArtifactContent(c *gin.Context) {
 	artifactKey := strings.TrimSpace(c.Param("artifact_key"))
 	if !taskArtifactKeyPattern.MatchString(artifactKey) {
 		writeTaskArtifactError(c, http.StatusNotFound, "artifact_not_found", "Task or artifact not found")
+		return
+	}
+	if task.PrivateData.OpenRouterAudio != nil {
+		if !task.PrivateData.OpenRouterAudio.ResultReady {
+			writeTaskArtifactError(c, http.StatusConflict, "artifact_not_ready", "Task artifacts are not ready")
+			return
+		}
+		if artifactKey != "result" {
+			writeTaskArtifactError(c, http.StatusNotFound, "artifact_not_found", "Task or artifact not found")
+			return
+		}
+		store := service.GetTaskArtifactStore()
+		ref, resolveErr := store.Resolve(task, artifactKey)
+		if resolveErr != nil || ref == nil {
+			writeTaskArtifactError(c, http.StatusServiceUnavailable, "artifact_storage_unavailable", "Task artifact storage is unavailable")
+			return
+		}
+		if err := store.Serve(c, task, ref); err != nil && !c.Writer.Written() {
+			writeTaskArtifactError(c, http.StatusServiceUnavailable, "artifact_storage_unavailable", "Task artifact storage is unavailable")
+		}
 		return
 	}
 	if task.Status != model.TaskStatusSuccess {

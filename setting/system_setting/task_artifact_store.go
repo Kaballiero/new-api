@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
@@ -13,14 +14,16 @@ import (
 )
 
 const (
-	TaskArtifactStoreModeUpstream = "upstream"
-	TaskArtifactStoreModeS3       = "s3"
+	TaskArtifactStoreModeFilesystem = "filesystem"
+	TaskArtifactStoreModeUpstream   = "upstream"
+	TaskArtifactStoreModeS3         = "s3"
 
 	DefaultTaskArtifactStorePresignTTLSeconds = 900
 	MaxTaskArtifactStorePresignTTLSeconds     = 7 * 24 * 60 * 60
 )
 
 const (
+	TaskArtifactStoreRootEnv         = "TASK_ARTIFACT_STORE_ROOT"
 	TaskArtifactStoreModeEnv         = "TASK_ARTIFACT_STORE_MODE"
 	TaskArtifactStoreS3EndpointEnv   = "TASK_ARTIFACT_STORE_S3_ENDPOINT"
 	TaskArtifactStoreS3BucketEnv     = "TASK_ARTIFACT_STORE_S3_BUCKET"
@@ -36,10 +39,11 @@ var (
 	taskArtifactStoreRegionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 )
 
-// TaskArtifactStoreConfig reserves the configuration contract for a future S3
-// implementation. The current release always falls back to upstream proxying.
+// TaskArtifactStoreConfig is startup-only. Filesystem mode requires a durable
+// root shared by all gateway nodes; it does not provide automatic retention.
 type TaskArtifactStoreConfig struct {
 	Mode                string
+	Root                string
 	S3Endpoint          string
 	S3Bucket            string
 	S3Region            string
@@ -53,6 +57,7 @@ type TaskArtifactStoreConfig struct {
 // S3 mode is deliberately disabled until a storage implementation is shipped.
 func LoadTaskArtifactStoreConfig() TaskArtifactStoreConfig {
 	config := TaskArtifactStoreConfig{
+		Root:                common.GetEnvOrDefaultString(TaskArtifactStoreRootEnv, ""),
 		Mode:                common.GetEnvOrDefaultString(TaskArtifactStoreModeEnv, TaskArtifactStoreModeUpstream),
 		S3Endpoint:          common.GetEnvOrDefaultString(TaskArtifactStoreS3EndpointEnv, ""),
 		S3Bucket:            common.GetEnvOrDefaultString(TaskArtifactStoreS3BucketEnv, ""),
@@ -77,8 +82,11 @@ func LoadTaskArtifactStoreConfig() TaskArtifactStoreConfig {
 // ValidateTaskArtifactStoreConfig performs syntax checks only. It never
 // resolves hosts, contacts an endpoint, or verifies credentials.
 func ValidateTaskArtifactStoreConfig(config TaskArtifactStoreConfig) error {
-	if config.Mode != TaskArtifactStoreModeUpstream && config.Mode != TaskArtifactStoreModeS3 {
+	if config.Mode != TaskArtifactStoreModeUpstream && config.Mode != TaskArtifactStoreModeS3 && config.Mode != TaskArtifactStoreModeFilesystem {
 		return fmt.Errorf("unsupported mode %q", config.Mode)
+	}
+	if config.Mode == TaskArtifactStoreModeFilesystem && (!filepath.IsAbs(config.Root) || strings.TrimSpace(config.Root) != config.Root || strings.ContainsAny(config.Root, "\r\n\x00")) {
+		return errors.New("filesystem root must be an absolute path")
 	}
 	if config.S3PresignTTLSeconds <= 0 || config.S3PresignTTLSeconds > MaxTaskArtifactStorePresignTTLSeconds {
 		return fmt.Errorf("S3 presign TTL must be between 1 and %d seconds", MaxTaskArtifactStorePresignTTLSeconds)

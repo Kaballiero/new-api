@@ -2,10 +2,13 @@ package controller
 
 import (
 	"context"
+	"github.com/QuantumNous/new-api/types"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -587,4 +590,65 @@ func TestSelfTaskMediaURLGuard(t *testing.T) {
 	assert.False(t, isSelfTaskMediaURL(c, remoteURL))
 	assert.True(t, isTaskMediaFallbackLoop(remoteURL.String(), "task-1"))
 	assert.False(t, isTaskMediaFallbackLoop(remoteURL.String(), "task-2"))
+}
+
+func TestOpenRouterAudioArtifactsRemainAccessibleWhileBillingUnresolved(t *testing.T) {
+	task := setupGenericTaskTest(t)
+	// Registered first: restore the startup backend after t.Setenv restores env.
+	t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+	root := t.TempDir()
+	require.NoError(t, os.Chmod(root, 0700))
+	t.Setenv(system_setting.TaskArtifactStoreModeEnv, system_setting.TaskArtifactStoreModeFilesystem)
+	t.Setenv(system_setting.TaskArtifactStoreRootEnv, root)
+	require.NoError(t, service.InitTaskArtifactStore())
+	previousSecret := common.CryptoSecret
+	common.CryptoSecret = "audio-artifact-access-fixture"
+	t.Cleanup(func() { common.CryptoSecret = previousSecret })
+	payload := "persisted audio"
+	ref, err := service.GetTaskArtifactStore().Persist(t.Context(), task, types.TaskArtifact{Key: "result", Type: "audio", MimeType: "audio/pcm"}, strings.NewReader(payload))
+	require.NoError(t, err)
+	task.PrivateData.OpenRouterAudio = &model.OpenRouterAudioTask{ResultReady: true, ResultMimeType: ref.MimeType, ResultSize: ref.Size, ResultSHA256: ref.SHA256}
+	// A stale upstream URL must never be used to serve a host-owned result.
+	task.PrivateData.ResultURL = "https://must-not-fetch.invalid/private"
+	for _, status := range []model.TaskStatus{model.TaskStatusInProgress, model.TaskStatusFailure} {
+		task.Status = status
+		require.NoError(t, model.DB.Save(task).Error)
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Set("id", task.UserId)
+		c.Params = gin.Params{{Key: "key", Value: task.TaskID}}
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/tasks/"+task.TaskID+"/artifacts", nil)
+		GetTaskArtifacts(c)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var response struct {
+			Artifacts []taskArtifactResponse `json:"artifacts"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		require.Len(t, response.Artifacts, 1)
+		assert.Equal(t, "result", response.Artifacts[0].Key)
+		assert.Equal(t, "audio/pcm", response.Artifacts[0].MimeType)
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			recorder = httptest.NewRecorder()
+			c, _ = gin.CreateTestContext(recorder)
+			c.Set("id", task.UserId)
+			c.Params = gin.Params{{Key: "key", Value: task.TaskID}, {Key: "artifact_key", Value: "result"}}
+			c.Request = httptest.NewRequest(method, "/v1/tasks/"+task.TaskID+"/artifacts/result/content", nil)
+			TaskArtifactContent(c)
+			require.Equal(t, http.StatusOK, recorder.Code)
+			if method == http.MethodGet {
+				assert.Equal(t, payload, recorder.Body.String())
+			} else {
+				assert.Empty(t, recorder.Body.String())
+			}
+		}
+	}
+	require.NoError(t, os.Remove(filepath.Join(root, ref.ObjectKey)))
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("id", task.UserId)
+	c.Params = gin.Params{{Key: "key", Value: task.TaskID}, {Key: "artifact_key", Value: "result"}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/tasks/"+task.TaskID+"/artifacts/result/content", nil)
+	TaskArtifactContent(c)
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "artifact_storage_unavailable")
 }

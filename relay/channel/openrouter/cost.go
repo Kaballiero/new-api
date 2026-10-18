@@ -5,12 +5,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -30,7 +32,17 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 		info.QuotaClamp = clamp
 		return clamp
 	}
-	info.OpenRouterCost = &relaycommon.OpenRouterCostState{Basis: basis}
+	if info.OpenRouterCost == nil {
+		info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
+	}
+	info.OpenRouterCost.Basis = basis
+	audio := info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription
+	if audio {
+		info.PriceData.Quota = quota
+		if err := service.BeginOpenRouterAudioTask(c, info, quota); err != nil {
+			return err
+		}
+	}
 	info.ForcePreConsume = true
 	info.TieredBillingSnapshot = nil
 	info.PriceData.FreeModel = false
@@ -42,6 +54,9 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 		return err
 	}
 	info.FinalPreConsumedQuota = info.Billing.GetPreConsumedQuota()
+	if audio {
+		return service.CommitOpenRouterAudioReservation(c, info)
+	}
 	return nil
 }
 
@@ -145,18 +160,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if err != nil {
 		return nil, err
 	}
-	if err := ReserveCost(c, info, estimate); err != nil {
-		return nil, err
-	}
-	var output struct {
-		Modalities []string `json:"modalities"`
-	}
-	_ = common.Unmarshal(body, &output)
-	for _, modality := range output.Modalities {
-		if modality == "audio" {
-			info.OpenRouterCost.BufferedAudio = true
-		}
-	}
+	info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
 	if local != nil {
 		info.OpenRouterCost.ConfiguredReserveUSD = common.GetPointer(local.USD)
 		info.OpenRouterCost.ConfiguredReserveModel = local.Model
@@ -170,6 +174,34 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 			if models[0] == "perplexity/sonar-deep-research" {
 				info.OpenRouterCost.ApproximateResearchReserveUSD = common.GetPointer(*reserve)
 			}
+		}
+	}
+	var output struct {
+		Modalities []string `json:"modalities"`
+	}
+	_ = common.Unmarshal(body, &output)
+	for _, modality := range output.Modalities {
+		if modality == "audio" {
+			info.OpenRouterCost.BufferedAudio = true
+		}
+	}
+	if err := ReserveCost(c, info, estimate); err != nil {
+		return nil, err
+	}
+	if service.HasOpenRouterAudioTask(info) {
+		headers := http.Header{}
+		if err := adaptor.SetupRequestHeader(c, &headers, info); err != nil {
+			return nil, err
+		}
+		overrides, err := channel.ResolveHeaderOverride(info, c)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range overrides {
+			headers.Set(key, value)
+		}
+		if err := service.ConfigureOpenRouterAudioSubmission(info, strings.TrimRight(info.ChannelBaseUrl, "/")+"/v1/generation", headers); err != nil {
+			return nil, err
 		}
 	}
 

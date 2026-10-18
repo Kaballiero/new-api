@@ -20,6 +20,8 @@ type OpenRouterCostState struct {
 	BufferedAudio bool
 	GenerationID  string
 	CostSource    string
+	// TaskID transfers financial ownership to the durable Task lifecycle.
+	TaskID string
 	// ApproximateResearchReserveUSD records the accepted hold policy, not a
 	// guaranteed maximum charge. Actual cost always uses the frozen Basis.
 	ApproximateResearchReserveUSD *float64

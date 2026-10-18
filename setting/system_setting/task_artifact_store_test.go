@@ -29,7 +29,7 @@ func TestValidateTaskArtifactStoreConfig(t *testing.T) {
 		mutate func(*TaskArtifactStoreConfig)
 		match  string
 	}{
-		{name: "mode", mutate: func(config *TaskArtifactStoreConfig) { config.Mode = "filesystem" }, match: "unsupported mode"},
+		{name: "mode", mutate: func(config *TaskArtifactStoreConfig) { config.Mode = "invalid" }, match: "unsupported mode"},
 		{name: "endpoint scheme", mutate: func(config *TaskArtifactStoreConfig) { config.S3Endpoint = "ftp://objects.example.com" }, match: "http or https"},
 		{name: "endpoint credentials", mutate: func(config *TaskArtifactStoreConfig) { config.S3Endpoint = "https://user:pass@objects.example.com" }, match: "without userinfo"},
 		{name: "endpoint query", mutate: func(config *TaskArtifactStoreConfig) { config.S3Endpoint = "https://objects.example.com?token=secret" }, match: "query or fragment"},
@@ -55,7 +55,7 @@ func TestValidateTaskArtifactStoreConfig(t *testing.T) {
 }
 
 func TestLoadTaskArtifactStoreConfigFallsBackToUpstream(t *testing.T) {
-	t.Setenv(TaskArtifactStoreModeEnv, "filesystem")
+	t.Setenv(TaskArtifactStoreModeEnv, "invalid")
 	t.Setenv(TaskArtifactStoreS3PresignTTLEnv, "900")
 	config := LoadTaskArtifactStoreConfig()
 	assert.Equal(t, TaskArtifactStoreModeUpstream, config.Mode)
@@ -73,4 +73,17 @@ func TestLoadTaskArtifactStoreConfigFallsBackToUpstream(t *testing.T) {
 	assert.Equal(t, TaskArtifactStoreModeUpstream, config.Mode)
 	assert.Equal(t, "https://objects.example.com", config.S3Endpoint)
 	assert.Equal(t, 600, config.S3PresignTTLSeconds)
+}
+
+func TestFilesystemTaskArtifactStoreStartupConfig(t *testing.T) {
+	t.Setenv(TaskArtifactStoreModeEnv, TaskArtifactStoreModeFilesystem)
+	t.Setenv(TaskArtifactStoreRootEnv, t.TempDir())
+	t.Setenv(TaskArtifactStoreS3PresignTTLEnv, "900")
+	config := LoadTaskArtifactStoreConfig()
+	assert.Equal(t, TaskArtifactStoreModeFilesystem, config.Mode)
+	require.NoError(t, ValidateTaskArtifactStoreConfig(config))
+	for _, root := range []string{"", "relative/path", " /private/path", "/private/path\n"} {
+		config.Root = root
+		require.ErrorContains(t, ValidateTaskArtifactStoreConfig(config), "absolute path")
+	}
 }

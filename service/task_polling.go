@@ -85,6 +85,9 @@ func sweepTimedOutTasks(ctx context.Context) {
 	timedOutCount := 0
 
 	for _, task := range tasks {
+		if task.PrivateData.OpenRouterAudio != nil {
+			continue
+		}
 		if reconciliation := task.PrivateData.Reconciliation; reconciliation != nil {
 			reconciliation.Required = true
 			reconciliation.HasUpstreamCost = false
@@ -140,9 +143,6 @@ type TaskPollSummary struct {
 // adaptor factory has not been wired yet, to avoid a nil call during startup.
 func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) TaskPollSummary {
 	summary := TaskPollSummary{}
-	if GetTaskAdaptorFunc == nil {
-		return summary
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -158,6 +158,15 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		}
 		for _, task := range page {
 			afterID = task.ID
+			if task.PrivateData.OpenRouterAudio != nil {
+				if err := pollOpenRouterAudio(ctx, task); err != nil {
+					logger.LogWarn(ctx, fmt.Sprintf("OpenRouter audio task %s reconciliation deferred", task.TaskID))
+				}
+				continue
+			}
+			if GetTaskAdaptorFunc == nil {
+				continue
+			}
 			if reconciliation := task.PrivateData.Reconciliation; reconciliation != nil && (reconciliation.ReservationPending || reconciliation.SubmissionPending) {
 				continue
 			}

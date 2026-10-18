@@ -2,20 +2,16 @@ package openrouter
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"net/url"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -79,10 +75,14 @@ func transcriptionReservationPayload(contentType string, body []byte) ([]byte, e
 	return common.Marshal(fields)
 }
 
-// AudioResponse buffers audio until its authoritative cost is known. Chat keeps
-// the upstream SSE bytes, including delta.audio and [DONE]; TTS keeps raw bytes.
-// Neither path can publish a successful result with an unknown monetary outcome.
-func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, adaptor channel.Adaptor) (*dto.Usage, *types.NewAPIError) {
+// AudioResponse persists the complete result before delivery. An unknown cost
+// retains the durable Task reservation for metadata reconciliation.
+func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage *dto.Usage, apiErr *types.NewAPIError) {
+	defer func() {
+		if apiErr != nil && service.HasOpenRouterAudioTask(info) {
+			_ = service.FailOpenRouterAudioTask(info, "invalid_audio_result")
+		}
+	}()
 	if resp == nil || resp.Body == nil {
 		return nil, CostError("OpenRouter audio response is missing")
 	}
@@ -92,11 +92,14 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 		return nil, CostError("OpenRouter audio response cannot be inspected for authoritative cost")
 	}
 	state := info.OpenRouterCost
+	resultType := "audio"
+	mimeType := resp.Header.Get("Content-Type")
 	if state.BufferedAudio {
 		mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil || mediaType != "text/event-stream" {
 			return nil, CostError("OpenRouter Chat audio requires an SSE response")
 		}
+		resultType = "file"
 		var last []byte
 		var projected bytes.Buffer
 		done := false
@@ -121,6 +124,12 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 				projected.WriteString("data: [DONE]\n\n")
 				continue
 			}
+			var event struct {
+				ID string `json:"id"`
+			}
+			if common.Unmarshal(data, &event) == nil && state.GenerationID == "" {
+				state.GenerationID = event.ID
+			}
 			state.Observe(data, false)
 			// Do not allow a later valid event to erase an upstream error.
 			if state.UnknownReason == "malformed_usage" || state.UnknownReason == "upstream_error" {
@@ -135,88 +144,46 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 			projected.WriteString("\n\n")
 			last = data
 		}
-		if !done || !state.Final {
-			return nil, CostError("OpenRouter terminal usage.cost is missing or invalid")
+		if !done || len(last) == 0 {
+			return nil, CostError("OpenRouter audio terminal marker is missing")
 		}
 		body = projected.Bytes()
+	} else if info.RelayMode == relayconstant.RelayModeAudioTranscription {
+		resultType = "file"
+		mediaType, _, parseErr := mime.ParseMediaType(mimeType)
+		if parseErr != nil || mediaType != "application/json" {
+			return nil, CostError("OpenRouter transcription response is not JSON")
+		}
+		var result struct {
+			ID   string  `json:"id"`
+			Text *string `json:"text"`
+		}
+		if common.Unmarshal(body, &result) != nil || result.Text == nil {
+			return nil, CostError("OpenRouter transcription response is invalid")
+		}
+		state.Observe(body, true)
+		if state.UnknownReason == "malformed_usage" || state.UnknownReason == "upstream_error" {
+			return nil, CostError("OpenRouter transcription failed")
+		}
+		if state.GenerationID == "" {
+			state.GenerationID = result.ID
+		}
+		body, err = common.ProjectClientResponse(c, body)
+		if err != nil {
+			return nil, CostError("OpenRouter transcription response projection failed")
+		}
 	} else {
 		mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil || !strings.HasPrefix(mediaType, "audio/") {
 			return nil, CostError("OpenRouter speech response is not audio")
 		}
-		if err := confirmSpeechCost(c, resp.Header.Get("X-Generation-Id"), info, adaptor); err != nil {
-			return nil, CostError(err.Error())
-		}
 	}
+	if err := service.CompleteOpenRouterAudioTask(c, info, body, mimeType, resultType); err != nil {
+		return nil, CostError(err.Error())
+	}
+	c.Header("X-Task-Id", state.TaskID)
 	// Preserve the gateway's existing response/header policy while
 	// retaining audio fields even if ForceFormat/ThinkingToContent are enabled.
 	service.IOCopyOpaqueBytesGracefully(c, resp, body)
 	return &dto.Usage{Cost: state.CostUSD}, nil
-}
-
-// confirmSpeechCost performs only a metadata GET after EOF, never a paid replay.
-// A missing/not-yet-published record fails closed under the synchronous refund
-// policy. Matching identity and completed timing prevent provisional free cost.
-func confirmSpeechCost(c *gin.Context, generationID string, info *relaycommon.RelayInfo, adaptor channel.Adaptor) error {
-	state := info.OpenRouterCost
-	state.UnknownReason = "missing_speech_generation_cost"
-	if generationID == "" || len(generationID) > 512 {
-		return errors.New("OpenRouter speech generation ID is missing or invalid")
-	}
-	state.GenerationID = generationID
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
-	defer cancel()
-	endpoint := strings.TrimRight(info.ChannelBaseUrl, "/") + "/v1/generation?id=" + url.QueryEscape(generationID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return errors.New("OpenRouter speech cost lookup request failed")
-	}
-	if err := adaptor.SetupRequestHeader(c, &req.Header, info); err != nil {
-		return err
-	}
-	overrides, err := channel.ResolveHeaderOverride(info, c)
-	if err != nil {
-		return err
-	}
-	for key, value := range overrides {
-		req.Header.Set(key, value)
-	}
-	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
-	if err != nil {
-		return errors.New("OpenRouter speech cost transport unavailable")
-	}
-	metadataClient := *client
-	metadataClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := metadataClient.Do(req)
-	if err != nil {
-		return errors.New("OpenRouter speech cost lookup failed")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return errors.New("OpenRouter speech cost lookup unavailable")
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
-	if err != nil || len(body) > 2<<20 {
-		return errors.New("OpenRouter speech cost metadata exceeds limit")
-	}
-	var result struct {
-		Data struct {
-			ID             string          `json:"id"`
-			Model          string          `json:"model"`
-			Cancelled      *bool           `json:"cancelled"`
-			GenerationTime *float64        `json:"generation_time"`
-			TotalCost      json.RawMessage `json:"total_cost"`
-		} `json:"data"`
-		Error json.RawMessage `json:"error"`
-	}
-	if common.Unmarshal(body, &result) != nil || len(result.Error) > 0 && string(result.Error) != "null" || result.Data.ID != generationID || result.Data.Model != strings.TrimSuffix(strings.TrimSuffix(info.UpstreamModelName, ":nitro"), ":floor") || result.Data.Cancelled == nil || *result.Data.Cancelled || result.Data.GenerationTime == nil || *result.Data.GenerationTime < 0 {
-		return errors.New("OpenRouter speech generation cost is incomplete or mismatched")
-	}
-	cost, err := common.ValidateOpenRouterCost(result.Data.TotalCost)
-	if err != nil {
-		return errors.New("OpenRouter speech total_cost is missing or invalid")
-	}
-	state.CostUSD, state.Valid, state.Final, state.UnknownReason = cost, true, true, ""
-	state.CostSource = "generation.total_cost"
-	return nil
 }
