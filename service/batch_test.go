@@ -180,7 +180,7 @@ func TestBatchBillingUsesProviderBase(t *testing.T) {
 }
 
 func TestBatchWorkerLifecycle(t *testing.T) {
-	for _, mode := range []string{"success", "provider_routing", "corrupt_contract", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
+	for _, mode := range []string{"success", "provider_routing", "corrupt_contract", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "endpoint_rejected", "oversized_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
 		t.Run(mode, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 			require.NoError(t, err)
@@ -208,9 +208,18 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				if r.Method == http.MethodPost {
 					posts.Add(1)
-					if mode == "rejected" || mode == "malicious_rejected" {
+					if mode == "rejected" || mode == "malicious_rejected" || mode == "endpoint_rejected" || mode == "oversized_rejected" {
 						w.Header().Set("X-Request-Id", "req-123")
 						w.WriteHeader(400)
+						if mode == "endpoint_rejected" || mode == "oversized_rejected" {
+							body := `{"error":{"code":400,"message":"Model 'openai/gpt-4.1-nano:batch' does not have a :batch endpoint."}}`
+							if mode == "oversized_rejected" {
+								// A valid JSON prefix padded past the reader limit must not be classified.
+								body += strings.Repeat(" ", 16<<10)
+							}
+							_, _ = w.Write([]byte(body))
+							return
+						}
 						if mode == "malicious_rejected" {
 							_, _ = w.Write([]byte(`{"error":{"code":"sk-private-key","message":"Bearer sk-private-key prompt confidential"},"request_id":"sk-private-key"}`))
 							return
@@ -406,13 +415,22 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				}
 				return
 			}
-			if mode == "rejected" || mode == "malicious_rejected" {
+			if mode == "rejected" || mode == "malicious_rejected" || mode == "endpoint_rejected" || mode == "oversized_rejected" {
 				var diagnostic map[string]any
 				require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic))
 				assert.EqualValues(t, 1, diagnostic["version"])
 				assert.Equal(t, "create", diagnostic["phase"])
 				assert.EqualValues(t, 400, diagnostic["http_status"])
 				assert.Equal(t, "req-123", diagnostic["request_id"])
+				if mode == "endpoint_rejected" {
+					assert.Equal(t, "batch_endpoint_unavailable", diagnostic["code"])
+					assert.Equal(t, "endpoint_unavailable", diagnostic["category"])
+				}
+				if mode == "oversized_rejected" {
+					assert.Equal(t, "provider_error", diagnostic["code"])
+					assert.Equal(t, "unknown", diagnostic["category"])
+				}
+
 				assert.NotContains(t, job.LastError, "specific upstream rejection")
 				assert.NotContains(t, job.LastError, "sk-private-key")
 				assert.NotContains(t, job.LastError, "confidential")
@@ -681,6 +699,54 @@ func TestBatchFailureDiagnostics(t *testing.T) {
 			}
 		})
 	}
+	// These six real rejection templates previously collapsed to numeric HTTP 400.
+	for _, name := range []string{"openai/gpt-4-turbo", "openai/gpt-4.1-mini", "openai/gpt-4.1-nano", "openai/gpt-5.4-pro", "openai/gpt-5.5-pro", "openai/gpt-5.5"} {
+		t.Run(name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"error":{"code":400,"message":"Model '%s:batch' does not have a :batch endpoint."}}`, name)
+			var diagnostic model.BatchFailure
+			require.NoError(t, common.UnmarshalJsonStr(normalizedBatchFailure("create", 400, "req-123", []byte(body)), &diagnostic))
+			assert.Equal(t, "batch_endpoint_unavailable", diagnostic.Code)
+			assert.Equal(t, "endpoint_unavailable", diagnostic.Category)
+			assert.Equal(t, "The provider reported that the requested model has no Batch endpoint.", diagnostic.Message)
+			assert.NotContains(t, diagnostic.Message, name)
+		})
+	}
+	for _, tc := range []struct {
+		name, body, code, category string
+	}{
+		{"unknown 400 is not capacity", `{"error":{"code":400,"message":"unrecognized rejection"}}`, "400", "unknown"},
+		{"typed capacity", `{"error":{"code":400,"metadata":{"error_type":"provider_overloaded","raw":"Bearer sk-secret"}}}`, "provider_overloaded", "capacity"},
+		{"typed parameters", `{"error":{"code":400,"metadata":{"error_type":"context_length_exceeded"}}}`, "context_length_exceeded", "invalid_request"},
+		{"typed access", `{"error":{"code":403,"metadata":{"error_type":"permission_denied","raw":"private prompt"}}}`, "permission_denied", "access"},
+		{"anthropic access", `{"type":"error","error":{"type":"permission_error","message":"private prompt"}}`, "permission_error", "access"},
+		{"google parameters", `{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"private prompt"}}`, "INVALID_ARGUMENT", "invalid_request"},
+		{"resource limit is not capacity", `{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}`, "RESOURCE_EXHAUSTED", "rate_limit"},
+		{"snapshot endpoint", `{"code":400,"message":"Model 'openai/gpt-4o:batch' does not have a :batch endpoint."}`, "batch_endpoint_unavailable", "endpoint_unavailable"},
+		{"no substring guessing", `{"error":{"code":400,"message":"private prompt says Model 'openai/gpt-4o:batch' does not have a :batch endpoint."}}`, "400", "unknown"},
+		{"secret in matched model discarded", `{"error":{"code":400,"message":"Model 'sk-secret:batch' does not have a :batch endpoint."}}`, "batch_endpoint_unavailable", "endpoint_unavailable"},
+		{"URL and raw secrets discarded", `{"error":{"code":400,"message":"https://example.test?token=secret-token","metadata":{"error_type":"sk-secret","raw":{"Authorization":"Bearer sk-secret","prompt":"private prompt"}}}}`, "400", "unknown"},
+		{"outer reason not inherited", `{"metadata":{"error_type":"provider_overloaded"},"error":{"code":400}}`, "400", "unknown"},
+		{"malformed nested error", `{"error":"Bearer sk-secret"}`, "provider_error", "unknown"},
+		{"oversized valid JSON", `{"error":{"code":400,"message":"Model 'openai/gpt-4o:batch' does not have a :batch endpoint."},"padding":"` + strings.Repeat("x", 16<<10) + `"}`, "provider_error", "unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stored := normalizedBatchFailure("create", 400, "req-123", []byte(tc.body))
+			var diagnostic model.BatchFailure
+			require.NoError(t, common.UnmarshalJsonStr(stored, &diagnostic))
+			assert.Equal(t, tc.code, diagnostic.Code)
+			assert.Equal(t, tc.category, diagnostic.Category)
+			assert.Less(t, len(stored), 4096)
+			for _, secret := range []string{"sk-secret", "private prompt", "secret-token", "Authorization", "https://"} {
+				assert.NotContains(t, stored, secret)
+			}
+			data, err := common.Marshal(model.BatchJob{Status: "failed", LastError: stored})
+			require.NoError(t, err)
+			assert.Contains(t, string(data), `"code":"batch_creation_rejected"`)
+			assert.NotContains(t, string(data), "category")
+			assert.NotContains(t, string(data), "req-123")
+		})
+	}
+
 	for _, tc := range []struct {
 		status, lastError string
 		failed            bool
