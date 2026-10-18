@@ -18,6 +18,10 @@ type ChannelSettings struct {
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
 	SystemPrompt           string `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	// OpenRouterSonarResearchReserveUSD opts this channel into an approximate
+	// hold for perplexity/sonar-deep-research. Nil keeps admission disabled.
+	// It is not a price ceiling: full actual cost, including excess, is settled.
+	OpenRouterSonarResearchReserveUSD *float64 `json:"openrouter_sonar_research_reserve_usd,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".
 	HTTPProtocol string `json:"http_protocol,omitempty"`

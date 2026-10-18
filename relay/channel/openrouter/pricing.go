@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -153,6 +154,7 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 		MaxCompletionTokens *int `json:"max_completion_tokens"`
 		MaxOutputTokens     *int `json:"max_output_tokens"`
 		N                   *int `json:"n"`
+		Stream              bool `json:"stream"`
 		Tools               []struct {
 			Type string `json:"type"`
 		} `json:"tools"`
@@ -225,9 +227,27 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 	if count < 1 || count > dto.MaxImageN {
 		return 0, errors.New("invalid OpenRouter output count")
 	}
+	// This server-owned policy accepts an unknown research bill, not a bound.
+	// It never applies to aliases, fallback models, batches or other providers.
+	var researchReserve *float64
+	if info.ChannelMeta != nil {
+		researchReserve = info.ChannelSetting.OpenRouterSonarResearchReserveUSD
+	}
+	approximateResearch := request.Model == "perplexity/sonar-deep-research" && researchReserve != nil
+	if approximateResearch {
+		if math.IsNaN(*researchReserve) || math.IsInf(*researchReserve, 0) || *researchReserve <= 0 {
+			return 0, errors.New("invalid OpenRouter Sonar research reserve")
+		}
+		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || operation != "chat/completions" || request.Stream || info.IsStream || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
+			return 0, errors.New("OpenRouter Sonar research reserve only supports one nonstream text chat response without routing or tools")
+		}
+	}
 	var maximum decimal.Decimal
 	found := false
 	for _, model := range models {
+		if model == "perplexity/sonar-deep-research" && !approximateResearch {
+			return 0, errors.New("OpenRouter Sonar research reserve policy is disabled")
+		}
 		if strings.HasSuffix(model, ":online") {
 			return 0, errors.New("OpenRouter online routing includes unpriced hosted search")
 		}
@@ -391,6 +411,16 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 					continue
 				}
 			}
+			if approximateResearch {
+				if tag != "perplexity" || endpoint.ModelID != "" && endpoint.ModelID != request.Model {
+					return 0, errors.New("OpenRouter Sonar research reserve requires the Perplexity endpoint")
+				}
+				for _, key := range []string{"prompt", "completion", "internal_reasoning", "web_search"} {
+					if _, err := readRate(endpoint.Pricing[key]); err != nil {
+						return 0, err
+					}
+				}
+			}
 			promptRate, err := readRate(endpoint.Pricing["prompt"])
 			if err != nil {
 				return 0, err
@@ -440,17 +470,22 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 			}
 			for key, raw := range endpoint.Pricing {
+				if approximateResearch && (key == "internal_reasoning" || key == "web_search") {
+					// Rates were validated above. Quantities remain unknown; the
+					// explicit approximate hold does not make them free or bounded.
+					continue
+				}
 				switch key {
 				case "prompt", "completion", "request", "input_cache_read", "input_cache_write", "input_cache_write_1h", "discount", "image":
 					continue
 				}
-				if key == "audio" || key == "input_audio_cache" || key == "internal_reasoning" && strings.HasPrefix(model, "google/gemini-") {
+				if !approximateResearch && (key == "audio" || key == "input_audio_cache" || key == "internal_reasoning" && strings.HasPrefix(model, "google/gemini-")) {
 					if _, err := readRate(raw); err != nil {
 						return 0, err
 					}
 					continue
 				}
-				if key == "input_audio" || key == "output_audio" || key == "web_search" {
+				if !approximateResearch && (key == "input_audio" || key == "output_audio" || key == "web_search") {
 					continue
 				}
 				if key == "overrides" {
@@ -472,6 +507,9 @@ func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, op
 	}
 	if !found {
 		return 0, errors.New("OpenRouter request has no compatible priced endpoint")
+	}
+	if approximateResearch {
+		maximum = decimal.Max(maximum, decimal.NewFromFloat(*researchReserve))
 	}
 	result, _ := maximum.Float64()
 	if math.IsInf(result, 0) || math.IsNaN(result) {
