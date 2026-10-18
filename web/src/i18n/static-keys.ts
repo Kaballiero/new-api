@@ -21,6 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
 export const STATIC_I18N_KEYS = [
   // OpenRouter reserve policy validation.
   'Use exact model IDs and finite positive USD amounts',
+  'Use exact model IDs with upstream or configured_price',
   // Billing expression simulation diagnostics and conditional labels.
   '{{start}}–{{end}}',
 

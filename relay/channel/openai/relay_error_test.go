@@ -18,6 +18,9 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,13 +52,13 @@ func newEmbeddedErrorTestRequest(body string, statusCode int) (*gin.Context, *ht
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return c, recorder, &http.Response{
-			StatusCode: statusCode,
-			Body:       io.NopCloser(strings.NewReader(body)),
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-		}, &relaycommon.RelayInfo{
-			ChannelMeta: &relaycommon.ChannelMeta{},
-			RelayFormat: types.RelayFormatOpenAI,
-		}
+		StatusCode: statusCode,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}, &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{},
+		RelayFormat: types.RelayFormatOpenAI,
+	}
 }
 
 func assertEmbeddedOpenAIError(t *testing.T, relayError *types.NewAPIError, recorder *httptest.ResponseRecorder, statusCode int) {
@@ -680,6 +683,30 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 
 func TestOpenRouterModelReserveSettings(t *testing.T) {
 	for _, tc := range []struct {
+		model  string
+		source dto.OpenRouterReservationSource
+		valid  bool
+	}{
+		{"other/text", dto.OpenRouterReservationConfiguredPrice, true},
+		{"other/text", dto.OpenRouterReservationUpstream, true},
+		{"other/*", dto.OpenRouterReservationConfiguredPrice, false},
+		{" other/text", dto.OpenRouterReservationConfiguredPrice, false},
+		{"other/text", "unknown", false},
+		{"other/text", "", false},
+	} {
+		settings := dto.ChannelSettings{OpenRouterReservationSource: map[string]dto.OpenRouterReservationSource{tc.model: tc.source}}
+		if !tc.valid {
+			require.Error(t, settings.ValidateOpenRouterReserves())
+			continue
+		}
+		require.NoError(t, settings.ValidateOpenRouterReserves())
+		encoded, err := common.Marshal(settings)
+		require.NoError(t, err)
+		var restored dto.ChannelSettings
+		require.NoError(t, common.Unmarshal(encoded, &restored))
+		assert.Equal(t, tc.source, restored.OpenRouterReservationSource[tc.model])
+	}
+	for _, tc := range []struct {
 		name, model string
 		reserve     float64
 		invalid     bool
@@ -705,6 +732,170 @@ func TestOpenRouterModelReserveSettings(t *testing.T) {
 			assert.Nil(t, settings.OpenRouterReserveUSD(tc.model+"-alias"))
 			otherChannel := dto.ChannelSettings{}
 			assert.Nil(t, otherChannel.OpenRouterReserveUSD(tc.model))
+		})
+	}
+}
+
+func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
+	const modelID, alias = "other/local-reserve-text", "local-reserve-alias"
+	for _, tc := range []struct {
+		name, expression, extra, rateKey, rate, wantError string
+		price, ratio, minimum                             float64
+		source                                            dto.OpenRouterReservationSource
+		noPolicy, wrongPolicy, noPrice, useRatio          bool
+		missingCost, insufficient, knownAboveLocal        bool
+		zeroTariffs                                       bool
+	}{
+		{name: "fixed configured price", price: 2},
+		{name: "configured price preserves minimum", price: 2, minimum: 3},
+		{name: "known upstream cost wins", price: 2, rateKey: "completion", rate: "1", knownAboveLocal: true},
+		{name: "expression uses effective payload", expression: `param("max_tokens") == 128 ? tier("effective", fixed(2)) : tier("other", fixed(7))`},
+		{name: "token expression uses USD per million", expression: `tier("tokens", c * 15625)`},
+		{name: "expression receives request headers", expression: `header("x-reserve") == "yes" ? tier("header", fixed(2)) : tier("other", fixed(7))`},
+		{name: "legacy ratio convention", useRatio: true, ratio: 5000},
+		{name: "unknown reasoning accepted by positive estimate", price: 2, rateKey: "internal_reasoning", rate: "0.000003"},
+		{name: "zero local does not erase upstream", price: 0},
+		{name: "confirmed zero preserved", price: 0, zeroTariffs: true},
+		{name: "zero cannot cover unknown quantity", rateKey: "internal_reasoning", rate: "0.000003", wantError: "requires a positive reserve"},
+		{name: "disabled by default", price: 2, noPolicy: true},
+		{name: "explicit upstream", price: 2, source: dto.OpenRouterReservationUpstream},
+		{name: "policy keyed by final ID not alias", price: 2, wrongPolicy: true},
+		{name: "invalid source rejected", price: 2, source: "invalid", wantError: "invalid OpenRouter reservation source"},
+		{name: "missing configured price", noPrice: true, wantError: "has no configured reservation price"},
+		{name: "negative configured price", price: -1, wantError: "invalid configured reservation price"},
+		{name: "huge configured price", price: 1e100, wantError: "quota"},
+		{name: "cannot recursively use provider cost", expression: `tier("provider", provider_cost * 1000000)`, wantError: "requires a validated provider cost estimate"},
+		{name: "unmeasured audio expression rejected", expression: `p * 2 + ao * 50`, wantError: "unavailable ao quantity"},
+		{name: "unmeasured task expression rejected", expression: `u("seconds") * 2`, wantError: "unavailable u quantity"},
+		{name: "unknown dimension remains closed", price: 2, rateKey: "research_step", rate: "1", wantError: "unsupported billable dimension research_step"},
+		{name: "missing tariff remains closed", price: 2, rateKey: "prompt", rate: "null", wantError: "invalid OpenRouter endpoint price"},
+		{name: "stream stays closed", price: 2, extra: `,"stream":true`, wantError: "one nonstream text chat response"},
+		{name: "image output stays closed", price: 2, extra: `,"modalities":["text","image"]`, wantError: "output modality tariff is unavailable"},
+		{name: "tools stay closed", price: 2, extra: `,"tools":[{"type":"function"}]`, wantError: "one nonstream text chat response"},
+		{name: "multiple responses stay closed", price: 2, extra: `,"n":2`, wantError: "one nonstream text chat response"},
+		{name: "fallback model cannot disable selected policy", price: 2, extra: `,"models":["other/fallback"]`, wantError: "only supports one nonstream text chat response"},
+		{name: "insufficient funds before paid POST", price: 2, insufficient: true, wantError: "insufficient test quota"},
+		{name: "missing actual cost never becomes estimate", price: 2, missingCost: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			oldPrices, oldRatios := ratio_setting.ModelPrice2JSONString(), ratio_setting.ModelRatio2JSONString()
+			settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
+			oldModes, oldExprs := settings.BillingMode, settings.BillingExpr
+			t.Cleanup(func() {
+				require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(oldPrices))
+				require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(oldRatios))
+				settings.BillingMode, settings.BillingExpr = oldModes, oldExprs
+			})
+			settings.BillingMode, settings.BillingExpr = map[string]string{}, map[string]string{}
+			if tc.expression != "" {
+				settings.BillingMode[alias], settings.BillingExpr[alias] = billing_setting.BillingModeTieredExpr, tc.expression
+			} else if !tc.noPrice {
+				encoded, err := common.Marshal(map[string]float64{alias: tc.price})
+				require.NoError(t, err)
+				if tc.useRatio {
+					encoded, err = common.Marshal(map[string]float64{alias: tc.ratio})
+					require.NoError(t, err)
+					require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(string(encoded)))
+				} else {
+					require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(encoded)))
+				}
+			}
+			prices := map[string]any{"prompt": "0.000002", "completion": "0.000008"}
+			if tc.zeroTariffs {
+				prices["prompt"], prices["completion"] = "0", "0"
+			}
+			if tc.rateKey != "" {
+				prices[tc.rateKey] = tc.rate
+				if tc.rate == "null" {
+					prices[tc.rateKey] = nil
+				}
+			}
+			metadata, err := common.Marshal(map[string]any{"data": map[string]any{"id": modelID, "endpoints": []any{map[string]any{"tag": "other-provider", "model_id": modelID, "max_completion_tokens": 128, "pricing": prices}}}})
+			require.NoError(t, err)
+			transport := &sonarAdmissionTransport{metadata: string(metadata)}
+			if tc.missingCost {
+				transport.response = `{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{}}`
+			}
+			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			require.NoError(t, err)
+			oldTransport := client.Transport
+			client.Transport = transport
+			t.Cleanup(func() { client.Transport = oldTransport })
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"Reply OK."}],"max_tokens":128%s}`, modelID, tc.extra)
+			c, recorder, _, info := newEmbeddedErrorTestRequest(body, http.StatusOK)
+			info.ChannelType, info.ChannelBaseUrl = constant.ChannelTypeOpenRouter, "https://openrouter.test/api"
+			info.RequestURLPath, info.RelayMode = "/v1/chat/completions", relayconstant.RelayModeChatCompletions
+			info.OriginModelName, info.UpstreamModelName = alias, modelID
+			info.RequestHeaders = map[string]string{"X-Reserve": "yes"}
+			info.PriceData.BillingGroupRatio = 1.5
+			if !tc.noPolicy {
+				policyID, source := modelID, tc.source
+				if tc.wrongPolicy {
+					policyID = alias
+				}
+				if source == "" {
+					source = dto.OpenRouterReservationConfiguredPrice
+				}
+				info.ChannelSetting.OpenRouterReservationSource = map[string]dto.OpenRouterReservationSource{policyID: source}
+			}
+			if tc.minimum > 0 {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{modelID: tc.minimum}
+			}
+			billing := &sonarAdmissionBilling{}
+			if tc.insufficient {
+				billing.err = errors.New("insufficient test quota")
+			}
+			info.Billing = billing
+			adaptor := &Adaptor{}
+			response, err := adaptor.DoRequest(c, info, strings.NewReader(body))
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				assert.Zero(t, transport.posts)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, 1, transport.posts)
+			assert.JSONEq(t, body, string(transport.body))
+			require.NotNil(t, info.OpenRouterCost)
+			assert.Nil(t, info.TieredBillingSnapshot)
+			assert.Nil(t, info.BillingRequestInput)
+			if tc.noPolicy || tc.wrongPolicy || tc.source == dto.OpenRouterReservationUpstream {
+				assert.Nil(t, info.OpenRouterCost.ConfiguredReserveUSD)
+				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.0)
+			} else {
+				require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
+				assert.Equal(t, alias, info.OpenRouterCost.ConfiguredReserveModel)
+				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, *info.OpenRouterCost.ConfiguredReserveUSD)
+				assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, tc.minimum)
+				if tc.expression != "" {
+					assert.Equal(t, 2.0, *info.OpenRouterCost.ConfiguredReserveUSD)
+					assert.NotEmpty(t, info.OpenRouterCost.ConfiguredReserveExprHash)
+				} else if !tc.useRatio {
+					assert.Equal(t, tc.price, *info.OpenRouterCost.ConfiguredReserveUSD)
+				} else {
+					assert.Greater(t, *info.OpenRouterCost.ConfiguredReserveUSD, 1.0)
+				}
+				if !tc.knownAboveLocal && !tc.useRatio && !tc.zeroTariffs && tc.price > 0 {
+					assert.Equal(t, max(tc.price, tc.minimum), info.OpenRouterCost.Basis.EstimatedUSD)
+				}
+			}
+			if tc.knownAboveLocal {
+				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 128.0)
+			}
+			info.PriceData.BillingGroupRatio = 9
+			usage, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
+			if tc.missingCost {
+				require.NotNil(t, apiErr)
+				assert.False(t, info.OpenRouterCost.Final)
+				assert.Empty(t, recorder.Body.String())
+				return
+			}
+			require.Nil(t, apiErr)
+			assert.Equal(t, .47545, usage.(*dto.Usage).Cost)
+			quota, clamp, err := info.OpenRouterCost.Basis.Quota(3)
+			require.NoError(t, err)
+			require.Nil(t, clamp)
+			assert.Equal(t, 2250000, quota, "actual may exceed the hold, using the frozen ratio once")
 		})
 	}
 }

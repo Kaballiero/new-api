@@ -299,6 +299,7 @@ const SENSITIVE_FORM_FIELDS = [
   'thinking_to_content',
   'proxy',
   'openrouter_model_reserve_usd',
+  'openrouter_reservation_source',
   'http_protocol',
   'http2_connection_shards',
   'pass_through_body_enabled',
@@ -351,6 +352,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.priority ||
     values.weight ||
     hasConfiguredOverrideValue(values.openrouter_model_reserve_usd) ||
+    hasConfiguredOverrideValue(values.openrouter_reservation_source) ||
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
     values.force_format ||
@@ -724,6 +726,7 @@ export function ChannelMutateDrawer({
     'disable_task_polling_sleep'
   )
   const currentModelReserves = form.watch('openrouter_model_reserve_usd')
+  const currentReservationSources = form.watch('openrouter_reservation_source')
   const currentProxy = form.watch('proxy')
   const currentHttpProtocol = form.watch('http_protocol')
   const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
@@ -1015,6 +1018,7 @@ export function ChannelMutateDrawer({
     currentPassThroughBodyEnabled ||
     currentDisableTaskPollingSleep ||
     hasConfiguredOverrideValue(currentModelReserves) ||
+    hasConfiguredOverrideValue(currentReservationSources) ||
     currentProxy?.trim() ||
     currentSystemPrompt?.trim() ||
     currentSystemPromptOverride ||

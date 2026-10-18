@@ -65,7 +65,7 @@ func GetBillingMode(model string) string {
 }
 
 func GetBillingExpr(model string) (string, bool) {
-	if expr, ok := billingSetting.BillingExpr[model]; ok {
+	if expr, ok := GetConfiguredBillingExpr(model); ok {
 		return expr, true
 	}
 	if GetBillingMode(model) == BillingModeTieredExpr {
@@ -73,6 +73,13 @@ func GetBillingExpr(model string) (string, bool) {
 		return expr, ok
 	}
 	return "", false
+}
+
+// GetConfiguredBillingExpr excludes built-in display tariffs from explicit
+// administrator pricing policies such as OpenRouter reservation estimates.
+func GetConfiguredBillingExpr(model string) (string, bool) {
+	expr, ok := billingSetting.BillingExpr[model]
+	return expr, ok
 }
 
 func GetBatchBillingExpr(model string) (string, bool) {

@@ -527,6 +527,14 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		other.SetAdmin("openrouter_cost_basis", state.Basis)
 		other.SetAdmin("upstream_cost_usd", state.CostUSD)
 		other.SetAdmin("reserved_quota", relayInfo.FinalPreConsumedQuota)
+		if state.ConfiguredReserveUSD != nil {
+			other.SetAdmin("openrouter_reservation_source", "configured_price")
+			other.SetAdmin("openrouter_configured_reserve_usd", *state.ConfiguredReserveUSD)
+			other.SetAdmin("openrouter_configured_reserve_model", state.ConfiguredReserveModel)
+			if state.ConfiguredReserveExprHash != "" {
+				other.SetAdmin("openrouter_configured_reserve_expr_hash", state.ConfiguredReserveExprHash)
+			}
+		}
 		if state.ApproximateReserveUSD != nil {
 			other.SetAdmin("openrouter_admission_policy", "model_approximate_reserve")
 			other.SetAdmin("openrouter_approximate_reserve_usd", *state.ApproximateReserveUSD)

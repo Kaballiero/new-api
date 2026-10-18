@@ -134,6 +134,24 @@ function isOpenRouterReservePolicy(value: string | undefined): boolean {
   }
 }
 
+function isOpenRouterReservationSource(value: string | undefined): boolean {
+  if (!value?.trim()) return true
+  try {
+    const policy: unknown = JSON.parse(value)
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
+      return false
+    }
+    return Object.entries(policy).every(
+      ([model, source]) =>
+        model.length > 0 &&
+        !/[\s*]/.test(model) &&
+        (source === 'upstream' || source === 'configured_price')
+    )
+  } catch {
+    return false
+  }
+}
+
 function isOptionalJsonObject(value: string | undefined): boolean {
   try {
     const parsed = parseOptionalJson(value)
@@ -287,6 +305,13 @@ export const channelFormSchema = z
       .refine(
         isOpenRouterReservePolicy,
         'Use exact model IDs and finite positive USD amounts'
+      ),
+    openrouter_reservation_source: z
+      .string()
+      .optional()
+      .refine(
+        isOpenRouterReservationSource,
+        'Use exact model IDs with upstream or configured_price'
       ),
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
@@ -470,6 +495,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   thinking_to_content: false,
   proxy: '',
   openrouter_model_reserve_usd: '',
+  openrouter_reservation_source: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
   pass_through_body_enabled: false,
@@ -512,6 +538,7 @@ export function transformChannelToFormDefaults(
     thinking_to_content: false,
     proxy: '',
     openrouter_model_reserve_usd: '',
+    openrouter_reservation_source: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
     pass_through_body_enabled: false,
@@ -532,6 +559,11 @@ export function transformChannelToFormDefaults(
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
         // Saving migrates the legacy hold into the editable map. Exact entries win.
+        openrouter_reservation_source: JSON.stringify(
+          parsed.openrouter_reservation_source || {},
+          null,
+          2
+        ),
         openrouter_model_reserve_usd: JSON.stringify(
           {
             ...(parsed.openrouter_sonar_research_reserve_usd == null
@@ -677,6 +709,13 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     const reserves = JSON.parse(formData.openrouter_model_reserve_usd)
     if (Object.keys(reserves).length > 0) {
       settingObj.openrouter_model_reserve_usd = reserves
+    }
+  }
+
+  if (formData.openrouter_reservation_source?.trim()) {
+    const sources = JSON.parse(formData.openrouter_reservation_source)
+    if (Object.keys(sources).length > 0) {
+      settingObj.openrouter_reservation_source = sources
     }
   }
 
