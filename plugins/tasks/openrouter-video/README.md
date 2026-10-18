@@ -37,7 +37,15 @@ go test ./plugins ./pkg/jsplugin ./relay/channel/task/jsplugin ./relay
 Для новых заданий резерв вычисляет Go estimator по проверенному исходящему
 запросу и свежему `GET /v1/videos/models`. Настройка `billing_expr` не заменяет
 этот расчёт. Неизвестные SKU и отсутствующие оплачиваемые количества блокируют
-отправку. FX, выбранная группа и effective group ratio фиксируются перед paid POST.
+отправку. Выбор расчёта основан на SKU и доступных количествах, без списка
+модельных семейств. В коде остаются совместимости, которых нет в discovery:
+free-image allowances HeyGen/Hailuo, обязательная доплата Grok за image input
+и опубликованный 15-секундный output bound FLUX Video Edit.
+Для video tokens также нужен подтверждённый meter: формула Seedance
+`pixels × seconds × 24 / 1024` не распространяется на неизвестные модели.
+Смешанные token/second output SKU отклоняются, поскольку максимум тарифов
+с разными количественными контрактами не доказывает полный резерв.
+FX, выбранная группа и effective group ratio фиксируются перед paid POST.
 Окончательный клиентский расход вычисляется из подтверждённого OpenRouter
 `usage.cost` и замороженного effective group ratio. Если cost выше резерва,
 дополнительное списание может привести к отрицательному остатку кошелька/токена;
@@ -47,6 +55,26 @@ go test ./plugins ./pkg/jsplugin ./relay/channel/task/jsplugin ./relay
 Estimator резервирует максимальную поддерживаемую длительность, а при пропуске
 resolution — максимальный совместимый тариф. Плагин не добавляет эти значения
 в исходящий запрос. Это консервативный резерв, а не измеренная длительность.
+
+Для exact upstream model можно выбрать существующий channel setting
+`openrouter_reservation_source: {"vendor/model": "configured_price"}`.
+Локальная явно заданная цена или task expression по обычной client billing
+identity задаёт дополнительный резерв в USD: например,
+`tier("video", u("requested_seconds") * 0.1)`. Резерв равен максимуму локальной
+оценки, полной свежей upstream-оценки и `openrouter_model_reserve_usd` minimum.
+Цена не заменяет обязательную upstream-проверку: source-based модели нельзя
+разблокировать формулой с выдуманной длительностью или фиксированным резервом.
+Task expression возвращает USD напрямую, без деления на миллион; token variables,
+`provider_cost`, `fixed()` и динамические `u()` keys здесь не поддерживаются.
+Неизвестный факт отвергается даже при наличии fallback в выражении.
+
+Для резерва facts извлекаются из того же cached outgoing order: `frame_images`
+и `reference_images` разделены, `generation_mode` описывает режим. Пропущенные
+`requested_seconds` и `upscale_factor` отсутствуют, а не считаются нулём.
+Плагин сохраняет исторические `0`/`default` в display usage отдельно.
+Avatar IV, Aleph 2 и FLUX Video Upscale остаются закрытыми: discovery не даёт
+конечного output-duration/source-quantity контракта. Исходные URL не скачиваются.
+Неучтённые платные output formats (ProRes/HDR и другие) также отклоняются.
 
 Для `heygen/heygen-video-1` first-frame использует обычный output tariff,
 а `input_references` — reference output tariff за секунды результата.
@@ -72,11 +100,13 @@ OpenRouter документирует только `usage.cost` и `usage.is_byo
 секунды и megapixel-seconds из duration не выводятся. Тарифы по таким измеренным
 единицам нельзя включать без дополнительного подтверждённого источника данных.
 
-Отправка использует обычный путь task-плагинов: при ошибках действуют
-стандартные retry, fallback и возврат резерва. Task создаётся только после
+Отправка использует обычный путь task-плагинов и существующий возврат резерва,
+но после dispatch OpenRouter video повторная paid-отправка запрещена, включая
+ошибку или неоднозначный ответ. Task создаётся только после
 успешного ответа upstream (HTTP 200 или 202); отдельного durable intent перед
-POST нет. Неоднозначный ответ может привести к повторной отправке, поэтому
-нельзя считать этот путь гарантией exactly-once upstream вызова.
+POST нет. Потеря receipt не восстанавливается этим изменением: upstream job
+может существовать без локального task, а неподтверждённый расход требует
+операторской сверки. Существующая refund-политика не меняется.
 
 После успешной отправки новые задания сохраняют `settlement_mode:
 openrouter_cost_v2`: estimator задаёт начальный резерв, а окончательный

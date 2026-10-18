@@ -597,13 +597,15 @@ func TestConsumerPricingPageUsesNativeChannelVideoPluginBinding(t *testing.T) {
 	for _, operation := range page.Data[0].GroupPrices[0].Operations {
 		operations[operation.Operation] = operation
 	}
-	for operation, amountRub := range map[string]float64{"text_to_video": 2, "image_to_video": 4, "video_to_video": 4} {
+	// First-frame I2V uses ordinary output pricing; reference video uses
+	// the refreshed reference-output tariff, independently of the image allowance.
+	for operation, amountRub := range map[string]float64{"text_to_video": 2, "image_to_video": 2, "video_to_video": 7} {
 		require.Contains(t, operations, operation)
 		prices := operations[operation].Prices
 		require.Len(t, prices, 1)
 		assert.Equal(t, "second", prices[0].Unit)
 		require.NotNil(t, prices[0].AmountRub)
-		assert.Equal(t, amountRub, *prices[0].AmountRub)
+		assert.InDelta(t, amountRub, *prices[0].AmountRub, 1e-9)
 	}
 }
 

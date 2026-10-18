@@ -245,6 +245,13 @@ In other words, a task expression already returns the request's dollar cost.
 For example, `u("seconds") * 0.4` means $0.40 per second. Engine semantics do
 not divide task output by one million.
 
+OpenRouter video can use an explicitly selected configured task price as a
+reservation floor, through the same exact-model source selector as text Chat.
+Only validated facts from the prepared outgoing order are supplied; missing
+quantities and dynamic usage keys are rejected. A complete upstream estimate
+remains required. The task expression does not become a final billing snapshot:
+terminal settlement still uses confirmed OpenRouter `usage.cost` and frozen FX.
+
 The visual editor generates these canonical task shapes. Public pricing also
 recognizes the bounded display-only subset described below. Other expressions
 remain valid in raw mode and fall back to the special-expression display:

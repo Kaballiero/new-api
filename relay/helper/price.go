@@ -20,6 +20,8 @@ import (
 	hostreasoning "github.com/QuantumNous/new-api/setting/reasoning"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
+	"github.com/expr-lang/expr/ast"
+	"github.com/expr-lang/expr/parser"
 	"github.com/gin-gonic/gin"
 )
 
@@ -347,6 +349,72 @@ type ModelReservationEstimate struct {
 	USD      float64
 	Model    string
 	ExprHash string
+}
+
+// EstimateConfiguredTaskReservation evaluates already validated task facts in
+// USD/request. It never applies text-token scaling or installs final billing.
+func EstimateConfiguredTaskReservation(modelName string, input billingexpr.RequestInput) (ModelReservationEstimate, error) {
+	modelName = resolveBillingModelName(modelName)
+	result := ModelReservationEstimate{Model: modelName}
+	if billing_setting.GetBillingMode(modelName) == billing_setting.BillingModeTieredExpr {
+		expression, ok := billing_setting.GetConfiguredBillingExpr(modelName)
+		if !ok || strings.TrimSpace(expression) == "" {
+			return result, fmt.Errorf("model %s has no configured reservation expression", modelName)
+		}
+		_, body := billingexpr.ParseExprVersion(expression)
+		tree, err := parser.Parse(body)
+		if err != nil {
+			return result, err
+		}
+		var invalid error
+		ast.Find(tree.Node, func(node ast.Node) bool {
+			if identifier, ok := node.(*ast.IdentifierNode); ok {
+				switch identifier.Value {
+				case "p", "c", "len", "cr", "cc", "cc1h", "img", "img_o", "ai", "ao", "provider_cost", "fixed":
+					invalid = fmt.Errorf("task reservation expression requires unavailable %s quantity", identifier.Value)
+					return true
+				}
+			}
+			call, ok := node.(*ast.CallNode)
+			if !ok {
+				return false
+			}
+			callee, ok := call.Callee.(*ast.IdentifierNode)
+			if !ok || callee.Value != "u" {
+				return false
+			}
+			if len(call.Arguments) != 1 {
+				invalid = fmt.Errorf("task reservation requires literal usage keys")
+				return true
+			}
+			key, literal := call.Arguments[0].(*ast.StringNode)
+			if !literal {
+				invalid = fmt.Errorf("task reservation requires literal usage keys")
+				return true
+			}
+			if input.Usage[strings.TrimSpace(key.Value)] == nil {
+				invalid = fmt.Errorf("task reservation quantity %q is unavailable", key.Value)
+				return true
+			}
+			return false
+		})
+		if invalid != nil {
+			return result, invalid
+		}
+		result.USD, _, err = billingexpr.RunExprWithRequest(expression, billingexpr.TokenParams{}, input)
+		if err != nil {
+			return result, err
+		}
+		result.ExprHash = billingexpr.ExprHashString(expression)
+	} else if price, ok := ratio_setting.GetModelPrice(modelName, false); ok {
+		result.USD = price
+	} else {
+		return result, fmt.Errorf("model %s has no configured task reservation price", modelName)
+	}
+	if math.IsNaN(result.USD) || math.IsInf(result.USD, 0) || result.USD < 0 {
+		return result, fmt.Errorf("invalid configured task reservation price for %s", modelName)
+	}
+	return result, nil
 }
 
 func EstimateConfiguredModelReservation(modelName string, promptTokens, completionTokens int, input billingexpr.RequestInput) (ModelReservationEstimate, error) {

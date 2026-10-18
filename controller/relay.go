@@ -936,6 +936,9 @@ func respondTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
 }
 
 func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskError, retryTimes int) bool {
+	if c.GetBool("openrouter_video_dispatched") {
+		return false
+	}
 	if taskErr == nil {
 		return false
 	}

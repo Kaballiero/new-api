@@ -1728,6 +1728,9 @@ export const meta = {
     size: { enum: ["default"].concat(Array.from(new Set(catalog.models.flatMap(function (model) { return model.supported_sizes || []; })))), description: { en: "Requested output video dimensions", zh: "请求输出视频尺寸" } },
     audio: { enum: ["default", "enabled", "disabled"], description: { en: "Requested audio generation", zh: "请求音频生成" } },
     images: { type: "number", unit: "count", description: { en: "Input image unit price", zh: "输入图像单价" } },
+    frame_images: { type: "number", unit: "count", description: { en: "First/last frame image count", zh: "首尾帧图像数量" } },
+    reference_images: { type: "number", unit: "count", description: { en: "Reference image count", zh: "参考图像数量" } },
+    generation_mode: { enum: ["text_to_video", "image_to_video", "reference_to_video"], description: { en: "Prepared generation mode", zh: "准备的生成模式" } },
     videos: { type: "number", unit: "count", description: { en: "Input video unit price", zh: "输入视频单价" } },
     audios: { type: "number", unit: "count", description: { en: "Input audio unit price", zh: "输入音频单价" } },
     upscale_factor: { type: "number", unit: "count", description: { en: "Requested upscale factor; zero means omitted", zh: "请求放大倍数；零表示未指定" } },
@@ -1884,7 +1887,8 @@ export function extractUsage(ctx) {
   const order = videoOrder(ctx);
   // Zero means duration omitted, not a measured zero-second result. The
   // administrator must price the default branch or use a per-job tariff.
-  return { requested_seconds: order.body.duration || 0, resolution: order.body.resolution || "default", size: order.body.size || "default", aspect_ratio: order.body.aspect_ratio || "default", upscale_factor: order.body.upscale_factor || 0, creativity: order.body.creativity === undefined ? "default" : String(order.body.creativity), audio: order.body.generate_audio === undefined ? "default" : order.body.generate_audio ? "enabled" : "disabled", images: order.images, videos: order.videos, audios: order.audios, jobs: 1 };
+  const frameImages = (order.body.frame_images || []).length;
+  return { requested_seconds: order.body.duration || 0, resolution: order.body.resolution || "default", size: order.body.size || "default", aspect_ratio: order.body.aspect_ratio || "default", upscale_factor: order.body.upscale_factor || 0, creativity: order.body.creativity === undefined ? "default" : String(order.body.creativity), audio: order.body.generate_audio === undefined ? "default" : order.body.generate_audio ? "enabled" : "disabled", images: order.images, frame_images: frameImages, reference_images: order.images - frameImages, generation_mode: frameImages ? "image_to_video" : (order.body.input_references || []).length ? "reference_to_video" : "text_to_video", videos: order.videos, audios: order.audios, jobs: 1 };
 }
 
 export function parseSubmitResponse(ctx, response) {

@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,6 +62,16 @@ func TestShouldRetryTaskRelayHonorsPinRetryMode(t *testing.T) {
 		RetryMode: dto.PinRetrySingleAttempt,
 	})
 	assert.False(t, shouldRetryTaskRelay(token, 1, taskErr, 1))
+}
+
+func TestOpenRouterVideoSubmitIsNotReplayedAfterDispatch(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusTemporaryRedirect, http.StatusInternalServerError, http.StatusBadGateway} {
+		c := newPinRetryContext()
+		err := &dto.TaskError{StatusCode: status}
+		assert.True(t, shouldRetryTaskRelay(c, 1, err, 1), "ordinary task retry before a video dispatch")
+		c.Set("openrouter_video_dispatched", true)
+		assert.False(t, shouldRetryTaskRelay(c, 1, err, 1), "an ambiguous video submission can already have incurred a charge")
+	}
 }
 
 func TestSameChannelPinsMergeToStricterRetryMode(t *testing.T) {
