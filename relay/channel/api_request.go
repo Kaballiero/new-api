@@ -354,6 +354,9 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	ApplyUpstreamBodyMetadata(req, requestBody)
+	if info.OpenRouterCost != nil {
+		req.GetBody = nil
+	}
 	// set form data
 	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	headers := req.Header
@@ -512,9 +515,23 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		))
 	}
 
+	var cancelAudio context.CancelFunc
+	if service.HasOpenRouterAudioTask(info) {
+		var ctx context.Context
+		ctx, cancelAudio = context.WithTimeout(context.WithoutCancel(c.Request.Context()), 4*time.Minute)
+		// The request owns the deadline until a response body takes over.
+		// This also releases it on every error/early-return path.
+		defer func() {
+			if cancelAudio != nil {
+				cancelAudio()
+			}
+		}()
+		req = req.WithContext(ctx)
+		req.GetBody = nil
+	}
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
-	if info.IsStream {
+	if info.IsStream && !service.HasOpenRouterAudioTask(info) {
 		helper.SetEventStreamHeaders(c)
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
@@ -533,6 +550,21 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 
 	resp, err := relayClient.Do(req)
+	if service.HasOpenRouterAudioTask(info) {
+		if recordErr := service.RecordOpenRouterAudioSubmission(info, resp, err); recordErr != nil {
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+			cancelAudio()
+			return nil, recordErr
+		}
+		if err != nil || resp == nil || resp.Body == nil {
+			cancelAudio()
+		} else {
+			resp.Body = &audioDeadlineBody{ReadCloser: resp.Body, cancel: cancelAudio}
+			cancelAudio = nil // Body.Close now owns cancellation through EOF.
+		}
+	}
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
@@ -596,4 +628,16 @@ func newTaskAPIRequest(c *gin.Context, fullRequestURL string, requestBody io.Rea
 		return nil, errors.New("task client request is missing")
 	}
 	return http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
+}
+
+// audioDeadlineBody keeps the detached submission deadline alive until its body
+// is consumed; cancelling on receipt of headers would truncate valid audio.
+type audioDeadlineBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *audioDeadlineBody) Close() error {
+	defer b.cancel()
+	return b.ReadCloser.Close()
 }

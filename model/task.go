@@ -132,8 +132,62 @@ type TaskPrivateData struct {
 	// only replaced when a hook explicitly returns state.
 	PluginState json.RawMessage `json:"plugin_state,omitempty"`
 	// PollFailures counts consecutive unrecognized or transient poll outcomes.
-	PollFailures   int                 `json:"poll_failures,omitempty"`
-	Reconciliation *TaskReconciliation `json:"reconciliation,omitempty"`
+	PollFailures    int                  `json:"poll_failures,omitempty"`
+	Reconciliation  *TaskReconciliation  `json:"reconciliation,omitempty"`
+	OpenRouterAudio *OpenRouterAudioTask `json:"openrouter_audio,omitempty"`
+}
+
+// OpenRouterAudioTask separates delivery from financial reconciliation. Headers
+// and transport settings are private account provenance, never public Task.Data.
+type OpenRouterAudioTask struct {
+	Revision          int                 `json:"revision"`
+	RequestID         string              `json:"request_id"`
+	BillingPreference string              `json:"billing_preference"`
+	PlannedQuota      int                 `json:"planned_quota"`
+	LeaseUntil        int64               `json:"lease_until"`
+	Deadline          int64               `json:"deadline"`
+	MetadataURL       string              `json:"metadata_url,omitempty"`
+	Headers           map[string][]string `json:"headers,omitempty"`
+	Transport         dto.ChannelSettings `json:"transport"`
+	Attempts          int                 `json:"attempts"`
+	NextPoll          int64               `json:"next_poll,omitempty"`
+	LastHTTPStatus    int                 `json:"last_http_status,omitempty"`
+	LastError         string              `json:"last_error,omitempty"`
+	ResultReady       bool                `json:"result_ready"`
+	ResultFailed      bool                `json:"result_failed,omitempty"`
+	ResultMimeType    string              `json:"result_mime_type,omitempty"`
+	ResultSize        int64               `json:"result_size,omitempty"`
+	ResultSHA256      string              `json:"result_sha256,omitempty"`
+}
+
+// UpdateOpenRouterAudio guards same-status updates as well as terminal claims.
+// SQLite's read/write transaction conflicts reject a stale writer; other
+// engines lock the row before checking the private JSON revision.
+func (t *Task) UpdateOpenRouterAudio(expectedRevision int) error {
+	if t.PrivateData.OpenRouterAudio == nil {
+		return fmt.Errorf("missing OpenRouter audio state")
+	}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var saved Task
+		if err := lockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
+			return err
+		}
+		state := saved.PrivateData.OpenRouterAudio
+		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID ||
+			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure {
+			return fmt.Errorf("OpenRouter audio task claim changed")
+		}
+		t.PrivateData.OpenRouterAudio.Revision = expectedRevision + 1
+		return tx.Model(&Task{}).Where("id = ?", t.ID).Updates(map[string]any{
+			"private_data": t.PrivateData, "status": t.Status, "progress": t.Progress,
+			"quota": t.Quota, "data": t.Data, "start_time": t.StartTime,
+			"finish_time": t.FinishTime, "fail_reason": t.FailReason,
+		}).Error
+	})
+	if err != nil {
+		t.PrivateData.OpenRouterAudio.Revision = expectedRevision
+	}
+	return err
 }
 
 // TaskReconciliation records uncertainty independently of the public task
@@ -542,6 +596,7 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
+		Where("(platform IS NULL OR platform <> ?)", constant.TaskPlatformOpenRouterAudio).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
@@ -973,6 +1028,7 @@ func (t *Task) SyncTaskCostSettlementCache(tokenKey string) error {
 // FinalizeTaskCostSettlement clears uncertainty only after cache and log success.
 func (t *Task) FinalizeTaskCostSettlement() error {
 	var committed TaskPrivateData
+	var committedData json.RawMessage
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var saved Task
 		if err := lockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
@@ -987,7 +1043,20 @@ func (t *Task) FinalizeTaskCostSettlement() error {
 		state.Finalized = true
 		state.Required = false
 		state.SettlementPending = false
-		result := tx.Model(&Task{}).Where("id = ? AND status = ? AND quota = ?", saved.ID, saved.Status, saved.Quota).Update("private_data", saved.PrivateData)
+		updates := map[string]any{"private_data": saved.PrivateData}
+		if saved.PrivateData.OpenRouterAudio != nil {
+			var data map[string]any
+			if err := common.Unmarshal(saved.Data, &data); err != nil {
+				return err
+			}
+			data["billing_status"] = "settled"
+			encoded, err := common.Marshal(data)
+			if err != nil {
+				return err
+			}
+			updates["data"], committedData = json.RawMessage(encoded), encoded
+		}
+		result := tx.Model(&Task{}).Where("id = ? AND status = ? AND quota = ?", saved.ID, saved.Status, saved.Quota).Updates(updates)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -999,6 +1068,9 @@ func (t *Task) FinalizeTaskCostSettlement() error {
 	})
 	if err == nil {
 		t.PrivateData = committed
+		if committedData != nil {
+			t.Data = committedData
+		}
 	}
 	return err
 }

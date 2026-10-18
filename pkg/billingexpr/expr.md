@@ -55,8 +55,10 @@ Settlement charges validated numeric `usage.cost` in USD, multiplied once by
 the frozen effective group/FX ratio and quota unit. No local tool fees or
 expression rules are added. Explicit zero is valid; missing, null or invalid
 cost is an unknown financial outcome, never an estimated customer charge.
-Synchronous unknown outcomes refund the existing hold without replay, so the
-gateway may bear upstream spend. Known-cost settlement failures retain applied
+Synchronous text/image unknown outcomes refund the existing hold without replay,
+so the gateway may bear upstream spend. Admitted audio uses the durable Task
+reservation/reconciliation lifecycle described below; unknown audio cost retains
+the hold. Known-cost settlement failures retain applied
 money and record the funding/token discrepancy for manual repair.
 
 An explicit channel `setting.openrouter_reservation_source` entry of
@@ -93,13 +95,42 @@ limits and zero token tariffs do not establish a complete audio estimate. These
 operations therefore require a positive local/minimum hold and discovered output
 capability (`speech`, `transcription` or Chat `audio`).
 
-Speech uses `/audio/speech` with the existing string-input Audio DTO. Raw audio
-is buffered through EOF; the gateway then makes one authenticated metadata GET
-`/generation?id=<X-Generation-Id>` on the same configured upstream. Only a matching
-model/ID, uncancelled record with completed generation timing and validated numeric
-`total_cost` may release the audio and settle. Missing, delayed or invalid metadata
-fails closed and refunds the synchronous hold without replay. The authoritative
-cost source and generation ID are recorded in the admin consume metadata.
+Admitted speech, transcription and Chat/music audio create a host-owned Task
+intent before reserve mutation and the single paid POST. The Task freezes the
+monetary basis, account, resolved metadata headers and transport. Reservation or
+settlement interrupted between ledger/cache/log stages requires manual repair;
+financial mutations are never blindly replayed. A five-minute submission lease
+allows recovery of a known generation ID after a process crash; the detached
+upstream transport/body is bounded to four minutes. A missing generation ID or
+unknown reservation after lease expiry requires manual reconciliation.
+
+Speech uses `/audio/speech` with the existing string-input Audio DTO. Results
+are buffered through EOF and durably persisted before delivery. Raw speech,
+projected STT JSON and projected Chat/music SSE retain their synchronous client
+contracts; `X-Task-Id` permits result recovery through existing Task artifact APIs.
+Result readiness is independent of financial completion or failure. Numeric
+terminal `usage.cost` settles immediately through the Task; otherwise a valid
+generation ID and the retained hold permit delivery while cost remains pending.
+Missing identity and missing cost cannot produce successful delivery.
+
+Only authenticated metadata GET `/generation?id=<generation-id>` is retried,
+using the frozen account and endpoint, never redirects or paid POST replay.
+Matching model/ID, an uncancelled record with completed finite generation timing
+and validated numeric `total_cost` confirm cost, including explicit zero. Missing
+or null cost remains unknown. GET attempts have ten-second timeouts, bounded
+backoff and Retry-After handling, with at most sixteen attempts and a 24-hour
+deadline. Authentication/identity errors or exhausted reconciliation require
+manual repair and retain the hold. HTTP status, retry state and generation ID
+are persisted without logging credentials or audio. Main-database settlement is
+exact-once; uncertain cache/log completion remains manual.
+
+Durable audio admission requires startup `TASK_ARTIFACT_STORE_MODE=filesystem`
+and a pre-provisioned private `TASK_ARTIFACT_STORE_ROOT` on durable storage shared
+by all gateway nodes. Without storage, admission fails before reserve/POST.
+Artifacts use bounded, immutable publication with file/directory fsync and a
+checksum; existing ownership/signature checks protect retrieval. Automatic
+artifact/orphan retention cleanup is not implemented; operators own storage
+maintenance. No runtime configuration is enabled by this change.
 
 Transcription uses OpenAI multipart `/audio/transcriptions`, one file up to 25 MiB,
 and JSON/verbose JSON responses with terminal `usage.cost`. Reservation expressions

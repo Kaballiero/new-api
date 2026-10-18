@@ -191,13 +191,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Only return quota if downstream failed and quota was actually pre-consumed
 		if newAPIError != nil {
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
-			if relayInfo.OpenRouterCost != nil && relayInfo.OpenRouterCost.Sent && !relayInfo.OpenRouterCost.Final {
+			if relayInfo.OpenRouterCost != nil && relayInfo.OpenRouterCost.Sent && !relayInfo.OpenRouterCost.Final && !service.HasOpenRouterAudioTask(relayInfo) {
 				logger.LogWarn(c, fmt.Sprintf("OpenRouter financial outcome unknown; returning reservation without retry: channel=%d reserve=%d reason=%s", relayInfo.ChannelId, relayInfo.FinalPreConsumedQuota, relayInfo.OpenRouterCost.UnknownReason))
 			}
 			if relayInfo.NativeImage != nil && relayInfo.NativeImage.OutcomeUnknown {
 				logger.LogWarn(c, fmt.Sprintf("OpenRouter image financial outcome unknown; returning reservation without retry: channel=%d estimated_cost_usd=%g upstream_request_id=%s", relayInfo.NativeImage.ChannelID, relayInfo.NativeImage.EstimatedCostUSD, c.GetString(common.UpstreamRequestIdKey)))
 			}
-			if relayInfo.Billing != nil {
+			if relayInfo.Billing != nil && !service.HasOpenRouterAudioTask(relayInfo) {
 				relayInfo.Billing.Refund(c)
 			}
 			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
@@ -282,7 +282,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
 		if relayInfo.OpenRouterCost != nil && relayInfo.OpenRouterCost.Sent {
-			logger.LogWarn(c, "OpenRouter submitted request failed; refunding synchronous hold without paid replay")
+			logger.LogWarn(c, "OpenRouter submitted request failed; paid replay prohibited")
 			break
 		}
 		if relayInfo.NativeImage != nil && relayInfo.NativeImage.Sent {

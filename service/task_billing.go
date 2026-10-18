@@ -616,10 +616,11 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 			SpecialRatio:    specialRatio,
 		},
 	}
-	if task.PrivateData.Execution != nil && task.PrivateData.Execution.TaskPlugin != nil && task.PrivateData.Execution.TaskPlugin.Key == "openrouter-video" {
+	if relayInfo.OpenRouterCost != nil || (task.PrivateData.Execution != nil && task.PrivateData.Execution.TaskPlugin != nil && task.PrivateData.Execution.TaskPlugin.Key == "openrouter-video") {
 		task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV1
 		if relayInfo.OpenRouterCost != nil {
 			basis := relayInfo.OpenRouterCost.Basis
+			basis.Version = model.TaskSettlementOpenRouterCostV2
 			task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV2
 			task.PrivateData.BillingContext.OpenRouterCost = &basis
 			if value, ok := c.Get("openrouter_video_order_facts"); ok {
