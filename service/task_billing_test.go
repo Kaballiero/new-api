@@ -3052,10 +3052,17 @@ func newOpenRouterAudioReservation(t *testing.T, priorHold ...int) (*gin.Context
 
 func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 	for _, tc := range []struct {
-		name, raw, category string
-		status              int
-		pending, manual     bool
-		target              int
+		name, raw                  string
+		status                     int
+		pending, manual            bool
+		target                     int
+		responseID, responseModel  string
+		canonicalID, canonicalSlug string
+		apiType, generationTime    string
+		resultMimeType             string
+		cancelled                  string
+		modelStatus                int
+		modelError                 bool
 	}{
 		{name: "positive", raw: "0.04", status: 200, target: 40},
 		{name: "explicit zero", raw: "0", status: 200, target: 0},
@@ -3063,6 +3070,24 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 		{name: "null", raw: "null", status: 200, pending: true, target: 50},
 		{name: "invalid string", raw: `"0"`, status: 200, manual: true, target: 50},
 		{name: "negative", raw: "-1", status: 200, manual: true, target: 50},
+		{name: "speech without generation time", raw: "0.04", status: 200, apiType: "tts", generationTime: "null", target: 40},
+		{name: "speech explicit zero without generation time", raw: "0", status: 200, apiType: "tts", generationTime: "null", target: 0},
+		{name: "speech missing cost stays pending", status: 200, apiType: "tts", generationTime: "null", pending: true, target: 50},
+		{name: "speech null cost stays pending", raw: "null", status: 200, apiType: "tts", generationTime: "null", pending: true, target: 50},
+		{name: "speech invalid duration", raw: "0.04", status: 200, apiType: "tts", generationTime: "-1", manual: true, target: 50},
+		{name: "cancelled speech stays pending", raw: "0.04", status: 200, apiType: "tts", generationTime: "null", cancelled: "true", pending: true, target: 50},
+		{name: "unknown cancellation stays pending", raw: "0.04", status: 200, apiType: "tts", generationTime: "null", cancelled: "null", pending: true, target: 50},
+		{name: "other audio without generation time", raw: "0.04", status: 200, generationTime: "null", pending: true, target: 50},
+		{name: "non speech result cannot bypass missing time", raw: "0.04", status: 200, apiType: "tts", generationTime: "null", resultMimeType: "application/json", pending: true, target: 50},
+		{name: "speech canonical model", raw: "0.04", status: 200, apiType: "tts", generationTime: "null", responseModel: "vendor/audio-20261001", canonicalID: "vendor/audio", canonicalSlug: "vendor/audio-20261001", target: 40},
+		{name: "different canonical model rejected", raw: "0.04", status: 200, responseModel: "vendor/other", canonicalID: "vendor/audio", canonicalSlug: "vendor/audio-20261001", manual: true, target: 50},
+		{name: "canonical date is not guessed", raw: "0.04", status: 200, responseModel: "vendor/audio-20261001", canonicalID: "vendor/audio", manual: true, target: 50},
+		{name: "catalog identity mismatch", raw: "0.04", status: 200, responseModel: "vendor/audio-20261001", canonicalID: "vendor/other", canonicalSlug: "vendor/audio-20261001", manual: true, target: 50},
+		{name: "catalog error rejects matching data", raw: "0.04", status: 200, responseModel: "vendor/audio-20261001", canonicalID: "vendor/audio", canonicalSlug: "vendor/audio-20261001", modelError: true, manual: true, target: 50},
+		{name: "canonical lookup temporary failure", raw: "0.04", status: 200, responseModel: "vendor/audio-20261001", modelStatus: 503, pending: true, target: 50},
+		{name: "canonical lookup unauthorized", raw: "0.04", status: 200, responseModel: "vendor/audio-20261001", modelStatus: 401, manual: true, target: 50},
+		{name: "canonical lookup redirect not followed", raw: "0.04", status: 200, responseModel: "vendor/audio-20261001", modelStatus: 307, manual: true, target: 50},
+		{name: "wrong generation rejected before model lookup", raw: "0.04", status: 200, responseID: "gen-other", responseModel: "vendor/audio-20261001", manual: true, target: 50},
 		{name: "unauthorized", status: 401, manual: true, target: 50},
 		{name: "forbidden", status: 403, manual: true, target: 50},
 		{name: "not found", status: 404, pending: true, target: 50},
@@ -3072,19 +3097,48 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c, info := newOpenRouterAudioReservation(t)
 			calls := 0
+			modelCalls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
 				assert.Equal(t, http.MethodGet, r.Method)
-				assert.Equal(t, "gen-audio-fixture", r.URL.Query().Get("id"))
 				assert.Equal(t, "Bearer account-fixture", r.Header.Get("Authorization"))
 				w.Header().Set("Retry-After", "3600")
+				if r.URL.Path == "/model/vendor/audio" {
+					modelCalls++
+					if tc.modelStatus != 0 {
+						w.Header().Set("Location", "/must-not-follow")
+						w.WriteHeader(tc.modelStatus)
+						return
+					}
+					errorJSON := "null"
+					if tc.modelError {
+						errorJSON = `{"message":"model metadata unavailable"}`
+					}
+					fmt.Fprintf(w, `{"data":{"id":%q,"canonical_slug":%q},"error":%s}`, tc.canonicalID, tc.canonicalSlug, errorJSON)
+					return
+				}
+				calls++
+				assert.Equal(t, "/generation", r.URL.Path)
+				assert.Equal(t, "gen-audio-fixture", r.URL.Query().Get("id"))
 				w.WriteHeader(tc.status)
 				if tc.status == 200 {
 					cost := ""
 					if tc.raw != "" {
 						cost = `,"total_cost":` + tc.raw
 					}
-					fmt.Fprintf(w, `{"data":{"id":"gen-audio-fixture","model":"vendor/audio","cancelled":false,"generation_time":20%s}}`, cost)
+					generationTime, responseModel, responseID, cancelled := tc.generationTime, tc.responseModel, tc.responseID, tc.cancelled
+					if generationTime == "" {
+						generationTime = "20"
+					}
+					if responseModel == "" {
+						responseModel = "vendor/audio"
+					}
+					if responseID == "" {
+						responseID = "gen-audio-fixture"
+					}
+					if cancelled == "" {
+						cancelled = "false"
+					}
+					fmt.Fprintf(w, `{"data":{"id":%q,"model":%q,"api_type":%q,"cancelled":%s,"generation_time":%s%s}}`, responseID, responseModel, tc.apiType, cancelled, generationTime, cost)
 				}
 			}))
 			defer server.Close()
@@ -3095,7 +3149,11 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 			requestCtx, cancel := context.WithCancel(c.Request.Context())
 			c.Request = c.Request.WithContext(requestCtx)
 			cancel()
-			require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("durable audio"), "audio/pcm", "audio"))
+			resultMimeType := tc.resultMimeType
+			if resultMimeType == "" {
+				resultMimeType = "audio/pcm"
+			}
+			require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("durable audio"), resultMimeType, "audio"))
 			assert.Zero(t, calls, "delivery must not depend on synchronous metadata lookup")
 			PostTextConsumeQuota(c, info, nil, nil)
 			assert.Equal(t, 9950, getUserQuota(t, info.UserId), "request completion cannot charge or refund the Task hold")
@@ -3107,6 +3165,11 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 			assert.Equal(t, 10000-tc.target, getUserQuota(t, info.UserId))
 			assert.Equal(t, 10000-tc.target, getTokenRemainQuota(t, info.TokenId))
 			assert.Equal(t, 1, calls)
+			if tc.responseModel != "" && tc.responseID == "" {
+				assert.Equal(t, 1, modelCalls)
+			} else {
+				assert.Zero(t, modelCalls)
+			}
 			if tc.pending {
 				assert.Equal(t, model.TaskStatus(model.TaskStatusInProgress), task.Status)
 				assert.False(t, task.PrivateData.Reconciliation.Finalized)
