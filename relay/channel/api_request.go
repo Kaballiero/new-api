@@ -519,6 +519,13 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if service.HasOpenRouterAudioTask(info) {
 		var ctx context.Context
 		ctx, cancelAudio = context.WithTimeout(context.WithoutCancel(c.Request.Context()), 4*time.Minute)
+		// The request owns the deadline until a response body takes over.
+		// This also releases it on every error/early-return path.
+		defer func() {
+			if cancelAudio != nil {
+				cancelAudio()
+			}
+		}()
 		req = req.WithContext(ctx)
 		req.GetBody = nil
 	}
@@ -555,6 +562,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			cancelAudio()
 		} else {
 			resp.Body = &audioDeadlineBody{ReadCloser: resp.Body, cancel: cancelAudio}
+			cancelAudio = nil // Body.Close now owns cancellation through EOF.
 		}
 	}
 	if err != nil {
