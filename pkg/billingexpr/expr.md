@@ -64,8 +64,13 @@ An explicit channel `setting.openrouter_reservation_source` entry of
 configured NewAPI price/ratio/expression for admission. The entry is keyed by
 the final upstream model ID; the local price lookup retains the normal client
 billing identity. Missing entries or `"upstream"` keep the default behavior.
-This first path supports one nonstream text Chat response only, without tools,
-fallback models or media. Endpoint discovery, required tariffs and unknown
+This path supports one nonstream Chat response without tools, fallback models
+or input media. Image output additionally requires OpenAI Chat format, an
+explicit configured-price source and a validated `image_output` tariff. A
+nonzero image rate with unknown output quantity requires a positive local
+estimate or minimum; text token limits are not image spending bounds. Other
+output modalities and streaming remain unsupported by this source. Endpoint
+discovery, required tariffs and unknown
 charged-dimension guards remain mandatory. The hold is the maximum of the local
 USD estimate, known upstream estimate and the per-model minimum. Expressions
 see the final payload; unmeasured cache/media/task usage and recursive

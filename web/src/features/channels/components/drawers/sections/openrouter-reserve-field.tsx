@@ -48,7 +48,7 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
             <FormLabel>{t('OpenRouter reservation sources')}</FormLabel>
             <FormDescription>
               {t(
-                'Map exact upstream model IDs to configured_price to reserve using the configured NewAPI price or expression. Default: upstream. One nonstream text chat response only; endpoint tariffs remain required. Known upstream costs and minimum holds are never reduced. Final charges always use OpenRouter actual cost.'
+                'Map exact upstream model IDs to configured_price to reserve using the configured NewAPI price or expression. Default: upstream. One nonstream Chat response only, including image output; endpoint tariffs remain required. Known upstream costs and minimum holds are never reduced. Final charges always use OpenRouter actual cost.'
               )}
             </FormDescription>
             <FormControl>

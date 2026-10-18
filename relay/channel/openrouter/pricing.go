@@ -19,6 +19,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
@@ -215,15 +216,21 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		return 0, errors.New("invalid OpenRouter request fields")
 	}
 	var modalities []string
+	imageOutput := false
 	if raw, ok := fields["modalities"]; ok {
 		if common.Unmarshal(raw, &modalities) != nil {
 			return 0, errors.New("invalid OpenRouter modalities")
 		}
 		for _, modality := range modalities {
-			if modality != "text" {
+			if modality == "image" {
+				imageOutput = true
+			} else if modality != "text" {
 				return 0, errors.New("OpenRouter output modality tariff is unavailable")
 			}
 		}
+	}
+	if imageOutput && (localUSD == nil || info.RelayFormat != types.RelayFormatOpenAI) {
+		return 0, errors.New("OpenRouter image output requires configured_price reservation and OpenAI Chat format")
 	}
 	imageCount, err := requestInputMediaQuantities(fields)
 	if err != nil {
@@ -454,6 +461,15 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 					}
 				}
 			}
+			if imageOutput {
+				rate, err := readRate(endpoint.Pricing["image_output"])
+				if err != nil {
+					return 0, fmt.Errorf("OpenRouter image output tariff: %w", err)
+				}
+				if !rate.IsZero() && *reserveUSD == 0 {
+					return 0, errors.New("OpenRouter unknown image output quantity requires a positive reserve")
+				}
+			}
 			promptRate, err := readRate(endpoint.Pricing["prompt"])
 			if err != nil {
 				return 0, err
@@ -503,6 +519,15 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 			}
 			for key, raw := range endpoint.Pricing {
+				if imageOutput && (key == "image_output" || key == "audio" || key == "input_audio_cache" || key == "input_audio" || key == "output_audio") {
+					// Image output quantities are covered by the explicit hold, not
+					// inferred from a text token cap. Audio input/output is absent in
+					// this admitted protocol; still validate published inactive rates.
+					if _, err := readRate(raw); err != nil {
+						return 0, err
+					}
+					continue
+				}
 				if approximateReserve && (key == "internal_reasoning" || key == "web_search") {
 					// Rates were validated above. Quantities remain unknown; the
 					// explicit approximate hold does not make them free or bounded.
@@ -587,14 +612,18 @@ func requestInputMediaQuantities(fields map[string]json.RawMessage) (int, error)
 		for _, item := range items {
 			item = bytes.TrimSpace(item)
 			var message struct {
-				Content json.RawMessage `json:"content"`
-				Type    string          `json:"type"`
+				Content json.RawMessage   `json:"content"`
+				Type    string            `json:"type"`
+				Images  []json.RawMessage `json:"images"`
 			}
 			if len(item) == 0 || item[0] != '{' {
 				continue
 			}
 			if common.Unmarshal(item, &message) != nil {
 				return 0, errors.New("invalid OpenRouter input item")
+			}
+			if len(message.Images) > 0 {
+				return 0, errors.New("OpenRouter assistant image inputs are unpriced")
 			}
 			message.Content = bytes.TrimSpace(message.Content)
 			if len(message.Content) > 0 && message.Content[0] == '[' {
