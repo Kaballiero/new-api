@@ -3000,7 +3000,7 @@ func TestOpenRouterCostPerTaskPolling(t *testing.T) {
 
 // newOpenRouterAudioReservation exercises the real wallet/token reserve and the
 // durable ownership transfer. Provider calls in these tests are local fixtures.
-func newOpenRouterAudioReservation(t *testing.T) (*gin.Context, *relaycommon.RelayInfo) {
+func newOpenRouterAudioReservation(t *testing.T, priorHold ...int) (*gin.Context, *relaycommon.RelayInfo) {
 	t.Helper()
 	truncate(t)
 	previousLimit := constant.TaskQueryLimit
@@ -3026,17 +3026,26 @@ func newOpenRouterAudioReservation(t *testing.T) (*gin.Context, *relaycommon.Rel
 	}
 	info.UserSetting.BillingPreference = "wallet_only"
 	info.PriceData.Quota = 50
+	previousHold := 0
+	if len(priorHold) > 0 {
+		previousHold = priorHold[0]
+		require.Nil(t, PreConsumeBilling(c, previousHold, info))
+	}
 	require.NoError(t, BeginOpenRouterAudioTask(c, info, 50))
 	intent, err := openRouterAudioTask(info)
 	require.NoError(t, err)
 	assert.True(t, intent.PrivateData.Reconciliation.ReservationPending)
 	assert.Zero(t, intent.PrivateData.Reconciliation.ReservedQuota)
 	assert.Equal(t, 50, intent.PrivateData.OpenRouterAudio.PlannedQuota)
-	assert.Equal(t, 10000, getUserQuota(t, id), "intent precedes every ledger mutation")
-	require.Nil(t, PreConsumeBilling(c, 50, info))
+	assert.Equal(t, 10000-previousHold, getUserQuota(t, id), "intent precedes the audio reservation mutation")
+	if info.Billing == nil {
+		require.Nil(t, PreConsumeBilling(c, 50, info))
+	} else {
+		require.NoError(t, info.Billing.Reserve(50))
+	}
 	require.NoError(t, CommitOpenRouterAudioReservation(c, info))
-	assert.Equal(t, 9950, getUserQuota(t, id))
-	assert.Equal(t, 9950, getTokenRemainQuota(t, id))
+	assert.Equal(t, 10000-max(50, previousHold), getUserQuota(t, id))
+	assert.Equal(t, 10000-max(50, previousHold), getTokenRemainQuota(t, id))
 	assert.False(t, info.Billing.NeedsRefund())
 	return c, info
 }
@@ -3107,7 +3116,9 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 				assert.Contains(t, task.FailReason, "manual reconciliation")
 			} else {
 				assert.True(t, task.PrivateData.Reconciliation.Finalized)
-				assert.Contains(t, string(task.Data), `"billing_status":"settled"`)
+				var publicState map[string]any
+				require.NoError(t, common.Unmarshal(task.Data, &publicState))
+				assert.Equal(t, "settled", publicState["billing_status"])
 			}
 			ref, err := GetTaskArtifactStore().Resolve(task, "result")
 			require.NoError(t, err)
@@ -3322,4 +3333,80 @@ func TestOpenRouterAudioDelayedMetadataAndBoundedUnknown(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOpenRouterAudioRetainsLargerExistingHoldAccounting(t *testing.T) {
+	c, info := newOpenRouterAudioReservation(t, 100)
+	assert.Equal(t, 100, info.PriceData.Quota, "reserve statistics must reflect applied money, not the smaller estimate")
+	assert.Equal(t, 0.05, info.OpenRouterCost.Basis.EstimatedUSD, "the frozen price estimate remains unchanged")
+	require.NoError(t, ConfigureOpenRouterAudioSubmission(info, "https://metadata.invalid/generation", nil))
+	info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = 0.04, true, true
+	require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("result"), "audio/pcm", "audio"))
+	saved, err := openRouterAudioTask(info)
+	require.NoError(t, err)
+	assert.Equal(t, 40, saved.Quota)
+	assert.Equal(t, 100, saved.PrivateData.Reconciliation.ReservedQuota)
+	assert.Equal(t, 9960, getUserQuota(t, info.UserId))
+	assert.Equal(t, 9960, getTokenRemainQuota(t, info.TokenId))
+	var user model.User
+	require.NoError(t, model.DB.First(&user, info.UserId).Error)
+	assert.Equal(t, 40, user.UsedQuota)
+	assert.Equal(t, 1, user.RequestCount)
+	var channel model.Channel
+	require.NoError(t, model.DB.First(&channel, info.ChannelId).Error)
+	assert.Equal(t, int64(40), channel.UsedQuota)
+	var logs []model.Log
+	require.NoError(t, model.LOG_DB.Order("id").Find(&logs).Error)
+	require.Len(t, logs, 2)
+	assert.Equal(t, 100, logs[0].Quota)
+	assert.Equal(t, 60, logs[1].Quota)
+	assert.Equal(t, model.LogTypeRefund, logs[1].Type)
+}
+
+func TestOpenRouterAudioSlowMetadataDoesNotBlockVideoPolling(t *testing.T) {
+	c, info := newOpenRouterAudioReservation(t)
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	var releaseOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer func() { releaseOnce.Do(func() { close(release) }); server.Close() }()
+	require.NoError(t, ConfigureOpenRouterAudioSubmission(info, server.URL+"/generation", nil))
+	require.NoError(t, RecordOpenRouterAudioSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-slow"}}}, nil))
+	require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("result"), "audio/pcm", "audio"))
+	video := makeTask(info.UserId, info.ChannelId, 0, info.TokenId, BillingSourceWallet, 0)
+	video.TaskID = "task-video-after-audio"
+	video.Platform = "video-fixture"
+	video.PrivateData.UpstreamTaskID = "upstream-video"
+	require.NoError(t, model.DB.Create(video).Error)
+	adaptor := &taskPollingFetchAdaptor{fetched: make(chan string, 1)}
+	previousFactory := GetTaskAdaptorFunc
+	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }
+	t.Cleanup(func() { GetTaskAdaptorFunc = previousFactory })
+	finished := make(chan struct{})
+	go func() { defer close(finished); RunTaskPollingOnce(t.Context(), nil) }()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("audio GET did not reach barrier")
+	}
+	select {
+	case fetched := <-adaptor.fetched:
+		assert.Equal(t, "upstream-video", fetched)
+	default:
+		t.Fatal("video must be fetched before waiting on audio metadata")
+	}
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("polling pass did not finish")
+	}
+	assert.Equal(t, 9950, getUserQuota(t, info.UserId), "temporary metadata failure retains the hold")
 }

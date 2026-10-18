@@ -150,6 +150,12 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 	common.SysLog("任务进度轮询开始")
 	sweepTimedOutTasks(ctx)
 	var allTasks []*model.Task
+	var audioTasks []*model.Task
+	audioLimit := 16
+	if constant.TaskQueryLimit > 0 {
+		audioLimit = min(audioLimit, constant.TaskQueryLimit)
+	}
+	now := time.Now().Unix()
 	var afterID int64
 	for ctx.Err() == nil {
 		page := model.GetUnfinishedSyncTaskPage(constant.TaskQueryLimit, afterID)
@@ -158,9 +164,15 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		}
 		for _, task := range page {
 			afterID = task.ID
-			if task.PrivateData.OpenRouterAudio != nil {
-				if err := pollOpenRouterAudio(ctx, task); err != nil {
-					logger.LogWarn(ctx, fmt.Sprintf("OpenRouter audio task %s reconciliation deferred", task.TaskID))
+			if audio := task.PrivateData.OpenRouterAudio; audio != nil {
+				reconciliation := task.PrivateData.Reconciliation
+				activeSubmission := reconciliation != nil && (reconciliation.ReservationPending || reconciliation.SubmissionPending)
+				due := now >= audio.NextPoll || now >= audio.Deadline || audio.Attempts >= 16
+				if activeSubmission {
+					due = now >= audio.LeaseUntil
+				}
+				if due && len(audioTasks) < audioLimit {
+					audioTasks = append(audioTasks, task)
 				}
 				continue
 			}
@@ -179,7 +191,7 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 			break
 		}
 	}
-	summary.UnfinishedTasks = len(allTasks)
+	summary.UnfinishedTasks = len(allTasks) + len(audioTasks)
 	platformTask := make(map[constant.TaskPlatform][]*model.Task)
 	for _, t := range allTasks {
 		platformTask[t.Platform] = append(platformTask[t.Platform], t)
@@ -229,6 +241,30 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		}
 
 		DispatchPlatformUpdate(ctx, platform, taskChannelM, taskM)
+	}
+	// Inventory never waits on metadata. Existing platforms finish first;
+	// at most sixteen due audio tasks use four bounded GET workers per pass.
+	if len(audioTasks) > 0 {
+		summary.PlatformsScanned++
+		jobs := make(chan *model.Task, len(audioTasks))
+		for _, task := range audioTasks {
+			jobs <- task
+		}
+		close(jobs)
+		var workers sync.WaitGroup
+		for range min(4, len(audioTasks)) {
+			workers.Go(func() {
+				for task := range jobs {
+					if ctx.Err() != nil {
+						return
+					}
+					if err := pollOpenRouterAudio(ctx, task); err != nil {
+						logger.LogWarn(ctx, fmt.Sprintf("OpenRouter audio task %s reconciliation deferred", task.TaskID))
+					}
+				}
+			})
+		}
+		workers.Wait()
 	}
 	if report != nil && ctx.Err() == nil {
 		report(totalPlatforms, totalPlatforms)

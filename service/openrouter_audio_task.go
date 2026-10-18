@@ -84,6 +84,7 @@ func CommitOpenRouterAudioReservation(c *gin.Context, info *relaycommon.RelayInf
 	}
 	task.PrivateData.BillingSource, task.PrivateData.SubscriptionId = info.BillingSource, info.SubscriptionId
 	task.Quota = info.Billing.GetPreConsumedQuota()
+	info.PriceData.Quota = task.Quota
 	r.ReservedQuota = task.Quota
 	revision := a.Revision
 	projectOpenRouterAudioState(task)
