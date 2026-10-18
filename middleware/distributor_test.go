@@ -4,7 +4,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	taskdto "github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
@@ -199,4 +207,130 @@ func TestNoAvailableChannelMessageNamesClaimingTaskPlugin(t *testing.T) {
 	generic := noAvailableChannelMessage(plain, "default", "gpt-4o")
 	assert.NotContains(t, generic, "task plugin")
 	assert.Contains(t, generic, "gpt-4o")
+}
+
+func TestDistributeProviderRoutingConstraints(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	originalDB := model.DB
+	originalMemory := common.MemoryCacheEnabled
+	t.Cleanup(func() {
+		if originalMemory && originalDB != nil && originalDB.Migrator().HasTable(&model.Channel{}) && originalDB.Migrator().HasTable(&model.Ability{}) {
+			model.InitChannelCache()
+		}
+	})
+	setupOriginTaskDB(t)
+	sqlDB, err := model.DB.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	require.NoError(t, model.DB.AutoMigrate(&model.Ability{}))
+	previousMemory, previousRedis := common.MemoryCacheEnabled, common.RedisEnabled
+	common.MemoryCacheEnabled, common.RedisEnabled = true, false
+	t.Cleanup(func() { common.MemoryCacheEnabled, common.RedisEnabled = previousMemory, previousRedis })
+	previousRatios := ratio_setting.GroupRatio2JSONString()
+	previousMaxGroups := setting.GetMaxTokenAutoGroups()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1,"incompatible-only":1}`))
+	require.NoError(t, setting.UpdateMaxTokenAutoGroups("2"))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousRatios))
+		require.NoError(t, setting.UpdateMaxTokenAutoGroups(fmt.Sprint(previousMaxGroups)))
+	})
+	previousUsable := setting.UserUsableGroups2JSONString()
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP","incompatible-only":"Incompatible"}`))
+	t.Cleanup(func() { require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsable)) })
+	affinity := operation_setting.GetChannelAffinitySetting()
+	previousAffinity := *affinity
+	*affinity = operation_setting.ChannelAffinitySetting{Enabled: true, DefaultTTLSeconds: 60, KeepOnChannelDisabled: true, Rules: []operation_setting.ChannelAffinityRule{{
+		Name: "provider-routing-test", ModelRegex: []string{"^routing-model$"}, KeySources: []operation_setting.ChannelAffinityKeySource{{Type: "request_header", Key: "X-Test-Affinity"}}, IncludeRuleName: true, IncludeUsingGroup: true,
+	}}}
+	t.Cleanup(func() { *affinity = previousAffinity })
+	for _, channel := range []model.Channel{
+		{Id: 920001, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Key: "fixture-key", Name: "incompatible", Group: "default", Models: "routing-model", Priority: common.GetPointer(int64(100))},
+		{Id: 920002, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "fixture-key", Name: "compatible", Group: "vip", Models: "routing-model", Priority: common.GetPointer(int64(10))},
+	} {
+		require.NoError(t, model.DB.Create(&channel).Error)
+		require.NoError(t, model.DB.Create(&model.Ability{Group: channel.Group, Model: channel.Models, ChannelId: channel.Id, Enabled: true, Priority: channel.Priority, Weight: 100}).Error)
+	}
+	// The same model is also offered by OR in default, behind the incompatible
+	// channel's higher priority. Auto's first group deliberately has no OR.
+	require.NoError(t, model.DB.Create(&model.Ability{Group: "default", Model: "routing-model", ChannelId: 920002, Enabled: true, Priority: common.GetPointer(int64(10)), Weight: 100}).Error)
+	require.NoError(t, model.DB.Create(&model.Ability{Group: "incompatible-only", Model: "routing-model", ChannelId: 920001, Enabled: true, Priority: common.GetPointer(int64(100)), Weight: 100}).Error)
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", 920001).Update("group", "default,incompatible-only").Error)
+	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", 920002).Update("group", "default,vip").Error)
+	model.InitChannelCache()
+	for _, tc := range []struct {
+		name, body, path, group, contentType string
+		pin, affinityID, wantChannel         int
+		wantError                            string
+	}{
+		{name: "without provider", body: `{"model":"routing-model"}`, wantChannel: 920001},
+		{name: "explicit null", body: `{"model":"routing-model","provider":null}`, wantChannel: 920001},
+		{name: "Claude messages provider", path: "/v1/messages", body: `{"model":"routing-model","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"provider":{"only":["openai"]}}`, wantChannel: 920002},
+		{name: "top level", body: `{"model":"routing-model","provider":{"only":["openai"],"allow_fallbacks":false}}`, wantChannel: 920002},
+		{name: "nested", body: `{"model":"routing-model","extra_body":{"provider":{"only":["openai"]}}}`, wantChannel: 920002},
+		{name: "matching dual shape", body: `{"model":"routing-model","provider":{"only":["openai"]},"extra_body":{"provider":{"only":["openai"]}}}`, wantChannel: 920002},
+		{name: "duplicate provider rejected", body: `{"model":"routing-model","provider":{"only":["azure"]},"provider":{"only":["openai"]}}`, wantError: "duplicate JSON keys"},
+		{name: "urlencoded provider rejected", path: "/v1/audio/speech", contentType: "application/x-www-form-urlencoded", body: `model=routing-model&input=test&provider=%7B%22zdr%22%3Atrue%7D`, wantError: "require a JSON request"},
+		{name: "urlencoded without provider unchanged", path: "/v1/audio/speech", contentType: "application/x-www-form-urlencoded", body: `model=routing-model&input=test`, wantChannel: 920001},
+		{name: "conflict", body: `{"model":"routing-model","provider":{"only":["openai"]},"extra_body":{"provider":{"only":["azure"]}}}`, wantError: "conflicting provider"},
+		{name: "pinned incompatible channel", body: `{"model":"routing-model","provider":{"only":["openai"]}}`, pin: 920001, wantError: "provider_routing"},
+		{name: "pinned compatible channel", body: `{"model":"routing-model","provider":{"only":["openai"]}}`, pin: 920002, wantChannel: 920002},
+		{name: "pin without provider unchanged", body: `{"model":"routing-model"}`, pin: 920001, wantChannel: 920001},
+		{name: "incompatible affinity ignored", body: `{"model":"routing-model","provider":{"only":["openai"]}}`, affinityID: 920001, wantChannel: 920002},
+		{name: "no compatible channel", body: `{"model":"routing-model","provider":{"only":["openai"]}}`, group: "incompatible-only", wantError: "No available channel"},
+		{name: "auto skips incompatible group", body: `{"model":"routing-model","provider":{"only":["openai"]}}`, group: "auto", wantChannel: 920002},
+		{name: "TTS rejects executor selection", path: "/v1/audio/speech", body: `{"model":"routing-model","input":"test","provider":{"only":["openai"]}}`, wantError: "unsupported provider field"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := tc.path
+			if path == "" {
+				path = "/v1/chat/completions"
+			}
+			group := tc.group
+			if group == "" {
+				group = "default"
+			}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(tc.body))
+			contentType := tc.contentType
+			if contentType == "" {
+				contentType = "application/json"
+			}
+			c.Request.Header.Set("Content-Type", contentType)
+			common.SetContextKey(c, constant.ContextKeyUsingGroup, group)
+			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+			if group == "auto" {
+				common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, []string{"incompatible-only", "vip"})
+				require.Equal(t, []string{"incompatible-only", "vip"}, service.GetRequestAutoGroups(c, "default"))
+			}
+			if tc.pin != 0 {
+				service.GetChannelConstraints(c).AddPin(taskdto.ChannelPin{ChannelId: tc.pin, Source: taskdto.PinSourceToken, Rank: taskdto.PinRankToken})
+			}
+			if tc.affinityID != 0 {
+				c.Request.Header.Set("X-Test-Affinity", t.Name())
+				_, _ = service.GetPreferredChannelByAffinity(c, "routing-model", group)
+				service.RecordChannelAffinity(c, tc.affinityID)
+				t.Cleanup(func() { service.ClearCurrentChannelAffinityCache(c) })
+				id, found := service.GetPreferredChannelByAffinity(c, "routing-model", group)
+				require.True(t, found)
+				require.Equal(t, tc.affinityID, id)
+			}
+			Distribute()(c)
+			if tc.wantError != "" {
+				require.True(t, c.IsAborted())
+				assert.Contains(t, recorder.Body.String(), tc.wantError)
+				assert.Zero(t, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
+				return
+			}
+			require.False(t, c.IsAborted(), recorder.Body.String())
+			require.Equal(t, tc.wantChannel, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
+			if tc.wantChannel == 920002 && tc.pin == 0 {
+				retry := service.RetryParam{Ctx: c, TokenGroup: group, ModelName: "routing-model", RequestPath: path, Retry: common.GetPointer(1)}
+				selected, _, err := service.CacheGetRandomSatisfiedChannel(&retry)
+				require.NoError(t, err)
+				require.NotNil(t, selected)
+				assert.Equal(t, 920002, selected.Id)
+			}
+		})
+	}
 }

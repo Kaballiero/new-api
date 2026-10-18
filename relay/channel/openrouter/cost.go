@@ -14,6 +14,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/provider"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -68,12 +69,25 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if len(body) > 32<<20 {
 		return nil, errors.New("OpenRouter request exceeds pricing inspection limit")
 	}
+	if operation != "audio/transcriptions" {
+		body, err = provider.Normalize(body)
+		if err != nil {
+			return nil, err
+		}
+	}
 	originalBody := body
 	if operation == "audio/transcriptions" {
 		body, err = transcriptionReservationPayload(c.Request.Header.Get("Content-Type"), body)
 		if err != nil {
 			return nil, err
 		}
+	}
+	routing, err := provider.Extract(body)
+	if err != nil {
+		return nil, err
+	}
+	if err = provider.Validate(operation, routing); err != nil {
+		return nil, err
 	}
 	var meta *types.TokenCountMeta
 	switch operation {

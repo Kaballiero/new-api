@@ -39,6 +39,7 @@ const (
 	FilterRequestPath        ChannelFilterKind = "request_path"
 	FilterTaskPluginIdentity ChannelFilterKind = "task_plugin_identity"
 	FilterBatchEndpoint      ChannelFilterKind = "batch_endpoint"
+	FilterProviderRouting    ChannelFilterKind = "provider_routing"
 )
 
 type ChannelFilter struct {
@@ -47,6 +48,7 @@ type ChannelFilter struct {
 	TaskPluginKey          string
 	TaskPluginChannelTypes []int
 	BatchEndpoint          string
+	ProviderChannelTypes   []int
 }
 
 type ChannelConstraints struct {

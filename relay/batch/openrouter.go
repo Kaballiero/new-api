@@ -1,6 +1,8 @@
 package batch
 
 import (
+	"encoding/json"
+	providerrouting "github.com/QuantumNous/new-api/relay/provider"
 	"io"
 	"net/http"
 )
@@ -8,6 +10,9 @@ import (
 type OpenRouter struct{}
 
 func (OpenRouter) Create(submission Submission) (Request, error) {
+	if err := providerrouting.Validate("batch", submission.Provider); err != nil {
+		return Request{}, err
+	}
 	items := make([]Item, len(submission.Items))
 	for i, item := range submission.Items {
 		body, err := requestBody(item, submission.Model, false)
@@ -19,11 +24,12 @@ func (OpenRouter) Create(submission Submission) (Request, error) {
 	// Field order matters: OpenRouter's streaming parser requires metadata
 	// before requests. A struct deliberately preserves that wire order.
 	return marshalRequest("/api/v1/batches", struct {
-		Endpoint         string `json:"endpoint"`
-		Model            string `json:"model"`
-		CompletionWindow string `json:"completion_window"`
-		Requests         []Item `json:"requests"`
-	}{submission.Endpoint, submission.Model, "24h", items})
+		Endpoint         string          `json:"endpoint"`
+		Model            string          `json:"model"`
+		CompletionWindow string          `json:"completion_window"`
+		Provider         json.RawMessage `json:"provider,omitempty"`
+		Requests         []Item          `json:"requests"`
+	}{submission.Endpoint, submission.Model, "24h", submission.Provider, items})
 }
 
 func (OpenRouter) Poll(id string) (Request, error) {

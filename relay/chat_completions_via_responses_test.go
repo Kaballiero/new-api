@@ -6,6 +6,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -220,6 +222,95 @@ func TestApplySystemPromptIfNeededSkipsToolLoadingMessages(t *testing.T) {
 			}
 			_, overrideSet := common.GetContextKey(c, constant.ContextKeySystemPromptOverride)
 			assert.Equal(t, tt.wantOverride, overrideSet)
+		})
+	}
+}
+
+type responsesRoutingBilling struct{ reserved, calls int }
+
+func (b *responsesRoutingBilling) Reserve(quota int) error  { b.calls++; b.reserved = quota; return nil }
+func (b *responsesRoutingBilling) GetPreConsumedQuota() int { return b.reserved }
+func (b *responsesRoutingBilling) Settle(int) error         { return nil }
+func (b *responsesRoutingBilling) Refund(*gin.Context)      {}
+func (b *responsesRoutingBilling) NeedsRefund() bool        { return b.reserved > 0 }
+
+func TestTextRequestViaResponsesOpenRouterProvider(t *testing.T) {
+	const prefs = `{"only":["openai"],"allow_fallbacks":false}`
+	for _, tc := range []struct {
+		name, extra, want string
+		override          map[string]any
+		reserve           float64
+		conflict          bool
+	}{
+		{name: "without provider", reserve: 0.024},
+		{name: "top-level", extra: `,"provider":` + prefs, want: prefs, reserve: 0.008},
+		{name: "legacy nested", extra: `,"extra_body":{"provider":` + prefs + `}`, want: prefs, reserve: 0.008},
+		{name: "admin replacement", extra: `,"extra_body":{"provider":` + prefs + `}`, override: map[string]any{"provider": map[string]any{"only": []string{"azure"}, "allow_fallbacks": false}}, want: `{"only":["azure"],"allow_fallbacks":false}`, reserve: 0.024},
+		{name: "admin applied once", extra: `,"provider":` + prefs, override: map[string]any{"operations": []any{map[string]any{"path": "provider.only", "mode": "append", "value": []any{"azure"}}}}, want: `{"only":["openai","azure"],"allow_fallbacks":false}`, reserve: 0.024},
+		{name: "conflict before reservation", extra: `,"provider":` + prefs + `,"extra_body":{"provider":{"only":["azure"]}}`, conflict: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			captured := make(chan []byte, 1)
+			var posts, gets atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodGet {
+					gets.Add(1)
+					assert.Equal(t, "/v1/models/vendor/routing/endpoints", r.URL.Path)
+					_, _ = io.WriteString(w, `{"data":{"id":"vendor/routing","endpoints":[{"tag":"openai","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0","completion":"0.001"}},{"tag":"azure","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0","completion":"0.003"}}]}}`)
+					return
+				}
+				posts.Add(1)
+				assert.Equal(t, "/v1/responses", r.URL.Path)
+				sent, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				captured <- sent
+				_, _ = io.WriteString(w, `{"id":"resp_routing","object":"response","status":"completed","model":"vendor/routing","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5,"cost":0.001}}`)
+			}))
+			defer server.Close()
+			body := `{"model":"vendor/routing","messages":[{"role":"user","content":"hello"}],"max_tokens":8` + tc.extra + `}`
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			t.Cleanup(func() { common.CleanupBodyStorage(c) })
+			billing := &responsesRoutingBilling{}
+			info := &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: relaytypes.RelayFormatOpenAI, OriginModelName: "vendor/routing", RequestURLPath: "/v1/chat/completions", Billing: billing, PriceData: hosttypes.PriceData{BillingGroupRatio: 1}, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: server.URL, ApiKey: "fixture-key", UpstreamModelName: "vendor/routing", ParamOverride: tc.override}}
+			adaptor := &openaichannel.Adaptor{}
+			adaptor.Init(info)
+			var request dto.GeneralOpenAIRequest
+			require.NoError(t, common.Unmarshal([]byte(body), &request))
+			usage, apiErr := textRequestViaResponses(c, info, adaptor, &request)
+			if tc.conflict {
+				require.NotNil(t, apiErr)
+				assert.Contains(t, apiErr.Error(), "conflicting")
+				assert.Zero(t, billing.calls)
+				assert.Zero(t, posts.Load())
+				assert.Zero(t, gets.Load())
+				return
+			}
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			assert.Equal(t, 5, usage.TotalTokens)
+			require.Equal(t, int32(1), posts.Load())
+			require.Equal(t, int32(1), gets.Load())
+			assert.Equal(t, 1, billing.calls)
+			require.NotNil(t, info.OpenRouterCost)
+			assert.InDelta(t, tc.reserve, info.OpenRouterCost.Basis.EstimatedUSD, 1e-10)
+			assert.Equal(t, int(tc.reserve*common.QuotaPerUnit), billing.reserved)
+			var actual map[string]any
+			require.NoError(t, common.Unmarshal(<-captured, &actual))
+			assert.NotContains(t, actual, "messages")
+			assert.NotContains(t, actual, "extra_body")
+			if tc.want == "" {
+				assert.NotContains(t, actual, "provider")
+			} else {
+				raw, err := common.Marshal(actual["provider"])
+				require.NoError(t, err)
+				assert.JSONEq(t, tc.want, string(raw))
+			}
+			assert.Equal(t, relayconstant.RelayModeChatCompletions, info.RelayMode)
+			assert.Equal(t, "/v1/chat/completions", info.RequestURLPath)
 		})
 	}
 }

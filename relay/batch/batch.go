@@ -45,6 +45,7 @@ type Submission struct {
 	ID       string
 	Model    string
 	Endpoint string
+	Provider json.RawMessage
 	Items    []Item
 	// OpenAI uploads its JSONL input before creating the paid batch. The host
 	// must persist this ID before proceeding, so upload recovery is independent

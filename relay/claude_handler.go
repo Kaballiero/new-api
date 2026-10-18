@@ -109,12 +109,9 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 
-		// apply param override
-		if len(info.ParamOverride) > 0 {
-			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
-			if err != nil {
-				return newAPIErrorFromParamOverride(err)
-			}
+		jsonData, err = relaycommon.ApplyRequestOverrides(c, jsonData, info)
+		if err != nil {
+			return newAPIErrorFromParamOverride(err)
 		}
 
 		logger.LogDebug(c, "requestBody: %s", jsonData)

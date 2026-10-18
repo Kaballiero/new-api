@@ -32,6 +32,9 @@ const BatchSettlementOpenRouterCostV1 = "openrouter_cost_v1"
 const BatchSettlementOpenRouterJobCostV2 = model.BatchSettlementOpenRouterJobCostV2
 
 type BatchBillingSnapshot struct {
+	// Provider freezes envelope routing alongside the admission contract so a
+	// worker restart never reconstructs it from mutable channel settings.
+	Provider       json.RawMessage             `json:"provider,omitempty"`
 	SettlementMode string                      `json:"settlement_mode,omitempty"`
 	OpenRouterCost *common.OpenRouterCostBasis `json:"openrouter_cost,omitempty"`
 	EvaluatedAt    time.Time                   `json:"evaluated_at"`

@@ -1267,7 +1267,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "STT missing cost persists transcript with retained hold", kind: "stt", missingCost: true},
 		{name: "STT rejects unmeasured token expression", kind: "stt", expression: `tier("tokens", p * 10)`, wantError: "unavailable p quantity"},
 		{name: "STT text format has no usage envelope", kind: "stt", extra: "text", wantError: "json or verbose_json"},
-		{name: "STT unsupported form field rejected", kind: "stt", extra: "provider", wantError: "unsupported OpenRouter transcription multipart field"},
+		{name: "STT unsupported form field rejected", kind: "stt", extra: "provider", wantError: "unsupported provider field"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.storageDisabled {
@@ -1470,5 +1470,221 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 				assert.NotContains(t, recorder.Body.String(), `"cost"`)
 			}
 		})
+	}
+}
+
+func TestOpenRouterSyncProviderFinalPayload(t *testing.T) {
+	const prefs = `{"only":["openai"],"allow_fallbacks":false}`
+	for _, operation := range []struct {
+		name, path, body string
+		mode             int
+		format           types.RelayFormat
+	}{
+		{"chat", "/v1/chat/completions", `{"model":"vendor/provider-test","messages":[{"role":"user","content":"OK"}],"max_tokens":8}`, relayconstant.RelayModeChatCompletions, types.RelayFormatOpenAI},
+		{"messages converted to Chat", "/v1/messages", `{"model":"vendor/provider-test","messages":[{"role":"user","content":"OK"}],"max_tokens":8}`, relayconstant.RelayModeUnknown, types.RelayFormatClaude},
+		{"embeddings", "/v1/embeddings", `{"model":"vendor/provider-test","input":"OK"}`, relayconstant.RelayModeEmbeddings, types.RelayFormatEmbedding},
+		{"responses", "/v1/responses", `{"model":"vendor/provider-test","input":"OK","max_output_tokens":8}`, relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses},
+	} {
+		for _, variant := range []struct {
+			name, extra, want            string
+			override                     map[string]any
+			conflict, nonOR, unavailable bool
+		}{
+			{name: "absent"},
+			{name: "top level", extra: `,"provider":` + prefs, want: prefs},
+			{name: "legacy nested", extra: `,"extra_body":{"provider":` + prefs + `}`, want: prefs},
+			{name: "matching aliases", extra: `,"provider":` + prefs + `,"extra_body":{"provider":` + prefs + `}`, want: prefs},
+			{name: "admin replacement", extra: `,"extra_body":{"provider":` + prefs + `}`, override: map[string]any{"provider": map[string]any{"only": []string{"azure"}, "allow_fallbacks": false}}, want: `{"only":["azure"],"allow_fallbacks":false}`},
+			{name: "legacy admin move", extra: `,"extra_body":{"provider":` + prefs + `}`, override: map[string]any{"operations": []any{map[string]any{"mode": "move", "from": "extra_body.provider", "to": "provider"}}}, want: prefs},
+			{name: "legacy admin copy", extra: `,"extra_body":{"provider":` + prefs + `}`, override: map[string]any{"operations": []any{map[string]any{"mode": "copy", "from": "extra_body.provider", "to": "provider"}}}, want: prefs},
+			{name: "unavailable provider before paid dispatch", extra: `,"provider":{"only":["missing"],"allow_fallbacks":false}`, unavailable: true},
+			{name: "conflict before reservation", extra: `,"provider":` + prefs + `,"extra_body":{"provider":{"only":["azure"]}}`, conflict: true},
+			{name: "non OR preserves own provider", extra: `,"provider":"vendor-specific"`, nonOR: true},
+		} {
+			t.Run(operation.name+"/"+variant.name, func(t *testing.T) {
+				transport := &sonarAdmissionTransport{metadata: `{"data":{"id":"vendor/provider-test","endpoints":[{"tag":"openai","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000001","completion":"0.000002"}},{"tag":"azure","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000003","completion":"0.000004"}}]}}`}
+				client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+				require.NoError(t, err)
+				previous := client.Transport
+				client.Transport = transport
+				t.Cleanup(func() { client.Transport = previous })
+				original := strings.TrimSuffix(operation.body, "}") + variant.extra + "}"
+				c, _, _, info := newEmbeddedErrorTestRequest(original, http.StatusOK)
+				c.Request = httptest.NewRequest(http.MethodPost, operation.path, strings.NewReader(original))
+				c.Request.Header.Set("Content-Type", "application/json")
+				t.Cleanup(func() { common.CleanupBodyStorage(c) })
+				info.ChannelType = constant.ChannelTypeOpenRouter
+				if variant.nonOR {
+					info.ChannelType = constant.ChannelTypeOpenAI
+				}
+				info.ChannelBaseUrl, info.RequestURLPath = "https://openrouter.test/api", operation.path
+				info.RelayMode, info.RelayFormat = operation.mode, operation.format
+				info.UpstreamModelName, info.OriginModelName = "vendor/provider-test", "vendor/provider-test"
+				info.ParamOverride = variant.override
+				info.PriceData.BillingGroupRatio = 1
+				billing := &sonarAdmissionBilling{}
+				info.Billing = billing
+				// Model the protocol DTO round trip that loses provider in these APIs.
+				parsed := []byte(operation.body)
+				if strings.Contains(variant.extra, "extra_body") {
+					var fields map[string]any
+					require.NoError(t, common.Unmarshal([]byte(original), &fields))
+					delete(fields, "provider")
+					parsed, err = common.Marshal(fields)
+					require.NoError(t, err)
+				}
+				if variant.nonOR {
+					parsed = []byte(original)
+				}
+				final, err := relaycommon.ApplyRequestOverrides(c, parsed, info)
+				if variant.conflict {
+					require.ErrorContains(t, err, "conflicting")
+					assert.Zero(t, billing.reserveCalls)
+					assert.Zero(t, transport.posts)
+					return
+				}
+				require.NoError(t, err)
+				response, err := (&Adaptor{}).DoRequest(c, info, bytes.NewReader(final))
+				if variant.unavailable {
+					require.ErrorContains(t, err, "no compatible")
+					assert.Zero(t, billing.reserveCalls)
+					assert.Zero(t, transport.posts)
+					return
+				}
+				require.NoError(t, err)
+				require.NoError(t, response.(*http.Response).Body.Close())
+				assert.Equal(t, 1, transport.posts)
+				var sent map[string]any
+				require.NoError(t, common.Unmarshal(transport.body, &sent))
+				if variant.nonOR {
+					assert.Equal(t, "vendor-specific", sent["provider"])
+					assert.Zero(t, billing.reserveCalls)
+					assert.Zero(t, transport.gets)
+				} else if variant.want == "" {
+					assert.NotContains(t, sent, "provider")
+				} else {
+					actual, err := common.Marshal(sent["provider"])
+					require.NoError(t, err)
+					assert.JSONEq(t, variant.want, string(actual))
+					assert.NotContains(t, sent, "extra_body")
+					assert.Positive(t, billing.reserved)
+				}
+			})
+		}
+	}
+}
+
+func TestOpenRouterRerankProviderRequiresReservationContract(t *testing.T) {
+	for _, extra := range []string{"", `,"provider":{"only":["cohere"],"allow_fallbacks":false}`, `,"extra_body":{"provider":{"only":["cohere"],"allow_fallbacks":false}}`} {
+		t.Run(extra, func(t *testing.T) {
+			original := `{"model":"vendor/rerank","query":"hi","documents":["hi"]` + extra + `}`
+			c, _, _, info := newEmbeddedErrorTestRequest(original, http.StatusOK)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/rerank", strings.NewReader(original))
+			c.Request.Header.Set("Content-Type", "application/json")
+			t.Cleanup(func() { common.CleanupBodyStorage(c) })
+			info.ChannelType, info.RelayMode, info.RelayFormat = constant.ChannelTypeOpenRouter, relayconstant.RelayModeRerank, types.RelayFormatRerank
+			info.ChannelSetting.OpenRouterReservationSource = map[string]dto.OpenRouterReservationSource{"vendor/rerank": dto.OpenRouterReservationConfiguredPrice}
+			billing := &sonarAdmissionBilling{}
+			info.Billing = billing
+			body, err := relaycommon.ApplyRequestOverrides(c, []byte(`{"model":"vendor/rerank","query":"hi","documents":["hi"]}`), info)
+			require.NoError(t, err)
+			if extra != "" {
+				assert.Contains(t, string(body), `"provider":{"only":["cohere"],"allow_fallbacks":false}`)
+			}
+			// Financial enablement belongs to the separate Rerank PR. Even an
+			// explicit reserve setting cannot bypass the current admission gate.
+			_, err = (&Adaptor{}).DoRequest(c, info, bytes.NewReader(body))
+			require.ErrorContains(t, err, "operation lacks a validated cost reservation contract")
+			assert.Zero(t, billing.reserveCalls)
+			assert.Nil(t, info.OpenRouterCost)
+		})
+	}
+}
+
+func TestOpenRouterAudioProviderConversion(t *testing.T) {
+	const policy = `{"zdr":true,"data_collection":"deny","options":{"openai":{"language":"en"}}}`
+	for _, kind := range []string{"speech", "transcriptions"} {
+		for _, tc := range []struct {
+			name, prefs, want string
+			strict, nested    bool
+			override          map[string]any
+		}{
+			{name: "policy and options", prefs: `{"zdr":true,"data_collection":"deny","options":{"openai":{"language":"en"}}}`},
+			{name: "admin policy options replacement", prefs: policy, override: map[string]any{"provider": map[string]any{"zdr": false, "data_collection": "allow", "options": map[string]any{"openai": map[string]any{"language": "fr"}}}}, want: `{"zdr":false,"data_collection":"allow","options":{"openai":{"language":"fr"}}}`},
+			{name: "legacy nested policy", prefs: policy, nested: true},
+			{name: "legacy admin move", prefs: policy, nested: true, override: map[string]any{"operations": []any{map[string]any{"mode": "move", "from": "extra_body.provider", "to": "provider"}}}},
+			{name: "strict selection rejected", prefs: `{"only":["openai"],"allow_fallbacks":false}`, strict: true},
+		} {
+			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				path := "/v1/audio/" + kind
+				want := tc.want
+				if want == "" {
+					want = tc.prefs
+				}
+				c, _, _, info := newEmbeddedErrorTestRequest("", http.StatusOK)
+				info.ChannelType, info.RelayFormat = constant.ChannelTypeOpenRouter, types.RelayFormatOpenAIAudio
+				info.RelayMode = relayconstant.RelayModeAudioSpeech
+				info.ParamOverride = tc.override
+				request := dto.AudioRequest{Model: "vendor/audio", Input: "hello", Voice: common.GetPointer("alloy")}
+				if kind == "speech" {
+					routing := `"provider":` + tc.prefs
+					if tc.nested {
+						routing = `"extra_body":{"provider":` + tc.prefs + `}`
+					}
+					body := `{"model":"vendor/audio","input":"hello","voice":"alloy",` + routing + `}`
+					c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+					c.Request.Header.Set("Content-Type", "application/json")
+				} else {
+					info.RelayMode = relayconstant.RelayModeAudioTranscription
+					var body bytes.Buffer
+					writer := multipart.NewWriter(&body)
+					require.NoError(t, writer.WriteField("model", request.Model))
+					if tc.nested {
+						require.NoError(t, writer.WriteField("extra_body", `{"provider":`+tc.prefs+`}`))
+					} else {
+						require.NoError(t, writer.WriteField("provider", tc.prefs))
+					}
+					part, err := writer.CreateFormFile("file", "audio.wav")
+					require.NoError(t, err)
+					_, err = part.Write([]byte("RIFF fixture"))
+					require.NoError(t, err)
+					require.NoError(t, writer.Close())
+					c.Request = httptest.NewRequest(http.MethodPost, path, &body)
+					c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+				}
+				t.Cleanup(func() { common.CleanupBodyStorage(c) })
+				adaptor := &Adaptor{}
+				converted, err := adaptor.ConvertAudioRequest(c, info, request)
+				if kind == "transcriptions" && tc.strict {
+					require.ErrorContains(t, err, "unsupported provider field")
+					return
+				}
+				require.NoError(t, err)
+				body, err := io.ReadAll(converted)
+				require.NoError(t, err)
+				if tc.strict {
+					_, err = openrouter.PrepareRequest(c, info, adaptor, bytes.NewReader(body), "audio/"+kind)
+					require.ErrorContains(t, err, "unsupported provider field")
+					assert.Nil(t, info.OpenRouterCost, "rejected before reserve or submission")
+					return
+				}
+				if kind == "speech" {
+					var sent map[string]any
+					require.NoError(t, common.Unmarshal(body, &sent))
+					prefs, err := common.Marshal(sent["provider"])
+					require.NoError(t, err)
+					assert.JSONEq(t, want, string(prefs))
+				} else {
+					upload := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+					upload.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+					require.NoError(t, upload.ParseMultipartForm(1<<20))
+					t.Cleanup(func() { require.NoError(t, upload.MultipartForm.RemoveAll()) })
+					assert.JSONEq(t, want, upload.FormValue("provider"))
+					assert.Empty(t, upload.FormValue("extra_body"))
+					assert.Len(t, upload.MultipartForm.Value["provider"], 1)
+					assert.Len(t, upload.MultipartForm.File["file"], 1)
+				}
+			})
+		}
 	}
 }

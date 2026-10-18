@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/provider"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -74,6 +76,7 @@ func applySystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, requ
 
 func textRequestViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, request any) (*dto.Usage, *types.NewAPIError) {
 	paramOverrideApplied := false
+	var finalProvider json.RawMessage
 	if chatRequest, ok := request.(*dto.GeneralOpenAIRequest); ok {
 		chatJSON, err := common.Marshal(chatRequest)
 		if err != nil {
@@ -85,12 +88,16 @@ func textRequestViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adapto
 			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 
-		if len(info.ParamOverride) > 0 {
-			chatJSON, err = relaycommon.ApplyParamOverrideWithRelayInfo(chatJSON, info)
+		chatJSON, err = relaycommon.ApplyRequestOverrides(c, chatJSON, info)
+		if err != nil {
+			return nil, newAPIErrorFromParamOverride(err)
+		}
+		paramOverrideApplied = true
+		if info.ChannelType == constant.ChannelTypeOpenRouter {
+			finalProvider, err = provider.Extract(chatJSON)
 			if err != nil {
 				return nil, newAPIErrorFromParamOverride(err)
 			}
-			paramOverrideApplied = true
 		}
 
 		var overriddenChatReq dto.GeneralOpenAIRequest
@@ -108,10 +115,10 @@ func textRequestViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adapto
 	if !ok {
 		return nil, types.NewError(fmt.Errorf("expected OpenAI responses request, got %T", result.Value), types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
-	return relayResponsesRequest(c, info, adaptor, responsesReq, paramOverrideApplied)
+	return relayResponsesRequest(c, info, adaptor, responsesReq, paramOverrideApplied, finalProvider)
 }
 
-func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, responsesReq *dto.OpenAIResponsesRequest, paramOverrideApplied bool) (*dto.Usage, *types.NewAPIError) {
+func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor, responsesReq *dto.OpenAIResponsesRequest, paramOverrideApplied bool, finalProvider json.RawMessage) (*dto.Usage, *types.NewAPIError) {
 	savedRelayMode := info.RelayMode
 	savedRequestURLPath := info.RequestURLPath
 	defer func() {
@@ -137,8 +144,18 @@ func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
-	if !paramOverrideApplied && len(info.ParamOverride) > 0 {
-		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+	if !paramOverrideApplied {
+		jsonData, err = relaycommon.ApplyRequestOverrides(c, jsonData, info)
+		if err != nil {
+			return nil, newAPIErrorFromParamOverride(err)
+		}
+	} else if len(finalProvider) > 0 {
+		var fields map[string]json.RawMessage
+		if err = common.Unmarshal(jsonData, &fields); err != nil {
+			return nil, newAPIErrorFromParamOverride(err)
+		}
+		fields["provider"] = finalProvider
+		jsonData, err = common.Marshal(fields)
 		if err != nil {
 			return nil, newAPIErrorFromParamOverride(err)
 		}
