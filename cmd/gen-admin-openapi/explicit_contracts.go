@@ -276,6 +276,17 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				responses[code] = map[string]any{"description": translate(currentLocale, "err."+code), "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiErrorResponse"}}}}
 			}
 		}
+		if route.HandlerName == "GetEffectivePricingModel" {
+			op["description"] = "Customer prices and provider offers for one exact model visible to the authenticated user. Optional expected_revision rejects a changed catalog or tariff context."
+			op["parameters"] = []any{
+				map[string]any{"name": "model_name", "in": "query", "required": true, "schema": map[string]any{"type": "string", "minLength": 1}},
+				map[string]any{"name": "expected_revision", "in": "query", "required": false, "schema": map[string]any{"type": "string", "minLength": 1, "maxLength": 256}},
+			}
+			responses := op["responses"].(map[string]any)
+			for _, code := range []string{"400", "404", "409", "503"} {
+				responses[code] = map[string]any{"description": translate(currentLocale, "err."+code), "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiErrorResponse"}}}}
+			}
+		}
 		if route.HandlerName == "GetEffectivePricingOverview" {
 			op["description"] = "Bounded first pages for all six modalities from one immutable catalog and pricing context. Requires root dashboard access."
 			parameters := []any{}

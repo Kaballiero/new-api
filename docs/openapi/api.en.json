@@ -3764,6 +3764,9 @@
           "description": {
             "type": "string"
           },
+          "display_name": {
+            "type": "string"
+          },
           "group_prices": {
             "items": {
               "$ref": "#/components/schemas/EffectiveGroupPricing"
@@ -3809,6 +3812,66 @@
           "owner_by",
           "supported_endpoint_types",
           "group_prices"
+        ],
+        "type": "object"
+      },
+      "EffectivePricingModelDetailData": {
+        "properties": {
+          "auto_groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "catalog_revision": {
+            "description": "Opaque immutable catalog and pricing-context revision; reuse as expected_revision across pages.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "currency": {
+            "enum": [
+              "RUB"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/components/schemas/EffectivePricingPageModel"
+          },
+          "schema_version": {
+            "enum": [
+              "v2"
+            ],
+            "type": "string"
+          },
+          "user_group": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "catalog_revision",
+          "user_group",
+          "currency",
+          "auto_groups",
+          "model"
+        ],
+        "type": "object"
+      },
+      "EffectivePricingModelDetailResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/EffectivePricingModelDetailData"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
         ],
         "type": "object"
       },
@@ -3976,6 +4039,9 @@
             "type": "object"
           },
           "description": {
+            "type": "string"
+          },
+          "display_name": {
             "type": "string"
           },
           "group_prices": {
@@ -6274,6 +6340,9 @@
             "type": "object"
           },
           "description": {
+            "type": "string"
+          },
+          "display_name": {
             "type": "string"
           },
           "icon": {
@@ -42935,6 +43004,145 @@
           }
         ],
         "summary": "get /api/user/effective-pricing",
+        "tags": [
+          "User Management"
+        ]
+      }
+    },
+    "/api/user/effective-pricing/model": {
+      "get": {
+        "deprecated": false,
+        "description": "Customer prices and provider offers for one exact model visible to the authenticated user. Optional expected_revision rejects a changed catalog or tariff context.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "model_name",
+            "required": true,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_revision",
+            "required": false,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectivePricingModelDetailResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {}
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request — invalid_params, validation failed, or other client error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized — missing or invalid auth credentials"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden — insufficient role/permission or feature disabled"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Not found — referenced resource does not exist"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict — resource already exists or state precludes the operation"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable entity — well-formed but semantically invalid input"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error — DB transaction failure or unhandled exception"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Bad gateway — upstream provider (LLM API, model registry) failed"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable — current billing FX basis is unavailable or invalid"
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "get /api/user/effective-pricing/model",
         "tags": [
           "User Management"
         ]

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"iter"
 	"math"
 	"slices"
 	"strconv"
@@ -195,66 +196,80 @@ func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group st
 func upstreamProviderOffers(item model.Pricing, group string, ratio float64, validRatio bool, user pricingUserContext, public bool) []consumerProviderOffer {
 	result := []consumerProviderOffer{}
 	seen := map[string]int{}
-	for _, route := range item.UpstreamCatalogRoutesForGroup(group) {
-		if route.Document == nil {
+	for offer := range iterateUpstreamProviderOffers(item, group, ratio, validRatio, user, public) {
+		if previous, exists := seen[offer.ID]; exists {
+			if result[previous].Availability == "unknown" && offer.Availability == "eligible" {
+				result[previous] = offer
+			}
 			continue
 		}
-		for offerIndex, offer := range route.Document.Offers {
-			if offer.Operation != nil && *offer.Operation != route.Operation || offer.Mode != nil && *offer.Mode != route.Mode || offer.Mode == nil && route.Mode != "sync" {
-				continue
-			}
-			certain := true
-			if !public {
-				allowed, known := catalogProviderAllowed(route, item.ModelName, group, user, offer)
-				if !allowed {
-					continue
-				}
-				certain = known && offer.Eligibility != nil
-			}
-			id := catalogsync.Hash([]byte(route.DocumentHash + "\n" + route.ModelID + "\n" + strconv.Itoa(offerIndex) + "\n" + route.Operation + "\n" + route.Mode))
-			row := consumerProviderOffer{ID: id, UpstreamModel: route.ModelID, Operation: route.Operation, Mode: route.Mode, Scope: offer.Scope, Provider: offer.Provider, Variant: offer.Variant, Prices: []consumerProviderPrice{}, Coverage: offer.Coverage, Eligibility: offer.Eligibility, Capabilities: offer.Capabilities, Limits: offer.Limits}
-			row.Limitations = slices.Clone(offer.Limitations)
-			row.Availability = "eligible"
-			if offer.Eligibility != nil && !offer.Eligibility.Eligible {
-				row.Availability = "ineligible"
-			}
-			if !certain {
-				row.Availability = "unknown"
-				row.Limitations = append(row.Limitations, "request_dependent_provider_eligibility")
-			}
-			for _, rate := range offer.Components {
-				price := consumerProviderPrice{upstreamRate: upstreamRate(rate), Component: catalogComponentName(rate.Parameter)}
-				if validRatio && ratio >= 0 && !math.IsNaN(ratio) && !math.IsInf(ratio, 0) && rate.AmountUSD != nil && rate.Normalization.Comparable && rate.Normalization.Effective && rate.Unit != "unknown" && rate.Unit != "source_defined" {
-					usd, parseErr := decimal.NewFromString(*rate.AmountUSD)
-					if parseErr == nil && !usd.IsNegative() {
-						rub := usd.Mul(decimal.NewFromInt(100)).Mul(decimal.NewFromFloat(ratio)).String()
-						price.AmountRub = &rub
-					}
-				}
-				row.Prices = append(row.Prices, price)
-			}
-			if previous, exists := seen[id]; exists {
-				if result[previous].Availability == "unknown" && row.Availability == "eligible" {
-					result[previous] = row
-				}
-				continue
-			}
-			seen[id] = len(result)
-			result = append(result, row)
-		}
+		seen[offer.ID] = len(result)
+		result = append(result, offer)
 	}
 	slices.SortFunc(result, func(a, b consumerProviderOffer) int { return strings.Compare(a.ID, b.ID) })
 	return result
 }
 
+func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float64, validRatio bool, user pricingUserContext, public bool) iter.Seq[consumerProviderOffer] {
+	return func(yield func(consumerProviderOffer) bool) {
+		for _, route := range item.UpstreamCatalogRoutesForGroup(group) {
+			if route.Document == nil {
+				continue
+			}
+			for offerIndex, offer := range route.Document.Offers {
+				if offer.Operation != nil && *offer.Operation != route.Operation || offer.Mode != nil && *offer.Mode != route.Mode || offer.Mode == nil && route.Mode != "sync" {
+					continue
+				}
+				certain := true
+				if !public {
+					allowed, known := catalogProviderAllowed(route, item.ModelName, group, user, offer)
+					if !allowed {
+						continue
+					}
+					certain = known && offer.Eligibility != nil
+				}
+				id := catalogsync.Hash([]byte(route.DocumentHash + "\n" + route.ModelID + "\n" + strconv.Itoa(offerIndex) + "\n" + route.Operation + "\n" + route.Mode))
+				row := consumerProviderOffer{ID: id, UpstreamModel: route.ModelID, Operation: route.Operation, Mode: route.Mode, Scope: offer.Scope, Provider: offer.Provider, Variant: offer.Variant, Prices: []consumerProviderPrice{}, Coverage: offer.Coverage, Eligibility: offer.Eligibility, Capabilities: offer.Capabilities, Limits: offer.Limits}
+				row.Limitations = slices.Clone(offer.Limitations)
+				row.Availability = "eligible"
+				if offer.Eligibility != nil && !offer.Eligibility.Eligible {
+					row.Availability = "ineligible"
+				}
+				if !certain {
+					row.Availability = "unknown"
+					row.Limitations = append(row.Limitations, "request_dependent_provider_eligibility")
+				}
+				for _, rate := range offer.Components {
+					price := consumerProviderPrice{upstreamRate: upstreamRate(rate), Component: catalogComponentName(rate.Parameter)}
+					if validRatio && ratio >= 0 && !math.IsNaN(ratio) && !math.IsInf(ratio, 0) && rate.AmountUSD != nil && rate.Normalization.Comparable && rate.Normalization.Effective && rate.Unit != "unknown" && rate.Unit != "source_defined" {
+						usd, parseErr := decimal.NewFromString(*rate.AmountUSD)
+						if parseErr == nil && !usd.IsNegative() {
+							rub := usd.Mul(decimal.NewFromInt(100)).Mul(decimal.NewFromFloat(ratio)).String()
+							price.AmountRub = &rub
+						}
+					}
+					row.Prices = append(row.Prices, price)
+				}
+				if !yield(row) {
+					return
+				}
+			}
+		}
+	}
+}
+
 func catalogMinima(offers []consumerProviderOffer) []consumerPricingOperation {
+	return catalogMinimumOperations(slices.Values(offers))
+}
+
+func catalogMinimumOperations(offers iter.Seq[consumerProviderOffer]) []consumerPricingOperation {
 	type key struct{ operation, mode string }
 	type winner struct {
 		price           consumerProviderPrice
 		value, quantity decimal.Decimal
 	}
 	grouped := map[key]map[string]winner{}
-	for _, offer := range offers {
+	for offer := range offers {
 		if offer.Availability == "unknown" || offer.Eligibility != nil && !offer.Eligibility.Eligible {
 			continue
 		}
