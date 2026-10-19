@@ -592,6 +592,28 @@ func TestSelfTaskMediaURLGuard(t *testing.T) {
 	assert.False(t, isTaskMediaFallbackLoop(remoteURL.String(), "task-2"))
 }
 
+func TestOpenRouterSyncWithoutStoredResultDoesNotAdvertiseArtifacts(t *testing.T) {
+	task := setupGenericTaskTest(t)
+	task.PrivateData.TokenId = 1
+	task.PrivateData.OpenRouterAudio = &model.OpenRouterAudioTask{ResultReady: true, ResultMimeType: "audio/pcm", ResultSize: 16}
+	for _, status := range []model.TaskStatus{model.TaskStatusInProgress, model.TaskStatusSuccess} {
+		task.Status = status
+		require.NoError(t, model.DB.Save(task).Error)
+		artifacts, err := projectTaskArtifacts(task)
+		require.NoError(t, err)
+		assert.Empty(t, artifacts)
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Set("id", task.UserId)
+		c.Set("token_id", 1)
+		c.Params = gin.Params{{Key: "key", Value: task.TaskID}, {Key: "artifact_key", Value: "result"}}
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/tasks/"+task.TaskID+"/artifacts/result/content", nil)
+		TaskArtifactContent(c)
+		assert.Equal(t, http.StatusNotFound, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "artifact_not_found")
+	}
+}
+
 func TestOpenRouterAudioArtifactsRemainAccessibleWhileBillingUnresolved(t *testing.T) {
 	task := setupGenericTaskTest(t)
 	// Registered first: restore the startup backend after t.Setenv restores env.

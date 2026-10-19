@@ -128,6 +128,11 @@ func writeTaskArtifacts(c *gin.Context, task *model.Task, dashboard bool) {
 
 func projectTaskArtifacts(task *model.Task) ([]relaychannel.TaskArtifact, error) {
 	if task != nil && task.PrivateData.OpenRouterSyncState() != nil && task.PrivateData.OpenRouterSyncState().ResultReady {
+		// New synchronous responses are not stored. Only historical persisted
+		// results have a checksum and can expose a downloadable artifact.
+		if task.PrivateData.OpenRouterSyncState().ResultSHA256 == "" {
+			return []relaychannel.TaskArtifact{}, nil
+		}
 		mimeType := task.PrivateData.OpenRouterSyncState().ResultMimeType
 		artifactType := "file"
 		if strings.HasPrefix(mimeType, "audio/") {
@@ -304,7 +309,7 @@ func TaskArtifactContent(c *gin.Context) {
 			writeTaskArtifactError(c, http.StatusConflict, "artifact_not_ready", "Task artifacts are not ready")
 			return
 		}
-		if artifactKey != "result" {
+		if artifactKey != "result" || task.PrivateData.OpenRouterSyncState().ResultSHA256 == "" {
 			writeTaskArtifactError(c, http.StatusNotFound, "artifact_not_found", "Task or artifact not found")
 			return
 		}

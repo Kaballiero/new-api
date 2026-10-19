@@ -46,12 +46,12 @@ func RerankResponse(c *gin.Context, resp *http.Response, info *relaycommon.Relay
 	if state.UnknownReason != "" && state.UnknownReason != "missing_terminal_cost" {
 		return nil, CostError("OpenRouter rerank usage.cost is invalid")
 	}
-	// The artifact and financial target must be durable before delivering success.
+	// Record the completion and financial target before delivering success.
 	body, err = common.ProjectClientResponse(c, body)
 	if err != nil {
 		return nil, CostError("OpenRouter rerank response projection failed")
 	}
-	if err := service.CompleteOpenRouterSyncTask(c, info, body, "application/json", "file"); err != nil {
+	if err := service.CompleteOpenRouterSyncTask(c, info, body, "application/json"); err != nil {
 		return nil, CostError(err.Error())
 	}
 	c.Header("X-Task-Id", state.TaskID)

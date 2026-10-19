@@ -1243,8 +1243,8 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		channelReserve                                                                                         *float64
 	}{
 		{name: "Chat audio preserves delta with force format", kind: "chat", cost: "3"},
-		{name: "durable storage required before reserve", kind: "chat", storageDisabled: true, wantError: "durable Task artifact storage"},
-		{name: "client disconnect preserves paid response", kind: "chat", cost: "3", disconnected: true},
+		{name: "Chat audio without local storage", kind: "chat", storageDisabled: true, cost: "3"},
+		{name: "client disconnect still records paid completion", kind: "chat", cost: "3", disconnected: true},
 		{name: "music with zero token tariff still holds", kind: "music", cost: "0.04"},
 		{name: "music zero configured price cannot imply free", kind: "music", zeroLocal: true, wantError: "positive reserve"},
 		{name: "explicit minimum covers music", kind: "music", zeroLocal: true, minimum: true, cost: "0.04"},
@@ -1256,7 +1256,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "audio tools remain closed", kind: "chat", extra: `,"tools":[{"type":"function"}]`, wantError: "without routing or tools"},
 		{name: "audio input media remains closed", kind: "chat", extra: `,"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]}]`, wantError: "duration quantity is unpriced"},
 		{name: "reserve fails before paid submission", kind: "chat", insufficient: true, wantError: "insufficient audio quota"},
-		{name: "missing stream cost persists result with retained hold", kind: "chat", missingCost: true},
+		{name: "missing stream cost records completion with retained hold", kind: "chat", missingCost: true},
 		{name: "null stream cost retains hold", kind: "chat", cost: "null", missingCost: true},
 		{name: "invalid stream cost retains hold", kind: "chat", cost: "-1", missingCost: true},
 		{name: "unknown stream cost without identity fails", kind: "chat", missingCost: true, noGenerationID: true},
@@ -1264,7 +1264,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "unknown transcription without identity fails", kind: "stt", missingCost: true, noGenerationID: true},
 		{name: "provisional cost cannot replace terminal cost", kind: "chat", provisional: true, missingCost: true},
 		{name: "cost without DONE is incomplete", kind: "chat", cost: "3", noDone: true, missingCost: true},
-		{name: "TTS persists raw audio with retained hold", kind: "tts", cost: "3"},
+		{name: "TTS receives raw audio with retained hold", kind: "tts", cost: "3"},
 		{name: "TTS numeric playback speed", kind: "tts", cost: "3", extra: `,"speed":1.2`},
 		{name: "TTS expression sees final request", kind: "tts", cost: "3", expression: `param("voice") == "alloy" ? tier("voice", fixed(2)) : tier("other", fixed(8))`},
 		{name: "TTS no source rejects before submission", kind: "tts", noSource: true, wantError: "requires configured_price"},
@@ -1478,14 +1478,10 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			require.NotNil(t, task.PrivateData.OpenRouterSyncState())
 			assert.True(t, task.PrivateData.OpenRouterSyncState().ResultReady)
 			assert.Equal(t, info.OpenRouterCost.TaskID, recorder.Header().Get("X-Task-Id"))
-			ref, err := service.GetTaskArtifactStore().Resolve(task, "result")
+			assert.Empty(t, task.PrivateData.OpenRouterSyncState().ResultSHA256)
+			files, err := os.ReadDir(artifactRoot)
 			require.NoError(t, err)
-			require.NotNil(t, ref)
-			artifactRecorder := httptest.NewRecorder()
-			artifactContext, _ := gin.CreateTestContext(artifactRecorder)
-			artifactContext.Request = httptest.NewRequest(http.MethodGet, "/result", nil)
-			require.NoError(t, service.GetTaskArtifactStore().Serve(artifactContext, task, ref))
-			assert.Equal(t, recorder.Body.String(), artifactRecorder.Body.String(), "persisted result survives the original response")
+			assert.Empty(t, files, "synchronous responses must not write artifact files")
 			assert.Equal(t, 1, transport.posts)
 			if tc.kind == "tts" || tc.missingCost {
 				assert.False(t, info.OpenRouterCost.Final)
@@ -1773,7 +1769,7 @@ func TestOpenRouterAudioProviderConversion(t *testing.T) {
 	}
 }
 
-// Local upstream fixtures exercise the real reservation, dispatch, artifact and
+// Local upstream fixtures exercise the real reservation, dispatch, completion and
 // wallet/token settlement chain; they do not establish live provider support.
 func TestOpenRouterRerankDurableReservation(t *testing.T) {
 	previousLimit := constant.TaskQueryLimit
@@ -1888,7 +1884,7 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 		{name: "upstream error retains hold", reserve: common.GetPointer(.02), upstreamError: true},
 		{name: "deadline after dispatch retains hold", reserve: common.GetPointer(.02), deadline: true},
 		{name: "transport disconnect retains hold", reserve: common.GetPointer(.02), timeout: true},
-		{name: "durable storage required", reserve: common.GetPointer(.02), storageDisabled: true, wantError: "durable Task artifact storage"},
+		{name: "rerank without local storage", reserve: common.GetPointer(.02), storageDisabled: true, cost: "0.01"},
 		{name: "non OpenRouter unchanged", nonOR: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
