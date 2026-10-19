@@ -52,7 +52,7 @@ func GetTask(c *gin.Context) {
 	if task.Status == model.TaskStatusSuccess && taskFailReasonIsLegacyResultURL(task.FailReason) {
 		failReason = ""
 	}
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"task_id":     task.TaskID,
 		"platform":    task.Platform,
 		"status":      task.Status,
@@ -60,7 +60,11 @@ func GetTask(c *gin.Context) {
 		"fail_reason": failReason,
 		"created_at":  createdAt,
 		"finished_at": task.FinishTime,
-	})
+	}
+	if reconciliation := service.OpenRouterSyncReconciliation(task); reconciliation != nil {
+		response["reconciliation"] = reconciliation
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func GetTaskArtifacts(c *gin.Context) {

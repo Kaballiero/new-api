@@ -141,6 +141,11 @@ type TaskPrivateData struct {
 // OpenRouterSyncTask separates delivery from financial reconciliation. Headers
 // and transport settings are private account provenance, never public Task.Data.
 type OpenRouterSyncTask struct {
+	CredentialHash    string              `json:"credential_hash,omitempty"`
+	ConfigHash        string              `json:"config_hash,omitempty"`
+	RoutingHash       string              `json:"routing_hash,omitempty"`
+	CredentialIndex   int                 `json:"credential_index,omitempty"`
+	IdentityConflict  bool                `json:"identity_conflict,omitempty"`
 	UpstreamRequestID string              `json:"upstream_request_id,omitempty"`
 	DispatchPrepared  bool                `json:"dispatch_prepared,omitempty"`
 	ProviderTag       string              `json:"provider_tag,omitempty"`
@@ -191,13 +196,23 @@ func (t *Task) UpdateOpenRouterSync(expectedRevision int) error {
 			return err
 		}
 		state := saved.PrivateData.OpenRouterSyncState()
+		if saved.Platform == constant.TaskPlatformOpenRouterChatImage && state != nil {
+			nextState := t.PrivateData.OpenRouterSyncState()
+			if state.RequestID != nextState.RequestID || state.CredentialHash != nextState.CredentialHash || state.ConfigHash != nextState.ConfigHash ||
+				state.CredentialIndex != nextState.CredentialIndex || state.RoutingHash != nextState.RoutingHash ||
+				state.MetadataURL != "" && state.MetadataURL != nextState.MetadataURL ||
+				state.IdentityConflict && !nextState.IdentityConflict ||
+				saved.PrivateData.UpstreamTaskID != "" && saved.PrivateData.UpstreamTaskID != t.PrivateData.UpstreamTaskID {
+				return fmt.Errorf("OpenRouter chat-image account or generation binding changed")
+			}
+		}
 		// An Image response can arrive after the sweeper retained a manual hold.
 		// Only new confirmed cost may claim that hold, never another submission.
 		prior, next := saved.PrivateData.Reconciliation, t.PrivateData.Reconciliation
-		lateImageCost := saved.Platform == constant.TaskPlatformOpenRouterImage && saved.Status == TaskStatusFailure &&
+		lateImageCost := (saved.Platform == constant.TaskPlatformOpenRouterImage || saved.Platform == constant.TaskPlatformOpenRouterChatImage) && saved.Status == TaskStatusFailure &&
 			prior != nil && next != nil && !prior.ReservationPending && !prior.HasUpstreamCost && !prior.SettlementPending && !prior.Finalized &&
 			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.SubmissionPending && !next.ReservationPending
-		lateImageReceipt := saved.Platform == constant.TaskPlatformOpenRouterImage && saved.Status == TaskStatusFailure && t.Status == TaskStatusFailure &&
+		lateImageReceipt := (saved.Platform == constant.TaskPlatformOpenRouterImage || saved.Platform == constant.TaskPlatformOpenRouterChatImage) && saved.Status == TaskStatusFailure && t.Status == TaskStatusFailure &&
 			prior != nil && next != nil && prior.Required && !prior.ReservationPending && !prior.HasUpstreamCost && !prior.SettlementPending && !prior.Finalized && !next.HasUpstreamCost
 		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID ||
 			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure && !lateImageCost && !lateImageReceipt ||
@@ -208,6 +223,7 @@ func (t *Task) UpdateOpenRouterSync(expectedRevision int) error {
 			// A late header may add correlation to a manual Image receipt only.
 			// Preserve every financial/result field from the locked saved snapshot.
 			state.UpstreamRequestID = t.PrivateData.OpenRouterSyncState().UpstreamRequestID
+			state.IdentityConflict = state.IdentityConflict || t.PrivateData.OpenRouterSyncState().IdentityConflict
 			saved.PrivateData.UpstreamTaskID = t.PrivateData.UpstreamTaskID
 			state.Revision = expectedRevision + 1
 			if err := tx.Model(&Task{}).Where("id = ?", t.ID).Update("private_data", saved.PrivateData).Error; err != nil {
@@ -635,7 +651,7 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
-		Where("(platform IS NULL OR platform NOT IN ?)", []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank, constant.TaskPlatformOpenRouterImage}).
+		Where("(platform IS NULL OR platform NOT IN ?)", []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank, constant.TaskPlatformOpenRouterImage, constant.TaskPlatformOpenRouterChatImage}).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).

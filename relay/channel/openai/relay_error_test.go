@@ -65,13 +65,13 @@ func newEmbeddedErrorTestRequest(body string, statusCode int) (*gin.Context, *ht
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return c, recorder, &http.Response{
-			StatusCode: statusCode,
-			Body:       io.NopCloser(strings.NewReader(body)),
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-		}, &relaycommon.RelayInfo{
-			ChannelMeta: &relaycommon.ChannelMeta{},
-			RelayFormat: types.RelayFormatOpenAI,
-		}
+		StatusCode: statusCode,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}, &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{},
+		RelayFormat: types.RelayFormatOpenAI,
+	}
 }
 
 func assertEmbeddedOpenAIError(t *testing.T, relayError *types.NewAPIError, recorder *httptest.ResponseRecorder, statusCode int) {
@@ -466,6 +466,7 @@ type sonarAdmissionTransport struct {
 	metadataError    error
 	responseError    error
 	response         string
+	responseStatus   int
 	gets             int
 	posts            int
 	body             []byte
@@ -514,7 +515,11 @@ func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Respon
 	if request.Method == http.MethodPost && s.responseHeaders != nil {
 		headers = s.responseHeaders
 	}
-	return &http.Response{StatusCode: http.StatusOK, Header: headers, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	status := http.StatusOK
+	if request.Method == http.MethodPost && s.responseStatus != 0 {
+		status = s.responseStatus
+	}
+	return &http.Response{StatusCode: status, Header: headers, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
 }
 
 type sonarAdmissionBilling struct {
@@ -948,6 +953,25 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 }
 
 func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
+	previousDB, previousLogDB := modelpkg.DB, modelpkg.LOG_DB
+	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis, previousBatch, previousLog := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&modelpkg.Task{}, &modelpkg.User{}, &modelpkg.Token{}, &modelpkg.Channel{}, &modelpkg.Log{}))
+	modelpkg.DB, modelpkg.LOG_DB = db, db
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
+	require.NoError(t, db.Create(&modelpkg.User{Id: 1, Username: "chat-image-transport", Quota: 1000000000}).Error)
+	t.Cleanup(func() {
+		modelpkg.DB, modelpkg.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousType, previousLogType)
+		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousRedis, previousBatch, previousLog
+		require.NoError(t, sqlDB.Close())
+	})
 	const alias = "chat-image-client-alias"
 	service.InitTokenEncoders()
 	var pngBytes bytes.Buffer
@@ -969,6 +993,8 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 		local, minimum                                     float64
 		noPolicy, wrongPolicy, missingRate, expression     bool
 		forceFormat, convertedFormat, responses, reject    bool
+		bodyID, headerID                                   string
+		httpError, disconnected                            bool
 	}{
 		{name: "Gemini metadata and raw image", model: "google/gemini-2.5-flash-image", local: 2, cost: "3", otherKey: "audio", otherRate: "0.000001"},
 		{name: "GPT image survives force format", model: "openai/gpt-5-image", local: 2, cost: "3", forceFormat: true},
@@ -998,6 +1024,10 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 		{name: "insufficient quota before paid dispatch", local: 2, reject: true, wantError: "insufficient image test quota"},
 		{name: "missing terminal cost", local: 2, cost: "", forceFormat: true},
 		{name: "null terminal cost", local: 2, cost: "null"},
+		{name: "missing cost retains body identity", local: 2, bodyID: "gen-chat-body"},
+		{name: "HTTP error retains body identity", local: 2, bodyID: "gen-chat-error", httpError: true},
+		{name: "header body identity conflict", local: 2, cost: "3", bodyID: "gen-chat-body", headerID: "gen-chat-header"},
+		{name: "client disconnect retains original attempt", local: 2, cost: "3", bodyID: "gen-chat-disconnect", disconnected: true},
 		{name: "negative terminal cost", local: 2, cost: "-1"},
 		{name: "no prices uses formula and minimum", local: 2, minimum: 4, noPrices: true, expression: true, cost: "3"},
 		{name: "unknown metadata plus zero cannot reserve", noPrices: true, wantError: "requires a positive reserve"},
@@ -1084,6 +1114,15 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 				costField = `"cost":` + tc.cost
 			}
 			transport := &sonarAdmissionTransport{metadata: string(metadata), response: fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","content":null,"images":[{"image_url":{"url":"data:image/png;base64,%s"}}]},"finish_reason":"stop"}],"usage":{%s}}`, pngData, costField)}
+			if tc.bodyID != "" {
+				transport.response = `{"id":"` + tc.bodyID + `",` + strings.TrimPrefix(transport.response, "{")
+			}
+			if tc.headerID != "" {
+				transport.responseHeaders = http.Header{"X-Generation-Id": []string{tc.headerID}, "Content-Type": []string{"application/json"}}
+			}
+			if tc.httpError {
+				transport.responseStatus, transport.response = 502, `{"id":"`+tc.bodyID+`","error":{"message":"upstream unavailable"}}`
+			}
 			transport.metadataStatus = tc.metadataStatus
 			if tc.metadataFailure {
 				transport.metadataError = errors.New("injected metadata connection failure")
@@ -1095,6 +1134,16 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 			t.Cleanup(func() { client.Transport = oldTransport })
 			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"Draw a dot."}],"max_tokens":128,"modalities":["text","image"],"image_config":{"image_size":"2K","aspect_ratio":"1:1"}%s}`, model, tc.extra)
 			c, recorder, _, info := newEmbeddedErrorTestRequest(body, http.StatusOK)
+			if tc.disconnected {
+				ctx, cancel := context.WithCancel(c.Request.Context())
+				defer cancel()
+				c.Request = c.Request.WithContext(ctx)
+				transport.onPost = func(req *http.Request) {
+					cancel()
+					assert.NoError(t, req.Context().Err())
+					assert.Nil(t, req.GetBody)
+				}
+			}
 			info.ChannelType, info.ChannelBaseUrl = constant.ChannelTypeOpenRouter, "https://openrouter.test/api"
 			info.RequestURLPath, info.RelayMode = "/v1/chat/completions", relayconstant.RelayModeChatCompletions
 			info.OriginModelName, info.UpstreamModelName = alias, model
@@ -1116,6 +1165,11 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 			if tc.minimum > 0 {
 				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: tc.minimum}
 			}
+			info.UserId, info.ChannelId, info.BillingSource = 1, 1, "wallet"
+			info.ApiKey, info.RequestId = "chat-image-account", t.Name()
+			channel := &modelpkg.Channel{Id: 1, Type: constant.ChannelTypeOpenRouter, Key: info.ApiKey, BaseURL: &info.ChannelBaseUrl}
+			channel.SetSetting(info.ChannelSetting)
+			require.NoError(t, db.Save(channel).Error)
 			billing := &sonarAdmissionBilling{}
 			if tc.reject {
 				billing.err = errors.New("insufficient image test quota")
@@ -1139,6 +1193,19 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, 1, transport.posts)
+			if tc.httpError {
+				raw, err := io.ReadAll(response.(*http.Response).Body)
+				require.NoError(t, err)
+				require.NoError(t, response.(*http.Response).Body.Close())
+				assert.Equal(t, transport.response, string(raw))
+				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				require.NoError(t, err)
+				require.True(t, exists)
+				assert.Equal(t, tc.bodyID, task.PrivateData.UpstreamTaskID)
+				assert.False(t, task.PrivateData.Reconciliation.UpstreamCostConfirmed)
+				assert.Equal(t, billing.reserved, task.Quota)
+				return
+			}
 			assert.JSONEq(t, string(finalBody), string(transport.body))
 			require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
 			assert.Equal(t, tc.local, *info.OpenRouterCost.ConfiguredReserveUSD)
@@ -1152,12 +1219,31 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 			settings.BillingMode[alias] = billing_setting.BillingModeTieredExpr
 			settings.BillingExpr[alias] = `tier("changed-after-send", fixed(999))`
 			usage, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
-			if tc.cost == "" || tc.cost == "null" || tc.cost == "-1" {
+			if tc.headerID != "" && tc.headerID != tc.bodyID {
 				require.NotNil(t, apiErr)
-				assert.Empty(t, recorder.Body.String())
+				assert.Empty(t, recorder.Body.String(), "reject identity disagreement before delivering a successful result")
+				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				require.NoError(t, err)
+				require.True(t, exists)
+				assert.True(t, task.PrivateData.OpenRouterSync.IdentityConflict)
+				assert.Equal(t, tc.headerID, task.PrivateData.UpstreamTaskID)
+				assert.Equal(t, billing.reserved, task.Quota)
+				return
+			}
+			if tc.cost == "" || tc.cost == "null" || tc.cost == "-1" {
+				require.Nil(t, apiErr, "valid image delivery is independent of unknown cost")
+				assert.Contains(t, recorder.Body.String(), pngData)
 				assert.True(t, info.OpenRouterCost.Sent)
 				assert.False(t, info.OpenRouterCost.Final)
 				assert.Equal(t, 1, transport.posts, "unknown cost is never replayed")
+				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				require.NoError(t, err)
+				require.True(t, exists)
+				assert.True(t, task.PrivateData.OpenRouterSync.ResultReady)
+				assert.True(t, task.PrivateData.Reconciliation.Required)
+				assert.False(t, task.PrivateData.Reconciliation.UpstreamCostConfirmed)
+				assert.Equal(t, billing.reserved, task.Quota)
+				assert.Equal(t, tc.bodyID, task.PrivateData.UpstreamTaskID)
 				return
 			}
 			require.Nil(t, apiErr)

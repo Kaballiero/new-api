@@ -2,7 +2,9 @@ package openrouter
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -37,7 +39,7 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 		info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
 	}
 	info.OpenRouterCost.Basis = basis
-	durable := info.NativeImage != nil && info.NativeImage.ReserveUSD > 0 || info.RelayMode == relayconstant.RelayModeRerank || info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription
+	durable := info.NativeImage != nil && info.NativeImage.ReserveUSD > 0 || info.RelayMode == relayconstant.RelayModeRerank || info.OpenRouterCost.ChatImage || info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription
 	if durable {
 		info.PriceData.Quota = quota
 		if err := service.BeginOpenRouterSyncTask(c, info, quota); err != nil {
@@ -202,6 +204,15 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		if modality == "audio" {
 			info.OpenRouterCost.BufferedAudio = true
 		}
+		if modality == "image" && operation == "chat/completions" && info.RelayMode == relayconstant.RelayModeChatCompletions {
+			info.OpenRouterCost.ChatImage = true
+		}
+	}
+	if info.OpenRouterCost.BufferedAudio {
+		info.OpenRouterCost.ChatImage = false
+	}
+	if info.OpenRouterCost.ChatImage {
+		info.OpenRouterCost.RoutingHash = fmt.Sprintf("%x", sha256.Sum256(routing))
 	}
 	if err := ReserveCost(c, info, estimate); err != nil {
 		return nil, err
@@ -220,6 +231,11 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		}
 		if err := service.ConfigureOpenRouterSyncSubmission(info, strings.TrimRight(info.ChannelBaseUrl, "/")+"/v1/generation", headers); err != nil {
 			return nil, err
+		}
+		if info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio {
+			info.OpenRouterCost.CaptureGeneration = func(id string) error {
+				return service.RecordOpenRouterSyncGeneration(info, id)
+			}
 		}
 	}
 
@@ -243,7 +259,10 @@ func ValidateResponse(resp *http.Response, info *relaycommon.RelayInfo) *types.N
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	info.OpenRouterCost.Observe(body, true)
-	if !info.OpenRouterCost.Final {
+	if info.OpenRouterCost.ChatImage && info.OpenRouterCost.IdentityConflict {
+		return CostError("OpenRouter generation identity is unverified")
+	}
+	if !info.OpenRouterCost.Final && !info.OpenRouterCost.ChatImage {
 		return CostError("OpenRouter terminal usage.cost is missing or invalid")
 	}
 	return nil

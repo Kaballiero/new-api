@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +40,9 @@ func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform,
 	case relayconstant.RelayModeAudioSpeech, relayconstant.RelayModeAudioTranscription:
 		return constant.TaskPlatformOpenRouterAudio, "audio", nil
 	case relayconstant.RelayModeChatCompletions:
+		if info.OpenRouterCost != nil && info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio {
+			return constant.TaskPlatformOpenRouterChatImage, "chat-image", nil
+		}
 		if info.OpenRouterCost != nil && info.OpenRouterCost.BufferedAudio {
 			return constant.TaskPlatformOpenRouterAudio, "audio", nil
 		}
@@ -48,7 +53,7 @@ func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform,
 // BeginOpenRouterSyncTask persists an intent before any hold changes. An
 // interrupted reservation deliberately records unknown applied ledger legs.
 func BeginOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, quota int) error {
-	if quota < 0 || quota == 0 && info.NativeImage == nil || HasOpenRouterSyncTask(info) {
+	if quota < 0 || quota == 0 && info.NativeImage == nil && (info.OpenRouterCost == nil || !info.OpenRouterCost.ChatImage) || HasOpenRouterSyncTask(info) {
 		return errors.New("OpenRouter synchronous requires a new positive reservation")
 	}
 	platform, action, err := openRouterSyncIdentity(info)
@@ -66,6 +71,30 @@ func BeginOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, quota 
 	state := &model.OpenRouterSyncTask{
 		RequestID: info.RequestId, BillingPreference: common.NormalizeBillingPreference(info.UserSetting.BillingPreference),
 		PlannedQuota: quota, LeaseUntil: now.Add(5 * time.Minute).Unix(), Deadline: now.Add(24 * time.Hour).Unix(),
+	}
+	if platform == constant.TaskPlatformOpenRouterChatImage {
+		// The existing channel owns the secret. Only its immutable binding is
+		// retained by new chat-image attempts, never a usable key/header copy.
+		task.PrivateData.Key = ""
+		channel, err := model.GetChannelById(info.ChannelId, true)
+		if err != nil {
+			return err
+		}
+		if channel.Type != info.ChannelType || !reflect.DeepEqual(channel.GetSetting(), info.ChannelSetting) ||
+			(len(info.HeadersOverride) > 0 || len(channel.GetHeaderOverride()) > 0) && !reflect.DeepEqual(info.HeadersOverride, channel.GetHeaderOverride()) {
+			return errors.New("OpenRouter chat-image channel configuration changed")
+		}
+		state.CredentialHash = fmt.Sprintf("%x", sha256.Sum256([]byte(info.ApiKey)))
+		state.CredentialIndex = info.ChannelMultiKeyIndex
+		state.RoutingHash = info.OpenRouterCost.RoutingHash
+		state.ConfigHash, err = BatchChannelConfigHash(channel)
+		if err != nil {
+			return err
+		}
+		task.PrivateData.OpenRouterSync = state
+		if _, _, err := openRouterChatAccount(task); err != nil {
+			return err
+		}
 	}
 	if native := info.NativeImage; native != nil {
 		task.PrivateData.Key = ""
@@ -163,9 +192,103 @@ func ConfigureOpenRouterSyncSubmission(info *relaycommon.RelayInfo, metadataURL 
 	if err != nil || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
 		return errors.New("invalid OpenRouter synchronous metadata endpoint")
 	}
+	if task.Platform == constant.TaskPlatformOpenRouterChatImage {
+		channel, key, err := openRouterChatAccount(task)
+		if err != nil {
+			return err
+		}
+		base := channel.GetBaseURL()
+		if base == "" {
+			base = constant.GetChannelBaseURL(channel.Type)
+		}
+		if metadataURL != relaycommon.GetFullRequestURL(base, "/v1/generation", channel.Type) {
+			return errors.New("OpenRouter chat-image metadata origin changed")
+		}
+		auth, host := "Bearer "+key, ""
+		for name, value := range channel.GetHeaderOverride() {
+			if headers.Get(name) != strings.ReplaceAll(value.(string), "{api_key}", key) {
+				return errors.New("OpenRouter chat-image request headers changed")
+			}
+			if strings.EqualFold(name, "Authorization") {
+				auth = strings.ReplaceAll(value.(string), "{api_key}", key)
+			}
+			if strings.EqualFold(name, "Host") {
+				host = strings.ReplaceAll(value.(string), "{api_key}", key)
+			}
+		}
+		if headers.Get("Authorization") != auth || headers.Get("Host") != host {
+			return errors.New("OpenRouter chat-image request account changed")
+		}
+		a.MetadataURL, a.DispatchPrepared = metadataURL, true
+		a.LeaseUntil = time.Now().Add(5 * time.Minute).Unix()
+		return task.UpdateOpenRouterSync(a.Revision)
+	}
 	a.MetadataURL, a.Headers, a.Transport = metadataURL, headers.Clone(), info.ChannelSetting
 	a.LeaseUntil = time.Now().Add(5 * time.Minute).Unix()
 	return task.UpdateOpenRouterSync(a.Revision)
+}
+
+// openRouterChatAccount resolves only the originally selected account and
+// transport. Rotation/config drift blocks lookup instead of switching accounts.
+func openRouterChatAccount(task *model.Task) (*model.Channel, string, error) {
+	a := task.PrivateData.OpenRouterSyncState()
+	channel, err := model.GetChannelById(task.ChannelId, true)
+	if err != nil {
+		return nil, "", errors.New("chat-image account unavailable")
+	}
+	hash, err := BatchChannelConfigHash(channel)
+	if err != nil || channel.Type != constant.ChannelTypeOpenRouter || hash != a.ConfigHash {
+		return nil, "", errors.New("chat-image account configuration changed")
+	}
+	if err := ValidateBatchChannelHeaders(channel); err != nil {
+		return nil, "", errors.New("chat-image recovery requires static account headers")
+	}
+	key := channel.Key
+	if channel.ChannelInfo.IsMultiKey {
+		keys := channel.GetKeys()
+		if a.CredentialIndex < 0 || a.CredentialIndex >= len(keys) {
+			return nil, "", errors.New("chat-image credential unavailable")
+		}
+		key = keys[a.CredentialIndex]
+	}
+	if a.CredentialHash == "" || fmt.Sprintf("%x", sha256.Sum256([]byte(key))) != a.CredentialHash {
+		return nil, "", errors.New("chat-image credential changed")
+	}
+	base := channel.GetBaseURL()
+	if base == "" {
+		base = constant.GetChannelBaseURL(channel.Type)
+	}
+	if a.MetadataURL != "" && a.MetadataURL != relaycommon.GetFullRequestURL(base, "/v1/generation", channel.Type) {
+		return nil, "", errors.New("chat-image metadata origin changed")
+	}
+	return channel, key, nil
+}
+
+// RecordOpenRouterSyncGeneration is called as soon as a chat envelope carries
+// an ID, including SSE and error envelopes, before cost/result validation.
+func RecordOpenRouterSyncGeneration(info *relaycommon.RelayInfo, id string) error {
+	identity := &relaycommon.OpenRouterCostState{}
+	identity.ObserveGenerationID(id)
+	task, err := openRouterSyncTask(info)
+	if err != nil {
+		return err
+	}
+	if task.Platform != constant.TaskPlatformOpenRouterChatImage {
+		return errors.New("generation capture requires chat-image identity")
+	}
+	a := task.PrivateData.OpenRouterSyncState()
+	if identity.IdentityConflict || !validOpenRouterImageCorrelation(id, info.ApiKey, 128) || task.PrivateData.UpstreamTaskID != "" && task.PrivateData.UpstreamTaskID != id {
+		a.IdentityConflict = true
+	} else {
+		task.PrivateData.UpstreamTaskID = id
+	}
+	if err := task.UpdateOpenRouterSync(a.Revision); err != nil {
+		return err
+	}
+	if a.IdentityConflict {
+		return errors.New("OpenRouter generation identity changed")
+	}
+	return nil
 }
 
 func validOpenRouterImageCorrelation(id, apiKey string, limit int) bool {
@@ -182,7 +305,7 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 		return err
 	}
 	a := task.PrivateData.OpenRouterSyncState()
-	image := task.Platform == constant.TaskPlatformOpenRouterImage
+	image := task.Platform == constant.TaskPlatformOpenRouterImage || task.Platform == constant.TaskPlatformOpenRouterChatImage
 	if time.Now().Unix() >= a.LeaseUntil && !image {
 		return errors.New("OpenRouter synchronous submission lease expired")
 	}
@@ -190,7 +313,7 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 		return errors.New("OpenRouter image dispatch was not prepared")
 	}
 	if resp != nil {
-		if task.Platform == constant.TaskPlatformOpenRouterImage {
+		if image {
 			for _, key := range []string{"X-Request-Id", "Request-Id", common.RequestIdKey} {
 				id := resp.Header.Get(key)
 				if validOpenRouterImageCorrelation(id, info.ApiKey, 128) {
@@ -200,7 +323,20 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 			}
 		}
 		id := resp.Header.Get("X-Generation-Id")
+		if task.Platform == constant.TaskPlatformOpenRouterChatImage && id != "" {
+			state := &relaycommon.OpenRouterCostState{}
+			state.ObserveGenerationID(id)
+			a.IdentityConflict = a.IdentityConflict || state.IdentityConflict || !validOpenRouterImageCorrelation(id, info.ApiKey, 128)
+			if a.IdentityConflict {
+				info.OpenRouterCost.IdentityConflict = true
+				id = ""
+			}
+		}
 		if id != "" && len(id) <= 512 && (task.Platform != constant.TaskPlatformOpenRouterImage || validOpenRouterImageCorrelation(id, info.ApiKey, 512)) {
+			if task.Platform == constant.TaskPlatformOpenRouterChatImage && task.PrivateData.UpstreamTaskID != "" && task.PrivateData.UpstreamTaskID != id {
+				a.IdentityConflict, info.OpenRouterCost.IdentityConflict = true, true
+				return task.UpdateOpenRouterSync(a.Revision)
+			}
 			task.PrivateData.UpstreamTaskID = id
 			info.OpenRouterCost.GenerationID = id
 		}
@@ -209,7 +345,7 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 		// Preserve correlation, then inspect a late body for monetary evidence.
 		return task.UpdateOpenRouterSync(a.Revision)
 	}
-	if requestErr != nil || resp == nil || resp.StatusCode != http.StatusOK && task.Platform != constant.TaskPlatformOpenRouterImage {
+	if requestErr != nil || resp == nil || resp.StatusCode != http.StatusOK && !image {
 		task.PrivateData.Reconciliation.SubmissionPending = false
 		a.ResultFailed, a.LastError = true, "submission_outcome_unknown"
 		a.NextPoll = time.Now().Unix()
@@ -227,14 +363,20 @@ func CompleteOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, bod
 		return err
 	}
 	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
-	if time.Now().Unix() >= a.LeaseUntil || !r.SubmissionPending {
+	lateChatCost := task.Platform == constant.TaskPlatformOpenRouterChatImage && info.OpenRouterCost.Final && info.OpenRouterCost.Valid && !info.OpenRouterCost.IdentityConflict &&
+		!r.ReservationPending && !r.HasUpstreamCost && !r.SettlementPending && !r.Finalized
+	if (time.Now().Unix() >= a.LeaseUntil || !r.SubmissionPending) && !lateChatCost {
 		return errors.New("OpenRouter synchronous result lease expired")
 	}
 	state := info.OpenRouterCost
+	a.IdentityConflict = a.IdentityConflict || state.IdentityConflict
+	if a.IdentityConflict {
+		return errors.New("OpenRouter generation identity is unverified")
+	}
 	if state.GenerationID != "" && len(state.GenerationID) <= 512 {
 		task.PrivateData.UpstreamTaskID = state.GenerationID
 	}
-	if !state.Final && task.PrivateData.UpstreamTaskID == "" {
+	if !state.Final && task.PrivateData.UpstreamTaskID == "" && task.Platform != constant.TaskPlatformOpenRouterChatImage {
 		return errors.New("OpenRouter synchronous cost and generation identity are unavailable")
 	}
 	// A synchronous response is delivered by the original request. Keep only
@@ -247,6 +389,8 @@ func CompleteOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, bod
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, state.CostUSD
 		r.UpstreamIsBYOK, r.UpstreamCostDetails = state.IsBYOK, string(state.CostDetails)
 		finishOpenRouterSync(task)
+	} else if task.PrivateData.UpstreamTaskID == "" {
+		manualOpenRouterSync(task, "missing_generation_identity")
 	}
 	projectOpenRouterSyncState(task)
 	if err := task.UpdateOpenRouterSync(a.Revision); err != nil {
@@ -268,11 +412,12 @@ func FailOpenRouterSyncTask(info *relaycommon.RelayInfo, reason string) error {
 		return err
 	}
 	a := task.PrivateData.OpenRouterSyncState()
+	a.IdentityConflict = a.IdentityConflict || info.OpenRouterCost.IdentityConflict
 	if id := info.OpenRouterCost.GenerationID; id != "" && len(id) <= 512 {
 		task.PrivateData.UpstreamTaskID = id
 	}
 	r := task.PrivateData.Reconciliation
-	lateImageCost := task.Platform == constant.TaskPlatformOpenRouterImage && info.OpenRouterCost.Final && info.OpenRouterCost.Valid &&
+	lateImageCost := (task.Platform == constant.TaskPlatformOpenRouterImage || task.Platform == constant.TaskPlatformOpenRouterChatImage) && info.OpenRouterCost.Final && info.OpenRouterCost.Valid && !a.IdentityConflict &&
 		!r.ReservationPending && !r.HasUpstreamCost && !r.SettlementPending && !r.Finalized
 	if (!r.SubmissionPending || time.Now().Unix() >= a.LeaseUntil) && !lateImageCost {
 		return errors.New("OpenRouter synchronous result lease expired")
@@ -280,11 +425,11 @@ func FailOpenRouterSyncTask(info *relaycommon.RelayInfo, reason string) error {
 	a.ResultFailed, a.LastError = true, reason
 	task.PrivateData.Reconciliation.SubmissionPending = false
 	a.NextPoll = time.Now().Unix()
-	if state := info.OpenRouterCost; state.Final && state.Valid && task.Platform == constant.TaskPlatformOpenRouterImage {
+	if state := info.OpenRouterCost; state.Final && state.Valid && !a.IdentityConflict && (task.Platform == constant.TaskPlatformOpenRouterImage || task.Platform == constant.TaskPlatformOpenRouterChatImage) {
 		r := task.PrivateData.Reconciliation
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, state.CostUSD
 		finishOpenRouterSync(task)
-	} else if task.PrivateData.UpstreamTaskID == "" || task.Platform == constant.TaskPlatformOpenRouterImage {
+	} else if a.IdentityConflict || task.PrivateData.UpstreamTaskID == "" || task.Platform == constant.TaskPlatformOpenRouterImage {
 		manualOpenRouterSync(task, reason)
 	}
 	projectOpenRouterSyncState(task)
@@ -314,6 +459,53 @@ func projectOpenRouterSyncState(task *model.Task) {
 	task.SetData(map[string]any{"result_ready": a.ResultReady, "result_failed": a.ResultFailed, "billing_status": status, "cost_lookup_attempts": a.Attempts, "cost_lookup_http_status": a.LastHTTPStatus, "next_cost_lookup": a.NextPoll})
 }
 
+// OpenRouterSyncReconciliation is an allowlisted public projection. Provider
+// identities, hashes, headers and raw diagnostics never leave private state.
+func OpenRouterSyncReconciliation(task *model.Task) map[string]any {
+	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
+	if a == nil || r == nil {
+		return nil
+	}
+	submission, billing, reason := "unknown", "awaiting_cost", ""
+	if a.DispatchPrepared {
+		submission = "possible_sent"
+	}
+	if task.PrivateData.UpstreamTaskID != "" && !a.IdentityConflict {
+		submission = "identity_confirmed"
+	}
+	switch {
+	case r.Finalized:
+		billing = "settled"
+	case r.MainApplied:
+		billing = "settlement_repair_required"
+	case r.SettlementPending:
+		billing = "settlement_pending"
+	case r.ReservationPending:
+		billing, submission = "reservation_unknown", "preparing"
+	case task.Status == model.TaskStatusFailure:
+		billing = "manual_reconciliation"
+	}
+	switch a.LastError {
+	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown":
+		reason = a.LastError
+	default:
+		if billing == "manual_reconciliation" {
+			reason = "reconciliation_required"
+		}
+	}
+	if a.IdentityConflict {
+		submission, reason = "unknown", "generation_identity_unverified"
+	}
+	var nextLookup any
+	if a.NextPoll > 0 && task.Status != model.TaskStatusFailure && task.Status != model.TaskStatusSuccess {
+		nextLookup = a.NextPoll
+	}
+	return map[string]any{"submission_state": submission, "billing_state": billing, "reason_code": reason,
+		"replay_allowed": false, "identity_available": task.PrivateData.UpstreamTaskID != "" && !a.IdentityConflict,
+		"cost_confirmed": r.HasUpstreamCost && r.UpstreamCostConfirmed, "next_lookup_at": nextLookup,
+		"result_ready": a.ResultReady, "result_failed": a.ResultFailed}
+}
+
 func manualOpenRouterSync(task *model.Task, reason string) {
 	task.Status, task.Progress, task.FinishTime = model.TaskStatusFailure, "100%", time.Now().Unix()
 	task.FailReason = "OpenRouter synchronous manual reconciliation required: " + reason
@@ -334,13 +526,18 @@ func finishOpenRouterSync(task *model.Task) {
 // Only the winner of a revision-checked terminal claim may move funds.
 func pollOpenRouterSync(ctx context.Context, task *model.Task) error {
 	validIdentity := task.Platform == constant.TaskPlatformOpenRouterAudio && task.Action == "audio" && task.PrivateData.OpenRouterSync == nil ||
-		(task.Platform == constant.TaskPlatformOpenRouterRerank && task.Action == "rerank" || task.Platform == constant.TaskPlatformOpenRouterImage && task.Action == "image") && task.PrivateData.OpenRouterAudio == nil
+		(task.Platform == constant.TaskPlatformOpenRouterRerank && task.Action == "rerank" || task.Platform == constant.TaskPlatformOpenRouterImage && task.Action == "image" || task.Platform == constant.TaskPlatformOpenRouterChatImage && task.Action == "chat-image") && task.PrivateData.OpenRouterAudio == nil
 	if !validIdentity {
 		manualOpenRouterSync(task, "operation_identity_changed")
 		projectOpenRouterSyncState(task)
 		return task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision)
 	}
 	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
+	if a.IdentityConflict {
+		manualOpenRouterSync(task, "generation_identity_unverified")
+		projectOpenRouterSyncState(task)
+		return task.UpdateOpenRouterSync(a.Revision)
+	}
 	now := time.Now()
 	if r.ReservationPending || r.SubmissionPending {
 		if now.Unix() < a.LeaseUntil {
@@ -370,12 +567,20 @@ func pollOpenRouterSync(ctx context.Context, task *model.Task) error {
 	delay := time.Minute * time.Duration(1<<min(a.Attempts, 6))
 	delay = min(delay, time.Hour)
 	a.Attempts++
+	// Persist the attempt budget and next due time before network I/O. A stale
+	// poller loses this claim; a crash cannot reset the metadata lookup budget.
+	if task.Platform == constant.TaskPlatformOpenRouterChatImage {
+		a.NextPoll = now.Add(delay).Unix()
+		if err := task.UpdateOpenRouterSync(a.Revision); err != nil {
+			return err
+		}
+	}
 	cost, status, retryAfter, class := lookupOpenRouterSyncCost(ctx, task)
 	a.LastHTTPStatus, a.LastError = status, class
 	if class == "" {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, cost
 		finishOpenRouterSync(task)
-	} else if class == "auth" || class == "identity_or_invalid_cost" || class == "permanent_http_error" {
+	} else if class == "auth" || class == "account_binding_changed" || class == "identity_or_invalid_cost" || class == "permanent_http_error" {
 		manualOpenRouterSync(task, class)
 	} else {
 		a.NextPoll = now.Add(max(delay, retryAfter)).Unix()
@@ -414,6 +619,9 @@ func lookupOpenRouterSyncCost(ctx context.Context, task *model.Task) (float64, i
 		return 0, status, 0, "identity_or_invalid_cost"
 	}
 	d := result.Data
+	if task.Platform == constant.TaskPlatformOpenRouterChatImage && d.APIType != "completions" {
+		return 0, status, 0, "identity_or_invalid_cost"
+	}
 	if task.Platform == constant.TaskPlatformOpenRouterRerank && d.APIType != "rerank" {
 		return 0, status, 0, "identity_or_invalid_cost"
 	}
@@ -466,7 +674,19 @@ func lookupOpenRouterSyncCost(ctx context.Context, task *model.Task) (float64, i
 
 func fetchOpenRouterSyncMetadata(ctx context.Context, task *model.Task, endpoint string) ([]byte, int, time.Duration, string) {
 	a := task.PrivateData.OpenRouterSyncState()
-	client, err := GetHttpClientWithProxySettings(a.Transport.Proxy, a.Transport)
+	settings, headers := a.Transport, http.Header(a.Headers).Clone()
+	if task.Platform == constant.TaskPlatformOpenRouterChatImage {
+		channel, key, err := openRouterChatAccount(task)
+		if err != nil {
+			return nil, 0, 0, "account_binding_changed"
+		}
+		settings = channel.GetSetting()
+		headers = http.Header{"Authorization": []string{"Bearer " + key}}
+		for name, value := range channel.GetHeaderOverride() {
+			headers.Set(name, strings.ReplaceAll(value.(string), "{api_key}", key))
+		}
+	}
+	client, err := GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return nil, 0, 0, "transport_unavailable"
 	}
@@ -476,7 +696,7 @@ func fetchOpenRouterSyncMetadata(ctx context.Context, task *model.Task, endpoint
 	if err != nil {
 		return nil, 0, 0, "permanent_http_error"
 	}
-	req.Header = http.Header(a.Headers).Clone()
+	req.Header = headers
 	req.Header.Del("Content-Length")
 	req.Header.Del("Content-Type")
 	req.Host = req.Header.Get("Host")
