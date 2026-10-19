@@ -4305,7 +4305,7 @@ export function ChannelMutateDrawer({
                               />
                             </div>
 
-                            {currentType === 28 && (
+                            {currentType === 20 && (
                               <OpenRouterReserveField
                                 control={form.control}
                                 disabled={sensitiveLocked || isSubmitting}

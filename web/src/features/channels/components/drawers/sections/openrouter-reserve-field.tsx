@@ -48,7 +48,7 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
             <FormLabel>{t('OpenRouter reservation sources')}</FormLabel>
             <FormDescription>
               {t(
-                'Map exact upstream model IDs to configured_price to reserve using the configured NewAPI price or expression. Default: upstream. One nonstream Chat response only, including image output. If endpoint tariffs cannot provide an estimate, the local reserve and minimum apply. Complete upstream estimates and minimum holds are never reduced. Final charges always use OpenRouter actual cost.'
+                'Map exact upstream model IDs to upstream or configured_price. Default: upstream. configured_price uses the configured NewAPI price or expression only for supported operations. Endpoint and provider checks still apply. Final charges use OpenRouter actual cost.'
               )}
             </FormDescription>
             <FormControl>
@@ -75,7 +75,7 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
             <FormLabel>{t('OpenRouter model reserves (USD)')}</FormLabel>
             <FormDescription>
               {t(
-                'Exact upstream model IDs mapped to minimum holds in USD. Empty object disables the policy. One nonstream text chat response only; tariffs and terminal actual cost are required. Full actual cost is charged, including excess. Legacy Sonar settings are migrated on save.'
+                'Map exact upstream model IDs to positive minimum holds in USD. Supported contracts include dedicated Audio and Rerank. Holds never reduce a higher upstream estimate and are not a spending limit. Full actual cost is charged, including excess. Empty object disables these holds. Legacy Sonar settings migrate on save.'
               )}
             </FormDescription>
             <FormControl>
