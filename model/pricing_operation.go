@@ -448,11 +448,13 @@ func ConsumerPricingCatalogue(pricing []Pricing, usableGroups map[string]string)
 				base.EnableGroup = []string{}
 				base.CatalogOffersByGroup = make(map[string][]CatalogOffer)
 				base.PublicCatalogOffersByGroup = make(map[string][]CatalogOffer)
+				base.UpstreamCatalogRoutesByGroup = make(map[string][]UpstreamCatalogRoute)
 				result = append(result, base)
 			}
 			if !slices.Contains(result[index].EnableGroup, group) {
 				result[index].EnableGroup = append(result[index].EnableGroup, group)
 			}
+			result[index].UpstreamCatalogRoutesByGroup[group] = append(result[index].UpstreamCatalogRoutesByGroup[group], item.UpstreamCatalogRoutesForGroup(group)...)
 			result[index].CatalogOffersByGroup[group] = append(result[index].CatalogOffersByGroup[group], item.CatalogOffersForGroup(group)...)
 			result[index].PublicCatalogOffersByGroup[group] = append(result[index].PublicCatalogOffersByGroup[group], item.PublicCatalogOffersByGroup["all"]...)
 			result[index].PublicCatalogOffersByGroup[group] = append(result[index].PublicCatalogOffersByGroup[group], item.PublicCatalogOffersByGroup[group]...)

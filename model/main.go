@@ -374,6 +374,9 @@ func migrateDB() error {
 		&SystemTask{},
 		&SystemTaskLock{},
 		&ModelCostFXRow{},
+		&CatalogSource{},
+		&CatalogRevision{},
+		&CatalogDocument{},
 		&CasbinRule{},
 		&AuthzRole{},
 	)

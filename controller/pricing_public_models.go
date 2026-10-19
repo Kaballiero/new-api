@@ -29,6 +29,7 @@ type publicPricingModelsPage struct {
 }
 
 type publicPricingModel struct {
+	DisplayName            string                   `json:"display_name,omitempty"`
 	ModelName              string                   `json:"model_name"`
 	Description            string                   `json:"description,omitempty"`
 	Icon                   string                   `json:"icon,omitempty"`
@@ -69,9 +70,10 @@ type publicPricingCondition struct {
 }
 
 type publicPricingModelsQuery struct {
-	tags     []string
-	page     int
-	pageSize int
+	expectedRevision string
+	tags             []string
+	page             int
+	pageSize         int
 }
 
 func pricingTags(value string) []string {
@@ -88,8 +90,13 @@ func parsePublicPricingModelsQuery(raw string) (publicPricingModelsQuery, error)
 	if err != nil {
 		return query, fmt.Errorf("invalid pricing query")
 	}
+	revision, err := expectedPricingRevision(values)
+	if err != nil {
+		return query, err
+	}
+	query.expectedRevision = revision
 	for key, entries := range values {
-		if key != "tag" && key != "p" && key != "page_size" {
+		if key != "tag" && key != "p" && key != "page_size" && key != "expected_revision" {
 			return query, fmt.Errorf("unsupported %s", key)
 		}
 		if key != "tag" && len(entries) != 1 {
@@ -141,6 +148,9 @@ func GetPublicPricingModels(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "failed to resolve public pricing"})
 		return
 	}
+	if !pricingRevisionMatches(c, query.expectedRevision, context.metadata.CatalogRevision) {
+		return
+	}
 	response := buildPublicPricingModelsPage(context, query)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 }
@@ -171,7 +181,7 @@ func buildPublicPricingModelsPage(context effectivePricingPageContext, query pub
 		}
 	}
 	for _, item := range candidates[start:end] {
-		response.Data = append(response.Data, publicPricingModel{ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: pricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: creators[item.VendorID], Tariff: buildPublicModelTariff(context, item)})
+		response.Data = append(response.Data, publicPricingModel{DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: pricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: creators[item.VendorID], Tariff: buildPublicModelTariff(context, item)})
 	}
 	return response
 }
@@ -293,6 +303,22 @@ func buildCatalogModelTariff(context effectivePricingPageContext, item model.Pri
 		}
 		row.IsFree = row.IsFree && !unknown
 		result.Operations = append(result.Operations, row)
+	}
+	providers := upstreamProviderOffers(item, group, ratio, ratioErr == nil, pricingUserContext{}, true)
+	for _, operation := range catalogMinima(providers) {
+		index := slices.IndexFunc(result.Operations, func(row publicPricingOperation) bool {
+			return row.Operation == operation.Operation && row.Mode == operation.Mode
+		})
+		if index < 0 {
+			result.Operations = append(result.Operations, publicPricingOperation{Operation: operation.Operation, Mode: operation.Mode, Prices: []consumerUnitPrice{}, Tiers: []publicPricingTier{}})
+			index = len(result.Operations) - 1
+		}
+		row := &result.Operations[index]
+		row.IsFrom = true
+		merged := mergeCatalogMinima([]consumerPricingOperation{{Operation: row.Operation, Mode: row.Mode, Prices: row.Prices}}, []consumerPricingOperation{operation})
+		row.Prices = merged[0].Prices
+		// Independent component minima do not prove that a complete request is free.
+		row.IsFree = false
 	}
 	return result
 }

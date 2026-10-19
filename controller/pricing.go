@@ -171,7 +171,7 @@ func GetEffectivePricing(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to resolve user pricing group"})
 		return
 	}
-	response, err := getConsumerPricingResponse(user.Group)
+	response, err := getConsumerPricingResponse(user.Group, c.GetInt("id"))
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
 		return
@@ -223,24 +223,30 @@ func GetEffectivePricingByGroup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 }
 
-func getConsumerPricingResponse(userGroup string) (consumerPricingResponse, error) {
+func getConsumerPricingResponse(userGroup string, userIDs ...int) (consumerPricingResponse, error) {
 	context, err := loadConsumerPricingContext(userGroup, "")
 	if err != nil {
 		return consumerPricingResponse{}, err
 	}
+	if len(userIDs) > 0 {
+		context.userID = userIDs[0]
+	}
+	cacheable := context.userID == 0
 	effectivePricingCache.RLock()
 	cached, known := effectivePricingCache.entries[userGroup]
 	effectivePricingCache.RUnlock()
-	if known && cached.response.CatalogRevision == context.metadata.CatalogRevision {
+	if cacheable && known && cached.response.CatalogRevision == context.metadata.CatalogRevision {
 		return cached.response, nil
 	}
 	response := context.metadata
 	for _, item := range model.ConsumerPricingCatalogue(context.pricing, context.usableGroups) {
 		response.Data = append(response.Data, context.project(item))
 	}
-	effectivePricingCache.Lock()
-	effectivePricingCache.entries[userGroup] = effectivePricingCacheEntry{response: response}
-	effectivePricingCache.Unlock()
+	if cacheable {
+		effectivePricingCache.Lock()
+		effectivePricingCache.entries[userGroup] = effectivePricingCacheEntry{response: response}
+		effectivePricingCache.Unlock()
+	}
 	return response, nil
 }
 func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, error) {

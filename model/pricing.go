@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -27,6 +29,8 @@ const (
 )
 
 type Pricing struct {
+	DisplayName                     string                                        `json:"display_name,omitempty"`
+	UpstreamCatalogRoutesByGroup    map[string][]UpstreamCatalogRoute             `json:"-"`
 	PublicCatalogOffersByGroup      map[string][]CatalogOffer                     `json:"-"`
 	ConsumerCanonicalModelsByGroup  map[string]string                             `json:"-"`
 	ConfiguredPrices                map[string][][]billingexpr.DisplayPrice       `json:"-"`
@@ -472,10 +476,51 @@ func rebuildPricingCatalogueLocked() {
 		}
 	}
 
+	upstreamDocuments, upstreamHashes, upstreamEnabled, err := loadConfiguredCatalog(context.Background())
+	if err != nil {
+		return
+	}
+	upstreamRoutes := make(map[string]map[string][]UpstreamCatalogRoute)
+	upstreamMetadata := make(map[string]*catalogsync.Document)
 	catalogOffers := make(map[string]map[string][]CatalogOffer)
 	for _, ability := range enableAbilities {
 		channel := pricingChannels[ability.ChannelId]
 		if channel == nil || channel.Status != 1 {
+			continue
+		}
+		if upstreamEnabled && IsOpenRouterCatalogChannel(channel) {
+			upstream, resolved := ResolvePricingUpstreamModel(channel, ability.Model)
+			if !resolved {
+				continue
+			}
+			original := upstreamDocuments[upstream]
+			if original == nil {
+				continue
+			}
+			canonical, resolveErr := catalogsync.ResolveAlias(upstreamDocuments, upstream)
+			if resolveErr != nil {
+				return
+			}
+			if prior := upstreamMetadata[ability.Model]; prior == nil || catalogsync.CompareIDs(original.ID, prior.ID) < 0 {
+				upstreamMetadata[ability.Model] = original
+			}
+			for endpoint, sources := range billingSources[ability.Model][ability.Group] {
+				if !slices.Contains(sources, BillingSourceOpenRouterActualCost) {
+					continue
+				}
+				operation := configuredPricingOperation(channel, ability.Model, upstream, endpoint)
+				if operation.operation == "" {
+					continue
+				}
+				mode := "sync"
+				if endpoint == PricingEndpointBatch {
+					mode = "batch"
+				}
+				if upstreamRoutes[ability.Model] == nil {
+					upstreamRoutes[ability.Model] = make(map[string][]UpstreamCatalogRoute)
+				}
+				upstreamRoutes[ability.Model][ability.Group] = append(upstreamRoutes[ability.Model][ability.Group], UpstreamCatalogRoute{Operation: operation.operation, Mode: mode, Endpoint: endpoint, ModelID: upstream, DocumentHash: upstreamHashes[canonical.ID], Document: canonical, ChannelID: channel.Id, ParamOverride: channel.ParamOverride})
+			}
 			continue
 		}
 		if channel.Type == constant.ChannelTypeOpenRouter {
@@ -545,6 +590,7 @@ func rebuildPricingCatalogueLocked() {
 	projectedExpressions := make(map[string][][]billingexpr.DisplayPrice)
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
+			UpstreamCatalogRoutesByGroup: upstreamRoutes[model],
 			CatalogOffersByGroup:         catalogOffers[model],
 			LegacyVideoPriceBasisByGroup: legacyVideoBases[model],
 			ModelName:                    model,
@@ -563,6 +609,12 @@ func rebuildPricingCatalogueLocked() {
 			pricing.Icon = meta.Icon
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
+		}
+		if upstream := upstreamMetadata[model]; upstream != nil {
+			pricing.DisplayName = upstream.Name
+			if pricing.Description == "" && upstream.Description != nil {
+				pricing.Description = *upstream.Description
+			}
 		}
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		pricing.PriceConfigured = findPrice || ratio_setting.HasConfiguredModelRatio(model)
