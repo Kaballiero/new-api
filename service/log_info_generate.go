@@ -113,7 +113,11 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 			} else if state.Sent {
 				other.SetAdmin("openrouter_financial_outcome", "unknown")
 				other.SetAdmin("openrouter_unknown_reason", state.UnknownReason)
-				other.SetAdmin("openrouter_error_policy", "refund_without_retry")
+				if HasOpenRouterSyncTask(relayInfo) {
+					other.SetAdmin("openrouter_error_policy", "hold_for_reconciliation_without_retry")
+				} else {
+					other.SetAdmin("openrouter_error_policy", "refund_without_retry")
+				}
 			}
 		}
 		if native := relayInfo.NativeImage; native != nil {
@@ -124,7 +128,11 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 			}
 			if native.OutcomeUnknown {
 				other.SetAdmin("image_financial_outcome", "unknown")
-				other.SetAdmin("image_error_policy", "refund_without_retry")
+				if HasOpenRouterSyncTask(relayInfo) {
+					other.SetAdmin("image_error_policy", "hold_for_reconciliation_without_retry")
+				} else {
+					other.SetAdmin("image_error_policy", "refund_without_retry")
+				}
 			}
 		}
 		if billingModel := relayInfo.GetBillingModelName(); billingModel != "" && billingModel != relayInfo.OriginModelName {

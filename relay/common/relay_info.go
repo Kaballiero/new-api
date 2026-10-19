@@ -84,6 +84,9 @@ type TokenCountMeta struct {
 // NativeImageInfo belongs to one selected channel and one paid image attempt.
 // The request is validated before reservation and is never rebuilt after send.
 type NativeImageInfo struct {
+	Model            string
+	ReserveUSD       float64
+	PricingUnknown   bool
 	RequestBody      []byte
 	EstimatedCostUSD float64
 	ActualCostUSD    *float64

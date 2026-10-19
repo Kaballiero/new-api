@@ -30,6 +30,10 @@ func HasOpenRouterSyncTask(info *relaycommon.RelayInfo) bool {
 
 func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform, string, error) {
 	switch info.RelayMode {
+	case relayconstant.RelayModeImagesGenerations, relayconstant.RelayModeImagesEdits:
+		if info.NativeImage != nil {
+			return constant.TaskPlatformOpenRouterImage, "image", nil
+		}
 	case relayconstant.RelayModeRerank:
 		return constant.TaskPlatformOpenRouterRerank, "rerank", nil
 	case relayconstant.RelayModeAudioSpeech, relayconstant.RelayModeAudioTranscription:
@@ -48,7 +52,7 @@ func BeginOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, quota 
 	if !GetTaskArtifactStore().Enabled() {
 		return errors.New("durable Task artifact storage is required for OpenRouter synchronous")
 	}
-	if quota <= 0 || HasOpenRouterSyncTask(info) {
+	if quota < 0 || quota == 0 && info.NativeImage == nil || HasOpenRouterSyncTask(info) {
 		return errors.New("OpenRouter synchronous requires a new positive reservation")
 	}
 	platform, action, err := openRouterSyncIdentity(info)
@@ -66,6 +70,13 @@ func BeginOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, quota 
 	state := &model.OpenRouterSyncTask{
 		RequestID: info.RequestId, BillingPreference: common.NormalizeBillingPreference(info.UserSetting.BillingPreference),
 		PlannedQuota: quota, LeaseUntil: now.Add(5 * time.Minute).Unix(), Deadline: now.Add(24 * time.Hour).Unix(),
+	}
+	if native := info.NativeImage; native != nil {
+		task.PrivateData.Key = ""
+		state.ProviderTag, state.ReserveUSD, state.PricingUnknown = native.ProviderTag, native.ReserveUSD, native.PricingUnknown
+		if native.ReserveUSD > 0 {
+			state.ReservationSource = "channel_explicit_reserve"
+		}
 	}
 	if platform == constant.TaskPlatformOpenRouterAudio {
 		task.PrivateData.OpenRouterAudio = state
@@ -96,8 +107,9 @@ func openRouterSyncTask(info *relaycommon.RelayInfo) (*model.Task, error) {
 
 	if !exists || task.PrivateData.OpenRouterSyncState() == nil || task.Platform != platform || task.Action != action ||
 		task.UserId != info.UserId || task.ChannelId != info.ChannelId || task.PrivateData.TokenId != info.TokenId || task.Properties.UpstreamModelName != info.UpstreamModelName || task.PrivateData.OpenRouterSyncState().RequestID != info.RequestId ||
-		(platform == constant.TaskPlatformOpenRouterRerank) != (task.PrivateData.OpenRouterSync != nil) ||
-		task.PrivateData.OpenRouterSync != nil && task.PrivateData.OpenRouterAudio != nil {
+		(platform != constant.TaskPlatformOpenRouterAudio) != (task.PrivateData.OpenRouterSync != nil) ||
+		task.PrivateData.OpenRouterSync != nil && task.PrivateData.OpenRouterAudio != nil ||
+		info.NativeImage != nil && task.PrivateData.OpenRouterSyncState().ProviderTag != info.NativeImage.ProviderTag {
 		return nil, errors.New("OpenRouter synchronous task identity changed")
 	}
 	return task, nil
@@ -141,8 +153,15 @@ func ConfigureOpenRouterSyncSubmission(info *relaycommon.RelayInfo, metadataURL 
 		return err
 	}
 	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
-	if r.ReservationPending || !r.SubmissionPending || a.MetadataURL != "" || time.Now().Unix() >= a.LeaseUntil {
+	if r.ReservationPending || !r.SubmissionPending || a.MetadataURL != "" || a.DispatchPrepared || time.Now().Unix() >= a.LeaseUntil {
 		return errors.New("OpenRouter synchronous submission intent is not available")
+	}
+	if task.Platform == constant.TaskPlatformOpenRouterImage {
+		// Native Image generation lookup semantics are unproven. Keep UNKNOWN
+		// manual and do not persist account credentials or reference payloads.
+		a.DispatchPrepared = true
+		a.LeaseUntil = time.Now().Add(5 * time.Minute).Unix()
+		return task.UpdateOpenRouterSync(a.Revision)
 	}
 	endpoint, err := url.Parse(metadataURL)
 	if err != nil || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
@@ -153,6 +172,12 @@ func ConfigureOpenRouterSyncSubmission(info *relaycommon.RelayInfo, metadataURL 
 	return task.UpdateOpenRouterSync(a.Revision)
 }
 
+func validOpenRouterImageCorrelation(id, apiKey string, limit int) bool {
+	return id != "" && len(id) <= limit && !strings.Contains(id, "sk-") && (apiKey == "" || !strings.Contains(id, apiKey)) && strings.IndexFunc(id, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.:", r))
+	}) == -1
+}
+
 // RecordOpenRouterSyncSubmission captures the generation ID before draining
 // the body. A transport failure can never authorize a second POST or refund.
 func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Response, requestErr error) error {
@@ -161,21 +186,38 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 		return err
 	}
 	a := task.PrivateData.OpenRouterSyncState()
-	if time.Now().Unix() >= a.LeaseUntil {
+	image := task.Platform == constant.TaskPlatformOpenRouterImage
+	if time.Now().Unix() >= a.LeaseUntil && !image {
 		return errors.New("OpenRouter synchronous submission lease expired")
 	}
+	if image && (!a.DispatchPrepared || task.PrivateData.Reconciliation.ReservationPending) {
+		return errors.New("OpenRouter image dispatch was not prepared")
+	}
 	if resp != nil {
+		if task.Platform == constant.TaskPlatformOpenRouterImage {
+			for _, key := range []string{"X-Request-Id", "Request-Id", common.RequestIdKey} {
+				id := resp.Header.Get(key)
+				if validOpenRouterImageCorrelation(id, info.ApiKey, 128) {
+					a.UpstreamRequestID = id
+					break
+				}
+			}
+		}
 		id := resp.Header.Get("X-Generation-Id")
-		if id != "" && len(id) <= 512 {
+		if id != "" && len(id) <= 512 && (task.Platform != constant.TaskPlatformOpenRouterImage || validOpenRouterImageCorrelation(id, info.ApiKey, 512)) {
 			task.PrivateData.UpstreamTaskID = id
 			info.OpenRouterCost.GenerationID = id
 		}
 	}
-	if requestErr != nil || resp == nil || resp.StatusCode != http.StatusOK {
+	if image && task.Status == model.TaskStatusFailure {
+		// Preserve correlation, then inspect a late body for monetary evidence.
+		return task.UpdateOpenRouterSync(a.Revision)
+	}
+	if requestErr != nil || resp == nil || resp.StatusCode != http.StatusOK && task.Platform != constant.TaskPlatformOpenRouterImage {
 		task.PrivateData.Reconciliation.SubmissionPending = false
 		a.ResultFailed, a.LastError = true, "submission_outcome_unknown"
 		a.NextPoll = time.Now().Unix()
-		if task.PrivateData.UpstreamTaskID == "" {
+		if task.PrivateData.UpstreamTaskID == "" || task.Platform == constant.TaskPlatformOpenRouterImage {
 			manualOpenRouterSync(task, "submission_outcome_unknown")
 		}
 	}
@@ -234,17 +276,30 @@ func FailOpenRouterSyncTask(info *relaycommon.RelayInfo, reason string) error {
 	if id := info.OpenRouterCost.GenerationID; id != "" && len(id) <= 512 {
 		task.PrivateData.UpstreamTaskID = id
 	}
-	if !task.PrivateData.Reconciliation.SubmissionPending || time.Now().Unix() >= a.LeaseUntil {
+	r := task.PrivateData.Reconciliation
+	lateImageCost := task.Platform == constant.TaskPlatformOpenRouterImage && info.OpenRouterCost.Final && info.OpenRouterCost.Valid &&
+		!r.ReservationPending && !r.HasUpstreamCost && !r.SettlementPending && !r.Finalized
+	if (!r.SubmissionPending || time.Now().Unix() >= a.LeaseUntil) && !lateImageCost {
 		return errors.New("OpenRouter synchronous result lease expired")
 	}
 	a.ResultFailed, a.LastError = true, reason
 	task.PrivateData.Reconciliation.SubmissionPending = false
 	a.NextPoll = time.Now().Unix()
-	if task.PrivateData.UpstreamTaskID == "" {
+	if state := info.OpenRouterCost; state.Final && state.Valid && task.Platform == constant.TaskPlatformOpenRouterImage {
+		r := task.PrivateData.Reconciliation
+		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, state.CostUSD
+		finishOpenRouterSync(task)
+	} else if task.PrivateData.UpstreamTaskID == "" || task.Platform == constant.TaskPlatformOpenRouterImage {
 		manualOpenRouterSync(task, reason)
 	}
 	projectOpenRouterSyncState(task)
-	return task.UpdateOpenRouterSync(a.Revision)
+	if err := task.UpdateOpenRouterSync(a.Revision); err != nil {
+		return err
+	}
+	if task.PrivateData.Reconciliation.SettlementPending {
+		return settleOpenRouterCost(task)
+	}
+	return nil
 }
 
 func projectOpenRouterSyncState(task *model.Task) {
@@ -284,7 +339,7 @@ func finishOpenRouterSync(task *model.Task) {
 // Only the winner of a revision-checked terminal claim may move funds.
 func pollOpenRouterSync(ctx context.Context, task *model.Task) error {
 	validIdentity := task.Platform == constant.TaskPlatformOpenRouterAudio && task.Action == "audio" && task.PrivateData.OpenRouterSync == nil ||
-		task.Platform == constant.TaskPlatformOpenRouterRerank && task.Action == "rerank" && task.PrivateData.OpenRouterAudio == nil
+		(task.Platform == constant.TaskPlatformOpenRouterRerank && task.Action == "rerank" || task.Platform == constant.TaskPlatformOpenRouterImage && task.Action == "image") && task.PrivateData.OpenRouterAudio == nil
 	if !validIdentity {
 		manualOpenRouterSync(task, "operation_identity_changed")
 		projectOpenRouterSyncState(task)
@@ -312,7 +367,7 @@ func pollOpenRouterSync(ctx context.Context, task *model.Task) error {
 	if now.Unix() < a.NextPoll {
 		return nil
 	}
-	if task.PrivateData.UpstreamTaskID == "" || a.MetadataURL == "" {
+	if task.Platform == constant.TaskPlatformOpenRouterImage || task.PrivateData.UpstreamTaskID == "" || a.MetadataURL == "" {
 		manualOpenRouterSync(task, "missing_generation_identity")
 		projectOpenRouterSyncState(task)
 		return task.UpdateOpenRouterSync(a.Revision)
