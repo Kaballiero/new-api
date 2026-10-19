@@ -195,7 +195,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				logger.LogWarn(c, fmt.Sprintf("OpenRouter financial outcome unknown; returning reservation without retry: channel=%d reserve=%d reason=%s", relayInfo.ChannelId, relayInfo.FinalPreConsumedQuota, relayInfo.OpenRouterCost.UnknownReason))
 			}
 			if relayInfo.NativeImage != nil && relayInfo.NativeImage.OutcomeUnknown {
-				logger.LogWarn(c, fmt.Sprintf("OpenRouter image financial outcome unknown; returning reservation without retry: channel=%d estimated_cost_usd=%g upstream_request_id=%s", relayInfo.NativeImage.ChannelID, relayInfo.NativeImage.EstimatedCostUSD, c.GetString(common.UpstreamRequestIdKey)))
+				logger.LogWarn(c, fmt.Sprintf("OpenRouter image financial outcome unknown; paid retry prohibited: channel=%d estimated_cost_usd=%g upstream_request_id=%s", relayInfo.NativeImage.ChannelID, relayInfo.NativeImage.EstimatedCostUSD, c.GetString(common.UpstreamRequestIdKey)))
 			}
 			if relayInfo.Billing != nil && !service.HasOpenRouterSyncTask(relayInfo) {
 				relayInfo.Billing.Refund(c)

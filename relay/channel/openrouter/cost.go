@@ -37,7 +37,7 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 		info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
 	}
 	info.OpenRouterCost.Basis = basis
-	durable := info.RelayMode == relayconstant.RelayModeRerank || info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription
+	durable := info.NativeImage != nil && info.NativeImage.ReserveUSD > 0 || info.RelayMode == relayconstant.RelayModeRerank || info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription
 	if durable {
 		info.PriceData.Quota = quota
 		if err := service.BeginOpenRouterSyncTask(c, info, quota); err != nil {

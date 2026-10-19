@@ -19,12 +19,21 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func TestNativeImageRequestContract(t *testing.T) {
@@ -913,55 +922,410 @@ func (*imageTestAdaptor) SetupRequestHeader(_ *gin.Context, header *http.Header,
 	return nil
 }
 
-type imageBillingSpy struct{ reserved int }
-
-func (s *imageBillingSpy) Reserve(quota int) error  { s.reserved = quota; return nil }
-func (s *imageBillingSpy) GetPreConsumedQuota() int { return s.reserved }
-func (*imageBillingSpy) Settle(int) error           { return nil }
-func (*imageBillingSpy) Refund(*gin.Context)        {}
-func (*imageBillingSpy) NeedsRefund() bool          { return false }
-
 func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+	previousLimit := constant.TaskQueryLimit
+	constant.TaskQueryLimit = 100
+	t.Cleanup(func() { constant.TaskQueryLimit = previousLimit })
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis, previousBatch, previousLog := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
+	dialect := os.Getenv("FX_TASK_DB_DIALECT")
+	openDB := func(dsn string) (*gorm.DB, error) {
+		switch dialect {
+		case "mysql":
+			return gorm.Open(mysql.Open(dsn), &gorm.Config{})
+		case "postgres":
+			return gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		default:
+			return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		}
+	}
+	mainDSN, logDSN := os.Getenv("FX_TASK_MAIN_DSN"), os.Getenv("FX_TASK_LOG_DSN")
+	databaseType := common.DatabaseTypeSQLite
+	if dialect == "" || dialect == "sqlite" {
+		mainDSN, logDSN = ":memory:", ":memory:"
+	} else {
+		require.NotEmpty(t, mainDSN)
+		require.NotEmpty(t, logDSN)
+		if dialect == "mysql" {
+			databaseType = common.DatabaseTypeMySQL
+		} else {
+			require.Equal(t, "postgres", dialect)
+			databaseType = common.DatabaseTypePostgreSQL
+		}
+	}
+	db, err := openDB(mainDSN)
+	require.NoError(t, err)
+	logDB, err := openDB(logDSN)
+	require.NoError(t, err)
+	for _, database := range []*gorm.DB{db, logDB} {
+		sqlDB, err := database.DB()
+		require.NoError(t, err)
+		sqlDB.SetMaxOpenConns(1)
+		t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	}
+	var version string
+	query := "SELECT sqlite_version()"
+	if dialect == "mysql" || dialect == "postgres" {
+		query = "SELECT version()"
+	}
+	require.NoError(t, db.Raw(query).Scan(&version).Error)
+	t.Logf("real %s database version: %s", databaseType, version)
+	for range 2 {
+		require.NoError(t, db.AutoMigrate(&model.Task{}, &model.User{}, &model.Token{}, &model.Channel{}))
+		require.NoError(t, logDB.AutoMigrate(&model.Log{}))
+	}
+	model.DB, model.LOG_DB = db, logDB
+	common.SetDatabaseTypes(databaseType, databaseType)
+	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousType, previousLogType)
+		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousRedis, previousBatch, previousLog
+	})
+	root := t.TempDir()
+	require.NoError(t, os.Chmod(root, 0700))
+	t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+	t.Setenv(system_setting.TaskArtifactStoreModeEnv, "filesystem")
+	t.Setenv(system_setting.TaskArtifactStoreRootEnv, root)
+	require.NoError(t, service.InitTaskArtifactStore())
 	var pngData bytes.Buffer
 	require.NoError(t, png.Encode(&pngData, image.NewRGBA(image.Rect(0, 0, 1, 1))))
-	posts := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			_, _ = io.WriteString(w, `{"id":"test/image","endpoints":[{"provider_tag":"cheap","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.01}]},{"provider_tag":"expensive","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.09}]}]}`)
-			return
-		}
-		posts++
-		data, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		assert.JSONEq(t, `{"model":"test/image","prompt":"x","provider":{"only":["expensive"],"allow_fallbacks":false}}`, string(data))
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"data":[{"b64_json":%q}],"usage":{"cost":0.07}}`, base64.StdEncoding.EncodeToString(pngData.Bytes()))
-	}))
-	defer server.Close()
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
-	billing := &imageBillingSpy{}
-	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 42, ChannelBaseUrl: server.URL}, Billing: billing}
-	info.PriceData.BillingGroupRatio = 1
-	var request dto.ImageRequest
-	require.NoError(t, common.Unmarshal([]byte(`{"model":"test/image","prompt":"x","provider":{"only":["expensive"],"allow_fallbacks":false}}`), &request))
-	adaptor := &ImageAdaptor{Adaptor: &imageTestAdaptor{}}
-	require.NoError(t, adaptor.Prepare(c, info, request))
-	response, err := adaptor.DoRequest(c, info, bytes.NewReader(info.NativeImage.RequestBody))
-	require.NoError(t, err)
-	assert.Equal(t, int(0.09*common.QuotaPerUnit), billing.reserved)
-	_, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
-	require.Nil(t, apiErr)
-	require.NotNil(t, info.NativeImage.ActualCostUSD)
-	assert.InDelta(t, 0.07, *info.NativeImage.ActualCostUSD, 1e-12)
-	actual, clamp, err := info.OpenRouterCost.Basis.Quota(info.OpenRouterCost.CostUSD)
-	require.NoError(t, err)
-	require.Nil(t, clamp)
-	assert.Equal(t, int(0.07*common.QuotaPerUnit), actual, "settlement basis uses authoritative response cost")
-	_, err = adaptor.DoRequest(c, info, bytes.NewReader(info.NativeImage.RequestBody))
-	require.ErrorContains(t, err, "cannot be repeated")
-	assert.Equal(t, 1, posts)
+	encoded := base64.StdEncoding.EncodeToString(pngData.Bytes())
+	const upstreamModel = "vendor/image"
+	for i, tc := range []struct {
+		name, cost, pricing, extra, crash, source, requestID                                                                                                                                                            string
+		reserve                                                                                                                                                                                                         float64
+		noReserve, aliasReserve, badImage, transportError, httpError, noEndpoint, noProvider, noCapability, storageDisabled, insufficient, changeChannel, partial, sourceSet, noGeneration, expired, swept, lateHeaders bool
+		wantError                                                                                                                                                                                                       string
+	}{
+		{name: "empty reservation source", reserve: .02, sourceSet: true, wantError: "unsupported OpenRouter image reservation source"},
+		{name: "unknown reservation source", reserve: .02, sourceSet: true, source: "invalid", wantError: "unsupported OpenRouter image reservation source"},
+		{name: "configured price source", reserve: .02, sourceSet: true, source: "configured_price", wantError: "unsupported OpenRouter image reservation source"},
+		{name: "explicit upstream source", reserve: .02, sourceSet: true, source: "upstream", cost: "0.01"},
+		{name: "missing generation id preserves request correlation", reserve: .02, noGeneration: true},
+		{name: "secret request correlation rejected", reserve: .02, requestID: "selected-key", cost: "0.01"},
+		{name: "late headers known cost", reserve: .02, cost: "0.03", lateHeaders: true},
+		{name: "late headers after swept lease known cost", reserve: .02, cost: "0.03", lateHeaders: true, swept: true},
+		{name: "late headers after swept lease unknown cost", reserve: .02, lateHeaders: true, swept: true, noGeneration: true},
+		{name: "expired body lease known cost", reserve: .02, cost: "0.03", expired: true},
+		{name: "swept lease known cost", reserve: .02, cost: "0.03", expired: true, swept: true},
+		{name: "swept lease zero cost", reserve: .02, cost: "0", expired: true, swept: true},
+		{name: "empty pricing opt in", reserve: .02, cost: "0.01"},
+		{name: "over reserve", reserve: .02, cost: "0.03"},
+		{name: "explicit cost zero", reserve: .02, cost: "0"},
+		{name: "known estimate floor", reserve: .02, cost: "0.01", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`},
+		{name: "reserve floor", reserve: .06, cost: "0.01", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`},
+		{name: "legacy known price without storage", noReserve: true, storageDisabled: true, cost: "0.01", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`},
+		{name: "published zero", noReserve: true, cost: "0", pricing: `[{"billable":"output_image","unit":"image","cost_usd":0}]`},
+		{name: "no reserve", noReserve: true, wantError: "tariff unavailable"},
+		{name: "alias reserve rejected", reserve: .02, aliasReserve: true, wantError: "tariff unavailable"},
+		{name: "zero reserve", wantError: "invalid OpenRouter image channel reserve"},
+		{name: "negative reserve", reserve: -1, wantError: "invalid OpenRouter image channel reserve"},
+		{name: "NaN reserve", reserve: math.NaN(), wantError: "invalid OpenRouter image channel reserve"},
+		{name: "infinite reserve", reserve: math.Inf(1), wantError: "invalid OpenRouter image channel reserve"},
+		{name: "oversized reserve", reserve: 1e20, wantError: "invalid OpenRouter image channel reserve"},
+		{name: "malformed nonempty price", reserve: .02, pricing: `[{"billable":"output_image","unit":"image"}]`, wantError: "tariff unavailable"},
+		{name: "negative nonempty price", reserve: .02, pricing: `[{"billable":"output_image","unit":"image","cost_usd":-1}]`, wantError: "tariff unavailable"},
+		{name: "no endpoint", reserve: .02, noEndpoint: true, wantError: "no documented image endpoint"},
+		{name: "no provider", reserve: .02, noProvider: true, wantError: "no compatible"},
+		{name: "unsupported resolution", reserve: .02, noCapability: true, wantError: "is unsupported by this endpoint"},
+		{name: "missing resolution", reserve: .02, extra: `"resolution":null`, wantError: "unpriced OpenRouter image requires"},
+		{name: "unsupported optional parameter", reserve: .02, extra: `"seed":1`, wantError: "unpriced OpenRouter image parameter seed is unsupported"},
+		{name: "missing reference", reserve: .02, extra: `"image":null`, wantError: "requires an input reference"},
+		{name: "unsupported options", reserve: .02, extra: `"provider":{"only":["fixture"],"allow_fallbacks":false,"options":{"thinking_mode":true}}`, wantError: "unsupported image provider options"},
+		{name: "price sorting closed", reserve: .02, extra: `"provider":{"only":["fixture"],"allow_fallbacks":false,"sort":"price"}`, wantError: "unpriced OpenRouter image requires"},
+		{name: "fallbacks closed", reserve: .02, extra: `"provider":{"only":["fixture"]}`, wantError: "unpriced OpenRouter image requires"},
+		{name: "no selected provider", reserve: .02, extra: `"provider":{}`, wantError: "unpriced OpenRouter image requires"},
+		{name: "wrong provider", reserve: .02, extra: `"provider":{"only":["other"],"allow_fallbacks":false}`, wantError: "no compatible"},
+		{name: "stream closed", reserve: .02, extra: `"stream":true`, wantError: "unpriced OpenRouter image requires"},
+		{name: "multiple outputs", reserve: .02, extra: `"n":2`, wantError: "count is unsupported"},
+		{name: "multiple references", reserve: .02, extra: `"image":["https://example.com/a","https://example.com/b"]`, wantError: "unpriced OpenRouter image requires"},
+		{name: "client reserve closed", reserve: .02, extra: `"openrouter_model_reserve_usd":100`, wantError: "is unsupported"},
+		{name: "missing cost", reserve: .02},
+		{name: "null cost", reserve: .02, cost: "null"},
+		{name: "negative cost", reserve: .02, cost: "-1"},
+		{name: "string cost", reserve: .02, cost: `"0.01"`},
+		{name: "bad image known cost", reserve: .02, cost: "0.03", badImage: true},
+		{name: "bad image unknown cost", reserve: .02, badImage: true},
+		{name: "transport unknown", reserve: .02, transportError: true},
+		{name: "http failure unknown", reserve: .02, httpError: true},
+		{name: "http failure known cost", reserve: .02, httpError: true, cost: "0.03"},
+		{name: "crash intent", reserve: .02, crash: "intent"},
+		{name: "crash hold", reserve: .02, crash: "hold"},
+		{name: "crash dispatch", reserve: .02, crash: "dispatch"},
+		{name: "storage required", reserve: .02, storageDisabled: true, wantError: "durable Task artifact storage"},
+		{name: "insufficient funds", reserve: .02, insufficient: true, wantError: "预扣费额度失败"},
+		{name: "channel changed", reserve: .02, changeChannel: true, wantError: "cannot be repeated"},
+		{name: "settlement partial failure", reserve: .02, cost: "0.03", partial: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.storageDisabled {
+				t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+				t.Setenv(system_setting.TaskArtifactStoreModeEnv, "upstream")
+				require.NoError(t, service.InitTaskArtifactStore())
+			}
+			id := 1000 + i
+			quota := 10000000
+			if tc.insufficient {
+				quota = 1
+			}
+			require.NoError(t, db.Create(&model.User{Id: id, Username: fmt.Sprintf("image-%d", id), AffCode: fmt.Sprint(id), Quota: quota}).Error)
+			key := fmt.Sprintf("image-key-%d", id)
+			require.NoError(t, db.Create(&model.Token{Id: id, UserId: id, Key: key, RemainQuota: quota, Status: common.TokenStatusEnabled}).Error)
+			require.NoError(t, db.Create(&model.Channel{Id: id}).Error)
+			posts := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					assert.Equal(t, "/v1/images/models/vendor/image/endpoints", r.URL.Path)
+					pricing := tc.pricing
+					if pricing == "" {
+						pricing = "[]"
+					}
+					provider := "fixture"
+					if tc.noProvider {
+						provider = ""
+					}
+					capabilities := `{"resolution":{"type":"enum","values":["1K","2K"]},"aspect_ratio":{"type":"enum","values":["1:1"]},"input_references":{"type":"range","min":1,"max":8},"seed":{"type":"boolean"}}`
+					if tc.noCapability {
+						capabilities = `{"input_references":{"type":"range","min":1,"max":8},"seed":{"type":"boolean"}}`
+					}
+					endpoints := fmt.Sprintf(`[{"provider_tag":%q,"supported_parameters":%s,"pricing":%s}]`, provider, capabilities, pricing)
+					if tc.noEndpoint {
+						endpoints = "[]"
+					}
+					_, _ = fmt.Fprintf(w, `{"id":"vendor/image","endpoints":%s}`, endpoints)
+					return
+				}
+				posts++
+				assert.Equal(t, "/v1/images", r.URL.Path)
+				var submitted map[string]any
+				require.NoError(t, common.DecodeJson(r.Body, &submitted))
+				assert.Equal(t, upstreamModel, submitted["model"])
+				assert.Equal(t, map[string]any{"only": []any{"fixture"}, "allow_fallbacks": false}, submitted["provider"])
+				// Only the explicit reserve opts into the durable path.
+				if !tc.noReserve {
+					var task model.Task
+					require.NoError(t, db.Where("user_id = ?", id).First(&task).Error)
+					assert.True(t, task.PrivateData.Reconciliation.SubmissionPending)
+					assert.True(t, task.PrivateData.OpenRouterSyncState().DispatchPrepared)
+					assert.Equal(t, constant.TaskPlatformOpenRouterImage, task.Platform)
+					assert.Empty(t, task.PrivateData.Key)
+					assert.Empty(t, task.PrivateData.OpenRouterSyncState().Headers)
+					if tc.lateHeaders {
+						task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
+						require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
+						if tc.swept {
+							service.RunTaskPollingOnce(t.Context(), nil)
+						}
+					}
+				}
+				if tc.transportError {
+					conn, _, err := w.(http.Hijacker).Hijack()
+					require.NoError(t, err)
+					_ = conn.Close()
+					return
+				}
+				if !tc.noGeneration {
+					w.Header().Set("X-Generation-Id", "gen-image-fixture")
+				}
+				requestID := "req-image-fixture"
+				if tc.requestID != "" {
+					requestID = tc.requestID
+				}
+				w.Header().Set("X-Request-Id", requestID)
+				result := fmt.Sprintf(`"data":[{"b64_json":%q}]`, encoded)
+				if tc.badImage {
+					result = `"data":[{"b64_json":"aGVsbG8="}]`
+				}
+				if tc.httpError {
+					w.WriteHeader(503)
+					result = `"error":{"message":"fixture failed"}`
+				}
+				usage := ""
+				if tc.cost != "" {
+					usage = `,"usage":{"cost":` + tc.cost + `}`
+				}
+				_, _ = fmt.Fprint(w, `{`+result+usage+`}`)
+			}))
+			defer server.Close()
+			fields := map[string]json.RawMessage{}
+			require.NoError(t, common.Unmarshal([]byte(`{"model":"vendor/image","prompt":"x","resolution":"1K","aspect_ratio":"1:1","image":"data:image/png;base64,`+encoded+`","provider":{"only":["fixture"],"allow_fallbacks":false}}`), &fields))
+			if tc.extra != "" {
+				var overrides map[string]json.RawMessage
+				require.NoError(t, common.Unmarshal([]byte(`{`+tc.extra+`}`), &overrides))
+				for key, value := range overrides {
+					fields[key] = value
+				}
+			}
+			body, err := common.Marshal(fields)
+			require.NoError(t, err)
+			var request dto.ImageRequest
+			require.NoError(t, common.Unmarshal(body, &request))
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: id, ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: server.URL, UpstreamModelName: upstreamModel, ApiKey: "selected-key"}, UserId: id, TokenId: id, TokenKey: key, OriginModelName: "image-alias", RequestId: fmt.Sprint("image-request-", id), RelayMode: relayconstant.RelayModeImagesEdits, Request: &request}
+			info.UserSetting.BillingPreference = "wallet_only"
+			info.PriceData.BillingGroupRatio = 1.5
+			if !tc.noReserve {
+				reserveModel := upstreamModel
+				if tc.aliasReserve {
+					reserveModel = "image-alias"
+				}
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{reserveModel: tc.reserve}
+			}
+			if tc.sourceSet {
+				info.ChannelSetting.OpenRouterReservationSource = map[string]dto.OpenRouterReservationSource{upstreamModel: dto.OpenRouterReservationSource(tc.source)}
+			}
+			adaptor := &ImageAdaptor{Adaptor: &imageTestAdaptor{}}
+			err = adaptor.Prepare(c, info, request)
+			if err == nil && tc.changeChannel {
+				info.ChannelId++
+			}
+			if err == nil && tc.crash != "" {
+				info.OpenRouterCost = &relaycommon.OpenRouterCostState{Basis: relaycommon.NewOpenRouterCostBasis(info, tc.reserve)}
+				planned, clamp, basisErr := info.OpenRouterCost.Basis.Quota(tc.reserve)
+				require.NoError(t, basisErr)
+				require.Nil(t, clamp)
+				require.NoError(t, service.BeginOpenRouterSyncTask(c, info, planned))
+				if tc.crash != "intent" {
+					require.Nil(t, service.PreConsumeBilling(c, planned, info))
+					if tc.crash == "dispatch" {
+						require.NoError(t, service.CommitOpenRouterSyncReservation(c, info))
+						require.NoError(t, service.ConfigureOpenRouterSyncSubmission(info, "", nil))
+					}
+				}
+			} else if err == nil {
+				response, requestErr := adaptor.DoRequest(c, info, nil)
+				err = requestErr
+				if tc.wantError == "" && !tc.transportError {
+					require.NoError(t, err)
+					if tc.expired {
+						task, exists, loadErr := model.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+						require.NoError(t, loadErr)
+						require.True(t, exists)
+						task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
+						require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
+						if tc.swept {
+							service.RunTaskPollingOnce(t.Context(), nil)
+						}
+					}
+					if tc.partial {
+						require.NoError(t, db.Unscoped().Where("id = ?", id).Delete(&model.Token{}).Error)
+					}
+					if tc.httpError {
+						_ = ImageError(c, response.(*http.Response), info)
+					} else {
+						usage, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
+						if tc.noReserve && apiErr == nil {
+							service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
+						}
+						if tc.cost == "" || tc.cost == "null" || tc.cost == "-1" || strings.HasPrefix(tc.cost, `"`) || tc.badImage || tc.expired || tc.lateHeaders {
+							require.NotNil(t, apiErr)
+						} else {
+							require.Nil(t, apiErr)
+						}
+					}
+				}
+			}
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				assert.Zero(t, posts)
+				var user model.User
+				require.NoError(t, db.First(&user, id).Error)
+				assert.Equal(t, quota, user.Quota)
+				return
+			}
+			require.NotNil(t, info.OpenRouterCost)
+			if tc.noReserve {
+				assert.Empty(t, info.OpenRouterCost.TaskID)
+				assert.False(t, service.HasOpenRouterSyncTask(info))
+				var user model.User
+				require.NoError(t, db.First(&user, id).Error)
+				cost, costErr := common.ValidateOpenRouterCost([]byte(tc.cost))
+				require.NoError(t, costErr)
+				assert.Equal(t, quota-common.QuotaRound(cost*common.QuotaPerUnit*1.5), user.Quota)
+				assert.Equal(t, 1, posts)
+				return
+			}
+			require.NotEmpty(t, info.OpenRouterCost.TaskID)
+			assert.Equal(t, info.OpenRouterCost.TaskID, recorder.Header().Get("X-Task-Id"))
+			task, exists, err := model.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			require.NoError(t, err)
+			require.True(t, exists)
+			if tc.crash != "" {
+				task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
+				require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
+			}
+			if tc.partial {
+				assert.True(t, task.PrivateData.Reconciliation.SettlementPending)
+				require.NoError(t, db.Create(&model.Token{Id: id, UserId: id, Key: key, RemainQuota: quota - info.FinalPreConsumedQuota, Status: common.TokenStatusEnabled}).Error)
+			}
+			for range 2 {
+				service.RunTaskPollingOnce(t.Context(), nil)
+			}
+			task, exists, err = model.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			require.NoError(t, err)
+			require.True(t, exists)
+			wantCost := info.NativeImage.EstimatedCostUSD
+			if tc.crash == "intent" {
+				wantCost = 0
+			}
+			cost, knownErr := common.ValidateOpenRouterCost([]byte(tc.cost))
+			known := knownErr == nil && tc.crash == "" && !tc.transportError
+			if known {
+				if tc.partial {
+					assert.True(t, task.PrivateData.Reconciliation.SettlementPending)
+					assert.False(t, task.PrivateData.Reconciliation.MainApplied)
+					assert.False(t, task.PrivateData.Reconciliation.Finalized)
+					assert.Equal(t, common.QuotaRound(cost*common.QuotaPerUnit*1.5), task.PrivateData.Reconciliation.TargetQuota)
+				} else {
+					wantCost = cost
+					assert.True(t, task.PrivateData.Reconciliation.Finalized)
+				}
+			} else {
+				assert.True(t, task.PrivateData.Reconciliation.Required)
+				assert.False(t, task.PrivateData.Reconciliation.Finalized)
+				assert.False(t, service.RefundTaskQuota(t.Context(), task, "unknown must remain held"))
+			}
+			wantQuota := quota - common.QuotaRound(wantCost*common.QuotaPerUnit*1.5)
+			var user model.User
+			require.NoError(t, db.First(&user, id).Error)
+			assert.Equal(t, wantQuota, user.Quota)
+			var token model.Token
+			require.NoError(t, db.First(&token, id).Error)
+			assert.Equal(t, wantQuota, token.RemainQuota)
+			assert.False(t, info.Billing != nil && info.Billing.NeedsRefund() && tc.crash == "")
+			assert.Equal(t, "image", task.Action)
+			assert.Equal(t, "fixture", task.PrivateData.OpenRouterSyncState().ProviderTag)
+			if tc.crash == "" && !tc.transportError {
+				wantID := "req-image-fixture"
+				if tc.requestID != "" {
+					wantID = ""
+				}
+				assert.Equal(t, wantID, task.PrivateData.OpenRouterSyncState().UpstreamRequestID)
+			}
+			if known && !tc.partial {
+				require.Error(t, service.FailOpenRouterSyncTask(info, "duplicate_cost"))
+			}
+			if tc.crash == "" && !tc.transportError && !tc.httpError && known && !tc.badImage && !tc.expired && !tc.lateHeaders {
+				assert.True(t, task.PrivateData.OpenRouterSyncState().ResultReady)
+				ref, err := service.GetTaskArtifactStore().Resolve(task, "result")
+				require.NoError(t, err)
+				require.NotNil(t, ref)
+				assert.Equal(t, "application/json", ref.MimeType)
+				assert.Contains(t, recorder.Body.String(), encoded)
+			}
+			_, err = adaptor.DoRequest(c, info, nil)
+			require.Error(t, err)
+			wantPosts := 1
+			if tc.crash != "" {
+				wantPosts = 0
+			}
+			assert.Equal(t, wantPosts, posts)
+		})
+	}
 }
 
 func TestNativeImageUnknownReachableTariffFailsClosed(t *testing.T) {
