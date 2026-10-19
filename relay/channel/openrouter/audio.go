@@ -87,7 +87,7 @@ func transcriptionReservationPayload(contentType string, body []byte) ([]byte, e
 	return common.Marshal(fields)
 }
 
-// AudioResponse persists the complete result before delivery. An unknown cost
+// AudioResponse records completion before delivery. An unknown cost
 // retains the durable Task reservation for metadata reconciliation.
 func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage *dto.Usage, apiErr *types.NewAPIError) {
 	defer func() {
@@ -104,14 +104,12 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 		return nil, CostError("OpenRouter audio response cannot be inspected for authoritative cost")
 	}
 	state := info.OpenRouterCost
-	resultType := "audio"
 	mimeType := resp.Header.Get("Content-Type")
 	if state.BufferedAudio {
 		mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 		if err != nil || mediaType != "text/event-stream" {
 			return nil, CostError("OpenRouter Chat audio requires an SSE response")
 		}
-		resultType = "file"
 		var last []byte
 		var projected bytes.Buffer
 		done := false
@@ -161,7 +159,6 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 		}
 		body = projected.Bytes()
 	} else if info.RelayMode == relayconstant.RelayModeAudioTranscription {
-		resultType = "file"
 		mediaType, _, parseErr := mime.ParseMediaType(mimeType)
 		if parseErr != nil || mediaType != "application/json" {
 			return nil, CostError("OpenRouter transcription response is not JSON")
@@ -190,7 +187,7 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 			return nil, CostError("OpenRouter speech response is not audio")
 		}
 	}
-	if err := service.CompleteOpenRouterSyncTask(c, info, body, mimeType, resultType); err != nil {
+	if err := service.CompleteOpenRouterSyncTask(c, info, body, mimeType); err != nil {
 		return nil, CostError(err.Error())
 	}
 	c.Header("X-Task-Id", state.TaskID)

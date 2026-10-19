@@ -20,7 +20,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -49,9 +48,6 @@ func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform,
 // BeginOpenRouterSyncTask persists an intent before any hold changes. An
 // interrupted reservation deliberately records unknown applied ledger legs.
 func BeginOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, quota int) error {
-	if !GetTaskArtifactStore().Enabled() {
-		return errors.New("durable Task artifact storage is required for OpenRouter synchronous")
-	}
 	if quota < 0 || quota == 0 && info.NativeImage == nil || HasOpenRouterSyncTask(info) {
 		return errors.New("OpenRouter synchronous requires a new positive reservation")
 	}
@@ -225,7 +221,7 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 	return task.UpdateOpenRouterSync(a.Revision)
 }
 
-func CompleteOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, body []byte, mimeType, resultType string) error {
+func CompleteOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, body []byte, mimeType string) error {
 	task, err := openRouterSyncTask(info)
 	if err != nil {
 		return err
@@ -241,11 +237,10 @@ func CompleteOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, bod
 	if !state.Final && task.PrivateData.UpstreamTaskID == "" {
 		return errors.New("OpenRouter synchronous cost and generation identity are unavailable")
 	}
-	ref, err := GetTaskArtifactStore().Persist(context.Background(), task, types.TaskArtifact{Key: "result", Type: resultType, MimeType: mimeType}, bytes.NewReader(body))
-	if err != nil {
-		return errors.New("OpenRouter synchronous result persistence failed")
-	}
-	a.ResultReady, a.ResultMimeType, a.ResultSize, a.ResultSHA256 = true, mimeType, ref.Size, ref.SHA256
+	// A synchronous response is delivered by the original request. Keep only
+	// completion metadata for cost reconciliation; a generation ID does not
+	// promise that the provider can download the response again.
+	a.ResultReady, a.ResultMimeType, a.ResultSize = true, mimeType, int64(len(body))
 	r.SubmissionPending = false
 	a.NextPoll = time.Now().Unix()
 	if state.Final && state.Valid {
@@ -449,7 +444,7 @@ func lookupOpenRouterSyncCost(ctx context.Context, task *model.Task) (float64, i
 			return 0, modelStatus, 0, "identity_or_invalid_cost"
 		}
 	}
-	// TTS does not populate generation_time. A fully persisted speech result,
+	// TTS does not populate generation_time. A fully received speech result,
 	// an uncancelled generation and a confirmed cost establish completion instead.
 	completedSpeech := d.APIType == "tts" && a.ResultReady && !a.ResultFailed && strings.HasPrefix(a.ResultMimeType, "audio/")
 	if d.Cancelled == nil || *d.Cancelled || d.GenerationTime == nil && !completedSpeech {

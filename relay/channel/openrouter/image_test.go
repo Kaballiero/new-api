@@ -1054,7 +1054,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 		{name: "crash intent", reserve: .02, crash: "intent"},
 		{name: "crash hold", reserve: .02, crash: "hold"},
 		{name: "crash dispatch", reserve: .02, crash: "dispatch"},
-		{name: "storage required", reserve: .02, storageDisabled: true, wantError: "durable Task artifact storage"},
+		{name: "image without local storage", reserve: .02, storageDisabled: true, cost: "0.01"},
 		{name: "insufficient funds", reserve: .02, insufficient: true, wantError: "预扣费额度失败"},
 		{name: "channel changed", reserve: .02, changeChannel: true, wantError: "cannot be repeated"},
 		{name: "settlement partial failure", reserve: .02, cost: "0.03", partial: true},
@@ -1311,10 +1311,8 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			}
 			if tc.crash == "" && !tc.transportError && !tc.httpError && known && !tc.badImage && !tc.expired && !tc.lateHeaders {
 				assert.True(t, task.PrivateData.OpenRouterSyncState().ResultReady)
-				ref, err := service.GetTaskArtifactStore().Resolve(task, "result")
-				require.NoError(t, err)
-				require.NotNil(t, ref)
-				assert.Equal(t, "application/json", ref.MimeType)
+				assert.Empty(t, task.PrivateData.OpenRouterSyncState().ResultSHA256)
+				assert.Equal(t, "application/json", task.PrivateData.OpenRouterSyncState().ResultMimeType)
 				assert.Contains(t, recorder.Body.String(), encoded)
 			}
 			_, err = adaptor.DoRequest(c, info, nil)

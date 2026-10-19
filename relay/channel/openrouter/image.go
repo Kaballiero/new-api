@@ -927,7 +927,7 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 		return nil, imageResponseError("OpenRouter image result encoding failed")
 	}
 	if service.HasOpenRouterSyncTask(info) {
-		if err := service.CompleteOpenRouterSyncTask(c, info, encoded, "application/json", "file"); err != nil {
+		if err := service.CompleteOpenRouterSyncTask(c, info, encoded, "application/json"); err != nil {
 			return nil, imageResponseError(err.Error())
 		}
 	}
