@@ -59,12 +59,12 @@ func buildConsumerPricingResponse(userGroup string, basis service.BillingFXBasis
 	}
 	response := consumerPricingResponse{SchemaVersion: "v2", UserGroup: userGroup, Currency: "RUB", AutoGroups: service.GetUserAutoGroup(userGroup), Data: make([]consumerPricingModel, 0, len(pricing))}
 	for _, item := range filterPricingByUsableGroups(model.ConsumerPricingCatalogue(pricing, usableGroups), usableGroups) {
-		response.Data = append(response.Data, buildConsumerPricingModel(usableGroups, groupRatios, basis.Factor, item, pricingUserContext{group: userGroup}))
+		response.Data = append(response.Data, buildConsumerPricingModel(usableGroups, groupRatios, basis.Factor, item, false, pricingUserContext{group: userGroup}))
 	}
 	return response
 }
 
-func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item model.Pricing, users ...pricingUserContext) consumerPricingModel {
+func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item model.Pricing, details bool, users ...pricingUserContext) consumerPricingModel {
 	result := consumerPricingModel{DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: item.Tags, VendorID: item.VendorID, OwnerBy: item.OwnerBy, SupportedEndpointTypes: item.SupportedEndpointTypes, GroupPrices: []consumerGroupPricing{}}
 	groups := effectivePricingGroups(item.EnableGroup, usableGroups)
 	slices.Sort(groups)
@@ -74,8 +74,15 @@ func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[s
 		if len(users) > 0 {
 			user = users[0]
 		}
-		providers := upstreamProviderOffers(item, group, ratio, err == nil, user, false)
-		operations := mergeCatalogMinima(consumerOperations(item, group, ratio, err == nil), catalogMinima(providers))
+		var providers []consumerProviderOffer
+		var minima []consumerPricingOperation
+		if details {
+			providers = upstreamProviderOffers(item, group, ratio, err == nil, user, false)
+			minima = catalogMinima(providers)
+		} else {
+			minima = catalogMinimumOperations(iterateUpstreamProviderOffers(item, group, ratio, err == nil, user, false))
+		}
+		operations := mergeCatalogMinima(consumerOperations(item, group, ratio, err == nil), minima)
 		if slices.ContainsFunc(item.PublicCatalogOffersByGroup[group], func(offer model.CatalogOffer) bool { return len(offer.PublicUsageConditions) > 0 }) {
 			tariff := buildCatalogModelTariff(effectivePricingPageContext{groupRatios: groupRatios, fxFactor: fxFactor}, item, group)
 			for index := range operations {

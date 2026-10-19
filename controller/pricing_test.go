@@ -492,7 +492,7 @@ func TestConsumerPricingKeepsKnownPricesOfCheapestOfferAndNativeUnits(t *testing
 		{ID: "cheap-output", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: float(7)}, {Component: "output", Unit: "million_tokens", AmountUSD: float(3)}, {Component: "cache_read", Unit: "million_tokens", AmountUSD: nil}}},
 	}
 	item := model.Pricing{ModelName: "coherent", EnableGroup: []string{"default", "premium"}, CatalogOffersByGroup: map[string][]model.CatalogOffer{"all": offers}}
-	result := buildConsumerPricingModel(map[string]string{"default": "Default", "premium": "Premium"}, map[string]float64{"default": 1, "premium": 2}, .8, item)
+	result := buildConsumerPricingModel(map[string]string{"default": "Default", "premium": "Premium"}, map[string]float64{"default": 1, "premium": 2}, .8, item, false)
 	require.Len(t, result.GroupPrices, 2)
 	for index, multiplier := range []float64{1, 2} {
 		require.Len(t, result.GroupPrices[index].Operations, 1)
@@ -802,7 +802,7 @@ func TestPricingCatalogFetchUsesBoundedMetadataAndConsumerDoesNoHTTP(t *testing.
 	assert.NotContains(t, prices, "audio_output")
 	item := model.Pricing{ModelName: "provider/model", EnableGroup: []string{"default"}, CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": entry.Offers}}
 	for range 3 {
-		rows := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item)
+		rows := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, false)
 		require.Len(t, rows.GroupPrices[0].Operations, 1)
 	}
 	assert.EqualValues(t, 1, attempts.Load())
@@ -1472,6 +1472,42 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 			}
 		}
 	}
+
+	captured, err := loadConsumerPricingContext("default", "")
+	require.NoError(t, err)
+	for _, item := range expected {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		query := url.Values{"model_name": {item.ModelName}, "expected_revision": {captured.metadata.CatalogRevision}}
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/user/effective-pricing/model?"+query.Encode(), nil)
+		ctx.Set("id", 2198)
+		GetEffectivePricingModel(ctx)
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		var envelope struct {
+			Data consumerPricingModelDetail `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &envelope))
+		assert.Equal(t, item, envelope.Data.Model.consumerPricingModel)
+		assert.Equal(t, captured.metadata.CatalogRevision, envelope.Data.CatalogRevision)
+	}
+	for _, tc := range []struct {
+		name, revision string
+		status         int
+	}{
+		{"not-a-visible-model", "", http.StatusNotFound},
+		{"gpt-realtime-mini", "stale", http.StatusConflict},
+	} {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		query := url.Values{"model_name": {tc.name}}
+		if tc.revision != "" {
+			query.Set("expected_revision", tc.revision)
+		}
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/user/effective-pricing/model?"+query.Encode(), nil)
+		ctx.Set("id", 2198)
+		GetEffectivePricingModel(ctx)
+		assert.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+	}
 }
 
 func TestPublicPricingModelsTagsPagingAndSafeTariffs(t *testing.T) {
@@ -1978,7 +2014,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	assert.Equal(t, float64(100), amounts["input"])
 	assert.Equal(t, float64(300), amounts["output"])
 	assert.Equal(t, float64(0), amounts["cache_read"])
-	private := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, pricingUserContext{id: 17, group: "default"})
+	private := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, true, pricingUserContext{id: 17, group: "default"})
 	require.Len(t, private.GroupPrices, 1)
 	require.Len(t, private.GroupPrices[0].ProviderOffers, 1)
 	assert.Equal(t, "b", *private.GroupPrices[0].ProviderOffers[0].Provider.ID)
@@ -1987,6 +2023,27 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	assert.JSONEq(t, string(b.Components[2].Conditions), string(private.GroupPrices[0].ProviderOffers[0].Prices[2].Conditions))
 	assert.Equal(t, "my-alias", private.ModelName)
 	assert.Equal(t, "Google: Readable name", private.DisplayName)
+	context := effectivePricingPageContext{
+		userID: 17, metadata: consumerPricingResponse{SchemaVersion: "v2", CatalogRevision: "captured-revision", UserGroup: "default", Currency: "RUB", AutoGroups: []string{"default"}},
+		pricing:      []model.Pricing{item, {ModelName: "hidden", EnableGroup: []string{"premium"}}},
+		usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1}, fxFactor: 1,
+	}
+	page := buildEffectivePricingPage(context, effectivePricingPageQuery{limit: 20, orderBy: "NAME"}, context.project)
+	require.Len(t, page.Data, 1)
+	assert.Empty(t, page.Data[0].GroupPrices[0].ProviderOffers)
+	assert.Equal(t, private.GroupPrices[0].Operations, page.Data[0].GroupPrices[0].Operations)
+	pageWire, err := common.Marshal(page)
+	require.NoError(t, err)
+	assert.NotContains(t, string(pageWire), "provider_offers")
+	assert.NotContains(t, string(pageWire), "Provider B")
+	detail, found := buildEffectivePricingModelDetail(context, "my-alias")
+	require.True(t, found)
+	assert.Equal(t, "captured-revision", detail.CatalogRevision)
+	assert.Equal(t, private, detail.Model.consumerPricingModel)
+	for _, name := range []string{"hidden", "missing", "my", doc.ID} {
+		_, found := buildEffectivePricingModelDetail(context, name)
+		assert.False(t, found, name)
+	}
 	tariff := buildCatalogModelTariff(effectivePricingPageContext{groupRatios: map[string]float64{"default": 1}, fxFactor: 1}, item, "default")
 	wire, err := common.Marshal(tariff)
 	require.NoError(t, err)
@@ -2297,8 +2354,26 @@ func TestUpstreamCatalogLiveIntegration(t *testing.T) {
 	require.NotEmpty(t, routes)
 	assert.Equal(t, "google/gemini-2.5-flash", routes[0].ModelID)
 	require.NotEmpty(t, routes[0].Document.Offers)
-	projected := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, *selected)
+	projected := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, *selected, true)
 	require.Len(t, projected.GroupPrices, 1)
 	assert.NotEmpty(t, projected.GroupPrices[0].ProviderOffers)
 	t.Logf("real HTTP -> immutable DB -> mapped NewAPI model: localRevision=%s offers=%d", first.Publication.Revision, len(projected.GroupPrices[0].ProviderOffers))
+}
+
+func TestEffectivePricingModelQuery(t *testing.T) {
+	for _, raw := range []string{"", "model_name=", "model_name=a&model_name=b", "model_name=a&group=premium", "model_name=a&expected_revision=", "model_name=a&expected_revision=x&expected_revision=y"} {
+		values, err := url.ParseQuery(raw)
+		require.NoError(t, err)
+		_, _, err = parseEffectivePricingModelQuery(values)
+		require.Error(t, err, raw)
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		context.Request = httptest.NewRequest(http.MethodGet, "/api/user/effective-pricing/model?"+raw, nil)
+		GetEffectivePricingModel(context)
+		assert.Equal(t, http.StatusBadRequest, recorder.Code, raw)
+	}
+	name, revision, err := parseEffectivePricingModelQuery(url.Values{"model_name": {"provider/model:batch"}, "expected_revision": {"captured"}})
+	require.NoError(t, err)
+	assert.Equal(t, "provider/model:batch", name)
+	assert.Equal(t, "captured", revision)
 }

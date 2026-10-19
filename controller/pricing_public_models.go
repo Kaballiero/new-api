@@ -304,8 +304,8 @@ func buildCatalogModelTariff(context effectivePricingPageContext, item model.Pri
 		row.IsFree = row.IsFree && !unknown
 		result.Operations = append(result.Operations, row)
 	}
-	providers := upstreamProviderOffers(item, group, ratio, ratioErr == nil, pricingUserContext{}, true)
-	for _, operation := range catalogMinima(providers) {
+	minima := catalogMinimumOperations(iterateUpstreamProviderOffers(item, group, ratio, ratioErr == nil, pricingUserContext{}, true))
+	for _, operation := range minima {
 		index := slices.IndexFunc(result.Operations, func(row publicPricingOperation) bool {
 			return row.Operation == operation.Operation && row.Mode == operation.Mode
 		})

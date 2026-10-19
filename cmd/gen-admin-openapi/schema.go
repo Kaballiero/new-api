@@ -429,6 +429,7 @@ func buildSchemas() map[string]interface{} {
 		"type": "object",
 		"properties": map[string]interface{}{
 			"model_name":               map[string]interface{}{"type": "string"},
+			"display_name":             map[string]any{"type": "string"},
 			"description":              map[string]interface{}{"type": "string"},
 			"icon":                     map[string]interface{}{"type": "string"},
 			"tags":                     map[string]interface{}{"type": "string"},
@@ -464,6 +465,14 @@ func buildSchemas() map[string]interface{} {
 		pageProperties[key] = map[string]any{"type": "integer", "minimum": 0, "description": "Required when limit selects page mode."}
 	}
 
+	detailProperties := map[string]any{}
+	for _, key := range []string{"schema_version", "catalog_revision", "user_group", "currency", "auto_groups"} {
+		detailProperties[key] = pageProperties[key]
+	}
+	detailProperties["model"] = map[string]any{"$ref": "#/components/schemas/EffectivePricingPageModel"}
+	out["EffectivePricingModelDetailData"] = map[string]any{"type": "object", "properties": detailProperties, "required": []string{"schema_version", "catalog_revision", "user_group", "currency", "auto_groups", "model"}}
+	out["EffectivePricingModelDetailResponse"] = wrapResponse(map[string]any{"$ref": "#/components/schemas/EffectivePricingModelDetailData"})
+	out["EffectivePricingModelDetailResponse"].(map[string]any)["required"] = []string{"success", "data"}
 	out["EffectivePricingPageModel"] = map[string]any{"type": "object", "properties": modelProperties, "required": []string{"model_name", "owner_by", "supported_endpoint_types", "group_prices", "modality", "creator"}}
 	overviewProperties := map[string]any{}
 	for _, key := range []string{"schema_version", "catalog_revision", "user_group", "currency", "auto_groups", "creators"} {
@@ -967,7 +976,7 @@ func addPublicPricingModelsSchemas(out map[string]interface{}) {
 	}, "required": []string{"operation", "mode", "prices", "tiers", "is_from", "is_free"}}
 	out["PublicModelTariff"] = map[string]any{"type": "object", "properties": map[string]any{"operations": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/PublicPricingOperation"}}}, "required": []string{"operations"}}
 	out["PublicPricingModel"] = map[string]any{"type": "object", "properties": map[string]any{
-		"model_name": text, "description": text, "icon": text, "tags": map[string]any{"type": "array", "items": text}, "owner_by": text,
+		"model_name": text, "display_name": text, "description": text, "icon": text, "tags": map[string]any{"type": "array", "items": text}, "owner_by": text,
 		"supported_endpoint_types": map[string]any{"type": "array", "items": text},
 		"creator":                  map[string]any{"type": "object", "nullable": true, "allOf": []any{map[string]any{"$ref": "#/components/schemas/EffectivePricingCreator"}}},
 		"tariff":                   map[string]any{"$ref": "#/components/schemas/PublicModelTariff"},

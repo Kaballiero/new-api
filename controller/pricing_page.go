@@ -213,7 +213,7 @@ func serveEffectivePricingPage(c *gin.Context, userGroup, usingGroup string, que
 }
 
 func (context effectivePricingPageContext) project(item model.Pricing) consumerPricingModel {
-	return buildConsumerPricingModel(context.usableGroups, context.groupRatios, context.fxFactor, item, pricingUserContext{id: context.userID, group: context.metadata.UserGroup})
+	return buildConsumerPricingModel(context.usableGroups, context.groupRatios, context.fxFactor, item, false, pricingUserContext{id: context.userID, group: context.metadata.UserGroup})
 }
 
 type effectivePricingPageCandidate struct {
