@@ -2,6 +2,7 @@ package plugins_test
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,4 +238,39 @@ func TestOpenRouterVideoLifecycle(t *testing.T) {
 	view, err := plugin.Engine.CallPath(t.Context(), "protocols", []string{"openai_video", "render"}, map[string]any{}, map[string]any{"data": map[string]any{"usage": map[string]any{"cost": 2}, "polling_url": "private-upstream"}})
 	require.NoError(t, err)
 	assert.Empty(t, view)
+}
+
+func TestOpenRouterSourceMediaDescriptor(t *testing.T) {
+	plugin, _ := openRouterVideoFixture(t)
+	for _, model := range []string{"runway/aleph-2", "black-forest-labs/flux-video-upscale", "heygen/avatar-iv"} {
+		t.Run(model, func(t *testing.T) {
+			kind := "video_url"
+			if model == "heygen/avatar-iv" {
+				kind = "audio_url"
+			}
+			uri := "data:" + strings.ReplaceAll(kind, "_url", "") + "/fixture;base64,Ynl0ZXM="
+			reference := map[string]any{"type": kind, kind: map[string]any{"url": uri}}
+			request := map[string]any{"input_references": []any{reference}}
+			ctx := map[string]any{"model": model, "baseUrl": "https://openrouter.ai/api", "requestBody": request}
+			value, err := plugin.Engine.Call(t.Context(), "buildSubmitRequest", ctx)
+			require.NoError(t, err)
+			encoded, err := common.Marshal(value)
+			require.NoError(t, err)
+			var descriptor struct {
+				Body struct {
+					References []map[string]any `json:"input_references"`
+				} `json:"body"`
+			}
+			require.NoError(t, common.Unmarshal(encoded, &descriptor))
+			require.Len(t, descriptor.Body.References, 1)
+			assert.Equal(t, reference, descriptor.Body.References[0], "host estimator and POST consume the same inline reference")
+			reference["duration"] = 9999
+			_, err = plugin.Engine.Call(t.Context(), "buildSubmitRequest", ctx)
+			require.ErrorContains(t, err, "only type and URL")
+			delete(reference, "duration")
+			request["provider"] = map[string]any{"options": map[string]any{"provider": map[string]any{"keyframes": []any{}}}}
+			_, err = plugin.Engine.Call(t.Context(), "buildSubmitRequest", ctx)
+			require.ErrorContains(t, err, "Provider options are unsupported")
+		})
+	}
 }

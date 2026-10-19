@@ -1849,6 +1849,15 @@ function videoOrder(ctx) {
   if (!body.prompt && !normalizedFrames.length && !references.length) throw new Error("Provide a prompt or reference input");
   if (normalizedFrames.length) body.frame_images = normalizedFrames;
   if (references.length) body.input_references = references;
+  if (["black-forest-labs/flux-video-upscale", "heygen/avatar-iv", "runway/aleph-2"].includes(model)) {
+    for (const reference of references) {
+      if (Object.keys(reference).some(function (key) { return key !== "type" && key !== reference.type; }) ||
+          Object.keys(reference[reference.type]).some(function (key) { return key !== "url"; }))
+        throw new Error("Measured media references must contain only type and URL");
+    }
+    if (parameters.provider !== undefined && (!object(parameters.provider) || !object(parameters.provider.options) || Object.keys(parameters.provider).some(function (key) { return key !== "options"; }) || Object.keys(parameters.provider.options).length))
+      throw new Error("Provider options are unsupported for measured media");
+  }
   if (parameters.provider !== undefined) {
     if (!object(parameters.provider) || Object.keys(parameters.provider).some(function (key) { return key !== "options"; }) || !object(parameters.provider.options))
       throw new Error("provider must contain an options object");

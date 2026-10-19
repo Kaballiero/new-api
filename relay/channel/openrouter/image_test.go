@@ -3,15 +3,18 @@ package openrouter
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -1027,4 +1030,190 @@ func TestNativeImageIncompatibleUnknownTariffExcluded(t *testing.T) {
 	require.NoError(t, adaptor.Prepare(c, info, dto.ImageRequest{Model: "test/image", Prompt: "x"}))
 	assert.Equal(t, "known", info.NativeImage.ProviderTag)
 	assert.InDelta(t, 0.01, info.NativeImage.EstimatedCostUSD, 1e-12)
+}
+
+// Fixture generated with ffmpeg: color=c=blue:s=640x480:r=24, -t 2 -an
+// -c:v libx264 -profile:v baseline -bf 0 -pix_fmt yuv420p -use_editlist 0.
+func TestSourceMediaVideoReservation(t *testing.T) {
+	video, err := os.ReadFile("testdata/source-640x480-2s.mp4")
+	require.NoError(t, err)
+	videoURI := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(video)
+	var photo bytes.Buffer
+	require.NoError(t, png.Encode(&photo, image.NewRGBA(image.Rect(0, 0, 32, 32))))
+	imageURI := "data:image/png;base64," + base64.StdEncoding.EncodeToString(photo.Bytes())
+	audio := make([]byte, 44+16000*2*3)
+	copy(audio, "RIFF")
+	binary.LittleEndian.PutUint32(audio[4:8], uint32(len(audio)-8))
+	copy(audio[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(audio[16:20], 16)
+	binary.LittleEndian.PutUint16(audio[20:22], 1)
+	binary.LittleEndian.PutUint16(audio[22:24], 1)
+	binary.LittleEndian.PutUint32(audio[24:28], 16000)
+	binary.LittleEndian.PutUint32(audio[28:32], 32000)
+	binary.LittleEndian.PutUint16(audio[32:34], 2)
+	binary.LittleEndian.PutUint16(audio[34:36], 16)
+	copy(audio[36:], "data")
+	binary.LittleEndian.PutUint32(audio[40:44], uint32(len(audio)-44))
+	audioURI := "data:audio/wav;base64," + base64.StdEncoding.EncodeToString(audio)
+	malformedAudio := bytes.Clone(audio)
+	binary.LittleEndian.PutUint32(malformedAudio[28:32], 1)
+	malformedAudioURI := "data:audio/wav;base64," + base64.StdEncoding.EncodeToString(malformedAudio)
+	longAudio := append(bytes.Clone(audio), make([]byte, 16000*2*28)...)
+	binary.LittleEndian.PutUint32(longAudio[4:8], uint32(len(longAudio)-8))
+	binary.LittleEndian.PutUint32(longAudio[40:44], uint32(len(longAudio)-44))
+	longAudioURI := "data:audio/wav;base64," + base64.StdEncoding.EncodeToString(longAudio)
+	reference := func(kind, uri string) any { return map[string]any{"type": kind, kind: map[string]any{"url": uri}} }
+	for _, tc := range []struct {
+		name, model string
+		prices      map[string]string
+		fields      map[string]any
+		want        float64
+		errorText   string
+	}{
+		{name: "Aleph source seconds and minimum", model: "runway/aleph-2", prices: map[string]string{"cents_per_second_output": "28", "minimum_cents_per_generation": "56"}, want: .56},
+		{name: "fresh minimum", model: "runway/aleph-2", prices: map[string]string{"cents_per_second_output": "28", "minimum_cents_per_generation": "70"}, want: .70},
+		{name: "FLUX measured nominal binary megapixels", model: "black-forest-labs/flux-video-upscale", prices: map[string]string{"cents_per_megapixel_second_precise": "3.5", "cents_per_megapixel_second_creative": "5"}, fields: map[string]any{"upscale_factor": 1.5, "creativity": 0}, want: float64(640*480) * 1.5 * 1.5 * 2 / 1048576 * .035},
+		{name: "FLUX default creative", model: "black-forest-labs/flux-video-upscale", prices: map[string]string{"cents_per_megapixel_second_precise": "3.5", "cents_per_megapixel_second_creative": "5"}, want: float64(640*480) * 4 * 2 / 1048576 * .05},
+		{name: "Avatar PCM seconds", model: "heygen/avatar-iv", prices: map[string]string{"duration_seconds": "0.05"}, fields: map[string]any{"resolution": "720p", "input_references": []any{reference("image_url", imageURI), reference("audio_url", audioURI)}}, want: .15},
+		{name: "WAV cannot fake byte rate", model: "heygen/avatar-iv", prices: map[string]string{"duration_seconds": "0.05"}, fields: map[string]any{"resolution": "720p", "input_references": []any{reference("image_url", imageURI), reference("audio_url", malformedAudioURI)}}, errorText: "invalid WAV quantities"},
+		{name: "audio duration cap", model: "heygen/avatar-iv", prices: map[string]string{"duration_seconds": "0.05"}, fields: map[string]any{"resolution": "720p", "input_references": []any{reference("image_url", imageURI), reference("audio_url", longAudioURI)}}, errorText: "at most 30 seconds"},
+		{name: "script not a duration bound", model: "heygen/avatar-iv", prices: map[string]string{"duration_seconds": "0.05"}, fields: map[string]any{"resolution": "720p", "prompt": "hello", "input_references": []any{reference("image_url", imageURI), reference("audio_url", audioURI)}}, errorText: "script/TTS"},
+		{name: "URL never fetched", fields: map[string]any{"input_references": []any{reference("video_url", "http://169.254.169.254/latest")}}, errorText: "byte limit"},
+		{name: "bad MP4", fields: map[string]any{"input_references": []any{reference("video_url", "data:video/mp4;base64,YmFk")}}, errorText: "MP4"},
+		{name: "count cap", fields: map[string]any{"input_references": []any{reference("video_url", videoURI), reference("video_url", videoURI)}}, errorText: "exactly one"},
+		{name: "client duration cannot replace source", fields: map[string]any{"duration": 2}, errorText: "source media quantity"},
+		{name: "provider multiplier bypass", fields: map[string]any{"provider": map[string]any{"options": map[string]any{"runway": map[string]any{"duration": 9999}}}}, errorText: "provider options"},
+		{name: "unknown SKU", prices: map[string]string{"cents_per_second_output": "28", "new_fee": "1"}, errorText: "unknown"},
+		{name: "negative tariff", prices: map[string]string{"cents_per_second_output": "-28"}, errorText: "invalid"},
+		{name: "explicit free", prices: map[string]string{"cents_per_second_output": "0"}},
+		{name: "unknown tariff", prices: map[string]string{}, errorText: "missing"},
+		{name: "oversized encoded input", fields: map[string]any{"input_references": []any{reference("video_url", "data:video/mp4;base64,"+strings.Repeat("A", 16_000_000))}}, errorText: "byte limit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.model == "" {
+				tc.model = "runway/aleph-2"
+			}
+			if tc.prices == nil {
+				tc.prices = map[string]string{"cents_per_second_output": "28"}
+			}
+			fields := map[string]any{"model": tc.model, "input_references": []any{reference("video_url", videoURI)}}
+			for key, value := range tc.fields {
+				fields[key] = value
+			}
+			body, err := common.Marshal(fields)
+			require.NoError(t, err)
+			model := VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedResolutions: []string{"720p", "1080p"}}
+			cost, err := estimateSourceMediaVideo(model, body)
+			if tc.errorText != "" {
+				require.ErrorContains(t, err, tc.errorText)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
+		})
+	}
+	t.Run("default closed explicit approximate opt in", func(t *testing.T) {
+		calls := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			assert.Equal(t, http.MethodGet, r.Method)
+			assert.Equal(t, "/v1/videos/models", r.URL.Path)
+			_, err := io.WriteString(w, `{"data":[{"id":"runway/aleph-2","pricing_skus":{"cents_per_second_output":"28","minimum_cents_per_generation":"56"}},{"id":"heygen/avatar-iv","supported_resolutions":["720p"],"pricing_skus":{"duration_seconds":"0.05"}}]}`)
+			assert.NoError(t, err)
+		}))
+		defer server.Close()
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+		info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "runway/aleph-2", ChannelBaseUrl: server.URL}}
+		body, err := common.Marshal(map[string]any{"model": "runway/aleph-2", "input_references": []any{reference("video_url", videoURI)}})
+		require.NoError(t, err)
+		_, err = EstimateVideo(c, info, body)
+		require.ErrorContains(t, err, "explicit approximate")
+		info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{"runway/aleph-2": 1}
+		cost, err := EstimateVideo(c, info, body)
+		require.NoError(t, err)
+		assert.Equal(t, 1.0, cost)
+		for _, reserve := range []float64{0, -1, math.NaN(), math.Inf(1)} {
+			info.ChannelSetting.OpenRouterModelReserveUSD["runway/aleph-2"] = reserve
+			_, err = EstimateVideo(c, info, body)
+			require.ErrorContains(t, err, "explicit approximate")
+		}
+		info.UpstreamModelName = "heygen/avatar-iv"
+		info.ChannelSetting.OpenRouterModelReserveUSD["heygen/avatar-iv"] = 1
+		avatarBody, err := common.Marshal(map[string]any{"model": "heygen/avatar-iv", "resolution": "720p", "input_references": []any{reference("image_url", imageURI), reference("audio_url", audioURI)}})
+		require.NoError(t, err)
+		_, err = EstimateVideo(c, info, avatarBody)
+		require.ErrorContains(t, err, "inline audio transport is unconfirmed")
+		assert.Equal(t, 7, calls, "only discovery GETs, no paid POST")
+	})
+}
+
+func TestBoundedVideoRejectsConflictingMetadata(t *testing.T) {
+	data, err := os.ReadFile("testdata/source-640x480-2s.mp4")
+	require.NoError(t, err)
+	seconds, width, height, err := probeBoundedVideo(data)
+	require.NoError(t, err)
+	assert.Equal(t, 2.0, seconds)
+	assert.Equal(t, 640, width)
+	assert.Equal(t, 480, height)
+	for _, tc := range []struct {
+		name   string
+		mutate func([]byte)
+	}{
+		{"zero sample description", func(b []byte) { i := bytes.Index(b, []byte("stsc")); clear(b[i+20 : i+24]) }},
+		{"oversized sample description", func(b []byte) {
+			i := bytes.Index(b, []byte("stsc"))
+			binary.BigEndian.PutUint32(b[i+20:i+24], math.MaxUint32)
+		}},
+		{"unvalidated sample description", func(b []byte) { i := bytes.Index(b, []byte("stsc")); binary.BigEndian.PutUint32(b[i+20:i+24], 2) }},
+		{"multiple sample descriptions", func(b []byte) { i := bytes.Index(b, []byte("stsd")); binary.BigEndian.PutUint32(b[i+8:i+12], 2) }},
+		{"zero timescale", func(b []byte) { i := bytes.Index(b, []byte("mdhd")); require.Positive(t, i); clear(b[i+16 : i+20]) }},
+		{"duration conflict", func(b []byte) { i := bytes.Index(b, []byte("mdhd")); binary.BigEndian.PutUint32(b[i+20:i+24], 1) }},
+		{"unbounded sample count", func(b []byte) {
+			i := bytes.Index(b, []byte("stts"))
+			binary.BigEndian.PutUint32(b[i+12:i+16], math.MaxUint32)
+		}},
+		{"zero sample delta", func(b []byte) { i := bytes.Index(b, []byte("stts")); clear(b[i+16 : i+20]) }},
+		{"too high FPS", func(b []byte) { i := bytes.Index(b, []byte("stts")); binary.BigEndian.PutUint32(b[i+16:i+20], 1) }},
+		{"dimensions conflict with bitstream", func(b []byte) {
+			i := bytes.Index(b, []byte("avc1"))
+			for i >= 0 && i+32 < len(b) {
+				if binary.BigEndian.Uint16(b[i+28:i+30]) == 640 {
+					binary.BigEndian.PutUint16(b[i+28:i+30], 3000)
+					return
+				}
+				j := bytes.Index(b[i+4:], []byte("avc1"))
+				if j < 0 {
+					break
+				}
+				i += 4 + j
+			}
+			t.Fatal("missing avc1")
+		}},
+		{"overlapping chunk ranges", func(b []byte) {
+			i := bytes.Index(b, []byte("stco"))
+			require.Positive(t, i)
+			count := binary.BigEndian.Uint32(b[i+8 : i+12])
+			require.Greater(t, count, uint32(1))
+			copy(b[i+16:i+20], b[i+12:i+16])
+		}},
+		{"source duration above cap", func(b []byte) {
+			mvhd := bytes.Index(b, []byte("mvhd"))
+			mdhd := bytes.Index(b, []byte("mdhd"))
+			stts := bytes.Index(b, []byte("stts"))
+			binary.BigEndian.PutUint32(b[mvhd+16:mvhd+20], 48)
+			binary.BigEndian.PutUint32(b[mvhd+20:mvhd+24], 48*31)
+			binary.BigEndian.PutUint32(b[mdhd+16:mdhd+20], 48)
+			binary.BigEndian.PutUint32(b[mdhd+20:mdhd+24], 48*31)
+			binary.BigEndian.PutUint32(b[stts+16:stts+20], 31)
+		}},
+		{"truncated payload", func(b []byte) { clear(b[len(b)-10:]) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := bytes.Clone(data)
+			tc.mutate(b)
+			_, _, _, err := probeBoundedVideo(b)
+			require.Error(t, err)
+		})
+	}
 }

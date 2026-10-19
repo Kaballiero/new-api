@@ -72,8 +72,46 @@ Task expression возвращает USD напрямую, без деления
 и `reference_images` разделены, `generation_mode` описывает режим. Пропущенные
 `requested_seconds` и `upscale_factor` отсутствуют, а не считаются нулём.
 Плагин сохраняет исторические `0`/`default` в display usage отдельно.
-Avatar IV, Aleph 2 и FLUX Video Upscale остаются закрытыми: discovery не даёт
-конечного output-duration/source-quantity контракта. Исходные URL не скачиваются.
+Avatar IV, Aleph 2 и FLUX Video Upscale по умолчанию закрыты. Для узкого
+измеряемого входа FLUX/Aleph администратор может явно задать положительный
+`openrouter_model_reserve_usd` по точному upstream model ID. Это opt-in на
+приблизительный резерв, **не верхняя граница расхода**: округление длительности,
+выходных размеров FLUX и минимум Avatar через OR не полностью документированы.
+Расчёт использует максимум этого резерва и оценки по свежим metadata, затем
+может быть повышен configured-price политикой. В persisted admin order facts
+сохраняется `reservation.source=approximate_media` и `hard_bound=false`.
+
+Поддерживается только неизменяемый inline media в `input_references`:
+
+- FLUX/Aleph: одно `video_url: {url: "data:video/mp4;base64,..."}` — silent
+  H.264 **baseline**, один track, без B-frames, edit lists, fragments и in-band
+  SPS/PPS. Timescale, sample/chunk quantities, FPS и SPS dimensions проверяются
+  по байтам. Aleph: 2–30 секунд, ≤30 FPS, до 1920×1080 (включая portrait).
+  FLUX: до 20 секунд, от 480p до 2560×1440, scale 1.5–3, creativity 0/1.
+- Avatar (validation/estimate only, admission **закрыт**): ровно один PNG/JPEG `image_url` и один PCM WAV `audio_url` (16-bit,
+  mono/stereo, 8–48 kHz), максимум 30 секунд. Изображение ≤4096 по стороне и
+  ≤16M pixels; обязательна явная `resolution: "720p"` или `"1080p"`.
+- Общий лимит data URI — 16,000,000 bytes, decoded файл ≤12,000,000 bytes.
+  URL не скачиваются; multipart, script/TTS, keyframes, provider options и
+  пользовательские duration/size/aspect_ratio/generate_audio не поддерживаются.
+
+Оценка Avatar/Aleph использует исходную длительность. FLUX использует nominal
+`width × height × factor² × seconds / 1,048,576` MP·s и текущий precise/creative
+тариф; приблизительный 14.4MP output cap не считается доказанным пределом.
+Aleph учитывает свежий `minimum_cents_per_generation`. Неизвестные/отрицательные
+SKU блокируют admission. Snapshot цен не используется вместо свежих metadata.
+Точный `usage.cost`, включая превышение резерва, определяет settlement.
+
+Бесплатно проверены официальный [OR OpenAPI](https://openrouter.ai/docs/openapi/openapi.yaml)
+(InputReference + VideoGenerationRequest) и GET videos/models. Provider inputs:
+[BFL](https://docs.bfl.ai/flux_tools/flux_video_upscale),
+[Runway](https://docs.dev.runwayml.com/assets/inputs/).
+Это подтверждает schema и единицы; end-to-end приём data URI конкретными OR
+адаптерами, HeyGen inline upload, минимумы/rounding и три реальные генерации
+ещё требуют live-проверки. Avatar admission остаётся закрытым даже при opt-in:
+[HeyGen Audio Sources](https://developers.heygen.com/audio-to-video) описывает
+HTTPS URL/uploaded asset, а OR inline upload пока не подтверждён. До live не переносить catalog/unit PASS
+в live PASS.
 Неучтённые платные output formats (ProRes/HDR и другие) также отклоняются.
 
 Для `heygen/heygen-video-1` first-frame использует обычный output tariff,
@@ -186,3 +224,53 @@ curl "$GETAPI_BASE/v1/videos/$TASK_ID/content" \
 Сумма задач — $0.222. Прирост общего счётчика аккаунта — $0.222447500;
 разница $0.000447500 осталась необъяснённой. В лимите проверок $5 учтён весь
 прирост (остаток $4.777552500); полная сверка общего счётчика не заявляется.
+
+
+### Avatar: исследованные варианты transport
+
+В публичном OR OpenAPI `VideoGenerationRequest.input_references` ссылается на
+`InputReference` → `ContentPartAudio.audio_url.url`: тип `string`, пример HTTPS.
+Явного обещания data URI/автоматического audio upload нет. Это отсутствие
+доказательства inline, а не доказательство, что OR не умеет преобразование.
+[OR guide](https://openrouter.ai/docs/guides/overview/multimodal/video-generation)
+не уточняет inline audio. [OR Files API](https://openrouter.ai/docs/guides/features/files-api)
+возвращает `or_file_...`, но user uploads нельзя скачивать через `/content` и
+нет документированной связи file ID с video input_references.
+
+В new-api есть immutable filesystem `TaskArtifactStore` (SHA256, atomic publish)
+и capability URL `BuildTaskArtifactContentURL`. Однако Resolve/Serve работают
+с готовым `OpenRouterAudio` result существующей Task, key=`result`; это не
+приём произвольного source upload. `POST /v1/files` остаётся NotImplemented.
+JS `__fileRef` только превращает multipart в inline bytes, публичный HTTPS
+asset не создаёт. Готового малого upload→измерение→immutable HTTPS input пути
+нет. Можно отдельно добавить consumption существующего owned audio result
+через store и capability URL; для этого ещё нужен контракт source-artifact
+reference, bounded read/checksum и lifetime/ownership до upstream fetch.
+В этом PR storage/auth/Task lifecycle не расширяются.
+
+Официальный [Polza storage/upload](https://polza.ai/docs/api-reference/storage/upload)
+показывает multipart upload → file ID + HTTPS URL + size/expiry; это подходящий
+внешний transport-паттерн, но не свидетельство их immutable/billing реализации.
+[ProxyAPI video](https://proxyapi.ru/docs/video-generation) описывает async
+submit/poll/content и image references, но не гарантирует Avatar inline audio.
+Недостающая capability для Avatar: либо документированное OR inline audio,
+либо проверенный bridge к существующему immutable audio artifact с публичным
+HTTPS URL. Не заменять его произвольным внешним URL после измерения.
+
+### Будущая live-проверка (не выполнена, отдельный бюджет)
+
+В изолированном канале/аккаунте и на сборке этого PR, после свежего GET каталога:
+
+| Модель | Один gateway POST | Оценка по metadata 2026-10-19 | Предлагаемый approximate hold |
+| --- | --- | --- | --- |
+| FLUX | fixture 640×480, 24 FPS, 2s, factor 1.5, creativity 0 | $0.046142578125 | $1 |
+| Aleph | тот же MP4, prompt «make the sky warmer», без keyframes | max(2×$0.28, $0.56) = $0.56 | $1 |
+| Avatar | реальный портрет + 3s PCM речи, 720p, без script | 3×$0.05 = $0.15; минимум неизвестен | $1, **только после доказанного inline transport и снятия guard отдельным изменением** |
+
+$1 — предлагаемый резерв для каждого запроса, не лимит стоимости и не разрешение
+на расход. Пока Avatar возвращает локальный HTTP400 без POST; его генерация —
+заблокированный третий этап плана. Для каждой разрешённой генерации polling
+только того же ID, затем скачивание/декодирование MP4, сверка длительности,
+размеров, `usage.cost`, замороженного FX/group ratio, hold и итогового списания.
+При timeout/потере receipt или неизвестной cost не создавать повторную задачу;
+проверить durable reconciliation и отсутствие выдуманного success/списания.

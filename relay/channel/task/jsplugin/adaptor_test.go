@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"os"
 	"strings"
 	"testing"
 
@@ -1448,10 +1449,11 @@ func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
 	previous := *settings
 	t.Cleanup(func() { *settings = previous })
 	for _, tc := range []struct {
-		name, model, expression, sourceKey, errorText string
-		minimum, want                                 float64
-		omitDuration, unknownTariff, sourceOnly       bool
+		name, model, expression, sourceKey, errorText          string
+		minimum, want                                          float64
+		omitDuration, unknownTariff, sourceOnly, measuredMedia bool
 	}{
+		{name: "measured source preserves cached POST and approximate provenance", model: "runway/aleph-2", expression: `tier("video", u("jobs") * 0.4)`, minimum: 1, want: 1, measuredMedia: true},
 		{name: "USD task units on Veo", model: "google/veo-3.1-lite", expression: `tier("video", u("requested_seconds") * 0.1)`, want: 0.4},
 		{name: "same contract on Runway", model: "runway/gen-4.5", expression: `tier("video", u("requested_seconds") * 0.1)`, want: 0.4},
 		{name: "upstream floor protects zero local price", expression: `tier("zero", u("jobs") * 0)`, want: 0.08},
@@ -1481,6 +1483,9 @@ func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
 				if tc.model == "runway/gen-4.5" {
 					prices = map[string]string{"cents_per_second_output": "2"}
 				}
+				if tc.measuredMedia {
+					prices = map[string]string{"cents_per_second_output": "28", "minimum_cents_per_generation": "56"}
+				}
 				if tc.unknownTariff {
 					prices["extra_charge"] = "1"
 				}
@@ -1497,6 +1502,13 @@ func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
 			body := map[string]any{"model": tc.model, "duration": 4, "resolution": "720p"}
 			if tc.omitDuration || tc.sourceOnly {
 				delete(body, "duration")
+			}
+			if tc.measuredMedia {
+				data, err := os.ReadFile("../../openrouter/testdata/source-640x480-2s.mp4")
+				require.NoError(t, err)
+				delete(body, "duration")
+				delete(body, "resolution")
+				body["input_references"] = []any{map[string]any{"type": "video_url", "video_url": map[string]any{"url": "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(data)}}}
 			}
 			adaptor := New(plugin)
 			adaptor.submit = &requestDescriptor{Body: body}
@@ -1526,7 +1538,20 @@ func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
 			assert.Equal(t, model.TaskSettlementOpenRouterCostV2, info.OpenRouterCost.Basis.Version)
 			facts, ok := c.Get("openrouter_video_order_facts")
 			require.True(t, ok)
-			assert.Equal(t, "text_to_video", facts.(map[string]any)["generation_mode"])
+			if tc.measuredMedia {
+				assert.Equal(t, "reference_to_video", facts.(map[string]any)["generation_mode"])
+				assert.Equal(t, map[string]any{"source": "approximate_media", "model": tc.model, "usd": 1.0, "hard_bound": false}, facts.(map[string]any)["reservation"])
+				before, err := common.Marshal(body)
+				require.NoError(t, err)
+				outgoing, err := adaptor.BuildRequestBody(c, info)
+				require.NoError(t, err)
+				after, err := io.ReadAll(outgoing)
+				require.NoError(t, err)
+				assert.JSONEq(t, string(before), string(after), "reservation must measure the exact dispatched source")
+			} else {
+				assert.Equal(t, "text_to_video", facts.(map[string]any)["generation_mode"])
+			}
+
 		})
 	}
 }

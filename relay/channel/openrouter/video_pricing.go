@@ -139,6 +139,22 @@ func EstimateVideo(c *gin.Context, info *relaycommon.RelayInfo, body []byte) (fl
 	}
 	for _, model := range catalog.Data {
 		if model.ID == order.Model {
+			if SourceMediaVideo(order.Model) {
+				estimate, err := estimateSourceMediaVideo(model, body)
+				if err != nil {
+					return 0, err
+				}
+				// HeyGen requires a public audio URL or an uploaded asset. OR's
+				// normalized audio reference schema does not prove inline upload.
+				if order.Model == "heygen/avatar-iv" {
+					return 0, errors.New("OpenRouter Avatar inline audio transport is unconfirmed; source media remains disabled")
+				}
+				reserve := info.ChannelSetting.OpenRouterReserveUSD(order.Model)
+				if reserve == nil || *reserve <= 0 || math.IsNaN(*reserve) || math.IsInf(*reserve, 0) {
+					return 0, errors.New("OpenRouter source media requires an explicit approximate openrouter_model_reserve_usd; output rounding is not a proven spending bound")
+				}
+				return max(estimate, *reserve), nil
+			}
 			return EstimateVideoOrder(model, order)
 		}
 	}
