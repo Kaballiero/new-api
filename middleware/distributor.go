@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/provider"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -44,6 +46,57 @@ func Distribute() func(c *gin.Context) {
 		if err != nil {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
+		}
+		operation := provider.Operation(c.Request.URL.Path)
+		channelTypes := provider.CompatibleChannelTypes(provider.NamespaceOpenRouter, operation)
+		if len(channelTypes) > 0 {
+			var routing []byte
+			var readErr error
+			switch {
+			case strings.HasPrefix(c.Request.Header.Get("Content-Type"), "application/json"):
+				storage, storageErr := common.GetBodyStorage(c)
+				readErr = storageErr
+				var body []byte
+				if readErr == nil {
+					body, readErr = storage.Bytes()
+				}
+				if readErr == nil {
+					routing, readErr = provider.Extract(body)
+				}
+			case strings.HasPrefix(c.Request.Header.Get("Content-Type"), "multipart/form-data"):
+				form, formErr := common.ParseMultipartFormReusable(c)
+				readErr = formErr
+				if readErr == nil {
+					routing, readErr = provider.ExtractForm(form.Value)
+				}
+			case strings.HasPrefix(c.Request.Header.Get("Content-Type"), "application/x-www-form-urlencoded"):
+				storage, storageErr := common.GetBodyStorage(c)
+				readErr = storageErr
+				if readErr == nil {
+					var body []byte
+					body, readErr = storage.Bytes()
+					if readErr == nil {
+						var fields url.Values
+						fields, readErr = url.ParseQuery(string(body))
+						if readErr == nil {
+							routing, readErr = provider.ExtractForm(fields)
+						}
+					}
+				}
+				if readErr == nil && len(routing) > 0 {
+					readErr = errors.New("provider preferences require a JSON request or supported multipart operation")
+				}
+			}
+			if readErr == nil {
+				readErr = provider.Validate(operation, routing)
+			}
+			if readErr != nil {
+				abortWithOpenAiMessage(c, http.StatusBadRequest, readErr.Error(), types.ErrorCode("provider_routing"))
+				return
+			}
+			if len(routing) > 0 && strings.TrimSpace(string(routing)) != "null" {
+				constraints.AddFilter(taskdto.ChannelFilter{Kind: taskdto.FilterProviderRouting, ProviderChannelTypes: channelTypes})
+			}
 		}
 		if pin, found, overridden := constraints.ResolvedPin(); found {
 			for _, lost := range overridden {

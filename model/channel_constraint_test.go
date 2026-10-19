@@ -216,3 +216,55 @@ func TestChannelSatisfiesFilters(t *testing.T) {
 	assert.False(t, ok)
 	assert.Equal(t, dto.FilterRequestPath, kind)
 }
+
+func TestProviderRoutingMixedPoolRetries(t *testing.T) {
+	previousEnabled := common.MemoryCacheEnabled
+	channelSyncLock.Lock()
+	previousChannels, previousGroups := channelsIDM, group2model2channels
+	channelsIDM = map[int]*Channel{
+		910001: {Id: 910001, Type: constant.ChannelTypeOpenAI, Priority: common.GetPointer(int64(100))},
+		910002: {Id: 910002, Type: constant.ChannelTypeOpenRouter, Priority: common.GetPointer(int64(20))},
+		910003: {Id: 910003, Type: constant.ChannelTypeOpenRouter, Priority: common.GetPointer(int64(10))},
+		910004: {Id: 910004, Type: 10001, Priority: common.GetPointer(int64(50))},
+	}
+	group2model2channels = map[string]map[string][]int{"mixed": {"same-model": {910001, 910002, 910003, 910004}}}
+	channelSyncLock.Unlock()
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = previousEnabled
+		channelSyncLock.Lock()
+		channelsIDM, group2model2channels = previousChannels, previousGroups
+		channelSyncLock.Unlock()
+	})
+	for _, tc := range []struct {
+		name        string
+		types       []int
+		retry, want int
+	}{
+		{"no provider unchanged", nil, 0, 910001},
+		{"OR initial skips incompatible higher priorities", []int{constant.ChannelTypeOpenRouter}, 0, 910002},
+		{"OR retry keeps constraint", []int{constant.ChannelTypeOpenRouter}, 1, 910003},
+		{"OR exhausted retries keep constraint", []int{constant.ChannelTypeOpenRouter}, 2, 910003},
+		{"future aggregator isolated", []int{10001}, 0, 910004},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var filters []dto.ChannelFilter
+			if tc.types != nil {
+				filters = []dto.ChannelFilter{{Kind: dto.FilterProviderRouting, ProviderChannelTypes: tc.types}}
+			}
+			channel, err := GetRandomSatisfiedChannel("mixed", "same-model", tc.retry, filters)
+			require.NoError(t, err)
+			require.NotNil(t, channel)
+			assert.Equal(t, tc.want, channel.Id)
+		})
+	}
+	filters := []dto.ChannelFilter{{Kind: dto.FilterProviderRouting, ProviderChannelTypes: []int{constant.ChannelTypeOpenRouter}}}
+	ok, kind := ChannelSatisfiesFilters(channelsIDM[910001], "same-model", filters)
+	assert.False(t, ok)
+	assert.Equal(t, dto.FilterProviderRouting, kind)
+	channelSyncLock.RLock()
+	kept, kind := filterCandidateIDs([]int{910001, 910004, 999999}, "same-model", filters)
+	channelSyncLock.RUnlock()
+	assert.Empty(t, kept)
+	assert.Equal(t, dto.FilterProviderRouting, kind)
+}

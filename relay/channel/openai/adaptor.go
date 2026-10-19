@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
 	"github.com/QuantumNous/new-api/relay/channel/lingyiwanwu"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
+	"github.com/QuantumNous/new-api/relay/provider"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	//"github.com/QuantumNous/new-api/relay/channel/minimax"
@@ -445,6 +446,12 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		if err != nil {
 			return nil, fmt.Errorf("error marshalling object: %w", err)
 		}
+		if info.ChannelType == constant.ChannelTypeOpenRouter {
+			jsonData, err = relaycommon.ApplyRequestOverrides(c, jsonData, info)
+			if err != nil {
+				return nil, err
+			}
+		}
 		return bytes.NewReader(jsonData), nil
 	} else {
 		var requestBody bytes.Buffer
@@ -456,6 +463,39 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		if err2 != nil {
 			return nil, fmt.Errorf("error parsing multipart form: %w", err2)
 		}
+		var routing json.RawMessage
+		if info.ChannelType == constant.ChannelTypeOpenRouter {
+			var err error
+			routing, err = provider.ExtractForm(formData.Value)
+			if err != nil {
+				return nil, err
+			}
+			projection := map[string]any{"model": request.Model}
+			if len(routing) > 0 {
+				projection["provider"] = routing
+			}
+			if values := formData.Value["extra_body"]; len(values) == 1 {
+				projection["extra_body"] = json.RawMessage(values[0])
+			}
+			raw, err := common.Marshal(projection)
+			if err != nil {
+				return nil, err
+			}
+			raw, err = relaycommon.ApplyProviderOverrides(raw, raw, info)
+			if err != nil {
+				return nil, err
+			}
+			routing, err = provider.Extract(raw)
+			if err != nil {
+				return nil, err
+			}
+			if err = provider.Validate("audio/transcriptions", routing); err != nil {
+				return nil, err
+			}
+			if len(routing) > 0 {
+				writer.WriteField("provider", string(routing))
+			}
+		}
 
 		// 打印类似 curl 命令格式的信息
 		logger.LogDebug(c.Request.Context(), "--form 'model=\"%s\"'", request.Model)
@@ -464,6 +504,17 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		for key, values := range formData.Value {
 			if key == "model" {
 				continue
+			}
+			if info.ChannelType == constant.ChannelTypeOpenRouter {
+				if key == "provider" {
+					continue
+				}
+				if key == "extra_body" {
+					var extra map[string]json.RawMessage
+					if len(values) == 1 && common.UnmarshalJsonStr(values[0], &extra) == nil && len(extra) == 1 && len(extra["provider"]) > 0 {
+						continue
+					}
+				}
 			}
 			for _, value := range values {
 				writer.WriteField(key, value)
@@ -746,6 +797,10 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		case relayconstant.RelayModeCompletions:
 			operation = "completions"
 		case relayconstant.RelayModeChatCompletions:
+		case relayconstant.RelayModeUnknown:
+			if info.RelayFormat != types.RelayFormatClaude {
+				return nil, types.NewErrorWithStatusCode(fmt.Errorf("OpenRouter operation lacks a validated cost reservation contract"), types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
 		case relayconstant.RelayModeAudioSpeech:
 			operation = "audio/speech"
 		case relayconstant.RelayModeAudioTranscription:

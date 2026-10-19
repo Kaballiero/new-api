@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	providerrouting "github.com/QuantumNous/new-api/relay/provider"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -33,10 +34,11 @@ const MaxBatchRequests = 1000
 var batchCustomID = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 type BatchCreateRequest struct {
-	Model    string       `json:"model"`
-	Group    string       `json:"group,omitempty"`
-	Endpoint string       `json:"endpoint"`
-	Requests []batch.Item `json:"requests"`
+	Model    string          `json:"model"`
+	Group    string          `json:"group,omitempty"`
+	Endpoint string          `json:"endpoint"`
+	Provider json.RawMessage `json:"provider,omitempty"`
+	Requests []batch.Item    `json:"requests"`
 }
 
 func batchError(c *gin.Context, status int, code, message string) {
@@ -48,10 +50,21 @@ func batchError(c *gin.Context, status int, code, message string) {
 func PrepareBatchRequest(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, MaxBatchRequestBytes)
 	var request BatchCreateRequest
-	if err := common.UnmarshalBodyReusable(c, &request); err != nil {
+	var envelope json.RawMessage
+	if err := common.UnmarshalBodyReusable(c, &envelope); err != nil || common.Unmarshal(envelope, &request) != nil {
 		batchError(c, 400, "invalid_request", "invalid or oversized Batch JSON")
 		return
 	}
+	routing, err := providerrouting.Extract(envelope)
+	if err != nil {
+		batchError(c, 400, "invalid_provider", err.Error())
+		return
+	}
+	if err := providerrouting.Validate("batch", routing); err != nil {
+		batchError(c, 400, "invalid_provider", err.Error())
+		return
+	}
+	request.Provider = routing
 	if request.Model == "" || len(request.Model) > 255 || len(request.Requests) == 0 || len(request.Requests) > MaxBatchRequests {
 		batchError(c, 400, "invalid_request", "model and 1..1000 requests are required")
 		return
@@ -236,6 +249,29 @@ func CreateBatch(c *gin.Context) {
 		info.InitChannelMeta(c)
 		info.UpstreamModelName = upstreamModel
 		info.OriginModelName = request.Model
+		// Administrative routing overrides apply to the envelope as well as
+		// native item bodies. Freeze the same final provider for admission and
+		// asynchronous submission; only provider is taken from this projection.
+		envelope := request
+		envelope.Model = upstreamModel
+		projection, marshalErr := common.Marshal(envelope)
+		if marshalErr != nil {
+			batchError(c, 400, "invalid_channel_parameters", marshalErr.Error())
+			return
+		}
+		projection, overrideErr := relaycommon.ApplyRequestOverrides(c, projection, info)
+		if overrideErr != nil {
+			batchError(c, 400, "invalid_channel_parameters", overrideErr.Error())
+			return
+		}
+		request.Provider, overrideErr = providerrouting.Extract(projection)
+		if overrideErr == nil {
+			overrideErr = providerrouting.Validate("batch", request.Provider)
+		}
+		if overrideErr != nil {
+			batchError(c, 400, "invalid_channel_parameters", overrideErr.Error())
+			return
+		}
 		estimator = openrouter.NewRequestEstimator()
 	} else {
 		snapshot, err = service.CaptureBatchBilling(request.Model, info.UserGroup, usingGroup, headers)
@@ -244,6 +280,7 @@ func CreateBatch(c *gin.Context) {
 		batchError(c, 503, "batch_pricing_unavailable", err.Error())
 		return
 	}
+	snapshot.Provider = request.Provider
 	items := make([]model.BatchItem, len(request.Requests))
 	var total int64
 	var inputBytes int
@@ -309,11 +346,18 @@ func CreateBatch(c *gin.Context) {
 			}
 			if err == nil {
 				pricingBody := body
-				// Some Batch wire formats supply the model only in the envelope.
-				if _, present := fields["model"]; !present {
+				// Envelope routing applies to every item for admission, but remains
+				// separate from each item's native payload on the wire.
+				_, itemProvider := fields["provider"]
+				if _, present := fields["model"]; !present || len(snapshot.Provider) > 0 || itemProvider {
 					var prepared map[string]json.RawMessage
 					if err = common.Unmarshal(body, &prepared); err == nil {
 						prepared["model"], _ = common.Marshal(upstreamModel)
+						if len(snapshot.Provider) > 0 {
+							prepared["provider"] = snapshot.Provider
+						} else {
+							delete(prepared, "provider")
+						}
 						pricingBody, err = common.Marshal(prepared)
 					}
 				}

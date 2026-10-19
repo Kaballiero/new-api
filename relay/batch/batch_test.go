@@ -21,6 +21,15 @@ func TestNativeSubmissionFormats(t *testing.T) {
 		assert.JSONEq(t, `{"endpoint":"/v1/chat/completions","model":"test-model","completion_window":"24h","requests":[{"custom_id":"item-1","body":{"temperature":0,"stream":false,"messages":[]}}]}`, string(request.Body))
 		assert.Less(t, bytes.Index(request.Body, []byte(`"model"`)), bytes.Index(request.Body, []byte(`"requests"`)))
 	})
+	t.Run("OpenRouter envelope routing preserves item payload", func(t *testing.T) {
+		request := submission
+		request.Provider = []byte(`{"only":["openai"],"allow_fallbacks":false}`)
+		request.Items = []Item{{CustomID: "item-1", Body: []byte(`{"provider":{"only":["item-provider"]},"messages":[]}`)}}
+		wire, err := (OpenRouter{}).Create(request)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"endpoint":"/v1/chat/completions","model":"test-model","completion_window":"24h","provider":{"only":["openai"],"allow_fallbacks":false},"requests":[{"custom_id":"item-1","body":{"provider":{"only":["item-provider"]},"messages":[]}}]}`, string(wire.Body))
+		assert.Less(t, bytes.Index(wire.Body, []byte(`"provider"`)), bytes.Index(wire.Body, []byte(`"requests"`)))
+	})
 	t.Run("OpenAI requires persisted upload", func(t *testing.T) {
 		_, err := (OpenAI{}).Create(submission)
 		require.Error(t, err)

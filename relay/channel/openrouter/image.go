@@ -160,6 +160,7 @@ func prepareImageOverrides(request dto.ImageRequest, info *relaycommon.RelayInfo
 					return request, errors.New("conflicting direct and nested image provider")
 				}
 			}
+			fields["provider"] = value
 		}
 	}
 	for key, value := range info.ParamOverride {
@@ -217,7 +218,7 @@ func prepareImageOverrides(request dto.ImageRequest, info *relaycommon.RelayInfo
 	if err = common.Unmarshal(raw, &fields); err != nil {
 		return request, err
 	}
-	if nestedPresent {
+	if nestedPresent && len(info.ParamOverride) == 0 {
 		var finalProvider any
 		value, exists := fields["provider"]
 		if !exists || common.Unmarshal(value, &finalProvider) != nil || !reflect.DeepEqual(finalProvider, nestedProvider) {
@@ -226,7 +227,7 @@ func prepareImageOverrides(request dto.ImageRequest, info *relaycommon.RelayInfo
 	}
 	if value, exists := fields["extra_body"]; exists {
 		var extra map[string]json.RawMessage
-		if common.Unmarshal(value, &extra) != nil || len(extra) != 0 {
+		if common.Unmarshal(value, &extra) != nil || len(extra) > 1 || len(extra) == 1 && len(extra["provider"]) == 0 {
 			return request, errors.New("image extra_body.provider must be moved and cleaned up")
 		}
 		delete(fields, "extra_body")
@@ -251,13 +252,19 @@ type imageRouting struct {
 func parseImageRouting(request dto.ImageRequest) (imageRouting, error) {
 	routing := imageRouting{AllowFallbacks: true}
 	raw, exists := request.Extra["provider"]
-	if !exists {
+	if !exists || string(bytes.TrimSpace(raw)) == "null" {
 		return routing, nil
 	}
 	if common.Unmarshal(raw, &routing.Fields) != nil || routing.Fields == nil {
 		return routing, errors.New("invalid image provider routing")
 	}
 	for key, value := range routing.Fields {
+		if !slices.Contains([]string{"only", "order", "ignore", "allow_fallbacks", "sort", "options"}, key) {
+			return routing, errors.New("unsupported image provider routing field")
+		}
+		if string(bytes.TrimSpace(value)) == "null" {
+			continue
+		}
 		switch key {
 		case "only", "order", "ignore":
 			var list []string
@@ -282,8 +289,25 @@ func parseImageRouting(request dto.ImageRequest) (imageRouting, error) {
 				return routing, errors.New("invalid image allow_fallbacks")
 			}
 		case "sort":
-			var sort string
-			if common.Unmarshal(value, &sort) != nil || sort != "price" {
+			var by string
+			objectSort := false
+			if common.Unmarshal(value, &by) != nil {
+				objectSort = true
+				var sort map[string]string
+				if common.Unmarshal(value, &sort) != nil {
+					return routing, errors.New("unsupported image provider sort")
+				}
+				for key := range sort {
+					if key != "by" && key != "partition" {
+						return routing, errors.New("unsupported image provider sort field")
+					}
+				}
+				if partition := sort["partition"]; partition != "" && partition != "model" && partition != "none" {
+					return routing, errors.New("unsupported image provider sort partition")
+				}
+				by = sort["by"]
+			}
+			if !(objectSort && by == "") && !slices.Contains([]string{"price", "throughput", "latency", "exacto"}, by) {
 				return routing, errors.New("unsupported image provider sort")
 			}
 		case "options":
@@ -374,6 +398,8 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 	var lastErr error
 	var selected *relaycommon.NativeImageInfo
 	var maximumEstimate float64
+	var eligibleTags []string
+	var commonPayload map[string]json.RawMessage
 	selectedRank := len(routing.Order)
 	for _, endpoint := range catalog.Endpoints {
 		if len(routing.Fields) > 0 && endpoint.ProviderTag == "" {
@@ -397,7 +423,28 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 			lastErr = convertErr
 			continue
 		}
+		if len(routing.Fields) > 0 {
+			var payload map[string]json.RawMessage
+			if err = common.Unmarshal(body, &payload); err != nil {
+				return err
+			}
+			delete(payload, "provider")
+			// One image is the native default even on endpoints that expose no n
+			// parameter. Do not send that optional knob to an incompatible fallback.
+			if string(payload["n"]) == "1" {
+				delete(payload, "n")
+			}
+			if commonPayload != nil && !reflect.DeepEqual(commonPayload, payload) {
+				return errors.New("OpenRouter image providers require incompatible request payloads")
+			}
+			commonPayload = payload
+			body, err = common.Marshal(payload)
+			if err != nil {
+				return err
+			}
+		}
 		maximumEstimate = max(maximumEstimate, estimate)
+		eligibleTags = append(eligibleTags, endpoint.ProviderTag)
 		if selected == nil || rank < selectedRank || rank == selectedRank && estimate < selected.EstimatedCostUSD {
 			selectedRank = rank
 			selected = &relaycommon.NativeImageInfo{RequestBody: body, EstimatedCostUSD: estimate, ChannelID: info.ChannelId, ProviderTag: endpoint.ProviderTag}
@@ -410,6 +457,26 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 		return lastErr
 	}
 	selected.EstimatedCostUSD = maximumEstimate
+	if len(routing.Fields) > 0 {
+		// Preserve the client's fallback/order policy over every endpoint that
+		// passed capability and price validation, rather than pinning the first.
+		var fields map[string]json.RawMessage
+		if err = common.Unmarshal(selected.RequestBody, &fields); err != nil {
+			return err
+		}
+		routing.Fields["only"], err = common.Marshal(eligibleTags)
+		if err != nil {
+			return err
+		}
+		fields["provider"], err = common.Marshal(routing.Fields)
+		if err != nil {
+			return err
+		}
+		selected.RequestBody, err = common.Marshal(fields)
+		if err != nil {
+			return err
+		}
+	}
 	info.NativeImage = selected
 	return nil
 }

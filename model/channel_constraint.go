@@ -12,6 +12,7 @@ var filterEvalOrder = []dto.ChannelFilterKind{
 	dto.FilterRequestPath,
 	dto.FilterTaskPluginIdentity,
 	dto.FilterBatchEndpoint,
+	dto.FilterProviderRouting,
 }
 
 // ChannelSatisfiesFilters reports whether ch passes every filter.
@@ -90,6 +91,8 @@ func candidatePassesKindFilters(ch *Channel, exists bool, modelName string, kind
 
 func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilter) bool {
 	switch filter.Kind {
+	case dto.FilterProviderRouting:
+		return slices.Contains(filter.ProviderChannelTypes, ch.Type)
 	case dto.FilterBatchEndpoint:
 		return batch.Supports(ch.Type, filter.BatchEndpoint)
 	case dto.FilterRequestPath:

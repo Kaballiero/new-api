@@ -19,14 +19,85 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestBatchProviderSnapshotDatabases(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var driver gorm.Dialector
+			switch dialect {
+			case "mysql":
+				if os.Getenv("TEST_MYSQL_DSN") == "" {
+					t.Skip("TEST_MYSQL_DSN is not configured")
+				}
+				driver = mysql.Open(os.Getenv("TEST_MYSQL_DSN"))
+			case "postgres":
+				if os.Getenv("TEST_POSTGRES_DSN") == "" {
+					t.Skip("TEST_POSTGRES_DSN is not configured")
+				}
+				driver = postgres.Open(os.Getenv("TEST_POSTGRES_DSN"))
+			default:
+				driver = sqlite.Open(filepath.Join(t.TempDir(), "provider-snapshot.db"))
+			}
+			cfg := &gorm.Config{NamingStrategy: schema.NamingStrategy{TablePrefix: "provider_routing_"}}
+			db, err := gorm.Open(driver, cfg)
+			require.NoError(t, err)
+			require.NoError(t, db.AutoMigrate(&model.BatchJob{}))
+			var version string
+			query := "SELECT VERSION()"
+			if dialect == "sqlite" {
+				query = "SELECT sqlite_version()"
+			}
+			require.NoError(t, db.Raw(query).Scan(&version).Error)
+			t.Logf("real %s %s", dialect, version)
+			snapshot := BatchBillingSnapshot{Provider: []byte(`{"only":["azure"],"allow_fallbacks":false}`)}
+			raw, err := common.Marshal(snapshot)
+			require.NoError(t, err)
+			job := model.BatchJob{PublicID: "routing-snapshot", UserID: 1, IdempotencyKey: "once", BillingSnapshot: string(raw)}
+			require.NoError(t, db.Create(&job).Error)
+			legacy := model.BatchJob{PublicID: "legacy-snapshot", UserID: 1, IdempotencyKey: "legacy", BillingSnapshot: `{}`}
+			require.NoError(t, db.Create(&legacy).Error)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			require.NoError(t, sqlDB.Close())
+			// A new connection models recovery without the admission's in-memory
+			// provider value; both old and new JSON contracts must survive startup.
+			db, err = gorm.Open(driver, cfg)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoError(t, db.Migrator().DropTable(&model.BatchJob{}))
+				sqlDB, err := db.DB()
+				require.NoError(t, err)
+				require.NoError(t, sqlDB.Close())
+			})
+			require.NoError(t, db.AutoMigrate(&model.BatchJob{}))
+			require.NoError(t, db.First(&job, job.ID).Error)
+			var restored BatchBillingSnapshot
+			require.NoError(t, common.UnmarshalJsonStr(job.BillingSnapshot, &restored))
+			assert.JSONEq(t, string(snapshot.Provider), string(restored.Provider))
+			wire, err := (batch.OpenRouter{}).Create(batch.Submission{Model: "test/model", Endpoint: "/v1/embeddings", Provider: restored.Provider, Items: []batch.Item{{CustomID: "one", Body: []byte(`{"input":"hi"}`)}}})
+			require.NoError(t, err)
+			assert.Contains(t, string(wire.Body), `"provider":{"only":["azure"],"allow_fallbacks":false},"requests"`)
+			require.NoError(t, db.First(&legacy, legacy.ID).Error)
+			// Decode into a fresh value as a worker does after restart.
+			var oldContract BatchBillingSnapshot
+			require.NoError(t, common.UnmarshalJsonStr(legacy.BillingSnapshot, &oldContract))
+			assert.Empty(t, oldContract.Provider)
+		})
+	}
+}
 
 func TestBatchUsageRequiresNativeFacts(t *testing.T) {
 	for _, tc := range []struct {
@@ -109,7 +180,7 @@ func TestBatchBillingUsesProviderBase(t *testing.T) {
 }
 
 func TestBatchWorkerLifecycle(t *testing.T) {
-	for _, mode := range []string{"success", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
+	for _, mode := range []string{"success", "provider_routing", "corrupt_contract", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
 		t.Run(mode, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 			require.NoError(t, err)
@@ -152,9 +223,10 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 						return
 					}
 					var wire struct {
-						Endpoint string       `json:"endpoint"`
-						Model    string       `json:"model"`
-						Requests []batch.Item `json:"requests"`
+						Endpoint string         `json:"endpoint"`
+						Model    string         `json:"model"`
+						Provider map[string]any `json:"provider"`
+						Requests []batch.Item   `json:"requests"`
 					}
 					if err := common.DecodeJson(r.Body, &wire); err != nil {
 						t.Error(err)
@@ -164,6 +236,11 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 					assert.Equal(t, "/api/v1/batches", r.URL.Path)
 					assert.Equal(t, "/v1/chat/completions", wire.Endpoint)
 					assert.Equal(t, "test-model", wire.Model)
+					if mode == "provider_routing" {
+						assert.Equal(t, map[string]any{"only": []any{"openai"}, "allow_fallbacks": false}, wire.Provider)
+					} else {
+						assert.Nil(t, wire.Provider)
+					}
 					if assert.Len(t, wire.Requests, 1) {
 						assert.Equal(t, nativeCustomID, wire.Requests[0].CustomID)
 						assert.JSONEq(t, `{"max_tokens":8}`, string(wire.Requests[0].Body))
@@ -230,14 +307,21 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, BatchSettlementOpenRouterJobCostV2, snapshot.SettlementMode)
 			}
+			if mode == "provider_routing" {
+				snapshot.Provider = []byte(`{"only":["openai"],"allow_fallbacks":false}`)
+			}
 			encoded, err := common.Marshal(snapshot)
 			require.NoError(t, err)
-			if mode == "provider_failed_settlement_error" {
-				encoded = []byte("{") // A later financial error must not erase the provider diagnostic.
+			if mode == "provider_failed_settlement_error" || mode == "corrupt_contract" {
+				encoded = []byte("{")
 			}
 			configHash, err := BatchChannelConfigHash(&channel)
 			require.NoError(t, err)
 			job := model.BatchJob{PublicID: "batch_" + mode, UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, ChannelType: channel.Type, CredentialHash: fmt.Sprintf("%x", sha256.Sum256([]byte(channel.Key))), ChannelConfigHash: configHash, Model: "test-model", UpstreamModel: "test-model", Endpoint: "/v1/chat/completions", Status: "validating", BillingStatus: "reserved", SubmitState: "queued", BillingSnapshot: string(encoded), RequestCount: 1, ReservedQuota: 100, ExpiresAt: time.Now().Add(time.Hour).Unix()}
+			if mode == "provider_failed_settlement_error" {
+				// The durable contract became corrupt after the paid submission.
+				job.SubmitState, job.UpstreamID = "submitted", "native-1"
+			}
 			require.NoError(t, model.CreateBatchReservation(&job, []model.BatchItem{{CustomID: "client-id", Body: `{"max_tokens":8}`, UpstreamBody: `{"max_tokens":8}`, BillingStatus: "reserved", ReservedQuota: 100}}))
 			var item model.BatchItem
 			require.NoError(t, db.Where("batch_id = ?", job.ID).First(&item).Error)
@@ -246,7 +330,19 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 			require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
 			require.NoError(t, db.First(&job, job.ID).Error)
 			require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
-			assert.EqualValues(t, 1, posts.Load(), "ambiguous POST must never be repeated")
+			if mode == "corrupt_contract" {
+				require.NoError(t, db.First(&job, job.ID).Error)
+				assert.Zero(t, posts.Load(), "a corrupt routing contract must fail before a paid POST")
+				assert.Equal(t, "queued", job.SubmitState)
+				assert.EqualValues(t, 100, job.ReservedQuota)
+				assert.Zero(t, job.ChargedQuota)
+				return
+			}
+			if mode == "provider_failed_settlement_error" {
+				assert.Zero(t, posts.Load(), "already submitted work must never be replayed")
+			} else {
+				assert.EqualValues(t, 1, posts.Load(), "ambiguous POST must never be repeated")
+			}
 			if strings.HasPrefix(mode, "v2_") {
 				require.NoError(t, db.First(&job, job.ID).Error)
 				require.NoError(t, db.First(&user, user.Id).Error)

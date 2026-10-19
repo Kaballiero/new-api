@@ -160,11 +160,15 @@ func processBatchJob(ctx context.Context, job *model.BatchJob, runnerID string) 
 }
 
 func submitBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter, runnerID string) error {
+	var contract BatchBillingSnapshot
+	if err := common.UnmarshalJsonStr(job.BillingSnapshot, &contract); err != nil {
+		return err
+	}
 	var items []model.BatchItem
 	if err := model.DB.Where("batch_id = ?", job.ID).Order("ordinal asc").Find(&items).Error; err != nil {
 		return err
 	}
-	submission := batch.Submission{ID: job.PublicID, Model: job.UpstreamModel, Endpoint: job.Endpoint, InputFileID: job.InputFileID, Items: make([]batch.Item, len(items))}
+	submission := batch.Submission{ID: job.PublicID, Model: job.UpstreamModel, Endpoint: job.Endpoint, Provider: contract.Provider, InputFileID: job.InputFileID, Items: make([]batch.Item, len(items))}
 	for i, item := range items {
 		submission.Items[i] = batch.Item{CustomID: item.ProviderCustomID, Body: []byte(item.UpstreamBody)}
 	}

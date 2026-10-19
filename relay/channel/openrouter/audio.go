@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/provider"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -51,7 +52,7 @@ func transcriptionReservationPayload(contentType string, body []byte) ([]byte, e
 			continue
 		}
 		switch name {
-		case "model", "language", "temperature", "response_format", "prompt", "timestamp_granularities[]", "timestamp_granularities":
+		case "model", "language", "temperature", "response_format", "prompt", "timestamp_granularities[]", "timestamp_granularities", "provider":
 		default:
 			return nil, errors.New("unsupported OpenRouter transcription multipart field")
 		}
@@ -66,6 +67,17 @@ func transcriptionReservationPayload(contentType string, body []byte) ([]byte, e
 		}
 		if _, exists := fields[name]; exists {
 			return nil, errors.New("duplicate OpenRouter transcription field")
+		}
+		if name == "provider" {
+			if err = provider.Validate("audio/transcriptions", value); err != nil {
+				return nil, err
+			}
+			var options any
+			if err = common.Unmarshal(value, &options); err != nil {
+				return nil, err
+			}
+			fields[name] = options
+			continue
 		}
 		fields[name] = string(value)
 	}

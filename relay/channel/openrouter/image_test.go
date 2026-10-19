@@ -793,29 +793,39 @@ func TestNativeImageProviderPreparation(t *testing.T) {
 	for _, tc := range []struct {
 		name, extra, overrides, wantTag string
 		wantReserve                     float64
+		wantTags                        []string
+		wantFallback                    *bool
 		fail                            bool
 	}{
-		{name: "default cheapest reserves maximum", wantTag: "cheap", wantReserve: 0.09},
-		{name: "only expensive", extra: `"provider":{"only":["expensive"],"allow_fallbacks":false,"sort":"price","options":{}}`, wantTag: "expensive", wantReserve: 0.09},
-		{name: "ordered expensive", extra: `"provider":{"order":["expensive","cheap"]}`, wantTag: "expensive", wantReserve: 0.09},
+		{name: "default cheapest reserves maximum", wantTag: "cheap", wantReserve: 0.09, wantFallback: common.GetPointer(false)},
+		{name: "only expensive", extra: `"provider":{"only":["expensive"],"allow_fallbacks":false,"sort":"price","options":{}}`, wantTag: "expensive", wantReserve: 0.09, wantFallback: common.GetPointer(false)},
+		{name: "ordered expensive", extra: `"provider":{"order":["expensive","cheap"]}`, wantTag: "expensive", wantReserve: 0.09, wantTags: []string{"cheap", "expensive"}},
+		{name: "explicit fallback preserved", extra: `"provider":{"order":["expensive","cheap"],"allow_fallbacks":true}`, wantTag: "expensive", wantReserve: 0.09, wantTags: []string{"cheap", "expensive"}, wantFallback: common.GetPointer(true)},
+		{name: "nested admin replacement", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"provider":{"only":["cheap"]}}`, wantTag: "cheap", wantReserve: 0.01},
 		{name: "ignore expensive", extra: `"provider":{"ignore":["expensive"]}`, wantTag: "cheap", wantReserve: 0.01},
 		{name: "first primary unavailable", extra: `"provider":{"order":["missing","cheap"],"allow_fallbacks":false}`, fail: true},
+		{name: "nested provider without admin override", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, wantTag: "expensive", wantReserve: 0.09},
 		{name: "only unavailable", extra: `"provider":{"only":["missing"]}`, fail: true},
 		{name: "bad provider", extra: `"provider":[]`, fail: true},
 		{name: "bad only", extra: `"provider":{"only":"cheap"}`, fail: true},
 		{name: "empty identifier", extra: `"provider":{"only":[""]}`, fail: true},
-		{name: "null fallback", extra: `"provider":{"allow_fallbacks":null}`, fail: true},
+		{name: "null preferences preserved", extra: `"provider":{"only":null,"allow_fallbacks":null}`, wantTag: "cheap", wantReserve: 0.09, wantTags: []string{"cheap", "expensive"}},
+		{name: "count excludes incompatible fallback", extra: `"n":2,"provider":{"order":["expensive","cheap"]}`, wantTag: "cheap", wantReserve: 0.02},
+		{name: "null unknown field rejected", extra: `"provider":{"unknown":null}`, fail: true},
 		{name: "unknown field", extra: `"provider":{"max_price":{}}`, fail: true},
 		{name: "options unsafe", extra: `"provider":{"options":{"cheap":{"x":1}}}`, fail: true},
-		{name: "latency unsafe", extra: `"provider":{"sort":"latency"}`, fail: true},
+		{name: "throughput sorting", extra: `"provider":{"sort":"throughput"}`, wantTag: "cheap", wantReserve: 0.09, wantTags: []string{"cheap", "expensive"}},
+		{name: "partitioned price sorting", extra: `"provider":{"sort":{"by":"price","partition":"none"}}`, wantTag: "cheap", wantReserve: 0.09, wantTags: []string{"cheap", "expensive"}},
+		{name: "unknown sorting rejected", extra: `"provider":{"sort":"unknown"}`, fail: true},
+		{name: "latency sorting", extra: `"provider":{"sort":"latency"}`, wantTag: "cheap", wantReserve: 0.09, wantTags: []string{"cheap", "expensive"}},
 		{name: "capability mismatch", extra: `"provider":{"only":["cheap"]},"resolution":"4K"`, fail: true},
 		{name: "legacy admin override", overrides: `{"provider":{"only":["expensive"]}}`, wantTag: "expensive", wantReserve: 0.09},
 		{name: "conditional move mapped model", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"upstream_model","mode":"full","value":"test/image"}]},{"mode":"delete","path":"extra_body"}]}`, wantTag: "expensive", wantReserve: 0.09},
 		{name: "copy cleanup", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"copy","from":"extra_body.provider","to":"provider"},{"mode":"delete","path":"extra_body"}]}`, wantTag: "expensive", wantReserve: 0.09},
 		{name: "literal equal cleanup", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"provider":{"only":["expensive"]},"operations":[{"mode":"delete","path":"extra_body"}]}`, wantTag: "expensive", wantReserve: 0.09},
-		{name: "mismatch cleanup cannot hide nested", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"model","mode":"full","value":"wrong"}]},{"mode":"delete","path":"extra_body"}]}`, fail: true},
+		{name: "mismatch cleanup preserves normalized nested", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"model","mode":"full","value":"wrong"}]},{"mode":"delete","path":"extra_body"}]}`, wantTag: "expensive", wantReserve: 0.09},
 		{name: "direct nested conflict", extra: `"provider":{"only":["cheap"]},"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider"},{"mode":"delete","path":"extra_body"}]}`, fail: true},
-		{name: "condition mismatch retains unsafe extra body", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"model","mode":"full","value":"wrong"}]}]}`, fail: true},
+		{name: "condition mismatch preserves normalized nested", extra: `"extra_body":{"provider":{"only":["expensive"]}}`, overrides: `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"model","mode":"full","value":"wrong"}]}]}`, wantTag: "expensive", wantReserve: 0.09},
 		{name: "cleanup cannot hide extra fields", extra: `"extra_body":{"provider":{},"n":100}`, overrides: `{"operations":[{"mode":"delete","path":"extra_body"}]}`, fail: true},
 		{name: "unsupported override", overrides: `{"operations":[{"mode":"set","path":"n","value":10}]}`, fail: true},
 		{name: "header override", overrides: `{"operations":[{"mode":"set_header","path":"Authorization","value":"secret"}]}`, fail: true},
@@ -829,7 +839,7 @@ func TestNativeImageProviderPreparation(t *testing.T) {
 					return
 				}
 				assert.Equal(t, "/v1/images/models/test/image/endpoints", r.URL.Path)
-				_, _ = io.WriteString(w, `{"id":"test/image","endpoints":[{"provider_tag":"cheap","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.01}]},{"provider_tag":"expensive","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.09}]}]}`)
+				_, _ = io.WriteString(w, `{"id":"test/image","endpoints":[{"provider_tag":"cheap","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[{"billable":"output_image","unit":"image","cost_usd":0.01}]},{"provider_tag":"expensive","pricing":[{"billable":"output_image","unit":"image","cost_usd":0.09}]}]}`)
 			}))
 			defer server.Close()
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -860,11 +870,27 @@ func TestNativeImageProviderPreparation(t *testing.T) {
 				require.NoError(t, common.Unmarshal(info.NativeImage.RequestBody, &wire))
 				var provider map[string]json.RawMessage
 				require.NoError(t, common.Unmarshal(wire["provider"], &provider))
-				assert.JSONEq(t, `["`+tc.wantTag+`"]`, string(provider["only"]))
-				assert.Equal(t, "false", string(provider["allow_fallbacks"]))
-				if strings.Contains(tc.extra, `"sort"`) {
+				var only []string
+				require.NoError(t, common.Unmarshal(provider["only"], &only))
+				if tc.wantTags != nil {
+					assert.Equal(t, tc.wantTags, only)
+					assert.NotContains(t, wire, "n", "fallbacks with no n capability receive the native default")
+				} else {
+					assert.Equal(t, []string{tc.wantTag}, only)
+				}
+				if strings.Contains(tc.extra, `"allow_fallbacks":null`) {
+					assert.Equal(t, "null", string(provider["allow_fallbacks"]))
+				} else if tc.wantFallback == nil {
+					assert.NotContains(t, provider, "allow_fallbacks")
+				} else {
+					assert.Equal(t, fmt.Sprint(*tc.wantFallback), string(provider["allow_fallbacks"]))
+				}
+				if tc.name == "only expensive" {
 					assert.JSONEq(t, `"price"`, string(provider["sort"]))
 					assert.JSONEq(t, `{}`, string(provider["options"]))
+				}
+				if strings.Contains(tc.name, "sorting") {
+					assert.Contains(t, provider, "sort")
 				}
 				info.ChannelId++
 				_, err = a.ConvertImageRequest(c, info, request)

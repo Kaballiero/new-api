@@ -223,13 +223,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	batch := strings.HasPrefix(operation, "batch_")
 	operation = strings.TrimPrefix(operation, "batch_")
 	if batch {
-		request.Provider.Only = nil
-		request.Provider.Ignore = nil
-		request.Provider.Order = nil
-		request.Provider.AllowFallbacks = nil
-		request.Provider.Quantizations = nil
-		request.Provider.MaxPrice = nil
-		request.Provider.RequireParameters = false
+		// Provider is projected from the durable batch envelope by admission;
+		// individual item preferences never define native Batch routing.
 		request.ServiceTier = ""
 		request.Speed = nil
 	}
