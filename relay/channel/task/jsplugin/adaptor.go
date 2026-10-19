@@ -192,7 +192,14 @@ func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.Re
 		state.ConfiguredReserveUSD = common.GetPointer(local.USD)
 		state.ConfiguredReserveModel = local.Model
 		state.ConfiguredReserveExprHash = local.ExprHash
-		facts["reservation"] = map[string]any{"source": source, "model": local.Model, "usd": local.USD, "expr_hash": local.ExprHash}
+		if openrouter.SourceMediaVideo(order.Model) {
+			facts["configured_reservation"] = map[string]any{"model": local.Model, "usd": local.USD, "expr_hash": local.ExprHash}
+		} else {
+			facts["reservation"] = map[string]any{"source": source, "model": local.Model, "usd": local.USD, "expr_hash": local.ExprHash}
+		}
+	}
+	if openrouter.SourceMediaVideo(order.Model) {
+		facts["reservation"] = map[string]any{"source": "approximate_media", "model": order.Model, "usd": estimate, "hard_bound": false}
 	}
 	c.Set("openrouter_video_order_facts", facts)
 	info.OpenRouterCost = state
