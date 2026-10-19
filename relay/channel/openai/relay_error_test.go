@@ -1009,10 +1009,10 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 		{name: "empty endpoints is unavailable model", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[]}}`, wantError: "no available endpoints"},
 		{name: "discovery identity mismatch never fallback", local: 2, metadata: `{"data":{"id":"other/wrong","endpoints":[{"tag":"image-provider"}]}}`, wantError: "discovery model mismatch"},
 		{name: "route identity mismatch never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","model_id":"other/wrong"}]}}`, wantError: "endpoint model does not match"},
-		{name: "disabled endpoint never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","status":-1}]}}`, wantError: "no compatible"},
+		{name: "negative status retains local monetary fallback", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","status":-1}]}}`, cost: "3"},
 		{name: "missing default cap cannot waive context limit", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","context_length":1}]}}`, extra: `,"max_tokens":null`, wantError: "no compatible"},
 		{name: "negative endpoint limits never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","endpoints":[{"tag":"image-provider","context_length":-1}]}}`, wantError: "invalid OpenRouter endpoint token limits"},
-		{name: "missing image capability never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","architecture":{"output_modalities":["text"]},"endpoints":[{"tag":"image-provider"}]}}`, wantError: "does not support requested output modality"},
+		{name: "missing image capability never fallback", local: 2, metadata: `{"data":{"id":"other/image-model","architecture":{"output_modalities":["text"]},"endpoints":[{"tag":"image-provider","status":-1}]}}`, wantError: "does not support requested output modality"},
 		{name: "provider filter never fallback", local: 2, noPrices: true, rawBody: true, extra: `,"provider":{"only":["absent-provider"]}`, wantError: "no compatible"},
 		{name: "explicit available provider remains eligible", local: 2, noPrices: true, rawBody: true, extra: `,"provider":{"order":["absent-provider","image-provider"],"allow_fallbacks":false}`, cost: "3"},
 		{name: "provider outside explicit order never fallback", local: 2, noPrices: true, rawBody: true, extra: `,"provider":{"order":["absent-provider"],"allow_fallbacks":false}`, wantError: "no compatible"},
@@ -1237,10 +1237,11 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		settings.BillingMode, settings.BillingExpr = oldModes, oldExprs
 	})
 	for _, tc := range []struct {
-		name, kind, cost, extra, expression, wantError                                                         string
-		noSource, zeroLocal, minimum, disabled, unknownCapability, insufficient, disconnected, storageDisabled bool
-		missingCost, noDone, provisional, noGenerationID, noLocal                                              bool
-		channelReserve                                                                                         *float64
+		name, kind, cost, extra, expression, wantError                                               string
+		noSource, zeroLocal, minimum, unknownCapability, insufficient, disconnected, storageDisabled bool
+		endpointStatus                                                                               int
+		missingCost, noDone, provisional, noGenerationID, noLocal                                    bool
+		channelReserve                                                                               *float64
 	}{
 		{name: "Chat audio preserves delta with force format", kind: "chat", cost: "3"},
 		{name: "Chat audio without local storage", kind: "chat", storageDisabled: true, cost: "3"},
@@ -1251,8 +1252,8 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "SSE explicit zero is authoritative", kind: "chat", cost: "0"},
 		{name: "Chat audio is opt in", kind: "chat", noSource: true, wantError: "requires configured_price"},
 		{name: "Chat audio cannot use nonstream protocol", kind: "chat", extra: `,"stream":false`, wantError: "requires streaming"},
-		{name: "disabled music provider not waived", kind: "music", disabled: true, wantError: "no compatible"},
-		{name: "audio capability must be confirmed", kind: "chat", unknownCapability: true, wantError: "capability is missing"},
+		{name: "negative status music settles authoritative cost", kind: "music", endpointStatus: -5, cost: "0.04"},
+		{name: "audio capability must be confirmed", kind: "chat", endpointStatus: -5, unknownCapability: true, wantError: "capability is missing"},
 		{name: "audio tools remain closed", kind: "chat", extra: `,"tools":[{"type":"function"}]`, wantError: "without routing or tools"},
 		{name: "audio input media remains closed", kind: "chat", extra: `,"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]}]`, wantError: "duration quantity is unpriced"},
 		{name: "reserve fails before paid submission", kind: "chat", insufficient: true, wantError: "insufficient audio quota"},
@@ -1281,7 +1282,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "NaN channel reserve rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "infinite channel reserve rejected", kind: "stt", noSource: true, channelReserve: common.GetPointer(math.Inf(1)), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "oversize channel hold rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(1e20), wantError: "quota conversion"},
-		{name: "disabled endpoint cannot use channel reserve", kind: "tts", noSource: true, disabled: true, channelReserve: common.GetPointer(0.3), wantError: "no compatible"},
+		{name: "negative status TTS uses channel reserve", kind: "tts", noSource: true, endpointStatus: -5, channelReserve: common.GetPointer(0.3), cost: "0.04"},
 		{name: "missing capability cannot use channel reserve", kind: "stt", noSource: true, unknownCapability: true, channelReserve: common.GetPointer(0.3), wantError: "capability is missing"},
 		{name: "Chat audio still requires configured price", kind: "chat", noSource: true, channelReserve: common.GetPointer(0.3), wantError: "requires configured_price"},
 		{name: "multipart STT final usage cost", kind: "stt", cost: "3"},
@@ -1346,10 +1347,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 				require.NoError(t, writer.Close())
 				body, contentType = b.String(), writer.FormDataContentType()
 			}
-			status := 0
-			if tc.disabled {
-				status = -5
-			}
+			status := tc.endpointStatus
 			var modalities any = []string{"text", modality}
 			if tc.unknownCapability {
 				modalities = nil
@@ -1846,9 +1844,10 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 		settings.BillingMode, settings.BillingExpr = oldModes, oldExprs
 	})
 	for i, tc := range []struct {
-		name, family, cost, extra, wantError, metadata, crash                                                                        string
-		reserve                                                                                                                      *float64
-		configured, missingPrice, expression, noCapability, disabled, noID, nonOR, timeout, upstreamError, storageDisabled, deadline bool
+		name, family, cost, extra, wantError, metadata, crash                                                              string
+		reserve                                                                                                            *float64
+		configured, missingPrice, expression, noCapability, noID, nonOR, timeout, upstreamError, storageDisabled, deadline bool
+		endpointStatus                                                                                                     int
 	}{
 		{name: "token family below hold", family: "token", reserve: common.GetPointer(.02), cost: "0.01"},
 		{name: "search family above hold", family: "search", reserve: common.GetPointer(.02), cost: "0.03"},
@@ -1863,8 +1862,8 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 		{name: "configured and channel floor", configured: true, reserve: common.GetPointer(.04), cost: "0.01"},
 		{name: "configured source is not waived", configured: true, missingPrice: true, reserve: common.GetPointer(.02), wantError: "no configured reservation price"},
 		{name: "unmeasured token expression rejected", configured: true, expression: true, wantError: "unavailable p quantity"},
-		{name: "unknown capability", reserve: common.GetPointer(.02), noCapability: true, wantError: "rerank output capability"},
-		{name: "disabled endpoint", reserve: common.GetPointer(.02), disabled: true, wantError: "no compatible"},
+		{name: "unknown capability", reserve: common.GetPointer(.02), endpointStatus: -1, noCapability: true, wantError: "rerank output capability"},
+		{name: "negative status settles authoritative cost", reserve: common.GetPointer(.02), endpointStatus: -1, cost: "0.01"},
 		{name: "final provider constraint", reserve: common.GetPointer(.02), extra: `,"provider":{"only":["absent"]}`, wantError: "no compatible"},
 		{name: "Chat cap is not a bound", reserve: common.GetPointer(.02), extra: `,"max_output_tokens":1`, wantError: "Chat output bounds"},
 		{name: "stream closed", reserve: common.GetPointer(.02), extra: `,"stream":true`, wantError: "without routing or tools"},
@@ -1927,12 +1926,9 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 						return
 					}
 					assert.Equal(t, "/v1/models/vendor/reranker/endpoints", r.URL.Path)
-					modality, status := "rerank", 0
+					modality, status := "rerank", tc.endpointStatus
 					if tc.noCapability {
 						modality = "text"
-					}
-					if tc.disabled {
-						status = -1
 					}
 					// Both published unit families deliberately retain zero catalog token rates.
 					pricing := `"prompt":"0","completion":"0"`
