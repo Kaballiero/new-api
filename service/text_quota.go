@@ -416,7 +416,7 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 }
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
-	if HasOpenRouterAudioTask(relayInfo) {
+	if HasOpenRouterSyncTask(relayInfo) {
 		return
 	}
 	originUsage := usage

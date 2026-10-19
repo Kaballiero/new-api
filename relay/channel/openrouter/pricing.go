@@ -272,6 +272,17 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		reserveUSD = info.ChannelSetting.OpenRouterReserveUSD(request.Model)
 	}
 	decisions := operation == "decisions"
+	rerank := operation == "rerank"
+	if rerank {
+		if batch || localUSD == nil && (info.ChannelMeta == nil || info.ChannelSetting.OpenRouterReserveUSD(request.Model) == nil) || info.RelayFormat != types.RelayFormatRerank {
+			return 0, errors.New("OpenRouter rerank requires configured_price or an explicit approximate channel reserve and Rerank format")
+		}
+		for _, key := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "modalities"} {
+			if _, present := fields[key]; present {
+				return 0, errors.New("OpenRouter rerank does not support Chat output bounds or modalities")
+			}
+		}
+	}
 	if raw, ok := fields["modalities"]; ok {
 		if common.Unmarshal(raw, &modalities) != nil {
 			return 0, errors.New("invalid OpenRouter modalities")
@@ -333,7 +344,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		return 0, err
 	}
 	prompt := max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), request.Model))
-	if dedicatedAudio || decisions {
+	if dedicatedAudio || decisions || rerank {
 		prompt = 0
 	}
 	count := 1
@@ -364,7 +375,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			return 0, errors.New("invalid OpenRouter approximate reserve")
 		}
 		streamAllowed := audioOutput && localUSD != nil && request.Stream && info.IsStream
-		operationAllowed := operation == "chat/completions" || decisions || dedicatedAudio
+		operationAllowed := operation == "chat/completions" || decisions || rerank || dedicatedAudio
 		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
 			return 0, errors.New("OpenRouter approximate reserve only supports one nonstream text chat response without routing or tools")
 		}
@@ -375,7 +386,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 	}
 	if localUSD != nil {
-		if info.RelayFormat != types.RelayFormatOpenAI && !dedicatedAudio && !(decisions && info.RelayFormat == types.RelayFormatSystemOne) {
+		if info.RelayFormat != types.RelayFormatOpenAI && !dedicatedAudio && !(decisions && info.RelayFormat == types.RelayFormatSystemOne) && !rerank {
 			return 0, errors.New("OpenRouter configured price reserve requires OpenAI Chat format")
 		}
 		if raw, present := fields["audio"]; present && string(bytes.TrimSpace(raw)) != "null" && !audioOutput {
@@ -395,6 +406,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		if !ok {
 			return 0, fmt.Errorf("OpenRouter endpoint discovery missing for %s", model)
 		}
+		if rerank && !slices.Contains(e.OutputModalities[model], "rerank") {
+			return 0, errors.New("OpenRouter model does not declare rerank output capability")
+		}
 		if decisions && !slices.Contains(e.OutputModalities[model], "decisions") {
 			return 0, errors.New("OpenRouter model does not declare decisions output capability")
 		}
@@ -402,7 +416,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			return 0, errors.New("OpenRouter audio model output capability is missing")
 		}
 		if declared := e.OutputModalities[model]; declared != nil {
-			if localUSD != nil && len(modalities) == 0 && !decisions {
+			if localUSD != nil && len(modalities) == 0 && !decisions && !rerank {
 				for _, modality := range declared {
 					if modality != "text" && modality != "image" {
 						return 0, errors.New("OpenRouter configured price reserve requires explicit text/image modalities for this model")
@@ -506,7 +520,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 			output := 0
 			outputUnknown := false
-			if operation != "embeddings" && !dedicatedAudio && !decisions {
+			if operation != "embeddings" && !dedicatedAudio && !decisions && !rerank {
 				cap := request.MaxOutputTokens
 				if cap == nil {
 					cap = request.MaxCompletionTokens
@@ -601,7 +615,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 				var cost decimal.Decimal
 				var estimateErr error
-				if decisions {
+				if rerank {
+					// Search and token units are heterogeneous; catalog token zeros are not a tariff.
+					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter rerank monetary quantity is unmeasured")}
+				} else if decisions {
 					// State may contain arbitrary structures/media; token estimates are unmeasured.
 					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter decisions monetary quantity is unmeasured")}
 				} else if audioOutput || dedicatedAudio {
@@ -617,7 +634,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 				if estimateErr != nil {
 					var unavailable *EstimateUnavailableError
-					if (localUSD == nil && !((decisions || dedicatedAudio) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
+					if (localUSD == nil && !((decisions || rerank || dedicatedAudio) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
 						return 0, estimateErr
 					}
 					if *reserveUSD <= 0 {

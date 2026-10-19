@@ -739,6 +739,8 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		switch info.RelayMode {
 		case relayconstant.RelayModeSystemOne:
 			operation = "decisions"
+		case relayconstant.RelayModeRerank:
+			operation = "rerank"
 		case relayconstant.RelayModeEmbeddings:
 			operation = "embeddings"
 		case relayconstant.RelayModeResponses, relayconstant.RelayModeResponsesCompact:
@@ -774,6 +776,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	if info.OpenRouterCost != nil {
+		if info.RelayMode == relayconstant.RelayModeRerank {
+			return openrouter.RerankResponse(c, resp, info)
+		}
 		if info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription {
 			return openrouter.AudioResponse(c, resp, info)
 		}

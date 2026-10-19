@@ -127,8 +127,8 @@ func writeTaskArtifacts(c *gin.Context, task *model.Task, dashboard bool) {
 }
 
 func projectTaskArtifacts(task *model.Task) ([]relaychannel.TaskArtifact, error) {
-	if task != nil && task.PrivateData.OpenRouterAudio != nil && task.PrivateData.OpenRouterAudio.ResultReady {
-		mimeType := task.PrivateData.OpenRouterAudio.ResultMimeType
+	if task != nil && task.PrivateData.OpenRouterSyncState() != nil && task.PrivateData.OpenRouterSyncState().ResultReady {
+		mimeType := task.PrivateData.OpenRouterSyncState().ResultMimeType
 		artifactType := "file"
 		if strings.HasPrefix(mimeType, "audio/") {
 			artifactType = "audio"
@@ -299,8 +299,8 @@ func TaskArtifactContent(c *gin.Context) {
 		writeTaskArtifactError(c, http.StatusNotFound, "artifact_not_found", "Task or artifact not found")
 		return
 	}
-	if task.PrivateData.OpenRouterAudio != nil {
-		if !task.PrivateData.OpenRouterAudio.ResultReady {
+	if task.PrivateData.OpenRouterSyncState() != nil {
+		if !task.PrivateData.OpenRouterSyncState().ResultReady {
 			writeTaskArtifactError(c, http.StatusConflict, "artifact_not_ready", "Task artifacts are not ready")
 			return
 		}
