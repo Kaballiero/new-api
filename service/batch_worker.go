@@ -93,7 +93,7 @@ func processBatchJob(ctx context.Context, job *model.BatchJob, runnerID string) 
 	}
 	if job.SubmitState == "queued" || job.SubmitState == "preparing" {
 		if err := model.ConfirmBatchReservation(job); err != nil {
-			if errors.Is(err, model.ErrBatchInsufficientQuota) {
+			if errors.Is(err, model.ErrBatchInsufficientQuota) || errors.Is(err, model.ErrBatchDispatchDenied) {
 				return rejectUnsubmittedBatch(job, "reservation unavailable")
 			}
 			return err
@@ -205,12 +205,11 @@ func submitBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter
 	}
 	// Write the ambiguity marker BEFORE the first byte of the paid POST.
 	// No timeout, expired lease or process restart authorizes another POST.
-	changed := model.DB.Model(job).Where("submit_state = ? AND lease_owner = ?", "preparing", runnerID).Update("submit_state", "submission_unknown")
-	if changed.Error != nil {
-		return changed.Error
-	}
-	if changed.RowsAffected != 1 {
-		return model.ErrBatchConflict
+	if err := model.MarkBatchSubmissionUnknown(job, runnerID); err != nil {
+		if errors.Is(err, model.ErrBatchInsufficientQuota) || errors.Is(err, model.ErrBatchDispatchDenied) {
+			return rejectUnsubmittedBatch(job, "dispatch unavailable")
+		}
+		return err
 	}
 	job.SubmitState = "submission_unknown"
 	response, err := doBatchRequest(ctx, job, request, nil, "")

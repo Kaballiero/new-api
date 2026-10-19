@@ -258,49 +258,143 @@ return 1`
 	return nil
 }
 
+var (
+	ErrBatchReservationPending = errors.New("batch reservation awaits cache confirmation")
+	ErrBatchDispatchDenied     = errors.New("batch dispatch authorization unavailable")
+	ErrBatchReservationUnsafe  = errors.New("batch reservation ownership or holds are inconsistent")
+)
+
+func validateBatchDispatchOwner(job *BatchJob, user *User, token *Token) error {
+	if user.Id != job.UserID || token.Id != job.TokenID || token.UserId != job.UserID ||
+		job.ReservedQuota < 0 || user.BatchHeldQuota < job.ReservedQuota || token.BatchHeldQuota < job.ReservedQuota {
+		return ErrBatchReservationUnsafe
+	}
+	if user.DeletedAt.Valid || token.DeletedAt.Valid || user.Status != common.UserStatusEnabled ||
+		token.Status != common.TokenStatusEnabled || (token.ExpiredTime != -1 && token.ExpiredTime < common.GetTimestamp()) {
+		// Revocation permits accounting for proven unsubmitted work, even when
+		// the cache is cold or fenced. It must not hide known corrupt holds.
+		if common.RedisEnabled {
+			cached, err := cacheGetUserBase(user.Id)
+			if err == nil && cached.BatchQuotaVersion == user.BatchQuotaVersion && cached.BatchHeldQuota != user.BatchHeldQuota {
+				return ErrBatchReservationUnsafe
+			}
+			if err := cacheConfirmBatchToken(*token); errors.Is(err, ErrBatchReservationUnsafe) {
+				return err
+			}
+		}
+		return ErrBatchDispatchDenied
+	}
+	return nil
+}
+
+// ConfirmBatchReservation hydrates cold caches outside the dispatch transaction.
+// A successful DB fallback is not permission to send: confirmBatchReservation
+// reads the caches again, including their current versions and token fence.
 func ConfirmBatchReservation(job *BatchJob) error {
+	var user User
+	if err := DB.Unscoped().First(&user, job.UserID).Error; err != nil {
+		return err
+	}
+	var token Token
+	if err := DB.Unscoped().First(&token, job.TokenID).Error; err != nil {
+		return err
+	}
+	if job.SubmitState == "queued" || job.SubmitState == "preparing" {
+		if err := validateBatchDispatchOwner(job, &user, &token); err != nil {
+			return err
+		}
+	}
+	if common.RedisEnabled {
+		if !user.DeletedAt.Valid {
+			if _, err := GetUserCache(user.Id); err != nil {
+				return err
+			}
+		}
+		if !token.DeletedAt.Valid {
+			if _, err := GetTokenByKey(token.Key, false); err != nil {
+				return err
+			}
+		}
+	}
+	return confirmBatchReservation(DB, job, &user, &token)
+}
+
+// confirmBatchReservation never hydrates: callers may hold account row locks.
+func confirmBatchReservation(tx *gorm.DB, job *BatchJob, user *User, token *Token) error {
+	if token.UserId != user.Id || job.UserID != user.Id || job.TokenID != token.Id ||
+		job.ReservedQuota < 0 || user.BatchHeldQuota < job.ReservedQuota || token.BatchHeldQuota < job.ReservedQuota {
+		return ErrBatchReservationUnsafe
+	}
 	var pending int64
-	if err := DB.Model(&BatchQuotaEvent{}).Where("batch_id = ? AND applied = ?", job.ID, false).Count(&pending).Error; err != nil {
+	if err := tx.Model(&BatchQuotaEvent{}).Where("batch_id = ? AND applied = ?", job.ID, false).Count(&pending).Error; err != nil {
 		return err
 	}
 	if pending != 0 {
-		return errors.New("batch reservation awaits cache confirmation")
+		return ErrBatchReservationPending
 	}
-	var account User
-	if err := DB.Unscoped().First(&account, job.UserID).Error; err != nil {
-		return err
-	}
-	user := account.ToBaseUser()
-	var err error
-	var token Token
-	err = DB.Unscoped().First(&token, job.TokenID).Error
-	if err != nil {
-		return err
-	}
-	if common.RedisEnabled && !account.DeletedAt.Valid {
-		_, err = GetUserCache(job.UserID)
-		if err != nil {
-			return err
+	quota := int64(user.Quota)
+	if common.RedisEnabled {
+		if !user.DeletedAt.Valid {
+			cached, err := cacheGetUserBase(user.Id)
+			if err != nil {
+				return ErrBatchReservationPending
+			}
+			if cached.BatchQuotaVersion != user.BatchQuotaVersion || cached.AuthVersion != user.AuthVersion {
+				return ErrBatchReservationPending
+			}
+			if cached.BatchHeldQuota != user.BatchHeldQuota {
+				return ErrBatchReservationUnsafe
+			}
+			quota = int64(cached.Quota)
 		}
-		user, err = cacheGetUserBase(job.UserID)
-		if err != nil {
-			return err
+		if !token.DeletedAt.Valid {
+			if err := cacheConfirmBatchToken(*token); err != nil {
+				return err
+			}
 		}
+	} else if !token.UnlimitedQuota && int64(token.RemainQuota) < token.BatchHeldQuota {
+		return ErrBatchInsufficientQuota
 	}
-	if common.RedisEnabled && !token.DeletedAt.Valid {
-		cachedToken, cacheErr := cacheGetTokenByKey(token.Key)
-		err = cacheErr
-		if cachedToken != nil {
-			token = *cachedToken
-		}
-		if err != nil {
-			return err
-		}
-	}
-	if int64(user.Quota) < user.BatchHeldQuota || (!token.UnlimitedQuota && int64(token.RemainQuota) < token.BatchHeldQuota) {
+	if quota < user.BatchHeldQuota {
 		return ErrBatchInsufficientQuota
 	}
 	return nil
+}
+
+// MarkBatchSubmissionUnknown serializes dispatch authorization with account
+// mutations and the durable no-replay marker. Network I/O follows commit only.
+func MarkBatchSubmissionUnknown(job *BatchJob, runnerID string) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := lockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+			return err
+		}
+		var token Token
+		if err := lockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+			return err
+		}
+		var current BatchJob
+		if err := lockForUpdate(tx).First(&current, job.ID).Error; err != nil {
+			return err
+		}
+		if current.SubmitState != "preparing" || current.UpstreamID != "" || current.LeaseOwner != runnerID || current.LeaseUntil <= common.GetTimestamp() {
+			return ErrBatchConflict
+		}
+		if err := validateBatchDispatchOwner(&current, &user, &token); err != nil {
+			return err
+		}
+		if err := confirmBatchReservation(tx, &current, &user, &token); err != nil {
+			return err
+		}
+		changed := tx.Model(&current).Where("submit_state = ? AND upstream_id = '' AND lease_owner = ? AND lease_until > ?", "preparing", runnerID, common.GetTimestamp()).Update("submit_state", "submission_unknown")
+		if changed.Error != nil {
+			return changed.Error
+		}
+		if changed.RowsAffected != 1 {
+			return ErrBatchConflict
+		}
+		return nil
+	})
 }
 
 // ReleaseSettledBatchHolds is replay-safe even if a process dies after an
