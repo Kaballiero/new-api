@@ -395,6 +395,13 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 	if len(catalog.Endpoints) == 0 {
 		return errors.New("OpenRouter image model has no documented image endpoint")
 	}
+	reserve, optedIn := info.ChannelSetting.OpenRouterModelReserveUSD[request.Model]
+	if optedIn && (math.IsNaN(reserve) || math.IsInf(reserve, 0) || reserve <= 0 || reserve > float64(math.MaxInt32)/common.QuotaPerUnit) {
+		return errors.New("invalid OpenRouter image channel reserve")
+	}
+	if source, configured := info.ChannelSetting.OpenRouterReservationSource[request.Model]; configured && source != dto.OpenRouterReservationUpstream {
+		return errors.New("unsupported OpenRouter image reservation source")
+	}
 	var lastErr error
 	var selected *relaycommon.NativeImageInfo
 	var maximumEstimate float64
@@ -415,7 +422,8 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 		if !routing.AllowFallbacks && len(routing.Order) > 0 && rank != 0 {
 			continue
 		}
-		body, estimate, convertErr := ConvertImageRequest(c, request, endpoint)
+		endpoint = PublishedImageEndpoint(request.Model, endpoint)
+		body, estimate, convertErr := convertImageRequest(c, request, endpoint, reserve)
 		if convertErr != nil {
 			if errors.Is(convertErr, errImageTariff) {
 				return convertErr
@@ -447,7 +455,7 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 		eligibleTags = append(eligibleTags, endpoint.ProviderTag)
 		if selected == nil || rank < selectedRank || rank == selectedRank && estimate < selected.EstimatedCostUSD {
 			selectedRank = rank
-			selected = &relaycommon.NativeImageInfo{RequestBody: body, EstimatedCostUSD: estimate, ChannelID: info.ChannelId, ProviderTag: endpoint.ProviderTag}
+			selected = &relaycommon.NativeImageInfo{RequestBody: body, EstimatedCostUSD: estimate, ChannelID: info.ChannelId, ProviderTag: endpoint.ProviderTag, Model: request.Model, ReserveUSD: reserve, PricingUnknown: len(endpoint.Pricing) == 0}
 		}
 	}
 	if selected == nil {
@@ -485,6 +493,10 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 // but sends only supported native parameters. ResponseFormat is local: like
 // other base64-only adaptors, results are returned in data[].b64_json.
 func ConvertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint ImageEndpoint) ([]byte, float64, error) {
+	return convertImageRequest(c, request, endpoint, 0)
+}
+
+func convertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint ImageEndpoint, reserve float64) ([]byte, float64, error) {
 	routing, err := parseImageRouting(request)
 	if err != nil {
 		return nil, 0, err
@@ -719,12 +731,32 @@ func ConvertImageRequest(c *gin.Context, request dto.ImageRequest, endpoint Imag
 		provider["only"] = []string{endpoint.ProviderTag}
 	}
 	payload["provider"] = provider
-	estimate, err := EstimateImageCost(endpoint.Pricing, int(count), len(references), payload)
+	var estimate float64
+	if len(endpoint.Pricing) == 0 && reserve > 0 {
+		resolution, ok := payload["resolution"].(string)
+		cap := endpoint.SupportedParameters["resolution"]
+		_, sorted := routing.Fields["sort"]
+		var stream bool
+		if raw, exists := fields["stream"]; exists && common.Unmarshal(raw, &stream) != nil {
+			return nil, 0, errors.New("invalid image stream")
+		}
+		if count != 1 || len(references) > 1 || stream || c.Request.MultipartForm != nil || !ok || cap.Type != "enum" || !slices.Contains(cap.Values, resolution) || endpoint.ProviderTag == "" || len(routing.Only) != 1 || routing.Only[0] != endpoint.ProviderTag || routing.AllowFallbacks || sorted {
+			return nil, 0, errors.New("unpriced OpenRouter image requires one nonstream output, at most one reference, explicit resolution and one pinned provider without fallbacks or price sorting")
+		}
+		for key := range payload {
+			if !slices.Contains([]string{"model", "prompt", "n", "resolution", "aspect_ratio", "input_references", "provider", "user", "session_id"}, key) {
+				return nil, 0, fmt.Errorf("unpriced OpenRouter image parameter %s is unsupported", key)
+			}
+		}
+		estimate = reserve
+	} else {
+		estimate, err = EstimateImageCost(endpoint.Pricing, int(count), len(references), payload)
+	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: %v", errImageTariff, err)
 	}
 	body, err := common.Marshal(payload)
-	return body, estimate, err
+	return body, max(estimate, reserve), err
 }
 
 // EstimateImageCost reserves an estimate; it is never substituted for actual
@@ -791,18 +823,15 @@ func EstimateImageCost(prices []ImagePrice, count, references int, payload map[s
 }
 
 func (a *ImageAdaptor) ConvertImageRequest(_ *gin.Context, info *relaycommon.RelayInfo, _ dto.ImageRequest) (any, error) {
-	if info.NativeImage == nil || info.NativeImage.ChannelID != info.ChannelId {
+	if info.NativeImage == nil || info.NativeImage.ChannelID != info.ChannelId || info.NativeImage.Model != info.UpstreamModelName {
 		return nil, errors.New("OpenRouter image request was not prepared for this channel")
 	}
 	return json.RawMessage(info.NativeImage.RequestBody), nil
 }
 
 func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, _ io.Reader) (any, error) {
-	if info.NativeImage == nil || info.NativeImage.ChannelID != info.ChannelId || info.NativeImage.Sent {
+	if info.NativeImage == nil || info.NativeImage.ChannelID != info.ChannelId || info.NativeImage.Model != info.UpstreamModelName || info.NativeImage.Sent {
 		return nil, errors.New("OpenRouter image paid request cannot be repeated")
-	}
-	if err := ReserveCost(c, info, info.NativeImage.EstimatedCostUSD); err != nil {
-		return nil, err
 	}
 	endpoint, err := a.GetRequestURL(info)
 	if err != nil {
@@ -824,6 +853,14 @@ func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, _ 
 		req.Header.Set(key, value)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if err := ReserveCost(c, info, info.NativeImage.EstimatedCostUSD); err != nil {
+		return nil, err
+	}
+	if service.HasOpenRouterSyncTask(info) {
+		if err := service.ConfigureOpenRouterSyncSubmission(info, "", nil); err != nil {
+			return nil, err
+		}
+	}
 	info.DisablePing = true
 	info.OpenRouterCost.Sent = true
 	info.NativeImage.Sent = true
@@ -848,7 +885,12 @@ func captureImageRequestID(c *gin.Context, resp *http.Response, info *relaycommo
 	}
 }
 
-func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
+func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usageResult any, apiErr *types.NewAPIError) {
+	defer func() {
+		if apiErr != nil && service.HasOpenRouterSyncTask(info) {
+			_ = service.FailOpenRouterSyncTask(info, "invalid_image_result")
+		}
+	}()
 	if resp == nil || resp.Body == nil {
 		info.NativeImage.OutcomeUnknown = true
 		return nil, imageResponseError("OpenRouter returned no image response")
@@ -859,6 +901,9 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 		info.NativeImage.OutcomeUnknown = true
 		return nil, imageResponseError("OpenRouter image response was interrupted or exceeded the response limit")
 	}
+	if service.HasOpenRouterSyncTask(info) {
+		observeImageCost(info, responseBody)
+	}
 	var envelope struct {
 		Error json.RawMessage `json:"error"`
 	}
@@ -868,7 +913,7 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 	}
 	result, usage, err := ParseImageResponse(responseBody)
 	if err != nil {
-		info.NativeImage.OutcomeUnknown = true
+		info.NativeImage.OutcomeUnknown = !info.OpenRouterCost.Final
 		return nil, imageResponseError(err.Error())
 	}
 	cost := *result.Usage.Cost
@@ -877,6 +922,15 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 	info.OpenRouterCost.CostUSD = cost
 	info.OpenRouterCost.Valid = true
 	info.OpenRouterCost.Final = true
+	encoded, err := common.Marshal(result)
+	if err != nil {
+		return nil, imageResponseError("OpenRouter image result encoding failed")
+	}
+	if service.HasOpenRouterSyncTask(info) {
+		if err := service.CompleteOpenRouterSyncTask(c, info, encoded, "application/json", "file"); err != nil {
+			return nil, imageResponseError(err.Error())
+		}
+	}
 	if info.PriceData.UsePrice {
 		info.PriceData.AddOtherRatio("n", float64(len(result.Data)))
 	}
@@ -903,12 +957,29 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 		}
 		helper.Done(c)
 	} else {
-		encoded, _ := common.Marshal(result)
 		if writeErr := service.IOCopyBytesGracefully(c, resp, encoded); writeErr != nil {
 			logger.LogWarn(c, "OpenRouter image result delivery failed after completed generation")
 		}
 	}
 	return usage, nil
+}
+
+// Monetary evidence is independent of image decoding and client delivery.
+func observeImageCost(info *relaycommon.RelayInfo, body []byte) {
+	var envelope struct {
+		Usage struct {
+			Cost json.RawMessage `json:"cost"`
+		} `json:"usage"`
+	}
+	if common.Unmarshal(body, &envelope) != nil {
+		return
+	}
+	cost, err := common.ValidateOpenRouterCost(envelope.Usage.Cost)
+	if err != nil {
+		return
+	}
+	info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = cost, true, true
+	info.NativeImage.ActualCostUSD = &cost
 }
 
 func imageResponseError(reason string) *types.NewAPIError {
@@ -970,7 +1041,15 @@ func ParseImageResponse(body []byte) (*imageResponse, *dto.Usage, error) {
 // metadata.raw and flagged inputs never enter the relay error or backend logs.
 func ImageError(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) *types.NewAPIError {
 	defer service.CloseResponseBodyGracefully(resp)
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (64<<10)+1))
+	info.NativeImage.OutcomeUnknown = readErr != nil || service.HasOpenRouterSyncTask(info)
+	if readErr == nil && len(body) <= 64<<10 && service.HasOpenRouterSyncTask(info) {
+		observeImageCost(info, body)
+		info.NativeImage.OutcomeUnknown = !info.OpenRouterCost.Final
+	}
+	if service.HasOpenRouterSyncTask(info) {
+		_ = service.FailOpenRouterSyncTask(info, "image_upstream_error")
+	}
 	var envelope struct {
 		Error struct {
 			Code    any    `json:"code"`

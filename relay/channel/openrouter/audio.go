@@ -91,8 +91,8 @@ func transcriptionReservationPayload(contentType string, body []byte) ([]byte, e
 // retains the durable Task reservation for metadata reconciliation.
 func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage *dto.Usage, apiErr *types.NewAPIError) {
 	defer func() {
-		if apiErr != nil && service.HasOpenRouterAudioTask(info) {
-			_ = service.FailOpenRouterAudioTask(info, "invalid_audio_result")
+		if apiErr != nil && service.HasOpenRouterSyncTask(info) {
+			_ = service.FailOpenRouterSyncTask(info, "invalid_audio_result")
 		}
 	}()
 	if resp == nil || resp.Body == nil {
@@ -190,7 +190,7 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 			return nil, CostError("OpenRouter speech response is not audio")
 		}
 	}
-	if err := service.CompleteOpenRouterAudioTask(c, info, body, mimeType, resultType); err != nil {
+	if err := service.CompleteOpenRouterSyncTask(c, info, body, mimeType, resultType); err != nil {
 		return nil, CostError(err.Error())
 	}
 	c.Header("X-Task-Id", state.TaskID)

@@ -88,8 +88,15 @@ see the final payload; unmeasured cache/media/task usage and recursive
 `provider_cost` estimates are rejected. No customer-billing expression snapshot
 is installed, and final charges still use full terminal `usage.cost`.
 
-Dedicated OpenRouter speech and transcription also use the same exact-model
-`configured_price` selector, configured price/expression and per-model minimum.
+Dedicated OpenRouter speech and transcription accept an explicit positive
+`setting.openrouter_model_reserve_usd` entry keyed by the final upstream model ID,
+without requiring or changing a global model price. This is an approximate hold,
+not a spending limit: confirmed actual cost can exceed it. No default is supplied.
+Nonfinite/nonpositive reserves and holds exceeding the supported quota bound
+are rejected before reservation/submission. The same exact-model
+`configured_price` selector still requires its configured price/expression and
+preserves the maximum of that estimate and the per-model minimum; a channel
+reserve does not bypass a missing or invalid explicitly selected local price.
 Audio rates may represent characters, seconds, audio tokens or songs; text token
 limits and zero token tariffs do not establish a complete audio estimate. These
 operations therefore require a positive local/minimum hold and discovered output

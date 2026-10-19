@@ -9,6 +9,8 @@ import (
 	modelpkg "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/glebarez/sqlite"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"image"
 	"image/png"
@@ -63,13 +65,13 @@ func newEmbeddedErrorTestRequest(body string, statusCode int) (*gin.Context, *ht
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	return c, recorder, &http.Response{
-		StatusCode: statusCode,
-		Body:       io.NopCloser(strings.NewReader(body)),
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-	}, &relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{},
-		RelayFormat: types.RelayFormatOpenAI,
-	}
+			StatusCode: statusCode,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+		}, &relaycommon.RelayInfo{
+			ChannelMeta: &relaycommon.ChannelMeta{},
+			RelayFormat: types.RelayFormatOpenAI,
+		}
 }
 
 func assertEmbeddedOpenAIError(t *testing.T, relayError *types.NewAPIError, recorder *httptest.ResponseRecorder, statusCode int) {
@@ -462,6 +464,7 @@ type sonarAdmissionTransport struct {
 	metadata         string
 	metadataStatus   int
 	metadataError    error
+	responseError    error
 	response         string
 	gets             int
 	posts            int
@@ -496,6 +499,9 @@ func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Respon
 		s.body, err = io.ReadAll(request.Body)
 		if err != nil {
 			return nil, err
+		}
+		if s.responseError != nil {
+			return nil, s.responseError
 		}
 		body = `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"cost":0.47545,"cost_details":{"upstream_inference_cost":0.001032}}}`
 		if s.response != "" {
@@ -1233,7 +1239,8 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 	for _, tc := range []struct {
 		name, kind, cost, extra, expression, wantError                                                         string
 		noSource, zeroLocal, minimum, disabled, unknownCapability, insufficient, disconnected, storageDisabled bool
-		missingCost, noDone, provisional, noGenerationID                                                       bool
+		missingCost, noDone, provisional, noGenerationID, noLocal                                              bool
+		channelReserve                                                                                         *float64
 	}{
 		{name: "Chat audio preserves delta with force format", kind: "chat", cost: "3"},
 		{name: "durable storage required before reserve", kind: "chat", storageDisabled: true, wantError: "durable Task artifact storage"},
@@ -1261,6 +1268,22 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "TTS numeric playback speed", kind: "tts", cost: "3", extra: `,"speed":1.2`},
 		{name: "TTS expression sees final request", kind: "tts", cost: "3", expression: `param("voice") == "alloy" ? tier("voice", fixed(2)) : tier("other", fixed(8))`},
 		{name: "TTS no source rejects before submission", kind: "tts", noSource: true, wantError: "requires configured_price"},
+		{name: "STT without price or channel opt in fails closed", kind: "stt", noSource: true, noLocal: true, wantError: "requires configured_price"},
+		{name: "TTS channel reserve without global price", kind: "tts", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "STT channel reserve settles above hold", kind: "stt", cost: "3", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "STT channel reserve settles below hold", kind: "stt", cost: "0.04", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "STT channel reserve retains unknown cost", kind: "stt", missingCost: true, noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "channel reserve does not waive configured price", kind: "stt", noLocal: true, channelReserve: common.GetPointer(0.3), wantError: "no configured reservation price"},
+		{name: "configured price exceeds channel reserve", kind: "stt", cost: "3", channelReserve: common.GetPointer(0.3)},
+		{name: "channel reserve exceeds configured price", kind: "stt", cost: "3", channelReserve: common.GetPointer(4.0)},
+		{name: "zero channel reserve rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(0.0), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "negative channel reserve rejected", kind: "stt", noSource: true, channelReserve: common.GetPointer(-1.0), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "NaN channel reserve rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "infinite channel reserve rejected", kind: "stt", noSource: true, channelReserve: common.GetPointer(math.Inf(1)), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "oversize channel hold rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(1e20), wantError: "quota conversion"},
+		{name: "disabled endpoint cannot use channel reserve", kind: "tts", noSource: true, disabled: true, channelReserve: common.GetPointer(0.3), wantError: "no compatible"},
+		{name: "missing capability cannot use channel reserve", kind: "stt", noSource: true, unknownCapability: true, channelReserve: common.GetPointer(0.3), wantError: "capability is missing"},
+		{name: "Chat audio still requires configured price", kind: "chat", noSource: true, channelReserve: common.GetPointer(0.3), wantError: "requires configured_price"},
 		{name: "multipart STT final usage cost", kind: "stt", cost: "3"},
 		{name: "multipart STT confirmed zero", kind: "stt", cost: "0"},
 		{name: "STT expression sees outgoing form", kind: "stt", cost: "3", expression: `param("language") == "en" ? tier("english", fixed(2)) : tier("other", fixed(8))`},
@@ -1279,7 +1302,11 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			if tc.zeroLocal {
 				price = 0
 			}
-			prices, err := common.Marshal(map[string]float64{alias: price})
+			priceMap := map[string]float64{alias: price}
+			if tc.noLocal {
+				priceMap = map[string]float64{}
+			}
+			prices, err := common.Marshal(priceMap)
 			require.NoError(t, err)
 			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(string(prices)))
 			settings.BillingMode, settings.BillingExpr = map[string]string{}, map[string]string{}
@@ -1374,6 +1401,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			info.UserId, info.ChannelId, info.BillingSource = 1, 1, "wallet"
 			info.ChannelType, info.ChannelBaseUrl = constant.ChannelTypeOpenRouter, "https://openrouter.test/api"
 			info.OriginModelName, info.UpstreamModelName = alias, model
+			if tc.noLocal {
+				info.OriginModelName = model
+			}
 			info.RelayMode, info.RelayFormat, info.RequestURLPath, info.IsStream = mode, format, path, stream
 			if strings.Contains(tc.extra, `"stream":false`) {
 				info.IsStream = false
@@ -1385,6 +1415,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			}
 			if tc.minimum {
 				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: 2}
+			}
+			if tc.channelReserve != nil {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: *tc.channelReserve}
 			}
 			billing := &sonarAdmissionBilling{}
 			if tc.insufficient {
@@ -1401,11 +1434,30 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, info.OpenRouterCost)
-			require.Equal(t, 1500000, billing.reserved)
+			reserve := price
+			if tc.noSource {
+				reserve = 0
+			}
+			if tc.minimum {
+				reserve = max(reserve, 2)
+			}
+			if tc.channelReserve != nil {
+				reserve = max(reserve, *tc.channelReserve)
+				assert.Equal(t, tc.channelReserve, info.OpenRouterCost.ApproximateReserveUSD)
+			}
+			wantHold := common.QuotaRound(reserve * common.QuotaPerUnit * 1.5)
+			require.Equal(t, wantHold, billing.reserved)
+			if tc.noLocal {
+				assert.Nil(t, info.OpenRouterCost.ConfiguredReserveUSD)
+			}
 			assert.Equal(t, 1, billing.reserveCalls, "audio intent reserves once")
 			assert.Equal(t, body, string(transport.body), "reservation must not rewrite the paid order")
 			assert.Equal(t, 1, transport.posts)
 			assert.Nil(t, info.TieredBillingSnapshot)
+			if tc.channelReserve != nil {
+				info.ChannelSetting.OpenRouterModelReserveUSD[model] = 99
+				assert.Equal(t, tc.channelReserve, info.OpenRouterCost.ApproximateReserveUSD, "admitted reserve is a snapshot")
+			}
 			info.PriceData.BillingGroupRatio = 9
 			settings.BillingExpr[alias] = `tier("changed", fixed(999))`
 			usage, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
@@ -1423,8 +1475,8 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 			require.NoError(t, err)
 			require.True(t, exists)
-			require.NotNil(t, task.PrivateData.OpenRouterAudio)
-			assert.True(t, task.PrivateData.OpenRouterAudio.ResultReady)
+			require.NotNil(t, task.PrivateData.OpenRouterSyncState())
+			assert.True(t, task.PrivateData.OpenRouterSyncState().ResultReady)
 			assert.Equal(t, info.OpenRouterCost.TaskID, recorder.Header().Get("X-Task-Id"))
 			ref, err := service.GetTaskArtifactStore().Resolve(task, "result")
 			require.NoError(t, err)
@@ -1444,7 +1496,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 				} else {
 					assert.Contains(t, recorder.Body.String(), "data: [DONE]")
 				}
-				assert.Equal(t, 1500000, task.Quota, "unknown cost retains the captured hold")
+				assert.Equal(t, wantHold, task.Quota, "unknown cost retains the captured hold")
 				assert.False(t, task.PrivateData.Reconciliation.Finalized)
 				assert.Equal(t, 1, transport.gets, "delivery never waits for a cost GET")
 				return
@@ -1463,6 +1515,8 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 				assert.Equal(t, 30000, quota)
 			}
 			if tc.kind == "stt" {
+				assert.Equal(t, quota, task.Quota, "actual cost replaces the hold using frozen multipliers")
+				assert.True(t, task.PrivateData.Reconciliation.Finalized)
 				assert.Contains(t, recorder.Body.String(), "hello transcript")
 			} else {
 				assert.Contains(t, recorder.Body.String(), chunk)
@@ -1716,5 +1770,348 @@ func TestOpenRouterAudioProviderConversion(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Local upstream fixtures exercise the real reservation, dispatch, artifact and
+// wallet/token settlement chain; they do not establish live provider support.
+func TestOpenRouterRerankDurableReservation(t *testing.T) {
+	previousLimit := constant.TaskQueryLimit
+	constant.TaskQueryLimit = 100
+	t.Cleanup(func() { constant.TaskQueryLimit = previousLimit })
+	previousDB, previousLogDB := modelpkg.DB, modelpkg.LOG_DB
+	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis, previousBatch, previousLog := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
+	dialect := os.Getenv("FX_TASK_DB_DIALECT")
+	openDB := func(dsn string) (*gorm.DB, error) {
+		switch dialect {
+		case "mysql":
+			return gorm.Open(mysql.Open(dsn), &gorm.Config{})
+		case "postgres":
+			return gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		default:
+			return gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		}
+	}
+	mainDSN, logDSN := os.Getenv("FX_TASK_MAIN_DSN"), os.Getenv("FX_TASK_LOG_DSN")
+	databaseType := common.DatabaseTypeSQLite
+	if dialect == "" || dialect == "sqlite" {
+		mainDSN, logDSN = ":memory:", ":memory:"
+	} else {
+		require.NotEmpty(t, mainDSN)
+		require.NotEmpty(t, logDSN)
+		if dialect == "mysql" {
+			databaseType = common.DatabaseTypeMySQL
+		} else {
+			require.Equal(t, "postgres", dialect)
+			databaseType = common.DatabaseTypePostgreSQL
+		}
+	}
+	db, err := openDB(mainDSN)
+	require.NoError(t, err)
+	logDB, err := openDB(logDSN)
+	require.NoError(t, err)
+	for _, database := range []*gorm.DB{db, logDB} {
+		sqlDB, err := database.DB()
+		require.NoError(t, err)
+		sqlDB.SetMaxOpenConns(1)
+		t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	}
+	var version string
+	query := "SELECT sqlite_version()"
+	if dialect == "mysql" || dialect == "postgres" {
+		query = "SELECT version()"
+	}
+	require.NoError(t, db.Raw(query).Scan(&version).Error)
+	t.Logf("real %s database version: %s", databaseType, version)
+	for range 2 {
+		require.NoError(t, db.AutoMigrate(&modelpkg.Task{}, &modelpkg.User{}, &modelpkg.Token{}, &modelpkg.Channel{}))
+		require.NoError(t, logDB.AutoMigrate(&modelpkg.Log{}))
+	}
+	modelpkg.DB, modelpkg.LOG_DB = db, logDB
+	common.SetDatabaseTypes(databaseType, databaseType)
+	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
+	t.Cleanup(func() {
+		modelpkg.DB, modelpkg.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousType, previousLogType)
+		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousRedis, previousBatch, previousLog
+	})
+	root := t.TempDir()
+	require.NoError(t, os.Chmod(root, 0700))
+	t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+	t.Setenv(system_setting.TaskArtifactStoreModeEnv, "filesystem")
+	t.Setenv(system_setting.TaskArtifactStoreRootEnv, root)
+	require.NoError(t, service.InitTaskArtifactStore())
+	oldPrices := ratio_setting.ModelPrice2JSONString()
+	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
+	oldModes, oldExprs := settings.BillingMode, settings.BillingExpr
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(oldPrices))
+		settings.BillingMode, settings.BillingExpr = oldModes, oldExprs
+	})
+	for i, tc := range []struct {
+		name, family, cost, extra, wantError, metadata, crash                                                                        string
+		reserve                                                                                                                      *float64
+		configured, missingPrice, expression, noCapability, disabled, noID, nonOR, timeout, upstreamError, storageDisabled, deadline bool
+	}{
+		{name: "token family below hold", family: "token", reserve: common.GetPointer(.02), cost: "0.01"},
+		{name: "search family above hold", family: "search", reserve: common.GetPointer(.02), cost: "0.03"},
+		{name: "authoritative zero", reserve: common.GetPointer(.02), cost: "0"},
+		{name: "zero catalog prices require opt in", wantError: "requires configured_price"},
+		{name: "zero hold", reserve: common.GetPointer(0.0), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "negative hold", reserve: common.GetPointer(-1.0), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "NaN hold", reserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "infinite hold", reserve: common.GetPointer(math.Inf(1)), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "oversized hold", reserve: common.GetPointer(1e20), wantError: "quota conversion"},
+		{name: "configured override", configured: true, cost: "0.01"},
+		{name: "configured and channel floor", configured: true, reserve: common.GetPointer(.04), cost: "0.01"},
+		{name: "configured source is not waived", configured: true, missingPrice: true, reserve: common.GetPointer(.02), wantError: "no configured reservation price"},
+		{name: "unmeasured token expression rejected", configured: true, expression: true, wantError: "unavailable p quantity"},
+		{name: "unknown capability", reserve: common.GetPointer(.02), noCapability: true, wantError: "rerank output capability"},
+		{name: "disabled endpoint", reserve: common.GetPointer(.02), disabled: true, wantError: "no compatible"},
+		{name: "final provider constraint", reserve: common.GetPointer(.02), extra: `,"provider":{"only":["absent"]}`, wantError: "no compatible"},
+		{name: "Chat cap is not a bound", reserve: common.GetPointer(.02), extra: `,"max_output_tokens":1`, wantError: "Chat output bounds"},
+		{name: "stream closed", reserve: common.GetPointer(.02), extra: `,"stream":true`, wantError: "without routing or tools"},
+		{name: "missing cost awaits metadata", reserve: common.GetPointer(.02)},
+		{name: "missing cost without identity holds manually", reserve: common.GetPointer(.02), noID: true},
+		{name: "null cost retains hold", reserve: common.GetPointer(.02), cost: "null"},
+		{name: "negative cost retains hold", reserve: common.GetPointer(.02), cost: "-1"},
+		{name: "string cost retains hold", reserve: common.GetPointer(.02), cost: `"0.01"`},
+		{name: "malformed usage retains hold", reserve: common.GetPointer(.02), cost: "malformed"},
+		{name: "missing metadata retains hold", reserve: common.GetPointer(.02), metadata: `{"data":{}}`},
+		{name: "metadata confirms cost", reserve: common.GetPointer(.02), metadata: `{"data":{"id":"gen-rerank","model":"vendor/reranker","api_type":"rerank","cancelled":false,"generation_time":1,"total_cost":0.01}}`},
+		{name: "wrong metadata operation retains hold", reserve: common.GetPointer(.02), metadata: `{"data":{"id":"gen-rerank","model":"vendor/reranker","api_type":"tts","cancelled":false,"generation_time":1,"total_cost":0}}`},
+		{name: "crash after dispatch retains hold", reserve: common.GetPointer(.02), crash: "dispatch"},
+		{name: "crash before reserve is unknown", reserve: common.GetPointer(.02), crash: "intent"},
+		{name: "malformed metadata retains hold", reserve: common.GetPointer(.02), metadata: `broken`},
+		{name: "wrong metadata identity retains hold", reserve: common.GetPointer(.02), metadata: `{"data":{"id":"other","total_cost":0}}`},
+		{name: "upstream error retains hold", reserve: common.GetPointer(.02), upstreamError: true},
+		{name: "deadline after dispatch retains hold", reserve: common.GetPointer(.02), deadline: true},
+		{name: "transport disconnect retains hold", reserve: common.GetPointer(.02), timeout: true},
+		{name: "durable storage required", reserve: common.GetPointer(.02), storageDisabled: true, wantError: "durable Task artifact storage"},
+		{name: "non OpenRouter unchanged", nonOR: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.storageDisabled {
+				t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+				t.Setenv(system_setting.TaskArtifactStoreModeEnv, "upstream")
+				require.NoError(t, service.InitTaskArtifactStore())
+			}
+			id := i + 1
+			require.NoError(t, db.Create(&modelpkg.User{Id: id, Username: fmt.Sprintf("rerank-%d", id), AffCode: fmt.Sprint(id), Quota: 10000000}).Error)
+			key := fmt.Sprintf("rerank-key-%d", id)
+			require.NoError(t, db.Create(&modelpkg.Token{Id: id, UserId: id, Key: key, RemainQuota: 10000000, Status: common.TokenStatusEnabled}).Error)
+			require.NoError(t, db.Create(&modelpkg.Channel{Id: id}).Error)
+			const model = "vendor/reranker"
+			prices := `{}`
+			if tc.configured && !tc.missingPrice {
+				prices = `{"rerank-alias":0.03}`
+			}
+			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(prices))
+			settings.BillingMode, settings.BillingExpr = map[string]string{}, map[string]string{}
+			if tc.expression {
+				settings.BillingMode["rerank-alias"], settings.BillingExpr["rerank-alias"] = billing_setting.BillingModeTieredExpr, `tier("tokens", p * 10)`
+			}
+			posts, gets := 0, 0
+			responseBody := `{"id":"gen-rerank","provider":"fixture","results":[{"index":0,"relevance_score":0.9}],"usage":{"total_tokens":42,"search_units":1`
+			if tc.cost != "" {
+				responseBody += `,"cost":` + tc.cost
+			}
+			responseBody += `}}`
+			if tc.noID {
+				responseBody = strings.ReplaceAll(responseBody, `"id":"gen-rerank",`, "")
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodGet {
+					gets++
+					if r.URL.Path == "/v1/generation" {
+						assert.Equal(t, "gen-rerank", r.URL.Query().Get("id"))
+						_, _ = io.WriteString(w, tc.metadata)
+						return
+					}
+					assert.Equal(t, "/v1/models/vendor/reranker/endpoints", r.URL.Path)
+					modality, status := "rerank", 0
+					if tc.noCapability {
+						modality = "text"
+					}
+					if tc.disabled {
+						status = -1
+					}
+					// Both published unit families deliberately retain zero catalog token rates.
+					pricing := `"prompt":"0","completion":"0"`
+					if tc.family == "search" {
+						pricing += `,"search":"0.001"`
+					}
+					if tc.family == "token" {
+						pricing = `"prompt":"0.00000002","completion":"0"`
+					}
+					_, _ = fmt.Fprintf(w, `{"data":{"id":%q,"architecture":{"output_modalities":[%q]},"endpoints":[{"tag":"fixture","status":%d,"model_id":%q,"pricing":{%s}}]}}`, model, modality, status, model, pricing)
+					return
+				}
+				posts++
+				assert.Equal(t, "/v1/rerank", r.URL.Path)
+				if tc.timeout {
+					conn, _, err := w.(http.Hijacker).Hijack()
+					require.NoError(t, err)
+					_ = conn.Close()
+					return
+				}
+				if tc.upstreamError {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = io.WriteString(w, `{"error":{"message":"unavailable"}}`)
+					return
+				}
+				_, _ = io.WriteString(w, responseBody)
+			}))
+			defer server.Close()
+			body := `{"model":"vendor/reranker","query":"test","documents":["one","two"],"top_n":1` + tc.extra + `}`
+			c, recorder, _, info := newEmbeddedErrorTestRequest(body, http.StatusOK)
+			info.UserId, info.TokenId, info.TokenKey, info.RequestId = id, id, key, fmt.Sprintf("rerank-request-%d", id)
+			info.ChannelType, info.ChannelId, info.ChannelBaseUrl, info.UpstreamModelName = constant.ChannelTypeOpenRouter, id, server.URL, model
+			info.RelayMode, info.RelayFormat, info.RequestURLPath = relayconstant.RelayModeRerank, types.RelayFormatRerank, "/v1/rerank"
+			info.OriginModelName = "rerank-alias"
+			info.UserSetting.BillingPreference = "wallet_only"
+			info.PriceData.BillingGroupRatio = 1.5
+			if tc.configured {
+				info.ChannelSetting.OpenRouterReservationSource = map[string]dto.OpenRouterReservationSource{model: dto.OpenRouterReservationConfiguredPrice}
+			}
+			if tc.reserve != nil {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: *tc.reserve}
+			}
+			if tc.nonOR {
+				info.ChannelType = constant.ChannelTypeOpenAI
+			}
+			var deadlineTransport *sonarAdmissionTransport
+			if tc.deadline {
+				client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+				require.NoError(t, err)
+				previousTransport := client.Transport
+				deadlineTransport = &sonarAdmissionTransport{metadata: `{"data":{"id":"vendor/reranker","architecture":{"output_modalities":["rerank"]},"endpoints":[{"tag":"fixture","model_id":"vendor/reranker","pricing":{"prompt":"0","completion":"0"}}]}}`, responseError: context.DeadlineExceeded}
+				client.Transport = deadlineTransport
+				t.Cleanup(func() { client.Transport = previousTransport })
+			}
+			adaptor := &Adaptor{}
+			if tc.crash == "intent" {
+				info.OpenRouterCost = &relaycommon.OpenRouterCostState{Basis: common.OpenRouterCostBasis{Version: "openrouter_cost_v1", EffectiveGroupRatio: 1.5, QuotaPerUnit: common.QuotaPerUnit, EstimatedUSD: .02}}
+				require.NoError(t, service.BeginOpenRouterSyncTask(c, info, 15000))
+				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				require.NoError(t, err)
+				require.True(t, exists)
+				task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
+				require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
+				service.RunTaskPollingOnce(t.Context(), nil)
+				task, exists, err = modelpkg.GetUniqueByOnlyTaskId(task.TaskID)
+				require.NoError(t, err)
+				require.True(t, exists)
+				assert.Equal(t, modelpkg.TaskStatus(modelpkg.TaskStatusFailure), task.Status)
+				assert.True(t, task.PrivateData.Reconciliation.Required)
+				assert.Zero(t, posts)
+				var user modelpkg.User
+				require.NoError(t, db.First(&user, id).Error)
+				assert.Equal(t, 10000000, user.Quota)
+				return
+			}
+			response, err := adaptor.DoRequest(c, info, strings.NewReader(body))
+			if deadlineTransport != nil {
+				posts = deadlineTransport.posts
+				require.ErrorContains(t, err, "do request failed")
+			}
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				assert.Zero(t, posts)
+				return
+			}
+			if tc.nonOR {
+				require.NoError(t, err)
+				_, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
+				require.Nil(t, apiErr)
+				assert.Nil(t, info.OpenRouterCost)
+				assert.Zero(t, gets)
+				assert.Contains(t, recorder.Body.String(), `"results"`)
+				return
+			}
+			require.NotNil(t, info.OpenRouterCost)
+			require.True(t, info.OpenRouterCost.Sent)
+			hold := .03
+			if !tc.configured {
+				hold = *tc.reserve
+			} else if tc.reserve != nil {
+				hold = max(hold, *tc.reserve)
+			}
+			wantHold := common.QuotaRound(hold * common.QuotaPerUnit * 1.5)
+			assert.Equal(t, wantHold, info.FinalPreConsumedQuota)
+			require.NotNil(t, info.Billing)
+			assert.False(t, info.Billing.NeedsRefund(), "durable Task owns hold before dispatch")
+			info.PriceData.BillingGroupRatio = 9 // Admission freezes the settlement basis.
+			info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: 99}
+			if tc.crash == "dispatch" {
+				require.NoError(t, err)
+				require.NoError(t, response.(*http.Response).Body.Close())
+				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				require.NoError(t, err)
+				require.True(t, exists)
+				task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
+				require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
+				service.RunTaskPollingOnce(t.Context(), nil)
+			} else if tc.timeout || tc.deadline {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				_, apiErr := adaptor.DoResponse(c, response.(*http.Response), info)
+				if tc.upstreamError || tc.noID || tc.cost == "null" || tc.cost == "-1" || strings.HasPrefix(tc.cost, `"`) || tc.cost == "malformed" {
+					require.NotNil(t, apiErr)
+					assert.Empty(t, recorder.Body.String())
+				} else {
+					require.Nil(t, apiErr)
+					assert.Contains(t, recorder.Body.String(), `"results"`)
+					assert.Contains(t, recorder.Body.String(), `"search_units":1`)
+				}
+			}
+			task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			require.NoError(t, err)
+			require.True(t, exists)
+			assert.Equal(t, "rerank", task.Action)
+			assert.Equal(t, constant.TaskPlatformOpenRouterRerank, task.Platform)
+			assert.Nil(t, task.PrivateData.OpenRouterAudio)
+			require.NotNil(t, task.PrivateData.OpenRouterSync)
+			if task.PrivateData.OpenRouterSync.ResultReady {
+				assert.Equal(t, "application/json", task.PrivateData.OpenRouterSync.ResultMimeType)
+			}
+			info.TokenId++
+			require.ErrorContains(t, service.FailOpenRouterSyncTask(info, "foreign_owner"), "identity changed")
+			info.TokenId--
+			stale := *task
+			stale.Platform = constant.TaskPlatformOpenRouterAudio
+			require.Error(t, stale.UpdateOpenRouterSync(stale.PrivateData.OpenRouterSyncState().Revision), "platform cannot be rewritten by a stale claimant")
+			target := wantHold
+			if info.OpenRouterCost.Final {
+				target = common.QuotaRound(info.OpenRouterCost.CostUSD * common.QuotaPerUnit * 1.5)
+				assert.True(t, task.PrivateData.Reconciliation.Finalized)
+			} else {
+				assert.False(t, task.PrivateData.Reconciliation.Finalized)
+			}
+			assert.Equal(t, target, task.Quota)
+			var user modelpkg.User
+			var token modelpkg.Token
+			require.NoError(t, db.First(&user, id).Error)
+			require.NoError(t, db.First(&token, id).Error)
+			assert.Equal(t, 10000000-target, user.Quota)
+			assert.Equal(t, 10000000-target, token.RemainQuota)
+			if tc.metadata != "" {
+				service.RunTaskPollingOnce(t.Context(), nil)
+				saved, exists, err := modelpkg.GetUniqueByOnlyTaskId(task.TaskID)
+				require.NoError(t, err)
+				require.True(t, exists)
+				if tc.name == "metadata confirms cost" {
+					assert.True(t, saved.PrivateData.Reconciliation.Finalized)
+					assert.Equal(t, 7500, saved.Quota)
+				} else {
+					assert.False(t, saved.PrivateData.Reconciliation.Finalized)
+					assert.Equal(t, wantHold, saved.Quota)
+				}
+			}
+			assert.Equal(t, 1, posts, "no paid replay")
+		})
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -3021,6 +3022,7 @@ func newOpenRouterAudioReservation(t *testing.T, priorHold ...int) (*gin.Context
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/speech", nil)
 	info := &relaycommon.RelayInfo{
 		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelId: id, ApiKey: "account-fixture", UpstreamModelName: "vendor/audio"},
+		RelayMode:   relayconstant.RelayModeAudioSpeech,
 		UserId:      id, TokenId: id, TokenKey: "audio-task-fixture", OriginModelName: "audio-alias", RequestId: "audio-request-fixture", ForcePreConsume: true,
 		OpenRouterCost: &relaycommon.OpenRouterCostState{Basis: common.OpenRouterCostBasis{Version: "openrouter_cost_v1", EffectiveGroupRatio: 1, QuotaPerUnit: 1000, EstimatedUSD: 0.05}},
 	}
@@ -3031,8 +3033,8 @@ func newOpenRouterAudioReservation(t *testing.T, priorHold ...int) (*gin.Context
 		previousHold = priorHold[0]
 		require.Nil(t, PreConsumeBilling(c, previousHold, info))
 	}
-	require.NoError(t, BeginOpenRouterAudioTask(c, info, 50))
-	intent, err := openRouterAudioTask(info)
+	require.NoError(t, BeginOpenRouterSyncTask(c, info, 50))
+	intent, err := openRouterSyncTask(info)
 	require.NoError(t, err)
 	assert.True(t, intent.PrivateData.Reconciliation.ReservationPending)
 	assert.Zero(t, intent.PrivateData.Reconciliation.ReservedQuota)
@@ -3043,7 +3045,7 @@ func newOpenRouterAudioReservation(t *testing.T, priorHold ...int) (*gin.Context
 	} else {
 		require.NoError(t, info.Billing.Reserve(50))
 	}
-	require.NoError(t, CommitOpenRouterAudioReservation(c, info))
+	require.NoError(t, CommitOpenRouterSyncReservation(c, info))
 	assert.Equal(t, 10000-max(50, previousHold), getUserQuota(t, id))
 	assert.Equal(t, 10000-max(50, previousHold), getTokenRemainQuota(t, id))
 	assert.False(t, info.Billing.NeedsRefund())
@@ -3142,8 +3144,8 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			require.NoError(t, ConfigureOpenRouterAudioSubmission(info, server.URL+"/generation", http.Header{"Authorization": []string{"Bearer account-fixture"}}))
-			require.NoError(t, RecordOpenRouterAudioSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-audio-fixture"}}}, nil))
+			require.NoError(t, ConfigureOpenRouterSyncSubmission(info, server.URL+"/generation", http.Header{"Authorization": []string{"Bearer account-fixture"}}))
+			require.NoError(t, RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-audio-fixture"}}}, nil))
 			// Disconnect and discard request-owned settlement; a separate polling pass
 			// must still reconcile the durable result and the frozen monetary basis.
 			requestCtx, cancel := context.WithCancel(c.Request.Context())
@@ -3153,13 +3155,13 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 			if resultMimeType == "" {
 				resultMimeType = "audio/pcm"
 			}
-			require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("durable audio"), resultMimeType, "audio"))
+			require.NoError(t, CompleteOpenRouterSyncTask(c, info, []byte("durable audio"), resultMimeType, "audio"))
 			assert.Zero(t, calls, "delivery must not depend on synchronous metadata lookup")
 			PostTextConsumeQuota(c, info, nil, nil)
 			assert.Equal(t, 9950, getUserQuota(t, info.UserId), "request completion cannot charge or refund the Task hold")
 			info.PriceData.BillingGroupRatio = 99
 			RunTaskPollingOnce(t.Context(), nil)
-			task, err := openRouterAudioTask(info)
+			task, err := openRouterSyncTask(info)
 			require.NoError(t, err)
 			assert.Equal(t, tc.target, task.Quota)
 			assert.Equal(t, 10000-tc.target, getUserQuota(t, info.UserId))
@@ -3208,20 +3210,20 @@ func TestOpenRouterAudioCrashOwnershipAndStaleWriters(t *testing.T) {
 				fmt.Fprint(w, `{"data":{"id":"gen-crash","model":"vendor/audio","cancelled":false,"generation_time":12,"total_cost":0.04}}`)
 			}))
 			defer server.Close()
-			require.NoError(t, ConfigureOpenRouterAudioSubmission(info, server.URL+"/generation", nil))
+			require.NoError(t, ConfigureOpenRouterSyncSubmission(info, server.URL+"/generation", nil))
 			if hasGeneration {
-				require.NoError(t, RecordOpenRouterAudioSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-crash"}}}, nil))
+				require.NoError(t, RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-crash"}}}, nil))
 			}
-			crashed, err := openRouterAudioTask(info)
+			crashed, err := openRouterSyncTask(info)
 			require.NoError(t, err)
 			crashed.PrivateData.OpenRouterAudio.LeaseUntil = time.Now().Add(-time.Minute).Unix()
-			require.NoError(t, crashed.UpdateOpenRouterAudio(crashed.PrivateData.OpenRouterAudio.Revision))
+			require.NoError(t, crashed.UpdateOpenRouterSync(crashed.PrivateData.OpenRouterAudio.Revision))
 			// Separate copies model a request handler and a stale poller surviving the
 			// ownership transfer. Neither may overwrite a subsequent terminal claim.
-			stale, err := openRouterAudioTask(info)
+			stale, err := openRouterSyncTask(info)
 			require.NoError(t, err)
 			RunTaskPollingOnce(t.Context(), nil)
-			settled, err := openRouterAudioTask(info)
+			settled, err := openRouterSyncTask(info)
 			require.NoError(t, err)
 			assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), settled.Status)
 			assert.False(t, settled.PrivateData.OpenRouterAudio.ResultReady)
@@ -3234,8 +3236,8 @@ func TestOpenRouterAudioCrashOwnershipAndStaleWriters(t *testing.T) {
 				assert.Equal(t, 9950, getUserQuota(t, info.UserId))
 				assert.Contains(t, settled.FailReason, "manual reconciliation")
 			}
-			require.Error(t, stale.UpdateOpenRouterAudio(stale.PrivateData.OpenRouterAudio.Revision))
-			require.Error(t, CompleteOpenRouterAudioTask(&gin.Context{}, info, []byte("late"), "audio/pcm", "audio"))
+			require.Error(t, stale.UpdateOpenRouterSync(stale.PrivateData.OpenRouterAudio.Revision))
+			require.Error(t, CompleteOpenRouterSyncTask(&gin.Context{}, info, []byte("late"), "audio/pcm", "audio"))
 			assert.False(t, RefundTaskQuota(t.Context(), settled, "unknown must not refund"))
 		})
 	}
@@ -3244,25 +3246,25 @@ func TestOpenRouterAudioCrashOwnershipAndStaleWriters(t *testing.T) {
 func TestOpenRouterAudioPendingReservationAndSettlementNeverReplay(t *testing.T) {
 	t.Run("interrupted reservation", func(t *testing.T) {
 		_, info := newOpenRouterAudioReservation(t)
-		task, err := openRouterAudioTask(info)
+		task, err := openRouterSyncTask(info)
 		require.NoError(t, err)
 		task.PrivateData.Reconciliation.ReservationPending = true
 		task.PrivateData.OpenRouterAudio.LeaseUntil = time.Now().Add(-time.Minute).Unix()
-		require.NoError(t, task.UpdateOpenRouterAudio(task.PrivateData.OpenRouterAudio.Revision))
+		require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterAudio.Revision))
 		RunTaskPollingOnce(t.Context(), nil)
-		saved, err := openRouterAudioTask(info)
+		saved, err := openRouterSyncTask(info)
 		require.NoError(t, err)
 		assert.Contains(t, saved.FailReason, "manual reconciliation")
 		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
 	})
 	t.Run("after main settlement before log", func(t *testing.T) {
 		c, info := newOpenRouterAudioReservation(t)
-		require.NoError(t, ConfigureOpenRouterAudioSubmission(info, "https://metadata.invalid/generation", nil))
+		require.NoError(t, ConfigureOpenRouterSyncSubmission(info, "https://metadata.invalid/generation", nil))
 		info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = 0.04, true, true
 		require.NoError(t, model.LOG_DB.Callback().Create().Before("gorm:create").Register("audio_cost_log_failure", func(tx *gorm.DB) { tx.AddError(fmt.Errorf("injected log failure")) }))
-		require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("result"), "audio/pcm", "audio"))
+		require.NoError(t, CompleteOpenRouterSyncTask(c, info, []byte("result"), "audio/pcm", "audio"))
 		require.NoError(t, model.LOG_DB.Callback().Create().Remove("audio_cost_log_failure"))
-		saved, err := openRouterAudioTask(info)
+		saved, err := openRouterSyncTask(info)
 		require.NoError(t, err)
 		assert.True(t, saved.PrivateData.Reconciliation.MainApplied)
 		assert.False(t, saved.PrivateData.Reconciliation.Finalized)
@@ -3289,16 +3291,16 @@ func TestOpenRouterAudioConcurrentPollersSettleOnce(t *testing.T) {
 		fmt.Fprint(w, `{"data":{"id":"gen-race","model":"vendor/audio","cancelled":false,"generation_time":1,"total_cost":0.04}}`)
 	}))
 	defer func() { releaseOnce.Do(func() { close(release) }); server.Close() }()
-	require.NoError(t, ConfigureOpenRouterAudioSubmission(info, server.URL+"/generation", nil))
-	require.NoError(t, RecordOpenRouterAudioSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-race"}}}, nil))
-	require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("audio"), "audio/pcm", "audio"))
-	first, err := openRouterAudioTask(info)
+	require.NoError(t, ConfigureOpenRouterSyncSubmission(info, server.URL+"/generation", nil))
+	require.NoError(t, RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-race"}}}, nil))
+	require.NoError(t, CompleteOpenRouterSyncTask(c, info, []byte("audio"), "audio/pcm", "audio"))
+	first, err := openRouterSyncTask(info)
 	require.NoError(t, err)
-	second, err := openRouterAudioTask(info)
+	second, err := openRouterSyncTask(info)
 	require.NoError(t, err)
 	outcomes := make(chan error, 2)
-	go func() { outcomes <- pollOpenRouterAudio(t.Context(), first) }()
-	go func() { outcomes <- pollOpenRouterAudio(t.Context(), second) }()
+	go func() { outcomes <- pollOpenRouterSync(t.Context(), first) }()
+	go func() { outcomes <- pollOpenRouterSync(t.Context(), second) }()
 	for range 2 {
 		select {
 		case <-entered:
@@ -3314,7 +3316,7 @@ func TestOpenRouterAudioConcurrentPollersSettleOnce(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, winners)
-	saved, err := openRouterAudioTask(info)
+	saved, err := openRouterSyncTask(info)
 	require.NoError(t, err)
 	assert.True(t, saved.PrivateData.Reconciliation.Finalized)
 	assert.Equal(t, 9960, getUserQuota(t, info.UserId))
@@ -3351,10 +3353,10 @@ func TestOpenRouterAudioDelayedMetadataAndBoundedUnknown(t *testing.T) {
 				fmt.Fprintf(w, `{"data":{"id":%q,"model":"vendor/audio","cancelled":false,"generation_time":1,"total_cost":0.04}}`, id)
 			}))
 			defer server.Close()
-			require.NoError(t, ConfigureOpenRouterAudioSubmission(info, server.URL+"/generation", nil))
-			require.NoError(t, RecordOpenRouterAudioSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-delayed"}}}, nil))
-			require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("audio"), "audio/pcm", "audio"))
-			task, err := openRouterAudioTask(info)
+			require.NoError(t, ConfigureOpenRouterSyncSubmission(info, server.URL+"/generation", nil))
+			require.NoError(t, RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-delayed"}}}, nil))
+			require.NoError(t, CompleteOpenRouterSyncTask(c, info, []byte("audio"), "audio/pcm", "audio"))
+			task, err := openRouterSyncTask(info)
 			require.NoError(t, err)
 			switch kind {
 			case "deadline":
@@ -3362,23 +3364,23 @@ func TestOpenRouterAudioDelayedMetadataAndBoundedUnknown(t *testing.T) {
 			case "attempt_limit":
 				task.PrivateData.OpenRouterAudio.Attempts = 15
 			}
-			require.NoError(t, task.UpdateOpenRouterAudio(task.PrivateData.OpenRouterAudio.Revision))
+			require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterAudio.Revision))
 			pollCtx := t.Context()
 			if kind == "timeout" {
 				var cancel context.CancelFunc
 				pollCtx, cancel = context.WithDeadline(pollCtx, time.Now().Add(-time.Second))
 				defer cancel()
 			}
-			require.NoError(t, pollOpenRouterAudio(pollCtx, task))
-			saved, err := openRouterAudioTask(info)
+			require.NoError(t, pollOpenRouterSync(pollCtx, task))
+			saved, err := openRouterSyncTask(info)
 			require.NoError(t, err)
 			switch kind {
 			case "delayed":
 				assert.Equal(t, 9950, getUserQuota(t, info.UserId))
 				assert.False(t, saved.PrivateData.Reconciliation.Finalized)
 				saved.PrivateData.OpenRouterAudio.NextPoll = 0
-				require.NoError(t, saved.UpdateOpenRouterAudio(saved.PrivateData.OpenRouterAudio.Revision))
-				require.NoError(t, pollOpenRouterAudio(t.Context(), saved))
+				require.NoError(t, saved.UpdateOpenRouterSync(saved.PrivateData.OpenRouterAudio.Revision))
+				require.NoError(t, pollOpenRouterSync(t.Context(), saved))
 				assert.Equal(t, 9960, getUserQuota(t, info.UserId))
 				assert.Equal(t, 2, calls)
 			case "timeout":
@@ -3402,10 +3404,10 @@ func TestOpenRouterAudioRetainsLargerExistingHoldAccounting(t *testing.T) {
 	c, info := newOpenRouterAudioReservation(t, 100)
 	assert.Equal(t, 100, info.PriceData.Quota, "reserve statistics must reflect applied money, not the smaller estimate")
 	assert.Equal(t, 0.05, info.OpenRouterCost.Basis.EstimatedUSD, "the frozen price estimate remains unchanged")
-	require.NoError(t, ConfigureOpenRouterAudioSubmission(info, "https://metadata.invalid/generation", nil))
+	require.NoError(t, ConfigureOpenRouterSyncSubmission(info, "https://metadata.invalid/generation", nil))
 	info.OpenRouterCost.CostUSD, info.OpenRouterCost.Valid, info.OpenRouterCost.Final = 0.04, true, true
-	require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("result"), "audio/pcm", "audio"))
-	saved, err := openRouterAudioTask(info)
+	require.NoError(t, CompleteOpenRouterSyncTask(c, info, []byte("result"), "audio/pcm", "audio"))
+	saved, err := openRouterSyncTask(info)
 	require.NoError(t, err)
 	assert.Equal(t, 40, saved.Quota)
 	assert.Equal(t, 100, saved.PrivateData.Reconciliation.ReservedQuota)
@@ -3440,9 +3442,9 @@ func TestOpenRouterAudioSlowMetadataDoesNotBlockVideoPolling(t *testing.T) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer func() { releaseOnce.Do(func() { close(release) }); server.Close() }()
-	require.NoError(t, ConfigureOpenRouterAudioSubmission(info, server.URL+"/generation", nil))
-	require.NoError(t, RecordOpenRouterAudioSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-slow"}}}, nil))
-	require.NoError(t, CompleteOpenRouterAudioTask(c, info, []byte("result"), "audio/pcm", "audio"))
+	require.NoError(t, ConfigureOpenRouterSyncSubmission(info, server.URL+"/generation", nil))
+	require.NoError(t, RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: 200, Header: http.Header{"X-Generation-Id": []string{"gen-slow"}}}, nil))
+	require.NoError(t, CompleteOpenRouterSyncTask(c, info, []byte("result"), "audio/pcm", "audio"))
 	video := makeTask(info.UserId, info.ChannelId, 0, info.TokenId, BillingSourceWallet, 0)
 	video.TaskID = "task-video-after-audio"
 	video.Platform = "video-fixture"

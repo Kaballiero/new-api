@@ -132,14 +132,21 @@ type TaskPrivateData struct {
 	// only replaced when a hook explicitly returns state.
 	PluginState json.RawMessage `json:"plugin_state,omitempty"`
 	// PollFailures counts consecutive unrecognized or transient poll outcomes.
-	PollFailures    int                  `json:"poll_failures,omitempty"`
-	Reconciliation  *TaskReconciliation  `json:"reconciliation,omitempty"`
-	OpenRouterAudio *OpenRouterAudioTask `json:"openrouter_audio,omitempty"`
+	PollFailures    int                 `json:"poll_failures,omitempty"`
+	Reconciliation  *TaskReconciliation `json:"reconciliation,omitempty"`
+	OpenRouterAudio *OpenRouterSyncTask `json:"openrouter_audio,omitempty"`
+	OpenRouterSync  *OpenRouterSyncTask `json:"openrouter_sync,omitempty"`
 }
 
-// OpenRouterAudioTask separates delivery from financial reconciliation. Headers
+// OpenRouterSyncTask separates delivery from financial reconciliation. Headers
 // and transport settings are private account provenance, never public Task.Data.
-type OpenRouterAudioTask struct {
+type OpenRouterSyncTask struct {
+	UpstreamRequestID string              `json:"upstream_request_id,omitempty"`
+	DispatchPrepared  bool                `json:"dispatch_prepared,omitempty"`
+	ProviderTag       string              `json:"provider_tag,omitempty"`
+	ReservationSource string              `json:"reservation_source,omitempty"`
+	ReserveUSD        float64             `json:"reserve_usd,omitempty"`
+	PricingUnknown    bool                `json:"pricing_unknown,omitempty"`
 	Revision          int                 `json:"revision"`
 	RequestID         string              `json:"request_id"`
 	BillingPreference string              `json:"billing_preference"`
@@ -160,24 +167,56 @@ type OpenRouterAudioTask struct {
 	ResultSHA256      string              `json:"result_sha256,omitempty"`
 }
 
-// UpdateOpenRouterAudio guards same-status updates as well as terminal claims.
+// OpenRouterAudioTask preserves the legacy audio snapshot type.
+type OpenRouterAudioTask = OpenRouterSyncTask
+
+// OpenRouterSyncState reads old audio snapshots without rewriting stored JSON.
+func (p *TaskPrivateData) OpenRouterSyncState() *OpenRouterSyncTask {
+	if p.OpenRouterSync != nil {
+		return p.OpenRouterSync
+	}
+	return p.OpenRouterAudio
+}
+
+// UpdateOpenRouterSync guards same-status updates as well as terminal claims.
 // SQLite's read/write transaction conflicts reject a stale writer; other
 // engines lock the row before checking the private JSON revision.
-func (t *Task) UpdateOpenRouterAudio(expectedRevision int) error {
-	if t.PrivateData.OpenRouterAudio == nil {
-		return fmt.Errorf("missing OpenRouter audio state")
+func (t *Task) UpdateOpenRouterSync(expectedRevision int) error {
+	if t.PrivateData.OpenRouterSyncState() == nil {
+		return fmt.Errorf("missing OpenRouter synchronous state")
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var saved Task
 		if err := lockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
 			return err
 		}
-		state := saved.PrivateData.OpenRouterAudio
+		state := saved.PrivateData.OpenRouterSyncState()
+		// An Image response can arrive after the sweeper retained a manual hold.
+		// Only new confirmed cost may claim that hold, never another submission.
+		prior, next := saved.PrivateData.Reconciliation, t.PrivateData.Reconciliation
+		lateImageCost := saved.Platform == constant.TaskPlatformOpenRouterImage && saved.Status == TaskStatusFailure &&
+			prior != nil && next != nil && !prior.ReservationPending && !prior.HasUpstreamCost && !prior.SettlementPending && !prior.Finalized &&
+			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.SubmissionPending && !next.ReservationPending
+		lateImageReceipt := saved.Platform == constant.TaskPlatformOpenRouterImage && saved.Status == TaskStatusFailure && t.Status == TaskStatusFailure &&
+			prior != nil && next != nil && prior.Required && !prior.ReservationPending && !prior.HasUpstreamCost && !prior.SettlementPending && !prior.Finalized && !next.HasUpstreamCost
 		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID ||
-			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure {
-			return fmt.Errorf("OpenRouter audio task claim changed")
+			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure && !lateImageCost && !lateImageReceipt ||
+			saved.Platform != t.Platform || saved.Action != t.Action || saved.UserId != t.UserId || saved.ChannelId != t.ChannelId || saved.PrivateData.TokenId != t.PrivateData.TokenId || saved.Properties.UpstreamModelName != t.Properties.UpstreamModelName {
+			return fmt.Errorf("OpenRouter synchronous task claim changed")
 		}
-		t.PrivateData.OpenRouterAudio.Revision = expectedRevision + 1
+		if lateImageReceipt {
+			// A late header may add correlation to a manual Image receipt only.
+			// Preserve every financial/result field from the locked saved snapshot.
+			state.UpstreamRequestID = t.PrivateData.OpenRouterSyncState().UpstreamRequestID
+			saved.PrivateData.UpstreamTaskID = t.PrivateData.UpstreamTaskID
+			state.Revision = expectedRevision + 1
+			if err := tx.Model(&Task{}).Where("id = ?", t.ID).Update("private_data", saved.PrivateData).Error; err != nil {
+				return err
+			}
+			t.PrivateData = saved.PrivateData
+			return nil
+		}
+		t.PrivateData.OpenRouterSyncState().Revision = expectedRevision + 1
 		return tx.Model(&Task{}).Where("id = ?", t.ID).Updates(map[string]any{
 			"private_data": t.PrivateData, "status": t.Status, "progress": t.Progress,
 			"quota": t.Quota, "data": t.Data, "start_time": t.StartTime,
@@ -185,7 +224,7 @@ func (t *Task) UpdateOpenRouterAudio(expectedRevision int) error {
 		}).Error
 	})
 	if err != nil {
-		t.PrivateData.OpenRouterAudio.Revision = expectedRevision
+		t.PrivateData.OpenRouterSyncState().Revision = expectedRevision
 	}
 	return err
 }
@@ -596,7 +635,7 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
-		Where("(platform IS NULL OR platform <> ?)", constant.TaskPlatformOpenRouterAudio).
+		Where("(platform IS NULL OR platform NOT IN ?)", []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank, constant.TaskPlatformOpenRouterImage}).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
@@ -1044,7 +1083,7 @@ func (t *Task) FinalizeTaskCostSettlement() error {
 		state.Required = false
 		state.SettlementPending = false
 		updates := map[string]any{"private_data": saved.PrivateData}
-		if saved.PrivateData.OpenRouterAudio != nil {
+		if saved.PrivateData.OpenRouterSyncState() != nil {
 			var data map[string]any
 			if err := common.Unmarshal(saved.Data, &data); err != nil {
 				return err

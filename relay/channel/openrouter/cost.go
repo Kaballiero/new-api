@@ -37,10 +37,10 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 		info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
 	}
 	info.OpenRouterCost.Basis = basis
-	audio := info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription
-	if audio {
+	durable := info.NativeImage != nil && info.NativeImage.ReserveUSD > 0 || info.RelayMode == relayconstant.RelayModeRerank || info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription
+	if durable {
 		info.PriceData.Quota = quota
-		if err := service.BeginOpenRouterAudioTask(c, info, quota); err != nil {
+		if err := service.BeginOpenRouterSyncTask(c, info, quota); err != nil {
 			return err
 		}
 	}
@@ -55,8 +55,8 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 		return err
 	}
 	info.FinalPreConsumedQuota = info.Billing.GetPreConsumedQuota()
-	if audio {
-		return service.CommitOpenRouterAudioReservation(c, info)
+	if durable {
+		return service.CommitOpenRouterSyncReservation(c, info)
 	}
 	return nil
 }
@@ -91,6 +91,8 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	}
 	var meta *types.TokenCountMeta
 	switch operation {
+	case "rerank":
+		// Neither search units nor provider billing tokens are measured at admission.
 	case "decisions":
 		// Native decisions have no measured input/output token quantities at admission.
 	case "audio/transcriptions":
@@ -156,7 +158,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 			input := billingexpr.RequestInput{Body: body, Headers: info.RequestHeaders, EvaluatedAt: time.Now().UTC()}
 			var unavailableVars []string
 			promptTokens := max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), models[0]))
-			if operation == "audio/transcriptions" || operation == "decisions" {
+			if operation == "audio/transcriptions" || operation == "decisions" || operation == "rerank" {
 				promptTokens = 0
 				unavailableVars = []string{"p", "c", "len"}
 			}
@@ -204,7 +206,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if err := ReserveCost(c, info, estimate); err != nil {
 		return nil, err
 	}
-	if service.HasOpenRouterAudioTask(info) {
+	if service.HasOpenRouterSyncTask(info) {
 		headers := http.Header{}
 		if err := adaptor.SetupRequestHeader(c, &headers, info); err != nil {
 			return nil, err
@@ -216,7 +218,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		for key, value := range overrides {
 			headers.Set(key, value)
 		}
-		if err := service.ConfigureOpenRouterAudioSubmission(info, strings.TrimRight(info.ChannelBaseUrl, "/")+"/v1/generation", headers); err != nil {
+		if err := service.ConfigureOpenRouterSyncSubmission(info, strings.TrimRight(info.ChannelBaseUrl, "/")+"/v1/generation", headers); err != nil {
 			return nil, err
 		}
 	}

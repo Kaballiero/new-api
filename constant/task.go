@@ -3,9 +3,11 @@ package constant
 type TaskPlatform string
 
 const (
-	TaskPlatformSuno            TaskPlatform = "suno"
-	TaskPlatformMidjourney                   = "mj"
-	TaskPlatformOpenRouterAudio TaskPlatform = "openrouter-audio"
+	TaskPlatformSuno             TaskPlatform = "suno"
+	TaskPlatformMidjourney                    = "mj"
+	TaskPlatformOpenRouterAudio  TaskPlatform = "openrouter-audio"
+	TaskPlatformOpenRouterImage  TaskPlatform = "openrouter-image"
+	TaskPlatformOpenRouterRerank TaskPlatform = "openrouter-rerank"
 )
 
 const (

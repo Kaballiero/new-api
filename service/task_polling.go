@@ -85,7 +85,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 	timedOutCount := 0
 
 	for _, task := range tasks {
-		if task.PrivateData.OpenRouterAudio != nil {
+		if task.PrivateData.OpenRouterSyncState() != nil {
 			continue
 		}
 		if reconciliation := task.PrivateData.Reconciliation; reconciliation != nil {
@@ -164,7 +164,7 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		}
 		for _, task := range page {
 			afterID = task.ID
-			if audio := task.PrivateData.OpenRouterAudio; audio != nil {
+			if audio := task.PrivateData.OpenRouterSyncState(); audio != nil {
 				reconciliation := task.PrivateData.Reconciliation
 				activeSubmission := reconciliation != nil && (reconciliation.ReservationPending || reconciliation.SubmissionPending)
 				due := now >= audio.NextPoll || now >= audio.Deadline || audio.Attempts >= 16
@@ -258,7 +258,7 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 					if ctx.Err() != nil {
 						return
 					}
-					if err := pollOpenRouterAudio(ctx, task); err != nil {
+					if err := pollOpenRouterSync(ctx, task); err != nil {
 						logger.LogWarn(ctx, fmt.Sprintf("OpenRouter audio task %s reconciliation deferred", task.TaskID))
 					}
 				}
