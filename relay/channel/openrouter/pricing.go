@@ -35,6 +35,7 @@ func (e *EstimateUnavailableError) Error() string {
 func (e *EstimateUnavailableError) Unwrap() error { return e.Cause }
 
 type PricedEndpoint struct {
+	// Public numeric status does not define route eligibility.
 	Status              *int                       `json:"status"`
 	ModelID             string                     `json:"model_id"`
 	Tag                 string                     `json:"tag"`
@@ -427,9 +428,6 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		hasFlex := false
 		if request.ServiceTier == "flex" {
 			for _, endpoint := range endpoints {
-				if endpoint.Status != nil && *endpoint.Status != 0 {
-					continue
-				}
 				tag := strings.ToLower(endpoint.Tag)
 				if !strings.HasSuffix(tag, "/flex") {
 					continue
@@ -445,9 +443,6 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 		}
 		for _, endpoint := range endpoints {
-			if endpoint.Status != nil && *endpoint.Status != 0 {
-				continue
-			}
 			if endpoint.Tag == "" {
 				return 0, errors.New("OpenRouter endpoint tag is missing")
 			}
