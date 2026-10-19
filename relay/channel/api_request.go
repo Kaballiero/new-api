@@ -516,7 +516,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 
 	var cancelAudio context.CancelFunc
-	if service.HasOpenRouterAudioTask(info) {
+	if service.HasOpenRouterSyncTask(info) {
 		var ctx context.Context
 		ctx, cancelAudio = context.WithTimeout(context.WithoutCancel(c.Request.Context()), 4*time.Minute)
 		// The request owns the deadline until a response body takes over.
@@ -531,7 +531,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
-	if info.IsStream && !service.HasOpenRouterAudioTask(info) {
+	if info.IsStream && !service.HasOpenRouterSyncTask(info) {
 		helper.SetEventStreamHeaders(c)
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
@@ -550,8 +550,8 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 
 	resp, err := relayClient.Do(req)
-	if service.HasOpenRouterAudioTask(info) {
-		if recordErr := service.RecordOpenRouterAudioSubmission(info, resp, err); recordErr != nil {
+	if service.HasOpenRouterSyncTask(info) {
+		if recordErr := service.RecordOpenRouterSyncSubmission(info, resp, err); recordErr != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}

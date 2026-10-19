@@ -126,7 +126,7 @@ func (s *filesystemTaskArtifactStore) Resolve(task *model.Task, key string) (*St
 	if err != nil {
 		return nil, err
 	}
-	audio := task.PrivateData.OpenRouterAudio
+	audio := task.PrivateData.OpenRouterSyncState()
 	if audio == nil || !audio.ResultReady {
 		return nil, nil
 	}
