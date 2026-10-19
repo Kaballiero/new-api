@@ -1575,26 +1575,56 @@ func TestOpenRouterSyncProviderFinalPayload(t *testing.T) {
 }
 
 func TestOpenRouterRerankProviderRequiresReservationContract(t *testing.T) {
-	for _, extra := range []string{"", `,"provider":{"only":["cohere"],"allow_fallbacks":false}`, `,"extra_body":{"provider":{"only":["cohere"],"allow_fallbacks":false}}`} {
-		t.Run(extra, func(t *testing.T) {
-			original := `{"model":"vendor/rerank","query":"hi","documents":["hi"]` + extra + `}`
+	const model = "vendor/rerank"
+	const prefs = `{"only":["cohere"],"allow_fallbacks":false}`
+	for _, tc := range []struct{ name, extra string }{
+		{"absent", ""},
+		{"provider", `,"provider":` + prefs},
+		{"nested provider", `,"extra_body":{"provider":` + prefs + `}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &sonarAdmissionTransport{metadata: `{"data":{"id":"vendor/rerank","architecture":{"output_modalities":["rerank"]},"endpoints":[{"tag":"cohere","model_id":"vendor/rerank","pricing":{"prompt":"0.000001","completion":"0"}}]}}`}
+			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			require.NoError(t, err)
+			previous := client.Transport
+			client.Transport = transport
+			t.Cleanup(func() { client.Transport = previous })
+			original := `{"model":"vendor/rerank","query":"hi","documents":["hi"]` + tc.extra + `}`
 			c, _, _, info := newEmbeddedErrorTestRequest(original, http.StatusOK)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/rerank", strings.NewReader(original))
 			c.Request.Header.Set("Content-Type", "application/json")
 			t.Cleanup(func() { common.CleanupBodyStorage(c) })
 			info.ChannelType, info.RelayMode, info.RelayFormat = constant.ChannelTypeOpenRouter, relayconstant.RelayModeRerank, types.RelayFormatRerank
-			info.ChannelSetting.OpenRouterReservationSource = map[string]dto.OpenRouterReservationSource{"vendor/rerank": dto.OpenRouterReservationConfiguredPrice}
+			info.ChannelBaseUrl, info.RequestURLPath = "https://openrouter.test/api", "/v1/rerank"
+			info.UpstreamModelName, info.OriginModelName = model, model
 			billing := &sonarAdmissionBilling{}
 			info.Billing = billing
 			body, err := relaycommon.ApplyRequestOverrides(c, []byte(`{"model":"vendor/rerank","query":"hi","documents":["hi"]}`), info)
 			require.NoError(t, err)
-			if extra != "" {
-				assert.Contains(t, string(body), `"provider":{"only":["cohere"],"allow_fallbacks":false}`)
+			var fields map[string]any
+			require.NoError(t, common.Unmarshal(body, &fields))
+			if tc.extra == "" {
+				assert.NotContains(t, fields, "provider")
+			} else {
+				actual, err := common.Marshal(fields["provider"])
+				require.NoError(t, err)
+				assert.JSONEq(t, prefs, string(actual))
+				assert.NotContains(t, fields, "extra_body")
 			}
-			// Financial enablement belongs to the separate Rerank PR. Even an
-			// explicit reserve setting cannot bypass the current admission gate.
-			_, err = (&Adaptor{}).DoRequest(c, info, bytes.NewReader(body))
-			require.ErrorContains(t, err, "operation lacks a validated cost reservation contract")
+			// Exercise the fixture even before Rerank admission is enabled. A
+			// discovery/transport failure must never satisfy the contract check.
+			require.NoError(t, openrouter.NewRequestEstimator().Discover(c, info, &Adaptor{}, model))
+			assert.Equal(t, 1, transport.gets)
+			// No configured price or explicit reserve: enabling Rerank may move
+			// the financial rejection past discovery, but must not permit a POST.
+			response, err := (&Adaptor{}).DoRequest(c, info, bytes.NewReader(body))
+			require.Error(t, err)
+			require.Contains(t, []string{
+				"OpenRouter operation lacks a validated cost reservation contract",
+				"OpenRouter rerank requires configured_price or an explicit approximate channel reserve and Rerank format",
+			}, err.Error())
+			assert.Nil(t, response)
+			assert.Zero(t, transport.posts)
 			assert.Zero(t, billing.reserveCalls)
 			assert.Nil(t, info.OpenRouterCost)
 		})
