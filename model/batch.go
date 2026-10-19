@@ -62,6 +62,7 @@ type BatchFailure struct {
 	Version    int    `json:"version"`
 	Phase      string `json:"phase"`
 	Code       string `json:"code"`
+	Category   string `json:"category,omitempty"`
 	Message    string `json:"message"`
 	HTTPStatus int    `json:"http_status,omitempty"`
 	RequestID  string `json:"request_id,omitempty"`
