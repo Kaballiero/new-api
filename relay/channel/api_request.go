@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -557,6 +558,22 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			}
 			cancelAudio()
 			return nil, recordErr
+		}
+		if info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio && resp != nil && resp.Body != nil && resp.StatusCode != http.StatusOK {
+			// Error envelopes bypass DoResponse. Inspect only a bounded prefix,
+			// then restore the stream for the normal protocol error handler.
+			body, readErr := io.ReadAll(io.LimitReader(resp.Body, (64<<10)+1))
+			resp.Body = struct {
+				io.Reader
+				io.Closer
+			}{io.MultiReader(bytes.NewReader(body), resp.Body), resp.Body}
+			if readErr == nil && len(body) <= 64<<10 {
+				info.OpenRouterCost.Observe(body, false)
+			}
+			if failErr := service.FailOpenRouterSyncTask(info, "chat_image_upstream_error"); failErr != nil {
+				_ = resp.Body.Close()
+				return nil, failErr
+			}
 		}
 		if err != nil || resp == nil || resp.Body == nil {
 			cancelAudio()

@@ -3465,3 +3465,292 @@ func TestOpenRouterAudioSlowMetadataDoesNotBlockVideoPolling(t *testing.T) {
 	}
 	assert.Equal(t, 9950, getUserQuota(t, info.UserId), "temporary metadata failure retains the hold")
 }
+
+// New chat attempts use the same wallet/token transfer as audio, but keep only
+// credential/config digests. No response artifact store is available here.
+func newOpenRouterChatImageReservation(t *testing.T, baseURL string) (*gin.Context, *relaycommon.RelayInfo) {
+	t.Helper()
+	truncate(t)
+	previous := taskArtifactStore
+	taskArtifactStore = &disabledArtifactStore{}
+	t.Cleanup(func() { taskArtifactStore = previous })
+	const id = 987
+	seedUser(t, id, 10000)
+	seedToken(t, id, id, "chat-image-token", 10000)
+	require.NoError(t, model.DB.Create(&model.Channel{Id: id, Name: "chat-image-fixture", Type: constant.ChannelTypeOpenRouter, Key: "chat-image-account", BaseURL: &baseURL}).Error)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{ChannelId: id, ChannelType: constant.ChannelTypeOpenRouter, ApiKey: "chat-image-account", ChannelBaseUrl: baseURL, UpstreamModelName: "vendor/image"},
+		RelayMode:   relayconstant.RelayModeChatCompletions, UserId: id, TokenId: id, TokenKey: "chat-image-token", OriginModelName: "image-alias", RequestId: "chat-image-request", ForcePreConsume: true,
+		OpenRouterCost: &relaycommon.OpenRouterCostState{ChatImage: true, Basis: common.OpenRouterCostBasis{Version: "openrouter_cost_v1", EffectiveGroupRatio: 1, QuotaPerUnit: 1000, EstimatedUSD: .05}},
+	}
+	info.UserSetting.BillingPreference = "wallet_only"
+	info.PriceData.Quota = 50
+	require.NoError(t, BeginOpenRouterSyncTask(c, info, 50))
+	assert.Equal(t, 10000, getUserQuota(t, id), "intent precedes hold")
+	require.Nil(t, PreConsumeBilling(c, 50, info))
+	require.NoError(t, CommitOpenRouterSyncReservation(c, info))
+	require.NoError(t, ConfigureOpenRouterSyncSubmission(info, baseURL+"/v1/generation", http.Header{"Authorization": []string{"Bearer chat-image-account"}}))
+	info.OpenRouterCost.CaptureGeneration = func(id string) error { return RecordOpenRouterSyncGeneration(info, id) }
+	task, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.Empty(t, task.PrivateData.Key)
+	assert.Empty(t, task.PrivateData.OpenRouterSync.Headers)
+	assert.False(t, info.Billing.NeedsRefund())
+	return c, info
+}
+
+func TestOpenRouterChatImageDurableReconciliation(t *testing.T) {
+	for _, tc := range []struct {
+		name, cost, metadataCost                           string
+		noID, conflict, rotate, wrongModel, wrongOperation bool
+		target                                             int
+		confirmed                                          bool
+	}{
+		{name: "terminal cost", cost: "0.04", target: 40, confirmed: true},
+		{name: "explicit zero", cost: "0", target: 0, confirmed: true},
+		{name: "missing cost metadata", metadataCost: "0.04", target: 40, confirmed: true},
+		{name: "null remains unknown", cost: "null", metadataCost: "null", target: 50},
+		{name: "negative remains unknown", cost: "-1", metadataCost: "-1", target: 50},
+		{name: "nonfinite remains unknown", cost: "1e309", metadataCost: "1e309", target: 50},
+		{name: "string remains unknown", cost: `"0.04"`, metadataCost: `"0.04"`, target: 50},
+		{name: "missing identity", noID: true, target: 50},
+		{name: "header body disagreement", conflict: true, target: 50},
+		{name: "credential rotated", rotate: true, metadataCost: "0.04", target: 50},
+		{name: "wrong model", wrongModel: true, metadataCost: "0.04", target: 50},
+		{name: "wrong operation", wrongOperation: true, metadataCost: "0.04", target: 50},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, "Bearer chat-image-account", r.Header.Get("Authorization"))
+				modelName, apiType := "vendor/image", "completions"
+				if tc.wrongModel {
+					modelName = "vendor/foreign"
+				}
+				if tc.wrongOperation {
+					apiType = "rerank"
+				}
+				if r.URL.Path != "/v1/generation" {
+					w.WriteHeader(404)
+					return
+				}
+				fmt.Fprintf(w, `{"data":{"id":"gen-chat-fixture","model":%q,"api_type":%q,"cancelled":false,"generation_time":1,"total_cost":%s}}`, modelName, apiType, tc.metadataCost)
+			}))
+			defer server.Close()
+			c, info := newOpenRouterChatImageReservation(t, server.URL)
+			header := http.Header{}
+			if tc.conflict {
+				header.Set("X-Generation-Id", "gen-header")
+			}
+			require.NoError(t, RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: 200, Header: header}, nil))
+			id := `"id":"gen-chat-fixture",`
+			if tc.noID {
+				id = ""
+			}
+			usage := `"usage":{}`
+			if tc.cost != "" {
+				usage = `"usage":{"cost":` + tc.cost + `}`
+			}
+			info.OpenRouterCost.Observe([]byte(`{`+id+`"choices":[{"message":{"content":"valid image/text"}}],`+usage+`}`), true)
+			if tc.conflict {
+				require.Error(t, CompleteOpenRouterSyncTask(c, info, nil, "application/json"))
+				require.NoError(t, FailOpenRouterSyncTask(info, "invalid_chat_image_result"))
+			} else {
+				require.NoError(t, CompleteOpenRouterSyncTask(c, info, []byte("delivered response"), "application/json"))
+			}
+			if tc.rotate {
+				require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", info.ChannelId).Update("key", "rotated-account").Error)
+			}
+			saved, err := openRouterSyncTask(info)
+			require.NoError(t, err)
+			if saved.Status != model.TaskStatusFailure && !saved.PrivateData.Reconciliation.Finalized {
+				require.NoError(t, pollOpenRouterSync(t.Context(), saved))
+			}
+			saved, err = openRouterSyncTask(info)
+			require.NoError(t, err)
+			assert.Equal(t, tc.target, saved.Quota)
+			assert.Equal(t, 10000-tc.target, getUserQuota(t, info.UserId))
+			assert.Equal(t, 10000-tc.target, getTokenRemainQuota(t, info.TokenId))
+			assert.Equal(t, tc.confirmed, saved.PrivateData.Reconciliation.UpstreamCostConfirmed)
+			assert.False(t, info.Billing.NeedsRefund())
+			view := OpenRouterSyncReconciliation(saved)
+			assert.Equal(t, false, view["replay_allowed"])
+			encoded, err := common.Marshal(view)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), "chat-image-account")
+			assert.NotContains(t, string(encoded), "credential_hash")
+			if tc.rotate || tc.noID || tc.conflict {
+				assert.Zero(t, calls)
+			}
+		})
+	}
+}
+
+func TestOpenRouterChatImageInterruptedSubmissionAndLateCost(t *testing.T) {
+	c, info := newOpenRouterChatImageReservation(t, "https://openrouter.invalid/api")
+	saved, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	saved.PrivateData.OpenRouterSync.LeaseUntil = time.Now().Add(-time.Minute).Unix()
+	require.NoError(t, saved.UpdateOpenRouterSync(saved.PrivateData.OpenRouterSync.Revision))
+	require.NoError(t, pollOpenRouterSync(t.Context(), saved))
+	saved, err = openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), saved.Status)
+	assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+	assert.False(t, info.Billing.NeedsRefund())
+	// An original in-flight response may later carry a receipt and confirmed cost;
+	// this does not create a second generation or a fresh financial owner.
+	info.OpenRouterCost.Observe([]byte(`{"id":"gen-late","usage":{"cost":0.04}}`), true)
+	require.NoError(t, CompleteOpenRouterSyncTask(c, info, []byte("original late result"), "application/json"))
+	saved, err = openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.True(t, saved.PrivateData.Reconciliation.Finalized)
+	assert.Equal(t, 9960, getUserQuota(t, info.UserId))
+	require.Error(t, CompleteOpenRouterSyncTask(c, info, nil, "application/json"))
+	assert.Equal(t, 9960, getUserQuota(t, info.UserId))
+}
+
+func TestOpenRouterChatImageConcurrentPollersSettleOnce(t *testing.T) {
+	entered, release := make(chan struct{}, 2), make(chan struct{})
+	var once sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entered <- struct{}{}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		fmt.Fprint(w, `{"data":{"id":"gen-chat-race","model":"vendor/image","api_type":"completions","cancelled":false,"generation_time":1,"total_cost":0.04}}`)
+	}))
+	defer func() { once.Do(func() { close(release) }); server.Close() }()
+	c, info := newOpenRouterChatImageReservation(t, server.URL)
+	info.OpenRouterCost.Observe([]byte(`{"id":"gen-chat-race"}`), true)
+	require.NoError(t, CompleteOpenRouterSyncTask(c, info, nil, "application/json"))
+	first, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	second, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	outcomes := make(chan error, 2)
+	go func() { outcomes <- pollOpenRouterSync(t.Context(), first) }()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("metadata GET not reached")
+	}
+	go func() { outcomes <- pollOpenRouterSync(t.Context(), second) }()
+	require.Error(t, <-outcomes, "stale poller must lose its budget claim before another GET")
+	once.Do(func() { close(release) })
+	require.NoError(t, <-outcomes)
+	assert.Empty(t, entered, "one claimed metadata GET")
+	saved, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.True(t, saved.PrivateData.Reconciliation.Finalized)
+	assert.Equal(t, 1, saved.PrivateData.OpenRouterSync.Attempts)
+	assert.Equal(t, 9960, getUserQuota(t, info.UserId))
+	assert.Equal(t, 9960, getTokenRemainQuota(t, info.TokenId))
+	var logs []model.Log
+	require.NoError(t, model.LOG_DB.Find(&logs).Error)
+	assert.Len(t, logs, 2, "one reservation and one settlement delta")
+}
+
+func TestOpenRouterChatImageEventCorrelationBeforeTerminalUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name, next string
+		conflict   bool
+	}{
+		{name: "same generation across events", next: "gen-event"},
+		{name: "different generation across events", next: "gen-foreign", conflict: true},
+		{name: "secret shaped correlation rejected", next: "gen-sk-private", conflict: true},
+		{name: "invalid generation identity rejected", next: "foreign-request-id", conflict: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, info := newOpenRouterChatImageReservation(t, "https://openrouter.invalid/api")
+			info.OpenRouterCost.Observe([]byte(`{"id":"gen-event","choices":[{"delta":{"content":"partial"}}]}`), false)
+			saved, err := openRouterSyncTask(info)
+			require.NoError(t, err)
+			assert.Equal(t, "gen-event", saved.PrivateData.UpstreamTaskID, "receipt is durable before terminal usage arrives")
+			assert.False(t, saved.PrivateData.Reconciliation.UpstreamCostConfirmed)
+			info.OpenRouterCost.Observe([]byte(fmt.Sprintf(`{"id":%q,"usage":{"cost":0.04}}`, tc.next)), true)
+			if tc.conflict {
+				assert.False(t, info.OpenRouterCost.Final)
+				saved, err = openRouterSyncTask(info)
+				require.NoError(t, err)
+				assert.True(t, saved.PrivateData.OpenRouterSync.IdentityConflict, "conflict survives a crash before the response error handler")
+				require.NoError(t, FailOpenRouterSyncTask(info, "invalid_chat_image_result"))
+				assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+				saved, err = openRouterSyncTask(info)
+				require.NoError(t, err)
+				assert.Equal(t, "gen-event", saved.PrivateData.UpstreamTaskID)
+				assert.False(t, saved.PrivateData.Reconciliation.UpstreamCostConfirmed)
+			} else {
+				require.NoError(t, CompleteOpenRouterSyncTask(c, info, nil, "application/json"))
+				assert.Equal(t, 9960, getUserQuota(t, info.UserId))
+			}
+		})
+	}
+}
+
+func TestOpenRouterChatImageLookupBoundsAndConfigBinding(t *testing.T) {
+	for _, tc := range []struct {
+		name                       string
+		deadline, attempts, config bool
+	}{
+		{name: "expired deadline", deadline: true},
+		{name: "exhausted persistent budget", attempts: true},
+		{name: "changed account config", config: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				t.Error("blocked lookup must not reach upstream")
+			}))
+			defer server.Close()
+			c, info := newOpenRouterChatImageReservation(t, server.URL)
+			info.OpenRouterCost.Observe([]byte(`{"id":"gen-bounded"}`), true)
+			require.NoError(t, CompleteOpenRouterSyncTask(c, info, nil, "application/json"))
+			saved, err := openRouterSyncTask(info)
+			require.NoError(t, err)
+			if tc.deadline {
+				saved.PrivateData.OpenRouterSync.Deadline = time.Now().Add(-time.Second).Unix()
+			}
+			if tc.attempts {
+				saved.PrivateData.OpenRouterSync.Attempts = 16
+			}
+			require.NoError(t, saved.UpdateOpenRouterSync(saved.PrivateData.OpenRouterSync.Revision))
+			if tc.config {
+				require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", info.ChannelId).Update("header_override", `{"Authorization":"Bearer another-account"}`).Error)
+			}
+			require.NoError(t, pollOpenRouterSync(t.Context(), saved))
+			assert.Zero(t, calls)
+			saved, err = openRouterSyncTask(info)
+			require.NoError(t, err)
+			assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), saved.Status)
+			assert.Equal(t, "manual_reconciliation", OpenRouterSyncReconciliation(saved)["billing_state"])
+			assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+		})
+	}
+}
+
+func TestOpenRouterChatImageFirstSecretCorrelationNeverPersists(t *testing.T) {
+	_, info := newOpenRouterChatImageReservation(t, "https://openrouter.invalid/api")
+	info.OpenRouterCost.Observe([]byte(`{"id":"gen-sk-private","usage":{"cost":0.04}}`), true)
+	assert.Empty(t, info.OpenRouterCost.GenerationID, "rejected candidate never becomes the in-memory generation binding")
+	assert.False(t, info.OpenRouterCost.Final)
+	saved, err := openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.True(t, saved.PrivateData.OpenRouterSync.IdentityConflict)
+	assert.Empty(t, saved.PrivateData.UpstreamTaskID)
+	require.NoError(t, FailOpenRouterSyncTask(info, "invalid_chat_image_result"))
+	saved, err = openRouterSyncTask(info)
+	require.NoError(t, err)
+	assert.Empty(t, saved.PrivateData.UpstreamTaskID)
+	encoded, err := common.Marshal(saved.PrivateData)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "gen-sk-private")
+	assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+}

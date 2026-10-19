@@ -837,6 +837,23 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		if info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription {
 			return openrouter.AudioResponse(c, resp, info)
 		}
+		if info.OpenRouterCost.ChatImage {
+			// Delivery uses the existing chat parser/stream. Only the durable Task
+			// owns money, even when a valid result has no terminal usage.cost.
+			defer func() {
+				if info.OpenRouterCost.IdentityConflict {
+					err = openrouter.CostError("OpenRouter generation identity is unverified")
+				}
+				if err != nil {
+					_ = service.FailOpenRouterSyncTask(info, "invalid_chat_image_result")
+					return
+				}
+				if completeErr := service.CompleteOpenRouterSyncTask(c, info, nil, "application/json"); completeErr != nil {
+					_ = service.FailOpenRouterSyncTask(info, "chat_image_completion_unavailable")
+					err = openrouter.CostError("OpenRouter chat-image completion requires reconciliation")
+				}
+			}()
+		}
 		if !info.IsStream {
 			if costErr := openrouter.ValidateResponse(resp, info); costErr != nil {
 				return nil, costErr
@@ -844,7 +861,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		}
 		defer func() {
 
-			if !info.OpenRouterCost.Final {
+			if !info.OpenRouterCost.Final && !info.OpenRouterCost.ChatImage {
 				usage = nil
 				err = openrouter.CostError("OpenRouter terminal usage.cost is missing or invalid")
 				return

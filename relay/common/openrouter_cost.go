@@ -3,23 +3,29 @@ package common
 import (
 	"encoding/json"
 	"github.com/QuantumNous/new-api/common"
+	"strings"
 )
 
 type OpenRouterCostBasis = common.OpenRouterCostBasis
 
 // OpenRouterCostState is independent of token projections and estimates.
 type OpenRouterCostState struct {
-	Basis         common.OpenRouterCostBasis
-	CostUSD       float64
-	Valid         bool
-	Final         bool
-	Sent          bool
-	CostDetails   json.RawMessage
-	IsBYOK        *bool
-	UnknownReason string
-	BufferedAudio bool
-	GenerationID  string
-	CostSource    string
+	Basis            common.OpenRouterCostBasis
+	CostUSD          float64
+	Valid            bool
+	Final            bool
+	Sent             bool
+	CostDetails      json.RawMessage
+	IsBYOK           *bool
+	UnknownReason    string
+	BufferedAudio    bool
+	ChatImage        bool
+	RoutingHash      string
+	IdentityConflict bool
+	// CaptureGeneration persists correlation before usage validation can fail.
+	CaptureGeneration func(string) error `json:"-"`
+	GenerationID      string
+	CostSource        string
 	// TaskID transfers financial ownership to the durable Task lifecycle.
 	TaskID string
 	// ApproximateResearchReserveUSD records the accepted hold policy, not a
@@ -40,6 +46,7 @@ func NewOpenRouterCostBasis(info *RelayInfo, estimatedUSD float64) common.OpenRo
 // malformed snapshot must never retain an earlier provisional price.
 func (s *OpenRouterCostState) Observe(body []byte, terminal bool) {
 	var envelope struct {
+		ID       string                     `json:"id"`
 		Usage    map[string]json.RawMessage `json:"usage"`
 		Response json.RawMessage            `json:"response"`
 		Type     string                     `json:"type"`
@@ -50,6 +57,13 @@ func (s *OpenRouterCostState) Observe(body []byte, terminal bool) {
 		s.Valid = false
 		s.Final = false
 		s.UnknownReason = "malformed_usage"
+		return
+	}
+	if s.ChatImage && envelope.ID != "" {
+		s.ObserveGenerationID(envelope.ID)
+	}
+	if s.IdentityConflict {
+		s.Valid, s.Final, s.UnknownReason = false, false, "generation_identity_unverified"
 		return
 	}
 	if len(envelope.Error) > 0 && string(envelope.Error) != "null" || (envelope.Type == "response.failed" || envelope.Type == "response.error" || envelope.Type == "response.cancelled" || envelope.Type == "response.canceled") || envelope.Status == "failed" || envelope.Status == "cancelled" || envelope.Status == "canceled" {
@@ -112,4 +126,30 @@ func (s *OpenRouterCostState) Observe(body []byte, terminal bool) {
 			s.UnknownReason = "missing_terminal_cost"
 		}
 	}
+}
+
+// ObserveGenerationID accepts only OpenRouter generation identities, never a
+// provider request ID. A disagreement or failed durable write stays fail closed.
+func (s *OpenRouterCostState) ObserveGenerationID(id string) {
+	if id == "" || id == s.GenerationID {
+		return
+	}
+	valid := strings.HasPrefix(id, "gen-") && len(id) > 4 && len(id) <= 128 && strings.IndexFunc(id[4:], func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-')
+	}) == -1
+	if s.CaptureGeneration != nil {
+		if err := s.CaptureGeneration(id); err != nil {
+			s.IdentityConflict = true
+			return
+		}
+	}
+	if !valid {
+		s.IdentityConflict = true
+		return
+	}
+	if s.GenerationID != "" && s.GenerationID != id {
+		s.IdentityConflict = true
+		return
+	}
+	s.GenerationID = id
 }
