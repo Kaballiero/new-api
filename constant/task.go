@@ -6,6 +6,7 @@ const (
 	TaskPlatformSuno             TaskPlatform = "suno"
 	TaskPlatformMidjourney                    = "mj"
 	TaskPlatformOpenRouterAudio  TaskPlatform = "openrouter-audio"
+	TaskPlatformOpenRouterImage  TaskPlatform = "openrouter-image"
 	TaskPlatformOpenRouterRerank TaskPlatform = "openrouter-rerank"
 )
 

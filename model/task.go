@@ -141,6 +141,12 @@ type TaskPrivateData struct {
 // OpenRouterSyncTask separates delivery from financial reconciliation. Headers
 // and transport settings are private account provenance, never public Task.Data.
 type OpenRouterSyncTask struct {
+	UpstreamRequestID string              `json:"upstream_request_id,omitempty"`
+	DispatchPrepared  bool                `json:"dispatch_prepared,omitempty"`
+	ProviderTag       string              `json:"provider_tag,omitempty"`
+	ReservationSource string              `json:"reservation_source,omitempty"`
+	ReserveUSD        float64             `json:"reserve_usd,omitempty"`
+	PricingUnknown    bool                `json:"pricing_unknown,omitempty"`
 	Revision          int                 `json:"revision"`
 	RequestID         string              `json:"request_id"`
 	BillingPreference string              `json:"billing_preference"`
@@ -185,10 +191,30 @@ func (t *Task) UpdateOpenRouterSync(expectedRevision int) error {
 			return err
 		}
 		state := saved.PrivateData.OpenRouterSyncState()
+		// An Image response can arrive after the sweeper retained a manual hold.
+		// Only new confirmed cost may claim that hold, never another submission.
+		prior, next := saved.PrivateData.Reconciliation, t.PrivateData.Reconciliation
+		lateImageCost := saved.Platform == constant.TaskPlatformOpenRouterImage && saved.Status == TaskStatusFailure &&
+			prior != nil && next != nil && !prior.ReservationPending && !prior.HasUpstreamCost && !prior.SettlementPending && !prior.Finalized &&
+			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.SubmissionPending && !next.ReservationPending
+		lateImageReceipt := saved.Platform == constant.TaskPlatformOpenRouterImage && saved.Status == TaskStatusFailure && t.Status == TaskStatusFailure &&
+			prior != nil && next != nil && prior.Required && !prior.ReservationPending && !prior.HasUpstreamCost && !prior.SettlementPending && !prior.Finalized && !next.HasUpstreamCost
 		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID ||
-			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure ||
+			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure && !lateImageCost && !lateImageReceipt ||
 			saved.Platform != t.Platform || saved.Action != t.Action || saved.UserId != t.UserId || saved.ChannelId != t.ChannelId || saved.PrivateData.TokenId != t.PrivateData.TokenId || saved.Properties.UpstreamModelName != t.Properties.UpstreamModelName {
 			return fmt.Errorf("OpenRouter synchronous task claim changed")
+		}
+		if lateImageReceipt {
+			// A late header may add correlation to a manual Image receipt only.
+			// Preserve every financial/result field from the locked saved snapshot.
+			state.UpstreamRequestID = t.PrivateData.OpenRouterSyncState().UpstreamRequestID
+			saved.PrivateData.UpstreamTaskID = t.PrivateData.UpstreamTaskID
+			state.Revision = expectedRevision + 1
+			if err := tx.Model(&Task{}).Where("id = ?", t.ID).Update("private_data", saved.PrivateData).Error; err != nil {
+				return err
+			}
+			t.PrivateData = saved.PrivateData
+			return nil
 		}
 		t.PrivateData.OpenRouterSyncState().Revision = expectedRevision + 1
 		return tx.Model(&Task{}).Where("id = ?", t.ID).Updates(map[string]any{
@@ -609,7 +635,7 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
-		Where("(platform IS NULL OR platform NOT IN ?)", []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank}).
+		Where("(platform IS NULL OR platform NOT IN ?)", []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank, constant.TaskPlatformOpenRouterImage}).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
