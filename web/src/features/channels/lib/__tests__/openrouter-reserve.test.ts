@@ -30,7 +30,7 @@ function reserveForm(setting: Record<string, unknown>) {
   return transformChannelToFormDefaults(
     channelSchema.parse({
       id: 68,
-      type: 28,
+      type: 20,
       key: 'local-test',
       status: 1,
       name: 'OpenRouter',

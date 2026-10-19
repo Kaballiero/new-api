@@ -1,3 +1,4 @@
+import { zodResolver } from '@hookform/resolvers/zod'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,18 +17,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { zodResolver } from '@hookform/resolvers/zod'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useForm } from 'react-hook-form'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { Form } from '@/components/ui/form'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
   channelFormSchema,
   type ChannelFormValues,
 } from '../../../lib/channel-form'
+import { channelSchema } from '../../../types'
+import { ChannelsProvider } from '../../channels-provider'
+import { ChannelMutateDrawer } from '../channel-mutate-drawer'
 import { OpenRouterReserveField } from '../sections/openrouter-reserve-field'
 
 function ReserveForm(props: { disabled: boolean }) {
@@ -35,7 +42,7 @@ function ReserveForm(props: { disabled: boolean }) {
     resolver: zodResolver(channelFormSchema),
     defaultValues: {
       ...CHANNEL_FORM_DEFAULT_VALUES,
-      type: 28,
+      type: 20,
       name: 'OpenRouter',
       key: 'local',
       models: 'other/reasoner',
@@ -105,4 +112,74 @@ describe('OpenRouter reserve editor', () => {
       screen.getByRole('textbox', { name: 'OpenRouter reservation sources' })
     ).toBeDisabled()
   })
+})
+
+afterEach(() => {
+  useAuthStore.getState().auth.setUser(null)
+  vi.restoreAllMocks()
+})
+
+describe('channel drawer reserve settings', () => {
+  test.each([20, 28, 1])(
+    'shows reserve editors only for OpenRouter type 20 (channel type %s)',
+    async (type) => {
+      const channel = channelSchema.parse({
+        id: 69,
+        type,
+        name: 'Reserve channel',
+        key: '',
+        status: 1,
+        created_time: 0,
+        test_time: 0,
+        response_time: 0,
+        balance_updated_time: 0,
+        models: 'qwen/qwen3-reranker-8b',
+        group: 'default',
+        setting:
+          '{"openrouter_model_reserve_usd":{"qwen/qwen3-reranker-8b":0.02}}',
+      })
+      useAuthStore
+        .getState()
+        .auth.setUser({ id: 1, username: 'admin', role: 100 })
+      const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
+        if (url === '/api/channel/69') {
+          return { data: { success: true, data: channel } }
+        }
+        return { data: { success: true, data: [] } }
+      })
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <ChannelsProvider>
+              <ChannelMutateDrawer
+                open
+                onOpenChange={() => undefined}
+                currentRow={channel}
+              />
+            </ChannelsProvider>
+          </TooltipProvider>
+        </QueryClientProvider>
+      )
+      await waitFor(() =>
+        expect(screen.getByDisplayValue('Reserve channel')).toBeVisible()
+      )
+      expect(get).toHaveBeenCalledWith('/api/channel/69')
+      const reserve = screen.queryByRole('textbox', {
+        name: 'OpenRouter model reserves (USD)',
+      })
+      const source = screen.queryByRole('textbox', {
+        name: 'OpenRouter reservation sources',
+      })
+      if (type === 20) {
+        expect(reserve).toBeVisible()
+        expect(source).toBeVisible()
+      } else {
+        expect(reserve).not.toBeInTheDocument()
+        expect(source).not.toBeInTheDocument()
+      }
+    }
+  )
 })
