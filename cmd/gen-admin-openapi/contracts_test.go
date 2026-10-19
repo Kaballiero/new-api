@@ -216,7 +216,8 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	groupPrice := components["schemas"].(map[string]interface{})["EffectiveGroupPricing"].(map[string]interface{})
 	groupProps := groupPrice["properties"].(map[string]interface{})
 	assert.ElementsMatch(t, []string{"using_group", "operations"}, groupPrice["required"])
-	assert.Len(t, groupProps, 2)
+	assert.Len(t, groupProps, 3)
+	assert.Equal(t, "#/components/schemas/EffectiveProviderOffer", groupProps["provider_offers"].(map[string]any)["items"].(map[string]any)["$ref"])
 	assert.Equal(t, "#/components/schemas/EffectivePricingOperation", groupProps["operations"].(map[string]any)["items"].(map[string]any)["$ref"])
 	operationSchema := components["schemas"].(map[string]any)["EffectivePricingOperation"].(map[string]any)
 	assert.ElementsMatch(t, []string{"operation", "mode", "prices"}, operationSchema["required"])
@@ -645,4 +646,44 @@ func TestGeneratedChannelTaskContracts(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestEffectiveProviderOffersSchemaPreservesRuntimePricesAndConditions(t *testing.T) {
+	t.Chdir("../..")
+	require.NoError(t, bootstrap())
+	schemas := buildSchemas()
+	offer := schemas["EffectiveProviderOffer"].(map[string]any)
+	properties := offer["properties"].(map[string]any)
+	assert.ElementsMatch(t, []string{
+		"id", "upstream_model", "operation", "mode", "scope", "provider", "variant",
+		"prices", "coverage", "eligibility", "capabilities", "limits", "catalog_availability", "limitations",
+	}, offer["required"])
+	assert.Equal(t, true, properties["provider"].(map[string]any)["nullable"])
+	assert.Equal(t, true, properties["eligibility"].(map[string]any)["nullable"])
+	identity := schemas["EffectiveProviderIdentity"].(map[string]any)["properties"].(map[string]any)
+	for _, field := range []string{"id", "name", "tag"} {
+		assert.Equal(t, map[string]any{"type": "string", "nullable": true}, identity[field])
+	}
+	price := schemas["EffectiveProviderPrice"].(map[string]any)
+	prices := price["properties"].(map[string]any)
+	assert.Contains(t, price["required"], "amount_rub")
+	assert.Equal(t, "string", prices["amount_rub"].(map[string]any)["type"])
+	assert.Equal(t, true, prices["amount_rub"].(map[string]any)["nullable"])
+	assert.Equal(t, "string", prices["quantity"].(map[string]any)["type"])
+	assert.Equal(t, map[string]any{"type": "string", "nullable": true}, prices["amountUSD"])
+	for _, field := range []string{"conditions", "variant", "provenance"} {
+		assert.Contains(t, price["required"], field)
+		assert.Equal(t, map[string]any{"type": "object", "additionalProperties": true}, prices[field])
+	}
+	for _, field := range []string{"componentId", "billable", "direction", "modality", "source", "normalization"} {
+		assert.Contains(t, prices, field)
+	}
+	legacyPrice := schemas["EffectiveUnitPrice"].(map[string]any)["properties"].(map[string]any)
+	assert.Equal(t, "number", legacyPrice["amount_rub"].(map[string]any)["type"])
+	for _, name := range []string{"EffectivePricingModel", "EffectivePricingPageModel"} {
+		model := schemas[name].(map[string]any)["properties"].(map[string]any)
+		assert.Equal(t, map[string]any{
+			"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectiveGroupPricing"},
+		}, model["group_prices"])
+	}
 }

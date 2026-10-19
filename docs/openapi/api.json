@@ -3651,6 +3651,12 @@
             },
             "type": "array"
           },
+          "provider_offers": {
+            "items": {
+              "$ref": "#/components/schemas/EffectiveProviderOffer"
+            },
+            "type": "array"
+          },
           "using_group": {
             "type": "string"
           }
@@ -4037,6 +4043,315 @@
         "required": [
           "success",
           "data"
+        ],
+        "type": "object"
+      },
+      "EffectiveProviderCoverage": {
+        "properties": {
+          "expectedSources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "missingSources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "normalization": {
+            "type": "string"
+          },
+          "offers": {
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "offers",
+          "normalization",
+          "reasons",
+          "expectedSources",
+          "missingSources"
+        ],
+        "type": "object"
+      },
+      "EffectiveProviderEligibility": {
+        "properties": {
+          "eligible": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "eligible",
+          "reasons"
+        ],
+        "type": "object"
+      },
+      "EffectiveProviderIdentity": {
+        "properties": {
+          "id": {
+            "nullable": true,
+            "type": "string"
+          },
+          "name": {
+            "nullable": true,
+            "type": "string"
+          },
+          "tag": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tag"
+        ],
+        "type": "object"
+      },
+      "EffectiveProviderOffer": {
+        "properties": {
+          "capabilities": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "catalog_availability": {
+            "description": "Catalog eligibility only; does not establish live endpoint availability or request admission.",
+            "enum": [
+              "eligible",
+              "ineligible",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/EffectiveProviderCoverage"
+          },
+          "eligibility": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EffectiveProviderEligibility"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "id": {
+            "description": "Opaque offer identity scoped to the catalog snapshot; not a provider display name.",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "mode": {
+            "enum": [
+              "sync",
+              "batch"
+            ],
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "prices": {
+            "items": {
+              "$ref": "#/components/schemas/EffectiveProviderPrice"
+            },
+            "type": "array"
+          },
+          "provider": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EffectiveProviderIdentity"
+              }
+            ],
+            "nullable": true,
+            "type": "object"
+          },
+          "scope": {
+            "enum": [
+              "model",
+              "endpoint"
+            ],
+            "type": "string"
+          },
+          "upstream_model": {
+            "type": "string"
+          },
+          "variant": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "upstream_model",
+          "operation",
+          "mode",
+          "scope",
+          "provider",
+          "variant",
+          "capabilities",
+          "limits",
+          "prices",
+          "coverage",
+          "eligibility",
+          "catalog_availability",
+          "limitations"
+        ],
+        "type": "object"
+      },
+      "EffectiveProviderPrice": {
+        "properties": {
+          "amountUSD": {
+            "nullable": true,
+            "type": "string"
+          },
+          "amount_rub": {
+            "description": "Exact decimal customer RUB amount for quantity units; null means unknown, and string zero is a valid explicit price. FX and group pricing are already applied.",
+            "nullable": true,
+            "type": "string"
+          },
+          "billable": {
+            "nullable": true,
+            "type": "string"
+          },
+          "component": {
+            "type": "string"
+          },
+          "componentId": {
+            "type": "string"
+          },
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "direction": {
+            "nullable": true,
+            "type": "string"
+          },
+          "modality": {
+            "nullable": true,
+            "type": "string"
+          },
+          "normalization": {
+            "$ref": "#/components/schemas/EffectiveProviderPriceNormalization"
+          },
+          "parameter": {
+            "type": "string"
+          },
+          "provenance": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "quantity": {
+            "description": "Positive exact decimal number of units priced by this component.",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/EffectiveProviderPriceSource"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "variant": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "component",
+          "parameter",
+          "componentId",
+          "billable",
+          "direction",
+          "modality",
+          "amountUSD",
+          "amount_rub",
+          "unit",
+          "quantity",
+          "variant",
+          "conditions",
+          "provenance",
+          "source",
+          "normalization"
+        ],
+        "type": "object"
+      },
+      "EffectiveProviderPriceNormalization": {
+        "properties": {
+          "appliedDiscount": {
+            "nullable": true,
+            "type": "string"
+          },
+          "comparable": {
+            "type": "boolean"
+          },
+          "discountBasis": {
+            "type": "string"
+          },
+          "effective": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "comparable",
+          "effective",
+          "reasons",
+          "discountBasis",
+          "appliedDiscount"
+        ],
+        "type": "object"
+      },
+      "EffectiveProviderPriceSource": {
+        "properties": {
+          "amount": {
+            "nullable": true,
+            "type": "string"
+          },
+          "currency": {
+            "nullable": true,
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "unit": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "currency",
+          "unit",
+          "key"
         ],
         "type": "object"
       },
@@ -5774,6 +6089,9 @@
             "type": "number"
           },
           "description": {
+            "type": "string"
+          },
+          "display_name": {
             "type": "string"
           },
           "enable_groups": {

@@ -419,10 +419,12 @@ func buildSchemas() map[string]interface{} {
 	}
 	out["EffectiveGroupPricing"] = map[string]any{
 		"type": "object", "properties": map[string]any{
-			"using_group": map[string]any{"type": "string"},
-			"operations":  map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectivePricingOperation"}},
+			"using_group":     map[string]any{"type": "string"},
+			"operations":      map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectivePricingOperation"}},
+			"provider_offers": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectiveProviderOffer"}},
 		}, "required": []string{"using_group", "operations"},
 	}
+	addEffectiveProviderPricingSchemas(out)
 	out["EffectivePricingModel"] = map[string]interface{}{
 		"type": "object",
 		"properties": map[string]interface{}{
@@ -642,6 +644,80 @@ func buildSchemas() map[string]interface{} {
 	enrichPricingTransportSchemas(out)
 	addPublicPricingModelsSchemas(out)
 	return out
+}
+
+func addEffectiveProviderPricingSchemas(schemas map[string]any) {
+	text := map[string]any{"type": "string"}
+	nullableText := map[string]any{"type": "string", "nullable": true}
+	strings := map[string]any{"type": "array", "items": text}
+	object := map[string]any{"type": "object", "additionalProperties": true}
+	schemas["EffectiveProviderIdentity"] = map[string]any{
+		"type": "object", "properties": map[string]any{
+			"id": nullableText, "name": nullableText, "tag": nullableText,
+		}, "required": []string{"id", "name", "tag"},
+	}
+	schemas["EffectiveProviderCoverage"] = map[string]any{
+		"type": "object", "properties": map[string]any{
+			"offers": text, "normalization": text, "reasons": strings,
+			"expectedSources": strings, "missingSources": strings,
+		}, "required": []string{"offers", "normalization", "reasons", "expectedSources", "missingSources"},
+	}
+	schemas["EffectiveProviderEligibility"] = map[string]any{
+		"type": "object", "properties": map[string]any{
+			"eligible": map[string]any{"type": "boolean"}, "reasons": strings,
+		}, "required": []string{"eligible", "reasons"},
+	}
+	schemas["EffectiveProviderPriceSource"] = map[string]any{
+		"type": "object", "properties": map[string]any{
+			"amount": nullableText, "currency": nullableText, "unit": nullableText, "key": text,
+		}, "required": []string{"amount", "currency", "unit", "key"},
+	}
+	schemas["EffectiveProviderPriceNormalization"] = map[string]any{
+		"type": "object", "properties": map[string]any{
+			"comparable": map[string]any{"type": "boolean"},
+			"effective":  map[string]any{"type": "boolean"},
+			"reasons":    strings, "discountBasis": text, "appliedDiscount": nullableText,
+		}, "required": []string{"comparable", "effective", "reasons", "discountBasis", "appliedDiscount"},
+	}
+	schemas["EffectiveProviderPrice"] = map[string]any{
+		"type": "object", "properties": map[string]any{
+			"component": text, "parameter": text, "componentId": text,
+			"billable": nullableText, "direction": nullableText, "modality": nullableText,
+			"amountUSD": nullableText,
+			"amount_rub": map[string]any{
+				"type": "string", "nullable": true,
+				"description": "Exact decimal customer RUB amount for quantity units; null means unknown, and string zero is a valid explicit price. FX and group pricing are already applied.",
+			},
+			"unit": text, "quantity": map[string]any{"type": "string", "description": "Positive exact decimal number of units priced by this component."},
+			"variant": object, "conditions": object, "provenance": object,
+			"source":        map[string]any{"$ref": "#/components/schemas/EffectiveProviderPriceSource"},
+			"normalization": map[string]any{"$ref": "#/components/schemas/EffectiveProviderPriceNormalization"},
+		}, "required": []string{"component", "parameter", "componentId", "billable", "direction", "modality", "amountUSD", "amount_rub", "unit", "quantity", "variant", "conditions", "provenance", "source", "normalization"},
+	}
+	schemas["EffectiveProviderOffer"] = map[string]any{
+		"type": "object", "properties": map[string]any{
+			"id":             map[string]any{"type": "string", "description": "Opaque offer identity scoped to the catalog snapshot; not a provider display name."},
+			"upstream_model": text, "operation": text,
+			"mode":  map[string]any{"type": "string", "enum": []string{"sync", "batch"}},
+			"scope": map[string]any{"type": "string", "enum": []string{"model", "endpoint"}},
+			"provider": map[string]any{
+				"type": "object", "nullable": true,
+				"allOf": []any{map[string]any{"$ref": "#/components/schemas/EffectiveProviderIdentity"}},
+			},
+			"variant": object, "capabilities": object, "limits": object,
+			"prices":   map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/EffectiveProviderPrice"}},
+			"coverage": map[string]any{"$ref": "#/components/schemas/EffectiveProviderCoverage"},
+			"eligibility": map[string]any{
+				"type": "object", "nullable": true,
+				"allOf": []any{map[string]any{"$ref": "#/components/schemas/EffectiveProviderEligibility"}},
+			},
+			"catalog_availability": map[string]any{
+				"type": "string", "enum": []string{"eligible", "ineligible", "unknown"},
+				"description": "Catalog eligibility only; does not establish live endpoint availability or request admission.",
+			},
+			"limitations": strings,
+		}, "required": []string{"id", "upstream_model", "operation", "mode", "scope", "provider", "variant", "capabilities", "limits", "prices", "coverage", "eligibility", "catalog_availability", "limitations"},
+	}
 }
 
 // wrapWaffoResponse builds the {message, data} envelope used by the Waffo
