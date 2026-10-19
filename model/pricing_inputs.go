@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"slices"
@@ -20,7 +21,11 @@ func pricingPersistedInputFingerprint(metadata []Model, vendors []Vendor, channe
 	for _, channel := range channels {
 		byID[channel.Id] = channel
 	}
-	rows := []string{}
+	catalogRevision, err := persistedCatalogRevision(context.Background())
+	if err != nil {
+		return "", err
+	}
+	rows := []string{"upstream_catalog:" + catalogRevision}
 	names := []string{}
 	used := make(map[int]bool)
 	for _, ability := range abilities {

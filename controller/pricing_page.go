@@ -43,6 +43,7 @@ type effectivePricingPageData struct {
 }
 
 type effectivePricingPageQuery struct {
+	personal         bool
 	limit            int
 	offset           int
 	search           string
@@ -56,6 +57,7 @@ type effectivePricingPageQuery struct {
 }
 
 type effectivePricingPageContext struct {
+	userID       int
 	metadata     consumerPricingResponse
 	fxFactor     float64
 	pricing      []model.Pricing
@@ -70,7 +72,7 @@ var pricingSpeechFamily = regexp.MustCompile(`(^tts-)|(-tts(-|$))`)
 var pricingTranscriptionFamily = regexp.MustCompile(`(^whisper-)|(-transcribe(-|$))`)
 
 func parseEffectivePricingPageQuery(values url.Values, personal bool) (effectivePricingPageQuery, error) {
-	query := effectivePricingPageQuery{limit: 20, orderBy: "NAME", direction: "asc"}
+	query := effectivePricingPageQuery{personal: personal, limit: 20, orderBy: "NAME", direction: "asc"}
 	revision, err := expectedPricingRevision(values)
 	if err != nil {
 		return query, err
@@ -203,12 +205,15 @@ func serveEffectivePricingPage(c *gin.Context, userGroup, usingGroup string, que
 	if !pricingRevisionMatches(c, query.expectedRevision, context.metadata.CatalogRevision) {
 		return
 	}
+	if query.personal {
+		context.userID = c.GetInt("id")
+	}
 	response := buildEffectivePricingPage(context, query, context.project)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 }
 
 func (context effectivePricingPageContext) project(item model.Pricing) consumerPricingModel {
-	return buildConsumerPricingModel(context.usableGroups, context.groupRatios, context.fxFactor, item)
+	return buildConsumerPricingModel(context.usableGroups, context.groupRatios, context.fxFactor, item, pricingUserContext{id: context.userID, group: context.metadata.UserGroup})
 }
 
 type effectivePricingPageCandidate struct {
@@ -248,7 +253,7 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 			usedCreators[creator.ID] = true
 		}
 		modality := effectivePricingModality(item)
-		if search != "" && !strings.Contains(normalizeModelSearch(item.ModelName), search) {
+		if search != "" && !strings.Contains(normalizeModelSearch(item.ModelName), search) && !strings.Contains(normalizeModelSearch(item.DisplayName), search) {
 			continue
 		}
 		if query.modality != "" && modality != query.modality {

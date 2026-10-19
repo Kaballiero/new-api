@@ -20,6 +20,7 @@ type consumerPricingResponse struct {
 }
 
 type consumerPricingModel struct {
+	DisplayName            string                  `json:"display_name,omitempty"`
 	ModelName              string                  `json:"model_name"`
 	Description            string                  `json:"description,omitempty"`
 	Icon                   string                  `json:"icon,omitempty"`
@@ -31,8 +32,9 @@ type consumerPricingModel struct {
 }
 
 type consumerGroupPricing struct {
-	UsingGroup string                     `json:"using_group"`
-	Operations []consumerPricingOperation `json:"operations"`
+	ProviderOffers []consumerProviderOffer    `json:"provider_offers,omitempty"`
+	UsingGroup     string                     `json:"using_group"`
+	Operations     []consumerPricingOperation `json:"operations"`
 }
 
 type consumerPricingOperation struct {
@@ -57,18 +59,23 @@ func buildConsumerPricingResponse(userGroup string, basis service.BillingFXBasis
 	}
 	response := consumerPricingResponse{SchemaVersion: "v2", UserGroup: userGroup, Currency: "RUB", AutoGroups: service.GetUserAutoGroup(userGroup), Data: make([]consumerPricingModel, 0, len(pricing))}
 	for _, item := range filterPricingByUsableGroups(model.ConsumerPricingCatalogue(pricing, usableGroups), usableGroups) {
-		response.Data = append(response.Data, buildConsumerPricingModel(usableGroups, groupRatios, basis.Factor, item))
+		response.Data = append(response.Data, buildConsumerPricingModel(usableGroups, groupRatios, basis.Factor, item, pricingUserContext{group: userGroup}))
 	}
 	return response
 }
 
-func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item model.Pricing) consumerPricingModel {
-	result := consumerPricingModel{ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: item.Tags, VendorID: item.VendorID, OwnerBy: item.OwnerBy, SupportedEndpointTypes: item.SupportedEndpointTypes, GroupPrices: []consumerGroupPricing{}}
+func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item model.Pricing, users ...pricingUserContext) consumerPricingModel {
+	result := consumerPricingModel{DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: item.Tags, VendorID: item.VendorID, OwnerBy: item.OwnerBy, SupportedEndpointTypes: item.SupportedEndpointTypes, GroupPrices: []consumerGroupPricing{}}
 	groups := effectivePricingGroups(item.EnableGroup, usableGroups)
 	slices.Sort(groups)
 	for _, group := range groups {
 		ratio, err := service.ApplyBillingFX(groupRatios[group], fxFactor)
-		operations := consumerOperations(item, group, ratio, err == nil)
+		user := pricingUserContext{}
+		if len(users) > 0 {
+			user = users[0]
+		}
+		providers := upstreamProviderOffers(item, group, ratio, err == nil, user, false)
+		operations := mergeCatalogMinima(consumerOperations(item, group, ratio, err == nil), catalogMinima(providers))
 		if slices.ContainsFunc(item.PublicCatalogOffersByGroup[group], func(offer model.CatalogOffer) bool { return len(offer.PublicUsageConditions) > 0 }) {
 			tariff := buildCatalogModelTariff(effectivePricingPageContext{groupRatios: groupRatios, fxFactor: fxFactor}, item, group)
 			for index := range operations {
@@ -80,7 +87,7 @@ func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[s
 				}
 			}
 		}
-		result.GroupPrices = append(result.GroupPrices, consumerGroupPricing{UsingGroup: group, Operations: operations})
+		result.GroupPrices = append(result.GroupPrices, consumerGroupPricing{UsingGroup: group, Operations: operations, ProviderOffers: providers})
 	}
 	return result
 }

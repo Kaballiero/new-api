@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -116,15 +117,27 @@ func pricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (st
 		for group, base := range item.ConsumerCanonicalModelsByGroup {
 			canonical[group] = base
 		}
+		upstreamRoutes := make(map[string][]string, len(item.UpstreamCatalogRoutesByGroup))
+		for group, routes := range item.UpstreamCatalogRoutesByGroup {
+			for _, route := range routes {
+				policy := ""
+				if route.ParamOverride != nil {
+					policy = CatalogHash([]byte(*route.ParamOverride))
+				}
+				upstreamRoutes[group] = append(upstreamRoutes[group], fmt.Sprintf("%d:%s:%s:%s:%s:%s:%s", route.ChannelID, route.ModelID, route.DocumentHash, route.Operation, route.Mode, route.Endpoint, policy))
+			}
+			slices.Sort(upstreamRoutes[group])
+		}
 		row := struct {
-			ModelName, Description, Icon, Tags, OwnerBy string
-			VendorID                                    int
-			Groups                                      []string
-			Endpoints                                   []constant.EndpointType
-			Offers                                      map[string][]string
-			CanonicalGroups                             map[string]string
-			PublicOffers                                map[string][]string
-		}{item.ModelName, item.Description, item.Icon, item.Tags, item.OwnerBy, item.VendorID, groups, endpoints, offers, canonical, publicOffers}
+			ModelName, Description, Icon, Tags, OwnerBy, DisplayName string
+			UpstreamRoutes                                           map[string][]string
+			VendorID                                                 int
+			Groups                                                   []string
+			Endpoints                                                []constant.EndpointType
+			Offers                                                   map[string][]string
+			CanonicalGroups                                          map[string]string
+			PublicOffers                                             map[string][]string
+		}{item.ModelName, item.Description, item.Icon, item.Tags, item.OwnerBy, item.DisplayName, upstreamRoutes, item.VendorID, groups, endpoints, offers, canonical, publicOffers}
 		value, err := common.Marshal(row)
 		if err != nil {
 			return "", err

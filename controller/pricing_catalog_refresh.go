@@ -65,6 +65,10 @@ func (pricingCatalogHandler) Run(ctx context.Context, task *model.SystemTask, ru
 }
 
 type pricingCatalogRefreshSummary struct {
+	NewDocuments      int                     `json:"new_documents,omitempty"`
+	ReusedDocuments   int                     `json:"reused_documents,omitempty"`
+	Revision          string                  `json:"revision,omitempty"`
+	MissingModels     []string                `json:"missing_models,omitempty"`
 	Sources           int                     `json:"sources"`
 	Published         int                     `json:"published"`
 	Failed            int                     `json:"failed"`
@@ -194,6 +198,13 @@ func pricingCatalogSources(ctx context.Context) ([]pricingCatalogSource, error) 
 }
 
 func refreshPricingCatalog(ctx context.Context) (pricingCatalogRefreshSummary, error) {
+	source, enabled, err := model.ConfiguredCatalogSource()
+	if err != nil {
+		return pricingCatalogRefreshSummary{}, err
+	}
+	if enabled {
+		return refreshUpstreamCatalog(ctx, source)
+	}
 	sources, discoveryErr := pricingCatalogSources(ctx)
 	summary, refreshErr := refreshPricingCatalogSources(ctx, sources, fetchPricingCatalogSource, func(entries []model.PricingCatalogEntry) (int, error) {
 		return model.PublishPricingCatalogContext(ctx, entries)

@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -1942,4 +1943,362 @@ func TestLegacyPricingCapturesEndpointMapWithModels(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, current, 1)
 	assert.Equal(t, "captured-new", current[0].Description)
+}
+
+func TestUpstreamCatalogConsumerProjection(t *testing.T) {
+	raw, err := os.ReadFile("../model/testdata/upstream_catalog/aggregator.json")
+	require.NoError(t, err)
+	doc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "router/aggregated", Hash: catalogsync.Hash(raw)})
+	require.NoError(t, err)
+	a, b := doc.Offers[0], doc.Offers[1]
+	b.Mode = nil
+	makeRates := func(input, output string) []catalogsync.Component {
+		rates := append([]catalogsync.Component(nil), a.Components...)
+		rates[0].AmountUSD = &input
+		rates[1].AmountUSD = &output
+		rates[1].Normalization.Comparable = true
+		rates[1].Normalization.Effective = true
+		return rates
+	}
+	a.Components = makeRates("1", "9")
+	b.Components = makeRates("7", "3")
+	doc.Offers = []catalogsync.Offer{a, b}
+	override := `{"provider":{"only":["b"]}}`
+	route := model.UpstreamCatalogRoute{Operation: "embeddings", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: doc, ParamOverride: &override}
+	item := model.Pricing{ModelName: "my-alias", DisplayName: "Google: Readable name", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
+	public := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, true)
+	require.Len(t, public, 2)
+	minima := catalogMinima(public)
+	require.Len(t, minima, 1)
+	amounts := map[string]float64{}
+	for _, price := range minima[0].Prices {
+		require.NotNil(t, price.AmountRub)
+		amounts[price.Component] = *price.AmountRub
+	}
+	assert.Equal(t, float64(100), amounts["input"])
+	assert.Equal(t, float64(300), amounts["output"])
+	assert.Equal(t, float64(0), amounts["cache_read"])
+	private := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, pricingUserContext{id: 17, group: "default"})
+	require.Len(t, private.GroupPrices, 1)
+	require.Len(t, private.GroupPrices[0].ProviderOffers, 1)
+	assert.Equal(t, "b", *private.GroupPrices[0].ProviderOffers[0].Provider.ID)
+	assert.Equal(t, "7", *private.GroupPrices[0].ProviderOffers[0].Prices[0].AmountUSD)
+	assert.Equal(t, "700", *private.GroupPrices[0].ProviderOffers[0].Prices[0].AmountRub)
+	assert.JSONEq(t, string(b.Components[2].Conditions), string(private.GroupPrices[0].ProviderOffers[0].Prices[2].Conditions))
+	assert.Equal(t, "my-alias", private.ModelName)
+	assert.Equal(t, "Google: Readable name", private.DisplayName)
+	tariff := buildCatalogModelTariff(effectivePricingPageContext{groupRatios: map[string]float64{"default": 1}, fxFactor: 1}, item, "default")
+	wire, err := common.Marshal(tariff)
+	require.NoError(t, err)
+	assert.NotContains(t, string(wire), "Provider A")
+	assert.NotContains(t, string(wire), "provider_offers")
+	require.NotEmpty(t, tariff.Operations)
+	assert.False(t, tariff.Operations[0].IsFree)
+
+	t.Run("unknown routing constraints do not advertise a guaranteed minimum", func(t *testing.T) {
+		policy := `{"provider":{"only":["b"],"quantizations":["fp8"]}}`
+		route.ParamOverride = &policy
+		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, false)
+		require.Len(t, offers, 1)
+		assert.Equal(t, "unknown", offers[0].Availability)
+		require.NotNil(t, offers[0].Prices[0].AmountRub)
+		assert.Empty(t, catalogMinima(offers))
+	})
+	t.Run("request conditional branches stay unknown but user conditions are evaluated", func(t *testing.T) {
+		policy := `{"operations":[{"path":"provider.only","mode":"set","value":["b"],"conditions":[{"path":"request_headers.x-route","mode":"full","value":"b"}]}]}`
+		route.ParamOverride = &policy
+		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 17, group: "default"}, false)
+		require.Len(t, offers, 2)
+		for _, offer := range offers {
+			assert.Equal(t, "unknown", offer.Availability)
+		}
+		assert.Empty(t, catalogMinima(offers))
+		policy = strings.ReplaceAll(policy, "request_headers.x-route", "user_id")
+		policy = strings.ReplaceAll(policy, `"value":"b"`, `"value":17`)
+		offers = upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 17, group: "default"}, false)
+		require.Len(t, offers, 1)
+		assert.Equal(t, "b", *offers[0].Provider.ID)
+		offers = upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 18, group: "default"}, false)
+		require.Len(t, offers, 2)
+	})
+	t.Run("relay shorthand user conditions are preserved", func(t *testing.T) {
+		policy := `{"operations":[{"path":"provider.only","mode":"set","value":["b"],"conditions":{"user_id":17}}]}`
+		route.ParamOverride = &policy
+		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 17, group: "default"}, false)
+		require.Len(t, offers, 1)
+		assert.Equal(t, "b", *offers[0].Provider.ID)
+		assert.Equal(t, "eligible", offers[0].Availability)
+		anonymous := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{group: "default"}, false)
+		require.Len(t, anonymous, 2)
+		for _, offer := range anonymous {
+			assert.Equal(t, "unknown", offer.Availability)
+		}
+	})
+	t.Run("alternative eligible channel wins regardless of route order", func(t *testing.T) {
+		restricted := route
+		policy := `{"provider":{"quantizations":["fp8"]}}`
+		restricted.ParamOverride = &policy
+		unrestricted := route
+		unrestricted.ParamOverride = nil
+		for _, routes := range [][]model.UpstreamCatalogRoute{{restricted, unrestricted}, {unrestricted, restricted}} {
+			item.UpstreamCatalogRoutesByGroup["default"] = routes
+			offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, false)
+			require.Len(t, offers, 2)
+			for _, offer := range offers {
+				assert.Equal(t, "eligible", offer.Availability)
+			}
+			require.Len(t, catalogMinima(offers), 1)
+		}
+	})
+	t.Run("unqualified prices never become batch tariffs", func(t *testing.T) {
+		batch := route
+		batch.Mode = "batch"
+		batch.ParamOverride = nil
+		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{batch}
+		assert.Empty(t, upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, true))
+		mode := "batch"
+		doc.Offers[1].Mode = &mode
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, true)
+		require.Len(t, offers, 1)
+		assert.Equal(t, "batch", offers[0].Mode)
+		doc.Offers[1].Mode = nil
+	})
+	t.Run("null provider and unknown amounts preserve meaning", func(t *testing.T) {
+		doc.Offers = []catalogsync.Offer{a}
+		doc.Offers[0].Provider = nil
+		doc.Offers[0].Components[0].AmountUSD = nil
+		route.ParamOverride = nil
+		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, false)
+		require.Len(t, offers, 1)
+		assert.Nil(t, offers[0].Provider)
+		assert.Nil(t, offers[0].Prices[0].AmountRub)
+		assert.Equal(t, "0", *offers[0].Prices[2].AmountRub)
+	})
+	t.Run("same offer id does not hide different variants", func(t *testing.T) {
+		doc.Offers = []catalogsync.Offer{a, b}
+		doc.Offers[1].ID = a.ID
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, true)
+		require.Len(t, offers, 2)
+		assert.NotEqual(t, offers[0].ID, offers[1].ID)
+	})
+}
+
+func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
+	db := openChannelControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.CatalogSource{}, &model.CatalogRevision{}, &model.CatalogDocument{}))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	manifestRaw, err := os.ReadFile("../model/testdata/upstream_catalog/manifest.json")
+	require.NoError(t, err)
+	var manifest catalogsync.Manifest
+	require.NoError(t, common.Unmarshal(manifestRaw, &manifest))
+	require.NoError(t, manifest.Validate())
+	wire := map[string]string{"/v1/catalog/manifest": string(manifestRaw)}
+	for i, name := range []string{"direct", "aggregator", "alias"} {
+		raw, err := os.ReadFile("../model/testdata/upstream_catalog/" + name + ".json")
+		require.NoError(t, err)
+		require.Equal(t, manifest.Models[i].Hash, catalogsync.Hash(raw))
+		wire["/v1/catalog/documents/"+manifest.Models[i].Hash] = string(raw)
+	}
+	directPath := "/v1/catalog/documents/" + manifest.Models[0].Hash
+	var manifestCalls, documentCalls atomic.Int64
+	var failDirect atomic.Bool
+	// Each client has its own transport; immutable wire bodies are safe for the
+	// document workers. The optional barrier runs exactly at Manifest GET.
+	newClient := func(manifestBarrier func(*http.Request) error) *catalogsync.Client {
+		client, err := catalogsync.NewClient("https://catalog.example.test", &http.Client{Transport: pricingCatalogTestTransport(func(request *http.Request) (*http.Response, error) {
+			if request.Method != http.MethodGet {
+				return nil, fmt.Errorf("unexpected catalog method %s", request.Method)
+			}
+			path := request.URL.Path
+			if path == "/v1/catalog/manifest" {
+				manifestCalls.Add(1)
+				if manifestBarrier != nil {
+					if err := manifestBarrier(request); err != nil {
+						return nil, err
+					}
+				}
+			} else {
+				documentCalls.Add(1)
+			}
+			body, ok := wire[path]
+			if !ok {
+				return nil, fmt.Errorf("unexpected catalog URL %s", request.URL)
+			}
+			status := http.StatusOK
+			if path == directPath && failDirect.Load() {
+				status, body = http.StatusServiceUnavailable, `{"error":"fixture acquisition failed"}`
+			}
+			return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+		})})
+		require.NoError(t, err)
+		return client
+	}
+	client := newClient(nil)
+	source := model.CatalogSource{ID: model.CatalogHash([]byte(t.Name())), Kind: "openrouter", BaseURL: client.BaseURL()}
+	requestedAlias := map[string]bool{"router/latest": true}
+	initial, err := service.SyncUpstreamCatalog(ctx, source, requestedAlias, client)
+	require.NoError(t, err)
+	assert.True(t, initial.Publication.Changed)
+	assert.Equal(t, 1, initial.ImportedModels)
+	assert.Empty(t, initial.MissingModels)
+	assert.Equal(t, 2, initial.Publication.NewDocuments) // alias plus declared target
+	assert.EqualValues(t, 1, manifestCalls.Load())
+	assert.EqualValues(t, 2, documentCalls.Load())
+	selection, err := model.ReadCatalogSelection(ctx, source.ID, initial.Publication.Revision)
+	require.NoError(t, err)
+	assert.Equal(t, []model.CatalogModelReference{{ID: manifest.Models[1].ID, Hash: manifest.Models[1].Hash}, {ID: manifest.Models[2].ID, Hash: manifest.Models[2].Hash}}, selection.Models)
+	stored, err := model.GetCatalogDocuments(ctx, source.ID, []string{manifest.Models[1].Hash, manifest.Models[2].Hash})
+	require.NoError(t, err)
+	require.Len(t, stored, 2)
+	for hash, row := range stored {
+		assert.Equal(t, wire["/v1/catalog/documents/"+hash], row.Payload)
+	}
+
+	t.Run("unchanged_selection_fetches_only_manifest", func(t *testing.T) {
+		before, err := model.EnsureCatalogSource(ctx, source)
+		require.NoError(t, err)
+		result, err := service.SyncUpstreamCatalog(ctx, source, requestedAlias, client)
+		require.NoError(t, err)
+		assert.False(t, result.Publication.Changed)
+		assert.Equal(t, initial.Publication.Revision, result.Publication.Revision)
+		assert.Zero(t, result.Publication.NewDocuments)
+		assert.Equal(t, 2, result.Publication.ReusedDocuments)
+		assert.EqualValues(t, 2, manifestCalls.Load())
+		assert.EqualValues(t, 2, documentCalls.Load())
+		after, err := model.EnsureCatalogSource(ctx, source)
+		require.NoError(t, err)
+		assert.Equal(t, before.Generation+1, after.Generation)
+		var revisions, documents int64
+		require.NoError(t, db.Model(&model.CatalogRevision{}).Count(&revisions).Error)
+		require.NoError(t, db.Model(&model.CatalogDocument{}).Count(&documents).Error)
+		assert.EqualValues(t, 1, revisions)
+		assert.EqualValues(t, 2, documents)
+	})
+
+	t.Run("failed_document_preserves_head", func(t *testing.T) {
+		before, err := model.EnsureCatalogSource(ctx, source)
+		require.NoError(t, err)
+		failDirect.Store(true)
+		defer failDirect.Store(false)
+		_, err = service.SyncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, client)
+		require.ErrorContains(t, err, "catalog HTTP status 503")
+		after, err := model.EnsureCatalogSource(ctx, source)
+		require.NoError(t, err)
+		assert.Equal(t, before, after)
+		var revisions, documents int64
+		require.NoError(t, db.Model(&model.CatalogRevision{}).Count(&revisions).Error)
+		require.NoError(t, db.Model(&model.CatalogDocument{}).Count(&documents).Error)
+		assert.EqualValues(t, 1, revisions)
+		assert.EqualValues(t, 2, documents)
+	})
+
+	t.Run("generation_is_captured_before_manifest_get", func(t *testing.T) {
+		entered, release := make(chan struct{}), make(chan struct{})
+		var releaseOnce sync.Once
+		defer releaseOnce.Do(func() { close(release) })
+		staleClient := newClient(func(request *http.Request) error {
+			close(entered)
+			select {
+			case <-release:
+				return nil
+			case <-request.Context().Done():
+				return request.Context().Err()
+			}
+		})
+		staleResult := make(chan error, 1)
+		go func() {
+			_, err := service.SyncUpstreamCatalog(ctx, source, requestedAlias, staleClient)
+			staleResult <- err
+		}()
+		select {
+		case <-entered:
+		case <-ctx.Done():
+			t.Fatal("stale sync did not reach Manifest GET before deadline")
+		}
+		// The older acquisition is still inside Manifest GET. A complete newer
+		// selection must win even though the older response arrives afterwards.
+		newer, err := service.SyncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, client)
+		require.NoError(t, err)
+		require.True(t, newer.Publication.Changed)
+		require.NotEqual(t, initial.Publication.Revision, newer.Publication.Revision)
+		winner, err := model.EnsureCatalogSource(ctx, source)
+		require.NoError(t, err)
+		releaseOnce.Do(func() { close(release) })
+		select {
+		case err := <-staleResult:
+			require.ErrorIs(t, err, model.ErrCatalogSourceChanged)
+		case <-ctx.Done():
+			t.Fatal("stale sync did not finish before deadline")
+		}
+		after, err := model.EnsureCatalogSource(ctx, source)
+		require.NoError(t, err)
+		assert.Equal(t, winner, after)
+		current, err := model.ReadCatalogSelection(ctx, source.ID, after.Revision)
+		require.NoError(t, err)
+		assert.Equal(t, []model.CatalogModelReference{{ID: manifest.Models[0].ID, Hash: manifest.Models[0].Hash}}, current.Models)
+		var revisions, documents int64
+		require.NoError(t, db.Model(&model.CatalogRevision{}).Count(&revisions).Error)
+		require.NoError(t, db.Model(&model.CatalogDocument{}).Count(&documents).Error)
+		assert.EqualValues(t, 2, revisions)
+		assert.EqualValues(t, 3, documents)
+	})
+}
+
+func TestUpstreamCatalogLiveIntegration(t *testing.T) {
+	base := os.Getenv("CATALOG_SYNC_TEST_API_URL")
+	if base == "" {
+		t.Skip("CATALOG_SYNC_TEST_API_URL not configured")
+	}
+	t.Setenv(model.CatalogAPIURLEnv, base)
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMemory := common.MemoryCacheEnabled
+	t.Cleanup(func() {
+		model.DB = previousDB
+		model.LOG_DB = previousLogDB
+		common.MemoryCacheEnabled = previousMemory
+		model.InvalidatePricingCache()
+	})
+	db := setupModelListControllerTestDB(t)
+	common.MemoryCacheEnabled = false
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.ModelCostFXRow{}, &model.CatalogSource{}, &model.CatalogRevision{}, &model.CatalogDocument{}))
+	source, enabled, err := model.ConfiguredCatalogSource()
+	require.NoError(t, err)
+	require.True(t, enabled)
+	client, err := catalogsync.NewClient(base, http.DefaultClient)
+	require.NoError(t, err)
+	requested := map[string]bool{"google/gemini-2.5-flash": true}
+	first, err := service.SyncUpstreamCatalog(context.Background(), source, requested, client)
+	require.NoError(t, err)
+	assert.Equal(t, 1, first.ImportedModels)
+	assert.Equal(t, 1, first.Publication.NewDocuments)
+	second, err := service.SyncUpstreamCatalog(context.Background(), source, requested, client)
+	require.NoError(t, err)
+	assert.Equal(t, first.Publication.Revision, second.Publication.Revision)
+	assert.Zero(t, second.Publication.NewDocuments)
+	mapping := `{"my-gemini":"google/gemini-2.5-flash"}`
+	require.NoError(t, db.Create(&model.Channel{Id: 8172, Type: constant.ChannelTypeOpenRouter, Key: "unused", Status: common.ChannelStatusEnabled, Models: "my-gemini", ModelMapping: &mapping}).Error)
+	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "my-gemini", ChannelId: 8172, Enabled: true}).Error)
+	model.RefreshPricing()
+	pricing := model.GetPricing()
+	var selected *model.Pricing
+	for i := range pricing {
+		if pricing[i].ModelName == "my-gemini" {
+			selected = &pricing[i]
+		}
+	}
+	require.NotNil(t, selected)
+	assert.Equal(t, "Google: Gemini 2.5 Flash", selected.DisplayName)
+	routes := selected.UpstreamCatalogRoutesForGroup("default")
+	require.NotEmpty(t, routes)
+	assert.Equal(t, "google/gemini-2.5-flash", routes[0].ModelID)
+	require.NotEmpty(t, routes[0].Document.Offers)
+	projected := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, *selected)
+	require.Len(t, projected.GroupPrices, 1)
+	assert.NotEmpty(t, projected.GroupPrices[0].ProviderOffers)
+	t.Logf("real HTTP -> immutable DB -> mapped NewAPI model: localRevision=%s offers=%d", first.Publication.Revision, len(projected.GroupPrices[0].ProviderOffers))
 }
