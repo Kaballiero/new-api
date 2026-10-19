@@ -15,8 +15,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
@@ -180,7 +182,7 @@ func TestBatchBillingUsesProviderBase(t *testing.T) {
 }
 
 func TestBatchWorkerLifecycle(t *testing.T) {
-	for _, mode := range []string{"success", "provider_routing", "corrupt_contract", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "endpoint_rejected", "oversized_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
+	for _, mode := range []string{"dispatch_revoked_cache_hold", "dispatch_revoked", "dispatch_expired", "dispatch_deleted", "dispatch_revoked_after_preflight", "dispatch_revoked_after_marker", "success", "provider_routing", "corrupt_contract", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "endpoint_rejected", "oversized_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
 		t.Run(mode, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 			require.NoError(t, err)
@@ -197,6 +199,14 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				_ = sqlDB.Close()
 			})
 			require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}, &model.BatchLogEvent{}, &model.BatchLogReceipt{}, &model.Log{}))
+			if mode == "dispatch_revoked_cache_hold" {
+				r := miniredis.RunT(t)
+				client := redis.NewClient(&redis.Options{Addr: r.Addr()})
+				oldRDB := common.RDB
+				common.RedisEnabled, common.RDB = true, client
+				t.Cleanup(func() { _ = client.Close(); common.RDB = oldRDB })
+			}
+			var tokenID int
 			var posts atomic.Int32
 			var polls atomic.Int32
 			var nativeCustomID string
@@ -208,6 +218,12 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				if r.Method == http.MethodPost {
 					posts.Add(1)
+					if mode == "dispatch_revoked_after_marker" {
+						if err := db.Model(&model.Token{}).Where("id = ?", tokenID).Update("status", common.TokenStatusDisabled).Error; err != nil {
+							t.Error(err)
+						}
+					}
+
 					if mode == "rejected" || mode == "malicious_rejected" || mode == "endpoint_rejected" || mode == "oversized_rejected" {
 						w.Header().Set("X-Request-Id", "req-123")
 						w.WriteHeader(400)
@@ -306,6 +322,7 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 			require.NoError(t, db.Create(&user).Error)
 			token := model.Token{UserId: user.Id, Key: "batch-token", RemainQuota: 1000}
 			require.NoError(t, db.Create(&token).Error)
+			tokenID = token.Id
 			snapshot := BatchBillingSnapshot{EvaluatedAt: time.Now().UTC(), Client: billingexpr.BillingSnapshot{ExprString: `tier("batch", p + c * 2)`, GroupRatio: 1, QuotaPerUnit: 500000}}
 			if mode == "aggregate_without_item_cost" {
 				snapshot = BatchBillingSnapshot{SettlementMode: BatchSettlementOpenRouterCostV1, OpenRouterCost: &common.OpenRouterCostBasis{Version: BatchSettlementOpenRouterCostV1, EffectiveGroupRatio: 1, QuotaPerUnit: 500000}}
@@ -336,9 +353,57 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 			require.NoError(t, db.Where("batch_id = ?", job.ID).First(&item).Error)
 			nativeCustomID = item.ProviderCustomID
 			require.NotEqual(t, item.CustomID, nativeCustomID)
+			if mode == "dispatch_revoked_cache_hold" {
+				require.NoError(t, db.First(&token, token.Id).Error)
+				token.CacheSchema = 1
+				// Complete live hash at the current version, but a corrupt hold.
+				token.BatchHeldQuota = 0
+				require.NoError(t, common.RedisHSetObj("token:"+common.GenerateHMAC(token.Key), &token, 60))
+				require.NoError(t, db.Model(&token).Update("status", common.TokenStatusDisabled).Error)
+			}
+			if mode == "dispatch_revoked" {
+				require.NoError(t, db.Model(&token).Update("status", common.TokenStatusDisabled).Error)
+			}
+			if mode == "dispatch_expired" {
+				require.NoError(t, db.Model(&token).Update("expired_time", common.GetTimestamp()-1).Error)
+			}
+			if mode == "dispatch_deleted" {
+				require.NoError(t, db.Delete(&token).Error)
+			}
+			if mode == "dispatch_revoked_after_preflight" {
+				// Payload is read only after preflight; revoke before the final marker.
+				const hook = "batch_test_revoke_before_marker"
+				var revoked atomic.Bool
+				require.NoError(t, db.Callback().Query().After("gorm:query").Register(hook, func(tx *gorm.DB) {
+					if tx.Statement.Table == "batch_items" && revoked.CompareAndSwap(false, true) {
+						tx.AddError(db.Model(&token).Update("status", common.TokenStatusDisabled).Error)
+					}
+				}))
+				t.Cleanup(func() { _ = db.Callback().Query().Remove(hook) })
+			}
+
 			require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
 			require.NoError(t, db.First(&job, job.ID).Error)
 			require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+			if mode == "dispatch_revoked_cache_hold" {
+				require.NoError(t, db.First(&job, job.ID).Error)
+				assert.Zero(t, posts.Load())
+				assert.Equal(t, "queued", job.SubmitState)
+				assert.EqualValues(t, 100, job.ReservedQuota)
+				assert.Zero(t, job.SettledCount, "unsafe holds must not create zero receipts")
+				return
+			}
+			if mode == "dispatch_revoked" || mode == "dispatch_expired" || mode == "dispatch_deleted" || mode == "dispatch_revoked_after_preflight" {
+				require.NoError(t, db.First(&job, job.ID).Error)
+				require.NoError(t, db.First(&user, user.Id).Error)
+				assert.Zero(t, posts.Load())
+				assert.Zero(t, job.ChargedQuota)
+				assert.Equal(t, "rejected", job.SubmitState)
+				assert.Equal(t, "settled", job.BillingStatus)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Zero(t, user.BatchHeldQuota)
+				return
+			}
 			if mode == "corrupt_contract" {
 				require.NoError(t, db.First(&job, job.ID).Error)
 				assert.Zero(t, posts.Load(), "a corrupt routing contract must fail before a paid POST")

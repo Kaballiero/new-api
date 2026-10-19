@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/glebarez/sqlite"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -740,6 +742,156 @@ func TestBatchAggregateLogMigration(t *testing.T) {
 				require.NoError(t, db.Create(&BatchLogEvent{BatchID: common.GetPointer(id), Payload: "job", State: "pending"}).Error)
 			}
 			require.Error(t, db.Create(&BatchLogEvent{BatchID: common.GetPointer(int64(1)), Payload: "duplicate", State: "pending"}).Error)
+		})
+	}
+}
+
+func TestBatchDispatchReservation(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := openModelCostFXTestDB(t, dialect)
+			db.Config.NamingStrategy = schema.NamingStrategy{TablePrefix: "batch_dispatch_"}
+			oldDB, oldRedis, oldRDB := DB, common.RedisEnabled, common.RDB
+			DB, common.RedisEnabled = db, true
+			r := miniredis.RunT(t)
+			addr := r.Addr()
+			if configured := os.Getenv("TEST_BATCH_REDIS_ADDR"); configured != "" {
+				addr = configured // Dedicated disposable instance supplied by the fixture runner.
+			}
+			client := redis.NewClient(&redis.Options{Addr: addr})
+			common.RDB = client
+			t.Cleanup(func() { _ = client.Close(); DB, common.RedisEnabled, common.RDB = oldDB, oldRedis, oldRDB })
+			previousKeyCol := commonKeyCol
+			commonKeyCol = "`key`"
+			if dialect == "postgres" {
+				commonKeyCol = `"key"`
+			}
+			t.Cleanup(func() { commonKeyCol = previousKeyCol })
+			models := []any{&User{}, &Token{}, &BatchJob{}, &BatchItem{}, &BatchQuotaEvent{}}
+			for range 2 {
+				require.NoError(t, db.AutoMigrate(models...))
+			}
+			t.Cleanup(func() {
+				for i := len(models) - 1; i >= 0; i-- {
+					_ = db.Migrator().DropTable(models[i])
+				}
+			})
+			for _, mode := range []string{"cold", "ttl_expired", "evicted_after_confirmation", "fence", "disabled", "expired", "deleted", "ownership", "missing_hold", "cache_hold", "revoked_missing_hold", "revoked_cache_hold", "cache_version", "other_batch_pending", "live_quota", "expired_lease", "concurrent_markers", "redis_off"} {
+				t.Run(mode, func(t *testing.T) {
+					user := createReserveTestUser(t, 1000)
+					token := createReserveTestToken(t, 1000)
+					require.NoError(t, db.Model(&token).Update("user_id", user.Id).Error)
+					job := BatchJob{PublicID: "dispatch-" + mode, UserID: user.Id, TokenID: token.Id, IdempotencyKey: mode, RequestCount: 1, ReservedQuota: 100, SubmitState: "preparing", LeaseOwner: "worker", LeaseUntil: common.GetTimestamp() + 120}
+					require.NoError(t, CreateBatchReservation(&job, []BatchItem{{CustomID: "one", Body: `{}`, ReservedQuota: 100}}))
+					require.NoError(t, SyncBatchQuotaEvents(1000))
+					require.NoError(t, ConfirmBatchReservation(&job))
+					var expected error
+					switch mode {
+					case "cold":
+						require.NoError(t, client.Del(context.Background(), getTokenCacheKey(token.Key)).Err())
+						require.NoError(t, ConfirmBatchReservation(&job))
+					case "ttl_expired":
+						require.NoError(t, client.Expire(context.Background(), getTokenCacheKey(token.Key), time.Second).Err())
+						if addr == r.Addr() {
+							r.FastForward(2 * time.Second)
+						} else {
+							t.Skip("deterministic TTL clock is provided by miniredis")
+						}
+						require.NoError(t, ConfirmBatchReservation(&job))
+					case "evicted_after_confirmation":
+						require.NoError(t, client.Del(context.Background(), getTokenCacheKey(token.Key)).Err())
+						require.ErrorIs(t, MarkBatchSubmissionUnknown(&job, "worker"), ErrBatchReservationPending)
+						require.NoError(t, ConfirmBatchReservation(&job))
+					case "fence":
+						require.NoError(t, invalidateTokenCacheForMutation(token.Key))
+						require.ErrorIs(t, ConfirmBatchReservation(&job), ErrBatchReservationPending, "DB fallback under a fence is not permission")
+						require.ErrorIs(t, MarkBatchSubmissionUnknown(&job, "worker"), ErrBatchReservationPending)
+						if addr == r.Addr() {
+							r.FastForward(11 * time.Second)
+						} else {
+							require.NoError(t, client.Del(context.Background(), getTokenCacheFenceKey(token.Key)).Err())
+						}
+						require.NoError(t, ConfirmBatchReservation(&job), "a new pass hydrates after fence expiry")
+					case "disabled":
+						// DB revoke commits after preflight; deliberately leave stale enabled Redis.
+						require.NoError(t, db.Model(&token).Update("status", common.TokenStatusDisabled).Error)
+						expected = ErrBatchDispatchDenied
+					case "expired":
+						require.NoError(t, db.Model(&token).Update("expired_time", common.GetTimestamp()-1).Error)
+						expected = ErrBatchDispatchDenied
+					case "deleted":
+						require.NoError(t, db.Delete(&token).Error)
+						expected = ErrBatchDispatchDenied
+					case "ownership":
+						require.NoError(t, db.Model(&token).Update("user_id", user.Id+1).Error)
+						expected = ErrBatchReservationUnsafe
+					case "missing_hold":
+						require.NoError(t, db.Model(&token).Update("batch_held_quota", 0).Error)
+						expected = ErrBatchReservationUnsafe
+					case "cache_hold":
+						require.NoError(t, client.HSet(context.Background(), getTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
+						expected = ErrBatchReservationUnsafe
+					case "revoked_missing_hold", "revoked_cache_hold":
+						require.NoError(t, db.Model(&token).Update("status", common.TokenStatusDisabled).Error)
+						if mode == "revoked_missing_hold" {
+							require.NoError(t, db.Model(&token).Update("batch_held_quota", 50).Error)
+						} else {
+							require.NoError(t, client.HSet(context.Background(), getTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
+						}
+						require.ErrorIs(t, ConfirmBatchReservation(&job), ErrBatchReservationUnsafe)
+						expected = ErrBatchReservationUnsafe
+					case "cache_version":
+						require.NoError(t, client.HSet(context.Background(), getTokenCacheKey(token.Key), "BatchQuotaVersion", 0).Err())
+						expected = ErrBatchReservationPending
+					case "other_batch_pending":
+						other := BatchJob{PublicID: "dispatch-other", UserID: user.Id, TokenID: token.Id, IdempotencyKey: "other", RequestCount: 1, ReservedQuota: 50}
+						require.NoError(t, CreateBatchReservation(&other, []BatchItem{{CustomID: "two", Body: `{}`, ReservedQuota: 50}}))
+						expected = ErrBatchReservationPending
+					case "live_quota":
+						require.NoError(t, client.HSet(context.Background(), getTokenCacheKey(token.Key), "RemainQuota", 99).Err())
+						require.ErrorIs(t, ConfirmBatchReservation(&job), ErrBatchInsufficientQuota)
+						remain, err := client.HGet(context.Background(), getTokenCacheKey(token.Key), "RemainQuota").Int()
+						require.NoError(t, err)
+						assert.Equal(t, 99, remain, "hydration must not replace live quota with DB1000")
+						expected = ErrBatchInsufficientQuota
+					case "expired_lease":
+						require.NoError(t, db.Model(&job).Update("lease_until", common.GetTimestamp()-1).Error)
+						expected = ErrBatchConflict
+					case "concurrent_markers":
+						start, outcomes := make(chan struct{}), make(chan error, 2)
+						for range 2 {
+							go func() { <-start; outcomes <- MarkBatchSubmissionUnknown(&job, "worker") }()
+						}
+						close(start)
+						successes := 0
+						for range 2 {
+							if err := <-outcomes; err == nil {
+								successes++
+							}
+						}
+						assert.Equal(t, 1, successes, "only one transaction may authorize the provider POST")
+						expected = ErrBatchConflict
+					case "redis_off":
+						common.RedisEnabled = false
+						defer func() { common.RedisEnabled = true }()
+					}
+					err := MarkBatchSubmissionUnknown(&job, "worker")
+					if expected == nil {
+						require.NoError(t, err)
+					} else {
+						require.ErrorIs(t, err, expected)
+					}
+					var stored BatchJob
+					require.NoError(t, db.First(&stored, job.ID).Error)
+					if expected == nil || mode == "concurrent_markers" {
+						assert.Equal(t, "submission_unknown", stored.SubmitState)
+					} else {
+						assert.Equal(t, "preparing", stored.SubmitState)
+					}
+					assert.EqualValues(t, 100, stored.ReservedQuota)
+					assert.Zero(t, stored.ChargedQuota)
+				})
+			}
 		})
 	}
 }
