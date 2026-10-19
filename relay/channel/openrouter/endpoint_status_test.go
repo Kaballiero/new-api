@@ -229,3 +229,124 @@ func TestEndpointStatusMonetaryBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestEndpointFlexEligiblePool(t *testing.T) {
+	for _, status := range []int{0, -2} {
+		for _, reversed := range []bool{false, true} {
+			for _, tc := range []struct {
+				name, limits, extra string
+				cacheWrite          bool
+				want                float64
+			}{
+				{"eligible flex", "", "", false, 3.04},
+				{"excluded by order", "", `,"provider":{"order":["cheap"],"allow_fallbacks":false}`, false, 1.02},
+				{"ordered fallback remains eligible", "", `,"provider":{"order":["cheap"]}`, false, 3.04},
+				{"excluded by only", "", `,"provider":{"only":["cheap"]}`, false, 1.02},
+				{"excluded by ignore", "", `,"provider":{"ignore":["expensive"]}`, false, 1.02},
+				{"excluded by context", `,"context_length":999`, "", false, 1.02},
+				{"excluded by prompt limit", `,"max_prompt_tokens":999`, "", false, 1.02},
+				{"excluded by completion limit", `,"max_completion_tokens":9`, "", false, 1.02},
+				{"excluded by remaining context", `,"context_length":1009`, "", false, 1.02},
+				{"excluded by max prompt price", "", `,"provider":{"max_price":{"prompt":2000}}`, false, 1.02},
+				{"excluded by max completion price", "", `,"provider":{"max_price":{"completion":3000}}`, false, 1.02},
+				{"excluded by quantization", `,"quantization":"fp8"`, `,"provider":{"quantizations":["bf16"]}`, false, 1.02},
+				{"excluded by parameters", "", `,"provider":{"require_parameters":true}`, false, 1.02},
+				{"fallback cache write retains complete maximum", "", "", true, 5.02},
+			} {
+				t.Run(fmt.Sprintf("%d/reversed=%t/%s", status, reversed, tc.name), func(t *testing.T) {
+					var cheap, flex PricedEndpoint
+					require.NoError(t, common.UnmarshalJsonStr(`{"tag":"cheap/base","quantization":"bf16","supported_parameters":["max_tokens","service_tier"],"pricing":{"prompt":"0.001","completion":"0.002"}}`, &cheap))
+					require.NoError(t, common.UnmarshalJsonStr(fmt.Sprintf(`{"tag":"expensive/flex","status":%d,"pricing":{"prompt":"0.003","completion":"0.004"}%s}`, status, tc.limits), &flex))
+					if tc.cacheWrite {
+						cheap.Pricing["input_cache_write"] = []byte(`"0.005"`)
+					}
+					endpoints := []PricedEndpoint{cheap, flex}
+					if reversed {
+						endpoints[0], endpoints[1] = endpoints[1], endpoints[0]
+					}
+					e := NewRequestEstimator()
+					e.Models["test/model"] = endpoints
+					info := &relaycommon.RelayInfo{}
+					info.SetEstimatePromptTokens(1000)
+					cost, err := e.Estimate(info, []byte(`{"model":"test/model","max_tokens":10,"service_tier":"flex"`+tc.extra+`}`), "chat/completions")
+					require.NoError(t, err)
+					assert.InDelta(t, tc.want, cost, 1e-9)
+				})
+			}
+		}
+	}
+}
+
+func TestEndpointMissingTagWithProviderRestriction(t *testing.T) {
+	for _, tc := range []struct {
+		name, extra string
+		fail        bool
+	}{
+		{"only excludes unidentified endpoint", `,"provider":{"only":["cheap"]}`, false},
+		{"order without fallbacks excludes unidentified endpoint", `,"provider":{"order":["cheap"],"allow_fallbacks":false}`, false},
+		{"order with fallbacks retains unidentified endpoint", `,"provider":{"order":["cheap"]}`, true},
+		{"unrestricted unidentified endpoint remains invalid", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := NewRequestEstimator()
+			var endpoints []PricedEndpoint
+			require.NoError(t, common.UnmarshalJsonStr(`[{"tag":"cheap/base","pricing":{"prompt":"0.001","completion":"0.002"}},{"tag":"","status":-2,"pricing":{"prompt":"0.003","completion":"0.004"}}]`, &endpoints))
+			e.Models["test/model"] = endpoints
+			info := &relaycommon.RelayInfo{}
+			info.SetEstimatePromptTokens(1000)
+			cost, err := e.Estimate(info, []byte(`{"model":"test/model","max_tokens":10`+tc.extra+`}`), "chat/completions")
+			if tc.fail {
+				require.ErrorContains(t, err, "endpoint tag is missing")
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, 1.02, cost, 1e-9)
+		})
+	}
+}
+
+func TestEndpointFlexFallbackPriceBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name, fallbackPricing, flexPricing, secondFlexPricing string
+		local, fail                                           bool
+		want                                                  float64
+	}{
+		{"both prices must fit the same flex tariff", `{"prompt":"0.002","completion":"0.002","input_cache_write":"0.006"}`, `{"prompt":"0.001","completion":"0.003"}`, `{"prompt":"0.003","completion":"0.001"}`, false, false, 3.01},
+		{"input price exceeds flex bound", `{"prompt":"0.004","completion":"0.001","input_cache_write":"0.006"}`, `{"prompt":"0.003","completion":"0.004"}`, "", false, false, 3.04},
+		{"output price exceeds flex bound", `{"prompt":"0.001","completion":"0.005","input_cache_write":"0.006"}`, `{"prompt":"0.003","completion":"0.004"}`, "", false, false, 3.04},
+		{"equal prices retain fallback cache maximum", `{"prompt":"0.003","completion":"0.004","input_cache_write":"0.006"}`, `{"prompt":"0.003","completion":"0.004"}`, "", false, false, 6.04},
+		{"unknown flex price needs explicit cover", `{"prompt":"0.001","completion":"0.002","input_cache_write":"0.005"}`, `[]`, "", false, true, 0},
+		{"unknown flex price preserves known fallback floor", `{"prompt":"0.001","completion":"0.002","input_cache_write":"0.005"}`, `[]`, "", true, false, 5.02},
+		{"unknown fallback price remains strict", `[]`, `{"prompt":"0.003","completion":"0.004"}`, "", false, true, 0},
+		{"unknown fallback price accepts explicit cover", `[]`, `{"prompt":"0.003","completion":"0.004"}`, "", true, false, 3.04},
+		{"invalid flex overrides cannot hide known fallback floor", `{"prompt":"0.001","completion":"0.002","input_cache_write":"0.005"}`, `{"prompt":"0.0001","completion":"0.0002","overrides":"invalid"}`, "", true, false, 5.02},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			metadata := fmt.Sprintf(`[{"tag":"fallback/base","pricing":%s},{"tag":"first/flex","status":-2,"pricing":%s}`, tc.fallbackPricing, tc.flexPricing)
+			if tc.secondFlexPricing != "" {
+				metadata += fmt.Sprintf(`,{"tag":"second/flex","status":-5,"pricing":%s}`, tc.secondFlexPricing)
+			}
+			e := NewRequestEstimator()
+			var endpoints []PricedEndpoint
+			require.NoError(t, common.UnmarshalJsonStr(metadata+`]`, &endpoints))
+			e.Models["test/model"] = endpoints
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+			info.SetEstimatePromptTokens(1000)
+			body := []byte(`{"model":"test/model","max_tokens":10,"service_tier":"flex"}`)
+			var cost float64
+			var err error
+			if tc.local {
+				cost, err = e.EstimateWithLocalPrice(info, body, "chat/completions", .25)
+			} else {
+				cost, err = e.Estimate(info, body, "chat/completions")
+			}
+			if tc.fail {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-9)
+		})
+	}
+}

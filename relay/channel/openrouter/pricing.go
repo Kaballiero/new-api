@@ -389,6 +389,13 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			return 0, errors.New("OpenRouter audio output remains unsupported by configured price reserve")
 		}
 	}
+	type reservationCandidate struct {
+		tariff        PricedEndpoint
+		output        int
+		outputUnknown bool
+		pricingErr    error
+		flexFallback  bool
+	}
 	var maximum decimal.Decimal
 	found := false
 	for _, model := range models {
@@ -425,27 +432,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 			}
 		}
-		hasFlex := false
-		if request.ServiceTier == "flex" {
-			for _, endpoint := range endpoints {
-				tag := strings.ToLower(endpoint.Tag)
-				if !strings.HasSuffix(tag, "/flex") {
-					continue
-				}
-				matches := func(slug string) bool { return tag == slug || strings.HasPrefix(tag, slug+"/") }
-				if len(request.Provider.Only) > 0 && !slices.ContainsFunc(request.Provider.Only, matches) || slices.ContainsFunc(request.Provider.Ignore, matches) {
-					continue
-				}
-				if len(request.Provider.Quantizations) > 0 && !slices.Contains(request.Provider.Quantizations, endpoint.Quantization) {
-					continue
-				}
-				hasFlex = true
-			}
-		}
+		var candidates []reservationCandidate
+		var flexTariffs []PricedEndpoint
+		flexPriceUnknown := false
 		for _, endpoint := range endpoints {
-			if endpoint.Tag == "" {
-				return 0, errors.New("OpenRouter endpoint tag is missing")
-			}
 			tag := strings.ToLower(endpoint.Tag)
 			if base, ok := strings.CutSuffix(tag, "/priority"); ok {
 				tag = base + "/fast"
@@ -465,6 +455,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			if len(request.Provider.Quantizations) > 0 && !slices.Contains(request.Provider.Quantizations, endpoint.Quantization) {
 				continue
 			}
+			if endpoint.Tag == "" {
+				return 0, errors.New("OpenRouter endpoint tag is missing")
+			}
 			// Service tiers require explicit opt-in; ordinary variants such as
 			// deepinfra/turbo remain in the base provider's eligible pool.
 			tier := "default"
@@ -483,10 +476,6 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			explicitTier := slices.Contains(request.Provider.Only, tag) || slices.Contains(request.Provider.Order, tag)
 			if !explicitTier {
 				switch tier {
-				case "default":
-					if requestedTier == "flex" && hasFlex {
-						continue
-					}
 				case "ultrafast":
 					if requestedTier != "ultrafast" {
 						continue
@@ -603,43 +592,60 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				if excluded {
 					continue
 				}
-				var cost decimal.Decimal
-				var estimateErr error
-				if rerank {
-					// Search and token units are heterogeneous; catalog token zeros are not a tariff.
-					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter rerank monetary quantity is unmeasured")}
-				} else if decisions {
-					// State may contain arbitrary structures/media; token estimates are unmeasured.
-					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter decisions monetary quantity is unmeasured")}
-				} else if audioOutput || dedicatedAudio {
-					// Audio rates may be per character, second, token or song.
-					// Token caps and zero token tariffs do not price those quantities.
-					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter audio monetary quantity is unmeasured")}
-				} else if pricingErr != nil {
-					estimateErr = &EstimateUnavailableError{Cause: pricingErr}
-				} else if outputUnknown {
-					estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter endpoint lacks a finite default completion cap")}
-				} else {
-					cost, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, reserveUSD, imageOutput)
+				candidates = append(candidates, reservationCandidate{
+					tariff: tariff, output: output, outputUnknown: outputUnknown, pricingErr: pricingErr,
+					flexFallback: requestedTier == "flex" && tier == "default" && !explicitTier,
+				})
+				if requestedTier == "flex" && tier == "flex" {
+					flexTariffs = append(flexTariffs, tariff)
+					flexPriceUnknown = flexPriceUnknown || pricingErr != nil
 				}
-				if estimateErr != nil {
-					var unavailable *EstimateUnavailableError
-					if (localUSD == nil && !((decisions || rerank || dedicatedAudio) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
-						return 0, estimateErr
-					}
-					if *reserveUSD <= 0 {
-						return 0, errors.New("OpenRouter unavailable estimate requires a positive reserve")
-					}
-					// This endpoint is eligible, but its unknown monetary quantity is
-					// covered only by the explicit local/minimum policy.
-					found = true
-					continue
-				}
-				if !found || cost.GreaterThan(maximum) {
-					maximum = cost
-				}
-				found = true
 			}
+		}
+		// Only flex tariffs surviving the same route, capability, limit and
+		// max-price checks may constrain the default fallback reservation.
+		for _, candidate := range candidates {
+			if candidate.flexFallback && !flexPriceUnknown && exceedsFlexPriceBounds(candidate.tariff, flexTariffs) {
+				continue
+			}
+			tariff, output := candidate.tariff, candidate.output
+			outputUnknown, pricingErr := candidate.outputUnknown, candidate.pricingErr
+			var cost decimal.Decimal
+			var estimateErr error
+			if rerank {
+				// Search and token units are heterogeneous; catalog token zeros are not a tariff.
+				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter rerank monetary quantity is unmeasured")}
+			} else if decisions {
+				// State may contain arbitrary structures/media; token estimates are unmeasured.
+				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter decisions monetary quantity is unmeasured")}
+			} else if audioOutput || dedicatedAudio {
+				// Audio rates may be per character, second, token or song.
+				// Token caps and zero token tariffs do not price those quantities.
+				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter audio monetary quantity is unmeasured")}
+			} else if pricingErr != nil {
+				estimateErr = &EstimateUnavailableError{Cause: pricingErr}
+			} else if outputUnknown {
+				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter endpoint lacks a finite default completion cap")}
+			} else {
+				cost, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, reserveUSD, imageOutput)
+			}
+			if estimateErr != nil {
+				var unavailable *EstimateUnavailableError
+				if (localUSD == nil && !((decisions || rerank || dedicatedAudio) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
+					return 0, estimateErr
+				}
+				if *reserveUSD <= 0 {
+					return 0, errors.New("OpenRouter unavailable estimate requires a positive reserve")
+				}
+				// This endpoint is eligible, but its unknown monetary quantity is
+				// covered only by the explicit local/minimum policy.
+				found = true
+				continue
+			}
+			if !found || cost.GreaterThan(maximum) {
+				maximum = cost
+			}
+			found = true
 		}
 	}
 	if !found {
@@ -653,6 +659,31 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		return 0, errors.New("OpenRouter estimate overflow")
 	}
 	return result, nil
+}
+
+// exceedsFlexPriceBounds excludes only fallback tariffs proven to exceed
+// every eligible flex tariff on input or output price. Unknown monetary data
+// stays in the reservation pool for strict validation or explicit local cover.
+func exceedsFlexPriceBounds(endpoint PricedEndpoint, flexTariffs []PricedEndpoint) bool {
+	if len(flexTariffs) == 0 {
+		return false
+	}
+	prompt, promptErr := readRate(endpoint.Pricing["prompt"])
+	completion, completionErr := readRate(endpoint.Pricing["completion"])
+	if promptErr != nil || completionErr != nil {
+		return false
+	}
+	for _, flex := range flexTariffs {
+		flexPrompt, promptErr := readRate(flex.Pricing["prompt"])
+		flexCompletion, completionErr := readRate(flex.Pricing["completion"])
+		if promptErr != nil || completionErr != nil {
+			return false
+		}
+		if !prompt.GreaterThan(flexPrompt) && !completion.GreaterThan(flexCompletion) {
+			return false
+		}
+	}
+	return true
 }
 
 // estimateEndpointCost contains monetary metadata/quantity evaluation only.
