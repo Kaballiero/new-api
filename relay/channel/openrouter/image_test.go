@@ -810,6 +810,55 @@ func TestEndpointChannelReserveHostedSearchAndChatAudio(t *testing.T) {
 	}
 }
 
+func TestEndpointChannelReserveInactiveAudioInputRates(t *testing.T) {
+	const model = "google/gemini-2.5-flash-lite"
+	const search = `,"max_tokens":10,"web_search_options":{}`
+	const audioInput = `,"messages":[{"role":"user","content":[{"type":"input_audio","input_audio":{"data":"AAAA","format":"wav"}}]}]`
+	for _, tc := range []struct {
+		name, extra, audioCacheRate, wantError string
+		reserve                                *float64
+		want                                   float64
+	}{
+		{name: "text search reserve admits published audio input rates", extra: search, reserve: common.GetPointer(5.0), want: 6.02},
+		{name: "text reserve without search admits published audio input rates", extra: `,"max_tokens":10`, reserve: common.GetPointer(0.5), want: 1.02},
+		{name: "audio input content under search reserve stays closed", extra: search + audioInput, reserve: common.GetPointer(5.0), wantError: "input media duration quantity is unpriced"},
+		{name: "invalid inactive audio input rate under reserve", extra: search, reserve: common.GetPointer(5.0), audioCacheRate: `"-1"`, wantError: "invalid OpenRouter endpoint price"},
+		{name: "streamed audio output reserve unchanged", extra: `,"max_tokens":10,"modalities":["text","audio"],"audio":{"voice":"alloy","format":"wav"},"stream":true`, reserve: common.GetPointer(0.3), want: 0.3},
+		{name: "text without reserve unchanged", extra: `,"max_tokens":10`, want: 1.02},
+		{name: "search without reserve stays closed", extra: search, wantError: "hosted-search quantity is unpriced"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pricing := map[string]json.RawMessage{
+				"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "internal_reasoning": json.RawMessage(`"0.002"`),
+				"web_search": json.RawMessage(`"0.01"`), "audio": json.RawMessage(`"0.003"`), "input_audio_cache": json.RawMessage(`"0.0005"`),
+				"input_cache_read": json.RawMessage(`"0.0001"`),
+			}
+			if tc.audioCacheRate != "" {
+				pricing["input_audio_cache"] = json.RawMessage(tc.audioCacheRate)
+			}
+			if strings.Contains(tc.extra, `"audio"]`) {
+				pricing["output_audio"] = json.RawMessage(`"0.00004"`)
+			}
+			estimator := NewRequestEstimator()
+			estimator.Models[model] = []PricedEndpoint{{Tag: "google-vertex", ModelID: model, ContextLength: 10000, MaxCompletionTokens: 100, Pricing: pricing}}
+			estimator.OutputModalities[model] = []string{"text", "audio"}
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI, IsStream: strings.Contains(tc.extra, `"stream":true`)}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+			if tc.reserve != nil {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{model: *tc.reserve}
+			}
+			info.SetEstimatePromptTokens(1000)
+			cost, err := estimator.Estimate(info, []byte(`{"model":"`+model+`"`+tc.extra+`}`), "chat/completions")
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-9)
+		})
+	}
+}
+
 func TestEndpointOneHourCachePublishedSyncAndBatchPricing(t *testing.T) {
 	for _, scenario := range []struct {
 		name, model, operation, pricing string

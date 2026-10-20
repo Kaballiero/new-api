@@ -805,6 +805,14 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 			// explicit approximate hold does not make them free or bounded.
 			continue
 		}
+		if approximateReserve && (key == "audio" || key == "input_audio" || key == "input_audio_cache") {
+			// requestInputMediaQuantities rejects every audio input block before
+			// estimation, so these published input rates are inactive here.
+			if _, err := readRate(raw); err != nil {
+				return decimal.Zero, err
+			}
+			continue
+		}
 		switch key {
 		case "prompt", "completion", "request", "input_cache_read", "input_cache_write", "input_cache_write_1h", "discount", "image":
 			continue
