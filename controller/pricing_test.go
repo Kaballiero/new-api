@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -3061,6 +3062,106 @@ func TestCatalogTypeConsumerWireAndFiltering(t *testing.T) {
 			assert.Equal(t, 2, section.TotalCount)
 			require.Len(t, section.Data, 1)
 			assert.Equal(t, "speech", section.Data[0].CatalogType)
+		}
+	}
+}
+
+func TestCatalogMissingTypeConsumerFiltering(t *testing.T) {
+	items := []model.Pricing{}
+	for i, kind := range []string{"text", "", "other", "", "speech", ""} {
+		items = append(items, model.Pricing{ModelName: fmt.Sprintf("model-%d", i), CatalogType: kind, CatalogModality: "OTHER", EnableGroup: []string{"default"}, Tags: "catalog"})
+	}
+	context := effectivePricingPageContext{pricing: items, usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1}, fxFactor: 1}
+	for _, personal := range []bool{false, true} {
+		for pageIndex, expected := range [][]string{{"model-1", "model-3"}, {"model-5"}, {}} {
+			values := url.Values{"limit": {"2"}, "offset": {strconv.Itoa(pageIndex * 2)}, "catalog_type_missing": {"true"}}
+			query, err := parseEffectivePricingPageQuery(values, personal)
+			require.NoError(t, err)
+			page := buildEffectivePricingPage(context, query, context.project)
+			assert.Equal(t, 3, page.TotalCount)
+			names := []string{}
+			for _, item := range page.Data {
+				names = append(names, item.ModelName)
+				assert.Empty(t, item.CatalogType)
+			}
+			assert.Equal(t, expected, names)
+		}
+		for _, selector := range []string{"", "false"} {
+			values := url.Values{"limit": {"10"}}
+			if selector != "" {
+				values.Set("catalog_type_missing", selector)
+			}
+			query, err := parseEffectivePricingPageQuery(values, personal)
+			require.NoError(t, err)
+			assert.Equal(t, 6, buildEffectivePricingPage(context, query, context.project).TotalCount)
+		}
+		query, err := parseEffectivePricingPageQuery(url.Values{"limit": {"10"}, "catalog_type": {"other"}}, personal)
+		require.NoError(t, err)
+		page := buildEffectivePricingPage(context, query, context.project)
+		require.Len(t, page.Data, 1)
+		assert.Equal(t, "model-2", page.Data[0].ModelName)
+	}
+	for pageIndex, expected := range [][]string{{"model-1", "model-3"}, {"model-5"}, {}} {
+		query, err := parsePublicPricingModelsQuery(fmt.Sprintf("tag=catalog&catalog_type_missing=true&page_size=2&p=%d", pageIndex+1))
+		require.NoError(t, err)
+		page := buildPublicPricingModelsPage(context, query)
+		assert.Equal(t, 3, page.TotalCount)
+		names := []string{}
+		for _, item := range page.Data {
+			names = append(names, item.ModelName)
+			assert.Empty(t, item.CatalogType)
+		}
+		assert.Equal(t, expected, names)
+	}
+	for _, selector := range []string{"", "&catalog_type_missing=false"} {
+		query, err := parsePublicPricingModelsQuery("tag=catalog&page_size=10" + selector)
+		require.NoError(t, err)
+		assert.Equal(t, 6, buildPublicPricingModelsPage(context, query).TotalCount)
+	}
+	query, err := parseEffectivePricingPageQuery(url.Values{"catalog_type_missing": {"true"}}, false)
+	require.NoError(t, err)
+	query.limit = 2
+	query.overview = true
+	overview := buildEffectivePricingOverview(context, query)
+	total := 0
+	for _, section := range overview.Sections {
+		total += section.TotalCount
+		for _, item := range section.Data {
+			assert.Empty(t, item.CatalogType)
+		}
+	}
+	assert.Equal(t, 3, total)
+	for _, raw := range []string{"catalog_type_missing=", "catalog_type_missing=1", "catalog_type_missing=True", "catalog_type_missing=true&catalog_type_missing=false", "catalog_type_missing=false&catalog_type_missing=false", "catalog_type_missing=true&catalog_type=text"} {
+		values, err := url.ParseQuery(raw)
+		require.NoError(t, err)
+		for _, personal := range []bool{false, true} {
+			_, err = parseEffectivePricingPageQuery(values, personal)
+			require.Error(t, err, raw)
+		}
+		_, err = parsePublicPricingModelsQuery("tag=catalog&" + raw)
+		require.Error(t, err, raw)
+		for index, handler := range []gin.HandlerFunc{GetEffectivePricingOverview, GetPublicPricingModels} {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestQuery := raw
+			if index == 1 {
+				requestQuery = "tag=catalog&" + raw
+			}
+			c.Request = httptest.NewRequest(http.MethodGet, "/?"+requestQuery, nil)
+			handler(c)
+			assert.Equal(t, http.StatusBadRequest, recorder.Code, raw)
+		}
+	}
+	for _, raw := range []string{"", "catalog_type_missing=false", "catalog_type_missing=true", "catalog_type_missing=invalid"} {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/?"+raw, nil)
+		handled := routeEffectivePricingPage(c, false)
+		if raw == "catalog_type_missing=true" || raw == "catalog_type_missing=invalid" {
+			assert.True(t, handled)
+			assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		} else {
+			assert.False(t, handled)
 		}
 	}
 }

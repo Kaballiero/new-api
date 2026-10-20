@@ -44,18 +44,19 @@ type effectivePricingPageData struct {
 }
 
 type effectivePricingPageQuery struct {
-	personal         bool
-	limit            int
-	offset           int
-	search           string
-	modality         string
-	catalogType      string
-	creatorID        *int
-	pricingUnit      string
-	orderBy          string
-	direction        string
-	expectedRevision string
-	overview         bool
+	personal           bool
+	limit              int
+	offset             int
+	search             string
+	modality           string
+	catalogType        string
+	catalogTypeMissing bool
+	creatorID          *int
+	pricingUnit        string
+	orderBy            string
+	direction          string
+	expectedRevision   string
+	overview           bool
 }
 
 type effectivePricingPageContext struct {
@@ -73,6 +74,22 @@ var pricingPageInteger = regexp.MustCompile(`^-?[0-9]+$`)
 var pricingSpeechFamily = regexp.MustCompile(`(^tts-)|(-tts(-|$))`)
 var pricingTranscriptionFamily = regexp.MustCompile(`(^whisper-)|(-transcribe(-|$))`)
 
+// parseCatalogTypeMissing keeps false equivalent to an omitted selector.
+func parseCatalogTypeMissing(values url.Values) (bool, error) {
+	raw, present := values["catalog_type_missing"]
+	if !present {
+		return false, nil
+	}
+	if len(raw) != 1 || raw[0] != "true" && raw[0] != "false" {
+		return false, fmt.Errorf("invalid catalog_type_missing")
+	}
+	missing := raw[0] == "true"
+	if missing && values.Get("catalog_type") != "" {
+		return false, fmt.Errorf("catalog_type_missing conflicts with catalog_type")
+	}
+	return missing, nil
+}
+
 func parseEffectivePricingPageQuery(values url.Values, personal bool) (effectivePricingPageQuery, error) {
 	query := effectivePricingPageQuery{personal: personal, limit: 20, orderBy: "NAME", direction: "asc"}
 	revision, err := expectedPricingRevision(values)
@@ -80,6 +97,10 @@ func parseEffectivePricingPageQuery(values url.Values, personal bool) (effective
 		return query, err
 	}
 	query.expectedRevision = revision
+	query.catalogTypeMissing, err = parseCatalogTypeMissing(values)
+	if err != nil {
+		return query, err
+	}
 	for key, entries := range values {
 		if len(entries) != 1 {
 			return query, fmt.Errorf("invalid %s", key)
@@ -141,6 +162,15 @@ func routeEffectivePricingPage(c *gin.Context, personal bool) bool {
 	values, err := url.ParseQuery(c.Request.URL.RawQuery)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid pricing query"})
+		return true
+	}
+	missing, err := parseCatalogTypeMissing(values)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return true
+	}
+	if missing && !values.Has("limit") {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "limit is required for pricing pagination"})
 		return true
 	}
 	if _, present := values["limit"]; present {
@@ -247,7 +277,7 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 				continue
 			}
 		}
-		if query.catalogType != "" && item.CatalogType != query.catalogType {
+		if query.catalogTypeMissing && item.CatalogType != "" || query.catalogType != "" && item.CatalogType != query.catalogType {
 			continue
 		}
 		creator := creators[item.VendorID]
@@ -458,7 +488,7 @@ func GetEffectivePricingOverview(c *gin.Context) {
 		return
 	}
 	for key := range values {
-		if !slices.Contains([]string{"limit", "search", "group", "using_group", "catalog_type"}, key) {
+		if !slices.Contains([]string{"limit", "search", "group", "using_group", "catalog_type", "catalog_type_missing"}, key) {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid pricing query"})
 			return
 		}

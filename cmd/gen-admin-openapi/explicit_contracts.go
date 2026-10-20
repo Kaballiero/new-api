@@ -266,6 +266,7 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 			op["security"] = []any{}
 			op["description"] = "Anonymous default-group customer tariffs. Required repeated tag parameters are normalized lowercase exact tokens and combined with AND. Filtering precedes deterministic model-name ordering and pagination. Unknown tags return an empty page. All other parameters, group overrides, duplicate singleton values, and malformed values are rejected. Prices include the default group markup; null means unknown and zero means free. Conditional alternatives retain structured guards."
 			op["parameters"] = []any{
+				map[string]any{"name": "catalog_type_missing", "in": "query", "required": false, "schema": map[string]any{"type": "boolean", "default": false}, "description": "True selects only models without a source catalog type; mutually exclusive with catalog_type. False or omitted preserves all types. Strict singular true/false; invalid or duplicate values return HTTP400."},
 				map[string]any{"name": "catalog_type", "in": "query", "required": false, "schema": catalogTypeSchema(), "description": "Optional singular source taxonomy filter; AND with tags before pagination/counts. Invalid or duplicate value returns HTTP400."},
 				map[string]any{"name": "tag", "in": "query", "required": true, "style": "form", "explode": true, "schema": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "string", "minLength": 1}}, "description": "Repeated exact single tags; AND semantics. Commas, semicolons, pipes and internal whitespace are rejected."},
 				map[string]any{"name": "p", "in": "query", "required": false, "schema": map[string]any{"type": "integer", "default": 1, "minimum": 1, "maximum": 9007199254740991}},
@@ -289,12 +290,15 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 			}
 		}
 		if route.HandlerName == "GetEffectivePricingOverview" {
-			op["description"] = "Bounded first pages for all six modalities from one immutable catalog and pricing context. Requires root dashboard access. Optional singular catalog_type filters before section counts/pagination; invalid or duplicate values return HTTP400."
+			op["description"] = "Bounded first pages for all six modalities from one immutable catalog and pricing context. Requires root dashboard access. Optional singular catalog_type filters before section counts/pagination; catalog_type_missing=true selects only absent types and conflicts with catalog_type, false/omitted preserves all types; invalid or duplicate values return HTTP400."
 			parameters := []any{}
-			for _, name := range []string{"limit", "search", "group", "using_group", "catalog_type"} {
+			for _, name := range []string{"limit", "search", "group", "using_group", "catalog_type", "catalog_type_missing"} {
 				schema := map[string]any{"type": "string"}
 				if name == "catalog_type" {
 					schema = catalogTypeSchema()
+				}
+				if name == "catalog_type_missing" {
+					schema = map[string]any{"type": "boolean", "default": false}
 				}
 				if name == "limit" {
 					schema = map[string]any{"type": "integer", "default": 4, "minimum": 0, "maximum": 100}
@@ -319,6 +323,7 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				{"search", map[string]any{"type": "string"}},
 				{"creator_id", map[string]any{"type": "integer"}},
 				{"catalog_type", catalogTypeSchema()},
+				{"catalog_type_missing", map[string]any{"type": "boolean", "default": false}},
 				{"modality", map[string]any{"type": "string", "enum": []string{"TEXT", "IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER"}}},
 			} {
 				parameters = append(parameters, map[string]any{"name": parameter.name, "in": "query", "required": false, "schema": parameter.schema})
@@ -336,7 +341,7 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				}
 			}
 			op["parameters"] = parameters
-			op["description"] = "Explicit limit selects native filtered pricing page mode with global creator facets; page metadata and row modality/creator are then required. No limit and no pagination parameters preserves the full legacy response. Pagination parameters without limit are rejected. Personal page mode rejects group overrides. Optional singular catalog_type is ANDed with modality before pagination/counts; invalid or duplicate values return HTTP400."
+			op["description"] = "Explicit limit selects native filtered pricing page mode with global creator facets; page metadata and row modality/creator are then required. No limit and no pagination parameters preserves the full legacy response. Pagination parameters without limit are rejected. Personal page mode rejects group overrides. Optional singular catalog_type is ANDed with modality before pagination/counts; catalog_type_missing=true selects only absent types and conflicts with catalog_type, false/omitted preserves legacy semantics; invalid or duplicate values return HTTP400."
 			responses := op["responses"].(map[string]any)
 			for _, code := range []string{"400", "503"} {
 				responses[code] = map[string]any{"description": translate(currentLocale, "err."+code), "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiErrorResponse"}}}}

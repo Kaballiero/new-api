@@ -175,10 +175,15 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	assert.Equal(t, defaultSecurity(), effectiveByGroup["security"])
 	assert.Contains(t, effectiveByGroup["description"], "Requires root dashboard access")
 	groupParameters := effectiveByGroup["parameters"].([]interface{})
-	require.Len(t, groupParameters, 9)
+	require.Len(t, groupParameters, 10)
 	var groupParameter map[string]interface{}
 	for _, parameter := range groupParameters {
 		entry := parameter.(map[string]interface{})
+		if entry["name"] == "catalog_type_missing" {
+			assert.Equal(t, false, entry["required"])
+			assert.Equal(t, "boolean", entry["schema"].(map[string]any)["type"])
+			assert.Equal(t, false, entry["schema"].(map[string]any)["default"])
+		}
 		if entry["name"] == "catalog_type" {
 			assert.Equal(t, false, entry["required"])
 			assert.Contains(t, entry["schema"].(map[string]any)["enum"], "decision")
@@ -206,7 +211,7 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 		assert.NotContains(t, effectiveData["required"], field)
 	}
 	assert.Contains(t, effectiveByGroup["description"], "Explicit limit")
-	assert.Len(t, effective["parameters"], 10)
+	assert.Len(t, effective["parameters"], 11)
 	assert.Contains(t, effectiveData["required"], "catalog_revision")
 	assert.Contains(t, effectiveByGroup["responses"], "409")
 	for _, effectiveOperation := range []map[string]interface{}{effective, effectiveByGroup} {
