@@ -72,11 +72,12 @@ type publicPricingCondition struct {
 }
 
 type publicPricingModelsQuery struct {
-	catalogType      string
-	expectedRevision string
-	tags             []string
-	page             int
-	pageSize         int
+	catalogType        string
+	catalogTypeMissing bool
+	expectedRevision   string
+	tags               []string
+	page               int
+	pageSize           int
 }
 
 func pricingTags(value string) []string {
@@ -98,8 +99,12 @@ func parsePublicPricingModelsQuery(raw string) (publicPricingModelsQuery, error)
 		return query, err
 	}
 	query.expectedRevision = revision
+	query.catalogTypeMissing, err = parseCatalogTypeMissing(values)
+	if err != nil {
+		return query, err
+	}
 	for key, entries := range values {
-		if key != "tag" && key != "p" && key != "page_size" && key != "expected_revision" && key != "catalog_type" {
+		if key != "tag" && key != "p" && key != "page_size" && key != "expected_revision" && key != "catalog_type" && key != "catalog_type_missing" {
 			return query, fmt.Errorf("unsupported %s", key)
 		}
 		if key != "tag" && len(entries) != 1 {
@@ -171,7 +176,7 @@ func buildPublicPricingModelsPage(context effectivePricingPageContext, query pub
 	pricing := model.ConsumerPricingCatalogue(context.pricing, context.usableGroups)
 	candidates := make([]model.Pricing, 0, len(pricing))
 	for _, item := range pricing {
-		if query.catalogType != "" && item.CatalogType != query.catalogType {
+		if query.catalogTypeMissing && item.CatalogType != "" || query.catalogType != "" && item.CatalogType != query.catalogType {
 			continue
 		}
 		tags := pricingTags(item.Tags)
