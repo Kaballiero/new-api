@@ -22,8 +22,9 @@ type UpstreamCatalogRoute struct {
 	DocumentHash string
 	Document     *catalogsync.Document
 	// Overrides are private projection inputs, never consumer response fields.
-	ChannelID     int     `json:"-"`
-	ParamOverride *string `json:"-"`
+	ChannelID          int     `json:"-"`
+	ParamOverride      *string `json:"-"`
+	ServiceTierEnabled bool    `json:"-"`
 }
 
 func ConfiguredCatalogSource() (CatalogSource, bool, error) {

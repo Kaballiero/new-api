@@ -14,6 +14,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -356,4 +357,25 @@ func TestUpstreamCatalogProviderPolicyChangesRevision(t *testing.T) {
 	after, err := pricingCatalogueFingerprint([]Pricing{item}, nil)
 	require.NoError(t, err)
 	assert.NotEqual(t, before, after)
+	item.UpstreamCatalogRoutesByGroup["default"][0].ServiceTierEnabled = true
+	withServiceTier, err := pricingCatalogueFingerprint([]Pricing{item}, nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, after, withServiceTier)
+}
+
+func TestUpstreamCatalogPassThroughInvalidatesPricing(t *testing.T) {
+	global := model_setting.GetGlobalSettings()
+	previous := global.PassThroughRequestEnabled
+	t.Cleanup(func() { global.PassThroughRequestEnabled = previous; InvalidatePricingCache() })
+	global.PassThroughRequestEnabled = false
+	generation := pricingInputsGeneration.Load()
+	require.True(t, handleConfigUpdate("global.pass_through_request_enabled", "true"))
+	assert.True(t, global.PassThroughRequestEnabled)
+	assert.Greater(t, pricingInputsGeneration.Load(), generation)
+	generation = pricingInputsGeneration.Load()
+	require.True(t, handleConfigUpdate("global.pass_through_request_enabled", "true"))
+	assert.Equal(t, generation, pricingInputsGeneration.Load())
+	require.True(t, handleConfigUpdate("global.pass_through_request_enabled", "false"))
+	assert.False(t, global.PassThroughRequestEnabled)
+	assert.Greater(t, pricingInputsGeneration.Load(), generation)
 }
