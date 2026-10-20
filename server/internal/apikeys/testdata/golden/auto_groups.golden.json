@@ -1,0 +1,14 @@
+{
+  "body": {
+    "data": {
+      "groups": [
+        "default"
+      ],
+      "max_count": 5
+    },
+    "message": "",
+    "success": true
+  },
+  "headers": {},
+  "status": 200
+}

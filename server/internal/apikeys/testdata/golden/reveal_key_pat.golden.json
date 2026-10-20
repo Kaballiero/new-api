@@ -1,0 +1,13 @@
+{
+  "body": {
+    "data": {
+      "key": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    "message": "",
+    "success": true
+  },
+  "headers": {
+    "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0"
+  },
+  "status": 200
+}

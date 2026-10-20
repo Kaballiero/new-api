@@ -88,7 +88,7 @@ func TestInternalArchitecture(t *testing.T) {
 			}
 			return nil
 		}
-		if len(parts) < 3 || parts[1] == "app" || parts[1] == "adapter" {
+		if len(parts) < 3 || parts[1] == "app" || parts[1] == "adapter" || parts[1] == "contracttest" {
 			return nil
 		}
 		module, name := parts[1], parts[len(parts)-1]

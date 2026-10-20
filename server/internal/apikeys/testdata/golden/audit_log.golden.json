@@ -1,0 +1,541 @@
+[
+  {
+    "action": "token.create",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token creation",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 1,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.create"
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/",
+    "status": 400,
+    "success": false,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.create",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token creation",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 2,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.create",
+        "params": {
+          "id": 1,
+          "name": "contract"
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/",
+    "status": 201,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.create",
+    "actor_role": 1,
+    "auth_method": "access_token",
+    "category": "security",
+    "content": "API token creation",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 3,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.create",
+        "params": {
+          "id": 2,
+          "name": "second"
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/",
+    "status": 201,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "",
+    "actor_role": 1,
+    "auth_method": "access_token",
+    "category": "access_token",
+    "content": "",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 4,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {},
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/",
+    "status": 201,
+    "success": true,
+    "token_ref": "4beb5ac59fc57d917d59a8fb4cd915287bf055616609140b181e4e6a7ef6f809",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.create",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token creation",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 5,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.create"
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/",
+    "status": 400,
+    "success": false,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "",
+    "actor_role": 1,
+    "auth_method": "access_token",
+    "category": "access_token",
+    "content": "",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 6,
+    "ip": "192.0.2.1",
+    "method": "GET",
+    "other": {},
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/",
+    "status": 200,
+    "success": true,
+    "token_ref": "4beb5ac59fc57d917d59a8fb4cd915287bf055616609140b181e4e6a7ef6f809",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.update",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token configuration update",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 7,
+    "ip": "192.0.2.1",
+    "method": "PUT",
+    "other": {
+      "op": {
+        "action": "token.update",
+        "params": {
+          "changed_fields": [
+            "name",
+            "remain_quota",
+            "allow_ips"
+          ],
+          "id": 1,
+          "name": "renamed"
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/",
+    "status": 200,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.status_update",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token status update",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 8,
+    "ip": "192.0.2.1",
+    "method": "PUT",
+    "other": {
+      "op": {
+        "action": "token.status_update",
+        "params": {
+          "from": 1,
+          "id": 2,
+          "name": "second",
+          "to": 2
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/",
+    "status": 200,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.update",
+    "actor_role": 10,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token configuration update",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 9,
+    "ip": "192.0.2.1",
+    "method": "PUT",
+    "other": {
+      "op": {
+        "action": "token.update",
+        "params": {
+          "id": 1
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/",
+    "status": 404,
+    "success": false,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 2,
+    "username": "contract-admin"
+  },
+  {
+    "action": "token.key_view",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token key access",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 10,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.key_view",
+        "params": {
+          "id": 1,
+          "name": "renamed"
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/:id/key",
+    "status": 200,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.key_view",
+    "actor_role": 1,
+    "auth_method": "access_token",
+    "category": "security",
+    "content": "API token key access",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 11,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.key_view",
+        "params": {
+          "id": 1,
+          "name": "renamed"
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/:id/key",
+    "status": 200,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "",
+    "actor_role": 1,
+    "auth_method": "access_token",
+    "category": "access_token",
+    "content": "",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 12,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {},
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/:id/key",
+    "status": 200,
+    "success": true,
+    "token_ref": "4beb5ac59fc57d917d59a8fb4cd915287bf055616609140b181e4e6a7ef6f809",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.key_view",
+    "actor_role": 10,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token key access",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 13,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.key_view",
+        "params": {
+          "id": 1
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/:id/key",
+    "status": 404,
+    "success": false,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 2,
+    "username": "contract-admin"
+  },
+  {
+    "action": "token.key_view_batch",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token batch key access",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 14,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.key_view_batch",
+        "params": {
+          "count": 2,
+          "requested_ids": [
+            1,
+            2,
+            999
+          ],
+          "returned_ids": [
+            1,
+            2
+          ],
+          "total": 3
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/batch/keys",
+    "status": 200,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.delete_batch",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token batch deletion",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 15,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.delete_batch",
+        "params": {
+          "requested_ids": [],
+          "total": 0
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/batch",
+    "status": 200,
+    "success": false,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.delete_batch",
+    "actor_role": 10,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token batch deletion",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 16,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.delete_batch",
+        "params": {
+          "count": 0,
+          "requested_ids": [
+            1,
+            2
+          ],
+          "total": 2
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/batch",
+    "status": 200,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 2,
+    "username": "contract-admin"
+  },
+  {
+    "action": "token.delete",
+    "actor_role": 10,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token deletion",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 17,
+    "ip": "192.0.2.1",
+    "method": "DELETE",
+    "other": {
+      "op": {
+        "action": "token.delete",
+        "params": {
+          "id": 1
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/:id",
+    "status": 404,
+    "success": false,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 2,
+    "username": "contract-admin"
+  },
+  {
+    "action": "token.delete",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token deletion",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 18,
+    "ip": "192.0.2.1",
+    "method": "DELETE",
+    "other": {
+      "op": {
+        "action": "token.delete",
+        "params": {
+          "id": 2,
+          "name": "second"
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/:id",
+    "status": 200,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  },
+  {
+    "action": "token.delete_batch",
+    "actor_role": 1,
+    "auth_method": "session",
+    "category": "security",
+    "content": "API token batch deletion",
+    "created_at": "__number__",
+    "event_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "id": 19,
+    "ip": "192.0.2.1",
+    "method": "POST",
+    "other": {
+      "op": {
+        "action": "token.delete_batch",
+        "params": {
+          "count": 1,
+          "requested_ids": [
+            1
+          ],
+          "total": 1
+        }
+      }
+    },
+    "request_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "route": "/api/token/batch",
+    "status": 200,
+    "success": true,
+    "token_ref": "",
+    "user_agent": "",
+    "user_id": 1,
+    "username": "contract-user"
+  }
+]

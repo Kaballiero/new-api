@@ -1,0 +1,9 @@
+{
+  "body": {
+    "code": "token_name_too_long",
+    "message": "Token name is too long",
+    "success": false
+  },
+  "headers": {},
+  "status": 400
+}

@@ -1,0 +1,14 @@
+{
+  "body": {
+    "data": {
+      "items": [],
+      "page": 1,
+      "page_size": 10,
+      "total": 0
+    },
+    "message": "",
+    "success": true
+  },
+  "headers": {},
+  "status": 200
+}

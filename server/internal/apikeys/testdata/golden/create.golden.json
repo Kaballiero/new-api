@@ -1,0 +1,28 @@
+{
+  "body": {
+    "data": {
+      "DeletedAt": null,
+      "accessed_time": "__number__",
+      "allow_ips": "",
+      "auto_groups": null,
+      "created_time": "__number__",
+      "cross_group_retry": false,
+      "expired_time": -1,
+      "group": "",
+      "id": 1,
+      "key": "xxxx**********xxxx",
+      "model_limits": "",
+      "model_limits_enabled": false,
+      "name": "contract",
+      "remain_quota": 1000,
+      "status": 1,
+      "unlimited_quota": false,
+      "used_quota": 0,
+      "user_id": 1
+    },
+    "message": "",
+    "success": true
+  },
+  "headers": {},
+  "status": 201
+}
