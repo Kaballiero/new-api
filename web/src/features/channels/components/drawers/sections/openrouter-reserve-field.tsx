@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 import type { Control } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
-import { JsonCodeEditor } from '@/components/json-code-editor'
 import {
   FormControl,
   FormDescription,
@@ -30,10 +29,12 @@ import {
 } from '@/components/ui/form'
 
 import type { ChannelFormValues } from '../../../lib/channel-form'
+import { OpenRouterPolicyTable } from './openrouter-policy-table'
 
 type OpenRouterReserveFieldProps = {
   control: Control<ChannelFormValues>
   disabled: boolean
+  modelOptions: string[]
 }
 
 export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
@@ -52,15 +53,14 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
               )}
             </FormDescription>
             <FormControl>
-              <JsonCodeEditor
+              <OpenRouterPolicyTable
+                kind='source'
+                label={t('OpenRouter reservation sources')}
                 value={field.value || ''}
                 onChange={field.onChange}
-                name={field.name}
                 onBlur={field.onBlur}
-                textareaRef={field.ref}
-                ariaLabel={t('OpenRouter reservation sources')}
                 disabled={props.disabled}
-                placeholder='{"other/reasoner": "configured_price"}'
+                modelOptions={props.modelOptions}
               />
             </FormControl>
             <FormMessage />
@@ -75,19 +75,18 @@ export function OpenRouterReserveField(props: OpenRouterReserveFieldProps) {
             <FormLabel>{t('OpenRouter model reserves (USD)')}</FormLabel>
             <FormDescription>
               {t(
-                'Map exact upstream model IDs to positive minimum holds in USD. Supported contracts include dedicated Audio and Rerank. Holds never reduce a higher upstream estimate and are not a spending limit. Full actual cost is charged, including excess. Empty object disables these holds. Legacy Sonar settings migrate on save.'
+                'Map exact upstream model IDs to positive minimum holds in USD. Supported contracts include dedicated Audio, Rerank, Chat image output, streaming Chat audio output and hosted web search (web_search_options). Holds never reduce a higher upstream estimate and are not a spending limit. Full actual cost is charged, including excess. An empty table disables these holds. Legacy Sonar settings migrate on save.'
               )}
             </FormDescription>
             <FormControl>
-              <JsonCodeEditor
+              <OpenRouterPolicyTable
+                kind='reserve'
+                label={t('OpenRouter model reserves (USD)')}
                 value={field.value || ''}
                 onChange={field.onChange}
-                name={field.name}
                 onBlur={field.onBlur}
-                textareaRef={field.ref}
-                ariaLabel={t('OpenRouter model reserves (USD)')}
                 disabled={props.disabled}
-                placeholder='{"perplexity/sonar-deep-research": 2}'
+                modelOptions={props.modelOptions}
               />
             </FormControl>
             <FormMessage />

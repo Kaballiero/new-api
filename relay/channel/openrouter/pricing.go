@@ -261,8 +261,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	imageOutput := false
 	audioOutput := false
 	dedicatedAudio := operation == "audio/speech" || operation == "audio/transcriptions"
-	// Dedicated audio may use an explicit channel hold without a global model
-	// price. This is an approximate reserve, never a ceiling on actual spend.
+	// Audio and hosted search may use an explicit channel hold without a global
+	// model price. This is an approximate reserve, never a ceiling on actual spend.
 	var reserveUSD *float64
 	if info.ChannelMeta != nil {
 		reserveUSD = info.ChannelSetting.OpenRouterReserveUSD(request.Model)
@@ -303,8 +303,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if raw, present := fields["audio"]; imageOutput && present && string(bytes.TrimSpace(raw)) != "null" {
 		return 0, errors.New("OpenRouter audio output remains unsupported by image reserve")
 	}
-	if audioOutput && (imageOutput || operation != "chat/completions" || localUSD == nil || info.RelayFormat != types.RelayFormatOpenAI) {
-		return 0, errors.New("OpenRouter audio output requires configured_price reservation and OpenAI Chat format")
+	if audioOutput && (imageOutput || operation != "chat/completions" || localUSD == nil && reserveUSD == nil || info.RelayFormat != types.RelayFormatOpenAI) {
+		return 0, errors.New("OpenRouter audio output requires configured_price or an explicit approximate channel reserve and OpenAI Chat format")
 	}
 	if audioOutput && (!request.Stream || !info.IsStream) {
 		return 0, errors.New("OpenRouter Chat audio output requires streaming")
@@ -342,6 +342,16 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			return 0, errors.New("invalid OpenRouter routing speed")
 		}
 	}
+	var searchReserveUSD *float64
+	if raw, present := fields["web_search_options"]; present && string(bytes.TrimSpace(raw)) != "null" {
+		if operation != "chat/completions" || reserveUSD == nil || !(*reserveUSD > 0) {
+			return 0, errors.New("OpenRouter hosted-search quantity is unpriced without a positive approximate channel reserve")
+		}
+		if imageOutput || audioOutput {
+			return 0, errors.New("OpenRouter hosted search cannot share an approximate reserve with image or audio output")
+		}
+		searchReserveUSD = reserveUSD
+	}
 	imageCount, err := requestInputMediaQuantities(fields)
 	if err != nil {
 		return 0, err
@@ -377,7 +387,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		if math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD < 0 || *reserveUSD == 0 && localUSD == nil {
 			return 0, errors.New("invalid OpenRouter approximate reserve")
 		}
-		streamAllowed := audioOutput && localUSD != nil && request.Stream && info.IsStream
+		streamAllowed := audioOutput && request.Stream && info.IsStream
 		operationAllowed := operation == "chat/completions" || decisions || rerank || dedicatedAudio
 		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
 			return 0, errors.New("OpenRouter approximate reserve only supports one nonstream text chat response without routing or tools")
@@ -641,7 +651,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 			if estimateErr != nil {
 				var unavailable *EstimateUnavailableError
-				if (localUSD == nil && !((decisions || rerank || dedicatedAudio || imageReserveOnly) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
+				if (localUSD == nil && !((decisions || rerank || audioOutput || dedicatedAudio || imageReserveOnly) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
 					return 0, estimateErr
 				}
 				if *reserveUSD <= 0 {
@@ -660,6 +670,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	}
 	if !found {
 		return 0, errors.New("OpenRouter request has no compatible priced endpoint")
+	}
+	if searchReserveUSD != nil {
+		maximum = maximum.Add(decimal.NewFromFloat(*searchReserveUSD))
 	}
 	if approximateReserve {
 		maximum = decimal.Max(maximum, decimal.NewFromFloat(*reserveUSD))
@@ -844,9 +857,6 @@ func ModelsFromRequest(body []byte) ([]string, error) {
 // requestInputMediaQuantities inspects protocol content, never arbitrary tool
 // schemas, function arguments or user text that happen to name media fields.
 func requestInputMediaQuantities(fields map[string]json.RawMessage) (int, error) {
-	if raw, present := fields["web_search_options"]; present && string(bytes.TrimSpace(raw)) != "null" {
-		return 0, errors.New("OpenRouter hosted-search quantity is unpriced")
-	}
 	var blocks []json.RawMessage
 	for _, field := range []string{"messages", "input"} {
 		raw := bytes.TrimSpace(fields[field])
