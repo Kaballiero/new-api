@@ -205,6 +205,55 @@ func TestOpenRouterVideoValidation(t *testing.T) {
 	require.ErrorContains(t, err, "catalog is stale")
 }
 
+func TestOpenRouterVideoDurationCapabilities(t *testing.T) {
+	plugin, _ := openRouterVideoFixture(t)
+	for _, test := range []struct {
+		name      string
+		model     string
+		request   map[string]any
+		want      any
+		wantError string
+	}{
+		{"listed duration", "google/veo-3.1-lite", map[string]any{"seconds": 8}, float64(8), ""},
+		{"duration outside listed values", "google/veo-3.1-lite", map[string]any{"seconds": 5}, nil, "Unsupported duration"},
+		{"unlisted durations pass seconds through", "black-forest-labs/flux-video-edit", map[string]any{"seconds": 20}, float64(20), ""},
+		{"unlisted durations pass metadata through", "black-forest-labs/flux-video-edit", map[string]any{"metadata": map[string]any{"duration": 7}}, float64(7), ""},
+		{"unlisted durations allow omission", "black-forest-labs/flux-video-edit", map[string]any{}, nil, ""},
+		{"unlisted durations keep integer bounds", "black-forest-labs/flux-video-edit", map[string]any{"seconds": 3601}, nil, "seconds must"},
+		{"unlisted durations reject fractions", "black-forest-labs/flux-video-edit", map[string]any{"seconds": 4.5}, nil, "seconds must"},
+		{"unlisted durations keep other capabilities", "black-forest-labs/flux-video-edit", map[string]any{"seconds": 20, "resolution": "720p"}, nil, "Unsupported resolution"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.request["prompt"] = "ocean waves"
+			ctx := map[string]any{"upstreamModel": test.model, "baseUrl": "https://openrouter.ai/api", "requestBody": test.request}
+			value, err := plugin.Engine.Call(t.Context(), "buildSubmitRequest", ctx)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+			encoded, err := common.Marshal(value)
+			require.NoError(t, err)
+			var descriptor struct {
+				Body map[string]any `json:"body"`
+			}
+			require.NoError(t, common.Unmarshal(encoded, &descriptor))
+			assert.Equal(t, test.want, descriptor.Body["duration"])
+			facts, err := plugin.Engine.Call(t.Context(), "extractUsage", ctx)
+			require.NoError(t, err)
+			encoded, err = common.Marshal(facts)
+			require.NoError(t, err)
+			var usage map[string]any
+			require.NoError(t, common.Unmarshal(encoded, &usage))
+			wantSeconds := test.want
+			if wantSeconds == nil {
+				wantSeconds = float64(0)
+			}
+			assert.Equal(t, wantSeconds, usage["requested_seconds"], "usage facts describe the forwarded duration")
+		})
+	}
+}
+
 func TestOpenRouterVideoLifecycle(t *testing.T) {
 	plugin, _ := openRouterVideoFixture(t)
 	submit, err := plugin.Engine.Call(t.Context(), "parseSubmitResponse", map[string]any{}, map[string]any{"statusCode": 202, "body": map[string]any{"id": "upstream-123", "status": "pending"}})
