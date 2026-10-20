@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -2741,8 +2743,9 @@ func TestCatalogConsumerAuditCandidate534(t *testing.T) {
 		Vendors             []model.PricingVendor
 		Options             map[string]string
 		Manifest, Documents string
-		AuditRefs           string `json:"audit_refs"`
-		PublicBaseline      string `json:"public_baseline"`
+		AuditRefs           string  `json:"audit_refs"`
+		PublicBaseline      string  `json:"public_baseline"`
+		FXRateUSDRUB        float64 `json:"fx_rate_usd_rub"`
 	}
 	require.NoError(t, common.Unmarshal(raw, &fixture))
 	previousDB, previousLogDB, previousMemory := model.DB, model.LOG_DB, common.MemoryCacheEnabled
@@ -2759,8 +2762,39 @@ func TestCatalogConsumerAuditCandidate534(t *testing.T) {
 	})
 	db := setupModelListControllerTestDB(t)
 	common.MemoryCacheEnabled = false
-	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.CatalogSource{}, &model.CatalogRevision{}, &model.CatalogDocument{}))
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.CatalogSource{}, &model.CatalogRevision{}, &model.CatalogDocument{}, &model.ModelCostFXRow{}))
 	require.NoError(t, config.GlobalConfig.LoadFromDB(fixture.Options))
+	// Production handlers build metadata from authenticated user, group settings
+	// and a published FX snapshot. Initialize those inputs, never patch envelopes.
+	previousUsable, previousAuto := setting.UserUsableGroups2JSONString(), setting.AutoGroups2JsonString()
+	previousGroupRatio, previousGroupGroupRatio := ratio_setting.GroupRatio2JSONString(), ratio_setting.GroupGroupRatio2JSONString()
+	previousQuota, previousExchange := common.QuotaPerUnit, operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsable))
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(previousAuto))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroupRatio))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(previousGroupGroupRatio))
+		common.QuotaPerUnit, operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousQuota, previousExchange
+	})
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`[]`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{}`))
+	common.QuotaPerUnit, operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 500000, 100
+	require.Positive(t, fixture.FXRateUSDRUB)
+	// Reuse the existing cache-aware test seed: a new DB starts at version1,
+	// while the process may already hold a newer publication from another test.
+	seedNativeRouteFX(t, db)
+	seededFX, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	require.NoError(t, err)
+	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: seededFX.EffectiveAt + 1, FetchedAt: seededFX.FetchedAt + 1, Rates: map[string]float64{"USD": fixture.FXRateUSDRUB}}, seededFX.Version))
+	actualFX, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	require.NoError(t, err)
+	require.Equal(t, fixture.FXRateUSDRUB, actualFX.Rates["USD"])
+	require.Greater(t, actualFX.Version, seededFX.Version)
+	fixtureUser := model.User{Id: 900112, Username: "catalog-http-fixture", Group: "default", Role: common.RoleRootUser, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&fixtureUser).Error)
+
 	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
 	plugin, err := os.ReadFile("../plugins/tasks/openrouter-video/plugin.js")
 	require.NoError(t, err)
@@ -2815,9 +2849,14 @@ func TestCatalogConsumerAuditCandidate534(t *testing.T) {
 		require.NoError(t, db.Create(&model.Vendor{Id: vendor.ID, Name: vendor.Name, Description: vendor.Description, Icon: vendor.Icon}).Error)
 	}
 	model.RefreshPricing()
-	items, vendors, revision, err := model.GetPricingCatalogueSnapshot()
+	items, _, revision, err := model.GetPricingCatalogueSnapshot()
 	require.NoError(t, err)
-	context := effectivePricingPageContext{pricing: items, vendors: vendors, metadata: consumerPricingResponse{SchemaVersion: "v2", Currency: "RUB", CatalogRevision: revision}, usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1}, fxFactor: .828504}
+	context, err := loadConsumerPricingContext(fixtureUser.Group, "")
+	require.NoError(t, err)
+	context.userID = fixtureUser.Id
+	require.Equal(t, "default", context.metadata.UserGroup)
+	require.NotNil(t, context.metadata.AutoGroups)
+	require.Empty(t, context.metadata.AutoGroups)
 	page := buildEffectivePricingPage(context, effectivePricingPageQuery{limit: 1000, orderBy: "NAME"}, context.project)
 	require.Equal(t, 534, page.TotalCount)
 	require.Len(t, page.Data, 534)
@@ -2886,6 +2925,73 @@ func TestCatalogConsumerAuditCandidate534(t *testing.T) {
 			}
 		}
 		details = append(details, detail)
+	}
+	if output := os.Getenv("CATALOG_SEMANTIC_HTTP_OUTPUT"); output != "" {
+		// Gin invokes the real controllers. Auth middleware is an explicit fixture
+		// precondition; this test does not exercise credentials or live services.
+		router := gin.New()
+		router.Use(func(c *gin.Context) { c.Set("id", fixtureUser.Id); c.Next() })
+		router.GET("/api/pricing/effective", GetEffectivePricingByGroup)
+		router.GET("/api/user/effective-pricing", GetEffectivePricing)
+		router.GET("/api/user/effective-pricing/model", GetEffectivePricingModel)
+		requests := []struct {
+			kind, path string
+			query      map[string]any
+		}{}
+		for offset := 0; offset < page.TotalCount; offset += 100 {
+			for _, endpoint := range []struct{ kind, path string }{{"public_page", "/api/pricing/effective"}, {"personal_page", "/api/user/effective-pricing"}} {
+				requests = append(requests, struct {
+					kind, path string
+					query      map[string]any
+				}{endpoint.kind, fmt.Sprintf("%s?limit=100&offset=%d", endpoint.path, offset), map[string]any{"limit": 100, "offset": offset}})
+			}
+		}
+		for _, item := range page.Data {
+			requests = append(requests, struct {
+				kind, path string
+				query      map[string]any
+			}{"detail", "/api/user/effective-pricing/model?" + url.Values{"model_name": {item.ModelName}}.Encode(), map[string]any{"modelName": item.ModelName}})
+		}
+		captures := make([]map[string]any, 0, len(requests))
+		rows := map[string]int{}
+		for _, request := range requests {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, request.path, nil))
+			require.Equal(t, http.StatusOK, recorder.Code, request.path)
+			var response struct {
+				Success bool
+				Data    struct {
+					SchemaVersion             string `json:"schema_version"`
+					CatalogRevision           string `json:"catalog_revision"`
+					UserGroup                 string `json:"user_group"`
+					Currency                  string
+					AutoGroups                []string `json:"auto_groups"`
+					Data                      []effectivePricingPageItem
+					Model                     effectivePricingPageItem
+					Offset, Limit, TotalCount int
+				}
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			require.True(t, response.Success)
+			require.NotEmpty(t, response.Data.CatalogRevision)
+			require.Equal(t, "v2", response.Data.SchemaVersion)
+			require.Equal(t, "RUB", response.Data.Currency)
+			if request.kind != "public_page" {
+				require.Equal(t, "default", response.Data.UserGroup)
+				require.NotNil(t, response.Data.AutoGroups)
+			}
+			if request.kind == "detail" {
+				require.Equal(t, request.query["modelName"], response.Data.Model.ModelName)
+				rows[request.kind]++
+			} else {
+				rows[request.kind] += len(response.Data.Data)
+			}
+			captures = append(captures, map[string]any{"kind": request.kind, "status": recorder.Code, "query": request.query, "body": json.RawMessage(append([]byte(nil), recorder.Body.Bytes()...))})
+		}
+		assert.Equal(t, map[string]int{"public_page": 534, "personal_page": 534, "detail": 534}, rows)
+		raw, err = common.Marshal(map[string]any{"evidence_class": "local Gin HTTP controllers; synthetic authenticated fixture user900112/group default/published FX; no live network or response metadata patches", "source_revision": manifest.SourceRevision, "candidate_revision": context.metadata.CatalogRevision, "captures": captures})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(output, raw, 0644))
 	}
 	if output := os.Getenv("CATALOG_SEMANTIC_CANDIDATE_OUTPUT"); output != "" {
 		raw, err = common.Marshal(map[string]any{"evidence_class": "offline immutable full534 builder/API projection fixture; not deployed DEV", "catalog_revision": manifest.Revision, "source_revision": manifest.SourceRevision, "candidate_revision": revision, "counts": counts, "catalog_type_counts": typeCounts, "data": page.Data, "public": publicPage.Data, "details": details, "raw_alias_count": len(items), "per_model_diff": diff})
