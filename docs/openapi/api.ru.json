@@ -3751,6 +3751,22 @@
       },
       "EffectivePricingModel": {
         "properties": {
+          "catalog_type": {
+            "description": "Optional resolved immutable catalog taxonomy; omitted for missing or unrecognized source type. Taxonomy is not relay capability.",
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "speech",
+              "transcription",
+              "audio",
+              "embedding",
+              "rerank",
+              "decision",
+              "other"
+            ],
+            "type": "string"
+          },
           "creator": {
             "allOf": [
               {
@@ -4028,6 +4044,22 @@
       },
       "EffectivePricingPageModel": {
         "properties": {
+          "catalog_type": {
+            "description": "Optional resolved immutable catalog taxonomy; omitted for missing or unrecognized source type. Taxonomy is not relay capability.",
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "speech",
+              "transcription",
+              "audio",
+              "embedding",
+              "rerank",
+              "decision",
+              "other"
+            ],
+            "type": "string"
+          },
           "creator": {
             "allOf": [
               {
@@ -6330,6 +6362,22 @@
       },
       "PublicPricingModel": {
         "properties": {
+          "catalog_type": {
+            "description": "Optional resolved immutable catalog taxonomy; omitted for missing or unrecognized source type. Taxonomy is not relay capability.",
+            "enum": [
+              "text",
+              "image",
+              "video",
+              "speech",
+              "transcription",
+              "audio",
+              "embedding",
+              "rerank",
+              "decision",
+              "other"
+            ],
+            "type": "string"
+          },
           "creator": {
             "allOf": [
               {
@@ -30905,7 +30953,7 @@
     "/api/pricing/effective": {
       "get": {
         "deprecated": false,
-        "description": "Explicit limit selects native filtered pricing page mode with global creator facets; page metadata and row modality/creator are then required. No limit and no pagination parameters preserves the full legacy response. Pagination parameters without limit are rejected. Personal page mode rejects group overrides. Requires root dashboard access; group selects user context and using_group selects one usable price group in page mode.",
+        "description": "Explicit limit selects native filtered pricing page mode with global creator facets; page metadata and row modality/creator are then required. No limit and no pagination parameters preserves the full legacy response. Pagination parameters without limit are rejected. Personal page mode rejects group overrides. Optional singular catalog_type is ANDed with modality before pagination/counts; invalid or duplicate values return HTTP400. Requires root dashboard access; group selects user context and using_group selects one usable price group in page mode.",
         "parameters": [
           {
             "in": "query",
@@ -30952,6 +31000,27 @@
             "required": false,
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "catalog_type",
+            "required": false,
+            "schema": {
+              "description": "Optional resolved immutable catalog taxonomy; omitted for missing or unrecognized source type. Taxonomy is not relay capability.",
+              "enum": [
+                "text",
+                "image",
+                "video",
+                "speech",
+                "transcription",
+                "audio",
+                "embedding",
+                "rerank",
+                "decision",
+                "other"
+              ],
+              "type": "string"
             }
           },
           {
@@ -31131,6 +31200,28 @@
         "description": "Anonymous default-group customer tariffs. Required repeated tag parameters are normalized lowercase exact tokens and combined with AND. Filtering precedes deterministic model-name ordering and pagination. Unknown tags return an empty page. All other parameters, group overrides, duplicate singleton values, and malformed values are rejected. Prices include the default group markup; null means unknown and zero means free. Conditional alternatives retain structured guards.",
         "parameters": [
           {
+            "description": "Optional singular source taxonomy filter; AND with tags before pagination/counts. Invalid or duplicate value returns HTTP400.",
+            "in": "query",
+            "name": "catalog_type",
+            "required": false,
+            "schema": {
+              "description": "Optional resolved immutable catalog taxonomy; omitted for missing or unrecognized source type. Taxonomy is not relay capability.",
+              "enum": [
+                "text",
+                "image",
+                "video",
+                "speech",
+                "transcription",
+                "audio",
+                "embedding",
+                "rerank",
+                "decision",
+                "other"
+              ],
+              "type": "string"
+            }
+          },
+          {
             "description": "Repeated exact single tags; AND semantics. Commas, semicolons, pipes and internal whitespace are rejected.",
             "explode": true,
             "in": "query",
@@ -31282,7 +31373,7 @@
     "/api/pricing/effective/overview": {
       "get": {
         "deprecated": false,
-        "description": "Bounded first pages for all six modalities from one immutable catalog and pricing context. Requires root dashboard access.",
+        "description": "Bounded first pages for all six modalities from one immutable catalog and pricing context. Requires root dashboard access. Optional singular catalog_type filters before section counts/pagination; invalid or duplicate values return HTTP400.",
         "parameters": [
           {
             "in": "query",
@@ -31316,6 +31407,27 @@
             "name": "using_group",
             "required": false,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "catalog_type",
+            "required": false,
+            "schema": {
+              "description": "Optional resolved immutable catalog taxonomy; omitted for missing or unrecognized source type. Taxonomy is not relay capability.",
+              "enum": [
+                "text",
+                "image",
+                "video",
+                "speech",
+                "transcription",
+                "audio",
+                "embedding",
+                "rerank",
+                "decision",
+                "other"
+              ],
               "type": "string"
             }
           }
@@ -42769,7 +42881,7 @@
     "/api/user/effective-pricing": {
       "get": {
         "deprecated": false,
-        "description": "Explicit limit selects native filtered pricing page mode with global creator facets; page metadata and row modality/creator are then required. No limit and no pagination parameters preserves the full legacy response. Pagination parameters without limit are rejected. Personal page mode rejects group overrides.",
+        "description": "Explicit limit selects native filtered pricing page mode with global creator facets; page metadata and row modality/creator are then required. No limit and no pagination parameters preserves the full legacy response. Pagination parameters without limit are rejected. Personal page mode rejects group overrides. Optional singular catalog_type is ANDed with modality before pagination/counts; invalid or duplicate values return HTTP400.",
         "parameters": [
           {
             "in": "query",
@@ -42816,6 +42928,27 @@
             "required": false,
             "schema": {
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "catalog_type",
+            "required": false,
+            "schema": {
+              "description": "Optional resolved immutable catalog taxonomy; omitted for missing or unrecognized source type. Taxonomy is not relay capability.",
+              "enum": [
+                "text",
+                "image",
+                "video",
+                "speech",
+                "transcription",
+                "audio",
+                "embedding",
+                "rerank",
+                "decision",
+                "other"
+              ],
+              "type": "string"
             }
           },
           {

@@ -332,10 +332,33 @@ func projectPricingOperationsMode(pricing *Pricing, abilities []AbilityWithChann
 					batchOffers = append(batchOffers, offer)
 				}
 			}
-			if len(batchOffers) == 0 {
-				batchOffers = append(batchOffers, CatalogOffer{ID: prefix + "batch:unknown", Operation: "text", Mode: "batch", MainComponent: "output"})
-			}
 			pricing.CatalogOffersByGroup[ability.Group] = append(pricing.CatalogOffersByGroup[ability.Group], batchOffers...)
+			continue
+		}
+		if actual && pricing.CatalogType == "decision" {
+			// Decision has no new consumer operation. Retain only existing explicit
+			// configured text tariffs, never synthesize a provider text route.
+			profile := pricingOperation{"text", "output", "tokens"}
+			if slices.Contains(pricing.BillingSourcesForGroup(ability.Group)[constant.EndpointTypeOpenAI], BillingSourceConfiguredTariff) {
+				offers = append(offers, configuredOperationOffers(*pricing, profile, "sync", pricing.BillingExpr, public)...)
+			}
+			if len(offers) == 0 {
+				offers = []CatalogOffer{{ID: prefix + "decision:unknown", Operation: "text", Mode: "sync", MainComponent: "output"}}
+			}
+			pricing.CatalogOffersByGroup[ability.Group] = append(pricing.CatalogOffersByGroup[ability.Group], offers...)
+			continue
+		}
+		if actual && pricing.CatalogModality != "" {
+			seen := make(map[string]bool)
+			for _, route := range pricing.UpstreamCatalogRoutesForGroup(ability.Group) {
+				key := route.Operation + ":" + route.Mode
+				if route.ChannelID != channel.Id || route.Mode == "batch" || seen[key] {
+					continue
+				}
+				seen[key] = true
+				offers = append(offers, CatalogOffer{ID: prefix + key + ":unknown", Operation: route.Operation, Mode: route.Mode})
+			}
+			pricing.CatalogOffersByGroup[ability.Group] = append(pricing.CatalogOffersByGroup[ability.Group], offers...)
 			continue
 		}
 		if video {

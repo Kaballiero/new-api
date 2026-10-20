@@ -20,6 +20,7 @@ type consumerPricingResponse struct {
 }
 
 type consumerPricingModel struct {
+	CatalogType            string                  `json:"catalog_type,omitempty"`
 	DisplayName            string                  `json:"display_name,omitempty"`
 	ModelName              string                  `json:"model_name"`
 	Description            string                  `json:"description,omitempty"`
@@ -65,7 +66,7 @@ func buildConsumerPricingResponse(userGroup string, basis service.BillingFXBasis
 }
 
 func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item model.Pricing, details bool, users ...pricingUserContext) consumerPricingModel {
-	result := consumerPricingModel{DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: item.Tags, VendorID: item.VendorID, OwnerBy: item.OwnerBy, SupportedEndpointTypes: item.SupportedEndpointTypes, GroupPrices: []consumerGroupPricing{}}
+	result := consumerPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: item.Tags, VendorID: item.VendorID, OwnerBy: item.OwnerBy, SupportedEndpointTypes: item.SupportedEndpointTypes, GroupPrices: []consumerGroupPricing{}}
 	groups := effectivePricingGroups(item.EnableGroup, usableGroups)
 	slices.Sort(groups)
 	for _, group := range groups {
@@ -94,9 +95,26 @@ func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[s
 				}
 			}
 		}
+		operations = slices.DeleteFunc(operations, func(operation consumerPricingOperation) bool {
+			return item.CatalogModality != "" && operation.Mode == "batch" && !confirmedConsumerPrices(operation.Prices, operation.Tiers)
+		})
 		result.GroupPrices = append(result.GroupPrices, consumerGroupPricing{UsingGroup: group, Operations: operations, ProviderOffers: providers})
 	}
 	return result
+}
+
+func confirmedConsumerPrices(prices []consumerUnitPrice, tiers []publicPricingTier) bool {
+	for _, price := range prices {
+		if price.AmountRub != nil && *price.AmountRub >= 0 && !math.IsNaN(*price.AmountRub) && !math.IsInf(*price.AmountRub, 0) && price.Unit != "" && price.Unit != "unknown" {
+			return true
+		}
+	}
+	for _, tier := range tiers {
+		if confirmedConsumerPrices(tier.Prices, nil) {
+			return true
+		}
+	}
+	return false
 }
 
 func consumerOperations(item model.Pricing, group string, ratio float64, validRatio bool) []consumerPricingOperation {

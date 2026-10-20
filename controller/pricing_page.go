@@ -12,6 +12,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -48,6 +49,7 @@ type effectivePricingPageQuery struct {
 	offset           int
 	search           string
 	modality         string
+	catalogType      string
 	creatorID        *int
 	pricingUnit      string
 	orderBy          string
@@ -119,13 +121,14 @@ func parseEffectivePricingPageQuery(values url.Values, personal bool) (effective
 		target  *string
 		allowed []string
 	}{
+		{"catalog_type", &query.catalogType, catalogsync.ModelTypes()},
 		{"modality", &query.modality, []string{"TEXT", "IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER"}},
 		{"pricing_unit", &query.pricingUnit, []string{"TOKENS", "CALLS", "UNCONFIGURED"}},
 		{"order_by", &query.orderBy, []string{"NAME", "INPUT_PRICE", "OUTPUT_PRICE"}},
 		{"direction", &query.direction, []string{"asc", "desc"}},
 	} {
 		if raw, present := values[parameter.name]; present {
-			if (!personal && parameter.name != "modality") || !slices.Contains(parameter.allowed, raw[0]) {
+			if (!personal && parameter.name != "modality" && parameter.name != "catalog_type") || !slices.Contains(parameter.allowed, raw[0]) {
 				return query, fmt.Errorf("invalid %s", parameter.name)
 			}
 			*parameter.target = raw[0]
@@ -148,7 +151,7 @@ func routeEffectivePricingPage(c *gin.Context, personal bool) bool {
 		}
 		return true
 	}
-	for _, name := range []string{"offset", "search", "modality", "creator_id", "using_group", "pricing_unit", "order_by", "direction"} {
+	for _, name := range []string{"offset", "search", "modality", "catalog_type", "creator_id", "using_group", "pricing_unit", "order_by", "direction"} {
 		if _, present := values[name]; present {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "limit is required for pricing pagination"})
 			return true
@@ -244,6 +247,9 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 				continue
 			}
 		}
+		if query.catalogType != "" && item.CatalogType != query.catalogType {
+			continue
+		}
 		creator := creators[item.VendorID]
 		if item.VendorID == 0 {
 			creator = nil
@@ -333,6 +339,9 @@ func compareEffectivePricingNames(left, right string) int {
 }
 
 func effectivePricingModality(item model.Pricing) string {
+	if item.CatalogModality != "" {
+		return item.CatalogModality
+	}
 	proved := make(map[string]bool)
 	for _, offers := range item.CatalogOffersByGroup {
 		for _, offer := range offers {
@@ -449,7 +458,7 @@ func GetEffectivePricingOverview(c *gin.Context) {
 		return
 	}
 	for key := range values {
-		if !slices.Contains([]string{"limit", "search", "group", "using_group"}, key) {
+		if !slices.Contains([]string{"limit", "search", "group", "using_group", "catalog_type"}, key) {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid pricing query"})
 			return
 		}

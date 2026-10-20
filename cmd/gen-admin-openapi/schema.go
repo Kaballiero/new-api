@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,6 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 )
+
+func catalogTypeSchema() map[string]any {
+	return map[string]any{"type": "string", "enum": catalogsync.ModelTypes(), "description": "Optional resolved immutable catalog taxonomy; omitted for missing or unrecognized source type. Taxonomy is not relay capability."}
+}
 
 // modelTypes maps unqualified Go type name → struct AST node parsed from model/*.go.
 // Populated by parseModels.
@@ -457,6 +462,7 @@ func buildSchemas() map[string]interface{} {
 	out["EffectivePricingCreator"] = map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "integer"}, "name": map[string]any{"type": "string"}}, "required": []string{"id", "name"}}
 
 	modelProperties := out["EffectivePricingModel"].(map[string]any)["properties"].(map[string]any)
+	modelProperties["catalog_type"] = catalogTypeSchema()
 	modelProperties["modality"] = map[string]any{"type": "string", "enum": []string{"TEXT", "IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER"}, "description": "Required when limit selects page mode."}
 	modelProperties["creator"] = map[string]any{"type": "object", "nullable": true, "allOf": []any{map[string]any{"$ref": "#/components/schemas/EffectivePricingCreator"}}, "description": "Required when limit selects page mode; null when vendor metadata is unavailable."}
 	pageProperties := out["EffectivePricingData"].(map[string]any)["properties"].(map[string]any)
@@ -976,7 +982,7 @@ func addPublicPricingModelsSchemas(out map[string]interface{}) {
 	}, "required": []string{"operation", "mode", "prices", "tiers", "is_from", "is_free"}}
 	out["PublicModelTariff"] = map[string]any{"type": "object", "properties": map[string]any{"operations": map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/PublicPricingOperation"}}}, "required": []string{"operations"}}
 	out["PublicPricingModel"] = map[string]any{"type": "object", "properties": map[string]any{
-		"model_name": text, "display_name": text, "description": text, "icon": text, "tags": map[string]any{"type": "array", "items": text}, "owner_by": text,
+		"catalog_type": catalogTypeSchema(), "model_name": text, "display_name": text, "description": text, "icon": text, "tags": map[string]any{"type": "array", "items": text}, "owner_by": text,
 		"supported_endpoint_types": map[string]any{"type": "array", "items": text},
 		"creator":                  map[string]any{"type": "object", "nullable": true, "allOf": []any{map[string]any{"$ref": "#/components/schemas/EffectivePricingCreator"}}},
 		"tariff":                   map[string]any{"$ref": "#/components/schemas/PublicModelTariff"},

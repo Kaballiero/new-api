@@ -21,6 +21,11 @@ import (
 const SchemaVersion = 1
 const MaxModels = 10000
 
+// ModelTypes enumerates known source taxonomy values, not relay capabilities.
+func ModelTypes() []string {
+	return []string{"text", "image", "video", "speech", "transcription", "audio", "embedding", "rerank", "decision", "other"}
+}
+
 type Reference struct {
 	ID   string `json:"id"`
 	Hash string `json:"hash"`

@@ -13,7 +13,11 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -24,6 +28,105 @@ import (
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 )
+
+func TestCatalogConsumerOperationRequiresModelSemantics(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, operation, modality string
+		output                          []string
+		endpoint                        constant.EndpointType
+		batch                           bool
+	}{
+		{"text chat", "text", "text", "TEXT", []string{"text"}, constant.EndpointTypeOpenAI, false},
+		{"text is not embedding", "text", "", "TEXT", []string{"text"}, constant.EndpointTypeEmbeddings, false},
+		{"embedding", "embedding", "embeddings", "EMBEDDINGS", []string{"embeddings"}, constant.EndpointTypeEmbeddings, false},
+		{"embedding is not text", "embedding", "", "EMBEDDINGS", []string{"embeddings"}, constant.EndpointTypeOpenAI, false},
+		{"image via chat", "image", "image_generation", "IMAGE", []string{"image"}, constant.EndpointTypeOpenAI, false},
+		{"image text output stays image operation", "image", "image_generation", "IMAGE", []string{"image", "text"}, constant.EndpointTypeOpenAI, false},
+		{"native image", "image", "image_generation", "IMAGE", []string{"image"}, constant.EndpointTypeImageGeneration, false},
+		{"image is not embedding", "image", "", "IMAGE", []string{"image", "text"}, constant.EndpointTypeEmbeddings, false},
+		{"image does not imply Responses", "image", "", "IMAGE", []string{"image"}, constant.EndpointTypeOpenAIResponse, false},
+		{"video", "video", "text_to_video", "VIDEO", []string{"video"}, constant.EndpointTypeOpenAIVideo, false},
+		{"speech", "speech", "speech_generation", "OTHER", []string{"speech"}, constant.EndpointTypeOpenAI, false},
+		{"transcription", "transcription", "transcription", "OTHER", []string{"transcription"}, constant.EndpointTypeOpenAI, false},
+		{"rerank", "rerank", "rerank", "RERANK", []string{"rerank"}, constant.EndpointTypeOpenAI, false},
+		{"audio with text", "audio", "audio_generation", "OTHER", []string{"audio", "text"}, constant.EndpointTypeOpenAI, false},
+		{"decision taxonomy remains unresolved", "decision", "", "TEXT", []string{"decisions"}, constant.EndpointTypeOpenAI, false},
+		{"unknown metadata", "unknown", "", "OTHER", nil, constant.EndpointTypeOpenAI, false},
+		{"missing output capability", "image", "", "OTHER", nil, constant.EndpointTypeOpenAI, false},
+		{"exact batch", "text", "text", "TEXT", []string{"text"}, PricingEndpointBatch, true},
+		{"batch tariff never becomes sync", "text", "", "TEXT", []string{"text"}, constant.EndpointTypeOpenAI, true},
+		{"base does not imply batch", "text", "", "TEXT", []string{"text"}, PricingEndpointBatch, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &catalogsync.Document{ID: "vendor/model", Type: tc.kind, Modalities: catalogsync.Modalities{Input: []string{"text"}, Output: tc.output}}
+			if tc.batch {
+				doc.ID += ":batch"
+			}
+			assert.Equal(t, tc.operation, catalogConsumerOperation(doc, doc.ID, tc.endpoint).operation)
+			_, modality := catalogConsumerProfile(doc)
+			assert.Equal(t, tc.modality, modality)
+			assert.Equal(t, tc.output, doc.Modalities.Output, "consumer projection must not rewrite source capabilities")
+		})
+	}
+	// The consumer filter does not change configured billing/admission semantics.
+	assert.Equal(t, "embeddings", configuredPricingOperation(&Channel{Type: constant.ChannelTypeOpenRouter}, "alias", "vendor/text", constant.EndpointTypeEmbeddings).operation)
+}
+
+func TestCatalogConsumerAuditClassification(t *testing.T) {
+	directory := os.Getenv("CATALOG_SEMANTIC_AUDIT_DIR")
+	if directory == "" {
+		t.Skip("immutable 534-model audit fixtures not configured")
+	}
+	raw, err := os.ReadFile(filepath.Join(directory, "catalog-metadata.json"))
+	require.NoError(t, err)
+	var metadata struct{ Documents []catalogsync.Document }
+	require.NoError(t, common.Unmarshal(raw, &metadata))
+	byID := make(map[string]*catalogsync.Document)
+	for i := range metadata.Documents {
+		byID[metadata.Documents[i].ID] = &metadata.Documents[i]
+	}
+	raw, err = os.ReadFile(filepath.Join(directory, "classification.json"))
+	require.NoError(t, err)
+	var classifications []struct {
+		ModelName, DisplayName, DisplayedModality, CatalogID string
+	}
+	require.NoError(t, common.Unmarshal(raw, &classifications))
+	require.Len(t, classifications, 534)
+	counts := make(map[string]int)
+	changes := []map[string]any{}
+	decisions := 0
+	for _, before := range classifications {
+		doc := byID[before.CatalogID]
+		require.NotNil(t, doc, before.ModelName)
+		_, modality := catalogConsumerProfile(doc)
+		counts[modality]++
+		if doc.Type == "decision" {
+			decisions++
+		}
+		operations := []string{}
+		for _, endpoint := range []constant.EndpointType{constant.EndpointTypeOpenAI, constant.EndpointTypeEmbeddings, constant.EndpointTypeOpenAIVideo} {
+			operation := catalogConsumerOperation(doc, doc.ID, endpoint).operation
+			if operation != "" {
+				operations = append(operations, operation)
+			}
+		}
+		if doc.Type != "embedding" {
+			assert.NotContains(t, operations, "embeddings", before.ModelName)
+		}
+		if doc.Type == "embedding" {
+			assert.Equal(t, []string{"embeddings"}, operations, before.ModelName)
+		}
+		changes = append(changes, map[string]any{"modelName": before.ModelName, "displayName": before.DisplayName, "catalogId": doc.ID, "catalogType": doc.Type, "beforeModality": before.DisplayedModality, "afterModality": modality, "consumerOperations": operations, "evidenceClass": "immutable metadata/resolver fixture; not deployed API"})
+	}
+	assert.Equal(t, map[string]int{"TEXT": 342, "IMAGE": 60, "VIDEO": 30, "EMBEDDINGS": 30, "RERANK": 8, "OTHER": 64}, counts)
+	assert.Equal(t, 20, decisions)
+	if output := os.Getenv("CATALOG_SEMANTIC_AUDIT_OUTPUT"); output != "" {
+		raw, err := common.Marshal(changes)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(output, raw, 0o644))
+	}
+	t.Logf("534 metadata fixtures: classifications=%v; unresolved decisions=%d", counts, decisions)
+}
 
 func upstreamCatalogTestDB(t *testing.T, dialect string, upgrade bool) *gorm.DB {
 	t.Helper()
@@ -361,6 +464,19 @@ func TestUpstreamCatalogProviderPolicyChangesRevision(t *testing.T) {
 	withServiceTier, err := pricingCatalogueFingerprint([]Pricing{item}, nil)
 	require.NoError(t, err)
 	assert.NotEqual(t, after, withServiceTier)
+	item.UpstreamCatalogRoutesByGroup["default"][0].Mode = "batch"
+	withBatch, err := pricingCatalogueFingerprint([]Pricing{item}, nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, withServiceTier, withBatch)
+	item.UpstreamCatalogRoutesByGroup["default"][0].DocumentHash = strings.Repeat("b", 64)
+	withNewRates, err := pricingCatalogueFingerprint([]Pricing{item}, nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, withBatch, withNewRates, "immutable document rate/mode changes invalidate the consumer revision")
+	item.CatalogType = "speech"
+	withType, err := pricingCatalogueFingerprint([]Pricing{item}, nil)
+	require.NoError(t, err)
+	assert.NotEqual(t, withNewRates, withType)
+
 }
 
 func TestUpstreamCatalogPassThroughInvalidatesPricing(t *testing.T) {
@@ -378,4 +494,42 @@ func TestUpstreamCatalogPassThroughInvalidatesPricing(t *testing.T) {
 	require.True(t, handleConfigUpdate("global.pass_through_request_enabled", "false"))
 	assert.False(t, global.PassThroughRequestEnabled)
 	assert.Greater(t, pricingInputsGeneration.Load(), generation)
+}
+
+func TestDecisionConfiguredPriceCompatibility(t *testing.T) {
+	expression := `len <= 1000 ? tier("small", p * 2 + c * 4) : tier("large", p * 3 + c * 6)`
+	for _, tc := range []struct {
+		name       string
+		configured bool
+		expr       string
+		source     string
+		priced     bool
+	}{
+		{"explicit configured tiers", false, expression, BillingSourceConfiguredTariff, true},
+		{"explicit configured zero", true, "", BillingSourceConfiguredTariff, true},
+		{"reserve alone is not price", false, "", BillingSourceOpenRouterActualCost, false},
+		{"unconfigured defaults are not price", false, "", BillingSourceConfiguredTariff, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := Pricing{ModelName: "decision-alias", CatalogModality: "TEXT", CatalogType: "decision", PriceConfigured: tc.configured, QuotaType: 1, BillingExpr: tc.expr, BillingSourcesByGroup: map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {tc.source}}}}
+			if tc.expr != "" {
+				item.BillingMode = billing_setting.BillingModeTieredExpr
+				item.ConfiguredPrices = map[string][][]billingexpr.DisplayPrice{tc.expr: billingexpr.CatalogPrices(tc.expr)}
+			}
+			channel := &Channel{Id: 43, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, ParamOverride: common.GetPointer(`{"openrouter_model_reserve_usd":{"decision-alias":0.05}}`)}
+			abilities := []AbilityWithChannel{{Ability: Ability{Model: item.ModelName, Group: "default", ChannelId: 43}}}
+			projectPricingOperations(&item, abilities, map[int]*Channel{43: channel}, jsplugin.DefaultRegistry.Generation(), nil, nil)
+			assert.Empty(t, item.UpstreamCatalogRoutesByGroup, "compatibility never creates a provider route")
+			for _, offers := range []map[string][]CatalogOffer{item.CatalogOffersByGroup, item.PublicCatalogOffersByGroup} {
+				require.NotEmpty(t, offers["default"])
+				priced := false
+				for _, offer := range offers["default"] {
+					assert.Equal(t, "text", offer.Operation)
+					assert.Equal(t, "sync", offer.Mode)
+					priced = priced || len(offer.Prices) > 0
+				}
+				assert.Equal(t, tc.priced, priced)
+			}
+		})
+	}
 }
