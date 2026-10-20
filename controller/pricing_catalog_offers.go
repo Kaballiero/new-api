@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"iter"
 	"math"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -343,57 +342,37 @@ func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float
 	}
 }
 
-func catalogDetailPrices(prices []consumerProviderPrice) []consumerProviderPrice {
+// catalogShadowedModelPrices marks model-page prices that the generic endpoint
+// schedule replaces for the same component and unit. Public minima and schedule
+// tiers (catalogSchedulePrices) ignore them, so offer details must not show them
+// either.
+func catalogShadowedModelPrices(prices []consumerProviderPrice) []bool {
 	sources := make([]string, len(prices))
+	generic := map[string]bool{}
 	for index, price := range prices {
 		var provenance struct {
 			Source string `json:"source"`
 		}
-		if common.Unmarshal(price.Provenance, &provenance) == nil {
-			sources[index] = provenance.Source
+		if common.Unmarshal(price.Provenance, &provenance) != nil {
+			continue
+		}
+		sources[index] = provenance.Source
+		if provenance.Source == "generic" && price.Component != "unknown" {
+			generic[price.Component+"/"+price.Unit] = true
 		}
 	}
-	sameJSON := func(a, b json.RawMessage) bool {
-		var left, right any
-		if len(a) != 0 && common.Unmarshal(a, &left) != nil || len(b) != 0 && common.Unmarshal(b, &right) != nil {
-			return false
-		}
-		return reflect.DeepEqual(left, right)
+	shadowed := make([]bool, len(prices))
+	for index, price := range prices {
+		shadowed[index] = sources[index] == "model_page" && price.Component != "unknown" && generic[price.Component+"/"+price.Unit]
 	}
-	sameAmount := func(a, b *string) bool {
-		if a == nil || b == nil {
-			return false
-		}
-		left, leftErr := decimal.NewFromString(*a)
-		right, rightErr := decimal.NewFromString(*b)
-		return leftErr == nil && rightErr == nil && left.Equal(right)
-	}
+	return shadowed
+}
+
+func catalogDetailPrices(prices []consumerProviderPrice) []consumerProviderPrice {
+	shadowed := catalogShadowedModelPrices(prices)
 	result := make([]consumerProviderPrice, 0, len(prices))
 	for index, price := range prices {
-		duplicate := false
-		for other, generic := range prices {
-			if sources[index] != "model_page" || price.Component == "unknown" || sources[other] != "generic" {
-				continue
-			}
-			if price.Component != generic.Component || price.ComponentID != generic.ComponentID || !reflect.DeepEqual(price.Billable, generic.Billable) || !reflect.DeepEqual(price.Direction, generic.Direction) || !reflect.DeepEqual(price.Modality, generic.Modality) || price.Unit != generic.Unit || price.Quantity != generic.Quantity {
-				continue
-			}
-			if price.Normalization.Comparable != generic.Normalization.Comparable || price.Normalization.Effective != generic.Normalization.Effective {
-				continue
-			}
-			if price.AmountRub != nil || generic.AmountRub != nil {
-				if !sameAmount(price.AmountRub, generic.AmountRub) {
-					continue
-				}
-			} else if !sameAmount(price.AmountUSD, generic.AmountUSD) {
-				continue
-			}
-			if sameJSON(price.Conditions, generic.Conditions) && sameJSON(price.Variant, generic.Variant) {
-				duplicate = true
-				break
-			}
-		}
-		if !duplicate {
+		if !shadowed[index] {
 			result = append(result, price)
 		}
 	}

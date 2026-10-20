@@ -2473,7 +2473,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	})
 }
 
-func TestUpstreamCatalogDetailCollapsesModelPageDuplicates(t *testing.T) {
+func TestUpstreamCatalogDetailDropsModelPagePricesShadowedByGenericSchedule(t *testing.T) {
 	raw, err := os.ReadFile("../model/testdata/upstream_catalog/aggregator.json")
 	require.NoError(t, err)
 	doc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "router/aggregated", Hash: catalogsync.Hash(raw)})
@@ -2515,27 +2515,26 @@ func TestUpstreamCatalogDetailCollapsesModelPageDuplicates(t *testing.T) {
 		expected   []string
 	}{
 		{"exact duplicate keeps generic", true, func(*catalogsync.Component) {}, []string{"prompt"}},
-		{"reordered conditions are equal", true, func(rate *catalogsync.Component) {
-			rate.Conditions = json.RawMessage(`{"utcEnd":2400, "utcStart":0}`)
-		}, []string{"prompt"}},
 		{"usd fallback without rouble amounts", false, func(*catalogsync.Component) {}, []string{"prompt"}},
-		{"different amount", true, func(rate *catalogsync.Component) { rate.AmountUSD = common.GetPointer("0.6629") }, []string{"prompt", "openai:prompt_tokens"}},
-		{"different conditions", true, func(rate *catalogsync.Component) { rate.Conditions = json.RawMessage(`{}`) }, []string{"prompt", "openai:prompt_tokens"}},
+		{"unconditional base price beside a context schedule", true, func(rate *catalogsync.Component) { rate.Conditions = json.RawMessage(`{}`) }, []string{"prompt"}},
+		{"different amount", true, func(rate *catalogsync.Component) { rate.AmountUSD = common.GetPointer("0.6629") }, []string{"prompt"}},
 		{"own context window", true, func(rate *catalogsync.Component) {
 			rate.Conditions = json.RawMessage(`{"contextMin":0,"contextMax":8192,"utcStart":0,"utcEnd":2400}`)
-		}, []string{"prompt", "openai:prompt_tokens"}},
-		{"different variant", true, func(rate *catalogsync.Component) { rate.Variant = json.RawMessage(`{"service_tier":"flex"}`) }, []string{"prompt", "openai:prompt_tokens"}},
-		{"different unit", true, func(rate *catalogsync.Component) { rate.Unit = "thousand_tokens" }, []string{"prompt", "openai:prompt_tokens"}},
-		{"different quantity", true, func(rate *catalogsync.Component) { rate.Quantity = "1000" }, []string{"prompt", "openai:prompt_tokens"}},
-		{"different billable", true, func(rate *catalogsync.Component) {
+		}, []string{"prompt"}},
+		{"different variant", true, func(rate *catalogsync.Component) { rate.Variant = json.RawMessage(`{"service_tier":"flex"}`) }, []string{"prompt"}},
+		{"different quantity", true, func(rate *catalogsync.Component) { rate.Quantity = "1000" }, []string{"prompt"}},
+		{"billable alias of the same component", true, func(rate *catalogsync.Component) {
 			rate.Billable, rate.ComponentID = common.GetPointer("input_tokens"), `{"billable":"input_tokens"}`
-		}, []string{"prompt", "openai:prompt_tokens"}},
+		}, []string{"prompt"}},
+		{"different unit stays", true, func(rate *catalogsync.Component) { rate.Unit = "thousand_tokens" }, []string{"prompt", "openai:prompt_tokens"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			scheduled := meter("generic", "prompt", "input_text", "0.6628", `{"utcStart":0,"utcEnd":2400}`)
-			page := meter("model_page", "openai:prompt_tokens", "input_text", "0.6628", `{"utcStart":0,"utcEnd":2400}`)
+			window := `{"contextMin":0,"contextMax":272000,"utcStart":0,"utcEnd":2400}`
+			scheduled := meter("generic", "prompt", "input_text", "0.6628", window)
+			page := meter("model_page", "openai:prompt_tokens", "input_text", "0.6628", window)
 			tc.mutate(&page)
 			prices := pricesFor(tc.validRatio, scheduled, page)
+			require.NotEmpty(t, prices)
 			assert.Equal(t, tc.expected, parameters(prices))
 			assert.Contains(t, string(prices[0].Provenance), `"source":"generic"`)
 		})
@@ -2834,10 +2833,32 @@ func TestCatalogSemanticSnapshotProjection(t *testing.T) {
 		t.Logf("normalized minima: %s", wire)
 	})
 
-	t.Run("normalization preserves every source amount condition and identity", func(t *testing.T) {
+	t.Run("normalization preserves every source amount condition and identity except shadowed model-page prices", func(t *testing.T) {
 		before, after := []string{}, []string{}
 		for _, original := range doc.Offers {
-			wire, err := common.Marshal([]any{original.Provider, original.Variant, original.Components})
+			scheduled := map[string]bool{}
+			for _, rate := range original.Components {
+				var provenance struct {
+					Source string `json:"source"`
+				}
+				require.NoError(t, common.Unmarshal(rate.Provenance, &provenance))
+				if provenance.Source == "generic" {
+					scheduled[catalogComponentName(rate)+"/"+rate.Unit] = true
+				}
+			}
+			kept := []catalogsync.Component{}
+			for _, rate := range original.Components {
+				var provenance struct {
+					Source string `json:"source"`
+				}
+				require.NoError(t, common.Unmarshal(rate.Provenance, &provenance))
+				component := catalogComponentName(rate)
+				if provenance.Source == "model_page" && component != "unknown" && scheduled[component+"/"+rate.Unit] {
+					continue
+				}
+				kept = append(kept, rate)
+			}
+			wire, err := common.Marshal([]any{original.Provider, original.Variant, kept})
 			require.NoError(t, err)
 			before = append(before, catalogsync.Hash(wire))
 		}
@@ -2851,6 +2872,25 @@ func TestCatalogSemanticSnapshotProjection(t *testing.T) {
 			after = append(after, catalogsync.Hash(wire))
 		}
 		assert.ElementsMatch(t, before, after)
+	})
+
+	t.Run("each priced component of a provider has one price per context window", func(t *testing.T) {
+		for _, offer := range offers {
+			if offer.Provider == nil || offer.Provider.Tag == nil {
+				continue
+			}
+			windows := map[string]int{}
+			for _, price := range offer.Prices {
+				if price.Component == "unknown" || price.AmountRub == nil {
+					continue
+				}
+				assert.NotContains(t, string(price.Provenance), `"source":"model_page"`, *offer.Provider.Tag+" "+price.Parameter)
+				windows[price.Component+"/"+price.Unit+"/"+string(price.Conditions)]++
+			}
+			for window, count := range windows {
+				assert.Equal(t, 1, count, window)
+			}
+		}
 	})
 
 	t.Run("Flex standard and long context retain distinct price conditions", func(t *testing.T) {
