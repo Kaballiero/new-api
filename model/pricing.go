@@ -515,11 +515,30 @@ func rebuildPricingCatalogueLocked() {
 					delete(upstreamTypes, ability.Model)
 				}
 			}
+			consumerEndpoints := make([]constant.EndpointType, 0, len(billingSources[ability.Model][ability.Group]))
 			for endpoint, sources := range billingSources[ability.Model][ability.Group] {
 				if !slices.Contains(sources, BillingSourceOpenRouterActualCost) {
 					continue
 				}
-				operation := catalogConsumerOperation(original, upstream, endpoint)
+				consumerEndpoints = append(consumerEndpoints, endpoint)
+			}
+			consumerDocument := original
+			if canonical.Type == "decision" {
+				// Type20 has a native SystemOne transport, not a Chat decision
+				// endpoint. Require a published eligible native endpoint as well
+				// as declared decisions output before projecting its rates.
+				consumerDocument = canonical
+				consumerEndpoints = nil
+				if slices.ContainsFunc(canonical.Offers, func(offer catalogsync.Offer) bool {
+					mode, known := CatalogOfferMode(offer, upstream)
+					return offer.Scope == "endpoint" && offer.Eligibility != nil && offer.Eligibility.Eligible &&
+						(offer.Operation == nil || *offer.Operation == "decisions") && known && mode == "sync"
+				}) {
+					consumerEndpoints = []constant.EndpointType{PricingEndpointSystemOne}
+				}
+			}
+			for _, endpoint := range consumerEndpoints {
+				operation := catalogConsumerOperation(consumerDocument, upstream, endpoint)
 				if operation.operation == "" {
 					continue
 				}

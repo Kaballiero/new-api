@@ -336,11 +336,16 @@ func projectPricingOperationsMode(pricing *Pricing, abilities []AbilityWithChann
 			continue
 		}
 		if actual && pricing.CatalogType == "decision" {
-			// Decision has no new consumer operation. Retain only existing explicit
-			// configured text tariffs, never synthesize a provider text route.
+			// Retain explicit configured text compatibility separately from native
+			// decisions rates; neither a reserve nor a Chat endpoint prices them.
 			profile := pricingOperation{"text", "output", "tokens"}
 			if slices.Contains(pricing.BillingSourcesForGroup(ability.Group)[constant.EndpointTypeOpenAI], BillingSourceConfiguredTariff) {
 				offers = append(offers, configuredOperationOffers(*pricing, profile, "sync", pricing.BillingExpr, public)...)
+			}
+			if slices.ContainsFunc(pricing.UpstreamCatalogRoutesForGroup(ability.Group), func(route UpstreamCatalogRoute) bool {
+				return route.ChannelID == channel.Id && route.Endpoint == PricingEndpointSystemOne && route.Operation == "decisions"
+			}) {
+				offers = append(offers, CatalogOffer{ID: prefix + "decisions:unknown", Operation: "decisions", Mode: "sync", MainComponent: "input"})
 			}
 			if len(offers) == 0 {
 				offers = []CatalogOffer{{ID: prefix + "decision:unknown", Operation: "text", Mode: "sync", MainComponent: "output"}}

@@ -211,6 +211,9 @@ func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group st
 		return false, true, false
 	}
 	path, _ := common.GetDefaultEndpointInfo(route.Endpoint)
+	if route.Endpoint == model.PricingEndpointSystemOne {
+		path = common.EndpointInfo{Path: "/v1/systemone", Method: "POST"}
+	}
 	info := &relaycommon.RelayInfo{UserId: user.id, UserGroup: user.group, TokenGroup: user.group, UsingGroup: group, OriginModelName: apiModel, RequestURLPath: path.Path, ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: route.ModelID, ParamOverride: overrides}}
 	body, err = relaycommon.ApplyParamOverride(body, overrides, relaycommon.BuildParamOverrideContext(info))
 	if err != nil {

@@ -15,6 +15,10 @@ import (
 
 const CatalogAPIURLEnv = "PRICING_CATALOG_API_URL"
 
+// PricingEndpointSystemOne binds consumer rates to the existing native route.
+// It is private to pricing and must not enter supported_endpoint_types.
+const PricingEndpointSystemOne constant.EndpointType = "pricing_systemone"
+
 type UpstreamCatalogRoute struct {
 	Operation    string
 	Mode         string
@@ -69,8 +73,9 @@ func catalogConsumerProfile(document *catalogsync.Document) (pricingOperation, s
 			return pricingOperation{"audio_generation", "audio_output", "unknown"}, "OTHER"
 		}
 	case "decision":
-		// The public modality contract has no decision category. Preserve its
-		// existing classification without inventing text/embedding capability.
+		if slices.Contains(output, "decisions") {
+			return pricingOperation{"decisions", "input", "tokens"}, "TEXT"
+		}
 		return pricingOperation{}, "TEXT"
 	}
 	return pricingOperation{}, "OTHER"
@@ -82,6 +87,12 @@ func catalogConsumerOperation(document *catalogsync.Document, upstream string, e
 		return pricingOperation{}
 	}
 	batch := strings.HasSuffix(upstream, ":batch")
+	if profile.operation == "decisions" {
+		if endpoint == PricingEndpointSystemOne && !batch {
+			return profile
+		}
+		return pricingOperation{}
+	}
 	if batch && endpoint != PricingEndpointBatch {
 		return pricingOperation{}
 	}
