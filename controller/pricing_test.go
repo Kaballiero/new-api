@@ -3424,3 +3424,94 @@ func TestCatalogMissingTypeConsumerFiltering(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogVariantMinimaKeepDistinctPrices(t *testing.T) {
+	rate := func(component, unit, amount, variant string) consumerProviderPrice {
+		price := consumerProviderPrice{Component: component, AmountRub: &amount}
+		price.Unit, price.Quantity = unit, "1"
+		price.Variant = []byte(variant)
+		price.Provenance = []byte(`{"source":"generic"}`)
+		return price
+	}
+	offer := func(prices ...consumerProviderPrice) consumerProviderOffer {
+		return consumerProviderOffer{minimumEligible: true, Availability: "eligible", Operation: "video", Mode: "sync", Variant: []byte(`{}`), Prices: prices}
+	}
+	tierView := func(t *testing.T, operation consumerPricingOperation) map[string]float64 {
+		result := map[string]float64{}
+		for _, tier := range operation.Tiers {
+			label := "none"
+			if tier.Condition != nil {
+				require.Equal(t, "comparison", tier.Condition.Kind)
+				require.Equal(t, "usage", tier.Condition.Subject)
+				require.NotNil(t, tier.Condition.StringValue)
+				label = tier.Condition.Argument + "=" + *tier.Condition.StringValue
+			}
+			require.Len(t, tier.Prices, 1)
+			result[label+"/"+tier.Prices[0].Component] = *tier.Prices[0].AmountRub
+		}
+		return result
+	}
+
+	t.Run("resolution variants are separate tiers and the summary is a from price", func(t *testing.T) {
+		minima := catalogMinima([]consumerProviderOffer{offer(
+			rate("output_video", "second", "4.25", `{"resolution":"480p"}`),
+			rate("output_video", "second", "8.5", `{"resolution":"720p"}`),
+			rate("output_video", "second", "17", `{"resolution":"1080p"}`),
+		)})
+		require.Len(t, minima, 1)
+		require.Len(t, minima[0].Prices, 1)
+		assert.Equal(t, 4.25, *minima[0].Prices[0].AmountRub)
+		require.NotNil(t, minima[0].IsFrom)
+		assert.True(t, *minima[0].IsFrom)
+		assert.Equal(t, map[string]float64{"resolution=480p/output_video": 4.25, "resolution=720p/output_video": 8.5, "resolution=1080p/output_video": 17}, tierView(t, minima[0]))
+	})
+
+	t.Run("multilingual and operation variants stay next to the base price", func(t *testing.T) {
+		minima := catalogMinima([]consumerProviderOffer{offer(
+			rate("input_audio", "second", "0.43", `{}`),
+			rate("input_audio", "second", "0.52", `{"multilingual":true}`),
+			rate("output_video", "second", "10", `{"resolution":"480p"}`),
+			rate("output_video", "second", "12", `{"operation":"reference_to_video"}`),
+		)})
+		require.Len(t, minima, 1)
+		assert.True(t, *minima[0].IsFrom)
+		assert.Equal(t, map[string]float64{"none/input_audio": 0.43, "multilingual=true/input_audio": 0.52, "resolution=480p/output_video": 10, "operation=reference_to_video/output_video": 12}, tierView(t, minima[0]))
+	})
+
+	t.Run("a single unconditional price is exact", func(t *testing.T) {
+		minima := catalogMinima([]consumerProviderOffer{offer(rate("output_video", "second", "5", `{}`))})
+		require.Len(t, minima, 1)
+		require.NotNil(t, minima[0].IsFrom)
+		assert.False(t, *minima[0].IsFrom)
+		require.Len(t, minima[0].Tiers, 1)
+		assert.Nil(t, minima[0].Tiers[0].Condition)
+		same := catalogMinima([]consumerProviderOffer{offer(rate("output_video", "second", "5", `{}`)), offer(rate("output_video", "second", "5", `{}`))})
+		assert.False(t, *same[0].IsFrom)
+		cheaper := catalogMinima([]consumerProviderOffer{offer(rate("output_video", "second", "5", `{}`)), offer(rate("output_video", "second", "4", `{}`))})
+		assert.True(t, *cheaper[0].IsFrom)
+		assert.Equal(t, 4., *cheaper[0].Prices[0].AmountRub)
+	})
+
+	t.Run("merging an equal local price keeps it exact", func(t *testing.T) {
+		amount, other := 5., 6.
+		upstream := catalogMinima([]consumerProviderOffer{offer(rate("output_video", "second", "5", `{}`))})
+		merged := mergeCatalogMinima([]consumerPricingOperation{{Operation: "video", Mode: "sync", Prices: []consumerUnitPrice{{Component: "output_video", Unit: "second", AmountRub: &amount}}}}, upstream)
+		assert.False(t, *merged[0].IsFrom)
+		merged = mergeCatalogMinima([]consumerPricingOperation{{Operation: "video", Mode: "sync", Prices: []consumerUnitPrice{{Component: "output_video", Unit: "second", AmountRub: &other}}}}, upstream)
+		assert.True(t, *merged[0].IsFrom)
+		assert.Equal(t, 5., *merged[0].Prices[0].AmountRub)
+	})
+
+	t.Run("nested variant values cannot become an unconditional minimum", func(t *testing.T) {
+		minima := catalogMinima([]consumerProviderOffer{offer(rate("output_video", "second", "1", `{"resolution":{"width":640}}`))})
+		require.Len(t, minima, 1)
+		assert.Empty(t, minima[0].Prices)
+	})
+}
+
+func TestConsumerPricingTagsMatchPublicNormalization(t *testing.T) {
+	item := model.Pricing{ModelName: "deepgram/nova-3", Tags: "Transcription,Audio,top,audio", EnableGroup: []string{"default"}}
+	projection := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, false)
+	assert.Equal(t, "audio,top,transcription", projection.Tags)
+	assert.Equal(t, strings.Join(pricingTags(item.Tags), ","), projection.Tags)
+}

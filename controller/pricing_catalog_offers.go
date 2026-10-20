@@ -427,6 +427,8 @@ func catalogMinimumOperations(offers iter.Seq[consumerProviderOffer]) []consumer
 		minima[index].Tiers = catalogScheduleTiers(schedules[key{minima[index].Operation, minima[index].Mode}])
 		if len(minima[index].Tiers) == 0 {
 			minima[index].Prices = []consumerUnitPrice{}
+			from := false
+			minima[index].IsFrom = &from
 		}
 	}
 	return minima
@@ -439,6 +441,9 @@ func catalogUnconditionalMinima(offers iter.Seq[consumerProviderOffer]) []consum
 		value, quantity decimal.Decimal
 	}
 	grouped := map[key]map[string]winner{}
+	// A minimum is a "from" price only when it was chosen among distinct unit
+	// amounts (variants, providers, schedules), not merely because it is upstream.
+	candidates := map[key]map[string]map[string]bool{}
 	for offer := range offers {
 		if !offer.minimumEligible || offer.Availability != "eligible" || offer.Eligibility != nil && !offer.Eligibility.Eligible {
 			continue
@@ -446,6 +451,7 @@ func catalogUnconditionalMinima(offers iter.Seq[consumerProviderOffer]) []consum
 		k := key{offer.Operation, offer.Mode}
 		if grouped[k] == nil {
 			grouped[k] = map[string]winner{}
+			candidates[k] = map[string]map[string]bool{}
 		}
 		for _, price := range catalogSchedulePrices(offer) {
 			if price.AmountRub == nil {
@@ -460,6 +466,10 @@ func catalogUnconditionalMinima(offers iter.Seq[consumerProviderOffer]) []consum
 				continue
 			}
 			slot := price.Component + "/" + price.Unit
+			if candidates[k][slot] == nil {
+				candidates[k][slot] = map[string]bool{}
+			}
+			candidates[k][slot][value.DivRound(quantity, 40).String()] = true
 			old, exists := grouped[k][slot]
 			if !exists || value.Mul(old.quantity).LessThan(old.value.Mul(quantity)) {
 				grouped[k][slot] = winner{price, value, quantity}
@@ -479,9 +489,9 @@ func catalogUnconditionalMinima(offers iter.Seq[consumerProviderOffer]) []consum
 	result := []consumerPricingOperation{}
 	for _, k := range keys {
 		row := consumerPricingOperation{Operation: k.operation, Mode: k.mode, Prices: []consumerUnitPrice{}}
-		from := true
+		from := false
 		row.IsFrom = &from
-		for _, selected := range grouped[k] {
+		for slot, selected := range grouped[k] {
 			precision := max(int32(32), -selected.value.Exponent()+int32(selected.quantity.NumDigits())+32)
 			value := selected.value.DivRound(selected.quantity, precision)
 			converted, _ := value.Float64()
@@ -490,6 +500,7 @@ func catalogUnconditionalMinima(offers iter.Seq[consumerProviderOffer]) []consum
 			}
 			amount := converted
 			row.Prices = append(row.Prices, consumerUnitPrice{Component: selected.price.Component, Unit: selected.price.Unit, AmountRub: &amount})
+			from = from || len(candidates[k][slot]) > 1
 		}
 		slices.SortFunc(row.Prices, func(a, b consumerUnitPrice) int {
 			if a.Component != b.Component {
@@ -513,17 +524,21 @@ func mergeCatalogMinima(existing, upstream []consumerPricingOperation) []consume
 		}
 		row := &existing[index]
 		row.Tiers = append(slices.Clone(row.Tiers), addition.Tiers...)
-		from := true
-		row.IsFrom = &from
+		from := row.IsFrom != nil && *row.IsFrom || addition.IsFrom != nil && *addition.IsFrom
 		row.Prices = slices.Clone(row.Prices)
 		for _, price := range addition.Prices {
 			slot := slices.IndexFunc(row.Prices, func(old consumerUnitPrice) bool { return old.Component == price.Component && old.Unit == price.Unit })
 			if slot < 0 {
 				row.Prices = append(row.Prices, price)
-			} else if row.Prices[slot].AmountRub == nil || price.AmountRub != nil && *price.AmountRub < *row.Prices[slot].AmountRub {
+				continue
+			}
+			old := row.Prices[slot].AmountRub
+			from = from || old != nil && price.AmountRub != nil && *old != *price.AmountRub
+			if old == nil || price.AmountRub != nil && *price.AmountRub < *old {
 				row.Prices[slot] = price
 			}
 		}
+		row.IsFrom = &from
 	}
 	slices.SortStableFunc(existing, func(a, b consumerPricingOperation) int {
 		if a.Operation != b.Operation {
