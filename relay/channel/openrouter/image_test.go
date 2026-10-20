@@ -25,6 +25,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
@@ -487,6 +488,173 @@ func TestEndpointRequestReservation(t *testing.T) {
 	estimator.Models["test/model"][0].MaxCompletionTokens = 0
 	_, err := estimator.Estimate(info, []byte(`{"model":"test/model"}`), "chat/completions")
 	require.Error(t, err)
+}
+
+func TestSharedImageChannelReserve(t *testing.T) {
+	for _, source := range []dto.OpenRouterReservationSource{"", dto.OpenRouterReservationUpstream} {
+		for _, tc := range []struct {
+			name, chatPricing, nativePricing string
+			want                             float64
+		}{
+			{"minimum", `{"prompt":"0","completion":"0.04","image_output":"0"}`, `[{"billable":"output_image","unit":"image","cost_usd":0.04}]`, .25},
+			{"larger known estimate", `{"prompt":"0","completion":"0.7","image_output":"0"}`, `[{"billable":"output_image","unit":"image","cost_usd":0.7}]`, .7},
+			{"unknown monetary estimate", `[]`, `[]`, .25},
+		} {
+			t.Run(string(source)+"/"+tc.name, func(t *testing.T) {
+				posts := 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodGet {
+						posts++
+						w.WriteHeader(http.StatusMethodNotAllowed)
+						return
+					}
+					switch r.URL.Path {
+					case "/v1/models/test/image/endpoints":
+						_, _ = fmt.Fprintf(w, `{"data":{"id":"test/image","architecture":{"output_modalities":["text","image"]},"endpoints":[{"tag":"provider","context_length":100000,"max_completion_tokens":1,"pricing":%s}]}}`, tc.chatPricing)
+					case "/v1/images/models/test/image/endpoints":
+						_, _ = fmt.Fprintf(w, `{"id":"test/image","endpoints":[{"provider_tag":"provider","supported_parameters":{"n":{"type":"range","min":1,"max":1},"resolution":{"type":"enum","values":["1K"]}},"pricing":%s}]}`, tc.nativePricing)
+					default:
+						w.WriteHeader(http.StatusNotFound)
+					}
+				}))
+				defer server.Close()
+				info := &relaycommon.RelayInfo{
+					OriginModelName: "shared-image",
+					RelayFormat:     types.RelayFormatOpenAI,
+					ChannelMeta: &relaycommon.ChannelMeta{
+						ChannelId: 42, ChannelType: constant.ChannelTypeOpenRouter,
+						ChannelBaseUrl: server.URL, UpstreamModelName: "test/image",
+					},
+				}
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{"test/image": .25}
+				if source != "" {
+					info.ChannelSetting.OpenRouterReservationSource = map[string]dto.OpenRouterReservationSource{"test/image": source}
+				}
+				ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+				ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				estimator := NewRequestEstimator()
+				require.NoError(t, estimator.Discover(ctx, info, &imageTestAdaptor{}, "test/image"))
+				cost, err := estimator.Estimate(info, []byte(`{"model":"test/image","max_tokens":1,"n":1,"modalities":["text","image"],"provider":{"only":["provider"],"allow_fallbacks":false}}`), "chat/completions")
+				require.NoError(t, err)
+				assert.InDelta(t, tc.want, cost, 1e-12)
+
+				ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+				native := &ImageAdaptor{Adaptor: &imageTestAdaptor{}}
+				var request dto.ImageRequest
+				require.NoError(t, common.Unmarshal([]byte(`{"model":"test/image","prompt":"x","n":1,"size":"1K","provider":{"only":["provider"],"allow_fallbacks":false}}`), &request))
+				require.NoError(t, native.Prepare(ctx, info, request))
+				assert.InDelta(t, tc.want, info.NativeImage.EstimatedCostUSD, 1e-12)
+				assert.Equal(t, "provider", info.NativeImage.ProviderTag)
+				assert.Equal(t, "shared-image", info.OriginModelName)
+				assert.Zero(t, posts, "admission must not submit an inference request")
+			})
+		}
+	}
+}
+
+func TestChatImageReserveGuards(t *testing.T) {
+	for _, tc := range []struct {
+		name, extra, operation string
+		wantError              string
+		reserve                float64
+		noReserve, legacyOnly  bool
+		modalities             []string
+		noEndpoints, nonOR     bool
+		maxCompletion          int
+	}{
+		{name: "missing reserve", noReserve: true},
+		{name: "zero reserve", reserve: 0},
+		{name: "negative reserve", reserve: -1},
+		{name: "NaN reserve", reserve: math.NaN()},
+		{name: "infinite reserve", reserve: math.Inf(1)},
+		{name: "legacy Sonar is not an exact image reserve", reserve: .25, legacyOnly: true},
+		{name: "missing image capability", reserve: .25},
+		{name: "text-only capability", reserve: .25, modalities: []string{"text"}},
+		{name: "no endpoints", reserve: .25, modalities: []string{"image"}, noEndpoints: true},
+		{name: "non OpenRouter", reserve: .25, modalities: []string{"image"}, nonOR: true},
+		{name: "wrong operation", reserve: .25, modalities: []string{"image"}, operation: "embeddings"},
+		{name: "zero output quantity", reserve: .25, modalities: []string{"image"}, extra: `,"n":0`},
+		{name: "multiple responses", reserve: .25, modalities: []string{"image"}, extra: `,"n":2`},
+		{name: "streaming", reserve: .25, modalities: []string{"image"}, extra: `,"stream":true`},
+		{name: "audio object", reserve: .25, modalities: []string{"image"}, extra: `,"audio":{"voice":"alloy","format":"wav"}`, wantError: "audio output remains unsupported"},
+		{name: "audio string", reserve: .25, modalities: []string{"image"}, extra: `,"audio":"malformed"`, wantError: "audio output remains unsupported"},
+		{name: "audio number", reserve: .25, modalities: []string{"image"}, extra: `,"audio":123`, wantError: "audio output remains unsupported"},
+		{name: "tools", reserve: .25, modalities: []string{"image"}, extra: `,"tools":[{"type":"function"}]`},
+		{name: "fallback models", reserve: .25, modalities: []string{"image"}, extra: `,"models":["test/other"]`},
+		{name: "input image", reserve: .25, modalities: []string{"image"}, extra: `,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/x.png"}}]}]`},
+		{name: "provider excludes all", reserve: .25, modalities: []string{"image"}, extra: `,"provider":{"only":["missing"]}`},
+		{name: "malformed max price", reserve: .25, modalities: []string{"image"}, extra: `,"provider":{"max_price":{"prompt":-1}}`},
+		{name: "output cap exceeds endpoint", reserve: .25, modalities: []string{"image"}, maxCompletion: 1, extra: `,"max_tokens":2`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}}
+			if tc.nonOR {
+				info.ChannelType = constant.ChannelTypeOpenAI
+			}
+			if !tc.noReserve {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{"test/image": tc.reserve}
+			}
+			if tc.legacyOnly {
+				info.ChannelSetting.OpenRouterModelReserveUSD = nil
+				info.ChannelSetting.OpenRouterSonarResearchReserveUSD = common.GetPointer(tc.reserve)
+			}
+			estimator := NewRequestEstimator()
+			estimator.Models["test/image"] = []PricedEndpoint{{Tag: "provider", ContextLength: 100000, MaxCompletionTokens: tc.maxCompletion, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0"`), "completion": json.RawMessage(`"0"`), "image_output": json.RawMessage(`"1"`)}}}
+			if tc.noEndpoints {
+				estimator.Models["test/image"] = nil
+			}
+			estimator.OutputModalities["test/image"] = tc.modalities
+			operation := tc.operation
+			if operation == "" {
+				operation = "chat/completions"
+			}
+			_, err := estimator.Estimate(info, []byte(`{"model":"test/image","modalities":["image"]`+tc.extra+`}`), operation)
+			require.Error(t, err)
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+			}
+		})
+	}
+
+	// Explicit configured-price admission remains valid without a channel minimum.
+	info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}}
+	estimator := NewRequestEstimator()
+	estimator.Models["test/image"] = []PricedEndpoint{{Tag: "provider", ContextLength: 100000, MaxCompletionTokens: 1}}
+	estimator.OutputModalities["test/image"] = []string{"image"}
+	cost, err := estimator.EstimateWithLocalPrice(info, []byte(`{"model":"test/image","modalities":["image"]}`), "chat/completions", .4)
+	require.NoError(t, err)
+	assert.InDelta(t, .4, cost, 1e-12)
+}
+
+func TestChatImageReserveDoesNotCoverDiscoveryFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, response string
+		status         int
+	}{
+		{"authentication", `{}`, http.StatusUnauthorized},
+		{"no endpoints", `{"data":{"id":"test/image","architecture":{"output_modalities":["image"]},"endpoints":[]}}`, http.StatusOK},
+		{"wrong model", `{"data":{"id":"test/other","architecture":{"output_modalities":["image"]},"endpoints":[{"tag":"provider"}]}}`, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			posts := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					posts++
+				}
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.response)
+			}))
+			defer server.Close()
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: server.URL}}
+			info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{"test/image": .25}
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			_, err := PrepareRequest(ctx, info, &imageTestAdaptor{}, strings.NewReader(`{"model":"test/image","modalities":["image"],"max_tokens":1}`), "chat/completions")
+			require.Error(t, err)
+			assert.Nil(t, info.OpenRouterCost, "discovery errors must fail before any reserve")
+			assert.Zero(t, posts)
+		})
+	}
 }
 
 func TestEndpointContextPricingAndRoutingDimensions(t *testing.T) {

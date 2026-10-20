@@ -70,19 +70,26 @@ This path supports one Chat response without tools, fallback models or input
 media, in OpenAI Chat format. Text/image responses remain nonstream. Explicit
 Chat audio output (including music) requires streaming; the gateway buffers
 the SSE response until terminal `usage.cost` and `[DONE]`, preserving audio
-fields and the normal client projection. Image/audio output requires an explicit
-configured-price source. Endpoint discovery and independent model/provider,
-capability, parameter and limit checks remain mandatory. After those checks,
+fields and the normal client projection. Chat image output may instead use a
+positive exact-final-model `openrouter_model_reserve_usd` with the default/upstream
+source, shared with native Image admission. This reserve-only path requires
+declared image output capability and the same single nonstream Chat response
+contract; it does not enable unvalidated quantities or operations. Audio output
+still requires an explicit configured-price source. Endpoint discovery and
+independent model/provider, capability, parameter and limit checks remain mandatory.
+After those checks,
 `EstimateUnavailableError` classifies incomplete/untrustworthy tariff metadata
-or unknown monetary quantities. Only the explicit configured-price source may
-cover such a failure with its local USD estimate and per-model minimum; a
-positive hold is required for an unavailable estimate or a nonzero image rate
+or unknown monetary quantities. The explicit configured-price source or an
+admitted reserve-only Chat image request may cover such a failure with its
+local estimate or positive exact-model minimum. A positive hold is required
+for an unavailable estimate or a nonzero image rate
 with unknown output quantity. Text token limits are not image spending bounds.
 Auth/network/server errors, malformed discovery, unavailable routes and failed
 eligibility checks never activate fallback. Other output modalities and text/image
 streaming remain unsupported. Complete compatible upstream estimates still
 contribute their maximum to the local/minimum hold; failed monetary estimates
-are never treated as free. Without configured-price selection they fail closed.
+are never treated as free. Without an applicable explicit reservation policy
+they fail closed.
 Expressions
 see the final payload; unmeasured cache/media/task usage and recursive
 `provider_cost` estimates are rejected. No customer-billing expression snapshot

@@ -1004,6 +1004,9 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 		{name: "actual explicit zero", local: 2, cost: "0", forceFormat: true},
 		{name: "zero image rate preserves known subtotal", local: 0, imageRate: "0", cost: "0"},
 		{name: "positive minimum covers unknown quantity", local: 0, minimum: 2, cost: "3"},
+		{name: "channel reserve only actual cost", metadata: `{"data":{"id":"other/image-model","architecture":{"output_modalities":["text","image"]},"endpoints":[{"tag":"image-provider","model_id":"other/image-model","max_completion_tokens":128,"pricing":null}]}}`, noPolicy: true, noLocal: true, minimum: 2, noPrices: true, cost: "3"},
+		{name: "channel reserve only explicit zero", metadata: `{"data":{"id":"other/image-model","architecture":{"output_modalities":["text","image"]},"endpoints":[{"tag":"image-provider","model_id":"other/image-model","max_completion_tokens":128,"pricing":{"prompt":"0.0000003","completion":"0.0000025","image_output":"0.00003"}}]}}`, noPolicy: true, noLocal: true, minimum: 2, cost: "0"},
+		{name: "channel reserve only unknown cost retains hold", metadata: `{"data":{"id":"other/image-model","architecture":{"output_modalities":["text","image"]},"endpoints":[{"tag":"image-provider","model_id":"other/image-model","max_completion_tokens":128,"pricing":{"prompt":"0.0000003","completion":"0.0000025","image_output":"0.00003"}}]}}`, noPolicy: true, noLocal: true, minimum: 2, bodyID: "gen-shared-reserve-unknown"},
 		{name: "positive image quantity policy required", local: 0, cost: "3", wantError: "requires a positive reserve"},
 		{name: "no implicit image enablement", local: 2, noPolicy: true, wantError: "image output requires configured_price"},
 		{name: "policy uses final model not alias", local: 2, wrongPolicy: true, wantError: "image output requires configured_price"},
@@ -1207,8 +1210,12 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 				return
 			}
 			assert.JSONEq(t, string(finalBody), string(transport.body))
-			require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
-			assert.Equal(t, tc.local, *info.OpenRouterCost.ConfiguredReserveUSD)
+			if tc.noPolicy {
+				assert.Nil(t, info.OpenRouterCost.ConfiguredReserveUSD)
+			} else {
+				require.NotNil(t, info.OpenRouterCost.ConfiguredReserveUSD)
+				assert.Equal(t, tc.local, *info.OpenRouterCost.ConfiguredReserveUSD)
+			}
 			assert.GreaterOrEqual(t, info.OpenRouterCost.Basis.EstimatedUSD, max(tc.local, tc.minimum))
 			if tc.otherKey == "request" || tc.secondEndpoint {
 				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 5.0)

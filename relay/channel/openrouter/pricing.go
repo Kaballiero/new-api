@@ -293,8 +293,15 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 		}
 	}
-	if imageOutput && (localUSD == nil || info.RelayFormat != types.RelayFormatOpenAI) {
-		return 0, errors.New("OpenRouter image output requires configured_price reservation and OpenAI Chat format")
+	imageReserveOnly := false
+	if imageOutput && localUSD == nil && info.ChannelMeta != nil {
+		_, imageReserveOnly = info.ChannelSetting.OpenRouterModelReserveUSD[request.Model]
+	}
+	if imageOutput && (localUSD == nil && !imageReserveOnly || info.RelayFormat != types.RelayFormatOpenAI || imageReserveOnly && operation != "chat/completions") {
+		return 0, errors.New("OpenRouter image output requires configured_price or an explicit channel reserve and OpenAI Chat format")
+	}
+	if raw, present := fields["audio"]; imageOutput && present && string(bytes.TrimSpace(raw)) != "null" {
+		return 0, errors.New("OpenRouter audio output remains unsupported by image reserve")
 	}
 	if audioOutput && (imageOutput || operation != "chat/completions" || localUSD == nil || info.RelayFormat != types.RelayFormatOpenAI) {
 		return 0, errors.New("OpenRouter audio output requires configured_price reservation and OpenAI Chat format")
@@ -414,6 +421,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		if decisions && !slices.Contains(e.OutputModalities[model], "decisions") {
 			return 0, errors.New("OpenRouter model does not declare decisions output capability")
+		}
+		if imageReserveOnly && !slices.Contains(e.OutputModalities[model], "image") {
+			return 0, errors.New("OpenRouter model does not declare image output capability")
 		}
 		if (audioOutput || dedicatedAudio) && len(e.OutputModalities[model]) == 0 {
 			return 0, errors.New("OpenRouter audio model output capability is missing")
@@ -631,7 +641,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 			if estimateErr != nil {
 				var unavailable *EstimateUnavailableError
-				if (localUSD == nil && !((decisions || rerank || dedicatedAudio) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
+				if (localUSD == nil && !((decisions || rerank || dedicatedAudio || imageReserveOnly) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
 					return 0, estimateErr
 				}
 				if *reserveUSD <= 0 {
