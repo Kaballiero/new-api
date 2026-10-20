@@ -36,6 +36,180 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestDecisionCatalogConsumerPrices(t *testing.T) {
+	previousDB, previousLogDB, previousMemory := model.DB, model.LOG_DB, common.MemoryCacheEnabled
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB, common.MemoryCacheEnabled = previousDB, previousLogDB, previousMemory
+		model.InvalidatePricingCache()
+	})
+	db := setupModelListControllerTestDB(t)
+	common.MemoryCacheEnabled = false
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.CatalogSource{}, &model.CatalogRevision{}, &model.CatalogDocument{}))
+	t.Setenv(model.CatalogAPIURLEnv, "https://catalog.fixture")
+	source, enabled, err := model.ConfiguredCatalogSource()
+	require.NoError(t, err)
+	require.True(t, enabled)
+	head, err := model.EnsureCatalogSource(context.Background(), source)
+	require.NoError(t, err)
+	selection := model.CatalogSelection{SchemaVersion: 1, NormalizationVersion: "2"}
+	documents := []model.CatalogDocument{}
+	mapping := map[string]string{}
+	for _, fixture := range []struct{ name, id, hash string }{
+		{"clef", "cloudflare/clef", "59703a8512b71bafe302dc9dd0f0cddd6a32061d5d73176a9aae617bd0fca8f3"},
+		{"clef-flash", "cloudflare/clef-flash", "64073044bc2dd8f7864199195cce730584d60722460672c228c16e8c6e49713b"},
+		{"clef-omni", "cloudflare/clef-omni", "6cde2d5139462df26ef8cdd778bd12458952210c7fe0e6eda6c947d7a057e61f"},
+		{"classify-1", "scaledown/classify-1", "97debcdf89d11900bf0384df8d9c6291f8b39b881ee83d27a9322e3ff15bd358"},
+	} {
+		raw, err := os.ReadFile("../model/testdata/upstream_catalog/" + strings.ReplaceAll(fixture.id, "/", "__") + ".json")
+		require.NoError(t, err)
+		require.Equal(t, fixture.hash, catalogsync.Hash(raw))
+		_, err = catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: fixture.id, Hash: fixture.hash})
+		require.NoError(t, err)
+		selection.Models = append(selection.Models, model.CatalogModelReference{ID: fixture.id, Hash: fixture.hash})
+		documents = append(documents, model.CatalogDocument{SourceID: source.ID, ModelID: fixture.id, Hash: fixture.hash, Payload: string(raw)})
+		mapping[fixture.name] = fixture.id
+		require.NoError(t, db.Create(&model.Ability{Model: fixture.name, Group: "default", ChannelId: 43, Enabled: true}).Error)
+	}
+	_, err = model.PublishCatalogSelection(context.Background(), head, selection, catalogsync.Hash([]byte("retained-decision-fixtures")), "2026-10-20T00:00:00Z", documents)
+	require.NoError(t, err)
+	mappingJSON, err := common.Marshal(mapping)
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&model.Channel{Id: 43, Type: constant.ChannelTypeOpenRouter, Key: "unused-fixture", Status: common.ChannelStatusEnabled, ModelMapping: common.GetPointer(string(mappingJSON))}).Error)
+	model.RefreshPricing()
+	items, _, revision, err := model.GetPricingCatalogueSnapshot()
+	require.NoError(t, err)
+	require.NotEmpty(t, revision)
+	require.Len(t, items, 4)
+	for _, item := range items {
+		t.Run(item.ModelName, func(t *testing.T) {
+			assert.Equal(t, "decision", item.CatalogType)
+			assert.Equal(t, "TEXT", item.CatalogModality)
+			assert.NotContains(t, item.SupportedEndpointTypes, model.PricingEndpointSystemOne)
+			routes := item.UpstreamCatalogRoutesForGroup("default")
+			require.Len(t, routes, 1)
+			assert.Equal(t, "decisions", routes[0].Operation)
+			assert.Equal(t, model.PricingEndpointSystemOne, routes[0].Endpoint)
+			context := effectivePricingPageContext{pricing: []model.Pricing{item}, usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1.4}, fxFactor: .8}
+			public := buildPublicModelTariff(context, item)
+			personal := buildConsumerPricingModel(context.usableGroups, context.groupRatios, context.fxFactor, item, true)
+			require.Len(t, public.Operations, 1)
+			require.Len(t, personal.GroupPrices, 1)
+			group := personal.GroupPrices[0]
+			require.Len(t, group.Operations, 1)
+			assert.Equal(t, "decisions", public.Operations[0].Operation)
+			assert.Equal(t, "decisions", group.Operations[0].Operation)
+			assert.Equal(t, "sync", group.Operations[0].Mode)
+			expectedInput := map[string]float64{"clef": .042, "clef-flash": .021, "clef-omni": .15}
+			if item.ModelName == "classify-1" {
+				assert.Empty(t, public.Operations[0].Prices)
+				for _, tier := range public.Operations[0].Tiers {
+					assert.Empty(t, tier.Prices)
+				}
+				assert.Empty(t, group.Operations[0].Prices, "discount relationship remains unknown")
+			} else {
+				require.Len(t, group.Operations[0].Prices, 2)
+				amounts := map[string]float64{}
+				for _, price := range group.Operations[0].Prices {
+					require.NotNil(t, price.AmountRub)
+					amounts[price.Component] = *price.AmountRub
+				}
+				assert.InDelta(t, expectedInput[item.ModelName]*100*1.4*.8, amounts["input"], 1e-9)
+				assert.Equal(t, float64(0), amounts["output"], "explicit zero is a valid rate")
+				assert.False(t, public.Operations[0].IsFree, "positive input is not free")
+				require.NotEmpty(t, public.Operations[0].Prices)
+				assert.Equal(t, group.Operations[0].Prices, public.Operations[0].Prices)
+			}
+			require.NotEmpty(t, group.ProviderOffers)
+			ids := map[string]bool{}
+			for _, offer := range group.ProviderOffers {
+				assert.False(t, ids[offer.ID])
+				ids[offer.ID] = true
+				assert.Equal(t, "decisions", offer.Operation)
+				assert.Equal(t, "sync", offer.Mode)
+				if item.ModelName == "classify-1" {
+					for _, price := range offer.Prices {
+						assert.Nil(t, price.AmountRub)
+					}
+				}
+			}
+			if item.ModelName == "clef" {
+				// A Chat path would leave PrimeIntellect's cheaper offer in the
+				// minimum; the native path must apply the Cloudflare constraint.
+				policy := `{"operations":[{"path":"provider.only","mode":"set","value":["cloudflare"],"conditions":[{"path":"request_path","mode":"full","value":"/v1/systemone"}]}]}`
+				routes[0].ParamOverride = &policy
+				item.UpstreamCatalogRoutesByGroup = map[string][]model.UpstreamCatalogRoute{"default": routes}
+				offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
+				require.Len(t, offers, 1)
+				assert.Equal(t, "cloudflare", *offers[0].Provider.Tag)
+				minimum := catalogMinima(offers)
+				require.Len(t, minimum, 1)
+				for _, price := range minimum[0].Prices {
+					if price.Component == "input" {
+						require.NotNil(t, price.AmountRub)
+						assert.Equal(t, float64(24), *price.AmountRub)
+					}
+				}
+			}
+		})
+	}
+	t.Run("native endpoint binding fails closed", func(t *testing.T) {
+		for _, missing := range []string{"decisions output", "eligible endpoint", "endpoint scope", "matching operation", "sync mode"} {
+			t.Run(missing, func(t *testing.T) {
+				var doc catalogsync.Document
+				require.NoError(t, common.UnmarshalJsonStr(documents[0].Payload, &doc))
+				switch missing {
+				case "decisions output":
+					doc.Modalities.Output = []string{"text"}
+				case "eligible endpoint":
+					for i := range doc.Offers {
+						doc.Offers[i].Eligibility = &catalogsync.Eligibility{Eligible: false}
+					}
+				case "endpoint scope":
+					for i := range doc.Offers {
+						doc.Offers[i].Scope = "model"
+					}
+				case "matching operation":
+					for i := range doc.Offers {
+						doc.Offers[i].Operation = common.GetPointer("text")
+					}
+				case "sync mode":
+					for i := range doc.Offers {
+						doc.Offers[i].Mode = common.GetPointer("batch")
+					}
+				}
+				raw, err := common.Marshal(doc)
+				require.NoError(t, err)
+				head, enabled, err := model.ConfiguredCatalogSource()
+				require.NoError(t, err)
+				require.True(t, enabled)
+				head, err = model.EnsureCatalogSource(context.Background(), head)
+				require.NoError(t, err)
+				selection := model.CatalogSelection{SchemaVersion: 1, NormalizationVersion: "2", Models: []model.CatalogModelReference{{ID: doc.ID, Hash: catalogsync.Hash(raw)}}}
+				_, err = model.PublishCatalogSelection(context.Background(), head, selection, catalogsync.Hash([]byte(missing)), "2026-10-20T00:00:00Z", []model.CatalogDocument{{SourceID: source.ID, ModelID: doc.ID, Hash: catalogsync.Hash(raw), Payload: string(raw)}})
+				require.NoError(t, err)
+				model.RefreshPricing()
+				items, _, _, err := model.GetPricingCatalogueSnapshot()
+				require.NoError(t, err)
+				found := false
+				for _, item := range items {
+					if item.ModelName != "clef" {
+						continue
+					}
+					found = true
+					assert.Empty(t, item.UpstreamCatalogRoutesForGroup("default"))
+					consumer := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, true)
+					require.Len(t, consumer.GroupPrices, 1)
+					assert.Empty(t, consumer.GroupPrices[0].ProviderOffers)
+					for _, operation := range consumer.GroupPrices[0].Operations {
+						assert.Empty(t, operation.Prices)
+					}
+				}
+				require.True(t, found)
+			})
+		}
+	})
+}
+
 func TestConsumerCatalogBatchPricesStaySeparate(t *testing.T) {
 	raw, err := os.ReadFile("../model/testdata/upstream_catalog/aggregator.json")
 	require.NoError(t, err)
