@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -3229,6 +3230,83 @@ func TestOpenRouterAudioCrashOwnershipAndStaleWriters(t *testing.T) {
 			require.Error(t, stale.UpdateOpenRouterSync(stale.PrivateData.OpenRouterAudio.Revision))
 			require.Error(t, CompleteOpenRouterSyncTask(&gin.Context{}, info, []byte("late"), "audio/pcm"))
 			assert.False(t, RefundTaskQuota(t.Context(), settled, "unknown must not refund"))
+		})
+	}
+}
+
+// An explicit upstream rejection refunds the transferred hold immediately and
+// never polls /generation, while unknown outcomes keep the hold for review.
+func TestOpenRouterSyncSubmissionRejectionReleasesReservation(t *testing.T) {
+	for _, tc := range []struct {
+		name, generationID string
+		status             int
+		chatImage          bool
+		transportError     bool
+		released           bool
+	}{
+		{name: "invalid voice", status: http.StatusBadRequest, released: true},
+		{name: "invalid response format", status: http.StatusUnprocessableEntity, released: true},
+		{name: "rate limited", status: http.StatusTooManyRequests, released: true},
+		{name: "rate limited with generation id", status: http.StatusTooManyRequests, generationID: "gen-rejected", released: true},
+		{name: "chat image rate limited with generation id", status: http.StatusTooManyRequests, generationID: "gen-rejected", chatImage: true, released: true},
+		{name: "server error keeps hold", status: http.StatusBadGateway},
+		{name: "timeout keeps hold", status: http.StatusRequestTimeout},
+		{name: "transport error keeps hold", transportError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lookups := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/generation") {
+					lookups++
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer server.Close()
+			var info *relaycommon.RelayInfo
+			if tc.chatImage {
+				_, info = newOpenRouterChatImageReservation(t, server.URL)
+			} else {
+				_, info = newOpenRouterAudioReservation(t)
+				require.NoError(t, ConfigureOpenRouterSyncSubmission(info, server.URL+"/generation", nil))
+			}
+			var resp *http.Response
+			var requestErr error
+			if tc.transportError {
+				requestErr = fmt.Errorf("connection reset")
+			} else {
+				resp = &http.Response{StatusCode: tc.status, Header: http.Header{}}
+				if tc.generationID != "" {
+					resp.Header.Set("X-Generation-Id", tc.generationID)
+				}
+			}
+			require.NoError(t, RecordOpenRouterSyncSubmission(info, resp, requestErr))
+			if tc.chatImage {
+				require.NoError(t, FailOpenRouterSyncTask(info, "chat_image_upstream_error"))
+			}
+			for range 2 {
+				RunTaskPollingOnce(t.Context(), nil)
+			}
+			saved, err := openRouterSyncTask(info)
+			require.NoError(t, err)
+			assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), saved.Status)
+			assert.Zero(t, lookups, "a terminal submission outcome never polls generation metadata")
+			view := OpenRouterSyncReconciliation(saved)
+			if tc.released {
+				assert.Equal(t, 10000, getUserQuota(t, info.UserId))
+				assert.Equal(t, 10000, getTokenRemainQuota(t, info.TokenId))
+				assert.Zero(t, saved.Quota)
+				assert.True(t, saved.PrivateData.Reconciliation.Finalized)
+				assert.False(t, saved.PrivateData.Reconciliation.Required)
+				assert.Equal(t, "settled", view["billing_state"])
+				assert.Equal(t, "upstream_rejected", view["reason_code"])
+				assert.Contains(t, saved.FailReason, fmt.Sprintf("HTTP %d", tc.status))
+				return
+			}
+			assert.Equal(t, 9950, getUserQuota(t, info.UserId), "an unknown outcome keeps the hold")
+			assert.Equal(t, 50, saved.Quota)
+			assert.False(t, saved.PrivateData.Reconciliation.Finalized)
+			assert.Equal(t, "manual_reconciliation", view["billing_state"])
+			assert.Contains(t, saved.FailReason, "manual reconciliation")
 		})
 	}
 }

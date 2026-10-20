@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"gorm.io/gorm"
 )
 
@@ -66,6 +67,15 @@ type BatchFailure struct {
 	Message    string `json:"message"`
 	HTTPStatus int    `json:"http_status,omitempty"`
 	RequestID  string `json:"request_id,omitempty"`
+}
+
+// FailedWithoutUsage reports an OpenRouter batch that reached the terminal
+// failed state with explicit null usage and no results. OpenRouter fails a
+// batch this way when it rejects the requests after the 202 response; with no
+// usage there is no charge, so its reservation can be released at zero.
+func (job *BatchJob) FailedWithoutUsage() bool {
+	return job.ChannelType == constant.ChannelTypeOpenRouter && job.Status == "failed" && job.UpstreamID != "" &&
+		job.UpstreamUsage == "null" && job.ResultCount == 0 && job.ChargedQuota == 0 && job.FinancialDetails == ""
 }
 
 func (job BatchJob) MarshalJSON() ([]byte, error) {

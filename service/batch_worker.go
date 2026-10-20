@@ -12,8 +12,10 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/batch"
 	"io"
+	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -43,7 +45,11 @@ func RunBatchPollingOnce(ctx context.Context, runnerID string) error {
 		common.SysError("Batch consume logs: " + err.Error())
 	}
 	var jobs []model.BatchJob
-	if err := model.DB.Where("billing_status <> ? OR purchase_status <> ? OR status NOT IN ? OR (deleted_at > 0 AND cleanup_done = ?) OR (expires_at <= ? AND cleanup_done = ?)", "settled", "settled", []string{"completed", "failed", "expired", "cancelled"}, false, time.Now().Unix(), false).Order("updated_at asc").Limit(20).Find(&jobs).Error; err != nil {
+	// A terminal job in manual reconciliation is never re-selected: polling it
+	// again cannot produce new provider facts, and only an operator resolves it.
+	terminal := []string{"completed", "failed", "expired", "cancelled"}
+	if err := model.DB.Where("billing_status <> ? OR purchase_status <> ? OR status NOT IN ? OR (deleted_at > 0 AND cleanup_done = ?) OR (expires_at <= ? AND cleanup_done = ?)", "settled", "settled", terminal, false, time.Now().Unix(), false).
+		Where("billing_status <> ? OR status NOT IN ?", "reconciliation_required", terminal).Order("updated_at asc").Limit(20).Find(&jobs).Error; err != nil {
 		return err
 	}
 	for _, job := range jobs {
@@ -136,6 +142,26 @@ func processBatchJob(ctx context.Context, job *model.BatchJob, runnerID string) 
 	if time.Now().Unix() < job.ExpiresAt {
 		pollErr = pollBatch(ctx, job, adapter, runnerID)
 	}
+	// pollBatch persists provider facts without refreshing every field of job.
+	var current model.BatchJob
+	if err := model.DB.First(&current, job.ID).Error; err != nil {
+		return err
+	}
+	if current.FailedWithoutUsage() {
+		var items []model.BatchItem
+		if err := model.DB.Select("custom_id").Where("batch_id = ? AND billing_status <> ?", job.ID, "settled").Find(&items).Error; err != nil {
+			return err
+		}
+		for _, item := range items {
+			if err := model.SettleBatchItem(job.ID, item.CustomID, 0, `{"purchase_status":"unbilled","purchase_usd":0,"reason":"batch_failed_without_usage"}`); err != nil {
+				return err
+			}
+		}
+		if err := model.SyncBatchQuotaEvents(1000); err != nil {
+			common.SysError("Batch outbox: " + err.Error())
+		}
+		return model.ReleaseSettledBatchHolds(job.ID)
+	}
 	if err := SettleBatchResults(job); err != nil {
 		return err
 	}
@@ -151,7 +177,9 @@ func processBatchJob(ctx context.Context, job *model.BatchJob, runnerID string) 
 	if err := model.ReleaseSettledBatchHolds(job.ID); err != nil {
 		return err
 	}
-	if batch.State(job.Status).Terminal() {
+	// A terminal job that still has unsettled items after a complete poll cannot
+	// make progress automatically. A failed poll is retried instead.
+	if batch.State(job.Status).Terminal() && pollErr == nil {
 		if err := model.DB.Model(job).Where("settled_count < request_count").Update("billing_status", "reconciliation_required").Error; err != nil {
 			return err
 		}
@@ -212,24 +240,31 @@ func submitBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter
 		return err
 	}
 	job.SubmitState = "submission_unknown"
+	postedAt := time.Now().Unix()
 	response, err := doBatchRequest(ctx, job, request, nil, "")
 	if err != nil {
 		return err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		switch response.StatusCode {
-		case 400, 401, 403, 404, 413, 422:
-			if err := model.DB.Model(job).Where("submit_state = ?", "submission_unknown").Update("submit_state", "rejected").Error; err != nil {
-				return err
-			}
-			job.SubmitState = "rejected"
-			body, _ := io.ReadAll(io.LimitReader(response.Body, (16<<10)+1))
-			diagnostic := normalizedBatchFailure("create", response.StatusCode, response.Header.Get("X-Request-Id"), body)
-			common.SysError(fmt.Sprintf("Batch %s creation rejected: %s", job.PublicID, diagnostic))
-			return rejectUnsubmittedBatch(job, diagnostic)
+		rejected := slices.Contains([]int{400, 401, 403, 404, 413, 422}, response.StatusCode)
+		if response.StatusCode == http.StatusTooManyRequests && job.ChannelType == constant.ChannelTypeOpenRouter {
+			// OpenRouter documents 429 as a typed create error, but does not state
+			// that it never creates a batch, and create has no idempotency key.
+			// Release only after the workspace listing proves no such batch exists.
+			rejected = openRouterBatchCreationAbsent(ctx, job, postedAt)
 		}
-		return fmt.Errorf("ambiguous batch creation HTTP %d", response.StatusCode)
+		if !rejected {
+			return fmt.Errorf("ambiguous batch creation HTTP %d", response.StatusCode)
+		}
+		if err := model.DB.Model(job).Where("submit_state = ?", "submission_unknown").Update("submit_state", "rejected").Error; err != nil {
+			return err
+		}
+		job.SubmitState = "rejected"
+		body, _ := io.ReadAll(io.LimitReader(response.Body, (16<<10)+1))
+		diagnostic := normalizedBatchFailure("create", response.StatusCode, response.Header.Get("X-Request-Id"), body)
+		common.SysError(fmt.Sprintf("Batch %s creation rejected: %s", job.PublicID, diagnostic))
+		return rejectUnsubmittedBatch(job, diagnostic)
 	}
 	snapshot, decodeErr := adapter.ReadStatus(response.Body, func(result batch.Result) error { return storeBatchResult(job, result) })
 	if snapshot.ID != "" {
@@ -255,6 +290,41 @@ func submitBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter
 		job.UpstreamID, job.SubmitState, job.Status = snapshot.ID, "submitted", string(state)
 	}
 	return decodeErr
+}
+
+// openRouterBatchCreationAbsent proves that a rejected create left no batch in
+// the account workspace. Listing is workspace-wide and carries no client
+// correlation, so any batch created around the POST with the same endpoint and
+// request count, an incomplete page, or a failed lookup keeps the outcome
+// ambiguous. The window tolerates clock skew between this node and OpenRouter.
+func openRouterBatchCreationAbsent(ctx context.Context, job *model.BatchJob, postedAt int64) bool {
+	request := batch.Request{Method: http.MethodGet, Path: fmt.Sprintf("/api/v1/batches?limit=100&created_after=%d", postedAt-600)}
+	response, err := doBatchRequest(ctx, job, request, nil, "")
+	if err != nil {
+		return false
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return false
+	}
+	var listing struct {
+		Data []struct {
+			Endpoint      string `json:"endpoint"`
+			RequestCounts struct {
+				Total *int `json:"total"`
+			} `json:"request_counts"`
+		} `json:"data"`
+		HasMore *bool `json:"has_more"`
+	}
+	if err := common.DecodeJson(io.LimitReader(response.Body, 1<<20), &listing); err != nil || listing.Data == nil || listing.HasMore == nil || *listing.HasMore {
+		return false
+	}
+	for _, candidate := range listing.Data {
+		if candidate.Endpoint == job.Endpoint && (candidate.RequestCounts.Total == nil || *candidate.RequestCounts.Total == job.RequestCount) {
+			return false
+		}
+	}
+	return true
 }
 
 func pollBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter, runnerID string) error {

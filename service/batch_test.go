@@ -182,7 +182,7 @@ func TestBatchBillingUsesProviderBase(t *testing.T) {
 }
 
 func TestBatchWorkerLifecycle(t *testing.T) {
-	for _, mode := range []string{"dispatch_revoked_cache_hold", "dispatch_revoked", "dispatch_expired", "dispatch_deleted", "dispatch_revoked_after_preflight", "dispatch_revoked_after_marker", "success", "provider_routing", "corrupt_contract", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "endpoint_rejected", "oversized_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
+	for _, mode := range []string{"dispatch_revoked_cache_hold", "dispatch_revoked", "dispatch_expired", "dispatch_deleted", "dispatch_revoked_after_preflight", "dispatch_revoked_after_marker", "success", "provider_routing", "corrupt_contract", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "endpoint_rejected", "oversized_rejected", "provider_failed", "provider_failed_settlement_error", "failed_null_usage", "v2_failed_null_usage", "rate_limited_absent", "rate_limited_listed", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
 		t.Run(mode, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 			require.NoError(t, err)
@@ -209,6 +209,7 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 			var tokenID int
 			var posts atomic.Int32
 			var polls atomic.Int32
+			var lists atomic.Int32
 			var nativeCustomID string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != "Bearer test-key" {
@@ -247,6 +248,11 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 						w.WriteHeader(502)
 						return
 					}
+					if strings.HasPrefix(mode, "rate_limited") {
+						w.WriteHeader(429)
+						_, _ = w.Write([]byte(`{"error":{"code":429,"message":"Rate limit exceeded"}}`))
+						return
+					}
 					var wire struct {
 						Endpoint string         `json:"endpoint"`
 						Model    string         `json:"model"`
@@ -272,6 +278,22 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 					}
 					w.WriteHeader(202)
 					_, _ = w.Write([]byte(`{"id":"native-1","status":"validating"}`))
+					return
+				}
+				if r.URL.Path == "/api/v1/batches" {
+					lists.Add(1)
+					assert.Equal(t, "100", r.URL.Query().Get("limit"))
+					assert.NotEmpty(t, r.URL.Query().Get("created_after"))
+					data := `[{"id":"other-1","endpoint":"/v1/embeddings","status":"validating","request_counts":{"total":1,"completed":0,"failed":0}}]`
+					if mode == "rate_limited_listed" {
+						data = `[{"id":"native-1","endpoint":"/v1/chat/completions","status":"validating","request_counts":{"total":1,"completed":0,"failed":0}}]`
+					}
+					_, _ = fmt.Fprintf(w, `{"object":"list","data":%s,"has_more":false}`, data)
+					return
+				}
+				if strings.HasSuffix(mode, "failed_null_usage") {
+					polls.Add(1)
+					_, _ = w.Write([]byte(`{"id":"native-1","status":"failed","request_counts":{"total":1,"completed":0,"failed":1},"usage":null,"results":null,"error":{"code":422,"message":"provider rejected the requests"}}`))
 					return
 				}
 				if strings.HasPrefix(mode, "provider_failed") {
@@ -417,6 +439,48 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 			} else {
 				assert.EqualValues(t, 1, posts.Load(), "ambiguous POST must never be repeated")
 			}
+			if strings.HasPrefix(mode, "rate_limited") {
+				require.NoError(t, db.First(&job, job.ID).Error)
+				require.NoError(t, db.First(&user, user.Id).Error)
+				assert.EqualValues(t, 1, lists.Load(), "the workspace listing is checked once, right after the 429")
+				assert.Zero(t, polls.Load())
+				assert.Zero(t, job.ChargedQuota)
+				if mode == "rate_limited_listed" {
+					assert.Equal(t, "submission_unknown", job.SubmitState, "a possibly created batch keeps the hold")
+					assert.Equal(t, "reconciliation_required", job.BillingStatus)
+					assert.EqualValues(t, 100, job.ReservedQuota)
+					assert.EqualValues(t, 100, user.BatchHeldQuota)
+					return
+				}
+				var diagnostic map[string]any
+				require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic))
+				assert.EqualValues(t, 429, diagnostic["http_status"])
+				assert.Equal(t, "rejected", job.SubmitState)
+				assert.Equal(t, "failed", job.Status)
+				assert.Equal(t, "settled", job.BillingStatus)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Zero(t, user.BatchHeldQuota)
+				assert.Equal(t, 1000, user.Quota)
+				return
+			}
+			if strings.HasSuffix(mode, "failed_null_usage") {
+				require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+				require.NoError(t, db.First(&job, job.ID).Error)
+				require.NoError(t, db.First(&user, user.Id).Error)
+				require.NoError(t, db.First(&token, token.Id).Error)
+				assert.EqualValues(t, 1, polls.Load(), "a settled failure is not polled again")
+				assert.Equal(t, "failed", job.Status)
+				assert.Equal(t, "settled", job.BillingStatus)
+				assert.Equal(t, "settled", job.PurchaseStatus)
+				assert.Zero(t, job.ChargedQuota)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Equal(t, job.RequestCount, job.SettledCount)
+				assert.Equal(t, 1000, user.Quota)
+				assert.Zero(t, user.BatchHeldQuota)
+				assert.Equal(t, 1000, token.RemainQuota)
+				assert.Zero(t, token.BatchHeldQuota)
+				return
+			}
 			if strings.HasPrefix(mode, "v2_") {
 				require.NoError(t, db.First(&job, job.ID).Error)
 				require.NoError(t, db.First(&user, user.Id).Error)
@@ -463,6 +527,11 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				if strings.HasPrefix(mode, "provider_failed") {
 					assert.Equal(t, "failed", job.Status)
 					assert.Zero(t, job.ResultCount)
+					if mode == "provider_failed" {
+						seen := polls.Load()
+						require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+						assert.Equal(t, seen, polls.Load(), "a terminal manual reconciliation is not re-selected")
+					}
 					var diagnostic map[string]any
 					require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic))
 					assert.Equal(t, "poll", diagnostic["phase"])
