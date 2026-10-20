@@ -256,7 +256,7 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 	duration := 0
 	if order.Duration != nil {
 		duration = *order.Duration
-		if !slices.Contains(model.SupportedDurations, duration) {
+		if len(model.SupportedDurations) > 0 && !slices.Contains(model.SupportedDurations, duration) {
 			return fail("duration absent from fresh capabilities")
 		}
 	} else {
@@ -265,7 +265,7 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 		}
 	}
 	if model.ID == "black-forest-labs/flux-video-edit" {
-		duration = 15
+		duration = max(duration, 15)
 	}
 	if duration <= 0 || duration > relaycommon.MaxTaskDurationSeconds {
 		return fail("bounded output duration is unavailable: source media quantity is required")

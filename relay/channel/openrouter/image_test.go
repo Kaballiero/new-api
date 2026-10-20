@@ -285,6 +285,7 @@ func TestVideoOperationMonetaryEstimates(t *testing.T) {
 		order       VideoPriceOrder
 		sizes       []string
 		sourceBased bool
+		unlisted    bool
 		want        float64
 		errorText   string
 	}{
@@ -302,6 +303,13 @@ func TestVideoOperationMonetaryEstimates(t *testing.T) {
 		{name: "token formula exact size", model: "bytedance/seedance-2.0", prices: map[string]string{"video_tokens": "0.00001"}, order: VideoPriceOrder{Size: "1280x720"}, sizes: []string{"640x480", "1280x720"}, want: 1.08},
 		{name: "finite size superset avoids guessed resolution map", model: "bytedance/seedance-2.5", prices: map[string]string{"video_tokens": "0.00001"}, order: VideoPriceOrder{Resolution: "480p"}, sizes: []string{"640x480", "1280x720"}, want: 1.08},
 		{name: "edit conservative 15 second maximum", model: "black-forest-labs/flux-video-edit", prices: map[string]string{"cents_per_second_output": "12"}, want: 1.8},
+		{name: "listed durations stay strict", model: "runway/gen-4.5", prices: map[string]string{"cents_per_second_output": "12"}, order: VideoPriceOrder{Duration: common.GetPointer(4)}, errorText: "duration absent from fresh capabilities"},
+		{name: "unlisted durations reserve requested seconds", model: "catalog/new-unlisted-model", prices: map[string]string{"cents_per_second_output": "28"}, order: VideoPriceOrder{Duration: common.GetPointer(20)}, unlisted: true, want: 5.6},
+		{name: "unlisted durations keep the task duration cap", model: "catalog/new-unlisted-model", prices: map[string]string{"cents_per_second_output": "28"}, order: VideoPriceOrder{Duration: common.GetPointer(relaycommon.MaxTaskDurationSeconds + 1)}, unlisted: true, errorText: "bounded output duration is unavailable"},
+		{name: "unlisted omitted duration has no bound", model: "catalog/new-unlisted-model", prices: map[string]string{"cents_per_second_output": "28"}, unlisted: true, errorText: "bounded output duration is unavailable"},
+		{name: "edit omitted unlisted duration keeps 15 second maximum", model: "black-forest-labs/flux-video-edit", prices: map[string]string{"cents_per_second_output": "12"}, unlisted: true, want: 1.8},
+		{name: "edit shorter request keeps 15 second maximum", model: "black-forest-labs/flux-video-edit", prices: map[string]string{"cents_per_second_output": "12"}, order: VideoPriceOrder{Duration: common.GetPointer(5)}, unlisted: true, want: 1.8},
+		{name: "edit longer request reserves requested seconds", model: "black-forest-labs/flux-video-edit", prices: map[string]string{"cents_per_second_output": "12"}, order: VideoPriceOrder{Duration: common.GetPointer(20)}, unlisted: true, want: 2.4},
 		{name: "unknown SKU rejected", model: "runway/gen-4.5", prices: map[string]string{"cents_per_second_output": "12", "unexplained": "9"}, errorText: "unknown video pricing SKU"},
 		{name: "avatar quantity unavailable", model: "heygen/avatar-iv", prices: map[string]string{"duration_seconds": "0.1"}, sourceBased: true, errorText: "source media quantity"},
 		{name: "aleph quantity unavailable despite floor", model: "runway/aleph-2", prices: map[string]string{"cents_per_second_output": "10", "minimum_cents_per_generation": "50"}, sourceBased: true, errorText: "source media quantity"},
@@ -314,7 +322,7 @@ func TestVideoOperationMonetaryEstimates(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.order.Model = tc.model
 			model := VideoModelPricing{ID: tc.model, PricingSKUs: tc.prices, SupportedDurations: []int{3, 5}, SupportedSizes: tc.sizes, SupportedResolutions: []string{"480p", "720p"}}
-			if tc.sourceBased {
+			if tc.sourceBased || tc.unlisted {
 				// These discovery records have no finite output durations. Do not
 				// fabricate quantities to exercise their monetary SKU.
 				model.SupportedDurations = nil
