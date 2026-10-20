@@ -30,6 +30,8 @@ const (
 )
 
 type Pricing struct {
+	CatalogType                     string                                        `json:"-"`
+	CatalogModality                 string                                        `json:"-"`
 	DisplayName                     string                                        `json:"display_name,omitempty"`
 	UpstreamCatalogRoutesByGroup    map[string][]UpstreamCatalogRoute             `json:"-"`
 	PublicCatalogOffersByGroup      map[string][]CatalogOffer                     `json:"-"`
@@ -485,6 +487,7 @@ func rebuildPricingCatalogueLocked() {
 	}
 	upstreamRoutes := make(map[string]map[string][]UpstreamCatalogRoute)
 	upstreamMetadata := make(map[string]*catalogsync.Document)
+	upstreamTypes := make(map[string]string)
 	catalogOffers := make(map[string]map[string][]CatalogOffer)
 	for _, ability := range enableAbilities {
 		channel := pricingChannels[ability.ChannelId]
@@ -506,12 +509,17 @@ func rebuildPricingCatalogueLocked() {
 			}
 			if prior := upstreamMetadata[ability.Model]; prior == nil || catalogsync.CompareIDs(original.ID, prior.ID) < 0 {
 				upstreamMetadata[ability.Model] = original
+				if slices.Contains(catalogsync.ModelTypes(), canonical.Type) {
+					upstreamTypes[ability.Model] = canonical.Type
+				} else {
+					delete(upstreamTypes, ability.Model)
+				}
 			}
 			for endpoint, sources := range billingSources[ability.Model][ability.Group] {
 				if !slices.Contains(sources, BillingSourceOpenRouterActualCost) {
 					continue
 				}
-				operation := configuredPricingOperation(channel, ability.Model, upstream, endpoint)
+				operation := catalogConsumerOperation(original, upstream, endpoint)
 				if operation.operation == "" {
 					continue
 				}
@@ -614,6 +622,8 @@ func rebuildPricingCatalogueLocked() {
 			pricing.VendorID = meta.VendorID
 		}
 		if upstream := upstreamMetadata[model]; upstream != nil {
+			_, pricing.CatalogModality = catalogConsumerProfile(upstream)
+			pricing.CatalogType = upstreamTypes[model]
 			pricing.DisplayName = upstream.Name
 			if pricing.Description == "" && upstream.Description != nil {
 				pricing.Description = *upstream.Description

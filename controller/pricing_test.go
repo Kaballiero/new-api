@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -32,6 +35,119 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestConsumerCatalogBatchPricesStaySeparate(t *testing.T) {
+	raw, err := os.ReadFile("../model/testdata/upstream_catalog/aggregator.json")
+	require.NoError(t, err)
+	doc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "router/aggregated", Hash: catalogsync.Hash(raw)})
+	require.NoError(t, err)
+	doc.ID, doc.Type = "vendor/model", "text"
+	doc.Modalities.Output = []string{"text"}
+	syncOffer := doc.Offers[0]
+	syncOffer.Operation, syncOffer.Mode = nil, nil
+	syncOffer.Identity = []byte(`{"modelId":"vendor/model"}`)
+	syncOffer.Variant = []byte(`{"variant":"standard","model_variant_slug":"vendor/model"}`)
+	syncOffer.Components = append([]catalogsync.Component{}, syncOffer.Components[:2]...)
+	syncOffer.Components[0].AmountUSD = common.GetPointer("10")
+	syncOffer.Components[1].AmountUSD = common.GetPointer("50")
+	syncOffer.Components[1].Billable = common.GetPointer("output_tokens")
+	syncOffer.Components[1].Direction = common.GetPointer("output")
+	syncOffer.Components[1].Modality = common.GetPointer("text")
+	syncOffer.Components[1].Normalization.Comparable = true
+	syncOffer.Components[1].Normalization.Effective = true
+	batchOffer := syncOffer
+	batchOffer.ID = "batch-provider"
+	batchOffer.Identity = []byte(`{"modelId":"vendor/model:batch"}`)
+	batchOffer.Variant = []byte(`{"variant":"batch","model_variant_slug":"vendor/model:batch"}`)
+	batchOffer.Components = append([]catalogsync.Component{}, syncOffer.Components...)
+	batchOffer.Components[0].AmountUSD = common.GetPointer("5")
+	batchOffer.Components[1].AmountUSD = common.GetPointer("25")
+	doc.Offers = []catalogsync.Offer{syncOffer, batchOffer}
+	item := model.Pricing{ModelName: "alias", CatalogModality: "TEXT", EnableGroup: []string{"default"}, SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAI}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {
+		{Operation: "text", Mode: "sync", Endpoint: constant.EndpointTypeOpenAI, ModelID: doc.ID, Document: doc},
+		{Operation: "text", Mode: "batch", Endpoint: model.PricingEndpointBatch, ModelID: doc.ID + ":batch", Document: doc},
+	}}}
+	context := effectivePricingPageContext{pricing: []model.Pricing{item}, usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1.4}, fxFactor: .8}
+	for _, details := range []bool{false, true} {
+		consumer := buildConsumerPricingModel(context.usableGroups, context.groupRatios, context.fxFactor, item, details)
+		require.Len(t, consumer.GroupPrices, 1)
+		operations := consumer.GroupPrices[0].Operations
+		require.Len(t, operations, 2)
+		for _, operation := range operations {
+			expected := 50.0
+			if operation.Mode == "batch" {
+				expected = 25
+			}
+			for _, price := range operation.Prices {
+				if price.Component == "output" {
+					require.NotNil(t, price.AmountRub)
+					assert.InDelta(t, expected*100*1.4*.8, *price.AmountRub, 1e-9)
+				}
+			}
+		}
+		if details {
+			require.Len(t, consumer.GroupPrices[0].ProviderOffers, 2)
+			modes, ids := []string{}, map[string]bool{}
+			for _, offer := range consumer.GroupPrices[0].ProviderOffers {
+				modes = append(modes, offer.Mode)
+				assert.False(t, ids[offer.ID], "mode-separated offers need unique IDs")
+				ids[offer.ID] = true
+				assert.NotEmpty(t, offer.Variant)
+			}
+			assert.ElementsMatch(t, []string{"sync", "batch"}, modes)
+		}
+	}
+	public := buildPublicModelTariff(context, item)
+	require.Len(t, public.Operations, 2)
+	for _, operation := range public.Operations {
+		expected := 50.0
+		if operation.Mode == "batch" {
+			expected = 25
+		}
+		for _, price := range operation.Prices {
+			if price.Component == "output" {
+				require.NotNil(t, price.AmountRub)
+				assert.InDelta(t, expected*100*1.4*.8, *price.AmountRub, 1e-9)
+			}
+		}
+	}
+	// Explicit Mode is authoritative over the legacy tuple.
+	batchOffer.Mode = common.GetPointer("sync")
+	doc.Offers = []catalogsync.Offer{batchOffer}
+	assert.Empty(t, upstreamProviderOffers(model.Pricing{UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {item.UpstreamCatalogRoutesByGroup["default"][1]}}}, "default", 1, true, pricingUserContext{}))
+	batchOffer.Mode = nil
+	batchOffer.Variant = []byte(`{"variant":"batch","model_variant_slug":"other/model:batch"}`)
+	doc.Offers = []catalogsync.Offer{batchOffer}
+	assert.Empty(t, upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}), "unbound Batch identity must not become sync or a guessed Batch price")
+}
+
+func TestConsumerBatchEmptyZeroAndTierPrices(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		prices []model.CatalogPrice
+		want   bool
+	}{
+		{"empty", nil, false},
+		{"unknown", []model.CatalogPrice{{Component: "output", Unit: "million_tokens"}}, false},
+		{"zero", []model.CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: float(0)}}, true},
+		{"known", []model.CatalogPrice{{Component: "output", Unit: "million_tokens", AmountUSD: float(5)}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := model.Pricing{ModelName: "alias", CatalogModality: "TEXT", CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": {{ID: "batch", Operation: "text", Mode: "batch", MainComponent: "output", Prices: tc.prices, PublicConditional: true}}}}
+			context := effectivePricingPageContext{groupRatios: map[string]float64{"default": 1}, fxFactor: 1}
+			tariff := buildPublicModelTariff(context, item)
+			assert.Equal(t, tc.want, len(tariff.Operations) == 1)
+			item.EnableGroup = []string{"default"}
+			private := buildConsumerPricingModel(map[string]string{"default": "Default"}, context.groupRatios, 1, item, true)
+			assert.Equal(t, tc.want, len(private.GroupPrices[0].Operations) == 1)
+			item.CatalogModality = "" // An unrelated non-catalog channel keeps its prior contract.
+			assert.Len(t, buildPublicModelTariff(context, item).Operations, 1)
+
+		})
+	}
+	assert.True(t, confirmedConsumerPrices(nil, []publicPricingTier{{Prices: []consumerUnitPrice{{Component: "output", Unit: "million_tokens", AmountRub: float(0)}}}}), "tier-only zero is a real tariff")
+	assert.Equal(t, "OTHER", effectivePricingModality(model.Pricing{CatalogModality: "OTHER", ModelName: "gpt-image-misleading", CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": {{Operation: "text"}, {Operation: "image_generation"}}}}))
+}
 
 const prodFXFactor = 0.854594
 
@@ -2427,7 +2543,19 @@ func TestCatalogSemanticSnapshotProjection(t *testing.T) {
 	route := model.UpstreamCatalogRoute{Operation: "text", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: doc}
 	item := model.Pricing{ModelName: "gpt-5.4", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
 	offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
-	require.Len(t, offers, len(doc.Offers))
+	// This immutable document includes one explicitly identified Batch sibling.
+	// It must survive in Batch detail, but must not lower synchronous minima.
+	batchRoute := route
+	batchRoute.Mode, batchRoute.ModelID = "batch", doc.ID+":batch"
+	batchItem := item
+	batchItem.UpstreamCatalogRoutesByGroup = map[string][]model.UpstreamCatalogRoute{"default": {batchRoute}}
+	batchOffers := upstreamProviderOffers(batchItem, "default", 1, true, pricingUserContext{})
+	require.Len(t, batchOffers, 1)
+	assert.Equal(t, "batch", batchOffers[0].Mode)
+	require.Len(t, offers, len(doc.Offers)-1)
+	for _, offer := range offers {
+		assert.Equal(t, "sync", offer.Mode)
+	}
 
 	t.Run("semantic aliases produce one minimum for each component", func(t *testing.T) {
 		minima := catalogMinima(offers)
@@ -2453,7 +2581,7 @@ func TestCatalogSemanticSnapshotProjection(t *testing.T) {
 			require.NoError(t, err)
 			before = append(before, catalogsync.Hash(wire))
 		}
-		for _, offer := range offers {
+		for _, offer := range append(append([]consumerProviderOffer{}, offers...), batchOffers...) {
 			rates := make([]upstreamRate, 0, len(offer.Prices))
 			for _, price := range offer.Prices {
 				rates = append(rates, price.upstreamRate)
@@ -2596,4 +2724,343 @@ func TestCatalogSemanticSnapshotProjection(t *testing.T) {
 		}
 
 	})
+}
+
+func TestCatalogConsumerAuditCandidate534(t *testing.T) {
+	fixturePath := os.Getenv("CATALOG_SEMANTIC_CANDIDATE_FIXTURE")
+	if fixturePath == "" {
+		t.Skip("immutable full-corpus candidate fixture not configured")
+	}
+	raw, err := os.ReadFile(fixturePath)
+	require.NoError(t, err)
+	var fixture struct {
+		Channel  model.Channel
+		Metadata []struct {
+			ModelName               string `json:"model_name"`
+			Description, Icon, Tags string
+			VendorID                int `json:"vendor_id"`
+		}
+		Vendors             []model.PricingVendor
+		Options             map[string]string
+		Manifest, Documents string
+		AuditRefs           string  `json:"audit_refs"`
+		PublicBaseline      string  `json:"public_baseline"`
+		FXRateUSDRUB        float64 `json:"fx_rate_usd_rub"`
+	}
+	require.NoError(t, common.Unmarshal(raw, &fixture))
+	previousDB, previousLogDB, previousMemory := model.DB, model.LOG_DB, common.MemoryCacheEnabled
+	previousRegistry := jsplugin.DefaultRegistry
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { saved[key] = value; return nil }))
+	t.Cleanup(func() {
+		model.DB = previousDB
+		model.LOG_DB = previousLogDB
+		common.MemoryCacheEnabled = previousMemory
+		jsplugin.DefaultRegistry = previousRegistry
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+		model.InvalidatePricingCache()
+	})
+	db := setupModelListControllerTestDB(t)
+	common.MemoryCacheEnabled = false
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.CatalogSource{}, &model.CatalogRevision{}, &model.CatalogDocument{}, &model.ModelCostFXRow{}))
+	require.NoError(t, config.GlobalConfig.LoadFromDB(fixture.Options))
+	// Production handlers build metadata from authenticated user, group settings
+	// and a published FX snapshot. Initialize those inputs, never patch envelopes.
+	previousUsable, previousAuto := setting.UserUsableGroups2JSONString(), setting.AutoGroups2JsonString()
+	previousGroupRatio, previousGroupGroupRatio := ratio_setting.GroupRatio2JSONString(), ratio_setting.GroupGroupRatio2JSONString()
+	previousQuota, previousExchange := common.QuotaPerUnit, operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsable))
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(previousAuto))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousGroupRatio))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(previousGroupGroupRatio))
+		common.QuotaPerUnit, operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousQuota, previousExchange
+	})
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`[]`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{}`))
+	common.QuotaPerUnit, operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 500000, 100
+	require.Positive(t, fixture.FXRateUSDRUB)
+	// Reuse the existing cache-aware test seed: a new DB starts at version1,
+	// while the process may already hold a newer publication from another test.
+	seedNativeRouteFX(t, db)
+	seededFX, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	require.NoError(t, err)
+	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: seededFX.EffectiveAt + 1, FetchedAt: seededFX.FetchedAt + 1, Rates: map[string]float64{"USD": fixture.FXRateUSDRUB}}, seededFX.Version))
+	actualFX, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	require.NoError(t, err)
+	require.Equal(t, fixture.FXRateUSDRUB, actualFX.Rates["USD"])
+	require.Greater(t, actualFX.Version, seededFX.Version)
+	fixtureUser := model.User{Id: 900112, Username: "catalog-http-fixture", Group: "default", Role: common.RoleRootUser, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&fixtureUser).Error)
+
+	jsplugin.DefaultRegistry = jsplugin.NewRegistry()
+	plugin, err := os.ReadFile("../plugins/tasks/openrouter-video/plugin.js")
+	require.NoError(t, err)
+	_, err = jsplugin.DefaultRegistry.Register(string(plugin), jsplugin.Options{})
+	require.NoError(t, err)
+	t.Setenv(model.CatalogAPIURLEnv, "https://catalog.fixture")
+	source, enabled, err := model.ConfiguredCatalogSource()
+	require.NoError(t, err)
+	require.True(t, enabled)
+	head, err := model.EnsureCatalogSource(context.Background(), source)
+	require.NoError(t, err)
+	raw, err = os.ReadFile(fixture.Manifest)
+	require.NoError(t, err)
+	var manifest catalogsync.Manifest
+	require.NoError(t, common.Unmarshal(raw, &manifest))
+	refs := make(map[string]string)
+	selection := model.CatalogSelection{SchemaVersion: 1, NormalizationVersion: manifest.NormalizationVersion}
+	documents := make([]model.CatalogDocument, 0, len(manifest.Models))
+	for _, ref := range manifest.Models {
+		raw, err = os.ReadFile(filepath.Join(fixture.Documents, ref.Hash+".json"))
+		require.NoError(t, err)
+		require.Equal(t, ref.Hash, catalogsync.Hash(raw))
+		_, err = catalogsync.DecodeDocument(raw, ref)
+		require.NoError(t, err)
+		refs[ref.ID] = ref.Hash
+		selection.Models = append(selection.Models, model.CatalogModelReference{ID: ref.ID, Hash: ref.Hash})
+		documents = append(documents, model.CatalogDocument{SourceID: source.ID, ModelID: ref.ID, Hash: ref.Hash, Payload: string(raw)})
+	}
+	raw, err = os.ReadFile(fixture.AuditRefs)
+	require.NoError(t, err)
+	var audit struct {
+		CatalogRevision string
+		Documents       []struct{ ID, Hash string }
+	}
+	require.NoError(t, common.Unmarshal(raw, &audit))
+	require.Equal(t, manifest.Revision, audit.CatalogRevision)
+	require.Len(t, audit.Documents, 534)
+	for _, ref := range audit.Documents {
+		require.Equal(t, ref.Hash, refs[ref.ID], ref.ID)
+	}
+	_, err = model.PublishCatalogSelection(context.Background(), head, selection, manifest.Revision, manifest.FetchedAt, documents)
+	require.NoError(t, err)
+	fixture.Channel.Key = "unused-fixture-key"
+	require.NoError(t, db.Create(&fixture.Channel).Error)
+	for _, name := range strings.Split(fixture.Channel.Models, ",") {
+		require.NoError(t, db.Create(&model.Ability{Model: name, Group: "default", ChannelId: fixture.Channel.Id, Enabled: true}).Error)
+	}
+	for _, meta := range fixture.Metadata {
+		require.NoError(t, db.Create(&model.Model{ModelName: meta.ModelName, Description: meta.Description, Icon: meta.Icon, Tags: meta.Tags, VendorID: meta.VendorID, Status: 1, NameRule: model.NameRuleExact}).Error)
+	}
+	for _, vendor := range fixture.Vendors {
+		require.NoError(t, db.Create(&model.Vendor{Id: vendor.ID, Name: vendor.Name, Description: vendor.Description, Icon: vendor.Icon}).Error)
+	}
+	model.RefreshPricing()
+	items, _, revision, err := model.GetPricingCatalogueSnapshot()
+	require.NoError(t, err)
+	context, err := loadConsumerPricingContext(fixtureUser.Group, "")
+	require.NoError(t, err)
+	context.userID = fixtureUser.Id
+	require.Equal(t, "default", context.metadata.UserGroup)
+	require.NotNil(t, context.metadata.AutoGroups)
+	require.Empty(t, context.metadata.AutoGroups)
+	page := buildEffectivePricingPage(context, effectivePricingPageQuery{limit: 1000, orderBy: "NAME"}, context.project)
+	require.Equal(t, 534, page.TotalCount)
+	require.Len(t, page.Data, 534)
+	raw, err = os.ReadFile(fixture.PublicBaseline)
+	require.NoError(t, err)
+	var baseline []struct{ ModelName, DisplayName, Description, Modality string }
+	require.NoError(t, common.Unmarshal(raw, &baseline))
+	byName := make(map[string]struct{ DisplayName, Description, Modality string })
+	for _, item := range baseline {
+		byName[item.ModelName] = struct{ DisplayName, Description, Modality string }{item.DisplayName, item.Description, item.Modality}
+	}
+	counts := make(map[string]int)
+	typeCounts := make(map[string]int)
+	diff := []map[string]any{}
+	for _, item := range page.Data {
+		old, exists := byName[item.ModelName]
+		require.True(t, exists, item.ModelName)
+		assert.Equal(t, old.DisplayName, item.DisplayName, item.ModelName)
+		assert.Equal(t, old.Description, item.Description, item.ModelName)
+		counts[item.Modality]++
+		typeCounts[item.CatalogType]++
+		operations := []string{}
+		for _, group := range item.GroupPrices {
+			for _, operation := range group.Operations {
+				operations = append(operations, operation.Operation+":"+operation.Mode)
+			}
+		}
+		diff = append(diff, map[string]any{"modelName": item.ModelName, "displayName": item.DisplayName, "beforeModality": old.Modality, "afterModality": item.Modality, "candidateOperations": operations, "candidateGroups": item.GroupPrices})
+	}
+	assert.Equal(t, map[string]int{"TEXT": 342, "IMAGE": 60, "VIDEO": 30, "EMBEDDINGS": 30, "RERANK": 8, "OTHER": 64}, counts)
+	assert.Equal(t, map[string]int{"text": 322, "image": 60, "video": 30, "embedding": 30, "rerank": 8, "speech": 34, "transcription": 26, "audio": 4, "decision": 20}, typeCounts)
+	for _, item := range page.Data {
+		if item.ModelName != "claude-fable-5.1" {
+			continue
+		}
+		detail, found := buildEffectivePricingModelDetail(context, item.ModelName)
+		require.True(t, found)
+		require.Len(t, detail.Model.GroupPrices, 1)
+		modes := make(map[string]float64)
+		ids := make(map[string]bool)
+		for _, offer := range detail.Model.GroupPrices[0].ProviderOffers {
+			assert.False(t, ids[offer.ID], "detail offer IDs must be unique")
+			ids[offer.ID] = true
+		}
+		for _, operation := range detail.Model.GroupPrices[0].Operations {
+			for _, price := range operation.Prices {
+				if price.Component == "output" && price.AmountRub != nil {
+					modes[operation.Mode] = *price.AmountRub
+				}
+			}
+		}
+		assert.InDelta(t, 50*82.8504, modes["sync"], 1e-8)
+		assert.InDelta(t, 25*82.8504, modes["batch"], 1e-8)
+	}
+	publicPage := buildPublicPricingModelsPage(context, publicPricingModelsQuery{page: 1, pageSize: 1000})
+	require.Equal(t, 534, publicPage.TotalCount)
+	details := make([]consumerPricingModelDetail, 0, len(page.Data))
+	for _, item := range page.Data {
+		detail, found := buildEffectivePricingModelDetail(context, item.ModelName)
+		require.True(t, found, item.ModelName)
+		for _, group := range detail.Model.GroupPrices {
+			ids := make(map[string]bool)
+			for _, offer := range group.ProviderOffers {
+				assert.False(t, ids[offer.ID], "duplicate detail offer ID: %s", item.ModelName)
+				ids[offer.ID] = true
+			}
+		}
+		details = append(details, detail)
+	}
+	if output := os.Getenv("CATALOG_SEMANTIC_HTTP_OUTPUT"); output != "" {
+		// Gin invokes the real controllers. Auth middleware is an explicit fixture
+		// precondition; this test does not exercise credentials or live services.
+		router := gin.New()
+		router.Use(func(c *gin.Context) { c.Set("id", fixtureUser.Id); c.Next() })
+		router.GET("/api/pricing/effective", GetEffectivePricingByGroup)
+		router.GET("/api/user/effective-pricing", GetEffectivePricing)
+		router.GET("/api/user/effective-pricing/model", GetEffectivePricingModel)
+		requests := []struct {
+			kind, path string
+			query      map[string]any
+		}{}
+		for offset := 0; offset < page.TotalCount; offset += 100 {
+			for _, endpoint := range []struct{ kind, path string }{{"public_page", "/api/pricing/effective"}, {"personal_page", "/api/user/effective-pricing"}} {
+				requests = append(requests, struct {
+					kind, path string
+					query      map[string]any
+				}{endpoint.kind, fmt.Sprintf("%s?limit=100&offset=%d", endpoint.path, offset), map[string]any{"limit": 100, "offset": offset}})
+			}
+		}
+		for _, item := range page.Data {
+			requests = append(requests, struct {
+				kind, path string
+				query      map[string]any
+			}{"detail", "/api/user/effective-pricing/model?" + url.Values{"model_name": {item.ModelName}}.Encode(), map[string]any{"modelName": item.ModelName}})
+		}
+		captures := make([]map[string]any, 0, len(requests))
+		rows := map[string]int{}
+		for _, request := range requests {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, request.path, nil))
+			require.Equal(t, http.StatusOK, recorder.Code, request.path)
+			var response struct {
+				Success bool
+				Data    struct {
+					SchemaVersion             string `json:"schema_version"`
+					CatalogRevision           string `json:"catalog_revision"`
+					UserGroup                 string `json:"user_group"`
+					Currency                  string
+					AutoGroups                []string `json:"auto_groups"`
+					Data                      []effectivePricingPageItem
+					Model                     effectivePricingPageItem
+					Offset, Limit, TotalCount int
+				}
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			require.True(t, response.Success)
+			require.NotEmpty(t, response.Data.CatalogRevision)
+			require.Equal(t, "v2", response.Data.SchemaVersion)
+			require.Equal(t, "RUB", response.Data.Currency)
+			if request.kind != "public_page" {
+				require.Equal(t, "default", response.Data.UserGroup)
+				require.NotNil(t, response.Data.AutoGroups)
+			}
+			if request.kind == "detail" {
+				require.Equal(t, request.query["modelName"], response.Data.Model.ModelName)
+				rows[request.kind]++
+			} else {
+				rows[request.kind] += len(response.Data.Data)
+			}
+			captures = append(captures, map[string]any{"kind": request.kind, "status": recorder.Code, "query": request.query, "body": json.RawMessage(append([]byte(nil), recorder.Body.Bytes()...))})
+		}
+		assert.Equal(t, map[string]int{"public_page": 534, "personal_page": 534, "detail": 534}, rows)
+		raw, err = common.Marshal(map[string]any{"evidence_class": "local Gin HTTP controllers; synthetic authenticated fixture user900112/group default/published FX; no live network or response metadata patches", "source_revision": manifest.SourceRevision, "candidate_revision": context.metadata.CatalogRevision, "captures": captures})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(output, raw, 0644))
+	}
+	if output := os.Getenv("CATALOG_SEMANTIC_CANDIDATE_OUTPUT"); output != "" {
+		raw, err = common.Marshal(map[string]any{"evidence_class": "offline immutable full534 builder/API projection fixture; not deployed DEV", "catalog_revision": manifest.Revision, "source_revision": manifest.SourceRevision, "candidate_revision": revision, "counts": counts, "catalog_type_counts": typeCounts, "data": page.Data, "public": publicPage.Data, "details": details, "raw_alias_count": len(items), "per_model_diff": diff})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(output, raw, 0644))
+	}
+	t.Logf("534 exact-hash full builder fixtures: %v; revision=%s", counts, revision)
+}
+
+func TestCatalogTypeConsumerWireAndFiltering(t *testing.T) {
+	items := []model.Pricing{}
+	for i, kind := range []string{"text", "speech", "speech", "transcription", "audio", "decision", "other", ""} {
+		items = append(items, model.Pricing{ModelName: fmt.Sprintf("model-%d", i), CatalogType: kind, CatalogModality: "OTHER", EnableGroup: []string{"default"}, Tags: "catalog"})
+	}
+	context := effectivePricingPageContext{pricing: items, usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1}, fxFactor: 1}
+	for _, personal := range []bool{false, true} {
+		query, err := parseEffectivePricingPageQuery(url.Values{"limit": {"1"}, "offset": {"1"}, "catalog_type": {"speech"}, "modality": {"OTHER"}}, personal)
+		require.NoError(t, err)
+		page := buildEffectivePricingPage(context, query, context.project)
+		require.Equal(t, 2, page.TotalCount)
+		require.Len(t, page.Data, 1)
+		assert.Equal(t, "model-2", page.Data[0].ModelName)
+		assert.Equal(t, "speech", page.Data[0].CatalogType)
+		query.modality = "TEXT"
+		assert.Zero(t, buildEffectivePricingPage(context, query, context.project).TotalCount)
+	}
+	publicQuery, err := parsePublicPricingModelsQuery("tag=catalog&catalog_type=speech&p=2&page_size=1")
+	require.NoError(t, err)
+	page := buildPublicPricingModelsPage(context, publicQuery)
+	require.Equal(t, 2, page.TotalCount)
+	require.Len(t, page.Data, 1)
+	assert.Equal(t, "speech", page.Data[0].CatalogType)
+	for _, item := range items {
+		detail, found := buildEffectivePricingModelDetail(context, item.ModelName)
+		require.True(t, found)
+		assert.Equal(t, item.CatalogType, detail.Model.CatalogType)
+		wire, err := common.Marshal(detail.Model)
+		require.NoError(t, err)
+		if item.CatalogType == "" {
+			assert.NotContains(t, string(wire), "catalog_type")
+		} else {
+			assert.Contains(t, string(wire), `"catalog_type":"`+item.CatalogType+`"`)
+		}
+	}
+	for _, raw := range []string{"catalog_type=unknown", "catalog_type=Speech", "catalog_type=", "catalog_type=audio&catalog_type=speech"} {
+		values, err := url.ParseQuery(raw)
+		require.NoError(t, err)
+		for _, personal := range []bool{true, false} {
+			_, err = parseEffectivePricingPageQuery(values, personal)
+			require.Error(t, err, raw)
+		}
+		_, err = parsePublicPricingModelsQuery("tag=catalog&" + raw)
+		require.Error(t, err, raw)
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/overview?"+raw, nil)
+		GetEffectivePricingOverview(c)
+		assert.Equal(t, 400, recorder.Code, raw)
+	}
+	query, err := parseEffectivePricingPageQuery(url.Values{"catalog_type": {"speech"}}, false)
+	require.NoError(t, err)
+	query.limit = 1
+	query.overview = true
+	overview := buildEffectivePricingOverview(context, query)
+	for _, section := range overview.Sections {
+		if section.Modality == "OTHER" {
+			assert.Equal(t, 2, section.TotalCount)
+			require.Len(t, section.Data, 1)
+			assert.Equal(t, "speech", section.Data[0].CatalogType)
+		}
+	}
 }

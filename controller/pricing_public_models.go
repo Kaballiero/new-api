@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
@@ -29,6 +30,7 @@ type publicPricingModelsPage struct {
 }
 
 type publicPricingModel struct {
+	CatalogType            string                   `json:"catalog_type,omitempty"`
 	DisplayName            string                   `json:"display_name,omitempty"`
 	ModelName              string                   `json:"model_name"`
 	Description            string                   `json:"description,omitempty"`
@@ -70,6 +72,7 @@ type publicPricingCondition struct {
 }
 
 type publicPricingModelsQuery struct {
+	catalogType      string
 	expectedRevision string
 	tags             []string
 	page             int
@@ -96,12 +99,18 @@ func parsePublicPricingModelsQuery(raw string) (publicPricingModelsQuery, error)
 	}
 	query.expectedRevision = revision
 	for key, entries := range values {
-		if key != "tag" && key != "p" && key != "page_size" && key != "expected_revision" {
+		if key != "tag" && key != "p" && key != "page_size" && key != "expected_revision" && key != "catalog_type" {
 			return query, fmt.Errorf("unsupported %s", key)
 		}
 		if key != "tag" && len(entries) != 1 {
 			return query, fmt.Errorf("invalid %s", key)
 		}
+	}
+	if raw, present := values["catalog_type"]; present {
+		if !slices.Contains(catalogsync.ModelTypes(), raw[0]) {
+			return query, fmt.Errorf("invalid catalog_type")
+		}
+		query.catalogType = raw[0]
 	}
 	if len(values["tag"]) == 0 {
 		return query, fmt.Errorf("tag is required")
@@ -162,6 +171,9 @@ func buildPublicPricingModelsPage(context effectivePricingPageContext, query pub
 	pricing := model.ConsumerPricingCatalogue(context.pricing, context.usableGroups)
 	candidates := make([]model.Pricing, 0, len(pricing))
 	for _, item := range pricing {
+		if query.catalogType != "" && item.CatalogType != query.catalogType {
+			continue
+		}
 		tags := pricingTags(item.Tags)
 		if !slices.ContainsFunc(query.tags, func(tag string) bool { return !slices.Contains(tags, tag) }) {
 			candidates = append(candidates, item)
@@ -181,7 +193,7 @@ func buildPublicPricingModelsPage(context effectivePricingPageContext, query pub
 		}
 	}
 	for _, item := range candidates[start:end] {
-		response.Data = append(response.Data, publicPricingModel{DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: pricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: creators[item.VendorID], Tariff: buildPublicModelTariff(context, item)})
+		response.Data = append(response.Data, publicPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: pricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: creators[item.VendorID], Tariff: buildPublicModelTariff(context, item)})
 	}
 	return response
 }
@@ -321,5 +333,8 @@ func buildCatalogModelTariff(context effectivePricingPageContext, item model.Pri
 		// Independent component minima do not prove that a complete request is free.
 		row.IsFree = false
 	}
+	result.Operations = slices.DeleteFunc(result.Operations, func(operation publicPricingOperation) bool {
+		return item.CatalogModality != "" && operation.Mode == "batch" && !confirmedConsumerPrices(operation.Prices, operation.Tiers)
+	})
 	return result
 }

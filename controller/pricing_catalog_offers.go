@@ -299,7 +299,8 @@ func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float
 				continue
 			}
 			for offerIndex, offer := range route.Document.Offers {
-				if offer.Operation != nil && *offer.Operation != route.Operation || offer.Mode != nil && *offer.Mode != route.Mode || offer.Mode == nil && route.Mode != "sync" {
+				mode, knownMode := model.CatalogOfferMode(offer, route.ModelID)
+				if !knownMode || mode != route.Mode || offer.Operation != nil && *offer.Operation != route.Operation {
 					continue
 				}
 				allowed, known, tierAllowed := catalogProviderAllowed(route, item.ModelName, group, user, offer)

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"gorm.io/gorm"
@@ -25,6 +26,129 @@ type UpstreamCatalogRoute struct {
 	ChannelID          int     `json:"-"`
 	ParamOverride      *string `json:"-"`
 	ServiceTierEnabled bool    `json:"-"`
+}
+
+// Catalog semantics describe the consumer operation, independently of the relay
+// protocol. In particular, an image Chat request is not a text-generation offer.
+func catalogConsumerProfile(document *catalogsync.Document) (pricingOperation, string) {
+	if document == nil {
+		return pricingOperation{}, ""
+	}
+	output := document.Modalities.Output
+	switch document.Type {
+	case "text":
+		if slices.Contains(output, "text") {
+			return pricingOperation{"text", "output", "tokens"}, "TEXT"
+		}
+	case "image":
+		if slices.Contains(output, "image") {
+			return pricingOperation{"image_generation", "image_output", "image"}, "IMAGE"
+		}
+	case "video":
+		if slices.Contains(output, "video") {
+			return pricingOperation{"text_to_video", "video_output", "unknown"}, "VIDEO"
+		}
+	case "embedding":
+		if slices.Contains(output, "embeddings") {
+			return pricingOperation{"embeddings", "input", "tokens"}, "EMBEDDINGS"
+		}
+	case "rerank":
+		if slices.Contains(output, "rerank") {
+			return pricingOperation{"rerank", "input", "tokens"}, "RERANK"
+		}
+	case "speech":
+		if slices.Contains(output, "speech") {
+			return pricingOperation{"speech_generation", "audio_output", "unknown"}, "OTHER"
+		}
+	case "transcription":
+		if slices.Contains(output, "transcription") {
+			return pricingOperation{"transcription", "audio_input", "unknown"}, "OTHER"
+		}
+	case "audio":
+		if slices.Contains(output, "audio") {
+			return pricingOperation{"audio_generation", "audio_output", "unknown"}, "OTHER"
+		}
+	case "decision":
+		// The public modality contract has no decision category. Preserve its
+		// existing classification without inventing text/embedding capability.
+		return pricingOperation{}, "TEXT"
+	}
+	return pricingOperation{}, "OTHER"
+}
+
+func catalogConsumerOperation(document *catalogsync.Document, upstream string, endpoint constant.EndpointType) pricingOperation {
+	profile, _ := catalogConsumerProfile(document)
+	if profile.operation == "" {
+		return pricingOperation{}
+	}
+	batch := strings.HasSuffix(upstream, ":batch")
+	if batch && endpoint != PricingEndpointBatch {
+		return pricingOperation{}
+	}
+	if endpoint == PricingEndpointBatch && !batch && !slices.ContainsFunc(document.Offers, func(offer catalogsync.Offer) bool {
+		return offer.Mode != nil && *offer.Mode == "batch"
+	}) {
+		return pricingOperation{}
+	}
+	switch endpoint {
+	case PricingEndpointBatch:
+		if profile.operation == "text" || profile.operation == "embeddings" {
+			return profile
+		}
+	case constant.EndpointTypeEmbeddings:
+		if profile.operation == "embeddings" {
+			return profile
+		}
+	case constant.EndpointTypeJinaRerank:
+		if profile.operation == "rerank" {
+			return profile
+		}
+	case constant.EndpointTypeImageGeneration:
+		if profile.operation == "image_generation" {
+			return profile
+		}
+	case constant.EndpointTypeOpenAIVideo:
+		if profile.operation == "text_to_video" {
+			return profile
+		}
+	case constant.EndpointTypeOpenAI:
+		if profile.operation != "embeddings" && profile.operation != "text_to_video" {
+			return profile
+		}
+	case constant.EndpointTypeOpenAIResponse, constant.EndpointTypeOpenAIResponseCompact, constant.EndpointTypeAnthropic, constant.EndpointTypeGemini:
+		if profile.operation == "text" {
+			return profile
+		}
+	}
+	return pricingOperation{}
+}
+
+// Legacy normalization v2 kept the exact Batch identity and variant while Mode
+// was nullable. Require both facts; a model-name suffix alone is not a tariff.
+func CatalogOfferMode(offer catalogsync.Offer, upstream string) (string, bool) {
+	if offer.Mode != nil {
+		return *offer.Mode, *offer.Mode == "sync" || *offer.Mode == "batch"
+	}
+	var identity struct {
+		ModelID string `json:"modelId"`
+	}
+	var variant struct {
+		Variant   string `json:"variant"`
+		ModelSlug string `json:"model_variant_slug"`
+	}
+	if len(offer.Identity) > 0 && common.Unmarshal(offer.Identity, &identity) != nil || len(offer.Variant) > 0 && common.Unmarshal(offer.Variant, &variant) != nil {
+		return "", false
+	}
+	if variant.Variant == "batch" || strings.HasSuffix(identity.ModelID, ":batch") {
+		if variant.Variant == "batch" && variant.ModelSlug == identity.ModelID && identity.ModelID == upstream && strings.HasSuffix(identity.ModelID, ":batch") {
+			return "batch", true
+		}
+		return "", false
+	}
+	if strings.HasSuffix(upstream, ":batch") {
+		return "", false
+	}
+	return "sync", true
 }
 
 func ConfiguredCatalogSource() (CatalogSource, bool, error) {
