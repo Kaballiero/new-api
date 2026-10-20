@@ -331,10 +331,10 @@ func buildCatalogModelTariff(context effectivePricingPageContext, item model.Pri
 			index = len(result.Operations) - 1
 		}
 		row := &result.Operations[index]
-		row.IsFrom = true
 		row.Tiers = append(row.Tiers, operation.Tiers...)
 		merged := mergeCatalogMinima([]consumerPricingOperation{{Operation: row.Operation, Mode: row.Mode, Prices: row.Prices}}, []consumerPricingOperation{operation})
 		row.Prices = merged[0].Prices
+		row.IsFrom = row.IsFrom || *merged[0].IsFrom
 		// Independent component minima do not prove that a complete request is free.
 		row.IsFree = false
 	}

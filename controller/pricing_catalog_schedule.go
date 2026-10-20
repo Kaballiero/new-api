@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 
@@ -21,6 +23,8 @@ type catalogPriceWindow struct {
 type catalogScheduledPrice struct {
 	price           consumerProviderPrice
 	tier            string
+	variant         string
+	conditions      []publicPricingCondition
 	low, high       int64
 	day, start, end int
 }
@@ -72,6 +76,39 @@ func catalogServiceTierAllowed(route model.UpstreamCatalogRoute, offer catalogsy
 	return (tier == "flex" || tier == "priority" || tier == "ultrafast") && route.ServiceTierEnabled
 }
 
+// A component variant (resolution, language, quality, operation...) identifies a
+// separately billed SKU. Prices of different variants are never alternatives for
+// one request, so each variant keeps its own public condition.
+func catalogPriceVariant(raw json.RawMessage) (string, []publicPricingCondition, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil, true
+	}
+	var fields map[string]json.RawMessage
+	if common.Unmarshal(raw, &fields) != nil || fields == nil {
+		return "", nil, false
+	}
+	var key strings.Builder
+	conditions := []publicPricingCondition{}
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		var value string
+		if common.Unmarshal(fields[name], &value) != nil {
+			var scalar any
+			if common.Unmarshal(fields[name], &scalar) != nil {
+				return "", nil, false
+			}
+			switch scalar.(type) {
+			case bool, float64:
+				value = strings.TrimSpace(string(fields[name]))
+			default:
+				return "", nil, false
+			}
+		}
+		key.WriteString(name + "=" + value + "\n")
+		conditions = append(conditions, publicPricingCondition{Kind: "comparison", Subject: "usage", Argument: name, Operator: "==", StringValue: &value})
+	}
+	return key.String(), conditions, true
+}
+
 func catalogSchedulePrices(offer consumerProviderOffer) []consumerProviderPrice {
 	generic := map[string]bool{}
 	for _, price := range offer.Prices {
@@ -99,6 +136,9 @@ func catalogSchedulePrices(offer consumerProviderOffer) []consumerProviderPrice 
 			continue
 		}
 		if _, valid := catalogRateWindow(price); !valid {
+			continue
+		}
+		if _, _, valid := catalogPriceVariant(price.Variant); !valid {
 			continue
 		}
 		result = append(result, price)
@@ -142,18 +182,26 @@ func catalogRateWindow(price consumerProviderPrice) (catalogPriceWindow, bool) {
 }
 
 func catalogScheduleTiers(rates []catalogScheduledPrice) []publicPricingTier {
-	byTier := map[string][]catalogScheduledPrice{}
+	type group struct{ tier, variant string }
+	byGroup := map[group][]catalogScheduledPrice{}
+	serviceTiers := []string{}
 	for _, rate := range rates {
-		byTier[rate.tier] = append(byTier[rate.tier], rate)
+		k := group{rate.tier, rate.variant}
+		byGroup[k] = append(byGroup[k], rate)
+		if !slices.Contains(serviceTiers, rate.tier) {
+			serviceTiers = append(serviceTiers, rate.tier)
+		}
 	}
 	tiers := []publicPricingTier{}
-	serviceTiers := make([]string, 0, len(byTier))
-	for tier := range byTier {
-		serviceTiers = append(serviceTiers, tier)
-	}
-	slices.Sort(serviceTiers)
-	for _, tier := range serviceTiers {
-		entries := byTier[tier]
+	groups := slices.Collect(maps.Keys(byGroup))
+	slices.SortFunc(groups, func(a, b group) int {
+		if a.tier != b.tier {
+			return strings.Compare(a.tier, b.tier)
+		}
+		return strings.Compare(a.variant, b.variant)
+	})
+	for _, k := range groups {
+		tier, entries := k.tier, byGroup[k]
 		contexts, times := []int64{}, []int{}
 		for _, rate := range entries {
 			contexts = append(contexts, rate.low, rate.high+1)
@@ -207,6 +255,7 @@ func catalogScheduleTiers(rates []catalogScheduledPrice) []publicPricingTier {
 						value := tier
 						conditions = append(conditions, publicPricingCondition{Kind: "comparison", Subject: "request", Argument: "service_tier", Operator: "==", StringValue: &value})
 					}
+					conditions = append(conditions, entries[0].conditions...)
 					if low > 0 {
 						value := float64(low)
 						conditions = append(conditions, publicPricingCondition{Kind: "comparison", Subject: "context", Argument: "tokens", Unit: "token", Operator: ">=", Value: &value})
@@ -249,7 +298,8 @@ func catalogScheduledRates(offer consumerProviderOffer) []catalogScheduledPrice 
 	result := []catalogScheduledPrice{}
 	for _, price := range catalogSchedulePrices(offer) {
 		window, _ := catalogRateWindow(price)
-		rate := catalogScheduledPrice{price: price, tier: catalogServiceTier(offer.Variant), high: catalogUnboundedContext, day: -1, end: 2400}
+		variant, conditions, _ := catalogPriceVariant(price.Variant)
+		rate := catalogScheduledPrice{price: price, tier: catalogServiceTier(offer.Variant), variant: variant, conditions: conditions, high: catalogUnboundedContext, day: -1, end: 2400}
 		if window.ContextMin != nil {
 			rate.low = *window.ContextMin
 		}

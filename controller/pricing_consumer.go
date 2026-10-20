@@ -66,7 +66,7 @@ func buildConsumerPricingResponse(userGroup string, basis service.BillingFXBasis
 }
 
 func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item model.Pricing, details bool, users ...pricingUserContext) consumerPricingModel {
-	result := consumerPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: item.Tags, VendorID: item.VendorID, OwnerBy: item.OwnerBy, SupportedEndpointTypes: item.SupportedEndpointTypes, GroupPrices: []consumerGroupPricing{}}
+	result := consumerPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: strings.Join(pricingTags(item.Tags), ","), VendorID: item.VendorID, OwnerBy: item.OwnerBy, SupportedEndpointTypes: item.SupportedEndpointTypes, GroupPrices: []consumerGroupPricing{}}
 	groups := effectivePricingGroups(item.EnableGroup, usableGroups)
 	slices.Sort(groups)
 	for _, group := range groups {
