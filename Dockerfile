@@ -1,9 +1,9 @@
 FROM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS builder
 
 WORKDIR /build/web
-COPY web/package.json web/bun.lock ./
+COPY client/package.json client/bun.lock ./
 RUN bun install --frozen-lockfile
-COPY ./web ./
+COPY ./client ./
 COPY ./VERSION /build/VERSION
 RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
 
@@ -17,13 +17,14 @@ ENV GOEXPERIMENT=greenteagc
 
 WORKDIR /build
 
-ADD go.mod go.sum ./
+ADD server/go.mod server/go.sum ./
 # relaykit is a local submodule referenced via replace; its go.mod must be
 # present for go mod download to resolve the main module graph.
-ADD relaykit/go.mod ./relaykit/go.mod
+ADD server/relaykit/go.mod ./relaykit/go.mod
 RUN go mod download
 
-COPY . .
+COPY ./server .
+COPY VERSION ./VERSION
 COPY --from=builder /build/web/dist ./web/dist
 RUN go build -ldflags "-s -w -X 'github.com/QuantumNous/new-api/common.Version=$(cat VERSION)'" -o new-api
 

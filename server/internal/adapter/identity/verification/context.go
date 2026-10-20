@@ -1,0 +1,33 @@
+package verification
+
+import (
+	"encoding/json"
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/oauth"
+)
+
+type ContextCodec struct {
+	SigningKey                 func(string) []byte
+	InvalidError, ScopeFailure func() error
+}
+
+func (ContextCodec) Object(raw json.RawMessage) bool    { return common.GetJsonType(raw) == "object" }
+func (ContextCodec) Decode(raw []byte, value any) error { return common.Unmarshal(raw, value) }
+func (ContextCodec) NormalizeEmail(email string) string { return model.NormalizeEmail(email) }
+func (ContextCodec) EmailValid(email string) bool {
+	return common.Validate.Var(email, "required,email") == nil
+}
+func (ContextCodec) ProviderExists(name string) bool { return oauth.GetProvider(name) != nil }
+func (op ContextCodec) Invalid() error               { return op.InvalidError() }
+func (op ContextCodec) ScopeError() error            { return op.ScopeFailure() }
+func (op ContextCodec) Digest(scope string, context any) (string, error) {
+	payload, err := common.Marshal(struct {
+		Scope   string `json:"scope"`
+		Context any    `json:"context"`
+	}{Scope: scope, Context: context})
+	if err != nil {
+		return "", err
+	}
+	return common.GenerateHMACWithKey(op.SigningKey("verification-context"), string(payload)), nil
+}

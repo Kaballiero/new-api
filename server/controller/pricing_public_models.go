@@ -1,0 +1,61 @@
+package controller
+
+import (
+	pricingquery "github.com/QuantumNous/new-api/internal/adapter/http/pricing"
+	"github.com/QuantumNous/new-api/internal/app"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
+
+	"github.com/gin-gonic/gin"
+)
+
+type publicPricingModelsPage = pricingdomain.PublicPricingModelsPage
+
+type publicPricingModel = pricingdomain.PublicPricingModel
+
+type publicModelTariff = pricingdomain.PublicModelTariff
+
+type publicPricingOperation = pricingdomain.PublicPricingOperation
+
+type publicPricingTier = pricingdomain.PublicPricingTier
+
+type publicPricingCondition = pricingdomain.PublicPricingCondition
+
+type publicPricingModelsQuery = pricingdomain.PublicPricingModelsQuery
+
+func pricingTags(value string) []string {
+	return pricingdomain.
+		PricingTags(value)
+}
+
+func parsePublicPricingModelsQuery(raw string) (publicPricingModelsQuery, error) {
+	return pricingquery.
+		ParsePublicPricingModelsQuery(raw)
+}
+
+func GetPublicPricingModels(c *gin.Context) { app.NewGetPublicPricingModelsHTTP().Handle(c) }
+
+func buildPublicPricingModelsPage(context effectivePricingPageContext, query publicPricingModelsQuery) publicPricingModelsPage {
+	context.Policy = app.NewPricingProjection()
+	return app.NewPricingProjection().BuildPublicPricingModelsPage(pricingdomain.EffectivePricingPageContext(context), query)
+}
+
+// The public catalog always projects the default tariff, independently of the user's usable groups.
+
+func publicPricingGuard(guard billingexpr.TierCondition, units ...map[string]string) publicPricingCondition {
+	return pricingdomain.PublicPricingGuard(guard, units...)
+}
+
+func buildPublicModelTariff(context effectivePricingPageContext, item model.Pricing) publicModelTariff {
+	context.Policy = app.NewPricingProjection()
+	return app.NewPricingProjection().BuildPublicModelTariff(pricingdomain.EffectivePricingPageContext(context), item)
+}
+
+func buildCatalogModelTariff(context effectivePricingPageContext, item model.Pricing, group string) publicModelTariff {
+	context.Policy = app.NewPricingProjection()
+	return app.NewPricingProjection().BuildCatalogModelTariff(pricingdomain.EffectivePricingPageContext(context), item, group)
+}
+
+// Independent component minima do not prove that a complete request is free.
