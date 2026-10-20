@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"iter"
 	"math"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -333,12 +334,70 @@ func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float
 					}
 					row.Prices = append(row.Prices, price)
 				}
+				row.Prices = catalogDetailPrices(row.Prices)
 				if !yield(row) {
 					return
 				}
 			}
 		}
 	}
+}
+
+func catalogDetailPrices(prices []consumerProviderPrice) []consumerProviderPrice {
+	sources := make([]string, len(prices))
+	for index, price := range prices {
+		var provenance struct {
+			Source string `json:"source"`
+		}
+		if common.Unmarshal(price.Provenance, &provenance) == nil {
+			sources[index] = provenance.Source
+		}
+	}
+	sameJSON := func(a, b json.RawMessage) bool {
+		var left, right any
+		if len(a) != 0 && common.Unmarshal(a, &left) != nil || len(b) != 0 && common.Unmarshal(b, &right) != nil {
+			return false
+		}
+		return reflect.DeepEqual(left, right)
+	}
+	sameAmount := func(a, b *string) bool {
+		if a == nil || b == nil {
+			return false
+		}
+		left, leftErr := decimal.NewFromString(*a)
+		right, rightErr := decimal.NewFromString(*b)
+		return leftErr == nil && rightErr == nil && left.Equal(right)
+	}
+	result := make([]consumerProviderPrice, 0, len(prices))
+	for index, price := range prices {
+		duplicate := false
+		for other, generic := range prices {
+			if sources[index] != "model_page" || price.Component == "unknown" || sources[other] != "generic" {
+				continue
+			}
+			if price.Component != generic.Component || price.ComponentID != generic.ComponentID || !reflect.DeepEqual(price.Billable, generic.Billable) || !reflect.DeepEqual(price.Direction, generic.Direction) || !reflect.DeepEqual(price.Modality, generic.Modality) || price.Unit != generic.Unit || price.Quantity != generic.Quantity {
+				continue
+			}
+			if price.Normalization.Comparable != generic.Normalization.Comparable || price.Normalization.Effective != generic.Normalization.Effective {
+				continue
+			}
+			if price.AmountRub != nil || generic.AmountRub != nil {
+				if !sameAmount(price.AmountRub, generic.AmountRub) {
+					continue
+				}
+			} else if !sameAmount(price.AmountUSD, generic.AmountUSD) {
+				continue
+			}
+			if sameJSON(price.Conditions, generic.Conditions) && sameJSON(price.Variant, generic.Variant) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			result = append(result, price)
+		}
+	}
+	return result
 }
 
 func catalogMinima(offers []consumerProviderOffer) []consumerPricingOperation {
