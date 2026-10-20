@@ -3242,13 +3242,18 @@ func TestOpenRouterSyncSubmissionRejectionReleasesReservation(t *testing.T) {
 		status             int
 		chatImage          bool
 		transportError     bool
+		unsettled          bool
 		released           bool
+		costLookup         bool
 	}{
 		{name: "invalid voice", status: http.StatusBadRequest, released: true},
 		{name: "invalid response format", status: http.StatusUnprocessableEntity, released: true},
 		{name: "rate limited", status: http.StatusTooManyRequests, released: true},
 		{name: "rate limited with generation id", status: http.StatusTooManyRequests, generationID: "gen-rejected", released: true},
 		{name: "chat image rate limited with generation id", status: http.StatusTooManyRequests, generationID: "gen-rejected", chatImage: true, released: true},
+		{name: "payment required keeps hold", status: http.StatusPaymentRequired},
+		{name: "payment required with generation id looks up cost", status: http.StatusPaymentRequired, generationID: "gen-402", costLookup: true},
+		{name: "rejection without prepared settlement keeps hold", status: http.StatusBadRequest, unsettled: true},
 		{name: "server error keeps hold", status: http.StatusBadGateway},
 		{name: "timeout keeps hold", status: http.StatusRequestTimeout},
 		{name: "transport error keeps hold", transportError: true},
@@ -3269,6 +3274,12 @@ func TestOpenRouterSyncSubmissionRejectionReleasesReservation(t *testing.T) {
 				_, info = newOpenRouterAudioReservation(t)
 				require.NoError(t, ConfigureOpenRouterSyncSubmission(info, server.URL+"/generation", nil))
 			}
+			if tc.unsettled {
+				task, err := openRouterSyncTask(info)
+				require.NoError(t, err)
+				task.PrivateData.BillingContext.SettlementMode = ""
+				require.NoError(t, model.DB.Model(task).Select("private_data").Updates(task).Error)
+			}
 			var resp *http.Response
 			var requestErr error
 			if tc.transportError {
@@ -3288,9 +3299,16 @@ func TestOpenRouterSyncSubmissionRejectionReleasesReservation(t *testing.T) {
 			}
 			saved, err := openRouterSyncTask(info)
 			require.NoError(t, err)
+			view := OpenRouterSyncReconciliation(saved)
+			if tc.costLookup {
+				assert.Positive(t, lookups, "an unknown outcome with a generation id is decided by /generation")
+				assert.Equal(t, 9950, getUserQuota(t, info.UserId), "an unknown outcome keeps the hold")
+				assert.NotEqual(t, model.TaskStatus(model.TaskStatusFailure), saved.Status)
+				assert.Equal(t, "awaiting_cost", view["billing_state"])
+				return
+			}
 			assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), saved.Status)
 			assert.Zero(t, lookups, "a terminal submission outcome never polls generation metadata")
-			view := OpenRouterSyncReconciliation(saved)
 			if tc.released {
 				assert.Equal(t, 10000, getUserQuota(t, info.UserId))
 				assert.Equal(t, 10000, getTokenRemainQuota(t, info.TokenId))
@@ -3306,6 +3324,7 @@ func TestOpenRouterSyncSubmissionRejectionReleasesReservation(t *testing.T) {
 			assert.Equal(t, 50, saved.Quota)
 			assert.False(t, saved.PrivateData.Reconciliation.Finalized)
 			assert.Equal(t, "manual_reconciliation", view["billing_state"])
+			assert.NotEqual(t, "upstream_rejected", view["reason_code"])
 			assert.Contains(t, saved.FailReason, "manual reconciliation")
 		})
 	}

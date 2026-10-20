@@ -379,19 +379,26 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 // openRouterSubmissionRejected reports an explicit HTTP rejection of the paid
 // request. OpenRouter starts no generation for these responses, so neither the
 // response nor a generation ID echoed with it can lead to a later charge.
-// Timeouts, transport failures and 5xx responses remain unknown outcomes.
+// Timeouts, transport failures and 5xx responses remain unknown outcomes, and
+// so does 402: OpenRouter can report incurred cost with the output withheld.
 func openRouterSubmissionRejected(status int) bool {
-	return slices.Contains([]int{400, 401, 402, 403, 404, 413, 422, 429}, status)
+	return slices.Contains([]int{400, 401, 403, 404, 413, 422, 429}, status)
 }
 
 // releaseRejectedOpenRouterSync records a confirmed zero upstream cost for an
 // explicitly rejected submission, so settlement refunds the whole reservation.
+// Without a prepared settlement the hold stays for manual reconciliation.
 func releaseRejectedOpenRouterSync(task *model.Task) {
 	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
 	r.SubmissionPending = false
 	r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
-	a.ResultFailed, a.LastError, a.NextPoll = true, "upstream_rejected", 0
+	a.ResultFailed, a.NextPoll = true, 0
 	finishOpenRouterSync(task)
+	if !r.SettlementPending {
+		manualOpenRouterSync(task, "upstream_rejected_unsettled")
+		return
+	}
+	a.LastError = "upstream_rejected"
 	task.FailReason = fmt.Sprintf("OpenRouter rejected the request (HTTP %d); reservation released", a.SubmissionHTTPStatus)
 }
 

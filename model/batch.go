@@ -55,6 +55,12 @@ type BatchJob struct {
 	CleanupDone       bool   `json:"-" gorm:"not null"`
 	LeaseUntil        int64  `json:"-" gorm:"index;not null;default:0"`
 	LeaseOwner        string `json:"-" gorm:"size:64"`
+
+	// UpstreamRequestCounts is the last validated OpenRouter request_counts.
+	UpstreamRequestCounts string `json:"-" gorm:"size:512"`
+	// CreateProbe is the private state of the delayed absence proof for an
+	// ambiguous OpenRouter create; empty when no proof is pending.
+	CreateProbe string `json:"-" gorm:"size:2048"`
 }
 
 // BatchFailure contains only normalized provider diagnostics. Arbitrary provider
@@ -70,12 +76,21 @@ type BatchFailure struct {
 }
 
 // FailedWithoutUsage reports an OpenRouter batch that reached the terminal
-// failed state with explicit null usage and no results. OpenRouter fails a
-// batch this way when it rejects the requests after the 202 response; with no
-// usage there is no charge, so its reservation can be released at zero.
+// failed state with explicit null usage, no results and no completed request.
+// OpenRouter fails a batch this way when it rejects the requests after the 202
+// response; with no usage there is no charge, so its reservation can be
+// released at zero. Missing request counts never qualify.
 func (job *BatchJob) FailedWithoutUsage() bool {
-	return job.ChannelType == constant.ChannelTypeOpenRouter && job.Status == "failed" && job.UpstreamID != "" &&
-		job.UpstreamUsage == "null" && job.ResultCount == 0 && job.ChargedQuota == 0 && job.FinancialDetails == ""
+	if job.ChannelType != constant.ChannelTypeOpenRouter || job.Status != "failed" || job.UpstreamID == "" ||
+		job.UpstreamUsage != "null" || job.ResultCount != 0 || job.ChargedQuota != 0 || job.FinancialDetails != "" {
+		return false
+	}
+	var counts map[string]*int
+	if err := common.UnmarshalJsonStr(job.UpstreamRequestCounts, &counts); err != nil {
+		return false
+	}
+	completed := counts["completed"]
+	return completed != nil && *completed == 0
 }
 
 func (job BatchJob) MarshalJSON() ([]byte, error) {
