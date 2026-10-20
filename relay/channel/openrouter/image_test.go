@@ -734,6 +734,82 @@ func TestEndpointMediaQuantitiesUseProtocolContent(t *testing.T) {
 	}
 }
 
+func TestEndpointChannelReserveHostedSearchAndChatAudio(t *testing.T) {
+	const search = `,"max_tokens":10,"web_search_options":{}`
+	const audio = `,"max_tokens":10,"modalities":["text","audio"],"audio":{"voice":"alloy","format":"wav"},"stream":true`
+	for _, tc := range []struct {
+		name, extra, operation, searchRate, wantError string
+		reserve, local                                *float64
+		nonstreamInfo                                 bool
+		want                                          float64
+	}{
+		{name: "search without reserve stays closed", extra: search, wantError: "hosted-search quantity is unpriced"},
+		{name: "search configured price alone stays closed", extra: search, local: common.GetPointer(5.0), wantError: "hosted-search quantity is unpriced"},
+		{name: "search zero reserve with positive rate", extra: search, reserve: common.GetPointer(0.0), wantError: "hosted-search quantity is unpriced"},
+		{name: "search zero reserve with configured price", extra: search, reserve: common.GetPointer(0.0), local: common.GetPointer(5.0), wantError: "hosted-search quantity is unpriced"},
+		{name: "search reserve adds to smaller token estimate", extra: search, reserve: common.GetPointer(0.5), want: 1.52},
+		{name: "search reserve adds to larger token estimate", extra: search, reserve: common.GetPointer(5.0), want: 6.02},
+		{name: "search reserve without published search rate", extra: search, reserve: common.GetPointer(5.0), searchRate: "absent", want: 6.02},
+		{name: "search reserve adds to token estimate under configured price", extra: search + `,"modalities":["text"]`, reserve: common.GetPointer(0.5), local: common.GetPointer(0.25), want: 1.52},
+		{name: "configured price above search sum", extra: search + `,"modalities":["text"]`, reserve: common.GetPointer(0.5), local: common.GetPointer(3.0), want: 3},
+		{name: "search reserve invalid search rate", extra: search, reserve: common.GetPointer(5.0), searchRate: `"-1"`, wantError: "invalid OpenRouter endpoint price"},
+		{name: "search reserve Responses stays closed", extra: `,"max_output_tokens":10,"web_search_options":{}`, operation: "responses", reserve: common.GetPointer(5.0), wantError: "hosted-search quantity is unpriced"},
+		{name: "search reserve Batch stays closed", extra: search, operation: "batch_chat/completions", reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
+		{name: "search reserve stream stays closed", extra: search + `,"stream":true`, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
+		{name: "search reserve hosted tool stays closed", extra: search + `,"tools":[{"type":"openrouter:web_search"}]`, reserve: common.GetPointer(5.0), wantError: "hosted tool pricing is unavailable"},
+		{name: "search reserve plugin stays closed", extra: `,"max_tokens":10,"plugins":[{"id":"web"}]`, reserve: common.GetPointer(5.0), wantError: "unpriced execution dimensions"},
+		{name: "search with streamed audio output stays closed", extra: audio + `,"web_search_options":{}`, reserve: common.GetPointer(5.0), wantError: "cannot share an approximate reserve"},
+		{name: "search with image output reserve stays closed", extra: `,"max_tokens":10,"modalities":["text","image"],"web_search_options":{}`, reserve: common.GetPointer(5.0), wantError: "cannot share an approximate reserve"},
+		{name: "audio channel reserve", extra: audio, reserve: common.GetPointer(0.3), want: 0.3},
+		{name: "audio channel reserve requires stream body", extra: `,"max_tokens":10,"modalities":["text","audio"]`, reserve: common.GetPointer(0.3), nonstreamInfo: true, wantError: "requires streaming"},
+		{name: "audio channel reserve requires stream relay", extra: audio, reserve: common.GetPointer(0.3), nonstreamInfo: true, wantError: "requires streaming"},
+		{name: "audio without reserve or configured price", extra: audio, wantError: "requires configured_price or an explicit approximate channel reserve"},
+		{name: "audio zero channel reserve", extra: audio, reserve: common.GetPointer(0.0), wantError: "invalid OpenRouter approximate reserve"},
+		{name: "audio channel reserve Responses stays closed", extra: audio, operation: "responses", reserve: common.GetPointer(0.3), wantError: "requires configured_price or an explicit approximate channel reserve"},
+		{name: "audio configured price unchanged", extra: audio, local: common.GetPointer(0.25), want: 0.25},
+		{name: "audio configured price below channel reserve", extra: audio, local: common.GetPointer(0.25), reserve: common.GetPointer(0.3), want: 0.3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pricing := map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "web_search": json.RawMessage(`"0.01"`)}
+			if strings.Contains(tc.extra, `"audio"]`) {
+				pricing["output_audio"] = json.RawMessage(`"0.00004"`)
+			}
+			if tc.searchRate == "absent" {
+				delete(pricing, "web_search")
+			} else if tc.searchRate != "" {
+				pricing["web_search"] = json.RawMessage(tc.searchRate)
+			}
+			estimator := NewRequestEstimator()
+			estimator.Models["test/model"] = []PricedEndpoint{{Tag: "provider", ModelID: "test/model", ContextLength: 10000, MaxCompletionTokens: 100, Pricing: pricing}}
+			estimator.OutputModalities["test/model"] = []string{"text", "audio"}
+			operation := tc.operation
+			if operation == "" {
+				operation = "chat/completions"
+			}
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI, IsStream: strings.Contains(tc.extra, `"stream":true`) && !tc.nonstreamInfo}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+			if tc.reserve != nil {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{"test/model": *tc.reserve}
+			}
+			info.SetEstimatePromptTokens(1000)
+			body := []byte(`{"model":"test/model"` + tc.extra + `}`)
+			var cost float64
+			var err error
+			if tc.local != nil {
+				cost, err = estimator.EstimateWithLocalPrice(info, body, operation, *tc.local)
+			} else {
+				cost, err = estimator.Estimate(info, body, operation)
+			}
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-9)
+		})
+	}
+}
+
 func TestEndpointOneHourCachePublishedSyncAndBatchPricing(t *testing.T) {
 	for _, scenario := range []struct {
 		name, model, operation, pricing string

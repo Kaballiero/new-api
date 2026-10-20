@@ -548,7 +548,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		rate                                  any
 		reserve                               *float64
 		insufficient, knownAboveReserve       bool
-		general                               bool
+		general, hostedSearch                 bool
 		policyModel                           string
 		endpointModel                         string
 		missingCost                           bool
@@ -596,7 +596,9 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		{name: "multiple outputs rejected", reserve: common.GetPointer(2.0), extra: `,"n":2`, wantError: "one nonstream text chat response"},
 		{name: "fallback models rejected", reserve: common.GetPointer(2.0), extra: `,"models":["other/reasoner"]`, wantError: "one nonstream text chat response"},
 		{name: "tools rejected", reserve: common.GetPointer(2.0), extra: `,"tools":[{"type":"function","function":{"name":"f"}}]`, wantError: "one nonstream text chat response"},
-		{name: "hosted search rejected", reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, wantError: "hosted-search quantity is unpriced"},
+		{name: "hosted search hold adds to token estimate", reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, hostedSearch: true},
+		{name: "general hosted search hold adds to token estimate", model: "other/reasoner", general: true, reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, hostedSearch: true},
+		{name: "general hosted search without channel hold", model: "other/reasoner", general: true, extra: `,"web_search_options":{}`, wantError: "hosted-search quantity is unpriced"},
 		{name: "preset rejected", reserve: common.GetPointer(2.0), extra: `,"preset":"some-preset"`, wantError: "unpriced execution dimensions"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -693,6 +695,10 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 			assert.Equal(t, requestedModel, info.OpenRouterCost.ApproximateReserveModel)
 			if tc.knownAboveReserve {
 				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 128.0)
+				assert.Greater(t, billing.reserved, 1500000)
+			} else if tc.hostedSearch {
+				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.0, "search hold is added to the token estimate")
+				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.01)
 				assert.Greater(t, billing.reserved, 1500000)
 			} else {
 				assert.Equal(t, 2.0, info.OpenRouterCost.Basis.EstimatedUSD)
@@ -1377,7 +1383,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "oversize channel hold rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(1e20), wantError: "quota conversion"},
 		{name: "negative status TTS uses channel reserve", kind: "tts", noSource: true, endpointStatus: -5, channelReserve: common.GetPointer(0.3), cost: "0.04"},
 		{name: "missing capability cannot use channel reserve", kind: "stt", noSource: true, unknownCapability: true, channelReserve: common.GetPointer(0.3), wantError: "capability is missing"},
-		{name: "Chat audio still requires configured price", kind: "chat", noSource: true, channelReserve: common.GetPointer(0.3), wantError: "requires configured_price"},
+		{name: "Chat audio channel reserve without global price", kind: "chat", cost: "3", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "Chat audio channel reserve retains unknown cost", kind: "chat", missingCost: true, noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "Chat audio channel reserve requires streaming", kind: "chat", extra: `,"stream":false`, noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3), wantError: "requires streaming"},
 		{name: "multipart STT final usage cost", kind: "stt", cost: "3"},
 		{name: "multipart STT confirmed zero", kind: "stt", cost: "0"},
 		{name: "STT expression sees outgoing form", kind: "stt", cost: "3", expression: `param("language") == "en" ? tier("english", fixed(2)) : tier("other", fixed(8))`},
