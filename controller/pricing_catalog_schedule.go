@@ -110,29 +110,16 @@ func catalogPriceVariant(raw json.RawMessage) (string, []publicPricingCondition,
 }
 
 func catalogSchedulePrices(offer consumerProviderOffer) []consumerProviderPrice {
-	generic := map[string]bool{}
-	for _, price := range offer.Prices {
-		var provenance struct {
-			Source string `json:"source"`
-		}
-		if common.Unmarshal(price.Provenance, &provenance) == nil && provenance.Source == "generic" {
-			generic[price.Component+"/"+price.Unit] = true
-		}
-	}
+	shadowed := catalogShadowedModelPrices(offer.Prices)
 	result := []consumerProviderPrice{}
-	for _, price := range offer.Prices {
-		if price.Component == "unknown" || price.AmountRub == nil {
+	for index, price := range offer.Prices {
+		if price.Component == "unknown" || price.AmountRub == nil || shadowed[index] {
 			continue
 		}
 		var provenance struct {
 			Source string `json:"source"`
 		}
 		if common.Unmarshal(price.Provenance, &provenance) != nil {
-			continue
-		}
-		// A native model-page meter can lack the endpoint's context schedule.
-		// Keep it in details; it cannot replace that schedule unconditionally.
-		if provenance.Source == "model_page" && generic[price.Component+"/"+price.Unit] {
 			continue
 		}
 		if _, valid := catalogRateWindow(price); !valid {
