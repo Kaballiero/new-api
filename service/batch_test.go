@@ -182,7 +182,7 @@ func TestBatchBillingUsesProviderBase(t *testing.T) {
 }
 
 func TestBatchWorkerLifecycle(t *testing.T) {
-	for _, mode := range []string{"dispatch_revoked_cache_hold", "dispatch_revoked", "dispatch_expired", "dispatch_deleted", "dispatch_revoked_after_preflight", "dispatch_revoked_after_marker", "success", "provider_routing", "corrupt_contract", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "endpoint_rejected", "oversized_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
+	for _, mode := range []string{"dispatch_revoked_cache_hold", "dispatch_revoked", "dispatch_expired", "dispatch_deleted", "dispatch_revoked_after_preflight", "dispatch_revoked_after_marker", "success", "provider_routing", "corrupt_contract", "ambiguous", "foreign_identity", "rejected", "malicious_rejected", "endpoint_rejected", "oversized_rejected", "provider_failed", "provider_failed_settlement_error", "failed_null_usage", "v2_failed_null_usage", "failed_null_usage_completed", "failed_null_usage_late_counts", "rate_limited_absent", "rate_limited_listed", "rate_limited_listing_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld"} {
 		t.Run(mode, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 			require.NoError(t, err)
@@ -209,6 +209,8 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 			var tokenID int
 			var posts atomic.Int32
 			var polls atomic.Int32
+			var lists atomic.Int32
+			var costReady atomic.Bool
 			var nativeCustomID string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != "Bearer test-key" {
@@ -247,6 +249,11 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 						w.WriteHeader(502)
 						return
 					}
+					if strings.HasPrefix(mode, "rate_limited") {
+						w.WriteHeader(429)
+						_, _ = w.Write([]byte(`{"error":{"code":429,"message":"Rate limit exceeded"}}`))
+						return
+					}
 					var wire struct {
 						Endpoint string         `json:"endpoint"`
 						Model    string         `json:"model"`
@@ -274,6 +281,37 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 					_, _ = w.Write([]byte(`{"id":"native-1","status":"validating"}`))
 					return
 				}
+				if r.URL.Path == "/api/v1/batches" {
+					lists.Add(1)
+					assert.Equal(t, "100", r.URL.Query().Get("limit"))
+					assert.NotEmpty(t, r.URL.Query().Get("created_after"))
+					if mode == "rate_limited_listing_error" {
+						w.WriteHeader(500)
+						return
+					}
+					// Only positively different batches: endpoint, model, request total, creation time.
+					data := `[{"id":"other-1","endpoint":"/v1/embeddings","model":"test-model","request_counts":{"total":1}},` +
+						`{"id":"other-2","endpoint":"/v1/chat/completions","model":"other-model","request_counts":{"total":0}},` +
+						`{"id":"other-3","endpoint":"/api/v1/chat/completions","model":"test-model","request_counts":{"total":3}},` +
+						`{"id":"other-4","endpoint":"/v1/chat/completions","model":"test-model","created_at":1,"request_counts":{"total":1}}]`
+					if mode == "rate_limited_listed" {
+						// A different endpoint spelling and a not yet counted total still match.
+						data = `[{"id":"native-1","endpoint":"/api/v1/chat/completions","model":"test-model","status":"validating","request_counts":{"total":0,"completed":0,"failed":0}}]`
+					}
+					_, _ = fmt.Fprintf(w, `{"object":"list","data":%s,"has_more":false}`, data)
+					return
+				}
+				if strings.Contains(mode, "failed_null_usage") {
+					counts := `,"request_counts":{"total":1,"completed":0,"failed":1}`
+					if mode == "failed_null_usage_completed" {
+						counts = `,"request_counts":{"total":1,"completed":1,"failed":0}`
+					}
+					if polls.Add(1) == 1 && mode == "failed_null_usage_late_counts" {
+						counts = ""
+					}
+					_, _ = fmt.Fprintf(w, `{"id":"native-1","status":"failed"%s,"usage":null,"results":null,"error":{"code":422,"message":"provider rejected the requests"}}`, counts)
+					return
+				}
 				if strings.HasPrefix(mode, "provider_failed") {
 					if polls.Add(1) > 1 {
 						_, _ = w.Write([]byte(`{"id":"native-1","status":"failed","results":null,"error":null}`))
@@ -293,7 +331,7 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 					if mode == "v2_bad_counts" {
 						counts = `{"total":1,"completed":0,"failed":0}`
 					}
-					if mode == "v2_missing_cost" {
+					if mode == "v2_missing_cost" && !costReady.Load() {
 						usage = `{"prompt_tokens":2,"completion_tokens":1}`
 					}
 					if mode == "v2_withheld" {
@@ -417,6 +455,114 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 			} else {
 				assert.EqualValues(t, 1, posts.Load(), "ambiguous POST must never be repeated")
 			}
+			// recheckDue moves the back-off of a terminal job in reconciliation
+			// into the past, as if the job had waited one hour after two hours.
+			recheckDue := func() {
+				now := time.Now().Unix()
+				require.NoError(t, db.Model(&model.BatchJob{}).Where("id = ?", job.ID).UpdateColumns(map[string]any{"created_at": now - 7200, "updated_at": now - 3600}).Error)
+			}
+			if strings.HasPrefix(mode, "rate_limited") {
+				require.NoError(t, db.First(&job, job.ID).Error)
+				assert.Zero(t, lists.Load(), "absence is never inferred right after the 429")
+				assert.Equal(t, "submission_unknown", job.SubmitState)
+				assert.Equal(t, "reconciliation_required", job.BillingStatus)
+				var probe openRouterCreateProbe
+				require.NoError(t, common.UnmarshalJsonStr(job.CreateProbe, &probe))
+				assert.GreaterOrEqual(t, probe.NextCheck, probe.PostedAt+300)
+				probeDue := func() {
+					require.NoError(t, db.First(&job, job.ID).Error)
+					require.NoError(t, common.UnmarshalJsonStr(job.CreateProbe, &probe))
+					probe.NextCheck = 0
+					encoded, err := common.Marshal(probe)
+					require.NoError(t, err)
+					require.NoError(t, db.Model(&model.BatchJob{}).Where("id = ?", job.ID).UpdateColumn("create_probe", string(encoded)).Error)
+				}
+				listings := 2
+				if mode == "rate_limited_listed" {
+					listings = 1
+				}
+				if mode == "rate_limited_listing_error" {
+					listings = 6
+				}
+				for i := range listings + 1 {
+					if i > 0 {
+						// Without a due recheck a pass never lists the workspace.
+						require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+						assert.EqualValues(t, i, lists.Load())
+					}
+					probeDue()
+					require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+				}
+				require.NoError(t, db.First(&job, job.ID).Error)
+				require.NoError(t, db.First(&user, user.Id).Error)
+				assert.EqualValues(t, 1, posts.Load(), "ambiguous POST must never be repeated")
+				assert.Zero(t, polls.Load())
+				assert.Zero(t, job.ChargedQuota)
+				if mode != "rate_limited_absent" {
+					assert.EqualValues(t, listings, lists.Load(), "a match or exhausted retries stop the listings")
+					require.NoError(t, common.UnmarshalJsonStr(job.CreateProbe, &probe))
+					assert.True(t, probe.Manual)
+					assert.Equal(t, "submission_unknown", job.SubmitState, "a possibly created batch keeps the hold")
+					assert.Equal(t, "reconciliation_required", job.BillingStatus)
+					assert.EqualValues(t, 100, job.ReservedQuota)
+					assert.EqualValues(t, 100, user.BatchHeldQuota)
+					return
+				}
+				assert.EqualValues(t, 2, lists.Load(), "release requires two delayed complete listings")
+				var diagnostic map[string]any
+				require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic))
+				assert.EqualValues(t, 429, diagnostic["http_status"])
+				assert.Equal(t, "rejected", job.SubmitState)
+				assert.Equal(t, "failed", job.Status)
+				assert.Equal(t, "settled", job.BillingStatus)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Zero(t, user.BatchHeldQuota)
+				assert.Equal(t, 1000, user.Quota)
+				return
+			}
+			if strings.HasPrefix(mode, "failed_null_usage_") {
+				require.NoError(t, db.First(&job, job.ID).Error)
+				assert.EqualValues(t, 1, polls.Load())
+				assert.Equal(t, "reconciliation_required", job.BillingStatus, "missing or non-zero completed counts keep the hold")
+				assert.EqualValues(t, 100, job.ReservedQuota)
+				recheckDue()
+				require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+				assert.EqualValues(t, 2, polls.Load(), "a due terminal reconciliation is rechecked")
+				require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+				assert.EqualValues(t, 2, polls.Load(), "the recheck restarts the back-off")
+				require.NoError(t, db.First(&job, job.ID).Error)
+				require.NoError(t, db.First(&user, user.Id).Error)
+				if mode == "failed_null_usage_completed" {
+					assert.Equal(t, "reconciliation_required", job.BillingStatus)
+					assert.EqualValues(t, 100, job.ReservedQuota)
+					assert.EqualValues(t, 100, user.BatchHeldQuota)
+					return
+				}
+				assert.Equal(t, "settled", job.BillingStatus, "late request counts settle the stuck failure")
+				assert.Zero(t, job.ChargedQuota)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Zero(t, user.BatchHeldQuota)
+				assert.Equal(t, 1000, user.Quota)
+				return
+			}
+			if strings.HasSuffix(mode, "failed_null_usage") {
+				require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+				require.NoError(t, db.First(&job, job.ID).Error)
+				require.NoError(t, db.First(&user, user.Id).Error)
+				require.NoError(t, db.First(&token, token.Id).Error)
+				assert.EqualValues(t, 1, polls.Load(), "a settled failure is not polled again")
+				assert.Equal(t, "failed", job.Status)
+				assert.Equal(t, "settled", job.BillingStatus)
+				assert.Equal(t, "settled", job.PurchaseStatus)
+				assert.Zero(t, job.ChargedQuota)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Equal(t, job.RequestCount, job.SettledCount)
+				assert.Equal(t, 1000, user.Quota)
+				assert.Zero(t, user.BatchHeldQuota)
+				assert.Equal(t, 1000, token.RemainQuota)
+				assert.Zero(t, token.BatchHeldQuota)
+				return
+			}
 			if strings.HasPrefix(mode, "v2_") {
 				require.NoError(t, db.First(&job, job.ID).Error)
 				require.NoError(t, db.First(&user, user.Id).Error)
@@ -443,6 +589,18 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 						assert.Zero(t, job.ResultCount)
 					} else {
 						assert.Equal(t, "reconciliation_required", job.BillingStatus)
+						// A transient conflict self-heals once usage.cost appears.
+						costReady.Store(true)
+						recheckDue()
+						require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+						require.NoError(t, db.First(&job, job.ID).Error)
+						require.NoError(t, db.First(&user, user.Id).Error)
+						expected, clamp, err := snapshot.OpenRouterCost.Quota(0.000004)
+						require.NoError(t, err)
+						require.Nil(t, clamp)
+						assert.Equal(t, "settled", job.BillingStatus)
+						assert.EqualValues(t, expected, job.ChargedQuota)
+						assert.Zero(t, user.BatchHeldQuota)
 					}
 				}
 				return
@@ -463,6 +621,11 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				if strings.HasPrefix(mode, "provider_failed") {
 					assert.Equal(t, "failed", job.Status)
 					assert.Zero(t, job.ResultCount)
+					if mode == "provider_failed" {
+						seen := polls.Load()
+						require.NoError(t, RunBatchPollingOnce(context.Background(), "test-worker"))
+						assert.Equal(t, seen, polls.Load(), "a terminal reconciliation is not re-selected before its back-off")
+					}
 					var diagnostic map[string]any
 					require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic))
 					assert.Equal(t, "poll", diagnostic["phase"])

@@ -164,12 +164,15 @@ type OpenRouterSyncTask struct {
 	Attempts          int                 `json:"attempts"`
 	NextPoll          int64               `json:"next_poll,omitempty"`
 	LastHTTPStatus    int                 `json:"last_http_status,omitempty"`
-	LastError         string              `json:"last_error,omitempty"`
-	ResultReady       bool                `json:"result_ready"`
-	ResultFailed      bool                `json:"result_failed,omitempty"`
-	ResultMimeType    string              `json:"result_mime_type,omitempty"`
-	ResultSize        int64               `json:"result_size,omitempty"`
-	ResultSHA256      string              `json:"result_sha256,omitempty"`
+	// SubmissionHTTPStatus is the status of the paid submission response, kept
+	// separately from metadata lookup statuses.
+	SubmissionHTTPStatus int    `json:"submission_http_status,omitempty"`
+	LastError            string `json:"last_error,omitempty"`
+	ResultReady          bool   `json:"result_ready"`
+	ResultFailed         bool   `json:"result_failed,omitempty"`
+	ResultMimeType       string `json:"result_mime_type,omitempty"`
+	ResultSize           int64  `json:"result_size,omitempty"`
+	ResultSHA256         string `json:"result_sha256,omitempty"`
 }
 
 // OpenRouterAudioTask preserves the legacy audio snapshot type.

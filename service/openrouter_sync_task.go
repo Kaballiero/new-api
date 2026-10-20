@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -341,11 +342,19 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 			info.OpenRouterCost.GenerationID = id
 		}
 	}
+	if requestErr == nil && resp != nil {
+		a.SubmissionHTTPStatus = resp.StatusCode
+	}
 	if image && task.Status == model.TaskStatusFailure {
 		// Preserve correlation, then inspect a late body for monetary evidence.
 		return task.UpdateOpenRouterSync(a.Revision)
 	}
-	if requestErr != nil || resp == nil || resp.StatusCode != http.StatusOK && !image {
+	// Image error bodies may still carry monetary evidence; FailOpenRouterSyncTask
+	// inspects them before applying the same explicit-rejection release.
+	rejected := !image && openRouterSubmissionRejected(a.SubmissionHTTPStatus)
+	if rejected {
+		releaseRejectedOpenRouterSync(task)
+	} else if requestErr != nil || resp == nil || resp.StatusCode != http.StatusOK && !image {
 		task.PrivateData.Reconciliation.SubmissionPending = false
 		a.ResultFailed, a.LastError = true, "submission_outcome_unknown"
 		a.NextPoll = time.Now().Unix()
@@ -354,7 +363,43 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 		}
 	}
 	projectOpenRouterSyncState(task)
-	return task.UpdateOpenRouterSync(a.Revision)
+	if err := task.UpdateOpenRouterSync(a.Revision); err != nil {
+		return err
+	}
+	if rejected && task.PrivateData.Reconciliation.SettlementPending {
+		if err := settleOpenRouterCost(task); err != nil {
+			// The durable target/main-applied markers own any partial refund; the
+			// client still receives the upstream rejection.
+			common.SysError(fmt.Sprintf("OpenRouter synchronous task %s requires settlement repair: %v", task.TaskID, err))
+		}
+	}
+	return nil
+}
+
+// openRouterSubmissionRejected reports an explicit HTTP rejection of the paid
+// request. OpenRouter starts no generation for these responses, so neither the
+// response nor a generation ID echoed with it can lead to a later charge.
+// Timeouts, transport failures and 5xx responses remain unknown outcomes, and
+// so does 402: OpenRouter can report incurred cost with the output withheld.
+func openRouterSubmissionRejected(status int) bool {
+	return slices.Contains([]int{400, 401, 403, 404, 413, 422, 429}, status)
+}
+
+// releaseRejectedOpenRouterSync records a confirmed zero upstream cost for an
+// explicitly rejected submission, so settlement refunds the whole reservation.
+// Without a prepared settlement the hold stays for manual reconciliation.
+func releaseRejectedOpenRouterSync(task *model.Task) {
+	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
+	r.SubmissionPending = false
+	r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
+	a.ResultFailed, a.NextPoll = true, 0
+	finishOpenRouterSync(task)
+	if !r.SettlementPending {
+		manualOpenRouterSync(task, "upstream_rejected_unsettled")
+		return
+	}
+	a.LastError = "upstream_rejected"
+	task.FailReason = fmt.Sprintf("OpenRouter rejected the request (HTTP %d); reservation released", a.SubmissionHTTPStatus)
 }
 
 func CompleteOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, body []byte, mimeType string) error {
@@ -429,6 +474,8 @@ func FailOpenRouterSyncTask(info *relaycommon.RelayInfo, reason string) error {
 		r := task.PrivateData.Reconciliation
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, state.CostUSD
 		finishOpenRouterSync(task)
+	} else if !a.IdentityConflict && openRouterSubmissionRejected(a.SubmissionHTTPStatus) {
+		releaseRejectedOpenRouterSync(task)
 	} else if a.IdentityConflict || task.PrivateData.UpstreamTaskID == "" || task.Platform == constant.TaskPlatformOpenRouterImage {
 		manualOpenRouterSync(task, reason)
 	}
@@ -486,7 +533,7 @@ func OpenRouterSyncReconciliation(task *model.Task) map[string]any {
 		billing = "manual_reconciliation"
 	}
 	switch a.LastError {
-	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown":
+	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected":
 		reason = a.LastError
 	default:
 		if billing == "manual_reconciliation" {
@@ -550,6 +597,16 @@ func pollOpenRouterSync(ctx context.Context, task *model.Task) error {
 		}
 		r.SubmissionPending = false
 		a.ResultFailed = !a.ResultReady
+	}
+	if !r.HasUpstreamCost && openRouterSubmissionRejected(a.SubmissionHTTPStatus) {
+		// A rejected submission has no generation to look up, even when the
+		// rejection echoed an ID. Never spend the lookup budget on it.
+		releaseRejectedOpenRouterSync(task)
+		projectOpenRouterSyncState(task)
+		if err := task.UpdateOpenRouterSync(a.Revision); err != nil {
+			return err
+		}
+		return settleOpenRouterCost(task)
 	}
 	if now.Unix() >= a.Deadline || a.Attempts >= 16 {
 		manualOpenRouterSync(task, "cost_lookup_deadline_or_attempt_limit")

@@ -53,7 +53,7 @@ func SettleBatchItem(batchID int64, customID string, quota int, details string) 
 				return err
 			}
 		}
-		if job.FinancialDetails != "" || (settlement.Mode == BatchSettlementOpenRouterJobCostV2 && !(job.UpstreamID == "" && job.SubmitState == "rejected" && quota == 0 && receipt.PurchaseStatus == "unbilled")) {
+		if job.FinancialDetails != "" || (settlement.Mode == BatchSettlementOpenRouterJobCostV2 && !((job.UpstreamID == "" && job.SubmitState == "rejected" || job.FailedWithoutUsage()) && quota == 0 && receipt.PurchaseStatus == "unbilled")) {
 			return ErrBatchConflict
 		}
 		var item BatchItem
