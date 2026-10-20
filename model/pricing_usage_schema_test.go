@@ -486,7 +486,7 @@ func TestPricingBatchCanonicalPairIsGroupScopedAndMappingProved(t *testing.T) {
 	assert.Zero(t, *selected.Prices[0].AmountUSD)
 	assert.Empty(t, indexed["public"].CatalogOffersForGroup("premium"))
 	assert.Equal(t, []string{"premium"}, indexed["public:batch"].EnableGroup)
-	assert.Equal(t, "batch", indexed["public:batch"].CatalogOffersForGroup("premium")[0].Mode)
+	assert.Empty(t, indexed["public:batch"].CatalogOffersForGroup("premium"), "an unpaired group without rate facts must not fabricate a Batch offer")
 	assert.Equal(t, "public:batch", alias.ModelName)
 	badMapping := `{"public":"different/model","public:batch":"anthropic/claude-fable-5.1:batch"}`
 	channels[989].ModelMapping = &badMapping
