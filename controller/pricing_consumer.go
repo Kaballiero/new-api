@@ -77,10 +77,10 @@ func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[s
 		var providers []consumerProviderOffer
 		var minima []consumerPricingOperation
 		if details {
-			providers = upstreamProviderOffers(item, group, ratio, err == nil, user, false)
+			providers = upstreamProviderOffers(item, group, ratio, err == nil, user)
 			minima = catalogMinima(providers)
 		} else {
-			minima = catalogMinimumOperations(iterateUpstreamProviderOffers(item, group, ratio, err == nil, user, false))
+			minima = catalogMinimumOperations(iterateUpstreamProviderOffers(item, group, ratio, err == nil, user))
 		}
 		operations := mergeCatalogMinima(consumerOperations(item, group, ratio, err == nil), minima)
 		if slices.ContainsFunc(item.PublicCatalogOffersByGroup[group], func(offer model.CatalogOffer) bool { return len(offer.PublicUsageConditions) > 0 }) {

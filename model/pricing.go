@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 )
@@ -304,6 +305,7 @@ func rebuildPricingCatalogueLocked() {
 	pricingChannels := make(map[int]*Channel, len(channels))
 	advancedCustomConfigs := make(map[int]*dto.AdvancedCustomConfig)
 	taskPluginKeys := make(map[int]string)
+	serviceTierEnabled := make(map[int]bool)
 	referenced := make(map[int]bool)
 	for _, ability := range enableAbilities {
 		referenced[ability.ChannelId] = true
@@ -339,6 +341,7 @@ func rebuildPricingCatalogueLocked() {
 				return
 			}
 		}
+		serviceTierEnabled[channel.Id] = other.AllowServiceTier || settings.PassThroughBodyEnabled || model_setting.GetGlobalSettings().PassThroughRequestEnabled
 		taskPluginKeys[channel.Id] = settings.TaskPluginKey
 		if channel.Type == constant.ChannelTypeAdvancedCustom && other.AdvancedCustom != nil {
 			advancedCustomConfigs[channel.Id] = other.AdvancedCustom
@@ -519,7 +522,7 @@ func rebuildPricingCatalogueLocked() {
 				if upstreamRoutes[ability.Model] == nil {
 					upstreamRoutes[ability.Model] = make(map[string][]UpstreamCatalogRoute)
 				}
-				upstreamRoutes[ability.Model][ability.Group] = append(upstreamRoutes[ability.Model][ability.Group], UpstreamCatalogRoute{Operation: operation.operation, Mode: mode, Endpoint: endpoint, ModelID: upstream, DocumentHash: upstreamHashes[canonical.ID], Document: canonical, ChannelID: channel.Id, ParamOverride: channel.ParamOverride})
+				upstreamRoutes[ability.Model][ability.Group] = append(upstreamRoutes[ability.Model][ability.Group], UpstreamCatalogRoute{Operation: operation.operation, Mode: mode, Endpoint: endpoint, ModelID: upstream, DocumentHash: upstreamHashes[canonical.ID], Document: canonical, ChannelID: channel.Id, ParamOverride: channel.ParamOverride, ServiceTierEnabled: serviceTierEnabled[channel.Id]})
 			}
 			continue
 		}

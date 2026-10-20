@@ -304,7 +304,7 @@ func buildCatalogModelTariff(context effectivePricingPageContext, item model.Pri
 		row.IsFree = row.IsFree && !unknown
 		result.Operations = append(result.Operations, row)
 	}
-	minima := catalogMinimumOperations(iterateUpstreamProviderOffers(item, group, ratio, ratioErr == nil, pricingUserContext{}, true))
+	minima := catalogMinimumOperations(iterateUpstreamProviderOffers(item, group, ratio, ratioErr == nil, pricingUserContext{}))
 	for _, operation := range minima {
 		index := slices.IndexFunc(result.Operations, func(row publicPricingOperation) bool {
 			return row.Operation == operation.Operation && row.Mode == operation.Mode
@@ -315,6 +315,7 @@ func buildCatalogModelTariff(context effectivePricingPageContext, item model.Pri
 		}
 		row := &result.Operations[index]
 		row.IsFrom = true
+		row.Tiers = append(row.Tiers, operation.Tiers...)
 		merged := mergeCatalogMinima([]consumerPricingOperation{{Operation: row.Operation, Mode: row.Mode, Prices: row.Prices}}, []consumerPricingOperation{operation})
 		row.Prices = merged[0].Prices
 		// Independent component minima do not prove that a complete request is free.

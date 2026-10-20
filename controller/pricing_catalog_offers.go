@@ -24,6 +24,8 @@ type consumerProviderPrice struct {
 	AmountRub *string `json:"amount_rub"`
 }
 type consumerProviderOffer struct {
+	minimumEligible bool
+
 	Availability  string                   `json:"catalog_availability"`
 	Limitations   []string                 `json:"limitations"`
 	ID            string                   `json:"id"`
@@ -45,49 +47,100 @@ type pricingUserContext struct {
 	group string
 }
 
-func catalogComponentName(parameter string) string {
-	switch parameter {
-	case "prompt":
-		return "input"
-	case "completion":
-		return "output"
-	case "input_cache_read", "cached_input":
-		return "cache_read"
-	case "input_cache_write":
-		return "cache_write"
-	case "input_cache_write_1h":
-		return "cache_write_1h"
-	case "request":
-		return "base"
-	default:
-		return parameter
+func catalogComponentName(rate catalogsync.Component) string {
+	billable := ""
+	if rate.Billable != nil {
+		billable = *rate.Billable
 	}
+	component, direction, modality := "", "", ""
+	switch billable {
+	case "input_text", "input_tokens":
+		component, direction, modality = "input", "input", "text"
+	case "output_text", "output_tokens":
+		component, direction, modality = "output", "output", "text"
+	case "input_cache_read", "cached_input":
+		component, direction, modality = "cache_read", "input", "text"
+	case "input_cache_write":
+		component, direction, modality = "cache_write", "input", "text"
+	case "input_cache_write_1h":
+		component, direction, modality = "cache_write_1h", "input", "text"
+	case "web_search":
+		component = "web_search"
+	case "input_image", "image", "image_token":
+		component, direction, modality = "input_image", "input", "image"
+	case "image_output", "output_image":
+		component, direction, modality = "output_image", "output", "image"
+	case "audio", "input_audio":
+		component, direction, modality = "input_audio", "input", "audio"
+	case "input_audio_cache":
+		component, direction, modality = "input_audio_cache", "input", "audio"
+	case "audio_output", "output_audio":
+		component, direction, modality = "output_audio", "output", "audio"
+	case "output_video":
+		component, direction, modality = "output_video", "output", "video"
+	case "output_speech":
+		component, direction, modality = "output_speech", "output", "speech"
+	case "output_song":
+		component, direction = "output_song", "output"
+	case "internal_reasoning":
+		component, direction, modality = "reasoning", "output", "text"
+	case "search":
+		component, modality = "search", "rerank"
+	}
+	if component == "" {
+		if billable != "" {
+			return "unknown"
+		}
+		// Legacy meters can supply semantics only when their dimensions agree.
+		switch rate.Parameter {
+		case "prompt", "input":
+			component, direction, modality = "input", "input", "text"
+		case "completion", "output":
+			component, direction, modality = "output", "output", "text"
+		case "input_cache_read", "cached_input":
+			component, direction, modality = "cache_read", "input", "text"
+		case "input_cache_write":
+			component, direction, modality = "cache_write", "input", "text"
+		case "input_cache_write_1h":
+			component, direction, modality = "cache_write_1h", "input", "text"
+		case "request":
+			component = "base"
+		case "web_search":
+			component = "web_search"
+		default:
+			return "unknown"
+		}
+	}
+	if direction != "" && rate.Direction != nil && *rate.Direction != direction || modality != "" && rate.Modality != nil && *rate.Modality != modality {
+		return "unknown"
+	}
+	return component
 }
 
 // A catalog is a projection, not request admission. Use the same override engine
 // as relay; apply provider selection to the resulting routing preferences.
-func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group string, user pricingUserContext, offer catalogsync.Offer) (bool, bool) {
+func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group string, user pricingUserContext, offer catalogsync.Offer) (bool, bool, bool) {
 	if route.ParamOverride == nil || strings.TrimSpace(*route.ParamOverride) == "" || strings.TrimSpace(*route.ParamOverride) == "{}" {
-		return true, true
+		return true, true, catalogServiceTierAllowed(route, offer, "", nil, nil)
 	}
 	var overrides map[string]any
 	if common.UnmarshalJsonStr(*route.ParamOverride, &overrides) != nil {
-		return false, true
+		return false, true, false
 	}
 	// Headers, payload parameters, token selection and retries are absent from a
 	// catalog request. Do not evaluate their conditional branches as known false.
 	if operations, exists := overrides["operations"]; exists {
 		entries, ok := operations.([]any)
 		if !ok {
-			return true, false
+			return true, false, false
 		}
 		for _, entry := range entries {
 			operation, ok := entry.(map[string]any)
 			if !ok {
-				return true, false
+				return true, false, false
 			}
 			if operation["mode"] != "set" && operation["mode"] != "delete" {
-				return true, false
+				return true, false, false
 			}
 			paths := []string{}
 			switch conditions := operation["conditions"].(type) {
@@ -100,27 +153,27 @@ func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group st
 				for _, raw := range conditions {
 					condition, ok := raw.(map[string]any)
 					if !ok {
-						return true, false
+						return true, false, false
 					}
 					path, _ := condition["path"].(string)
 					paths = append(paths, path)
 				}
 			default:
-				return true, false
+				return true, false, false
 			}
 			for _, path := range paths {
 				switch strings.TrimSpace(path) {
 				case "user_id":
 					if user.id <= 0 {
-						return true, false
+						return true, false, false
 					}
 				case "user_group":
 					if user.group == "" {
-						return true, false
+						return true, false, false
 					}
 				case "using_group", "model", "upstream_model", "original_model", "request_path":
 				default:
-					return true, false
+					return true, false, false
 				}
 			}
 		}
@@ -128,33 +181,34 @@ func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group st
 
 	body, err := common.Marshal(map[string]string{"model": route.ModelID})
 	if err != nil {
-		return false, true
+		return false, true, false
 	}
 	path, _ := common.GetDefaultEndpointInfo(route.Endpoint)
 	info := &relaycommon.RelayInfo{UserId: user.id, UserGroup: user.group, TokenGroup: user.group, UsingGroup: group, OriginModelName: apiModel, RequestURLPath: path.Path, ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: route.ModelID, ParamOverride: overrides}}
 	body, err = relaycommon.ApplyParamOverride(body, overrides, relaycommon.BuildParamOverrideContext(info))
 	if err != nil {
-		return false, true
+		return false, true, false
 	}
 	body, err = provider.Normalize(body)
 	if err != nil {
-		return false, true
+		return false, true, false
 	}
 	var fields struct {
-		Provider struct {
+		ServiceTier string `json:"service_tier"`
+		Provider    struct {
 			Only, Ignore, Order []string
 			AllowFallbacks      *bool `json:"allow_fallbacks"`
 		} `json:"provider"`
 	}
 	if common.Unmarshal(body, &fields) != nil {
-		return false, true
+		return false, true, false
 	}
 	var routing struct {
 		Model    string                     `json:"model"`
 		Provider map[string]json.RawMessage `json:"provider"`
 	}
 	if common.Unmarshal(body, &routing) != nil {
-		return false, true
+		return false, true, false
 	}
 	certain := routing.Model == route.ModelID
 	for key, value := range routing.Provider {
@@ -167,11 +221,12 @@ func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group st
 		}
 	}
 	preferences := fields.Provider
+	tierAllowed := catalogServiceTierAllowed(route, offer, fields.ServiceTier, preferences.Only, preferences.Order)
 	if len(preferences.Only) == 0 && len(preferences.Ignore) == 0 && (preferences.AllowFallbacks == nil || *preferences.AllowFallbacks || len(preferences.Order) == 0) {
-		return true, certain
+		return true, certain, tierAllowed
 	}
 	if offer.Provider == nil {
-		return false, true
+		return false, true, false
 	}
 	tag := ""
 	if offer.Provider.Tag != nil {
@@ -188,17 +243,17 @@ func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group st
 		return candidate == slug || strings.HasPrefix(candidate, slug+"/")
 	}
 	if len(preferences.Only) > 0 && !slices.ContainsFunc(preferences.Only, matches) || slices.ContainsFunc(preferences.Ignore, matches) {
-		return false, true
+		return false, true, false
 	}
-	return preferences.AllowFallbacks == nil || *preferences.AllowFallbacks || len(preferences.Order) == 0 || slices.ContainsFunc(preferences.Order, matches), certain
+	return preferences.AllowFallbacks == nil || *preferences.AllowFallbacks || len(preferences.Order) == 0 || slices.ContainsFunc(preferences.Order, matches), certain, tierAllowed
 }
 
-func upstreamProviderOffers(item model.Pricing, group string, ratio float64, validRatio bool, user pricingUserContext, public bool) []consumerProviderOffer {
+func upstreamProviderOffers(item model.Pricing, group string, ratio float64, validRatio bool, user pricingUserContext) []consumerProviderOffer {
 	result := []consumerProviderOffer{}
 	seen := map[string]int{}
-	for offer := range iterateUpstreamProviderOffers(item, group, ratio, validRatio, user, public) {
+	for offer := range iterateUpstreamProviderOffers(item, group, ratio, validRatio, user) {
 		if previous, exists := seen[offer.ID]; exists {
-			if result[previous].Availability == "unknown" && offer.Availability == "eligible" {
+			if result[previous].Availability == "unknown" && offer.Availability == "eligible" || result[previous].Availability == offer.Availability && !result[previous].minimumEligible && offer.minimumEligible {
 				result[previous] = offer
 			}
 			continue
@@ -210,7 +265,7 @@ func upstreamProviderOffers(item model.Pricing, group string, ratio float64, val
 	return result
 }
 
-func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float64, validRatio bool, user pricingUserContext, public bool) iter.Seq[consumerProviderOffer] {
+func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float64, validRatio bool, user pricingUserContext) iter.Seq[consumerProviderOffer] {
 	return func(yield func(consumerProviderOffer) bool) {
 		for _, route := range item.UpstreamCatalogRoutesForGroup(group) {
 			if route.Document == nil {
@@ -220,16 +275,13 @@ func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float
 				if offer.Operation != nil && *offer.Operation != route.Operation || offer.Mode != nil && *offer.Mode != route.Mode || offer.Mode == nil && route.Mode != "sync" {
 					continue
 				}
-				certain := true
-				if !public {
-					allowed, known := catalogProviderAllowed(route, item.ModelName, group, user, offer)
-					if !allowed {
-						continue
-					}
-					certain = known && offer.Eligibility != nil
+				allowed, known, tierAllowed := catalogProviderAllowed(route, item.ModelName, group, user, offer)
+				if !allowed {
+					continue
 				}
+				certain := known && offer.Eligibility != nil
 				id := catalogsync.Hash([]byte(route.DocumentHash + "\n" + route.ModelID + "\n" + strconv.Itoa(offerIndex) + "\n" + route.Operation + "\n" + route.Mode))
-				row := consumerProviderOffer{ID: id, UpstreamModel: route.ModelID, Operation: route.Operation, Mode: route.Mode, Scope: offer.Scope, Provider: offer.Provider, Variant: offer.Variant, Prices: []consumerProviderPrice{}, Coverage: offer.Coverage, Eligibility: offer.Eligibility, Capabilities: offer.Capabilities, Limits: offer.Limits}
+				row := consumerProviderOffer{minimumEligible: tierAllowed, ID: id, UpstreamModel: route.ModelID, Operation: route.Operation, Mode: route.Mode, Scope: offer.Scope, Provider: offer.Provider, Variant: offer.Variant, Prices: []consumerProviderPrice{}, Coverage: offer.Coverage, Eligibility: offer.Eligibility, Capabilities: offer.Capabilities, Limits: offer.Limits}
 				row.Limitations = slices.Clone(offer.Limitations)
 				row.Availability = "eligible"
 				if offer.Eligibility != nil && !offer.Eligibility.Eligible {
@@ -240,8 +292,8 @@ func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float
 					row.Limitations = append(row.Limitations, "request_dependent_provider_eligibility")
 				}
 				for _, rate := range offer.Components {
-					price := consumerProviderPrice{upstreamRate: upstreamRate(rate), Component: catalogComponentName(rate.Parameter)}
-					if validRatio && ratio >= 0 && !math.IsNaN(ratio) && !math.IsInf(ratio, 0) && rate.AmountUSD != nil && rate.Normalization.Comparable && rate.Normalization.Effective && rate.Unit != "unknown" && rate.Unit != "source_defined" {
+					price := consumerProviderPrice{upstreamRate: upstreamRate(rate), Component: catalogComponentName(rate)}
+					if validRatio && ratio >= 0 && !math.IsNaN(ratio) && !math.IsInf(ratio, 0) && rate.AmountUSD != nil && rate.Normalization.Comparable && rate.Normalization.Effective && rate.Unit != "" && rate.Unit != "unknown" && rate.Unit != "source_defined" {
 						usd, parseErr := decimal.NewFromString(*rate.AmountUSD)
 						if parseErr == nil && !usd.IsNegative() {
 							rub := usd.Mul(decimal.NewFromInt(100)).Mul(decimal.NewFromFloat(ratio)).String()
@@ -264,20 +316,48 @@ func catalogMinima(offers []consumerProviderOffer) []consumerPricingOperation {
 
 func catalogMinimumOperations(offers iter.Seq[consumerProviderOffer]) []consumerPricingOperation {
 	type key struct{ operation, mode string }
+	schedules := map[key][]catalogScheduledPrice{}
+	seen := map[string]bool{}
+	minima := catalogUnconditionalMinima(func(yield func(consumerProviderOffer) bool) {
+		for offer := range offers {
+			if offer.minimumEligible && offer.Availability == "eligible" && (offer.Eligibility == nil || offer.Eligibility.Eligible) {
+				if offer.ID != "" && seen[offer.ID] {
+					continue
+				}
+				seen[offer.ID] = true
+				k := key{offer.Operation, offer.Mode}
+				schedules[k] = append(schedules[k], catalogScheduledRates(offer)...)
+			}
+			if !yield(offer) {
+				return
+			}
+		}
+	})
+	for index := range minima {
+		minima[index].Tiers = catalogScheduleTiers(schedules[key{minima[index].Operation, minima[index].Mode}])
+		if len(minima[index].Tiers) == 0 {
+			minima[index].Prices = []consumerUnitPrice{}
+		}
+	}
+	return minima
+}
+
+func catalogUnconditionalMinima(offers iter.Seq[consumerProviderOffer]) []consumerPricingOperation {
+	type key struct{ operation, mode string }
 	type winner struct {
 		price           consumerProviderPrice
 		value, quantity decimal.Decimal
 	}
 	grouped := map[key]map[string]winner{}
 	for offer := range offers {
-		if offer.Availability == "unknown" || offer.Eligibility != nil && !offer.Eligibility.Eligible {
+		if !offer.minimumEligible || offer.Availability != "eligible" || offer.Eligibility != nil && !offer.Eligibility.Eligible {
 			continue
 		}
 		k := key{offer.Operation, offer.Mode}
 		if grouped[k] == nil {
 			grouped[k] = map[string]winner{}
 		}
-		for _, price := range offer.Prices {
+		for _, price := range catalogSchedulePrices(offer) {
 			if price.AmountRub == nil {
 				continue
 			}
@@ -342,6 +422,7 @@ func mergeCatalogMinima(existing, upstream []consumerPricingOperation) []consume
 			continue
 		}
 		row := &existing[index]
+		row.Tiers = append(slices.Clone(row.Tiers), addition.Tiers...)
 		from := true
 		row.IsFrom = &from
 		row.Prices = slices.Clone(row.Prices)

@@ -1992,6 +1992,9 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		rates := append([]catalogsync.Component(nil), a.Components...)
 		rates[0].AmountUSD = &input
 		rates[1].AmountUSD = &output
+		rates[1].Billable = common.GetPointer("output_tokens")
+		rates[1].Direction = common.GetPointer("output")
+		rates[2].Billable = common.GetPointer("input_cache_read")
 		rates[1].Normalization.Comparable = true
 		rates[1].Normalization.Effective = true
 		return rates
@@ -2002,8 +2005,8 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	override := `{"provider":{"only":["b"]}}`
 	route := model.UpstreamCatalogRoute{Operation: "embeddings", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: doc, ParamOverride: &override}
 	item := model.Pricing{ModelName: "my-alias", DisplayName: "Google: Readable name", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
-	public := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, true)
-	require.Len(t, public, 2)
+	public := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
+	require.Len(t, public, 1)
 	minima := catalogMinima(public)
 	require.Len(t, minima, 1)
 	amounts := map[string]float64{}
@@ -2011,7 +2014,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		require.NotNil(t, price.AmountRub)
 		amounts[price.Component] = *price.AmountRub
 	}
-	assert.Equal(t, float64(100), amounts["input"])
+	assert.Equal(t, float64(700), amounts["input"])
 	assert.Equal(t, float64(300), amounts["output"])
 	assert.Equal(t, float64(0), amounts["cache_read"])
 	private := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, true, pricingUserContext{id: 17, group: "default"})
@@ -2056,7 +2059,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		policy := `{"provider":{"only":["b"],"quantizations":["fp8"]}}`
 		route.ParamOverride = &policy
 		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
-		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, false)
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
 		require.Len(t, offers, 1)
 		assert.Equal(t, "unknown", offers[0].Availability)
 		require.NotNil(t, offers[0].Prices[0].AmountRub)
@@ -2066,7 +2069,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		policy := `{"operations":[{"path":"provider.only","mode":"set","value":["b"],"conditions":[{"path":"request_headers.x-route","mode":"full","value":"b"}]}]}`
 		route.ParamOverride = &policy
 		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
-		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 17, group: "default"}, false)
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 17, group: "default"})
 		require.Len(t, offers, 2)
 		for _, offer := range offers {
 			assert.Equal(t, "unknown", offer.Availability)
@@ -2074,21 +2077,21 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		assert.Empty(t, catalogMinima(offers))
 		policy = strings.ReplaceAll(policy, "request_headers.x-route", "user_id")
 		policy = strings.ReplaceAll(policy, `"value":"b"`, `"value":17`)
-		offers = upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 17, group: "default"}, false)
+		offers = upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 17, group: "default"})
 		require.Len(t, offers, 1)
 		assert.Equal(t, "b", *offers[0].Provider.ID)
-		offers = upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 18, group: "default"}, false)
+		offers = upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 18, group: "default"})
 		require.Len(t, offers, 2)
 	})
 	t.Run("relay shorthand user conditions are preserved", func(t *testing.T) {
 		policy := `{"operations":[{"path":"provider.only","mode":"set","value":["b"],"conditions":{"user_id":17}}]}`
 		route.ParamOverride = &policy
 		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
-		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 17, group: "default"}, false)
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{id: 17, group: "default"})
 		require.Len(t, offers, 1)
 		assert.Equal(t, "b", *offers[0].Provider.ID)
 		assert.Equal(t, "eligible", offers[0].Availability)
-		anonymous := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{group: "default"}, false)
+		anonymous := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{group: "default"})
 		require.Len(t, anonymous, 2)
 		for _, offer := range anonymous {
 			assert.Equal(t, "unknown", offer.Availability)
@@ -2102,7 +2105,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		unrestricted.ParamOverride = nil
 		for _, routes := range [][]model.UpstreamCatalogRoute{{restricted, unrestricted}, {unrestricted, restricted}} {
 			item.UpstreamCatalogRoutesByGroup["default"] = routes
-			offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, false)
+			offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
 			require.Len(t, offers, 2)
 			for _, offer := range offers {
 				assert.Equal(t, "eligible", offer.Availability)
@@ -2115,10 +2118,10 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		batch.Mode = "batch"
 		batch.ParamOverride = nil
 		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{batch}
-		assert.Empty(t, upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, true))
+		assert.Empty(t, upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}))
 		mode := "batch"
 		doc.Offers[1].Mode = &mode
-		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, true)
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
 		require.Len(t, offers, 1)
 		assert.Equal(t, "batch", offers[0].Mode)
 		doc.Offers[1].Mode = nil
@@ -2129,7 +2132,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		doc.Offers[0].Components[0].AmountUSD = nil
 		route.ParamOverride = nil
 		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
-		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, false)
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
 		require.Len(t, offers, 1)
 		assert.Nil(t, offers[0].Provider)
 		assert.Nil(t, offers[0].Prices[0].AmountRub)
@@ -2138,7 +2141,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	t.Run("same offer id does not hide different variants", func(t *testing.T) {
 		doc.Offers = []catalogsync.Offer{a, b}
 		doc.Offers[1].ID = a.ID
-		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}, true)
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
 		require.Len(t, offers, 2)
 		assert.NotEqual(t, offers[0].ID, offers[1].ID)
 	})
@@ -2376,4 +2379,186 @@ func TestEffectivePricingModelQuery(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "provider/model:batch", name)
 	assert.Equal(t, "captured", revision)
+}
+
+// TestCatalogSemanticSnapshotProjection exercises the consumer projection with an
+// unchanged published document, including Flex, native meters and context tiers.
+func TestCatalogSemanticSnapshotProjection(t *testing.T) {
+	raw, err := os.ReadFile("../model/testdata/upstream_catalog/gpt-5.4-semantic-poc.json")
+	require.NoError(t, err)
+	require.Equal(t, "c701c04af8a12644c4514f72de8269d6c01d23674d39757c511ce64641fe4452", catalogsync.Hash(raw))
+	doc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "openai/gpt-5.4", Hash: catalogsync.Hash(raw)})
+	require.NoError(t, err)
+	route := model.UpstreamCatalogRoute{Operation: "text", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: doc}
+	item := model.Pricing{ModelName: "gpt-5.4", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
+	offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
+	require.Len(t, offers, len(doc.Offers))
+
+	t.Run("semantic aliases produce one minimum for each component", func(t *testing.T) {
+		minima := catalogMinima(offers)
+		require.Len(t, minima, 1)
+		amounts := map[string]float64{}
+		for _, price := range minima[0].Prices {
+			require.NotNil(t, price.AmountRub)
+			assert.NotContains(t, price.Component, ":")
+			amounts[price.Component] = *price.AmountRub
+		}
+		// Existing channels strip service_tier; opt-in tiers cannot lower their minimum.
+		assert.Equal(t, map[string]float64{"input": 250, "output": 1500, "cache_read": 25, "web_search": 1}, amounts)
+		wire, err := common.Marshal(minima)
+		require.NoError(t, err)
+		assert.NotContains(t, string(wire), "openai_responses:")
+		t.Logf("normalized minima: %s", wire)
+	})
+
+	t.Run("normalization preserves every source amount condition and identity", func(t *testing.T) {
+		before, after := []string{}, []string{}
+		for _, original := range doc.Offers {
+			wire, err := common.Marshal([]any{original.Provider, original.Variant, original.Components})
+			require.NoError(t, err)
+			before = append(before, catalogsync.Hash(wire))
+		}
+		for _, offer := range offers {
+			rates := make([]upstreamRate, 0, len(offer.Prices))
+			for _, price := range offer.Prices {
+				rates = append(rates, price.upstreamRate)
+			}
+			wire, err := common.Marshal([]any{offer.Provider, offer.Variant, rates})
+			require.NoError(t, err)
+			after = append(after, catalogsync.Hash(wire))
+		}
+		assert.ElementsMatch(t, before, after)
+	})
+
+	t.Run("Flex standard and long context retain distinct price conditions", func(t *testing.T) {
+		got := map[string]map[string]bool{}
+		for _, offer := range offers {
+			if offer.Provider == nil || offer.Provider.Tag == nil {
+				continue
+			}
+			id := *offer.Provider.Tag
+			if id != "openai" && id != "openai/flex" {
+				continue
+			}
+			got[id] = map[string]bool{}
+			for _, price := range offer.Prices {
+				if price.Parameter != "prompt" {
+					continue
+				}
+				var condition struct {
+					Min int `json:"contextMin"`
+					Max int `json:"contextMax"`
+				}
+				require.NoError(t, common.Unmarshal(price.Conditions, &condition))
+				got[id][fmt.Sprintf("%d..%d=%s", condition.Min, condition.Max, *price.AmountUSD)] = true
+			}
+		}
+		assert.Equal(t, map[string]bool{"0..272000=2.5": true, "272001..922000=5": true}, got["openai"])
+		assert.Equal(t, map[string]bool{"0..272000=1.25": true, "272001..922000=2.5": true}, got["openai/flex"])
+	})
+
+	t.Run("public schedules partition overlapping contexts without native SKU leakage", func(t *testing.T) {
+		tariff := buildCatalogModelTariff(effectivePricingPageContext{groupRatios: map[string]float64{"default": 1}, fxFactor: 1}, item, "default")
+		require.Len(t, tariff.Operations, 1)
+		operation := tariff.Operations[0]
+		assert.True(t, operation.IsFrom)
+		require.Len(t, operation.Tiers, 3)
+		expected := []map[string]float64{
+			{"input": 250, "output": 1500, "cache_read": 25, "web_search": 1},
+			{"input": 500, "output": 2250, "cache_read": 50, "web_search": 1},
+			{"input": 550, "output": 2475, "cache_read": 55, "web_search": 1},
+		}
+		for index, tier := range operation.Tiers {
+			amounts := map[string]float64{}
+			for _, price := range tier.Prices {
+				require.NotNil(t, price.AmountRub)
+				amounts[price.Component] = *price.AmountRub
+			}
+			assert.Equal(t, expected[index], amounts)
+		}
+		assert.Equal(t, float64(272000), *operation.Tiers[0].Condition.Value)
+		assert.Equal(t, float64(922001), *operation.Tiers[2].Condition.Conditions[0].Value)
+		wire, err := common.Marshal(tariff)
+		require.NoError(t, err)
+		assert.NotContains(t, string(wire), "openai_responses")
+		assert.NotContains(t, string(wire), "provider")
+		assert.NotContains(t, string(wire), "utc_day")
+	})
+
+	t.Run("allowed service tiers keep their context and request conditions", func(t *testing.T) {
+		optIn := item
+		optIn.UpstreamCatalogRoutesByGroup = map[string][]model.UpstreamCatalogRoute{"default": {route}}
+		optIn.UpstreamCatalogRoutesByGroup["default"][0].ServiceTierEnabled = true
+		projection := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, optIn, false)
+		require.Len(t, projection.GroupPrices, 1)
+		require.Len(t, projection.GroupPrices[0].Operations, 1)
+		operation := projection.GroupPrices[0].Operations[0]
+		require.Len(t, operation.Tiers, 7)
+		wire, err := common.Marshal(operation.Tiers)
+		require.NoError(t, err)
+		assert.Contains(t, string(wire), `"string_value":"flex"`)
+		assert.Contains(t, string(wire), `"string_value":"priority"`)
+		assert.Contains(t, string(wire), `"string_value":"default"`)
+		for _, tier := range operation.Tiers {
+			encoded, err := common.Marshal(tier.Condition)
+			require.NoError(t, err)
+			assert.Contains(t, string(encoded), `"argument":"service_tier"`)
+		}
+		for _, price := range operation.Prices {
+			if price.Component == "input" {
+				assert.Equal(t, float64(125), *price.AmountRub)
+			}
+		}
+		assert.Empty(t, projection.GroupPrices[0].ProviderOffers)
+		optIn.UpstreamCatalogRoutesByGroup["default"] = append(optIn.UpstreamCatalogRoutesByGroup["default"], optIn.UpstreamCatalogRoutesByGroup["default"][0])
+		duplicateRoute := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, optIn, false)
+		assert.Equal(t, projection.GroupPrices, duplicateRoute.GroupPrices)
+	})
+
+	t.Run("unknown semantics and unsupported conditions never become public minima", func(t *testing.T) {
+		unknown := "unrecognized_billable"
+		conflict := "output"
+		rates := []catalogsync.Component{
+			{Parameter: "openai_responses:prompt_tokens", Billable: &unknown},
+			{Parameter: "prompt", Billable: &unknown},
+			{Parameter: "prompt", Billable: common.GetPointer("input_text"), Direction: &conflict},
+			{Parameter: "prompt", Direction: &conflict},
+			{Parameter: "prompt", Modality: common.GetPointer("image")},
+		}
+		for _, rate := range rates {
+			assert.Equal(t, "unknown", catalogComponentName(rate))
+		}
+		price := offers[0].Prices[0]
+		price.Conditions = []byte(`{"region":"us"}`)
+		copy := offers[0]
+		copy.minimumEligible = true
+		copy.Availability = "eligible"
+		copy.Eligibility = nil
+		copy.Prices = []consumerProviderPrice{price}
+		assert.Empty(t, catalogMinima([]consumerProviderOffer{copy})[0].Prices)
+		for _, conditions := range []string{`{"contextMin":-1}`, `{"contextMin":100,"contextMax":10}`, `{"utcDay":7}`, `{"utcStart":1260}`, `{"contextMax":9007199254740992}`} {
+			price.Conditions = []byte(conditions)
+			_, valid := catalogRateWindow(price)
+			assert.False(t, valid, conditions)
+		}
+	})
+
+	t.Run("weekday and time discounts remain conditional", func(t *testing.T) {
+		price := offers[0].Prices[0]
+		price.Component, price.Unit = "input", "million_tokens"
+		amount := "100"
+		price.AmountRub = &amount
+		price.Conditions = []byte(`{"contextMin":0,"contextMax":8192,"utcDay":1,"utcStart":1200,"utcEnd":1800}`)
+		price.Provenance = []byte(`{"source":"generic"}`)
+		offer := consumerProviderOffer{minimumEligible: true, Availability: "eligible", Operation: "text", Mode: "sync", Prices: []consumerProviderPrice{price}, Variant: []byte(`{}`)}
+		minimum := catalogMinima([]consumerProviderOffer{offer})
+		require.Len(t, minimum, 1)
+		require.Len(t, minimum[0].Tiers, 1)
+		wire, err := common.Marshal(minimum[0].Tiers[0].Condition)
+		require.NoError(t, err)
+		for _, field := range []string{`"argument":"utc_day"`, `"argument":"utc_hhmm"`, `"value":1200`, `"value":1800`, `"value":1`} {
+			assert.Contains(t, string(wire), field)
+		}
+
+	})
 }

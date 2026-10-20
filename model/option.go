@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -770,6 +771,8 @@ func handleConfigUpdate(key, value string) bool {
 	configMap := map[string]string{
 		configKey: value,
 	}
+	global, _ := cfg.(*model_setting.GlobalSettings)
+	previousPassThrough := global != nil && global.PassThroughRequestEnabled
 	billing, _ := cfg.(*billing_setting.BillingSetting)
 	var previousBilling billing_setting.BillingSetting
 	if configName == "billing_setting" && billing != nil {
@@ -780,6 +783,9 @@ func handleConfigUpdate(key, value string) bool {
 		}
 	}
 	config.UpdateConfigFromMap(cfg, configMap)
+	if global != nil && previousPassThrough != global.PassThroughRequestEnabled {
+		InvalidatePricingCache()
+	}
 
 	// 特定配置的后处理
 	if configName == "performance_setting" {
