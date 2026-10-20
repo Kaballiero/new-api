@@ -124,7 +124,7 @@ func pricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (st
 				if route.ParamOverride != nil {
 					policy = CatalogHash([]byte(*route.ParamOverride))
 				}
-				upstreamRoutes[group] = append(upstreamRoutes[group], fmt.Sprintf("semantic-v1:%d:%s:%s:%s:%s:%s:%s:%t", route.ChannelID, route.ModelID, route.DocumentHash, route.Operation, route.Mode, route.Endpoint, policy, route.ServiceTierEnabled))
+				upstreamRoutes[group] = append(upstreamRoutes[group], fmt.Sprintf("semantic-v2:%d:%s:%s:%s:%s:%s:%s:%t", route.ChannelID, route.ModelID, route.DocumentHash, route.Operation, route.Mode, route.Endpoint, policy, route.ServiceTierEnabled))
 			}
 			slices.Sort(upstreamRoutes[group])
 		}

@@ -117,6 +117,28 @@ func catalogComponentName(rate catalogsync.Component) string {
 	return component
 }
 
+func catalogProviderForwardingOperation(operation map[string]any) bool {
+	conditions, ok := operation["conditions"].([]any)
+	if !ok || len(conditions) != 1 {
+		return false
+	}
+	condition, ok := conditions[0].(map[string]any)
+	if !ok || condition["mode"] != "full" || condition["pass_missing_key"] == true {
+		return false
+	}
+	switch operation["mode"] {
+	case "move":
+		return operation["from"] == "extra_body.provider" && operation["to"] == "provider" &&
+			condition["path"] == "extra_body.provider" && condition["value"] == nil && condition["invert"] == true
+	case "delete":
+		empty, ok := condition["value"].(map[string]any)
+		return operation["path"] == "extra_body" && condition["path"] == "extra_body" &&
+			condition["invert"] != true && ok && len(empty) == 0
+	default:
+		return false
+	}
+}
+
 // A catalog is a projection, not request admission. Use the same override engine
 // as relay; apply provider selection to the resulting routing preferences.
 func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group string, user pricingUserContext, offer catalogsync.Offer) (bool, bool, bool) {
@@ -138,6 +160,11 @@ func catalogProviderAllowed(route model.UpstreamCatalogRoute, apiModel, group st
 			operation, ok := entry.(map[string]any)
 			if !ok {
 				return true, false, false
+			}
+			// Moving a client's legacy provider object into its canonical field
+			// does not introduce a server-side provider constraint.
+			if catalogProviderForwardingOperation(operation) {
+				continue
 			}
 			if operation["mode"] != "set" && operation["mode"] != "delete" {
 				return true, false, false
