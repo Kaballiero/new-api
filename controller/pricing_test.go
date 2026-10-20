@@ -2473,6 +2473,91 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	})
 }
 
+func TestUpstreamCatalogDetailCollapsesModelPageDuplicates(t *testing.T) {
+	raw, err := os.ReadFile("../model/testdata/upstream_catalog/aggregator.json")
+	require.NoError(t, err)
+	doc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "router/aggregated", Hash: catalogsync.Hash(raw)})
+	require.NoError(t, err)
+	meter := func(source, parameter, billable, amount, conditions string) catalogsync.Component {
+		rate := catalogsync.Component{Parameter: parameter, ComponentID: `{"billable":"` + billable + `"}`, Billable: common.GetPointer(billable), Direction: common.GetPointer("input"), Modality: common.GetPointer("text"), Unit: "million_tokens", Quantity: "1", Variant: json.RawMessage(`{}`), Conditions: json.RawMessage(conditions), Provenance: json.RawMessage(`{"scope":"endpoint","source":"` + source + `"}`)}
+		if billable == "" {
+			rate.ComponentID, rate.Billable = parameter, nil
+		}
+		if amount != "" {
+			rate.AmountUSD = common.GetPointer(amount)
+			rate.Normalization.Comparable, rate.Normalization.Effective = true, true
+		}
+		return rate
+	}
+	generic := meter("generic", "prompt", "input_text", "0.6628", `{}`)
+	pricesFor := func(validRatio bool, components ...catalogsync.Component) []consumerProviderPrice {
+		offer := doc.Offers[0]
+		offer.Components = components
+		document := *doc
+		document.Offers = []catalogsync.Offer{offer}
+		route := model.UpstreamCatalogRoute{Operation: "embeddings", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: &document}
+		item := model.Pricing{ModelName: "detail", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
+		offers := upstreamProviderOffers(item, "default", 1, validRatio, pricingUserContext{})
+		require.Len(t, offers, 1)
+		return offers[0].Prices
+	}
+	parameters := func(prices []consumerProviderPrice) []string {
+		result := []string{}
+		for _, price := range prices {
+			result = append(result, price.Parameter)
+		}
+		return result
+	}
+	for _, tc := range []struct {
+		name       string
+		validRatio bool
+		mutate     func(*catalogsync.Component)
+		expected   []string
+	}{
+		{"exact duplicate keeps generic", true, func(*catalogsync.Component) {}, []string{"prompt"}},
+		{"reordered conditions are equal", true, func(rate *catalogsync.Component) {
+			rate.Conditions = json.RawMessage(`{"utcEnd":2400, "utcStart":0}`)
+		}, []string{"prompt"}},
+		{"usd fallback without rouble amounts", false, func(*catalogsync.Component) {}, []string{"prompt"}},
+		{"different amount", true, func(rate *catalogsync.Component) { rate.AmountUSD = common.GetPointer("0.6629") }, []string{"prompt", "openai:prompt_tokens"}},
+		{"different conditions", true, func(rate *catalogsync.Component) { rate.Conditions = json.RawMessage(`{}`) }, []string{"prompt", "openai:prompt_tokens"}},
+		{"own context window", true, func(rate *catalogsync.Component) {
+			rate.Conditions = json.RawMessage(`{"contextMin":0,"contextMax":8192,"utcStart":0,"utcEnd":2400}`)
+		}, []string{"prompt", "openai:prompt_tokens"}},
+		{"different variant", true, func(rate *catalogsync.Component) { rate.Variant = json.RawMessage(`{"service_tier":"flex"}`) }, []string{"prompt", "openai:prompt_tokens"}},
+		{"different unit", true, func(rate *catalogsync.Component) { rate.Unit = "thousand_tokens" }, []string{"prompt", "openai:prompt_tokens"}},
+		{"different quantity", true, func(rate *catalogsync.Component) { rate.Quantity = "1000" }, []string{"prompt", "openai:prompt_tokens"}},
+		{"different billable", true, func(rate *catalogsync.Component) {
+			rate.Billable, rate.ComponentID = common.GetPointer("input_tokens"), `{"billable":"input_tokens"}`
+		}, []string{"prompt", "openai:prompt_tokens"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scheduled := meter("generic", "prompt", "input_text", "0.6628", `{"utcStart":0,"utcEnd":2400}`)
+			page := meter("model_page", "openai:prompt_tokens", "input_text", "0.6628", `{"utcStart":0,"utcEnd":2400}`)
+			tc.mutate(&page)
+			prices := pricesFor(tc.validRatio, scheduled, page)
+			assert.Equal(t, tc.expected, parameters(prices))
+			assert.Contains(t, string(prices[0].Provenance), `"source":"generic"`)
+		})
+	}
+	t.Run("model page without generic pair stays", func(t *testing.T) {
+		page := meter("model_page", "openai:completion_tokens", "output_text", "1.3256", `{}`)
+		page.Direction = common.GetPointer("output")
+		prices := pricesFor(true, generic, page)
+		assert.Equal(t, []string{"prompt", "openai:completion_tokens"}, parameters(prices))
+		require.NotNil(t, prices[1].AmountRub)
+		assert.Equal(t, "132.56", *prices[1].AmountRub)
+	})
+	t.Run("unknown meters without amounts stay", func(t *testing.T) {
+		prices := pricesFor(true, meter("generic", "display:0:0:Input Price", "", "", `{}`), meter("model_page", "display:0:0:Input Price", "", "", `{}`))
+		require.Len(t, prices, 2)
+		for _, price := range prices {
+			assert.Equal(t, "unknown", price.Component)
+			assert.Nil(t, price.AmountRub)
+		}
+	})
+}
+
 func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 	db := openChannelControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.CatalogSource{}, &model.CatalogRevision{}, &model.CatalogDocument{}))
