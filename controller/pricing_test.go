@@ -2055,6 +2055,41 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	require.NotEmpty(t, tariff.Operations)
 	assert.False(t, tariff.Operations[0].IsFree)
 
+	t.Run("legacy client provider forwarding preserves catalog prices", func(t *testing.T) {
+		forwarding := `{"operations":[{"mode":"move","from":"extra_body.provider","to":"provider","conditions":[{"path":"extra_body.provider","mode":"full","value":null,"invert":true,"pass_missing_key":false}]},{"mode":"delete","path":"extra_body","conditions":[{"path":"extra_body","mode":"full","value":{},"pass_missing_key":false}]}]}`
+		route.ParamOverride = &forwarding
+		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
+		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
+		require.Len(t, offers, 2)
+		for _, offer := range offers {
+			assert.Equal(t, "eligible", offer.Availability)
+		}
+		minimum := catalogMinima(offers)
+		require.Len(t, minimum, 1)
+		for _, price := range minimum[0].Prices {
+			if price.Component == "input" {
+				require.NotNil(t, price.AmountRub)
+				assert.Equal(t, float64(100), *price.AmountRub)
+			}
+		}
+		pinned := strings.Replace(forwarding, `{"operations":`, `{"provider":{"only":["b"]},"operations":`, 1)
+		route.ParamOverride = &pinned
+		item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
+		offers = upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
+		require.Len(t, offers, 1)
+		assert.Equal(t, "b", *offers[0].Provider.ID)
+		assert.Equal(t, "eligible", offers[0].Availability)
+		for _, invalid := range []string{
+			strings.Replace(forwarding, `"from":"extra_body.provider"`, `"from":"request_headers.provider"`, 1),
+			strings.Replace(forwarding, `"invert":true`, `"invert":false`, 1),
+			strings.Replace(forwarding, `"pass_missing_key":false`, `"pass_missing_key":true`, 1),
+		} {
+			route.ParamOverride = &invalid
+			item.UpstreamCatalogRoutesByGroup["default"] = []model.UpstreamCatalogRoute{route}
+			assert.Empty(t, catalogMinima(upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})))
+		}
+	})
+
 	t.Run("unknown routing constraints do not advertise a guaranteed minimum", func(t *testing.T) {
 		policy := `{"provider":{"only":["b"],"quantizations":["fp8"]}}`
 		route.ParamOverride = &policy
