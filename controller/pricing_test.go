@@ -3509,9 +3509,18 @@ func TestCatalogVariantMinimaKeepDistinctPrices(t *testing.T) {
 	})
 }
 
-func TestConsumerPricingTagsMatchPublicNormalization(t *testing.T) {
+func TestConsumerPricingTagsPreserveStoredTags(t *testing.T) {
 	item := model.Pricing{ModelName: "deepgram/nova-3", Tags: "Transcription,Audio,top,audio", EnableGroup: []string{"default"}}
 	projection := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, false)
-	assert.Equal(t, "audio,top,transcription", projection.Tags)
-	assert.Equal(t, strings.Join(pricingTags(item.Tags), ","), projection.Tags)
+	assert.Equal(t, "Transcription,Audio,top", projection.Tags)
+
+	for _, tc := range []struct{ stored, expected string }{
+		{"Open Weights", "Open Weights"},
+		{" Open Weights , open weights,1M ,1m", "Open Weights,1M"},
+		{"Transcription,Audio,top,audio", "Transcription,Audio,top"},
+		{"1M", "1M"},
+		{" , ,", ""},
+	} {
+		assert.Equal(t, tc.expected, consumerPricingTags(tc.stored), tc.stored)
+	}
 }

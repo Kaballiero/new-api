@@ -65,8 +65,22 @@ func buildConsumerPricingResponse(userGroup string, basis service.BillingFXBasis
 	return response
 }
 
+// consumerPricingTags keeps stored comma-separated model tags intact: each tag is
+// trimmed and case-insensitive duplicates keep the first original spelling.
+func consumerPricingTags(value string) string {
+	tags := make([]string, 0)
+	for tag := range strings.SplitSeq(value, ",") {
+		tag = strings.TrimSpace(tag)
+		if tag == "" || slices.ContainsFunc(tags, func(seen string) bool { return strings.EqualFold(seen, tag) }) {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	return strings.Join(tags, ",")
+}
+
 func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item model.Pricing, details bool, users ...pricingUserContext) consumerPricingModel {
-	result := consumerPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: strings.Join(pricingTags(item.Tags), ","), VendorID: item.VendorID, OwnerBy: item.OwnerBy, SupportedEndpointTypes: item.SupportedEndpointTypes, GroupPrices: []consumerGroupPricing{}}
+	result := consumerPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: consumerPricingTags(item.Tags), VendorID: item.VendorID, OwnerBy: item.OwnerBy, SupportedEndpointTypes: item.SupportedEndpointTypes, GroupPrices: []consumerGroupPricing{}}
 	groups := effectivePricingGroups(item.EnableGroup, usableGroups)
 	slices.Sort(groups)
 	for _, group := range groups {
