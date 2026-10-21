@@ -1,7 +1,6 @@
 package set_user_permissions_in_tx
 
 import (
-	"fmt"
 	"github.com/QuantumNous/new-api/internal/authorization/domain"
 )
 
@@ -21,21 +20,21 @@ func NewUsecase(catalog func() domain.Catalog, policy func() domain.PolicyReader
 func (usecase Usecase) Execute(userID int, permissions domain.PermissionsMap) error {
 	e := usecase.policy()
 	if e == nil {
-		return fmt.Errorf("authz enforcer is not initialized")
+		return domain.ErrEnforcerNotInitialized
 	}
 	for resource, actions := range permissions {
 		if !usecase.catalog().HasResource(resource) {
 			continue
 		}
 		if err := usecase.writer.RemoveResource(userID, resource); err != nil {
-			return err
+			return domain.Internal(err)
 		}
 		policies := domain.UserOverridePolicies(e, usecase.catalog(), resource, actions)
 		if len(policies) == 0 {
 			continue
 		}
 		if err := usecase.writer.InsertOverrides(userID, policies); err != nil {
-			return err
+			return domain.Internal(err)
 		}
 	}
 	return nil

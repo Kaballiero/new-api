@@ -1,7 +1,6 @@
 package set_user_permissions
 
 import (
-	"fmt"
 	"github.com/QuantumNous/new-api/internal/authorization/domain"
 )
 
@@ -21,7 +20,7 @@ func NewUsecase(catalog func() domain.Catalog, policy func() Policy) Usecase {
 func (usecase Usecase) Execute(userID int, permissions domain.PermissionsMap) error {
 	e := usecase.policy()
 	if e == nil {
-		return fmt.Errorf("authz enforcer is not initialized")
+		return domain.ErrEnforcerNotInitialized
 	}
 
 	for resource, actions := range permissions {
@@ -29,11 +28,11 @@ func (usecase Usecase) Execute(userID int, permissions domain.PermissionsMap) er
 			continue
 		}
 		if _, err := e.RemoveFilteredPolicy(0, domain.UserSubject(userID), resource); err != nil {
-			return err
+			return domain.Internal(err)
 		}
 		for _, policy := range domain.UserOverridePolicies(e, usecase.catalog(), resource, actions) {
 			if _, err := e.AddPolicy(domain.UserSubject(userID), policy.Resource, policy.Action, policy.Effect); err != nil {
-				return err
+				return domain.Internal(err)
 			}
 		}
 	}

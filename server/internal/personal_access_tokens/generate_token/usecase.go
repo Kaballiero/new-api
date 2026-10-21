@@ -1,5 +1,7 @@
 package generate_token
 
+import "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
+
 type Store interface {
 	CountToken(string) (int64, error)
 	Update(int, string) error
@@ -17,17 +19,17 @@ func NewUsecase(store Store, generate func() (string, error), fingerprint func(s
 func (usecase Usecase) Execute(input Input) (Output, error) {
 	key, err := usecase.generate()
 	if err != nil {
-		return Output{}, err
+		return Output{}, domain.Internal(err)
 	}
 	existing, err := usecase.store.CountToken(key)
 	if err != nil {
-		return Output{}, err
+		return Output{}, domain.Internal(err)
 	}
 	if existing != 0 {
-		return Output{Duplicate: true}, nil
+		return Output{}, domain.ErrTokenDuplicate
 	}
 	if err := usecase.store.Update(input.UserID, key); err != nil {
-		return Output{}, err
+		return Output{}, domain.Internal(err)
 	}
 	usecase.audit(input.UserID, usecase.fingerprint(key))
 	return Output{Token: key}, nil

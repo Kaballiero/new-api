@@ -248,7 +248,7 @@ func TestGetAPIPATSurvivesNativeBlockEnableAndIsDeniedWhileBlocked(t *testing.T)
 	var enabled model.User
 	require.NoError(t, model.DB.First(&enabled, envelope.Data.UserID).Error)
 	require.Equal(t, oldPAT, enabled.GetAccessToken())
-	_, err = model.RevokeUserAccessToken(envelope.Data.UserID)
+	_, err = revokeUserAccessToken(envelope.Data.UserID)
 	require.NoError(t, err)
 	validated, err := model.ValidateAccessToken(oldPAT)
 	require.NoError(t, err)

@@ -1,5 +1,7 @@
 package revoke_token
 
+import "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
+
 type Transaction interface {
 	LockToken(int) (string, error)
 	Clear(int) error
@@ -13,7 +15,7 @@ type Usecase struct {
 	audit       func(string)
 }
 
-// audit is nil for the pre-existing model bridge, which has no HTTP audit context.
+// audit may be nil when the caller records no audit event (no HTTP audit context).
 func NewUsecase(store Store, fingerprint func(string) string, audit func(string)) Usecase {
 	return Usecase{store: store, fingerprint: fingerprint, audit: audit}
 }
@@ -30,8 +32,12 @@ func (usecase Usecase) Execute(input Input) (Output, error) {
 		}
 		return tx.Clear(input.UserID)
 	})
-	if err == nil && tokenRef != "" && usecase.audit != nil {
+	if err != nil {
+		// The attempted generation is still reported so callers can correlate it.
+		return Output{TokenRef: tokenRef}, domain.Internal(err)
+	}
+	if tokenRef != "" && usecase.audit != nil {
 		usecase.audit(tokenRef)
 	}
-	return Output{TokenRef: tokenRef}, err
+	return Output{TokenRef: tokenRef}, nil
 }

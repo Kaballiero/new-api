@@ -1,7 +1,6 @@
 package initialize_authorization
 
 import (
-	"fmt"
 	"github.com/QuantumNous/new-api/internal/authorization/domain"
 )
 
@@ -30,7 +29,7 @@ func (usecase Usecase) Execute() error {
 	if usecase.master() {
 		for _, spec := range usecase.catalog().BuiltInRoles {
 			if err := usecase.store.UpsertRole(spec); err != nil {
-				return err
+				return domain.Internal(err)
 			}
 		}
 		roles := usecase.catalog().BuiltInRoles
@@ -39,18 +38,18 @@ func (usecase Usecase) Execute() error {
 			subjects = append(subjects, domain.RoleSubject(spec.Key))
 		}
 		if err := usecase.store.ResetRolePolicies(subjects); err != nil {
-			return err
+			return domain.Internal(err)
 		}
 	}
 	if err := usecase.engine.CreateAndPublish(); err != nil {
-		return err
+		return domain.Internal(err)
 	}
 	if !usecase.master() {
 		return nil
 	}
 	e := usecase.engine.CurrentPolicy()
 	if e == nil {
-		return fmt.Errorf("authz enforcer is not initialized")
+		return domain.ErrEnforcerNotInitialized
 	}
 	for _, spec := range usecase.catalog().BuiltInRoles {
 		if spec.Superuser {
@@ -58,7 +57,7 @@ func (usecase Usecase) Execute() error {
 		}
 		for _, permission := range usecase.catalog().PermissionsForRole(spec.Key) {
 			if _, err := e.AddPolicy(domain.RoleSubject(spec.Key), permission.Resource, permission.Action, domain.EffectAllow); err != nil {
-				return err
+				return domain.Internal(err)
 			}
 		}
 	}

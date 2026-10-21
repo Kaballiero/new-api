@@ -19,7 +19,7 @@ func NewUsecase(reader Reader, fingerprint func(string) string, roles domain.Aud
 func (usecase Usecase) Execute(input Input) (*Output, error) {
 	user, err := usecase.reader.Account(input.UserID)
 	if err != nil {
-		return nil, err
+		return nil, domain.Internal(err)
 	}
 	status := &Output{Exists: user.Token != ""}
 	if !status.Exists {
@@ -36,7 +36,7 @@ func (usecase Usecase) Execute(input Input) (*Output, error) {
 		return status, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, domain.Internal(err)
 	}
 	status.LastUsedAt = &latest.CreatedAt
 	status.LastUsedIp = latest.Ip

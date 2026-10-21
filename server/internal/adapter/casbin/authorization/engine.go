@@ -1,7 +1,7 @@
 package authorization
 
 import (
-	"fmt"
+	"github.com/QuantumNous/new-api/internal/authorization/domain"
 	"github.com/QuantumNous/new-api/internal/authorization/initialize_authorization"
 	"github.com/casbin/casbin/v2"
 	casbinmodel "github.com/casbin/casbin/v2/model"
@@ -45,7 +45,7 @@ func (state State) Reload() error {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if *state.value == nil {
-		return fmt.Errorf("authz enforcer is not initialized")
+		return domain.ErrEnforcerNotInitialized
 	}
 	return (*state.value).LoadPolicy()
 }

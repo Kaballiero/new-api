@@ -46,7 +46,7 @@ func (store Store) CountToken(key string) (int64, error) {
 }
 func (store Store) Update(id int, token string) error {
 	if id == 0 {
-		return errors.New("id 为空！")
+		return domain.ErrUserIDRequired
 	}
 	result := store.db().Model(&record.User{}).Where("id = ?", id).Updates(map[string]any{"access_token": token, "access_token_created_at": store.now()})
 	if result.Error != nil {

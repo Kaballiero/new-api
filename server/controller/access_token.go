@@ -1,25 +1,25 @@
 package controller
 
 import (
-	"github.com/QuantumNous/new-api/internal/app"
 	"strconv"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
-
+	"github.com/QuantumNous/new-api/internal/app"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
 )
 
-func GetAccessTokenStatus(c *gin.Context) {
-	app.NewPersonalAccessTokensHTTP(recordUserSecurityAudit).Status.Handle(c)
-}
-func GenerateAccessToken(c *gin.Context) {
-	app.NewPersonalAccessTokensHTTP(recordUserSecurityAudit).Generate.Handle(c)
-}
-func RevokeAccessToken(c *gin.Context) {
-	app.NewPersonalAccessTokensHTTP(recordUserSecurityAudit).Revoke.Handle(c)
-}
+// personalAccessTokensHTTP builds the personal access token handlers once; the
+// database is read per request by the injected store.
+var personalAccessTokensHTTP = sync.OnceValue(func() app.PersonalAccessTokensHTTP {
+	return app.NewPersonalAccessTokensHTTP(recordUserSecurityAudit)
+})
+
+func GetAccessTokenStatus(c *gin.Context) { personalAccessTokensHTTP().Status.Handle(c) }
+func GenerateAccessToken(c *gin.Context)  { personalAccessTokensHTTP().Generate.Handle(c) }
+func RevokeAccessToken(c *gin.Context)    { personalAccessTokensHTTP().Revoke.Handle(c) }
 
 func GetAuditLogs(c *gin.Context) {
 	page := common.GetPageQuery(c)

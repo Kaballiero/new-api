@@ -14,7 +14,7 @@ func NewUsecase(catalog func() domain.Catalog, writer Writer) Usecase {
 func (usecase Usecase) Execute(userID int) error {
 	for _, resource := range usecase.catalog().Resources {
 		if err := usecase.writer.RemoveResource(userID, resource.Resource); err != nil {
-			return err
+			return domain.Internal(err)
 		}
 	}
 	return nil

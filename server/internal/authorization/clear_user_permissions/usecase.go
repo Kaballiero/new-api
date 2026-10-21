@@ -1,7 +1,6 @@
 package clear_user_permissions
 
 import (
-	"fmt"
 	"github.com/QuantumNous/new-api/internal/authorization/domain"
 )
 
@@ -19,12 +18,12 @@ func NewUsecase(catalog func() domain.Catalog, policy func() Writer) Usecase {
 func (usecase Usecase) Execute(userID int) error {
 	e := usecase.policy()
 	if e == nil {
-		return fmt.Errorf("authz enforcer is not initialized")
+		return domain.ErrEnforcerNotInitialized
 	}
 
 	for _, resource := range usecase.catalog().Resources {
 		if _, err := e.RemoveFilteredPolicy(0, domain.UserSubject(userID), resource.Resource); err != nil {
-			return err
+			return domain.Internal(err)
 		}
 	}
 	return nil

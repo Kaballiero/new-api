@@ -17,6 +17,9 @@ import (
 	"gorm.io/driver/clickhouse"
 
 	"github.com/QuantumNous/new-api/common"
+	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
+	"github.com/QuantumNous/new-api/internal/personal_access_tokens/get_status"
+	"github.com/QuantumNous/new-api/internal/personal_access_tokens/revoke_token"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -56,6 +59,19 @@ func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
 	return user, token
 }
 
+// userAccessTokenStatus reads the PAT status the way GET /api/user/token/status does.
+func userAccessTokenStatus(id int) (*get_status.Output, error) {
+	roles := patdomain.AuditRoles{Root: common.RoleRootUser, Common: common.RoleCommonUser, Admin: common.RoleAdminUser}
+	return get_status.NewUsecase(model.NewPersonalAccessTokenPersistence(), patdomain.Fingerprint, roles).Execute(get_status.Input{UserID: id})
+}
+
+// revokeUserAccessToken revokes the PAT without an HTTP audit context and
+// returns the revoked generation reference.
+func revokeUserAccessToken(id int) (string, error) {
+	output, err := revoke_token.NewUsecase(model.NewPersonalAccessTokenPersistence(), patdomain.Fingerprint, nil).Execute(revoke_token.Input{UserID: id})
+	return output.TokenRef, err
+}
+
 func auditRequest(router http.Handler, method, path, token string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, path, strings.NewReader(`{"secret":"body-must-not-be-logged"}`))
 	request.Header.Set("Authorization", "Bearer "+token)
@@ -79,14 +95,14 @@ func TestAccessTokenLifecycleAndLateRequests(t *testing.T) {
 		require.NoError(t, model.UpdateUserAccessToken(user.Id, "new-token"))
 		c.JSON(200, gin.H{"success": true})
 	})
-	status, err := model.GetUserAccessTokenStatus(user.Id)
+	status, err := userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
 	assert.True(t, status.Exists)
 	assert.Nil(t, status.CreatedAt)
 	assert.Nil(t, status.LastUsedAt)
 	assert.NotContains(t, auditRequest(router, "GET", "/api/user/token/status", old).Body.String(), old)
 	require.Equal(t, 200, auditRequest(router, "POST", "/rotate-in-flight", old).Code)
-	status, err = model.GetUserAccessTokenStatus(user.Id)
+	status, err = userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, model.AccessTokenFingerprint("new-token"), status.TokenRef)
 	assert.NotNil(t, status.CreatedAt)
@@ -100,13 +116,13 @@ func TestAccessTokenLifecycleAndLateRequests(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "new-token", stored.GetAccessToken(), "a PAT cannot manage itself without a dashboard verification")
 	}
-	_, err = model.RevokeUserAccessToken(user.Id)
+	_, err = revokeUserAccessToken(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 401, auditRequest(router, "GET", "/api/user/token/status", "new-token").Code)
-	ref, err := model.RevokeUserAccessToken(user.Id)
+	ref, err := revokeUserAccessToken(user.Id)
 	require.NoError(t, err)
 	assert.Empty(t, ref, "repeated revocation is idempotent")
-	status, err = model.GetUserAccessTokenStatus(user.Id)
+	status, err = userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
 	assert.False(t, status.Exists)
 	assert.Nil(t, status.CreatedAt)
@@ -222,15 +238,15 @@ func TestAuditIsolationVisibilityAndFailureContracts(t *testing.T) {
 			tx.AddError(errors.New("audit store unavailable"))
 		}
 	}))
-	_, err := model.GetUserAccessTokenStatus(user.Id)
+	_, err := userAccessTokenStatus(user.Id)
 	require.Error(t, err, "audit query failure must not look like never used")
 	model.LOG_DB.Callback().Query().Remove("audit:fail")
 	require.NoError(t, model.DB.Callback().Update().Before("gorm:update").Register("audit:write-fail", func(tx *gorm.DB) { tx.AddError(errors.New("write unavailable")) }))
 	require.Error(t, model.UpdateUserAccessToken(user.Id, "replacement"))
-	_, err = model.RevokeUserAccessToken(user.Id)
+	_, err = revokeUserAccessToken(user.Id)
 	require.Error(t, err)
 	model.DB.Callback().Update().Remove("audit:write-fail")
-	status, err := model.GetUserAccessTokenStatus(user.Id)
+	status, err := userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, model.AccessTokenFingerprint(pat), status.TokenRef)
 }
@@ -320,7 +336,7 @@ func TestAuditRoleSnapshotSurvivesActorChanges(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, total)
 	assert.Empty(t, entries)
-	status, err := model.GetUserAccessTokenStatus(user.Id)
+	status, err := userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
 	assert.Nil(t, status.LastUsedAt, "a root request must not leak through the last-use summary after demotion")
 	require.NoError(t, model.DB.Unscoped().Delete(user).Error)
@@ -687,7 +703,7 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 					if !upgrade {
 						require.NoError(t, db.Create(&model.User{Username: "fresh-owner", Password: "placeholder", AffCode: "fresh-aff"}).Error)
 					}
-					status, err := model.GetUserAccessTokenStatus(1)
+					status, err := userAccessTokenStatus(1)
 					require.NoError(t, err)
 					assert.Equal(t, upgrade, status.Exists)
 					assert.Nil(t, status.CreatedAt)
@@ -722,13 +738,13 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 					require.NoError(t, err)
 					require.Len(t, failed, 1)
 					assert.EqualValues(t, 102, failed[0].CreatedAt)
-					status, err = model.GetUserAccessTokenStatus(1)
+					status, err = userAccessTokenStatus(1)
 					require.NoError(t, err)
 					require.NotNil(t, status.LastUsedAt)
 					assert.EqualValues(t, 103, *status.LastUsedAt)
-					_, err = model.RevokeUserAccessToken(1)
+					_, err = revokeUserAccessToken(1)
 					require.NoError(t, err)
-					_, err = model.RevokeUserAccessToken(1)
+					_, err = revokeUserAccessToken(1)
 					require.NoError(t, err)
 					require.NoError(t, model.MigrateAuditLogs())
 					_, total, err = model.GetAuditLogs(model.AuditLogFilter{UserId: 1}, 0, 10, 1)
@@ -795,7 +811,7 @@ func TestIndependentAuditLogStores(t *testing.T) {
 				assert.EqualValues(t, 1, total)
 				require.Len(t, entries, 1)
 				assert.False(t, entries[0].Success)
-				status, err := model.GetUserAccessTokenStatus(1)
+				status, err := userAccessTokenStatus(1)
 				require.NoError(t, err)
 				require.NotNil(t, status.LastUsedAt)
 				assert.Equal(t, "192.0.2.8", status.LastUsedIp)
@@ -854,7 +870,7 @@ func TestPersonalAccessTokenRevocationRollsBackOnWriteFailure(t *testing.T) {
 	user, _ := setupSecurityEnrollmentTest(t)
 	token := "rollback-pat-credential"
 	require.NoError(t, model.UpdateUserAccessToken(user.Id, token))
-	before, err := model.GetUserAccessTokenStatus(user.Id)
+	before, err := userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
 	require.NotNil(t, before.CreatedAt)
 	writeFailure := errors.New("personal access token write failure")
@@ -865,10 +881,10 @@ func TestPersonalAccessTokenRevocationRollsBackOnWriteFailure(t *testing.T) {
 		}
 	}))
 	t.Cleanup(func() { require.NoError(t, db.Callback().Update().Remove("pat:fail_revoke")) })
-	ref, err := model.RevokeUserAccessToken(user.Id)
+	ref, err := revokeUserAccessToken(user.Id)
 	require.ErrorIs(t, err, writeFailure)
 	assert.Equal(t, model.AccessTokenFingerprint(token), ref, "the Go API retains the attempted generation reference on failure")
-	after, err := model.GetUserAccessTokenStatus(user.Id)
+	after, err := userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, before, after, "a failed revoke must retain the original PAT and creation time")
 	loaded, err := model.ValidateAccessToken(token)
