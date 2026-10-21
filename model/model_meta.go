@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 
 	"gorm.io/gorm"
 )
@@ -474,6 +476,48 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 			continue
 		}
 		result[r.Model] = r.ChannelType
+	}
+	return result, nil
+}
+
+func GetOpenRouterReserveBilledModels(modelNames []string, groups []string) (map[string]bool, error) {
+	result := make(map[string]bool)
+	modelNames = normalizeLookupValues(modelNames)
+	groups = normalizeLookupValues(groups)
+	if len(modelNames) == 0 || len(groups) == 0 {
+		return result, nil
+	}
+
+	var rows []struct {
+		Model        string
+		Setting      *string
+		ModelMapping *string
+	}
+	err := DB.Table("abilities").
+		Select("abilities.model as model, channels.setting as setting, channels.model_mapping as model_mapping").
+		Joins("JOIN channels ON abilities.channel_id = channels.id").
+		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ? AND channels.type = ?", modelNames, true, common.ChannelStatusEnabled, constant.ChannelTypeOpenRouter).
+		Where("abilities."+commonGroupCol+" IN ?", groups).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		if result[row.Model] || row.Setting == nil || strings.TrimSpace(*row.Setting) == "" {
+			continue
+		}
+		var settings kitdto.ChannelSettings
+		if common.UnmarshalJsonStr(*row.Setting, &settings) != nil {
+			continue
+		}
+		upstream, ok := ResolvePricingUpstreamModel(&Channel{ModelMapping: row.ModelMapping}, row.Model)
+		if !ok {
+			continue
+		}
+		if reserve := settings.OpenRouterReserveUSD(upstream); reserve != nil && *reserve > 0 {
+			result[row.Model] = true
+		}
 	}
 	return result, nil
 }

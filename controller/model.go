@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -249,6 +250,8 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 	models := service.GetGroupsEnabledModels(ownerGroups)
+	var unpricedModels []string
+	unpriced := make(map[string]bool)
 	for _, modelName := range models {
 		if modelLimitEnable {
 			matchingName := ratio_setting.RoutingMatchModelName(modelName)
@@ -257,9 +260,19 @@ func ListModels(c *gin.Context, modelType int) {
 			}
 		}
 		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
-			continue
+			unpricedModels = append(unpricedModels, modelName)
+			unpriced[modelName] = true
 		}
 		userModelNames = append(userModelNames, modelName)
+	}
+	if len(unpricedModels) > 0 {
+		reserveBilled, err := model.GetOpenRouterReserveBilledModels(unpricedModels, ownerGroups)
+		if err != nil {
+			common.SysLog(fmt.Sprintf("GetOpenRouterReserveBilledModels error: %v", err))
+		}
+		userModelNames = slices.DeleteFunc(userModelNames, func(modelName string) bool {
+			return unpriced[modelName] && !reserveBilled[modelName]
+		})
 	}
 
 	ownerByModel := map[string]string{}
