@@ -52,6 +52,13 @@ token.count_limit: "Maximum token count reached ({{.Max}})"
 token.auto_groups_too_many: "A token can select at most {{.Max}} Auto groups"
 token.auto_groups_duplicate: "Auto group {{.Group}} is duplicated"
 token.auto_groups_invalid: "Auto group {{.Group}} is unavailable or unauthorized"
+token.id_required: "Token ID or user ID is empty"
+token.search_consecutive_wildcards: "Consecutive % wildcards are not allowed in the search pattern"
+token.search_too_many_wildcards: "The search pattern can contain at most 2 % wildcards"
+token.search_keyword_too_short: "The keyword must be at least 2 characters long for fuzzy search"
+token.search_count_failed: "Failed to count tokens"
+token.fuzzy_search_limit: "Too many tokens: only exact search is allowed, do not use the % wildcard"
+token.search_failed: "Failed to search tokens"
 
 # Redemption messages
 redemption.name_length: "Redemption code name length must be between 1-20"

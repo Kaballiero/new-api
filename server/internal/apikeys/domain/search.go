@@ -1,9 +1,6 @@
 package domain
 
-import (
-	"errors"
-	"strings"
-)
+import "strings"
 
 // SanitizeSearchPattern escapes a user LIKE pattern for ESCAPE '!' and checks it
 // with ValidateSearchPattern. A pattern without % matches the whole value.
@@ -25,20 +22,20 @@ func SanitizeSearchPattern(input string) (string, error) {
 func ValidateSearchPattern(input string) error {
 	// Consecutive % are rejected.
 	if strings.Contains(input, "%%") {
-		return errors.New("搜索模式中不允许包含连续的 % 通配符")
+		return ErrSearchConsecutiveWildcards
 	}
 
 	// At most two %.
 	count := strings.Count(input, "%")
 	if count > 2 {
-		return errors.New("搜索模式中最多允许包含 2 个 % 通配符")
+		return ErrSearchTooManyWildcards
 	}
 
 	// A fuzzy keyword without % must have at least two characters.
 	if count > 0 {
 		stripped := strings.ReplaceAll(input, "%", "")
 		if len(stripped) < 2 {
-			return errors.New("使用模糊搜索时，关键词长度至少为 2 个字符")
+			return ErrSearchKeywordTooShort
 		}
 	}
 

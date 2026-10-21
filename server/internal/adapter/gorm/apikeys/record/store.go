@@ -2,7 +2,9 @@ package model
 
 import (
 	"errors"
+
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"gorm.io/gorm"
 )
 
@@ -57,7 +59,7 @@ func (store Store) List(userId int, startIdx int, num int) ([]*Token, error) {
 
 func (store Store) Get(id int, userId int) (*Token, error) {
 	if id == 0 || userId == 0 {
-		return nil, errors.New("id 或 userId 为空！")
+		return nil, domain.ErrKeyIDRequired
 	}
 	token := Token{Id: id, UserId: userId}
 	var err error = nil
@@ -67,7 +69,7 @@ func (store Store) Get(id int, userId int) (*Token, error) {
 
 func (store Store) GetByID(id int) (*Token, error) {
 	if id == 0 {
-		return nil, errors.New("id 为空！")
+		return nil, errors.New("api key id is empty")
 	}
 	token := Token{Id: id}
 	var err error = nil
@@ -83,7 +85,7 @@ func (store Store) Count(userId int) (int64, error) {
 
 func (store Store) DeleteBatch(ids []int, userId int) (int, error) {
 	if len(ids) == 0 {
-		return 0, errors.New("ids 不能为空！")
+		return 0, errors.New("api key ids are empty")
 	}
 
 	tx := store.db().Begin()

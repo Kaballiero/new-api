@@ -52,6 +52,13 @@ token.count_limit: "Достигнуто максимальное количес
 token.auto_groups_too_many: "Для токена можно выбрать не более {{.Max}} Auto-групп"
 token.auto_groups_duplicate: "Auto-группа {{.Group}} указана повторно"
 token.auto_groups_invalid: "Auto-группа {{.Group}} недоступна или не разрешена"
+token.id_required: "Не указан ID токена или пользователя"
+token.search_consecutive_wildcards: "В шаблоне поиска нельзя использовать несколько % подряд"
+token.search_too_many_wildcards: "В шаблоне поиска допускается не более 2 символов %"
+token.search_keyword_too_short: "Для нечёткого поиска ключевое слово должно быть не короче 2 символов"
+token.search_count_failed: "Не удалось подсчитать токены"
+token.fuzzy_search_limit: "Токенов слишком много: доступен только точный поиск, не используйте символ %"
+token.search_failed: "Не удалось выполнить поиск токенов"
 
 # Redemption messages
 redemption.name_length: "Длина названия кода погашения должна быть от 1 до 20 символов"

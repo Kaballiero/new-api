@@ -54,21 +54,20 @@ func TestSearchKeysEscapesPatterns(t *testing.T) {
 
 func TestSearchKeysRejections(t *testing.T) {
 	cases := []struct {
-		name    string
-		count   int64
-		input   Input
-		message string
+		name  string
+		count int64
+		input Input
+		err   error
 	}{
-		{name: "fuzzy above key limit", count: 11, input: Input{Keyword: "ab%"}, message: "令牌数量超过上限，仅允许精确搜索，请勿使用 % 通配符"},
-		{name: "consecutive wildcards", input: Input{Keyword: "ab%%"}, message: "搜索模式中不允许包含连续的 % 通配符"},
-		{name: "too many wildcards", input: Input{Keyword: "%a%b%"}, message: "搜索模式中最多允许包含 2 个 % 通配符"},
-		{name: "short fuzzy keyword", input: Input{Key: "a%"}, message: "使用模糊搜索时，关键词长度至少为 2 个字符"},
+		{name: "fuzzy above key limit", count: 11, input: Input{Keyword: "ab%"}, err: domain.ErrFuzzySearchLimit},
+		{name: "consecutive wildcards", input: Input{Keyword: "ab%%"}, err: domain.ErrSearchConsecutiveWildcards},
+		{name: "too many wildcards", input: Input{Keyword: "%a%b%"}, err: domain.ErrSearchTooManyWildcards},
+		{name: "short fuzzy keyword", input: Input{Key: "a%"}, err: domain.ErrSearchKeywordTooShort},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := search(&fakeReader{count: tc.count}, tc.input)
-			require.ErrorIs(t, err, domain.ErrInternal)
-			assert.Equal(t, tc.message, err.Error())
+			require.ErrorIs(t, err, tc.err)
 		})
 	}
 }

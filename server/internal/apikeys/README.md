@@ -43,6 +43,7 @@
 Ошибки сценариев — значения из `domain/errors.go`. Их переводит в HTTP общий `transport.WriteError`:
 - `ErrKeyNotFound` → 404 `token_not_found`;
 - `domain.Internal(err)` → 500 `internal_error` с текстом причины;
+- ошибки поиска и `ErrKeyIDRequired` → 500 `internal_error` с i18n-сообщением (статус и код как в `origin/main`, текст раньше был захардкожен на китайском);
 - остальные бизнес-ошибки → свои статус, код и i18n-сообщение;
 - ошибка без доменного смысла → 200 `{success:false}` с её текстом.
 
@@ -67,4 +68,4 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/apikeys.go`) берёт ко�
   - `sanitizeLikePattern` / `validateLikePattern` (их используют `model/log.go`, `model/topup.go`) берутся из `domain`.
 
   Разбираем вместе с контрактом шлюза: `ValidateUserToken` и `GetTokenByKey` вызываются из relay-цепочки `middleware/`, а `middleware` не может импортировать `internal/app` (`app` сам импортирует `middleware`).
-- Тексты ошибок поиска (`search_keys`, `domain/search.go`) и адаптера (`id 或 userId 为空！`) уходят клиенту как есть, на китайском, без i18n — так же, как в `origin/main`.
+- Ошибки шаблона поиска (`ErrSearch*Wildcards`, `ErrSearchKeywordTooShort`) возвращает и `model.sanitizeLikePattern`, который используют поиск логов и пополнений. Там они уходят клиенту английским текстом ошибки без перевода, пока эти модули не перенесены.

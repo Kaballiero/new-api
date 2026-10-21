@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,13 @@ func TestWriteErrorKeepsLegacyResponses(t *testing.T) {
 	}{
 		{"missing", domain.ErrKeyNotFound, `{"success":false,"code":"token_not_found","message":"Token not found"}`, http.StatusNotFound},
 		{"internal", domain.Internal(errors.New("disk full")), `{"success":false,"code":"internal_error","message":"disk full"}`, http.StatusInternalServerError},
+		{"key id required", domain.Internal(domain.ErrKeyIDRequired), `{"success":false,"code":"internal_error","message":"Token ID or user ID is empty"}`, http.StatusInternalServerError},
+		{"search wildcards", domain.ErrSearchConsecutiveWildcards, `{"success":false,"code":"internal_error","message":"Consecutive % wildcards are not allowed in the search pattern"}`, http.StatusInternalServerError},
+		{"search wildcard count", domain.ErrSearchTooManyWildcards, `{"success":false,"code":"internal_error","message":"The search pattern can contain at most 2 % wildcards"}`, http.StatusInternalServerError},
+		{"search keyword", domain.ErrSearchKeywordTooShort, `{"success":false,"code":"internal_error","message":"The keyword must be at least 2 characters long for fuzzy search"}`, http.StatusInternalServerError},
+		{"search count", domain.ErrSearchCountFailed, `{"success":false,"code":"internal_error","message":"Failed to count tokens"}`, http.StatusInternalServerError},
+		{"fuzzy limit", domain.ErrFuzzySearchLimit, `{"success":false,"code":"internal_error","message":"Too many tokens: only exact search is allowed, do not use the % wildcard"}`, http.StatusInternalServerError},
+		{"search failed", domain.ErrSearchFailed, `{"success":false,"code":"internal_error","message":"Failed to search tokens"}`, http.StatusInternalServerError},
 		{"plain", errors.New("lookup failed"), `{"success":false,"message":"lookup failed"}`, http.StatusOK},
 		{"usage", domain.ErrUsageUnavailable, `{"success":false,"message":"Failed to get token info, please try again later"}`, http.StatusOK},
 		{"name", domain.ErrNameTooLong, `{"success":false,"code":"token_name_too_long","message":"Token name is too long"}`, http.StatusBadRequest},
@@ -50,5 +58,19 @@ func TestWriteErrorKeepsLegacyResponses(t *testing.T) {
 			assert.Equal(t, tc.code, recorder.Code)
 			assert.JSONEq(t, tc.want, recorder.Body.String())
 		})
+	}
+}
+
+func TestWriteErrorLocalizesMessage(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	gin.SetMode(gin.TestMode)
+	for lang, want := range map[string]string{"ru": "Не удалось выполнить поиск токенов", "zh-CN": "搜索令牌失败"} {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Set(string(constant.ContextKeyLanguage), lang)
+		WriteError(c, domain.ErrSearchFailed)
+		assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+		assert.JSONEq(t, `{"success":false,"code":"internal_error","message":"`+want+`"}`, recorder.Body.String(), lang)
 	}
 }

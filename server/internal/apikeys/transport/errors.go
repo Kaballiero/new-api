@@ -15,9 +15,25 @@ import (
 // Errors without a domain meaning are written as {success:false} with HTTP 200
 // and the text of the error.
 func WriteError(c *gin.Context, err error) {
+	// Specific errors come before ErrInternal: a storage failure such as
+	// ErrKeyIDRequired arrives wrapped in domain.Internal.
 	switch {
 	case errors.Is(err, domain.ErrKeyNotFound):
 		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "token_not_found", i18n.MsgTokenNotExists)
+	case errors.Is(err, domain.ErrKeyIDRequired):
+		common.ApiErrorI18nStatusCode(c, http.StatusInternalServerError, "internal_error", i18n.MsgTokenIDRequired)
+	case errors.Is(err, domain.ErrSearchConsecutiveWildcards):
+		common.ApiErrorI18nStatusCode(c, http.StatusInternalServerError, "internal_error", i18n.MsgTokenSearchConsecutiveWildcards)
+	case errors.Is(err, domain.ErrSearchTooManyWildcards):
+		common.ApiErrorI18nStatusCode(c, http.StatusInternalServerError, "internal_error", i18n.MsgTokenSearchTooManyWildcards)
+	case errors.Is(err, domain.ErrSearchKeywordTooShort):
+		common.ApiErrorI18nStatusCode(c, http.StatusInternalServerError, "internal_error", i18n.MsgTokenSearchKeywordTooShort)
+	case errors.Is(err, domain.ErrSearchCountFailed):
+		common.ApiErrorI18nStatusCode(c, http.StatusInternalServerError, "internal_error", i18n.MsgTokenSearchCountFailed)
+	case errors.Is(err, domain.ErrFuzzySearchLimit):
+		common.ApiErrorI18nStatusCode(c, http.StatusInternalServerError, "internal_error", i18n.MsgTokenFuzzySearchLimit)
+	case errors.Is(err, domain.ErrSearchFailed):
+		common.ApiErrorI18nStatusCode(c, http.StatusInternalServerError, "internal_error", i18n.MsgTokenSearchFailed)
 	case errors.Is(err, domain.ErrInternal):
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 	case errors.Is(err, domain.ErrUsageUnavailable):
