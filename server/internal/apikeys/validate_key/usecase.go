@@ -1,37 +1,35 @@
 package validate_key
 
-import (
-	"fmt"
-	"github.com/QuantumNous/new-api/internal/apikeys/domain"
-)
+import "github.com/QuantumNous/new-api/internal/apikeys/domain"
 
 type Store interface {
 	Lookup(string) (*domain.Token, error)
 	UpdateStatus(int) error
 	IsMissing(error) bool
 }
-type Errors struct{ NotProvided, Invalid, Database func() error }
 type Usecase struct {
 	store        Store
-	errors       Errors
 	now          func() int64
 	cacheEnabled func() bool
 	log          func(string)
 }
 
-func NewUsecase(store Store, errors Errors, now func() int64, cacheEnabled func() bool, log func(string)) Usecase {
-	return Usecase{store: store, errors: errors, now: now, cacheEnabled: cacheEnabled, log: log}
+func NewUsecase(store Store, now func() int64, cacheEnabled func() bool, log func(string)) Usecase {
+	return Usecase{store: store, now: now, cacheEnabled: cacheEnabled, log: log}
 }
+
+// Execute checks that the key exists, is enabled, not expired and not exhausted.
+// A failed lookup other than a missing key is returned as domain.Internal.
 func (usecase Usecase) Execute(key string) error {
 	if key == "" {
-		return usecase.errors.NotProvided()
+		return domain.ErrKeyNotProvided
 	}
 	token, err := usecase.store.Lookup(key)
 	if err == nil {
 		if token.Status == domain.StatusExhausted ||
 			token.Status == domain.StatusExpired ||
 			token.Status != domain.StatusEnabled {
-			return usecase.errors.Invalid()
+			return domain.ErrKeyInvalid
 		}
 		if token.ExpiredTime != -1 && token.ExpiredTime < usecase.now() {
 			if !usecase.cacheEnabled() {
@@ -41,7 +39,7 @@ func (usecase Usecase) Execute(key string) error {
 					usecase.log("failed to update token status" + err.Error())
 				}
 			}
-			return usecase.errors.Invalid()
+			return domain.ErrKeyInvalid
 		}
 		if !token.UnlimitedQuota && token.RemainQuota <= 0 {
 			if !usecase.cacheEnabled() {
@@ -51,13 +49,13 @@ func (usecase Usecase) Execute(key string) error {
 					usecase.log("failed to update token status" + err.Error())
 				}
 			}
-			return usecase.errors.Invalid()
+			return domain.ErrKeyInvalid
 		}
 		return nil
 	}
 	usecase.log("ValidateUserToken: failed to get token: " + err.Error())
 	if usecase.store.IsMissing(err) {
-		return usecase.errors.Invalid()
+		return domain.ErrKeyInvalid
 	}
-	return fmt.Errorf("%w: %v", usecase.errors.Database(), err)
+	return domain.Internal(err)
 }

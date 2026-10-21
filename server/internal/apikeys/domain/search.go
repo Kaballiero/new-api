@@ -5,9 +5,11 @@ import (
 	"strings"
 )
 
+// SanitizeSearchPattern escapes a user LIKE pattern for ESCAPE '!' and checks it
+// with ValidateSearchPattern. A pattern without % matches the whole value.
 func SanitizeSearchPattern(input string) (string, error) {
-	// 1. 先转义 ESCAPE 字符 ! 自身，再转义 _
-	//    使用 ! 而非 \ 作为 ESCAPE 字符，避免 MySQL 中反斜杠的字符串转义问题
+	// Escape the ESCAPE character ! itself first, then _. ! is used instead of \
+	// to avoid backslash string escaping in MySQL.
 	input = strings.ReplaceAll(input, "!", "!!")
 	input = strings.ReplaceAll(input, `_`, `!_`)
 
@@ -15,22 +17,24 @@ func SanitizeSearchPattern(input string) (string, error) {
 		return "", err
 	}
 
-	// 5. 无 % 时，精确全匹配
 	return input, nil
 }
+
+// ValidateSearchPattern rejects consecutive %, more than two % and fuzzy
+// keywords shorter than two characters.
 func ValidateSearchPattern(input string) error {
-	// 1. 连续的 % 直接拒绝
+	// Consecutive % are rejected.
 	if strings.Contains(input, "%%") {
 		return errors.New("搜索模式中不允许包含连续的 % 通配符")
 	}
 
-	// 2. 统计 % 数量，不得超过 2
+	// At most two %.
 	count := strings.Count(input, "%")
 	if count > 2 {
 		return errors.New("搜索模式中最多允许包含 2 个 % 通配符")
 	}
 
-	// 3. 含 % 时，去掉 % 后关键词长度必须 >= 2
+	// A fuzzy keyword without % must have at least two characters.
 	if count > 0 {
 		stripped := strings.ReplaceAll(input, "%", "")
 		if len(stripped) < 2 {

@@ -8,18 +8,18 @@ type Store interface {
 	Delete(*domain.Token) error
 }
 
-func (usecase Usecase) Execute(input Input) (*domain.Token, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (*domain.Token, error) {
 	t, err := usecase.store.Get(input.ID, input.UserID)
 	if usecase.store.IsMissing(err) {
-		return nil, &domain.Failure{Kind: "missing"}
+		return nil, domain.ErrKeyNotFound
 	}
 	if err != nil {
-		return nil, &domain.Failure{Kind: "internal", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	params := usecase.audit()
 	params["id"], params["name"] = t.Id, t.Name
 	if err := usecase.store.Delete(t); err != nil {
-		return nil, &domain.Failure{Kind: "internal", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	usecase.succeed()
 	return t, nil

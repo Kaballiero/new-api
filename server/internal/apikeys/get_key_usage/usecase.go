@@ -6,11 +6,11 @@ type Reader interface {
 	ByKey(string) (*domain.Token, error)
 }
 
-func (usecase Usecase) Execute(key string) (*domain.Token, int64, *domain.Failure) {
+func (usecase Usecase) Execute(key string) (*domain.Token, int64, error) {
 	t, e := usecase.reader.ByKey(key)
 	if e != nil {
 		usecase.log("failed to get token by key: " + e.Error())
-		return nil, 0, &domain.Failure{Kind: "usage"}
+		return nil, 0, domain.ErrUsageUnavailable
 	}
 	expiry := t.ExpiredTime
 	if expiry == -1 {

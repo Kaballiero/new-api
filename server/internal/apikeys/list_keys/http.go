@@ -2,9 +2,9 @@ package list_keys
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	tokenhttp "github.com/QuantumNous/new-api/internal/adapter/apikeyhttp"
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/apikeys/dto"
+	"github.com/QuantumNous/new-api/internal/apikeys/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -14,9 +14,9 @@ func NewHTTP(reader Reader) HTTP { return HTTP{reader: reader} }
 func (h HTTP) Handle(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
-	result, failure := NewUsecase(h.reader).Execute(Input{UserID: userId, Start: pageInfo.GetStartIdx(), Limit: pageInfo.GetPageSize()})
-	if failure != nil {
-		tokenhttp.WriteFailure(c, failure)
+	result, err := NewUsecase(h.reader).Execute(Input{UserID: userId, Start: pageInfo.GetStartIdx(), Limit: pageInfo.GetPageSize()})
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	pageInfo.SetTotal(int(result.Total))

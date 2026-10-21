@@ -7,10 +7,10 @@ type Reader interface {
 	Count(int) (int64, error)
 }
 
-func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (Output, error) {
 	ts, err := usecase.reader.List(input.UserID, input.Start, input.Limit)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+		return Output{}, domain.Internal(err)
 	}
 	n, _ := usecase.reader.Count(input.UserID)
 	return Output{ts, n}, nil

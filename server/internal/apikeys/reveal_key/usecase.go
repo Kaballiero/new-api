@@ -7,13 +7,13 @@ type Reader interface {
 	IsMissing(error) bool
 }
 
-func (usecase Usecase) Execute(input Input) (*domain.Token, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (*domain.Token, error) {
 	t, err := usecase.reader.Get(input.ID, input.UserID)
 	if usecase.reader.IsMissing(err) {
-		return nil, &domain.Failure{Kind: "missing"}
+		return nil, domain.ErrKeyNotFound
 	}
 	if err != nil {
-		return nil, &domain.Failure{Kind: "internal", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	params := usecase.audit()
 	params["id"], params["name"] = t.Id, t.Name

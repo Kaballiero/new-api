@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
@@ -18,6 +19,12 @@ import (
 )
 
 type Token record.Token
+
+// Token auth errors are owned by the API keys domain.
+var (
+	ErrTokenNotProvided = keydomain.ErrKeyNotProvided
+	ErrTokenInvalid     = keydomain.ErrKeyInvalid
+)
 
 func (token *Token) GetAutoGroups() ([]string, error) {
 	if token.AutoGroups == "" {
@@ -83,9 +90,9 @@ func GetAllUserTokens(userId, startIdx, num int) ([]*Token, error) {
 func sanitizeLikePattern(input string) (string, error) { return keydomain.SanitizeSearchPattern(input) }
 func validateLikePattern(input string) error           { return keydomain.ValidateSearchPattern(input) }
 func SearchUserTokens(userId int, keyword, token string, offset, limit int) ([]*Token, int64, error) {
-	result, failure := search_keys.NewUsecase(NewTokenPersistence(), operation_setting.GetMaxUserTokens, common.SysLog, common.SysError).Execute(search_keys.Input{UserID: userId, Keyword: keyword, Key: token, Start: offset, Limit: limit})
-	if failure != nil {
-		return nil, 0, failure.Cause
+	result, err := search_keys.NewUsecase(NewTokenPersistence(), operation_setting.GetMaxUserTokens, common.SysLog, common.SysError).Execute(search_keys.Input{UserID: userId, Keyword: keyword, Key: token, Start: offset, Limit: limit})
+	if err != nil {
+		return nil, 0, err
 	}
 	if result.Tokens == nil {
 		return nil, result.Total, nil
@@ -102,8 +109,10 @@ func ValidateUserToken(key string) (*Token, error) {
 		t, err := GetTokenByKey(key, false)
 		return (*record.Token)(t), err
 	}, func(t *record.Token) error { return (*Token)(t).SelectUpdate() })
-	errors := validate_key.Errors{NotProvided: func() error { return ErrTokenNotProvided }, Invalid: func() error { return ErrTokenInvalid }, Database: func() error { return ErrDatabase }}
-	err := validate_key.NewUsecase(store, errors, common.GetTimestamp, func() bool { return common.RedisEnabled }, common.SysLog).Execute(key)
+	err := validate_key.NewUsecase(store, common.GetTimestamp, func() bool { return common.RedisEnabled }, common.SysLog).Execute(key)
+	if errors.Is(err, keydomain.ErrInternal) {
+		err = fmt.Errorf("%w: %v", ErrDatabase, errors.Unwrap(err))
+	}
 	return (*Token)(store.Token), err
 }
 

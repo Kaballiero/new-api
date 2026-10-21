@@ -4,14 +4,14 @@ import "github.com/QuantumNous/new-api/internal/apikeys/domain"
 
 type Store interface{ DeleteBatch([]int, int) (int, error) }
 
-func (usecase Usecase) Execute(ids []int, userID int) (Output, *domain.Failure) {
+func (usecase Usecase) Execute(ids []int, userID int) (Output, error) {
 	params := usecase.audit(ids)
 	if len(ids) == 0 {
-		return Output{}, &domain.Failure{Kind: "invalid"}
+		return Output{}, domain.ErrBatchEmpty
 	}
 	n, err := usecase.store.DeleteBatch(ids, userID)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "plain", Cause: err}
+		return Output{}, err
 	}
 	params["count"] = n
 	usecase.succeed()

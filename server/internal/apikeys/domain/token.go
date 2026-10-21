@@ -35,12 +35,6 @@ const (
 	StatusExhausted = 4
 )
 
-type Failure struct {
-	Kind   string
-	Cause  error
-	Params map[string]any
-}
-
 func MaskKey(key string) string {
 	if key == "" {
 		return ""

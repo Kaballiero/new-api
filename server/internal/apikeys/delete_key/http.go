@@ -4,7 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
-	tokenhttp "github.com/QuantumNous/new-api/internal/adapter/apikeyhttp"
+	"github.com/QuantumNous/new-api/internal/apikeys/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
@@ -25,9 +25,9 @@ func (h HTTP) Handle(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	_, failure := NewUsecase(h.reader, func() map[string]any { return h.audit(c) }, func() { common.SetContextKey(c, constant.ContextKeyTokenAuditSucceeded, true) }).Execute(Input{ID: id, UserID: userId})
-	if failure != nil {
-		tokenhttp.WriteFailure(c, failure)
+	_, err = NewUsecase(h.reader, func() map[string]any { return h.audit(c) }, func() { common.SetContextKey(c, constant.ContextKeyTokenAuditSucceeded, true) }).Execute(Input{ID: id, UserID: userId})
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

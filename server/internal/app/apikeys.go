@@ -2,7 +2,6 @@ package app
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	tokenhttp "github.com/QuantumNous/new-api/internal/adapter/apikeyhttp"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/apikeys"
@@ -18,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/apikeys/reveal_key"
 	"github.com/QuantumNous/new-api/internal/apikeys/reveal_keys_batch"
 	"github.com/QuantumNous/new-api/internal/apikeys/search_keys"
+	"github.com/QuantumNous/new-api/internal/apikeys/transport"
 	"github.com/QuantumNous/new-api/internal/apikeys/update_key"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -52,7 +52,7 @@ func NewAPIKeysHTTP(effects APIKeyEffects) APIKeysHTTP {
 	})
 	lookup := func(id int) (string, error) { return model.GetUserGroup(id, false) }
 	groups := func(c *gin.Context) domain.AutoGroupRules {
-		return domain.AutoGroupRules{Max: setting.GetMaxTokenAutoGroups, UserGroup: func() (string, error) { return tokenhttp.RequestGroup(c, lookup) }, Selectable: service.IsUserSelectableGroup, Encode: store.SetAutoGroups}
+		return domain.AutoGroupRules{Max: setting.GetMaxTokenAutoGroups, UserGroup: func() (string, error) { return transport.RequestGroup(c, lookup) }, Selectable: service.IsUserSelectableGroup, Encode: store.SetAutoGroups}
 	}
 	return APIKeysHTTP{
 		ListKeys: list_keys.NewHTTP(store), SearchKeys: search_keys.NewHTTP(store, operation_setting.GetMaxUserTokens, common.SysLog, common.SysError), GetKey: get_key.NewHTTP(store), RevealKey: reveal_key.NewHTTP(store, effects.Audit), DeleteKey: delete_key.NewHTTP(store, effects.Audit), GetKeyStatus: get_key_status.NewHTTP(store), GetKeyUsage: get_key_usage.NewHTTP(store),
@@ -60,7 +60,18 @@ func NewAPIKeysHTTP(effects APIKeyEffects) APIKeysHTTP {
 		UpdateKey:       update_key.NewHTTP(store, groups, settings.MaxQuota, common.GetTimestamp, effects.Audit),
 		DeleteKeysBatch: delete_keys_batch.NewHTTP(store, effects.BatchAudit), RevealKeysBatch: reveal_keys_batch.NewHTTP(store, effects.BatchAudit),
 		GetKeyGroups: get_key_groups.NewHTTP(func(c *gin.Context) get_key_groups.Reader {
-			return tokenhttp.GroupSource{Read: func() (string, error) { return tokenhttp.RequestGroup(c, lookup) }, List: service.GetUserAutoGroup, Limit: setting.GetMaxTokenAutoGroups}
+			return keyGroupSource{read: func() (string, error) { return transport.RequestGroup(c, lookup) }, list: service.GetUserAutoGroup, limit: setting.GetMaxTokenAutoGroups}
 		}),
 	}
 }
+
+// keyGroupSource implements get_key_groups.Reader for one request.
+type keyGroupSource struct {
+	read  func() (string, error)
+	list  func(string) []string
+	limit func() int
+}
+
+func (s keyGroupSource) Group() (string, error)        { return s.read() }
+func (s keyGroupSource) Options(group string) []string { return s.list(group) }
+func (s keyGroupSource) Max() int                      { return s.limit() }

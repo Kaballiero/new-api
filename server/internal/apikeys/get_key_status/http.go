@@ -1,7 +1,7 @@
 package get_key_status
 
 import (
-	tokenhttp "github.com/QuantumNous/new-api/internal/adapter/apikeyhttp"
+	"github.com/QuantumNous/new-api/internal/apikeys/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 )
@@ -12,9 +12,9 @@ func NewHTTP(reader Reader) HTTP { return HTTP{reader: reader} }
 func (h HTTP) Handle(c *gin.Context) {
 	tokenId := c.GetInt("token_id")
 	userId := c.GetInt("id")
-	token, expiredAt, failure := NewUsecase(h.reader).Execute(tokenId, userId)
-	if failure != nil {
-		tokenhttp.WriteFailure(c, failure)
+	token, expiredAt, err := NewUsecase(h.reader).Execute(tokenId, userId)
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, CreditSummary{

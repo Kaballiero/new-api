@@ -2,9 +2,9 @@ package search_keys
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	tokenhttp "github.com/QuantumNous/new-api/internal/adapter/apikeyhttp"
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/apikeys/dto"
+	"github.com/QuantumNous/new-api/internal/apikeys/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,9 +24,9 @@ func (h HTTP) Handle(c *gin.Context) {
 
 	pageInfo := common.GetPageQuery(c)
 
-	result, failure := NewUsecase(h.reader, h.maxTokens, h.log, h.errorLog).Execute(Input{UserID: userId, Start: pageInfo.GetStartIdx(), Limit: pageInfo.GetPageSize(), Keyword: keyword, Key: token})
-	if failure != nil {
-		tokenhttp.WriteFailure(c, failure)
+	result, err := NewUsecase(h.reader, h.maxTokens, h.log, h.errorLog).Execute(Input{UserID: userId, Start: pageInfo.GetStartIdx(), Limit: pageInfo.GetPageSize(), Keyword: keyword, Key: token})
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	pageInfo.SetTotal(int(result.Total))

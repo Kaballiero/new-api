@@ -24,12 +24,6 @@ var (
 	ErrEmailAmbiguous       = errors.New("email matches multiple users")
 )
 
-// Token auth errors
-var (
-	ErrTokenNotProvided = errors.New("token not provided")
-	ErrTokenInvalid     = errors.New("token invalid")
-)
-
 // Redemption errors
 var ErrRedeemFailed = errors.New("redeem.failed")
 

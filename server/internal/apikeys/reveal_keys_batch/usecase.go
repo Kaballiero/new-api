@@ -6,17 +6,17 @@ type Reader interface {
 	KeysBatch([]int, int) ([]domain.Token, error)
 }
 
-func (usecase Usecase) Execute(ids []int, userID int) (Output, *domain.Failure) {
+func (usecase Usecase) Execute(ids []int, userID int) (Output, error) {
 	params := usecase.audit(ids)
 	if len(ids) == 0 {
-		return Output{}, &domain.Failure{Kind: "invalid"}
+		return Output{}, domain.ErrBatchEmpty
 	}
 	if len(ids) > 100 {
-		return Output{}, &domain.Failure{Kind: "batch_many", Params: map[string]any{"Max": 100}}
+		return Output{}, &domain.LimitError{Err: domain.ErrBatchTooLarge, Max: 100}
 	}
 	ts, err := usecase.reader.KeysBatch(ids, userID)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "plain", Cause: err}
+		return Output{}, err
 	}
 	keys := make(map[int]string)
 	returned := make([]int, 0, len(ts))

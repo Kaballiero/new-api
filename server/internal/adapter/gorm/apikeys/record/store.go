@@ -24,7 +24,8 @@ func (store Store) Insert(token *Token) error {
 }
 
 func (store Store) Update(token *Token) (err error) {
-	// 写库前失效缓存并设置 fence，防止并发读者把过期快照重新写回缓存。
+	// Invalidate the cache and set the fence before writing so that concurrent
+	// readers cannot write a stale snapshot back into the cache.
 	if cacheErr := store.invalidate(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}

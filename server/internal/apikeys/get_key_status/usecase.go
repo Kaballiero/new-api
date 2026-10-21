@@ -6,10 +6,10 @@ type Reader interface {
 	Get(int, int) (*domain.Token, error)
 }
 
-func (usecase Usecase) Execute(id int, userID int) (*domain.Token, int64, *domain.Failure) {
+func (usecase Usecase) Execute(id int, userID int) (*domain.Token, int64, error) {
 	t, e := usecase.reader.Get(id, userID)
 	if e != nil {
-		return nil, 0, &domain.Failure{Kind: "plain", Cause: e}
+		return nil, 0, e
 	}
 	expiry := t.ExpiredTime
 	if expiry == -1 {

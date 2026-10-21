@@ -8,7 +8,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
-	"strconv"
+	"strings"
 )
 
 var apiKeyHandlerSources = map[string]string{
@@ -84,29 +84,19 @@ func parseAPIKeyHandlers() error {
 			for _, code := range info.ErrorCodes {
 				seen[code] = true
 			}
+			// Scenario errors are referenced as domain.ErrX (or domain.X for
+			// constructors such as domain.Internal) in usecase order.
 			ast.Inspect(business, func(n ast.Node) bool {
-				literal, ok := n.(*ast.CompositeLit)
+				selector, ok := n.(*ast.SelectorExpr)
 				if !ok {
 					return true
 				}
-				for _, entry := range literal.Elts {
-					kv, ok := entry.(*ast.KeyValueExpr)
-					if !ok {
-						continue
-					}
-					key, ok := kv.Key.(*ast.Ident)
-					if !ok || key.Name != "Kind" {
-						continue
-					}
-					value, ok := kv.Value.(*ast.BasicLit)
-					if !ok || value.Kind != token.STRING {
-						continue
-					}
-					kind, _ := strconv.Unquote(value.Value)
-					if code, ok := failures[kind]; ok && !seen[code] {
-						seen[code] = true
-						info.ErrorCodes = append(info.ErrorCodes, code)
-					}
+				if pkg, ok := selector.X.(*ast.Ident); !ok || pkg.Name != "domain" {
+					return true
+				}
+				if code, ok := failures[strings.TrimPrefix(selector.Sel.Name, "Err")]; ok && !seen[code] {
+					seen[code] = true
+					info.ErrorCodes = append(info.ErrorCodes, code)
 				}
 				return true
 			})
@@ -117,10 +107,12 @@ func parseAPIKeyHandlers() error {
 	return nil
 }
 
-// Business failure kinds are rendered by a shared transport helper. Discover
-// their status/code mapping there, then include only kinds used by each scenario.
+// Domain errors are rendered by the shared transport switch
+// (case errors.Is(err, domain.ErrX)). Discover their status/code mapping there,
+// keyed by the error name without the Err prefix, then include only errors
+// used by each scenario.
 func apiKeyFailureCodes() (map[string]ErrorCode, error) {
-	file, err := parser.ParseFile(token.NewFileSet(), "internal/adapter/apikeyhttp/errors.go", nil, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(token.NewFileSet(), "internal/apikeys/transport/errors.go", nil, parser.SkipObjectResolution)
 	if err != nil {
 		return nil, err
 	}
@@ -141,13 +133,18 @@ func apiKeyFailureCodes() (map[string]ErrorCode, error) {
 				return true
 			})
 		}
-		if code != nil {
-			for _, expr := range clause.List {
-				if literal, ok := expr.(*ast.BasicLit); ok {
-					kind, _ := strconv.Unquote(literal.Value)
-					result[kind] = *code
+		if code == nil {
+			return true
+		}
+		for _, expr := range clause.List {
+			ast.Inspect(expr, func(n ast.Node) bool {
+				if selector, ok := n.(*ast.SelectorExpr); ok {
+					if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "domain" {
+						result[strings.TrimPrefix(selector.Sel.Name, "Err")] = *code
+					}
 				}
-			}
+				return true
+			})
 		}
 		return true
 	})

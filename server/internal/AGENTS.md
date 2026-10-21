@@ -194,11 +194,12 @@ Usecase определяет, что должно выполниться ато�
 **До переноса (baseline):**
 - `make test` — зелёный;
 - `make openapi-check` — зелёный;
+- `make openapi` не меняет `server/docs/openapi/` (`git status` чистый): `openapi-check` только валидирует и с закоммиченными файлами не сравнивает;
 - контрактный HTTP-тест модуля написан и зелёный на старом коде.
 
 **После переноса:**
 - `go -C server vet ./...` и `make test`;
-- `make openapi-check` — без изменений;
+- `make openapi-check` — зелёный, `make openapi` не даёт диффа в `server/docs/openapi/`;
 - `cd server/relaykit && GOWORK=off go build ./...`;
 - архитектурный тест зелёный, список исключений не вырос;
 - при затрагивании хранения — реальный PostgreSQL (рабочая БД платформы), версия и команды в отчёте; SQLite и MySQL локально не проверяются;

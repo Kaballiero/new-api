@@ -27,7 +27,7 @@ type Token struct {
 	AllowIps           *string `json:"allow_ips"`
 	UsedQuota          int     `json:"used_quota"` // used quota
 	Group              string  `json:"group"`
-	CrossGroupRetry    bool    `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	CrossGroupRetry    bool    `json:"cross_group_retry"` // cross-group retry, only for the auto group
 	AutoGroups         string  `json:"-"`
 	DeletedAt          *time.Time
 }

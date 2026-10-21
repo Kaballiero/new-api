@@ -9,39 +9,39 @@ type Store interface {
 	SetAutoGroups(*domain.Token, []string) error
 }
 
-func (usecase Usecase) Execute(input Input) (*domain.Token, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (*domain.Token, error) {
 	token := input.Token
 	params := usecase.audit()
 	if token.Id > 0 {
 		params["id"] = token.Id
 	}
 	if len(token.Name) > 50 {
-		return nil, &domain.Failure{Kind: "name"}
+		return nil, domain.ErrNameTooLong
 	}
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
-			return nil, &domain.Failure{Kind: "quota_negative"}
+			return nil, domain.ErrQuotaNegative
 		}
 		maxQuotaValue := usecase.maxQuota()
 		if token.RemainQuota > maxQuotaValue {
-			return nil, &domain.Failure{Kind: "quota_exceed", Params: map[string]any{"Max": maxQuotaValue}}
+			return nil, &domain.LimitError{Err: domain.ErrQuotaExceedMax, Max: maxQuotaValue}
 		}
 	}
 	cleanToken, err := usecase.store.Get(token.Id, input.UserID)
 	if usecase.store.IsMissing(err) {
-		return nil, &domain.Failure{Kind: "missing"}
+		return nil, domain.ErrKeyNotFound
 	}
 	if err != nil {
-		return nil, &domain.Failure{Kind: "internal", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	params["name"] = cleanToken.Name
 	previous := *cleanToken
 	if token.Status == domain.StatusEnabled {
 		if cleanToken.Status == domain.StatusExpired && cleanToken.ExpiredTime <= usecase.now() && cleanToken.ExpiredTime != -1 {
-			return nil, &domain.Failure{Kind: "expired"}
+			return nil, domain.ErrExpiredCannotEnable
 		}
 		if cleanToken.Status == domain.StatusExhausted && cleanToken.RemainQuota <= 0 && !cleanToken.UnlimitedQuota {
-			return nil, &domain.Failure{Kind: "exhausted"}
+			return nil, domain.ErrExhaustedCannotEnable
 		}
 	}
 	if input.StatusOnly != "" {
@@ -61,13 +61,13 @@ func (usecase Usecase) Execute(input Input) (*domain.Token, *domain.Failure) {
 			cleanToken.CrossGroupRetry = false
 			_ = usecase.store.SetAutoGroups(cleanToken, nil)
 		} else if input.AutoGroupsSet {
-			if failure := usecase.groups.Apply(cleanToken, input.AutoGroups); failure != nil {
-				return nil, failure
+			if err := usecase.groups.Apply(cleanToken, input.AutoGroups); err != nil {
+				return nil, err
 			}
 		}
 	}
 	if err := usecase.store.Update(cleanToken); err != nil {
-		return nil, &domain.Failure{Kind: "internal", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	params["name"] = cleanToken.Name
 	if input.StatusOnly != "" {

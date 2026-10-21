@@ -2,7 +2,7 @@ package get_key_usage
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	tokenhttp "github.com/QuantumNous/new-api/internal/adapter/apikeyhttp"
+	"github.com/QuantumNous/new-api/internal/apikeys/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strings"
@@ -31,9 +31,9 @@ func (h HTTP) Handle(c *gin.Context) {
 	}
 	tokenKey := parts[1]
 
-	token, expiredAt, failure := NewUsecase(h.reader, common.SysError).Execute(strings.TrimPrefix(tokenKey, "sk-"))
-	if failure != nil {
-		tokenhttp.WriteFailure(c, failure)
+	token, expiredAt, err := NewUsecase(h.reader, common.SysError).Execute(strings.TrimPrefix(tokenKey, "sk-"))
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

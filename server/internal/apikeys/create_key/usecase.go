@@ -8,35 +8,35 @@ type Store interface {
 	SetAutoGroups(*domain.Token, []string) error
 }
 
-func (usecase Usecase) Execute(input Input) (*domain.Token, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (*domain.Token, error) {
 	token := input.Token
 	if len(token.Name) > 50 {
-		return nil, &domain.Failure{Kind: "name"}
+		return nil, domain.ErrNameTooLong
 	}
 	params := usecase.audit()
 	params["name"] = token.Name
-	// 非无限额度时，检查额度值是否超出有效范围
+	// A limited key must have a quota within the valid range.
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
-			return nil, &domain.Failure{Kind: "quota_negative"}
+			return nil, domain.ErrQuotaNegative
 		}
 		maxQuotaValue := usecase.maxQuota()
 		if token.RemainQuota > maxQuotaValue {
-			return nil, &domain.Failure{Kind: "quota_exceed", Params: map[string]any{"Max": maxQuotaValue}}
+			return nil, &domain.LimitError{Err: domain.ErrQuotaExceedMax, Max: maxQuotaValue}
 		}
 	}
-	// 检查用户令牌数量是否已达上限
+	// The user must stay below the key count limit.
 	maxTokens := usecase.tokenLimit()
 	count, err := usecase.store.Count(input.UserID())
 	if err != nil {
-		return nil, &domain.Failure{Kind: "internal", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	if int(count) >= maxTokens {
-		return nil, &domain.Failure{Kind: "count", Params: map[string]any{"Max": maxTokens}}
+		return nil, &domain.LimitError{Err: domain.ErrKeyCountLimit, Max: maxTokens}
 	}
 	if token.Group == "auto" {
-		if failure := usecase.groups.Apply(&token, input.AutoGroups); failure != nil {
-			return nil, failure
+		if err := usecase.groups.Apply(&token, input.AutoGroups); err != nil {
+			return nil, err
 		}
 	} else {
 		token.CrossGroupRetry = false
@@ -45,7 +45,7 @@ func (usecase Usecase) Execute(input Input) (*domain.Token, *domain.Failure) {
 	key, err := usecase.generate()
 	if err != nil {
 		usecase.log("failed to generate token key: " + err.Error())
-		return nil, &domain.Failure{Kind: "generate"}
+		return nil, domain.ErrKeyGenerate
 	}
 	cleanToken := domain.Token{
 		UserId:             input.UserID(),
@@ -64,7 +64,7 @@ func (usecase Usecase) Execute(input Input) (*domain.Token, *domain.Failure) {
 		AutoGroups:         token.AutoGroups,
 	}
 	if err := usecase.store.Insert(&cleanToken); err != nil {
-		return nil, &domain.Failure{Kind: "internal", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	params["id"] = cleanToken.Id
 	usecase.succeed()
