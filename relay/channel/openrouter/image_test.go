@@ -815,34 +815,48 @@ func TestEndpointChannelReserveIsAddOnForPricedTokens(t *testing.T) {
 	const search = `,"max_tokens":10,"web_search_options":{}`
 	for _, tc := range []struct {
 		name, extra, operation, wantError string
-		unpricedReasoning                 bool
+		unpricedReasoning, nativeSearch   bool
 		reserve                           *float64
 		want                              float64
+		wantUse                           ReserveUse
 	}{
 		{name: "nonstream hold is token estimate", extra: plain, reserve: common.GetPointer(5.0), want: 1.02},
+		{name: "native search adds reserve once", extra: plain + `,"stream":true`, nativeSearch: true, reserve: common.GetPointer(5.0), want: 6.02, wantUse: ReserveAddOn},
+		{name: "native and requested search add reserve once", extra: search, nativeSearch: true, reserve: common.GetPointer(5.0), want: 6.02, wantUse: ReserveAddOn},
+		{name: "native search without reserve unchanged", extra: plain, nativeSearch: true, want: 1.02},
 		{name: "stream", extra: plain + `,"stream":true`, reserve: common.GetPointer(5.0), want: 1.02},
 		{name: "function tools", extra: plain + `,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(5.0), want: 1.02},
 		{name: "provider routing", extra: plain + `,"provider":{"only":["provider"],"order":["provider"]}`, reserve: common.GetPointer(5.0), want: 1.02},
-		{name: "fallback models", extra: plain + `,"models":["test/model"]`, reserve: common.GetPointer(5.0), want: 1.02},
+		{name: "fallback models take the most expensive", extra: plain + `,"models":["test/expensive"]`, reserve: common.GetPointer(5.0), want: 2.04},
 		{name: "multiple outputs", extra: plain + `,"n":2`, reserve: common.GetPointer(5.0), want: 1.04},
 		{name: "image input", extra: plain + `,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/i.png"}}]}]`, reserve: common.GetPointer(5.0), want: 1.52},
 		{name: "batch", extra: plain, operation: "batch_chat/completions", reserve: common.GetPointer(5.0), want: 1.02},
-		{name: "search adds reserve to streamed tool request", extra: search + `,"stream":true,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(0.5), want: 1.52},
-		{name: "search adds reserve with provider routing and n", extra: search + `,"n":2,"provider":{"only":["provider"]}`, reserve: common.GetPointer(0.5), want: 1.54},
+		{name: "search adds reserve to streamed tool request", extra: search + `,"stream":true,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(0.5), want: 1.52, wantUse: ReserveAddOn},
+		{name: "search adds reserve with provider routing and n", extra: search + `,"n":2,"provider":{"only":["provider"]}`, reserve: common.GetPointer(0.5), want: 1.54, wantUse: ReserveAddOn},
 		{name: "search without reserve stays closed", extra: search + `,"stream":true`, wantError: "hosted-search quantity is unpriced"},
-		{name: "unpriced dimension keeps whole reserve", extra: plain, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 5},
+		{name: "unpriced dimension keeps whole reserve", extra: plain, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 5, wantUse: ReserveWholeHold},
+		{name: "unpriced dimension search keeps whole reserve", extra: search, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 6.02, wantUse: ReserveWholeHold},
+		{name: "unpriced dimension search stream stays closed", extra: search + `,"stream":true`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
+		{name: "unpriced dimension search n stays closed", extra: search + `,"n":2`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
+		{name: "unpriced dimension search models stays closed", extra: search + `,"models":["test/expensive"]`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "endpoint model does not match final model ID"},
+		{name: "search reserve stays bound to the reserved model", extra: search + `,"models":["test/expensive"]`, reserve: common.GetPointer(5.0), wantError: "endpoint model does not match final model ID"},
+		{name: "unpriced dimension search same model list stays closed", extra: search + `,"models":["test/model"]`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
 		{name: "unpriced dimension stream stays closed", extra: plain + `,"stream":true`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
 		{name: "unpriced dimension tools stay closed", extra: plain + `,"tools":[{"type":"function","function":{"name":"f"}}]`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
 		{name: "unpriced dimension batch stays closed", extra: plain, operation: "batch_chat/completions", unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
 		{name: "unpriced dimension without reserve stays closed", extra: plain, unpricedReasoning: true, wantError: "unsupported billable dimension internal_reasoning"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pricing := map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "image": json.RawMessage(`"0.5"`), "web_search": json.RawMessage(`"0.01"`)}
+			pricing := map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "image": json.RawMessage(`"0.5"`), "web_search": json.RawMessage(`"0"`)}
 			if tc.unpricedReasoning {
 				pricing["internal_reasoning"] = json.RawMessage(`"0.003"`)
 			}
+			if tc.nativeSearch {
+				pricing["web_search"] = json.RawMessage(`"0.01"`)
+			}
 			estimator := NewRequestEstimator()
 			estimator.Models["test/model"] = []PricedEndpoint{{Tag: "provider", ModelID: "test/model", ContextLength: 10000, MaxCompletionTokens: 100, Pricing: pricing}}
+			estimator.Models["test/expensive"] = []PricedEndpoint{{Tag: "other", ModelID: "test/expensive", ContextLength: 10000, MaxCompletionTokens: 100, Pricing: map[string]json.RawMessage{"prompt": json.RawMessage(`"0.002"`), "completion": json.RawMessage(`"0.004"`)}}}
 			estimator.OutputModalities["test/model"] = []string{"text"}
 			operation := tc.operation
 			if operation == "" {
@@ -861,6 +875,7 @@ func TestEndpointChannelReserveIsAddOnForPricedTokens(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.InDelta(t, tc.want, cost, 1e-9)
+			assert.Equal(t, tc.wantUse, estimator.ReserveUse)
 		})
 	}
 }
@@ -875,7 +890,7 @@ func TestEndpointChannelReserveInactiveAudioInputRates(t *testing.T) {
 		want                                   float64
 	}{
 		{name: "text search reserve admits published audio input rates", extra: search, reserve: common.GetPointer(5.0), want: 6.02},
-		{name: "text reserve without search admits published audio input rates", extra: `,"max_tokens":10`, reserve: common.GetPointer(0.5), want: 1.02},
+		{name: "text reserve without search adds native search reserve", extra: `,"max_tokens":10`, reserve: common.GetPointer(0.5), want: 1.52},
 		{name: "audio input content under search reserve stays closed", extra: search + audioInput, reserve: common.GetPointer(5.0), wantError: "input media duration quantity is unpriced"},
 		{name: "invalid inactive audio input rate under reserve", extra: search, reserve: common.GetPointer(5.0), audioCacheRate: `"-1"`, wantError: "invalid OpenRouter endpoint price"},
 		{name: "streamed audio output reserve unchanged", extra: `,"max_tokens":10,"modalities":["text","audio"],"audio":{"voice":"alloy","format":"wav"},"stream":true`, reserve: common.GetPointer(0.3), want: 0.3},

@@ -67,11 +67,23 @@ func (e *PricedEndpoint) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type ReserveUse int
+
+const (
+	ReserveNotApplied ReserveUse = iota
+	ReserveWholeHold
+	ReserveAddOn
+)
+
 // RequestEstimator is request-scoped discovery, reused for all items in a
 // batch. It deliberately has no global cache or routing lifecycle.
 type RequestEstimator struct {
 	Models           map[string][]PricedEndpoint
 	OutputModalities map[string][]string
+	// ReserveUse and ReserveModel describe the channel reserve policy applied
+	// by the last successful estimate.
+	ReserveUse   ReserveUse
+	ReserveModel string
 }
 
 func NewRequestEstimator() *RequestEstimator {
@@ -390,9 +402,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		return 0, errors.New("invalid OpenRouter approximate reserve")
 	}
 	approximateReserve := reserveUSD != nil && (wholeReserve || localUSD != nil || decisions || rerank || dedicatedAudio || audioOutput || imageReserveOnly || sonarModel)
-	reserveCoversUnknown := approximateReserve || searchReserveUSD != nil
+	addOnReserve := reserveUSD != nil && !approximateReserve
 	var endpointReserveUSD *float64
-	if reserveCoversUnknown {
+	if approximateReserve {
 		endpointReserveUSD = reserveUSD
 	}
 	if approximateReserve {
@@ -423,6 +435,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		flexFallback  bool
 	}
 	var maximum decimal.Decimal
+	maximumIncludesReserve := false
 	found := false
 	for _, model := range models {
 		if model == "perplexity/sonar-deep-research" && !approximateReserve {
@@ -583,7 +596,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 					continue
 				}
 			}
-			if reserveCoversUnknown {
+			if approximateReserve || searchReserveUSD != nil {
 				if sonarModel && tag != "perplexity" {
 					return 0, errors.New("OpenRouter Sonar research reserve requires the Perplexity endpoint")
 				}
@@ -641,6 +654,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			outputUnknown, pricingErr := candidate.outputUnknown, candidate.pricingErr
 			var cost decimal.Decimal
 			var estimateErr error
+			includesReserve := false
 			if rerank {
 				// Search and token units are heterogeneous; catalog token zeros are not a tariff.
 				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter rerank monetary quantity is unmeasured")}
@@ -657,10 +671,20 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter endpoint lacks a finite default completion cap")}
 			} else {
 				cost, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, endpointReserveUSD, imageOutput)
+				if raw, ok := tariff.Pricing["web_search"]; ok && estimateErr == nil && addOnReserve {
+					searchRate, err := readRate(raw)
+					if err != nil {
+						return 0, err
+					}
+					if searchReserveUSD == nil && !searchRate.IsZero() {
+						cost = cost.Add(decimal.NewFromFloat(*reserveUSD))
+						includesReserve = true
+					}
+				}
 			}
 			if estimateErr != nil {
 				var unavailable *EstimateUnavailableError
-				if reserveUSD != nil && !reserveCoversUnknown && errors.As(estimateErr, &unavailable) {
+				if addOnReserve && errors.As(estimateErr, &unavailable) {
 					return e.estimate(info, body, requestedOperation, localUSD, true)
 				}
 				if (localUSD == nil && !((decisions || rerank || audioOutput || dedicatedAudio || imageReserveOnly) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
@@ -676,6 +700,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 			if !found || cost.GreaterThan(maximum) {
 				maximum = cost
+				maximumIncludesReserve = includesReserve
 			}
 			found = true
 		}
@@ -692,6 +717,12 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	result, _ := maximum.Float64()
 	if math.IsInf(result, 0) || math.IsNaN(result) {
 		return 0, errors.New("OpenRouter estimate overflow")
+	}
+	e.ReserveUse, e.ReserveModel = ReserveNotApplied, ""
+	if approximateReserve {
+		e.ReserveUse, e.ReserveModel = ReserveWholeHold, request.Model
+	} else if addOnReserve && (searchReserveUSD != nil || maximumIncludesReserve) {
+		e.ReserveUse, e.ReserveModel = ReserveAddOn, request.Model
 	}
 	return result, nil
 }
