@@ -92,8 +92,9 @@ func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[s
 		var providers []consumerProviderOffer
 		var minima []consumerPricingOperation
 		if details {
-			providers = upstreamProviderOffers(item, group, ratio, err == nil, user)
-			minima = catalogMinima(providers)
+			offers := upstreamProviderOffers(item, group, ratio, err == nil, user)
+			minima = catalogMinima(offers)
+			providers = catalogProviderDisplayOffers(offers)
 		} else {
 			minima = catalogMinimumOperations(iterateUpstreamProviderOffers(item, group, ratio, err == nil, user))
 		}
