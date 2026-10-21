@@ -32,7 +32,6 @@ func NewCatalogPersistence() record.Store {
 
 type catalogVendorOperationBridge struct{}
 
-func (catalogVendorOperationBridge) VendorConflict() error { return ErrVendorConflict }
 func (catalogVendorOperationBridge) IsMissing(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
 }
@@ -49,7 +48,6 @@ func (catalogVendorOperationBridge) WithVendorMutation(change func(domain.Vendor
 type catalogMetadataSyncBridge struct{}
 
 func (catalogMetadataSyncBridge) SyncFields() []string { return MetadataSyncFields }
-func (catalogMetadataSyncBridge) SyncConflict() error  { return ErrMetadataSyncConflict }
 func (catalogMetadataSyncBridge) WithMetadataSync(change func(domain.MetadataMutation) error) error {
 	return NewCatalogPersistence().WithMetadataSync(change)
 }
@@ -74,7 +72,6 @@ func catalogConnectionValue(v ModelConnection) domain.ModelConnection {
 
 type catalogMetadataWriteBridge struct{}
 
-func (catalogMetadataWriteBridge) VendorConflict() error { return ErrVendorConflict }
 func (catalogMetadataWriteBridge) WithModelMutation(change func(domain.ModelMutation) error) error {
 	return NewCatalogPersistence().WithModelMutation(change)
 }

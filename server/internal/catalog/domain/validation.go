@@ -13,7 +13,7 @@ func ValidateMetadataValues(values MetadataValues) error {
 		return errors.New("invalid metadata matching rule")
 	}
 	if values.Status != 0 && values.Status != 1 {
-		return errors.New("invalid catalog visibility")
+		return ErrInvalidVisibility
 	}
 	return ValidateModelEndpoints(values.Endpoints)
 }

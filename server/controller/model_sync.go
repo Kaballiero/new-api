@@ -2,15 +2,14 @@ package controller
 
 import (
 	"github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
-	"github.com/QuantumNous/new-api/internal/app"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/catalog/preview_metadata_sync"
 	"github.com/gin-gonic/gin"
 	"net/http"
 )
 
-func SyncUpstreamPreview(c *gin.Context) { app.NewSyncUpstreamPreviewHTTP().Handle(c) }
-func SyncUpstreamModels(c *gin.Context)  { app.NewSyncUpstreamModelsHTTP(catalogEffects(c)).Handle(c) }
+func SyncUpstreamPreview(c *gin.Context) { catalogHTTP().PreviewMetadataSync.Handle(c) }
+func SyncUpstreamModels(c *gin.Context)  { catalogHTTP().ApplyMetadataSync.Handle(c) }
 
 type SyncUpstreamSource = domain.SyncUpstreamSource
 type SyncUpstreamPreviewResponse = preview_metadata_sync.SyncUpstreamPreviewResponse

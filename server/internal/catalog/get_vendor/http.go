@@ -2,7 +2,7 @@ package get_vendor
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	response "github.com/QuantumNous/new-api/internal/adapter/http/catalog"
+	"github.com/QuantumNous/new-api/internal/catalog/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
@@ -17,9 +17,9 @@ func (h HTTP) Handle(c *gin.Context) {
 		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "invalid id")
 		return
 	}
-	value, failure := h.scenario.Execute(Input{ID: id})
-	if failure != nil {
-		response.Failure(c, failure)
+	value, err := h.scenario.Execute(Input{ID: id})
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	common.ApiSuccess(c, value)

@@ -22,15 +22,15 @@ type Usecase struct {
 }
 
 func NewUsecase(store Store, log func(string)) Usecase { return Usecase{store: store, log: log} }
-func (u Usecase) Execute(input Input) (Output, *domain.Failure) {
+func (u Usecase) Execute(input Input) (Output, error) {
 	squareState := domain.ModelSquareState(input.SquareState)
 	switch squareState {
 	case "", domain.ModelSquareVisible, domain.ModelSquareUnavailable, domain.ModelSquareHidden, domain.ModelSquarePartial:
 	default:
-		return Output{}, &domain.Failure{Kind: "invalid_params", Message: "Invalid model square state"}
+		return Output{}, domain.ErrInvalidSquareState
 	}
 	if squareState != "" && (input.Page < 1 || input.PageSize < 1) {
-		return Output{}, &domain.Failure{Kind: "invalid_params", Message: "Invalid pagination"}
+		return Output{}, domain.ErrInvalidPagination
 	}
 	offset, limit := (input.Page-1)*input.PageSize, input.PageSize
 	if squareState != "" {
@@ -42,7 +42,7 @@ func (u Usecase) Execute(input Input) (Output, *domain.Failure) {
 	}
 	items, total, err := u.store.Models(input.Keyword, input.Vendor, input.Status, input.SyncOfficial, start, count)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "internal_error", Cause: err}
+		return Output{}, domain.Internal(err)
 	}
 	if input.IncludeChannelModels {
 		_, filterStatus := domain.ParseModelStatusFilter(input.Status)
@@ -50,11 +50,11 @@ func (u Usecase) Execute(input Input) (Output, *domain.Failure) {
 		if !filterStatus && !filterSync && (input.Vendor == "" || input.Vendor == "0") {
 			configured, err := u.store.ConfiguredChannels()
 			if err != nil {
-				return Output{}, &domain.Failure{Kind: "internal_error", Cause: err}
+				return Output{}, domain.Internal(err)
 			}
 			exactNames, err := u.store.ExactNames()
 			if err != nil {
-				return Output{}, &domain.Failure{Kind: "internal_error", Cause: err}
+				return Output{}, domain.Internal(err)
 			}
 			for _, name := range exactNames {
 				delete(configured, name)
@@ -89,22 +89,22 @@ func (u Usecase) Execute(input Input) (Output, *domain.Failure) {
 		configured, err := u.store.ConfiguredChannels()
 		if err != nil {
 			u.log("load configured model channels: " + err.Error())
-			return Output{}, &domain.Failure{Kind: "internal_error", Cause: err}
+			return Output{}, domain.Internal(err)
 		}
 		domain.FillConfiguredCounts(items, configured)
 		connections, err := u.store.Connections()
 		if err != nil {
 			u.log("load model connections: " + err.Error())
-			return Output{}, &domain.Failure{Kind: "internal_error", Cause: err}
+			return Output{}, domain.Internal(err)
 		}
 		metadata, err := u.store.AllModels()
 		if err != nil {
 			u.log("load model square states: " + err.Error())
-			return Output{}, &domain.Failure{Kind: "internal_error", Cause: err}
+			return Output{}, domain.Internal(err)
 		}
 		if err := domain.FillModelSquareStates(items, configured, connections, metadata); err != nil {
 			u.log("load model square states: " + err.Error())
-			return Output{}, &domain.Failure{Kind: "internal_error", Cause: err}
+			return Output{}, domain.Internal(err)
 		}
 		domain.FillConnections(items, connections, u.store.SupportEndpoints, u.store.QuotaTypes)
 	}

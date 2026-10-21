@@ -1,18 +1,22 @@
 package delete_model
 
 import (
-	"errors"
 	"github.com/QuantumNous/new-api/common"
-	response "github.com/QuantumNous/new-api/internal/adapter/http/catalog"
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
+	"github.com/QuantumNous/new-api/internal/catalog/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
 )
 
-type HTTP struct{ scenario Usecase }
+type HTTP struct {
+	store                           Store
+	refreshChannels, refreshPricing func()
+	audit                           func(*gin.Context, Input, Output)
+}
 
-func NewHTTP(scenario Usecase) HTTP { return HTTP{scenario: scenario} }
+func NewHTTP(store Store, refreshChannels, refreshPricing func(), audit func(*gin.Context, Input, Output)) HTTP {
+	return HTTP{store: store, refreshChannels: refreshChannels, refreshPricing: refreshPricing, audit: audit}
+}
 func (h HTTP) Handle(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -31,14 +35,10 @@ func (h HTTP) Handle(c *gin.Context) {
 	}
 	input := Input{ModelIDs: []int{id}, RemoveFromChannels: removeFromChannels, RemovePricing: removePricing}
 	input.AllowRemovePricing = c.GetInt("role") == common.RoleRootUser
-	out, err := h.scenario.Execute(input)
+	audit := func(input Input, result Output) { h.audit(c, input, result) }
+	out, err := NewUsecase(h.store, h.refreshChannels, h.refreshPricing, audit).Execute(input)
 	if err != nil {
-		var f *domain.Failure
-		if errors.As(err, &f) {
-			response.Failure(c, f)
-		} else {
-			common.ApiError(c, err)
-		}
+		transport.WriteError(c, err)
 		return
 	}
 	common.ApiSuccess(c, out)

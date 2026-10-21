@@ -8,11 +8,10 @@ import (
 )
 
 type Runtime struct {
-	VendorConflict, SyncConflict func() error
-	SyncFields                   func() []string
-	EnabledModels                func() []string
-	SupportEndpoints             func(string) []string
-	QuotaTypes                   func(string) []int
+	SyncFields       func() []string
+	EnabledModels    func() []string
+	SupportEndpoints func(string) []string
+	QuotaTypes       func(string) []int
 }
 type Store struct {
 	persistence record.Store
@@ -22,10 +21,8 @@ type Store struct {
 func NewStore(persistence record.Store, runtime Runtime) Store {
 	return Store{persistence: persistence, runtime: runtime}
 }
-func (Store) IsMissing(err error) bool    { return errors.Is(err, gorm.ErrRecordNotFound) }
-func (store Store) VendorConflict() error { return store.runtime.VendorConflict() }
-func (store Store) SyncConflict() error   { return store.runtime.SyncConflict() }
-func (store Store) SyncFields() []string  { return store.runtime.SyncFields() }
+func (Store) IsMissing(err error) bool   { return errors.Is(err, gorm.ErrRecordNotFound) }
+func (store Store) SyncFields() []string { return store.runtime.SyncFields() }
 func (store Store) Models(keyword, vendor, status, sync string, offset, limit int) ([]*domain.Model, int64, error) {
 	v, n, e := store.persistence.SearchModels(keyword, vendor, status, sync, offset, limit)
 	return record.ModelsToDomain(v), n, e

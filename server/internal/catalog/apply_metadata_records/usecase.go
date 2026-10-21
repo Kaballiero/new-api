@@ -10,7 +10,6 @@ import (
 type Store interface {
 	WithMetadataSync(func(domain.MetadataMutation) error) error
 	SyncFields() []string
-	SyncConflict() error
 }
 type Usecase struct {
 	store   Store
@@ -32,7 +31,7 @@ func (u Usecase) Execute(updates []domain.MetadataSyncUpdate, upstreamVendors ma
 		}
 		seen[update.ModelName] = true
 		if update.RecordVersion == "" {
-			return nil, u.store.SyncConflict()
+			return nil, domain.ErrMetadataSyncConflict
 		}
 		if err := domain.ValidateMetadataValues(update.Values); err != nil {
 			return nil, err
@@ -71,10 +70,10 @@ func (u Usecase) Execute(updates []domain.MetadataSyncUpdate, upstreamVendors ma
 				localVendor = vendorByID[local.VendorID]
 			}
 			if domain.MetadataRecordVersion(local, localVendor, domain.FindMetadataVendor(vendors, update.Values.Vendor)) != update.RecordVersion {
-				return fmt.Errorf("%w: %s", u.store.SyncConflict(), update.ModelName)
+				return fmt.Errorf("%w: %s", domain.ErrMetadataSyncConflict, update.ModelName)
 			}
 			if update.Create && local != nil || !update.Create && local == nil {
-				return u.store.SyncConflict()
+				return domain.ErrMetadataSyncConflict
 			}
 		}
 		for _, update := range updates {

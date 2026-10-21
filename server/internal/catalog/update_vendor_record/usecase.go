@@ -6,7 +6,6 @@ import (
 
 type Store interface {
 	WithVendorMetadata(func(domain.VendorMetadataMutation) error) error
-	VendorConflict() error
 }
 type Usecase struct {
 	store   Store
@@ -24,7 +23,7 @@ func (u Usecase) Execute(value *domain.Vendor) error {
 			return err
 		}
 		if value.Version != "" && value.Version != domain.VendorRecordVersion(saved) {
-			return u.store.VendorConflict()
+			return domain.ErrVendorConflict
 		}
 		if err := domain.NormalizeVendor(value); err != nil {
 			return err

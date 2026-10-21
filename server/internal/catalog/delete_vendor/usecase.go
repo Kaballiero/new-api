@@ -5,7 +5,6 @@ import (
 )
 
 type Store interface {
-	VendorConflict() error
 	IsMissing(error) bool
 	WithVendorMutation(func(domain.VendorMutation) error) error
 	Vendor(int) (*domain.Vendor, error)
@@ -22,7 +21,7 @@ func NewUsecase(store Store, now func() int64, refresh func(), audit func(Input,
 }
 func (u Usecase) Execute(input Input) (*Output, error) {
 	if _, err := u.store.Vendor(input.ID); err != nil {
-		return nil, err
+		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}
 	operation := domain.VendorOperation{Action: "delete", VendorIDs: []int{input.ID}}
 	result := &domain.VendorOperationResult{UpdatedModels: []int{}, DeletedVendors: []int{}}
@@ -35,20 +34,20 @@ func (u Usecase) Execute(input Input) (*Output, error) {
 		if err != nil {
 			return err
 		}
-		if err := plan.SetVendors(vendors, u.store.VendorConflict); err != nil {
+		if err := plan.SetVendors(vendors); err != nil {
 			return err
 		}
 		models, err := tx.Models(operation.Action, plan.IDs)
 		if err != nil {
 			return err
 		}
-		preview, err := plan.Complete(models, u.store.VendorConflict)
+		preview, err := plan.Complete(models)
 		if err != nil {
 			return err
 		}
 
 		if operation.ExpectedVersion != "" && operation.ExpectedVersion != preview.Version {
-			return u.store.VendorConflict()
+			return domain.ErrVendorConflict
 		}
 		for _, item := range preview.Models {
 			if item.VendorID != operation.TargetVendorID {
@@ -71,7 +70,7 @@ func (u Usecase) Execute(input Input) (*Output, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}
 	u.refresh()
 	u.audit(input, *result)

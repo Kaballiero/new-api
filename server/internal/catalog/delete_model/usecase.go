@@ -25,13 +25,13 @@ func NewUsecase(store Store, refreshChannels, refreshPricing func(), audit func(
 func (u Usecase) Execute(input Input) (Output, error) {
 	ids, removeFromChannels, removePricing := input.ModelIDs, input.RemoveFromChannels, input.RemovePricing
 	if removePricing && !input.AllowRemovePricing {
-		return Output{}, &domain.Failure{Kind: "plain_forbidden", Message: "Model pricing is managed by a super administrator."}
+		return Output{}, domain.ErrPricingRootOnly
 	}
 	if err := u.store.ModelExists(ids[0]); err != nil {
 		if u.store.IsMissing(err) {
-			return Output{}, &domain.Failure{Kind: "model_not_found", Message: "model not found"}
+			return Output{}, domain.ErrModelNotFound
 		}
-		return Output{}, &domain.Failure{Kind: "internal_error", Cause: err}
+		return Output{}, domain.Internal(err)
 	}
 
 	result := domain.ModelDeleteResult{}
@@ -109,7 +109,7 @@ func (u Usecase) Execute(input Input) (Output, error) {
 	})
 	if err != nil {
 		if u.store.IsMissing(err) {
-			return Output{}, &domain.Failure{Kind: "model_not_found", Message: "model not found"}
+			return Output{}, domain.ErrModelNotFound
 		}
 		return domain.ModelDeleteResult{}, err
 	}

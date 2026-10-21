@@ -21,32 +21,32 @@ type Usecase struct {
 func NewUsecase(store Store, now func() int64, refresh func()) Usecase {
 	return Usecase{store: store, now: now, refresh: refresh}
 }
-func (u Usecase) Execute(input Input) (*Output, *domain.Failure) {
+func (u Usecase) Execute(input Input) (*Output, error) {
 	v := input.Value
 	if v.Id == 0 {
-		return nil, &domain.Failure{Kind: "model_id_missing", Message: "缺少模型 ID"}
+		return nil, domain.ErrModelIDMissing
 	}
 	if input.StatusOnly {
 		if v.Status != 0 && v.Status != 1 {
-			return nil, &domain.Failure{Kind: "api", Message: "invalid catalog visibility"}
+			return nil, domain.ErrInvalidVisibility
 		}
 		if err := u.store.SetModelStatus(v.Id, v.Status); err != nil {
-			return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+			return nil, domain.Internal(err)
 		}
 	} else {
 		if strings.TrimSpace(v.ModelName) == "" {
-			return nil, &domain.Failure{Kind: "api", Message: "模型名称不能为空"}
+			return nil, domain.ErrModelNameRequired
 		}
 		if err := domain.ValidateMetadataValues(domain.MetadataValues{Endpoints: v.Endpoints, Status: v.Status, NameRule: v.NameRule}); err != nil {
-			return nil, &domain.Failure{Kind: "api", Cause: err}
+			return nil, err
 		}
 		if dup, err := u.store.ModelDuplicate(v.Id, v.ModelName); err != nil {
-			return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+			return nil, domain.Internal(err)
 		} else if dup {
-			return nil, &domain.Failure{Kind: "model_name_exists", Message: "模型名称已存在"}
+			return nil, domain.ErrModelNameExists
 		}
 		if err := u.persist(&v); err != nil {
-			return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+			return nil, domain.Internal(err)
 		}
 	}
 	u.refresh()

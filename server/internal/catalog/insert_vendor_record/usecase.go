@@ -6,7 +6,6 @@ import (
 
 type Store interface {
 	WithVendorMetadata(func(domain.VendorMetadataMutation) error) error
-	VendorConflict() error
 }
 type Usecase struct {
 	store   Store

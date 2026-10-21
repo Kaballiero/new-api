@@ -1,8 +1,6 @@
 package model
 
 import (
-	"errors"
-
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -37,7 +35,7 @@ func lockMetadataMutation(tx *gorm.DB) error {
 	return lockForUpdate(tx).Where(commonKeyCol+" = ?", anchor.Key).First(&anchor).Error
 }
 
-var ErrMetadataSyncConflict = errors.New("metadata changed; preview again before applying")
+var ErrMetadataSyncConflict = domain.ErrMetadataSyncConflict
 
 var MetadataSyncFields = []string{"description", "icon", "tags", "vendor", "endpoints", "name_rule", "status"}
 

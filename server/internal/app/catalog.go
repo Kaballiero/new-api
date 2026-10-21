@@ -24,83 +24,79 @@ import (
 	"github.com/QuantumNous/new-api/internal/catalog/update_model"
 	"github.com/QuantumNous/new-api/internal/catalog/update_vendor"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/gin-gonic/gin"
 )
 
-type CatalogEffects struct{ Audit func(string, map[string]any) }
+// CatalogEffects records the management audit events of catalog changes.
+type CatalogEffects struct {
+	Audit func(c *gin.Context, action string, details map[string]any)
+}
+
+// CatalogHTTP holds the handlers of the model and vendor catalog.
+type CatalogHTTP struct {
+	ListModels             list_models.HTTP
+	SearchModels           search_models.HTTP
+	GetModel               get_model.HTTP
+	CreateModel            create_model.HTTP
+	UpdateModel            update_model.HTTP
+	DeleteModel            delete_model.HTTP
+	DeleteModelsBatch      delete_models_batch.HTTP
+	ListVendors            list_vendors.HTTP
+	SearchVendors          search_vendors.HTTP
+	GetVendor              get_vendor.HTTP
+	CreateVendor           create_vendor.HTTP
+	UpdateVendor           update_vendor.HTTP
+	DeleteVendor           delete_vendor.HTTP
+	PreviewVendorOperation preview_vendor_operation.HTTP
+	ApplyVendorOperation   apply_vendor_operation.HTTP
+	ListMissingModels      list_missing_models.HTTP
+	PreviewMetadataSync    preview_metadata_sync.HTTP
+	ApplyMetadataSync      apply_metadata_sync.HTTP
+}
 
 var catalogMetadataRuntime upstream.Runtime
 
-func NewGetAllModelsMetaHTTP() list_models.HTTP {
-	return list_models.NewHTTP(list_models.NewUsecase(newCatalogStore(), common.SysError))
-}
-func NewSearchModelsMetaHTTP() search_models.HTTP {
-	return search_models.NewHTTP(search_models.NewUsecase(newCatalogStore(), common.SysError))
-}
-func NewGetModelMetaHTTP() get_model.HTTP {
-	return get_model.NewHTTP(get_model.NewUsecase(newCatalogStore(), common.SysError))
-}
-func NewCreateModelMetaHTTP() create_model.HTTP {
-	return create_model.NewHTTP(create_model.NewUsecase(newCatalogStore(), common.GetTimestamp, model.RefreshPricing))
-}
-func NewUpdateModelMetaHTTP() update_model.HTTP {
-	return update_model.NewHTTP(update_model.NewUsecase(newCatalogStore(), common.GetTimestamp, model.RefreshPricing))
-}
-func NewDeleteModelMetaHTTP(effects CatalogEffects) delete_model.HTTP {
-	return delete_model.NewHTTP(delete_model.NewUsecase(newCatalogStore(), model.InitChannelCache, model.RefreshPricing, func(input delete_model.Input, result delete_model.Output) {
-		effects.Audit("model.delete", map[string]any{"model_ids": input.ModelIDs, "remove_from_channels": input.RemoveFromChannels, "remove_pricing": input.RemovePricing, "updated_channels": result.UpdatedChannels})
-	}))
-}
-func NewBatchDeleteModelMetaHTTP(effects CatalogEffects) delete_models_batch.HTTP {
-	return delete_models_batch.NewHTTP(delete_models_batch.NewUsecase(newCatalogStore(), model.InitChannelCache, model.RefreshPricing, func(input delete_models_batch.Input, result delete_models_batch.Output) {
-		effects.Audit("model.delete_batch", map[string]any{"model_ids": input.ModelIDs, "remove_from_channels": input.RemoveFromChannels, "remove_pricing": input.RemovePricing, "updated_channels": result.UpdatedChannels})
-	}))
-}
-func NewGetAllVendorsHTTP() list_vendors.HTTP {
-	return list_vendors.NewHTTP(list_vendors.NewUsecase(newCatalogStore()))
-}
-func NewSearchVendorsHTTP() search_vendors.HTTP {
-	return search_vendors.NewHTTP(search_vendors.NewUsecase(newCatalogStore()))
-}
-func NewGetVendorMetaHTTP() get_vendor.HTTP {
-	return get_vendor.NewHTTP(get_vendor.NewUsecase(newCatalogStore()))
-}
-func NewCreateVendorMetaHTTP(effects CatalogEffects) create_vendor.HTTP {
-	return create_vendor.NewHTTP(create_vendor.NewUsecase(newCatalogStore(), common.GetTimestamp, model.RefreshPricing, func(id int, name string) {
-		effects.Audit("vendor.metadata.save", map[string]any{"vendor_id": id, "name": name})
-	}))
-}
-func NewUpdateVendorMetaHTTP(effects CatalogEffects) update_vendor.HTTP {
-	return update_vendor.NewHTTP(update_vendor.NewUsecase(newCatalogStore(), common.GetTimestamp, model.RefreshPricing, func(id int, name string) {
-		effects.Audit("vendor.metadata.save", map[string]any{"vendor_id": id, "name": name})
-	}))
-}
-func NewDeleteVendorMetaHTTP(effects CatalogEffects) delete_vendor.HTTP {
-	return delete_vendor.NewHTTP(delete_vendor.NewUsecase(newCatalogStore(), common.GetTimestamp, model.RefreshPricing, func(input delete_vendor.Input, result delete_vendor.Output) {
-		effects.Audit("vendor.metadata.delete", map[string]any{"vendor_id": input.ID})
-	}))
-}
-func NewPreviewVendorOperationHTTP() preview_vendor_operation.HTTP {
-	return preview_vendor_operation.NewHTTP(preview_vendor_operation.NewUsecase(store.NewVendorOperationStore(newCatalogStore())))
-}
-func NewApplyVendorOperationHTTP(effects CatalogEffects) apply_vendor_operation.HTTP {
-	return apply_vendor_operation.NewHTTP(apply_vendor_operation.NewUsecase(newCatalogStore(), common.GetTimestamp, model.RefreshPricing, func(input apply_vendor_operation.Input, result apply_vendor_operation.Output) {
-		effects.Audit("vendor."+input.Action, map[string]any{"source_vendor_ids": input.VendorIDs, "target_vendor_id": input.TargetVendorID, "updated_model_ids": result.UpdatedModels, "deleted_vendor_ids": result.DeletedVendors})
-	}))
-}
-func NewGetMissingModelsHTTP() list_missing_models.HTTP {
-	return list_missing_models.NewHTTP(list_missing_models.NewUsecase(newCatalogStore()))
-}
-func NewSyncUpstreamPreviewHTTP() preview_metadata_sync.HTTP {
-	return preview_metadata_sync.NewHTTP(preview_metadata_sync.NewUsecase(newCatalogStore(), upstream.NewClient(&catalogMetadataRuntime)))
-}
-func NewSyncUpstreamModelsHTTP(effects CatalogEffects) apply_metadata_sync.HTTP {
-	return apply_metadata_sync.NewHTTP(apply_metadata_sync.NewUsecase(newCatalogStore(), upstream.NewClient(&catalogMetadataRuntime), common.GetTimestamp, model.RefreshPricing, func(result apply_metadata_sync.Output) {
-		effects.Audit("model.metadata.sync", map[string]any{"created_models": result.CreatedModels, "updated_models": result.UpdatedModels, "created_vendors": result.CreatedVendors})
-	}))
+func NewCatalogHTTP(effects CatalogEffects) CatalogHTTP {
+	catalog := newCatalogStore()
+	source := upstream.NewClient(&catalogMetadataRuntime)
+	return CatalogHTTP{
+		ListModels:   list_models.NewHTTP(list_models.NewUsecase(catalog, common.SysError)),
+		SearchModels: search_models.NewHTTP(search_models.NewUsecase(catalog, common.SysError)),
+		GetModel:     get_model.NewHTTP(get_model.NewUsecase(catalog, common.SysError)),
+		CreateModel:  create_model.NewHTTP(create_model.NewUsecase(catalog, common.GetTimestamp, model.RefreshPricing)),
+		UpdateModel:  update_model.NewHTTP(update_model.NewUsecase(catalog, common.GetTimestamp, model.RefreshPricing)),
+		DeleteModel: delete_model.NewHTTP(catalog, model.InitChannelCache, model.RefreshPricing, func(c *gin.Context, input delete_model.Input, result delete_model.Output) {
+			effects.Audit(c, "model.delete", map[string]any{"model_ids": input.ModelIDs, "remove_from_channels": input.RemoveFromChannels, "remove_pricing": input.RemovePricing, "updated_channels": result.UpdatedChannels})
+		}),
+		DeleteModelsBatch: delete_models_batch.NewHTTP(catalog, model.InitChannelCache, model.RefreshPricing, func(c *gin.Context, input delete_models_batch.Input, result delete_models_batch.Output) {
+			effects.Audit(c, "model.delete_batch", map[string]any{"model_ids": input.ModelIDs, "remove_from_channels": input.RemoveFromChannels, "remove_pricing": input.RemovePricing, "updated_channels": result.UpdatedChannels})
+		}),
+		ListVendors:   list_vendors.NewHTTP(list_vendors.NewUsecase(catalog)),
+		SearchVendors: search_vendors.NewHTTP(search_vendors.NewUsecase(catalog)),
+		GetVendor:     get_vendor.NewHTTP(get_vendor.NewUsecase(catalog)),
+		CreateVendor: create_vendor.NewHTTP(catalog, common.GetTimestamp, model.RefreshPricing, func(c *gin.Context, id int, name string) {
+			effects.Audit(c, "vendor.metadata.save", map[string]any{"vendor_id": id, "name": name})
+		}),
+		UpdateVendor: update_vendor.NewHTTP(catalog, common.GetTimestamp, model.RefreshPricing, func(c *gin.Context, id int, name string) {
+			effects.Audit(c, "vendor.metadata.save", map[string]any{"vendor_id": id, "name": name})
+		}),
+		DeleteVendor: delete_vendor.NewHTTP(catalog, common.GetTimestamp, model.RefreshPricing, func(c *gin.Context, input delete_vendor.Input, result delete_vendor.Output) {
+			effects.Audit(c, "vendor.metadata.delete", map[string]any{"vendor_id": input.ID})
+		}),
+		PreviewVendorOperation: preview_vendor_operation.NewHTTP(preview_vendor_operation.NewUsecase(store.NewVendorOperationStore(catalog))),
+		ApplyVendorOperation: apply_vendor_operation.NewHTTP(catalog, common.GetTimestamp, model.RefreshPricing, func(c *gin.Context, input apply_vendor_operation.Input, result apply_vendor_operation.Output) {
+			effects.Audit(c, "vendor."+input.Action, map[string]any{"source_vendor_ids": input.VendorIDs, "target_vendor_id": input.TargetVendorID, "updated_model_ids": result.UpdatedModels, "deleted_vendor_ids": result.DeletedVendors})
+		}),
+		ListMissingModels:   list_missing_models.NewHTTP(list_missing_models.NewUsecase(catalog)),
+		PreviewMetadataSync: preview_metadata_sync.NewHTTP(preview_metadata_sync.NewUsecase(catalog, source)),
+		ApplyMetadataSync: apply_metadata_sync.NewHTTP(catalog, source, common.GetTimestamp, model.RefreshPricing, func(c *gin.Context, result apply_metadata_sync.Output) {
+			effects.Audit(c, "model.metadata.sync", map[string]any{"created_models": result.CreatedModels, "updated_models": result.UpdatedModels, "created_vendors": result.CreatedVendors})
+		}),
+	}
 }
 
 func newCatalogStore() store.Store {
-	return store.NewStore(model.NewCatalogPersistence(), store.Runtime{VendorConflict: func() error { return model.ErrVendorConflict }, SyncConflict: func() error { return model.ErrMetadataSyncConflict }, SyncFields: func() []string { return model.MetadataSyncFields }, EnabledModels: model.GetEnabledModels, QuotaTypes: model.GetModelQuotaTypes, SupportEndpoints: func(name string) []string {
+	return store.NewStore(model.NewCatalogPersistence(), store.Runtime{SyncFields: func() []string { return model.MetadataSyncFields }, EnabledModels: model.GetEnabledModels, QuotaTypes: model.GetModelQuotaTypes, SupportEndpoints: func(name string) []string {
 		var out []string
 		for _, v := range model.GetModelSupportEndpointTypes(name) {
 			out = append(out, string(v))

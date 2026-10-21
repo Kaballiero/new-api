@@ -11,14 +11,14 @@ type Store interface {
 type Usecase struct{ store Store }
 
 func NewUsecase(store Store) Usecase { return Usecase{store: store} }
-func (u Usecase) Execute() (Output, *domain.Failure) {
+func (u Usecase) Execute() (Output, error) {
 	enabled := u.store.EnabledModels()
 	if len(enabled) == 0 {
 		return []string{}, nil
 	}
 	existing, err := u.store.ExistingNames(enabled)
 	if err != nil {
-		return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	return domain.MissingNames(enabled, existing), nil
 }

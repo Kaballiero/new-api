@@ -5,7 +5,6 @@ import (
 )
 
 type Store interface {
-	VendorConflict() error
 	WithVendorMutation(func(domain.VendorMutation) error) error
 }
 type Usecase struct {
@@ -29,20 +28,20 @@ func (u Usecase) Execute(ids []int) (*domain.VendorOperationResult, error) {
 		if err != nil {
 			return err
 		}
-		if err := plan.SetVendors(vendors, u.store.VendorConflict); err != nil {
+		if err := plan.SetVendors(vendors); err != nil {
 			return err
 		}
 		models, err := tx.Models(operation.Action, plan.IDs)
 		if err != nil {
 			return err
 		}
-		preview, err := plan.Complete(models, u.store.VendorConflict)
+		preview, err := plan.Complete(models)
 		if err != nil {
 			return err
 		}
 
 		if operation.ExpectedVersion != "" && operation.ExpectedVersion != preview.Version {
-			return u.store.VendorConflict()
+			return domain.ErrVendorConflict
 		}
 		for _, item := range preview.Models {
 			if item.VendorID != operation.TargetVendorID {

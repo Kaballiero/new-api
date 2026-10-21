@@ -19,34 +19,34 @@ type Usecase struct {
 }
 
 func NewUsecase(store Store, log func(string)) Usecase { return Usecase{store: store, log: log} }
-func (u Usecase) Execute(input Input) (*Output, *domain.Failure) {
+func (u Usecase) Execute(input Input) (*Output, error) {
 	value, err := u.store.Model(input.ID)
 	if err != nil {
 		if u.store.IsMissing(err) {
-			return nil, &domain.Failure{Kind: "model_not_found", Message: "model not found"}
+			return nil, domain.ErrModelNotFound
 		}
-		return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	if len([]*domain.Model{value}) > 0 {
 		configured, err := u.store.ConfiguredChannels()
 		if err != nil {
 			u.log("load configured model channels: " + err.Error())
-			return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+			return nil, domain.Internal(err)
 		}
 		domain.FillConfiguredCounts([]*domain.Model{value}, configured)
 		connections, err := u.store.Connections()
 		if err != nil {
 			u.log("load model connections: " + err.Error())
-			return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+			return nil, domain.Internal(err)
 		}
 		metadata, err := u.store.AllModels()
 		if err != nil {
 			u.log("load model square states: " + err.Error())
-			return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+			return nil, domain.Internal(err)
 		}
 		if err := domain.FillModelSquareStates([]*domain.Model{value}, configured, connections, metadata); err != nil {
 			u.log("load model square states: " + err.Error())
-			return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+			return nil, domain.Internal(err)
 		}
 		domain.FillConnections([]*domain.Model{value}, connections, u.store.SupportEndpoints, u.store.QuotaTypes)
 	}

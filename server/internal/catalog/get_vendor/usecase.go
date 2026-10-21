@@ -11,13 +11,13 @@ type Store interface {
 type Usecase struct{ store Store }
 
 func NewUsecase(store Store) Usecase { return Usecase{store: store} }
-func (u Usecase) Execute(input Input) (*Output, *domain.Failure) {
+func (u Usecase) Execute(input Input) (*Output, error) {
 	value, err := u.store.Vendor(input.ID)
 	if err != nil {
 		if u.store.IsMissing(err) {
-			return nil, &domain.Failure{Kind: "vendor_not_found", Message: "vendor not found"}
+			return nil, domain.ErrVendorNotFound
 		}
-		return nil, &domain.Failure{Kind: "internal_error", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	value.Version = domain.VendorRecordVersion(value)
 	return value, nil

@@ -17,27 +17,27 @@ type Usecase struct {
 }
 
 func NewUsecase(store Store, log func(string)) Usecase { return Usecase{store: store, log: log} }
-func (u Usecase) Execute(items []*domain.Model) *domain.Failure {
+func (u Usecase) Execute(items []*domain.Model) error {
 	if len(items) > 0 {
 		configured, err := u.store.ConfiguredChannels()
 		if err != nil {
 			u.log("load configured model channels: " + err.Error())
-			return &domain.Failure{Kind: "internal_error", Cause: err}
+			return domain.Internal(err)
 		}
 		domain.FillConfiguredCounts(items, configured)
 		connections, err := u.store.Connections()
 		if err != nil {
 			u.log("load model connections: " + err.Error())
-			return &domain.Failure{Kind: "internal_error", Cause: err}
+			return domain.Internal(err)
 		}
 		metadata, err := u.store.AllModels()
 		if err != nil {
 			u.log("load model square states: " + err.Error())
-			return &domain.Failure{Kind: "internal_error", Cause: err}
+			return domain.Internal(err)
 		}
 		if err := domain.FillModelSquareStates(items, configured, connections, metadata); err != nil {
 			u.log("load model square states: " + err.Error())
-			return &domain.Failure{Kind: "internal_error", Cause: err}
+			return domain.Internal(err)
 		}
 		domain.FillConnections(items, connections, u.store.SupportEndpoints, u.store.QuotaTypes)
 	}

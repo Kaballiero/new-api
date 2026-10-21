@@ -2,8 +2,8 @@ package create_model
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	response "github.com/QuantumNous/new-api/internal/adapter/http/catalog"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
+	"github.com/QuantumNous/new-api/internal/catalog/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 )
@@ -17,9 +17,9 @@ func (h HTTP) Handle(c *gin.Context) {
 		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", err.Error())
 		return
 	}
-	out, failure := h.scenario.Execute(Input{Value: domain.Model(value)})
-	if failure != nil {
-		response.Failure(c, failure)
+	out, err := h.scenario.Execute(Input{Value: domain.Model(value)})
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	common.ApiSuccessStatus(c, http.StatusCreated, out)

@@ -19,7 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 
-// 上游地址
+// Upstream metadata URLs.
 const (
 	ModelsURL  = "https://basellm.github.io/llm-metadata/api/newapi/models.json"
 	VendorsURL = "https://basellm.github.io/llm-metadata/api/newapi/vendors.json"
@@ -76,7 +76,7 @@ func NewHTTPClient() *http.Client {
 	timeoutSec := common.GetEnvOrDefault("SYNC_HTTP_TIMEOUT_SECONDS", 10)
 	dialer := &net.Dialer{Timeout: time.Duration(timeoutSec) * time.Second}
 	transport := &http.Transport{
-		// 上游价格/模型清单可能被地域封锁，与 relay HTTP 客户端保持一致，走部署配置的代理。
+		// Upstream price and model lists may be geo-blocked; like the relay HTTP client, go through the proxy configured for the deployment.
 		Proxy:                 http.ProxyFromEnvironment,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,

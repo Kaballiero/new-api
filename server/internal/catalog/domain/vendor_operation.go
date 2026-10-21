@@ -35,7 +35,7 @@ func NewVendorOperationPlan(operation VendorOperation) (*VendorOperationPlan, er
 	preview := &VendorOperationPreview{Action: operation.Action, Sources: []Vendor{}, Models: []VendorAssignmentModel{}}
 	return &VendorOperationPlan{Operation: operation, IDs: ids, Preview: preview}, nil
 }
-func (plan *VendorOperationPlan) SetVendors(vendors []Vendor, conflict func() error) error {
+func (plan *VendorOperationPlan) SetVendors(vendors []Vendor) error {
 	operation, ids, preview := plan.Operation, plan.IDs, plan.Preview
 	byID := make(map[int]*Vendor, len(vendors))
 	for i := range vendors {
@@ -48,7 +48,7 @@ func (plan *VendorOperationPlan) SetVendors(vendors []Vendor, conflict func() er
 		if operation.TargetVendorID != 0 {
 			preview.Target = byID[operation.TargetVendorID]
 			if preview.Target == nil {
-				return fmt.Errorf("%w: target vendor does not exist", conflict())
+				return fmt.Errorf("%w: target vendor does not exist", ErrVendorConflict)
 			}
 		}
 	}
@@ -58,7 +58,7 @@ func (plan *VendorOperationPlan) SetVendors(vendors []Vendor, conflict func() er
 		for _, id := range ids {
 			vendor := byID[id]
 			if vendor == nil {
-				return fmt.Errorf("%w: source vendor does not exist", conflict())
+				return fmt.Errorf("%w: source vendor does not exist", ErrVendorConflict)
 			}
 			if operation.Action == "merge" && id == operation.TargetVendorID {
 				return errors.New("target vendor cannot also be a source")
@@ -69,10 +69,10 @@ func (plan *VendorOperationPlan) SetVendors(vendors []Vendor, conflict func() er
 	plan.Vendors = byID
 	return nil
 }
-func (plan *VendorOperationPlan) Complete(models []Model, conflict func() error) (*VendorOperationPreview, error) {
+func (plan *VendorOperationPlan) Complete(models []Model) (*VendorOperationPreview, error) {
 	operation, ids, preview, byID := plan.Operation, plan.IDs, plan.Preview, plan.Vendors
 	if operation.Action == "assign" && len(models) != len(ids) {
-		return nil, fmt.Errorf("%w: a selected model no longer exists", conflict())
+		return nil, fmt.Errorf("%w: a selected model no longer exists", ErrVendorConflict)
 	}
 	seen := make(map[int]bool)
 	modelVersions := make([]string, 0, len(models))

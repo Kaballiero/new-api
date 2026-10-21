@@ -1,8 +1,6 @@
 package model
 
 import (
-	"errors"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"github.com/QuantumNous/new-api/internal/catalog/apply_vendor_operation"
@@ -11,7 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/catalog/remove_vendors"
 )
 
-var ErrVendorConflict = errors.New("vendor data changed; preview again before applying")
+var ErrVendorConflict = domain.ErrVendorConflict
 
 // VendorReferenceError reports every referenced vendor in a rejected delete.
 type VendorReferenceError = domain.VendorReferenceError

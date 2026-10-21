@@ -10,10 +10,10 @@ type Store interface {
 type Usecase struct{ store Store }
 
 func NewUsecase(store Store) Usecase { return Usecase{store: store} }
-func (u Usecase) Execute(input Input) (Output, *domain.Failure) {
+func (u Usecase) Execute(input Input) (Output, error) {
 	v, n, e := u.store.Vendors(input.Keyword, (input.Page-1)*input.PageSize, input.PageSize, input.Association)
 	if e != nil {
-		return Output{}, &domain.Failure{Kind: "internal_error", Cause: e}
+		return Output{}, domain.Internal(e)
 	}
 	for _, vendor := range v {
 		vendor.Version = domain.VendorRecordVersion(vendor)

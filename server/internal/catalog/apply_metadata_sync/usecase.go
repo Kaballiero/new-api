@@ -14,7 +14,6 @@ type Source interface {
 type Store interface {
 	WithMetadataSync(func(domain.MetadataMutation) error) error
 	SyncFields() []string
-	SyncConflict() error
 }
 type Usecase struct {
 	store   Store
@@ -30,26 +29,22 @@ func NewUsecase(store Store, source Source, now func() int64, refresh func(), au
 func (u Usecase) Execute(ctx context.Context, input Input) (*Output, error) {
 	source, upstream, vendors, err := u.source.Fetch(ctx, input.Locale)
 	if err != nil {
-		return nil, &domain.Failure{Kind: "api", Cause: err}
+		return nil, err
 	}
 	if source.Version != input.SourceVersion {
-		return nil, &domain.Failure{Kind: "sync_conflict", Message: "Upstream metadata changed; preview again"}
+		return nil, domain.ErrSyncSourceChanged
 	}
 	updates := make([]domain.MetadataSyncUpdate, 0, len(input.Selections))
 	for _, selection := range input.Selections {
 		values, exists := upstream[selection.ModelName]
 		if !exists {
-			return nil, &domain.Failure{Kind: "sync_conflict", Message: "Selected upstream model is no longer available"}
+			return nil, domain.ErrSyncModelUnavailable
 		}
 		updates = append(updates, domain.MetadataSyncUpdate{MetadataSyncSelection: selection, Values: values})
 	}
 	result, err := u.applyRecords(updates, vendors)
 	if err != nil {
-		kind := "sync"
-		if errors.Is(err, u.store.SyncConflict()) {
-			kind = "sync_conflict"
-		}
-		return nil, &domain.Failure{Kind: kind, Cause: err}
+		return nil, domain.RejectSync(err)
 	}
 	u.audit(*result)
 	return result, nil
@@ -65,7 +60,7 @@ func (u Usecase) applyRecords(updates []domain.MetadataSyncUpdate, upstreamVendo
 		}
 		seen[update.ModelName] = true
 		if update.RecordVersion == "" {
-			return nil, u.store.SyncConflict()
+			return nil, domain.ErrMetadataSyncConflict
 		}
 		if err := domain.ValidateMetadataValues(update.Values); err != nil {
 			return nil, err
@@ -104,10 +99,10 @@ func (u Usecase) applyRecords(updates []domain.MetadataSyncUpdate, upstreamVendo
 				localVendor = vendorByID[local.VendorID]
 			}
 			if domain.MetadataRecordVersion(local, localVendor, domain.FindMetadataVendor(vendors, update.Values.Vendor)) != update.RecordVersion {
-				return fmt.Errorf("%w: %s", u.store.SyncConflict(), update.ModelName)
+				return fmt.Errorf("%w: %s", domain.ErrMetadataSyncConflict, update.ModelName)
 			}
 			if update.Create && local != nil || !update.Create && local == nil {
-				return u.store.SyncConflict()
+				return domain.ErrMetadataSyncConflict
 			}
 		}
 		for _, update := range updates {

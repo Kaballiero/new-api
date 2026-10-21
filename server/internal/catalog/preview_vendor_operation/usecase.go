@@ -5,7 +5,6 @@ import (
 )
 
 type Store interface {
-	VendorConflict() error
 	IsMissing(error) bool
 	Vendors() ([]domain.Vendor, error)
 	Models(string, []int) ([]domain.Model, error)
@@ -17,22 +16,22 @@ func (u Usecase) Execute(input Input) (*Output, error) {
 	operation := input
 	plan, err := domain.NewVendorOperationPlan(operation)
 	if err != nil {
-		return nil, err
+		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}
 	vendors, err := u.store.Vendors()
 	if err != nil {
-		return nil, err
+		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}
-	if err := plan.SetVendors(vendors, u.store.VendorConflict); err != nil {
-		return nil, err
+	if err := plan.SetVendors(vendors); err != nil {
+		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}
 	models, err := u.store.Models(operation.Action, plan.IDs)
 	if err != nil {
-		return nil, err
+		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}
-	preview, err := plan.Complete(models, u.store.VendorConflict)
+	preview, err := plan.Complete(models)
 	if err != nil {
-		return nil, err
+		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}
 	return preview, nil
 }
