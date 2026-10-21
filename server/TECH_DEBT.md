@@ -40,15 +40,13 @@
 
 ## Генератор OpenAPI
 
-- `accountFailureCodes` дублирует `apiKeyFailureCodes` — объединить.
-- `cmd/gen-admin-openapi/personal_access_tokens.go`: `delete(savedAliases, "UserAccessTokenStatus")` больше ничего не делает.
 - `make openapi-check` только валидирует, не сравнивает: настоящая проверка — `make openapi` без диффа в `server/docs`.
 - Схема `PasskeyVerifyFinish` зафиксирована вручную (`preserveIdentityHandlerContract`), реальный ответ — SecurityProof.
 
 ## Мёртвый код
 
-- `controller/user.go`: `canManageTargetRole`, `updateAdminPermissionsForUserInTx`, `calculateUserPermissions`; константа `bulkUpdateUserGroupMaxBatch` дублирует `accounts/domain.MaxBulkGroupBatch`.
 - `apikeys`: `GetTokenStatus` без маршрута (так и в `origin/main`), обработчик остаётся только для OpenAPI-генератора.
+- Мёртвый код из `origin/main` (35 находок `staticcheck -checks U1000`; в baseline 38, 3 ушли при переносе) намеренно не удаляем, чтобы не создавать конфликтов при слиянии с upstream.
 
 ## Китайский текст вне перенесённых модулей
 
@@ -74,3 +72,4 @@
 - `controller/TestSecurityAccountDeletionConcurrentRequestsHaveOneWinner` — `SQLITE_BUSY`, ≈ 3 из 30 запусков;
 - `controller/TestSecurityEnrollmentTelegramAndWeChatFirstFactor` — зависит от порядка, ≈ 1 из 4 полных прогонов;
 - `relay/channel/task/jsplugin/TestTaskAdaptorReDecodesFinalCandidateAndRejectsModelDrift` — под нагрузкой полного прогона.
+- `controller/TestTelegramOAuthRejectsInvalidTokens` — упал 1 раз из 28 прогонов `controller` на ветке рефакторинга (на `main-baseline` 0 из 16, отдельно 40 из 40 зелёные); причина не найдена. В `oauth/telegram.go` рефакторинг менял только алиасы ошибок (тексты прежние) — наблюдать.

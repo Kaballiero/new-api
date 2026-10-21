@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -163,7 +164,7 @@ func TestBulkUpdateUserGroup_EmptyGroup(t *testing.T) {
 
 func TestBulkUpdateUserGroup_BatchTooLarge(t *testing.T) {
 	openUserControllerTestDB(t)
-	ids := make([]int, bulkUpdateUserGroupMaxBatch+1)
+	ids := make([]int, domain.MaxBulkGroupBatch+1)
 	for i := range ids {
 		ids[i] = i + 1
 	}

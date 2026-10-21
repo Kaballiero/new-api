@@ -72,7 +72,6 @@ var knownViolations = []string{
 	"legacy-imports-internal: model/catalog_persistence.go -> github.com/QuantumNous/new-api/internal/catalog/domain",
 	"legacy-imports-internal: model/channel.go -> github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record",
 	"legacy-imports-internal: model/channel.go -> github.com/QuantumNous/new-api/internal/channels/change_channel_state",
-	"legacy-imports-internal: model/channel.go -> github.com/QuantumNous/new-api/internal/channels/domain",
 	"legacy-imports-internal: model/checkin.go -> github.com/QuantumNous/new-api/internal/accounts/check_in",
 	"legacy-imports-internal: model/checkin.go -> github.com/QuantumNous/new-api/internal/accounts/domain",
 	"legacy-imports-internal: model/checkin.go -> github.com/QuantumNous/new-api/internal/accounts/get_checkin_status",

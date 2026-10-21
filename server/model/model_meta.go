@@ -37,22 +37,6 @@ type Model record.Model
 // MatchesName applies a metadata rule to a concrete channel model name.
 func (mi *Model) MatchesName(name string) bool { return ((*record.Model)(mi)).MatchesName(name) }
 
-// resolveModelMetadata preserves catalog precedence: exact, prefix, suffix,
-// then contains. The first matching record within a rule type wins.
-func resolveModelMetadata(records []Model, names []string) map[string]*Model {
-	values := make([]domain.Model, len(records))
-	reverse := make(map[*domain.Model]*Model, len(records))
-	for i := range records {
-		values[i] = *record.ToModel((*record.Model)(&records[i]))
-		reverse[&values[i]] = &records[i]
-	}
-	out := make(map[string]*Model)
-	for name, v := range domain.ResolveModelMetadata(values, names) {
-		out[name] = reverse[v]
-	}
-	return out
-}
-
 // FillModelSquareStates applies the same metadata policy as the public catalog
 // to live routes, then aggregates concrete models for metadata rule rows.
 func FillModelSquareStates(rows []*Model, configured map[string][]int, connections []ModelConnection) error {
@@ -251,11 +235,3 @@ func SearchModels(keyword string, vendor string, status string, syncOfficial str
 	}
 	return out, n, e
 }
-
-// parseModelStatusFilter maps UI/API status values to the models.status column.
-// Returns ok=false when no status filter should be applied.
-func parseModelStatusFilter(value string) (int, bool) { return domain.ParseModelStatusFilter(value) }
-
-// parseModelSyncFilter maps UI/API sync values to the models.sync_official column.
-// Returns ok=false when no sync filter should be applied.
-func parseModelSyncFilter(value string) (int, bool) { return domain.ParseModelSyncFilter(value) }

@@ -11,23 +11,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string]string) []model.Pricing {
-	return pricingdomain.FilterPricingByUsableGroups(pricing, usableGroup)
-}
-
 func GetPricing(c *gin.Context) { app.NewGetPricingHTTP().Handle(c) }
 
 type effectivePricingResponse = pricingdomain.EffectivePricingResponse
 
-type effectiveAccounting = pricingdomain.EffectiveAccounting
-
-type effectivePricingModel = pricingdomain.EffectivePricingModel
-
 type effectiveGroupPricing = pricingdomain.EffectiveGroupPricing
 
 type effectiveUnitPrice = pricingdomain.EffectiveUnitPrice
-
-type effectivePricingFormula = pricingdomain.EffectivePricingFormula
 
 // GetEffectivePricing returns a read-only per-user tariff projection. It does
 // not reuse /api/pricing's response contract and does not call debit paths.
@@ -40,20 +30,6 @@ func GetEffectivePricingByGroup(c *gin.Context) { app.NewGetEffectivePricingByGr
 func buildEffectivePricingResponse(userGroup string, basis service.BillingFXBasis, pricing []model.Pricing) effectivePricingResponse {
 	return app.NewPricingProjection().BuildEffectivePricingResponse(userGroup, pricingdomain.
 		BillingFXBasis(basis), pricing)
-}
-
-func buildEffectivePricingModel(userGroup string, usableGroups map[string]string, fxFactor float64, item model.Pricing) effectivePricingModel {
-	return app.NewPricingProjection().BuildEffectivePricingModel(userGroup, usableGroups,
-		fxFactor, item)
-}
-
-func buildEffectivePricingModelWithRatios(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item model.Pricing) effectivePricingModel {
-	return app.NewPricingProjection().BuildEffectivePricingModelWithRatios(usableGroups, groupRatios,
-		fxFactor, item)
-}
-
-func effectivePricingGroups(enableGroups []string, usableGroups map[string]string) []string {
-	return pricingdomain.EffectivePricingGroups(enableGroups, usableGroups)
 }
 
 func buildEffectiveGroupPricing(item model.Pricing, group string, pureRatio, effectiveRatio float64) effectiveGroupPricing {

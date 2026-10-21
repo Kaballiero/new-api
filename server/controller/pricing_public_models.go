@@ -13,22 +13,13 @@ import (
 
 type publicPricingModelsPage = pricingdomain.PublicPricingModelsPage
 
-type publicPricingModel = pricingdomain.PublicPricingModel
-
 type publicModelTariff = pricingdomain.PublicModelTariff
-
-type publicPricingOperation = pricingdomain.PublicPricingOperation
 
 type publicPricingTier = pricingdomain.PublicPricingTier
 
 type publicPricingCondition = pricingdomain.PublicPricingCondition
 
 type publicPricingModelsQuery = pricingdomain.PublicPricingModelsQuery
-
-func pricingTags(value string) []string {
-	return pricingdomain.
-		PricingTags(value)
-}
 
 func parsePublicPricingModelsQuery(raw string) (publicPricingModelsQuery, error) {
 	return pricingquery.

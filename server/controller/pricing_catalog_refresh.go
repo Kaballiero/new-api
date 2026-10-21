@@ -9,14 +9,12 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 
 	"time"
 )
 
 const pricingCatalogWorkers = 5
 const pricingCatalogBodyLimit = 2 << 20
-const pricingCatalogTimeout = 20 * time.Second
 const pricingCatalogFailureLimit = 20
 
 func refreshChannelPricingCache() {
@@ -105,17 +103,4 @@ func normalizeEndpointPricing(upstream, operation, main string, body []byte) ([]
 }
 func normalizeImagePricing(upstream string, body []byte) ([]model.CatalogOffer, error) {
 	return app.NewPricingNativeNormalizer().NormalizeImagePricing(upstream, body)
-}
-func imagePricingVariantSupported(variant string, parameters map[string]openrouter.ImageCapability) bool {
-	var values map[string]domain.NativeImageCapability
-	if parameters != nil {
-		values = make(map[string]domain.NativeImageCapability, len(parameters))
-		for key, v := range parameters {
-			values[key] = domain.NativeImageCapability(v)
-		}
-	}
-	return domain.ImagePricingVariantSupported(variant, values)
-}
-func fetchPricingMetadata(ctx context.Context, channel *model.Channel, endpoint string) ([]byte, error) {
-	return upstream.NewNativeChannel(channel).Metadata(ctx, endpoint)
 }

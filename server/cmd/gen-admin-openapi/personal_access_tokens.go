@@ -22,7 +22,6 @@ func parsePersonalAccessTokenHandlers() error {
 		}
 		if source.handler == "GetAccessTokenStatus" {
 			savedTypes["UserAccessTokenStatus"] = modelTypes["Output"]
-			delete(savedAliases, "UserAccessTokenStatus")
 		}
 		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, "http.go"), nil, parser.SkipObjectResolution)
 		if err != nil {

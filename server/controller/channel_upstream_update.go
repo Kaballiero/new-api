@@ -5,14 +5,10 @@ import (
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/app"
-	"github.com/QuantumNous/new-api/internal/channels/apply_all_upstream_model_updates"
-	"github.com/QuantumNous/new-api/internal/channels/apply_upstream_model_updates"
-	"github.com/QuantumNous/new-api/internal/channels/detect_upstream_model_updates"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
-	"net/http"
 	"sync"
 )
 
@@ -35,9 +31,6 @@ var channelUpstreamModelUpdateNotifyState = struct {
 }{}
 
 type channelUpstreamModelFetchFingerprint = domain.ModelFetchFingerprint
-type applyChannelUpstreamModelUpdatesRequest = apply_upstream_model_updates.Input
-type applyAllChannelUpstreamModelUpdatesResult = apply_all_upstream_model_updates.Result
-type detectChannelUpstreamModelUpdatesResult = detect_upstream_model_updates.Output
 type upstreamModelUpdateChannelSummary = domain.ModelUpdateChannelSummary
 type appliedChannelUpstreamModelUpdates = domain.AppliedModelUpdates
 type upstreamModelUpdateSummary = domain.ModelUpdateSummary
@@ -56,25 +49,10 @@ func applySelectedModelChanges(originModels, addModels, removeModels []string) [
 func normalizeChannelModelMapping(channel *model.Channel) (map[string]string, error) {
 	return app.NewChannelModelUpdateRules(repository.NewStore()).NormalizeChannelModelMapping(repository.ToDomain(channel))
 }
-func validateResolvableChannelModelMapping(mapping map[string]string) error {
-	return app.NewChannelModelUpdateRules(repository.NewStore()).ValidateResolvableChannelModelMapping(mapping)
-}
-func resolveExactChannelModelTarget(name string, mapping map[string]string) (string, error) {
-	return app.NewChannelModelUpdateRules(repository.NewStore()).ResolveExactChannelModelTarget(name, mapping)
-}
-func validateChannelModelMappingEntries(mapping map[string]string) error {
-	return app.NewChannelModelUpdateRules(repository.NewStore()).ValidateChannelModelMappingEntries(mapping)
-}
 func collectPendingUpstreamModelChangesFromModels(local, upstream, ignored []string, mapping map[string]string) ([]string, []string, error) {
 	return app.NewChannelModelUpdateRules(repository.NewStore()).CollectPendingUpstreamModelChangesFromModels(local, upstream, ignored, mapping)
 }
-func rejectSameNameModelMappingReplacement(add, remove []string) error {
-	return app.NewChannelModelUpdateRules(repository.NewStore()).RejectSameNameModelMappingReplacement(add, remove)
-}
 
-func parseChannelOtherSettings(channel *model.Channel) (dto.ChannelOtherSettings, error) {
-	return domain.ParseChannelOtherSettings(repository.ToDomain(channel))
-}
 func collectPendingUpstreamModelChanges(channel *model.Channel, settings dto.ChannelOtherSettings) ([]string, []string, error) {
 	upstream, err := fetchChannelUpstreamModelIDs(channel)
 	if err != nil {
@@ -86,10 +64,6 @@ func collectPendingUpstreamModelChanges(channel *model.Channel, settings dto.Cha
 	}
 	return collectPendingUpstreamModelChangesFromModels(channel.GetModels(), upstream, settings.UpstreamModelUpdateIgnoredModels, mapping)
 }
-func getUpstreamModelUpdateMinCheckIntervalSeconds() int64 { return app.ChannelModelCheckInterval() }
-func selectChannelUpstreamModelDiscoveryKey(channel *model.Channel) (string, error) {
-	return channeladapter.SelectChannelUpstreamModelDiscoveryKey(channel)
-}
 func parseOpenAIModelIDs(body []byte) ([]string, error) {
 	return channeladapter.ParseOpenAIModelIDs(body)
 }
@@ -99,14 +73,8 @@ func sanitizeFetchModelsError(err error, key string) error {
 func sanitizeAdvancedCustomRequestError(err error, key, requestURL string) error {
 	return channeladapter.SanitizeAdvancedCustomRequestError(err, key, requestURL)
 }
-func getFetchModelsResponseBody(method, url string, channel *model.Channel, headers http.Header) ([]byte, error) {
-	return channeladapter.GetFetchModelsResponseBody(method, url, channel, headers)
-}
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	return channeladapter.FetchChannelUpstreamModelIDs(channel)
-}
-func fetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {
-	return channeladapter.FetchAdvancedCustomUpstreamModelIDs(channel, baseURL)
 }
 func buildChannelUpstreamModelFetchFingerprint(channel *model.Channel) (channelUpstreamModelFetchFingerprint, error) {
 	fp, err := domain.BuildModelFetchFingerprint(repository.ToDomain(channel))
@@ -167,18 +135,6 @@ func applyChannelUpstreamModelUpdatesWithMode(channel *model.Channel, add, ignor
 }
 func collectPendingApplyUpstreamModelChanges(settings dto.ChannelOtherSettings) ([]string, []string) {
 	return domain.CollectPendingApplyUpstreamModelChanges(settings)
-}
-func findEnabledChannelsAfterID(id, size int) ([]*model.Channel, error) {
-	store := repository.NewStore()
-	channels, err := store.EnabledAfter(id, size)
-	if channels == nil {
-		return nil, err
-	}
-	result := make([]*model.Channel, len(channels))
-	for i, ch := range channels {
-		result[i] = store.Record(ch)
-	}
-	return result, err
 }
 func applyChannelUpstreamModelUpdates(
 	channel *model.Channel,

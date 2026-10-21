@@ -18,10 +18,6 @@ type CodexCredentialRefreshOptions struct {
 
 type CodexOAuthKey = channeldomain.CodexOAuthKey
 
-func parseCodexOAuthKey(raw string) (*CodexOAuthKey, error) {
-	return channeldomain.ParseCodexOAuthKey(raw)
-}
-
 func RefreshCodexChannelCredential(ctx context.Context, channelID int, opts CodexCredentialRefreshOptions) (*CodexOAuthKey, *model.Channel, error) {
 	scenario := refresh_codex_credential.NewUsecase(channelstore.NewStore(), func(ctx context.Context, token, proxy string) (*channeldomain.CodexTokenResult, error) {
 		result, err := RefreshCodexOAuthTokenWithProxy(ctx, token, proxy)

@@ -4,7 +4,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/app"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 )
@@ -36,9 +35,4 @@ func consumerOperations(item model.Pricing, group string, ratio float64, validRa
 	return pricingdomain.
 		ConsumerOperations(item, group, ratio,
 			validRatio)
-}
-
-func consumerOperation(endpoint constant.EndpointType) (string, string) {
-	return pricingdomain.
-		ConsumerOperation(endpoint)
 }

@@ -3,7 +3,6 @@ package model
 import (
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/QuantumNous/new-api/internal/channels/change_channel_state"
-	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 
 	"errors"
 	"fmt"
@@ -27,17 +26,9 @@ type ChannelSortOptions = record.ChannelSortOptions
 func NewChannelSortOptions(by, order string, id bool) ChannelSortOptions {
 	return record.NewChannelSortOptions(by, order, id)
 }
-func resolveChannelSortOptions(id bool, options []ChannelSortOptions) ChannelSortOptions {
-	if len(options) > 0 {
-		return options[0]
-	}
-	return NewChannelSortOptions("", "", id)
-}
 func NormalizeChannelGroupFilter(group string) string {
 	return record.NormalizeChannelGroupFilter(group)
 }
-func channelGroupFilterCondition() string           { return NewChannelPersistence().GroupFilterCondition() }
-func channelGroupFilterPattern(group string) string { return record.GroupFilterPattern(group) }
 func ApplyChannelGroupFilter(query *gorm.DB, group string) *gorm.DB {
 	return NewChannelPersistence().ApplyChannelGroupFilter(query, group)
 }
@@ -291,16 +282,6 @@ func CleanupChannelPollingLocks() {
 		}
 		return true
 	})
-}
-
-func handlerMultiKeyUpdate(channel *Channel, key string, status int, reason string) {
-	value := record.ToDomain((*record.Channel)(channel))
-	channeldomain.ApplyMultiKeyState(value, channel.GetKeys(), key, status, reason, common.GetTimestamp, common.SysLog)
-	*channel = Channel(*record.FromDomain(value))
-}
-
-func hasEnabledMultiKey(keys []string, status map[int]int) bool {
-	return channeldomain.HasEnabledMultiKey(keys, status)
 }
 
 func UpdateChannelStatus(id int, key string, status int, reason string) bool {

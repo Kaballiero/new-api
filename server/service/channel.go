@@ -13,8 +13,6 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
-func formatNotifyType(id, status int) string { return domain.ChannelStatusNotificationType(id, status) }
-
 // disable & notify
 func DisableChannel(channelError types.ChannelError, reason string) {
 	disable_channel.NewUsecase(model.UpdateChannelStatus, NotifyRootUser, common.SysLog).Execute(channelError, reason)

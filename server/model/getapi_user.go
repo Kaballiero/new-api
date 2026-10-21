@@ -38,8 +38,6 @@ var (
 	ErrGetAPICredentialUnavailable = errors.New("GETAPI_CREDENTIAL_UNAVAILABLE")
 )
 
-const maxProvisionedUserGroupRunes = 64
-
 type GetAPICredential struct {
 	UserID      int     `json:"user_id"`
 	State       string  `json:"state"`

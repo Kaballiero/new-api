@@ -29,7 +29,6 @@ type provisionAccount struct {
 	insert func(*gorm.DB, *User) error
 	tx     *gorm.DB
 	user   User
-	token  *string
 }
 
 func (account *provisionAccount) EnsureUsername() error {

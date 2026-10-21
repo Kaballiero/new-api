@@ -20,8 +20,7 @@ type CatalogModelReference = domain.CatalogModelReference
 type CatalogSelection = domain.CatalogSelection
 type CatalogPublication = domain.CatalogPublication
 
-func CatalogHash(data []byte) string     { return domain.CatalogHash(data) }
-func validCatalogHash(value string) bool { return domain.ValidCatalogHash(value) }
+func CatalogHash(data []byte) string { return domain.CatalogHash(data) }
 func NewImmutableCatalogPersistence() store.Immutable {
 	return store.NewImmutable(func() *gorm.DB { return DB })
 }

@@ -845,10 +845,6 @@ func TestChannel(c *gin.Context) { app.NewTestChannelHTTP(c, channelEffects()).H
 // system task can persist a per-run result for history.
 type channelTestSummary = channeldomain.HealthSummary
 
-func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, userID int, allow bool, threshold int64) channelTestSummary {
-	return app.NewChannelTestTaskUsecase(channelEffects()).HealthCheck(ctx, channelstore.ToDomain(channel), userID, allow, threshold)
-}
-
 // runChannelTestWorkers executes independent channel tests with bounded
 // concurrency. Results and progress are reduced by the caller goroutine, so
 // summary counts and the progress reporter remain serialized.
@@ -861,18 +857,6 @@ func runChannelTestWorkers(ctx context.Context, channels []*model.Channel, concu
 	return app.NewChannelTestTaskUsecase(channelEffects()).Workers(ctx, values, concurrency, func(ctx context.Context, ch *channeldomain.Channel) channelTestSummary {
 		return run(ctx, store.Record(ch))
 	}, report)
-}
-
-// performChannelTests runs channel health checks with the configured bounded
-// concurrency and honors cancellation when a system-task runner loses its
-// lease.
-func performChannelTests(ctx context.Context, channels []*model.Channel, userID int, allow bool, concurrency int, report func(int, int)) channelTestSummary {
-	store := channelstore.NewStore()
-	values := make([]*channeldomain.Channel, len(channels))
-	for i, ch := range channels {
-		values[i] = store.Domain(ch)
-	}
-	return app.NewChannelTestTaskUsecase(channelEffects()).Perform(ctx, values, userID, allow, concurrency, report)
 }
 
 // runChannelTestTask runs one synchronous channel test cycle for the system task

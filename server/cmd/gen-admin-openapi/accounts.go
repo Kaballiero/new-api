@@ -7,7 +7,6 @@ import (
 	"go/token"
 	"path/filepath"
 	"slices"
-	"strings"
 )
 
 // Account handlers retain their public operation names after moving to receiver
@@ -50,9 +49,9 @@ var accountHandlerErrors = map[string][]string{
 }
 
 func parseAccountHandlers() error {
-	failures, err := accountFailureCodes()
+	failures, err := transportFailureCodes("internal/accounts/transport/errors.go")
 	if err != nil {
-		return err
+		return fmt.Errorf("account transport: %w", err)
 	}
 	names := make([]string, 0, len(accountHandlerSources))
 	for name := range accountHandlerSources {
@@ -117,50 +116,4 @@ func parseAccountHandlers() error {
 		}
 	}
 	return nil
-}
-
-// accountFailureCodes reads the status/code mapping of the account transport
-// switch (case errors.Is(err, domain.ErrX)), keyed by the error name without
-// the Err prefix. Cases without a status code are skipped.
-func accountFailureCodes() (map[string]ErrorCode, error) {
-	file, err := parser.ParseFile(token.NewFileSet(), "internal/accounts/transport/errors.go", nil, parser.SkipObjectResolution)
-	if err != nil {
-		return nil, err
-	}
-	result := map[string]ErrorCode{}
-	ast.Inspect(file, func(n ast.Node) bool {
-		clause, ok := n.(*ast.CaseClause)
-		if !ok {
-			return true
-		}
-		var code *ErrorCode
-		for _, stmt := range clause.Body {
-			ast.Inspect(stmt, func(n ast.Node) bool {
-				if call, ok := n.(*ast.CallExpr); ok {
-					if value := analyzeErrorCall(call); value != nil {
-						code = value
-					}
-				}
-				return true
-			})
-		}
-		if code == nil {
-			return true
-		}
-		for _, expr := range clause.List {
-			ast.Inspect(expr, func(n ast.Node) bool {
-				if selector, ok := n.(*ast.SelectorExpr); ok {
-					if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "domain" {
-						result[strings.TrimPrefix(selector.Sel.Name, "Err")] = *code
-					}
-				}
-				return true
-			})
-		}
-		return true
-	})
-	if len(result) == 0 {
-		return nil, fmt.Errorf("account transport has no error code mappings")
-	}
-	return result, nil
 }

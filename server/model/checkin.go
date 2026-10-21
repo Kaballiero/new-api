@@ -44,18 +44,6 @@ func UserCheckin(userId int) (*Checkin, error) {
 	return (*Checkin)(record), err
 }
 
-// userCheckinWithTransaction 使用事务执行签到（适用于 MySQL 和 PostgreSQL）
-func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) (*Checkin, error) {
-	record, err := checkincommand.NewUsecase(checkinPersistenceMode{CheckinStore: NewCheckinStore(), sqlite: false}, nil).Persist((*domain.Checkin)(checkin), userId, quotaAwarded)
-	return (*Checkin)(record), err
-}
-
-// userCheckinWithoutTransaction 不使用事务执行签到（适用于 SQLite）
-func userCheckinWithoutTransaction(checkin *Checkin, userId int, quotaAwarded int) (*Checkin, error) {
-	record, err := checkincommand.NewUsecase(checkinPersistenceMode{CheckinStore: NewCheckinStore(), sqlite: true}, nil).Persist((*domain.Checkin)(checkin), userId, quotaAwarded)
-	return (*Checkin)(record), err
-}
-
 // GetUserCheckinStats 获取用户签到统计信息
 func GetUserCheckinStats(userId int, month string) (map[string]any, error) {
 	stats, err := checkinquery.NewUsecase(NewCheckinStore()).Execute(userId, month)
@@ -70,10 +58,3 @@ func GetUserCheckinStats(userId int, month string) (map[string]any, error) {
 	stats["records"] = records
 	return stats, nil
 }
-
-type checkinPersistenceMode struct {
-	record.CheckinStore
-	sqlite bool
-}
-
-func (s checkinPersistenceMode) IsSQLite() bool { return s.sqlite }

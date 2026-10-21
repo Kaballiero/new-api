@@ -6,7 +6,6 @@ import (
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 
 	"net/url"
-	"regexp"
 
 	"github.com/QuantumNous/new-api/model"
 
@@ -23,20 +22,9 @@ type effectivePricingPageQuery = pricingdomain.EffectivePricingPageQuery
 
 type effectivePricingPageContext pricingdomain.EffectivePricingPageContext
 
-var pricingPageInteger = regexp.MustCompile(`^-?[0-9]+$`)
-var pricingSpeechFamily = regexp.MustCompile(`(^tts-)|(-tts(-|$))`)
-var pricingTranscriptionFamily = regexp.MustCompile(`(^whisper-)|(-transcribe(-|$))`)
-
-// parseCatalogTypeMissing keeps false equivalent to an omitted selector.
-func parseCatalogTypeMissing(values url.Values) (bool, error) {
-	return pricingquery.ParseCatalogTypeMissing(values)
-}
-
 func parseEffectivePricingPageQuery(values url.Values, personal bool) (effectivePricingPageQuery, error) {
 	return pricingquery.ParseEffectivePricingPageQuery(values, personal)
 }
-
-type effectivePricingPageCandidate = pricingdomain.EffectivePricingPageCandidate
 
 func buildEffectivePricingPage(context effectivePricingPageContext, query effectivePricingPageQuery, project func(model.Pricing) consumerPricingModel) effectivePricingPageData {
 	context.Policy = app.NewPricingProjection()
@@ -55,18 +43,12 @@ func effectivePricingPageKeys(item consumerPricingModel, orderBy string) (string
 	return pricingdomain.EffectivePricingPageKeys(item, orderBy)
 }
 
-func normalizeModelSearch(value string) string {
-	return pricingdomain.NormalizeModelSearch(value)
-}
-
 func trimPricingText(value string) string {
 	return pricingdomain.TrimPricingText(value)
 }
 
 // GetEffectivePricingOverview captures one context for every bounded section.
 func GetEffectivePricingOverview(c *gin.Context) { app.NewGetEffectivePricingOverviewHTTP().Handle(c) }
-
-type effectivePricingOverviewSection = pricingdomain.EffectivePricingOverviewSection
 
 type effectivePricingOverviewData = pricingdomain.EffectivePricingOverviewData
 

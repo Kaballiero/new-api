@@ -285,6 +285,52 @@ func analyzeErrorCall(call *ast.CallExpr) *ErrorCode {
 	return &ErrorCode{Status: status, Code: code}
 }
 
+// transportFailureCodes reads the status/code mapping of a module transport
+// switch (case errors.Is(err, domain.ErrX)) in the file at path, keyed by the
+// error name without the Err prefix. Cases without a status code are skipped.
+func transportFailureCodes(path string) (map[string]ErrorCode, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]ErrorCode{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		clause, ok := n.(*ast.CaseClause)
+		if !ok {
+			return true
+		}
+		var code *ErrorCode
+		for _, stmt := range clause.Body {
+			ast.Inspect(stmt, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					if value := analyzeErrorCall(call); value != nil {
+						code = value
+					}
+				}
+				return true
+			})
+		}
+		if code == nil {
+			return true
+		}
+		for _, expr := range clause.List {
+			ast.Inspect(expr, func(n ast.Node) bool {
+				if selector, ok := n.(*ast.SelectorExpr); ok {
+					if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "domain" {
+						result[strings.TrimPrefix(selector.Sel.Name, "Err")] = *code
+					}
+				}
+				return true
+			})
+		}
+		return true
+	})
+	if len(result) == 0 {
+		return nil, fmt.Errorf("%s has no error code mappings", path)
+	}
+	return result, nil
+}
+
 // collectLocals scans top-level var decls and `:=` assignments inside the
 // function body. Both `var x T` and `x := T{}` are tracked. Nested scopes
 // (inside if/for) are also walked because Go's lexical scoping doesn't

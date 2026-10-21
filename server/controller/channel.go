@@ -8,7 +8,6 @@ import (
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 
 	"github.com/QuantumNous/new-api/internal/app"
-	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -49,14 +48,6 @@ type OpenAIModelsResponse = channeladapter.OpenAIModelsResponse
 func GetChannelOps(c *gin.Context) { app.NewGetChannelOpsHTTP(c, channelEffects()).Handle(c) }
 
 func GetAllChannels(c *gin.Context) { app.NewGetAllChannelsHTTP(c, channelEffects()).Handle(c) }
-
-func buildFetchModelsHeaders(channel *model.Channel, key string) (http.Header, error) {
-	return channeladapter.BuildFetchModelsHeaders(channel, key)
-}
-
-func applyFetchModelsHeaderOverrides(channel *model.Channel, key string, headers http.Header) error {
-	return channeladapter.ApplyFetchModelsHeaderOverrides(channel, key, headers)
-}
 
 func FetchUpstreamModels(c *gin.Context) {
 	app.NewFetchUpstreamModelsHTTP(c, channelEffects()).Handle(c)

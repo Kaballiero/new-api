@@ -29,9 +29,11 @@ func parseAPIKeyHandlers() error {
 	}
 	modelTypes, modelAliases, fieldTypes = savedTypes, savedAliases, savedFields
 	modelTypes["tokenRequest"], modelTypes["tokenResponse"], modelTypes["tokenAutoGroupsInput"] = request, response, autoGroups
-	failures, err := apiKeyFailureCodes()
+	// Domain errors are rendered by the shared transport switch; only errors used
+	// by each scenario are included.
+	failures, err := transportFailureCodes("internal/apikeys/transport/errors.go")
 	if err != nil {
-		return err
+		return fmt.Errorf("API key transport: %w", err)
 	}
 	names := make([]string, 0, len(apiKeyHandlerSources))
 	for name := range apiKeyHandlerSources {
@@ -105,53 +107,6 @@ func parseAPIKeyHandlers() error {
 		modelTypes, modelAliases, fieldTypes = savedTypes, savedAliases, savedFields
 	}
 	return nil
-}
-
-// Domain errors are rendered by the shared transport switch
-// (case errors.Is(err, domain.ErrX)). Discover their status/code mapping there,
-// keyed by the error name without the Err prefix, then include only errors
-// used by each scenario.
-func apiKeyFailureCodes() (map[string]ErrorCode, error) {
-	file, err := parser.ParseFile(token.NewFileSet(), "internal/apikeys/transport/errors.go", nil, parser.SkipObjectResolution)
-	if err != nil {
-		return nil, err
-	}
-	result := map[string]ErrorCode{}
-	ast.Inspect(file, func(n ast.Node) bool {
-		clause, ok := n.(*ast.CaseClause)
-		if !ok {
-			return true
-		}
-		var code *ErrorCode
-		for _, stmt := range clause.Body {
-			ast.Inspect(stmt, func(n ast.Node) bool {
-				if call, ok := n.(*ast.CallExpr); ok {
-					if value := analyzeErrorCall(call); value != nil {
-						code = value
-					}
-				}
-				return true
-			})
-		}
-		if code == nil {
-			return true
-		}
-		for _, expr := range clause.List {
-			ast.Inspect(expr, func(n ast.Node) bool {
-				if selector, ok := n.(*ast.SelectorExpr); ok {
-					if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "domain" {
-						result[strings.TrimPrefix(selector.Sel.Name, "Err")] = *code
-					}
-				}
-				return true
-			})
-		}
-		return true
-	})
-	if len(result) == 0 {
-		return nil, fmt.Errorf("API key transport has no error code mappings")
-	}
-	return result, nil
 }
 
 // Preserve published projections where callback/method-result inference was

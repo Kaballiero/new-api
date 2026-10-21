@@ -7,7 +7,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/channels/discover_codex_models"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/model"
-	"net/http"
 )
 
 func newCodexModelDiscovery(store channelstore.Store) discover_codex_models.Usecase {
@@ -19,8 +18,4 @@ func newCodexModelDiscovery(store channelstore.Store) discover_codex_models.Usec
 func FetchCodexChannelModels(channel *model.Channel) ([]string, error) {
 	store := channelstore.NewStore()
 	return newCodexModelDiscovery(store).Execute(store.Domain(channel))
-}
-func fetchCodexChannelModels(ctx context.Context, channel *model.Channel, base string, client *http.Client, version string) ([]string, error) {
-	store := channelstore.NewStore()
-	return newCodexModelDiscovery(store).Fetch(ctx, store.Domain(channel), base, codexmodels.NewSession(client, GetLatestCodexClientVersion, FetchCodexModels), version)
 }

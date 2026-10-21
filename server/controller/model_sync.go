@@ -14,7 +14,6 @@ func SyncUpstreamModels(c *gin.Context)  { catalogHTTP().ApplyMetadataSync.Handl
 type SyncUpstreamSource = domain.SyncUpstreamSource
 type SyncUpstreamPreviewResponse = preview_metadata_sync.SyncUpstreamPreviewResponse
 type metadataSyncCandidate = domain.MetadataSyncCandidate
-type metadataSyncField = domain.MetadataSyncField
 type upstreamModel = upstream.Model
 type upstreamVendor = upstream.Vendor
 

@@ -13,7 +13,6 @@ import (
 type OpenAISubscriptionResponse = channeladapter.OpenAISubscriptionResponse
 type OpenAIUsageDailyCost = channeladapter.OpenAIUsageDailyCost
 type OpenAICreditGrants = channeladapter.OpenAICreditGrants
-type channelBalanceResult = channeladapter.BalanceResult
 type OpenAIUsageResponse = channeladapter.OpenAIUsageResponse
 type OpenAISBUsageResponse = channeladapter.OpenAISBUsageResponse
 type AIProxyUserOverviewResponse = channeladapter.AIProxyUserOverviewResponse
@@ -22,8 +21,6 @@ type APGC2DGPTUsageResponse = channeladapter.APGC2DGPTUsageResponse
 type SiliconFlowUsageResponse = channeladapter.SiliconFlowUsageResponse
 type DeepSeekUsageResponse = channeladapter.DeepSeekUsageResponse
 type OpenRouterCreditResponse = channeladapter.OpenRouterCreditResponse
-
-const maxAdvancedCustomBalanceResponseBytes = 256 << 10
 
 func GetAuthHeader(token string) http.Header       { return channeladapter.GetAuthHeader(token) }
 func GetClaudeAuthHeader(token string) http.Header { return channeladapter.GetClaudeAuthHeader(token) }
@@ -46,76 +43,6 @@ func updateChannelOpenAISBBalance(channel *model.Channel) (float64, error) {
 		channel.UpdateBalance(balance)
 	}
 	return balance, err
-}
-func updateChannelAIProxyBalance(channel *model.Channel) (float64, error) {
-	balance, err := channeladapter.UpdateChannelAIProxyBalance(channel)
-	if err == nil {
-		channel.UpdateBalance(balance)
-	}
-	return balance, err
-}
-func updateChannelAPI2GPTBalance(channel *model.Channel) (float64, error) {
-	balance, err := channeladapter.UpdateChannelAPI2GPTBalance(channel)
-	if err == nil {
-		channel.UpdateBalance(balance)
-	}
-	return balance, err
-}
-func updateChannelSiliconFlowBalance(channel *model.Channel) (float64, error) {
-	balance, err := channeladapter.UpdateChannelSiliconFlowBalance(channel)
-	if err == nil {
-		channel.UpdateBalance(balance)
-	}
-	return balance, err
-}
-func updateChannelDeepSeekBalance(channel *model.Channel) (float64, error) {
-	balance, err := channeladapter.UpdateChannelDeepSeekBalance(channel)
-	if err == nil {
-		channel.UpdateBalance(balance)
-	}
-	return balance, err
-}
-func updateChannelAIGC2DBalance(channel *model.Channel) (float64, error) {
-	balance, err := channeladapter.UpdateChannelAIGC2DBalance(channel)
-	if err == nil {
-		channel.UpdateBalance(balance)
-	}
-	return balance, err
-}
-func updateChannelOpenRouterBalance(channel *model.Channel) (float64, error) {
-	balance, err := channeladapter.UpdateChannelOpenRouterBalance(channel)
-	if err == nil {
-		channel.UpdateBalance(balance)
-	}
-	return balance, err
-}
-func updateChannelMoonshotBalance(channel *model.Channel) (float64, error) {
-	balance, err := channeladapter.UpdateChannelMoonshotBalance(channel)
-	if err == nil {
-		channel.UpdateBalance(balance)
-	}
-	return balance, err
-}
-func updateStandardChannelBalance(channel *model.Channel) (float64, error) {
-	balance, err := channeladapter.UpdateStandardChannelBalance(channel)
-	if err == nil {
-		channel.UpdateBalance(balance)
-	}
-	return balance, err
-}
-func fetchAdvancedCustomBalance(channel *model.Channel) (channelBalanceResult, error) {
-	result, err := channeladapter.FetchAdvancedCustomBalance(channel)
-	if err == nil && result.RawResponse == "" {
-		channel.UpdateBalance(result.Balance)
-	}
-	return result, err
-}
-func updateChannelBalance(channel *model.Channel) (channelBalanceResult, error) {
-	result, err := channeladapter.UpdateChannelBalance(channel)
-	if err == nil && result.RawResponse == "" {
-		channel.UpdateBalance(result.Balance)
-	}
-	return result, err
 }
 func UpdateChannelBalance(c *gin.Context) {
 	app.NewUpdateChannelBalanceHTTP(c, channelEffects()).Handle(c)

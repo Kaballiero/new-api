@@ -19,7 +19,6 @@ import (
 
 const PricingCatalogOptionKey = "PricingCatalog"
 const pricingCatalogMaxBytes = 8 << 20
-const pricingCatalogMaxEntries = 2048
 
 type PricingCatalogSnapshot = pricingdomain.PricingCatalogSnapshot
 

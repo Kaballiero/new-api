@@ -14,11 +14,6 @@ type passkeyFinishRequest struct {
 	Credential json.RawMessage `json:"credential"`
 }
 
-type passkeyVerifyBeginRequest struct {
-	Scope   string          `json:"scope"`
-	Context json.RawMessage `json:"context,omitempty"`
-}
-
 func parsePasskeyFinishRequest(c *gin.Context) (*passkeyFinishRequest, error) {
 	var request passkeyFinishRequest
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {

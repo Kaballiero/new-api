@@ -73,20 +73,6 @@ func NewPricingUsageSchemas() func(string) map[string]jsplugin.UsageFieldSchema 
 }
 func IsModelPricingOption(key string) bool            { return NewPricingConfiguration().IsOption(key) }
 func ModelPricingVersion(values PricingValues) string { return domain.ModelPricingVersion(values) }
-func defaultPricingMaps() map[string]map[string]any   { return NewPricingConfiguration().Defaults() }
-func readModelPricingMaps(db *gorm.DB) (map[string]map[string]any, map[string]bool, []string, error) {
-	rows, err := store.NewOptions(store.OptionsEnvironment{DB: func() *gorm.DB { return db }, KeyColumn: func() string { return commonKeyCol }}).ReadRows(modelPricingOptionKeys)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return NewPricingConfiguration().DecodeRows(rows)
-}
-func modelPricingValues(values map[string]map[string]any, name string) PricingValues {
-	return NewPricingConfiguration().Values(values, name)
-}
-func effectiveModelPricing(values map[string]map[string]any, name string) PricingValues {
-	return NewPricingConfiguration().Effective(values, name)
-}
 func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
 	return get_pricing_config.NewUsecase(NewPricingOptionsPersistence(), NewPricingConfiguration(), NewPricingUsageSchemas).Execute(get_pricing_config.Input{Models: names})
 }

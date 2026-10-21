@@ -21,12 +21,10 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type LoginRequest = password_login.LoginRequest
@@ -64,19 +62,11 @@ func setupLoginAtAuthVersion(user *model.User, version int64, c *gin.Context) {
 	identityHTTP().PrimaryLogin.AtVersion(user, version, c)
 }
 
-func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBundle) {
-	identityHTTP().PrimaryLogin.Write(c, user, bundle)
-}
-
 func Register(c *gin.Context) { identityHTTP().RegisterPassword.Handle(c) }
 
 func GetAllUsers(c *gin.Context) { accountsHTTP().ListAccounts.Handle(c) }
 
 func SearchUsers(c *gin.Context) { accountsHTTP().SearchAccounts.Handle(c) }
-
-func canManageTargetRole(myRole int, targetRole int) bool {
-	return myRole == common.RoleRootUser || myRole > targetRole
-}
 
 type GetUsersBatchResponse = get_accounts_batch.GetUsersBatchResponse
 
@@ -99,11 +89,6 @@ func buildSelfUserData(user *model.User) map[string]any {
 	return profiledto.BuildSelfUserData(repository.ProfileData(user), func(id, role int) any { return authz.Capabilities(id, role) }, domain.AdminRoles{Admin: common.RoleAdminUser, Root: common.RoleRootUser})
 }
 
-// 计算用户权限的辅助函数
-func calculateUserPermissions(userRole int) map[string]any {
-	return domain.DashboardPermissions(userRole, domain.AdminRoles{Admin: common.RoleAdminUser, Root: common.RoleRootUser})
-}
-
 // 根据用户角色生成默认的边栏配置
 func generateDefaultSidebarConfig(userRole int) string {
 	return model.GenerateDefaultSidebarConfigForRole(userRole)
@@ -122,22 +107,6 @@ func DeleteUser(c *gin.Context) { accountsHTTP().DeleteAccount.Handle(c) }
 func DeleteSelf(c *gin.Context) { identityHTTP().DeleteAccount.Handle(c) }
 
 func CreateUser(c *gin.Context) { accountsHTTP().CreateAccount.Handle(c) }
-
-func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, userRole int, permissions map[string]map[string]bool) (bool, error) {
-	if permissions == nil {
-		if userRole < common.RoleAdminUser && c.GetInt("role") == common.RoleRootUser {
-			return true, authz.ClearUserAuthorizationInTx(tx, userID)
-		}
-		return false, nil
-	}
-	if c.GetInt("role") != common.RoleRootUser {
-		return false, fmt.Errorf("only root can update admin permissions")
-	}
-	if userRole < common.RoleAdminUser {
-		return true, authz.ClearUserAuthorizationInTx(tx, userID)
-	}
-	return true, authz.SetUserPermissionsInTx(tx, userID, permissions)
-}
 
 type ManageRequest = manage_account.ManageRequest
 
@@ -238,8 +207,6 @@ type BulkUpdateUserGroupRequest = change_group.BulkUpdateUserGroupRequest
 
 // BulkUpdateUserGroupResponse summarizes the outcome of a bulk group update.
 type BulkUpdateUserGroupResponse = change_group.BulkUpdateUserGroupResponse
-
-const bulkUpdateUserGroupMaxBatch = 1000
 
 // BulkUpdateUserGroup handles POST /api/user/group/batch — bulk update the `group` field
 // of multiple users at once. Admin-only. Returns:
