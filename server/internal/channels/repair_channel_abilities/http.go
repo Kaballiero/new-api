@@ -3,20 +3,17 @@ package repair_channel_abilities
 import (
 	"net/http"
 
-	"github.com/QuantumNous/new-api/common"
-
+	"github.com/QuantumNous/new-api/internal/channels/transport"
 	"github.com/gin-gonic/gin"
 )
 
-type HTTP struct{ store Store }
+type HTTP struct{ usecase func(*gin.Context) Usecase }
 
-func NewHTTP(store Store) HTTP { return HTTP{store: store} }
+func NewHTTP(usecase func(*gin.Context) Usecase) HTTP { return HTTP{usecase: usecase} }
 func (h HTTP) Handle(c *gin.Context) {
-	scenario := NewUsecase(h.store)
-	_ = scenario
-	output, err := scenario.Execute()
+	output, err := h.usecase(c).Execute()
 	if err != nil {
-		common.ApiError(c, err)
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"success": output.Success, "fails": output.Fails}})

@@ -15,6 +15,11 @@
 | 12 | `pricing/reset_model_ratios` | `ModelRatio` пишется в БД до публикации в runtime; ошибка `UpdateModelRatioByJSONString` оставляет БД изменённой, а ответ — `success:false` | БД и память расходятся до следующей синхронизации опций |
 | 13 | `pricing/update_pricing_config` | Ошибка `Publish` после коммита транзакции отдаётся как 400; ошибка `common.Marshal` при публикации игнорируется | Клиент видит ошибку, хотя цены уже сохранены |
 | 14 | `pricing/transport.WriteError` (ветка по умолчанию) | Неклассифицированные ошибки чтения (FX, снимок каталога, ревизия) уходят клиенту как 503 с сырым текстом | Возможна утечка внутренних деталей |
+| 15 | `pricing/fetch_upstream_ratios` | Ответ upstream `{"success":false}` без `message` (или с пустым) засчитывается как успех: `test_results[].status = "success"`, канал попадает в успешные с пустыми данными | Отказ upstream показывается администратору как успешный |
+| 16 | `channels`: `record.GetSetting` / `GetOtherSettings` | Чтение настроек канала с неверным JSON сбрасывает их (`nil` / `"{}"`) и сохраняет канал — в том числе в `preview_channel_models`, при расчёте отпечатка загрузки моделей и чтении прокси | Операция чтения меняет данные; сбрасываются все настройки, а не только неверное поле |
+| 17 | `channels/get_codex_usage`, `get_codex_reset_credits`, `reset_codex_usage` | Ошибки обновления токена и `SetKey` игнорируются (`_ = SetKey`), запрос повторяется со старым ключом | Обновлённый токен может потеряться, причина отказа не видна |
+| 18 | `channels/test_channel` | `go SaveResponseTime(...)` без recover и без ожидания | Паника в сохранении роняет процесс |
+| 19 | `channels/create_channel`, `update_channel`, `edit_tag_channels`, `manage_multi_keys`, `update_channel_balance`, codex-сценарии | Ошибки хранения и upstream уходят клиенту сырым текстом с HTTP 200 | Возможна утечка деталей БД и upstream |
 
 ## Оптимизации (без изменений схемы БД)
 
@@ -25,9 +30,11 @@
 | 9 | `catalog/list_models` | Ошибка `VendorCounts()` молча игнорируется (`vendorCounts, _ :=`) |
 | 10 | `authorization/sync_policy` | Бесконечный цикл без контекста и остановки (горутина из `main.go`) |
 | 11 | `adapter/identity` WeChat `GetIDByCode` | Новый `http.Client` на каждый запрос |
-| 15 | `pricing/fetch_upstream_ratios` | `timeout` из тела запроса и число upstream не ограничены сверху (параллельно до 8 ответов по 10 МБ); повтор в `adapter/pricing/upstream` ждёт через `time.Sleep`, не глядя на отмену контекста |
-| 16 | `pricing/list_syncable_channels` | Читает все каналы со всеми полями, включая ключи (`GetAllChannels(0, 0, true, false)`), ради id, имени и `base_url` |
-| 17 | `pricing/fetch_upstream_ratios` | Ответ upstream `{"success":false}` без `message` (или с пустым) засчитывается как успех: `test_results[].status = "success"`, канал попадает в успешные с пустыми данными | Отказ upstream показывается администратору как успешный |
+| 20 | `pricing/fetch_upstream_ratios` | `timeout` из тела запроса и число upstream не ограничены сверху (параллельно до 8 ответов по 10 МБ); повтор в `adapter/pricing/upstream` ждёт через `time.Sleep`, не глядя на отмену контекста |
+| 21 | `pricing/list_syncable_channels` | Читает все каналы со всеми полями, включая ключи (`GetAllChannels(0, 0, true, false)`), ради id, имени и `base_url` |
+| 22 | `channels/search_channels` | Загружает все совпадения (в режиме тегов — все каналы каждого тега), фильтрует по статусу и типу и пагинирует в памяти |
+| 23 | `channels/update_channels_balances`, `run_channel_tests` | Загружают все каналы с ключами одним запросом (`GetAllChannels(0, 0, true, false)`) |
+| 24 | `channels` уведомления без запроса | Язык root читается отдельным запросом `GetRootUser` перед каждым уведомлением; `NotifyRootUser` читает root ещё раз |
 
 ## Архитектурный долг
 
@@ -43,6 +50,7 @@
 - **identity**: `http.go` passkey / complete_oauth / login_wechat зависят от `*model.User` (7 записей); пакет `adapter/identity/http` не удалён целиком (`PrimaryLogin`, `GetAuthenticatedUser`, `WriteOAuthError`, `SetAuthNoStore`).
 - **authorization**: модели `model/casbin_rule.go`, `model/authz_role.go` — алиасы для миграций.
 - **pricing**: `domain` импортирует `common` и `relaykit` (`domain-transitive`, все `usecase-transitive: internal/pricing/*`, 8 `business-imports-gateway`); каналы для ratio sync читаются из `model` в `app/pricing.go`, а не через `channels`; `adapter/gorm/pricing` и `adapter/pricing/upstream` используют записи `catalog`/`channels` напрямую; `model/*` и `service/catalog_sync.go` создают сценарии pricing сами; `consumerContext` продублирован в пяти сценариях чтения.
+- **channels**: `domain` импортирует `common` (1 domain-transitive + 35 usecase-transitive); `service/channel.go` собирает `disable_channel` / `enable_channel` и формирует тексты уведомлений root, `service/codex_*` и `model/channel.go` создают сценарии (legacy-imports-internal); ошибки маппинга моделей приходят из `model` функцией `ModelUpdateRules.Errors`; `Check` и `Apply` продублированы в парах сценариев detect/scan и apply/apply_all; `adapter/gorm/channels.Store` хранит загруженные записи и поэтому собирается на каждый запрос; сводку обновления моделей получают все администраторы на языке root, а не каждый на своём.
 - **`oauth/telegram.go` импортирует `internal/identity/domain`** (алиасы ошибок); архитектурный тест пакет `oauth` не проверяет.
 
 ## Генератор OpenAPI
@@ -57,14 +65,17 @@
 
 ## Китайский текст вне перенесённых модулей
 
-В перенесённых модулях (apikeys, accounts, identity, catalog, authorization, PAT, pricing) и в middleware (`secure_verification`, `turnstile-check`, `email-verification-rate-limit`) китайский в ответах, письмах и логах убран. Остальное — в своих волнах:
+В перенесённых модулях (apikeys, accounts, identity, catalog, authorization, PAT, pricing, channels с контроллерами `controller/channel*.go`) и в middleware (`secure_verification`, `turnstile-check`, `email-verification-rate-limit`) китайский в ответах, письмах и логах убран. Остались только данные, а не сообщения:
 
-- `internal/channels` и его адаптеры — волна channels;
-- в pricing остались имена пресетов ratio sync «官方倍率预设» / «models.dev 价格预设» (`list_syncable_channels`): клиент сравнивает с ними имя канала (`client/src/features/system-settings/models/constants.ts`), поэтому они не локализуются; те же тексты — в неиспользуемых константах `pricing/domain/ratio_sync.go`;
+- в pricing — имена пресетов ratio sync «官方倍率预设» / «models.dev 价格预设» (`list_syncable_channels`): клиент сравнивает с ними имя канала (`client/src/features/system-settings/models/constants.ts`), поэтому они не локализуются; те же тексты — в неиспользуемых константах `pricing/domain/ratio_sync.go`;
+- в channels — суффикс имени копии по умолчанию `_复制` (`copy_channel`), он сохраняется в имени канала;
+
+Остальное — в своих волнах:
+
 - legacy `controller/`, `service/`, `model/`, `common/`, `middleware/` (≈ 700 строк вне комментариев на 2026-10-21) — по мере переноса соответствующих модулей;
 - ошибки шаблона поиска (`ErrSearch*`) в поиске логов и пополнений уходят клиенту английским текстом без перевода, пока эти модули не перенесены;
 - метки групп «用户分组» / «自动» для потребителей вне accounts (service, pricing, relay) по-прежнему китайские: `accountssettings.UserGroups()` берёт их из zh-CN; локализован только `GET` групп пользователя;
-- те же старые тексты в legacy-файлах: `quota 不能为负数！` (`model/user.go`, `model/quota_reserve.go`, `service/quota.go`), `id 为空！` (`model/user.go`, `model/redemption.go`), «安全验证» в `controller/channel.go`;
+- те же старые тексты в legacy-файлах: `quota 不能为负数！` (`model/user.go`, `model/quota_reserve.go`, `service/quota.go`), `id 为空！` (`model/user.go`, `model/redemption.go`);
 - сообщения успеха в identity переводятся через `TranslateMessage`, и AST-генератор OpenAPI не выводит их тип: схема `message: string` для 5 обработчиков зафиксирована вручную в `preserveIdentityHandlerContract`.
 
 ## i18n

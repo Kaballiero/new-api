@@ -2,19 +2,22 @@ package preview_channel_models
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"strings"
 )
 
 type Store interface {
 	domain.Configuration
 	Get(int, bool) (*domain.Channel, error)
-	OtherSettings(*domain.Channel) dto.ChannelOtherSettings
-	SetOtherSettings(*domain.Channel, dto.ChannelOtherSettings)
-	SetSettings(*domain.Channel, dto.ChannelSettings)
+	// EditAdvancedCustom reads the gateway settings of the channel and returns
+	// the function that stores them back, with the advanced routes replaced by
+	// the JSON in raw unless raw is nil.
+	EditAdvancedCustom(channel *domain.Channel) func(raw *string) error
+	// SetProxy stores proxy in the gateway settings of the channel.
+	SetProxy(channel *domain.Channel, proxy string)
 }
 type Discovery interface {
 	Fetch(*domain.Channel) ([]string, error)
@@ -27,13 +30,13 @@ type Usecase struct {
 func NewUsecase(store Store, discovery Discovery) Usecase {
 	return Usecase{store: store, discovery: discovery}
 }
-func (usecase Usecase) Execute(req FetchModelsRequest) (Output, *domain.Failure) {
+func (usecase Usecase) Execute(req FetchModelsRequest) (Output, error) {
 	var channel *domain.Channel
 	if req.Type == constant.ChannelTypeAdvancedCustom || req.ChannelID > 0 {
 		var err error
 		channel, err = usecase.Preview(req)
 		if err != nil {
-			return nil, &domain.Failure{Kind: "invalid", Message: err.Error()}
+			return nil, domain.Reject(err)
 		}
 	} else {
 		baseURL := ""
@@ -43,7 +46,6 @@ func (usecase Usecase) Execute(req FetchModelsRequest) (Output, *domain.Failure)
 		if baseURL == "" {
 			baseURL = constant.GetChannelBaseURL(req.Type)
 		}
-
 		key := strings.TrimSpace(req.Key)
 		if req.Type != constant.ChannelTypeCodex {
 			key = strings.Split(key, "\n")[0]
@@ -54,10 +56,9 @@ func (usecase Usecase) Execute(req FetchModelsRequest) (Output, *domain.Failure)
 			BaseURL: &baseURL,
 		}
 	}
-
 	models, err := usecase.discovery.Fetch(channel)
 	if err != nil {
-		return nil, &domain.Failure{Kind: "fetch", Message: fmt.Sprintf("获取模型列表失败: %s", err.Error())}
+		return nil, domain.ModelFetchFailed(err)
 	}
 	return models, nil
 }
@@ -82,7 +83,6 @@ func (usecase Usecase) Preview(req FetchModelsRequest) (*domain.Channel, error) 
 			Key:  key,
 		}
 	}
-
 	if channel.Type != constant.ChannelTypeAdvancedCustom {
 		return nil, fmt.Errorf("channel type must be advanced custom")
 	}
@@ -90,23 +90,20 @@ func (usecase Usecase) Preview(req FetchModelsRequest) (*domain.Channel, error) 
 		baseURL := strings.TrimSpace(*req.BaseURL)
 		channel.BaseURL = &baseURL
 	}
-
-	settings := usecase.store.OtherSettings(channel)
+	saveAdvancedCustom := usecase.store.EditAdvancedCustom(channel)
+	var rawConfig *string
 	if req.AdvancedCustom != nil {
-		rawConfig := strings.TrimSpace(*req.AdvancedCustom)
-		if rawConfig == "" {
+		trimmed := strings.TrimSpace(*req.AdvancedCustom)
+		if trimmed == "" {
 			return nil, fmt.Errorf("advanced_custom is required")
 		}
-		var config dto.AdvancedCustomConfig
-		if err := common.UnmarshalJsonStr(rawConfig, &config); err != nil {
-			return nil, err
-		}
-		settings.AdvancedCustom = &config
+		rawConfig = &trimmed
 	} else if req.ChannelID <= 0 {
 		return nil, fmt.Errorf("advanced_custom is required")
 	}
-	usecase.store.SetOtherSettings(channel, settings)
-
+	if err := saveAdvancedCustom(rawConfig); err != nil {
+		return nil, err
+	}
 	if req.HeaderOverride != nil {
 		rawHeaderOverride := strings.TrimSpace(*req.HeaderOverride)
 		if rawHeaderOverride != "" {
@@ -118,11 +115,8 @@ func (usecase Usecase) Preview(req FetchModelsRequest) (*domain.Channel, error) 
 		channel.HeaderOverride = &rawHeaderOverride
 	}
 	if req.Proxy != nil {
-		channelSettings := usecase.store.Settings(channel)
-		channelSettings.Proxy = strings.TrimSpace(*req.Proxy)
-		usecase.store.SetSettings(channel, channelSettings)
+		usecase.store.SetProxy(channel, strings.TrimSpace(*req.Proxy))
 	}
-
 	if err := domain.ValidateChannel(channel, false, usecase.store); err != nil {
 		return nil, err
 	}

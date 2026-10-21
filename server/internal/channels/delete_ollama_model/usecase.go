@@ -2,9 +2,10 @@ package delete_ollama_model
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"strings"
 )
 
 type Store interface {
@@ -21,33 +22,25 @@ type Usecase struct {
 func NewUsecase(store Store, provider Provider) Usecase {
 	return Usecase{store: store, provider: provider}
 }
-func (usecase Usecase) Execute(req Input) (Output, *domain.Failure) {
+func (usecase Usecase) Execute(req Input) (Output, error) {
 	if req.ChannelID == 0 || req.ModelName == "" {
-		return Output{}, &domain.Failure{Kind: "invalid", Message: "Channel ID and model name are required"}
+		return Output{}, domain.ErrOllamaInputRequired
 	}
-
-	// 获取渠道信息
 	channel, err := usecase.store.Get(req.ChannelID, true)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "missing", Message: "Channel not found"}
+		return Output{}, domain.ErrOllamaNotFound
 	}
-
-	// 检查是否是 Ollama 渠道
 	if channel.Type != constant.ChannelTypeOllama {
-		return Output{}, &domain.Failure{Kind: "invalid", Message: "This operation is only supported for Ollama channels"}
+		return Output{}, domain.ErrNotOllamaChannel
 	}
-
 	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.BaseURLValue() != "" {
 		baseURL = channel.BaseURLValue()
 	}
-
 	key := strings.Split(channel.Key, "\n")[0]
 	err = usecase.provider.Delete(baseURL, key, req.ModelName)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "provider", Message: fmt.Sprintf("Failed to delete model: %s", err.Error())}
+		return Output{}, fmt.Errorf("%w: %s", domain.ErrOllamaDeleteFailed, err.Error())
 	}
-
 	return Output{Message: fmt.Sprintf("Model %s deleted successfully", req.ModelName)}, nil
-
 }

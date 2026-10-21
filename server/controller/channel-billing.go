@@ -45,10 +45,10 @@ func updateChannelOpenAISBBalance(channel *model.Channel) (float64, error) {
 	return balance, err
 }
 func UpdateChannelBalance(c *gin.Context) {
-	app.NewUpdateChannelBalanceHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().UpdateChannelBalance.Handle(c)
 }
 func UpdateAllChannelsBalance(c *gin.Context) {
-	app.NewUpdateAllChannelsBalanceHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().UpdateChannelsBalances.Handle(c)
 }
 func updateAllChannelsBalance() error { return app.NewChannelBalancesUsecase().Execute() }
 func AutomaticallyUpdateChannels(frequency int) {

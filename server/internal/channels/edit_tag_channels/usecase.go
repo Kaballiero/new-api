@@ -2,9 +2,10 @@ package edit_tag_channels
 
 import (
 	"encoding/json"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"strings"
 )
 
 type Store interface {
@@ -20,34 +21,36 @@ type Usecase struct {
 func NewUsecase(store Store, canWriteSensitive func() bool, refresh func(), audit func(string)) Usecase {
 	return Usecase{store: store, canWriteSensitive: canWriteSensitive, refresh: refresh, audit: audit}
 }
-func (usecase Usecase) Execute(channelTag ChannelTag) *domain.Failure {
+
+// Execute returns storage failures as they are: they are answered with their
+// text and HTTP 200.
+func (usecase Usecase) Execute(channelTag ChannelTag) error {
 	if channelTag.Tag == "" {
-		return &domain.Failure{Kind: "invalid", Message: "tag不能为空"}
+		return domain.ErrTagRequired
 	}
 	if (channelTag.ParamOverride != nil || channelTag.HeaderOverride != nil) &&
 		!usecase.canWriteSensitive() {
-		return &domain.Failure{Kind: "permission"}
+		return domain.ErrSensitiveWriteDenied
 	}
 	if channelTag.ParamOverride != nil {
 		trimmed := strings.TrimSpace(*channelTag.ParamOverride)
 		if trimmed != "" && !json.Valid([]byte(trimmed)) {
-			return &domain.Failure{Kind: "invalid", Message: "参数覆盖必须是合法的 JSON 格式"}
+			return domain.ErrParamOverrideInvalid
 		}
 		channelTag.ParamOverride = common.GetPointer[string](trimmed)
 	}
 	if channelTag.HeaderOverride != nil {
 		trimmed := strings.TrimSpace(*channelTag.HeaderOverride)
 		if trimmed != "" && !json.Valid([]byte(trimmed)) {
-			return &domain.Failure{Kind: "invalid", Message: "请求头覆盖必须是合法的 JSON 格式"}
+			return domain.ErrHeaderOverrideInvalid
 		}
 		channelTag.HeaderOverride = common.GetPointer[string](trimmed)
 	}
 	err := usecase.store.EditTag(channelTag.Tag, channelTag.NewTag, channelTag.ModelMapping, channelTag.Models, channelTag.Groups, channelTag.Priority, channelTag.Weight, channelTag.ParamOverride, channelTag.HeaderOverride)
 	if err != nil {
-		return &domain.Failure{Kind: "internal", Cause: err}
+		return err
 	}
 	usecase.refresh()
 	usecase.audit(channelTag.Tag)
 	return nil
-
 }

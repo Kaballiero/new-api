@@ -2,19 +2,16 @@ package refresh_codex_credential
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"strings"
 	"time"
 )
 
 type Store interface {
 	Get(int, bool) (*domain.Channel, error)
-	Settings(*domain.Channel) dto.ChannelSettings
+	Proxy(*domain.Channel) string
 	SetKey(int, string) error
 	InitCache()
 }
@@ -34,24 +31,24 @@ func (usecase Usecase) Execute(ctx context.Context, input Input) (*domain.CodexO
 		return nil, nil, err
 	}
 	if ch == nil {
-		return nil, nil, fmt.Errorf("channel not found")
+		return nil, nil, domain.ErrCodexChannelNotFound
 	}
 	if ch.Type != constant.ChannelTypeCodex {
-		return nil, nil, fmt.Errorf("channel type is not Codex")
+		return nil, nil, domain.ErrNotCodexChannel
 	}
 
-	oauthKey, err := parseCodexOAuthKey(strings.TrimSpace(ch.Key))
+	oauthKey, err := domain.ParseCodexOAuthKey(strings.TrimSpace(ch.Key))
 	if err != nil {
 		return nil, nil, err
 	}
 	if strings.TrimSpace(oauthKey.RefreshToken) == "" {
-		return nil, nil, fmt.Errorf("codex channel: refresh_token is required to refresh credential")
+		return nil, nil, domain.ErrCodexRefreshTokenRequired
 	}
 
 	refreshCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	res, err := usecase.refresh(refreshCtx, oauthKey.RefreshToken, usecase.store.Settings(ch).Proxy)
+	res, err := usecase.refresh(refreshCtx, oauthKey.RefreshToken, usecase.store.Proxy(ch))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -90,14 +87,4 @@ func (usecase Usecase) Execute(ctx context.Context, input Input) (*domain.CodexO
 
 	return oauthKey, ch, nil
 
-}
-func parseCodexOAuthKey(raw string) (*domain.CodexOAuthKey, error) {
-	if strings.TrimSpace(raw) == "" {
-		return nil, errors.New("codex channel: empty oauth key")
-	}
-	var key domain.CodexOAuthKey
-	if err := common.Unmarshal([]byte(raw), &key); err != nil {
-		return nil, errors.New("codex channel: invalid oauth key json")
-	}
-	return &key, nil
 }

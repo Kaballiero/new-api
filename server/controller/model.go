@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/app"
 	"net/http"
 	"slices"
 	"strings"
@@ -330,7 +329,7 @@ func ListModels(c *gin.Context, modelType int) {
 }
 
 func ChannelListModels(c *gin.Context) {
-	app.NewChannelListModelsHTTP(func() []dto.OpenAIModels { return openAIModels }).Handle(c)
+	channelsHTTP().ListChannelModels.Handle(c)
 }
 
 func DashboardListModels(c *gin.Context) {
@@ -349,7 +348,7 @@ func DashboardListModels(c *gin.Context) {
 	})
 }
 
-func EnabledListModels(c *gin.Context) { app.NewEnabledListModelsHTTP().Handle(c) }
+func EnabledListModels(c *gin.Context) { channelsHTTP().ListEnabledChannelModels.Handle(c) }
 
 func RetrieveModel(c *gin.Context, modelType int) {
 	modelId := c.Param("model")

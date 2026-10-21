@@ -13,6 +13,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
@@ -1468,7 +1469,9 @@ func TestBuildUpstreamModelUpdateTaskNotificationContent_OmitOverflowDetails(t *
 		})
 	}
 
+	require.NoError(t, i18n.Init())
 	content := buildUpstreamModelUpdateTaskNotificationContent(
+		i18n.LangZhCN,
 		24,
 		12,
 		56,
@@ -1730,6 +1733,8 @@ func TestDetectAllChannelUpstreamModelUpdatesRejectsExistingActiveTask(t *testin
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream-models/detect-all", nil)
+	ctx.Request.Header.Set("Accept-Language", "zh-CN")
+	require.NoError(t, i18n.Init())
 
 	DetectAllChannelUpstreamModelUpdates(ctx)
 

@@ -2,15 +2,19 @@ package domain
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"strings"
 )
 
+// Configuration reads the gateway-owned parts of a channel configuration.
 type Configuration interface {
+	// ValidateSettings checks the gateway settings stored in the channel.
 	ValidateSettings(*Channel) error
-	Settings(*Channel) dto.ChannelSettings
+	// TaskPluginKey returns the task plugin bound by the channel settings.
+	TaskPluginKey(*Channel) string
+	// PluginBaseURL returns the default base URL of a registered task plugin.
 	PluginBaseURL(string) (string, bool)
 }
 
@@ -32,20 +36,19 @@ func (channel *Channel) GetModels() []string {
 }
 func ValidateChannel(channel *Channel, isAdd bool, config Configuration) error {
 	if channel == nil {
-		return fmt.Errorf("channel cannot be empty")
+		return ErrChannelRequired
 	}
 
-	// 校验 channel settings
 	if err := config.ValidateSettings(channel); err != nil {
-		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())
+		return &DetailError{Err: ErrChannelSettingInvalid, Detail: err.Error()}
 	}
 	if channel.Type == constant.ChannelTypeTaskPlugin {
-		pluginKey := strings.TrimSpace(config.Settings(channel).TaskPluginKey)
+		pluginKey := strings.TrimSpace(config.TaskPluginKey(channel))
 		if pluginKey == "" {
-			return fmt.Errorf("task plugin key is required")
+			return ErrTaskPluginKeyRequired
 		}
 		if len(pluginKey) > 30 {
-			return fmt.Errorf("task plugin key must not exceed 30 characters")
+			return ErrTaskPluginKeyTooLong
 		}
 		plugin, ok := config.PluginBaseURL(pluginKey)
 		if !ok {
@@ -53,7 +56,7 @@ func ValidateChannel(channel *Channel, isAdd bool, config Configuration) error {
 		}
 		if channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "" {
 			if plugin == "" {
-				return fmt.Errorf("base URL is required for task plugin channels")
+				return ErrTaskPluginBaseURLRequired
 			}
 			defaultBaseURL := plugin
 			channel.BaseURL = &defaultBaseURL
@@ -61,36 +64,35 @@ func ValidateChannel(channel *Channel, isAdd bool, config Configuration) error {
 	}
 
 	if channel.Type == constant.ChannelTypeNewAPI && strings.TrimSpace(channel.BaseURLValue()) == "" {
-		return fmt.Errorf("New API channel base URL cannot be empty")
+		return ErrNewAPIBaseURLRequired
 	}
 
-	// 如果是添加操作，检查 channel 和 key 是否为空
+	// A new channel needs a key and model names that fit the column.
 	if isAdd {
 		if channel.Key == "" {
-			return fmt.Errorf("channel cannot be empty")
+			return ErrChannelRequired
 		}
 
-		// 检查模型名称长度是否超过 255
 		for _, m := range channel.GetModels() {
 			if len(m) > 255 {
-				return fmt.Errorf("模型名称过长: %s", m)
+				return &DetailError{Err: ErrModelNameTooLong, Detail: m}
 			}
 		}
 	}
 
-	// VertexAI 特殊校验
+	// Vertex AI needs a JSON map of deployment regions with a default entry.
 	if channel.Type == constant.ChannelTypeVertexAi {
 		if channel.Other == "" {
-			return fmt.Errorf("部署地区不能为空")
+			return ErrVertexRegionRequired
 		}
 
 		regionMap, err := common.StrToMap(channel.Other)
 		if err != nil {
-			return fmt.Errorf("部署地区必须是标准的Json格式，例如{\"default\": \"us-central1\", \"region2\": \"us-east1\"}")
+			return ErrVertexRegionInvalid
 		}
 
 		if regionMap["default"] == nil {
-			return fmt.Errorf("部署地区必须包含default字段")
+			return ErrVertexRegionDefaultMissing
 		}
 	}
 
@@ -99,65 +101,20 @@ func ValidateChannel(channel *Channel, isAdd bool, config Configuration) error {
 		trimmedKey := strings.TrimSpace(channel.Key)
 		if isAdd || trimmedKey != "" {
 			if !strings.HasPrefix(trimmedKey, "{") {
-				return fmt.Errorf("Codex key must be a valid JSON object")
+				return ErrCodexKeyInvalid
 			}
 			var keyMap map[string]any
 			if err := common.Unmarshal([]byte(trimmedKey), &keyMap); err != nil {
-				return fmt.Errorf("Codex key must be a valid JSON object")
+				return ErrCodexKeyInvalid
 			}
 			if v, ok := keyMap["access_token"]; !ok || v == nil || strings.TrimSpace(fmt.Sprintf("%v", v)) == "" {
-				return fmt.Errorf("Codex key JSON must include access_token")
+				return ErrCodexKeyAccessTokenRequired
 			}
 			if v, ok := keyMap["account_id"]; !ok || v == nil || strings.TrimSpace(fmt.Sprintf("%v", v)) == "" {
-				return fmt.Errorf("Codex key JSON must include account_id")
+				return ErrCodexKeyAccountIDRequired
 			}
 		}
 	}
 
-	return nil
-}
-
-func (channel *Channel) ValidateSettings() error {
-	channelParams := &dto.ChannelSettings{}
-	if channel.Setting != nil && *channel.Setting != "" {
-		err := common.Unmarshal([]byte(*channel.Setting), channelParams)
-		if err != nil {
-			return err
-		}
-	}
-	if _, err := common.ParseProxyURLStrict(channelParams.Proxy); err != nil {
-		return fmt.Errorf("invalid channel proxy: %w", err)
-	}
-	if err := channelParams.ValidateOpenRouterReserves(); err != nil {
-		return err
-	}
-	if err := channelParams.ValidateHTTPTransport(); err != nil {
-		return err
-	}
-	channelOtherSettings := &dto.ChannelOtherSettings{}
-	if channel.OtherSettings != "" {
-		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)
-		if err != nil {
-			return err
-		}
-	}
-	if err := channelOtherSettings.ValidateToolLossPolicy(); err != nil {
-		return err
-	}
-	if channel.Type == constant.ChannelTypeAdvancedCustom {
-		if channelOtherSettings.AdvancedCustom == nil {
-			return fmt.Errorf("advanced_custom is required")
-		}
-	}
-	if channelOtherSettings.AdvancedCustom != nil {
-		if err := channelOtherSettings.AdvancedCustom.Validate(); err != nil {
-			return err
-		}
-	}
-	if channel.Type == constant.ChannelTypeAdvancedCustom && channelOtherSettings.UpstreamModelUpdateCheckEnabled {
-		if _, ok := channelOtherSettings.AdvancedCustom.ModelListRoute(); !ok {
-			return fmt.Errorf("advanced custom channels require a %s route when upstream model update checks are enabled", dto.AdvancedCustomModelListPath)
-		}
-	}
 	return nil
 }

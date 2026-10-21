@@ -60,28 +60,28 @@ func (store Store) SearchChannels(keyword string, group string, model string, id
 	var channels []*Channel
 	modelsCol := "`models`"
 
-	// 如果是 PostgreSQL，使用双引号
+	// PostgreSQL quotes identifiers with double quotes
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		modelsCol = `"models"`
 	}
 
 	baseURLCol := "`base_url`"
-	// 如果是 PostgreSQL，使用双引号
+	// PostgreSQL quotes identifiers with double quotes
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		baseURLCol = `"base_url"`
 	}
 
 	order := resolveChannelSortOptions(idSort, sortOptions)
 
-	// 构造基础查询
+	// base query
 	baseQuery := store.environment.DB().Model(&Channel{}).Omit("key")
 
-	// 构造WHERE子句
+	// WHERE clause
 	whereClause := "(id = ? OR name LIKE ? OR " + store.environment.KeyColumn() + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
 	args := []any{common.String2Int(keyword), "%" + keyword + "%", keyword, "%" + keyword + "%", "%" + model + "%"}
 	baseQuery = store.ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group)
 
-	// 执行查询
+	// run the query
 	err := order.Apply(baseQuery).Find(&channels).Error
 	if err != nil {
 		return nil, err
@@ -140,7 +140,7 @@ func (store Store) BatchDeleteChannels(ids []int) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	// 使用事务 分批删除channel表和abilities表
+	// delete channels and their abilities in batches within one transaction
 	tx := store.environment.DB().Begin()
 	if tx.Error != nil {
 		return 0, tx.Error
@@ -183,7 +183,7 @@ func (store Store) EditChannelByTag(tag string, newTag *string, modelMapping *st
 	updateData := Channel{}
 	shouldReCreateAbilities := false
 	updatedTag := tag
-	// 如果 newTag 不为空且不等于 tag，则更新 tag
+	// rename the tag when newTag is set and differs from tag
 	if newTag != nil && *newTag != tag {
 		updateData.Tag = newTag
 		updatedTag = *newTag
@@ -260,13 +260,13 @@ func (store Store) SearchTags(keyword string, group string, model string, idSort
 	var tags []*string
 	modelsCol := "`models`"
 
-	// 如果是 PostgreSQL，使用双引号
+	// PostgreSQL quotes identifiers with double quotes
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		modelsCol = `"models"`
 	}
 
 	baseURLCol := "`base_url`"
-	// 如果是 PostgreSQL，使用双引号
+	// PostgreSQL quotes identifiers with double quotes
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		baseURLCol = `"base_url"`
 	}
@@ -276,10 +276,10 @@ func (store Store) SearchTags(keyword string, group string, model string, idSort
 		order = "id desc"
 	}
 
-	// 构造基础查询
+	// base query
 	baseQuery := store.environment.DB().Model(&Channel{}).Omit("key")
 
-	// 构造WHERE子句
+	// WHERE clause
 	whereClause := "(id = ? OR name LIKE ? OR " + store.environment.KeyColumn() + " = ? OR " + baseURLCol + " LIKE ?) AND " + modelsCol + " LIKE ?"
 	args := []any{common.String2Int(keyword), "%" + keyword + "%", keyword, "%" + keyword + "%", "%" + model + "%"}
 	baseQuery = store.ApplyChannelGroupFilter(baseQuery.Where(whereClause, args...), group)
@@ -305,13 +305,13 @@ func (store Store) GetChannelsByIds(ids []int) ([]*Channel, error) {
 	return channels, err
 }
 func (store Store) BatchSetChannelTag(ids []int, tag *string) error {
-	// 开启事务
+	// begin the transaction
 	tx := store.environment.DB().Begin()
 	if tx.Error != nil {
 		return tx.Error
 	}
 
-	// 更新标签
+	// update the tag
 	err := tx.Model(&Channel{}).Where("id in (?)", ids).Update("tag", tag).Error
 	if err != nil {
 		tx.Rollback()
@@ -333,7 +333,7 @@ func (store Store) BatchSetChannelTag(ids []int, tag *string) error {
 		}
 	}
 
-	// 提交事务
+	// commit the transaction
 	return tx.Commit().Error
 }
 func (store Store) CountAllChannels() (int64, error) {

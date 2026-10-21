@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/channels/apply_all_upstream_model_updates"
@@ -59,7 +62,6 @@ import (
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
-	"time"
 )
 
 type ChannelEffects struct {
@@ -80,248 +82,242 @@ type ChannelEffects struct {
 	ReadAudit     func(*gin.Context)
 	SecurityError func(*gin.Context, error)
 	Refresh       func()
+	// ChannelListModels returns the built-in OpenAI-compatible model list.
+	ChannelListModels func() list_channel_models.Output
 }
+
+// ChannelsHTTP holds the channel management handlers. They are built once; a
+// usecase that touches channel records is assembled per request because the
+// channel store keeps the identity of the records it loaded for one request.
+type ChannelsHTTP struct {
+	GetChannel               get_channel.HTTP
+	RevealChannelKey         reveal_channel_key.HTTP
+	DeleteChannel            delete_channel.HTTP
+	DeleteDisabledChannels   delete_disabled_channels.HTTP
+	DeleteChannelsBatch      delete_channels_batch.HTTP
+	DisableTagChannels       disable_tag_channels.HTTP
+	EnableTagChannels        enable_tag_channels.HTTP
+	EditTagChannels          edit_tag_channels.HTTP
+	UpdateChannelStatus      update_channel_status.HTTP
+	UpdateChannelStatusBatch update_channel_status_batch.HTTP
+	SetChannelTagsBatch      set_channel_tags_batch.HTTP
+	GetTagModels             get_tag_models.HTTP
+	RepairChannelAbilities   repair_channel_abilities.HTTP
+	GetChannelOperations     get_channel_operations.HTTP
+	ManageMultiKeys          manage_multi_keys.HTTP
+	ListChannels             list_channels.HTTP
+	SearchChannels           search_channels.HTTP
+	CreateChannel            create_channel.HTTP
+	CopyChannel              copy_channel.HTTP
+	UpdateChannel            update_channel.HTTP
+	PullOllamaModel          pull_ollama_model.HTTP
+	DeleteOllamaModel        delete_ollama_model.HTTP
+	GetOllamaVersion         get_ollama_version.HTTP
+	StreamOllamaModelPull    stream_ollama_model_pull.HTTP
+	RefreshCodexCredential   refresh_codex_credential.HTTP
+	GetCodexUsage            get_codex_usage.HTTP
+	GetCodexResetCredits     get_codex_reset_credits.HTTP
+	ResetCodexUsage          reset_codex_usage.HTTP
+	FetchUpstreamModels      fetch_upstream_models.HTTP
+	PreviewChannelModels     preview_channel_models.HTTP
+	UpdateChannelBalance     update_channel_balance.HTTP
+	UpdateChannelsBalances   update_channels_balances.HTTP
+	TestChannel              test_channel.HTTP
+	TestChannels             test_channels.HTTP
+	ValidateModels           validate_models.HTTP
+	ListChannelModels        list_channel_models.HTTP
+	ListEnabledChannelModels list_enabled_channel_models.HTTP
+	GetAffinityCacheStats    get_affinity_cache_stats.HTTP
+	GetAffinityUsageStats    get_affinity_usage_stats.HTTP
+	ClearAffinityCache       clear_affinity_cache.HTTP
+	ApplyUpstreamModels      apply_upstream_model_updates.HTTP
+	ApplyAllUpstreamModels   apply_all_upstream_model_updates.HTTP
+	DetectUpstreamModels     detect_upstream_model_updates.HTTP
+	DetectAllUpstreamModels  detect_all_upstream_model_updates.HTTP
+}
+
 type channelProxyCache struct{}
 
 func (channelProxyCache) Reset()                  { service.ResetProxyClientCache() }
 func (channelProxyCache) Invalidate(proxy string) { service.InvalidateProxyClient(proxy) }
-func NewGetChannelHTTP(c *gin.Context, effects ChannelEffects) get_channel.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return get_channel.NewHTTP(store)
-}
-func NewGetChannelKeyHTTP(c *gin.Context, effects ChannelEffects) reveal_channel_key.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return reveal_channel_key.NewHTTP(store, func(id int, name string) {
-		effects.Audit(c, "channel.key_view", map[string]any{"id": id, "name": name})
-	}, effects.SecurityError)
-}
-func NewDeleteChannelHTTP(c *gin.Context, effects ChannelEffects) delete_channel.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return delete_channel.NewHTTP(store, channelProxyCache{}, effects.Refresh, func(id int, name string) { effects.Audit(c, "channel.delete", map[string]any{"id": id, "name": name}) })
-}
-func NewDeleteDisabledChannelHTTP(c *gin.Context, effects ChannelEffects) delete_disabled_channels.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return delete_disabled_channels.NewHTTP(store, effects.Refresh, service.ResetProxyClientCache, func(count int64) { effects.Audit(c, "channel.delete_disabled", map[string]any{"count": count}) })
-}
-func NewDeleteChannelBatchHTTP(c *gin.Context, effects ChannelEffects) delete_channels_batch.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return delete_channels_batch.NewHTTP(store, effects.Refresh, service.ResetProxyClientCache, func(count int64) { effects.Audit(c, "channel.delete_batch", map[string]any{"count": count}) })
-}
-func NewDisableTagChannelsHTTP(c *gin.Context, effects ChannelEffects) disable_tag_channels.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return disable_tag_channels.NewHTTP(store, effects.Refresh, func(tag string) { effects.Audit(c, "channel.tag_disable", map[string]any{"tag": tag}) })
-}
-func NewEnableTagChannelsHTTP(c *gin.Context, effects ChannelEffects) enable_tag_channels.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return enable_tag_channels.NewHTTP(store, effects.Refresh, func(tag string) { effects.Audit(c, "channel.tag_enable", map[string]any{"tag": tag}) })
-}
-func NewUpdateChannelStatusHTTP(c *gin.Context, effects ChannelEffects) update_channel_status.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return update_channel_status.NewHTTP(store, effects.Refresh, func(input update_channel_status.Input, changed bool) {
-		effects.Audit(c, "channel.status_update", map[string]any{"id": input.ID, "status": input.Status, "changed": changed})
-	})
-}
-func NewBatchUpdateChannelStatusHTTP(c *gin.Context, effects ChannelEffects) update_channel_status_batch.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return update_channel_status_batch.NewHTTP(store, effects.Refresh, func(input update_channel_status_batch.Input, count int) {
-		effects.Audit(c, "channel.status_update_batch", map[string]any{"count": count, "total": len(input.Ids), "status": input.Status})
-	})
-}
-func NewBatchSetChannelTagHTTP(c *gin.Context, effects ChannelEffects) set_channel_tags_batch.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return set_channel_tags_batch.NewHTTP(store, effects.Refresh, func(count int) { effects.Audit(c, "channel.tag_batch_set", map[string]any{"count": count}) })
-}
-func NewGetTagModelsHTTP(c *gin.Context, effects ChannelEffects) get_tag_models.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return get_tag_models.NewHTTP(store)
-}
-func NewFixChannelsAbilitiesHTTP(c *gin.Context, effects ChannelEffects) repair_channel_abilities.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return repair_channel_abilities.NewHTTP(store)
-}
-func NewGetChannelOpsHTTP(c *gin.Context, effects ChannelEffects) get_channel_operations.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return get_channel_operations.NewHTTP(func() int { return common.RetryTimes })
-}
-func NewManageMultiKeysHTTP(c *gin.Context, effects ChannelEffects) manage_multi_keys.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return manage_multi_keys.NewHTTP(manage_multi_keys.NewUsecase(store, effects.Refresh, func() bool { return authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) }, func() { effects.ReadAudit(c) }, func(action string, id int) {
-		effects.Audit(c, "channel.multi_key_manage", map[string]any{"action": action, "id": id})
-	}))
+
+func canChannel(c *gin.Context, permission authz.Permission) func() bool {
+	return func() bool { return authz.Can(c.GetInt("id"), c.GetInt("role"), permission) }
 }
 
-func NewGetAllChannelsHTTP(c *gin.Context, effects ChannelEffects) list_channels.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return list_channels.NewHTTP(list_channels.NewUsecase(store, common.SysError))
+func NewChannelsHTTP(effects ChannelEffects) ChannelsHTTP {
+	audit := func(c *gin.Context, action string) func(map[string]any) {
+		return func(params map[string]any) { effects.Audit(c, action, params) }
+	}
+	return ChannelsHTTP{
+		GetChannel: get_channel.NewHTTP(func(*gin.Context) get_channel.Usecase { return get_channel.NewUsecase(repository.NewStore()) }),
+		RevealChannelKey: reveal_channel_key.NewHTTP(func(c *gin.Context) reveal_channel_key.Usecase {
+			return reveal_channel_key.NewUsecase(repository.NewStore(), func(id int, name string) {
+				effects.Audit(c, "channel.key_view", map[string]any{"id": id, "name": name})
+			})
+		}, effects.SecurityError),
+		DeleteChannel: delete_channel.NewHTTP(func(c *gin.Context) delete_channel.Usecase {
+			return delete_channel.NewUsecase(repository.NewStore(), channelProxyCache{}, effects.Refresh, func(id int, name string) {
+				effects.Audit(c, "channel.delete", map[string]any{"id": id, "name": name})
+			})
+		}),
+		DeleteDisabledChannels: delete_disabled_channels.NewHTTP(func(c *gin.Context) delete_disabled_channels.Usecase {
+			return delete_disabled_channels.NewUsecase(repository.NewStore(), effects.Refresh, service.ResetProxyClientCache, func(count int64) {
+				effects.Audit(c, "channel.delete_disabled", map[string]any{"count": count})
+			})
+		}),
+		DeleteChannelsBatch: delete_channels_batch.NewHTTP(func(c *gin.Context) delete_channels_batch.Usecase {
+			return delete_channels_batch.NewUsecase(repository.NewStore(), effects.Refresh, service.ResetProxyClientCache, func(count int64) {
+				effects.Audit(c, "channel.delete_batch", map[string]any{"count": count})
+			})
+		}),
+		DisableTagChannels: disable_tag_channels.NewHTTP(func(c *gin.Context) disable_tag_channels.Usecase {
+			return disable_tag_channels.NewUsecase(repository.NewStore(), effects.Refresh, func(tag string) {
+				effects.Audit(c, "channel.tag_disable", map[string]any{"tag": tag})
+			})
+		}),
+		EnableTagChannels: enable_tag_channels.NewHTTP(func(c *gin.Context) enable_tag_channels.Usecase {
+			return enable_tag_channels.NewUsecase(repository.NewStore(), effects.Refresh, func(tag string) {
+				effects.Audit(c, "channel.tag_enable", map[string]any{"tag": tag})
+			})
+		}),
+		EditTagChannels: edit_tag_channels.NewHTTP(func(c *gin.Context) edit_tag_channels.Usecase {
+			return edit_tag_channels.NewUsecase(repository.NewStore(), canChannel(c, authz.ChannelSensitiveWrite), effects.Refresh, func(tag string) {
+				effects.Audit(c, "channel.tag_edit", map[string]any{"tag": tag})
+			})
+		}),
+		UpdateChannelStatus: update_channel_status.NewHTTP(func(c *gin.Context) update_channel_status.Usecase {
+			return update_channel_status.NewUsecase(repository.NewStore(), effects.Refresh, func(input update_channel_status.Input, changed bool) {
+				effects.Audit(c, "channel.status_update", map[string]any{"id": input.ID, "status": input.Status, "changed": changed})
+			})
+		}),
+		UpdateChannelStatusBatch: update_channel_status_batch.NewHTTP(func(c *gin.Context) update_channel_status_batch.Usecase {
+			return update_channel_status_batch.NewUsecase(repository.NewStore(), effects.Refresh, func(input update_channel_status_batch.Input, count int) {
+				effects.Audit(c, "channel.status_update_batch", map[string]any{"count": count, "total": len(input.Ids), "status": input.Status})
+			})
+		}),
+		SetChannelTagsBatch: set_channel_tags_batch.NewHTTP(func(c *gin.Context) set_channel_tags_batch.Usecase {
+			return set_channel_tags_batch.NewUsecase(repository.NewStore(), effects.Refresh, func(count int) {
+				effects.Audit(c, "channel.tag_batch_set", map[string]any{"count": count})
+			})
+		}),
+		GetTagModels: get_tag_models.NewHTTP(func(*gin.Context) get_tag_models.Usecase { return get_tag_models.NewUsecase(repository.NewStore()) }),
+		RepairChannelAbilities: repair_channel_abilities.NewHTTP(func(*gin.Context) repair_channel_abilities.Usecase {
+			return repair_channel_abilities.NewUsecase(repository.NewStore())
+		}),
+		GetChannelOperations: get_channel_operations.NewHTTP(get_channel_operations.NewUsecase(func() int { return common.RetryTimes })),
+		ManageMultiKeys: manage_multi_keys.NewHTTP(func(c *gin.Context) manage_multi_keys.Usecase {
+			return manage_multi_keys.NewUsecase(repository.NewStore(), effects.Refresh, canChannel(c, authz.ChannelSensitiveWrite), func() { effects.ReadAudit(c) }, func(action string, id int) {
+				effects.Audit(c, "channel.multi_key_manage", map[string]any{"action": action, "id": id})
+			})
+		}),
+		ListChannels: list_channels.NewHTTP(func(*gin.Context) list_channels.Usecase {
+			return list_channels.NewUsecase(repository.NewStore(), common.SysError)
+		}),
+		SearchChannels: search_channels.NewHTTP(func(*gin.Context) search_channels.Usecase {
+			return search_channels.NewUsecase(repository.NewStore())
+		}),
+		CreateChannel: create_channel.NewHTTP(func(c *gin.Context) create_channel.Usecase {
+			return create_channel.NewUsecase(repository.NewStore(), common.GetTimestamp, canChannel(c, authz.TaskPluginBind), audit(c, "channel.create"))
+		}),
+		CopyChannel: copy_channel.NewHTTP(func(c *gin.Context) copy_channel.Usecase {
+			return copy_channel.NewUsecase(repository.NewStore(), canChannel(c, authz.TaskPluginBind), common.GetTimestamp, common.SysError, effects.Refresh, audit(c, "channel.copy"))
+		}),
+		UpdateChannel: update_channel.NewHTTP(func(c *gin.Context) update_channel.Usecase {
+			return update_channel.NewUsecase(repository.NewStore(), canChannel(c, authz.TaskPluginBind), canChannel(c, authz.ChannelSensitiveWrite), service.NormalizeProxyURL, effects.Refresh, service.InvalidateProxyClient, audit(c, "channel.update"))
+		}),
+		PullOllamaModel: pull_ollama_model.NewHTTP(func(*gin.Context) pull_ollama_model.Usecase {
+			return pull_ollama_model.NewUsecase(repository.NewStore(), channeladapter.NewOllama())
+		}),
+		DeleteOllamaModel: delete_ollama_model.NewHTTP(func(*gin.Context) delete_ollama_model.Usecase {
+			return delete_ollama_model.NewUsecase(repository.NewStore(), channeladapter.NewOllama())
+		}),
+		GetOllamaVersion: get_ollama_version.NewHTTP(func(*gin.Context) get_ollama_version.Usecase {
+			return get_ollama_version.NewUsecase(repository.NewStore(), channeladapter.NewOllama())
+		}),
+		StreamOllamaModelPull: stream_ollama_model_pull.NewHTTP(func() stream_ollama_model_pull.Store { return repository.NewStore() }, channeladapter.NewOllama()),
+		RefreshCodexCredential: refresh_codex_credential.NewHTTP(func(*gin.Context) refresh_codex_credential.Usecase {
+			return refresh_codex_credential.NewUsecase(repository.NewStore(), func(ctx context.Context, token, proxy string) (*channeldomain.CodexTokenResult, error) {
+				result, err := service.RefreshCodexOAuthTokenWithProxy(ctx, token, proxy)
+				if result == nil {
+					return nil, err
+				}
+				return &channeldomain.CodexTokenResult{AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, ExpiresAt: result.ExpiresAt}, err
+			}, service.ExtractCodexAccountIDFromJWT, service.ExtractEmailFromJWT, time.Now)
+		}),
+		GetCodexUsage: get_codex_usage.NewHTTP(func(*gin.Context) get_codex_usage.Usecase {
+			return get_codex_usage.NewUsecase(repository.NewStore(), channeladapter.NewCodexUsage(service.FetchCodexWhamUsage), common.SysError, time.Now)
+		}),
+		GetCodexResetCredits: get_codex_reset_credits.NewHTTP(func(*gin.Context) get_codex_reset_credits.Usecase {
+			return get_codex_reset_credits.NewUsecase(repository.NewStore(), channeladapter.NewCodexUsage(service.FetchCodexWhamRateLimitResetCredits), common.SysError, time.Now)
+		}),
+		ResetCodexUsage: reset_codex_usage.NewHTTP(func(*gin.Context) reset_codex_usage.Usecase {
+			return reset_codex_usage.NewUsecase(repository.NewStore(), channeladapter.NewCodexUsage(service.ConsumeCodexWhamRateLimitResetCredit), common.SysError, time.Now)
+		}),
+		FetchUpstreamModels: fetch_upstream_models.NewHTTP(func(*gin.Context) fetch_upstream_models.Usecase {
+			return fetch_upstream_models.NewUsecase(repository.NewStore(), channeladapter.NewModelDiscovery())
+		}),
+		PreviewChannelModels: preview_channel_models.NewHTTP(func(*gin.Context) preview_channel_models.Usecase { return NewPreviewChannelModelsUsecase() }),
+		UpdateChannelBalance: update_channel_balance.NewHTTP(func(*gin.Context) update_channel_balance.Usecase {
+			store := repository.NewStore()
+			return update_channel_balance.NewUsecase(store, channeladapter.NewBalanceReader(store.Record))
+		}),
+		UpdateChannelsBalances: update_channels_balances.NewHTTP(func(*gin.Context) update_channels_balances.Usecase { return NewChannelBalancesUsecase() }),
+		TestChannel: test_channel.NewHTTP(func(c *gin.Context) test_channel.Usecase {
+			store := repository.NewStore()
+			return test_channel.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(c) }, time.Now)
+		}),
+		TestChannels: test_channels.NewHTTP(test_channels.NewUsecase(channeladapter.NewTestQueue(effects.EnqueueTest))),
+		ValidateModels: validate_models.NewHTTP(func(c *gin.Context) validate_models.Usecase {
+			store := repository.NewStore()
+			return validate_models.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(c) }, func(localErr, upstreamErr error) (channeldomain.ModelLiveness, int) {
+				return service.ClassifyModelValidation(localErr, channeladapter.GatewayError(upstreamErr))
+			})
+		}),
+		ListChannelModels:        list_channel_models.NewHTTP(list_channel_models.NewUsecase(effects.ChannelListModels)),
+		ListEnabledChannelModels: list_enabled_channel_models.NewHTTP(list_enabled_channel_models.NewUsecase(model.GetEnabledModels)),
+		GetAffinityCacheStats: get_affinity_cache_stats.NewHTTP(get_affinity_cache_stats.NewUsecase(func() get_affinity_cache_stats.Output {
+			return get_affinity_cache_stats.Output(service.GetChannelAffinityCacheStats())
+		})),
+		GetAffinityUsageStats: get_affinity_usage_stats.NewHTTP(get_affinity_usage_stats.NewUsecase(func(rule, group, key string) get_affinity_usage_stats.Output {
+			return get_affinity_usage_stats.Output(service.GetChannelAffinityUsageCacheStats(rule, group, key))
+		})),
+		ClearAffinityCache: clear_affinity_cache.NewHTTP(clear_affinity_cache.NewUsecase(channeladapter.NewAffinityCache())),
+		ApplyUpstreamModels: apply_upstream_model_updates.NewHTTP(func(c *gin.Context) apply_upstream_model_updates.Usecase {
+			return NewApplyChannelModelsUsecase(effects, audit(c, "channel.upstream_apply"))
+		}),
+		ApplyAllUpstreamModels: apply_all_upstream_model_updates.NewHTTP(func(c *gin.Context) apply_all_upstream_model_updates.Usecase {
+			store := repository.NewStore()
+			return apply_all_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), channelModelFetcher(store, effects), effects.RefreshRuntime, audit(c, "channel.upstream_apply_all"))
+		}),
+		DetectUpstreamModels: detect_upstream_model_updates.NewHTTP(func(*gin.Context) detect_upstream_model_updates.Usecase {
+			return NewDetectChannelModelsUsecase(effects)
+		}),
+		DetectAllUpstreamModels: detect_all_upstream_model_updates.NewHTTP(func(c *gin.Context) detect_all_upstream_model_updates.Usecase {
+			return detect_all_upstream_model_updates.NewUsecase(effects.EnqueueModelUpdate, func(id string) {
+				effects.Audit(c, "channel.upstream_detect_all", map[string]any{"task_id": id})
+			})
+		}),
+	}
 }
 
-func NewSearchChannelsHTTP(c *gin.Context, effects ChannelEffects) search_channels.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return search_channels.NewHTTP(search_channels.NewUsecase(store))
-}
-
-func NewAddChannelHTTP(c *gin.Context, effects ChannelEffects) create_channel.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return create_channel.NewHTTP(create_channel.NewUsecase(store, common.GetTimestamp, func() bool { return authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) }, func(params map[string]any) { effects.Audit(c, "channel.create", params) }))
-}
-
-func NewCopyChannelHTTP(c *gin.Context, effects ChannelEffects) copy_channel.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return copy_channel.NewHTTP(copy_channel.NewUsecase(store, func() bool { return authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) }, common.GetTimestamp, common.SysError, effects.Refresh, func(params map[string]any) { effects.Audit(c, "channel.copy", params) }))
-}
-
-func NewEditTagChannelsHTTP(c *gin.Context, effects ChannelEffects) edit_tag_channels.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return edit_tag_channels.NewHTTP(edit_tag_channels.NewUsecase(store, func() bool { return authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) }, effects.Refresh, func(tag string) { effects.Audit(c, "channel.tag_edit", map[string]any{"tag": tag}) }))
-}
-
-func NewUpdateChannelHTTP(c *gin.Context, effects ChannelEffects) update_channel.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return update_channel.NewHTTP(update_channel.NewUsecase(store, func() bool { return authz.Can(c.GetInt("id"), c.GetInt("role"), authz.TaskPluginBind) }, func() bool { return authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) }, service.NormalizeProxyURL, effects.Refresh, service.InvalidateProxyClient, func(params map[string]any) { effects.Audit(c, "channel.update", params) }))
-}
-
-func NewOllamaPullModelHTTP(c *gin.Context, effects ChannelEffects) pull_ollama_model.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return pull_ollama_model.NewHTTP(pull_ollama_model.NewUsecase(store, channeladapter.NewOllama()))
-}
-
-func NewOllamaDeleteModelHTTP(c *gin.Context, effects ChannelEffects) delete_ollama_model.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return delete_ollama_model.NewHTTP(delete_ollama_model.NewUsecase(store, channeladapter.NewOllama()))
-}
-
-func NewOllamaVersionHTTP(c *gin.Context, effects ChannelEffects) get_ollama_version.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return get_ollama_version.NewHTTP(get_ollama_version.NewUsecase(store, channeladapter.NewOllama()))
-}
-
-func NewOllamaPullModelStreamHTTP(c *gin.Context, effects ChannelEffects) stream_ollama_model_pull.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return stream_ollama_model_pull.NewHTTP(store, channeladapter.NewOllama())
-}
-
-func NewRefreshCodexChannelCredentialHTTP(c *gin.Context, effects ChannelEffects) refresh_codex_credential.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return refresh_codex_credential.NewHTTP(refresh_codex_credential.NewUsecase(store, func(ctx context.Context, token, proxy string) (*channeldomain.CodexTokenResult, error) {
-		result, err := service.RefreshCodexOAuthTokenWithProxy(ctx, token, proxy)
-		if result == nil {
-			return nil, err
-		}
-		return &channeldomain.CodexTokenResult{AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, ExpiresAt: result.ExpiresAt}, err
-	}, service.ExtractCodexAccountIDFromJWT, service.ExtractEmailFromJWT, time.Now))
-}
-
-func NewGetCodexChannelUsageHTTP(c *gin.Context, effects ChannelEffects) get_codex_usage.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return get_codex_usage.NewHTTP(get_codex_usage.NewUsecase(store, channeladapter.NewCodexUsage(service.FetchCodexWhamUsage), common.SysError, time.Now))
-}
-
-func NewGetCodexChannelRateLimitResetCreditsHTTP(c *gin.Context, effects ChannelEffects) get_codex_reset_credits.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return get_codex_reset_credits.NewHTTP(get_codex_reset_credits.NewUsecase(store, channeladapter.NewCodexUsage(service.FetchCodexWhamRateLimitResetCredits), common.SysError, time.Now))
-}
-
-func NewResetCodexChannelUsageHTTP(c *gin.Context, effects ChannelEffects) reset_codex_usage.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return reset_codex_usage.NewHTTP(reset_codex_usage.NewUsecase(store, channeladapter.NewCodexUsage(service.ConsumeCodexWhamRateLimitResetCredit), common.SysError, time.Now))
-}
-
-func NewFetchUpstreamModelsHTTP(c *gin.Context, effects ChannelEffects) fetch_upstream_models.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return fetch_upstream_models.NewHTTP(fetch_upstream_models.NewUsecase(store, channeladapter.NewModelDiscovery()))
-}
-
-func NewFetchModelsHTTP(c *gin.Context, effects ChannelEffects) preview_channel_models.HTTP {
-	store := repository.NewStore()
-	_ = store
-	return preview_channel_models.NewHTTP(preview_channel_models.NewUsecase(store, channeladapter.NewModelDiscovery()))
-}
-
-func NewUpdateChannelBalanceHTTP(c *gin.Context, effects ChannelEffects) update_channel_balance.HTTP {
-	store := repository.NewStore()
-	return update_channel_balance.NewHTTP(update_channel_balance.NewUsecase(store, channeladapter.NewBalanceReader(store.Record)))
-}
+// NewChannelBalancesUsecase updates the balance of every enabled single-key
+// channel. Exhausted channels are disabled with a reason in the root user's
+// language.
 func NewChannelBalancesUsecase() update_channels_balances.Usecase {
 	store := repository.NewStore()
-	return update_channels_balances.NewUsecase(store, channeladapter.NewBalanceReader(store.Record), func(channel *channeldomain.Channel, reason string) {
+	return update_channels_balances.NewUsecase(store, channeladapter.NewBalanceReader(store.Record), func(channel *channeldomain.Channel) {
 		record := store.Record(channel)
+		reason := i18n.Translate(service.RootUserLanguage(), i18n.MsgChannelBalanceExhausted)
 		service.DisableChannel(*types.NewChannelError(record.Id, record.Type, record.Name, record.ChannelInfo.IsMultiKey, "", record.GetAutoBan()), reason)
 	}, func() { time.Sleep(common.RequestInterval) })
-}
-func NewUpdateAllChannelsBalanceHTTP(c *gin.Context, effects ChannelEffects) update_channels_balances.HTTP {
-	return update_channels_balances.NewHTTP(NewChannelBalancesUsecase())
-}
-
-func NewTestChannelHTTP(c *gin.Context, effects ChannelEffects) test_channel.HTTP {
-	store := repository.NewStore()
-	return test_channel.NewHTTP(test_channel.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(c) }, time.Now))
-}
-
-func NewTestAllChannelsHTTP(c *gin.Context, effects ChannelEffects) test_channels.HTTP {
-	return test_channels.NewHTTP(test_channels.NewUsecase(channeladapter.NewTestQueue(effects.EnqueueTest)))
-}
-
-func NewModelValidationUsecase(c *gin.Context, effects ChannelEffects) validate_models.Usecase {
-	store := repository.NewStore()
-	return validate_models.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(c) }, service.ClassifyModelValidation)
-}
-func NewValidateModelsHTTP(c *gin.Context, effects ChannelEffects) validate_models.HTTP {
-	return validate_models.NewHTTP(NewModelValidationUsecase(c, effects))
-}
-
-func NewChannelListModelsHTTP(read func() list_channel_models.Output) list_channel_models.HTTP {
-	return list_channel_models.NewHTTP(list_channel_models.NewUsecase(read))
-}
-func NewEnabledListModelsHTTP() list_enabled_channel_models.HTTP {
-	return list_enabled_channel_models.NewHTTP(list_enabled_channel_models.NewUsecase(model.GetEnabledModels))
-}
-func NewGetChannelAffinityCacheStatsHTTP() get_affinity_cache_stats.HTTP {
-	return get_affinity_cache_stats.NewHTTP(get_affinity_cache_stats.NewUsecase(func() get_affinity_cache_stats.Output {
-		return get_affinity_cache_stats.Output(service.GetChannelAffinityCacheStats())
-	}))
-}
-func NewGetChannelAffinityUsageCacheStatsHTTP() get_affinity_usage_stats.HTTP {
-	return get_affinity_usage_stats.NewHTTP(get_affinity_usage_stats.NewUsecase(func(rule, group, key string) get_affinity_usage_stats.Output {
-		return get_affinity_usage_stats.Output(service.GetChannelAffinityUsageCacheStats(rule, group, key))
-	}))
-}
-func NewClearChannelAffinityCacheHTTP() clear_affinity_cache.HTTP {
-	return clear_affinity_cache.NewHTTP(clear_affinity_cache.NewUsecase(channeladapter.NewAffinityCache()))
 }
 
 func NewChannelTestTaskUsecase(effects ChannelEffects) run_channel_tests.Usecase {
 	store := repository.NewStore()
-	return run_channel_tests.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(nil) }, func(channel *channeldomain.Channel) bool { return effects.AutomaticStream(store.Record(channel)) }, service.ShouldDisableChannel, service.ShouldEnableChannel, func() bool { return common.AutomaticDisableChannelEnabled }, service.EnableChannel, func() float64 { return common.ChannelDisableThreshold }, operation_setting.NormalizeChannelTestConcurrency, func() time.Duration { return common.RequestInterval }, func() string { return operation_setting.GetMonitorSetting().ChannelTestMode }, func() int { return operation_setting.GetMonitorSetting().ChannelTestConcurrency }, func() {
-		service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "所有通道测试已完成")
+	return run_channel_tests.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(nil) }, func(channel *channeldomain.Channel) bool { return effects.AutomaticStream(store.Record(channel)) }, channeladapter.TestFailures{}, func() bool { return common.AutomaticDisableChannelEnabled }, service.EnableChannel, func() float64 { return common.ChannelDisableThreshold }, operation_setting.NormalizeChannelTestConcurrency, func() time.Duration { return common.RequestInterval }, func() string { return operation_setting.GetMonitorSetting().ChannelTestMode }, func() int { return operation_setting.GetMonitorSetting().ChannelTestConcurrency }, func() {
+		lang := service.RootUserLanguage()
+		service.NotifyRootUser(dto.NotifyTypeChannelTest, i18n.Translate(lang, i18n.MsgChannelTestDoneSubject), i18n.Translate(lang, i18n.MsgChannelTestDoneContent))
 	})
 }
 
@@ -330,26 +326,21 @@ func NewChannelModelUpdateRules(store repository.Store) channeldomain.ModelUpdat
 		return channeldomain.ModelMappingErrors{ErrModelNameEmpty: model.ErrModelNameEmpty, ErrModelMappingCycle: model.ErrModelMappingCycle, ErrModelMappingSourceEmpty: model.ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty: model.ErrModelMappingTargetEmpty, ErrModelMappingConflict: model.ErrModelMappingConflict}
 	}, Canonicalize: store.Canonicalize, Now: common.GetTimestamp}
 }
-func NewApplyChannelModelsUsecase(c *gin.Context, effects ChannelEffects) apply_upstream_model_updates.Usecase {
-	store := repository.NewStore()
-	return apply_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), func(channel *channeldomain.Channel) ([]string, error) {
+
+// channelModelFetcher fetches the upstream models of a channel through the
+// gateway and reloads the channel the fetch may have refreshed.
+func channelModelFetcher(store repository.Store, effects ChannelEffects) func(*channeldomain.Channel) ([]string, error) {
+	return func(channel *channeldomain.Channel) ([]string, error) {
 		record := store.Record(channel)
 		models, err := effects.FetchModels(record)
 		*channel = *repository.ToDomain(record)
 		return models, err
-	}, effects.RefreshRuntime, func(params map[string]any) { effects.Audit(c, "channel.upstream_apply", params) })
+	}
 }
-func NewApplyChannelUpstreamModelUpdatesHTTP(c *gin.Context, effects ChannelEffects) apply_upstream_model_updates.HTTP {
-	return apply_upstream_model_updates.NewHTTP(NewApplyChannelModelsUsecase(c, effects))
-}
-func NewApplyAllChannelUpstreamModelUpdatesHTTP(c *gin.Context, effects ChannelEffects) apply_all_upstream_model_updates.HTTP {
+
+func NewApplyChannelModelsUsecase(effects ChannelEffects, audit func(map[string]any)) apply_upstream_model_updates.Usecase {
 	store := repository.NewStore()
-	return apply_all_upstream_model_updates.NewHTTP(apply_all_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), func(channel *channeldomain.Channel) ([]string, error) {
-		record := store.Record(channel)
-		models, err := effects.FetchModels(record)
-		*channel = *repository.ToDomain(record)
-		return models, err
-	}, effects.RefreshRuntime, func(params map[string]any) { effects.Audit(c, "channel.upstream_apply_all", params) }))
+	return apply_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), channelModelFetcher(store, effects), effects.RefreshRuntime, audit)
 }
 
 func ChannelModelCheckInterval() int64 {
@@ -361,27 +352,18 @@ func ChannelModelCheckInterval() int64 {
 }
 func NewDetectChannelModelsUsecase(effects ChannelEffects) detect_upstream_model_updates.Usecase {
 	store := repository.NewStore()
-	return detect_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), func(channel *channeldomain.Channel) ([]string, error) {
-		record := store.Record(channel)
-		models, err := effects.FetchModels(record)
-		*channel = *repository.ToDomain(record)
-		return models, err
-	}, effects.RefreshRuntime, common.GetTimestamp, ChannelModelCheckInterval)
+	return detect_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), channelModelFetcher(store, effects), effects.RefreshRuntime, common.GetTimestamp, ChannelModelCheckInterval)
 }
-func NewDetectChannelUpstreamModelUpdatesHTTP(c *gin.Context, effects ChannelEffects) detect_upstream_model_updates.HTTP {
-	return detect_upstream_model_updates.NewHTTP(NewDetectChannelModelsUsecase(effects))
-}
+
+// NewScanChannelModelsUsecase checks the upstream models of all enabled
+// channels; the notification goes to the watching administrators in the root
+// user's language.
 func NewScanChannelModelsUsecase(effects ChannelEffects) scan_upstream_model_updates.Usecase {
 	store := repository.NewStore()
-	return scan_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), func(channel *channeldomain.Channel) ([]string, error) {
-		record := store.Record(channel)
-		models, err := effects.FetchModels(record)
-		*channel = *repository.ToDomain(record)
-		return models, err
-	}, effects.RefreshRuntime, common.GetTimestamp, ChannelModelCheckInterval, func() time.Duration { return common.RequestInterval }, func() bool { return common.DebugEnabled }, common.SysLog, effects.ModelUpdateThrottle, service.NotifyUpstreamModelUpdateWatchers)
-}
-func NewDetectAllChannelUpstreamModelUpdatesHTTP(c *gin.Context, effects ChannelEffects) detect_all_upstream_model_updates.HTTP {
-	return detect_all_upstream_model_updates.NewHTTP(detect_all_upstream_model_updates.NewUsecase(effects.EnqueueModelUpdate, func(id string) { effects.Audit(c, "channel.upstream_detect_all", map[string]any{"task_id": id}) }))
+	return scan_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), channelModelFetcher(store, effects), effects.RefreshRuntime, common.GetTimestamp, ChannelModelCheckInterval, func() time.Duration { return common.RequestInterval }, func() bool { return common.DebugEnabled }, common.SysLog, effects.ModelUpdateThrottle, func(report channeldomain.ModelUpdateReport) {
+		subject, content := channeladapter.ModelUpdateNotification(service.RootUserLanguage(), report)
+		service.NotifyUpstreamModelUpdateWatchers(subject, content)
+	})
 }
 
 func RefreshChannelRuntimeCache(pricing func()) {

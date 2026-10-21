@@ -3,14 +3,14 @@ package list_channels
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+	"github.com/QuantumNous/new-api/internal/channels/transport"
 	"github.com/gin-gonic/gin"
-	"net/http"
 	"strconv"
 )
 
-type HTTP struct{ scenario Usecase }
+type HTTP struct{ usecase func(*gin.Context) Usecase }
 
-func NewHTTP(scenario Usecase) HTTP { return HTTP{scenario: scenario} }
+func NewHTTP(usecase func(*gin.Context) Usecase) HTTP { return HTTP{usecase: usecase} }
 func (h HTTP) Handle(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	idSort, _ := strconv.ParseBool(c.Query("id_sort"))
@@ -28,10 +28,9 @@ func (h HTTP) Handle(c *gin.Context) {
 			typeFilter = t
 		}
 	}
-
-	output, failure := h.scenario.Execute(Input{Filter: domain.Filter{Group: groupFilter, Status: statusFilter, Type: typeFilter}, Sort: sortOptions, TagMode: enableTagMode, Start: pageInfo.GetStartIdx(), Page: pageInfo.GetPage(), PageSize: pageInfo.GetPageSize()})
-	if failure != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": failure.Message})
+	output, err := h.usecase(c).Execute(Input{Filter: domain.Filter{Group: groupFilter, Status: statusFilter, Type: typeFilter}, Sort: sortOptions, TagMode: enableTagMode, Start: pageInfo.GetStartIdx(), Page: pageInfo.GetPage(), PageSize: pageInfo.GetPageSize()})
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	common.ApiSuccess(c, output)

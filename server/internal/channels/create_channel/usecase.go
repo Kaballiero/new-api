@@ -2,16 +2,17 @@ package create_channel
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"strings"
 )
 
 type Store interface {
 	domain.Configuration
-	OtherSettings(*domain.Channel) dto.ChannelOtherSettings
+	// VertexJSONKeys reports whether a Vertex AI channel takes service account
+	// JSON keys rather than API keys.
+	VertexJSONKeys(*domain.Channel) bool
 	Canonicalize(*domain.Channel) error
 	InsertBatch([]domain.Channel) error
 }
@@ -25,31 +26,27 @@ type Usecase struct {
 func NewUsecase(store Store, now func() int64, canBindPlugin func() bool, audit func(map[string]any)) Usecase {
 	return Usecase{store: store, now: now, canBindPlugin: canBindPlugin, audit: audit}
 }
-func (usecase Usecase) Execute(addChannelRequest AddChannelRequest) *domain.Failure {
-
+func (usecase Usecase) Execute(addChannelRequest AddChannelRequest) error {
 	if addChannelRequest.Channel != nil && addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin &&
 		!usecase.canBindPlugin() {
-		return &domain.Failure{Kind: "plugin_permission", Message: "task plugin channels require the task_plugin.bind permission"}
+		return domain.ErrTaskPluginBindDenied
 	}
-
 	baseURLFromPluginDefault := addChannelRequest.Channel != nil &&
 		addChannelRequest.Channel.Type == constant.ChannelTypeTaskPlugin &&
 		(addChannelRequest.Channel.BaseURL == nil || strings.TrimSpace(*addChannelRequest.Channel.BaseURL) == "")
-	// 使用统一的校验函数
 	if err := domain.ValidateChannel(addChannelRequest.Channel, true, usecase.store); err != nil {
-		return &domain.Failure{Kind: "channel_validation_failed", Message: err.Error()}
+		return domain.Invalid(err)
 	}
-
 	addChannelRequest.Channel.CreatedTime = usecase.now()
 	keys := make([]string, 0)
 	switch addChannelRequest.Mode {
 	case "multi_to_single":
 		addChannelRequest.Channel.ChannelInfo.IsMultiKey = true
 		addChannelRequest.Channel.ChannelInfo.MultiKeyMode = addChannelRequest.MultiKeyMode
-		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && usecase.store.OtherSettings(addChannelRequest.Channel).VertexKeyType != dto.VertexKeyTypeAPIKey {
+		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && usecase.store.VertexJSONKeys(addChannelRequest.Channel) {
 			array, err := domain.VertexArrayKeys(addChannelRequest.Channel.Key)
 			if err != nil {
-				return &domain.Failure{Kind: "channel_validation_failed", Message: err.Error()}
+				return domain.Invalid(err)
 			}
 			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(array)
 			addChannelRequest.Channel.Key = strings.Join(array, "\n")
@@ -67,12 +64,12 @@ func (usecase Usecase) Execute(addChannelRequest AddChannelRequest) *domain.Fail
 		}
 		keys = []string{addChannelRequest.Channel.Key}
 	case "batch":
-		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && usecase.store.OtherSettings(addChannelRequest.Channel).VertexKeyType != dto.VertexKeyTypeAPIKey {
+		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && usecase.store.VertexJSONKeys(addChannelRequest.Channel) {
 			// multi json
 			var verr error
 			keys, verr = domain.VertexArrayKeys(addChannelRequest.Channel.Key)
 			if verr != nil {
-				return &domain.Failure{Kind: "channel_validation_failed", Message: verr.Error()}
+				return domain.Invalid(verr)
 			}
 		} else {
 			keys = strings.Split(addChannelRequest.Channel.Key, "\n")
@@ -80,12 +77,11 @@ func (usecase Usecase) Execute(addChannelRequest AddChannelRequest) *domain.Fail
 	case "single":
 		keys = []string{addChannelRequest.Channel.Key}
 	default:
-		return &domain.Failure{Kind: "mode_unsupported", Message: "不支持的添加模式"}
+		return domain.ErrAddModeUnsupported
 	}
 	if err := usecase.store.Canonicalize(addChannelRequest.Channel); err != nil {
-		return &domain.Failure{Kind: "channel_validation_failed", Message: err.Error()}
+		return domain.Invalid(err)
 	}
-
 	channels := make([]domain.Channel, 0, len(keys))
 	for _, key := range keys {
 		if key == "" {
@@ -103,7 +99,7 @@ func (usecase Usecase) Execute(addChannelRequest AddChannelRequest) *domain.Fail
 		channels = append(channels, *localChannel)
 	}
 	if err := usecase.store.InsertBatch(channels); err != nil {
-		return &domain.Failure{Kind: "internal", Cause: err}
+		return domain.Internal(err)
 	}
 	createAudit := map[string]any{
 		"name":  addChannelRequest.Channel.Name,
@@ -115,5 +111,4 @@ func (usecase Usecase) Execute(addChannelRequest AddChannelRequest) *domain.Fail
 	}
 	usecase.audit(createAudit)
 	return nil
-
 }

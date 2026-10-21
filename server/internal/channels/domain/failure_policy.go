@@ -1,10 +1,19 @@
 package domain
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
 )
+
+// ChannelFailure describes a failed channel request in gateway-neutral terms.
+type ChannelFailure struct {
+	Message string
+	Status  int
+	// ChannelError marks a failure of the channel itself (credentials,
+	// configuration), SkipRetry a failure the gateway does not retry.
+	ChannelError, SkipRetry bool
+}
 
 type FailurePolicy struct {
 	DisableEnabled, EnableEnabled func() bool
@@ -13,33 +22,37 @@ type FailurePolicy struct {
 	Search                        func(string, []string, bool) (bool, []string)
 }
 
-func (policy FailurePolicy) ShouldDisable(err *types.NewAPIError) bool {
+// ShouldDisable decides whether failure disables the channel; nil means the
+// request succeeded.
+func (policy FailurePolicy) ShouldDisable(failure *ChannelFailure) bool {
 	if !policy.DisableEnabled() {
 		return false
 	}
-	if err == nil {
+	if failure == nil {
 		return false
 	}
-	if types.IsChannelError(err) {
+	if failure.ChannelError {
 		return true
 	}
-	if types.IsSkipRetryError(err) {
+	if failure.SkipRetry {
 		return false
 	}
-	if policy.DisableStatus(err.StatusCode) {
+	if policy.DisableStatus(failure.Status) {
 		return true
 	}
 
-	lowerMessage := strings.ToLower(err.Error())
+	lowerMessage := strings.ToLower(failure.Message)
 	search, _ := policy.Search(lowerMessage, policy.Keywords(), true)
 	return search
 }
 
-func (policy FailurePolicy) ShouldEnable(newAPIError *types.NewAPIError, status int) bool {
+// ShouldEnable decides whether a successful request re-enables an
+// automatically disabled channel.
+func (policy FailurePolicy) ShouldEnable(failed bool, status int) bool {
 	if !policy.EnableEnabled() {
 		return false
 	}
-	if newAPIError != nil {
+	if failed {
 		return false
 	}
 	if status != common.ChannelStatusAutoDisabled {

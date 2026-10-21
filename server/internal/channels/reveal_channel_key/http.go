@@ -1,39 +1,39 @@
 package reveal_channel_key
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-
+	"github.com/QuantumNous/new-api/internal/channels/domain"
+	"github.com/QuantumNous/new-api/internal/channels/transport"
 	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {
-	store         Store
-	audit         func(int, string)
+	usecase func(*gin.Context) Usecase
+	// securityError answers storage failures like other security operations.
 	securityError func(*gin.Context, error)
 }
 
-func NewHTTP(store Store, audit func(int, string), securityError func(*gin.Context, error)) HTTP {
-	return HTTP{store: store, audit: audit, securityError: securityError}
+func NewHTTP(usecase func(*gin.Context) Usecase, securityError func(*gin.Context, error)) HTTP {
+	return HTTP{usecase: usecase, securityError: securityError}
 }
 func (h HTTP) Handle(c *gin.Context) {
-	scenario := NewUsecase(h.store, h.audit)
-	_ = scenario
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
 		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgChannelIdFormatError)
 		return
 	}
-	output, failure := scenario.Execute(Input{ID: id})
-	if failure != nil {
-		if failure.Kind == "missing" {
-			common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
-		} else {
-			h.securityError(c, failure.Cause)
-		}
+	output, err := h.usecase(c).Execute(Input{ID: id})
+	if errors.Is(err, domain.ErrChannelNotFound) {
+		transport.WriteError(c, err)
+		return
+	}
+	if err != nil {
+		h.securityError(c, err)
 		return
 	}
 	common.ApiSuccess(c, output)

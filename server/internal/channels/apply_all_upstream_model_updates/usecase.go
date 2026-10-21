@@ -1,17 +1,16 @@
 package apply_all_upstream_model_updates
 
 import (
-	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"reflect"
 )
 
 type Store interface {
 	Get(int, bool) (*domain.Channel, error)
-	OtherSettings(*domain.Channel) dto.ChannelOtherSettings
-	WithLockedModelState(int, func(*domain.Channel, func(dto.ChannelOtherSettings, bool) error) error) error
+	ModelUpdateState(*domain.Channel) (domain.ModelUpdateState, error)
+	FetchFingerprint(*domain.Channel) (domain.ModelFetchFingerprint, error)
+	WithLockedModelState(int, func(*domain.Channel, func(domain.ModelUpdateState, bool) error) error) error
 	NextEnabled(int) ([]*domain.Channel, int, bool, error)
 }
 type Usecase struct {
@@ -33,10 +32,10 @@ func (usecase Usecase) Apply(
 	applyAll bool,
 	requireCheckEnabled bool,
 ) (result domain.AppliedModelUpdates, err error) {
-	if _, err = domain.ParseChannelOtherSettings(channel); err != nil {
+	if _, err = usecase.store.ModelUpdateState(channel); err != nil {
 		return result, err
 	}
-	fetchFingerprint, err := usecase.fingerprint(channel)
+	fetchFingerprint, err := usecase.store.FetchFingerprint(channel)
 	if err != nil {
 		return result, err
 	}
@@ -46,24 +45,24 @@ func (usecase Usecase) Apply(
 	}
 
 	var freshChannel *domain.Channel
-	err = usecase.store.WithLockedModelState(channel.Id, func(locked *domain.Channel, persist func(dto.ChannelOtherSettings, bool) error) error {
+	err = usecase.store.WithLockedModelState(channel.Id, func(locked *domain.Channel, persist func(domain.ModelUpdateState, bool) error) error {
 		freshChannel = locked
-		freshFingerprint, fingerprintErr := usecase.fingerprint(freshChannel)
+		freshFingerprint, fingerprintErr := usecase.store.FetchFingerprint(freshChannel)
 		if fingerprintErr != nil {
 			return fingerprintErr
 		}
 		if !reflect.DeepEqual(fetchFingerprint, freshFingerprint) {
-			return fmt.Errorf("channel fetch configuration changed during upstream model discovery")
+			return domain.ErrFetchConfigChanged
 		}
 		if requireCheckEnabled && freshChannel.Status != common.ChannelStatusEnabled {
 			return nil
 		}
 
-		settings, settingsErr := domain.ParseChannelOtherSettings(freshChannel)
+		settings, settingsErr := usecase.store.ModelUpdateState(freshChannel)
 		if settingsErr != nil {
 			return settingsErr
 		}
-		if requireCheckEnabled && !settings.UpstreamModelUpdateCheckEnabled {
+		if requireCheckEnabled && !settings.CheckEnabled {
 			return nil
 		}
 		result, err = usecase.rules.ApplyModelDelta(freshChannel, &settings, upstreamModels, addModelsInput, ignoreModelsInput, removeModelsInput, applyAll)
@@ -78,14 +77,6 @@ func (usecase Usecase) Apply(
 	}
 	*channel = *freshChannel
 	return result, nil
-}
-func (usecase Usecase) fingerprint(channel *domain.Channel) (domain.ModelFetchFingerprint, error) {
-	fingerprint, err := domain.BuildModelFetchFingerprint(channel)
-	if err != nil {
-		return fingerprint, err
-	}
-	fingerprint.AdvancedCustom = usecase.store.OtherSettings(channel).AdvancedCustom
-	return fingerprint, nil
 }
 
 func (usecase Usecase) Execute() (Output, error) {
@@ -111,12 +102,12 @@ func (usecase Usecase) Execute() (Output, error) {
 				continue
 			}
 
-			settings, settingsErr := domain.ParseChannelOtherSettings(channel)
+			settings, settingsErr := usecase.store.ModelUpdateState(channel)
 			if settingsErr != nil {
 				failed = append(failed, channel.Id)
 				continue
 			}
-			if !settings.UpstreamModelUpdateCheckEnabled {
+			if !settings.CheckEnabled {
 				continue
 			}
 

@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"net/http"
 	"strings"
 	"time"
 )
 
 type Configuration interface {
-	Settings(*domain.Channel) dto.ChannelSettings
+	Proxy(*domain.Channel) string
 }
 type Session interface {
 	Version(context.Context) (string, error)
@@ -30,12 +29,12 @@ func NewUsecase(configuration Configuration, remote Remote, refresh func(context
 }
 func (usecase Usecase) Execute(channel *domain.Channel) ([]string, error) {
 	if channel == nil || channel.Type != constant.ChannelTypeCodex {
-		return nil, fmt.Errorf("channel type is not Codex")
+		return nil, domain.ErrNotCodexChannel
 	}
 	if channel.ChannelInfo.IsMultiKey {
 		return nil, fmt.Errorf("codex channel does not support multi-key model discovery")
 	}
-	session, err := usecase.remote.Open(usecase.configuration.Settings(channel).Proxy)
+	session, err := usecase.remote.Open(usecase.configuration.Proxy(channel))
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,6 @@
 package fetch_upstream_models
 
 import (
-	"fmt"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
@@ -20,17 +19,17 @@ type Usecase struct {
 func NewUsecase(store Store, discovery Discovery) Usecase {
 	return Usecase{store: store, discovery: discovery}
 }
-func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (Output, error) {
 	channel, err := usecase.store.Get(input.ID, true)
 	if usecase.store.IsMissing(err) {
-		return nil, &domain.Failure{Kind: "missing"}
+		return nil, domain.ErrChannelNotFound
 	}
 	if err != nil {
-		return nil, &domain.Failure{Kind: "internal", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	models, err := usecase.discovery.Fetch(channel)
 	if err != nil {
-		return nil, &domain.Failure{Kind: "fetch", Message: fmt.Sprintf("获取模型列表失败: %s", err.Error())}
+		return nil, domain.ModelFetchFailed(err)
 	}
 	return models, nil
 }

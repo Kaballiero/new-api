@@ -3,7 +3,6 @@ package domain
 import (
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 func (channel *Channel) GetOtherInfo() map[string]any {
@@ -91,8 +90,4 @@ func HasEnabledMultiKey(keys []string, statusList map[int]int) bool {
 		}
 	}
 	return false
-}
-
-func ChannelStatusNotificationType(id, status int) string {
-	return fmt.Sprintf("%s_%d_%d", dto.NotifyTypeChannelUpdate, id, status)
 }

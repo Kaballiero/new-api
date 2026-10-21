@@ -2,11 +2,8 @@ package run_channel_tests
 
 import (
 	"context"
-	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/types"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -16,13 +13,21 @@ type Store interface {
 	All() ([]*domain.Channel, error)
 	SaveResponseTime(*domain.Channel, int64)
 }
+
+// Failures is the gateway's handling of failed channel tests.
+type Failures interface {
+	ShouldDisable(failure error) bool
+	ShouldEnable(failure error, status int) bool
+	// ResponseTimeExceeded builds the failure of a channel slower than the
+	// threshold; the times are in seconds and userID is the testing user.
+	ResponseTimeExceeded(userID int, elapsed, threshold float64) error
+}
 type Usecase struct {
 	store                Store
 	probe                domain.Probe
 	user                 func() (int, error)
 	stream               func(*domain.Channel) bool
-	shouldDisable        func(*types.NewAPIError) bool
-	shouldEnable         func(*types.NewAPIError, int) bool
+	failures             Failures
 	disableEnabled       func() bool
 	enable               func(int, string, string)
 	threshold            func() float64
@@ -33,8 +38,8 @@ type Usecase struct {
 	notify               func()
 }
 
-func NewUsecase(store Store, probe domain.Probe, user func() (int, error), stream func(*domain.Channel) bool, shouldDisable func(*types.NewAPIError) bool, shouldEnable func(*types.NewAPIError, int) bool, disableEnabled func() bool, enable func(int, string, string), threshold func() float64, normalizeConcurrency func(int) int, interval func() time.Duration, mode func() string, concurrency func() int, notify func()) Usecase {
-	return Usecase{store: store, probe: probe, user: user, stream: stream, shouldDisable: shouldDisable, shouldEnable: shouldEnable, disableEnabled: disableEnabled, enable: enable, threshold: threshold, normalizeConcurrency: normalizeConcurrency, interval: interval, mode: mode, concurrency: concurrency, notify: notify}
+func NewUsecase(store Store, probe domain.Probe, user func() (int, error), stream func(*domain.Channel) bool, failures Failures, disableEnabled func() bool, enable func(int, string, string), threshold func() float64, normalizeConcurrency func(int) int, interval func() time.Duration, mode func() string, concurrency func() int, notify func()) Usecase {
+	return Usecase{store: store, probe: probe, user: user, stream: stream, failures: failures, disableEnabled: disableEnabled, enable: enable, threshold: threshold, normalizeConcurrency: normalizeConcurrency, interval: interval, mode: mode, concurrency: concurrency, notify: notify}
 }
 func (usecase Usecase) Execute(ctx context.Context, mode string, notify bool, report func(processed, total int)) (domain.HealthSummary, error) {
 	testUserID, err := usecase.user()
@@ -70,31 +75,30 @@ func (usecase Usecase) HealthCheck(ctx context.Context, channel *domain.Channel,
 	summary.Tested++
 
 	shouldBanChannel := false
-	newAPIError := result.APIError()
-	if newAPIError != nil {
-		shouldBanChannel = usecase.shouldDisable(result.APIError())
+	failure := result.UpstreamError()
+	if failure != nil {
+		shouldBanChannel = usecase.failures.ShouldDisable(failure)
 	}
 
 	if usecase.disableEnabled() && !shouldBanChannel {
 		if milliseconds > disableThreshold {
-			err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
-			newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
+			failure = usecase.failures.ResponseTimeExceeded(testUserID, float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
 			shouldBanChannel = true
 		}
 	}
 
-	if newAPIError == nil {
+	if failure == nil {
 		summary.Succeeded++
 	} else {
 		summary.Failed++
 	}
 
 	if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-		result.HandleFailure(newAPIError)
+		result.Disable(failure)
 		summary.Disabled++
 	}
 
-	if result.LocalError() == nil && !isChannelEnabled && usecase.shouldEnable(newAPIError, channel.Status) {
+	if result.LocalError() == nil && !isChannelEnabled && usecase.failures.ShouldEnable(failure, channel.Status) {
 		usecase.enable(channel.Id, result.ChannelKey(), channel.Name)
 		summary.Enabled++
 	}

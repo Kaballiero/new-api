@@ -7,17 +7,16 @@ import (
 	"go/token"
 	"maps"
 	"path/filepath"
-	"slices"
-	"strconv"
 )
 
 type channelHandlerSource struct {
 	Name, Package, Body, ActualBody, InlineBody, Response, Projection string
 	QueryOrder                                                        []string
+	Errors                                                            []ErrorCode
 }
 
 var channelHandlerSources = []channelHandlerSource{
-	{Name: "AddChannel", Package: "create_channel", Body: "AddChannelRequest", ActualBody: "AddChannelRequest", InlineBody: "", Response: "", Projection: "empty", QueryOrder: []string{}},
+	{Name: "AddChannel", Package: "create_channel", Body: "AddChannelRequest", ActualBody: "AddChannelRequest", InlineBody: "", Response: "", Projection: "empty", QueryOrder: []string{}, Errors: []ErrorCode{{Status: 400, Code: "invalid_params"}, {Status: 400, Code: "channel_validation_failed"}, {Status: 400, Code: "mode_unsupported"}, {Status: 500, Code: "internal_error"}}},
 	{Name: "ApplyAllChannelUpstreamModelUpdates", Package: "apply_all_upstream_model_updates", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "apply_all", QueryOrder: []string{}},
 	{Name: "ApplyChannelUpstreamModelUpdates", Package: "apply_upstream_model_updates", Body: "applyChannelUpstreamModelUpdatesRequest", ActualBody: "Input", InlineBody: "", Response: "", Projection: "output", QueryOrder: []string{}},
 	{Name: "BatchSetChannelTag", Package: "set_channel_tags_batch", Body: "ChannelBatch", ActualBody: "Input", InlineBody: "", Response: "", Projection: "integer", QueryOrder: []string{}},
@@ -25,7 +24,7 @@ var channelHandlerSources = []channelHandlerSource{
 	{Name: "ChannelListModels", Package: "list_channel_models", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "", QueryOrder: []string{}},
 	{Name: "ClearChannelAffinityCache", Package: "clear_affinity_cache", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "output", QueryOrder: []string{"all", "rule_name"}},
 	{Name: "CopyChannel", Package: "copy_channel", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "copy", QueryOrder: []string{"suffix", "reset_balance"}},
-	{Name: "DeleteChannel", Package: "delete_channel", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "", QueryOrder: []string{}},
+	{Name: "DeleteChannel", Package: "delete_channel", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "", QueryOrder: []string{}, Errors: []ErrorCode{{Status: 400, Code: "invalid_params"}, {Status: 404, Code: "channel_not_found"}, {Status: 500, Code: "internal_error"}}},
 	{Name: "DeleteChannelBatch", Package: "delete_channels_batch", Body: "ChannelBatch", ActualBody: "Input", InlineBody: "", Response: "", Projection: "integer", QueryOrder: []string{}},
 	{Name: "DeleteDisabledChannel", Package: "delete_disabled_channels", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "integer", QueryOrder: []string{}},
 	{Name: "DetectAllChannelUpstreamModelUpdates", Package: "detect_all_upstream_model_updates", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "task", QueryOrder: []string{}},
@@ -34,14 +33,14 @@ var channelHandlerSources = []channelHandlerSource{
 	{Name: "EditTagChannels", Package: "edit_tag_channels", Body: "ChannelTag", ActualBody: "ChannelTag", InlineBody: "", Response: "", Projection: "empty", QueryOrder: []string{}},
 	{Name: "EnableTagChannels", Package: "enable_tag_channels", Body: "ChannelTag", ActualBody: "Input", InlineBody: "", Response: "", Projection: "empty", QueryOrder: []string{}},
 	{Name: "EnabledListModels", Package: "list_enabled_channel_models", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "", QueryOrder: []string{}},
-	{Name: "FetchModels", Package: "preview_channel_models", Body: "FetchModelsRequest", ActualBody: "FetchModelsRequest", InlineBody: "", Response: "", Projection: "string", QueryOrder: []string{}},
-	{Name: "FetchUpstreamModels", Package: "fetch_upstream_models", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "", QueryOrder: []string{}},
+	{Name: "FetchModels", Package: "preview_channel_models", Body: "FetchModelsRequest", ActualBody: "FetchModelsRequest", InlineBody: "", Response: "", Projection: "string", QueryOrder: []string{}, Errors: []ErrorCode{{Status: 400, Code: "invalid_params"}, {Status: 502, Code: "fetch_models_failed"}}},
+	{Name: "FetchUpstreamModels", Package: "fetch_upstream_models", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "", QueryOrder: []string{}, Errors: []ErrorCode{{Status: 400, Code: "invalid_params"}, {Status: 404, Code: "channel_not_found"}, {Status: 500, Code: "internal_error"}, {Status: 502, Code: "fetch_models_failed"}}},
 	{Name: "FixChannelsAbilities", Package: "repair_channel_abilities", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "repair", QueryOrder: []string{}},
 	{Name: "GetAllChannels", Package: "list_channels", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "list", QueryOrder: []string{"p", "page_size", "id_sort", "sort_by", "sort_order", "tag_mode", "group", "status", "type"}},
-	{Name: "GetChannel", Package: "get_channel", Body: "", ActualBody: "", InlineBody: "", Response: "Channel", Projection: "", QueryOrder: []string{}},
+	{Name: "GetChannel", Package: "get_channel", Body: "", ActualBody: "", InlineBody: "", Response: "Channel", Projection: "", QueryOrder: []string{}, Errors: []ErrorCode{{Status: 400, Code: "invalid_params"}, {Status: 404, Code: "channel_not_found"}, {Status: 500, Code: "internal_error"}}},
 	{Name: "GetChannelAffinityCacheStats", Package: "get_affinity_cache_stats", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "affinity", QueryOrder: []string{}},
 	{Name: "GetChannelAffinityUsageCacheStats", Package: "get_affinity_usage_stats", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "usage_affinity", QueryOrder: []string{"rule_name", "using_group", "key_fp"}},
-	{Name: "GetChannelKey", Package: "reveal_channel_key", Body: "", ActualBody: "", InlineBody: "", Response: "ChannelKeyResponse", Projection: "", QueryOrder: []string{}},
+	{Name: "GetChannelKey", Package: "reveal_channel_key", Body: "", ActualBody: "", InlineBody: "", Response: "ChannelKeyResponse", Projection: "", QueryOrder: []string{}, Errors: []ErrorCode{{Status: 400, Code: "invalid_params"}, {Status: 404, Code: "channel_not_found"}}},
 	{Name: "GetChannelOps", Package: "get_channel_operations", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "output", QueryOrder: []string{}},
 	{Name: "GetCodexChannelRateLimitResetCredits", Package: "get_codex_reset_credits", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "", QueryOrder: []string{}},
 	{Name: "GetCodexChannelUsage", Package: "get_codex_usage", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "", QueryOrder: []string{}},
@@ -53,14 +52,14 @@ var channelHandlerSources = []channelHandlerSource{
 	{Name: "OllamaVersion", Package: "get_ollama_version", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "version", QueryOrder: []string{}},
 	{Name: "RefreshCodexChannelCredential", Package: "refresh_codex_credential", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "refresh", QueryOrder: []string{}},
 	{Name: "ResetCodexChannelUsage", Package: "reset_codex_usage", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "", QueryOrder: []string{}},
-	{Name: "SearchChannels", Package: "search_channels", Body: "", ActualBody: "", InlineBody: "", Response: "SearchChannelsResponse", Projection: "", QueryOrder: []string{"keyword", "group", "model", "status", "id_sort", "sort_by", "sort_order", "tag_mode", "type", "p", "page_size"}},
+	{Name: "SearchChannels", Package: "search_channels", Body: "", ActualBody: "", InlineBody: "", Response: "SearchChannelsResponse", Projection: "", QueryOrder: []string{"keyword", "group", "model", "status", "id_sort", "sort_by", "sort_order", "tag_mode", "type", "p", "page_size"}, Errors: []ErrorCode{{Status: 500, Code: "internal_error"}}},
 	{Name: "TestAllChannels", Package: "test_channels", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "task", QueryOrder: []string{}},
-	{Name: "TestChannel", Package: "test_channel", Body: "", ActualBody: "", InlineBody: "", Response: "ChannelTestResponse", Projection: "", QueryOrder: []string{"model", "endpoint_type", "stream"}},
+	{Name: "TestChannel", Package: "test_channel", Body: "", ActualBody: "", InlineBody: "", Response: "ChannelTestResponse", Projection: "", QueryOrder: []string{"model", "endpoint_type", "stream"}, Errors: []ErrorCode{{Status: 400, Code: "invalid_params"}, {Status: 404, Code: "channel_not_found"}, {Status: 500, Code: "internal_error"}}},
 	{Name: "UpdateAllChannelsBalance", Package: "update_channels_balances", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "empty", QueryOrder: []string{}},
-	{Name: "UpdateChannel", Package: "update_channel", Body: "", ActualBody: "", InlineBody: "", Response: "PatchChannel", Projection: "", QueryOrder: []string{}},
+	{Name: "UpdateChannel", Package: "update_channel", Body: "", ActualBody: "", InlineBody: "", Response: "PatchChannel", Projection: "", QueryOrder: []string{}, Errors: []ErrorCode{{Status: 404, Code: "channel_not_found"}, {Status: 400, Code: "channel_validation_failed"}, {Status: 500, Code: "internal_error"}}},
 	{Name: "UpdateChannelBalance", Package: "update_channel_balance", Body: "", ActualBody: "", InlineBody: "", Response: "", Projection: "empty", QueryOrder: []string{}},
 	{Name: "UpdateChannelStatus", Package: "update_channel_status", Body: "ChannelStatusRequest", ActualBody: "Input", InlineBody: "", Response: "", Projection: "boolean", QueryOrder: []string{}},
-	{Name: "ValidateModels", Package: "validate_models", Body: "ValidateModelsRequest", ActualBody: "ValidateModelsRequest", InlineBody: "", Response: "ValidateModelsResponse", Projection: "", QueryOrder: []string{}},
+	{Name: "ValidateModels", Package: "validate_models", Body: "ValidateModelsRequest", ActualBody: "ValidateModelsRequest", InlineBody: "", Response: "ValidateModelsResponse", Projection: "", QueryOrder: []string{}, Errors: []ErrorCode{{Status: 400, Code: "invalid_params"}}},
 }
 
 // Read relocated HTTP and DTO sources. Projection preserves the published SDK
@@ -188,37 +187,10 @@ func parseChannelHandlers() error {
 			}
 			if source.Name == "AddChannel" {
 				info.RespStatus = 201
-				codes := []ErrorCode{{Status: 400, Code: "invalid_params"}}
-				business, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, "usecase.go"), nil, parser.SkipObjectResolution)
-				if err != nil {
-					return err
-				}
-				ast.Inspect(business, func(n ast.Node) bool {
-					kv, ok := n.(*ast.KeyValueExpr)
-					if !ok {
-						return true
-					}
-					key, ok := kv.Key.(*ast.Ident)
-					if !ok || key.Name != "Kind" {
-						return true
-					}
-					value, ok := kv.Value.(*ast.BasicLit)
-					if !ok || value.Kind != token.STRING {
-						return true
-					}
-					kind, _ := strconv.Unquote(value.Value)
-					if kind != "channel_validation_failed" && kind != "mode_unsupported" {
-						return true
-					}
-					code := ErrorCode{Status: 400, Code: kind}
-					if !slices.Contains(codes, code) {
-						codes = append(codes, code)
-					}
-					return true
-				})
-				codes = append(codes, ErrorCode{Status: 500, Code: "internal_error"})
-				info.ErrorCodes = codes
 			}
+			// Domain errors are written by the module transport, so the
+			// published error codes of each handler are pinned in the table.
+			info.ErrorCodes = source.Errors
 			// Retain the original parameter order while obtaining names/types from HTTP.
 			params := make([]QueryParam, 0, len(info.QueryParams))
 			for _, name := range source.QueryOrder {

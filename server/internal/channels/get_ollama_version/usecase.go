@@ -1,10 +1,10 @@
 package get_ollama_version
 
 import (
-	"fmt"
+	"strings"
+
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"strings"
 )
 
 type Store interface {
@@ -21,26 +21,22 @@ type Usecase struct {
 func NewUsecase(store Store, provider Provider) Usecase {
 	return Usecase{store: store, provider: provider}
 }
-func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (Output, error) {
 	channel, err := usecase.store.Get(input.ID, true)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "missing", Message: "Channel not found"}
+		return Output{}, domain.ErrOllamaNotFound
 	}
-
 	if channel.Type != constant.ChannelTypeOllama {
-		return Output{}, &domain.Failure{Kind: "invalid", Message: "This operation is only supported for Ollama channels"}
+		return Output{}, domain.ErrNotOllamaChannel
 	}
-
 	baseURL := constant.GetChannelBaseURL(channel.Type)
 	if channel.BaseURLValue() != "" {
 		baseURL = channel.BaseURLValue()
 	}
-
 	key := strings.Split(channel.Key, "\n")[0]
 	version, err := usecase.provider.Version(baseURL, key)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "provider", Message: fmt.Sprintf("获取Ollama版本失败: %s", err.Error())}
+		return Output{}, domain.OllamaVersionFailed(err)
 	}
-
 	return Output{Version: version}, nil
 }

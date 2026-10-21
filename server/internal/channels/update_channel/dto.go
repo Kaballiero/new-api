@@ -5,7 +5,7 @@ import "github.com/QuantumNous/new-api/internal/channels/domain"
 type PatchChannel struct {
 	domain.Channel
 	MultiKeyMode *string `json:"multi_key_mode"`
-	KeyMode      *string `json:"key_mode"` // 多key模式下密钥覆盖或者追加
+	KeyMode      *string `json:"key_mode"` // replace or append keys in multi-key mode
 }
 
 type Input struct {

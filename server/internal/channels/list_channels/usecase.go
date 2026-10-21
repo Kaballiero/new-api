@@ -16,7 +16,7 @@ type Usecase struct {
 }
 
 func NewUsecase(store Store, log func(string)) Usecase { return Usecase{store: store, log: log} }
-func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (Output, error) {
 	channelData := make([]*domain.Channel, 0)
 
 	var total int64
@@ -25,12 +25,12 @@ func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
 		tags, err := usecase.store.ListTags(input.Filter, input.Start, input.PageSize)
 		if err != nil {
 			usecase.log("failed to get paginated tags: " + err.Error())
-			return Output{}, &domain.Failure{Kind: "list", Message: "获取标签失败，请稍后重试"}
+			return Output{}, domain.ErrListTagsFailed
 		}
 		total, err = usecase.store.CountTags(input.Filter)
 		if err != nil {
 			usecase.log("failed to count tags: " + err.Error())
-			return Output{}, &domain.Failure{Kind: "list", Message: "获取标签数量失败，请稍后重试"}
+			return Output{}, domain.ErrCountTagsFailed
 		}
 		for _, tag := range tags {
 			if tag == nil || *tag == "" {
@@ -39,7 +39,7 @@ func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
 			tagChannels, err := usecase.store.ListTag(input.Filter, input.Sort, *tag)
 			if err != nil {
 				usecase.log("failed to get channels by tag: " + err.Error())
-				return Output{}, &domain.Failure{Kind: "list", Message: "获取标签渠道失败，请稍后重试"}
+				return Output{}, domain.ErrListTagChannelsFailed
 			}
 			channelData = append(channelData, tagChannels...)
 		}
@@ -48,13 +48,13 @@ func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
 		total, err = usecase.store.Count(input.Filter)
 		if err != nil {
 			usecase.log("failed to count channels: " + err.Error())
-			return Output{}, &domain.Failure{Kind: "list", Message: "获取渠道数量失败，请稍后重试"}
+			return Output{}, domain.ErrCountChannelsFailed
 		}
 
 		channelData, err = usecase.store.List(input.Filter, input.Sort, input.Start, input.PageSize)
 		if err != nil {
 			usecase.log("failed to get channels: " + err.Error())
-			return Output{}, &domain.Failure{Kind: "list", Message: "获取渠道列表失败，请稍后重试"}
+			return Output{}, domain.ErrListChannelsFailed
 		}
 	}
 
@@ -65,7 +65,7 @@ func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
 	counts, err := usecase.store.TypeCounts(domain.Filter{Group: input.Filter.Group, Status: input.Filter.Status, Type: -1})
 	if err != nil {
 		usecase.log("failed to count channel types: " + err.Error())
-		return Output{}, &domain.Failure{Kind: "list", Message: "获取渠道类型统计失败，请稍后重试"}
+		return Output{}, domain.ErrCountTypesFailed
 	}
 	return Output{Items: channelData, Total: total, Page: input.Page, PageSize: input.PageSize, TypeCounts: counts}, nil
 }

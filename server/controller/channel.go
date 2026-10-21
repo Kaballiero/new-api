@@ -45,27 +45,27 @@ type ChannelTestResponse struct {
 type OpenAIModel = channeladapter.OpenAIModel
 type OpenAIModelsResponse = channeladapter.OpenAIModelsResponse
 
-func GetChannelOps(c *gin.Context) { app.NewGetChannelOpsHTTP(c, channelEffects()).Handle(c) }
+func GetChannelOps(c *gin.Context) { channelsHTTP().GetChannelOperations.Handle(c) }
 
-func GetAllChannels(c *gin.Context) { app.NewGetAllChannelsHTTP(c, channelEffects()).Handle(c) }
+func GetAllChannels(c *gin.Context) { channelsHTTP().ListChannels.Handle(c) }
 
 func FetchUpstreamModels(c *gin.Context) {
-	app.NewFetchUpstreamModelsHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().FetchUpstreamModels.Handle(c)
 }
 
 func FixChannelsAbilities(c *gin.Context) {
-	app.NewFixChannelsAbilitiesHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().RepairChannelAbilities.Handle(c)
 }
 
-func SearchChannels(c *gin.Context) { app.NewSearchChannelsHTTP(c, channelEffects()).Handle(c) }
+func SearchChannels(c *gin.Context) { channelsHTTP().SearchChannels.Handle(c) }
 
-func GetChannel(c *gin.Context) { app.NewGetChannelHTTP(c, channelEffects()).Handle(c) }
+func GetChannel(c *gin.Context) { channelsHTTP().GetChannel.Handle(c) }
 
-// GetChannelKey 获取渠道密钥（需要通过安全验证中间件）
-// 此函数依赖 SecureVerificationRequired 中间件，确保用户已通过安全验证
-func GetChannelKey(c *gin.Context) { app.NewGetChannelKeyHTTP(c, channelEffects()).Handle(c) }
+// GetChannelKey reveals the channel key; it needs the security verification
+// passed by the SecureVerificationRequired middleware.
+func GetChannelKey(c *gin.Context) { channelsHTTP().RevealChannelKey.Handle(c) }
 
-// validateChannel 通用的渠道校验函数
+// validateChannel applies the shared channel validation.
 func validateChannel(channel *model.Channel, isAdd bool) error {
 	value := repository.ToDomain(channel)
 	err := domain.ValidateChannel(value, isAdd, repository.NewStore())
@@ -76,7 +76,7 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 }
 
 func RefreshCodexChannelCredential(c *gin.Context) {
-	app.NewRefreshCodexChannelCredentialHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().RefreshCodexCredential.Handle(c)
 }
 
 type AddChannelRequest struct {
@@ -86,12 +86,12 @@ type AddChannelRequest struct {
 	Channel                   *model.Channel        `json:"channel"`
 }
 
-func AddChannel(c *gin.Context) { app.NewAddChannelHTTP(c, channelEffects()).Handle(c) }
+func AddChannel(c *gin.Context) { channelsHTTP().CreateChannel.Handle(c) }
 
-func DeleteChannel(c *gin.Context) { app.NewDeleteChannelHTTP(c, channelEffects()).Handle(c) }
+func DeleteChannel(c *gin.Context) { channelsHTTP().DeleteChannel.Handle(c) }
 
 func DeleteDisabledChannel(c *gin.Context) {
-	app.NewDeleteDisabledChannelHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().DeleteDisabledChannels.Handle(c)
 }
 
 type ChannelTag struct {
@@ -106,23 +106,23 @@ type ChannelTag struct {
 	HeaderOverride *string `json:"header_override"`
 }
 
-func DisableTagChannels(c *gin.Context) { app.NewDisableTagChannelsHTTP(c, channelEffects()).Handle(c) }
+func DisableTagChannels(c *gin.Context) { channelsHTTP().DisableTagChannels.Handle(c) }
 
-func EnableTagChannels(c *gin.Context) { app.NewEnableTagChannelsHTTP(c, channelEffects()).Handle(c) }
+func EnableTagChannels(c *gin.Context) { channelsHTTP().EnableTagChannels.Handle(c) }
 
-func EditTagChannels(c *gin.Context) { app.NewEditTagChannelsHTTP(c, channelEffects()).Handle(c) }
+func EditTagChannels(c *gin.Context) { channelsHTTP().EditTagChannels.Handle(c) }
 
 type ChannelBatch struct {
 	Ids []int   `json:"ids"`
 	Tag *string `json:"tag"`
 }
 
-func DeleteChannelBatch(c *gin.Context) { app.NewDeleteChannelBatchHTTP(c, channelEffects()).Handle(c) }
+func DeleteChannelBatch(c *gin.Context) { channelsHTTP().DeleteChannelsBatch.Handle(c) }
 
 type PatchChannel struct {
 	model.Channel
 	MultiKeyMode *string `json:"multi_key_mode"`
-	KeyMode      *string `json:"key_mode"` // 多key模式下密钥覆盖或者追加
+	KeyMode      *string `json:"key_mode"` // replace or append keys in multi-key mode
 }
 
 type ChannelStatusRequest struct {
@@ -134,21 +134,19 @@ type ChannelStatusBatchRequest struct {
 	Status int   `json:"status"`
 }
 
-func UpdateChannel(c *gin.Context) { app.NewUpdateChannelHTTP(c, channelEffects()).Handle(c) }
+func UpdateChannel(c *gin.Context) { channelsHTTP().UpdateChannel.Handle(c) }
 
 func UpdateChannelStatus(c *gin.Context) {
-	app.NewUpdateChannelStatusHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().UpdateChannelStatus.Handle(c)
 }
 
 func BatchUpdateChannelStatus(c *gin.Context) {
-	app.NewBatchUpdateChannelStatusHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().UpdateChannelStatusBatch.Handle(c)
 }
 
 func isManageableChannelStatus(status int) bool {
 	return status == common.ChannelStatusEnabled || status == common.ChannelStatusManuallyDisabled
 }
-
-// equalStringPtr 比较两个 *string 是否相等（均为 nil 视为相等）。
 
 // FetchModelsRequest supports saved and unsaved model discovery previews.
 type FetchModelsRequest struct {
@@ -166,19 +164,19 @@ func buildAdvancedCustomModelPreviewChannel(req FetchModelsRequest) (*model.Chan
 	return repository.FromDomain(value), err
 }
 
-func FetchModels(c *gin.Context) { app.NewFetchModelsHTTP(c, channelEffects()).Handle(c) }
+func FetchModels(c *gin.Context) { channelsHTTP().PreviewChannelModels.Handle(c) }
 
-func BatchSetChannelTag(c *gin.Context) { app.NewBatchSetChannelTagHTTP(c, channelEffects()).Handle(c) }
+func BatchSetChannelTag(c *gin.Context) { channelsHTTP().SetChannelTagsBatch.Handle(c) }
 
-func GetTagModels(c *gin.Context) { app.NewGetTagModelsHTTP(c, channelEffects()).Handle(c) }
+func GetTagModels(c *gin.Context) { channelsHTTP().GetTagModels.Handle(c) }
 
 // CopyChannel handles cloning an existing channel with its key.
 // POST /api/channel/copy/:id
 // Optional query params:
 //
-//	suffix         - string appended to the original name (default "_复制")
+//	suffix         - string appended to the original name (default "_复制", a stored name suffix)
 //	reset_balance  - bool, when true will reset balance & used_quota to 0 (default true)
-func CopyChannel(c *gin.Context) { app.NewCopyChannelHTTP(c, channelEffects()).Handle(c) }
+func CopyChannel(c *gin.Context) { channelsHTTP().CopyChannel.Handle(c) }
 
 // MultiKeyManageRequest represents the request for multi-key management operations
 type MultiKeyManageRequest struct {
@@ -212,18 +210,18 @@ type KeyStatus struct {
 }
 
 // ManageMultiKeys handles multi-key management operations
-func ManageMultiKeys(c *gin.Context) { app.NewManageMultiKeysHTTP(c, channelEffects()).Handle(c) }
+func ManageMultiKeys(c *gin.Context) { channelsHTTP().ManageMultiKeys.Handle(c) }
 
-// OllamaPullModel 拉取 Ollama 模型
-func OllamaPullModel(c *gin.Context) { app.NewOllamaPullModelHTTP(c, channelEffects()).Handle(c) }
+// OllamaPullModel pulls an Ollama model.
+func OllamaPullModel(c *gin.Context) { channelsHTTP().PullOllamaModel.Handle(c) }
 
-// OllamaPullModelStream 流式拉取 Ollama 模型
+// OllamaPullModelStream pulls an Ollama model and streams the progress.
 func OllamaPullModelStream(c *gin.Context) {
-	app.NewOllamaPullModelStreamHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().StreamOllamaModelPull.Handle(c)
 }
 
-// OllamaDeleteModel 删除 Ollama 模型
-func OllamaDeleteModel(c *gin.Context) { app.NewOllamaDeleteModelHTTP(c, channelEffects()).Handle(c) }
+// OllamaDeleteModel deletes an Ollama model.
+func OllamaDeleteModel(c *gin.Context) { channelsHTTP().DeleteOllamaModel.Handle(c) }
 
-// OllamaVersion 获取 Ollama 服务版本信息
-func OllamaVersion(c *gin.Context) { app.NewOllamaVersionHTTP(c, channelEffects()).Handle(c) }
+// OllamaVersion returns the version of the Ollama service.
+func OllamaVersion(c *gin.Context) { channelsHTTP().GetOllamaVersion.Handle(c) }

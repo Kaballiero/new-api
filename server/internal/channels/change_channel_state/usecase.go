@@ -46,7 +46,7 @@ func (usecase Usecase) Execute(channelId int, usingKey string, status int, reaso
 		}
 		if channelCache.ChannelInfo.IsMultiKey {
 			beforeStatus := channelCache.Status
-			// 如果是多Key模式，更新缓存中的状态
+			// In multi-key mode update the cached key status.
 			domain.ApplyMultiKeyState(channelCache, usecase.store.StateKeys(channelCache), usingKey, status, reason, usecase.now, usecase.log)
 			usecase.store.CommitState(channelCache)
 			if beforeStatus != channelCache.Status {
@@ -55,7 +55,7 @@ func (usecase Usecase) Execute(channelId int, usingKey string, status int, reaso
 			//CacheUpdateChannel(channelCache)
 			//return true
 		} else {
-			// 如果缓存渠道存在，且状态已是目标状态，直接返回
+			// The cached channel already has the target status.
 			if channelCache.Status == status {
 				return false
 			}

@@ -16,16 +16,16 @@ type Usecase struct {
 func NewUsecase(store Store, audit func(int, string)) Usecase {
 	return Usecase{store: store, audit: audit}
 }
-func (usecase Usecase) Execute(input Input) (ChannelKeyResponse, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (ChannelKeyResponse, error) {
 	channel, err := usecase.store.Get(input.ID, true)
 	if usecase.store.IsMissing(err) {
-		return ChannelKeyResponse{}, &domain.Failure{Kind: "missing"}
+		return ChannelKeyResponse{}, domain.ErrChannelNotFound
 	}
 	if err != nil {
-		return ChannelKeyResponse{}, &domain.Failure{Kind: "security", Cause: err}
+		return ChannelKeyResponse{}, err
 	}
 	if channel == nil {
-		return ChannelKeyResponse{}, &domain.Failure{Kind: "missing"}
+		return ChannelKeyResponse{}, domain.ErrChannelNotFound
 	}
 	usecase.audit(input.ID, channel.Name)
 	return ChannelKeyResponse{Key: channel.Key}, nil

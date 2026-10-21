@@ -12,13 +12,14 @@ type Reader interface {
 	Read(*domain.Channel) (domain.BalanceResult, error)
 }
 type Usecase struct {
-	store   Store
-	reader  Reader
-	disable func(*domain.Channel, string)
+	store  Store
+	reader Reader
+	// disable turns off a channel whose balance is exhausted.
+	disable func(*domain.Channel)
 	pause   func()
 }
 
-func NewUsecase(store Store, reader Reader, disable func(*domain.Channel, string), pause func()) Usecase {
+func NewUsecase(store Store, reader Reader, disable func(*domain.Channel), pause func()) Usecase {
 	return Usecase{store: store, reader: reader, disable: disable, pause: pause}
 }
 func (usecase Usecase) Execute() error {
@@ -37,7 +38,7 @@ func (usecase Usecase) Execute() error {
 		if result.RawResponse == "" {
 			usecase.store.SaveBalance(channel, result.Balance)
 			if result.Balance <= 0 {
-				usecase.disable(channel, "余额不足")
+				usecase.disable(channel)
 			}
 		}
 		usecase.pause()

@@ -3,21 +3,20 @@ package get_tag_models
 import (
 	"net/http"
 
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/gin-gonic/gin"
 )
 
-type HTTP struct{ store Store }
+type HTTP struct{ usecase func(*gin.Context) Usecase }
 
-func NewHTTP(store Store) HTTP { return HTTP{store: store} }
+func NewHTTP(usecase func(*gin.Context) Usecase) HTTP { return HTTP{usecase: usecase} }
 func (h HTTP) Handle(c *gin.Context) {
-	scenario := NewUsecase(h.store)
-	_ = scenario
 	tag := c.Query("tag")
 	if tag == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "tag不能为空"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": i18n.T(c, i18n.MsgChannelTagRequired)})
 		return
 	}
-	models, err := scenario.Execute(Input{Tag: tag})
+	models, err := h.usecase(c).Execute(Input{Tag: tag})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return

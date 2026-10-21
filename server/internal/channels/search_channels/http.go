@@ -3,14 +3,14 @@ package search_channels
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+	"github.com/QuantumNous/new-api/internal/channels/transport"
 	"github.com/gin-gonic/gin"
-	"net/http"
 	"strconv"
 )
 
-type HTTP struct{ scenario Usecase }
+type HTTP struct{ usecase func(*gin.Context) Usecase }
 
-func NewHTTP(scenario Usecase) HTTP { return HTTP{scenario: scenario} }
+func NewHTTP(usecase func(*gin.Context) Usecase) HTTP { return HTTP{usecase: usecase} }
 func (h HTTP) Handle(c *gin.Context) {
 	keyword := c.Query("keyword")
 	group := c.Query("group")
@@ -37,9 +37,9 @@ func (h HTTP) Handle(c *gin.Context) {
 		pageSize = 20
 	}
 
-	output, err := h.scenario.Execute(Input{Keyword: keyword, Group: group, Model: modelKeyword, Status: statusFilter, Type: typeFilter, Sort: sortOptions, TagMode: enableTagMode, Page: page, PageSize: pageSize})
+	output, err := h.usecase(c).Execute(Input{Keyword: keyword, Group: group, Model: modelKeyword, Status: statusFilter, Type: typeFilter, Sort: sortOptions, TagMode: enableTagMode, Page: page, PageSize: pageSize})
 	if err != nil {
-		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		transport.WriteError(c, err)
 		return
 	}
 	common.ApiSuccess(c, output)

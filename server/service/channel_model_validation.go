@@ -15,5 +15,10 @@ const (
 
 func parseUpstreamStatusCode(lower string) int { return domain.ParseUpstreamStatusCode(lower) }
 func ClassifyModelValidation(localErr error, apiErr *types.NewAPIError) (ModelLiveness, int) {
-	return domain.ClassifyModelValidation(localErr, apiErr, AcSearch)
+	// A nil *NewAPIError must stay a nil error.
+	var upstreamErr error
+	if apiErr != nil {
+		upstreamErr = apiErr
+	}
+	return domain.ClassifyModelValidation(localErr, upstreamErr, AcSearch)
 }

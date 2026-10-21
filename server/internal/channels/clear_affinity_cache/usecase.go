@@ -2,6 +2,10 @@ package clear_affinity_cache
 
 import "errors"
 
+// ErrRuleRequired stays in the scenario: channels/domain still depends on
+// common and would make this usecase transitively depend on Gin.
+var ErrRuleRequired = errors.New("rule_name or all=true is required")
+
 type Cache interface {
 	ClearAll() int
 	ClearRule(string) (int, error)
@@ -14,7 +18,7 @@ func (usecase Usecase) Execute(input Input) (Output, error) {
 		return Output{Deleted: usecase.cache.ClearAll()}, nil
 	}
 	if input.Rule == "" {
-		return Output{}, errors.New("缺少参数：rule_name，或使用 all=true 清空全部")
+		return Output{}, ErrRuleRequired
 	}
 	count, err := usecase.cache.ClearRule(input.Rule)
 	return Output{Deleted: count}, err

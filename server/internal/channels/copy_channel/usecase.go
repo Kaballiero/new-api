@@ -22,18 +22,17 @@ type Usecase struct {
 func NewUsecase(store Store, canBindPlugin func() bool, now func() int64, log func(string), refresh func(), audit func(map[string]any)) Usecase {
 	return Usecase{store: store, canBindPlugin: canBindPlugin, now: now, log: log, refresh: refresh, audit: audit}
 }
-func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (Output, error) {
 	// fetch original channel with key
 	origin, err := usecase.store.Get(input.ID, true)
 	if err != nil {
 		usecase.log("failed to get channel by id: " + err.Error())
-		return Output{}, &domain.Failure{Message: "获取渠道信息失败，请稍后重试"}
+		return Output{}, domain.ErrCopySourceUnavailable
 	}
 	if origin.Type == constant.ChannelTypeTaskPlugin &&
 		!usecase.canBindPlugin() {
-		return Output{}, &domain.Failure{Message: "task plugin channels require the task_plugin.bind permission"}
+		return Output{}, domain.ErrTaskPluginBindDenied
 	}
-
 	// clone channel
 	clone := *origin // shallow copy is sufficient as we will overwrite primitives
 	clone.Id = 0     // let DB auto-generate
@@ -45,16 +44,14 @@ func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
 		clone.Balance = 0
 		clone.UsedQuota = 0
 	}
-
 	if err := usecase.store.ValidateSettings(&clone); err != nil {
 		usecase.log("failed to validate cloned channel: " + err.Error())
-		return Output{}, &domain.Failure{Message: "Failed to copy channel: invalid channel settings"}
+		return Output{}, domain.ErrCopySettingsInvalid
 	}
-
 	// insert
 	if err := usecase.store.Insert(&clone); err != nil {
 		usecase.log("failed to clone channel: " + err.Error())
-		return Output{}, &domain.Failure{Message: "复制渠道失败，请稍后重试"}
+		return Output{}, domain.ErrCopyFailed
 	}
 	usecase.refresh()
 	usecase.audit(map[string]any{
@@ -64,5 +61,4 @@ func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
 	})
 	// success
 	return Output{ID: clone.Id}, nil
-
 }

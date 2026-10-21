@@ -77,18 +77,23 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	return channeladapter.FetchChannelUpstreamModelIDs(channel)
 }
 func buildChannelUpstreamModelFetchFingerprint(channel *model.Channel) (channelUpstreamModelFetchFingerprint, error) {
-	fp, err := domain.BuildModelFetchFingerprint(repository.ToDomain(channel))
-	if err != nil {
-		return fp, err
-	}
-	fp.AdvancedCustom = channel.GetOtherSettings().AdvancedCustom
-	return fp, nil
+	return repository.NewStore().FetchFingerprint(repository.ToDomain(channel))
 }
 func checkAndPersistChannelUpstreamModelUpdates(channel *model.Channel, settings *dto.ChannelOtherSettings, force, auto, enabled bool) (bool, int, error) {
 	value := repository.ToDomain(channel)
-	changed, added, err := app.NewDetectChannelModelsUsecase(channelEffects()).Check(value, settings, force, auto, enabled)
+	state := modelUpdateState(*settings)
+	changed, added, err := app.NewDetectChannelModelsUsecase(channelEffects()).Check(value, &state, force, auto, enabled)
 	*channel = *repository.FromDomain(value)
+	settings.UpstreamModelUpdateCheckEnabled = state.CheckEnabled
+	settings.UpstreamModelUpdateAutoSyncEnabled = state.AutoSyncEnabled
+	settings.UpstreamModelUpdateLastCheckTime = state.LastCheckTime
+	settings.UpstreamModelUpdateLastDetectedModels = state.LastDetectedModels
+	settings.UpstreamModelUpdateLastRemovedModels = state.LastRemovedModels
+	settings.UpstreamModelUpdateIgnoredModels = state.IgnoredModels
 	return changed, added, err
+}
+func modelUpdateState(settings dto.ChannelOtherSettings) domain.ModelUpdateState {
+	return domain.ModelUpdateState{CheckEnabled: settings.UpstreamModelUpdateCheckEnabled, AutoSyncEnabled: settings.UpstreamModelUpdateAutoSyncEnabled, LastCheckTime: settings.UpstreamModelUpdateLastCheckTime, LastDetectedModels: settings.UpstreamModelUpdateLastDetectedModels, LastRemovedModels: settings.UpstreamModelUpdateLastRemovedModels, IgnoredModels: settings.UpstreamModelUpdateIgnoredModels}
 }
 func refreshChannelRuntimeCache() { app.RefreshChannelRuntimeCache(enqueuePricingCatalogRefresh) }
 func shouldSendUpstreamModelUpdateNotification(now int64, changedChannels int, failedChannels int) bool {
@@ -108,33 +113,34 @@ func shouldSendUpstreamModelUpdateNotification(now int64, changedChannels int, f
 	channelUpstreamModelUpdateNotifyState.lastFailedChannels = failedChannels
 	return true
 }
-func buildUpstreamModelUpdateTaskNotificationContent(checked, changed, added, removed, auto int, failed []int, summaries []upstreamModelUpdateChannelSummary, addSamples, removeSamples []string) string {
-	return domain.ModelUpdateNotificationContent(checked, changed, added, removed, auto, failed, summaries, addSamples, removeSamples)
+func buildUpstreamModelUpdateTaskNotificationContent(lang string, checked, changed, added, removed, auto int, failed []int, summaries []upstreamModelUpdateChannelSummary, addSamples, removeSamples []string) string {
+	_, content := channeladapter.ModelUpdateNotification(lang, domain.ModelUpdateReport{CheckedChannels: checked, ChangedChannels: changed, DetectedAddModels: added, DetectedRemoveModels: removed, AutoAddedModels: auto, FailedChannelIDs: failed, Channels: summaries, AddModelSamples: addSamples, RemoveModelSamples: removeSamples})
+	return content
 }
 func runChannelUpstreamModelUpdateTaskOnce(ctx context.Context, force, auto bool, report func(int, int)) upstreamModelUpdateSummary {
 	return app.NewScanChannelModelsUsecase(channelEffects()).Execute(ctx, force, auto, report)
 }
 func ApplyChannelUpstreamModelUpdates(c *gin.Context) {
-	app.NewApplyChannelUpstreamModelUpdatesHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().ApplyUpstreamModels.Handle(c)
 }
 func ApplyAllChannelUpstreamModelUpdates(c *gin.Context) {
-	app.NewApplyAllChannelUpstreamModelUpdatesHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().ApplyAllUpstreamModels.Handle(c)
 }
 func DetectChannelUpstreamModelUpdates(c *gin.Context) {
-	app.NewDetectChannelUpstreamModelUpdatesHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().DetectUpstreamModels.Handle(c)
 }
 func DetectAllChannelUpstreamModelUpdates(c *gin.Context) {
-	app.NewDetectAllChannelUpstreamModelUpdatesHTTP(c, channelEffects()).Handle(c)
+	channelsHTTP().DetectAllUpstreamModels.Handle(c)
 }
 
 func applyChannelUpstreamModelUpdatesWithMode(channel *model.Channel, add, ignore, remove []string, all, enabled bool) (appliedChannelUpstreamModelUpdates, error) {
 	value := repository.ToDomain(channel)
-	result, err := app.NewApplyChannelModelsUsecase(nil, channelEffects()).Apply(value, add, ignore, remove, all, enabled)
+	result, err := app.NewApplyChannelModelsUsecase(channelEffects(), nil).Apply(value, add, ignore, remove, all, enabled)
 	*channel = *repository.FromDomain(value)
 	return result, err
 }
 func collectPendingApplyUpstreamModelChanges(settings dto.ChannelOtherSettings) ([]string, []string) {
-	return domain.CollectPendingApplyUpstreamModelChanges(settings)
+	return domain.CollectPendingApplyUpstreamModelChanges(modelUpdateState(settings))
 }
 func applyChannelUpstreamModelUpdates(
 	channel *model.Channel,

@@ -3,30 +3,24 @@ package fetch_upstream_models
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/channels/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
 )
 
-type HTTP struct{ scenario Usecase }
+type HTTP struct{ usecase func(*gin.Context) Usecase }
 
-func NewHTTP(scenario Usecase) HTTP { return HTTP{scenario: scenario} }
+func NewHTTP(usecase func(*gin.Context) Usecase) HTTP { return HTTP{usecase: usecase} }
 func (h HTTP) Handle(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgChannelIdFormatError)
 		return
 	}
-	output, failure := h.scenario.Execute(Input{ID: id})
-	if failure != nil {
-		switch failure.Kind {
-		case "missing":
-			common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
-		case "internal":
-			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", failure.Cause)
-		default:
-			common.ApiErrorMsgStatusCode(c, http.StatusBadGateway, "fetch_models_failed", failure.Message)
-		}
+	output, err := h.usecase(c).Execute(Input{ID: id})
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	common.ApiSuccess(c, output)

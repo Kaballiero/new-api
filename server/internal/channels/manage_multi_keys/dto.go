@@ -30,10 +30,22 @@ type KeyStatus struct {
 	KeyPreview   string `json:"key_preview"` // first 10 chars of key for identification
 }
 
-// ManageMultiKeys handles multi-key management operations
+// Outcome names a completed multi-key action; the HTTP answer phrases it.
+type Outcome int
+
+const (
+	StatusListed Outcome = iota
+	KeyDisabled
+	KeyEnabled
+	KeysEnabled
+	KeysDisabled
+	KeyDeleted
+	AutoDisabledKeysDeleted
+)
 
 type Output struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
+	Outcome Outcome
+	// Count is the number of keys the action changed.
+	Count int
+	Data  any
 }

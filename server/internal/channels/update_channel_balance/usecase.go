@@ -18,20 +18,23 @@ type Usecase struct {
 }
 
 func NewUsecase(store Store, reader Reader) Usecase { return Usecase{store: store, reader: reader} }
-func (usecase Usecase) Execute(input Input) (Output, *domain.Failure) {
+
+// Execute returns cache and upstream failures as they are: they are answered
+// with their text and HTTP 200.
+func (usecase Usecase) Execute(input Input) (Output, error) {
 	channel, err := usecase.store.Cached(input.ID)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+		return Output{}, err
 	}
 	if channel.Type == constant.ChannelTypeTaskPlugin {
-		return Output{}, &domain.Failure{Kind: "message", Message: "Task Plugin channels do not support balance queries"}
+		return Output{}, domain.ErrBalanceTaskPlugin
 	}
 	if channel.ChannelInfo.IsMultiKey {
-		return Output{}, &domain.Failure{Kind: "message", Message: "多密钥渠道不支持余额查询"}
+		return Output{}, domain.ErrBalanceMultiKey
 	}
 	result, err := usecase.reader.Read(channel)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+		return Output{}, err
 	}
 	if result.RawResponse == "" {
 		usecase.store.SaveBalance(channel, result.Balance)

@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"reflect"
 	"time"
 )
 
 type Store interface {
 	Get(int, bool) (*domain.Channel, error)
-	OtherSettings(*domain.Channel) dto.ChannelOtherSettings
-	WithLockedModelState(int, func(*domain.Channel, func(dto.ChannelOtherSettings, bool) error) error) error
+	ModelUpdateState(*domain.Channel) (domain.ModelUpdateState, error)
+	FetchFingerprint(*domain.Channel) (domain.ModelFetchFingerprint, error)
+	WithLockedModelState(int, func(*domain.Channel, func(domain.ModelUpdateState, bool) error) error) error
 	CountEnabled() (int64, error)
 	NextEnabled(int) ([]*domain.Channel, int, bool, error)
 }
@@ -27,15 +27,15 @@ type Usecase struct {
 	debug            func() bool
 	log              func(string)
 	throttle         func(int64, int, int) bool
-	notify           func(string, string)
+	notify           func(domain.ModelUpdateReport)
 }
 
-func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(*domain.Channel) ([]string, error), refresh func(), now, minInterval func() int64, interval func() time.Duration, debug func() bool, log func(string), throttle func(int64, int, int) bool, notify func(string, string)) Usecase {
+func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(*domain.Channel) ([]string, error), refresh func(), now, minInterval func() int64, interval func() time.Duration, debug func() bool, log func(string), throttle func(int64, int, int) bool, notify func(domain.ModelUpdateReport)) Usecase {
 	return Usecase{store: store, rules: rules, fetch: fetch, refresh: refresh, now: now, minInterval: minInterval, interval: interval, debug: debug, log: log, throttle: throttle, notify: notify}
 }
 func (usecase Usecase) Check(
 	channel *domain.Channel,
-	settings *dto.ChannelOtherSettings,
+	settings *domain.ModelUpdateState,
 	force bool,
 	allowAutoApply bool,
 	requireEnabled bool,
@@ -43,51 +43,51 @@ func (usecase Usecase) Check(
 	now := usecase.now()
 	if !force {
 		minInterval := usecase.minInterval()
-		if settings.UpstreamModelUpdateLastCheckTime > 0 &&
-			now-settings.UpstreamModelUpdateLastCheckTime < minInterval {
+		if settings.LastCheckTime > 0 &&
+			now-settings.LastCheckTime < minInterval {
 			return false, 0, nil
 		}
 	}
 
-	fetchFingerprint, err := usecase.fingerprint(channel)
+	fetchFingerprint, err := usecase.store.FetchFingerprint(channel)
 	if err != nil {
 		return false, 0, err
 	}
 	upstreamModels, fetchErr := usecase.fetch(channel)
 
 	var freshChannel *domain.Channel
-	var freshSettings dto.ChannelOtherSettings
+	var freshSettings domain.ModelUpdateState
 	freshCheckDisabled := false
-	persistErr := usecase.store.WithLockedModelState(channel.Id, func(locked *domain.Channel, persist func(dto.ChannelOtherSettings, bool) error) error {
+	persistErr := usecase.store.WithLockedModelState(channel.Id, func(locked *domain.Channel, persist func(domain.ModelUpdateState, bool) error) error {
 		freshChannel = locked
-		freshFingerprint, fingerprintErr := usecase.fingerprint(freshChannel)
+		freshFingerprint, fingerprintErr := usecase.store.FetchFingerprint(freshChannel)
 		if fingerprintErr != nil {
 			return fingerprintErr
 		}
 		if !reflect.DeepEqual(fetchFingerprint, freshFingerprint) {
-			return fmt.Errorf("channel fetch configuration changed during upstream model discovery")
+			return domain.ErrFetchConfigChanged
 		}
 		if requireEnabled && freshChannel.Status != common.ChannelStatusEnabled {
 			freshCheckDisabled = true
 			return nil
 		}
 
-		freshSettings, err = domain.ParseChannelOtherSettings(freshChannel)
+		freshSettings, err = usecase.store.ModelUpdateState(freshChannel)
 		if err != nil {
 			return err
 		}
 		if !force {
-			if !freshSettings.UpstreamModelUpdateCheckEnabled {
+			if !freshSettings.CheckEnabled {
 				freshCheckDisabled = true
 				return nil
 			}
 			minInterval := usecase.minInterval()
-			if freshSettings.UpstreamModelUpdateLastCheckTime > 0 &&
-				now-freshSettings.UpstreamModelUpdateLastCheckTime < minInterval {
+			if freshSettings.LastCheckTime > 0 &&
+				now-freshSettings.LastCheckTime < minInterval {
 				return nil
 			}
 		}
-		freshSettings.UpstreamModelUpdateLastCheckTime = now
+		freshSettings.LastCheckTime = now
 		if fetchErr != nil {
 			return persist(freshSettings, false)
 		}
@@ -113,14 +113,6 @@ func (usecase Usecase) Check(
 		return false, 0, fetchErr
 	}
 	return configChanged, autoAdded, nil
-}
-func (usecase Usecase) fingerprint(channel *domain.Channel) (domain.ModelFetchFingerprint, error) {
-	fingerprint, err := domain.BuildModelFetchFingerprint(channel)
-	if err != nil {
-		return fingerprint, err
-	}
-	fingerprint.AdvancedCustom = usecase.store.OtherSettings(channel).AdvancedCustom
-	return fingerprint, nil
 }
 
 func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply bool, report func(processed, total int)) domain.ModelUpdateSummary {
@@ -175,14 +167,14 @@ scanLoop:
 				report(processed, int(totalChannels))
 			}
 
-			settings, settingsErr := domain.ParseChannelOtherSettings(channel)
+			settings, settingsErr := usecase.store.ModelUpdateState(channel)
 			if settingsErr != nil {
 				failedChannels++
 				failedChannelIDs = append(failedChannelIDs, channel.Id)
 				usecase.log(fmt.Sprintf("upstream model update settings invalid: channel_id=%d channel_name=%s err=%v", channel.Id, channel.Name, settingsErr))
 				continue
 			}
-			if !settings.UpstreamModelUpdateCheckEnabled {
+			if !settings.CheckEnabled {
 				continue
 			}
 
@@ -194,8 +186,8 @@ scanLoop:
 				usecase.log(fmt.Sprintf("upstream model update check failed: channel_id=%d channel_name=%s err=%v", channel.Id, channel.Name, err))
 				continue
 			}
-			currentAddModels := domain.NormalizeModelNames(settings.UpstreamModelUpdateLastDetectedModels)
-			currentRemoveModels := domain.NormalizeModelNames(settings.UpstreamModelUpdateLastRemovedModels)
+			currentAddModels := domain.NormalizeModelNames(settings.LastDetectedModels)
+			currentRemoveModels := domain.NormalizeModelNames(settings.LastRemovedModels)
 			currentAddCount := len(currentAddModels) + autoAdded
 			currentRemoveCount := len(currentRemoveModels)
 			detectedAddModels += currentAddCount
@@ -271,20 +263,17 @@ scanLoop:
 			))
 			return summary
 		}
-		usecase.notify(
-			"上游模型巡检通知",
-			domain.ModelUpdateNotificationContent(
-				checkedChannels,
-				changedChannels,
-				detectedAddModels,
-				detectedRemoveModels,
-				autoAddedModels,
-				failedChannelIDs,
-				channelSummaries,
-				addModelSamples,
-				removeModelSamples,
-			),
-		)
+		usecase.notify(domain.ModelUpdateReport{
+			CheckedChannels:      checkedChannels,
+			ChangedChannels:      changedChannels,
+			DetectedAddModels:    detectedAddModels,
+			DetectedRemoveModels: detectedRemoveModels,
+			AutoAddedModels:      autoAddedModels,
+			FailedChannelIDs:     failedChannelIDs,
+			Channels:             channelSummaries,
+			AddModelSamples:      addModelSamples,
+			RemoveModelSamples:   removeModelSamples,
+		})
 	}
 	return summary
 }

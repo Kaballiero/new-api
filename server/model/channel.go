@@ -330,7 +330,7 @@ func SearchTags(keyword string, group string, model string, idSort bool) ([]*str
 }
 
 func (channel *Channel) ValidateSettings() error {
-	return record.ToDomain((*record.Channel)(channel)).ValidateSettings()
+	return record.ValidateSettings((*record.Channel)(channel))
 }
 
 func (channel *Channel) GetSetting() dto.ChannelSettings {

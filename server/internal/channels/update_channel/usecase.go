@@ -3,11 +3,10 @@ package update_channel
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"strings"
 )
 
@@ -16,7 +15,10 @@ type Store interface {
 	IsMissing(error) bool
 	WithLocked(int, func(*domain.Channel, func(*domain.Channel) error) error) error
 	Canonicalize(*domain.Channel) error
-	OtherSettings(*domain.Channel) dto.ChannelOtherSettings
+	// VertexJSONKeys reports whether a Vertex AI channel takes service account
+	// JSON keys rather than API keys.
+	VertexJSONKeys(*domain.Channel) bool
+	Proxy(*domain.Channel) string
 }
 type Usecase struct {
 	store                            Store
@@ -30,11 +32,11 @@ type Usecase struct {
 func NewUsecase(store Store, canBindPlugin, canWriteSensitive func() bool, normalizeProxy func(string) (string, error), refresh func(), invalidate func(string), audit func(map[string]any)) Usecase {
 	return Usecase{store: store, canBindPlugin: canBindPlugin, canWriteSensitive: canWriteSensitive, normalizeProxy: normalizeProxy, refresh: refresh, invalidate: invalidate, audit: audit}
 }
-func (usecase Usecase) Execute(input Input) (PatchChannel, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (PatchChannel, error) {
 	requestChannel, requestData, rawBody := input.Request, input.Fields, input.Raw
 
 	if _, ok := requestData["status"]; ok {
-		return PatchChannel{}, &domain.Failure{Kind: "invalid"}
+		return PatchChannel{}, domain.ErrStatusNotEditable
 	}
 	baseURLFromPluginDefault := requestChannel.Type == constant.ChannelTypeTaskPlugin &&
 		(requestChannel.BaseURL == nil || strings.TrimSpace(*requestChannel.BaseURL) == "")
@@ -42,8 +44,6 @@ func (usecase Usecase) Execute(input Input) (PatchChannel, *domain.Failure) {
 	var channel PatchChannel
 	var originChannel *domain.Channel
 	var validationErr error
-	permissionErr := errors.New("channel sensitive write permission denied")
-	pluginBindErr := errors.New("task plugin channels require the task_plugin.bind permission")
 	err := usecase.store.WithLocked(requestChannel.Id, func(lockedChannel *domain.Channel, persist func(*domain.Channel) error) error {
 		originChannel = lockedChannel
 
@@ -72,7 +72,7 @@ func (usecase Usecase) Execute(input Input) (PatchChannel, *domain.Failure) {
 		}
 
 		if channel.Type == constant.ChannelTypeTaskPlugin && !usecase.canBindPlugin() {
-			return pluginBindErr
+			return domain.ErrTaskPluginBindDenied
 		}
 
 		if err := usecase.store.Canonicalize(&channel.Channel); err != nil {
@@ -85,7 +85,7 @@ func (usecase Usecase) Execute(input Input) (PatchChannel, *domain.Failure) {
 		}
 		if HasSensitiveChanges(&channel, lockedChannel, requestData) &&
 			!usecase.canWriteSensitive() {
-			return permissionErr
+			return domain.ErrSensitiveWriteDenied
 		}
 
 		if channel.MultiKeyMode != nil && *channel.MultiKeyMode != "" {
@@ -111,11 +111,11 @@ func (usecase Usecase) Execute(input Input) (PatchChannel, *domain.Failure) {
 						existingKeys = strings.Split(strings.Trim(lockedChannel.Key, "\n"), "\n")
 					}
 
-					if channel.Type == constant.ChannelTypeVertexAi && usecase.store.OtherSettings(&channel.Channel).VertexKeyType != dto.VertexKeyTypeAPIKey {
+					if channel.Type == constant.ChannelTypeVertexAi && usecase.store.VertexJSONKeys(&channel.Channel) {
 						if strings.HasPrefix(strings.TrimSpace(channel.Key), "[") {
 							array, err := domain.VertexArrayKeys(channel.Key)
 							if err != nil {
-								validationErr = fmt.Errorf("追加密钥解析失败: %w", err)
+								validationErr = &domain.DetailError{Err: domain.ErrAppendKeysInvalid, Cause: err}
 								return validationErr
 							}
 							newKeys = array
@@ -162,24 +162,21 @@ func (usecase Usecase) Execute(input Input) (PatchChannel, *domain.Failure) {
 		return persist(&channel.Channel)
 	})
 	if usecase.store.IsMissing(err) {
-		return PatchChannel{}, &domain.Failure{Kind: "missing"}
+		return PatchChannel{}, domain.ErrChannelNotFound
 	}
 	if validationErr != nil {
-		return PatchChannel{}, &domain.Failure{Kind: "validation", Message: validationErr.Error()}
+		return PatchChannel{}, domain.Invalid(validationErr)
 	}
-	if errors.Is(err, pluginBindErr) {
-		return PatchChannel{}, &domain.Failure{Kind: "plugin", Message: pluginBindErr.Error()}
-	}
-	if errors.Is(err, permissionErr) {
-		return PatchChannel{}, &domain.Failure{Kind: "permission"}
+	if errors.Is(err, domain.ErrTaskPluginBindDenied) || errors.Is(err, domain.ErrSensitiveWriteDenied) {
+		return PatchChannel{}, err
 	}
 	if err != nil {
-		return PatchChannel{}, &domain.Failure{Kind: "internal", Cause: err}
+		return PatchChannel{}, domain.Internal(err)
 	}
-	originProxy := usecase.store.Settings(originChannel).Proxy
+	originProxy := usecase.store.Proxy(originChannel)
 	proxyChanged := false
 	if _, settingProvided := requestData["setting"]; settingProvided {
-		newProxy, _ := usecase.normalizeProxy(usecase.store.Settings(&channel.Channel).Proxy)
+		newProxy, _ := usecase.normalizeProxy(usecase.store.Proxy(&channel.Channel))
 		normalizedOriginProxy, originProxyErr := usecase.normalizeProxy(originProxy)
 		proxyChanged = originProxyErr != nil || normalizedOriginProxy != newProxy
 	}
@@ -187,7 +184,8 @@ func (usecase Usecase) Execute(input Input) (PatchChannel, *domain.Failure) {
 	if proxyChanged {
 		usecase.invalidate(originProxy)
 	}
-	// 记录变更的字段名（语言无关的字段标识），密钥仅记录"已更换"绝不记录内容。
+	// Record the names of the changed fields (language-neutral); a key change is
+	// recorded only as changed, never with its content.
 	changedFields := make([]string, 0)
 	if channel.Models != originChannel.Models {
 		changedFields = append(changedFields, "models")

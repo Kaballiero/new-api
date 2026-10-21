@@ -1,13 +1,12 @@
 package domain
 
 import (
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"reflect"
 	"slices"
 	"strings"
 )
 
-func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, settings *dto.ChannelOtherSettings, upstreamModels, addModelsInput, ignoreModelsInput, removeModelsInput []string, applyAll bool) (result AppliedModelUpdates, err error) {
+func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpdateState, upstreamModels, addModelsInput, ignoreModelsInput, removeModelsInput []string, applyAll bool) (result AppliedModelUpdates, err error) {
 
 	modelMapping, mappingErr := rules.NormalizeChannelModelMapping(channel)
 	if mappingErr != nil {
@@ -16,7 +15,7 @@ func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, settings *dto.Ch
 	pendingAddModels, pendingRemoveModels, collectErr := rules.CollectPendingUpstreamModelChangesFromModels(
 		channel.GetModels(),
 		upstreamModels,
-		settings.UpstreamModelUpdateIgnoredModels,
+		state.IgnoredModels,
 		modelMapping,
 	)
 	if collectErr != nil {
@@ -52,15 +51,15 @@ func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, settings *dto.Ch
 	}
 	result.MappingChanged = !reflect.DeepEqual(modelMapping, nextModelMapping)
 
-	settings.UpstreamModelUpdateIgnoredModels = MergeModelNames(settings.UpstreamModelUpdateIgnoredModels, result.IgnoredModels)
+	state.IgnoredModels = MergeModelNames(state.IgnoredModels, result.IgnoredModels)
 	if len(result.AddedModels) > 0 {
-		settings.UpstreamModelUpdateIgnoredModels = SubtractModelNames(settings.UpstreamModelUpdateIgnoredModels, result.AddedModels)
+		state.IgnoredModels = SubtractModelNames(state.IgnoredModels, result.AddedModels)
 	}
 	result.RemainingModels = SubtractModelNames(pendingAddModels, append(result.AddedModels, result.IgnoredModels...))
 	result.RemainingRemoveModels = SubtractModelNames(pendingRemoveModels, result.RemovedModels)
-	settings.UpstreamModelUpdateLastDetectedModels = result.RemainingModels
-	settings.UpstreamModelUpdateLastRemovedModels = result.RemainingRemoveModels
-	settings.UpstreamModelUpdateLastCheckTime = rules.Now()
+	state.LastDetectedModels = result.RemainingModels
+	state.LastRemovedModels = result.RemainingRemoveModels
+	state.LastCheckTime = rules.Now()
 
 	return result, nil
 }

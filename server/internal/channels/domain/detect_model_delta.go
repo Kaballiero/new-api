@@ -1,13 +1,12 @@
 package domain
 
 import (
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"reflect"
 	"slices"
 	"strings"
 )
 
-func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, settings *dto.ChannelOtherSettings, upstreamModels []string, allowAutoApply bool) (configChanged bool, autoAdded int, err error) {
+func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpdateState, upstreamModels []string, allowAutoApply bool) (configChanged bool, autoAdded int, err error) {
 
 	modelMapping, mappingErr := rules.NormalizeChannelModelMapping(channel)
 	if mappingErr != nil {
@@ -16,14 +15,14 @@ func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, settings *dto.C
 	pendingAddModels, pendingRemoveModels, collectErr := rules.CollectPendingUpstreamModelChangesFromModels(
 		channel.GetModels(),
 		upstreamModels,
-		settings.UpstreamModelUpdateIgnoredModels,
+		state.IgnoredModels,
 		modelMapping,
 	)
 	if collectErr != nil {
 		return false, 0, collectErr
 	}
 
-	if allowAutoApply && settings.UpstreamModelUpdateAutoSyncEnabled && len(pendingAddModels) > 0 {
+	if allowAutoApply && state.AutoSyncEnabled && len(pendingAddModels) > 0 {
 		if conflictErr := rules.RejectSameNameModelMappingReplacement(pendingAddModels, pendingRemoveModels); conflictErr != nil {
 			return false, 0, conflictErr
 		}
@@ -43,10 +42,10 @@ func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, settings *dto.C
 		if modelsChanged {
 			autoAdded = len(nextModels) - len(originModels)
 		}
-		settings.UpstreamModelUpdateLastDetectedModels = []string{}
+		state.LastDetectedModels = []string{}
 	} else {
-		settings.UpstreamModelUpdateLastDetectedModels = pendingAddModels
+		state.LastDetectedModels = pendingAddModels
 	}
-	settings.UpstreamModelUpdateLastRemovedModels = pendingRemoveModels
+	state.LastRemovedModels = pendingRemoveModels
 	return configChanged, autoAdded, nil
 }

@@ -6,7 +6,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/bytedance/gopkg/util/gopool"
 	"strings"
 	"sync"
@@ -28,16 +27,16 @@ type Usecase struct {
 	store    Store
 	probe    domain.Probe
 	user     func() (int, error)
-	classify func(error, *types.NewAPIError) (domain.ModelLiveness, int)
+	classify func(localErr, upstreamErr error) (domain.ModelLiveness, int)
 }
 
-func NewUsecase(store Store, probe domain.Probe, user func() (int, error), classify func(error, *types.NewAPIError) (domain.ModelLiveness, int)) Usecase {
+func NewUsecase(store Store, probe domain.Probe, user func() (int, error), classify func(localErr, upstreamErr error) (domain.ModelLiveness, int)) Usecase {
 	return Usecase{store: store, probe: probe, user: user, classify: classify}
 }
-func (usecase Usecase) Execute(req ValidateModelsRequest) (ValidateModelsResponse, *domain.Failure) {
-	channel, failure := usecase.Resolve(&req)
-	if failure != nil {
-		return ValidateModelsResponse{}, failure
+func (usecase Usecase) Execute(req ValidateModelsRequest) (ValidateModelsResponse, error) {
+	channel, err := usecase.Resolve(&req)
+	if err != nil {
+		return ValidateModelsResponse{}, err
 	}
 
 	models := req.Models
@@ -46,15 +45,15 @@ func (usecase Usecase) Execute(req ValidateModelsRequest) (ValidateModelsRespons
 	}
 	models = NormalizeModels(models)
 	if len(models) == 0 {
-		return ValidateModelsResponse{}, &domain.Failure{Kind: "invalid", Message: "no models to validate"}
+		return ValidateModelsResponse{}, domain.Reject(domain.ErrNoModelsToValidate)
 	}
 	if len(models) > validateModelsMaxModels {
-		return ValidateModelsResponse{}, &domain.Failure{Kind: "invalid", Message: fmt.Sprintf("too many models: %d (max %d)", len(models), validateModelsMaxModels)}
+		return ValidateModelsResponse{}, domain.Reject(fmt.Errorf("too many models: %d (max %d)", len(models), validateModelsMaxModels))
 	}
 
 	testUserID, err := usecase.user()
 	if err != nil {
-		return ValidateModelsResponse{}, &domain.Failure{Kind: "actor", Cause: err}
+		return ValidateModelsResponse{}, domain.Reject(err)
 	}
 
 	results := make([]ModelValidationResult, len(models))
@@ -84,7 +83,7 @@ func (usecase Usecase) Execute(req ValidateModelsRequest) (ValidateModelsRespons
 	}
 	return resp, nil
 }
-func (usecase Usecase) Resolve(req *ValidateModelsRequest) (*domain.Channel, *domain.Failure) {
+func (usecase Usecase) Resolve(req *ValidateModelsRequest) (*domain.Channel, error) {
 	if req.ChannelId > 0 {
 		channel, err := usecase.store.Cached(req.ChannelId)
 		if err == nil {
@@ -92,10 +91,10 @@ func (usecase Usecase) Resolve(req *ValidateModelsRequest) (*domain.Channel, *do
 		}
 		channel, err = usecase.store.Get(req.ChannelId, true)
 		if usecase.store.IsMissing(err) {
-			return nil, &domain.Failure{Kind: "missing"}
+			return nil, domain.ErrChannelNotFound
 		}
 		if err != nil {
-			return nil, &domain.Failure{Kind: "internal", Cause: err}
+			return nil, domain.Internal(err)
 		}
 		return channel, nil
 	}
@@ -126,13 +125,13 @@ func (usecase Usecase) ValidateOne(channel *domain.Channel, testUserID int, mode
 	select {
 	case res := <-done:
 		out.LatencyMs = time.Since(start).Milliseconds()
-		status, code := usecase.classify(res.LocalError(), res.APIError())
+		status, code := usecase.classify(res.LocalError(), res.UpstreamError())
 		out.Status = string(status)
 		out.OK = status == domain.ModelAlive
 		out.UpstreamCode = code
-		if res.APIError() != nil {
-			out.ErrorCode = string(res.APIError().GetErrorCode())
-			out.Message = common.MaskSensitiveInfo(res.APIError().Error())
+		if failure := res.UpstreamError(); failure != nil {
+			out.ErrorCode = res.ErrorCode()
+			out.Message = common.MaskSensitiveInfo(failure.Error())
 		} else if res.LocalError() != nil {
 			out.Message = common.MaskSensitiveInfo(res.LocalError().Error())
 		}

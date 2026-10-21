@@ -3,8 +3,6 @@ package domain
 import (
 	"regexp"
 	"strings"
-
-	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 // ModelLiveness is the tri-state result of validating a single model against an
@@ -82,14 +80,17 @@ func ParseUpstreamStatusCode(lower string) int {
 // AutomaticDisableChannelEnabled, treats 401/403 as ban-worthy (the opposite of
 // what model liveness needs), and is boolean rather than tri-state. Only the
 // lower-level AcSearch primitive is shared.
-func ClassifyModelValidation(localErr error, apiErr *types.NewAPIError, search func(string, []string, bool) (bool, []string)) (ModelLiveness, int) {
-	if localErr == nil && apiErr == nil {
+//
+// upstreamErr is the gateway failure of the test request; when it is nil,
+// localErr is classified instead.
+func ClassifyModelValidation(localErr, upstreamErr error, search func(string, []string, bool) (bool, []string)) (ModelLiveness, int) {
+	if localErr == nil && upstreamErr == nil {
 		return ModelAlive, 200
 	}
 
 	var msg string
-	if apiErr != nil {
-		msg = apiErr.Error()
+	if upstreamErr != nil {
+		msg = upstreamErr.Error()
 	} else {
 		msg = localErr.Error()
 	}

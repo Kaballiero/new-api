@@ -1,9 +1,9 @@
 package manage_multi_keys
 
 import (
-	"fmt"
-	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 type Store interface {
@@ -23,39 +23,33 @@ type Usecase struct {
 func NewUsecase(store Store, refresh func(), canWriteSensitive func() bool, readAudit func(), writeAudit func(string, int)) Usecase {
 	return Usecase{store: store, refresh: refresh, canWriteSensitive: canWriteSensitive, readAudit: readAudit, writeAudit: writeAudit}
 }
-func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.Failure) {
 
+// Execute returns storage failures as they are: they are answered with their
+// text and HTTP 200.
+func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, error) {
 	channel, err := usecase.store.Get(request.ChannelId, true)
 	if err != nil {
-		return Output{
-			Success: false,
-			Message: "渠道不存在"}, nil
+		return Output{}, domain.ErrMultiKeyChannelNotFound
 	}
-
 	if !channel.ChannelInfo.IsMultiKey {
-		return Output{
-			Success: false,
-			Message: "该渠道不是多密钥模式"}, nil
+		return Output{}, domain.ErrNotMultiKey
 	}
 	if requiresSensitiveWrite(request.Action) &&
 		!usecase.canWriteSensitive() {
-		return Output{}, &domain.Failure{Kind: "permission"}
+		return Output{}, domain.ErrSensitiveWriteDenied
 	}
-
-	// get_key_status 为只读查询，不记录审计；其余为修改操作，记录审计并跳过中间件兜底。
+	// get_key_status is a read-only query and is not audited; the other actions
+	// change the channel, record their audit and skip the middleware fallback.
 	if request.Action == "get_key_status" {
 		usecase.readAudit()
 	} else {
 		usecase.writeAudit(request.Action, channel.Id)
 	}
-
 	unlock := usecase.store.LockPolling(channel.Id)
 	defer unlock()
-
 	switch request.Action {
 	case "get_key_status":
 		keys := usecase.store.Keys(channel)
-
 		// Default pagination parameters
 		page := request.Page
 		pageSize := request.PageSize
@@ -65,23 +59,19 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 		if pageSize <= 0 {
 			pageSize = 50 // Default page size
 		}
-
 		// Statistics for all keys (unchanged by filtering)
 		var enabledCount, manualDisabledCount, autoDisabledCount int
-
 		// Build all key status data first
 		var allKeyStatusList []KeyStatus
 		for i, key := range keys {
 			status := 1 // default enabled
 			var disabledTime int64
 			var reason string
-
 			if channel.ChannelInfo.MultiKeyStatusList != nil {
 				if s, exists := channel.ChannelInfo.MultiKeyStatusList[i]; exists {
 					status = s
 				}
 			}
-
 			// Count for statistics (all keys)
 			switch status {
 			case 1:
@@ -91,7 +81,6 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 			case 3:
 				autoDisabledCount++
 			}
-
 			if status != 1 {
 				if channel.ChannelInfo.MultiKeyDisabledTime != nil {
 					disabledTime = channel.ChannelInfo.MultiKeyDisabledTime[i]
@@ -100,13 +89,11 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 					reason = channel.ChannelInfo.MultiKeyDisabledReason[i]
 				}
 			}
-
 			// Create key preview (first 10 chars)
 			keyPreview := key
 			if len(key) > 10 {
 				keyPreview = key[:10] + "..."
 			}
-
 			allKeyStatusList = append(allKeyStatusList, KeyStatus{
 				Index:        i,
 				Status:       status,
@@ -115,7 +102,6 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 				KeyPreview:   keyPreview,
 			})
 		}
-
 		// Apply status filter if specified
 		var filteredKeyStatusList []KeyStatus
 		if request.Status != nil {
@@ -127,7 +113,6 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 		} else {
 			filteredKeyStatusList = allKeyStatusList
 		}
-
 		// Calculate pagination based on filtered results
 		filteredTotal := len(filteredKeyStatusList)
 		totalPages := (filteredTotal + pageSize - 1) / pageSize
@@ -137,23 +122,19 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 		if page > totalPages {
 			page = totalPages
 		}
-
 		// Calculate range for current page
 		start := (page - 1) * pageSize
 		end := start + pageSize
 		if end > filteredTotal {
 			end = filteredTotal
 		}
-
 		// Get the page data
 		var pageKeyStatusList []KeyStatus
 		if start < filteredTotal {
 			pageKeyStatusList = filteredKeyStatusList[start:end]
 		}
-
 		return Output{
-			Success: true,
-			Message: "",
+			Outcome: StatusListed,
 			Data: MultiKeyStatusResponse{
 				Keys:                pageKeyStatusList,
 				Total:               filteredTotal, // Total of filtered results
@@ -164,21 +145,14 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 				ManualDisabledCount: manualDisabledCount, // Overall statistics
 				AutoDisabledCount:   autoDisabledCount,   // Overall statistics
 			}}, nil
-
 	case "disable_key":
 		if request.KeyIndex == nil {
-			return Output{
-				Success: false,
-				Message: "未指定要禁用的密钥索引"}, nil
+			return Output{}, domain.ErrDisableKeyIndexRequired
 		}
-
 		keyIndex := *request.KeyIndex
 		if keyIndex < 0 || keyIndex >= channel.ChannelInfo.MultiKeySize {
-			return Output{
-				Success: false,
-				Message: "密钥索引超出范围"}, nil
+			return Output{}, domain.ErrKeyIndexOutOfRange
 		}
-
 		if channel.ChannelInfo.MultiKeyStatusList == nil {
 			channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
 		}
@@ -188,34 +162,22 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 		if channel.ChannelInfo.MultiKeyDisabledReason == nil {
 			channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
 		}
-
 		channel.ChannelInfo.MultiKeyStatusList[keyIndex] = 2 // disabled
-
 		err = usecase.store.Update(channel)
 		if err != nil {
-			return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+			return Output{}, err
 		}
-
 		usecase.refresh()
-		return Output{
-			Success: true,
-			Message: "密钥已禁用"}, nil
-
+		return Output{Outcome: KeyDisabled}, nil
 	case "enable_key":
 		if request.KeyIndex == nil {
-			return Output{
-				Success: false,
-				Message: "未指定要启用的密钥索引"}, nil
+			return Output{}, domain.ErrEnableKeyIndexRequired
 		}
-
 		keyIndex := *request.KeyIndex
 		if keyIndex < 0 || keyIndex >= channel.ChannelInfo.MultiKeySize {
-			return Output{
-				Success: false,
-				Message: "密钥索引超出范围"}, nil
+			return Output{}, domain.ErrKeyIndexOutOfRange
 		}
-
-		// 从状态列表中删除该密钥的记录，使其回到默认启用状态
+		// Drop the key from the status maps so that it is enabled by default again.
 		if channel.ChannelInfo.MultiKeyStatusList != nil {
 			delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
 		}
@@ -225,40 +187,29 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 		if channel.ChannelInfo.MultiKeyDisabledReason != nil {
 			delete(channel.ChannelInfo.MultiKeyDisabledReason, keyIndex)
 		}
-
 		err = usecase.store.Update(channel)
 		if err != nil {
-			return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+			return Output{}, err
 		}
-
 		usecase.refresh()
-		return Output{
-			Success: true,
-			Message: "密钥已启用"}, nil
-
+		return Output{Outcome: KeyEnabled}, nil
 	case "enable_all_keys":
-		// 清空所有禁用状态，使所有密钥回到默认启用状态
+		// Clear every disabled status so that all keys are enabled by default.
 		var enabledCount int
 		if channel.ChannelInfo.MultiKeyStatusList != nil {
 			enabledCount = len(channel.ChannelInfo.MultiKeyStatusList)
 		}
-
 		channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
 		channel.ChannelInfo.MultiKeyDisabledTime = make(map[int]int64)
 		channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
-
 		err = usecase.store.Update(channel)
 		if err != nil {
-			return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+			return Output{}, err
 		}
-
 		usecase.refresh()
-		return Output{
-			Success: true,
-			Message: fmt.Sprintf("已启用 %d 个密钥", enabledCount)}, nil
-
+		return Output{Outcome: KeysEnabled, Count: enabledCount}, nil
 	case "disable_all_keys":
-		// 禁用所有启用的密钥
+		// Disable every enabled key.
 		if channel.ChannelInfo.MultiKeyStatusList == nil {
 			channel.ChannelInfo.MultiKeyStatusList = make(map[int]int)
 		}
@@ -268,67 +219,48 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 		if channel.ChannelInfo.MultiKeyDisabledReason == nil {
 			channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
 		}
-
 		var disabledCount int
 		for i := range channel.ChannelInfo.MultiKeySize {
 			status := 1 // default enabled
 			if s, exists := channel.ChannelInfo.MultiKeyStatusList[i]; exists {
 				status = s
 			}
-
-			// 只禁用当前启用的密钥
+			// Only currently enabled keys are disabled.
 			if status == 1 {
 				channel.ChannelInfo.MultiKeyStatusList[i] = 2 // disabled
 				disabledCount++
 			}
 		}
-
 		if disabledCount == 0 {
-			return Output{
-				Success: false,
-				Message: "没有可禁用的密钥"}, nil
+			return Output{}, domain.ErrNoKeysToDisable
 		}
-
 		err = usecase.store.Update(channel)
 		if err != nil {
-			return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+			return Output{}, err
 		}
-
 		usecase.refresh()
-		return Output{
-			Success: true,
-			Message: fmt.Sprintf("已禁用 %d 个密钥", disabledCount)}, nil
-
+		return Output{Outcome: KeysDisabled, Count: disabledCount}, nil
 	case "delete_key":
 		if request.KeyIndex == nil {
-			return Output{
-				Success: false,
-				Message: "未指定要删除的密钥索引"}, nil
+			return Output{}, domain.ErrDeleteKeyIndexRequired
 		}
-
 		keyIndex := *request.KeyIndex
 		if keyIndex < 0 || keyIndex >= channel.ChannelInfo.MultiKeySize {
-			return Output{
-				Success: false,
-				Message: "密钥索引超出范围"}, nil
+			return Output{}, domain.ErrKeyIndexOutOfRange
 		}
-
 		keys := usecase.store.Keys(channel)
 		var remainingKeys []string
 		var newStatusList = make(map[int]int)
 		var newDisabledTime = make(map[int]int64)
 		var newDisabledReason = make(map[int]string)
-
 		newIndex := 0
 		for i, key := range keys {
-			// 跳过要删除的密钥
+			// Skip the key being deleted.
 			if i == keyIndex {
 				continue
 			}
-
 			remainingKeys = append(remainingKeys, key)
-
-			// 保留其他密钥的状态信息，重新索引
+			// Keep the status of the other keys under their new indexes.
 			if channel.ChannelInfo.MultiKeyStatusList != nil {
 				if status, exists := channel.ChannelInfo.MultiKeyStatusList[i]; exists && status != 1 {
 					newStatusList[newIndex] = status
@@ -346,30 +278,21 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 			}
 			newIndex++
 		}
-
 		if len(remainingKeys) == 0 {
-			return Output{
-				Success: false,
-				Message: "不能删除最后一个密钥"}, nil
+			return Output{}, domain.ErrLastKeyNotDeletable
 		}
-
 		// Update channel with remaining keys
 		channel.Key = strings.Join(remainingKeys, "\n")
 		channel.ChannelInfo.MultiKeySize = len(remainingKeys)
 		channel.ChannelInfo.MultiKeyStatusList = newStatusList
 		channel.ChannelInfo.MultiKeyDisabledTime = newDisabledTime
 		channel.ChannelInfo.MultiKeyDisabledReason = newDisabledReason
-
 		err = usecase.store.Update(channel)
 		if err != nil {
-			return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+			return Output{}, err
 		}
-
 		usecase.refresh()
-		return Output{
-			Success: true,
-			Message: "密钥已删除"}, nil
-
+		return Output{Outcome: KeyDeleted}, nil
 	case "delete_disabled_keys":
 		keys := usecase.store.Keys(channel)
 		var remainingKeys []string
@@ -377,7 +300,6 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 		var newStatusList = make(map[int]int)
 		var newDisabledTime = make(map[int]int64)
 		var newDisabledReason = make(map[int]string)
-
 		newIndex := 0
 		for i, key := range keys {
 			status := 1 // default enabled
@@ -386,13 +308,13 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 					status = s
 				}
 			}
-
-			// 只删除自动禁用（status == 3）的密钥，保留启用（status == 1）和手动禁用（status == 2）的密钥
+			// Delete only automatically disabled keys (status 3); enabled (1)
+			// and manually disabled (2) keys stay.
 			if status == 3 {
 				deletedCount++
 			} else {
 				remainingKeys = append(remainingKeys, key)
-				// 保留非自动禁用密钥的状态信息，重新索引
+				// Keep the status of the remaining keys under their new indexes.
 				if status != 1 {
 					newStatusList[newIndex] = status
 					if channel.ChannelInfo.MultiKeyDisabledTime != nil {
@@ -409,37 +331,24 @@ func (usecase Usecase) Execute(request MultiKeyManageRequest) (Output, *domain.F
 				newIndex++
 			}
 		}
-
 		if deletedCount == 0 {
-			return Output{
-				Success: false,
-				Message: "没有需要删除的自动禁用密钥"}, nil
+			return Output{}, domain.ErrNoAutoDisabledKeys
 		}
-
 		// Update channel with remaining keys
 		channel.Key = strings.Join(remainingKeys, "\n")
 		channel.ChannelInfo.MultiKeySize = len(remainingKeys)
 		channel.ChannelInfo.MultiKeyStatusList = newStatusList
 		channel.ChannelInfo.MultiKeyDisabledTime = newDisabledTime
 		channel.ChannelInfo.MultiKeyDisabledReason = newDisabledReason
-
 		err = usecase.store.Update(channel)
 		if err != nil {
-			return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+			return Output{}, err
 		}
-
 		usecase.refresh()
-		return Output{
-			Success: true,
-			Message: fmt.Sprintf("已删除 %d 个自动禁用的密钥", deletedCount),
-			Data:    deletedCount}, nil
-
+		return Output{Outcome: AutoDisabledKeysDeleted, Count: deletedCount, Data: deletedCount}, nil
 	default:
-		return Output{
-			Success: false,
-			Message: "不支持的操作"}, nil
+		return Output{}, domain.ErrMultiKeyActionUnsupported
 	}
-
 }
 func requiresSensitiveWrite(action string) bool {
 	return action == "delete_key" || action == "delete_disabled_keys"

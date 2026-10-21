@@ -248,7 +248,7 @@ func FetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	if channel.Type == constant.ChannelTypeGemini {
 		key, keyErr := SelectChannelUpstreamModelDiscoveryKey(channel)
 		if keyErr != nil {
-			return nil, fmt.Errorf("获取渠道密钥失败: %w", keyErr)
+			return nil, &domain.DetailError{Err: domain.ErrChannelKeyUnavailable, Cause: keyErr}
 		}
 		key = strings.TrimSpace(key)
 		models, err := gemini.FetchGeminiModels(baseURL, key, channel.GetSetting().Proxy)
@@ -277,9 +277,10 @@ func FetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			url = fmt.Sprintf("%s/api/paas/v4/models", baseURL)
 		}
 	case constant.ChannelTypeVolcEngine:
-		// 火山方舟 OpenAI 兼容 API 根路径是 /api/v3（chat/embeddings 均为
-		// {base}/api/v3/...，见 relay/channel/volcengine 的 GetRequestURL），
-		// 不存在 /v1/models 端点。原拼接会导致「获取模型列表」固定 404 失败。
+		// The VolcEngine Ark OpenAI-compatible API is rooted at /api/v3 (chat and
+		// embeddings are {base}/api/v3/..., see GetRequestURL in
+		// relay/channel/volcengine) and has no /v1/models endpoint; the generic
+		// path made model listing always fail with 404.
 		if plan, ok := constant.ChannelSpecialBases[baseURL]; ok && plan.OpenAIBaseURL != "" {
 			url = fmt.Sprintf("%s/v1/models", plan.OpenAIBaseURL)
 		} else {
@@ -297,7 +298,7 @@ func FetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 
 	key, keyErr := SelectChannelUpstreamModelDiscoveryKey(channel)
 	if keyErr != nil {
-		return nil, fmt.Errorf("获取渠道密钥失败: %w", keyErr)
+		return nil, &domain.DetailError{Err: domain.ErrChannelKeyUnavailable, Cause: keyErr}
 	}
 	key = strings.TrimSpace(key)
 
@@ -326,7 +327,7 @@ func FetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 func FetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string) ([]string, error) {
 	key, keyErr := SelectChannelUpstreamModelDiscoveryKey(channel)
 	if keyErr != nil {
-		return nil, fmt.Errorf("获取渠道密钥失败: %w", keyErr)
+		return nil, &domain.DetailError{Err: domain.ErrChannelKeyUnavailable, Cause: keyErr}
 	}
 	key = strings.TrimSpace(key)
 

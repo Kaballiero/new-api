@@ -1,6 +1,7 @@
 package channels
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -8,20 +9,50 @@ import (
 	"gorm.io/gorm"
 )
 
+// The gateway settings of a channel (setting and settings columns) are encoded
+// with the relaykit DTOs here, so channel scenarios see only domain values.
+
 func (store Store) ValidateSettings(channel *domain.Channel) error {
 	return store.MutableRecord(channel).ValidateSettings()
 }
-func (store Store) Settings(channel *domain.Channel) dto.ChannelSettings {
+func (store Store) TaskPluginKey(channel *domain.Channel) string {
+	record := store.MutableRecord(channel)
+	key := record.GetSetting().TaskPluginKey
+	*channel = *ToDomain(record)
+	return key
+}
+func (store Store) VertexJSONKeys(channel *domain.Channel) bool {
+	record := store.MutableRecord(channel)
+	jsonKeys := record.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey
+	*channel = *ToDomain(record)
+	return jsonKeys
+}
+func (store Store) SetProxy(channel *domain.Channel, proxy string) {
 	record := store.MutableRecord(channel)
 	settings := record.GetSetting()
 	*channel = *ToDomain(record)
-	return settings
+	settings.Proxy = proxy
+	record = store.MutableRecord(channel)
+	record.SetSetting(settings)
+	*channel = *ToDomain(record)
 }
-func (store Store) OtherSettings(channel *domain.Channel) dto.ChannelOtherSettings {
+func (store Store) EditAdvancedCustom(channel *domain.Channel) func(*string) error {
 	record := store.MutableRecord(channel)
 	settings := record.GetOtherSettings()
 	*channel = *ToDomain(record)
-	return settings
+	return func(raw *string) error {
+		if raw != nil {
+			var config dto.AdvancedCustomConfig
+			if err := common.UnmarshalJsonStr(*raw, &config); err != nil {
+				return err
+			}
+			settings.AdvancedCustom = &config
+		}
+		record := store.MutableRecord(channel)
+		record.SetOtherSettings(settings)
+		*channel = *ToDomain(record)
+		return nil
+	}
 }
 func (store Store) PluginBaseURL(key string) (string, bool) {
 	plugin, ok := jsplugin.DefaultRegistry.Get(key)
@@ -73,14 +104,3 @@ func (store Store) SetKey(id int, key string) error {
 	return model.DB.Model(&model.Channel{}).Where("id = ?", id).Update("key", key).Error
 }
 func (store Store) InitCache() { model.InitChannelCache() }
-
-func (store Store) SetOtherSettings(channel *domain.Channel, settings dto.ChannelOtherSettings) {
-	record := store.MutableRecord(channel)
-	record.SetOtherSettings(settings)
-	*channel = *ToDomain(record)
-}
-func (store Store) SetSettings(channel *domain.Channel, settings dto.ChannelSettings) {
-	record := store.MutableRecord(channel)
-	record.SetSetting(settings)
-	*channel = *ToDomain(record)
-}

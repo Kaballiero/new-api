@@ -16,13 +16,13 @@ func (usecase Usecase) Execute(input Input) (Output, error) {
 	if input.TagMode {
 		tags, err := usecase.store.SearchTags(input.Keyword, input.Group, input.Model, input.Sort.ID)
 		if err != nil {
-			return Output{}, err
+			return Output{}, domain.Internal(err)
 		}
 		for _, tag := range tags {
 			if tag != nil && *tag != "" {
 				tagChannels, err := usecase.store.ListTag(domain.Filter{Group: input.Group, Status: -1, Type: -1}, input.Sort, *tag)
 				if err != nil {
-					return Output{}, err
+					return Output{}, domain.Internal(err)
 				}
 				channelData = append(channelData, tagChannels...)
 			}
@@ -30,7 +30,7 @@ func (usecase Usecase) Execute(input Input) (Output, error) {
 	} else {
 		channels, err := usecase.store.Search(input.Keyword, input.Group, input.Model, input.Sort)
 		if err != nil {
-			return Output{}, err
+			return Output{}, domain.Internal(err)
 		}
 		channelData = channels
 	}

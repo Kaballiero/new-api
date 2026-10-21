@@ -1,11 +1,13 @@
 package domain
 
 import (
-	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
+// VertexArrayKeys splits a JSON array of Vertex AI service account keys into
+// one key per element.
 func VertexArrayKeys(keys string) ([]string, error) {
 	if keys == "" {
 		return nil, nil
@@ -13,7 +15,7 @@ func VertexArrayKeys(keys string) ([]string, error) {
 	var keyArray []any
 	err := common.Unmarshal([]byte(keys), &keyArray)
 	if err != nil {
-		return nil, fmt.Errorf("批量添加 Vertex AI 必须使用标准的JsonArray格式，例如[{key1}, {key2}...]，请检查输入: %w", err)
+		return nil, &DetailError{Err: ErrVertexKeysInvalid, Detail: err.Error()}
 	}
 	cleanKeys := make([]string, 0, len(keyArray))
 	for _, key := range keyArray {
@@ -24,7 +26,7 @@ func VertexArrayKeys(keys string) ([]string, error) {
 		default:
 			bytes, err := common.Marshal(v)
 			if err != nil {
-				return nil, fmt.Errorf("Vertex AI key JSON 编码失败: %w", err)
+				return nil, &DetailError{Err: ErrVertexKeyEncode, Detail: err.Error()}
 			}
 			keyStr = string(bytes)
 		}
@@ -33,7 +35,7 @@ func VertexArrayKeys(keys string) ([]string, error) {
 		}
 	}
 	if len(cleanKeys) == 0 {
-		return nil, fmt.Errorf("批量添加 Vertex AI 的 keys 不能为空")
+		return nil, ErrVertexKeysEmpty
 	}
 	return cleanKeys, nil
 }

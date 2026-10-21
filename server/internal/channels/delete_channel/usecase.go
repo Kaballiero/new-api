@@ -24,7 +24,7 @@ type Usecase struct {
 func NewUsecase(store Store, cache ProxyCache, refresh func(), audit func(int, string)) Usecase {
 	return Usecase{store: store, cache: cache, refresh: refresh, audit: audit}
 }
-func (usecase Usecase) Execute(input Input) *domain.Failure {
+func (usecase Usecase) Execute(input Input) error {
 	name, proxy := "", ""
 	lookupFailed := false
 	if existing, err := usecase.store.Get(input.ID, false); err == nil && existing != nil {
@@ -35,9 +35,9 @@ func (usecase Usecase) Execute(input Input) *domain.Failure {
 	}
 	if err := usecase.store.Delete(input.ID); err != nil {
 		if usecase.store.IsMissing(err) {
-			return &domain.Failure{Kind: "missing"}
+			return domain.ErrChannelNotFound
 		}
-		return &domain.Failure{Kind: "internal", Cause: err}
+		return domain.Internal(err)
 	}
 	usecase.refresh()
 	if lookupFailed {

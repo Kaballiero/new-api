@@ -11,16 +11,16 @@ type Store interface {
 type Usecase struct{ store Store }
 
 func NewUsecase(store Store) Usecase { return Usecase{store: store} }
-func (usecase Usecase) Execute(input Input) (*Output, *domain.Failure) {
+func (usecase Usecase) Execute(input Input) (*Output, error) {
 	channel, err := usecase.store.Get(input.ID, false)
 	if usecase.store.IsMissing(err) {
-		return nil, &domain.Failure{Kind: "missing"}
+		return nil, domain.ErrChannelNotFound
 	}
 	if err != nil {
-		return nil, &domain.Failure{Kind: "internal", Cause: err}
+		return nil, domain.Internal(err)
 	}
 	if channel == nil {
-		return nil, &domain.Failure{Kind: "missing"}
+		return nil, domain.ErrChannelNotFound
 	}
 	channel.HideMultiKeyFailures()
 	return channel, nil

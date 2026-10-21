@@ -1,26 +1,30 @@
 package stream_ollama_model_pull
 
 import (
+	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+	"github.com/QuantumNous/new-api/internal/channels/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 )
 
 type HTTP struct {
-	store    Store
+	store    func() Store
 	provider Provider
 }
 
-func NewHTTP(store Store, provider Provider) HTTP { return HTTP{store: store, provider: provider} }
+func NewHTTP(store func() Store, provider Provider) HTTP {
+	return HTTP{store: store, provider: provider}
+}
 func (h HTTP) Handle(c *gin.Context) {
 	var req Input
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid request parameters"})
 		return
 	}
-	scenario := NewUsecase(h.store, h.provider, func() {
+	scenario := NewUsecase(h.store(), h.provider, func() {
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
@@ -30,17 +34,13 @@ func (h HTTP) Handle(c *gin.Context) {
 		fmt.Fprintf(c.Writer, "data: %s\n\n", string(data))
 		c.Writer.Flush()
 	})
-	failure := scenario.Execute(req)
-	if failure != nil && failure.Kind != "stream" {
-		status := http.StatusBadRequest
-		if failure.Kind == "missing" {
-			status = http.StatusNotFound
-		}
-		c.JSON(status, gin.H{"success": false, "message": failure.Message})
+	err := scenario.Execute(req)
+	if err != nil && !errors.Is(err, domain.ErrOllamaStreamFailed) {
+		transport.WriteError(c, err)
 		return
 	}
-	if failure != nil {
-		data, _ := common.Marshal(gin.H{"error": failure.Cause.Error()})
+	if err != nil {
+		data, _ := common.Marshal(gin.H{"error": err.Error()})
 		fmt.Fprintf(c.Writer, "data: %s\n\n", string(data))
 	} else {
 		data, _ := common.Marshal(gin.H{"message": fmt.Sprintf("Model %s pulled successfully", req.ModelName)})

@@ -7,7 +7,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"net/http"
 	"strings"
 	"time"
@@ -15,7 +14,7 @@ import (
 
 type Store interface {
 	Get(int, bool) (*domain.Channel, error)
-	Settings(*domain.Channel) dto.ChannelSettings
+	Proxy(*domain.Channel) string
 	SetKey(int, string) error
 	InitCache()
 }
@@ -33,38 +32,41 @@ type Usecase struct {
 func NewUsecase(store Store, remote Remote, log func(string), now func() time.Time) Usecase {
 	return Usecase{store: store, remote: remote, log: log, now: now}
 }
-func (usecase Usecase) Execute(parent context.Context, input Input) (Output, *domain.Failure) {
+
+// Execute returns storage and proxy failures as they are: they are answered
+// with their text and HTTP 200.
+func (usecase Usecase) Execute(parent context.Context, input Input) (Output, error) {
 	ch, err := usecase.store.Get(input.ChannelID, true)
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+		return Output{}, err
 	}
 	if ch == nil {
-		return Output{}, &domain.Failure{Kind: "message", Message: "channel not found"}
+		return Output{}, domain.ErrCodexChannelNotFound
 	}
 	if ch.Type != constant.ChannelTypeCodex {
-		return Output{}, &domain.Failure{Kind: "message", Message: "channel type is not Codex"}
+		return Output{}, domain.ErrNotCodexChannel
 	}
 	if ch.ChannelInfo.IsMultiKey {
-		return Output{}, &domain.Failure{Kind: "message", Message: "multi-key channel is not supported"}
+		return Output{}, domain.ErrCodexMultiKey
 	}
 
 	oauthKey, err := domain.ParseCodexOAuthKey(strings.TrimSpace(ch.Key))
 	if err != nil {
 		usecase.log("failed to parse oauth key: " + err.Error())
-		return Output{}, &domain.Failure{Kind: "message", Message: "解析凭证失败，请检查渠道配置"}
+		return Output{}, domain.ErrCodexCredentialInvalid
 	}
 	accessToken := strings.TrimSpace(oauthKey.AccessToken)
 	accountID := strings.TrimSpace(oauthKey.AccountID)
 	if accessToken == "" {
-		return Output{}, &domain.Failure{Kind: "message", Message: "codex channel: access_token is required"}
+		return Output{}, domain.ErrCodexAccessTokenRequired
 	}
 	if accountID == "" {
-		return Output{}, &domain.Failure{Kind: "message", Message: "codex channel: account_id is required"}
+		return Output{}, domain.ErrCodexAccountIDRequired
 	}
 
-	fetch, err := usecase.remote.Open(usecase.store.Settings(ch).Proxy)
+	fetch, err := usecase.remote.Open(usecase.store.Proxy(ch))
 	if err != nil {
-		return Output{}, &domain.Failure{Kind: "internal", Cause: err}
+		return Output{}, err
 	}
 
 	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
@@ -73,14 +75,14 @@ func (usecase Usecase) Execute(parent context.Context, input Input) (Output, *do
 	statusCode, body, err := fetch(ctx, ch.BaseURLValue(), accessToken, accountID)
 	if err != nil {
 		usecase.log("failed to reset codex usage" + ": " + err.Error())
-		return Output{}, &domain.Failure{Kind: "message", Message: "重置用量失败，请稍后重试"}
+		return Output{}, domain.ErrCodexResetFailed
 	}
 
 	if (statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden) && strings.TrimSpace(oauthKey.RefreshToken) != "" {
 		refreshCtx, refreshCancel := context.WithTimeout(parent, 10*time.Second)
 		defer refreshCancel()
 
-		res, refreshErr := usecase.remote.Refresh(refreshCtx, oauthKey.RefreshToken, usecase.store.Settings(ch).Proxy)
+		res, refreshErr := usecase.remote.Refresh(refreshCtx, oauthKey.RefreshToken, usecase.store.Proxy(ch))
 		if refreshErr == nil {
 			oauthKey.AccessToken = res.AccessToken
 			oauthKey.RefreshToken = res.RefreshToken
@@ -101,7 +103,7 @@ func (usecase Usecase) Execute(parent context.Context, input Input) (Output, *do
 			statusCode, body, err = fetch(ctx2, ch.BaseURLValue(), oauthKey.AccessToken, accountID)
 			if err != nil {
 				usecase.log("failed to reset codex usage" + " after refresh: " + err.Error())
-				return Output{}, &domain.Failure{Kind: "message", Message: "重置用量失败，请稍后重试"}
+				return Output{}, domain.ErrCodexResetFailed
 			}
 		}
 	}

@@ -3,7 +3,6 @@ package domain
 import (
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/samber/lo"
 	"regexp"
 	"strings"
@@ -73,21 +72,20 @@ func ApplySelectedModelChanges(originModels []string, addModels []string, remove
 	normalizedRemove := SubtractModelNames(NormalizeModelNames(removeModels), normalizedAdd)
 	return SubtractModelNames(MergeModelNames(originModels, normalizedAdd), normalizedRemove)
 }
-func ParseChannelOtherSettings(channel *Channel) (dto.ChannelOtherSettings, error) {
-	settings := dto.ChannelOtherSettings{}
-	if channel == nil {
-		return settings, fmt.Errorf("channel is nil")
-	}
-	if channel.OtherSettings == "" {
-		return settings, nil
-	}
-	if err := common.UnmarshalJsonStr(channel.OtherSettings, &settings); err != nil {
-		return dto.ChannelOtherSettings{}, fmt.Errorf("invalid channel other settings: %w", err)
-	}
-	return settings, nil
+
+// ModelUpdateState is the upstream model update tracking of a channel. The
+// gateway stores it among the other channel settings.
+type ModelUpdateState struct {
+	CheckEnabled       bool
+	AutoSyncEnabled    bool
+	LastCheckTime      int64
+	LastDetectedModels []string
+	LastRemovedModels  []string
+	IgnoredModels      []string
 }
-func CollectPendingApplyUpstreamModelChanges(settings dto.ChannelOtherSettings) (pendingAddModels []string, pendingRemoveModels []string) {
-	return NormalizeModelNames(settings.UpstreamModelUpdateLastDetectedModels), NormalizeModelNames(settings.UpstreamModelUpdateLastRemovedModels)
+
+func CollectPendingApplyUpstreamModelChanges(state ModelUpdateState) (pendingAddModels []string, pendingRemoveModels []string) {
+	return NormalizeModelNames(state.LastDetectedModels), NormalizeModelNames(state.LastRemovedModels)
 }
 func (rules ModelUpdateRules) NormalizeChannelModelMapping(channel *Channel) (map[string]string, error) {
 	if channel == nil || channel.ModelMapping == nil {
