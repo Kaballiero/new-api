@@ -8,8 +8,7 @@ import (
 )
 
 type ContextCodec struct {
-	SigningKey                 func(string) []byte
-	InvalidError, ScopeFailure func() error
+	SigningKey func(string) []byte
 }
 
 func (ContextCodec) Object(raw json.RawMessage) bool    { return common.GetJsonType(raw) == "object" }
@@ -19,8 +18,6 @@ func (ContextCodec) EmailValid(email string) bool {
 	return common.Validate.Var(email, "required,email") == nil
 }
 func (ContextCodec) ProviderExists(name string) bool { return oauth.GetProvider(name) != nil }
-func (op ContextCodec) Invalid() error               { return op.InvalidError() }
-func (op ContextCodec) ScopeError() error            { return op.ScopeFailure() }
 func (op ContextCodec) Digest(scope string, context any) (string, error) {
 	payload, err := common.Marshal(struct {
 		Scope   string `json:"scope"`

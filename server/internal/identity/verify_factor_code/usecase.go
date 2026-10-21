@@ -15,13 +15,13 @@ type FactorCodeOperation interface {
 	IncrementFailedAttempts() error
 }
 
-// VerifyTwoFactorCode выбирает ровно один механизм и, следовательно, одну попытку счётчика ошибок.
+// Execute selects exactly one mechanism and therefore one failed-attempt counter increment.
 func (usecase Usecase) Execute(code string) error {
 	if !usecase.operation.Enabled() {
-		return usecase.errors.TwoFANotEnabled()
+		return domain.ErrTwoFANotEnabled
 	}
 	if usecase.operation.Locked() {
-		return usecase.errors.Locked()
+		return domain.ErrVerificationLocked
 	}
 	code = strings.TrimSpace(code)
 	var valid bool
@@ -37,16 +37,15 @@ func (usecase Usecase) Execute(code string) error {
 		return err
 	}
 	if !valid {
-		return usecase.errors.Failed()
+		return domain.ErrVerificationFailed
 	}
 	return nil
 }
 
 type Usecase struct {
 	operation FactorCodeOperation
-	errors    domain.VerificationErrors
 }
 
-func NewUsecase(operation FactorCodeOperation, errors domain.VerificationErrors) Usecase {
-	return Usecase{operation: operation, errors: errors}
+func NewUsecase(operation FactorCodeOperation) Usecase {
+	return Usecase{operation: operation}
 }

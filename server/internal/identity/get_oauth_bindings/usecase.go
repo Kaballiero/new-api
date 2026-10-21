@@ -1,6 +1,9 @@
 package get_oauth_bindings
 
-import "github.com/QuantumNous/new-api/internal/accounts/domain"
+import (
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+)
 
 type Reader interface {
 	Bindings(userID int) ([]Binding, error)
@@ -28,16 +31,17 @@ func (usecase Usecase) Execute(userID int) ([]UserOAuthBindingResponse, error) {
 	}
 	return response, nil
 }
-func ReadAsAdmin(userID int, reader AdminReader) Result {
+
+// ReadAsAdmin returns the bindings of a user whose role the actor can manage.
+func ReadAsAdmin(userID int, reader AdminReader) ([]UserOAuthBindingResponse, error) {
 	role, err := reader.TargetRole(userID)
 	if err != nil {
-		return Result{Cause: err}
+		return nil, err
 	}
 	if !domain.CanManageTargetRole(reader.ActorRole(), role, reader.RootRole()) {
-		return Result{Forbidden: true}
+		return nil, identitydomain.ErrTargetForbidden
 	}
-	bindings, err := NewUsecase(reader).Execute(userID)
-	return Result{Bindings: bindings, Cause: err}
+	return NewUsecase(reader).Execute(userID)
 }
 
 type Usecase struct {

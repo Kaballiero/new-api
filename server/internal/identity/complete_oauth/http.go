@@ -1,13 +1,15 @@
 package complete_oauth
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type Completion interface {
@@ -26,10 +28,11 @@ type HTTP struct {
 	audit         func(*gin.Context, int, string, map[string]any)
 	complete      func(*model.User, *gin.Context)
 	externalError func(*gin.Context, error)
+	writeError    func(*gin.Context, error)
 }
 
-func NewHTTP(factory func(*gin.Context) Completion, audit func(*gin.Context, int, string, map[string]any), complete func(*model.User, *gin.Context), externalError func(*gin.Context, error)) *HTTP {
-	return &HTTP{factory: factory, audit: audit, complete: complete, externalError: externalError}
+func NewHTTP(factory func(*gin.Context) Completion, audit func(*gin.Context, int, string, map[string]any), complete func(*model.User, *gin.Context), externalError func(*gin.Context, error), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{factory: factory, audit: audit, complete: complete, externalError: externalError, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	op := h.factory(c)
@@ -40,43 +43,46 @@ func (h *HTTP) Handle(c *gin.Context) {
 			h.audit(c, id, "user.binding_bind", map[string]any{"provider": c.Param("provider"), "success": bindingSucceeded, "notification_failed": warning})
 		}
 	}()
-	result := NewUsecase(op, op, op, op).Execute()
-	if result.Cause != nil {
-		if result.Issue == "external" {
-			h.externalError(c, result.Cause)
-		} else {
-			identityhttp.WriteSecurityOperationError(c, result.Cause)
-		}
+	result, err := NewUsecase(op, op, op, op).Execute()
+	if err != nil {
 		bindingSucceeded, warning = result.BindingSucceeded, result.NotificationWarning
+		var external *domain.ProviderError
+		var reported *domain.ProviderMessageError
+		switch {
+		case errors.As(err, &external):
+			h.externalError(c, external.Cause)
+		case errors.As(err, &reported):
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": reported.Message})
+		case errors.Is(err, domain.ErrProviderUnknown):
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthUnknownProvider)})
+		case errors.Is(err, domain.ErrOAuthStateInvalid):
+			c.JSON(http.StatusForbidden, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthStateInvalid)})
+		case errors.Is(err, domain.ErrInvalidInput):
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		case errors.Is(err, domain.ErrProviderDisabled):
+			common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, map[string]any{"Provider": op.ProviderDisplayName()})
+		case errors.Is(err, domain.ErrAlreadyBound):
+			common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, map[string]any{"Provider": op.ProviderDisplayName()})
+		case errors.Is(err, domain.ErrEmailTaken):
+			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+		case errors.Is(err, domain.ErrAccountDeleted):
+			common.ApiErrorI18n(c, i18n.MsgOAuthUserDeleted)
+		case errors.Is(err, domain.ErrRegistrationDisabled):
+			common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
+		case errors.Is(err, domain.ErrAccountBanned):
+			common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
+		default:
+			h.writeError(c, err)
+		}
 		return
 	}
-	switch result.Issue {
-	case "provider_unknown":
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthUnknownProvider)})
-	case "state":
-		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthStateInvalid)})
-	case "invalid":
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
-	case "provider_disabled":
-		common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, map[string]any{"Provider": op.ProviderDisplayName()})
-	case "provider_error":
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": result.Message})
-	case "already_bound":
-		common.ApiErrorI18n(c, i18n.MsgOAuthAlreadyBound, map[string]any{"Provider": op.ProviderDisplayName()})
-	case "bound":
+	switch result.Outcome {
+	case OutcomeBound:
 		common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{"action": "bind", "notification_warning": result.NotificationWarning})
 		bindingSucceeded, warning = result.BindingSucceeded, result.NotificationWarning
-	case "email_taken":
-		common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
-	case "deleted":
-		common.ApiErrorI18n(c, i18n.MsgOAuthUserDeleted)
-	case "registration_disabled":
-		common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
-	case "banned":
-		common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
-	case "login":
+	case OutcomeLogin:
 		h.complete(op.AuthenticatedUser(), c)
-	case "verified":
+	case OutcomeVerified:
 		proof := op.Proof()
 		h.audit(c, op.ProofUserID(), "user.security_verify", map[string]any{"method": proof.Method, "scope": proof.Scope, "provider": c.Param("provider")})
 		common.ApiSuccess(c, proof)

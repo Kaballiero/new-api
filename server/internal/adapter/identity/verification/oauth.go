@@ -43,7 +43,6 @@ type FinishOAuth struct {
 	Flow                   *OAuthVerificationFlow
 	FindFunc               func(domain.AuthIdentity, string, string) (string, error)
 	CompleteFunc           func(domain.AuthIdentity, domain.VerificationBinding, string) (*dto.SecurityProof, error)
-	Invalid, Mismatch      func() error
 	Result                 *dto.SecurityProof
 	expectedID             string
 }
@@ -51,7 +50,6 @@ type FinishOAuth struct {
 func (op *FinishOAuth) FlowValid() bool {
 	return op.Flow != nil && op.Flow.ContextHash != "" && op.Flow.UserAuthVersion == op.Identity.UserAuthVersion && op.Flow.SessionVersion == op.Identity.SessionVersion
 }
-func (op *FinishOAuth) InvalidError() error { return op.Invalid() }
 func (op *FinishOAuth) FindLinkedAccount() error {
 	var err error
 	op.expectedID, err = op.FindFunc(op.Identity, op.Flow.Scope, op.Provider)
@@ -60,7 +58,6 @@ func (op *FinishOAuth) FindLinkedAccount() error {
 func (op *FinishOAuth) AccountMatches() bool {
 	return op.ActualUserID != "" && op.ActualUserID == op.expectedID && op.ActualUserID == op.Flow.ProviderUserID
 }
-func (op *FinishOAuth) MismatchError() error { return op.Mismatch() }
 func (op *FinishOAuth) IssueProof() error {
 	var err error
 	op.Result, err = op.CompleteFunc(op.Identity, domain.VerificationBinding{Scope: op.Flow.Scope, ContextHash: op.Flow.ContextHash}, "oauth")

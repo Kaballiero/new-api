@@ -14,13 +14,13 @@ type FlowAuthorizationOperation interface {
 
 func (usecase Usecase) Execute() error {
 	if !usecase.operation.AuthorizationValid() {
-		return usecase.errors.FlowInvalid()
+		return domain.ErrAuthFlowInvalid
 	}
 	if err := usecase.operation.BindOperation(); err != nil {
 		return err
 	}
 	if !usecase.operation.BindingMatches() {
-		return usecase.errors.FlowInvalid()
+		return domain.ErrAuthFlowInvalid
 	}
 	if err := usecase.operation.ValidateSession(); err != nil {
 		return err
@@ -30,9 +30,8 @@ func (usecase Usecase) Execute() error {
 
 type Usecase struct {
 	operation FlowAuthorizationOperation
-	errors    domain.VerificationErrors
 }
 
-func NewUsecase(operation FlowAuthorizationOperation, errors domain.VerificationErrors) Usecase {
-	return Usecase{operation: operation, errors: errors}
+func NewUsecase(operation FlowAuthorizationOperation) Usecase {
+	return Usecase{operation: operation}
 }

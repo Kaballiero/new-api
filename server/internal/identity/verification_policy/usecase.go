@@ -22,17 +22,17 @@ func (usecase Usecase) Execute(scope string, role int, state FactorPolicyState) 
 	case "channel.key.read", "passkey.delete", "auth.login":
 	case "2fa.disable", "2fa.backup_codes.regenerate":
 		if !state.HasTwoFA {
-			return usecase.errors.TwoFANotEnabled()
+			return domain.ErrTwoFANotEnabled
 		}
 	case "passkey.register", "2fa.setup", "access_token.generate", "access_token.revoke", "account.binding.bind", "account.binding.unbind", "account.password.set", "account.password.change", "account.delete":
 		if scope == "account.delete" && role == usecase.rootRole {
-			return usecase.errors.Forbidden()
+			return domain.ErrVerificationForbidden
 		}
 		if scope == "2fa.setup" && state.HasTwoFA {
-			return usecase.errors.TwoFAAlreadyEnabled()
+			return domain.ErrTwoFAAlreadyEnabled
 		}
 		if (scope == "account.password.set" && state.HasPassword) || (scope == "account.password.change" && !state.HasPassword) {
-			return usecase.errors.Forbidden()
+			return domain.ErrVerificationForbidden
 		}
 		if len(methods) == 0 {
 			if state.HasPassword {
@@ -42,12 +42,12 @@ func (usecase Usecase) Execute(scope string, role int, state FactorPolicyState) 
 			}
 		}
 	default:
-		return usecase.errors.Scope()
+		return domain.ErrProofScope
 	}
 	for _, method := range methods {
 		available, reason := true, ""
 		if method == "2fa" && state.TwoFALocked {
-			available, reason = false, usecase.errors.Locked().Error()
+			available, reason = false, domain.ErrVerificationLocked.Error()
 		}
 		if !usecase.operation.PasskeyEnabled() && (method == "passkey" || scope == "passkey.register") {
 			available, reason = false, "Passkey authentication is disabled."
@@ -60,9 +60,8 @@ func (usecase Usecase) Execute(scope string, role int, state FactorPolicyState) 
 type Usecase struct {
 	rootRole  int
 	operation VerificationPolicyOperation
-	errors    domain.VerificationErrors
 }
 
-func NewUsecase(rootRole int, operation VerificationPolicyOperation, errors domain.VerificationErrors) Usecase {
-	return Usecase{rootRole: rootRole, operation: operation, errors: errors}
+func NewUsecase(rootRole int, operation VerificationPolicyOperation) Usecase {
+	return Usecase{rootRole: rootRole, operation: operation}
 }

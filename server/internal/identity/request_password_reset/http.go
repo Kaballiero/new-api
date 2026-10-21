@@ -2,23 +2,23 @@ package request_password_reset
 
 import (
 	"context"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct {
-	operation     func(context.Context) PasswordResetEmailOperation
-	emailNotFound func() error
+	operation func(context.Context) PasswordResetEmailOperation
 }
 
-func NewHTTP(op func(context.Context) PasswordResetEmailOperation, notFound func() error) *HTTP {
-	return &HTTP{operation: op, emailNotFound: notFound}
+func NewHTTP(op func(context.Context) PasswordResetEmailOperation) *HTTP {
+	return &HTTP{operation: op}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	input := Input{Email: c.Query("email")}
-	if NewUsecase(h.operation(c.Request.Context()), h.emailNotFound).Execute(input.Email) {
+	if NewUsecase(h.operation(c.Request.Context())).Execute(input.Email) != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

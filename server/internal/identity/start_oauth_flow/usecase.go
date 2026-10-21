@@ -1,6 +1,10 @@
 package start_oauth_flow
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+)
 
 type Operation interface {
 	ProviderKnown() bool
@@ -17,51 +21,54 @@ type Operation interface {
 	MarkSucceeded()
 }
 
-func (usecase Usecase) Execute(input *Request) Result {
+// Execute starts an OAuth flow. A rejected request is domain.ErrInvalidInput,
+// binding or verification without a session is domain.ErrBindingSessionMissing,
+// and domain.ErrStopped means the binding proof check already wrote the response.
+func (usecase Usecase) Execute(input *Request) error {
 	input.Provider = strings.TrimSpace(input.Provider)
 	input.Intent = strings.TrimSpace(input.Intent)
 	input.Aff = strings.TrimSpace(input.Aff)
 	if !usecase.operation.ProviderKnown() || (input.Intent != "login" && input.Intent != "bind" && input.Intent != "verify") || len(input.Aff) > 32 || (input.Intent != "login" && input.Aff != "") || (input.Intent != "verify" && (input.Scope != "" || len(input.Context) != 0)) {
-		return Result{Issue: "invalid"}
+		return domain.ErrInvalidInput
 	}
 	usecase.operation.InitializePayload()
 	if input.Provider == "telegram" {
 		if err := usecase.operation.NewTelegramFlow(); err != nil {
-			return Result{Cause: err}
+			return err
 		}
 	}
 	if input.Intent == "bind" || input.Intent == "verify" {
 		if !usecase.operation.ReadIdentity() {
-			return Result{Issue: "session"}
+			return domain.ErrBindingSessionMissing
 		}
 		if input.Intent == "bind" {
 			usecase.operation.BeginBindingAudit()
 			accepted, err := usecase.operation.RequireBindingProof()
 			if err != nil {
-				return Result{Cause: err}
+				return err
 			}
 			if !accepted {
-				return Result{Issue: "stopped"}
+				return domain.ErrStopped
 			}
 			usecase.operation.CaptureSession()
 		}
 		if usecase.operation.HasTelegram() {
 			if err := usecase.operation.ValidateSession(); err != nil {
-				return Result{Cause: err}
+				return err
 			}
 			usecase.operation.CaptureSession()
 		}
 		if input.Intent == "verify" {
 			if err := usecase.operation.StartVerification(); err != nil {
-				return Result{Cause: err}
+				return err
 			}
 		}
 	}
 	if err := usecase.operation.CreateFlow(); err != nil {
-		return Result{Cause: err}
+		return err
 	}
 	usecase.operation.MarkSucceeded()
-	return Result{}
+	return nil
 }
 
 type Usecase struct {

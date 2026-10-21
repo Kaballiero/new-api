@@ -2,12 +2,9 @@ package finish_passkey_login
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
-	"github.com/go-webauthn/webauthn/protocol"
-	"net/http"
 )
 
 type Completion interface {
@@ -15,35 +12,34 @@ type Completion interface {
 	LoginAccount() *model.User
 }
 type HTTP struct {
-	factory  func(c *gin.Context, request Request, parsed *protocol.ParsedCredentialAssertionData) Completion
-	complete func(*gin.Context, *model.User, int64)
+	enabled    func() bool
+	factory    func(c *gin.Context, request Request) (Completion, error)
+	complete   func(*gin.Context, *model.User, int64)
+	writeError func(*gin.Context, error)
 }
 
-func NewHTTP(factory func(c *gin.Context, request Request, parsed *protocol.ParsedCredentialAssertionData) Completion, complete func(*gin.Context, *model.User, int64)) *HTTP {
-	return &HTTP{factory: factory, complete: complete}
+// NewHTTP builds the handler; factory parses the WebAuthn assertion and
+// returns its error.
+func NewHTTP(enabled func() bool, factory func(c *gin.Context, request Request) (Completion, error), complete func(*gin.Context, *model.User, int64), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{enabled: enabled, factory: factory, complete: complete, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
-	if !system_setting.GetPasskeySettings().Enabled {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "管理员未启用 Passkey 登录"})
+	if !h.enabled() {
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyDisabled)
 		return
 	}
 	var request Request
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.FlowToken == "" || len(request.Credential) == 0 {
-		common.ApiErrorMsg(c, "无效的 Passkey 验证请求")
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyRequestInvalid)
 		return
 	}
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(request.Credential)
+	op, err := h.factory(c, request)
 	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
+		h.writeError(c, err)
 		return
 	}
-	op := h.factory(c, request, parsed)
-	failure, err := NewUsecase(op).Execute()
-	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
-		return
-	}
-	if identityhttp.WritePasskeyFailure(c, failure) {
+	if err := NewUsecase(op).Execute(); err != nil {
+		h.writeError(c, err)
 		return
 	}
 	user := op.LoginAccount()

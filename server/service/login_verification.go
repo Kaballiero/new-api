@@ -24,7 +24,7 @@ type LoginVerification = loginadapter.LoginVerification
 
 func StartLoginVerification(user *model.User, loginMethod string) (*LoginChallenge, error) {
 	op := loginadapter.NewStart(user, loginMethod, loginDependencies())
-	if err := start_login_verification.NewUsecase(op, common.UserStatusEnabled, verificationErrors()).Execute(); err != nil {
+	if err := start_login_verification.NewUsecase(op, common.UserStatusEnabled).Execute(); err != nil {
 		return nil, err
 	}
 	return op.Challenge(), nil
@@ -32,7 +32,7 @@ func StartLoginVerification(user *model.User, loginMethod string) (*LoginChallen
 
 func RequireLoginVerification(token, method string) (*LoginVerification, error) {
 	op := loginadapter.NewRequire(token, loginDependencies())
-	if err := require_login_verification.NewUsecase(op, common.UserStatusEnabled, verificationErrors()).Execute(method); err != nil {
+	if err := require_login_verification.NewUsecase(op, common.UserStatusEnabled).Execute(method); err != nil {
 		return nil, err
 	}
 	return op.Verification(), nil
@@ -43,7 +43,7 @@ func requireLoginVerificationMethod(state *model.UserVerificationState, method s
 	if err != nil {
 		return err
 	}
-	return require_verification_method.NewUsecase(verificationadapter.MethodOptions(methods), verificationErrors()).Execute(method)
+	return require_verification_method.NewUsecase(verificationadapter.MethodOptions(methods)).Execute(method)
 }
 
 func VerifyLoginCode(token, code, ip, userAgent string) (*AuthBundle, error) {
@@ -59,7 +59,7 @@ func VerifyLoginCode(token, code, ip, userAgent string) (*AuthBundle, error) {
 // session atomically; a different request cannot reuse this authorization.
 func CompleteLoginVerification(token string, verification *LoginVerification, method, ip, userAgent string) (*AuthBundle, error) {
 	op := loginadapter.NewComplete(token, verification, ip, userAgent, loginDependencies())
-	if err := complete_login_verification.NewUsecase(op, verificationErrors()).Execute(method); err != nil {
+	if err := complete_login_verification.NewUsecase(op).Execute(method); err != nil {
 		return nil, err
 	}
 	return op.Bundle(), nil

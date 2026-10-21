@@ -14,7 +14,6 @@ type BumpOperation interface {
 type CurrentVersionOperation interface {
 	Advancement
 	LoadAccount() (domain.AccountState, error)
-	RevokedError() error
 }
 
 func (usecase Usecase) Execute(version int64) error {
@@ -39,7 +38,7 @@ func AdvanceFromCurrentVersion(expectedVersion int64, enabledStatus int, op Curr
 		return err
 	}
 	if user.Status != enabledStatus || user.AuthVersion <= expectedVersion {
-		return op.RevokedError()
+		return domain.ErrLoginSessionRevoked
 	}
 	return NewUsecase(op).Execute(user.AuthVersion)
 }

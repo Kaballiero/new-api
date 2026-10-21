@@ -11,8 +11,3 @@ type Account struct {
 	Status      int
 	AuthVersion int64
 }
-type Result struct {
-	Account Account
-	Issue   string
-	Cause   error
-}

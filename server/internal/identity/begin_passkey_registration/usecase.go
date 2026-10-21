@@ -12,24 +12,24 @@ type Operation interface {
 	CreateRegistrationFlow() error
 }
 
-func (usecase Usecase) Execute() (domain.PasskeyFailure, error) {
+func (usecase Usecase) Execute() error {
 	err := usecase.operation.LoadCredential()
 	if err != nil && !usecase.operation.CredentialMissing(err) {
-		return "", err
+		return err
 	}
 	if usecase.operation.CredentialMissing(err) {
 		usecase.operation.ClearCredential()
 	}
 	if err := usecase.operation.Build(); err != nil {
-		return "", err
+		return err
 	}
 	if err := usecase.operation.BeginRegistration(); err != nil {
-		return "", err
+		return err
 	}
 	if !usecase.operation.ReadIdentity() {
-		return domain.PasskeyIdentityRequired, nil
+		return domain.ErrPasskeyIdentityRequired
 	}
-	return "", usecase.operation.CreateRegistrationFlow()
+	return usecase.operation.CreateRegistrationFlow()
 }
 
 type Usecase struct {

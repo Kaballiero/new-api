@@ -1,5 +1,7 @@
 package login_wechat
 
+import "github.com/QuantumNous/new-api/internal/identity/domain"
+
 type Operation interface {
 	ExchangeCode(string) error
 	InitializeAccount()
@@ -12,31 +14,34 @@ type Operation interface {
 	AccountEnabled() bool
 }
 
-func (usecase Usecase) Execute(input Input) Result {
+// Execute signs in or registers the WeChat account of the code. Outcomes with
+// their own responses are domain.ErrAccountDeleted,
+// domain.ErrRegistrationDisabled and domain.ErrAccountBanned.
+func (usecase Usecase) Execute(input Input) error {
 	if err := usecase.operation.ExchangeCode(input.Code); err != nil {
-		return Result{Cause: err}
+		return err
 	}
 	usecase.operation.InitializeAccount()
 	if usecase.operation.Taken() {
 		if err := usecase.operation.LoadAccount(); err != nil {
-			return Result{Cause: err}
+			return err
 		}
 		if usecase.operation.AccountID() == 0 {
-			return Result{Issue: "deleted"}
+			return domain.ErrAccountDeleted
 		}
 	} else {
 		if !usecase.operation.RegistrationEnabled() {
-			return Result{Issue: "registration_disabled"}
+			return domain.ErrRegistrationDisabled
 		}
 		usecase.operation.PrepareAccount()
 		if err := usecase.operation.InsertAccount(); err != nil {
-			return Result{Cause: err}
+			return err
 		}
 	}
 	if !usecase.operation.AccountEnabled() {
-		return Result{Issue: "banned"}
+		return domain.ErrAccountBanned
 	}
-	return Result{}
+	return nil
 }
 
 type Usecase struct {

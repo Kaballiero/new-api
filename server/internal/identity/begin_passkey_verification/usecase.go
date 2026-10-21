@@ -5,7 +5,6 @@ import "github.com/QuantumNous/new-api/internal/identity/domain"
 type Operation interface {
 	BindOperation() error
 	ReadIdentity() bool
-	InvalidIdentity() error
 	RequireMethod() error
 	LoadCredential() error
 	Build() error
@@ -13,26 +12,26 @@ type Operation interface {
 	CreateVerificationFlow() error
 }
 
-func (usecase Usecase) Execute() (domain.PasskeyFailure, error) {
+func (usecase Usecase) Execute() error {
 	if err := usecase.operation.BindOperation(); err != nil {
-		return "", err
+		return err
 	}
 	if !usecase.operation.ReadIdentity() {
-		return "", usecase.operation.InvalidIdentity()
+		return domain.ErrAuthTokenInvalid
 	}
 	if err := usecase.operation.RequireMethod(); err != nil {
-		return "", err
+		return err
 	}
 	if err := usecase.operation.LoadCredential(); err != nil {
-		return domain.PasskeyRecordMissing, nil
+		return domain.ErrPasskeyMissing
 	}
 	if err := usecase.operation.Build(); err != nil {
-		return "", err
+		return err
 	}
 	if err := usecase.operation.BeginLogin(); err != nil {
-		return "", err
+		return err
 	}
-	return "", usecase.operation.CreateVerificationFlow()
+	return usecase.operation.CreateVerificationFlow()
 }
 
 type Usecase struct {

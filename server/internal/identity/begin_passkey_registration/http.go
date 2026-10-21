@@ -1,14 +1,13 @@
 package begin_passkey_registration
 
 import (
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
-	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting/system_setting"
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/dto"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/gin-gonic/gin"
 )
 
 type Completion interface {
@@ -16,33 +15,35 @@ type Completion interface {
 	Challenge() dto.PasskeyChallenge
 }
 type HTTP struct {
-	factory func(c *gin.Context, user *model.User, authorization *model.AuthFlowAuthorization) Completion
+	enabled    func() bool
+	user       func(*gin.Context) (*model.User, error)
+	authorize  func(*gin.Context) *model.AuthFlowAuthorization
+	factory    func(c *gin.Context, user *model.User, authorization *model.AuthFlowAuthorization) Completion
+	writeError func(*gin.Context, error)
 }
 
-func NewHTTP(factory func(c *gin.Context, user *model.User, authorization *model.AuthFlowAuthorization) Completion) *HTTP {
-	return &HTTP{factory: factory}
+// NewHTTP builds the handler; authorize writes its own response and returns
+// nil when the security proof is missing or rejected.
+func NewHTTP(enabled func() bool, user func(*gin.Context) (*model.User, error), authorize func(*gin.Context) *model.AuthFlowAuthorization, factory func(c *gin.Context, user *model.User, authorization *model.AuthFlowAuthorization) Completion, writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{enabled: enabled, user: user, authorize: authorize, factory: factory, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
-	if !system_setting.GetPasskeySettings().Enabled {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "管理员未启用 Passkey 登录"})
+	if !h.enabled() {
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyDisabled)
 		return
 	}
-	user, err := identityhttp.GetAuthenticatedUser(c)
+	user, err := h.user(c)
 	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
+		h.writeError(c, err)
 		return
 	}
-	authorization := middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopePasskeyRegister})
+	authorization := h.authorize(c)
 	if authorization == nil {
 		return
 	}
 	op := h.factory(c, user, authorization)
-	failure, err := NewUsecase(op).Execute()
-	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
-		return
-	}
-	if identityhttp.WritePasskeyFailure(c, failure) {
+	if err := NewUsecase(op).Execute(); err != nil {
+		h.writeError(c, err)
 		return
 	}
 	result := op.Challenge()

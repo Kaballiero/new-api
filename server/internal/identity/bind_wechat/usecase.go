@@ -1,5 +1,7 @@
 package bind_wechat
 
+import "github.com/QuantumNous/new-api/internal/identity/domain"
+
 type Operation interface {
 	ExchangeCode(string) error
 	Taken() bool
@@ -10,22 +12,25 @@ type Operation interface {
 	SetNotificationWarning(bool)
 }
 
-func (usecase Usecase) Execute(input Input) Result {
+// Execute binds the WeChat account of the code. A failed code exchange is a
+// *domain.ProviderError; an account bound to another user is
+// domain.ErrWeChatTaken.
+func (usecase Usecase) Execute(input Input) error {
 	if err := usecase.operation.ExchangeCode(input.Code); err != nil {
-		return Result{Issue: "provider", Cause: err}
+		return &domain.ProviderError{Cause: err}
 	}
 	if usecase.operation.Taken() {
-		return Result{Issue: "taken"}
+		return domain.ErrWeChatTaken
 	}
 	if err := usecase.operation.BindAtomically(); err != nil {
-		return Result{Cause: err}
+		return err
 	}
 	usecase.operation.MarkSucceeded()
 	if err := usecase.operation.LoadAccount(); err != nil {
-		return Result{Cause: err}
+		return err
 	}
 	usecase.operation.SetNotificationWarning(usecase.operation.NotifyAccount())
-	return Result{}
+	return nil
 }
 
 type Usecase struct {

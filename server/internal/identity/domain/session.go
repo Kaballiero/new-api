@@ -13,14 +13,11 @@ type SessionState struct {
 	ExpiresAt       int64
 }
 
-// SessionPolicy сохраняет чтение текущей конфигурации в исходных точках решения.
-// Errors — исходные экземпляры сервиса/репозитория, передаваемые композицией.
+// SessionPolicy keeps the current configuration read at the original decision points.
 type SessionPolicy struct {
-	EnabledStatus                                                                     int
-	ActiveStatus                                                                      string
-	ActiveLimit                                                                       func() int64
-	IssuanceWindowSeconds                                                             func() int64
-	IssuanceLimit                                                                     func() int64
-	Invalid, Revoked, Mismatch, RefreshInvalid, RefreshRace                           func() error
-	Inactive, RotationInvalid, RotationRace, RotationReuse, Limit, IssuanceLimitError func() error
+	EnabledStatus         int
+	ActiveStatus          string
+	ActiveLimit           func() int64
+	IssuanceWindowSeconds func() int64
+	IssuanceLimit         func() int64
 }

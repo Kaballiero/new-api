@@ -1,13 +1,13 @@
 package begin_passkey_verification
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type Completion interface {
@@ -15,34 +15,33 @@ type Completion interface {
 	Challenge() dto.PasskeyChallenge
 }
 type HTTP struct {
-	factory func(c *gin.Context, user *model.User, request Request) Completion
+	enabled    func() bool
+	user       func(*gin.Context) (*model.User, error)
+	factory    func(c *gin.Context, user *model.User, request Request) Completion
+	writeError func(*gin.Context, error)
 }
 
-func NewHTTP(factory func(c *gin.Context, user *model.User, request Request) Completion) *HTTP {
-	return &HTTP{factory: factory}
+func NewHTTP(enabled func() bool, user func(*gin.Context) (*model.User, error), factory func(c *gin.Context, user *model.User, request Request) Completion, writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{enabled: enabled, user: user, factory: factory, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
-	if !system_setting.GetPasskeySettings().Enabled {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "管理员未启用 Passkey 登录"})
+	if !h.enabled() {
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyDisabled)
 		return
 	}
-	user, err := identityhttp.GetAuthenticatedUser(c)
+	user, err := h.user(c)
 	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
+		h.writeError(c, err)
 		return
 	}
 	var request Request
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		common.ApiErrorMsg(c, "无效的 Passkey 验证请求")
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyRequestInvalid)
 		return
 	}
 	op := h.factory(c, user, request)
-	failure, err := NewUsecase(op).Execute()
-	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
-		return
-	}
-	if identityhttp.WritePasskeyFailure(c, failure) {
+	if err := NewUsecase(op).Execute(); err != nil {
+		h.writeError(c, err)
 		return
 	}
 	result := op.Challenge()

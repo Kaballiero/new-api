@@ -9,7 +9,3 @@ type Input struct {
 	Identity domain.AuthIdentity
 	Code     string
 }
-type Result struct {
-	Issue string
-	Cause error
-}

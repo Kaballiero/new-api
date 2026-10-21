@@ -1,32 +1,35 @@
 package begin_passkey_login
 
 import (
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
-	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/setting/system_setting"
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/dto"
+	"github.com/gin-gonic/gin"
 )
 
 type Completion interface {
 	Operation
 	Challenge() dto.PasskeyChallenge
 }
-type HTTP struct{ factory func(*gin.Context) Completion }
+type HTTP struct {
+	enabled    func() bool
+	factory    func(*gin.Context) Completion
+	writeError func(*gin.Context, error)
+}
 
-func NewHTTP(factory func(*gin.Context) Completion) *HTTP { return &HTTP{factory: factory} }
+func NewHTTP(enabled func() bool, factory func(*gin.Context) Completion, writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{enabled: enabled, factory: factory, writeError: writeError}
+}
 func (h *HTTP) Handle(c *gin.Context) {
-	if !system_setting.GetPasskeySettings().Enabled {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "管理员未启用 Passkey 登录"})
+	if !h.enabled() {
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyDisabled)
 		return
 	}
 	op := h.factory(c)
-	failure, err := NewUsecase(op).Execute()
-	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
-		return
-	}
-	if identityhttp.WritePasskeyFailure(c, failure) {
+	if err := NewUsecase(op).Execute(); err != nil {
+		h.writeError(c, err)
 		return
 	}
 	result := op.Challenge()

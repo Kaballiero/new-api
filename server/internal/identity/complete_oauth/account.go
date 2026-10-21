@@ -1,6 +1,6 @@
 package complete_oauth
 
-import "errors"
+import "github.com/QuantumNous/new-api/internal/identity/domain"
 
 type ProviderProfile struct{ ID, Username, DisplayName, Email, LegacyID string }
 type AccountCreation interface {
@@ -11,8 +11,7 @@ type AccountLookup interface {
 	Profile() ProviderProfile
 	ProviderColumn() string
 	FillByID(string) error
-	MissingError() error
-	TelegramUnboundError() error
+	Missing(error) bool
 	Taken(string) bool
 	AccountID() int
 	LogMigration(legacy, current string)
@@ -29,7 +28,7 @@ type AccountRegistration interface {
 	ProviderName() string
 	SetNormalizedEmail(string)
 	EnsureEmail() error
-	EmailTakenError() error
+	EmailTaken(error) bool
 	SetRoleAndStatus()
 	FindInviter(string) (int, error)
 	Transaction(func(AccountCreation) error) error
@@ -40,8 +39,8 @@ func ResolveAccount(affiliateCode string, lookup AccountLookup, registration Acc
 	profile := lookup.Profile()
 	if lookup.ProviderColumn() == "telegram_id" {
 		err := lookup.FillByID(profile.ID)
-		if errors.Is(err, lookup.MissingError()) {
-			return lookup.TelegramUnboundError()
+		if lookup.Missing(err) {
+			return domain.ErrTelegramAccountNotBound
 		}
 		return err
 	}
@@ -50,7 +49,7 @@ func ResolveAccount(affiliateCode string, lookup AccountLookup, registration Acc
 			return err
 		}
 		if lookup.AccountID() == 0 {
-			return &OAuthUserDeletedError{}
+			return domain.ErrAccountDeleted
 		}
 		return nil
 	}
@@ -67,7 +66,7 @@ func ResolveAccount(affiliateCode string, lookup AccountLookup, registration Acc
 		}
 	}
 	if !registration.RegistrationEnabled() {
-		return &OAuthRegistrationDisabledError{}
+		return domain.ErrRegistrationDisabled
 	}
 	registration.PrepareDefaultUsername()
 	if profile.Username != "" {
@@ -87,8 +86,8 @@ func ResolveAccount(affiliateCode string, lookup AccountLookup, registration Acc
 	if profile.Email != "" {
 		registration.SetNormalizedEmail(profile.Email)
 		if err := registration.EnsureEmail(); err != nil {
-			if errors.Is(err, registration.EmailTakenError()) {
-				return &OAuthEmailAlreadyTakenError{}
+			if registration.EmailTaken(err) {
+				return domain.ErrEmailTaken
 			}
 			return err
 		}

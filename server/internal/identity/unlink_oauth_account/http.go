@@ -2,6 +2,7 @@ package unlink_oauth_account
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/gin-gonic/gin"
 	"net/http"
@@ -15,25 +16,24 @@ type Completion interface {
 }
 type HTTP struct {
 	identity   func(*gin.Context) (domain.AuthIdentity, bool)
-	invalid    func() error
 	authorize  func(*gin.Context, []byte) bool
 	factory    func(Input) Completion
 	writeError func(*gin.Context, error)
 	audit      func(*gin.Context, int, string, map[string]any)
 }
 
-func NewHTTP(identity func(*gin.Context) (domain.AuthIdentity, bool), invalid func() error, authorize func(*gin.Context, []byte) bool, factory func(Input) Completion, writeError func(*gin.Context, error), audit func(*gin.Context, int, string, map[string]any)) *HTTP {
-	return &HTTP{identity: identity, invalid: invalid, authorize: authorize, factory: factory, writeError: writeError, audit: audit}
+func NewHTTP(identity func(*gin.Context) (domain.AuthIdentity, bool), authorize func(*gin.Context, []byte) bool, factory func(Input) Completion, writeError func(*gin.Context, error), audit func(*gin.Context, int, string, map[string]any)) *HTTP {
+	return &HTTP{identity: identity, authorize: authorize, factory: factory, writeError: writeError, audit: audit}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	identity, ok := h.identity(c)
 	if !ok {
-		h.writeError(c, h.invalid())
+		h.writeError(c, domain.ErrAuthTokenInvalid)
 		return
 	}
 	providerID, err := strconv.Atoi(c.Param("provider_id"))
 	if err != nil || providerID <= 0 {
-		common.ApiErrorMsg(c, "无效的提供商 ID")
+		common.ApiErrorI18n(c, i18n.MsgIdentityProviderIDInvalid)
 		return
 	}
 	var op Completion

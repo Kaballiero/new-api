@@ -3,7 +3,6 @@ package oauth
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -25,11 +25,13 @@ const (
 	TelegramOAuthFlowContextKey = "telegram_oauth_flow"
 )
 
+// Telegram login errors are owned by the identity domain; the legacy names stay
+// as aliases.
 var (
-	ErrTelegramOAuthNotConfigured = errors.New("Telegram OAuth is not configured or enabled. Please contact your administrator.")
-	ErrTelegramOAuthConflict      = errors.New("The telegram OAuth provider name is reserved. Ask your administrator to rename the conflicting custom provider.")
-	ErrTelegramOAuthFailed        = errors.New("Telegram authorization failed. Please try again.")
-	ErrTelegramAccountNotBound    = errors.New("This Telegram account is not linked. Sign in using another method and link it first.")
+	ErrTelegramOAuthNotConfigured = identitydomain.ErrTelegramOAuthNotConfigured
+	ErrTelegramOAuthConflict      = identitydomain.ErrTelegramOAuthConflict
+	ErrTelegramOAuthFailed        = identitydomain.ErrTelegramOAuthFailed
+	ErrTelegramAccountNotBound    = identitydomain.ErrTelegramAccountNotBound
 )
 
 // TelegramOAuthFlow keeps the PKCE secret and original client configuration on

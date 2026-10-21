@@ -2,6 +2,7 @@ package verify_security_input
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/gin-gonic/gin"
@@ -21,12 +22,12 @@ func NewHTTP(identity func(*gin.Context) (domain.AuthIdentity, bool), verify fun
 func (h *HTTP) Handle(c *gin.Context) {
 	identity, ok := h.identity(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "当前认证方式不支持安全验证"})
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": i18n.T(c, i18n.MsgIdentitySecurityVerificationUnsupported)})
 		return
 	}
 	var request VerificationInput
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		common.ApiErrorMsg(c, "参数错误")
+		common.ApiErrorI18n(c, i18n.MsgIdentityParamsError)
 		return
 	}
 	proof, err := h.verify(identity, request)

@@ -7,7 +7,6 @@ import (
 
 type Operation interface {
 	Consume(check func(domain.PasskeyFlowSecurity) error) error
-	InvalidError() error
 	ValidateCurrentSession() error
 }
 
@@ -18,15 +17,15 @@ func (usecase Usecase) Execute(purpose string, identity domain.AuthIdentity) err
 		}
 		if purpose == domain.AuthFlowPurposeLoginPasskey {
 			if security.AuthSessionIdentity != identity || identity.UserID <= 0 || identity.UserAuthVersion <= 0 || identity.SessionID != "" || identity.SessionVersion != 0 || security.LoginFlowID <= 0 || security.LoginExpiresAt <= time.Now().Unix() {
-				return usecase.operation.InvalidError()
+				return domain.ErrAuthFlowInvalid
 			}
 			return nil
 		}
 		if security.AuthSessionIdentity != identity || security.Scope == "" || security.ContextHash == "" {
-			return usecase.operation.InvalidError()
+			return domain.ErrAuthFlowInvalid
 		}
 		if purpose == domain.AuthFlowPurposePasskeyRegister && (security.Authorization == nil || security.Authorization.ProofID <= 0 || security.Authorization.AuthSessionIdentity != identity) {
-			return usecase.operation.InvalidError()
+			return domain.ErrAuthFlowInvalid
 		}
 		return usecase.operation.ValidateCurrentSession()
 	})

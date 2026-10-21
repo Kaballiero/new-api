@@ -10,7 +10,6 @@ type Operation interface {
 	ReadIdentity() bool
 	PopRegistrationFlow() error
 	VerificationRequired() bool
-	InvalidFlow() error
 	ValidateEnrollmentAuthorization() error
 	CreateCredential() error
 	CredentialRecordValid() bool
@@ -18,39 +17,39 @@ type Operation interface {
 	AdvanceSession() error
 }
 
-func (usecase Usecase) Execute() (domain.PasskeyFailure, error) {
+func (usecase Usecase) Execute() error {
 	if err := usecase.operation.Build(); err != nil {
-		return "", err
+		return err
 	}
 	err := usecase.operation.LoadCredential()
 	if err != nil && !usecase.operation.CredentialMissing(err) {
-		return "", err
+		return err
 	}
 	if usecase.operation.CredentialMissing(err) {
 		usecase.operation.ClearCredential()
 	}
 	if !usecase.operation.ReadIdentity() {
-		return domain.PasskeyIdentityRequired, nil
+		return domain.ErrPasskeyIdentityRequired
 	}
 	if err := usecase.operation.PopRegistrationFlow(); err != nil {
-		return "", err
+		return err
 	}
 	if !usecase.operation.VerificationRequired() {
-		return "", usecase.operation.InvalidFlow()
+		return domain.ErrAuthFlowInvalid
 	}
 	if err := usecase.operation.ValidateEnrollmentAuthorization(); err != nil {
-		return "", err
+		return err
 	}
 	if err := usecase.operation.CreateCredential(); err != nil {
-		return "", err
+		return err
 	}
 	if !usecase.operation.CredentialRecordValid() {
-		return domain.PasskeyRecordInvalid, nil
+		return domain.ErrPasskeyRecordInvalid
 	}
 	if err := usecase.operation.RegisterCredential(); err != nil {
-		return "", err
+		return err
 	}
-	return "", usecase.operation.AdvanceSession()
+	return usecase.operation.AdvanceSession()
 }
 
 type Usecase struct {

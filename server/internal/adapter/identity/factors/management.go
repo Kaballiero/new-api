@@ -1,6 +1,7 @@
 package factors
 
 import (
+	"errors"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
@@ -39,7 +40,6 @@ func (PasskeyStatus) LastUsed(id int) (*time.Time, error) {
 	}
 	return credential.LastUsedAt, nil
 }
-func (PasskeyStatus) MissingError() error { return model.ErrPasskeyNotFound }
 
 type DeletePasskey struct {
 	Identity domain.AuthIdentity
@@ -59,16 +59,17 @@ type AdminTwoFA struct{ Role func() int }
 
 func (AdminTwoFA) LoadTarget(id int) (int, error) {
 	user, err := model.GetUserById(id, false)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, domain.ErrTargetNotFound
+	}
 	if err != nil {
 		return 0, err
 	}
 	return user.Role, nil
 }
-func (AdminTwoFA) MissingError() error    { return gorm.ErrRecordNotFound }
-func (AdminTwoFA) NotEnabledError() error { return model.ErrTwoFANotEnabled }
-func (op AdminTwoFA) ActorRole() int      { return op.Role() }
-func (AdminTwoFA) RootRole() int          { return common.RoleRootUser }
-func (AdminTwoFA) Disable(id int) error   { return model.DisableTwoFAWithAuthVersion(id) }
+func (op AdminTwoFA) ActorRole() int    { return op.Role() }
+func (AdminTwoFA) RootRole() int        { return common.RoleRootUser }
+func (AdminTwoFA) Disable(id int) error { return model.DisableTwoFAWithAuthVersion(id) }
 func (AdminTwoFA) RevokeAll(id int, reason string) error {
 	_, err := model.RevokeAllUserSessions(id, reason)
 	return err
@@ -83,9 +84,8 @@ func (AdminPasskey) LoadTarget(id int) (int, string, int, error) {
 	}
 	return user.Id, user.Username, user.Role, nil
 }
-func (AdminPasskey) MissingError() error { return model.ErrPasskeyNotFound }
-func (op AdminPasskey) ActorRole() int   { return op.Role() }
-func (AdminPasskey) RootRole() int       { return common.RoleRootUser }
+func (op AdminPasskey) ActorRole() int { return op.Role() }
+func (AdminPasskey) RootRole() int     { return common.RoleRootUser }
 func (AdminPasskey) RequireCredential(id int) error {
 	_, err := model.GetPasskeyByUserID(id)
 	return err

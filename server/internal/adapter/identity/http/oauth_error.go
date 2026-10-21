@@ -7,7 +7,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WriteOAuthError(c *gin.Context, err error) {
+// WriteOAuthError writes an error of an OAuth provider exchange; other errors
+// are written by fallback.
+func WriteOAuthError(c *gin.Context, err error, fallback func(*gin.Context, error)) {
 	switch e := err.(type) {
 	case *oauth.OAuthError:
 		if e.Params != nil {
@@ -20,6 +22,6 @@ func WriteOAuthError(c *gin.Context, err error) {
 	case *oauth.TrustLevelError:
 		common.ApiErrorI18n(c, i18n.MsgOAuthTrustLevelLow)
 	default:
-		WriteSecurityOperationError(c, err)
+		fallback(c, err)
 	}
 }

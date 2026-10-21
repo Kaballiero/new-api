@@ -1,22 +1,23 @@
 package resend_email_binding
 
-import "time"
+import (
+	"time"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+)
 
 type Operation interface {
 	LoadChange() error
 	BindOperation() error
 	ValidateAuthorization() error
 	ResendAt() int64
-	ResendWaitError() error
 	FailedAttempts() int
 	MaximumAttempts() int
-	LockedError() error
 	HasOldCode() bool
 	GenerateCodes(bool) error
 	ReplaceCodes() error
 	DeliverCodes() error
 	InvalidateChange()
-	DeliveryError() error
 	CaptureData()
 }
 
@@ -31,10 +32,10 @@ func (usecase Usecase) Execute() error {
 		return err
 	}
 	if usecase.operation.ResendAt() > time.Now().Unix() {
-		return usecase.operation.ResendWaitError()
+		return domain.ErrEmailBindingResendWait
 	}
 	if usecase.operation.FailedAttempts() >= usecase.operation.MaximumAttempts() {
-		return usecase.operation.LockedError()
+		return domain.ErrEmailBindingLocked
 	}
 	if err := usecase.operation.GenerateCodes(usecase.operation.HasOldCode()); err != nil {
 		return err
@@ -44,7 +45,7 @@ func (usecase Usecase) Execute() error {
 	}
 	if err := usecase.operation.DeliverCodes(); err != nil {
 		usecase.operation.InvalidateChange()
-		return usecase.operation.DeliveryError()
+		return domain.ErrEmailBindingDelivery
 	}
 	usecase.operation.CaptureData()
 	return nil

@@ -2,13 +2,10 @@ package finish_passkey_verification
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
-	"github.com/go-webauthn/webauthn/protocol"
-	"net/http"
 )
 
 type Completion interface {
@@ -16,40 +13,40 @@ type Completion interface {
 	Proof() *dto.SecurityProof
 }
 type HTTP struct {
-	factory func(c *gin.Context, user *model.User, request Request, parsed *protocol.ParsedCredentialAssertionData) Completion
-	audit   func(*gin.Context, int, string, map[string]any)
+	enabled    func() bool
+	user       func(*gin.Context) (*model.User, error)
+	factory    func(c *gin.Context, user *model.User, request Request) (Completion, error)
+	audit      func(*gin.Context, int, string, map[string]any)
+	writeError func(*gin.Context, error)
 }
 
-func NewHTTP(factory func(c *gin.Context, user *model.User, request Request, parsed *protocol.ParsedCredentialAssertionData) Completion, audit func(*gin.Context, int, string, map[string]any)) *HTTP {
-	return &HTTP{factory: factory, audit: audit}
+// NewHTTP builds the handler; factory parses the WebAuthn assertion and
+// returns its error.
+func NewHTTP(enabled func() bool, user func(*gin.Context) (*model.User, error), factory func(c *gin.Context, user *model.User, request Request) (Completion, error), audit func(*gin.Context, int, string, map[string]any), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{enabled: enabled, user: user, factory: factory, audit: audit, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
-	if !system_setting.GetPasskeySettings().Enabled {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "管理员未启用 Passkey 登录"})
+	if !h.enabled() {
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyDisabled)
 		return
 	}
-	user, err := identityhttp.GetAuthenticatedUser(c)
+	user, err := h.user(c)
 	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
+		h.writeError(c, err)
 		return
 	}
 	var request Request
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.FlowToken == "" || len(request.Credential) == 0 {
-		common.ApiErrorMsg(c, "无效的 Passkey 验证请求")
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyRequestInvalid)
 		return
 	}
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(request.Credential)
+	op, err := h.factory(c, user, request)
 	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
+		h.writeError(c, err)
 		return
 	}
-	op := h.factory(c, user, request, parsed)
-	failure, err := NewUsecase(op).Execute()
-	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
-		return
-	}
-	if identityhttp.WritePasskeyFailure(c, failure) {
+	if err := NewUsecase(op).Execute(); err != nil {
+		h.writeError(c, err)
 		return
 	}
 	proof := op.Proof()

@@ -1,5 +1,7 @@
 package start_email_binding
 
+import "github.com/QuantumNous/new-api/internal/identity/domain"
+
 type Operation interface {
 	ValidateEmail() error
 	BindOperation() error
@@ -12,7 +14,6 @@ type Operation interface {
 	CreateChange() error
 	DeliverCodes() error
 	InvalidateChange()
-	DeliveryError() error
 	CaptureData()
 	NotifyCurrentEmail() bool
 	SetNotificationWarning(bool)
@@ -41,7 +42,7 @@ func (usecase Usecase) Execute() error {
 	}
 	if err := usecase.operation.DeliverCodes(); err != nil {
 		usecase.operation.InvalidateChange()
-		return usecase.operation.DeliveryError()
+		return domain.ErrEmailBindingDelivery
 	}
 	usecase.operation.CaptureData()
 	if usecase.operation.CurrentEmail() != "" && !requireOld {

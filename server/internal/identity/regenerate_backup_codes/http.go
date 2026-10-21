@@ -1,11 +1,14 @@
 package regenerate_backup_codes
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type Completion interface {
@@ -30,18 +33,19 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 	op := h.operation(Input{Identity: identity})
-	failure, err := NewUsecase(op).Execute()
-	if err != nil {
-		if failure == GenerationFailed || failure == ReplacementFailed {
-			message := "生成备用码失败"
-			if failure == ReplacementFailed {
-				message = "保存备用码失败"
-			}
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": message})
-			common.SysLog(message + ": " + err.Error())
+	if err := NewUsecase(op).Execute(); err != nil {
+		var failed *domain.LoggedError
+		if !errors.As(err, &failed) {
+			h.writeError(c, err)
 			return
 		}
-		h.writeError(c, err)
+		// The log keeps its original text; the response message is localized.
+		key, logPrefix := i18n.MsgIdentityBackupCodesGenerateFailed, "生成备用码失败"
+		if errors.Is(err, domain.ErrBackupCodesSave) {
+			key, logPrefix = i18n.MsgIdentityBackupCodesSaveFailed, "保存备用码失败"
+		}
+		common.ApiErrorI18n(c, key)
+		common.SysLog(logPrefix + ": " + failed.Log)
 		return
 	}
 	h.audit(c, identity.UserID, "user.2fa_backup_codes", nil)

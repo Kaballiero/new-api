@@ -1,42 +1,44 @@
 package admin_disable_twofa
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
-	"github.com/gin-gonic/gin"
+	"errors"
 	"net/http"
 	"strconv"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {
-	factory func(*gin.Context) Operation
-	audit   func(*gin.Context, int, string, map[string]any)
+	factory    func(*gin.Context) Operation
+	audit      func(*gin.Context, int, string, map[string]any)
+	writeError func(*gin.Context, error)
 }
 
-func NewHTTP(factory func(*gin.Context) Operation, audit func(*gin.Context, int, string, map[string]any)) *HTTP {
-	return &HTTP{factory: factory, audit: audit}
+func NewHTTP(factory func(*gin.Context) Operation, audit func(*gin.Context, int, string, map[string]any), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{factory: factory, audit: audit, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "用户ID格式错误"})
+		common.ApiErrorI18n(c, i18n.MsgIdentityUserIDInvalid)
 		return
 	}
-	result, err := NewUsecase(h.factory(c)).Execute(id)
-	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
-		return
-	}
-	switch result.Issue {
-	case "missing":
+	err = NewUsecase(h.factory(c)).Execute(id)
+	switch {
+	case errors.Is(err, domain.ErrTargetNotFound):
 		common.ApiErrorI18n(c, i18n.MsgUserNotExists)
 		return
-	case "forbidden":
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "无权操作同级或更高级用户的2FA设置"})
+	case errors.Is(err, domain.ErrTargetForbidden):
+		common.ApiErrorI18n(c, i18n.MsgIdentityTwoFAManageForbidden)
 		return
-	case "disabled":
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "用户未启用2FA"})
+	case errors.Is(err, domain.ErrTargetTwoFADisabled):
+		common.ApiErrorI18n(c, i18n.MsgTwoFANotEnabled)
+		return
+	case err != nil:
+		h.writeError(c, err)
 		return
 	}
 	h.audit(c, id, "user.2fa_disable", nil)

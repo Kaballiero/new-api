@@ -90,8 +90,6 @@ func (op *Ceremony) PopRegistrationFlow() error {
 func (op *Ceremony) VerificationRequired() bool {
 	return op.data.UserVerification == protocol.VerificationRequired
 }
-func (op *Ceremony) InvalidFlow() error     { return model.ErrAuthFlowInvalid }
-func (op *Ceremony) InvalidIdentity() error { return service.ErrAuthTokenInvalid }
 func (op *Ceremony) ValidateEnrollmentAuthorization() error {
 	return service.ValidateFlowAuthorization(op.Identity, service.VerificationOperation{Scope: service.VerificationScopePasskeyRegister}, op.security.Authorization)
 }

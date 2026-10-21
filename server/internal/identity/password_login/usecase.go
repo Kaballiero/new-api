@@ -1,44 +1,49 @@
 package password_login
 
-import "errors"
+import "github.com/QuantumNous/new-api/internal/identity/domain"
 
 type Operation interface {
 	EncryptionEnabled() bool
 	Decrypt(encrypted, keyID string) (string, error)
 	Authenticate(username, password string) (Account, error)
-	DatabaseError() error
-	EmptyCredentialsError() error
+	// StorageFailed reports a database failure of Authenticate.
+	StorageFailed(error) bool
+	// CredentialsEmpty reports that Authenticate rejected empty credentials.
+	CredentialsEmpty(error) bool
 	LogDatabaseError(username string, err error)
 }
 
-func (usecase Usecase) Execute(input LoginRequest) Result {
+// Execute authenticates the login request. Rejected input is
+// domain.ErrInvalidInput, wrong credentials are domain.ErrCredentialsInvalid
+// and a database failure is domain.ErrStorageUnavailable.
+func (usecase Usecase) Execute(input LoginRequest) (Account, error) {
 	password := input.Password
 	if usecase.operation.EncryptionEnabled() {
 		if input.PasswordEncrypted == "" || input.EncryptionKeyID == "" {
-			return Result{Issue: "invalid"}
+			return Account{}, domain.ErrInvalidInput
 		}
 		var err error
 		password, err = usecase.operation.Decrypt(input.PasswordEncrypted, input.EncryptionKeyID)
 		if err != nil {
-			return Result{Issue: "credentials"}
+			return Account{}, domain.ErrCredentialsInvalid
 		}
 	}
 	if input.Username == "" || password == "" {
-		return Result{Issue: "invalid"}
+		return Account{}, domain.ErrInvalidInput
 	}
 	account, err := usecase.operation.Authenticate(input.Username, password)
 	if err != nil {
 		switch {
-		case errors.Is(err, usecase.operation.DatabaseError()):
+		case usecase.operation.StorageFailed(err):
 			usecase.operation.LogDatabaseError(input.Username, err)
-			return Result{Issue: "database"}
-		case errors.Is(err, usecase.operation.EmptyCredentialsError()):
-			return Result{Issue: "invalid"}
+			return Account{}, domain.ErrStorageUnavailable
+		case usecase.operation.CredentialsEmpty(err):
+			return Account{}, domain.ErrInvalidInput
 		default:
-			return Result{Issue: "credentials"}
+			return Account{}, domain.ErrCredentialsInvalid
 		}
 	}
-	return Result{Account: account}
+	return account, nil
 }
 
 type Usecase struct {

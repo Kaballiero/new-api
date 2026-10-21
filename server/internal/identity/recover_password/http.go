@@ -1,19 +1,21 @@
 package recover_password
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct {
 	operation PasswordRecoveryOperation
-	errors    PasswordRecoveryErrors
 }
 
-func NewHTTP(op PasswordRecoveryOperation, e PasswordRecoveryErrors) *HTTP {
-	return &HTTP{operation: op, errors: e}
+func NewHTTP(op PasswordRecoveryOperation) *HTTP {
+	return &HTTP{operation: op}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	var req PasswordResetRequest
@@ -21,18 +23,17 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	result, err := NewUsecase(h.operation, h.errors).Execute(req.Email, req.Token)
-	if result.InvalidInput {
+	password, err := NewUsecase(h.operation).Execute(req.Email, req.Token)
+	switch {
+	case errors.Is(err, domain.ErrInvalidInput):
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
-	}
-	if result.InvalidLink {
+	case errors.Is(err, domain.ErrRecoveryLinkInvalid):
 		common.ApiErrorI18n(c, i18n.MsgUserPasswordResetLinkInvalid)
 		return
-	}
-	if err != nil {
+	case err != nil:
 		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": result.Password})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": password})
 }

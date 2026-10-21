@@ -28,18 +28,18 @@ func (usecase Usecase) Execute(scope string, method string) error {
 	case "password":
 		if usecase.operation.PasswordEncryptionEnabled() {
 			if err := usecase.operation.DecryptPassword(); err != nil {
-				return usecase.errors.Failed()
+				return domain.ErrVerificationFailed
 			}
 		}
 		if err := usecase.operation.LoadPassword(); err != nil {
 			return err
 		}
 		if !usecase.operation.PasswordMatches() {
-			return usecase.errors.Failed()
+			return domain.ErrVerificationFailed
 		}
 	case "2fa":
 		if scope == "2fa.backup_codes.regenerate" && !usecase.operation.NumericCodeValid() {
-			return usecase.errors.Failed()
+			return domain.ErrVerificationFailed
 		}
 		if err := usecase.operation.LoadFactor(); err != nil {
 			return err
@@ -48,18 +48,17 @@ func (usecase Usecase) Execute(scope string, method string) error {
 			return err
 		}
 	case "passkey", "oauth":
-		return usecase.errors.FlowRequired()
+		return domain.ErrVerificationFlowRequired
 	default:
-		return usecase.errors.Method()
+		return domain.ErrProofMethod
 	}
 	return usecase.operation.Complete()
 }
 
 type Usecase struct {
 	operation SecurityInputOperation
-	errors    domain.VerificationErrors
 }
 
-func NewUsecase(operation SecurityInputOperation, errors domain.VerificationErrors) Usecase {
-	return Usecase{operation: operation, errors: errors}
+func NewUsecase(operation SecurityInputOperation) Usecase {
+	return Usecase{operation: operation}
 }

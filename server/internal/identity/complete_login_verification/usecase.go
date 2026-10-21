@@ -14,14 +14,14 @@ type CompleteLoginOperation interface {
 
 func (usecase Usecase) Execute(method string) error {
 	if !usecase.operation.VerificationValid() {
-		return usecase.errors.FlowInvalid()
+		return domain.ErrAuthFlowInvalid
 	}
 	if err := usecase.operation.NewSession(); err != nil {
 		return err
 	}
 	if err := usecase.operation.ConsumeAndCreate(func(flowID int64, payloadValid bool) error {
 		if flowID != usecase.operation.ExpectedFlowID() || !payloadValid {
-			return usecase.errors.FlowInvalid()
+			return domain.ErrAuthFlowInvalid
 		}
 		return usecase.operation.RequireCurrentMethod(method)
 	}); err != nil {
@@ -36,9 +36,8 @@ func (usecase Usecase) Execute(method string) error {
 
 type Usecase struct {
 	operation CompleteLoginOperation
-	errors    domain.VerificationErrors
 }
 
-func NewUsecase(operation CompleteLoginOperation, errors domain.VerificationErrors) Usecase {
-	return Usecase{operation: operation, errors: errors}
+func NewUsecase(operation CompleteLoginOperation) Usecase {
+	return Usecase{operation: operation}
 }

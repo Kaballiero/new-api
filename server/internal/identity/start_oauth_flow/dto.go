@@ -9,7 +9,3 @@ type Request struct {
 	Scope    string          `json:"scope,omitempty"`
 	Context  json.RawMessage `json:"context,omitempty"`
 }
-type Result struct {
-	Issue string
-	Cause error
-}

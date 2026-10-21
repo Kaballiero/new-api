@@ -1,6 +1,9 @@
 package admin_unlink_oauth_account
 
-import "github.com/QuantumNous/new-api/internal/accounts/domain"
+import (
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+)
 
 type Operation interface {
 	TargetRole(userID int) (int, error)
@@ -10,19 +13,19 @@ type Operation interface {
 	DeleteBinding(userID, providerID int) error
 }
 
-func (usecase Usecase) Execute(input Input) Result {
+func (usecase Usecase) Execute(input Input) error {
 	role, err := usecase.operation.TargetRole(input.UserID)
 	if err != nil {
-		return Result{Cause: err}
+		return err
 	}
 	if !domain.CanManageTargetRole(usecase.operation.ActorRole(), role, usecase.operation.RootRole()) {
-		return Result{Forbidden: true}
+		return identitydomain.ErrTargetForbidden
 	}
 	providerID, err := usecase.operation.ProviderID()
 	if err != nil {
-		return Result{InvalidProvider: true}
+		return identitydomain.ErrProviderIDInvalid
 	}
-	return Result{Cause: usecase.operation.DeleteBinding(input.UserID, providerID)}
+	return usecase.operation.DeleteBinding(input.UserID, providerID)
 }
 
 type Usecase struct {

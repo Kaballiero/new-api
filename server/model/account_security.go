@@ -7,15 +7,14 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/change_password"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 
-	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 )
 
 var (
-	ErrCurrentPasswordInvalid = errors.New("Current password is incorrect.")
-	ErrAccountPasswordState   = errors.New("Password settings have changed. Reload the page and try again.")
-	ErrLastLoginMethod        = errors.New("Add another login method before unlinking this account.")
-	ErrAccountBindingChanged  = errors.New("Account bindings have changed. Start this operation again.")
+	ErrCurrentPasswordInvalid = identitydomain.ErrCurrentPasswordInvalid
+	ErrAccountPasswordState   = identitydomain.ErrPasswordState
+	ErrLastLoginMethod        = identitydomain.ErrLastLoginMethod
+	ErrAccountBindingChanged  = identitydomain.ErrBindingChanged
 	ErrCannotDeleteRootUser   = errors.New("The root account cannot be deleted.")
 )
 
@@ -24,7 +23,7 @@ var (
 // fields are accepted; a stale snapshot cannot restore roles or account status.
 func ChangeUserPassword(identity AuthSessionIdentity, update *User, firstPassword bool) error {
 	op := &passwordadapter.PasswordWriteOperation{DB: func() *gorm.DB { return DB }, Validate: ValidateAuthSessionWithTx, Increment: IncrementUserAuthVersionWithTx, Identity: identity, Update: (*record.User)(update)}
-	return change_password.NewUsecase(op, change_password.PasswordWriteErrors{State: func() error { return ErrAccountPasswordState }, CurrentInvalid: func() error { return ErrCurrentPasswordInvalid }, Same: func() error { return common.ErrAccountPasswordSame }}).Execute(firstPassword)
+	return change_password.NewUsecase(op).Execute(firstPassword)
 }
 
 // AccountLoginMethods is a snapshot of administrator-enabled login mechanisms.

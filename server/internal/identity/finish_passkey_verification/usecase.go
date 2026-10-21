@@ -8,35 +8,34 @@ type Operation interface {
 	ReadIdentity() bool
 	PopVerificationFlow() error
 	VerificationRequired() bool
-	InvalidFlow() error
 	ValidateLogin() error
 	UpdateAssertion() error
 	IssueProof() error
 }
 
-func (usecase Usecase) Execute() (domain.PasskeyFailure, error) {
+func (usecase Usecase) Execute() error {
 	if err := usecase.operation.Build(); err != nil {
-		return "", err
+		return err
 	}
 	if err := usecase.operation.LoadCredential(); err != nil {
-		return domain.PasskeyRecordMissing, nil
+		return domain.ErrPasskeyMissing
 	}
 	if !usecase.operation.ReadIdentity() {
-		return domain.PasskeyIdentityRequired, nil
+		return domain.ErrPasskeyIdentityRequired
 	}
 	if err := usecase.operation.PopVerificationFlow(); err != nil {
-		return "", err
+		return err
 	}
 	if !usecase.operation.VerificationRequired() {
-		return "", usecase.operation.InvalidFlow()
+		return domain.ErrAuthFlowInvalid
 	}
 	if err := usecase.operation.ValidateLogin(); err != nil {
-		return "", err
+		return err
 	}
 	if err := usecase.operation.UpdateAssertion(); err != nil {
-		return "", err
+		return err
 	}
-	return "", usecase.operation.IssueProof()
+	return usecase.operation.IssueProof()
 }
 
 type Usecase struct {

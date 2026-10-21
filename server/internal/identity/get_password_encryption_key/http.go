@@ -10,8 +10,8 @@ type HTTP struct{ keys Keys }
 
 func NewHTTP(keys Keys) *HTTP { return &HTTP{keys: keys} }
 func (h *HTTP) Handle(c *gin.Context) {
-	result := NewUsecase(h.keys).Execute()
-	if result.Unavailable {
+	result, err := NewUsecase(h.keys).Execute()
+	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
 		return
 	}

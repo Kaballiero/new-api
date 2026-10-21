@@ -1,41 +1,46 @@
 package delete_account
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct {
-	operation Operation
-	audit     func(*gin.Context, int, string, map[string]any)
+	operation   Operation
+	authorize   func(*gin.Context) (domain.AuthIdentity, bool)
+	clearCookie func(*gin.Context)
+	writeError  func(*gin.Context, error)
+	audit       func(*gin.Context, int, string, map[string]any)
 }
 
-func NewHTTP(op Operation, audit func(*gin.Context, int, string, map[string]any)) *HTTP {
-	return &HTTP{operation: op, audit: audit}
+// NewHTTP builds the handler; authorize writes its own response and returns
+// false when the security proof is missing or rejected.
+func NewHTTP(op Operation, authorize func(*gin.Context) (domain.AuthIdentity, bool), clearCookie func(*gin.Context), writeError func(*gin.Context, error), audit func(*gin.Context, int, string, map[string]any)) *HTTP {
+	return &HTTP{operation: op, authorize: authorize, clearCookie: clearCookie, writeError: writeError, audit: audit}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	succeeded := false
 	defer func() { h.audit(c, c.GetInt("id"), "user.account_delete", map[string]any{"success": succeeded}) }()
-	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccountDelete}) == nil {
+	identity, ok := h.authorize(c)
+	if !ok {
 		return
 	}
-	identity, _ := middleware.GetSessionAuthIdentity(c)
-	result := NewUsecase(h.operation).Execute(Input{Identity: identity})
-	if result.RootDenied {
+	err := NewUsecase(h.operation).Execute(Input{Identity: identity})
+	if errors.Is(err, domain.ErrRootDeletion) {
 		common.ApiErrorI18n(c, i18n.MsgUserCannotDeleteRootUser)
 		return
 	}
-	if result.Cause != nil {
-		identityhttp.WriteSecurityOperationError(c, result.Cause)
+	if err != nil {
+		h.writeError(c, err)
 		return
 	}
 	succeeded = true
-	service.ClearRefreshCookie(c)
+	h.clearCookie(c)
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{}})
 }

@@ -1,38 +1,49 @@
 package revoke_session
 
 import (
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
-	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
+	"errors"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/QuantumNous/new-api/internal/identity/transport"
+	"github.com/gin-gonic/gin"
 )
 
-type HTTP struct{ revoker Revoker }
+type HTTP struct {
+	revoker     Revoker
+	identity    func(*gin.Context) (domain.AuthIdentity, bool)
+	cookieName  string
+	refreshSID  func(string) (string, bool)
+	clearCookie func(*gin.Context)
+	writeError  func(*gin.Context, error)
+}
 
-func NewHTTP(revoker Revoker) *HTTP { return &HTTP{revoker: revoker} }
+// NewHTTP builds the handler; the refresh cookie is cleared when it belongs to
+// the revoked session.
+func NewHTTP(revoker Revoker, identity func(*gin.Context) (domain.AuthIdentity, bool), cookieName string, refreshSID func(string) (string, bool), clearCookie func(*gin.Context), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{revoker: revoker, identity: identity, cookieName: cookieName, refreshSID: refreshSID, clearCookie: clearCookie, writeError: writeError}
+}
 func (h *HTTP) Handle(c *gin.Context) {
-	identity, ok := identityhttp.RequireBrowserSession(c)
+	identity, ok := transport.RequireBrowserSession(c, h.identity)
 	if !ok {
 		return
 	}
-	result, err := NewUsecase(h.revoker).Execute(Input{UserID: identity.UserID, SID: c.Param("sid")})
-	if err != nil {
-		identityhttp.WriteAuthSessionError(c, err)
-		return
-	}
-	sid := result.SID
-	if result.Invalid {
+	sid, err := NewUsecase(h.revoker).Execute(Input{UserID: identity.UserID, SID: c.Param("sid")})
+	switch {
+	case errors.Is(err, domain.ErrSessionIDRequired):
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "code": "AUTH_SESSION_ID_REQUIRED", "message": "session id is required"})
 		return
-	}
-	if !result.Revoked {
+	case errors.Is(err, domain.ErrSessionNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "code": "AUTH_SESSION_NOT_FOUND", "message": "session not found"})
 		return
+	case err != nil:
+		h.writeError(c, err)
+		return
 	}
-	if rawRefreshToken, cookieErr := c.Cookie(service.RefreshCookieName); cookieErr == nil {
-		cookieSID, ok := service.RefreshTokenSID(rawRefreshToken)
+	if rawRefreshToken, cookieErr := c.Cookie(h.cookieName); cookieErr == nil {
+		cookieSID, ok := h.refreshSID(rawRefreshToken)
 		if ok && cookieSID == sid {
-			service.ClearRefreshCookie(c)
+			h.clearCookie(c)
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"revoked_sid": sid, "current": sid == identity.SessionID}})

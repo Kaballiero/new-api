@@ -1,14 +1,18 @@
 package identityhttp
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/adapter/identity/logincompletion"
 	"github.com/QuantumNous/new-api/internal/identity/complete_primary_login"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/QuantumNous/new-api/internal/identity/transport"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 func LoginMethodFromContext(c *gin.Context) string {
@@ -39,12 +43,13 @@ func LoginMethodFromContext(c *gin.Context) string {
 type PrimaryLogin struct {
 	Audit   func(*model.User, *gin.Context)
 	Profile func(*model.User) map[string]any
+	Errors  transport.Writer
 }
 
 func (h PrimaryLogin) Start(user *model.User, c *gin.Context) {
 	challenge, err := service.StartLoginVerification(user, LoginMethodFromContext(c))
 	if err != nil {
-		WriteSecurityOperationError(c, err)
+		h.Errors.WriteError(c, err)
 		return
 	}
 	if challenge != nil {
@@ -56,14 +61,14 @@ func (h PrimaryLogin) Start(user *model.User, c *gin.Context) {
 }
 func (h PrimaryLogin) AtVersion(user *model.User, version int64, c *gin.Context) {
 	op := &logincompletion.Operation{Primary: user, Metadata: func() (string, string, string) { return LoginMethodFromContext(c), c.ClientIP(), c.Request.UserAgent() }}
-	if failure := complete_primary_login.NewUsecase(op).Execute(version); failure != nil {
-		switch failure.Stage {
-		case "banned":
+	if err := complete_primary_login.NewUsecase(op).Execute(version); err != nil {
+		switch {
+		case errors.Is(err, domain.ErrAccountBanned):
 			common.ApiErrorI18n(c, i18n.MsgAuthUserBanned)
-		case "profile":
-			common.ApiError(c, failure.Cause)
+		case errors.Is(err, domain.ErrInternal):
+			common.ApiError(c, err)
 		default:
-			WriteAuthSessionError(c, failure.Cause)
+			h.Errors.WriteSessionError(c, err)
 		}
 		return
 	}
@@ -80,12 +85,12 @@ func (h PrimaryLogin) Write(c *gin.Context, user *model.User, bundle *service.Au
 func (h PrimaryLogin) Verified(c *gin.Context, bundle *service.AuthBundle, method string) {
 	identity, err := service.ParseAccessToken(bundle.AccessToken)
 	if err != nil {
-		WriteAuthSessionError(c, err)
+		h.Errors.WriteSessionError(c, err)
 		return
 	}
 	user, err := model.GetSelfUserById(identity.UserID)
 	if err != nil {
-		WriteAuthSessionError(c, err)
+		h.Errors.WriteSessionError(c, err)
 		return
 	}
 	c.Set("login_verification_method", method)

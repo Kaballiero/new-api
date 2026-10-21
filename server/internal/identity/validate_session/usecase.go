@@ -14,21 +14,21 @@ type ValidateOperation interface {
 func (usecase Usecase) Execute(userID int, sid string, authVersion int64, sessionVersion int64) error {
 	session, err := usecase.operation.LoadSession(sid)
 	if err != nil {
-		if errors.Is(err, usecase.policy.Inactive()) {
-			return usecase.policy.Revoked()
+		if errors.Is(err, domain.ErrSessionInactive) {
+			return domain.ErrLoginSessionRevoked
 		}
 		return err
 	}
 	now := time.Now().Unix()
 	if session.UserID != userID || session.Status != usecase.policy.ActiveStatus || session.RevokedAt != 0 || session.ExpiresAt <= now || session.Version != sessionVersion || session.UserAuthVersion != authVersion {
-		return usecase.policy.Revoked()
+		return domain.ErrLoginSessionRevoked
 	}
 	user, err := usecase.operation.LoadAccount(userID)
 	if err != nil {
 		return err
 	}
 	if user.Status != usecase.policy.EnabledStatus || user.AuthVersion != authVersion {
-		return usecase.policy.Revoked()
+		return domain.ErrLoginSessionRevoked
 	}
 	return nil
 }

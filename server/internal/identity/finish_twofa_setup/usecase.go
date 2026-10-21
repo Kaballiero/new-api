@@ -12,10 +12,10 @@ type FinishTwoFASetupOperation interface {
 	EnableEnrollment() error
 }
 
-func FinishTwoFASetup(op FinishTwoFASetupOperation, e domain.EnrollmentErrors) error {
+func FinishTwoFASetup(op FinishTwoFASetupOperation) error {
 	err := op.LoadSetupFlow()
-	if errors.Is(err, e.FlowInvalid()) || errors.Is(err, e.FlowExpired()) || errors.Is(err, e.FlowConsumed()) {
-		return e.SetupInvalid()
+	if errors.Is(err, domain.ErrAuthFlowInvalid) || errors.Is(err, domain.ErrAuthFlowExpired) || errors.Is(err, domain.ErrAuthFlowConsumed) {
+		return domain.ErrTwoFASetupInvalid
 	}
 	if err != nil {
 		return err
@@ -24,8 +24,8 @@ func FinishTwoFASetup(op FinishTwoFASetupOperation, e domain.EnrollmentErrors) e
 		return err
 	}
 	if err := op.ValidateAuthorization(); err != nil {
-		if errors.Is(err, e.FlowInvalid()) {
-			return e.SetupInvalid()
+		if errors.Is(err, domain.ErrAuthFlowInvalid) {
+			return domain.ErrTwoFASetupInvalid
 		}
 		return err
 	}

@@ -10,19 +10,18 @@ type Operation interface {
 	ParseAccess(string) (domain.AuthIdentity, error)
 	Revoke(userID int, sid, reason string) (bool, error)
 	RevokeRefresh(raw, expectedSID, reason string) error
-	Mismatch() error
 }
 
 func (usecase Usecase) Execute(input Input) (Result, error) {
 	expected := strings.TrimSpace(input.ExpectedSID)
 	cookieSID, hasSID := usecase.operation.RefreshSID(input.RefreshToken)
 	if expected != "" && input.CookiePresent && hasSID && cookieSID != expected {
-		return Result{}, usecase.operation.Mismatch()
+		return Result{}, domain.ErrLoginSessionMismatch
 	}
 	if input.AccessToken != "" {
 		if identity, err := usecase.operation.ParseAccess(input.AccessToken); err == nil {
 			if expected != "" && expected != identity.SessionID {
-				return Result{}, usecase.operation.Mismatch()
+				return Result{}, domain.ErrLoginSessionMismatch
 			}
 			if _, err := usecase.operation.Revoke(identity.UserID, identity.SessionID, "logout"); err != nil {
 				return Result{}, err

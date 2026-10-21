@@ -20,17 +20,17 @@ type RequirementsOperation interface {
 
 func (usecase Usecase) Execute(scope string, expectedVersion int64) error {
 	if scope == "auth.login" {
-		return usecase.errors.Scope()
+		return domain.ErrProofScope
 	}
 	status, version, role, err := usecase.operation.LoadState()
 	if err != nil {
 		return err
 	}
 	if status != usecase.enabledStatus || version != expectedVersion {
-		return usecase.errors.TokenInvalid()
+		return domain.ErrAuthTokenInvalid
 	}
 	if scope == "channel.key.read" && role != usecase.rootRole {
-		return usecase.errors.Forbidden()
+		return domain.ErrVerificationForbidden
 	}
 	if err := usecase.operation.Policy(); err != nil {
 		return err
@@ -70,9 +70,8 @@ type Usecase struct {
 	operation     RequirementsOperation
 	enabledStatus int
 	rootRole      int
-	errors        domain.VerificationErrors
 }
 
-func NewUsecase(operation RequirementsOperation, enabledStatus int, rootRole int, errors domain.VerificationErrors) Usecase {
-	return Usecase{operation: operation, enabledStatus: enabledStatus, rootRole: rootRole, errors: errors}
+func NewUsecase(operation RequirementsOperation, enabledStatus int, rootRole int) Usecase {
+	return Usecase{operation: operation, enabledStatus: enabledStatus, rootRole: rootRole}
 }

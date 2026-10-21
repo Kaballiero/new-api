@@ -27,15 +27,6 @@ const (
 	authTokenAudience     = "new-api-dashboard"
 )
 
-var (
-	ErrAuthTokenInvalid = errors.New("authentication token is invalid")
-	ErrAuthTokenExpired = errors.New("authentication token has expired")
-	ErrProofScope       = errors.New("security proof scope mismatch")
-	ErrProofMethod      = errors.New("security proof method mismatch")
-	ErrProofContext     = errors.New("security proof context mismatch")
-	ErrProofConsumed    = errors.New("security proof has already been consumed")
-)
-
 // AuthIdentity is the server-validated identity attached to dashboard requests.
 // Role, status and group are deliberately loaded from the user cache instead of JWT claims.
 type AuthIdentity = model.AuthSessionIdentity

@@ -7,11 +7,9 @@ import (
 )
 
 type Reference struct {
-	Invalid      func() error
 	ValidateFunc func(domain.AuthIdentity) error
 }
 
-func (op Reference) InvalidError() error { return op.Invalid() }
 func (Reference) LoadSession(sid string) (int64, int64, error) {
 	session, err := model.GetUserSessionCached(sid)
 	if err != nil {
@@ -25,7 +23,6 @@ type SecurityAdvancement struct {
 	Identity  domain.AuthIdentity
 	Reason    string
 	IssueFunc func(*model.UserSession, string, bool) (*dto.AuthBundle, error)
-	Revoked   func() error
 	Bundle    *dto.AuthBundle
 	session   *model.UserSession
 }
@@ -40,7 +37,6 @@ func (op *SecurityAdvancement) LoadAccount() (domain.AccountState, error) {
 	}
 	return domain.AccountState{Status: user.Status, AuthVersion: user.AuthVersion}, nil
 }
-func (op *SecurityAdvancement) RevokedError() error { return op.Revoked() }
 func (op *SecurityAdvancement) Advance(version int64) error {
 	var err error
 	op.session, err = model.AdvanceUserSessionAuthVersion(op.Identity.UserID, op.Identity.SessionID, op.Identity.SessionVersion, op.Identity.UserAuthVersion, version)

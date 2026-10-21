@@ -2,6 +2,7 @@ package get_verification_requirements
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/gin-gonic/gin"
 	"net/http"
@@ -19,7 +20,7 @@ func NewHTTP(identity func(*gin.Context) (domain.AuthIdentity, bool), resolve fu
 func (h *HTTP) Handle(c *gin.Context) {
 	identity, ok := h.identity(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "当前认证方式不支持安全验证"})
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": i18n.T(c, i18n.MsgIdentitySecurityVerificationUnsupported)})
 		return
 	}
 	result, err := h.resolve(identity, c.Query("scope"))

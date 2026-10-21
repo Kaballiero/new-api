@@ -31,9 +31,9 @@ import (
 
 type LoginRequest = password_login.LoginRequest
 
-func GetPasswordEncryptionKey(c *gin.Context) { NewIdentityHTTP().PasswordEncryptionKey.Handle(c) }
+func GetPasswordEncryptionKey(c *gin.Context) { identityHTTP().PasswordEncryptionKey.Handle(c) }
 
-func Login(c *gin.Context) { NewIdentityHTTP().PasswordLogin.Handle(c) }
+func Login(c *gin.Context) { identityHTTP().PasswordLogin.Handle(c) }
 
 // loginMethodFromContext 根据请求路径推导登录方式，用于登录审计日志。
 func loginMethodFromContext(c *gin.Context) string { return identityhttp.LoginMethodFromContext(c) }
@@ -58,17 +58,17 @@ func recordLoginAudit(user *model.User, c *gin.Context) {
 
 // setupLogin evaluates the shared login policy after primary authentication.
 // Only a completed Passkey ceremony may go directly to session issuance.
-func setupLogin(user *model.User, c *gin.Context) { NewIdentityHTTP().PrimaryLogin.Start(user, c) }
+func setupLogin(user *model.User, c *gin.Context) { identityHTTP().PrimaryLogin.Start(user, c) }
 
 func setupLoginAtAuthVersion(user *model.User, version int64, c *gin.Context) {
-	NewIdentityHTTP().PrimaryLogin.AtVersion(user, version, c)
+	identityHTTP().PrimaryLogin.AtVersion(user, version, c)
 }
 
 func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBundle) {
-	NewIdentityHTTP().PrimaryLogin.Write(c, user, bundle)
+	identityHTTP().PrimaryLogin.Write(c, user, bundle)
 }
 
-func Register(c *gin.Context) { NewIdentityHTTP().RegisterPassword.Handle(c) }
+func Register(c *gin.Context) { identityHTTP().RegisterPassword.Handle(c) }
 
 func GetAllUsers(c *gin.Context) { accountsHTTP().ListAccounts.Handle(c) }
 
@@ -119,7 +119,7 @@ func UpdateSelf(c *gin.Context) { accountsHTTP().UpdateProfile.Handle(c) }
 
 func DeleteUser(c *gin.Context) { accountsHTTP().DeleteAccount.Handle(c) }
 
-func DeleteSelf(c *gin.Context) { NewIdentityHTTP().DeleteAccount.Handle(c) }
+func DeleteSelf(c *gin.Context) { identityHTTP().DeleteAccount.Handle(c) }
 
 func CreateUser(c *gin.Context) { accountsHTTP().CreateAccount.Handle(c) }
 

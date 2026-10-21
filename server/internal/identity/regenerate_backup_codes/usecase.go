@@ -1,22 +1,25 @@
 package regenerate_backup_codes
 
+import "github.com/QuantumNous/new-api/internal/identity/domain"
+
 type Operation interface {
 	GenerateBackupCodes() error
 	ReplaceBackupCodes() error
 	AdvanceSession() error
 }
 
-func (usecase Usecase) Execute() (Failure, error) {
+// Execute replaces the backup codes. Generation and storage failures are
+// *domain.LoggedError over domain.ErrBackupCodesGenerate and
+// domain.ErrBackupCodesSave with the cause text; session errors are returned
+// as is.
+func (usecase Usecase) Execute() error {
 	if err := usecase.operation.GenerateBackupCodes(); err != nil {
-		return GenerationFailed, err
+		return &domain.LoggedError{Err: domain.ErrBackupCodesGenerate, Log: err.Error()}
 	}
 	if err := usecase.operation.ReplaceBackupCodes(); err != nil {
-		return ReplacementFailed, err
+		return &domain.LoggedError{Err: domain.ErrBackupCodesSave, Log: err.Error()}
 	}
-	if err := usecase.operation.AdvanceSession(); err != nil {
-		return SessionFailed, err
-	}
-	return NoFailure, nil
+	return usecase.operation.AdvanceSession()
 }
 
 type Usecase struct {

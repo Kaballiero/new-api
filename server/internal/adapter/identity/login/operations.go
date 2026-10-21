@@ -162,7 +162,7 @@ func (op *completeLoginVerificationOperation) NewSession() error {
 func (op *completeLoginVerificationOperation) ExpectedFlowID() int64 { return op.verification.Flow.Id }
 
 func (op *completeLoginVerificationOperation) payloadMatches(flow *model.AuthFlow) bool {
-	// Сохраняем исходный ранний выход: другой поток никогда не достигает декодера.
+	// Keep the original early return: another flow never reaches the decoder.
 	if flow.Id != op.verification.Flow.Id {
 		return false
 	}

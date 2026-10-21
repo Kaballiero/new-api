@@ -21,7 +21,6 @@ type Creation struct {
 	payload  []byte
 }
 
-func (*Creation) InvalidError() error { return model.ErrAuthFlowInvalid }
 func (op *Creation) EncodePayload() error {
 	var err error
 	op.payload, err = common.Marshal(Payload{SessionData: *op.Data, Security: op.Security})
@@ -40,7 +39,6 @@ type Consumption struct {
 	tx             *gorm.DB
 }
 
-func (*Consumption) InvalidError() error { return model.ErrAuthFlowInvalid }
 func (op *Consumption) Consume(check func(domain.PasskeyFlowSecurity) error) error {
 	_, err := model.ConsumeAuthFlowWithAction(op.Token, model.AuthFlowMatch{Purpose: op.Purpose, UserId: op.Identity.UserID, SessionId: op.Identity.SessionID}, func(tx *gorm.DB, flow *model.AuthFlow) error {
 		if err := common.UnmarshalJsonStr(flow.Payload, &op.Payload); err != nil {

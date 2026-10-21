@@ -25,16 +25,7 @@ const (
 	userSessionCleanupBatchSize = 500
 )
 
-var (
-	ErrUserSessionInvalid               = errors.New("user session is invalid")
-	ErrUserSessionInactive              = errors.New("user session is inactive")
-	ErrUserSessionRefreshInvalid        = errors.New("user session refresh token is invalid")
-	ErrUserSessionRefreshRace           = errors.New("user session refresh is already in progress")
-	ErrUserSessionRefreshReuse          = errors.New("user session refresh token was reused")
-	ErrUserSessionLimit                 = errors.New("active user session limit reached")
-	ErrUserSessionIssuanceLimit         = errors.New("user session issuance limit reached")
-	errUserSessionCacheObservationStale = errors.New("user session cache observation is stale")
-)
+var errUserSessionCacheObservationStale = errors.New("user session cache observation is stale")
 
 // UserSession is the server-side control plane for short-lived access JWTs.
 // RefreshHash values are HMAC digests supplied by the service layer; opaque

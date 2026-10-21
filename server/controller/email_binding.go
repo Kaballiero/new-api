@@ -7,6 +7,6 @@ import (
 
 type emailBindRequest = dto.EmailBindRequest
 
-func EmailBindStart(c *gin.Context)  { NewIdentityHTTP().StartEmailBinding.Handle(c) }
-func EmailBindResend(c *gin.Context) { NewIdentityHTTP().ResendEmailBinding.Handle(c) }
-func EmailBind(c *gin.Context)       { NewIdentityHTTP().ConfirmEmailBinding.Handle(c) }
+func EmailBindStart(c *gin.Context)  { identityHTTP().StartEmailBinding.Handle(c) }
+func EmailBindResend(c *gin.Context) { identityHTTP().ResendEmailBinding.Handle(c) }
+func EmailBind(c *gin.Context)       { identityHTTP().ConfirmEmailBinding.Handle(c) }

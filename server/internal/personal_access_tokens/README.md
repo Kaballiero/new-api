@@ -29,7 +29,7 @@
 
 Ошибки сценариев — значения из `domain/errors.go`. Их переводит в HTTP общий `transport.WriteError`:
 - `ErrTokenDuplicate` (сгенерированный токен уже занят) → 200 `{success:false}` с i18n-сообщением `common.uuid_duplicate`;
-- всё остальное, включая `domain.Internal(err)`, передаётся без изменений общему обработчику ошибок операций безопасности (`identityhttp.WriteSecurityOperationError`, подключается в `app`): отсутствующий аккаунт (`gorm.ErrRecordNotFound`) → 401 `AUTH_UNAUTHORIZED`, прочие сбои → 500 `AUTH_INTERNAL_ERROR` с записью в лог; в обоих случаях `security_error_code` = `AUTH_INTERNAL_ERROR` для аудита;
+- всё остальное, включая `domain.Internal(err)`, передаётся без изменений общему обработчику ошибок операций безопасности identity (`identity/transport.Writer.WriteError`, подключается в `app` через `NewIdentityErrors`): отсутствующий аккаунт (`gorm.ErrRecordNotFound`) → 401 `AUTH_UNAUTHORIZED`, прочие сбои → 500 `AUTH_INTERNAL_ERROR` с записью в лог; в обоих случаях `security_error_code` = `AUTH_INTERNAL_ERROR` для аудита;
 - ответы повторной проверки (`SECURITY_PROOF_*`) пишет сам `middleware.RequireSecurityProof` до вызова usecase.
 
 OpenAPI-генератор (`cmd/gen-admin-openapi/personal_access_tokens.go`) читает DTO и `http.go` сценариев и сохраняет публичные имена схем (`UserAccessTokenStatus`).
@@ -40,7 +40,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/personal_access_tokens.go`) �
 - Сборка — `internal/app/personal_access_tokens.go`, один раз через `sync.OnceValue` в `controller/access_token.go`.
 - Хранение: `internal/adapter/gorm/personal_access_tokens` (`Store`) поверх GORM-записи `users` из `internal/adapter/gorm/accounts/record` и таблицы аудита; экземпляр создаёт `model.NewPersonalAccessTokenPersistence` (`model.DB`, `model.LOG_DB`, `lockForUpdate`).
 - Повторная проверка: `middleware.RequireSecurityProof` со скоупами `service.VerificationScopeAccessTokenGenerate` / `...Revoke`.
-- Ошибки операций безопасности: `internal/adapter/identity/http` (`WriteSecurityOperationError`).
+- Ошибки операций безопасности: `internal/identity/transport` (`Writer.WriteError`, собирается `app.NewIdentityErrors`).
 - Аудит: `recordUserSecurityAudit` из `controller/audit.go`.
 - Потребители: `controller/access_token.go` (HTTP), `model/audit_log.go` (`AccessTokenFingerprint` для `middleware.AccessTokenAudit`).
 
@@ -50,4 +50,4 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/personal_access_tokens.go`) �
 - ⚠ `model` всё ещё импортирует `internal` (2 записи в списке исключений архитектурного теста):
   - `model/personal_access_tokens.go` → `adapter/gorm/personal_access_tokens`: `NewPersonalAccessTokenPersistence` нужен приватный `lockForUpdate`, а `UpdateUserAccessToken` используют тесты `model/` и `controller/`;
   - `model/audit_log.go` → `personal_access_tokens/domain`: `AccessTokenFingerprint` для `middleware.AccessTokenAudit` (`middleware` не может импортировать `internal/app`).
-- Ошибки хранения и формат ответа 401/500 принадлежат identity (`WriteSecurityOperationError`); при переносе этого обработчика в `identity/transport` меняется только подключение в `app`.
+- Ошибки хранения и формат ответа 401/500 принадлежат identity (`identity/transport.Writer.WriteError`); модуль только передаёт их дальше.

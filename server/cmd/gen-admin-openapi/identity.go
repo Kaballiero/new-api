@@ -127,8 +127,13 @@ func preserveIdentityHandlerContract(info *HandlerInfo) {
 	switch info.Name {
 	case "Setup2FA":
 		info.RespType = "TwoFASetup"
-	case "UniversalVerify", "PasskeyVerifyFinish":
+	case "UniversalVerify":
 		info.RespType = "SecurityProof"
+	case "PasskeyVerifyFinish":
+		info.RespType = "SecurityProof"
+		// The published schema is the envelope of the former inline
+		// "passkey disabled" response, which the walker used to see.
+		info.RespSchema = map[string]any{"type": "object", "properties": map[string]any{"success": map[string]any{"type": "boolean"}, "message": map[string]any{"type": "string"}}}
 	case "GetVerificationMethods":
 		info.RespType = "VerificationRequirements"
 	case "GetUserOAuthBindings", "GetUserOAuthBindingsByAdmin":

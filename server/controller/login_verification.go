@@ -5,12 +5,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func VerifyLogin(c *gin.Context) { NewIdentityHTTP().VerifyLoginCode.Handle(c) }
+func VerifyLogin(c *gin.Context) { identityHTTP().VerifyLoginCode.Handle(c) }
 
-func LoginPasskeyBegin(c *gin.Context) { NewIdentityHTTP().BeginLoginPasskey.Handle(c) }
+func LoginPasskeyBegin(c *gin.Context) { identityHTTP().BeginLoginPasskey.Handle(c) }
 
-func LoginPasskeyFinish(c *gin.Context) { NewIdentityHTTP().FinishLoginPasskey.Handle(c) }
+func LoginPasskeyFinish(c *gin.Context) { identityHTTP().FinishLoginPasskey.Handle(c) }
 
 func completeVerifiedLoginResponse(c *gin.Context, bundle *service.AuthBundle, method string) {
-	NewIdentityHTTP().PrimaryLogin.Verified(c, bundle, method)
+	identityHTTP().PrimaryLogin.Verified(c, bundle, method)
 }

@@ -1,13 +1,14 @@
 package delete_passkey
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
-	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/QuantumNous/new-api/internal/identity/dto"
+	"github.com/QuantumNous/new-api/internal/identity/transport"
+	"github.com/gin-gonic/gin"
 )
 
 type Completion interface {
@@ -15,32 +16,39 @@ type Completion interface {
 	Bundle() *dto.AuthBundle
 }
 type HTTP struct {
-	factory func(Input) Completion
-	audit   func(*gin.Context, int, string, map[string]any)
+	userID     func(*gin.Context) (int, error)
+	authorize  func(*gin.Context) bool
+	identity   func(*gin.Context) (domain.AuthIdentity, bool)
+	factory    func(Input) Completion
+	writeError func(*gin.Context, error)
+	audit      func(*gin.Context, int, string, map[string]any)
 }
 
-func NewHTTP(factory func(Input) Completion, audit func(*gin.Context, int, string, map[string]any)) *HTTP {
-	return &HTTP{factory: factory, audit: audit}
+// NewHTTP builds the handler; userID returns the enabled authenticated user,
+// authorize writes its own response and returns false when the security proof
+// is missing or rejected.
+func NewHTTP(userID func(*gin.Context) (int, error), authorize func(*gin.Context) bool, identity func(*gin.Context) (domain.AuthIdentity, bool), factory func(Input) Completion, writeError func(*gin.Context, error), audit func(*gin.Context, int, string, map[string]any)) *HTTP {
+	return &HTTP{userID: userID, authorize: authorize, identity: identity, factory: factory, writeError: writeError, audit: audit}
 }
 func (h *HTTP) Handle(c *gin.Context) {
-	user, err := identityhttp.GetAuthenticatedUser(c)
+	userID, err := h.userID(c)
 	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
+		h.writeError(c, err)
 		return
 	}
-	if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopePasskeyDelete}) == nil {
+	if !h.authorize(c) {
 		return
 	}
-	identity, ok := middleware.GetSessionAuthIdentity(c)
+	identity, ok := h.identity(c)
 	if !ok {
-		common.ApiErrorMsg(c, "当前认证方式不支持安全验证")
+		common.ApiErrorI18n(c, i18n.MsgIdentitySecurityVerificationUnsupported)
 		return
 	}
 	op := h.factory(Input{Identity: identity})
 	if err := NewUsecase(op).Execute(); err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
+		h.writeError(c, err)
 		return
 	}
-	h.audit(c, user.Id, "user.passkey_delete", nil)
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Passkey 已解绑", "data": identityhttp.AuthRotationData(op.Bundle())})
+	h.audit(c, userID, "user.passkey_delete", nil)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Passkey 已解绑", "data": transport.RotationData(op.Bundle())})
 }

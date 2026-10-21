@@ -12,8 +12,6 @@ import (
 
 const ExternalIdentityProviderTelegram = "telegram"
 
-var ErrExternalIdentityAlreadyClaimed = errors.New("external identity is already claimed")
-
 // ExternalIdentityClaim is the durable ownership record for an identity issued
 // by an external provider. The two unique indexes make both the provider
 // subject and the user's provider slot single-owner without relying on a

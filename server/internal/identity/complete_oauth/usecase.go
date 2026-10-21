@@ -1,9 +1,12 @@
 package complete_oauth
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+)
 
 type CallbackOperation interface {
-	InvalidFlow() error
 	ProviderKnown() bool
 	DecodeBindingPayload() error
 	LoadPending() error
@@ -30,7 +33,6 @@ type CallbackOperation interface {
 }
 type BindingOperation interface {
 	ReadBindingIdentity() bool
-	InvalidIdentity() error
 	DecodeBindingPayload() error
 	ValidateBindingAuthorization() error
 	ProviderUserTaken() bool
@@ -40,128 +42,126 @@ type BindingOperation interface {
 	NotifyBoundAccount() bool
 }
 
-func CompleteBinding(op BindingOperation) Result {
+// CompleteBinding binds the provider account to the session user. The result
+// reports a committed binding even when loading the bound account fails.
+func CompleteBinding(op BindingOperation) (Result, error) {
 	if !op.ReadBindingIdentity() {
-		return Result{Cause: op.InvalidIdentity()}
+		return Result{}, domain.ErrAuthTokenInvalid
 	}
 	if err := op.DecodeBindingPayload(); err != nil {
-		return Result{Cause: err}
+		return Result{}, err
 	}
 	if err := op.ValidateBindingAuthorization(); err != nil {
-		return Result{Cause: err}
+		return Result{}, err
 	}
 	if op.ProviderUserTaken() || op.LegacyUserTaken() {
-		return Result{Issue: "already_bound"}
+		return Result{}, domain.ErrAlreadyBound
 	}
 	if err := op.CommitBinding(); err != nil {
-		return Result{Cause: err}
+		return Result{}, err
 	}
 	if err := op.LoadBoundAccount(); err != nil {
-		return Result{Cause: err, BindingSucceeded: true, NotificationWarning: true}
+		return Result{BindingSucceeded: true, NotificationWarning: true}, err
 	}
-	return Result{Issue: "bound", BindingSucceeded: true, NotificationWarning: op.NotifyBoundAccount()}
+	return Result{Outcome: OutcomeBound, BindingSucceeded: true, NotificationWarning: op.NotifyBoundAccount()}, nil
 }
-func (usecase Usecase) Execute() Result {
+
+// Execute completes the OAuth callback. Provider exchange failures are
+// *domain.ProviderError, a provider-reported error is
+// *domain.ProviderMessageError; the result outcome is empty when the flow
+// stops without a response.
+func (usecase Usecase) Execute() (Result, error) {
 	if !usecase.operation.ProviderKnown() {
-		return Result{Issue: "provider_unknown"}
+		return Result{}, domain.ErrProviderUnknown
 	}
 	if err := usecase.operation.LoadPending(); err != nil {
-		return Result{Issue: "state"}
+		return Result{}, domain.ErrOAuthStateInvalid
 	}
 	intent := usecase.operation.PendingIntent()
 	if intent == "bind" || intent == "verify" {
 		if !usecase.operation.ReadBoundIdentity() {
-			return Result{Issue: "state"}
+			return Result{}, domain.ErrOAuthStateInvalid
 		}
 		if intent == "bind" {
 			if err := usecase.operation.DecodeBindingPayload(); err != nil {
-				return Result{Cause: err}
+				return Result{}, err
 			}
 			if err := usecase.operation.ValidateBindingAuthorization(); err != nil {
-				return Result{Cause: err}
+				return Result{}, err
 			}
 		}
 	} else if intent != "login" {
-		return Result{Issue: "invalid"}
+		return Result{}, domain.ErrInvalidInput
 	}
 	if usecase.operation.IsTelegram() {
 		if err := usecase.operation.TelegramConfiguration(); err != nil {
-			return Result{Cause: err}
+			return Result{}, err
 		}
 		if err := usecase.operation.DecodeTelegram(); err != nil {
-			return Result{Cause: err}
+			return Result{}, err
 		}
 		if intent != "login" {
 			if !usecase.operation.ReadTelegramIdentity() {
-				return Result{Cause: usecase.operation.InvalidFlow()}
+				return Result{}, domain.ErrAuthFlowInvalid
 			}
 			if err := usecase.operation.ValidateSession(); err != nil {
-				return Result{Cause: err}
+				return Result{}, err
 			}
 		}
 		usecase.operation.CaptureTelegramContext()
 	}
 	if !usecase.operation.ProviderEnabled() {
-		return Result{Issue: "provider_disabled"}
+		return Result{}, domain.ErrProviderDisabled
 	}
 	if code := usecase.operation.ProviderError(); code != "" {
 		if err := usecase.operation.ConsumeFlow(); err != nil {
-			return Result{Issue: "state"}
+			return Result{}, domain.ErrOAuthStateInvalid
 		}
-		return Result{Issue: "provider_error", Message: usecase.operation.ProviderErrorDescription(code)}
+		return Result{}, &domain.ProviderMessageError{Message: usecase.operation.ProviderErrorDescription(code)}
 	}
 	if err := usecase.operation.ExchangeCode(); err != nil {
 		if usecase.operation.IsTelegram() {
-			return Result{Cause: err}
+			return Result{}, err
 		}
-		return Result{Issue: "external", Cause: err}
+		return Result{}, &domain.ProviderError{Cause: err}
 	}
 	if err := usecase.operation.ReadProviderUser(); err != nil {
 		if usecase.operation.IsTelegram() {
-			return Result{Cause: err}
+			return Result{}, err
 		}
-		return Result{Issue: "external", Cause: err}
+		return Result{}, &domain.ProviderError{Cause: err}
 	}
 	if intent == "bind" {
 		return CompleteBinding(usecase.binding)
 	}
 	if err := usecase.operation.ConsumeFlow(); err != nil {
-		return Result{Issue: "state"}
+		return Result{}, domain.ErrOAuthStateInvalid
 	}
 	switch usecase.operation.ConsumedIntent() {
 	case "login":
 		if err := usecase.operation.DecodePayload(); err != nil {
-			return Result{Cause: err}
+			return Result{}, err
 		}
 		if err := ResolveAccount(usecase.operation.AffiliateCode(), usecase.lookup, usecase.registration); err != nil {
-			if errors.Is(err, usecase.registration.EmailTakenError()) {
-				return Result{Issue: "email_taken"}
+			if usecase.registration.EmailTaken(err) || errors.Is(err, domain.ErrEmailTaken) {
+				return Result{}, domain.ErrEmailTaken
 			}
-			switch err.(type) {
-			case *OAuthUserDeletedError:
-				return Result{Issue: "deleted"}
-			case *OAuthRegistrationDisabledError:
-				return Result{Issue: "registration_disabled"}
-			case *OAuthEmailAlreadyTakenError:
-				return Result{Issue: "email_taken"}
-			default:
-				return Result{Cause: err}
-			}
+			return Result{}, err
 		}
 		if !usecase.operation.AccountEnabled() {
-			return Result{Issue: "banned"}
+			return Result{}, domain.ErrAccountBanned
 		}
-		return Result{Issue: "login"}
+		return Result{Outcome: OutcomeLogin}, nil
 	case "verify":
 		if err := usecase.operation.DecodePayload(); err != nil {
-			return Result{Cause: err}
+			return Result{}, err
 		}
 		if err := usecase.operation.VerifyBoundAccount(); err != nil {
-			return Result{Cause: err}
+			return Result{}, err
 		}
-		return Result{Issue: "verified"}
+		return Result{Outcome: OutcomeVerified}, nil
 	}
-	return Result{Issue: "stopped"}
+	return Result{}, nil
 }
 
 type Usecase struct {

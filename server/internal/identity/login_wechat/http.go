@@ -1,9 +1,14 @@
 package login_wechat
 
 import (
+	"errors"
+	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type Completion interface {
@@ -22,28 +27,27 @@ func NewHTTP(factory func() Completion, complete func(*model.User, *gin.Context)
 func (h *HTTP) Handle(c *gin.Context) {
 	op := h.factory()
 	if !op.Enabled() {
-		c.JSON(http.StatusOK, gin.H{"message": "管理员未开启通过微信登录以及注册", "success": false})
+		common.ApiErrorI18n(c, i18n.MsgIdentityWeChatDisabled)
 		return
 	}
-	result := NewUsecase(op).Execute(Input{Code: c.Query("code")})
+	err := NewUsecase(op).Execute(Input{Code: c.Query("code")})
 	message := ""
-	if result.Cause != nil {
-		message = result.Cause.Error()
-	} else {
-		switch result.Issue {
-		case "disabled":
-			message = "管理员未开启通过微信登录以及注册"
-		case "deleted":
-			message = "用户已注销"
-		case "registration_disabled":
-			message = "管理员关闭了新用户注册"
-		case "banned":
-			message = "用户已被封禁"
-		}
-	}
-	if result.Cause != nil || result.Issue != "" {
-		c.JSON(http.StatusOK, gin.H{"message": message, "success": false})
+	switch {
+	case err == nil:
+		h.complete(op.AuthenticatedUser(), c)
 		return
+	case errors.Is(err, domain.ErrAccountDeleted):
+		message = i18n.T(c, i18n.MsgOAuthUserDeleted)
+	case errors.Is(err, domain.ErrRegistrationDisabled):
+		message = i18n.T(c, i18n.MsgUserRegisterDisabled)
+	case errors.Is(err, domain.ErrAccountBanned):
+		message = i18n.T(c, i18n.MsgOAuthUserBanned)
+	case errors.Is(err, domain.ErrWeChatCodeMissing):
+		message = i18n.T(c, i18n.MsgInvalidParams)
+	case errors.Is(err, domain.ErrWeChatCodeInvalid):
+		message = i18n.T(c, i18n.MsgUserVerificationCodeError)
+	default:
+		message = err.Error()
 	}
-	h.complete(op.AuthenticatedUser(), c)
+	c.JSON(http.StatusOK, gin.H{"message": message, "success": false})
 }

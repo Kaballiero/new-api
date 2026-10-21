@@ -1,9 +1,10 @@
 package register_password
 
 import (
-	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Operation interface {
@@ -12,7 +13,8 @@ type Operation interface {
 	EmailVerificationEnabled() bool
 	VerifyEmail(email, code string) bool
 	EnsureEmailAvailable(string) error
-	EmailTakenError() error
+	// EmailTaken reports that err rejects an e-mail address used by another account.
+	EmailTaken(error) bool
 	CheckExists(username, email string) (bool, error)
 	Inviter(code string) (int, error)
 	Insert(username, password, email string, inviter int) error
@@ -22,27 +24,29 @@ type Operation interface {
 	InsertDefaultToken(userID int, username, key string) error
 }
 
-func (usecase Usecase) Execute(user User) Result {
+// Execute registers a password account. Every rejection is a domain error with
+// its own response; *domain.LoggedError carries details logged after it.
+func (usecase Usecase) Execute(user User) error {
 	user.Username = strings.TrimSpace(user.Username)
 	user.Email = usecase.operation.NormalizeEmail(user.Email)
 	if user.Username == "" {
-		return Result{MessageKey: "invalid_params"}
+		return domain.ErrInvalidInput
 	}
 	if err := usecase.operation.Validate(user); err != nil {
-		return Result{MessageKey: "input_invalid", Params: map[string]any{"Error": err.Error()}}
+		return &domain.InputError{Detail: err.Error()}
 	}
 	if usecase.operation.EmailVerificationEnabled() {
 		if user.Email == "" || user.VerificationCode == "" {
-			return Result{MessageKey: "email_required"}
+			return domain.ErrEmailVerificationRequired
 		}
 		if !usecase.operation.VerifyEmail(user.Email, user.VerificationCode) {
-			return Result{MessageKey: "code_invalid"}
+			return domain.ErrVerificationCodeInvalid
 		}
 		if err := usecase.operation.EnsureEmailAvailable(user.Email); err != nil {
-			if errors.Is(err, usecase.operation.EmailTakenError()) {
-				return Result{MessageKey: "email_taken"}
+			if usecase.operation.EmailTaken(err) {
+				return domain.ErrEmailTaken
 			}
-			return Result{MessageKey: "database"}
+			return domain.ErrStorageUnavailable
 		}
 	}
 	emailForCheck := ""
@@ -51,10 +55,10 @@ func (usecase Usecase) Execute(user User) Result {
 	}
 	exists, err := usecase.operation.CheckExists(user.Username, emailForCheck)
 	if err != nil {
-		return Result{MessageKey: "database", LogAfter: fmt.Sprintf("CheckUserExistOrDeleted error: %v", err)}
+		return &domain.LoggedError{Err: domain.ErrStorageUnavailable, Log: fmt.Sprintf("CheckUserExistOrDeleted error: %v", err)}
 	}
 	if exists {
-		return Result{MessageKey: "exists"}
+		return domain.ErrUserExists
 	}
 	inviter, _ := usecase.operation.Inviter(user.AffCode)
 	email := ""
@@ -62,25 +66,25 @@ func (usecase Usecase) Execute(user User) Result {
 		email = user.Email
 	}
 	if err := usecase.operation.Insert(user.Username, user.Password, email, inviter); err != nil {
-		if errors.Is(err, usecase.operation.EmailTakenError()) {
-			return Result{MessageKey: "email_taken"}
+		if usecase.operation.EmailTaken(err) {
+			return domain.ErrEmailTaken
 		}
-		return Result{Cause: err}
+		return err
 	}
 	id, err := usecase.operation.FindInsertedID(user.Username)
 	if err != nil {
-		return Result{MessageKey: "register_failed"}
+		return domain.ErrRegisterFailed
 	}
 	if usecase.operation.DefaultTokenEnabled() {
 		key, err := usecase.operation.GenerateTokenKey()
 		if err != nil {
-			return Result{MessageKey: "token_failed", LogAfter: "failed to generate token key: " + err.Error()}
+			return &domain.LoggedError{Err: domain.ErrDefaultTokenFailed, Log: "failed to generate token key: " + err.Error()}
 		}
 		if err := usecase.operation.InsertDefaultToken(id, user.Username, key); err != nil {
-			return Result{MessageKey: "token_insert_failed"}
+			return domain.ErrDefaultTokenInsertFailed
 		}
 	}
-	return Result{}
+	return nil
 }
 
 type Usecase struct {

@@ -355,3 +355,22 @@ const (
 	MsgCustomOAuthBindingNotFound   = "custom_oauth.binding_not_found"
 	MsgCustomOAuthProviderIdInvalid = "custom_oauth.provider_id_field_invalid"
 )
+
+// Identity related messages
+const (
+	MsgIdentityUserIDInvalid                   = "identity.user_id_invalid"
+	MsgIdentityTwoFAManageForbidden            = "identity.twofa_manage_forbidden"
+	MsgIdentityPasskeyNotBound                 = "identity.passkey_not_bound"
+	MsgIdentityParamsError                     = "identity.params_error"
+	MsgIdentityPasskeyDisabled                 = "identity.passkey_disabled"
+	MsgIdentityPasskeyRequestInvalid           = "identity.passkey_request_invalid"
+	MsgIdentityWeChatDisabled                  = "identity.wechat_disabled"
+	MsgIdentityRequestInvalid                  = "identity.request_invalid"
+	MsgIdentityWeChatAlreadyBound              = "identity.wechat_already_bound"
+	MsgIdentitySecurityVerificationUnsupported = "identity.security_verification_unsupported"
+	MsgIdentityNotLoggedIn                     = "identity.not_logged_in"
+	MsgIdentityBackupCodesGenerateFailed       = "identity.backup_codes_generate_failed"
+	MsgIdentityBackupCodesSaveFailed           = "identity.backup_codes_save_failed"
+	MsgIdentityBindingLoginRequired            = "identity.binding_login_required"
+	MsgIdentityProviderIDInvalid               = "identity.provider_id_invalid"
+)

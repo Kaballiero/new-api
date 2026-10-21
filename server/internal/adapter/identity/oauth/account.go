@@ -1,6 +1,7 @@
 package oauthadapter
 
 import (
+	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/identity/complete_oauth"
@@ -20,12 +21,11 @@ func (op *Account) Profile() complete_oauth.ProviderProfile {
 	legacy, _ := op.OAuthUser.Extra["legacy_id"].(string)
 	return complete_oauth.ProviderProfile{ID: op.OAuthUser.ProviderUserID, Username: op.OAuthUser.Username, DisplayName: op.OAuthUser.DisplayName, Email: op.OAuthUser.Email, LegacyID: legacy}
 }
-func (op *Account) ProviderColumn() string      { return op.Provider.ProviderUserIDColumn() }
-func (op *Account) FillByID(id string) error    { return op.Provider.FillUserByProviderID(op.User, id) }
-func (op *Account) MissingError() error         { return gorm.ErrRecordNotFound }
-func (op *Account) TelegramUnboundError() error { return oauth.ErrTelegramAccountNotBound }
-func (op *Account) Taken(id string) bool        { return op.Provider.IsUserIDTaken(id) }
-func (op *Account) AccountID() int              { return op.User.Id }
+func (op *Account) ProviderColumn() string   { return op.Provider.ProviderUserIDColumn() }
+func (op *Account) FillByID(id string) error { return op.Provider.FillUserByProviderID(op.User, id) }
+func (op *Account) Missing(err error) bool   { return errors.Is(err, gorm.ErrRecordNotFound) }
+func (op *Account) Taken(id string) bool     { return op.Provider.IsUserIDTaken(id) }
+func (op *Account) AccountID() int           { return op.User.Id }
 func (op *Account) LogMigration(legacy, current string) {
 	common.SysLog(fmt.Sprintf("[OAuth] Migrating user %d from legacy_id=%s to new_id=%s", op.User.Id, legacy, current))
 }
@@ -46,7 +46,7 @@ func (op *Account) SetDisplayName(name string)      { op.User.DisplayName = name
 func (op *Account) ProviderName() string            { return op.Provider.GetName() }
 func (op *Account) SetNormalizedEmail(email string) { op.User.Email = model.NormalizeEmail(email) }
 func (op *Account) EnsureEmail() error              { return model.EnsureEmailAvailable(op.User.Email, 0) }
-func (op *Account) EmailTakenError() error          { return model.ErrEmailAlreadyTaken }
+func (op *Account) EmailTaken(err error) bool       { return errors.Is(err, model.ErrEmailAlreadyTaken) }
 func (op *Account) SetRoleAndStatus() {
 	op.User.Role = common.RoleCommonUser
 	op.User.Status = common.UserStatusEnabled

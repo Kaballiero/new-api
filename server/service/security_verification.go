@@ -16,7 +16,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/verify_factor_code"
 	"github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 
-	"errors"
 	"sort"
 
 	"github.com/QuantumNous/new-api/common"
@@ -46,13 +45,16 @@ const (
 	VerificationScopeAccountDelete       = domain.VerificationScopeAccountDelete
 )
 
+// Verification errors are owned by the identity domain; the legacy names stay
+// as aliases.
 var (
-	ErrVerificationFailed         = errors.New("Verification failed. Please try again.")
-	ErrVerificationUnavailable    = errors.New("This verification method is currently unavailable.")
-	ErrVerificationLocked         = errors.New("Two-factor authentication is temporarily locked.")
-	ErrVerificationFlowRequired   = errors.New("This verification method requires its dedicated verification flow.")
-	ErrVerificationContextInvalid = errors.New("The action details are invalid.")
-	ErrVerificationForbidden      = errors.New("You do not have permission to perform this action.")
+	ErrVerificationFailed         = domain.ErrVerificationFailed
+	ErrVerificationUnavailable    = domain.ErrVerificationUnavailable
+	ErrVerificationLocked         = domain.ErrVerificationLocked
+	ErrVerificationFlowRequired   = domain.ErrVerificationFlowRequired
+	ErrVerificationContextInvalid = domain.ErrVerificationContextInvalid
+	ErrVerificationForbidden      = domain.ErrVerificationForbidden
+	ErrOAuthAccountMismatch       = domain.ErrOAuthAccountMismatch
 )
 
 // VerificationOperation describes the action being authorized, independently of
@@ -70,7 +72,7 @@ type AccountUnbindingContext = domain.AccountUnbindingContext
 type VerificationBinding = domain.VerificationBinding
 
 func BindVerificationOperation(operation VerificationOperation) (VerificationBinding, error) {
-	return bind_verification_operation.NewUsecase(verificationadapter.ContextCodec{SigningKey: authSigningKey, InvalidError: func() error { return ErrVerificationContextInvalid }, ScopeFailure: func() error { return ErrProofScope }}).Execute(operation)
+	return bind_verification_operation.NewUsecase(verificationadapter.ContextCodec{SigningKey: authSigningKey}).Execute(operation)
 }
 
 type SecurityProof = identitydto.SecurityProof
@@ -85,7 +87,7 @@ type VerificationRequirements = get_verification_requirements.VerificationRequir
 // support and disabled providers never turn an enrolled factor into an absent one.
 func securityVerificationPolicy(scope string, state model.UserVerificationState) ([]VerificationMethodOption, error) {
 	op := &verificationadapter.PolicyOperation{Methods: make([]VerificationMethodOption, 0)}
-	err := verification_policy.NewUsecase(common.RoleRootUser, op, verificationErrors()).Execute(scope, state.Role, verification_policy.FactorPolicyState{HasPassword: state.HasPassword, HasTwoFA: state.HasTwoFA, TwoFALocked: state.TwoFALocked, HasPasskey: state.HasPasskey})
+	err := verification_policy.NewUsecase(common.RoleRootUser, op).Execute(scope, state.Role, verification_policy.FactorPolicyState{HasPassword: state.HasPassword, HasTwoFA: state.HasTwoFA, TwoFALocked: state.TwoFALocked, HasPasskey: state.HasPasskey})
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +96,7 @@ func securityVerificationPolicy(scope string, state model.UserVerificationState)
 
 func GetVerificationRequirements(identity AuthIdentity, scope string) (*VerificationRequirements, error) {
 	op := &verificationadapter.RequirementsOperation{PolicyFunc: securityVerificationPolicy, ProvidersFunc: verificationOAuthProviders, Identity: identity, Scope: scope}
-	if err := get_verification_requirements.NewUsecase(op, common.UserStatusEnabled, common.RoleRootUser, verificationErrors()).Execute(scope, identity.UserAuthVersion); err != nil {
+	if err := get_verification_requirements.NewUsecase(op, common.UserStatusEnabled, common.RoleRootUser).Execute(scope, identity.UserAuthVersion); err != nil {
 		return nil, err
 	}
 	return op.Requirements, nil
@@ -146,7 +148,7 @@ func RequireVerificationMethod(identity AuthIdentity, scope, method string) (*Ve
 	if err != nil {
 		return nil, err
 	}
-	if err := require_verification_method.NewUsecase(verificationadapter.MethodOptions(requirements.Methods), verificationErrors()).Execute(method); err != nil {
+	if err := require_verification_method.NewUsecase(verificationadapter.MethodOptions(requirements.Methods)).Execute(method); err != nil {
 		return nil, err
 	}
 	return requirements, nil
@@ -167,7 +169,7 @@ func CompleteSecurityVerification(identity AuthIdentity, binding VerificationBin
 func ConsumeOperationProof(raw string, identity AuthIdentity, operation VerificationOperation) (*model.AuthFlowAuthorization, error) {
 	op := &verificationadapter.ConsumeProofOperation{Dependencies: verificationDependencies(), Raw: raw, Identity: identity, Operation: operation}
 	op.SetProofIdentity(identity)
-	if err := consume_proof.NewUsecase(op, verificationErrors()).Execute(); err != nil {
+	if err := consume_proof.NewUsecase(op).Execute(); err != nil {
 		return nil, err
 	}
 	return op.Authorization, nil
@@ -176,14 +178,14 @@ func ConsumeOperationProof(raw string, identity AuthIdentity, operation Verifica
 // ValidateFlowAuthorization permits a dedicated configuration flow to outlive
 // its consumed proof, while retaining its operation, session and method policy.
 func ValidateFlowAuthorization(identity AuthIdentity, operation VerificationOperation, authorization *model.AuthFlowAuthorization) error {
-	return validate_authorization.NewUsecase(&verificationadapter.FlowAuthorizationOperation{Dependencies: verificationDependencies(), Identity: identity, Operation: operation, Authorization: authorization}, verificationErrors()).Execute()
+	return validate_authorization.NewUsecase(&verificationadapter.FlowAuthorizationOperation{Dependencies: verificationDependencies(), Identity: identity, Operation: operation, Authorization: authorization}).Execute()
 }
 
 type VerificationInput = verify_security_input.VerificationInput
 
 func VerifySecurityInput(identity AuthIdentity, input VerificationInput) (*SecurityProof, error) {
 	op := &verificationadapter.SecurityInputOperation{Dependencies: verificationDependencies(), Identity: identity, Input: input, Password: input.Password}
-	if err := verify_security_input.NewUsecase(op, verificationErrors()).Execute(input.Scope, input.Method); err != nil {
+	if err := verify_security_input.NewUsecase(op).Execute(input.Scope, input.Method); err != nil {
 		return nil, err
 	}
 	return op.Proof, nil
@@ -192,7 +194,7 @@ func VerifySecurityInput(identity AuthIdentity, input VerificationInput) (*Secur
 // VerifyTwoFactorCode classifies the input before verification so one failed
 // submission cannot increment the failure counter for both TOTP and backup codes.
 func VerifyTwoFactorCode(twoFA *model.TwoFA, code string) error {
-	return verify_factor_code.NewUsecase(verificationadapter.FactorCodeOperation{FactorRecordOperation: verificationadapter.FactorRecordOperation{Factor: twoFA}}, verificationErrors()).Execute(code)
+	return verify_factor_code.NewUsecase(verificationadapter.FactorCodeOperation{FactorRecordOperation: verificationadapter.FactorRecordOperation{Factor: twoFA}}).Execute(code)
 }
 
 func GetOAuthVerificationBinding(identity AuthIdentity, scope, provider string) (string, error) {
@@ -200,28 +202,7 @@ func GetOAuthVerificationBinding(identity AuthIdentity, scope, provider string) 
 	if err != nil {
 		return "", err
 	}
-	return start_oauth_verification.LinkedAccount(requirements.OAuthProviders, provider, func() error { return ErrVerificationUnavailable })
-}
-
-func verificationErrors() domain.VerificationErrors {
-	return domain.VerificationErrors{
-		FlowInvalid:         func() error { return model.ErrAuthFlowInvalid },
-		Inactive:            func() error { return model.ErrUserSessionInactive },
-		Unavailable:         func() error { return ErrVerificationUnavailable },
-		Locked:              func() error { return ErrVerificationLocked },
-		Forbidden:           func() error { return ErrVerificationForbidden },
-		Scope:               func() error { return ErrProofScope },
-		Method:              func() error { return ErrProofMethod },
-		Failed:              func() error { return ErrVerificationFailed },
-		FlowRequired:        func() error { return ErrVerificationFlowRequired },
-		TwoFANotEnabled:     func() error { return model.ErrTwoFANotEnabled },
-		TwoFAAlreadyEnabled: func() error { return model.ErrTwoFAAlreadyEnabled },
-		FlowConsumed:        func() error { return model.ErrAuthFlowConsumed },
-		FlowExpired:         func() error { return model.ErrAuthFlowExpired },
-		ProofConsumed:       func() error { return ErrProofConsumed },
-		TokenExpired:        func() error { return ErrAuthTokenExpired },
-		TokenInvalid:        func() error { return ErrAuthTokenInvalid },
-	}
+	return start_oauth_verification.LinkedAccount(requirements.OAuthProviders, provider)
 }
 
 func verificationDependencies() verificationadapter.Dependencies {

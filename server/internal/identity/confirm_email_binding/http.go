@@ -13,20 +13,19 @@ type Completion interface {
 	NotificationWarning() bool
 }
 type HTTP struct {
-	identity             func(*gin.Context) (domain.AuthIdentity, bool)
-	invalid, flowInvalid func() error
-	factory              func(domain.AuthIdentity, Request) Completion
-	writeError           func(*gin.Context, error)
-	audit                func(*gin.Context, int, string, map[string]any)
+	identity   func(*gin.Context) (domain.AuthIdentity, bool)
+	factory    func(domain.AuthIdentity, Request) Completion
+	writeError func(*gin.Context, error)
+	audit      func(*gin.Context, int, string, map[string]any)
 }
 
-func NewHTTP(identity func(*gin.Context) (domain.AuthIdentity, bool), invalid, flowInvalid func() error, factory func(domain.AuthIdentity, Request) Completion, writeError func(*gin.Context, error), audit func(*gin.Context, int, string, map[string]any)) *HTTP {
-	return &HTTP{identity: identity, invalid: invalid, flowInvalid: flowInvalid, factory: factory, writeError: writeError, audit: audit}
+func NewHTTP(identity func(*gin.Context) (domain.AuthIdentity, bool), factory func(domain.AuthIdentity, Request) Completion, writeError func(*gin.Context, error), audit func(*gin.Context, int, string, map[string]any)) *HTTP {
+	return &HTTP{identity: identity, factory: factory, writeError: writeError, audit: audit}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	identity, ok := h.identity(c)
 	if !ok {
-		h.writeError(c, h.invalid())
+		h.writeError(c, domain.ErrAuthTokenInvalid)
 		return
 	}
 	var op Completion
@@ -39,7 +38,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 	}()
 	var request Request
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.FlowToken == "" {
-		h.writeError(c, h.flowInvalid())
+		h.writeError(c, domain.ErrAuthFlowInvalid)
 		return
 	}
 	op = h.factory(identity, request)

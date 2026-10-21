@@ -22,7 +22,7 @@ type loginResponse struct {
 
 func GetIDByCode(code string) (string, error) {
 	if code == "" {
-		return "", errors.New("无效的参数")
+		return "", domain.ErrWeChatCodeMissing
 	}
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/wechat/user?code=%s", common.WeChatServerAddress, url.QueryEscape(code)), nil)
 	if err != nil {
@@ -46,7 +46,7 @@ func GetIDByCode(code string) (string, error) {
 		return "", errors.New(res.Message)
 	}
 	if res.Data == "" {
-		return "", errors.New("验证码错误或已过期")
+		return "", domain.ErrWeChatCodeInvalid
 	}
 	return res.Data, nil
 }

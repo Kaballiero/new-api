@@ -7,7 +7,6 @@ import (
 )
 
 type Operation interface {
-	InvalidError() error
 	EncodePayload() error
 	Create(expires time.Time) error
 }
@@ -18,13 +17,13 @@ func (usecase Usecase) Execute(purpose string, security domain.PasskeyFlowSecuri
 	}
 	if purpose == domain.AuthFlowPurposeLoginPasskey {
 		if security.UserID <= 0 || security.UserAuthVersion <= 0 || security.LoginFlowID <= 0 || security.LoginExpiresAt <= time.Now().Unix() || security.SessionID != "" || security.SessionVersion != 0 {
-			return time.Time{}, usecase.operation.InvalidError()
+			return time.Time{}, domain.ErrAuthFlowInvalid
 		}
 	} else if purpose != domain.AuthFlowPurposePasskeyLogin && (security.UserID <= 0 || security.SessionID == "" || security.Scope == "" || security.ContextHash == "" || security.UserAuthVersion <= 0 || security.SessionVersion <= 0) {
-		return time.Time{}, usecase.operation.InvalidError()
+		return time.Time{}, domain.ErrAuthFlowInvalid
 	}
 	if purpose == domain.AuthFlowPurposePasskeyRegister && (security.Authorization == nil || security.Authorization.ProofID <= 0 || security.Authorization.AuthSessionIdentity != security.AuthSessionIdentity) {
-		return time.Time{}, usecase.operation.InvalidError()
+		return time.Time{}, domain.ErrAuthFlowInvalid
 	}
 	if err := usecase.operation.EncodePayload(); err != nil {
 		return time.Time{}, err

@@ -121,8 +121,6 @@ func (op *Callback) ReadBindingIdentity() bool {
 	op.identity, ok = middleware.GetSessionAuthIdentity(op.Context)
 	return ok
 }
-func (op *Callback) InvalidIdentity() error { return service.ErrAuthTokenInvalid }
-func (op *Callback) InvalidFlow() error     { return model.ErrAuthFlowInvalid }
 func (op *Callback) DecodeBindingPayload() error {
 	if err := common.UnmarshalJsonStr(op.pending.Payload, &op.payload); err != nil {
 		return model.ErrAuthFlowInvalid

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// CreateSessionOperation сохраняет канонические записи и исходный callback кодека.
+// CreateSessionOperation keeps the canonical records and the original codec callback.
 type CreateSessionOperation struct {
 	UserID        int
 	NewSession    func(int64) (*model.UserSession, string, error)

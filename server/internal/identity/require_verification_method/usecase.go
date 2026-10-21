@@ -16,18 +16,17 @@ func (usecase Usecase) Execute(method string) error {
 			continue
 		}
 		if !available {
-			return usecase.errors.Unavailable()
+			return domain.ErrVerificationUnavailable
 		}
 		return nil
 	}
-	return usecase.errors.Method()
+	return domain.ErrProofMethod
 }
 
 type Usecase struct {
 	operation MethodOptions
-	errors    domain.VerificationErrors
 }
 
-func NewUsecase(operation MethodOptions, errors domain.VerificationErrors) Usecase {
-	return Usecase{operation: operation, errors: errors}
+func NewUsecase(operation MethodOptions) Usecase {
+	return Usecase{operation: operation}
 }

@@ -437,11 +437,11 @@ func DeleteCustomOAuthProvider(c *gin.Context) {
 }
 
 // GetUserOAuthBindings returns all OAuth bindings for the current user
-func GetUserOAuthBindings(c *gin.Context) { NewIdentityHTTP().GetOAuthBindings.Self(c) }
+func GetUserOAuthBindings(c *gin.Context) { identityHTTP().GetOAuthBindings.Self(c) }
 
-func GetUserOAuthBindingsByAdmin(c *gin.Context) { NewIdentityHTTP().GetOAuthBindings.Admin(c) }
+func GetUserOAuthBindingsByAdmin(c *gin.Context) { identityHTTP().GetOAuthBindings.Admin(c) }
 
 // UnbindCustomOAuth unbinds a custom OAuth provider from the current user
-func UnbindCustomOAuth(c *gin.Context) { NewIdentityHTTP().UnlinkOAuthAccount.Handle(c) }
+func UnbindCustomOAuth(c *gin.Context) { identityHTTP().UnlinkOAuthAccount.Handle(c) }
 
-func UnbindCustomOAuthByAdmin(c *gin.Context) { NewIdentityHTTP().AdminUnlinkOAuthAccount.Handle(c) }
+func UnbindCustomOAuthByAdmin(c *gin.Context) { identityHTTP().AdminUnlinkOAuthAccount.Handle(c) }

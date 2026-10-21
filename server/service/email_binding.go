@@ -9,7 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/start_email_binding"
 
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"html"
 	"math/big"
@@ -18,10 +17,11 @@ import (
 	"github.com/QuantumNous/new-api/model"
 )
 
+// Email errors are owned by the identity domain; the legacy names stay as aliases.
 var (
-	ErrAccountEmailInvalid    = errors.New("Please enter a valid email address")
-	ErrAccountEmailRestricted = errors.New("This email address is not allowed by the administrator's email policy.")
-	ErrEmailBindingDelivery   = errors.New("Verification email could not be sent. Start email verification again.")
+	ErrAccountEmailInvalid    = identitydomain.ErrEmailInvalid
+	ErrAccountEmailRestricted = identitydomain.ErrEmailRestricted
+	ErrEmailBindingDelivery   = identitydomain.ErrEmailBindingDelivery
 )
 
 type EmailBindingData = identitydto.EmailBindingData
@@ -29,7 +29,7 @@ type EmailBindingData = identitydto.EmailBindingData
 // ValidateAccountEmail is shared with registration mail delivery so binding
 // cannot bypass the site's existing domain, alias and address-length rules.
 func ValidateAccountEmail(email string) (string, error) {
-	return identitydomain.ValidateEmail(email, identitydomain.EmailPolicy{Normalize: model.NormalizeEmail, Valid: func(value string) bool { return common.Validate.Var(value, "required,email,max=50") == nil }, DomainRestriction: func() bool { return common.EmailDomainRestrictionEnabled }, Whitelist: func() []string { return common.EmailDomainWhitelist }, AliasRestriction: func() bool { return common.EmailAliasRestrictionEnabled }, Invalid: func() error { return ErrAccountEmailInvalid }, Restricted: func() error { return ErrAccountEmailRestricted }})
+	return identitydomain.ValidateEmail(email, identitydomain.EmailPolicy{Normalize: model.NormalizeEmail, Valid: func(value string) bool { return common.Validate.Var(value, "required,email,max=50") == nil }, DomainRestriction: func() bool { return common.EmailDomainRestrictionEnabled }, Whitelist: func() []string { return common.EmailDomainWhitelist }, AliasRestriction: func() bool { return common.EmailAliasRestrictionEnabled }})
 }
 
 func StartEmailBinding(identity AuthIdentity, authorization *model.AuthFlowAuthorization, email string) (*EmailBindingData, error) {
@@ -108,5 +108,5 @@ func emailBindingData(token string, flow *model.AuthFlow, state *model.EmailBind
 }
 
 func emailBindingDependencies() emailadapter.Dependencies {
-	return emailadapter.Dependencies{ValidateEmailFunc: ValidateAccountEmail, ValidateAuthorizationFunc: ValidateFlowAuthorization, GenerateCodesFunc: generateEmailBindingCodes, DeliverFunc: sendEmailBindingCodes, DataFunc: emailBindingData, NotifyFunc: NotifyAccountSecurityChange, DeliveryErrorFunc: func() error { return ErrEmailBindingDelivery }}
+	return emailadapter.Dependencies{ValidateEmailFunc: ValidateAccountEmail, ValidateAuthorizationFunc: ValidateFlowAuthorization, GenerateCodesFunc: generateEmailBindingCodes, DeliverFunc: sendEmailBindingCodes, DataFunc: emailBindingData, NotifyFunc: NotifyAccountSecurityChange}
 }

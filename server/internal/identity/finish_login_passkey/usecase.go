@@ -1,11 +1,12 @@
 package finish_login_passkey
 
+import "github.com/QuantumNous/new-api/internal/identity/domain"
+
 type Operation interface {
 	RequireLoginVerification() error
 	ParseAssertion() error
 	PopBoundLoginFlow() error
 	BoundFlowValid() bool
-	InvalidFlow() error
 	LoadCredential() error
 	Build() error
 	ValidateLogin() error
@@ -24,7 +25,7 @@ func (usecase Usecase) Execute() error {
 		return err
 	}
 	if !usecase.operation.BoundFlowValid() {
-		return usecase.operation.InvalidFlow()
+		return domain.ErrAuthFlowInvalid
 	}
 	if err := usecase.operation.LoadCredential(); err != nil {
 		return err

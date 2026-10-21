@@ -1,10 +1,14 @@
 package get_oauth_bindings
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	"github.com/gin-gonic/gin"
+	"errors"
 	"net/http"
 	"strconv"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {
@@ -18,7 +22,7 @@ func NewHTTP(reader Reader, admin func(*gin.Context) AdminReader) *HTTP {
 func (h *HTTP) Self(c *gin.Context) {
 	id := c.GetInt("id")
 	if id == 0 {
-		common.ApiErrorMsg(c, "未登录")
+		common.ApiErrorI18n(c, i18n.MsgIdentityNotLoggedIn)
 		return
 	}
 	bindings, err := NewUsecase(h.reader).Execute(id)
@@ -34,14 +38,14 @@ func (h *HTTP) Admin(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid user id")
 		return
 	}
-	result := ReadAsAdmin(id, h.admin(c))
-	if result.Cause != nil {
-		common.ApiError(c, result.Cause)
-		return
-	}
-	if result.Forbidden {
+	bindings, err := ReadAsAdmin(id, h.admin(c))
+	if errors.Is(err, domain.ErrTargetForbidden) {
 		common.ApiErrorMsg(c, "no permission")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": result.Bindings})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": bindings})
 }

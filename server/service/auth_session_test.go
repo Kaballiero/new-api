@@ -430,25 +430,23 @@ func TestUserAuthVersionInvalidatesExistingSession(t *testing.T) {
 	assert.ErrorIs(t, err, ErrLoginSessionRevoked, "a pending 2FA flow must not survive an auth-version change")
 }
 
-func TestCreateLoginSessionReadsLimitsAndErrorsAfterStorage(t *testing.T) {
+func TestCreateLoginSessionReadsLimitsAfterStorage(t *testing.T) {
 	useTestSessionSecret(t)
 	user := setupAuthSessionTestDB(t)
-	previousError := model.ErrUserSessionLimit
-	lateError := errors.New("replacement session limit")
+	previousLimit := common.UserSessionActiveLimit
 	const callbackName = "test:replace_session_limit_after_count"
 	require.NoError(t, model.DB.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
 		if tx.Statement.Table == "user_sessions" {
 			common.UserSessionActiveLimit = 0
-			model.ErrUserSessionLimit = lateError
 		}
 	}))
 	t.Cleanup(func() {
-		model.ErrUserSessionLimit = previousError
+		common.UserSessionActiveLimit = previousLimit
 		_ = model.DB.Callback().Query().Remove(callbackName)
 	})
 
 	bundle, err := CreateLoginSession(user.Id, "password", "127.0.0.1", "test-agent")
-	require.ErrorIs(t, err, lateError)
+	require.ErrorIs(t, err, model.ErrUserSessionLimit)
 	assert.Nil(t, bundle)
 	var count int64
 	require.NoError(t, model.DB.Model(&model.UserSession{}).Count(&count).Error)

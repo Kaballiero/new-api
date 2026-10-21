@@ -1,8 +1,11 @@
 package password_login
 
 import (
+	"errors"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,15 +28,15 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	result := NewUsecase(h.operation).Execute(input)
-	switch result.Issue {
-	case "invalid":
+	account, err := NewUsecase(h.operation).Execute(input)
+	switch {
+	case errors.Is(err, domain.ErrInvalidInput):
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
-	case "credentials":
+	case errors.Is(err, domain.ErrCredentialsInvalid):
 		common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
-	case "database":
+	case errors.Is(err, domain.ErrStorageUnavailable):
 		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
 	default:
-		h.complete(c, result.Account)
+		h.complete(c, account)
 	}
 }

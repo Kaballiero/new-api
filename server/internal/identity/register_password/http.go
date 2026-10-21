@@ -1,10 +1,13 @@
 package register_password
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct {
@@ -29,22 +32,39 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	result := NewUsecase(h.operation).Execute(user)
-	if result.Cause != nil {
-		common.ApiError(c, result.Cause)
+	err := NewUsecase(h.operation).Execute(user)
+	if err == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
 		return
 	}
-	if result.MessageKey != "" {
-		keys := map[string]string{"invalid_params": i18n.MsgInvalidParams, "input_invalid": i18n.MsgUserInputInvalid, "email_required": i18n.MsgUserEmailVerificationRequired, "code_invalid": i18n.MsgUserVerificationCodeError, "email_taken": i18n.MsgUserEmailAlreadyTaken, "database": i18n.MsgDatabaseError, "exists": i18n.MsgUserExists, "register_failed": i18n.MsgUserRegisterFailed, "token_failed": i18n.MsgUserDefaultTokenFailed, "token_insert_failed": i18n.MsgCreateDefaultTokenErr}
-		if result.Params != nil {
-			common.ApiErrorI18n(c, keys[result.MessageKey], result.Params)
-		} else {
-			common.ApiErrorI18n(c, keys[result.MessageKey])
-		}
-		if result.LogAfter != "" {
-			common.SysLog(result.LogAfter)
-		}
+	var input *domain.InputError
+	switch {
+	case errors.As(err, &input):
+		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": input.Detail})
+	case errors.Is(err, domain.ErrInvalidInput):
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+	case errors.Is(err, domain.ErrEmailVerificationRequired):
+		common.ApiErrorI18n(c, i18n.MsgUserEmailVerificationRequired)
+	case errors.Is(err, domain.ErrVerificationCodeInvalid):
+		common.ApiErrorI18n(c, i18n.MsgUserVerificationCodeError)
+	case errors.Is(err, domain.ErrEmailTaken):
+		common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+	case errors.Is(err, domain.ErrStorageUnavailable):
+		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
+	case errors.Is(err, domain.ErrUserExists):
+		common.ApiErrorI18n(c, i18n.MsgUserExists)
+	case errors.Is(err, domain.ErrRegisterFailed):
+		common.ApiErrorI18n(c, i18n.MsgUserRegisterFailed)
+	case errors.Is(err, domain.ErrDefaultTokenFailed):
+		common.ApiErrorI18n(c, i18n.MsgUserDefaultTokenFailed)
+	case errors.Is(err, domain.ErrDefaultTokenInsertFailed):
+		common.ApiErrorI18n(c, i18n.MsgCreateDefaultTokenErr)
+	default:
+		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
+	var logged *domain.LoggedError
+	if errors.As(err, &logged) {
+		common.SysLog(logged.Log)
+	}
 }

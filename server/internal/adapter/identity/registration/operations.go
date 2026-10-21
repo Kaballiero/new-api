@@ -1,6 +1,8 @@
 package registration
 
 import (
+	"errors"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/identity/register_password"
@@ -19,7 +21,7 @@ func (Operation) VerifyEmail(email, code string) bool {
 func (Operation) EnsureEmailAvailable(email string) error {
 	return model.EnsureEmailAvailable(email, 0)
 }
-func (Operation) EmailTakenError() error { return model.ErrEmailAlreadyTaken }
+func (Operation) EmailTaken(err error) bool { return errors.Is(err, model.ErrEmailAlreadyTaken) }
 func (Operation) CheckExists(username, email string) (bool, error) {
 	return model.CheckUserExistOrDeleted(username, email)
 }

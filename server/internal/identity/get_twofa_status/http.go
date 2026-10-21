@@ -1,18 +1,23 @@
 package get_twofa_status
 
 import (
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
-type HTTP struct{ reader Reader }
+type HTTP struct {
+	reader     Reader
+	writeError func(*gin.Context, error)
+}
 
-func NewHTTP(reader Reader) *HTTP { return &HTTP{reader: reader} }
+func NewHTTP(reader Reader, writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{reader: reader, writeError: writeError}
+}
 func (h *HTTP) Handle(c *gin.Context) {
 	status, err := NewUsecase(h.reader).Execute(c.GetInt("id"))
 	if err != nil {
-		identityhttp.WriteSecurityOperationError(c, err)
+		h.writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": status})

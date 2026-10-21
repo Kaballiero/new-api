@@ -35,10 +35,27 @@ const (
 	AuthFlowDefaultCleanupRetention  = 24 * time.Hour
 )
 
+// Identity errors are owned by the identity domain; the legacy names stay as aliases.
 var (
-	ErrAuthFlowInvalid  = errors.New("auth flow is invalid")
-	ErrAuthFlowExpired  = errors.New("auth flow has expired")
-	ErrAuthFlowConsumed = errors.New("auth flow has already been consumed")
+	ErrAuthFlowInvalid                = identitydomain.ErrAuthFlowInvalid
+	ErrAuthFlowExpired                = identitydomain.ErrAuthFlowExpired
+	ErrAuthFlowConsumed               = identitydomain.ErrAuthFlowConsumed
+	ErrUserSessionInvalid             = identitydomain.ErrSessionInvalid
+	ErrUserSessionInactive            = identitydomain.ErrSessionInactive
+	ErrUserSessionRefreshInvalid      = identitydomain.ErrSessionRefreshInvalid
+	ErrUserSessionRefreshRace         = identitydomain.ErrSessionRefreshRace
+	ErrUserSessionRefreshReuse        = identitydomain.ErrSessionRefreshReuse
+	ErrUserSessionLimit               = identitydomain.ErrSessionLimit
+	ErrUserSessionIssuanceLimit       = identitydomain.ErrSessionIssuanceLimit
+	ErrTwoFASetupInvalid              = identitydomain.ErrTwoFASetupInvalid
+	ErrTwoFACodeInvalid               = identitydomain.ErrTwoFACodeInvalid
+	ErrTwoFANotEnabled                = identitydomain.ErrTwoFANotEnabled
+	ErrTwoFAAlreadyEnabled            = identitydomain.ErrTwoFAAlreadyEnabled
+	ErrPasskeyNotFound                = identitydomain.ErrPasskeyNotFound
+	ErrEmailBindingCodeInvalid        = identitydomain.ErrEmailBindingCodeInvalid
+	ErrEmailBindingLocked             = identitydomain.ErrEmailBindingLocked
+	ErrEmailBindingResendWait         = identitydomain.ErrEmailBindingResendWait
+	ErrExternalIdentityAlreadyClaimed = identitydomain.ErrIdentityClaimed
 )
 
 // AuthFlow stores one-time, short-lived state for authentication ceremonies.

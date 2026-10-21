@@ -3,10 +3,8 @@ package controller
 import (
 	"encoding/json"
 	"errors"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -32,24 +30,20 @@ func parsePasskeyFinishRequest(c *gin.Context) (*passkeyFinishRequest, error) {
 	return &request, nil
 }
 
-func PasskeyRegisterBegin(c *gin.Context) { NewIdentityHTTP().BeginPasskeyRegistration.Handle(c) }
+func PasskeyRegisterBegin(c *gin.Context) { identityHTTP().BeginPasskeyRegistration.Handle(c) }
 
-func PasskeyRegisterFinish(c *gin.Context) { NewIdentityHTTP().FinishPasskeyRegistration.Handle(c) }
+func PasskeyRegisterFinish(c *gin.Context) { identityHTTP().FinishPasskeyRegistration.Handle(c) }
 
-func PasskeyDelete(c *gin.Context) { NewIdentityHTTP().DeletePasskey.Handle(c) }
+func PasskeyDelete(c *gin.Context) { identityHTTP().DeletePasskey.Handle(c) }
 
-func PasskeyStatus(c *gin.Context) { NewIdentityHTTP().GetPasskeyStatus.Handle(c) }
+func PasskeyStatus(c *gin.Context) { identityHTTP().GetPasskeyStatus.Handle(c) }
 
-func PasskeyLoginBegin(c *gin.Context) { NewIdentityHTTP().BeginPasskeyLogin.Handle(c) }
+func PasskeyLoginBegin(c *gin.Context) { identityHTTP().BeginPasskeyLogin.Handle(c) }
 
-func PasskeyLoginFinish(c *gin.Context) { NewIdentityHTTP().FinishPasskeyLogin.Handle(c) }
+func PasskeyLoginFinish(c *gin.Context) { identityHTTP().FinishPasskeyLogin.Handle(c) }
 
-func AdminResetPasskey(c *gin.Context) { NewIdentityHTTP().AdminResetPasskey.Handle(c) }
+func AdminResetPasskey(c *gin.Context) { identityHTTP().AdminResetPasskey.Handle(c) }
 
-func PasskeyVerifyBegin(c *gin.Context) { NewIdentityHTTP().BeginPasskeyVerification.Handle(c) }
+func PasskeyVerifyBegin(c *gin.Context) { identityHTTP().BeginPasskeyVerification.Handle(c) }
 
-func PasskeyVerifyFinish(c *gin.Context) { NewIdentityHTTP().FinishPasskeyVerification.Handle(c) }
-
-func getAuthenticatedUser(c *gin.Context) (*model.User, error) {
-	return identityhttp.GetAuthenticatedUser(c)
-}
+func PasskeyVerifyFinish(c *gin.Context) { identityHTTP().FinishPasskeyVerification.Handle(c) }

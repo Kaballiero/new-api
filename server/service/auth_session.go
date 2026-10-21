@@ -1,7 +1,6 @@
 package service
 
 import (
-	"errors"
 	sessionadapter "github.com/QuantumNous/new-api/internal/adapter/identity/session"
 	"github.com/QuantumNous/new-api/internal/identity/advance_session_security"
 	"github.com/QuantumNous/new-api/internal/identity/create_session"
@@ -32,12 +31,20 @@ const SessionHintCookieName = "new_api_has_session"
 // SessionHintCookieValue is the only value the hint ever carries.
 const SessionHintCookieValue = "1"
 
+// Session and token errors are owned by the identity domain; the legacy names
+// stay as aliases.
 var (
-	ErrLoginSessionInvalid  = errors.New("login session is invalid")
-	ErrLoginSessionRevoked  = errors.New("login session is revoked")
-	ErrLoginSessionMismatch = errors.New("login session does not match the expected session")
-	ErrRefreshTokenInvalid  = errors.New("refresh token is invalid")
-	ErrRefreshRace          = errors.New("refresh token was already rotated")
+	ErrLoginSessionInvalid  = domain.ErrLoginSessionInvalid
+	ErrLoginSessionRevoked  = domain.ErrLoginSessionRevoked
+	ErrLoginSessionMismatch = domain.ErrLoginSessionMismatch
+	ErrRefreshTokenInvalid  = domain.ErrRefreshTokenInvalid
+	ErrRefreshRace          = domain.ErrRefreshRace
+	ErrAuthTokenInvalid     = domain.ErrAuthTokenInvalid
+	ErrAuthTokenExpired     = domain.ErrAuthTokenExpired
+	ErrProofScope           = domain.ErrProofScope
+	ErrProofMethod          = domain.ErrProofMethod
+	ErrProofContext         = domain.ErrProofContext
+	ErrProofConsumed        = domain.ErrProofConsumed
 )
 
 type LoginSessionView = identitydto.LoginSessionView
@@ -109,7 +116,7 @@ func ValidateLoginSession(identity AuthIdentity) (*model.UserSession, *model.Use
 // ValidateSessionReference validates a server-side flow bound to an existing
 // dashboard session without requiring an access token on the callback request.
 func ValidateSessionReference(userID int, sid string) (AuthIdentity, error) {
-	return validate_session_reference.NewUsecase(sessionadapter.Reference{Invalid: func() error { return ErrLoginSessionInvalid }, ValidateFunc: func(identity AuthIdentity) error { _, _, err := ValidateLoginSession(identity); return err }}).Execute(userID, sid)
+	return validate_session_reference.NewUsecase(sessionadapter.Reference{ValidateFunc: func(identity AuthIdentity) error { _, _, err := ValidateLoginSession(identity); return err }}).Execute(userID, sid)
 }
 
 // AdvanceCurrentSessionSecurity increments the user's global auth version,
@@ -156,7 +163,7 @@ func RefreshLoginSession(rawRefreshToken, expectedSID, ip, userAgent string) (*A
 }
 
 func RevokeByRefreshToken(rawRefreshToken, expectedSID, reason string) error {
-	return revoke_refresh_token.NewUsecase(sessionadapter.RevokeRefreshOperation{Hash: hashRefreshSecret}, func() error { return ErrLoginSessionMismatch }, splitRefreshToken).Execute(rawRefreshToken, expectedSID, reason)
+	return revoke_refresh_token.NewUsecase(sessionadapter.RevokeRefreshOperation{Hash: hashRefreshSecret}, splitRefreshToken).Execute(rawRefreshToken, expectedSID, reason)
 }
 
 func RefreshTokenSID(rawRefreshToken string) (string, bool) {
@@ -314,31 +321,6 @@ func truncateAuthMetadata(value string, max int) string {
 	return value[:max]
 }
 
-func authSessionErrorCode(err error) (int, string) {
-	switch {
-	case errors.Is(err, model.ErrUserSessionLimit):
-		return http.StatusConflict, "AUTH_SESSION_LIMIT"
-	case errors.Is(err, model.ErrUserSessionIssuanceLimit):
-		return http.StatusTooManyRequests, "AUTH_SESSION_ISSUANCE_LIMIT"
-	case errors.Is(err, ErrLoginSessionMismatch):
-		return http.StatusConflict, "AUTH_SESSION_MISMATCH"
-	case errors.Is(err, ErrRefreshRace):
-		return http.StatusConflict, "AUTH_REFRESH_RACE"
-	case errors.Is(err, ErrAuthTokenExpired):
-		return http.StatusUnauthorized, "AUTH_TOKEN_EXPIRED"
-	case errors.Is(err, ErrLoginSessionRevoked):
-		return http.StatusUnauthorized, "AUTH_SESSION_REVOKED"
-	case errors.Is(err, ErrRefreshTokenInvalid), errors.Is(err, ErrAuthTokenInvalid):
-		return http.StatusUnauthorized, "AUTH_UNAUTHORIZED"
-	default:
-		return http.StatusInternalServerError, "AUTH_INTERNAL_ERROR"
-	}
-}
-
-func AuthSessionErrorCode(err error) (int, string) {
-	return authSessionErrorCode(err)
-}
-
 func FormatAuthError(err error) string {
 	if err == nil {
 		return ""
@@ -352,20 +334,9 @@ func sessionPolicy() domain.SessionPolicy {
 		ActiveLimit:           func() int64 { return int64(common.UserSessionActiveLimit) },
 		IssuanceWindowSeconds: func() int64 { return common.UserSessionIssuanceWindowSeconds },
 		IssuanceLimit:         func() int64 { return int64(common.UserSessionIssuanceLimit) },
-		Invalid:               func() error { return ErrLoginSessionInvalid },
-		Revoked:               func() error { return ErrLoginSessionRevoked },
-		Mismatch:              func() error { return ErrLoginSessionMismatch },
-		RefreshInvalid:        func() error { return ErrRefreshTokenInvalid },
-		RefreshRace:           func() error { return ErrRefreshRace },
-		Inactive:              func() error { return model.ErrUserSessionInactive },
-		RotationInvalid:       func() error { return model.ErrUserSessionRefreshInvalid },
-		RotationRace:          func() error { return model.ErrUserSessionRefreshRace },
-		RotationReuse:         func() error { return model.ErrUserSessionRefreshReuse },
-		Limit:                 func() error { return model.ErrUserSessionLimit },
-		IssuanceLimitError:    func() error { return model.ErrUserSessionIssuanceLimit },
 	}
 }
 
 func newSessionAdvancement(identity AuthIdentity, reason string) *sessionadapter.SecurityAdvancement {
-	return &sessionadapter.SecurityAdvancement{Identity: identity, Reason: reason, IssueFunc: issueAuthBundle, Revoked: func() error { return ErrLoginSessionRevoked }}
+	return &sessionadapter.SecurityAdvancement{Identity: identity, Reason: reason, IssueFunc: issueAuthBundle}
 }

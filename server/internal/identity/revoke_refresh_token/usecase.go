@@ -2,6 +2,8 @@ package revoke_refresh_token
 
 import (
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type RevokeOperation interface {
@@ -14,18 +16,17 @@ func (usecase Usecase) Execute(rawToken string, expectedSID string, reason strin
 		return nil
 	}
 	if expectedSID = strings.TrimSpace(expectedSID); expectedSID != "" && expectedSID != sid {
-		return usecase.mismatch()
+		return domain.ErrLoginSessionMismatch
 	}
 	return usecase.operation.RevokeByHash(sid, secret, reason)
 }
 
 type Usecase struct {
 	operation RevokeOperation
-	mismatch  func() error
 	split     func(string) (
 		string, string, bool)
 }
 
-func NewUsecase(operation RevokeOperation, mismatch func() error, split func(string) (string, string, bool)) Usecase {
-	return Usecase{operation: operation, mismatch: mismatch, split: split}
+func NewUsecase(operation RevokeOperation, split func(string) (string, string, bool)) Usecase {
+	return Usecase{operation: operation, split: split}
 }

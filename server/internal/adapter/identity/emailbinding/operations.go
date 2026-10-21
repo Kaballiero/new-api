@@ -19,7 +19,6 @@ type Dependencies struct {
 	DeliverFunc               func(model.EmailBindingState, Codes) error
 	DataFunc                  func(string, *model.AuthFlow, *model.EmailBindingState) *dto.EmailBindingData
 	NotifyFunc                func(string, string) error
-	DeliveryErrorFunc         func() error
 }
 type Operation struct {
 	Dependencies
@@ -82,8 +81,7 @@ func (op *Operation) DeliverCodes() error { return op.DeliverFunc(*op.State, op.
 func (op *Operation) InvalidateChange() {
 	_, _ = model.ConsumeAuthFlow(op.Token, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeEmailBinding, UserId: op.Identity.UserID, SessionId: op.Identity.SessionID})
 }
-func (op *Operation) DeliveryError() error { return op.DeliveryErrorFunc() }
-func (op *Operation) CaptureData()         { op.Result = op.DataFunc(op.Token, op.flow, op.State) }
+func (op *Operation) CaptureData() { op.Result = op.DataFunc(op.Token, op.flow, op.State) }
 func (op *Operation) NotifyCurrentEmail() bool {
 	return op.NotifyFunc(op.State.CurrentEmail, "A change of your email address was requested") != nil
 }
@@ -93,12 +91,10 @@ func (op *Operation) LoadChange() error {
 	op.flow, op.State, err = model.GetEmailBinding(op.Identity, op.Token)
 	return err
 }
-func (op *Operation) ResendAt() int64        { return op.State.ResendAt }
-func (op *Operation) ResendWaitError() error { return model.ErrEmailBindingResendWait }
-func (op *Operation) FailedAttempts() int    { return op.State.FailedAttempts }
-func (op *Operation) MaximumAttempts() int   { return model.EmailBindingMaxAttempts }
-func (op *Operation) LockedError() error     { return model.ErrEmailBindingLocked }
-func (op *Operation) HasOldCode() bool       { return op.State.OldCodeHash != "" }
+func (op *Operation) ResendAt() int64      { return op.State.ResendAt }
+func (op *Operation) FailedAttempts() int  { return op.State.FailedAttempts }
+func (op *Operation) MaximumAttempts() int { return model.EmailBindingMaxAttempts }
+func (op *Operation) HasOldCode() bool     { return op.State.OldCodeHash != "" }
 func (op *Operation) ReplaceCodes() error {
 	var err error
 	op.flow, op.State, err = model.ResendEmailBinding(op.Identity, op.Token, op.codes.NewHash, op.codes.OldHash)

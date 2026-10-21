@@ -9,7 +9,6 @@ type Logout struct {
 	RefreshSIDFunc    func(string) (string, bool)
 	ParseAccessFunc   func(string) (domain.AuthIdentity, error)
 	RevokeRefreshFunc func(string, string, string) error
-	MismatchError     func() error
 }
 
 func (op Logout) RefreshSID(raw string) (string, bool)                { return op.RefreshSIDFunc(raw) }
@@ -20,4 +19,3 @@ func (op Logout) Revoke(id int, sid, reason string) (bool, error) {
 func (op Logout) RevokeRefresh(raw, sid, reason string) error {
 	return op.RevokeRefreshFunc(raw, sid, reason)
 }
-func (op Logout) Mismatch() error { return op.MismatchError() }

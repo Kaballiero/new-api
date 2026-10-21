@@ -212,10 +212,10 @@ func GetHomePageContent(c *gin.Context) {
 	serveRevalidatedJSON(c, homePageContent)
 }
 
-func SendEmailVerification(c *gin.Context) { NewIdentityHTTP().SendVerificationEmail.Handle(c) }
+func SendEmailVerification(c *gin.Context) { identityHTTP().SendVerificationEmail.Handle(c) }
 
-func SendPasswordResetEmail(c *gin.Context) { NewIdentityHTTP().RequestPasswordReset.Handle(c) }
+func SendPasswordResetEmail(c *gin.Context) { identityHTTP().RequestPasswordReset.Handle(c) }
 
 type PasswordResetRequest = recover_password.PasswordResetRequest
 
-func ResetPassword(c *gin.Context) { NewIdentityHTTP().RecoverPassword.Handle(c) }
+func ResetPassword(c *gin.Context) { identityHTTP().RecoverPassword.Handle(c) }

@@ -7,22 +7,21 @@ import (
 )
 
 type HTTP struct {
-	identity                func(*gin.Context) (domain.AuthIdentity, bool)
-	invalid, contextInvalid func() error
-	validate                func(string) (string, error)
-	authorize               func(*gin.Context, []byte) *domain.FlowAuthorization
-	start                   func(domain.AuthIdentity, *domain.FlowAuthorization, string) (*Output, error)
-	writeError              func(*gin.Context, error)
-	audit                   func(*gin.Context, int, string, map[string]any)
+	identity   func(*gin.Context) (domain.AuthIdentity, bool)
+	validate   func(string) (string, error)
+	authorize  func(*gin.Context, []byte) *domain.FlowAuthorization
+	start      func(domain.AuthIdentity, *domain.FlowAuthorization, string) (*Output, error)
+	writeError func(*gin.Context, error)
+	audit      func(*gin.Context, int, string, map[string]any)
 }
 
-func NewHTTP(identity func(*gin.Context) (domain.AuthIdentity, bool), invalid, contextInvalid func() error, validate func(string) (string, error), authorize func(*gin.Context, []byte) *domain.FlowAuthorization, start func(domain.AuthIdentity, *domain.FlowAuthorization, string) (*Output, error), writeError func(*gin.Context, error), audit func(*gin.Context, int, string, map[string]any)) *HTTP {
-	return &HTTP{identity: identity, invalid: invalid, contextInvalid: contextInvalid, validate: validate, authorize: authorize, start: start, writeError: writeError, audit: audit}
+func NewHTTP(identity func(*gin.Context) (domain.AuthIdentity, bool), validate func(string) (string, error), authorize func(*gin.Context, []byte) *domain.FlowAuthorization, start func(domain.AuthIdentity, *domain.FlowAuthorization, string) (*Output, error), writeError func(*gin.Context, error), audit func(*gin.Context, int, string, map[string]any)) *HTTP {
+	return &HTTP{identity: identity, validate: validate, authorize: authorize, start: start, writeError: writeError, audit: audit}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	identity, ok := h.identity(c)
 	if !ok {
-		h.writeError(c, h.invalid())
+		h.writeError(c, domain.ErrAuthTokenInvalid)
 		return
 	}
 	succeeded, warning := false, false
@@ -31,7 +30,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 	}()
 	var request Request
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		h.writeError(c, h.contextInvalid())
+		h.writeError(c, domain.ErrVerificationContextInvalid)
 		return
 	}
 	email, err := h.validate(request.Email)

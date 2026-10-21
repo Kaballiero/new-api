@@ -14,10 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
-var (
-	ErrPasskeyNotFound         = errors.New("passkey credential not found")
-	ErrFriendlyPasskeyNotFound = errors.New("Passkey 验证失败，请重试或联系管理员")
-)
+var ErrFriendlyPasskeyNotFound = errors.New("Passkey 验证失败，请重试或联系管理员")
 
 type PasskeyCredential struct {
 	ID              int            `json:"id" gorm:"primaryKey"`

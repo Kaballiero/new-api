@@ -24,7 +24,6 @@ const (
 
 var (
 	ErrAccountPasswordLength = errors.New("Password must contain between 8 and 128 characters.")
-	ErrAccountPasswordSame   = errors.New("New password must be different from current password")
 	ErrPasswordLegacyLimit   = errors.New("Long passwords are unavailable until the password storage upgrade is complete.")
 )
 

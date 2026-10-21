@@ -2,7 +2,6 @@ package app
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/generate_token"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/get_status"
@@ -21,18 +20,19 @@ type PersonalAccessTokensHTTP struct {
 
 func NewPersonalAccessTokensHTTP(audit func(*gin.Context, int, string, map[string]any)) PersonalAccessTokensHTTP {
 	store := model.NewPersonalAccessTokenPersistence()
+	securityError := NewIdentityErrors().WriteError
 	roles := domain.AuditRoles{Root: common.RoleRootUser, Common: common.RoleCommonUser, Admin: common.RoleAdminUser}
 	return PersonalAccessTokensHTTP{
-		Status: get_status.NewHTTP(store, domain.Fingerprint, roles, identityhttp.WriteSecurityOperationError),
+		Status: get_status.NewHTTP(store, domain.Fingerprint, roles, securityError),
 		Generate: generate_token.NewHTTP(store, func(c *gin.Context) bool {
 			return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccessTokenGenerate}) != nil
 		}, func() (string, error) { return common.GenerateRandomKey(29 + common.GetRandomInt(4)) }, domain.Fingerprint, func(c *gin.Context, id int, ref string) {
 			audit(c, id, "access_token.generate", map[string]any{"token_ref": ref})
-		}, identityhttp.WriteSecurityOperationError),
+		}, securityError),
 		Revoke: revoke_token.NewHTTP(store, func(c *gin.Context) bool {
 			return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccessTokenRevoke}) != nil
 		}, domain.Fingerprint, func(c *gin.Context, id int, ref string) {
 			audit(c, id, "access_token.revoke", map[string]any{"token_ref": ref})
-		}, identityhttp.WriteSecurityOperationError),
+		}, securityError),
 	}
 }

@@ -15,14 +15,14 @@ func (usecase Usecase) Execute(method string) error {
 	}
 	version, loginMethod, err := usecase.operation.DecodePayload()
 	if err != nil || version <= 0 || loginMethod == "" {
-		return usecase.errors.FlowInvalid()
+		return domain.ErrAuthFlowInvalid
 	}
 	status, currentVersion, err := usecase.operation.LoadState()
 	if err != nil {
 		return err
 	}
 	if status != usecase.enabledStatus || currentVersion != version {
-		return usecase.errors.Inactive()
+		return domain.ErrSessionInactive
 	}
 	return usecase.operation.RequireMethod(method)
 }
@@ -30,9 +30,8 @@ func (usecase Usecase) Execute(method string) error {
 type Usecase struct {
 	operation     RequireLoginOperation
 	enabledStatus int
-	errors        domain.VerificationErrors
 }
 
-func NewUsecase(operation RequireLoginOperation, enabledStatus int, errors domain.VerificationErrors) Usecase {
-	return Usecase{operation: operation, enabledStatus: enabledStatus, errors: errors}
+func NewUsecase(operation RequireLoginOperation, enabledStatus int) Usecase {
+	return Usecase{operation: operation, enabledStatus: enabledStatus}
 }

@@ -2,7 +2,6 @@ package service
 
 import (
 	"github.com/QuantumNous/new-api/internal/adapter/identity/factors"
-	"github.com/QuantumNous/new-api/internal/identity/domain"
 	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/internal/identity/finish_twofa_setup"
 	"github.com/QuantumNous/new-api/internal/identity/start_twofa_setup"
@@ -21,5 +20,5 @@ func StartTwoFASetup(identity AuthIdentity, authorization *model.AuthFlowAuthori
 }
 
 func FinishTwoFASetup(identity AuthIdentity, flowToken, code string) error {
-	return finish_twofa_setup.FinishTwoFASetup(&factors.FinishTwoFASetupOperation{ValidateAuthorizationFunc: ValidateFlowAuthorization, Identity: identity, FlowToken: flowToken, Code: code}, domain.EnrollmentErrors{FlowInvalid: func() error { return model.ErrAuthFlowInvalid }, FlowExpired: func() error { return model.ErrAuthFlowExpired }, FlowConsumed: func() error { return model.ErrAuthFlowConsumed }, SetupInvalid: func() error { return model.ErrTwoFASetupInvalid }})
+	return finish_twofa_setup.FinishTwoFASetup(&factors.FinishTwoFASetupOperation{ValidateAuthorizationFunc: ValidateFlowAuthorization, Identity: identity, FlowToken: flowToken, Code: code})
 }

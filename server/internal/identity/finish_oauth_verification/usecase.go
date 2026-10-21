@@ -1,23 +1,23 @@
 package finish_oauth_verification
 
+import "github.com/QuantumNous/new-api/internal/identity/domain"
+
 type Operation interface {
 	FlowValid() bool
-	InvalidError() error
 	FindLinkedAccount() error
 	AccountMatches() bool
-	MismatchError() error
 	IssueProof() error
 }
 
 func (usecase Usecase) Execute() error {
 	if !usecase.operation.FlowValid() {
-		return usecase.operation.InvalidError()
+		return domain.ErrAuthTokenInvalid
 	}
 	if err := usecase.operation.FindLinkedAccount(); err != nil {
 		return err
 	}
 	if !usecase.operation.AccountMatches() {
-		return usecase.operation.MismatchError()
+		return domain.ErrOAuthAccountMismatch
 	}
 	return usecase.operation.IssueProof()
 }

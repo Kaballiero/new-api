@@ -1,21 +1,19 @@
 package begin_passkey_login
 
-import "github.com/QuantumNous/new-api/internal/identity/domain"
-
 type Operation interface {
 	Build() error
 	BeginDiscoverable() error
 	CreateLoginFlow() error
 }
 
-func (usecase Usecase) Execute() (domain.PasskeyFailure, error) {
+func (usecase Usecase) Execute() error {
 	if err := usecase.operation.Build(); err != nil {
-		return "", err
+		return err
 	}
 	if err := usecase.operation.BeginDiscoverable(); err != nil {
-		return "", err
+		return err
 	}
-	return "", usecase.operation.CreateLoginFlow()
+	return usecase.operation.CreateLoginFlow()
 }
 
 type Usecase struct {

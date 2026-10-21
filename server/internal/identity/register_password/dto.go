@@ -41,9 +41,3 @@ type User struct {
 	AuthVersion          int64                      `json:"-"`
 	AdminPermissions     map[string]map[string]bool `json:"admin_permissions,omitempty"`
 }
-type Result struct {
-	MessageKey string
-	Params     map[string]any
-	Cause      error
-	LogAfter   string
-}

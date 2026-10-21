@@ -30,12 +30,12 @@ func (usecase Usecase) Execute() error {
 	}
 	err = usecase.operation.ConsumeProof()
 	switch {
-	case errors.Is(err, usecase.errors.FlowConsumed()):
-		return usecase.errors.ProofConsumed()
-	case errors.Is(err, usecase.errors.FlowExpired()):
-		return usecase.errors.TokenExpired()
-	case errors.Is(err, usecase.errors.FlowInvalid()):
-		return usecase.errors.TokenInvalid()
+	case errors.Is(err, domain.ErrAuthFlowConsumed):
+		return domain.ErrProofConsumed
+	case errors.Is(err, domain.ErrAuthFlowExpired):
+		return domain.ErrAuthTokenExpired
+	case errors.Is(err, domain.ErrAuthFlowInvalid):
+		return domain.ErrAuthTokenInvalid
 	case err != nil:
 		return err
 	}
@@ -45,9 +45,8 @@ func (usecase Usecase) Execute() error {
 
 type Usecase struct {
 	operation ConsumeProofOperation
-	errors    domain.VerificationErrors
 }
 
-func NewUsecase(operation ConsumeProofOperation, errors domain.VerificationErrors) Usecase {
-	return Usecase{operation: operation, errors: errors}
+func NewUsecase(operation ConsumeProofOperation) Usecase {
+	return Usecase{operation: operation}
 }

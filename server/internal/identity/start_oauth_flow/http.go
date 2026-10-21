@@ -1,11 +1,13 @@
 package start_oauth_flow
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type Completion interface {
@@ -14,12 +16,13 @@ type Completion interface {
 	Response() map[string]any
 }
 type HTTP struct {
-	factory func(*gin.Context, *Request) Completion
-	audit   func(*gin.Context, int, string, map[string]any)
+	factory    func(*gin.Context, *Request) Completion
+	audit      func(*gin.Context, int, string, map[string]any)
+	writeError func(*gin.Context, error)
 }
 
-func NewHTTP(factory func(*gin.Context, *Request) Completion, audit func(*gin.Context, int, string, map[string]any)) *HTTP {
-	return &HTTP{factory: factory, audit: audit}
+func NewHTTP(factory func(*gin.Context, *Request) Completion, audit func(*gin.Context, int, string, map[string]any), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{factory: factory, audit: audit, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	var request Request
@@ -34,19 +37,18 @@ func (h *HTTP) Handle(c *gin.Context) {
 			h.audit(c, id, "user.binding_start", map[string]any{"provider": request.Provider, "success": succeeded})
 		}
 	}()
-	result := NewUsecase(op).Execute(&request)
-	if result.Cause != nil {
-		identityhttp.WriteSecurityOperationError(c, result.Cause)
-		return
-	}
-	switch result.Issue {
-	case "invalid":
+	err := NewUsecase(op).Execute(&request)
+	switch {
+	case errors.Is(err, domain.ErrInvalidInput):
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
-	case "session":
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "绑定操作需要登录"})
+	case errors.Is(err, domain.ErrBindingSessionMissing):
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": i18n.T(c, i18n.MsgIdentityBindingLoginRequired)})
 		return
-	case "stopped":
+	case errors.Is(err, domain.ErrStopped):
+		return
+	case err != nil:
+		h.writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": op.Response()})

@@ -1,20 +1,21 @@
 package delete_account
 
-import "errors"
+import "github.com/QuantumNous/new-api/internal/identity/domain"
 
 type Operation interface {
 	Delete(domainInput Input) error
-	RootError() error
+	// RootDenied reports that err rejects deleting the root account.
+	RootDenied(error) bool
 }
 
-func (usecase Usecase) Execute(input Input) Result {
+func (usecase Usecase) Execute(input Input) error {
 	if err := usecase.operation.Delete(input); err != nil {
-		if errors.Is(err, usecase.operation.RootError()) {
-			return Result{RootDenied: true}
+		if usecase.operation.RootDenied(err) {
+			return domain.ErrRootDeletion
 		}
-		return Result{Cause: err}
+		return err
 	}
-	return Result{}
+	return nil
 }
 
 type Usecase struct {

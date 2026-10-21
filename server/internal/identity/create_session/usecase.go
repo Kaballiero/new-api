@@ -20,10 +20,10 @@ func (usecase Usecase) Execute(expectedAuthVersion int64) error {
 		return err
 	}
 	if user.Status != usecase.policy.EnabledStatus || user.AuthVersion <= 0 {
-		return usecase.policy.Invalid()
+		return domain.ErrLoginSessionInvalid
 	}
 	if expectedAuthVersion > 0 && user.AuthVersion != expectedAuthVersion {
-		return usecase.policy.Revoked()
+		return domain.ErrLoginSessionRevoked
 	}
 	now := time.Now().Unix()
 	active, err := usecase.operation.CountActive(now)
@@ -31,14 +31,14 @@ func (usecase Usecase) Execute(expectedAuthVersion int64) error {
 		return err
 	}
 	if active >= usecase.policy.ActiveLimit() {
-		return usecase.policy.Limit()
+		return domain.ErrSessionLimit
 	}
 	issued, err := usecase.operation.CountIssued(now - usecase.policy.IssuanceWindowSeconds())
 	if err != nil {
 		return err
 	}
 	if issued >= usecase.policy.IssuanceLimit() {
-		return usecase.policy.IssuanceLimitError()
+		return domain.ErrSessionIssuanceLimit
 	}
 	if err := usecase.operation.Create(user.AuthVersion); err != nil {
 		return err

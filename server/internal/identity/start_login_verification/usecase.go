@@ -12,21 +12,21 @@ type StartLoginOperation interface {
 func (usecase Usecase) Execute() error {
 	userID, authVersion, loginMethod := usecase.operation.PrimaryFacts()
 	if userID <= 0 || authVersion <= 0 || loginMethod == "" {
-		return usecase.errors.FlowInvalid()
+		return domain.ErrAuthFlowInvalid
 	}
 	status, currentVersion, err := usecase.operation.LoadState()
 	if err != nil {
 		return err
 	}
 	if status != usecase.enabledStatus || currentVersion != authVersion {
-		return usecase.errors.Inactive()
+		return domain.ErrSessionInactive
 	}
 	count, available, err := usecase.operation.Policy("auth.login")
 	if err != nil || count == 0 {
 		return err
 	}
 	if !available {
-		return usecase.errors.Unavailable()
+		return domain.ErrVerificationUnavailable
 	}
 	return usecase.operation.CreateChallenge()
 }
@@ -34,9 +34,8 @@ func (usecase Usecase) Execute() error {
 type Usecase struct {
 	operation     StartLoginOperation
 	enabledStatus int
-	errors        domain.VerificationErrors
 }
 
-func NewUsecase(operation StartLoginOperation, enabledStatus int, errors domain.VerificationErrors) Usecase {
-	return Usecase{operation: operation, enabledStatus: enabledStatus, errors: errors}
+func NewUsecase(operation StartLoginOperation, enabledStatus int) Usecase {
+	return Usecase{operation: operation, enabledStatus: enabledStatus}
 }

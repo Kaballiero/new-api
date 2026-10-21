@@ -12,8 +12,3 @@ type UserOAuthBindingResponse struct {
 	ProviderIcon   string `json:"provider_icon"`
 	ProviderUserId string `json:"provider_user_id"`
 }
-type Result struct {
-	Bindings  []UserOAuthBindingResponse
-	Forbidden bool
-	Cause     error
-}

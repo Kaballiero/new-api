@@ -2,37 +2,35 @@ package admin_disable_twofa
 
 import (
 	"errors"
+
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Operation interface {
+	// LoadTarget returns identitydomain.ErrTargetNotFound for a missing user.
 	LoadTarget(id int) (role int, err error)
-	MissingError() error
-	NotEnabledError() error
 	ActorRole() int
 	RootRole() int
 	Disable(id int) error
 	RevokeAll(id int, reason string) error
 }
 
-func (usecase Usecase) Execute(id int) (Output, error) {
+func (usecase Usecase) Execute(id int) error {
 	role, err := usecase.operation.LoadTarget(id)
-	if errors.Is(err, usecase.operation.MissingError()) {
-		return Output{Issue: "missing"}, nil
-	}
 	if err != nil {
-		return Output{}, err
+		return err
 	}
 	if !domain.CanManageTargetRole(usecase.operation.ActorRole(), role, usecase.operation.RootRole()) {
-		return Output{Issue: "forbidden"}, nil
+		return identitydomain.ErrTargetForbidden
 	}
 	if err := usecase.operation.Disable(id); err != nil {
-		if errors.Is(err, usecase.operation.NotEnabledError()) {
-			return Output{Issue: "disabled"}, nil
+		if errors.Is(err, identitydomain.ErrTwoFANotEnabled) {
+			return identitydomain.ErrTargetTwoFADisabled
 		}
-		return Output{}, err
+		return err
 	}
-	return Output{}, usecase.operation.RevokeAll(id, "admin_twofa_disabled")
+	return usecase.operation.RevokeAll(id, "admin_twofa_disabled")
 }
 
 type Usecase struct {

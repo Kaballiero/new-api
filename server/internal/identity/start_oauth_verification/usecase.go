@@ -1,6 +1,9 @@
 package start_oauth_verification
 
-import identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
+import (
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
+)
 
 type Operation interface {
 	Bind() error
@@ -19,13 +22,13 @@ func (usecase Usecase) Execute() error {
 	return nil
 }
 
-func LinkedAccount(providers []identitydto.VerificationOAuthProvider, provider string, unavailable func() error) (string, error) {
+func LinkedAccount(providers []identitydto.VerificationOAuthProvider, provider string) (string, error) {
 	for _, linked := range providers {
 		if linked.Slug == provider {
 			return linked.UserID, nil
 		}
 	}
-	return "", unavailable()
+	return "", domain.ErrVerificationUnavailable
 }
 
 type Usecase struct {
