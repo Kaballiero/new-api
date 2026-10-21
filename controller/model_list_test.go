@@ -748,6 +748,66 @@ func TestListModelsTokenLimitUsesResolvedCustomAutoGroups(t *testing.T) {
 	require.Empty(t, anthropicResponse.LastID)
 }
 
+func TestListModelsIncludesOpenRouterReserveBilledModels(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	db := setupModelListControllerTestDB(t)
+
+	oldModelPrice := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(oldModelPrice))
+	})
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"zz-or-priced":0.01}`))
+
+	reserveSetting := `{"openrouter_model_reserve_usd":{"zz-up/reserved":0.05,"zz-up/mapped":0.1,"zz-up/zero":0,"zz-or-alias-key":0.2,"zz-up/disabled":0.05,"zz-up/openai":0.05,"zz-up/vip":0.05},"openrouter_sonar_research_reserve_usd":0.5}`
+	mapping := `{"zz-or-alias":"zz-up/mapped","zz-or-alias-key":"zz-up/unreserved","zz-or-sonar":"perplexity/sonar-deep-research"}`
+	require.NoError(t, db.Create(&model.User{Id: 1801, Username: "or-reserve-user", Password: "password", Group: "default", Status: common.UserStatusEnabled}).Error)
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 801, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "k", Group: "default", Setting: &reserveSetting, ModelMapping: &mapping},
+		{Id: 802, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusManuallyDisabled, Key: "k", Group: "default", Setting: &reserveSetting},
+		{Id: 803, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Key: "k", Group: "default", Setting: &reserveSetting},
+		{Id: 804, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "k", Group: "vip", Setting: &reserveSetting},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "zz-or-priced", ChannelId: 801, Enabled: true},
+		{Group: "default", Model: "zz-up/reserved", ChannelId: 801, Enabled: true},
+		{Group: "default", Model: "zz-up/unreserved", ChannelId: 801, Enabled: true},
+		{Group: "default", Model: "zz-up/zero", ChannelId: 801, Enabled: true},
+		{Group: "default", Model: "zz-or-alias", ChannelId: 801, Enabled: true},
+		{Group: "default", Model: "zz-or-alias-key", ChannelId: 801, Enabled: true},
+		{Group: "default", Model: "zz-or-sonar", ChannelId: 801, Enabled: true},
+		{Group: "default", Model: "zz-up/disabled", ChannelId: 802, Enabled: true},
+		{Group: "default", Model: "zz-up/openai", ChannelId: 803, Enabled: true},
+		{Group: "vip", Model: "zz-up/vip", ChannelId: 804, Enabled: true},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	ctx.Set("id", 1801)
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	for _, tc := range []struct {
+		model  string
+		listed bool
+	}{
+		{model: "zz-or-priced", listed: true},
+		{model: "zz-up/reserved", listed: true},
+		{model: "zz-or-alias", listed: true},
+		{model: "zz-or-sonar", listed: true},
+		{model: "zz-up/unreserved", listed: false},
+		{model: "zz-up/zero", listed: false},
+		{model: "zz-or-alias-key", listed: false},
+		{model: "zz-up/disabled", listed: false},
+		{model: "zz-up/openai", listed: false},
+		{model: "zz-up/vip", listed: false},
+	} {
+		_, listed := ids[tc.model]
+		assert.Equal(t, tc.listed, listed, tc.model)
+	}
+}
+
 func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.AuditLog{}, &model.UserSession{}, &model.TwoFA{}, &model.PasskeyCredential{}))
