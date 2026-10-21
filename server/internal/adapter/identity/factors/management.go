@@ -24,7 +24,7 @@ func (TwoFAStatus) Factor(id int) (domain.FactorState, error) {
 }
 func (TwoFAStatus) BackupCount(id int) (int, error) { return model.GetUnusedBackupCodeCount(id) }
 func (TwoFAStatus) LogCountFailure(err error) {
-	common.SysLog("获取备用码数量失败: " + err.Error())
+	common.SysLog("failed to count backup codes: " + err.Error())
 }
 
 type TwoFAStats struct{}

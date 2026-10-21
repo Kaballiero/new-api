@@ -2,9 +2,13 @@ package admin_reset_passkey
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,4 +65,20 @@ func TestExecuteResetsPasskey(t *testing.T) {
 	assert.Equal(t, Output{ID: 5, Username: "alice"}, output)
 	assert.Equal(t, []int{5}, op.deleted)
 	assert.Equal(t, "admin_passkey_reset", op.revokeReason)
+}
+
+func TestHandleLocalizesSuccessMessage(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	gin.SetMode(gin.TestMode)
+	handler := NewHTTP(func(*gin.Context) Operation { return &fakeOperation{role: 1, actor: 10} }, func(*gin.Context, int, string, map[string]any) {}, func(*gin.Context, error) {})
+	router := gin.New()
+	router.POST("/users/:id/passkey/reset", handler.Handle)
+	for lang, message := range map[string]string{"zh-CN": "Passkey 已重置", "ru": "Passkey сброшен", "en": "Passkey has been reset"} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/users/5/passkey/reset", nil)
+		request.Header.Set("Accept-Language", lang)
+		router.ServeHTTP(recorder, request)
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.JSONEq(t, `{"success":true,"message":"`+message+`"}`, recorder.Body.String(), lang)
+	}
 }

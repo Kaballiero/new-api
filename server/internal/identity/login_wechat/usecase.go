@@ -10,7 +10,8 @@ type Operation interface {
 	AccountID() int
 	RegistrationEnabled() bool
 	PrepareAccount()
-	InsertAccount() error
+	// InsertAccount registers the account with persisted texts in lang.
+	InsertAccount(lang string) error
 	AccountEnabled() bool
 }
 
@@ -34,7 +35,7 @@ func (usecase Usecase) Execute(input Input) error {
 			return domain.ErrRegistrationDisabled
 		}
 		usecase.operation.PrepareAccount()
-		if err := usecase.operation.InsertAccount(); err != nil {
+		if err := usecase.operation.InsertAccount(input.Lang); err != nil {
 			return err
 		}
 	}

@@ -264,7 +264,7 @@ func TestInsertRejectsDuplicateEmailWithoutUniqueIndex(t *testing.T) {
 		Status:   common.UserStatusEnabled,
 	}
 
-	err := user.Insert(0)
+	err := user.Insert(0, "")
 	require.ErrorIs(t, err, ErrEmailAlreadyTaken)
 
 	var count int64
@@ -281,7 +281,7 @@ func TestInsertKeepsBlankPasswordForPasswordlessUser(t *testing.T) {
 		Status:   common.UserStatusEnabled,
 	}
 
-	require.NoError(t, user.Insert(0))
+	require.NoError(t, user.Insert(0, ""))
 
 	var stored User
 	require.NoError(t, DB.Where("username = ?", user.Username).First(&stored).Error)

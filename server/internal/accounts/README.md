@@ -55,7 +55,7 @@
 - ошибки действий над root и ролями → 403/409 со своими кодами (`cannot_disable_root`, `user_already_admin`, …);
 - `ErrUsernameTaken` → 409 `username_already_taken` (только `update_account`);
 - ошибки корректировки квоты → 400 `quota_change_zero` / `invalid_params`, `ErrQuotaLimitExceeded` → 200 с текстом `wallet quota limit exceeded`;
-- `domain.Internal(err)` → 500 `internal_error` с текстом причины;
+- `domain.Internal(err)` → 500 `internal_error` с текстом причины; `ErrAccountIDRequired` (нулевой id) → тот же статус и код, но с i18n-сообщением `user.id_required` (без обёртки `Internal` — 200 `{success:false}`);
 - ошибки массовой смены группы → 400/403/404 без кода, `domain.GroupChangeFailed(err)` → 500 без кода с текстом причины;
 - ошибки отметки, перевода реферальной квоты, настроек уведомлений и профиля → 200 `{success:false}` с i18n-сообщением; `domain.AffiliateTransferFailed(err)` вкладывает переведённую причину в «Transfer failed …»;
 - ошибка без доменного смысла → 200 `{success:false}` с её текстом.
@@ -83,5 +83,5 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/accounts.go`) берёт ст
 - ⚠ `model` всё ещё импортирует `internal` по аккаунтам (записи `legacy-imports-internal` для `model/user.go`, `accounts_*.go`, `checkin.go`): GORM-запись `User` живёт в адаптере, а `model` создаёт usecase регистрации, сохранения, удаления, отметки, перевода реферальной квоты, корректировки квоты и выдачи GetAPI-аккаунта.
 - `provision_account` получает ошибки через интерфейс `Errors` (`model.ProvisionErrors`) и фабрику `invalid func() error`: это контракт интеграции GetAPI (`model.ErrGetAPI*`, `writeGetAPIError`), общий с другими её маршрутами; тест `TestAccountsPersistenceCompatibility` фиксирует позднее чтение этих ошибок.
 - `adjust_quota`, `transfer_affiliate_quota` импортируют `common` (лимит и преобразование квоты), `update_notification_preferences`, `update_profile`, `dto` — `relaykit/dto` (`UserSetting`): записи `usecase-transitive` и `business-imports-gateway` остаются.
-- В `domain/groups.go` остаются китайские значения данных («用户分组» — описание собственной группы, «自动» — коэффициент группы `auto`): это часть ответа, а не текст ошибки. Китайский текст сохранён и в ошибке `delete_account` «id 为空！», в ошибках адаптера `record` («id 为空！», «affCode 为空！») и в записях лога пользователя (регистрация, приглашение, отметка).
+- Метки групп («用户分组» — описание собственной группы, «自动» — коэффициент группы `auto`) переводятся на язык запроса только в ответе `get_groups`; остальные потребители `accountssettings.UserGroups()` (service, pricing, relay) получают прежние zh-CN значения. Записи лога пользователя (регистрация, приглашение, отметка) пишутся на языке запроса того, кто выполняет действие.
 - Ответы ошибок `check_in` и `get_checkin_status` раньше писались структурой (`success`, `message`), теперь `common.ApiErrorI18n` / `ApiError` (`gin.H`): тот же JSON, другой порядок ключей в теле.

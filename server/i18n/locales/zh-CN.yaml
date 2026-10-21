@@ -318,3 +318,39 @@ identity.backup_codes_generate_failed: "生成备用码失败"
 identity.backup_codes_save_failed: "保存备用码失败"
 identity.binding_login_required: "绑定操作需要登录"
 identity.provider_id_invalid: "无效的提供商 ID"
+
+# Identity success messages
+identity.admin_twofa_disabled: "用户2FA已被强制禁用"
+identity.backup_codes_regenerated: "备用码重新生成成功"
+identity.passkey_registered: "Passkey 注册成功"
+identity.passkey_unbound: "Passkey 已解绑"
+identity.passkey_reset: "Passkey 已重置"
+identity.twofa_disabled: "两步验证已禁用"
+identity.oauth_unbound: "解绑成功"
+identity.default_token_name: "{{.Username}}的初始令牌"
+
+# Identity e-mails
+identity.verification_email_subject: "{{.SystemName}}邮箱验证邮件"
+identity.verification_email_content: "<p>您好，你正在进行{{.SystemName}}邮箱验证。</p><p>您的验证码为: <strong>{{.Code}}</strong></p><p>验证码 {{.Minutes}} 分钟内有效，如果不是本人操作，请忽略。</p>"
+identity.password_reset_email_subject: "{{.SystemName}}密码重置"
+identity.password_reset_email_content: "<p>您好，你正在进行{{.SystemName}}密码重置。</p><p>点击 <a href='{{.Link}}'>此处</a> 进行密码重置。</p><p>如果链接无法点击，请尝试点击下面的链接或将其复制到浏览器中打开：<br> {{.Link}} </p><p>重置链接 {{.Minutes}} 分钟内有效，如果不是本人操作，请忽略。</p>"
+
+# Security proof, Turnstile and e-mail rate limit middleware messages
+security.proof_invalid: "安全验证状态无效"
+security.proof_required: "需要安全验证"
+security.proof_expired: "安全验证已过期"
+security.proof_scope_mismatch: "安全验证范围不匹配"
+security.proof_method_mismatch: "安全验证方式不匹配"
+turnstile.token_empty: "Turnstile token 为空"
+turnstile.verify_failed: "Turnstile 校验失败，请刷新重试！"
+rate_limit.email_verification_wait: "发送过于频繁，请等待 {{.Seconds}} 秒后再试"
+rate_limit.email_verification: "发送过于频繁，请稍后再试"
+
+# Account messages and persisted account texts
+user.id_required: "id 为空！"
+group.user_group_label: "用户分组"
+group.auto_ratio_label: "自动"
+checkin.log_reward: "用户签到，获得额度 {{.Quota}}"
+user.log_register_reward: "新用户注册赠送 {{.Quota}}"
+user.log_invitee_reward: "使用邀请码赠送 {{.Quota}}"
+user.log_inviter_reward: "邀请用户赠送 {{.Quota}}"

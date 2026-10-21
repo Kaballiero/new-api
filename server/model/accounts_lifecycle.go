@@ -10,8 +10,10 @@ import (
 	"gorm.io/gorm"
 )
 
-func (user *User) Insert(inviterID int) error {
-	operation := newRegistrationOperation(user)
+// Insert registers the user; lang is the language of the acting request for
+// the persisted registration and invitation log texts.
+func (user *User) Insert(inviterID int, lang string) error {
+	operation := newRegistrationOperation(user, lang)
 	return register.NewUsecase(operation, operation).Execute(inviterID, initialRegistrationAccount)
 }
 
@@ -19,22 +21,23 @@ func initialRegistrationAccount() accountdomain.InitialAccount {
 	return accountdomain.InitialAccount{Quota: common.QuotaForNewUser, AffiliateCode: common.GetRandomString(4)}
 }
 
-func (user *User) finishInsert(inviterID int) {
-	operation := newRegistrationOperation(user)
+// FinishInsert completes a registration inserted with InsertWithTx; lang is the
+// language of the acting request for the persisted log texts.
+func (user *User) FinishInsert(inviterID int, lang string) {
+	operation := newRegistrationOperation(user, lang)
 	register.NewUsecase(operation, operation).Finish(inviterID, false)
 }
 
-func (user *User) FinishInsert(inviterID int) { user.finishInsert(inviterID) }
-
 func (user *User) InsertWithTx(tx *gorm.DB, inviterID int) error {
-	operation := newRegistrationOperation(user)
+	// Inserting the defaults writes no log texts, so no language is needed.
+	operation := newRegistrationOperation(user, "")
 	return withNormalizedEmailLock(tx, user.Email, func(tx *gorm.DB) error {
 		return register.NewUsecase(operation, operation).InsertDefaults(record.NewRegistrationMutation((*record.User)(user), tx, ensureEmailAvailableWithTx))
 	})
 }
 
-func (user *User) FinalizeOAuthUserCreation(inviterID int) {
-	operation := newRegistrationOperation(user)
+func (user *User) FinalizeOAuthUserCreation(inviterID int, lang string) {
+	operation := newRegistrationOperation(user, lang)
 	register.NewUsecase(operation, operation).Finish(inviterID, true)
 }
 
@@ -49,8 +52,8 @@ func (user *User) UpdateWithTx(tx *gorm.DB, password bool) error {
 func (user *User) EditWithTx(tx *gorm.DB, password bool) error {
 	return persist.NewUsecase(newPersistenceOperation(user, false)).WithTransaction(record.NewPersistenceMutation((*record.User)(user), tx, password, true, IncrementUserAuthVersionWithTx, lockForUpdate), password, true)
 }
-func newRegistrationOperation(user *User) record.RegistrationOperation {
-	return record.NewRegistrationOperation((*record.User)(user), record.RegistrationDependencies{
+func newRegistrationOperation(user *User, lang string) record.RegistrationOperation {
+	return record.NewRegistrationOperation((*record.User)(user), lang, record.RegistrationDependencies{
 		DB: func() *gorm.DB { return DB }, EnsureEmail: ensureEmailAvailableWithTx,
 		WithEmailLock: withNormalizedEmailLock, Sidebar: generateDefaultSidebarConfigForRole,
 		SaveSidebar:     func(value *record.User) { _ = (*User)(value).Update(false) },

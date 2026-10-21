@@ -110,3 +110,28 @@ func TestWriteErrorLocalizesFormerChineseMessages(t *testing.T) {
 		assert.JSONEq(t, `{"success":false,"message":"`+tc.want+`"}`, recorder.Body.String(), tc.want)
 	}
 }
+
+// The zero account id keeps the status of its path; only the text is localized.
+func TestWriteErrorLocalizesAccountIDRequired(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	gin.SetMode(gin.TestMode)
+	cases := []struct {
+		err  error
+		lang string
+		code int
+		want string
+	}{
+		{domain.Internal(domain.ErrAccountIDRequired), "zh-CN", http.StatusInternalServerError, `{"success":false,"code":"internal_error","message":"id 为空！"}`},
+		{domain.Internal(domain.ErrAccountIDRequired), "ru", http.StatusInternalServerError, `{"success":false,"code":"internal_error","message":"Не указан ID пользователя"}`},
+		{domain.ErrAccountIDRequired, "zh-CN", http.StatusOK, `{"success":false,"message":"id 为空！"}`},
+	}
+	for _, tc := range cases {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+		c.Set(string(constant.ContextKeyLanguage), tc.lang)
+		WriteError(c, tc.err)
+		assert.Equal(t, tc.code, recorder.Code)
+		assert.JSONEq(t, tc.want, recorder.Body.String(), tc.lang)
+	}
+}

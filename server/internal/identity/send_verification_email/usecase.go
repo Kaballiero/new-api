@@ -9,13 +9,14 @@ type EmailVerificationOperation interface {
 	EmailTaken(email string) bool
 	GenerateCode(length int) string
 	RegisterCode(email, code string)
-	Deliver(email, code string) error
+	// Deliver sends the code in the language lang.
+	Deliver(email, code, lang string) error
 }
 
 // Execute sends a registration verification code. An address used by another
 // account is domain.ErrEmailTaken.
-func (usecase Usecase) Execute(raw string) error {
-	email, err := usecase.operation.ValidateEmail(raw)
+func (usecase Usecase) Execute(input Input) error {
+	email, err := usecase.operation.ValidateEmail(input.Email)
 	if err != nil {
 		return err
 	}
@@ -24,7 +25,7 @@ func (usecase Usecase) Execute(raw string) error {
 	}
 	code := usecase.operation.GenerateCode(6)
 	usecase.operation.RegisterCode(email, code)
-	return usecase.operation.Deliver(email, code)
+	return usecase.operation.Deliver(email, code, input.Lang)
 }
 
 type Usecase struct {

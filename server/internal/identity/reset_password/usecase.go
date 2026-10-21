@@ -18,7 +18,7 @@ type Usecase struct{ store Store }
 func NewUsecase(store Store) Usecase { return Usecase{store: store} }
 func (u Usecase) Execute(email, password string) error {
 	if email == "" || password == "" {
-		return errors.New("邮箱地址或密码为空！")
+		return errors.New("email or password is empty")
 	}
 	if err := u.store.FindUnique(email); err != nil {
 		return err

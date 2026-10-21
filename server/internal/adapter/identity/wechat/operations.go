@@ -73,9 +73,9 @@ func (op *Login) PrepareAccount() {
 	op.User.Role = common.RoleCommonUser
 	op.User.Status = common.UserStatusEnabled
 }
-func (op *Login) InsertAccount() error           { return op.User.Insert(0) }
-func (op *Login) AccountEnabled() bool           { return op.User.Status == common.UserStatusEnabled }
-func (op *Login) AuthenticatedUser() *model.User { return op.User }
+func (op *Login) InsertAccount(lang string) error { return op.User.Insert(0, lang) }
+func (op *Login) AccountEnabled() bool            { return op.User.Status == common.UserStatusEnabled }
+func (op *Login) AuthenticatedUser() *model.User  { return op.User }
 
 type Binding struct {
 	Identity           domain.AuthIdentity

@@ -15,6 +15,7 @@ type fakeOperation struct {
 	registration bool
 	enabled      bool
 	inserted     bool
+	lang         string
 }
 
 func (f *fakeOperation) ExchangeCode(string) error { return f.exchangeErr }
@@ -24,8 +25,11 @@ func (f *fakeOperation) LoadAccount() error        { return nil }
 func (f *fakeOperation) AccountID() int            { return f.accountID }
 func (f *fakeOperation) RegistrationEnabled() bool { return f.registration }
 func (f *fakeOperation) PrepareAccount()           {}
-func (f *fakeOperation) InsertAccount() error      { f.inserted = true; return nil }
-func (f *fakeOperation) AccountEnabled() bool      { return f.enabled }
+func (f *fakeOperation) InsertAccount(lang string) error {
+	f.inserted, f.lang = true, lang
+	return nil
+}
+func (f *fakeOperation) AccountEnabled() bool { return f.enabled }
 
 func TestExecute(t *testing.T) {
 	cases := []struct {
@@ -44,13 +48,16 @@ func TestExecute(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			op := tc.op
-			err := NewUsecase(&op).Execute(Input{Code: "c"})
+			err := NewUsecase(&op).Execute(Input{Code: "c", Lang: "ru"})
 			if tc.want == nil {
 				assert.NoError(t, err)
 			} else {
 				assert.ErrorIs(t, err, tc.want)
 			}
 			assert.Equal(t, tc.inserted, op.inserted)
+			if tc.inserted {
+				assert.Equal(t, "ru", op.lang, "the registration texts use the request language")
+			}
 		})
 	}
 }

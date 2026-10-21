@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -39,25 +40,25 @@ func SecureVerificationRequired() gin.HandlerFunc {
 func RequireSecurityProof(c *gin.Context, operation service.VerificationOperation) *model.AuthFlowAuthorization {
 	identity, ok := GetSessionAuthIdentity(c)
 	if !ok {
-		securityProofError(c, "SECURITY_PROOF_INVALID", "安全验证状态无效")
+		securityProofError(c, "SECURITY_PROOF_INVALID", common.TranslateMessage(c, i18n.MsgSecurityProofInvalid))
 		return nil
 	}
 	raw := strings.TrimSpace(c.GetHeader("X-Security-Proof"))
 	if raw == "" {
-		securityProofError(c, "SECURITY_PROOF_REQUIRED", "需要安全验证")
+		securityProofError(c, "SECURITY_PROOF_REQUIRED", common.TranslateMessage(c, i18n.MsgSecurityProofRequired))
 		return nil
 	}
 	authorization, err := service.ConsumeOperationProof(raw, identity, operation)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrAuthTokenExpired):
-			securityProofError(c, "SECURITY_PROOF_EXPIRED", "安全验证已过期")
+			securityProofError(c, "SECURITY_PROOF_EXPIRED", common.TranslateMessage(c, i18n.MsgSecurityProofExpired))
 		case errors.Is(err, service.ErrProofScope):
-			securityProofError(c, "SECURITY_PROOF_SCOPE_MISMATCH", "安全验证范围不匹配")
+			securityProofError(c, "SECURITY_PROOF_SCOPE_MISMATCH", common.TranslateMessage(c, i18n.MsgSecurityProofScopeMismatch))
 		case errors.Is(err, service.ErrVerificationUnavailable):
 			securityProofError(c, "SECURITY_METHOD_UNAVAILABLE", service.ErrVerificationUnavailable.Error())
 		case errors.Is(err, service.ErrProofMethod):
-			securityProofError(c, "SECURITY_PROOF_METHOD_MISMATCH", "安全验证方式不匹配")
+			securityProofError(c, "SECURITY_PROOF_METHOD_MISMATCH", common.TranslateMessage(c, i18n.MsgSecurityProofMethodMismatch))
 		case errors.Is(err, service.ErrProofConsumed):
 			securityProofError(c, "SECURITY_PROOF_CONSUMED", "This verification has already been used. Please verify again.")
 		case errors.Is(err, service.ErrProofContext):
@@ -65,7 +66,7 @@ func RequireSecurityProof(c *gin.Context, operation service.VerificationOperatio
 		case errors.Is(err, service.ErrVerificationForbidden):
 			securityProofError(c, "SECURITY_ACTION_FORBIDDEN", service.ErrVerificationForbidden.Error())
 		case errors.Is(err, service.ErrAuthTokenInvalid), errors.Is(err, service.ErrLoginSessionInvalid), errors.Is(err, service.ErrLoginSessionRevoked), errors.Is(err, model.ErrUserSessionInactive):
-			securityProofError(c, "SECURITY_PROOF_INVALID", "安全验证状态无效")
+			securityProofError(c, "SECURITY_PROOF_INVALID", common.TranslateMessage(c, i18n.MsgSecurityProofInvalid))
 		default:
 			_ = c.Error(err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"success": false, "code": "AUTH_INTERNAL_ERROR", "message": "Please try again later."})

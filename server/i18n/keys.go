@@ -373,4 +373,40 @@ const (
 	MsgIdentityBackupCodesSaveFailed           = "identity.backup_codes_save_failed"
 	MsgIdentityBindingLoginRequired            = "identity.binding_login_required"
 	MsgIdentityProviderIDInvalid               = "identity.provider_id_invalid"
+	MsgIdentityAdminTwoFADisabled              = "identity.admin_twofa_disabled"
+	MsgIdentityBackupCodesRegenerated          = "identity.backup_codes_regenerated"
+	MsgIdentityPasskeyRegistered               = "identity.passkey_registered"
+	MsgIdentityPasskeyUnbound                  = "identity.passkey_unbound"
+	MsgIdentityPasskeyReset                    = "identity.passkey_reset"
+	MsgIdentityTwoFADisabled                   = "identity.twofa_disabled"
+	MsgIdentityOAuthUnbound                    = "identity.oauth_unbound"
+	MsgIdentityDefaultTokenName                = "identity.default_token_name"
+	MsgIdentityVerificationEmailSubject        = "identity.verification_email_subject"
+	MsgIdentityVerificationEmailContent        = "identity.verification_email_content"
+	MsgIdentityPasswordResetEmailSubject       = "identity.password_reset_email_subject"
+	MsgIdentityPasswordResetEmailContent       = "identity.password_reset_email_content"
+)
+
+// Security proof, Turnstile and e-mail rate limit middleware messages
+const (
+	MsgSecurityProofInvalid               = "security.proof_invalid"
+	MsgSecurityProofRequired              = "security.proof_required"
+	MsgSecurityProofExpired               = "security.proof_expired"
+	MsgSecurityProofScopeMismatch         = "security.proof_scope_mismatch"
+	MsgSecurityProofMethodMismatch        = "security.proof_method_mismatch"
+	MsgTurnstileTokenEmpty                = "turnstile.token_empty"
+	MsgTurnstileVerifyFailed              = "turnstile.verify_failed"
+	MsgEmailVerificationRateLimitedWait   = "rate_limit.email_verification_wait"
+	MsgEmailVerificationRateLimitedNoWait = "rate_limit.email_verification"
+)
+
+// Account messages and persisted account texts
+const (
+	MsgAccountIDRequired     = "user.id_required"
+	MsgAccountUserGroupLabel = "group.user_group_label"
+	MsgAccountAutoGroupRatio = "group.auto_ratio_label"
+	MsgAccountCheckinLog     = "checkin.log_reward"
+	MsgAccountRegisterLog    = "user.log_register_reward"
+	MsgAccountInviteeLog     = "user.log_invitee_reward"
+	MsgAccountInviterLog     = "user.log_inviter_reward"
 )

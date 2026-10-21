@@ -44,6 +44,8 @@ func WriteError(c *gin.Context, err error) {
 		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 	case errors.Is(err, domain.ErrQuotaLimitExceeded):
 		common.ApiError(c, err)
+	case errors.Is(err, domain.ErrInternal) && errors.Is(err, domain.ErrAccountIDRequired):
+		common.ApiErrorI18nStatusCode(c, http.StatusInternalServerError, "internal_error", i18n.MsgAccountIDRequired)
 	case errors.Is(err, domain.ErrInternal):
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 	case errors.Is(err, domain.ErrGroupChangeFailed):
@@ -100,6 +102,8 @@ func WriteError(c *gin.Context, err error) {
 		common.ApiErrorI18n(c, i18n.MsgSettingGotifyTokenEmpty)
 	case errors.Is(err, domain.ErrGotifyURLInvalid):
 		common.ApiErrorI18n(c, i18n.MsgSettingGotifyUrlInvalid)
+	case errors.Is(err, domain.ErrAccountIDRequired):
+		common.ApiErrorI18n(c, i18n.MsgAccountIDRequired)
 	default:
 		common.ApiError(c, err)
 	}

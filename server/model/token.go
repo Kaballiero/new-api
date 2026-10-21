@@ -80,13 +80,13 @@ func GetAllUserTokens(userId, startIdx, num int) ([]*Token, error) {
 	return out, err
 }
 
-// sanitizeLikePattern 校验并清洗用户输入的 LIKE 搜索模式。
-// 规则：
-//  1. 转义 ! 和 _（使用 ! 作为 ESCAPE 字符，兼容 MySQL/PostgreSQL/SQLite）
-//  2. 连续的 % 合并为单个 %
-//  3. 最多允许 2 个 %
-//  4. 含 % 时（模糊搜索），去掉 % 后关键词长度必须 >= 2
-//  5. 不含 % 时按精确匹配
+// sanitizeLikePattern validates and escapes a user LIKE search pattern.
+// Rules:
+//  1. ! and _ are escaped (! is the ESCAPE character, compatible with MySQL/PostgreSQL/SQLite)
+//  2. consecutive % are merged into a single %
+//  3. at most 2 % are allowed
+//  4. with % (fuzzy search) the keyword without % must be at least 2 characters long
+//  5. without % the match is exact
 func sanitizeLikePattern(input string) (string, error) { return keydomain.SanitizeSearchPattern(input) }
 func validateLikePattern(input string) error           { return keydomain.ValidateSearchPattern(input) }
 func SearchUserTokens(userId int, keyword, token string, offset, limit int) ([]*Token, int64, error) {
@@ -175,12 +175,12 @@ func tokenDomainByKey(key string) (*keydomain.Token, error) {
 
 func IncreaseTokenQuota(tokenId int, key string, quota int) (err error) {
 	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+		return errors.New("quota must not be negative")
 	}
 	if common.RedisEnabled {
 		gopool.Go(func() {
-			// 守卫式增量：哈希不存在时跳过，由下次读取从数据库水合，
-			// 绝不创建只有配额字段的残缺哈希。
+			// Guarded increment: a missing hash is skipped and hydrated from the
+			// database by the next read; a partial quota-only hash is never created.
 			if _, err := cacheApplyTokenQuotaDelta(tokenId, key, int64(quota)); err != nil {
 				common.SysLog("failed to increase token quota: " + err.Error())
 			}
@@ -206,7 +206,7 @@ func increaseTokenQuota(id int, quota int) (err error) {
 
 func DecreaseTokenQuota(id int, key string, quota int) (err error) {
 	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+		return errors.New("quota must not be negative")
 	}
 	if common.RedisEnabled {
 		gopool.Go(func() {
@@ -236,7 +236,7 @@ func decreaseTokenQuota(id int, quota int) (err error) {
 // CountUserTokens returns total number of tokens for the given user, used for pagination
 func CountUserTokens(userId int) (int64, error) { return NewTokenPersistence().Count(userId) }
 
-// BatchDeleteTokens 删除指定用户的一组令牌，返回成功删除数量
+// BatchDeleteTokens deletes a set of tokens of the user and returns the number deleted
 func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	return NewTokenPersistence().DeleteBatch(ids, userId)
 }
@@ -253,15 +253,16 @@ func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	return out, err
 }
 
-// InvalidateUserTokensCache 清理指定用户所有令牌在 Redis 中的缓存，
-// 配合 InvalidateUserCache 使用，可在用户被禁用/删除时立即阻断其令牌的请求。
-// 下一次请求将从数据库重新加载令牌及用户状态，从而立即识别出被禁用的用户。
+// InvalidateUserTokensCache clears the Redis cache of all tokens of the user.
+// Together with InvalidateUserCache it blocks token requests immediately after
+// the user is disabled or deleted: the next request reloads the token and the
+// user state from the database and sees the disabled user.
 func InvalidateUserTokensCache(userId int) error {
 	if !common.RedisEnabled {
 		return nil
 	}
 	if userId <= 0 {
-		return errors.New("userId 无效")
+		return errors.New("invalid user id")
 	}
 	var tokens []Token
 	if err := DB.Unscoped().

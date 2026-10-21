@@ -10,7 +10,8 @@ type PasswordResetEmailOperation interface {
 	EmailNotFound(error) bool
 	GenerateCode(length int) string
 	RegisterCode(email, code string)
-	Deliver(email, code string) error
+	// Deliver sends the code in the language lang.
+	Deliver(email, code, lang string) error
 	LogDeliveryFailure(email string, err error)
 	LogLookupFailure(email string, err error)
 }
@@ -18,8 +19,8 @@ type PasswordResetEmailOperation interface {
 // Execute sends a password reset code. Only an invalid address is reported
 // (domain.ErrInvalidInput): unknown accounts and delivery failures are logged
 // so that the response does not reveal registered addresses.
-func (usecase Usecase) Execute(raw string) error {
-	email := usecase.operation.NormalizeEmail(raw)
+func (usecase Usecase) Execute(input Input) error {
+	email := usecase.operation.NormalizeEmail(input.Email)
 	if !usecase.operation.ValidEmail(email) {
 		return domain.ErrInvalidInput
 	}
@@ -31,7 +32,7 @@ func (usecase Usecase) Execute(raw string) error {
 	}
 	code := usecase.operation.GenerateCode(0)
 	usecase.operation.RegisterCode(email, code)
-	if err := usecase.operation.Deliver(email, code); err != nil {
+	if err := usecase.operation.Deliver(email, code, input.Lang); err != nil {
 		usecase.operation.LogDeliveryFailure(email, err)
 	}
 	return nil

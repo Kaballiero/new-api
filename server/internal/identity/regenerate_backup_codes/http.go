@@ -39,10 +39,10 @@ func (h *HTTP) Handle(c *gin.Context) {
 			h.writeError(c, err)
 			return
 		}
-		// The log keeps its original text; the response message is localized.
-		key, logPrefix := i18n.MsgIdentityBackupCodesGenerateFailed, "生成备用码失败"
+		// The response message is localized; the system log is in English.
+		key, logPrefix := i18n.MsgIdentityBackupCodesGenerateFailed, "failed to generate backup codes"
 		if errors.Is(err, domain.ErrBackupCodesSave) {
-			key, logPrefix = i18n.MsgIdentityBackupCodesSaveFailed, "保存备用码失败"
+			key, logPrefix = i18n.MsgIdentityBackupCodesSaveFailed, "failed to save backup codes"
 		}
 		common.ApiErrorI18n(c, key)
 		common.SysLog(logPrefix + ": " + failed.Log)
@@ -51,5 +51,5 @@ func (h *HTTP) Handle(c *gin.Context) {
 	h.audit(c, identity.UserID, "user.2fa_backup_codes", nil)
 	data := h.rotation(op.Bundle())
 	data["backup_codes"] = op.BackupCodes()
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "备用码重新生成成功", "data": data})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": common.TranslateMessage(c, i18n.MsgIdentityBackupCodesRegenerated), "data": data})
 }

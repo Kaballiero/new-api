@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	clearbinding "github.com/QuantumNous/new-api/internal/accounts/clear_binding"
 	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
 	persist "github.com/QuantumNous/new-api/internal/accounts/persist_account"
@@ -14,8 +15,11 @@ import (
 	"strings"
 )
 
+// RegistrationOperation registers user; lang is the language of the acting
+// request for the persisted registration and invitation log texts.
 type RegistrationOperation struct {
 	user *User
+	lang string
 	deps RegistrationDependencies
 }
 
@@ -89,13 +93,13 @@ func (s registrationSidebar) AssignSidebar(sidebar string) {
 
 func (s registrationSidebar) SaveSidebar() { s.save(s.user) }
 func (s registrationSidebar) LogSidebar() {
-	common.SysLog(fmt.Sprintf("为新用户 %s (角色: %d) 初始化边栏配置", s.user.Username, s.user.Role))
+	common.SysLog(fmt.Sprintf("initialized sidebar configuration for new user %s (role: %d)", s.user.Username, s.user.Role))
 }
 
 func (op RegistrationOperation) NewAffiliateCode() string { return common.GetRandomString(4) }
 func (op RegistrationOperation) NewUserQuota() int        { return common.QuotaForNewUser }
 func (op RegistrationOperation) RecordRegistrationQuota(quota int) {
-	op.deps.RecordSystemLog(op.user.Id, fmt.Sprintf("新用户注册赠送 %s", logger.LogQuota(quota)))
+	op.deps.RecordSystemLog(op.user.Id, i18n.Translate(op.lang, i18n.MsgAccountRegisterLog, map[string]any{"Quota": logger.LogQuota(quota)}))
 }
 
 func (op RegistrationOperation) PaymentComplianceConfirmed() bool {
@@ -108,12 +112,12 @@ func (op RegistrationOperation) IncreaseInviteeQuota(quota int) error {
 }
 
 func (op RegistrationOperation) RecordInviteeQuota(quota int) {
-	op.deps.RecordSystemLog(op.user.Id, fmt.Sprintf("使用邀请码赠送 %s", logger.LogQuota(quota)))
+	op.deps.RecordSystemLog(op.user.Id, i18n.Translate(op.lang, i18n.MsgAccountInviteeLog, map[string]any{"Quota": logger.LogQuota(quota)}))
 }
 
 func (op RegistrationOperation) InviterQuota() int { return common.QuotaForInviter }
 func (op RegistrationOperation) RecordInviterQuota(id, quota int) {
-	op.deps.RecordSystemLog(id, fmt.Sprintf("邀请用户赠送 %s", logger.LogQuota(quota)))
+	op.deps.RecordSystemLog(id, i18n.Translate(op.lang, i18n.MsgAccountInviterLog, map[string]any{"Quota": logger.LogQuota(quota)}))
 }
 
 func (op RegistrationOperation) RewardInviter(id int) error { return op.deps.InviteUser(id) }
@@ -252,8 +256,8 @@ type RegistrationDependencies struct {
 	InviteUser        func(int) error
 }
 
-func NewRegistrationOperation(user *User, deps RegistrationDependencies) RegistrationOperation {
-	return RegistrationOperation{user: user, deps: deps}
+func NewRegistrationOperation(user *User, lang string, deps RegistrationDependencies) RegistrationOperation {
+	return RegistrationOperation{user: user, lang: lang, deps: deps}
 }
 func NewRegistrationMutation(user *User, tx *gorm.DB, ensure func(*gorm.DB, string, int) error) register.Mutation {
 	return registrationMutation{user: user, tx: tx, ensureEmail: ensure}

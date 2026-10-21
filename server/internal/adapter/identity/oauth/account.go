@@ -15,6 +15,9 @@ type Account struct {
 	Provider  oauth.Provider
 	OAuthUser *oauth.OAuthUser
 	User      *model.User
+	// Lang is the language of the callback request for the persisted
+	// registration log texts.
+	Lang string
 }
 
 func (op *Account) Profile() complete_oauth.ProviderProfile {
@@ -55,7 +58,7 @@ func (op *Account) FindInviter(code string) (int, error) { return model.GetUserI
 func (op *Account) Transaction(run func(complete_oauth.AccountCreation) error) error {
 	return model.DB.Transaction(func(tx *gorm.DB) error { return run(accountCreation{op: op, tx: tx}) })
 }
-func (op *Account) Finalize(inviter int) { op.User.FinalizeOAuthUserCreation(inviter) }
+func (op *Account) Finalize(inviter int) { op.User.FinalizeOAuthUserCreation(inviter, op.Lang) }
 
 type accountCreation struct {
 	op *Account

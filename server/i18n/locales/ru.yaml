@@ -317,3 +317,39 @@ identity.backup_codes_generate_failed: "Не удалось создать ре�
 identity.backup_codes_save_failed: "Не удалось сохранить резервные коды"
 identity.binding_login_required: "Для привязки необходимо войти"
 identity.provider_id_invalid: "Недопустимый ID провайдера"
+
+# Identity success messages
+identity.admin_twofa_disabled: "Двухфакторная аутентификация пользователя принудительно отключена"
+identity.backup_codes_regenerated: "Резервные коды успешно созданы заново"
+identity.passkey_registered: "Passkey успешно зарегистрирован"
+identity.passkey_unbound: "Passkey отвязан"
+identity.passkey_reset: "Passkey сброшен"
+identity.twofa_disabled: "Двухфакторная аутентификация отключена"
+identity.oauth_unbound: "Привязка удалена"
+identity.default_token_name: "Начальный токен {{.Username}}"
+
+# Identity e-mails
+identity.verification_email_subject: "Подтверждение электронной почты {{.SystemName}}"
+identity.verification_email_content: "<p>Здравствуйте! Вы подтверждаете адрес электронной почты в {{.SystemName}}.</p><p>Ваш код подтверждения: <strong>{{.Code}}</strong></p><p>Код действует {{.Minutes}} мин. Если вы не запрашивали его, просто проигнорируйте это письмо.</p>"
+identity.password_reset_email_subject: "Сброс пароля {{.SystemName}}"
+identity.password_reset_email_content: "<p>Здравствуйте! Вы сбрасываете пароль в {{.SystemName}}.</p><p>Нажмите <a href='{{.Link}}'>здесь</a>, чтобы сбросить пароль.</p><p>Если ссылка не открывается, скопируйте её и откройте в браузере:<br> {{.Link}} </p><p>Ссылка для сброса действует {{.Minutes}} мин. Если вы не запрашивали сброс, просто проигнорируйте это письмо.</p>"
+
+# Security proof, Turnstile and e-mail rate limit middleware messages
+security.proof_invalid: "Состояние проверки безопасности недействительно"
+security.proof_required: "Требуется проверка безопасности"
+security.proof_expired: "Срок проверки безопасности истёк"
+security.proof_scope_mismatch: "Область проверки безопасности не совпадает"
+security.proof_method_mismatch: "Способ проверки безопасности не совпадает"
+turnstile.token_empty: "Токен Turnstile не указан"
+turnstile.verify_failed: "Проверка Turnstile не пройдена, обновите страницу и попробуйте снова!"
+rate_limit.email_verification_wait: "Слишком частая отправка, подождите {{.Seconds}} с и попробуйте снова"
+rate_limit.email_verification: "Слишком частая отправка, попробуйте позже"
+
+# Account messages and persisted account texts
+user.id_required: "Не указан ID пользователя"
+group.user_group_label: "Группа пользователя"
+group.auto_ratio_label: "Авто"
+checkin.log_reward: "Ежедневная отметка, начислено {{.Quota}}"
+user.log_register_reward: "Бонус за регистрацию нового пользователя {{.Quota}}"
+user.log_invitee_reward: "Бонус за использование кода приглашения {{.Quota}}"
+user.log_inviter_reward: "Бонус за приглашённого пользователя {{.Quota}}"

@@ -16,6 +16,7 @@ type fakeOperation struct {
 	deliverErr error
 	registered []string
 	logs       []string
+	lang       string
 }
 
 func (f *fakeOperation) NormalizeEmail(raw string) string { return raw }
@@ -26,7 +27,10 @@ func (f *fakeOperation) GenerateCode(int) string          { return "code" }
 func (f *fakeOperation) RegisterCode(email, code string) {
 	f.registered = append(f.registered, email+"|"+code)
 }
-func (f *fakeOperation) Deliver(string, string) error { return f.deliverErr }
+func (f *fakeOperation) Deliver(_, _, lang string) error {
+	f.lang = lang
+	return f.deliverErr
+}
 func (f *fakeOperation) LogDeliveryFailure(email string, err error) {
 	f.logs = append(f.logs, "delivery "+email+": "+err.Error())
 }
@@ -53,7 +57,7 @@ func TestExecute(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			op := tc.op
-			err := NewUsecase(&op).Execute("a@b.c")
+			err := NewUsecase(&op).Execute(Input{Email: "a@b.c", Lang: "ru"})
 			if tc.want == nil {
 				assert.NoError(t, err)
 			} else {
@@ -61,6 +65,9 @@ func TestExecute(t *testing.T) {
 			}
 			assert.Equal(t, tc.registered, op.registered)
 			assert.Equal(t, tc.logs, op.logs)
+			if tc.registered != nil {
+				assert.Equal(t, "ru", op.lang, "the e-mail is sent in the request language")
+			}
 		})
 	}
 }

@@ -1,9 +1,6 @@
 package delete_account
 
-import (
-	"errors"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 type DeletionSubject interface{ UserID() int }
 
@@ -54,7 +51,7 @@ type HardDeletionOperation interface {
 // on a failure after commit.
 func SoftDeleteAccount(operation SoftDeletionOperation, source DeletionSessionSource, rootRole int) error {
 	if operation.UserID() == 0 {
-		return errors.New("id 为空！")
+		return domain.ErrAccountIDRequired
 	}
 	var nextAuthVersion int64
 	if err := operation.Transaction(func(tx SoftDeletionTx) error {
@@ -92,7 +89,7 @@ func SoftDeleteAccount(operation SoftDeletionOperation, source DeletionSessionSo
 // after commit when a step fails.
 func HardDeleteAccount(operation HardDeletionOperation) error {
 	if operation.UserID() == 0 {
-		return errors.New("id 为空！")
+		return domain.ErrAccountIDRequired
 	}
 	var deletedAuthVersion int64
 	err := operation.Transaction(func(tx HardDeletionTx) error {

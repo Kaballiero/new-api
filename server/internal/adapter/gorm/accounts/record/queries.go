@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"github.com/QuantumNous/new-api/common"
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"strconv"
@@ -128,7 +129,7 @@ func (queries Queries) SearchUsers(keyword string, group string, role *int, stat
 	var total int64
 	var err error
 
-	// 开始事务
+	// Begin the transaction
 	tx := queries.db().Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -139,17 +140,17 @@ func (queries Queries) SearchUsers(keyword string, group string, role *int, stat
 		}
 	}()
 
-	// 构建基础查询
+	// Base query
 	query := tx.Unscoped().Model(&User{})
 
-	// 构建搜索条件
+	// Search conditions
 	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ?"
 	likeArgs := []any{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
 
-	// 尝试将关键字转换为整数ID
+	// Try the keyword as an integer id
 	keywordInt, err := strconv.Atoi(keyword)
 	if err == nil {
-		// 如果是数字，同时搜索ID和其他字段
+		// A numeric keyword also matches the id
 		likeCondition = "id = ? OR " + likeCondition
 		likeArgs = append([]any{keywordInt}, likeArgs...)
 	}
@@ -169,14 +170,14 @@ func (queries Queries) SearchUsers(keyword string, group string, role *int, stat
 		}
 	}
 
-	// 获取总数
+	// Total count
 	err = query.Count(&total).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
 	}
 
-	// 获取分页数据
+	// Page of results
 	order := resolveUserSortOptions(sortOptions)
 	err = order.Apply(query.Omit("password", "access_token")).Limit(num).Offset(startIdx).Find(&users).Error
 	if err != nil {
@@ -184,7 +185,7 @@ func (queries Queries) SearchUsers(keyword string, group string, role *int, stat
 		return nil, 0, err
 	}
 
-	// 提交事务
+	// Commit the transaction
 	if err = tx.Commit().Error; err != nil {
 		return nil, 0, err
 	}
@@ -193,7 +194,7 @@ func (queries Queries) SearchUsers(keyword string, group string, role *int, stat
 }
 func (queries Queries) GetUserById(id int, selectAll bool) (*User, error) {
 	if id == 0 {
-		return nil, errors.New("id 为空！")
+		return nil, accountdomain.ErrAccountIDRequired
 	}
 	user := User{Id: id}
 	var err error = nil
@@ -214,7 +215,7 @@ func (queries Queries) GetUsersBatch(ids []int) ([]UserBatchRow, error) {
 }
 func (queries Queries) GetSelfUserById(id int) (*User, error) {
 	if id == 0 {
-		return nil, errors.New("id 为空！")
+		return nil, accountdomain.ErrAccountIDRequired
 	}
 	var profile struct {
 		User
@@ -233,7 +234,7 @@ func (queries Queries) GetSelfUserById(id int) (*User, error) {
 }
 func (queries Queries) GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
-		return 0, errors.New("affCode 为空！")
+		return 0, errors.New("affiliate code is empty")
 	}
 	var user User
 	err := queries.db().Select("id").First(&user, "aff_code = ?", affCode).Error

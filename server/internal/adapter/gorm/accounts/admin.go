@@ -50,15 +50,18 @@ type AdminCreateOperation struct {
 	adminEffects
 	user  *model.User
 	audit func(domain.AdminTarget)
+	lang  string
 }
 
-func NewAdminCreateOperation(hooks AdminHooks, audit func(domain.AdminTarget)) *AdminCreateOperation {
-	return &AdminCreateOperation{adminEffects: adminEffects{hooks: hooks}, audit: audit}
+// NewAdminCreateOperation builds the account creation; lang is the language of
+// the acting request for the persisted registration log text.
+func NewAdminCreateOperation(hooks AdminHooks, audit func(domain.AdminTarget), lang string) *AdminCreateOperation {
+	return &AdminCreateOperation{adminEffects: adminEffects{hooks: hooks}, audit: audit, lang: lang}
 }
 func (op *AdminCreateOperation) CreateTransaction(run func(create_account.Mutation) error) error {
 	return model.DB.Transaction(func(tx *gorm.DB) error { return run(adminCreateMutation{op: op, tx: tx}) })
 }
-func (op *AdminCreateOperation) FinishInsert()                          { op.user.FinishInsert(0) }
+func (op *AdminCreateOperation) FinishInsert()                          { op.user.FinishInsert(0, op.lang) }
 func (op *AdminCreateOperation) AuditCreated(target domain.AdminTarget) { op.audit(target) }
 
 type adminCreateMutation struct {

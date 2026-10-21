@@ -2,10 +2,14 @@ package check_in
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,4 +75,22 @@ func TestCheckInAwardsQuota(t *testing.T) {
 		assert.True(t, store.credited)
 		assert.Equal(t, !sqlite, store.transaction)
 	}
+}
+
+func TestHandleRecordsLogInRequestLanguage(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	gin.SetMode(gin.TestMode)
+	policy := func() *domain.CheckinPolicy { return &domain.CheckinPolicy{Enabled: true, MinQuota: 3, MaxQuota: 3} }
+	var logged []string
+	handler := NewHTTP(NewUsecase(&fakeStore{}, policy), policy, func(userID, quota int, lang string) {
+		logged = append(logged, lang)
+	})
+	router := gin.New()
+	router.POST("/checkin", func(c *gin.Context) { c.Set("id", 7) }, handler.Handle)
+	request := httptest.NewRequest(http.MethodPost, "/checkin", nil)
+	request.Header.Set("Accept-Language", "ru-RU")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, []string{i18n.LangRu}, logged)
 }

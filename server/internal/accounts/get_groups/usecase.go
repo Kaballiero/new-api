@@ -16,5 +16,7 @@ func NewUsecase(groups domain.Groups, reader AccountGroups) Usecase {
 func (u Usecase) Execute() []string { return u.groups.Names() }
 func (u Usecase) ForUser(input Input) map[string]map[string]any {
 	group, _ := u.reader.UserGroup(input.UserID, false)
-	return u.groups.ForUser(group)
+	groups := u.groups
+	groups.Labels = input.Labels
+	return groups.ForUser(group)
 }

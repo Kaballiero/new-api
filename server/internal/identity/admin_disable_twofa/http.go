@@ -42,5 +42,5 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 	h.audit(c, id, "user.2fa_disable", nil)
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "用户2FA已被强制禁用"})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": common.TranslateMessage(c, i18n.MsgIdentityAdminTwoFADisabled)})
 }

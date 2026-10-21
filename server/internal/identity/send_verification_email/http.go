@@ -19,7 +19,7 @@ func NewHTTP(op EmailVerificationOperation, writeError func(*gin.Context, error)
 	return &HTTP{operation: op, writeSecurityError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
-	err := NewUsecase(h.operation).Execute(c.Query("email"))
+	err := NewUsecase(h.operation).Execute(Input{Email: c.Query("email"), Lang: i18n.GetLangFromContext(c)})
 	switch {
 	case errors.Is(err, domain.ErrEmailInvalid), errors.Is(err, domain.ErrEmailRestricted):
 		h.writeSecurityError(c, err)

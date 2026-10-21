@@ -1,10 +1,13 @@
 package disable_twofa
 
 import (
+	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type Completion interface {
@@ -33,5 +36,5 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 	h.audit(c, identity.UserID, "user.2fa_disable_self", nil)
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "两步验证已禁用", "data": h.rotation(op.Bundle())})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": common.TranslateMessage(c, i18n.MsgIdentityTwoFADisabled), "data": h.rotation(op.Bundle())})
 }

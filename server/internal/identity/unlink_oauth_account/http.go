@@ -57,5 +57,5 @@ func (h *HTTP) Handle(c *gin.Context) {
 		h.writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "解绑成功", "data": gin.H{"notification_warning": op.NotificationWarning()}})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": common.TranslateMessage(c, i18n.MsgIdentityOAuthUnbound), "data": gin.H{"notification_warning": op.NotificationWarning()}})
 }

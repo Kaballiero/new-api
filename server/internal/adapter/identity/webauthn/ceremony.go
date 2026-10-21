@@ -130,11 +130,11 @@ func (op *Ceremony) ValidateDiscoverable() error {
 	handler := func(rawID, userHandle []byte) (webauthnlib.User, error) {
 		credential, err := model.GetPasskeyByCredentialID(rawID)
 		if err != nil {
-			return nil, fmt.Errorf("未找到 Passkey 凭证: %w", err)
+			return nil, fmt.Errorf("passkey credential not found: %w", err)
 		}
 		user := &model.User{Id: credential.UserID}
 		if err := user.FillUserById(); err != nil {
-			return nil, fmt.Errorf("用户信息获取失败: %w", err)
+			return nil, fmt.Errorf("failed to load user: %w", err)
 		}
 		if user.Status != common.UserStatusEnabled {
 			return nil, model.ErrUserSessionInactive
@@ -144,7 +144,7 @@ func (op *Ceremony) ValidateDiscoverable() error {
 			if parseErr != nil {
 				common.SysLog(fmt.Sprintf("PasskeyLogin: userHandle parse error for credential, length: %d", len(userHandle)))
 			} else if userID != user.Id {
-				return nil, errors.New("用户句柄与凭证不匹配")
+				return nil, errors.New("user handle does not match the credential")
 			}
 		}
 		return passkeysvc.NewWebAuthnUser(user, credential), nil

@@ -17,16 +17,18 @@ type Operation interface {
 	EmailTaken(error) bool
 	CheckExists(username, email string) (bool, error)
 	Inviter(code string) (int, error)
-	Insert(username, password, email string, inviter int) error
+	// Insert and InsertDefaultToken write persisted texts in the language lang.
+	Insert(username, password, email string, inviter int, lang string) error
 	FindInsertedID(username string) (int, error)
 	DefaultTokenEnabled() bool
 	GenerateTokenKey() (string, error)
-	InsertDefaultToken(userID int, username, key string) error
+	InsertDefaultToken(userID int, username, key, lang string) error
 }
 
 // Execute registers a password account. Every rejection is a domain error with
 // its own response; *domain.LoggedError carries details logged after it.
-func (usecase Usecase) Execute(user User) error {
+func (usecase Usecase) Execute(input Input) error {
+	user := input.User
 	user.Username = strings.TrimSpace(user.Username)
 	user.Email = usecase.operation.NormalizeEmail(user.Email)
 	if user.Username == "" {
@@ -65,7 +67,7 @@ func (usecase Usecase) Execute(user User) error {
 	if usecase.operation.EmailVerificationEnabled() {
 		email = user.Email
 	}
-	if err := usecase.operation.Insert(user.Username, user.Password, email, inviter); err != nil {
+	if err := usecase.operation.Insert(user.Username, user.Password, email, inviter, input.Lang); err != nil {
 		if usecase.operation.EmailTaken(err) {
 			return domain.ErrEmailTaken
 		}
@@ -80,7 +82,7 @@ func (usecase Usecase) Execute(user User) error {
 		if err != nil {
 			return &domain.LoggedError{Err: domain.ErrDefaultTokenFailed, Log: "failed to generate token key: " + err.Error()}
 		}
-		if err := usecase.operation.InsertDefaultToken(id, user.Username, key); err != nil {
+		if err := usecase.operation.InsertDefaultToken(id, user.Username, key, input.Lang); err != nil {
 			return domain.ErrDefaultTokenInsertFailed
 		}
 	}

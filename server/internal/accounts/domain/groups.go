@@ -4,9 +4,18 @@ import (
 	"strings"
 )
 
+// GroupLabels are the texts of the generated group entries: the description of
+// the user's own group missing from the usable groups and the ratio of "auto".
+// The transport passes them translated for the request.
+type GroupLabels struct {
+	UserGroup string
+	AutoRatio string
+}
+
 // Groups reads the current settings at the previous points where account group
 // rules apply.
 type Groups struct {
+	Labels        GroupLabels
 	UsableCopy    func() map[string]string
 	SpecialUsable func(string) (map[string]string, bool)
 	ContainsRatio func(string) bool
@@ -35,7 +44,7 @@ func (groups Groups) Usable(userGroup string) map[string]string {
 			}
 		}
 		if _, ok := groupsCopy[userGroup]; !ok {
-			groupsCopy[userGroup] = "用户分组"
+			groupsCopy[userGroup] = groups.Labels.UserGroup
 		}
 	}
 	return groupsCopy
@@ -110,7 +119,7 @@ func (groups Groups) ForUser(userGroup string) map[string]map[string]any {
 	}
 	if _, ok := userUsableGroups["auto"]; ok {
 		usableGroups["auto"] = map[string]any{
-			"ratio": "自动",
+			"ratio": groups.Labels.AutoRatio,
 			"desc":  groups.Description("auto"),
 		}
 	}

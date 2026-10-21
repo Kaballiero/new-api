@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -95,6 +96,7 @@ func TestRedisUserRateLimiterUsesSharedFixedWindow(t *testing.T) {
 
 func TestRedisEmailVerificationRateLimiterPreservesResponseAndTTL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	require.NoError(t, i18n.Init())
 	redisServer, _ := useRateLimitMiniRedis(t)
 
 	router := gin.New()
@@ -106,9 +108,18 @@ func TestRedisEmailVerificationRateLimiterPreservesResponseAndTTL(t *testing.T) 
 	remoteAddr := "192.0.2.30:12345"
 	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/verify", remoteAddr).Code)
 	assert.Equal(t, http.StatusNoContent, performRateLimitRequest(router, "/verify", remoteAddr).Code)
-	response := performRateLimitRequest(router, "/verify", remoteAddr)
-	assert.Equal(t, http.StatusTooManyRequests, response.Code)
-	assert.JSONEq(t, `{"success":false,"message":"发送过于频繁，请等待 30 秒后再试"}`, response.Body.String())
+	for _, tc := range []struct{ lang, body string }{
+		{"zh-CN", `{"success":false,"message":"发送过于频繁，请等待 30 秒后再试"}`},
+		{"ru", `{"success":false,"message":"Слишком частая отправка, подождите 30 с и попробуйте снова"}`},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/verify", nil)
+		request.RemoteAddr = remoteAddr
+		request.Header.Set("Accept-Language", tc.lang)
+		router.ServeHTTP(recorder, request)
+		assert.Equal(t, http.StatusTooManyRequests, recorder.Code, tc.lang)
+		assert.JSONEq(t, tc.body, recorder.Body.String(), tc.lang)
+	}
 
 	key := redisIPRateLimitKey(EmailVerificationRateLimitMark, "192.0.2.30")
 	assert.True(t, redisServer.Exists(key))

@@ -32,7 +32,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	err := NewUsecase(h.operation).Execute(user)
+	err := NewUsecase(h.operation).Execute(Input{User: user, Lang: i18n.GetLangFromContext(c)})
 	if err == nil {
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})
 		return

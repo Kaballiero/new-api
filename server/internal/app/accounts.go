@@ -1,9 +1,8 @@
 package app
 
 import (
-	"fmt"
-
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
 	"github.com/QuantumNous/new-api/internal/accounts/change_group"
 	"github.com/QuantumNous/new-api/internal/accounts/check_in"
@@ -91,7 +90,7 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		CreateAccount: create_account.NewHTTP(func(c *gin.Context) create_account.Operation {
 			return repository.NewAdminCreateOperation(hooks, func(target domain.AdminTarget) {
 				effects.ManageAudit(c, target.ID, "user.create", map[string]any{"username": target.Username, "role": target.Role})
-			})
+			}, i18n.GetLangFromContext(c))
 		}, roles),
 		UpdateAccount: update_account.NewHTTP(func(c *gin.Context, user *domain.User) update_account.ResponseOperation {
 			return repository.NewAdminEditOperation(user, hooks, func(target domain.AdminTarget) {
@@ -125,8 +124,8 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		TransferAffiliateQuota:        transfer_affiliate_quota.NewHTTP(repository.AffiliateAccountLoader{}, effects.PaymentCompliance),
 		UpdateNotificationPreferences: update_notification_preferences.NewHTTP(repository.NotificationPreferencesStore{}),
 		ProvisionAccount:              provision_account.NewHTTP(provision_account.NewUsecase(model.NewProvisionOperation(), model.ProvisionCredentials{}, model.ProvisionErrors{}, ratio_setting.ContainsGroupRatio, effects.Sidebar, common.MaxQuota, common.RoleCommonUser, common.UserStatusEnabled), effects.GetAPIError, func() error { return model.ErrGetAPIInvalidRequest }),
-		CheckIn: check_in.NewHTTP(check_in.NewUsecase(model.NewCheckinStore(), checkinsettings.Current), checkinsettings.Current, func(id, quota int) {
-			model.RecordLog(id, model.LogTypeSystem, fmt.Sprintf("用户签到，获得额度 %s", logger.LogQuota(quota)))
+		CheckIn: check_in.NewHTTP(check_in.NewUsecase(model.NewCheckinStore(), checkinsettings.Current), checkinsettings.Current, func(id, quota int, lang string) {
+			model.RecordLog(id, model.LogTypeSystem, i18n.Translate(lang, i18n.MsgAccountCheckinLog, map[string]any{"Quota": logger.LogQuota(quota)}))
 		}),
 		GetCheckinStatus: get_checkin_status.NewHTTP(get_checkin_status.NewUsecase(model.NewCheckinStore()), checkinsettings.Current),
 	}

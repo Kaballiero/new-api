@@ -30,7 +30,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgIdentityWeChatDisabled)
 		return
 	}
-	err := NewUsecase(op).Execute(Input{Code: c.Query("code")})
+	err := NewUsecase(op).Execute(Input{Code: c.Query("code"), Lang: i18n.GetLangFromContext(c)})
 	message := ""
 	switch {
 	case err == nil:

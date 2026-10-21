@@ -96,6 +96,11 @@ func T(c *gin.Context, key string, args ...map[string]any) string {
 
 // Translate translates a message key for the specified language
 func Translate(lang, key string, args ...map[string]any) string {
+	// Callers without a gin context (persisted texts, e-mails) may run before
+	// Init, for example in tests; they get the key like a missing translation.
+	if bundle == nil {
+		return key
+	}
 	loc := GetLocalizer(lang)
 
 	config := &i18n.LocalizeConfig{

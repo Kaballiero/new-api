@@ -37,15 +37,15 @@ func (f *fakeOperation) CheckExists(string, string) (bool, error) {
 	return f.exists, f.existsErr
 }
 func (f *fakeOperation) Inviter(string) (int, error) { return 0, nil }
-func (f *fakeOperation) Insert(username, _, email string, _ int) error {
-	f.inserted = append(f.inserted, username+"|"+email)
+func (f *fakeOperation) Insert(username, _, email string, _ int, lang string) error {
+	f.inserted = append(f.inserted, username+"|"+email+"|"+lang)
 	return f.insertErr
 }
 func (f *fakeOperation) FindInsertedID(string) (int, error) { return 11, f.findErr }
 func (f *fakeOperation) DefaultTokenEnabled() bool          { return f.defaultToken }
 func (f *fakeOperation) GenerateTokenKey() (string, error)  { return "key", f.keyErr }
-func (f *fakeOperation) InsertDefaultToken(id int, username, key string) error {
-	f.tokens = append(f.tokens, username+"|"+key)
+func (f *fakeOperation) InsertDefaultToken(id int, username, key, lang string) error {
+	f.tokens = append(f.tokens, username+"|"+key+"|"+lang)
 	return f.tokenErr
 }
 
@@ -75,7 +75,7 @@ func TestExecuteRejections(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			op := tc.op
-			err := NewUsecase(&op).Execute(tc.user)
+			err := NewUsecase(&op).Execute(Input{User: tc.user})
 			var input *domain.InputError
 			if want, ok := tc.want.(*domain.InputError); ok {
 				require.ErrorAs(t, err, &input)
@@ -96,12 +96,12 @@ func TestExecuteRejections(t *testing.T) {
 
 func TestExecuteRegisters(t *testing.T) {
 	op := fakeOperation{verification: true, codeValid: true, defaultToken: true}
-	require.NoError(t, NewUsecase(&op).Execute(User{Username: " u ", Email: "a@b.c", VerificationCode: "1"}))
-	assert.Equal(t, []string{"u|a@b.c"}, op.inserted)
-	assert.Equal(t, []string{"u|key"}, op.tokens)
+	require.NoError(t, NewUsecase(&op).Execute(Input{User: User{Username: " u ", Email: "a@b.c", VerificationCode: "1"}, Lang: "ru"}))
+	assert.Equal(t, []string{"u|a@b.c|ru"}, op.inserted, "the request language reaches the persisted registration texts")
+	assert.Equal(t, []string{"u|key|ru"}, op.tokens)
 
 	op = fakeOperation{}
-	require.NoError(t, NewUsecase(&op).Execute(User{Username: "u", Email: "ignored@b.c"}))
-	assert.Equal(t, []string{"u|"}, op.inserted, "the e-mail is stored only when it is verified")
+	require.NoError(t, NewUsecase(&op).Execute(Input{User: User{Username: "u", Email: "ignored@b.c"}}))
+	assert.Equal(t, []string{"u||"}, op.inserted, "the e-mail is stored only when it is verified")
 	assert.Empty(t, op.tokens)
 }

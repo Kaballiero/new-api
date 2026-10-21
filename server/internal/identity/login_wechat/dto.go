@@ -1,3 +1,8 @@
 package login_wechat
 
-type Input struct{ Code string }
+// Input is the WeChat code and the request language of the persisted
+// registration texts.
+type Input struct {
+	Code string
+	Lang string
+}

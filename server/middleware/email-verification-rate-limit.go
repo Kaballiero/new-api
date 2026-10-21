@@ -1,18 +1,18 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 
 	"github.com/gin-gonic/gin"
 )
 
 const (
 	EmailVerificationRateLimitMark = "EV"
-	EmailVerificationMaxRequests   = 2  // 30秒内最多2次
-	EmailVerificationDuration      = 30 // 30秒时间窗口
+	EmailVerificationMaxRequests   = 2  // At most 2 requests per window
+	EmailVerificationDuration      = 30 // Window length in seconds
 )
 
 func redisEmailVerificationRateLimiter(c *gin.Context) {
@@ -38,7 +38,7 @@ func redisEmailVerificationRateLimiter(c *gin.Context) {
 
 	c.JSON(http.StatusTooManyRequests, gin.H{
 		"success": false,
-		"message": fmt.Sprintf("发送过于频繁，请等待 %d 秒后再试", waitSeconds),
+		"message": common.TranslateMessage(c, i18n.MsgEmailVerificationRateLimitedWait, map[string]any{"Seconds": waitSeconds}),
 	})
 	c.Abort()
 }
@@ -49,7 +49,7 @@ func memoryEmailVerificationRateLimiter(c *gin.Context) {
 	if !inMemoryRateLimiter.Request(key, EmailVerificationMaxRequests, EmailVerificationDuration) {
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"success": false,
-			"message": "发送过于频繁，请稍后再试",
+			"message": common.TranslateMessage(c, i18n.MsgEmailVerificationRateLimitedNoWait),
 		})
 		c.Abort()
 		return

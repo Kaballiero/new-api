@@ -14,7 +14,13 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrFriendlyPasskeyNotFound = errors.New("Passkey 验证失败，请重试或联系管理员")
+// ErrFriendlyPasskeyNotFound hides storage failures of a passkey lookup. It
+// never reaches a response: identity transports write it as a generic error.
+var ErrFriendlyPasskeyNotFound = errors.New("passkey lookup failed")
+
+// errPasskeySave reports a rejected or failed passkey write; like other storage
+// failures it is written as a generic error response.
+var errPasskeySave = errors.New("passkey save failed")
 
 type PasskeyCredential struct {
 	ID              int            `json:"id" gorm:"primaryKey"`
@@ -125,10 +131,10 @@ func GetPasskeyByUserID(userID int) (*PasskeyCredential, error) {
 	var credential PasskeyCredential
 	if err := DB.Where("user_id = ?", userID).First(&credential).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 未找到记录是正常情况（用户未绑定），返回 ErrPasskeyNotFound 而不记录日志
+			// A missing record is expected (no passkey is bound): return ErrPasskeyNotFound without logging.
 			return nil, ErrPasskeyNotFound
 		}
-		// 只有真正的数据库错误才记录日志
+		// Only real database errors are logged.
 		common.SysLog(fmt.Sprintf("GetPasskeyByUserID: database error for user %d: %v", userID, err))
 		return nil, ErrFriendlyPasskeyNotFound
 	}
@@ -160,7 +166,7 @@ func GetPasskeyByCredentialID(credentialID []byte) (*PasskeyCredential, error) {
 // transports and attestation metadata) is immutable on this path.
 func UpdatePasskeyAssertionState(userID int, credential *webauthn.Credential, lastUsedAt time.Time) error {
 	if userID <= 0 || credential == nil || len(credential.ID) == 0 || lastUsedAt.IsZero() {
-		return fmt.Errorf("Passkey 保存失败，请重试")
+		return errPasskeySave
 	}
 	credentialID := base64.StdEncoding.EncodeToString(credential.ID)
 	result := DB.Model(&PasskeyCredential{}).
@@ -186,11 +192,11 @@ func UpdatePasskeyAssertionState(userID int, credential *webauthn.Credential, la
 func upsertPasskeyCredentialWithTx(tx *gorm.DB, credential *PasskeyCredential) error {
 	if err := tx.Unscoped().Where("user_id = ?", credential.UserID).Delete(&PasskeyCredential{}).Error; err != nil {
 		common.SysLog(fmt.Sprintf("UpsertPasskeyCredential: failed to delete existing credential for user %d: %v", credential.UserID, err))
-		return fmt.Errorf("Passkey 保存失败，请重试")
+		return errPasskeySave
 	}
 	if err := tx.Create(credential).Error; err != nil {
 		common.SysLog(fmt.Sprintf("UpsertPasskeyCredential: failed to create credential for user %d: %v", credential.UserID, err))
-		return fmt.Errorf("Passkey 保存失败，请重试")
+		return errPasskeySave
 	}
 	return nil
 }
@@ -207,7 +213,7 @@ func RegisterPasskeyForSession(identity AuthSessionIdentity, credential *Passkey
 
 func upsertPasskeyCredentialWithAuthVersion(credential *PasskeyCredential, identity *AuthSessionIdentity) error {
 	if credential == nil || credential.UserID <= 0 {
-		return fmt.Errorf("Passkey 保存失败，请重试")
+		return errPasskeySave
 	}
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		if identity != nil {
@@ -238,7 +244,7 @@ func DeletePasskeyForSession(identity AuthSessionIdentity) error {
 
 func deletePasskeyWithAuthVersion(userID int, identity *AuthSessionIdentity) error {
 	if userID == 0 {
-		return fmt.Errorf("删除失败，请重试")
+		return errors.New("passkey deletion requires a user id")
 	}
 	if err := DB.Transaction(func(tx *gorm.DB) error {
 		if identity != nil {

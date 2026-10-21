@@ -13,7 +13,7 @@ type Operation interface {
 
 func (usecase Usecase) Execute(purpose string, security domain.PasskeyFlowSecurity, hasData bool, ttl time.Duration) (time.Time, error) {
 	if !hasData {
-		return time.Time{}, errors.New("Passkey 会话数据不能为空")
+		return time.Time{}, errors.New("passkey session data is empty")
 	}
 	if purpose == domain.AuthFlowPurposeLoginPasskey {
 		if security.UserID <= 0 || security.UserAuthVersion <= 0 || security.LoginFlowID <= 0 || security.LoginExpiresAt <= time.Now().Unix() || security.SessionID != "" || security.SessionVersion != 0 {

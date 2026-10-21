@@ -22,6 +22,8 @@ var (
 	ErrAlreadyCommon        = errors.New("account is already a common user")
 	ErrUsernameTaken        = errors.New("username already taken")
 	ErrBindingForbidden     = errors.New("binding of this account role cannot be cleared")
+	// ErrAccountIDRequired is returned by account reads for the zero id.
+	ErrAccountIDRequired = errors.New("account id is empty")
 
 	ErrInvalidGroupChange   = errors.New("invalid bulk group change")
 	ErrGroupBatchTooLarge   = errors.New("bulk group change exceeds batch limit")

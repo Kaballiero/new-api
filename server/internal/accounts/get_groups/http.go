@@ -1,8 +1,12 @@
 package get_groups
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ scenario Usecase }
@@ -15,6 +19,10 @@ func (h *HTTP) List(c *gin.Context) {
 
 func (h *HTTP) ForUser(c *gin.Context) {
 	userId := c.GetInt("id")
-	usableGroups := h.scenario.ForUser(Input{UserID: userId})
+	labels := domain.GroupLabels{
+		UserGroup: common.TranslateMessage(c, i18n.MsgAccountUserGroupLabel),
+		AutoRatio: common.TranslateMessage(c, i18n.MsgAccountAutoGroupRatio),
+	}
+	usableGroups := h.scenario.ForUser(Input{UserID: userId, Labels: labels})
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": usableGroups})
 }

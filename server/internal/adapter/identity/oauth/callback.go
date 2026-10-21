@@ -2,6 +2,7 @@ package oauthadapter
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -100,7 +101,7 @@ func (op *Callback) ExchangeCode() error {
 func (op *Callback) ReadProviderUser() error {
 	user, err := op.provider.GetUserInfo(op.Context.Request.Context(), op.token)
 	if err == nil {
-		op.Account = &Account{Provider: op.provider, OAuthUser: user, User: &model.User{}}
+		op.Account = &Account{Provider: op.provider, OAuthUser: user, User: &model.User{}, Lang: i18n.GetLangFromContext(op.Context)}
 	}
 	return err
 }

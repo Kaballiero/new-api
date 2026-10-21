@@ -1,14 +1,22 @@
 package accountssettings
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
-// UserGroups собирает правила аккаунта с источниками актуальных настроек.
+// UserGroups assembles the account group rules with the sources of the current
+// settings. Consumers outside the accounts transport (service, pricing, relay)
+// are not localized yet and keep the previous zh-CN labels; the accounts
+// transport replaces Labels with the texts of the request language.
 func UserGroups() domain.Groups {
 	return domain.Groups{
+		Labels: domain.GroupLabels{
+			UserGroup: i18n.Translate(i18n.LangZhCN, i18n.MsgAccountUserGroupLabel),
+			AutoRatio: i18n.Translate(i18n.LangZhCN, i18n.MsgAccountAutoGroupRatio),
+		},
 		UsableCopy: setting.GetUserUsableGroupsCopy,
 		SpecialUsable: func(userGroup string) (map[string]string, bool) {
 			return ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup)

@@ -53,5 +53,5 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 	h.audit(c, user.Id, "user.passkey_register", nil)
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Passkey 注册成功", "data": transport.RotationData(op.Bundle())})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": common.TranslateMessage(c, i18n.MsgIdentityPasskeyRegistered), "data": transport.RotationData(op.Bundle())})
 }

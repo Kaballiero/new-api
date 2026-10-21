@@ -50,5 +50,5 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 	h.audit(c, userID, "user.passkey_delete", nil)
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Passkey 已解绑", "data": transport.RotationData(op.Bundle())})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": common.TranslateMessage(c, i18n.MsgIdentityPasskeyUnbound), "data": transport.RotationData(op.Bundle())})
 }

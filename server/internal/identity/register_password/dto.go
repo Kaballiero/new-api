@@ -28,8 +28,8 @@ type User struct {
 	Group                string                     `json:"group"`
 	AffCode              string                     `json:"aff_code"`
 	AffCount             int                        `json:"aff_count"`
-	AffQuota             int                        `json:"aff_quota"`         // 邀请剩余额度
-	AffHistoryQuota      int                        `json:"aff_history_quota"` // 邀请历史额度
+	AffQuota             int                        `json:"aff_quota"`         // Remaining invitation quota
+	AffHistoryQuota      int                        `json:"aff_history_quota"` // Total invitation quota
 	InviterId            int                        `json:"inviter_id"`
 	DeletedAt            *time.Time                 ``
 	LinuxDOId            string                     `json:"linux_do_id"`
@@ -40,4 +40,11 @@ type User struct {
 	LastLoginAt          int64                      `json:"last_login_at"`
 	AuthVersion          int64                      `json:"-"`
 	AdminPermissions     map[string]map[string]bool `json:"admin_permissions,omitempty"`
+}
+
+// Input is the registration request and the request language of the persisted
+// registration texts.
+type Input struct {
+	User User
+	Lang string
 }

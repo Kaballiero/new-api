@@ -318,3 +318,39 @@ identity.backup_codes_generate_failed: "產生備用碼失敗"
 identity.backup_codes_save_failed: "儲存備用碼失敗"
 identity.binding_login_required: "綁定操作需要登入"
 identity.provider_id_invalid: "無效的提供商 ID"
+
+# Identity success messages
+identity.admin_twofa_disabled: "使用者2FA已被強制停用"
+identity.backup_codes_regenerated: "備用碼重新產生成功"
+identity.passkey_registered: "Passkey 註冊成功"
+identity.passkey_unbound: "Passkey 已解除綁定"
+identity.passkey_reset: "Passkey 已重設"
+identity.twofa_disabled: "兩步驗證已停用"
+identity.oauth_unbound: "解除綁定成功"
+identity.default_token_name: "{{.Username}}的初始令牌"
+
+# Identity e-mails
+identity.verification_email_subject: "{{.SystemName}}信箱驗證郵件"
+identity.verification_email_content: "<p>您好，你正在進行{{.SystemName}}信箱驗證。</p><p>您的驗證碼為: <strong>{{.Code}}</strong></p><p>驗證碼 {{.Minutes}} 分鐘內有效，如果不是本人操作，請忽略。</p>"
+identity.password_reset_email_subject: "{{.SystemName}}密碼重設"
+identity.password_reset_email_content: "<p>您好，你正在進行{{.SystemName}}密碼重設。</p><p>點擊 <a href='{{.Link}}'>此處</a> 進行密碼重設。</p><p>如果連結無法點擊，請嘗試點擊下面的連結或將其複製到瀏覽器中開啟：<br> {{.Link}} </p><p>重設連結 {{.Minutes}} 分鐘內有效，如果不是本人操作，請忽略。</p>"
+
+# Security proof, Turnstile and e-mail rate limit middleware messages
+security.proof_invalid: "安全驗證狀態無效"
+security.proof_required: "需要安全驗證"
+security.proof_expired: "安全驗證已過期"
+security.proof_scope_mismatch: "安全驗證範圍不符"
+security.proof_method_mismatch: "安全驗證方式不符"
+turnstile.token_empty: "Turnstile token 為空"
+turnstile.verify_failed: "Turnstile 驗證失敗，請重新整理後重試！"
+rate_limit.email_verification_wait: "發送過於頻繁，請等待 {{.Seconds}} 秒後再試"
+rate_limit.email_verification: "發送過於頻繁，請稍後再試"
+
+# Account messages and persisted account texts
+user.id_required: "id 為空！"
+group.user_group_label: "使用者分組"
+group.auto_ratio_label: "自動"
+checkin.log_reward: "使用者簽到，獲得額度 {{.Quota}}"
+user.log_register_reward: "新使用者註冊贈送 {{.Quota}}"
+user.log_invitee_reward: "使用邀請碼贈送 {{.Quota}}"
+user.log_inviter_reward: "邀請使用者贈送 {{.Quota}}"

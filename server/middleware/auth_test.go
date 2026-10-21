@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -254,4 +255,32 @@ func TestTryUserAuthCredentialClassification(t *testing.T) {
 	router.ServeHTTP(databaseFailureResponse, databaseFailureRequest)
 	assert.Equal(t, http.StatusInternalServerError, databaseFailureResponse.Code)
 	assert.Contains(t, databaseFailureResponse.Body.String(), "AUTH_INTERNAL_ERROR")
+}
+
+func TestSecurityProofAndTurnstileMessagesAreLocalized(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	require.NoError(t, i18n.Init())
+	previousTurnstile := common.TurnstileCheckEnabled
+	common.TurnstileCheckEnabled = true
+	t.Cleanup(func() { common.TurnstileCheckEnabled = previousTurnstile })
+
+	router := gin.New()
+	router.GET("/proof", func(c *gin.Context) {
+		RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeChannelKeyRead})
+	})
+	router.GET("/turnstile", TurnstileCheck(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	cases := []struct{ path, lang, body string }{
+		{"/proof", "zh-CN", `{"success":false,"code":"SECURITY_PROOF_INVALID","message":"安全验证状态无效"}`},
+		{"/proof", "ru", `{"success":false,"code":"SECURITY_PROOF_INVALID","message":"Состояние проверки безопасности недействительно"}`},
+		{"/turnstile", "zh-CN", `{"success":false,"message":"Turnstile token 为空"}`},
+		{"/turnstile", "ru", `{"success":false,"message":"Токен Turnstile не указан"}`},
+	}
+	for _, tc := range cases {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		request.Header.Set("Accept-Language", tc.lang)
+		router.ServeHTTP(recorder, request)
+		assert.JSONEq(t, tc.body, recorder.Body.String(), tc.path+" "+tc.lang)
+	}
 }

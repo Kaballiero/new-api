@@ -36,5 +36,5 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 	h.audit(c, result.ID, "user.reset_passkey", map[string]any{"username": result.Username, "id": result.ID})
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Passkey 已重置"})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": common.TranslateMessage(c, i18n.MsgIdentityPasskeyReset)})
 }

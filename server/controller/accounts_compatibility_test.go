@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
@@ -40,8 +42,13 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 	inviter := model.User{Username: "contract-inviter", Password: "hash", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AffCode: "contract-inviter"}
 	require.NoError(t, db.Create(&inviter).Error)
 	user := model.User{Username: "contract-account", Password: "contract-password", Email: " CONTRACT@example.com ", Role: common.RoleCommonUser, InviterId: inviter.Id}
-	require.NoError(t, user.Insert(inviter.Id))
+	require.NoError(t, user.Insert(inviter.Id, i18n.LangRu))
 	require.NoError(t, db.First(&user, user.Id).Error)
+	var userLogs, inviterLogs []string
+	require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("user_id = ?", user.Id).Order("id").Pluck("content", &userLogs).Error)
+	require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("user_id = ?", inviter.Id).Order("id").Pluck("content", &inviterLogs).Error)
+	assert.Equal(t, []string{"Бонус за регистрацию нового пользователя " + logger.LogQuota(50), "Бонус за использование кода приглашения " + logger.LogQuota(25)}, userLogs, "registration logs use the request language")
+	assert.Equal(t, []string{"Бонус за приглашённого пользователя " + logger.LogQuota(15)}, inviterLogs)
 	assert.Equal(t, 75, user.Quota)
 	assert.Equal(t, "contract@example.com", user.Email)
 	assert.True(t, common.ValidatePasswordAndHash("contract-password", user.Password))

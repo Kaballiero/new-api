@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -21,10 +22,16 @@ func (EmailVerification) GenerateCode(n int) string    { return common.GenerateV
 func (EmailVerification) RegisterCode(email, code string) {
 	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
 }
-func (EmailVerification) Deliver(email, code string) error {
-	subject := fmt.Sprintf("%s邮箱验证邮件", common.SystemName)
-	content := fmt.Sprintf("<p>您好，你正在进行%s邮箱验证。</p>"+"<p>您的验证码为: <strong>%s</strong></p>"+"<p>验证码 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.SystemName, code, common.VerificationValidMinutes)
+func (EmailVerification) Deliver(email, code, lang string) error {
+	subject, content := VerificationEmailMessage(lang, common.SystemName, code, common.VerificationValidMinutes)
 	return common.SendEmail(subject, email, content)
+}
+
+// VerificationEmailMessage renders the subject and HTML body of the e-mail
+// verification code in the language lang.
+func VerificationEmailMessage(lang, systemName, code string, validMinutes int) (string, string) {
+	data := map[string]any{"SystemName": systemName, "Code": code, "Minutes": validMinutes}
+	return i18n.Translate(lang, i18n.MsgIdentityVerificationEmailSubject, data), i18n.Translate(lang, i18n.MsgIdentityVerificationEmailContent, data)
 }
 
 type PasswordResetEmail struct{ Context context.Context }
@@ -41,11 +48,17 @@ func (PasswordResetEmail) GenerateCode(n int) string { return common.GenerateVer
 func (PasswordResetEmail) RegisterCode(email, code string) {
 	common.RegisterVerificationCodeWithKey(email, code, common.PasswordResetPurpose)
 }
-func (PasswordResetEmail) Deliver(email, code string) error {
+func (PasswordResetEmail) Deliver(email, code, lang string) error {
 	link := fmt.Sprintf("%s/user/reset?email=%s&token=%s", system_setting.ServerAddress, email, code)
-	subject := fmt.Sprintf("%s密码重置", common.SystemName)
-	content := fmt.Sprintf("<p>您好，你正在进行%s密码重置。</p>"+"<p>点击 <a href='%s'>此处</a> 进行密码重置。</p>"+"<p>如果链接无法点击，请尝试点击下面的链接或将其复制到浏览器中打开：<br> %s </p>"+"<p>重置链接 %d 分钟内有效，如果不是本人操作，请忽略。</p>", common.SystemName, link, link, common.VerificationValidMinutes)
+	subject, content := PasswordResetMessage(lang, common.SystemName, link, common.VerificationValidMinutes)
 	return common.SendEmail(subject, email, content)
+}
+
+// PasswordResetMessage renders the subject and HTML body of the password reset
+// e-mail with the reset link in the language lang.
+func PasswordResetMessage(lang, systemName, link string, validMinutes int) (string, string) {
+	data := map[string]any{"SystemName": systemName, "Link": link, "Minutes": validMinutes}
+	return i18n.Translate(lang, i18n.MsgIdentityPasswordResetEmailSubject, data), i18n.Translate(lang, i18n.MsgIdentityPasswordResetEmailContent, data)
 }
 func (PasswordResetEmail) EmailNotFound(err error) bool {
 	return errors.Is(err, model.ErrEmailNotFound)

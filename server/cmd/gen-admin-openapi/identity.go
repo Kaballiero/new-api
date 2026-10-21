@@ -153,6 +153,14 @@ func preserveIdentityHandlerContract(info *HandlerInfo) {
 			delete(properties, "data")
 		}
 	}
+	// The success message was a string literal and is now a translated string
+	// the walker cannot type; keep the published string schema.
+	if info.RespSchema != nil && slices.Contains([]string{"Disable2FA", "UnbindCustomOAuth", "PasskeyRegisterFinish", "AdminDisable2FA", "AdminResetPasskey"}, info.Name) {
+		properties, _ := info.RespSchema["properties"].(map[string]any)
+		if _, ok := properties["message"]; ok {
+			properties["message"] = map[string]any{"type": "string"}
+		}
+	}
 	switch info.Name {
 	case "ResetPassword":
 		if info.RespSchema != nil {
