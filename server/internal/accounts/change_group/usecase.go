@@ -1,9 +1,6 @@
 package change_group
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 type GroupStore interface {
 	RolesByIDs([]int) (map[int]int, error)
@@ -19,17 +16,17 @@ type Usecase struct {
 func (change Usecase) Execute(input Input) (BulkGroupResult, error) {
 	ids, group, myRole := input.UserIDs, input.Group, input.ActorRole
 	if len(ids) == 0 || group == "" {
-		return BulkGroupResult{}, accounts.ErrInvalidGroupChange
+		return BulkGroupResult{}, domain.ErrInvalidGroupChange
 	}
-	if len(ids) > accounts.MaxBulkGroupBatch {
-		return BulkGroupResult{}, accounts.ErrGroupBatchTooLarge
+	if len(ids) > domain.MaxBulkGroupBatch {
+		return BulkGroupResult{}, domain.ErrGroupBatchTooLarge
 	}
 	if !change.GroupExists(group) {
-		return BulkGroupResult{}, accounts.ErrGroupDoesNotExist
+		return BulkGroupResult{}, &domain.GroupError{Err: domain.ErrGroupDoesNotExist, Group: group}
 	}
 	roles, err := change.Store.RolesByIDs(ids)
 	if err != nil {
-		return BulkGroupResult{}, err
+		return BulkGroupResult{}, domain.GroupChangeFailed(err)
 	}
 	allowed := make([]int, 0, len(ids))
 	skipped := make([]int, 0)
@@ -49,16 +46,16 @@ func (change Usecase) Execute(input Input) (BulkGroupResult, error) {
 	if len(allowed) == 0 {
 		switch {
 		case len(notFound) == len(ids):
-			return BulkGroupResult{}, accounts.ErrGroupUsersNotFound
+			return BulkGroupResult{}, domain.ErrGroupUsersNotFound
 		case len(skipped) > 0:
-			return BulkGroupResult{}, accounts.ErrGroupChangeForbidden
+			return BulkGroupResult{}, domain.ErrGroupChangeForbidden
 		default:
-			return BulkGroupResult{}, accounts.ErrInvalidGroupChange
+			return BulkGroupResult{}, domain.ErrInvalidGroupChange
 		}
 	}
 	affected, err := change.Store.UpdateGroup(allowed, group)
 	if err != nil {
-		return BulkGroupResult{}, err
+		return BulkGroupResult{}, domain.GroupChangeFailed(err)
 	}
 	return BulkGroupResult{Updated: int(affected), UpdatedIDs: allowed, SkippedIDs: skipped, NotFoundIDs: notFound}, nil
 }

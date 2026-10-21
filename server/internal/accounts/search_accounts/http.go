@@ -1,11 +1,11 @@
 package search_accounts
 
 import (
-	"net/http"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/dto"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -31,7 +31,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 	sortOptions := SortInput{By: c.Query("sort_by"), Order: c.Query("sort_order")}
 	users, total, err := h.scenario.Execute(Input{Keyword: keyword, Group: group, Role: role, Status: status, Page: PageInput{Page: pageInfo.GetPage(), PageSize: pageInfo.GetPageSize()}, Sort: sortOptions})
 	if err != nil {
-		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		transport.WriteError(c, err)
 		return
 	}
 

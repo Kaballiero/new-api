@@ -17,7 +17,7 @@ type GetUsersBatchResponse struct {
 	NotFoundIDs []int          `json:"not_found_ids"`
 }
 
-// UserBatchRow сохраняет прежнюю форму пакетного ответа без публикации роли.
+// UserBatchRow keeps the previous batch response shape without publishing the role.
 type UserBatchRow struct {
 	Id           int        `json:"id"`
 	Role         int        `json:"-"`

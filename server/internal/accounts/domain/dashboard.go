@@ -1,46 +1,47 @@
 package domain
 
-import "github.com/QuantumNous/new-api/common"
-
-// DashboardPermissions описывает доступные этой роли разделы панели.
-func DashboardPermissions(userRole int) map[string]any {
+// DashboardPermissions describes the dashboard sections available to the role.
+// Only roles.Admin and roles.Root are read.
+func DashboardPermissions(userRole int, roles AdminRoles) map[string]any {
 	permissions := map[string]any{}
 
-	// Рассчитываем права по роли пользователя.
-	if userRole == common.RoleRootUser {
-		// Суперадминистратору не нужна настройка боковой панели.
+	// Permissions are derived from the user role.
+	if userRole == roles.Root {
+		// The root user does not need sidebar settings.
 		permissions["sidebar_settings"] = false
 		permissions["sidebar_modules"] = map[string]any{}
-	} else if userRole == common.RoleAdminUser {
-		// Администратор может настраивать боковую панель, кроме системных настроек.
+	} else if userRole == roles.Admin {
+		// An administrator configures the sidebar except system settings.
 		permissions["sidebar_settings"] = true
 		permissions["sidebar_modules"] = map[string]any{
 			"admin": map[string]any{
-				"setting": false, // Администратор не имеет доступа к системным настройкам.
+				"setting": false, // Administrators have no access to system settings.
 			},
 		}
 	} else {
-		// Обычный пользователь настраивает только личные функции без разделов администратора.
+		// A common user configures only personal sections, without admin sections.
 		permissions["sidebar_settings"] = true
 		permissions["sidebar_modules"] = map[string]any{
-			"admin": false, // Обычный пользователь не имеет доступа к разделам администратора.
+			"admin": false, // Common users have no access to admin sections.
 		}
 	}
 
 	return permissions
 }
 
-func DashboardSidebarConfig(userRole int) map[string]any {
+// DashboardSidebarConfig is the default sidebar of the role. Only roles.Admin
+// and roles.Root are read.
+func DashboardSidebarConfig(userRole int, roles AdminRoles) map[string]any {
 	defaultConfig := map[string]any{}
 
-	// Раздел чата доступен всем пользователям.
+	// The chat section is available to all users.
 	defaultConfig["chat"] = map[string]any{
 		"enabled":    true,
 		"playground": true,
 		"chat":       true,
 	}
 
-	// Раздел консоли доступен всем пользователям.
+	// The console section is available to all users.
 	defaultConfig["console"] = map[string]any{
 		"enabled":    true,
 		"detail":     true,
@@ -50,26 +51,26 @@ func DashboardSidebarConfig(userRole int) map[string]any {
 		"task":       true,
 	}
 
-	// Личный кабинет доступен всем пользователям.
+	// The personal section is available to all users.
 	defaultConfig["personal"] = map[string]any{
 		"enabled":  true,
 		"topup":    true,
 		"personal": true,
 	}
 
-	// Раздел администратора зависит от роли.
-	if userRole == common.RoleAdminUser {
-		// Администратору доступны административные разделы, кроме системных настроек.
+	// The admin section depends on the role.
+	if userRole == roles.Admin {
+		// Administrators get admin sections except system settings.
 		defaultConfig["admin"] = map[string]any{
 			"enabled":    true,
 			"channel":    true,
 			"models":     true,
 			"redemption": true,
 			"user":       true,
-			"setting":    false, // Администратор не имеет доступа к системным настройкам.
+			"setting":    false, // Administrators have no access to system settings.
 		}
-	} else if userRole == common.RoleRootUser {
-		// Суперадминистратору доступны все функции.
+	} else if userRole == roles.Root {
+		// The root user gets every section.
 		defaultConfig["admin"] = map[string]any{
 			"enabled":    true,
 			"channel":    true,
@@ -79,7 +80,7 @@ func DashboardSidebarConfig(userRole int) map[string]any {
 			"setting":    true,
 		}
 	}
-	// Для обычного пользователя раздел admin не включён.
+	// Common users get no admin section.
 
 	return defaultConfig
 }

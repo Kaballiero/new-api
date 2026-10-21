@@ -1,13 +1,13 @@
 package app
 
 import (
-	"errors"
+	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
-	"github.com/QuantumNous/new-api/internal/accounts/clear_binding"
-
 	"github.com/QuantumNous/new-api/internal/accounts/change_group"
 	"github.com/QuantumNous/new-api/internal/accounts/check_in"
+	"github.com/QuantumNous/new-api/internal/accounts/clear_binding"
 	"github.com/QuantumNous/new-api/internal/accounts/create_account"
 	"github.com/QuantumNous/new-api/internal/accounts/delete_account"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
@@ -26,11 +26,11 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/update_account"
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
 	"github.com/QuantumNous/new-api/internal/accounts/update_profile"
-	accountshttp "github.com/QuantumNous/new-api/internal/adapter/accountshttp"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts"
 	identityadapter "github.com/QuantumNous/new-api/internal/adapter/identity/accounts"
 	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
 	checkinsettings "github.com/QuantumNous/new-api/internal/adapter/settings/checkin"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
@@ -39,7 +39,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// AccountsHTTP содержит явно собранные обработчики сценариев аккаунтов.
+// AccountsHTTP holds the explicitly assembled handlers of account scenarios.
 type AccountsHTTP struct {
 	ClearBinding                  *clear_binding.HTTP
 	CreateAccount                 *create_account.HTTP
@@ -63,6 +63,9 @@ type AccountsHTTP struct {
 	GetCheckinStatus              get_checkin_status.HTTP
 }
 
+// NewAccountsHTTP assembles the account handlers. Settings, the database and
+// the request are read by the injected functions on each call, so the result
+// can be built once.
 func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 	roles := domain.AdminRoles{Guest: common.RoleGuestUser, Common: common.RoleCommonUser, Admin: common.RoleAdminUser, Root: common.RoleRootUser, Enabled: common.UserStatusEnabled, Disabled: common.UserStatusDisabled}
 	hooks := repository.AdminHooks{
@@ -75,7 +78,8 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		Publish:                  model.PublishUserAuthCache,
 		Invalidate:               model.InvalidateUserTokensCache,
 	}
-	quota := effects.Quota
+	quotaStore := model.NewQuotaAdjustmentStore()
+	adjustQuota := adjust_quota.NewHTTP(adjust_quota.NewUsecase(quotaStore, quotaStore, quotaStore, common.RoleRootUser), effects.QuotaAudit)
 	groups := accountssettings.UserGroups()
 	profiles := repository.ProfileQueriesStore{}
 	return AccountsHTTP{
@@ -93,13 +97,13 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 			return repository.NewAdminEditOperation(user, hooks, func(target domain.AdminTarget) {
 				effects.ManageAudit(c, target.ID, "user.update", map[string]any{"username": target.Username, "id": target.ID})
 			})
-		}, roles, func() error { return model.ErrUsernameAlreadyTaken }),
+		}, roles),
 		ManageAccount: manage_account.NewHTTP(func(c *gin.Context) manage_account.Operation {
 			return repository.NewAdminManageOperation(hooks, func(target domain.AdminTarget, action string) {
 				effects.ManageAudit(c, target.ID, "user.manage", map[string]any{"action": action, "username": target.Username, "id": target.ID})
 			})
 		}, roles, func(c *gin.Context, request manage_account.ManageRequest) {
-			quota(c, request)
+			adjustQuota.Handle(c, adjust_quota.Request{Id: request.Id, Action: request.Action, Value: request.Value, Mode: request.Mode})
 		}),
 		GetAccount: get_account.NewHTTP(func() get_account.ResponseOperation { return &repository.AdminReadOperation{} }, func(id, role int) map[string]map[string]bool { return authz.Capabilities(id, role) }, common.RoleRootUser),
 		DeleteAccount: delete_account.NewHTTP(func(c *gin.Context) delete_account.Operation {
@@ -112,17 +116,19 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		GetAccountsBatch: get_accounts_batch.NewHTTP(repository.AdminQueriesStore{}, common.RoleRootUser),
 		ChangeGroup:      change_group.NewHTTP(change_group.NewUsecase(model.NewAccountGroupStore(), ratio_setting.ContainsGroupRatio, common.RoleRootUser)),
 		GetGroups:        get_groups.NewHTTP(get_groups.NewUsecase(groups, accountGroups{})),
-		GetProfile:       get_profile.NewHTTP(get_profile.NewUsecase(profiles, func(id, role int) any { return authz.Capabilities(id, role) })),
+		GetProfile:       get_profile.NewHTTP(get_profile.NewUsecase(profiles, func(id, role int) any { return authz.Capabilities(id, role) }, roles)),
 		GetAffiliateCode: get_affiliate_code.NewHTTP(get_affiliate_code.NewUsecase(profiles, common.GetRandomString)),
 		GetAccountModels: get_account_models.NewHTTP(repository.AccountModelGroupReader{}, groups, service.GetGroupsEnabledModels),
-		UpdateProfile: update_profile.NewHTTP(repository.SelfUpdateStore{}, accountshttp.ProfileInput{}, identityadapter.NewPasswordChange, func(c *gin.Context, succeeded, notificationFailed bool) {
+		UpdateProfile: update_profile.NewHTTP(repository.SelfUpdateStore{}, identityadapter.NewPasswordChange, func(c *gin.Context, succeeded, notificationFailed bool) {
 			effects.SecurityAudit(c, c.GetInt("id"), "user.password_change", map[string]any{"success": succeeded, "notification_failed": notificationFailed})
 		}, effects.SecurityError),
 		TransferAffiliateQuota:        transfer_affiliate_quota.NewHTTP(repository.AffiliateAccountLoader{}, effects.PaymentCompliance),
 		UpdateNotificationPreferences: update_notification_preferences.NewHTTP(repository.NotificationPreferencesStore{}),
 		ProvisionAccount:              provision_account.NewHTTP(provision_account.NewUsecase(model.NewProvisionOperation(), model.ProvisionCredentials{}, model.ProvisionErrors{}, ratio_setting.ContainsGroupRatio, effects.Sidebar, common.MaxQuota, common.RoleCommonUser, common.UserStatusEnabled), effects.GetAPIError, func() error { return model.ErrGetAPIInvalidRequest }),
-		CheckIn:                       check_in.NewHTTP(check_in.NewUsecase(model.NewCheckinStore(), checkinsettings.Current), checkinsettings.Current, func(id int, message string) { model.RecordLog(id, model.LogTypeSystem, message) }),
-		GetCheckinStatus:              get_checkin_status.NewHTTP(get_checkin_status.NewUsecase(model.NewCheckinStore()), checkinsettings.Current),
+		CheckIn: check_in.NewHTTP(check_in.NewUsecase(model.NewCheckinStore(), checkinsettings.Current), checkinsettings.Current, func(id, quota int) {
+			model.RecordLog(id, model.LogTypeSystem, fmt.Sprintf("用户签到，获得额度 %s", logger.LogQuota(quota)))
+		}),
+		GetCheckinStatus: get_checkin_status.NewHTTP(get_checkin_status.NewUsecase(model.NewCheckinStore()), checkinsettings.Current),
 	}
 }
 
@@ -138,14 +144,6 @@ type AccountsEffects struct {
 	SecurityError     func(*gin.Context, error)
 	PaymentCompliance func(*gin.Context) bool
 	GetAPIError       func(*gin.Context, error)
-	Quota             func(*gin.Context, manage_account.ManageRequest)
+	QuotaAudit        func(*gin.Context) adjust_quota.Audit
 	Sidebar           func(int) string
-}
-
-type recordErrors struct{}
-
-func (recordErrors) IsRecordNotFound(err error) bool { return errors.Is(err, gorm.ErrRecordNotFound) }
-func NewAccountQuotaHTTP(audit func(*gin.Context) adjust_quota.Audit) *adjust_quota.HTTP {
-	store := model.NewQuotaAdjustmentStore()
-	return adjust_quota.NewHTTP(adjust_quota.NewUsecase(store, store, store, store, common.RoleRootUser), audit, recordErrors{}, store)
 }

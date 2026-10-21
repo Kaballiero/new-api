@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/QuantumNous/new-api/internal/accounts"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 
@@ -16,15 +15,16 @@ type Usecase struct {
 	RootRole int
 }
 
-// ActorRole читается после загрузки пользователей, как и до выделения сценария.
+// ActorRole is read after the accounts are loaded, as before the scenario was
+// extracted.
 type ActorRole interface {
 	ActorRole() int
 }
 
-func (query Usecase) Execute(ids []int, actor ActorRole) (Result, *accounts.AdminFailure) {
+func (query Usecase) Execute(ids []int, actor ActorRole) (Result, error) {
 	users, err := query.Reader.Batch(ids)
 	if err != nil {
-		return Result{}, &accounts.AdminFailure{Kind: accounts.AdminLoadFailed, Cause: err}
+		return Result{}, domain.Internal(err)
 	}
 	byID := make(map[int]domain.UserBatchRow, len(users))
 	for _, user := range users {
@@ -34,15 +34,16 @@ func (query Usecase) Execute(ids []int, actor ActorRole) (Result, *accounts.Admi
 	for _, user := range users {
 		roles[user.Id] = user.Role
 	}
-	visibleIDs, skippedIDs, notFoundIDs, failure := PartitionUserBatchRoles(ids, roles, actor.ActorRole(), query.RootRole)
+	visibleIDs, skippedIDs, notFoundIDs, err := PartitionUserBatchRoles(ids, roles, actor.ActorRole(), query.RootRole)
 	visible := make([]domain.UserBatchRow, 0, len(users))
 	for _, id := range visibleIDs {
 		visible = append(visible, byID[id])
 	}
-	return Result{Users: visible, SkippedIDs: skippedIDs, NotFoundIDs: notFoundIDs}, failure
+	return Result{Users: visible, SkippedIDs: skippedIDs, NotFoundIDs: notFoundIDs}, err
 }
 
-// ParseUserBatchIDs ограничивает число исходных частей и сохраняет первое вхождение каждого ID.
+// ParseUserBatchIDs limits the number of raw parts and keeps the first
+// occurrence of each ID.
 func ParseUserBatchIDs(raw string) ([]int, bool) {
 	ids := make([]int, 0)
 	seen := make(map[int]bool)
@@ -64,8 +65,9 @@ func ParseUserBatchIDs(raw string) ([]int, bool) {
 	return ids, true
 }
 
-// PartitionUserBatchRoles сохраняет порядок запроса и различает отсутствующие и недоступные по правам записи.
-func PartitionUserBatchRoles(ids []int, roles map[int]int, actorRole, rootRole int) (visible, skipped, missing []int, failure *accounts.AdminFailure) {
+// PartitionUserBatchRoles keeps the request order and tells missing accounts
+// from accounts hidden by role.
+func PartitionUserBatchRoles(ids []int, roles map[int]int, actorRole, rootRole int) (visible, skipped, missing []int, err error) {
 	visible = make([]int, 0, len(roles))
 	skipped = make([]int, 0)
 	missing = make([]int, 0)
@@ -83,9 +85,9 @@ func PartitionUserBatchRoles(ids []int, roles map[int]int, actorRole, rootRole i
 	}
 	if len(visible) == 0 {
 		if len(skipped) > 0 {
-			failure = &accounts.AdminFailure{Kind: accounts.AdminForbidden}
+			err = domain.ErrViewForbidden
 		} else {
-			failure = &accounts.AdminFailure{Kind: accounts.AdminLoadMissing}
+			err = domain.ErrAccountNotFound
 		}
 	}
 	return

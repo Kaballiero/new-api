@@ -4,7 +4,8 @@ import (
 	"strings"
 )
 
-// Groups читает актуальные настройки в прежних точках применения правил групп аккаунта.
+// Groups reads the current settings at the previous points where account group
+// rules apply.
 type Groups struct {
 	UsableCopy    func() map[string]string
 	SpecialUsable func(string) (map[string]string, bool)
@@ -116,7 +117,7 @@ func (groups Groups) ForUser(userGroup string) map[string]map[string]any {
 	return usableGroups
 }
 
-// ModelGroups выбирает группы при обработке запроса, сохраняя порядок обхода map.
+// ModelGroups selects the groups of a request and keeps the map iteration order.
 func (groups Groups) ModelGroups(userGroup, selected string) []string {
 	usable := groups.Usable(userGroup)
 	var result []string

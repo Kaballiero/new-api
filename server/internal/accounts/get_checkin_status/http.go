@@ -1,11 +1,12 @@
 package get_checkin_status
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {
@@ -19,14 +20,14 @@ func NewHTTP(usecase Usecase, settings func() *domain.CheckinPolicy) HTTP {
 func (h HTTP) Handle(c *gin.Context) {
 	setting := h.settings()
 	if !setting.Enabled {
-		common.ApiErrorMsg(c, "签到功能未启用")
+		transport.WriteError(c, domain.ErrCheckinDisabled)
 		return
 	}
 	userID := c.GetInt("id")
 	month := c.DefaultQuery("month", time.Now().Format("2006-01"))
 	stats, err := h.usecase.Execute(userID, month)
 	if err != nil {
-		c.JSON(http.StatusOK, ErrorResponse{Message: err.Error()})
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, Response{Success: true, Data: &Data{Enabled: setting.Enabled, MinQuota: setting.MinQuota, MaxQuota: setting.MaxQuota, Stats: stats}})

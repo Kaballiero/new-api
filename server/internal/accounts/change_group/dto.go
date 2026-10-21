@@ -7,23 +7,23 @@ type BulkGroupResult struct {
 	NotFoundIDs []int
 }
 
-// BulkUpdateUserGroupRequest — тело запроса POST /api/user/group/batch.
+// BulkUpdateUserGroupRequest is the body of POST /api/user/group/batch.
 type BulkUpdateUserGroupRequest struct {
-	// UserIds — непустой обязательный список пользователей для смены группы, не более 1000 ID.
+	// UserIds is the required non-empty list of accounts to move, at most 1000 IDs.
 	UserIds []int `json:"user_ids"`
-	// Group — имя целевой группы, которая должна существовать в groupRatioMap пакета ratio_setting.
+	// Group is the target group; it must exist in the groupRatioMap of ratio_setting.
 	Group string `json:"group"`
 }
 
-// BulkUpdateUserGroupResponse содержит результат массовой смены группы.
+// BulkUpdateUserGroupResponse is the result of a bulk group change.
 type BulkUpdateUserGroupResponse struct {
-	// Updated — количество строк, затронутых обновлением в БД.
+	// Updated is the number of rows affected in the database.
 	Updated int `json:"updated"`
-	// UpdatedIds — ID обновлённых пользователей.
+	// UpdatedIds are the IDs of updated accounts.
 	UpdatedIds []int `json:"updated_ids"`
-	// SkippedIds — ID пользователей, чьей ролью вызывающий управлять не вправе; эти записи не обновлены.
+	// SkippedIds are accounts whose role the caller may not manage; they are not updated.
 	SkippedIds []int `json:"skipped_ids"`
-	// NotFoundIds — ID, отсутствующие в БД.
+	// NotFoundIds are IDs missing in the database.
 	NotFoundIds []int `json:"not_found_ids"`
 }
 

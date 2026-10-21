@@ -3,6 +3,7 @@ package clear_binding
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
@@ -25,13 +26,8 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	result := NewUsecase(h.factory(c)).Execute(Input{ID: id, BindingType: bindingType})
-	if result.Cause != nil {
-		common.ApiError(c, result.Cause)
-		return
-	}
-	if result.Forbidden {
-		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
+	if err := NewUsecase(h.factory(c)).Execute(Input{ID: id, BindingType: bindingType}); err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "success"})

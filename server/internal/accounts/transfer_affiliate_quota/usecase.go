@@ -1,44 +1,19 @@
 package transfer_affiliate_quota
 
 import (
-	"errors"
-	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 
-// AffiliateAccountLoader загружает аккаунт до чтения запроса перевода.
+// AffiliateAccountLoader loads the account before the transfer request is read.
 type AffiliateAccountLoader interface {
 	LoadAffiliateAccount(id int) (AffiliateAccountTransfer, error)
 }
 
-// AffiliateAccountTransfer сохраняет текущую точку диспетчеризации перевода аккаунта.
+// AffiliateAccountTransfer is the dispatch point of the account transfer.
 type AffiliateAccountTransfer interface{ TransferQuota(quota int) error }
 
 type AffiliateQuotaInput interface{ ReadQuota() (int, error) }
-
-type AffiliateTransferStage uint8
-
-const (
-	AffiliateTransferLoad AffiliateTransferStage = iota
-	AffiliateTransferInput
-	AffiliateTransferDispatch
-)
-
-// ExecuteAffiliateTransfer сохраняет порядок загрузки, чтения ввода и вызова перевода.
-func ExecuteAffiliateTransfer(id int, loader AffiliateAccountLoader, input AffiliateQuotaInput) *AffiliateTransferFailure {
-	account, err := loader.LoadAffiliateAccount(id)
-	if err != nil {
-		return &AffiliateTransferFailure{Stage: AffiliateTransferLoad, Err: err}
-	}
-	quota, err := input.ReadQuota()
-	if err != nil {
-		return &AffiliateTransferFailure{Stage: AffiliateTransferInput, Err: err}
-	}
-	if err := account.TransferQuota(quota); err != nil {
-		return &AffiliateTransferFailure{Stage: AffiliateTransferDispatch, Err: err}
-	}
-	return nil
-}
 
 type AffiliateTransfer interface {
 	Begin() (AffiliateTransferTx, error)
@@ -56,10 +31,11 @@ type AffiliateQuotaDisplay interface {
 	FormatQuota(int) string
 }
 
-// TransferAffiliateQuota определяет финансовые проверки и порядок транзакции перевода.
+// TransferAffiliateQuota owns the financial checks and the transaction order
+// of moving affiliate quota into the regular quota.
 func TransferAffiliateQuota(quota int, operation AffiliateTransfer, display AffiliateQuotaDisplay) error {
 	if float64(quota) < display.MinimumQuota() {
-		return fmt.Errorf("转移额度最小为%s！", display.FormatQuota(common.QuotaFromFloat(display.MinimumQuota())))
+		return &domain.AmountError{Err: domain.ErrTransferBelowMinimum, Amount: display.FormatQuota(common.QuotaFromFloat(display.MinimumQuota()))}
 	}
 	tx, err := operation.Begin()
 	if err != nil {
@@ -71,7 +47,7 @@ func TransferAffiliateQuota(quota int, operation AffiliateTransfer, display Affi
 		return err
 	}
 	if balances.AffiliateQuota < quota {
-		return errors.New("邀请额度不足！")
+		return domain.ErrInviteQuotaInsufficient
 	}
 	balances.AffiliateQuota -= quota
 	balances.Quota += quota
@@ -84,6 +60,21 @@ func TransferAffiliateQuota(quota int, operation AffiliateTransfer, display Affi
 type Usecase struct{ loader AffiliateAccountLoader }
 
 func NewUsecase(loader AffiliateAccountLoader) Usecase { return Usecase{loader: loader} }
-func (u Usecase) Execute(id int, input AffiliateQuotaInput) *AffiliateTransferFailure {
-	return ExecuteAffiliateTransfer(id, u.loader, input)
+
+// Execute keeps the order of loading the account, reading the input and
+// dispatching the transfer. Load and input failures are returned unclassified;
+// a rejected transfer is wrapped with domain.AffiliateTransferFailed.
+func (u Usecase) Execute(id int, input AffiliateQuotaInput) error {
+	account, err := u.loader.LoadAffiliateAccount(id)
+	if err != nil {
+		return err
+	}
+	quota, err := input.ReadQuota()
+	if err != nil {
+		return err
+	}
+	if err := account.TransferQuota(quota); err != nil {
+		return domain.AffiliateTransferFailed(err)
+	}
+	return nil
 }

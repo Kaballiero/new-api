@@ -108,7 +108,7 @@ func UpdateUserBindColumn(userId int, column string, value string) error {
 
 // 根据用户角色生成默认的边栏配置
 func generateDefaultSidebarConfigForRole(userRole int) string {
-	configBytes, err := common.Marshal(domain.DashboardSidebarConfig(userRole))
+	configBytes, err := common.Marshal(domain.DashboardSidebarConfig(userRole, domain.AdminRoles{Admin: common.RoleAdminUser, Root: common.RoleRootUser}))
 	if err != nil {
 		common.SysLog("生成默认边栏配置失败: " + err.Error())
 		return ""

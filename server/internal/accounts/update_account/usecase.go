@@ -1,9 +1,6 @@
 package update_account
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 type Mutation interface {
 	EnsureUsernameAvailable(string, int) error
@@ -23,19 +20,23 @@ type Operation interface {
 	RequestedAccount() *domain.User
 }
 
-func (scenario Usecase) Execute(input Input, actorRole int) (*domain.User, *accounts.AdminFailure) {
+// Execute edits an account. LoadOrigin reports a missing account as
+// domain.ErrAccountNotFound and other load failures as domain.Internal;
+// EditTransaction reports a taken username as domain.ErrUsernameTaken. Other
+// write and post-commit failures are returned unclassified.
+func (scenario Usecase) Execute(input Input, actorRole int) (*domain.User, error) {
 	op, roles := scenario.operation, scenario.roles
 
 	origin, err := op.LoadOrigin(input.ID)
 	if err != nil {
-		return nil, accounts.AdminLoadFailure(err)
+		return nil, err
 	}
 	if input.RequestedRole != roles.Guest && input.RequestedRole != origin.Role {
-		return nil, &accounts.AdminFailure{Kind: accounts.AdminInvalidRole}
+		return nil, domain.ErrRoleChangeNotAllowed
 	}
 	op.UseOriginRole(origin.Role)
 	if !domain.CanManageTargetRole(actorRole, origin.Role, roles.Root) {
-		return nil, &accounts.AdminFailure{Kind: accounts.AdminForbidden}
+		return nil, domain.ErrManageForbidden
 	}
 	touched := false
 	var authVersion int64
@@ -52,20 +53,20 @@ func (scenario Usecase) Execute(input Input, actorRole int) (*domain.User, *acco
 		return err
 	})
 	if err != nil {
-		return nil, &accounts.AdminFailure{Kind: accounts.AdminWriteFailed, Cause: err}
+		return nil, err
 	}
 	if touched {
 		if err := op.ReloadPolicy(); err != nil {
-			return nil, &accounts.AdminFailure{Kind: accounts.AdminPostCommitFailed, Cause: err}
+			return nil, err
 		}
 	}
 	if authVersion > origin.AuthVersion {
 		if err := op.RevokeSessions(input.ID, "admin_user_update"); err != nil {
-			return nil, &accounts.AdminFailure{Kind: accounts.AdminPostCommitFailed, Cause: err}
+			return nil, err
 		}
 	}
 	if err := op.PublishAuthCache(input.ID); err != nil {
-		return nil, &accounts.AdminFailure{Kind: accounts.AdminPostCommitFailed, Cause: err}
+		return nil, err
 	}
 	op.AuditUpdated(origin)
 	response, err := op.ReloadAccount(input.ID)

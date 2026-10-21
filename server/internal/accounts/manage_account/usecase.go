@@ -1,9 +1,6 @@
 package manage_account
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 type DemoteMutation interface {
 	Update() (domain.AdminTarget, error)
@@ -24,30 +21,33 @@ type Operation interface {
 	AuditManaged(domain.AdminTarget, string)
 }
 
-func (scenario Usecase) Execute(input Input, actorRole int) (Result, *accounts.AdminFailure) {
+// Execute applies a management action. LoadUnscoped reports a missing account
+// as domain.ErrAccountNotFound and other load failures as domain.Internal;
+// failed demotion and post-commit effects are returned unclassified.
+func (scenario Usecase) Execute(input Input, actorRole int) (Result, error) {
 	op, roles := scenario.operation, scenario.roles
 
 	target, err := op.LoadUnscoped(input.ID)
 	if err != nil {
-		return Result{}, accounts.AdminLoadFailure(err)
+		return Result{}, err
 	}
 	if !domain.CanManageTargetRole(actorRole, target.Role, roles.Root) {
-		return Result{}, &accounts.AdminFailure{Kind: accounts.AdminForbidden}
+		return Result{}, domain.ErrManageForbidden
 	}
 	switch input.Action {
 	case "disable":
 		if target.Role == roles.Root {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminCannotDisableRoot}
+			return Result{}, domain.ErrCannotDisableRoot
 		}
 		op.UseStatus(roles.Disabled)
 	case "enable":
 		op.UseStatus(roles.Enabled)
 	case "delete":
 		if target.Role == roles.Root {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminCannotDeleteRoot}
+			return Result{}, domain.ErrCannotDeleteRoot
 		}
 		if err := op.Delete(); err != nil {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminOrdinaryWriteFailed, Cause: err}
+			return Result{}, domain.Internal(err)
 		}
 		if err := op.InvalidateTokens(target.ID); err != nil {
 			op.LogTokenInvalidationFailure(target.ID, err)
@@ -56,22 +56,22 @@ func (scenario Usecase) Execute(input Input, actorRole int) (Result, *accounts.A
 		return Result{Action: input.Action, UserID: target.ID, Deleted: true}, nil
 	case "promote":
 		if actorRole != roles.Root {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminCannotPromote}
+			return Result{}, domain.ErrAdminCannotPromote
 		}
 		if target.Role >= roles.Admin {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminAlreadyAdmin}
+			return Result{}, domain.ErrAlreadyAdmin
 		}
 		op.UseRole(roles.Admin)
 	case "demote":
 		if target.Role == roles.Root {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminCannotDemoteRoot}
+			return Result{}, domain.ErrCannotDemoteRoot
 		}
 		if target.Role == roles.Common {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminAlreadyCommon}
+			return Result{}, domain.ErrAlreadyCommon
 		}
 		op.UseRole(roles.Common)
 	default:
-		return Result{}, &accounts.AdminFailure{Kind: accounts.AdminInvalidAction}
+		return Result{}, domain.ErrInvalidAction
 	}
 	if input.Action == "demote" {
 		err = op.DemoteTransaction(func(tx DemoteMutation) error {
@@ -83,21 +83,21 @@ func (scenario Usecase) Execute(input Input, actorRole int) (Result, *accounts.A
 			return tx.ClearAuthorization(target.ID)
 		})
 		if err != nil {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminWriteFailed, Cause: err}
+			return Result{}, err
 		}
 		if err := op.ReloadPolicy(); err != nil {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminPostCommitFailed, Cause: err}
+			return Result{}, err
 		}
 		if err := op.PublishAuthCache(target.ID); err != nil {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminPostCommitFailed, Cause: err}
+			return Result{}, err
 		}
 		if err := op.RevokeSessions(target.ID, "admin_demote"); err != nil {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminPostCommitFailed, Cause: err}
+			return Result{}, err
 		}
 	} else {
 		target, err = op.Update()
 		if err != nil {
-			return Result{}, &accounts.AdminFailure{Kind: accounts.AdminOrdinaryWriteFailed, Cause: err}
+			return Result{}, domain.Internal(err)
 		}
 	}
 	if err := op.InvalidateTokens(target.ID); err != nil {

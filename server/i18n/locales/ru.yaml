@@ -200,6 +200,7 @@ checkin.disabled: "Функция ежедневной отметки не вк�
 checkin.already_today: "Вы уже отметились сегодня"
 checkin.failed: "Не удалось отметиться, повторите попытку позже"
 checkin.quota_failed: "Не удалось отметиться: ошибка обновления квоты"
+checkin.success: "Отметка выполнена"
 
 # Passkey messages
 passkey.create_failed: "Не удалось создать учётные данные Passkey"

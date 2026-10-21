@@ -1,10 +1,10 @@
 package check_in
 
 import (
-	"errors"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"math/rand"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 
 type Mutation interface {
@@ -30,7 +30,7 @@ func NewUsecase(store Store, settings func() *domain.CheckinPolicy) Usecase {
 func (u Usecase) Execute(userID int) (*domain.Checkin, error) {
 	setting := u.settings()
 	if !setting.Enabled {
-		return nil, errors.New("签到功能未启用")
+		return nil, domain.ErrCheckinDisabled
 	}
 	today := time.Now().Format("2006-01-02")
 	checked, err := u.store.CheckedInOn(userID, today)
@@ -38,7 +38,7 @@ func (u Usecase) Execute(userID int) (*domain.Checkin, error) {
 		return nil, err
 	}
 	if checked {
-		return nil, errors.New("今日已签到")
+		return nil, domain.ErrAlreadyCheckedIn
 	}
 	quota := setting.MinQuota
 	if setting.MaxQuota > setting.MinQuota {
@@ -51,20 +51,20 @@ func (u Usecase) Execute(userID int) (*domain.Checkin, error) {
 func (u Usecase) Persist(record *domain.Checkin, userID, quota int) (*domain.Checkin, error) {
 	if u.store.IsSQLite() {
 		if err := u.store.Create(record); err != nil {
-			return nil, errors.New("签到失败，请稍后重试")
+			return nil, domain.ErrCheckinFailed
 		}
 		if err := u.store.Credit(userID, quota); err != nil {
 			_ = u.store.Delete(record)
-			return nil, errors.New("签到失败：更新额度出错")
+			return nil, domain.ErrCheckinQuotaFailed
 		}
 		return record, nil
 	}
 	if err := u.store.Transaction(func(tx Mutation) error {
 		if err := tx.Create(record); err != nil {
-			return errors.New("签到失败，请稍后重试")
+			return domain.ErrCheckinFailed
 		}
 		if err := tx.Credit(userID, quota); err != nil {
-			return errors.New("签到失败：更新额度出错")
+			return domain.ErrCheckinQuotaFailed
 		}
 		return nil
 	}); err != nil {

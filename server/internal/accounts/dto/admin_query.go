@@ -6,7 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 
-// User сохраняет поля административного ответа аккаунта.
+// User keeps the fields of the administrative account response.
 type User struct {
 	Id               int    `json:"id"`
 	Username         string `json:"username" validate:"max=20"`

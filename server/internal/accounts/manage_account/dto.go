@@ -7,11 +7,11 @@ type ManageRequest struct {
 	Mode   string `json:"mode"`
 }
 
-// ManageUserResponse — результат успешного запроса POST /api/user/manage.
-// Action — выполненное действие ("disable"|"enable"|"delete"|"promote"|"demote"|"add_quota").
-// Role и Status отражают состояние пользователя после действия; при изменении квоты
-// Quota содержит её новое значение. Некоторые действия оставляют поля нулевыми — клиент
-// должен определять значимые поля по Action.
+// ManageUserResponse is the result of a successful POST /api/user/manage request.
+// Action is the performed action ("disable"|"enable"|"delete"|"promote"|"demote"|"add_quota").
+// Role and Status reflect the account after the action; on a quota change Quota
+// holds the new value. Some actions leave fields zero, so clients choose the
+// meaningful fields by Action.
 type ManageUserResponse struct {
 	Action string `json:"action"`
 	UserId int    `json:"user_id"`

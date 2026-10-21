@@ -6,9 +6,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/accounts"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/accounts/dto"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -33,13 +33,9 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 	actorRole := c.GetInt("role")
-	failure := NewUsecase(h.factory(c), h.roles).Execute(Input{Username: user.Username, Password: user.Password, DisplayName: user.DisplayName, Role: user.Role, Permissions: user.AdminPermissions}, actorRole)
-	if failure != nil {
-		if failure.Kind == accounts.AdminCreateForbidden {
-			common.ApiErrorI18n(c, i18n.MsgUserCannotCreateHigherLevel)
-		} else {
-			common.ApiError(c, failure.Cause)
-		}
+	err = NewUsecase(h.factory(c), h.roles).Execute(Input{Username: user.Username, Password: user.Password, DisplayName: user.DisplayName, Role: user.Role, Permissions: user.AdminPermissions}, actorRole)
+	if err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})

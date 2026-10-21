@@ -57,17 +57,20 @@ type AdminOperation interface {
 type Usecase struct{ operation AdminOperation }
 
 func NewUsecase(operation AdminOperation) Usecase { return Usecase{operation: operation} }
-func (u Usecase) Execute(input Input) Result {
+
+// Execute clears one binding of an account; load and clear failures are
+// returned unclassified.
+func (u Usecase) Execute(input Input) error {
 	role, err := u.operation.LoadTarget(input.ID)
 	if err != nil {
-		return Result{Cause: err}
+		return err
 	}
 	if !domain.CanManageTargetRole(u.operation.ActorRole(), role, u.operation.RootRole()) {
-		return Result{Forbidden: true}
+		return domain.ErrBindingForbidden
 	}
 	if err := u.operation.Clear(input.BindingType); err != nil {
-		return Result{Cause: err}
+		return err
 	}
 	u.operation.AuditCurrent(input.BindingType)
-	return Result{}
+	return nil
 }

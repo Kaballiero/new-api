@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // Account handlers retain their public operation names after moving to receiver
@@ -35,7 +36,24 @@ var accountHandlerSources = map[string]struct{ scenario, method string }{
 	"ProvisionGetAPIUser":   {"provision_account", "Handle"},
 }
 
+// Domain errors of account scenarios are rendered by the shared transport
+// switch. Each handler lists the domain errors it can return (without the Err
+// prefix) in the order of its previous error switch, so that x-error-codes keep
+// their published order. Codes written directly in http.go come first.
+var accountHandlerErrors = map[string][]string{
+	"ManageUser":    {"AccountNotFound", "Internal", "ManageForbidden", "CannotDisableRoot", "CannotDeleteRoot", "AdminCannotPromote", "AlreadyAdmin", "CannotDemoteRoot", "AlreadyCommon", "InvalidAction"},
+	"UpdateUser":    {"ManageForbidden", "AccountNotFound", "Internal", "UsernameTaken"},
+	"DeleteUser":    {"AccountNotFound", "ManageForbidden", "Internal"},
+	"GetUser":       {"AccountNotFound", "ViewForbidden", "Internal"},
+	"GetUsersBatch": {"AccountNotFound", "ViewForbidden", "Internal"},
+	"SearchUsers":   {"Internal"},
+}
+
 func parseAccountHandlers() error {
+	failures, err := accountFailureCodes()
+	if err != nil {
+		return err
+	}
 	names := make([]string, 0, len(accountHandlerSources))
 	for name := range accountHandlerSources {
 		names = append(names, name)
@@ -81,8 +99,68 @@ func parseAccountHandlers() error {
 				info.RespType = ""
 				info.RespSchema = map[string]any{"type": "object", "properties": map[string]any{"success": map[string]any{"type": "boolean"}, "message": map[string]any{"type": "string"}, "data": map[string]any{"type": "object", "properties": fields}}}
 			}
+			seen := map[ErrorCode]bool{}
+			for _, code := range info.ErrorCodes {
+				seen[code] = true
+			}
+			for _, failure := range accountHandlerErrors[name] {
+				code, ok := failures[failure]
+				if !ok {
+					return fmt.Errorf("account handler %s: no transport mapping for domain error %s", name, failure)
+				}
+				if !seen[code] {
+					seen[code] = true
+					info.ErrorCodes = append(info.ErrorCodes, code)
+				}
+			}
 			handlers[name] = info
 		}
 	}
 	return nil
+}
+
+// accountFailureCodes reads the status/code mapping of the account transport
+// switch (case errors.Is(err, domain.ErrX)), keyed by the error name without
+// the Err prefix. Cases without a status code are skipped.
+func accountFailureCodes() (map[string]ErrorCode, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), "internal/accounts/transport/errors.go", nil, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]ErrorCode{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		clause, ok := n.(*ast.CaseClause)
+		if !ok {
+			return true
+		}
+		var code *ErrorCode
+		for _, stmt := range clause.Body {
+			ast.Inspect(stmt, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					if value := analyzeErrorCall(call); value != nil {
+						code = value
+					}
+				}
+				return true
+			})
+		}
+		if code == nil {
+			return true
+		}
+		for _, expr := range clause.List {
+			ast.Inspect(expr, func(n ast.Node) bool {
+				if selector, ok := n.(*ast.SelectorExpr); ok {
+					if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "domain" {
+						result[strings.TrimPrefix(selector.Sel.Name, "Err")] = *code
+					}
+				}
+				return true
+			})
+		}
+		return true
+	})
+	if len(result) == 0 {
+		return nil, fmt.Errorf("account transport has no error code mappings")
+	}
+	return result, nil
 }

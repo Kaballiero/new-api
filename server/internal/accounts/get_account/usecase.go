@@ -1,23 +1,23 @@
 package get_account
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 type Operation interface {
 	LoadOrigin(int) (domain.AdminTarget, error)
 }
 
-func (scenario Usecase) Execute(input Input) *accounts.AdminFailure {
+// Execute checks that the actor may view the account. LoadOrigin reports a
+// missing account as domain.ErrAccountNotFound and other load failures as
+// domain.Internal.
+func (scenario Usecase) Execute(input Input) error {
 	id, actorRole := input.ID, input.ActorRole
 	op, rootRole := scenario.operation, scenario.rootRole
 	target, err := op.LoadOrigin(id)
 	if err != nil {
-		return accounts.AdminLoadFailure(err)
+		return err
 	}
 	if !domain.CanManageTargetRole(actorRole, target.Role, rootRole) {
-		return &accounts.AdminFailure{Kind: accounts.AdminForbidden}
+		return domain.ErrViewForbidden
 	}
 	return nil
 }

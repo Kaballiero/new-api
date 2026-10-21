@@ -2,7 +2,6 @@ package provision_account
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/accounts"
 	"strings"
 	"unicode/utf8"
 )
@@ -44,14 +43,14 @@ func NewUsecase(operation ProvisionOperation, credentials Credentials, errors Er
 	return Usecase{operation: operation, credentials: credentials, errors: errors, groupExists: groupExists, sidebar: sidebar, maxQuota: maxQuota, commonRole: commonRole, enabledStatus: enabledStatus}
 }
 
-func (u Usecase) Execute(principalRole int, request Input) (*Output, error) {
+func (u Usecase) Execute(principalRole int, request GetAPICreateUserRequest) (*GetAPICreateCredential, error) {
 	if request.InitialQuota != nil && (*request.InitialQuota < 0 || *request.InitialQuota > u.maxQuota) {
 		return nil, u.errors.Invalid()
 	}
 	if utf8.RuneCountInString(request.Group) > maxProvisionedUserGroupRunes || (request.Group != "" && !u.groupExists(request.Group)) {
 		return nil, u.errors.Invalid()
 	}
-	var credential *accounts.GetAPICreateCredential
+	var credential *GetAPICreateCredential
 	accountInput := NewAccount{Username: strings.TrimSpace(request.Username), Password: request.Password, DisplayName: request.DisplayName, Group: request.Group, Role: u.commonRole, Status: u.enabledStatus}
 	if accountInput.DisplayName == "" {
 		accountInput.DisplayName = accountInput.Username
@@ -87,7 +86,7 @@ func (u Usecase) Execute(principalRole int, request Input) (*Output, error) {
 				return u.errors.Unavailable()
 			}
 		}
-		credential = &accounts.GetAPICreateCredential{UserID: userID, AccessToken: token, InitialQuota: account.Quota()}
+		credential = &GetAPICreateCredential{UserID: userID, AccessToken: token, InitialQuota: account.Quota()}
 		return nil
 	})
 	return credential, err

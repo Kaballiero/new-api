@@ -2,7 +2,6 @@ package model
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/accounts"
 	"github.com/QuantumNous/new-api/internal/accounts/provision_account"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -11,7 +10,10 @@ import (
 
 type ProvisionCredentials = record.ProvisionCredentials
 
-func ProvisionGetAPIUser(principalRole int, request accounts.GetAPICreateUserRequest) (*accounts.GetAPICreateCredential, error) {
+type GetAPICreateUserRequest = provision_account.GetAPICreateUserRequest
+type GetAPICreateCredential = provision_account.GetAPICreateCredential
+
+func ProvisionGetAPIUser(principalRole int, request GetAPICreateUserRequest) (*GetAPICreateCredential, error) {
 	return provision_account.NewUsecase(NewProvisionOperation(), ProvisionCredentials{}, ProvisionErrors{}, ratio_setting.ContainsGroupRatio, generateDefaultSidebarConfigForRole, common.MaxQuota, common.RoleCommonUser, common.UserStatusEnabled).Execute(principalRole, request)
 }
 

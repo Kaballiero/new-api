@@ -1,14 +1,18 @@
 package adjust_quota
 
 import (
+	"errors"
+
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/accounts"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/shopspring/decimal"
 )
 
 type QuotaAdjustmentStore interface {
 	Transaction(func(QuotaAdjustmentTx) error) error
 }
+
+// QuotaAdjustmentTx reports a missing account as domain.ErrAccountNotFound.
 type QuotaAdjustmentTx interface {
 	LockAccount(int) (QuotaAccount, error)
 	UpdateQuota(userID, after int) error
@@ -18,43 +22,40 @@ type QuotaCache interface {
 }
 type QuotaCacheFailureLog interface{ AdjustmentCacheFailed(userID int, cause error) }
 
-// QuotaAdjustmentErrors читает независимые текущие ошибки хранилища в точке отказа.
-type QuotaAdjustmentErrors interface {
-	Invalid() error
-	Permission() error
-	Limit() error
-}
-
 type Usecase struct {
-	Store      QuotaAdjustmentStore
-	Cache      QuotaCache
-	FailureLog QuotaCacheFailureLog
-	Errors     QuotaAdjustmentErrors
-	RootRole   int
+	store      QuotaAdjustmentStore
+	cache      QuotaCache
+	failureLog QuotaCacheFailureLog
+	rootRole   int
 }
 
-func (scenario Usecase) Execute(userID, operatorRole int, mode string, value int) (*accounts.UserQuotaAdjustment, error) {
-	if userID <= 0 || (mode != "add" && mode != "subtract" && mode != "override") {
-		return nil, scenario.Errors.Invalid()
-	}
-	if mode != "override" && value <= 0 {
-		return nil, scenario.Errors.Invalid()
+func (scenario Usecase) Execute(userID, operatorRole int, mode string, value int) (*UserQuotaAdjustment, error) {
+	if userID <= 0 || (mode != "add" && mode != "subtract" && mode != "override") || (mode != "override" && value <= 0) {
+		if (mode == "add" || mode == "subtract") && value <= 0 {
+			return nil, domain.ErrQuotaChangeZero
+		}
+		return nil, domain.ErrQuotaAdjustmentInvalid
 	}
 	if value > common.MaxWalletQuota || value < -common.MaxWalletQuota {
-		return nil, scenario.Errors.Limit()
+		return nil, domain.ErrQuotaLimitExceeded
 	}
 
-	var adjustment accounts.UserQuotaAdjustment
-	err := scenario.Store.Transaction(func(tx QuotaAdjustmentTx) error {
+	var adjustment UserQuotaAdjustment
+	// rejection keeps a business error of the transaction apart from storage
+	// failures, which are classified as domain.Internal.
+	var rejection error
+	err := scenario.store.Transaction(func(tx QuotaAdjustmentTx) error {
 		user, err := tx.LockAccount(userID)
 		if err != nil {
 			return err
 		}
-		if operatorRole != scenario.RootRole && operatorRole <= user.Role {
-			return scenario.Errors.Permission()
+		if operatorRole != scenario.rootRole && operatorRole <= user.Role {
+			rejection = domain.ErrManageForbidden
+			return rejection
 		}
 		if user.Quota > common.MaxWalletQuota || user.Quota < -common.MaxWalletQuota {
-			return scenario.Errors.Limit()
+			rejection = domain.ErrQuotaLimitExceeded
+			return rejection
 		}
 		quota := decimal.NewFromInt(int64(value))
 		switch mode {
@@ -65,33 +66,39 @@ func (scenario Usecase) Execute(userID, operatorRole int, mode string, value int
 		}
 		after, err := common.WalletQuotaFromDecimalStrict(quota)
 		if err != nil {
-			return scenario.Errors.Limit()
+			rejection = domain.ErrQuotaLimitExceeded
+			return rejection
 		}
-		// Неизменившееся установленное значение считается успехом, в том числе в MySQL,
-		// где RowsAffected может считать только фактически изменённые строки.
+		// An unchanged value is a success, also on MySQL where RowsAffected may
+		// count only rows that actually changed.
 		if after != user.Quota {
 			if err := tx.UpdateQuota(userID, after); err != nil {
 				return err
 			}
 		}
-		adjustment = accounts.UserQuotaAdjustment{UserID: user.ID, Username: user.Username, Role: user.Role, Status: user.Status, Before: user.Quota, After: after}
+		adjustment = UserQuotaAdjustment{UserID: user.ID, Username: user.Username, Role: user.Role, Status: user.Status, Before: user.Quota, After: after}
 		return nil
 	})
-	if err != nil {
-		return nil, err
+	switch {
+	case rejection != nil:
+		return nil, rejection
+	case errors.Is(err, domain.ErrAccountNotFound):
+		return nil, domain.ErrAccountNotFound
+	case err != nil:
+		return nil, domain.Internal(err)
 	}
 
-	// Применяем лишь зафиксированную разницу, сохраняя незавершённые резервы.
-	// Оба баланса ограничены сверху, поэтому разница помещается в int64.
+	// Apply only the committed difference so that pending reservations stay.
+	// Both balances are bounded, so the difference fits into int64.
 	delta := int64(adjustment.After) - int64(adjustment.Before)
 	if delta != 0 {
-		if err := scenario.Cache.Increment(userID, delta); err != nil {
-			scenario.FailureLog.AdjustmentCacheFailed(userID, err)
+		if err := scenario.cache.Increment(userID, delta); err != nil {
+			scenario.failureLog.AdjustmentCacheFailed(userID, err)
 		}
 	}
 	return &adjustment, nil
 }
 
-func NewUsecase(store QuotaAdjustmentStore, cache QuotaCache, failureLog QuotaCacheFailureLog, errors QuotaAdjustmentErrors, rootRole int) Usecase {
-	return Usecase{Store: store, Cache: cache, FailureLog: failureLog, Errors: errors, RootRole: rootRole}
+func NewUsecase(store QuotaAdjustmentStore, cache QuotaCache, failureLog QuotaCacheFailureLog, rootRole int) Usecase {
+	return Usecase{store: store, cache: cache, failureLog: failureLog, rootRole: rootRole}
 }

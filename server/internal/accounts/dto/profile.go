@@ -6,7 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
-// SelfUserData формирует безопасный ответ профиля для панели, входа и сессии.
+// SelfUserData builds the safe profile response of the dashboard, login and session.
 func SelfUserData(profile domain.SelfProfile, sidebarModules string, permissions map[string]any) map[string]any {
 	return map[string]any{
 		"id":                profile.Id,
@@ -33,13 +33,14 @@ func SelfUserData(profile domain.SelfProfile, sidebarModules string, permissions
 		"linux_do_id":       profile.LinuxDOId,
 		"setting":           profile.Setting,
 		"stripe_customer":   profile.StripeCustomer,
-		"sidebar_modules":   sidebarModules, // Корректно извлекаем поле sidebar_modules.
+		"sidebar_modules":   sidebarModules,
 		"permissions":       permissions,
 	}
 }
 
-// BuildSelfUserData строит безопасный DTO и сохраняет порядок чтения настроек и прав.
-func BuildSelfUserData(profile domain.SelfProfile, capabilities func(int, int) any) map[string]any {
+// BuildSelfUserData builds the safe profile DTO and keeps the order of reading
+// settings and permissions.
+func BuildSelfUserData(profile domain.SelfProfile, capabilities func(int, int) any, roles domain.AdminRoles) map[string]any {
 	setting := dto.UserSetting{}
 	if profile.Setting != "" {
 		err := common.Unmarshal([]byte(profile.Setting), &setting)
@@ -47,7 +48,7 @@ func BuildSelfUserData(profile domain.SelfProfile, capabilities func(int, int) a
 			common.SysLog("failed to unmarshal setting: " + err.Error())
 		}
 	}
-	permissions := domain.DashboardPermissions(profile.Role)
+	permissions := domain.DashboardPermissions(profile.Role, roles)
 	permissions["admin_permissions"] = capabilities(profile.Id, profile.Role)
 	return SelfUserData(profile, setting.SidebarModules, permissions)
 }

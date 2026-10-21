@@ -4,18 +4,12 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
-// NotificationPreferencesAccount содержит данные, необходимые для смены настроек уведомлений.
+// NotificationPreferencesAccount holds the account data needed to change the
+// notification settings.
 type NotificationPreferencesAccount struct {
 	ID       int
 	Role     int
 	Settings dto.UserSetting
-}
-
-// NotificationPreferencesFailure сохраняет различия ошибок проверки, чтения и записи.
-type NotificationPreferencesFailure struct {
-	Issue  NotificationSettingsIssue
-	Err    error
-	Saving bool
 }
 
 type UpdateUserSettingRequest struct {

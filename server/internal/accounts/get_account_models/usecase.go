@@ -9,7 +9,8 @@ type AccountModelsSelection interface {
 	EnabledModels([]string) []string
 }
 
-// ReadAccountModels выбирает группы после чтения аккаунта и возвращает доступные модели.
+// ReadAccountModels selects the groups after reading the account and returns the
+// available models.
 func ReadAccountModels(userID int, reader ModelAccountGroupReader, selection AccountModelsSelection) ([]string, error) {
 	group, err := reader.AccountGroup(userID)
 	if err != nil {

@@ -1,7 +1,7 @@
 package domain
 
-// InitialAccount задаётся после проверки email и подготовки пароля,
-// внутри транзакции создания аккаунта.
+// InitialAccount is set after the email check and password preparation, inside
+// the account creation transaction.
 type InitialAccount struct {
 	Quota         int
 	AffiliateCode string

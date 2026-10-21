@@ -3,6 +3,7 @@ package list_accounts
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/dto"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -14,7 +15,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 	sortOptions := SortInput{By: c.Query("sort_by"), Order: c.Query("sort_order")}
 	users, total, err := h.scenario.Execute(PageInput{Page: pageInfo.GetPage(), PageSize: pageInfo.GetPageSize()}, sortOptions)
 	if err != nil {
-		common.ApiError(c, err)
+		transport.WriteError(c, err)
 		return
 	}
 

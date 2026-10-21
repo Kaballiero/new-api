@@ -1,35 +1,38 @@
 package check_in
 
 import (
-	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	"github.com/QuantumNous/new-api/logger"
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {
 	usecase   Usecase
 	settings  func() *domain.CheckinPolicy
-	recordLog func(int, string)
+	recordLog func(userID, quota int)
 }
 
-func NewHTTP(usecase Usecase, settings func() *domain.CheckinPolicy, recordLog func(int, string)) HTTP {
+// NewHTTP builds the check-in handler; recordLog writes the user log entry of
+// a successful check-in with the awarded quota.
+func NewHTTP(usecase Usecase, settings func() *domain.CheckinPolicy, recordLog func(userID, quota int)) HTTP {
 	return HTTP{usecase: usecase, settings: settings, recordLog: recordLog}
 }
 func (h HTTP) Handle(c *gin.Context) {
 	setting := h.settings()
 	if !setting.Enabled {
-		common.ApiErrorMsg(c, "签到功能未启用")
+		transport.WriteError(c, domain.ErrCheckinDisabled)
 		return
 	}
 	userID := c.GetInt("id")
 	record, err := h.usecase.Execute(userID)
 	if err != nil {
-		c.JSON(http.StatusOK, Response{Message: err.Error()})
+		transport.WriteError(c, err)
 		return
 	}
-	h.recordLog(userID, fmt.Sprintf("用户签到，获得额度 %s", logger.LogQuota(record.QuotaAwarded)))
-	c.JSON(http.StatusOK, Response{Success: true, Message: "签到成功", Data: &Data{QuotaAwarded: record.QuotaAwarded, CheckinDate: record.CheckinDate}})
+	h.recordLog(userID, record.QuotaAwarded)
+	c.JSON(http.StatusOK, Response{Success: true, Message: common.TranslateMessage(c, i18n.MsgCheckinSuccess), Data: &Data{QuotaAwarded: record.QuotaAwarded, CheckinDate: record.CheckinDate}})
 }

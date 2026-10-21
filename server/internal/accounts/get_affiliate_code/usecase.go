@@ -1,15 +1,15 @@
 package get_affiliate_code
 
 type Usecase struct {
-	Affiliate    AffiliateReader
-	RandomString func(int) string
+	affiliate    AffiliateReader
+	randomString func(int) string
 }
 
 func NewUsecase(reader AffiliateReader, randomString func(int) string) Usecase {
-	return Usecase{Affiliate: reader, RandomString: randomString}
+	return Usecase{affiliate: reader, randomString: randomString}
 }
 
-// AffiliateAccount сохраняет прежний жизненный цикл изменения аккаунта.
+// AffiliateAccount keeps the previous update lifecycle of the account.
 type AffiliateAccount interface {
 	AffiliateCode() string
 	SaveAffiliateCode(code string) error
@@ -19,14 +19,16 @@ type AffiliateReader interface {
 	AffiliateAccount(id int) (AffiliateAccount, error)
 }
 
-func (queries Usecase) Execute(input Input) (string, *AffiliateFailure) {
-	account, err := queries.Affiliate.AffiliateAccount(input.ID)
+// Execute returns the affiliate code and creates it on first use; load and
+// save failures are returned unclassified.
+func (queries Usecase) Execute(input Input) (string, error) {
+	account, err := queries.affiliate.AffiliateAccount(input.ID)
 	if err != nil {
-		return "", &AffiliateFailure{Err: err}
+		return "", err
 	}
 	if account.AffiliateCode() == "" {
-		if err := account.SaveAffiliateCode(queries.RandomString(4)); err != nil {
-			return "", &AffiliateFailure{Err: err, Saving: true}
+		if err := account.SaveAffiliateCode(queries.randomString(4)); err != nil {
+			return "", err
 		}
 	}
 	return account.AffiliateCode(), nil

@@ -2,7 +2,7 @@ package update_profile
 
 import "github.com/QuantumNous/new-api/relaykit/dto"
 
-// SelfUpdateAccount содержит только поля обычного изменения личного профиля.
+// SelfUpdateAccount holds only the fields of an ordinary own profile update.
 type SelfUpdateAccount struct {
 	ID          int
 	Username    string
@@ -10,16 +10,16 @@ type SelfUpdateAccount struct {
 	DisplayName string
 }
 
-// SelfPreferencesAccount содержит текущие настройки без записи хранилища.
+// SelfPreferencesAccount holds the current settings without the stored record.
 type SelfPreferencesAccount struct {
 	ID       int
 	Settings dto.UserSetting
 }
 
+// SelfUpdateResult reports what a successful self update changed.
 type SelfUpdateResult struct {
 	Preferences bool
-	Issue       SelfUpdateIssue
-	Err         error
+	Password    PasswordResult
 }
 
 type AccountInput struct{ Username, Password, DisplayName, OriginalPassword string }

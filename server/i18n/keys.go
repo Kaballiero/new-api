@@ -232,6 +232,7 @@ const (
 	MsgCheckinAlreadyToday = "checkin.already_today"
 	MsgCheckinFailed       = "checkin.failed"
 	MsgCheckinQuotaFailed  = "checkin.quota_failed"
+	MsgCheckinSuccess      = "checkin.success"
 )
 
 // Passkey related messages

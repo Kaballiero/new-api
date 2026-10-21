@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/accounts"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -41,14 +40,12 @@ var (
 
 const maxProvisionedUserGroupRunes = 64
 
-type GetAPICreateUserRequest = accounts.GetAPICreateUserRequest
 type GetAPICredential struct {
 	UserID      int     `json:"user_id"`
 	State       string  `json:"state"`
 	AccessToken *string `json:"access_token"`
 }
 
-type GetAPICreateCredential = accounts.GetAPICreateCredential
 type GetAPIInitializePATRequest struct {
 	UserID           int    `json:"user_id"`
 	ExpectedUsername string `json:"expected_username"`

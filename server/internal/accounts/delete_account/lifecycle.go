@@ -7,7 +7,8 @@ import (
 
 type DeletionSubject interface{ UserID() int }
 
-// DeletionSessionSource читает идентичность внутри транзакции; nil означает прежний вход без сессии.
+// DeletionSessionSource reads the identity inside the transaction; nil means the
+// previous entry point without a session.
 type DeletionSessionSource func() domain.DeletionSession
 
 type SoftDeletionTx interface {
@@ -49,7 +50,8 @@ type HardDeletionOperation interface {
 	LogAccountCacheFailure(error)
 }
 
-// SoftDeleteAccount сохраняет транзакционную проверку сессии и останавливает цепочку при ошибке после commit.
+// SoftDeleteAccount keeps the transactional session check and stops the chain
+// on a failure after commit.
 func SoftDeleteAccount(operation SoftDeletionOperation, source DeletionSessionSource, rootRole int) error {
 	if operation.UserID() == 0 {
 		return errors.New("id 为空！")
@@ -86,7 +88,8 @@ func SoftDeleteAccount(operation SoftDeletionOperation, source DeletionSessionSo
 	return operation.InvalidateAccountCache()
 }
 
-// HardDeleteAccount явно координирует общую транзакцию и продолжает очистку кэшей после commit при ошибках.
+// HardDeleteAccount coordinates the shared transaction and keeps cleaning caches
+// after commit when a step fails.
 func HardDeleteAccount(operation HardDeletionOperation) error {
 	if operation.UserID() == 0 {
 		return errors.New("id 为空！")

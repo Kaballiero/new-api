@@ -1,6 +1,6 @@
 package domain
 
-// SelfProfile содержит только публикуемые данные личного профиля.
+// SelfProfile holds only the publishable data of the own profile.
 type SelfProfile struct {
 	Id              int
 	Username        string

@@ -1,22 +1,22 @@
 package domain
 
-// CheckinPolicy содержит действующие правила награды за ежедневную отметку.
+// CheckinPolicy holds the current reward rules of the daily check-in.
 type CheckinPolicy struct {
 	Enabled  bool
 	MinQuota int
 	MaxQuota int
 }
 
-// Checkin — запись ежедневной отметки.
+// Checkin is a daily check-in record.
 type Checkin struct {
 	Id           int    `json:"id"`
 	UserId       int    `json:"user_id"`
-	CheckinDate  string `json:"checkin_date"` // Формат: YYYY-MM-DD.
+	CheckinDate  string `json:"checkin_date"` // Format: YYYY-MM-DD.
 	QuotaAwarded int    `json:"quota_awarded"`
 	CreatedAt    int64  `json:"created_at"`
 }
 
-// CheckinRecord — запись ежедневной отметки для ответа API без конфиденциальных полей.
+// CheckinRecord is a daily check-in record of the API response without private fields.
 type CheckinRecord struct {
 	CheckinDate  string `json:"checkin_date"`
 	QuotaAwarded int    `json:"quota_awarded"`

@@ -3,6 +3,7 @@ package transfer_affiliate_quota
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -31,13 +32,8 @@ func (h *HTTP) Handle(c *gin.Context) {
 	}
 
 	id := c.GetInt("id")
-	failure := h.scenario.Execute(id, affiliateQuotaInput{context: c})
-	if failure != nil {
-		if failure.Stage == AffiliateTransferDispatch {
-			common.ApiErrorI18n(c, i18n.MsgUserTransferFailed, map[string]any{"Error": failure.Err.Error()})
-		} else {
-			common.ApiError(c, failure.Err)
-		}
+	if err := h.scenario.Execute(id, affiliateQuotaInput{context: c}); err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	common.ApiSuccessI18n(c, i18n.MsgUserTransferSuccess, nil)

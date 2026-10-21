@@ -2,7 +2,7 @@ package domain
 
 import "time"
 
-// User содержит административную проекцию аккаунта без деталей хранения.
+// User is the administrative projection of an account without storage details.
 type User struct {
 	Id               int
 	Username         string
@@ -37,7 +37,7 @@ type User struct {
 	AdminPermissions map[string]map[string]bool
 }
 
-// UserBatchRow содержит данные пакетного чтения и роль для проверки доступа.
+// UserBatchRow holds the batch read data and the role for the access check.
 type UserBatchRow struct {
 	Id           int
 	Role         int

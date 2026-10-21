@@ -66,9 +66,6 @@ func bootstrap() error {
 	if err := parseModels("./internal/adapter/gorm/accounts/record"); err != nil {
 		return err
 	}
-	if err := parseModels("./internal/accounts"); err != nil {
-		return err
-	}
 
 	if err := parseModels("./internal/adapter/gorm/channels/record"); err != nil {
 		return err

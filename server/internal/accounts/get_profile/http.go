@@ -1,9 +1,10 @@
 package get_profile
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ scenario Usecase }
@@ -14,9 +15,8 @@ func (h *HTTP) Handle(c *gin.Context) {
 	userRole := c.GetInt("role")
 	responseData, err := h.scenario.Execute(Input{ID: id, AuthenticatedRole: userRole})
 	if err != nil {
-		common.ApiError(c, err)
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": responseData})
-	return
 }

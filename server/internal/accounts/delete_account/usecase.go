@@ -1,9 +1,6 @@
 package delete_account
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 type Operation interface {
 	LoadOrigin(int) (domain.AdminTarget, error)
@@ -11,19 +8,21 @@ type Operation interface {
 	AuditDeleted(domain.AdminTarget)
 }
 
-// Run строго проверяет роли, даже если вызывающий — root.
-func (scenario Usecase) Execute(input Input) *accounts.AdminFailure {
+// Execute checks roles strictly, even when the actor is root. LoadOrigin
+// reports a missing account as domain.ErrAccountNotFound and other load
+// failures as domain.Internal.
+func (scenario Usecase) Execute(input Input) error {
 	id, actorRole := input.ID, input.ActorRole
 	op := scenario.operation
 	target, err := op.LoadOrigin(id)
 	if err != nil {
-		return accounts.AdminLoadFailure(err)
+		return err
 	}
 	if actorRole <= target.Role {
-		return &accounts.AdminFailure{Kind: accounts.AdminForbidden}
+		return domain.ErrManageForbidden
 	}
 	if err := op.HardDelete(id); err != nil {
-		return &accounts.AdminFailure{Kind: accounts.AdminOrdinaryWriteFailed, Cause: err}
+		return domain.Internal(err)
 	}
 	op.AuditDeleted(target)
 	return nil

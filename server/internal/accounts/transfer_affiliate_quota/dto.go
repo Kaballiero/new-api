@@ -1,11 +1,6 @@
 package transfer_affiliate_quota
 
-type AffiliateTransferFailure struct {
-	Stage AffiliateTransferStage
-	Err   error
-}
-
-// AffiliateBalances содержит суммы для перевода приглашённой квоты в обычную.
+// AffiliateBalances holds the balances of an affiliate quota transfer.
 type AffiliateBalances struct{ Quota, AffiliateQuota int }
 
 type TransferAffQuotaRequest struct {

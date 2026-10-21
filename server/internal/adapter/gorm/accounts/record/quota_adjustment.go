@@ -1,21 +1,21 @@
 package model
 
 import (
+	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"gorm.io/gorm"
 )
 
-// UserQuotaAdjustment сохраняет совместимость прежнего входа с нейтральным снимком сценария.
-
-// QuotaAdjustmentStore скрывает транзакцию, кэш и текущие ошибки persistence owner.
+// QuotaAdjustmentStore hides the transaction and the quota cache of a manual
+// quota adjustment.
 type QuotaAdjustmentStore struct {
-	db                         func() *gorm.DB
-	lock                       func(*gorm.DB) *gorm.DB
-	cache                      func(int, int64) error
-	invalid, permission, limit func() error
+	db    func() *gorm.DB
+	lock  func(*gorm.DB) *gorm.DB
+	cache func(int, int64) error
 }
 
 func (s QuotaAdjustmentStore) Transaction(run func(adjust_quota.QuotaAdjustmentTx) error) error {
@@ -27,9 +27,6 @@ func (s QuotaAdjustmentStore) Increment(userID int, delta int64) error {
 func (s QuotaAdjustmentStore) AdjustmentCacheFailed(userID int, cause error) {
 	common.SysError(fmt.Sprintf("failed to sync manual quota adjustment for user %d: %s", userID, cause))
 }
-func (s QuotaAdjustmentStore) Invalid() error    { return s.invalid() }
-func (s QuotaAdjustmentStore) Permission() error { return s.permission() }
-func (s QuotaAdjustmentStore) Limit() error      { return s.limit() }
 
 type quotaAdjustmentTx struct {
 	tx   *gorm.DB
@@ -39,6 +36,9 @@ type quotaAdjustmentTx struct {
 func (operation quotaAdjustmentTx) LockAccount(userID int) (adjust_quota.QuotaAccount, error) {
 	var user User
 	if err := operation.lock(operation.tx).First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return adjust_quota.QuotaAccount{}, domain.ErrAccountNotFound
+		}
 		return adjust_quota.QuotaAccount{}, err
 	}
 	return adjust_quota.QuotaAccount{ID: user.Id, Username: user.Username, Role: user.Role, Status: user.Status, Quota: user.Quota}, nil
@@ -49,11 +49,11 @@ func (operation quotaAdjustmentTx) UpdateQuota(userID, after int) error {
 		return result.Error
 	}
 	if result.RowsAffected != 1 {
-		return gorm.ErrRecordNotFound
+		return domain.ErrAccountNotFound
 	}
 	return nil
 }
 
-func NewQuotaAdjustmentStore(db func() *gorm.DB, lock func(*gorm.DB) *gorm.DB, cache func(int, int64) error, invalid, permission, limit func() error) QuotaAdjustmentStore {
-	return QuotaAdjustmentStore{db: db, lock: lock, cache: cache, invalid: invalid, permission: permission, limit: limit}
+func NewQuotaAdjustmentStore(db func() *gorm.DB, lock func(*gorm.DB) *gorm.DB, cache func(int, int64) error) QuotaAdjustmentStore {
+	return QuotaAdjustmentStore{db: db, lock: lock, cache: cache}
 }

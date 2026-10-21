@@ -10,8 +10,3 @@ type Data struct {
 	MaxQuota int            `json:"max_quota"`
 	Stats    map[string]any `json:"stats"`
 }
-
-type ErrorResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-}

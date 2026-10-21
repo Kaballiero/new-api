@@ -51,7 +51,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 			return
 		}
 	}
-	var req Input
+	var req GetAPICreateUserRequest
 	if value, exists := fields["initial_quota"]; exists && common.GetJsonType(value) != "number" {
 		h.writeError(c, h.invalid())
 		return

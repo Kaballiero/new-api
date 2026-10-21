@@ -200,6 +200,7 @@ checkin.disabled: "Check-in feature is not enabled"
 checkin.already_today: "Already checked in today"
 checkin.failed: "Check-in failed, please try again later"
 checkin.quota_failed: "Check-in failed: quota update error"
+checkin.success: "Check-in successful"
 
 # Passkey messages
 passkey.create_failed: "Unable to create Passkey credential"

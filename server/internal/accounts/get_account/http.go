@@ -6,9 +6,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/accounts"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/accounts/dto"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,15 +32,8 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 	op := h.factory()
-	if failure := NewUsecase(op, h.rootRole).Execute(Input{ID: id, ActorRole: c.GetInt("role")}); failure != nil {
-		switch failure.Kind {
-		case accounts.AdminLoadMissing:
-			common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "user_not_found", i18n.MsgUserNotExists)
-		case accounts.AdminForbidden:
-			common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "permission_denied", i18n.MsgUserNoPermissionSameLevel)
-		default:
-			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", failure.Cause)
-		}
+	if err := NewUsecase(op, h.rootRole).Execute(Input{ID: id, ActorRole: c.GetInt("role")}); err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	user := dto.UserFromDomain(op.ResponseAccount())

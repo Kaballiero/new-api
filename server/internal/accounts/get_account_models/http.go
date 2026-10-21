@@ -1,11 +1,12 @@
 package get_account_models
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
+
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
+	"github.com/gin-gonic/gin"
 )
 
 func (h *HTTP) Handle(c *gin.Context) {
@@ -15,7 +16,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 	}
 	models, err := NewUsecase(h.reader, accountModelSelection{context: c, groups: h.groups, enabled: h.enabled}).Execute(Input{UserID: id})
 	if err != nil {
-		common.ApiError(c, err)
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{

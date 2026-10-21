@@ -70,9 +70,9 @@ func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBu
 
 func Register(c *gin.Context) { NewIdentityHTTP().RegisterPassword.Handle(c) }
 
-func GetAllUsers(c *gin.Context) { NewAccountsHTTP().ListAccounts.Handle(c) }
+func GetAllUsers(c *gin.Context) { accountsHTTP().ListAccounts.Handle(c) }
 
-func SearchUsers(c *gin.Context) { NewAccountsHTTP().SearchAccounts.Handle(c) }
+func SearchUsers(c *gin.Context) { accountsHTTP().SearchAccounts.Handle(c) }
 
 func canManageTargetRole(myRole int, targetRole int) bool {
 	return myRole == common.RoleRootUser || myRole > targetRole
@@ -80,28 +80,28 @@ func canManageTargetRole(myRole int, targetRole int) bool {
 
 type GetUsersBatchResponse = get_accounts_batch.GetUsersBatchResponse
 
-func GetUsersBatch(c *gin.Context) { NewAccountsHTTP().GetAccountsBatch.Handle(c) }
+func GetUsersBatch(c *gin.Context) { accountsHTTP().GetAccountsBatch.Handle(c) }
 
-func GetUser(c *gin.Context) { NewAccountsHTTP().GetAccount.Handle(c) }
+func GetUser(c *gin.Context) { accountsHTTP().GetAccount.Handle(c) }
 
 type TransferAffQuotaRequest = transfer_affiliate_quota.TransferAffQuotaRequest
 
-func TransferAffQuota(c *gin.Context) { NewAccountsHTTP().TransferAffiliateQuota.Handle(c) }
+func TransferAffQuota(c *gin.Context) { accountsHTTP().TransferAffiliateQuota.Handle(c) }
 
-func GetAffCode(c *gin.Context) { NewAccountsHTTP().GetAffiliateCode.Handle(c) }
+func GetAffCode(c *gin.Context) { accountsHTTP().GetAffiliateCode.Handle(c) }
 
-func GetSelf(c *gin.Context) { NewAccountsHTTP().GetProfile.Handle(c) }
+func GetSelf(c *gin.Context) { accountsHTTP().GetProfile.Handle(c) }
 
 // buildSelfUserData is the single safe dashboard-user DTO used by GetSelf,
 // login and refresh. It intentionally excludes password, management PAT and
 // administrator-only remarks.
 func buildSelfUserData(user *model.User) map[string]any {
-	return profiledto.BuildSelfUserData(repository.ProfileData(user), func(id, role int) any { return authz.Capabilities(id, role) })
+	return profiledto.BuildSelfUserData(repository.ProfileData(user), func(id, role int) any { return authz.Capabilities(id, role) }, domain.AdminRoles{Admin: common.RoleAdminUser, Root: common.RoleRootUser})
 }
 
 // 计算用户权限的辅助函数
 func calculateUserPermissions(userRole int) map[string]any {
-	return domain.DashboardPermissions(userRole)
+	return domain.DashboardPermissions(userRole, domain.AdminRoles{Admin: common.RoleAdminUser, Root: common.RoleRootUser})
 }
 
 // 根据用户角色生成默认的边栏配置
@@ -109,19 +109,19 @@ func generateDefaultSidebarConfig(userRole int) string {
 	return model.GenerateDefaultSidebarConfigForRole(userRole)
 }
 
-func GetUserModels(c *gin.Context) { NewAccountsHTTP().GetAccountModels.Handle(c) }
+func GetUserModels(c *gin.Context) { accountsHTTP().GetAccountModels.Handle(c) }
 
-func UpdateUser(c *gin.Context) { NewAccountsHTTP().UpdateAccount.Handle(c) }
+func UpdateUser(c *gin.Context) { accountsHTTP().UpdateAccount.Handle(c) }
 
-func AdminClearUserBinding(c *gin.Context) { NewAccountsHTTP().ClearBinding.Handle(c) }
+func AdminClearUserBinding(c *gin.Context) { accountsHTTP().ClearBinding.Handle(c) }
 
-func UpdateSelf(c *gin.Context) { NewAccountsHTTP().UpdateProfile.Handle(c) }
+func UpdateSelf(c *gin.Context) { accountsHTTP().UpdateProfile.Handle(c) }
 
-func DeleteUser(c *gin.Context) { NewAccountsHTTP().DeleteAccount.Handle(c) }
+func DeleteUser(c *gin.Context) { accountsHTTP().DeleteAccount.Handle(c) }
 
 func DeleteSelf(c *gin.Context) { NewIdentityHTTP().DeleteAccount.Handle(c) }
 
-func CreateUser(c *gin.Context) { NewAccountsHTTP().CreateAccount.Handle(c) }
+func CreateUser(c *gin.Context) { accountsHTTP().CreateAccount.Handle(c) }
 
 func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, userRole int, permissions map[string]map[string]bool) (bool, error) {
 	if permissions == nil {
@@ -149,7 +149,7 @@ type ManageRequest = manage_account.ManageRequest
 type ManageUserResponse = manage_account.ManageUserResponse
 
 // ManageUser Only admin user can do this
-func ManageUser(c *gin.Context) { NewAccountsHTTP().ManageAccount.Handle(c) }
+func ManageUser(c *gin.Context) { accountsHTTP().ManageAccount.Handle(c) }
 
 type topUpRequest struct {
 	Key string `json:"key"`
@@ -231,7 +231,7 @@ func TopUp(c *gin.Context) {
 
 type UpdateUserSettingRequest = update_notification_preferences.UpdateUserSettingRequest
 
-func UpdateUserSetting(c *gin.Context) { NewAccountsHTTP().UpdateNotificationPreferences.Handle(c) }
+func UpdateUserSetting(c *gin.Context) { accountsHTTP().UpdateNotificationPreferences.Handle(c) }
 
 // BulkUpdateUserGroupRequest is the request body for POST /api/user/group/batch.
 type BulkUpdateUserGroupRequest = change_group.BulkUpdateUserGroupRequest
@@ -247,4 +247,4 @@ const bulkUpdateUserGroupMaxBatch = 1000
 //   - 403 if every requested id is forbidden by the caller's role
 //   - 404 if every requested id does not exist
 //   - 200 with BulkUpdateUserGroupResponse on success (including partial: skipped/not_found are reported in the body)
-func BulkUpdateUserGroup(c *gin.Context) { NewAccountsHTTP().ChangeGroup.Handle(c) }
+func BulkUpdateUserGroup(c *gin.Context) { accountsHTTP().ChangeGroup.Handle(c) }

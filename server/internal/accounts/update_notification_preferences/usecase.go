@@ -1,93 +1,80 @@
 package update_notification_preferences
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"net/url"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
-type NotificationSettingsIssue uint8
-
-const (
-	NotificationSettingsValid NotificationSettingsIssue = iota
-	NotificationSettingInvalidType
-	NotificationQuotaThresholdGtZero
-	NotificationSettingWebhookEmpty
-	NotificationSettingWebhookInvalid
-	NotificationSettingEmailInvalid
-	NotificationSettingBarkUrlEmpty
-	NotificationSettingBarkUrlInvalid
-	NotificationSettingUrlMustHttp
-	NotificationSettingGotifyUrlEmpty
-	NotificationSettingGotifyTokenEmpty
-	NotificationSettingGotifyUrlInvalid
-)
-
-func ValidateNotificationSettings(requested dto.UserSetting) NotificationSettingsIssue {
-	// Проверяем тип предупреждения.
+// ValidateNotificationSettings returns the domain error of the first invalid
+// notification setting, or nil.
+func ValidateNotificationSettings(requested dto.UserSetting) error {
+	// Check the warning type.
 	if requested.NotifyType != dto.NotifyTypeEmail && requested.NotifyType != dto.NotifyTypeWebhook && requested.NotifyType != dto.NotifyTypeBark && requested.NotifyType != dto.NotifyTypeGotify {
-		return NotificationSettingInvalidType
+		return domain.ErrNotifyTypeInvalid
 	}
 
-	// Проверяем порог предупреждения.
+	// Check the warning threshold.
 	if requested.QuotaWarningThreshold <= 0 {
-		return NotificationQuotaThresholdGtZero
+		return domain.ErrQuotaThresholdNotPositive
 	}
 
-	// Для webhook проверяем адрес получателя.
+	// For webhooks check the receiver URL.
 	if requested.NotifyType == dto.NotifyTypeWebhook {
 		if requested.WebhookUrl == "" {
-			return NotificationSettingWebhookEmpty
+			return domain.ErrWebhookURLEmpty
 		}
-		// Проверяем формат URL.
+		// Check the URL format.
 		if _, err := url.ParseRequestURI(requested.WebhookUrl); err != nil {
-			return NotificationSettingWebhookInvalid
+			return domain.ErrWebhookURLInvalid
 		}
 	}
 
-	// Для уведомлений по почте проверяем адрес электронной почты.
+	// For email notifications check the email address.
 	if requested.NotifyType == dto.NotifyTypeEmail && requested.NotificationEmail != "" {
-		// Проверяем формат адреса электронной почты.
+		// Check the email address format.
 		if !strings.Contains(requested.NotificationEmail, "@") {
-			return NotificationSettingEmailInvalid
+			return domain.ErrNotificationEmailInvalid
 		}
 	}
 
-	// Для Bark проверяем URL.
+	// For Bark check the URL.
 	if requested.NotifyType == dto.NotifyTypeBark {
 		if requested.BarkUrl == "" {
-			return NotificationSettingBarkUrlEmpty
+			return domain.ErrBarkURLEmpty
 		}
-		// Проверяем формат URL.
+		// Check the URL format.
 		if _, err := url.ParseRequestURI(requested.BarkUrl); err != nil {
-			return NotificationSettingBarkUrlInvalid
+			return domain.ErrBarkURLInvalid
 		}
-		// Проверяем, используется ли HTTP или HTTPS.
+		// Check that HTTP or HTTPS is used.
 		if !strings.HasPrefix(requested.BarkUrl, "https://") && !strings.HasPrefix(requested.BarkUrl, "http://") {
-			return NotificationSettingUrlMustHttp
+			return domain.ErrNotificationURLNotHTTP
 		}
 	}
 
-	// Для Gotify проверяем URL и Token.
+	// For Gotify check the URL and the token.
 	if requested.NotifyType == dto.NotifyTypeGotify {
 		if requested.GotifyUrl == "" {
-			return NotificationSettingGotifyUrlEmpty
+			return domain.ErrGotifyURLEmpty
 		}
 		if requested.GotifyToken == "" {
-			return NotificationSettingGotifyTokenEmpty
+			return domain.ErrGotifyTokenEmpty
 		}
-		// Проверяем формат URL.
+		// Check the URL format.
 		if _, err := url.ParseRequestURI(requested.GotifyUrl); err != nil {
-			return NotificationSettingGotifyUrlInvalid
+			return domain.ErrGotifyURLInvalid
 		}
-		// Проверяем, используется ли HTTP или HTTPS.
+		// Check that HTTP or HTTPS is used.
 		if !strings.HasPrefix(requested.GotifyUrl, "https://") && !strings.HasPrefix(requested.GotifyUrl, "http://") {
-			return NotificationSettingUrlMustHttp
+			return domain.ErrNotificationURLNotHTTP
 		}
 	}
 
-	return NotificationSettingsValid
+	return nil
 }
 
 func NotificationSettings(requested, existingSettings dto.UserSetting, role int, upstreamRequested *bool) dto.UserSetting {
@@ -96,7 +83,7 @@ func NotificationSettings(requested, existingSettings dto.UserSetting, role int,
 		upstreamModelUpdateNotifyEnabled = *upstreamRequested
 	}
 
-	// Формируем настройки.
+	// Build the settings.
 	settings := dto.UserSetting{
 		NotifyType:                       requested.NotifyType,
 		QuotaWarningThreshold:            requested.QuotaWarningThreshold,
@@ -105,7 +92,7 @@ func NotificationSettings(requested, existingSettings dto.UserSetting, role int,
 		RecordIpLog:                      requested.RecordIpLog,
 	}
 
-	// Для webhook добавляем соответствующие настройки.
+	// For webhooks add the webhook settings.
 	if requested.NotifyType == dto.NotifyTypeWebhook {
 		settings.WebhookUrl = requested.WebhookUrl
 		if requested.WebhookSecret != "" {
@@ -113,21 +100,21 @@ func NotificationSettings(requested, existingSettings dto.UserSetting, role int,
 		}
 	}
 
-	// Если указан адрес для уведомлений по почте, добавляем его в настройки.
+	// Add the notification email when it is set.
 	if requested.NotifyType == dto.NotifyTypeEmail && requested.NotificationEmail != "" {
 		settings.NotificationEmail = requested.NotificationEmail
 	}
 
-	// Для Bark добавляем URL в настройки.
+	// For Bark add the URL.
 	if requested.NotifyType == dto.NotifyTypeBark {
 		settings.BarkUrl = requested.BarkUrl
 	}
 
-	// Для Gotify добавляем его конфигурацию в настройки.
+	// For Gotify add its configuration.
 	if requested.NotifyType == dto.NotifyTypeGotify {
 		settings.GotifyUrl = requested.GotifyUrl
 		settings.GotifyToken = requested.GotifyToken
-		// Приоритет Gotify должен быть от 0 до 10; вне диапазона используем значение по умолчанию 5.
+		// The Gotify priority must be 0..10; out-of-range values fall back to 5.
 		if requested.GotifyPriority < 0 || requested.GotifyPriority > 10 {
 			settings.GotifyPriority = 5
 		} else {
@@ -138,32 +125,34 @@ func NotificationSettings(requested, existingSettings dto.UserSetting, role int,
 	return settings
 }
 
-// NotificationPreferencesStore скрывает способ чтения аккаунта и сохранения настроек.
+// NotificationPreferencesStore hides how the account is read and the settings are saved.
 type NotificationPreferencesStore interface {
 	NotificationPreferencesAccount(id int) (NotificationPreferencesAccount, error)
 	SaveNotificationPreferences(id int, settings dto.UserSetting) error
 }
 
-// NotificationPreferencesUser откладывает чтение ID до успешной проверки настроек.
+// NotificationPreferencesUser defers reading the ID until the settings are validated.
 type NotificationPreferencesUser interface{ UserID() int }
 
-type Usecase struct{ Store NotificationPreferencesStore }
+type Usecase struct{ store NotificationPreferencesStore }
 
-func (preferences Usecase) Execute(requested dto.UserSetting, upstreamRequested *bool, user NotificationPreferencesUser) *NotificationPreferencesFailure {
-	if issue := ValidateNotificationSettings(requested); issue != NotificationSettingsValid {
-		return &NotificationPreferencesFailure{Issue: issue}
+// Execute validates and saves the notification settings; a load failure is
+// returned unclassified.
+func (preferences Usecase) Execute(requested dto.UserSetting, upstreamRequested *bool, user NotificationPreferencesUser) error {
+	if err := ValidateNotificationSettings(requested); err != nil {
+		return err
 	}
-	account, err := preferences.Store.NotificationPreferencesAccount(user.UserID())
+	account, err := preferences.store.NotificationPreferencesAccount(user.UserID())
 	if err != nil {
-		return &NotificationPreferencesFailure{Err: err}
+		return err
 	}
 	settings := NotificationSettings(requested, account.Settings, account.Role, upstreamRequested)
-	if err := preferences.Store.SaveNotificationPreferences(account.ID, settings); err != nil {
-		return &NotificationPreferencesFailure{Err: err, Saving: true}
+	if err := preferences.store.SaveNotificationPreferences(account.ID, settings); err != nil {
+		return domain.SettingsSaveFailed(err)
 	}
 	return nil
 }
 
 func NewUsecase(store NotificationPreferencesStore) Usecase {
-	return Usecase{Store: store}
+	return Usecase{store: store}
 }

@@ -1,9 +1,6 @@
 package create_account
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 type Mutation interface {
 	Insert(NewAccount) (domain.AdminTarget, error)
@@ -17,14 +14,14 @@ type Operation interface {
 	AuditCreated(domain.AdminTarget)
 }
 
-func (scenario Usecase) Execute(input Input, actorRole int) *accounts.AdminFailure {
+func (scenario Usecase) Execute(input Input, actorRole int) error {
 	op, roles := scenario.operation, scenario.roles
 
 	if input.DisplayName == "" {
 		input.DisplayName = input.Username
 	}
 	if input.Role >= actorRole {
-		return &accounts.AdminFailure{Kind: accounts.AdminCreateForbidden}
+		return domain.ErrCreateForbidden
 	}
 	clean := NewAccount{Username: input.Username, Password: input.Password, DisplayName: input.DisplayName, Role: input.Role}
 	var target domain.AdminTarget
@@ -39,11 +36,11 @@ func (scenario Usecase) Execute(input Input, actorRole int) *accounts.AdminFailu
 		return err
 	})
 	if err != nil {
-		return &accounts.AdminFailure{Kind: accounts.AdminWriteFailed, Cause: err}
+		return err
 	}
 	if touched {
 		if err := op.ReloadPolicy(); err != nil {
-			return &accounts.AdminFailure{Kind: accounts.AdminPostCommitFailed, Cause: err}
+			return err
 		}
 	}
 	op.FinishInsert()

@@ -9,7 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/accounts"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 
 	"gorm.io/gorm"
@@ -35,15 +34,16 @@ func (op adminEffects) PublishAuthCache(id int) error { return op.hooks.Publish(
 func adminTarget(user *model.User) domain.AdminTarget {
 	return domain.AdminTarget{ID: user.Id, Username: user.Username, Role: user.Role, Status: user.Status, AuthVersion: user.AuthVersion}
 }
+
+// adminLoadError classifies a failed account load for the admin scenarios.
 func adminLoadError(err error) error {
 	if err == nil {
 		return nil
 	}
-	kind := accounts.AdminLoadFailed
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		kind = accounts.AdminLoadMissing
+		return domain.ErrAccountNotFound
 	}
-	return &accounts.AdminFailure{Kind: kind, Cause: err}
+	return domain.Internal(err)
 }
 
 type AdminCreateOperation struct {
@@ -97,8 +97,15 @@ func (op *AdminEditOperation) LoadOrigin(id int) (domain.AdminTarget, error) {
 	return adminTarget(user), nil
 }
 func (op *AdminEditOperation) UseOriginRole(role int) { op.request.Role = role }
+
+// EditTransaction reports a taken username as domain.ErrUsernameTaken; the
+// model error is read at call time.
 func (op *AdminEditOperation) EditTransaction(run func(update_account.Mutation) error) error {
-	return model.DB.Transaction(func(tx *gorm.DB) error { return run(adminEditMutation{op: op, tx: tx}) })
+	err := model.DB.Transaction(func(tx *gorm.DB) error { return run(adminEditMutation{op: op, tx: tx}) })
+	if errors.Is(err, model.ErrUsernameAlreadyTaken) {
+		return domain.ErrUsernameTaken
+	}
+	return err
 }
 func (op *AdminEditOperation) AuditUpdated(target domain.AdminTarget) { op.audit(target) }
 func (op *AdminEditOperation) ReloadAccount(id int) (*domain.User, error) {

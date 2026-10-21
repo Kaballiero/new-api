@@ -1,38 +1,49 @@
 package update_profile
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	"github.com/QuantumNous/new-api/internal/accounts/dto"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
-type Decoder interface {
-	DecodeAccount(map[string]any) (AccountInput, SelfUpdateIssue)
-}
 type HTTP struct {
 	store              SelfUpdateStore
-	decoder            Decoder
 	passwords          func(*gin.Context, *bool) PasswordChanger
 	audit              func(*gin.Context, bool, bool)
 	writeSecurityError func(*gin.Context, error)
 }
 
-func NewHTTP(store SelfUpdateStore, decoder Decoder, passwords func(*gin.Context, *bool) PasswordChanger, audit func(*gin.Context, bool, bool), writeSecurityError func(*gin.Context, error)) *HTTP {
-	return &HTTP{store: store, decoder: decoder, passwords: passwords, audit: audit, writeSecurityError: writeSecurityError}
+func NewHTTP(store SelfUpdateStore, passwords func(*gin.Context, *bool) PasswordChanger, audit func(*gin.Context, bool, bool), writeSecurityError func(*gin.Context, error)) *HTTP {
+	return &HTTP{store: store, passwords: passwords, audit: audit, writeSecurityError: writeSecurityError}
 }
 
 type requestUser struct{ context *gin.Context }
 
 func (u requestUser) UserID() int { return u.context.GetInt("id") }
 
-type accountInput struct {
-	request map[string]any
-	decoder Decoder
-}
+// accountInput decodes the request as a full admin account body, so the
+// previous validation of all account fields, including unused ones, applies.
+type accountInput struct{ request map[string]any }
 
-func (r accountInput) ReadAccount() (AccountInput, SelfUpdateIssue) {
-	return r.decoder.DecodeAccount(r.request)
+func (r accountInput) ReadAccount() (AccountInput, error) {
+	var user dto.User
+	raw, err := common.Marshal(r.request)
+	if err != nil {
+		return AccountInput{}, domain.ErrProfileInvalid
+	}
+	if err := common.Unmarshal(raw, &user); err != nil {
+		return AccountInput{}, domain.ErrProfileInvalid
+	}
+	if err := common.Validate.StructExcept(&user, "Password"); err != nil {
+		return AccountInput{}, domain.ErrProfileInputFailed
+	}
+	return AccountInput{Username: user.Username, Password: user.Password, DisplayName: user.DisplayName, OriginalPassword: user.OriginalPassword}, nil
 }
 
 func (h *HTTP) Handle(c *gin.Context) {
@@ -45,38 +56,25 @@ func (h *HTTP) Handle(c *gin.Context) {
 	if PasswordRequested(request) {
 		defer func() { h.audit(c, succeeded, notificationFailed) }()
 	}
-	result, password := NewUsecase(h.store, accountInput{request: request, decoder: h.decoder}, h.passwords(c, &succeeded)).Execute(request, requestUser{context: c})
-	notificationFailed = password.NotificationFailed
-	switch result.Issue {
-	case SelfUpdatePreferencesFailed:
-		common.ApiErrorI18n(c, i18n.MsgUpdateFailed)
-		return
-	case SelfUpdateLoadFailed:
-		common.ApiError(c, result.Err)
-		return
-	case InvalidParameters:
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
-		return
-	case InvalidInput:
-		common.ApiErrorI18n(c, i18n.MsgInvalidInput)
-		return
-	case SecurityFailure:
-		h.writeSecurityError(c, result.Err)
+	result, err := NewUsecase(h.store, accountInput{request: request}, h.passwords(c, &succeeded)).Execute(request, requestUser{context: c})
+	notificationFailed = result.Password.NotificationFailed
+	if err != nil {
+		if errors.Is(err, domain.ErrPasswordChangeFailed) {
+			h.writeSecurityError(c, errors.Unwrap(err))
+			return
+		}
+		transport.WriteError(c, err)
 		return
 	}
 	if result.Preferences {
 		common.ApiSuccessI18n(c, i18n.MsgUpdateSuccess, nil)
 		return
 	}
-	if password.ProofRejected {
+	if result.Password.ProofRejected {
 		return
 	}
-	if password.Data != nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": password.Data})
-		return
-	}
-	if result.Err != nil {
-		common.ApiError(c, result.Err)
+	if result.Password.Data != nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": result.Password.Data})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": ""})

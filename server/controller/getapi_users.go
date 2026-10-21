@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-func ProvisionGetAPIUser(c *gin.Context) { NewAccountsHTTP().ProvisionAccount.Handle(c) }
+func ProvisionGetAPIUser(c *gin.Context) { accountsHTTP().ProvisionAccount.Handle(c) }
 func InitializeGetAPIPAT(c *gin.Context) {
 	raw, e := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 4096))
 	if e != nil {

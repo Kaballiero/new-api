@@ -3,7 +3,7 @@ package delete_account
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/accounts"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
@@ -19,15 +19,8 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 	actorRole := c.GetInt("role")
-	if failure := NewUsecase(h.factory(c)).Execute(Input{ID: id, ActorRole: actorRole}); failure != nil {
-		switch failure.Kind {
-		case accounts.AdminLoadMissing:
-			common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "user_not_found", i18n.MsgUserNotExists)
-		case accounts.AdminForbidden:
-			common.ApiErrorI18nStatusCode(c, http.StatusForbidden, "permission_denied", i18n.MsgUserNoPermissionHigherLevel)
-		default:
-			common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", failure.Cause)
-		}
+	if err := NewUsecase(h.factory(c)).Execute(Input{ID: id, ActorRole: actorRole}); err != nil {
+		transport.WriteError(c, err)
 		return
 	}
 	common.ApiSuccess(c, nil)
