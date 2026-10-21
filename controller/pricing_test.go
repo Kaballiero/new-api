@@ -3676,6 +3676,84 @@ func TestCatalogVariantMinimaKeepDistinctPrices(t *testing.T) {
 	})
 }
 
+func TestCatalogMinimumGenerationChargeIsPublished(t *testing.T) {
+	component := func(billable, unit, amount, conditions string) catalogsync.Component {
+		rate := catalogsync.Component{Parameter: billable, Billable: common.GetPointer(billable), AmountUSD: common.GetPointer(amount), Unit: unit, Quantity: "1", Variant: []byte(`{}`), Conditions: []byte(conditions), Provenance: []byte(`{"source":"generic"}`)}
+		rate.Normalization.Comparable, rate.Normalization.Effective = true, true
+		return rate
+	}
+	document := func(conditions string) *catalogsync.Document {
+		return &catalogsync.Document{ID: "runway/aleph-2", Type: "video", Offers: []catalogsync.Offer{{
+			ID: "runway", Scope: "endpoint", Provider: &catalogsync.Provider{Tag: common.GetPointer("runway")}, Variant: []byte(`{}`), Eligibility: &catalogsync.Eligibility{Eligible: true},
+			Components: []catalogsync.Component{
+				component("output_video", "second", "0.2", `{}`),
+				component("minimum_generation_charge", "request", "0.56", conditions),
+			},
+		}}}
+	}
+	pricing := func(doc *catalogsync.Document) model.Pricing {
+		return model.Pricing{ModelName: "aleph-alias", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {
+			{Operation: "video_editing", Mode: "sync", ModelID: doc.ID, DocumentHash: strings.Repeat("a", 64), Document: doc},
+		}}}
+	}
+	amounts := func(prices []consumerUnitPrice) map[string]float64 {
+		result := map[string]float64{}
+		for _, price := range prices {
+			require.NotNil(t, price.AmountRub)
+			result[price.Component+"/"+price.Unit] = *price.AmountRub
+		}
+		return result
+	}
+	expected := map[string]float64{"output_video/second": 20, "minimum_charge/request": 56}
+
+	item := pricing(document(`{"chargeRelationship":"minimum"}`))
+	offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
+	require.Len(t, offers, 1)
+	minimum := -1
+	for index, price := range offers[0].Prices {
+		if price.Component == "minimum_charge" {
+			minimum = index
+		}
+	}
+	require.GreaterOrEqual(t, minimum, 0)
+	assert.Equal(t, "request", offers[0].Prices[minimum].Unit)
+	require.NotNil(t, offers[0].Prices[minimum].AmountRub)
+	assert.Equal(t, "56", *offers[0].Prices[minimum].AmountRub)
+	assert.JSONEq(t, `{"chargeRelationship":"minimum"}`, string(offers[0].Prices[minimum].Conditions))
+
+	minima := catalogMinima(offers)
+	require.Len(t, minima, 1)
+	assert.Equal(t, expected, amounts(minima[0].Prices))
+	require.Len(t, minima[0].Tiers, 1)
+	assert.Nil(t, minima[0].Tiers[0].Condition)
+	assert.Equal(t, expected, amounts(minima[0].Tiers[0].Prices))
+
+	consumer := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, true)
+	require.Len(t, consumer.GroupPrices, 1)
+	require.Len(t, consumer.GroupPrices[0].Operations, 1)
+	assert.Equal(t, expected, amounts(consumer.GroupPrices[0].Operations[0].Prices))
+	require.Len(t, consumer.GroupPrices[0].ProviderOffers, 1)
+	components := []string{}
+	for _, price := range consumer.GroupPrices[0].ProviderOffers[0].Prices {
+		components = append(components, price.Component+"/"+price.Unit)
+	}
+	assert.ElementsMatch(t, []string{"output_video/second", "minimum_charge/request"}, components)
+
+	tariff := buildCatalogModelTariff(effectivePricingPageContext{groupRatios: map[string]float64{"default": 1}, fxFactor: 1}, item, "default")
+	require.Len(t, tariff.Operations, 1)
+	assert.Equal(t, expected, amounts(tariff.Operations[0].Prices))
+
+	for _, conditions := range []string{`{"chargeRelationship":"maximum"}`, `{"chargeRelationship":""}`, `{"chargeRelationship":true}`, `{"chargeRelationship":null}`} {
+		price := offers[0].Prices[minimum]
+		price.Conditions = []byte(conditions)
+		_, valid := catalogRateWindow(price)
+		assert.False(t, valid, conditions)
+		rejected := catalogMinima(upstreamProviderOffers(pricing(document(conditions)), "default", 1, true, pricingUserContext{}))
+		require.Len(t, rejected, 1, conditions)
+		assert.Equal(t, map[string]float64{"output_video/second": 20}, amounts(rejected[0].Prices), conditions)
+	}
+}
+
 func TestConsumerPricingTagsPreserveStoredTags(t *testing.T) {
 	item := model.Pricing{ModelName: "deepgram/nova-3", Tags: "Transcription,Audio,top,audio", EnableGroup: []string{"default"}}
 	projection := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, false)
