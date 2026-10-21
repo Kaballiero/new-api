@@ -1,9 +1,9 @@
 package controller
 
 import (
-	pricingquery "github.com/QuantumNous/new-api/internal/adapter/http/pricing"
 	"github.com/QuantumNous/new-api/internal/app"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -26,7 +26,7 @@ func parsePublicPricingModelsQuery(raw string) (publicPricingModelsQuery, error)
 		ParsePublicPricingModelsQuery(raw)
 }
 
-func GetPublicPricingModels(c *gin.Context) { app.NewGetPublicPricingModelsHTTP().Handle(c) }
+func GetPublicPricingModels(c *gin.Context) { pricingHTTP().GetPublicModels.Handle(c) }
 
 func buildPublicPricingModelsPage(context effectivePricingPageContext, query publicPricingModelsQuery) publicPricingModelsPage {
 	context.Policy = app.NewPricingProjection()

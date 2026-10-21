@@ -1,7 +1,7 @@
 package controller
 
 import (
-	pricingquery "github.com/QuantumNous/new-api/internal/adapter/http/pricing"
+	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
 
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 
@@ -16,7 +16,7 @@ func expectedPricingRevision(values url.Values) (string, error) {
 
 func pricingRevisionMatches(c *gin.Context, expected, actual string) bool {
 	if err := pricingdomain.CheckRevision(expected, actual); err != nil {
-		pricingquery.WriteFailure(c, err)
+		pricingquery.WriteError(c, err)
 		return false
 	}
 	return true

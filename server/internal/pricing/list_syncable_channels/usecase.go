@@ -21,6 +21,7 @@ func (u Usecase) Execute() (Output, error) {
 			out = append(out, ch)
 		}
 	}
+	// The preset names are identifiers the client matches; they are not localized.
 	out = append(out, dto.SyncableChannel{ID: -100, Name: "官方倍率预设", BaseURL: "https://basellm.github.io", Status: 1})
 	out = append(out, dto.SyncableChannel{ID: -101, Name: "models.dev 价格预设", BaseURL: "https://models.dev", Status: 1})
 	return out, nil

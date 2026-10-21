@@ -1,7 +1,6 @@
 package model
 
 import (
-	"errors"
 	"github.com/QuantumNous/new-api/common"
 	store "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -22,7 +21,7 @@ type ModelPricingChange = domain.ModelPricingChange
 type ModelPricingEntry = domain.ModelPricingEntry
 type ModelPricingSnapshot = domain.ModelPricingSnapshot
 
-var ErrModelPricingConflict = errors.New("model pricing changed; reload before saving")
+var ErrModelPricingConflict = domain.ErrModelPricingConflict
 
 // Lock order is stable across instances. Creating missing option rows inside
 // the transaction also serializes the first write to an unconfigured database.
@@ -80,11 +79,11 @@ func ValidateModelPricing(name string, values PricingValues) error {
 	return NewPricingConfiguration().Validate(name, values)
 }
 func UpdateModelPricing(changes []ModelPricingChange) error {
-	return update_pricing_config.NewUsecase(NewPricingOptionsPersistence(), NewPricingConfiguration(), func() error { return ErrModelPricingConflict }, common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache, func([]string) {}).Execute(changes)
+	return update_pricing_config.NewUsecase(NewPricingOptionsPersistence(), NewPricingConfiguration(), common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache, func([]string) {}).Execute(changes)
 }
 func UpdateModelPricingOptions(updates map[string]string) error {
-	return update_pricing_options.NewUsecase(NewPricingOptionsPersistence(), NewPricingConfiguration(), func() error { return ErrModelPricingConflict }, common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache).Execute(updates)
+	return update_pricing_options.NewUsecase(NewPricingOptionsPersistence(), NewPricingConfiguration(), common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache).Execute(updates)
 }
 func mutateModelPricingOptions(mutate func(*gorm.DB, map[string]map[string]any) error) error {
-	return mutate_pricing_options.NewUsecase(NewPricingOptionsPersistence().WithNativeMutation(mutate), NewPricingConfiguration(), func() error { return ErrModelPricingConflict }, common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache).Execute()
+	return mutate_pricing_options.NewUsecase(NewPricingOptionsPersistence().WithNativeMutation(mutate), NewPricingConfiguration(), common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache).Execute()
 }

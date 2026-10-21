@@ -32,7 +32,7 @@ func (u Usecase) Execute(input Input) (Output, error) {
 	var err error
 	group, err = u.users.UserGroup(input.UserID)
 	if err != nil {
-		return Output{}, &domain.ReadFailure{Kind: domain.UserUnavailable, Message: "failed to resolve user pricing group"}
+		return Output{}, domain.ErrUserGroupUnavailable
 	}
 	usingGroup := input.UsingGroup
 	if input.Page {
@@ -42,7 +42,7 @@ func (u Usecase) Execute(input Input) (Output, error) {
 	ctx, err := u.consumerContext(group, usingGroup)
 	if err != nil {
 		if input.Page && err == domain.ErrPricingUsingGroup {
-			return Output{}, &domain.ReadFailure{Kind: domain.InvalidQuery, Message: err.Error()}
+			return Output{}, domain.InvalidQuery(err)
 		}
 		return Output{}, err
 	}

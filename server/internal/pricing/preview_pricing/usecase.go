@@ -31,14 +31,14 @@ func (u Usecase) Execute(input Input) (Output, error) {
 	var group string
 	if input.Supplied {
 		if len(input.UserGroups) != 1 || !slices.Contains(groups, input.UserGroups[0]) {
-			return Output{}, &domain.ReadFailure{Kind: domain.InvalidQuery, Message: "invalid user pricing group"}
+			return Output{}, domain.ErrInvalidUserGroup
 		}
 		group = input.UserGroups[0]
 	} else {
 		var err error
 		group, err = u.reader.UserGroup(input.UserID)
 		if err != nil {
-			return Output{}, &domain.ReadFailure{Kind: domain.UserUnavailable, Message: "failed to resolve user pricing group"}
+			return Output{}, domain.ErrUserGroupUnavailable
 		}
 	}
 	basis, err := u.reader.FX()

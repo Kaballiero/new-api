@@ -758,7 +758,7 @@ func ImagePricingWithTokenInputs(offers []CatalogOffer) []CatalogOffer {
 	return result
 }
 
-// 简化的供应商映射规则
+// Simplified vendor mapping rules
 var defaultVendorRules = map[string]string{
 	"gpt":      "OpenAI",
 	"dall-e":   "OpenAI",
@@ -792,7 +792,7 @@ var defaultVendorRules = map[string]string{
 	"vidu":     "Vidu",
 }
 
-// 供应商默认图标映射
+// Default vendor icon mapping
 var defaultVendorIcons = map[string]string{
 	"OpenAI":     "OpenAI",
 	"Anthropic":  "Claude.Color",
@@ -821,7 +821,7 @@ var defaultVendorIcons = map[string]string{
 	"Azure":      "AzureAI",
 }
 
-// initDefaultVendorMapping 简化的默认供应商映射
+// initDefaultVendorMapping is the simplified default vendor mapping
 func InitDefaultVendorMapping(metaMap map[string]*BuildModel, vendorMap map[int]*BuildVendor, enableAbilities []BuildAbility) {
 	patterns := make([]string, 0, len(defaultVendorRules))
 	for pattern := range defaultVendorRules {
@@ -900,7 +900,7 @@ func GetDisplayVendor(vendorName string, vendorMap map[int]*BuildVendor) int {
 	return id
 }
 
-// 获取供应商默认图标
+// GetDefaultVendorIcon returns the default icon of a vendor.
 func GetDefaultVendorIcon(vendorName string) string {
 	if icon, exists := defaultVendorIcons[vendorName]; exists {
 		return icon

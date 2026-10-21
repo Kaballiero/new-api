@@ -25,7 +25,7 @@ func NewUsecase(reader Reader, projection *domain.Projection, users Users) Useca
 func (u Usecase) Execute(input Input) (Output, error) {
 	group, err := u.users.UserGroup(input.UserID)
 	if err != nil {
-		return Output{}, &domain.ReadFailure{Kind: domain.UserUnavailable, Message: "failed to resolve user pricing group"}
+		return Output{}, domain.ErrUserGroupUnavailable
 	}
 	ctx, err := u.consumerContext(group, "")
 	if err != nil {
@@ -37,7 +37,7 @@ func (u Usecase) Execute(input Input) (Output, error) {
 	ctx.UserID = input.UserID
 	detail, found := u.projection.BuildEffectivePricingModelDetail(ctx, input.Name)
 	if !found {
-		return Output{}, &domain.ReadFailure{Kind: domain.NotFound, Message: "model pricing is unavailable"}
+		return Output{}, domain.ErrModelPricingUnavailable
 	}
 	return detail, nil
 }

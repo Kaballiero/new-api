@@ -410,3 +410,10 @@ const (
 	MsgAccountInviteeLog     = "user.log_invitee_reward"
 	MsgAccountInviterLog     = "user.log_inviter_reward"
 )
+
+// Pricing module messages
+const (
+	MsgPricingRequestInvalid           = "pricing.request_invalid"
+	MsgPricingRatioConfigDisabled      = "pricing.ratio_config_disabled"
+	MsgPricingUpstreamDataUnrecognized = "pricing.upstream_data_unrecognized"
+)

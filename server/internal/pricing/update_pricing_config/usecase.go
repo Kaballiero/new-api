@@ -17,13 +17,12 @@ type Usecase struct {
 	audit               func([]string)
 	store               Store
 	policy              *domain.Configuration
-	conflict            func() error
 	log                 func(string)
 	refresh, invalidate func()
 }
 
-func NewUsecase(store Store, policy *domain.Configuration, conflict func() error, log func(string), refresh, invalidate func(), audit func([]string)) Usecase {
-	return Usecase{audit: audit, store: store, policy: policy, conflict: conflict, log: log, refresh: refresh, invalidate: invalidate}
+func NewUsecase(store Store, policy *domain.Configuration, log func(string), refresh, invalidate func(), audit func([]string)) Usecase {
+	return Usecase{audit: audit, store: store, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
 }
 func (u Usecase) Execute(changes []domain.ModelPricingChange) error {
 	if len(changes) == 0 {
@@ -36,7 +35,7 @@ func (u Usecase) Execute(changes []domain.ModelPricingChange) error {
 		}
 		seen[change.ModelName] = true
 		if change.ExpectedVersion == "" {
-			return u.conflict()
+			return domain.ErrModelPricingConflict
 		}
 		if err := u.policy.Validate(change.ModelName, change.Pricing); err != nil {
 			return err
@@ -46,7 +45,7 @@ func (u Usecase) Execute(changes []domain.ModelPricingChange) error {
 		defaults := u.policy.Defaults()
 		for _, change := range changes {
 			if domain.ModelPricingVersion(u.policy.Values(values, change.ModelName)) != change.ExpectedVersion {
-				return fmt.Errorf("%w: %s", u.conflict(), change.ModelName)
+				return fmt.Errorf("%w: %s", domain.ErrModelPricingConflict, change.ModelName)
 			}
 			pricing := change.Pricing
 			if change.Reset {

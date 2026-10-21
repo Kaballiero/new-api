@@ -33,7 +33,7 @@ func (u Usecase) Execute(input Input) (Output, error) {
 		group = "default"
 	}
 	if group == "auto" || !u.groups.ContainsGroup(group) {
-		return Output{}, &domain.ReadFailure{Kind: domain.InvalidQuery, Message: "invalid user pricing group"}
+		return Output{}, domain.ErrInvalidUserGroup
 	}
 	usingGroup := input.UsingGroup
 	if input.Page {
@@ -46,7 +46,7 @@ func (u Usecase) Execute(input Input) (Output, error) {
 	ctx, err := u.consumerContext(group, usingGroup)
 	if err != nil {
 		if input.Page && err == domain.ErrPricingUsingGroup {
-			return Output{}, &domain.ReadFailure{Kind: domain.InvalidQuery, Message: err.Error()}
+			return Output{}, domain.InvalidQuery(err)
 		}
 		return Output{}, err
 	}

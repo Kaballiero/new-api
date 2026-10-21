@@ -31,13 +31,12 @@ type Client interface {
 }
 type Usecase struct {
 	store      Store
-	conflict   func() error
 	now        func() time.Time
 	invalidate func()
 }
 
-func NewUsecase(store Store, conflict func() error, now func() time.Time, invalidate func()) Usecase {
-	return Usecase{store: store, conflict: conflict, now: now, invalidate: invalidate}
+func NewUsecase(store Store, now func() time.Time, invalidate func()) Usecase {
+	return Usecase{store: store, now: now, invalidate: invalidate}
 }
 
 // SyncUpstreamCatalog acquires one immutable remote manifest and its requested
@@ -216,7 +215,7 @@ func (u Usecase) publishSelection(ctx context.Context, expected domain.CatalogSo
 			return err
 		}
 		if !updated {
-			return u.conflict()
+			return domain.ErrCatalogSourceChanged
 		}
 
 		hashes := make([]string, 0, len(byHash))

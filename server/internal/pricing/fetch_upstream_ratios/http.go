@@ -3,9 +3,10 @@ package fetch_upstream_ratios
 import (
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/pricing/transport"
 	"github.com/gin-gonic/gin"
-
-	pricinghttp "github.com/QuantumNous/new-api/internal/adapter/http/pricing"
 )
 
 type HTTP struct {
@@ -18,16 +19,13 @@ func (h HTTP) Handle(c *gin.Context) {
 	var req Request
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.log("failed to bind upstream request: " + err.Error())
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "请求参数格式错误"})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgPricingRequestInvalid)})
 		return
 	}
-	out, err := h.usecase.Execute(c.Request.Context(), req)
+	errorText := func(err error) string { return transport.UpstreamErrorText(c, err) }
+	out, err := h.usecase.Execute(c.Request.Context(), Input{Request: req, ErrorText: errorText})
 	if err != nil {
-		if err == ErrNoUpstreams {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
-			return
-		}
-		pricinghttp.WriteFailure(c, err)
+		transport.WriteError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})

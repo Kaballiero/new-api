@@ -1,24 +1,18 @@
-package pricing
+// Package transport holds the incoming HTTP code shared by pricing scenarios:
+// query parsing and the mapping of domain errors to HTTP responses.
+package transport
 
 import (
 	"fmt"
-
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
-
-	"golang.org/x/text/cases"
-
-	"golang.org/x/text/language"
-
 	"net/url"
-
 	"slices"
-
 	"strconv"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
+// ParsePublicPricingModelsQuery parses the query of the public model catalog.
 func ParsePublicPricingModelsQuery(raw string) (domain.PublicPricingModelsQuery, error) {
 	query := domain.PublicPricingModelsQuery{Page: 1, PageSize: 10}
 	values, err := url.ParseQuery(raw)
@@ -43,7 +37,7 @@ func ParsePublicPricingModelsQuery(raw string) (domain.PublicPricingModelsQuery,
 		}
 	}
 	if raw, present := values["catalog_type"]; present {
-		if !slices.Contains(catalogsync.ModelTypes(), raw[0]) {
+		if !slices.Contains(domain.CatalogModelTypes(), raw[0]) {
 			return query, fmt.Errorf("invalid catalog_type")
 		}
 		query.CatalogType = raw[0]
@@ -82,7 +76,7 @@ func ParsePublicPricingModelsQuery(raw string) (domain.PublicPricingModelsQuery,
 	return query, nil
 }
 
-// parseCatalogTypeMissing keeps false equivalent to an omitted selector.
+// ParseCatalogTypeMissing keeps false equivalent to an omitted selector.
 func ParseCatalogTypeMissing(values url.Values) (bool, error) {
 	raw, present := values["catalog_type_missing"]
 	if !present {
@@ -97,6 +91,8 @@ func ParseCatalogTypeMissing(values url.Values) (bool, error) {
 	}
 	return missing, nil
 }
+
+// ExpectedPricingRevision reads the optional expected_revision selector.
 func ExpectedPricingRevision(values url.Values) (string, error) {
 	entries, exists := values["expected_revision"]
 	if !exists {
@@ -107,6 +103,8 @@ func ExpectedPricingRevision(values url.Values) (string, error) {
 	}
 	return entries[0], nil
 }
+
+// ParseEffectivePricingPageQuery parses a page of the effective pricing catalog.
 func ParseEffectivePricingPageQuery(values url.Values, personal bool) (domain.EffectivePricingPageQuery, error) {
 	query := domain.EffectivePricingPageQuery{Personal: personal, Limit: 20, OrderBy: "NAME", Direction: "asc"}
 	revision, err := ExpectedPricingRevision(values)
@@ -153,13 +151,13 @@ func ParseEffectivePricingPageQuery(values url.Values, personal bool) (domain.Ef
 		id := int(number)
 		query.CreatorID = &id
 	}
-	query.Search = cases.Lower(language.Und).String(domain.TrimPricingText(values.Get("search")))
+	query.Search = domain.NormalizePricingSearch(values.Get("search"))
 	for _, parameter := range []struct {
 		name    string
 		target  *string
 		allowed []string
 	}{
-		{"catalog_type", &query.CatalogType, catalogsync.ModelTypes()},
+		{"catalog_type", &query.CatalogType, domain.CatalogModelTypes()},
 		{"modality", &query.Modality, []string{"TEXT", "IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER"}},
 		{"pricing_unit", &query.PricingUnit, []string{"TOKENS", "CALLS", "UNCONFIGURED"}},
 		{"order_by", &query.OrderBy, []string{"NAME", "INPUT_PRICE", "OUTPUT_PRICE"}},
@@ -174,6 +172,8 @@ func ParseEffectivePricingPageQuery(values url.Values, personal bool) (domain.Ef
 	}
 	return query, nil
 }
+
+// ParseEffectivePricingModelQuery parses the model detail selector.
 func ParseEffectivePricingModelQuery(values url.Values) (string, string, error) {
 	for key := range values {
 		if key != "model_name" && key != "expected_revision" {

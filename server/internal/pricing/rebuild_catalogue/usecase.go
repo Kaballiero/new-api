@@ -85,7 +85,7 @@ func (u Usecase) Execute() {
 		u.log(fmt.Sprintf("GetAllEnableAbilityWithChannels error: %v", err))
 		return
 	}
-	// 预加载模型元数据与供应商一次，避免循环查询
+	// Preload model metadata and vendors once to avoid per-model queries
 	allMeta, err := u.store.Metadata()
 	if err != nil {
 		return
@@ -96,7 +96,7 @@ func (u Usecase) Execute() {
 	}
 	metaMap := catalogdomain.ResolveModelMetadata(allMeta, names)
 
-	// 预加载供应商
+	// Preload vendors
 	vendors, err := u.store.Vendors()
 	if err != nil {
 		return

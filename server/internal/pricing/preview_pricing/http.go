@@ -2,7 +2,7 @@ package preview_pricing
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	pricinghttp "github.com/QuantumNous/new-api/internal/adapter/http/pricing"
+	"github.com/QuantumNous/new-api/internal/pricing/transport"
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,7 +13,7 @@ func (h HTTP) Handle(c *gin.Context) {
 	groups, supplied := c.Request.URL.Query()["user_group"]
 	out, err := h.usecase.Execute(Input{UserID: c.GetInt("id"), UserGroups: groups, Supplied: supplied})
 	if err != nil {
-		pricinghttp.WriteFailure(c, err)
+		transport.WriteError(c, err)
 		return
 	}
 	common.ApiSuccess(c, out)

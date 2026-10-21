@@ -15,13 +15,12 @@ type Store interface {
 type Usecase struct {
 	store               Store
 	policy              *domain.Configuration
-	conflict            func() error
 	log                 func(string)
 	refresh, invalidate func()
 }
 
-func NewUsecase(store Store, policy *domain.Configuration, conflict func() error, log func(string), refresh, invalidate func()) Usecase {
-	return Usecase{store: store, policy: policy, conflict: conflict, log: log, refresh: refresh, invalidate: invalidate}
+func NewUsecase(store Store, policy *domain.Configuration, log func(string), refresh, invalidate func()) Usecase {
+	return Usecase{store: store, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
 }
 
 // UpdateModelPricingOptions keeps legacy single-option callers on the same

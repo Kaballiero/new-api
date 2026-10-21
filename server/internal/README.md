@@ -14,7 +14,7 @@
 | `personal_access_tokens` | персональные токены доступа к панели управления (PAT): выпуск, статус, отзыв | 3 | [README](personal_access_tokens/README.md) |
 | `authorization` | права администраторов (Casbin): каталог разрешений, проверка, переопределения для пользователя, загрузка политики | 11 | [README](authorization/README.md) |
 | `catalog` | каталог моделей и вендоров: CRUD, синхронизация метаданных, модели без настроек | 26 | [README](catalog/README.md) |
-| `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 25 | — |
+| `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 25 | [README](pricing/README.md) |
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | — |
 
 README каждого модуля появляется в коммите, который чистит или переносит этот модуль.
@@ -27,7 +27,6 @@ README каждого модуля появляется в коммите, ко�
 | `adapter/gorm/<module>` | хранение через GORM |
 | `adapter/settings/<module>` | чтение настроек |
 | `adapter/casbin`, `adapter/identity`, `adapter/channels`, `adapter/pricing`, `adapter/catalog` | технические реализации интерфейсов модулей |
-| `adapter/http` | пока смешаны входящий транспорт и исходящие клиенты; по правилам входящее переедет в `<module>/transport/` (у `apikeys`, `accounts` и `catalog` уже в `<module>/transport/`) |
 | `contracttest/` | заготовка контрактных HTTP-тестов |
 | `architecture_test.go` | проверка правил импортов; текущий долг — `architecture_known_violations_test.go` |
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -63,7 +64,7 @@ const (
 type UpstreamResult struct {
 	Name string         `json:"name"`
 	Data map[string]any `json:"data,omitempty"`
-	Err  string         `json:"err,omitempty"`
+	Err  error          `json:"-"`
 }
 type ModelsDevProvider struct {
 	Models map[string]ModelsDevModel `json:"models"`
@@ -640,9 +641,15 @@ type SyncChannel struct {
 	Data map[string]any
 }
 
-type RatioDecodeError struct{ Message, Warning string }
+// RatioDecodeError reports an upstream ratio payload that cannot be used;
+// Warning is the log text for the operator, errors.Is matches Err.
+type RatioDecodeError struct {
+	Err     error
+	Warning string
+}
 
-func (e *RatioDecodeError) Error() string { return e.Message }
+func (e *RatioDecodeError) Error() string { return e.Err.Error() }
+func (e *RatioDecodeError) Unwrap() error { return e.Err }
 func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name string) (map[string]any, error) {
 	warning := ""
 	warn := func(message string) { warning = message }
@@ -651,7 +658,7 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 		converted, err := ConvertOpenRouterToRatioData(bytes.NewReader(bodyBytes))
 		if err != nil {
 			warn("OpenRouter parse failed from " + chItem.Name + ": " + err.Error())
-			return nil, &RatioDecodeError{Message: err.Error(), Warning: warning}
+			return nil, &RatioDecodeError{Err: err, Warning: warning}
 		}
 		return converted, nil
 	}
@@ -660,14 +667,14 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 		converted, err := ConvertModelsDevToRatioData(bytes.NewReader(bodyBytes))
 		if err != nil {
 			warn("models.dev parse failed from " + chItem.Name + ": " + err.Error())
-			return nil, &RatioDecodeError{Message: err.Error(), Warning: warning}
+			return nil, &RatioDecodeError{Err: err, Warning: warning}
 		}
 		return converted, nil
 	}
 
-	// 兼容两种上游接口格式：
-	//  type1: /api/ratio_config -> data 为 map[string]any，包含 model_ratio/completion_ratio/cache_ratio/model_price
-	//  type2: /api/pricing      -> data 为 []Pricing 列表，需要转换为与 type1 相同的 map 格式
+	// Two upstream response formats are supported:
+	//  type1: /api/ratio_config -> data is a map[string]any with model_ratio/completion_ratio/cache_ratio/model_price
+	//  type2: /api/pricing      -> data is a []Pricing list converted to the same map format as type1
 	var body struct {
 		Success bool            `json:"success"`
 		Data    json.RawMessage `json:"data"`
@@ -676,14 +683,14 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 
 	if err := common.DecodeJson(bytes.NewReader(bodyBytes), &body); err != nil {
 		warn("json decode failed from " + chItem.Name + ": " + err.Error())
-		return nil, &RatioDecodeError{Message: err.Error(), Warning: warning}
+		return nil, &RatioDecodeError{Err: err, Warning: warning}
 	}
 
 	if !body.Success {
-		return nil, &RatioDecodeError{Message: body.Message, Warning: warning}
+		return nil, &RatioDecodeError{Err: errors.New(body.Message), Warning: warning}
 	}
 
-	// 尝试按 type1 解析
+	// Try type1 first
 	var type1Data map[string]any
 	if err := common.Unmarshal(body.Data, &type1Data); err == nil {
 
@@ -699,7 +706,7 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 		}
 	}
 
-	// 如果不是 type1，则尝试按 type2 (/api/pricing) 解析
+	// Otherwise parse type2 (/api/pricing)
 	var pricingItems []struct {
 		ModelName            string   `json:"model_name"`
 		QuotaType            int      `json:"quota_type"`
@@ -716,7 +723,7 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 	}
 	if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
 		warn("unrecognized data format from " + chItem.Name + ": " + err.Error())
-		return nil, &RatioDecodeError{Message: "无法解析上游返回数据", Warning: warning}
+		return nil, &RatioDecodeError{Err: ErrUpstreamDataUnrecognized, Warning: warning}
 	}
 
 	modelRatioMap := make(map[string]float64)

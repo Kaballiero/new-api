@@ -1,9 +1,9 @@
 package controller
 
 import (
-	pricingquery "github.com/QuantumNous/new-api/internal/adapter/http/pricing"
 	"github.com/QuantumNous/new-api/internal/app"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
 
 	"net/url"
 
@@ -17,7 +17,7 @@ func parseEffectivePricingModelQuery(values url.Values) (string, string, error) 
 		ParseEffectivePricingModelQuery(values)
 }
 
-func GetEffectivePricingModel(c *gin.Context) { app.NewGetEffectivePricingModelHTTP().Handle(c) }
+func GetEffectivePricingModel(c *gin.Context) { pricingHTTP().GetModelPricing.Handle(c) }
 
 func buildEffectivePricingModelDetail(context effectivePricingPageContext, name string) (consumerPricingModelDetail, bool) {
 	context.Policy = app.NewPricingProjection()

@@ -16,13 +16,12 @@ type Store interface {
 	Transaction(context.Context, func(domain.CatalogTransaction) error) error
 }
 type Usecase struct {
-	store    Store
-	conflict func() error
-	now      func() time.Time
+	store Store
+	now   func() time.Time
 }
 
-func NewUsecase(store Store, conflict func() error, now func() time.Time) Usecase {
-	return Usecase{store: store, conflict: conflict, now: now}
+func NewUsecase(store Store, now func() time.Time) Usecase {
+	return Usecase{store: store, now: now}
 }
 
 // PublishCatalogSelection checks references and updates the head in the same
@@ -80,7 +79,7 @@ func (u Usecase) Execute(ctx context.Context, expected domain.CatalogSource, sel
 			return err
 		}
 		if !updated {
-			return u.conflict()
+			return domain.ErrCatalogSourceChanged
 		}
 
 		hashes := make([]string, 0, len(byHash))

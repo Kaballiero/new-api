@@ -353,3 +353,6 @@ checkin.log_reward: "Ежедневная отметка, начислено {{.
 user.log_register_reward: "Бонус за регистрацию нового пользователя {{.Quota}}"
 user.log_invitee_reward: "Бонус за использование кода приглашения {{.Quota}}"
 user.log_inviter_reward: "Бонус за приглашённого пользователя {{.Quota}}"
+pricing.request_invalid: "Неверный формат параметров запроса"
+pricing.ratio_config_disabled: "Эндпоинт конфигурации коэффициентов не включён"
+pricing.upstream_data_unrecognized: "Не удалось разобрать данные ответа вышестоящего источника"

@@ -1,9 +1,9 @@
 package controller
 
 import (
-	pricingquery "github.com/QuantumNous/new-api/internal/adapter/http/pricing"
 	"github.com/QuantumNous/new-api/internal/app"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
 
 	"net/url"
 
@@ -48,7 +48,7 @@ func trimPricingText(value string) string {
 }
 
 // GetEffectivePricingOverview captures one context for every bounded section.
-func GetEffectivePricingOverview(c *gin.Context) { app.NewGetEffectivePricingOverviewHTTP().Handle(c) }
+func GetEffectivePricingOverview(c *gin.Context) { pricingHTTP().GetPricingOverview.Handle(c) }
 
 type effectivePricingOverviewData = pricingdomain.EffectivePricingOverviewData
 

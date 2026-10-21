@@ -24,7 +24,7 @@ func NewUsecase(reader Reader, projection *domain.Projection) Usecase {
 func (u Usecase) Execute(input Input) (Output, error) {
 	ctx, err := u.consumerContext("default", "default")
 	if err != nil {
-		return Output{}, &domain.ReadFailure{Kind: domain.Unavailable, Message: "failed to resolve public pricing"}
+		return Output{}, domain.ErrPublicPricingUnavailable
 	}
 	if err = domain.CheckRevision(input.ExpectedRevision, ctx.Metadata.CatalogRevision); err != nil {
 		return Output{}, err

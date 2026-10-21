@@ -16,8 +16,6 @@ import (
 	"errors"
 )
 
-var ErrNoUpstreams = errors.New("无有效上游渠道")
-
 type Channel struct {
 	ID            int
 	Name, BaseURL string
@@ -40,7 +38,12 @@ type Usecase struct {
 func NewUsecase(channels Channels, clients Clients, local func() map[string]any, logError func(context.Context, string), logWarn func(context.Context, string, ...any)) Usecase {
 	return Usecase{channels: channels, clients: clients, local: local, logError: logError, logWarn: logWarn}
 }
-func (u Usecase) Execute(ctx context.Context, req Request) (Output, error) {
+
+// Execute fetches the ratios of the requested upstreams and compares them with
+// the local pricing. input.ErrorText renders the error of a failed upstream for
+// its test result.
+func (u Usecase) Execute(ctx context.Context, input Input) (Output, error) {
+	req := input.Request
 	if req.Timeout <= 0 {
 		req.Timeout = 10
 	}
@@ -65,7 +68,7 @@ func (u Usecase) Execute(ctx context.Context, req Request) (Output, error) {
 		dbChannels, err := u.channels.ByIDs(intIds)
 		if err != nil {
 			u.logError(ctx, "failed to query channels: "+err.Error())
-			return Output{}, &domain.ReadFailure{Kind: domain.UserUnavailable, Message: "查询渠道失败"}
+			return Output{}, domain.ErrChannelQueryFailed
 		}
 		for _, ch := range dbChannels {
 			if base := ch.BaseURL; strings.HasPrefix(base, "http") {
@@ -80,7 +83,7 @@ func (u Usecase) Execute(ctx context.Context, req Request) (Output, error) {
 	}
 
 	if len(upstreams) == 0 {
-		return Output{}, ErrNoUpstreams
+		return Output{}, domain.ErrNoUpstreams
 	}
 
 	var wg sync.WaitGroup
@@ -129,7 +132,7 @@ func (u Usecase) Execute(ctx context.Context, req Request) (Output, error) {
 				defer closeBody()
 			}
 			if err != nil {
-				ch <- domain.UpstreamResult{Name: uniqueName, Err: err.Error()}
+				ch <- domain.UpstreamResult{Name: uniqueName, Err: err}
 				return
 			}
 			converted, err := domain.DecodeRatioData(bodyBytes, isOpenRouter, isModelsDev, chItem.Name)
@@ -138,7 +141,7 @@ func (u Usecase) Execute(ctx context.Context, req Request) (Output, error) {
 				if errors.As(err, &decodeErr) && decodeErr.Warning != "" {
 					u.logWarn(ctx, decodeErr.Warning)
 				}
-				ch <- domain.UpstreamResult{Name: uniqueName, Err: err.Error()}
+				ch <- domain.UpstreamResult{Name: uniqueName, Err: err}
 				return
 			}
 			ch <- domain.UpstreamResult{Name: uniqueName, Data: converted}
@@ -155,11 +158,13 @@ func (u Usecase) Execute(ctx context.Context, req Request) (Output, error) {
 	var successfulChannels []domain.SyncChannel
 
 	for r := range ch {
-		if r.Err != "" {
+		// An upstream failure with an empty message (e.g. {"success":false}) has
+		// always been reported as a success; keep that contract.
+		if r.Err != nil && r.Err.Error() != "" {
 			testResults = append(testResults, dto.TestResult{
 				Name:   r.Name,
 				Status: "error",
-				Error:  r.Err,
+				Error:  input.ErrorText(r.Err),
 			})
 		} else {
 			testResults = append(testResults, dto.TestResult{

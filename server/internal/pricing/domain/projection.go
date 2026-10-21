@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -333,7 +332,6 @@ const HoursPerDay = 24
 const CatalogUnboundedContext int64 = 9007199254740991
 
 var PricingSpeechFamily = regexp.MustCompile(`(^tts-)|(-tts(-|$))`)
-var ErrPricingUsingGroup = errors.New("invalid using_group")
 var TierConditionKinds = map[string]string{
 	"len": "context_length",
 	"p":   "input_tokens",
@@ -729,6 +727,14 @@ func TrimPricingText(value string) string {
 		return character == '\ufeff' || (character != '\u0085' && unicode.IsSpace(character))
 	})
 }
+
+// NormalizePricingSearch folds the search text of an effective pricing page.
+func NormalizePricingSearch(value string) string {
+	return cases.Lower(language.Und).String(TrimPricingText(value))
+}
+
+// CatalogModelTypes lists the catalog_type values a pricing query may select.
+func CatalogModelTypes() []string { return catalogsync.ModelTypes() }
 func (pricingPolicy *Projection) BuildEffectivePricingOverview(context EffectivePricingPageContext, query EffectivePricingPageQuery) EffectivePricingOverviewData {
 	query.Overview = true
 	page := pricingPolicy.BuildEffectivePricingPage(context, query, context.Project)

@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func GetPricing(c *gin.Context) { app.NewGetPricingHTTP().Handle(c) }
+func GetPricing(c *gin.Context) { pricingHTTP().GetPricing.Handle(c) }
 
 type effectivePricingResponse = pricingdomain.EffectivePricingResponse
 
@@ -21,11 +21,11 @@ type effectiveUnitPrice = pricingdomain.EffectiveUnitPrice
 
 // GetEffectivePricing returns a read-only per-user tariff projection. It does
 // not reuse /api/pricing's response contract and does not call debit paths.
-func GetEffectivePricing(c *gin.Context) { app.NewGetEffectivePricingHTTP().Handle(c) }
+func GetEffectivePricing(c *gin.Context) { pricingHTTP().GetPersonalPricing.Handle(c) }
 
 // GetEffectivePricingByGroup returns the same projection as the per-user
 // endpoint for a configured group without requiring a user in that group.
-func GetEffectivePricingByGroup(c *gin.Context) { app.NewGetEffectivePricingByGroupHTTP().Handle(c) }
+func GetEffectivePricingByGroup(c *gin.Context) { pricingHTTP().GetGroupPricing.Handle(c) }
 
 func buildEffectivePricingResponse(userGroup string, basis service.BillingFXBasis, pricing []model.Pricing) effectivePricingResponse {
 	return app.NewPricingProjection().BuildEffectivePricingResponse(userGroup, pricingdomain.
@@ -37,4 +37,4 @@ func buildEffectiveGroupPricing(item model.Pricing, group string, pureRatio, eff
 		NewPricingProjection().BuildEffectiveGroupPricing(item, group, pureRatio, effectiveRatio)
 }
 
-func ResetModelRatio(c *gin.Context) { app.NewResetModelRatioHTTP().Handle(c) }
+func ResetModelRatio(c *gin.Context) { pricingHTTP().ResetModelRatios.Handle(c) }

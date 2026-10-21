@@ -2,7 +2,6 @@ package model
 
 import (
 	"context"
-	"errors"
 	store "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/ensure_catalog_source"
@@ -11,7 +10,7 @@ import (
 	"time"
 )
 
-var ErrCatalogSourceChanged = errors.New("catalog source changed before publication")
+var ErrCatalogSourceChanged = domain.ErrCatalogSourceChanged
 
 type CatalogSource = store.CatalogSource
 type CatalogRevision = store.CatalogRevision
@@ -44,7 +43,7 @@ func PublishCatalogSelection(ctx context.Context, expected CatalogSource, select
 	for _, v := range documents {
 		values = append(values, domain.CatalogDocument(v))
 	}
-	return publish_catalog_selection.NewUsecase(NewImmutableCatalogPersistence(), func() error { return ErrCatalogSourceChanged }, time.Now).Execute(ctx, domain.CatalogSource(expected), selection, remote, fetched, values)
+	return publish_catalog_selection.NewUsecase(NewImmutableCatalogPersistence(), time.Now).Execute(ctx, domain.CatalogSource(expected), selection, remote, fetched, values)
 }
 func ReadCatalogSelection(ctx context.Context, sourceID, revision string) (CatalogSelection, error) {
 	return NewImmutableCatalogPersistence().ReadSelection(ctx, sourceID, revision)

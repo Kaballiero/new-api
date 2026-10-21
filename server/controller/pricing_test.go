@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	pricinghttp "github.com/QuantumNous/new-api/internal/adapter/http/pricing"
 	"github.com/QuantumNous/new-api/internal/app"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	pricinghttp "github.com/QuantumNous/new-api/internal/pricing/transport"
 	"io"
 	"math"
 	"net/http"
@@ -3641,16 +3641,16 @@ func loadConsumerPricingContext(userGroup, usingGroup string) (effectivePricingP
 func routeEffectivePricingPage(c *gin.Context, personal bool) bool {
 	_, page, err := pricinghttp.ParseCatalogueMode(c.Request.URL.RawQuery)
 	if err != nil {
-		pricinghttp.WriteFailure(c, &pricingdomain.ReadFailure{Kind: pricingdomain.InvalidQuery, Message: err.Error()})
+		pricinghttp.WriteError(c, pricingdomain.InvalidQuery(err))
 		return true
 	}
 	if !page {
 		return false
 	}
 	if personal {
-		app.NewGetEffectivePricingHTTP().Handle(c)
+		pricingHTTP().GetPersonalPricing.Handle(c)
 	} else {
-		app.NewGetEffectivePricingByGroupHTTP().Handle(c)
+		pricingHTTP().GetGroupPricing.Handle(c)
 	}
 	return true
 }
