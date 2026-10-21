@@ -182,16 +182,16 @@ func ReadEndpointPrice(raw json.RawMessage) (float64, error) {
 // Estimate takes the complete maximum over eligible endpoints, preserving the
 // actual routing payload. Price strings are USD per token/request/image.
 func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, operation string) (float64, error) {
-	return e.estimate(info, body, operation, nil)
+	return e.estimate(info, body, operation, nil, false)
 }
 
 // EstimateWithLocalPrice retains all endpoint and request guards. A configured
 // price preserves known complete estimates and covers unavailable monetary metadata.
 func (e *RequestEstimator) EstimateWithLocalPrice(info *relaycommon.RelayInfo, body []byte, operation string, localUSD float64) (float64, error) {
-	return e.estimate(info, body, operation, &localUSD)
+	return e.estimate(info, body, operation, &localUSD, false)
 }
 
-func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, operation string, localUSD *float64) (float64, error) {
+func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, operation string, localUSD *float64, wholeReserve bool) (float64, error) {
 	var request struct {
 		Model       string          `json:"model"`
 		Models      []string        `json:"models"`
@@ -221,6 +221,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if common.Unmarshal(body, &request) != nil {
 		return 0, errors.New("invalid OpenRouter final request")
 	}
+	requestedOperation := operation
 	batch := strings.HasPrefix(operation, "batch_")
 	operation = strings.TrimPrefix(operation, "batch_")
 	if batch {
@@ -344,11 +345,14 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	}
 	var searchReserveUSD *float64
 	if raw, present := fields["web_search_options"]; present && string(bytes.TrimSpace(raw)) != "null" {
-		if operation != "chat/completions" || reserveUSD == nil || !(*reserveUSD > 0) {
+		if operation != "chat/completions" || reserveUSD == nil || !(*reserveUSD > 0) || info.ChannelType != constant.ChannelTypeOpenRouter {
 			return 0, errors.New("OpenRouter hosted-search quantity is unpriced without a positive approximate channel reserve")
 		}
 		if imageOutput || audioOutput {
 			return 0, errors.New("OpenRouter hosted search cannot share an approximate reserve with image or audio output")
+		}
+		if batch {
+			return 0, errors.New("OpenRouter hosted search is unavailable for Batch")
 		}
 		searchReserveUSD = reserveUSD
 	}
@@ -381,12 +385,17 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		reserveUSD = &minimum
 	}
-	approximateReserve := reserveUSD != nil
 	sonarModel := request.Model == "perplexity/sonar-deep-research"
+	if reserveUSD != nil && (math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD < 0 || *reserveUSD == 0 && localUSD == nil) {
+		return 0, errors.New("invalid OpenRouter approximate reserve")
+	}
+	approximateReserve := reserveUSD != nil && (wholeReserve || localUSD != nil || decisions || rerank || dedicatedAudio || audioOutput || imageReserveOnly || sonarModel)
+	reserveCoversUnknown := approximateReserve || searchReserveUSD != nil
+	var endpointReserveUSD *float64
+	if reserveCoversUnknown {
+		endpointReserveUSD = reserveUSD
+	}
 	if approximateReserve {
-		if math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD < 0 || *reserveUSD == 0 && localUSD == nil {
-			return 0, errors.New("invalid OpenRouter approximate reserve")
-		}
 		streamAllowed := audioOutput && request.Stream && info.IsStream
 		operationAllowed := operation == "chat/completions" || decisions || rerank || dedicatedAudio
 		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
@@ -574,7 +583,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 					continue
 				}
 			}
-			if approximateReserve {
+			if reserveCoversUnknown {
 				if sonarModel && tag != "perplexity" {
 					return 0, errors.New("OpenRouter Sonar research reserve requires the Perplexity endpoint")
 				}
@@ -647,10 +656,13 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			} else if outputUnknown {
 				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter endpoint lacks a finite default completion cap")}
 			} else {
-				cost, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, reserveUSD, imageOutput)
+				cost, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, endpointReserveUSD, imageOutput)
 			}
 			if estimateErr != nil {
 				var unavailable *EstimateUnavailableError
+				if reserveUSD != nil && !reserveCoversUnknown && errors.As(estimateErr, &unavailable) {
+					return e.estimate(info, body, requestedOperation, localUSD, true)
+				}
 				if (localUSD == nil && !((decisions || rerank || audioOutput || dedicatedAudio || imageReserveOnly) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
 					return 0, estimateErr
 				}

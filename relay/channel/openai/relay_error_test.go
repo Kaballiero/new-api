@@ -663,7 +663,15 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 				if tc.nonOpenRouter {
 					info.ChannelType = constant.ChannelTypeOpenAI
 				}
-				_, err := openrouter.NewRequestEstimator().Estimate(info, []byte(body), operation)
+				var discovered struct {
+					Data struct {
+						Endpoints []openrouter.PricedEndpoint `json:"endpoints"`
+					} `json:"data"`
+				}
+				require.NoError(t, common.Unmarshal(metadata, &discovered))
+				estimator := openrouter.NewRequestEstimator()
+				estimator.Models[requestedModel] = discovered.Data.Endpoints
+				_, err := estimator.Estimate(info, []byte(body), operation)
 				require.ErrorContains(t, err, tc.wantError)
 				assert.Zero(t, transport.posts)
 				return

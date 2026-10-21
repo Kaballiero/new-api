@@ -754,8 +754,8 @@ func TestEndpointChannelReserveHostedSearchAndChatAudio(t *testing.T) {
 		{name: "configured price above search sum", extra: search + `,"modalities":["text"]`, reserve: common.GetPointer(0.5), local: common.GetPointer(3.0), want: 3},
 		{name: "search reserve invalid search rate", extra: search, reserve: common.GetPointer(5.0), searchRate: `"-1"`, wantError: "invalid OpenRouter endpoint price"},
 		{name: "search reserve Responses stays closed", extra: `,"max_output_tokens":10,"web_search_options":{}`, operation: "responses", reserve: common.GetPointer(5.0), wantError: "hosted-search quantity is unpriced"},
-		{name: "search reserve Batch stays closed", extra: search, operation: "batch_chat/completions", reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
-		{name: "search reserve stream stays closed", extra: search + `,"stream":true`, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
+		{name: "search reserve Batch stays closed", extra: search, operation: "batch_chat/completions", reserve: common.GetPointer(5.0), wantError: "hosted search is unavailable for Batch"},
+		{name: "search reserve adds to streamed token estimate", extra: search + `,"stream":true`, reserve: common.GetPointer(5.0), want: 6.02},
 		{name: "search reserve hosted tool stays closed", extra: search + `,"tools":[{"type":"openrouter:web_search"}]`, reserve: common.GetPointer(5.0), wantError: "hosted tool pricing is unavailable"},
 		{name: "search reserve plugin stays closed", extra: `,"max_tokens":10,"plugins":[{"id":"web"}]`, reserve: common.GetPointer(5.0), wantError: "unpriced execution dimensions"},
 		{name: "search with streamed audio output stays closed", extra: audio + `,"web_search_options":{}`, reserve: common.GetPointer(5.0), wantError: "cannot share an approximate reserve"},
@@ -800,6 +800,61 @@ func TestEndpointChannelReserveHostedSearchAndChatAudio(t *testing.T) {
 			} else {
 				cost, err = estimator.Estimate(info, body, operation)
 			}
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-9)
+		})
+	}
+}
+
+func TestEndpointChannelReserveIsAddOnForPricedTokens(t *testing.T) {
+	const plain = `,"max_tokens":10`
+	const search = `,"max_tokens":10,"web_search_options":{}`
+	for _, tc := range []struct {
+		name, extra, operation, wantError string
+		unpricedReasoning                 bool
+		reserve                           *float64
+		want                              float64
+	}{
+		{name: "nonstream hold is token estimate", extra: plain, reserve: common.GetPointer(5.0), want: 1.02},
+		{name: "stream", extra: plain + `,"stream":true`, reserve: common.GetPointer(5.0), want: 1.02},
+		{name: "function tools", extra: plain + `,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(5.0), want: 1.02},
+		{name: "provider routing", extra: plain + `,"provider":{"only":["provider"],"order":["provider"]}`, reserve: common.GetPointer(5.0), want: 1.02},
+		{name: "fallback models", extra: plain + `,"models":["test/model"]`, reserve: common.GetPointer(5.0), want: 1.02},
+		{name: "multiple outputs", extra: plain + `,"n":2`, reserve: common.GetPointer(5.0), want: 1.04},
+		{name: "image input", extra: plain + `,"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/i.png"}}]}]`, reserve: common.GetPointer(5.0), want: 1.52},
+		{name: "batch", extra: plain, operation: "batch_chat/completions", reserve: common.GetPointer(5.0), want: 1.02},
+		{name: "search adds reserve to streamed tool request", extra: search + `,"stream":true,"tools":[{"type":"function","function":{"name":"f"}}]`, reserve: common.GetPointer(0.5), want: 1.52},
+		{name: "search adds reserve with provider routing and n", extra: search + `,"n":2,"provider":{"only":["provider"]}`, reserve: common.GetPointer(0.5), want: 1.54},
+		{name: "search without reserve stays closed", extra: search + `,"stream":true`, wantError: "hosted-search quantity is unpriced"},
+		{name: "unpriced dimension keeps whole reserve", extra: plain, unpricedReasoning: true, reserve: common.GetPointer(5.0), want: 5},
+		{name: "unpriced dimension stream stays closed", extra: plain + `,"stream":true`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
+		{name: "unpriced dimension tools stay closed", extra: plain + `,"tools":[{"type":"function","function":{"name":"f"}}]`, unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
+		{name: "unpriced dimension batch stays closed", extra: plain, operation: "batch_chat/completions", unpricedReasoning: true, reserve: common.GetPointer(5.0), wantError: "one nonstream text chat response"},
+		{name: "unpriced dimension without reserve stays closed", extra: plain, unpricedReasoning: true, wantError: "unsupported billable dimension internal_reasoning"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pricing := map[string]json.RawMessage{"prompt": json.RawMessage(`"0.001"`), "completion": json.RawMessage(`"0.002"`), "image": json.RawMessage(`"0.5"`), "web_search": json.RawMessage(`"0.01"`)}
+			if tc.unpricedReasoning {
+				pricing["internal_reasoning"] = json.RawMessage(`"0.003"`)
+			}
+			estimator := NewRequestEstimator()
+			estimator.Models["test/model"] = []PricedEndpoint{{Tag: "provider", ModelID: "test/model", ContextLength: 10000, MaxCompletionTokens: 100, Pricing: pricing}}
+			estimator.OutputModalities["test/model"] = []string{"text"}
+			operation := tc.operation
+			if operation == "" {
+				operation = "chat/completions"
+			}
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI, IsStream: strings.Contains(tc.extra, `"stream":true`)}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+			if tc.reserve != nil {
+				info.ChannelSetting.OpenRouterModelReserveUSD = map[string]float64{"test/model": *tc.reserve}
+			}
+			info.SetEstimatePromptTokens(1000)
+			cost, err := estimator.Estimate(info, []byte(`{"model":"test/model"`+tc.extra+`}`), operation)
 			if tc.wantError != "" {
 				require.ErrorContains(t, err, tc.wantError)
 				return
