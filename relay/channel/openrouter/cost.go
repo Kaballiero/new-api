@@ -186,14 +186,17 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		info.OpenRouterCost.ConfiguredReserveModel = local.Model
 		info.OpenRouterCost.ConfiguredReserveExprHash = local.ExprHash
 	}
-	if len(models) == 1 {
-		reserve := info.ChannelSetting.OpenRouterReserveUSD(models[0])
-		if reserve != nil {
+	if reserve := info.ChannelSetting.OpenRouterReserveUSD(estimator.ReserveModel); reserve != nil {
+		switch estimator.ReserveUse {
+		case ReserveWholeHold:
 			info.OpenRouterCost.ApproximateReserveUSD = reserve
-			info.OpenRouterCost.ApproximateReserveModel = models[0]
-			if models[0] == "perplexity/sonar-deep-research" {
+			info.OpenRouterCost.ApproximateReserveModel = estimator.ReserveModel
+			if estimator.ReserveModel == "perplexity/sonar-deep-research" {
 				info.OpenRouterCost.ApproximateResearchReserveUSD = common.GetPointer(*reserve)
 			}
+		case ReserveAddOn:
+			info.OpenRouterCost.AddOnReserveUSD = reserve
+			info.OpenRouterCost.AddOnReserveModel = estimator.ReserveModel
 		}
 	}
 	var output struct {
