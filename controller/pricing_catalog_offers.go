@@ -67,6 +67,8 @@ func catalogComponentName(rate catalogsync.Component) string {
 		component, direction, modality = "cache_write_1h", "input", "text"
 	case "web_search":
 		component = "web_search"
+	case "minimum_generation_charge":
+		component = "minimum_charge"
 	case "input_image", "image", "image_token":
 		component, direction, modality = "input_image", "input", "image"
 	case "image_output", "output_image":

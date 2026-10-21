@@ -142,9 +142,13 @@ func catalogRateWindow(price consumerProviderPrice) (catalogPriceWindow, bool) {
 	if common.Unmarshal(price.Conditions, &fields) != nil || fields == nil {
 		return window, false
 	}
-	for key := range fields {
+	for key, value := range fields {
 		switch key {
 		case "contextMin", "contextMax", "utcDay", "utcStart", "utcEnd", "appliedOverrideIndexes":
+		case "chargeRelationship":
+			if value != "minimum" {
+				return window, false
+			}
 		default:
 			return window, false
 		}
