@@ -2,11 +2,11 @@ package openai
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/service"
 	"math"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -84,7 +84,7 @@ func TestPreConsumeUsageKeepsIrrelevantCacheFactsOutOfAggregate(t *testing.T) {
 				assert.Nil(t, total.InputTokenDetails.CachedTokensDetails)
 				assert.False(t, total.CacheDiscountUnavailable)
 				assert.Empty(t, total.CacheDiscountUnavailableReason)
-				params := service.BuildRealtimeTieredTokenParams(total, vars)
+				params := domain.BuildRealtimeTieredTokenParams(&domain.Usage{TotalTokens: total.TotalTokens, InputTokens: total.InputTokens, InputTokenDetails: domain.TokenDetails{TextTokens: total.InputTokenDetails.TextTokens, CachedTokens: total.InputTokenDetails.CachedTokens}}, vars)
 				if vars["cr"] && !vars["ai"] && !vars["img"] {
 					assert.Equal(t, float64(2), params.CR)
 					assert.Zero(t, params.P)

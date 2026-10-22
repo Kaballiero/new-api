@@ -7,12 +7,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -86,6 +86,6 @@ func EmbeddingHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
 		return newAPIError
 	}
-	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
+	billinggateway.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	return nil
 }

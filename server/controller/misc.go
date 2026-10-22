@@ -1,20 +1,19 @@
 package controller
 
 import (
-	"github.com/QuantumNous/new-api/internal/identity/recover_password"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/identity/recover_password"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
-	"github.com/QuantumNous/new-api/service"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -76,7 +75,7 @@ func GetStatus(c *gin.Context) {
 		"quota_display_type":            operation_setting.GetQuotaDisplayType(),
 		"custom_currency_symbol":        operation_setting.GetGeneralSetting().CustomCurrencySymbol,
 		"custom_currency_exchange_rate": operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate,
-		"billing_fx":                    service.CurrentBillingFXStatus(),
+		"billing_fx":                    billinggateway.CurrentBillingFXStatus(),
 		"enable_batch_update":           common.BatchUpdateEnabled,
 		"enable_drawing":                common.DrawingEnabled,
 		"enable_task":                   common.TaskEnabled,

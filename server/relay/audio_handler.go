@@ -6,12 +6,12 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -68,9 +68,9 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		return newAPIError
 	}
 	if usage.(*dto.Usage).CompletionTokenDetails.AudioTokens > 0 || usage.(*dto.Usage).PromptTokensDetails.AudioTokens > 0 {
-		service.PostAudioConsumeQuota(c, info, usage.(*dto.Usage), "")
+		billinggateway.PostAudioConsumeQuota(c, info, usage.(*dto.Usage), "")
 	} else {
-		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
+		billinggateway.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	}
 
 	return nil

@@ -21,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
@@ -335,7 +336,7 @@ func TestGetChannelRecomposesRetainedFXForSelectedTieredGroupTransitions(t *test
 			assert.Equal(t, testCase.selectedRatio, info.PriceData.GroupRatioInfo.GroupRatio)
 			assert.Equal(t, testCase.wantEffective, info.PriceData.BillingGroupRatio)
 
-			require.Nil(t, service.PrepareTieredBillingForSelectedGroup(c, info))
+			require.Nil(t, billinggateway.PrepareTieredBillingForSelectedGroup(c, info))
 			assert.Equal(t, testCase.wantEffective, info.TieredBillingSnapshot.GroupRatio)
 			assert.Equal(t, int(testCase.wantEffective*100), info.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
 			assert.Equal(t, testCase.wantReservation, billing.eventsToReservationTargets())

@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -50,7 +51,7 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 	info.TieredBillingSnapshot = nil
 	info.PriceData.FreeModel = false
 	if info.Billing == nil {
-		if apiErr := service.PreConsumeBilling(c, quota, info); apiErr != nil {
+		if apiErr := billinggateway.PreConsumeBilling(c, quota, info); apiErr != nil {
 			return apiErr
 		}
 	} else if err := info.Billing.Reserve(quota); err != nil {

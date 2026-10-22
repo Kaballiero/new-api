@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -191,7 +192,7 @@ func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 			assert.Equal(t, testCase.quota, matrixPrice.QuotaToPreConsume)
 			assert.Equal(t, 1.45, matrixPrice.GroupRatioInfo.GroupRatio)
 			assert.Equal(t, testCase.rate, matrixInfo.BillingFXRate)
-			ok, actualQuota, result := service.TryTieredSettle(matrixInfo, billingexpr.TokenParams{P: 1_000_000})
+			ok, actualQuota, result := billinggateway.TryTieredSettle(matrixInfo, billingexpr.TokenParams{P: 1_000_000})
 			require.True(t, ok)
 			require.NotNil(t, result)
 			assert.Equal(t, testCase.quota, actualQuota)
@@ -399,7 +400,7 @@ func TestModelPriceHelperClampAdmissionRetainsCauseAndEmitsSafeAudit(t *testing.
 	var clamp *common.QuotaClamp
 	require.ErrorAs(t, err, &clamp)
 
-	apiErr := service.BillingAdmissionError(ctx, info, err)
+	apiErr := billinggateway.BillingAdmissionError(ctx, info, err)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusForbidden, apiErr.StatusCode)
 	assert.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())

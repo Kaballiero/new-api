@@ -16,6 +16,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -327,7 +328,7 @@ func TestPriceDataReplaceAndApplyOtherRatios(t *testing.T) {
 	assert.Equal(t, 3.0, priceData.OtherRatioMultiplier())
 	assert.Equal(t, 30.0, priceData.ApplyOtherRatiosToFloat(10))
 	assert.Equal(t, 10.0, priceData.RemoveOtherRatiosFromFloat(30))
-	assert.True(t, decimal.NewFromInt(30).Equal(priceData.ApplyOtherRatiosToDecimal(decimal.NewFromInt(10))))
+	assert.True(t, decimal.NewFromInt(30).Equal((domain.Prices{OtherRatios: priceData.OtherRatios()}).ApplyOtherRatiosToDecimal(decimal.NewFromInt(10))))
 
 	replaced = priceData.ReplaceOtherRatios(map[string]float64{
 		"zero": 0,

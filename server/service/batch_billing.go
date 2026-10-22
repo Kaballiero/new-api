@@ -239,7 +239,7 @@ func SettleBatchResults(job *model.BatchJob) error {
 				continue
 			}
 			details.Usage = usage
-			billingUsage := effectiveBillingUsage(usage)
+			billingUsage := EffectiveBillingUsage(usage)
 			params := BuildTieredTokenParams(billingUsage, billingUsage.UsageSemantic == "anthropic", billingexpr.UsedVars(snapshot.Client.ExprString))
 			computed, err := billingexpr.ComputeTieredQuotaWithRequest(&snapshot.Client, params, billingexpr.RequestInput{Body: []byte(item.UpstreamBody), Headers: snapshot.Headers, EvaluatedAt: snapshot.EvaluatedAt})
 			if err != nil {
@@ -393,7 +393,7 @@ func batchPurchaseUSD(job *model.BatchJob, result batch.Result, usage *dto.Usage
 		return nil
 	}
 
-	billingUsage := effectiveBillingUsage(usage)
+	billingUsage := EffectiveBillingUsage(usage)
 	params := BuildTieredTokenParams(billingUsage, billingUsage.UsageSemantic == "anthropic", billingexpr.UsedVars(snapshot.PurchaseExpression))
 	value, _, err := billingexpr.RunExprWithRequest(snapshot.PurchaseExpression, params, billingexpr.RequestInput{Body: body, Headers: snapshot.Headers, EvaluatedAt: snapshot.EvaluatedAt})
 	if err != nil || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {

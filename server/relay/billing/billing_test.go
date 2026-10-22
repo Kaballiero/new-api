@@ -2,19 +2,24 @@ package billing
 
 import (
 	"errors"
+	"math"
 	"net/http/httptest"
 	"sync"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/billing/create_reservation"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/billing/increase_reservation"
 	"github.com/QuantumNous/new-api/internal/billing/settle_reservation"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -249,4 +254,30 @@ func TestSessionProjectsSubscriptionAndOutcome(t *testing.T) {
 	assert.Zero(t, info.SubscriptionId)
 	assert.Zero(t, info.SubscriptionPreConsumed)
 	assert.Equal(t, 6, info.SubscriptionPlanId, "legacy wallet projection only clears the subscription ID and preconsume")
+}
+
+func TestSelectedGroupInvalidFXRetainsUnavailableStatus(t *testing.T) {
+	for _, pure := range []float64{-1, math.NaN(), math.Inf(1), math.MaxFloat64} {
+		snap := &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", GroupRatio: 1, EstimatedQuotaBeforeGroup: 100, EstimatedQuotaAfterGroup: 100}
+		info := &relaycommon.RelayInfo{BillingFXFactor: 2, TieredBillingSnapshot: snap, PriceData: hosttypes.PriceData{GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: pure}}}
+		err := PrepareTieredBillingForSelectedGroup(nil, info)
+		require.NotNil(t, err)
+		assert.Equal(t, 503, err.StatusCode)
+		assert.Equal(t, types.ErrorCodeModelPriceError, err.GetErrorCode())
+		assert.True(t, service.IsBillingFXError(err.Err))
+		assert.Equal(t, 1.0, snap.GroupRatio)
+		assert.Equal(t, 100, snap.EstimatedQuotaAfterGroup)
+	}
+}
+func TestCostMappingWithoutGinRequest(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(nil)
+	info := &relaycommon.RelayInfo{OriginModelName: "fixture", PriceData: hosttypes.PriceData{ModelRatio: 1, CompletionRatio: 1, GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1}}}
+	prior := &common.QuotaClamp{Op: "prior", Kind: common.QuotaClampOverflow, Original: 1e20, Clamped: 2147483647}
+	info.QuotaClamp = prior
+	result := New().TextCost(ctx, info, &dto.Usage{PromptTokens: 1, TotalTokens: 1})
+	assert.Equal(t, 1, result.Quota)
+	assert.Same(t, prior, info.QuotaClamp)
+	_, err := New().CaptureFX(nil)
+	require.Error(t, err)
+	assert.True(t, service.IsBillingFXError(err))
 }

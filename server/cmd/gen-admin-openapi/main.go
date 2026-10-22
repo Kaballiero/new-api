@@ -98,6 +98,7 @@ func bootstrap() error {
 		"./setting/performance_setting",
 		"./constant",
 		"./service",
+		"./relay/billing",
 	} {
 		scanPackageVars(dir)
 	}

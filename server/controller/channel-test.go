@@ -6,39 +6,34 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"github.com/QuantumNous/new-api/internal/app"
-	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/internal/channels/run_channel_tests"
 	"io"
 	"net/http"
 	"net/http/httptest"
-
 	"strings"
-
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
-
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/QuantumNous/new-api/internal/app"
+	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
+	"github.com/QuantumNous/new-api/internal/channels/run_channel_tests"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-
 	hosttypes "github.com/QuantumNous/new-api/types"
-
+	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
-
-	"github.com/gin-gonic/gin"
 )
 
 type testResult struct {
@@ -540,7 +535,7 @@ func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData,
 	if usage != nil && info != nil && info.TieredBillingSnapshot != nil {
 		isClaudeUsageSemantic := usage.UsageSemantic == "anthropic" || info.GetFinalRequestRelayFormat() == types.RelayFormatClaude
 		usedVars := billingexpr.UsedVars(info.TieredBillingSnapshot.ExprString)
-		if ok, quota, result := service.TryTieredSettle(info, service.BuildTieredTokenParams(usage, isClaudeUsageSemantic, usedVars)); ok {
+		if ok, quota, result := billinggateway.TryTieredSettle(info, billinggateway.BuildTieredTokenParams(usage, isClaudeUsageSemantic, usedVars)); ok {
 			return quota, result
 		}
 	}

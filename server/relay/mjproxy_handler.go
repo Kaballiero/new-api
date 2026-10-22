@@ -16,13 +16,13 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -206,7 +206,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	priceData, err := helper.ModelPriceHelperPerCall(c, info)
 	if err != nil {
 		if service.IsQuotaClamp(err) {
-			service.BillingAdmissionError(c, info, err)
+			billinggateway.BillingAdmissionError(c, info, err)
 			return &dto.MidjourneyResponse{Code: 4, Description: "quota_not_enough"}
 		}
 		return &dto.MidjourneyResponse{
@@ -523,7 +523,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	priceData, err := helper.ModelPriceHelperPerCall(c, relayInfo)
 	if err != nil {
 		if service.IsQuotaClamp(err) {
-			service.BillingAdmissionError(c, relayInfo, err)
+			billinggateway.BillingAdmissionError(c, relayInfo, err)
 			return &dto.MidjourneyResponse{Code: 4, Description: "quota_not_enough"}
 		}
 		return &dto.MidjourneyResponse{

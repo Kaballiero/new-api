@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -253,9 +254,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 4. 价格计算：基础模型价格
 	info.OriginModelName = modelName
-	billingFXFactor, err := service.CaptureBillingFX(info)
+	billingFXFactor, err := billinggateway.CaptureBillingFX(info)
 	if err != nil {
-		if admissionErr := service.TaskBillingAdmissionError(c, info, err); admissionErr != nil {
+		if admissionErr := billinggateway.TaskBillingAdmissionError(c, info, err); admissionErr != nil {
 			return nil, admissionErr
 		}
 		return nil, service.TaskErrorWrapper(err, "model_price_error", http.StatusServiceUnavailable)
@@ -277,7 +278,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 	if platform == "openrouter-video" {
 		groupRatioInfo := helper.HandleGroupRatio(c, info)
-		effective, applyErr := service.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
+		effective, applyErr := billinggateway.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
 		if applyErr != nil {
 			return nil, service.TaskErrorWrapperLocal(applyErr, "model_price_error", http.StatusBadRequest)
 		}
@@ -317,9 +318,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			return nil, service.TaskErrorWrapper(runErr, "model_price_error", http.StatusBadRequest)
 		}
 		groupRatioInfo := helper.HandleGroupRatio(c, info)
-		billingGroupRatio, applyErr := service.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
+		billingGroupRatio, applyErr := billinggateway.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
 		if applyErr != nil {
-			if admissionErr := service.TaskBillingAdmissionError(c, info, applyErr); admissionErr != nil {
+			if admissionErr := billinggateway.TaskBillingAdmissionError(c, info, applyErr); admissionErr != nil {
 				return nil, admissionErr
 			}
 			return nil, service.TaskErrorWrapper(applyErr, "model_price_error", http.StatusServiceUnavailable)
@@ -333,7 +334,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	} else {
 		priceData, err = helper.ModelPriceHelperPerCall(c, info)
 		if err != nil {
-			if admissionErr := service.TaskBillingAdmissionError(c, info, err); admissionErr != nil {
+			if admissionErr := billinggateway.TaskBillingAdmissionError(c, info, err); admissionErr != nil {
 				return nil, admissionErr
 			}
 			return nil, service.TaskErrorWrapper(err, "model_price_error", http.StatusBadRequest)
@@ -369,14 +370,14 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		noteTaskQuotaClamp(info, clamp)
 	}
 	if info.QuotaClamp != nil {
-		return nil, service.TaskBillingAdmissionError(c, info, info.QuotaClamp)
+		return nil, billinggateway.TaskBillingAdmissionError(c, info, info.QuotaClamp)
 	}
 
 	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
 
 	if info.Billing == nil && !info.PriceData.FreeModel {
 		info.ForcePreConsume = true
-		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
+		if apiErr := billinggateway.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
 			return nil, service.TaskErrorFromAPIError(apiErr)
 		}
 	}

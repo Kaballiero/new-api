@@ -1,0 +1,118 @@
+package billing
+
+import (
+	"strings"
+	"time"
+
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/billing/calculate_text_cost"
+	"github.com/QuantumNous/new-api/internal/billing/domain"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
+)
+
+func (g *Gateway) TextCost(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage) service.TextCostSummary {
+	in := calculate_text_cost.Input{Usage: costUsage(usage), Prices: costPrices(info.PriceData), ModelName: info.GetBillingModelName(), Semantic: usageSemanticFromUsage(info, usage), Estimate: info.GetEstimatePromptTokens(), NativeCost: info.NativeImage != nil && info.NativeImage.ActualCostUSD != nil, LegacyClaudeDerived: isLegacyClaudeDerivedOpenAIUsage(info, usage), OpenRouterClaude: info.HasChannelMeta() && info.ChannelType == constant.ChannelTypeOpenRouter && usageSemanticFromUsage(info, usage) == "anthropic", Snapshot: costSnapshot(info.TieredBillingSnapshot), Request: costRequest(info.BillingRequestInput), Reserved: info.FinalPreConsumedQuota, PriorClamp: costClamp(info.QuotaClamp)}
+	if state := info.OpenRouterCost; state != nil {
+		in.Provider = domain.ProviderCost{Present: true, Final: state.Final, Valid: state.Valid, CostUSD: state.CostUSD, Basis: domain.ProviderBasis{Version: state.Basis.Version, EffectiveGroupRatio: state.Basis.EffectiveGroupRatio, QuotaPerUnit: state.Basis.QuotaPerUnit, EstimatedUSD: state.Basis.EstimatedUSD}}
+	}
+	if info.ResponsesUsageInfo != nil {
+		for name, tool := range info.ResponsesUsageInfo.BuiltInTools {
+			if tool != nil {
+				in.Tools = append(in.Tools, domain.ToolCall{Name: name, Count: tool.CallCount})
+			}
+		}
+	}
+	if info.RelayMode != relayconstant.RelayModeResponses && strings.HasSuffix(in.ModelName, "search-preview") {
+		in.Tools = append(in.Tools, domain.ToolCall{Name: dto.BuildInToolWebSearchPreview, Count: 1})
+	}
+	in.Tools = append(in.Tools, domain.ToolCall{Name: dto.BuildInToolWebSearch, Count: c.GetInt("claude_web_search_requests")})
+	if c.GetBool("gemini_google_search_call") {
+		in.Tools = append(in.Tools, domain.ToolCall{Name: dto.BuildInToolGoogleSearch, Count: 1})
+	}
+	result := g.costs.Text.Execute(in)
+	if result.Clamp != in.PriorClamp {
+		info.QuotaClamp = gatewayClamp(result.Clamp)
+	}
+	out := service.TextCostSummary{
+		PromptTokens:           result.PromptTokens,
+		CompletionTokens:       result.CompletionTokens,
+		TotalTokens:            result.TotalTokens,
+		CacheTokens:            result.CacheTokens,
+		CacheCreationTokens:    result.CacheCreationTokens,
+		CacheCreationTokens5m:  result.CacheCreationTokens5m,
+		CacheCreationTokens1h:  result.CacheCreationTokens1h,
+		ImageTokens:            result.ImageTokens,
+		AudioTokens:            result.AudioTokens,
+		ModelName:              result.ModelName,
+		CompletionRatio:        result.CompletionRatio,
+		CacheRatio:             result.CacheRatio,
+		ImageRatio:             result.ImageRatio,
+		ModelRatio:             result.ModelRatio,
+		GroupRatio:             result.GroupRatio,
+		BillingGroupRatio:      result.BillingGroupRatio,
+		ModelPrice:             result.ModelPrice,
+		CacheCreationRatio:     result.CacheCreationRatio,
+		CacheCreationRatio5m:   result.CacheCreationRatio5m,
+		CacheCreationRatio1h:   result.CacheCreationRatio1h,
+		Quota:                  result.Quota,
+		IsClaudeUsageSemantic:  result.IsClaudeUsageSemantic,
+		UsageSemantic:          result.UsageSemantic,
+		AudioInputPrice:        result.AudioInputPrice,
+		ToolCallSurchargeQuota: result.ToolCallSurchargeQuota,
+		FixedPriceBilling:      result.FixedPriceBilling,
+		ProviderCostBilling:    result.ProviderCostBilling,
+		TieredResult:           gatewayTiered(result.TieredResult), TieredApplied: result.TieredApplied, AudioDisplayQuota: result.AudioDisplayQuota, CacheWriteTokens: result.CacheWriteTokens, BillableUsage: result.HasBillableUsage(),
+	}
+	if result.ToolSurchargeItems != nil {
+		out.ToolSurchargeItems = make([]service.ToolSurchargeItem, len(result.ToolSurchargeItems))
+		for i, item := range result.ToolSurchargeItems {
+			out.ToolSurchargeItems[i] = service.ToolSurchargeItem{Name: item.Name, Count: item.Count, Price: item.Price, DisplayQuota: item.DisplayQuota}
+		}
+	}
+	return out
+}
+func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) bool {
+	if relayInfo == nil || usage == nil {
+		return false
+	}
+	if relayInfo.GetFinalRequestRelayFormat() == types.RelayFormatClaude {
+		return false
+	}
+	if usage.UsageSource != "" || usage.UsageSemantic != "" {
+		return false
+	}
+	return usage.ClaudeCacheCreation5mTokens > 0 || usage.ClaudeCacheCreation1hTokens > 0
+}
+
+func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) string {
+	if usage != nil && usage.UsageSemantic != "" {
+		return usage.UsageSemantic
+	}
+	if relayInfo != nil && relayInfo.GetFinalRequestRelayFormat() == types.RelayFormatClaude {
+		return "anthropic"
+	}
+	return "openai"
+}
+
+func PostTextConsumeQuota(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage, extra []string) {
+	defaultGateway.PostText(c, info, usage, extra)
+}
+func (g *Gateway) PostText(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage, extra []string) {
+	if service.HasOpenRouterSyncTask(info) {
+		return
+	}
+	effective := service.EffectiveBillingUsage(usage)
+	if usage != nil {
+		service.ObserveChannelAffinityUsageCacheByRelayFormat(c, effective, info.GetFinalRequestRelayFormat())
+	}
+	elapsed := time.Now().Unix() - info.StartTime.Unix()
+	summary := g.TextCost(c, info, effective)
+	summary.TokenName = c.GetString("token_name")
+	summary.UseTimeSeconds = elapsed
+	service.RecordTextCost(c, info, usage, effective, summary, extra)
+}

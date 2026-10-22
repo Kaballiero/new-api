@@ -23,12 +23,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type Gateway struct{ usecases app.Usecases }
+type Gateway struct {
+	usecases app.Usecases
+	costs    app.Costs
+}
 
-func New() *Gateway { return &Gateway{usecases: app.New()} }
+func New() *Gateway { return &Gateway{usecases: app.New(), costs: app.NewCosts()} }
 
 // Register the single production bridge for every binary linking the gateway.
-func init() { service.BillingLifecycle = New() }
+var defaultGateway = New()
+
+func init() { service.BillingGateway = defaultGateway }
 
 type Session struct {
 	gateway     *Gateway
@@ -63,7 +68,7 @@ func captureErrorLanguage(c *gin.Context) func() string {
 
 func (g *Gateway) PreConsume(c *gin.Context, quota int, info *relaycommon.RelayInfo) *types.NewAPIError {
 	if info != nil && info.QuotaClamp != nil {
-		return service.BillingAdmissionError(c, info, info.QuotaClamp)
+		return BillingAdmissionError(c, info, info.QuotaClamp)
 	}
 	if quota < 0 {
 		return types.NewErrorWithStatusCode(fmt.Errorf("pre-consume quota cannot be negative: %d", quota), types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -197,10 +202,7 @@ func (g *Gateway) Settle(c *gin.Context, info *relaycommon.RelayInfo, actual int
 }
 func (g *Gateway) SettleWss(c *gin.Context, info *relaycommon.RelayInfo, actual int) error {
 	if info.Billing != nil {
-		if session, ok := info.Billing.(interface {
-			RecordWssDirectCharge(int, bool, bool)
-			SettleWss(int) error
-		}); ok {
+		if session, ok := info.Billing.(wssBillingSettler); ok {
 			return session.SettleWss(actual)
 		}
 		return g.Settle(c, info, actual)
@@ -268,4 +270,11 @@ func mapError(language string, err error) *types.NewAPIError {
 	default:
 		return types.NewError(err, types.ErrorCodeUpdateDataError, skip)
 	}
+}
+
+func PreConsumeBilling(c *gin.Context, quota int, info *relaycommon.RelayInfo) *types.NewAPIError {
+	return defaultGateway.PreConsume(c, quota, info)
+}
+func SettleBilling(c *gin.Context, info *relaycommon.RelayInfo, quota int) error {
+	return defaultGateway.Settle(c, info, quota)
 }

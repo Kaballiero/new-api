@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -95,7 +96,7 @@ func SystemOneHelper(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIE
 	}
 	// A valid authoritative cost must settle even if the typed result is broken.
 	// Settle before writing so a disconnected client cannot bypass payment.
-	service.PostTextConsumeQuota(c, info, usage, nil)
+	billinggateway.PostTextConsumeQuota(c, info, usage, nil)
 	if typedErr != nil {
 		return systemOneResponseError(typedErr.Error())
 	}

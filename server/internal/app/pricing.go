@@ -3,10 +3,14 @@ package app
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	metadataupstream "github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	pricingupstream "github.com/QuantumNous/new-api/internal/adapter/pricing/upstream"
+	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
+	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/enqueue_catalogue_refresh"
 	"github.com/QuantumNous/new-api/internal/pricing/fetch_upstream_ratios"
@@ -27,19 +31,17 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"time"
+	"github.com/gin-gonic/gin"
 )
 
 func NewPricingProjection() *domain.Projection {
 	return domain.NewProjection(domain.ProjectionRuntime{
 		UsableGroups: service.GetUserUsableGroups, GroupRatio: service.GetUserGroupRatio,
-		AutoGroups: service.GetUserAutoGroup, ApplyFX: service.ApplyBillingFX,
+		AutoGroups: service.GetUserAutoGroup, ApplyFX: billingdomain.ApplyBillingFX,
 		QuotaUnit:     func() float64 { return common.QuotaPerUnit },
 		ApplyOverride: pricingupstream.ApplyOverride,
 	})
@@ -50,7 +52,7 @@ var pricingConsumerCache pricingadapter.ConsumerCache
 func newPricingReader() pricingadapter.Reader {
 	return pricingadapter.Reader{SnapshotEndpointsRead: model.GetPricingCatalogueSnapshotWithEndpoints, GroupRatiosRead: ratio_setting.GetGroupRatioCopy, GroupGroupRatioRead: ratio_setting.GetGroupGroupRatio,
 		SnapshotRead: model.GetPricingCatalogueSnapshot, FXRead: func() (domain.BillingFXBasis, error) {
-			v, err := service.CurrentBillingFXBasis()
+			v, err := billingapp.NewCosts().FX.Execute(billingdomain.FXBasis{})
 			return domain.BillingFXBasis(v), err
 		}, AutoGroupsRead: service.GetUserAutoGroup, UsableGroupsRead: service.GetUserUsableGroups, GroupRatioRead: service.GetUserGroupRatio, UserGroupRead: func(id int) (string, error) {
 			u, err := model.GetUserCache(id)

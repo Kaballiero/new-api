@@ -18,6 +18,7 @@ import (
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -27,12 +28,10 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-
 	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/samber/lo"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/samber/lo"
 )
 
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
@@ -164,7 +163,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {
-		if admissionErr := service.BillingAdmissionError(c, relayInfo, err); admissionErr != nil {
+		if admissionErr := billinggateway.BillingAdmissionError(c, relayInfo, err); admissionErr != nil {
 			newAPIError = admissionErr
 			return
 		}
@@ -181,7 +180,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			logger.LogInfo(c, fmt.Sprintf("Model %s is free, skipping pre-consumption", relayInfo.OriginModelName))
 		}
 	} else {
-		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
+		newAPIError = billinggateway.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
 		if newAPIError != nil {
 			return
 		}
@@ -234,7 +233,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 			if !directPrice.FreeModel {
 				if relayInfo.Billing == nil {
-					newAPIError = service.PreConsumeBilling(c, directPrice.QuotaToPreConsume, relayInfo)
+					newAPIError = billinggateway.PreConsumeBilling(c, directPrice.QuotaToPreConsume, relayInfo)
 				} else if reserveErr := relayInfo.Billing.Reserve(directPrice.QuotaToPreConsume); reserveErr != nil {
 					newAPIError = types.NewError(reserveErr, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 				}
@@ -243,7 +242,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				}
 			}
 		}
-		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
+		if billingErr := billinggateway.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
 			break
 		}
@@ -407,11 +406,11 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		c.Set("auto_group", selectGroup)
 	}
 	pureGroup := helper.HandleGroupRatio(c, info)
-	factor, fxErr := service.CaptureBillingFX(info)
+	factor, fxErr := billinggateway.CaptureBillingFX(info)
 	if fxErr != nil {
 		return nil, types.NewErrorWithStatusCode(fxErr, types.ErrorCodeModelPriceError, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
 	}
-	effectiveGroup, fxErr := service.ApplyBillingFX(pureGroup.GroupRatio, factor)
+	effectiveGroup, fxErr := billinggateway.ApplyBillingFX(pureGroup.GroupRatio, factor)
 	if fxErr != nil {
 		return nil, types.NewErrorWithStatusCode(fxErr, types.ErrorCodeModelPriceError, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
 	}
@@ -708,7 +707,7 @@ func executeTaskSubmissionWith(
 			channel, channelErr = getChannel(c, relayInfo, retryParam)
 			if channelErr != nil {
 				logger.LogError(c, channelErr.Error())
-				if admissionErr := service.TaskBillingAdmissionError(c, relayInfo, channelErr.Err); admissionErr != nil {
+				if admissionErr := billinggateway.TaskBillingAdmissionError(c, relayInfo, channelErr.Err); admissionErr != nil {
 					taskErr = admissionErr
 				} else {
 					taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
@@ -833,7 +832,7 @@ func executeTaskSubmissionWith(
 	diagnostics.durable(task)
 	diagnostics.settleStart(task, result.Quota)
 
-	if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
+	if settleErr := billinggateway.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
 		common.SysError("settle task billing error: " + settleErr.Error())
 		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to settle task billing"), "task_billing_settlement_failed", http.StatusInternalServerError)
 		diagnostics.failed("settle", "billing_error", taskErr, true)

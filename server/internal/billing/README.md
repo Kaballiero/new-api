@@ -1,13 +1,18 @@
-# Billing — жизненный цикл резерва квоты
+# Billing — расчёт стоимости и жизненный цикл резерва
 
 ## Ответственность
 
-Модуль владеет request-local резервом (`domain.Reservation`), выбором кошелька или подписки, квотой API-ключа, допрезервом, итоговой дельтой, возвратом и условиями quota notifications. Все суммы передаются готовыми целыми quota units; расчёт цены и округление сюда не входят.
+Модуль владеет request-local резервом (`domain.Reservation`), выбором кошелька или подписки, квотой API-ключа, допрезервом, итоговой дельтой, возвратом и условиями quota notifications. Также владеет расчётом text/audio/realtime cost, нормализацией billing tokens, tiered settlement policy, обновлением выбранной группы и capture/apply FX. Cost-сценарии возвращают quota, clamp и факты для логов; сами не пишут storage. Конфигурация цен остаётся у pricing/settings, provider discovery — в шлюзе.
 
 ## Возможности
 
 | Сценарий | Действие и потребитель |
 |---|---|
+| `calculate_text_cost` | Ratio/fixed/cache/image/input-audio, отсортированные tool fees после OtherRatios, tiered single-round composition и legacy fallback; display quota отдельно от charge |
+| `calculate_audio_cost` | Text/audio modalities, late ratios, fixed/tiered и FX; сохраняет прежний отсутствующий ModelPrice на PostAudio |
+| `calculate_realtime_cost` | Validation → strict tiered → обязательный legacy audio clamp guard → final zero-token policy; предварительный debit оркестрирует gateway через ту же domain audio formula |
+| `prepare_tiered_cost` | Recompose выбранной pure group с frozen FX; strict rounding до обновления snapshot и дополнительного резерва |
+| `capture_fx_basis` | Validate accounting и RAM publication; captured basis переиспользуется без повторного чтения publication |
 | `create_reservation` | Выбор источника и fallback; wallet preflight; trust; token → funding reserve, компенсация token при отказе funding |
 | `increase_reservation` | Поднять hold до target: funding → token; rollback funding при отказе token; доверенный резерв остаётся пропущенным, кроме перехода к атомарному OpenRouter reserve |
 | `settle_reservation` | Actual−hold, refund/debit дельты, независимые funding/token leg realtime, terminal guards и applied outcome при известной стоимости OpenRouter |
@@ -24,20 +29,34 @@ Domain/usecase не импортируют Gin, GORM, Redis, common, model, serv
 - `internal/adapter/gorm/billing.Store` вызывает существующие model quota primitives. Там остаются SQL, Lua, hydration/fallback, batch queue, компенсация и subscription transaction/locking. Новой схемы, миграций и Redis namespaces нет.
 - `internal/adapter/billing.Notification` переводит данные notice в прежний NotifyUser transport: language получателя, English по умолчанию; wire DTO принадлежат адаптеру, не бизнесу.
 - `relay/billing` — владелец gateway mapping: RelayInfo ↔ domain state, mutex request-local session, старый BillingSettler, Gin Refund, i18n → NewAPIError и error options. Business-state PostDelta переносится в RelayInfo без изменения consume-log JSON. Язык ошибок разрешается только при ошибке из сохранённых входов языка запроса; при nil Context/Request используется English.
-- `service.BillingLifecycle` — один временный интерфейс в терминах старого потребителя. `relay/billing.init` регистрирует единственную production реализацию; `relay/relay_adaptor.go` явно подключает её для всех relay entry points, включая plugin adapters. Service-only и adaptor-only binaries подключают `relay/billing` явно; тестовые binaries используют тот же механизм. Отдельного wiring в main или contracttest нет.
+- `service.BillingGateway` — один временный интерфейс в терминах старого потребителя. `relay/billing.init` регистрирует единственную production реализацию; `relay/relay_adaptor.go` явно подключает её для всех relay entry points, включая plugin adapters. Service-only и adaptor-only binaries подключают `relay/billing` явно; тестовые binaries используют тот же механизм. Отдельного wiring в main или contracttest нет.
 
 ## Границы и долг
 
-Cost, FX, tiered expressions, usage/consume logs, durable Task/Batch settlement, выбор канала и upstream submission остаются у прежних владельцев. Batch не переводится на Reservation: его held quota лишь учитывается существующими атомарными reserve primitives.
+Usage/consume log formatting и storage остаются в `service.RecordTextCost/RecordAudioCost/RecordRealtimeCost` до 2c. Durable Task/Batch settlement, выбор канала, discovery и upstream submission остаются у прежних владельцев. Gateway переводит DTO/canonical usage и provider flags в billing-owned facts, а результаты — в прежние service log projections. Provider-cost conversion вызывает существующий common primitive через QuotaMath, без своей формулы. Batch не переводится на Reservation: его held quota лишь учитывается существующими атомарными reserve primitives.
 
 Initial wallet и OpenRouter additional reserve проверяют доступный остаток с held. Обычный wallet increase и terminal wallet/token debit сохраняют возможность долга. Ошибка token после успешного обычного funding settle не запускает refund funding; known-cost OpenRouter failures сохраняют applied outcome для ручного ремонта. WSS может повторить только неуспешную terminal leg. Это request-local защита, не durable exact-once при падении процесса.
 
 Subscription initial refund повторяется максимум 3 раза с 200/400 ms; extraReserved/token/wallet — одна попытка. `TECH_DEBT.md` #26–29 описывают legacy debt, nested subscription refund transaction, notification snapshot и несовместимость placeholders с webhook renderer. Шаблон и отдельное поле values quota webhook сохранены. Общие cache primitives остаются в model до волны 7.
 
-Мосты: `service/billing.go` (PreConsumeBilling, SettleBilling, SettleWssBilling, PostConsumeQuota/partial result) — только для оставшихся cost/task/legacy consumers до волн 2b2/5. Новых исключений архитектурного теста нет.
+Мосты: `service/billing.go` (PreConsumeBilling, SettleBilling, SettleWssBilling, PostConsumeQuota/partial result) — только для оставшихся cost/task/legacy consumers до 2c / волны 5; прежние Pre/PostWss и PreConsumeBilling также нужны неизменному WSS characterization. Порт содержит конкретные PostText/PostWss/PreWss, token params/cache inference и FX; PostAudio удалён вместе с service-фасадом, его mutable storage/log matrix вызывает gateway из внешнего service-теста. PostText и cache inference нужны immutable contract_test.go; Pre/PostWss и CaptureFX — immutable controller/wss_characterization_test.go; token params и Current/ApplyFX — production Batch. Lifecycle используется service/{text_quota,quota,midjourney,violation_fee}.go. Второй registry не создавался. Новых исключений архитектурного теста нет.
 
 ## Проверки
 
 62 HTTP/state goldens в `testdata/golden` записаны на origin/main до переноса; их нельзя редактировать или перезаписывать. `TestBillingHTTPContract` проверяет реальные middleware/relay → fake HTTP provider, DB/Redis accounting и logs, нужен host с sockets. Нормализуются только оговорённые timestamp/header Date и log durations, финансовые поля сохраняются.
 
 Сценарные регрессии на fakes узких ports находятся в `<scenario>/usecase_test.go`: preferences/trust/held admission, delta/partial settlement, increase rollback, refund/retry и notification eligibility. `relay/billing/billing_test.go` проверяет только gateway projection/outcome, error mapping en/ru, lazy nil-safe язык и сериализацию concurrent Session calls под gateway mutex. `adapter/billing/notification_test.go` проверяет прежний webhook payload; `adapter/gorm/billing/TestBillingAdapterPostgres` требует изолированный `TEST_POSTGRES_DSN` и сообщает фактическую версию PostgreSQL. Default HTTP fixture — SQLite. Реальный PostgreSQL 15, SSE/WSS и полный suite запускает host-оркестратор; отсутствие такого прогона нельзя считать доказанной совместимостью.
+
+## Расчёт и технические адаптеры
+
+`domain` содержит свои Usage/Prices/Snapshot/RequestInput/Clamp и общие нормализацию, overlap validation, audio arithmetic и tiered policy. В этих типах нет Gin, DTO, RelayInfo, GORM или Redis. Поздние readers собираются в `internal/app/billing/cost.go` над существующими settings; `adapter/settings/billing.ReadFX` читает только уже опубликованную RAM; source берётся из единственной константы publishing task `service.ModelCostFXSource`. `domain.PublishedUSD` — общая проверка USD для capture и admin status, status не применяет accounting/factor policy. Предварительный WSS и оба audio-сценария используют один поздний AudioPrices reader из app. Canonical DTO usage выбирает `service.EffectiveBillingUsage`, общий с Batch; правила DTO в domain не копируются.
+
+`ExpressionEvaluator` и `QuotaMath` реализованы `internal/adapter/billing/cost_math.go` над `pkg/billingexpr` и `common` checked conversions. Конверсия, saturation/SysError и expression engine имеют прежнего единственного владельца; инфраструктурные транзитивные зависимости не попадают в usecase/domain. Чистая библиотека math/engine — TECH_DEBT #32, волна 9. Старые denomination/quota константы в service остаются до переноса task/log в 2c / волне 5: service → internal/domain создал бы запрещённое новое исключение замороженного allowlist; бизнес-domain не может импортировать инфраструктурный service. Это явное ограничение R4, а не новый FX policy owner.
+
+Сохраняются: explicit provider zero, unknown policy в gateway; decimal multiplication/rounding order; first clamp (provider outcome по-прежнему может заменить его); HTTP estimate fallback и WSS reject; lost PostAudio ModelPrice (#30); public display ratio вместо effective FX ratio (#31); native Gemini non-stream grounding без surcharge (#33). Тексты persisted logs не менялись.
+
+Дополнительно 64 cost goldens зафиксированы commit `fa7f25e43`: origin/main record + два повтора + branch compare прошли до переноса. Вместе со старыми 62 они неизменны. 55 cases идут через production HTTP router, 4 Responses — через названный gateway test (production `/v1/responses` отсутствует, сначала проверяется 404), 5 — через legacy boundary. Для cost logs фиксируются decoded other и исходные raw bytes; меняются только разрешённые duration numeric lexemes. Generated request_id нормализован только в boundary после проверки формы. После переноса socket contracts, WSS и PostgreSQL требуют host run; исходная стабильность не доказывает итоговую реализацию.
+
+Pure cost regressions находятся рядом со сценариями, token/cache validation — `domain/tiered_cost_test.go`. Перенесённые gateway tests проверяют canonical usage/semantic mapping, context tools, request freeze, selected-group reserve и прежние engine calls. Их DB cases используют отдельную свежую SQLite fixture; PostgreSQL matrix log/storage tests в service создают собственную schema для каждого subtest и задают search_path всем соединениям.
+
+Text cost/accounting требует ненулевой `*gin.Context`, как до переноса; наличие `Context.Request` не требуется. Поддержка nil Gin context подтверждена только для прежних lifecycle/error entrypoints, а не для записи text cost. Pure tiered settlement tests находятся в domain; gateway mapping clamp/retry проверяется через настоящий TextCost.

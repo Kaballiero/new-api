@@ -16,7 +16,8 @@ const (
 	usageBillingPathGeminiEstimated    = "billing-usage-gemini-estimated"
 )
 
-func effectiveBillingUsage(usage *dto.Usage) *dto.Usage {
+// EffectiveBillingUsage selects canonical provider billing facts for settlement and logs.
+func EffectiveBillingUsage(usage *dto.Usage) *dto.Usage {
 	if billingUsage, ok := usageFromBillingUsage(usage); ok {
 		return billingUsage
 	}

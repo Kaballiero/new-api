@@ -11,12 +11,12 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -49,7 +49,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 		if usage == nil {
 			return nil
 		}
-		if err := service.ValidateRealtimeUsage(usage); err != nil {
+		if err := billinggateway.ValidateRealtimeUsage(usage); err != nil {
 			return err
 		}
 		if usage.TotalTokens == 0 {
@@ -265,14 +265,14 @@ func preConsumeUsage(ctx *gin.Context, info *relaycommon.RelayInfo, usage *dto.R
 	if usage == nil || totalUsage == nil {
 		return fmt.Errorf("invalid usage pointer")
 	}
-	if err := service.ValidateRealtimeUsage(usage); err != nil {
+	if err := billinggateway.ValidateRealtimeUsage(usage); err != nil {
 		return err
 	}
 
 	usedVars := map[string]bool{}
 	if snap := info.TieredBillingSnapshot; snap != nil {
 		usedVars = billingexpr.UsedVars(snap.ExprString)
-		if reason := service.RealtimeCacheDiscountIssue(usage, usedVars); reason != "" {
+		if reason := billinggateway.RealtimeCacheDiscountIssue(usage, usedVars); reason != "" {
 			usage.CacheDiscountUnavailable = true
 			usage.CacheDiscountUnavailableReason = reason
 			usage.InputTokenDetails.CachedTokens = 0
@@ -299,7 +299,7 @@ func preConsumeUsage(ctx *gin.Context, info *relaycommon.RelayInfo, usage *dto.R
 	// The observation belongs to this event even if its provisional debit is
 	// refused. Callers clear their contribution before returning the error so a
 	// terminal tail cannot count it a second time.
-	return service.PreWssConsumeQuota(ctx, info, usage)
+	return billinggateway.PreWssConsumeQuota(ctx, info, usage)
 }
 
 func cloneRealtimeUsage(usage *dto.RealtimeUsage) *dto.RealtimeUsage {

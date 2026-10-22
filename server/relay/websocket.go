@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"net/http"
 
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -40,7 +40,7 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 	usage, responseErr := adaptor.DoResponse(c, nil, info)
 	var settlementErr error
 	if usage != nil {
-		settlementErr = service.PostWssConsumeQuota(c, info, info.UpstreamModelName, usage.(*dto.RealtimeUsage), "")
+		settlementErr = billinggateway.PostWssConsumeQuota(c, info, info.UpstreamModelName, usage.(*dto.RealtimeUsage), "")
 	}
 	if responseErr != nil {
 		// reset status code 重置状态码

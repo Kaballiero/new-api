@@ -11,16 +11,15 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hostreasoning "github.com/QuantumNous/new-api/setting/reasoning"
 	hosttypes "github.com/QuantumNous/new-api/types"
-
 	"github.com/expr-lang/expr/ast"
 	"github.com/expr-lang/expr/parser"
 	"github.com/gin-gonic/gin"
@@ -82,7 +81,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 			info.BillingModelName = matched
 		}
 	}
-	billingFXFactor, err := service.CaptureBillingFX(info)
+	billingFXFactor, err := billinggateway.CaptureBillingFX(info)
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}
@@ -90,7 +89,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 	modelPrice, usePrice := ratio_setting.GetModelPrice(billingModelName, false)
 
 	groupRatioInfo := HandleGroupRatio(c, info)
-	billingGroupRatio, err := service.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
+	billingGroupRatio, err := billinggateway.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}
@@ -212,12 +211,12 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hosttypes.PriceData, error) {
-	billingFXFactor, err := service.CaptureBillingFX(info)
+	billingFXFactor, err := billinggateway.CaptureBillingFX(info)
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}
 	groupRatioInfo := HandleGroupRatio(c, info)
-	billingGroupRatio, err := service.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
+	billingGroupRatio, err := billinggateway.ApplyBillingFX(groupRatioInfo.GroupRatio, billingFXFactor)
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}

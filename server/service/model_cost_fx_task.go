@@ -17,7 +17,9 @@ import (
 )
 
 const (
-	modelCostFXSource       = "cbr-xml-daily.ru"
+	// ModelCostFXSource identifies the publication shared by task refresh and cost reads.
+	ModelCostFXSource       = "cbr-xml-daily.ru"
+	modelCostFXSource       = ModelCostFXSource
 	modelCostFXInterval     = time.Hour
 	modelCostFXReloadPeriod = time.Minute
 	modelCostFXHTTPTimeout  = 10 * time.Second
