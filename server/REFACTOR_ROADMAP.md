@@ -74,7 +74,7 @@
 - [x] `personal_access_tokens/validate_token` вместо `model.ValidateAccessToken` в auth и audit middleware.
 - [x] Удалены `model/token.go -> internal/apikeys/validate_key` и ставший неиспользуемым `model/audit_log.go -> personal_access_tokens/domain`; остальные существующие зависимости сохранены по решению архитектора.
 - [x] Полный зелёный прогон `go test ./...`, коммиты.
-- [ ] Прогон на PostgreSQL перед PR (локальные тесты идут на SQLite).
+- [x] PostgreSQL 15.19 (sbx): полный `go test ./...` на ветке и на `origin/main` с одинаковым окружением — новых падений нет. Общие для обоих 10 падений — тесты, которым нужна своя база (`usage_granularity_test`, `FX_TASK_*_DSN`); `service/authz` с Postgres-вариантом требует свежую базу на тест и проходит так целиком.
 
 ### 2b — billing
 
