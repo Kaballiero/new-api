@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/types"
@@ -470,6 +471,47 @@ func TestAdminLogUserQueryGuard(t *testing.T) {
 				assert.Equal(t, http.StatusUnauthorized, response.Code)
 			} else {
 				assert.Equal(t, http.StatusForbidden, response.Code)
+			}
+		}
+	}
+}
+
+func TestLogSearchErrorsAreLocalized(t *testing.T) {
+	setupSelfLogTokenFilterTest(t, selfLogFilterDatabase{name: "sqlite", type_: common.DatabaseTypeSQLite})
+	require.NoError(t, i18n.Init())
+	for _, endpoint := range []struct {
+		name    string
+		handler gin.HandlerFunc
+	}{
+		{"all", GetAllLogs}, {"self", GetUserLogs},
+		{"stat", GetLogsStat}, {"self_stat", GetLogsSelfStat},
+	} {
+		for _, pattern := range []struct {
+			value, zh, en, ru string
+		}{
+			{"%%", "搜索模式中不允许包含连续的 % 通配符", "Consecutive % wildcards are not allowed in the search pattern", "В шаблоне поиска нельзя использовать несколько % подряд"},
+			{"%ab%cd%", "搜索模式中最多允许包含 2 个 % 通配符", "The search pattern can contain at most 2 % wildcards", "В шаблоне поиска допускается не более 2 символов %"},
+			{"%a%", "使用模糊搜索时，关键词长度至少为 2 个字符", "The keyword must be at least 2 characters long for fuzzy search", "Для нечёткого поиска ключевое слово должно быть не короче 2 символов"},
+		} {
+			for _, locale := range []string{"", "en", "ru", "zh-CN", "zh-TW"} {
+				t.Run(endpoint.name+"/"+pattern.value+"/"+locale, func(t *testing.T) {
+					response := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(response)
+					c.Request = httptest.NewRequest(http.MethodGet, "/?model_name="+url.QueryEscape(pattern.value), nil)
+					c.Request.Header.Set("Accept-Language", locale)
+					endpoint.handler(c)
+					assert.Equal(t, http.StatusInternalServerError, response.Code)
+					want := pattern.en
+					switch locale {
+					case "ru":
+						want = pattern.ru
+					case "zh-CN", "zh-TW":
+						want = pattern.zh
+					}
+					var body map[string]any
+					require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+					assert.Equal(t, map[string]any{"success": false, "code": "internal_error", "message": want}, body)
+				})
 			}
 		}
 	}

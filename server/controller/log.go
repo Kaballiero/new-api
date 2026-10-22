@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	keydomain "github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
@@ -27,7 +28,7 @@ func GetAllLogs(c *gin.Context) {
 	upstreamRequestId := c.Query("upstream_request_id")
 	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId)
 	if err != nil {
-		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		writeLogQueryError(c, err)
 		return
 	}
 	if c.GetInt("role") < common.RoleRootUser {
@@ -70,7 +71,7 @@ func GetUserLogs(c *gin.Context) {
 	upstreamRequestId := c.Query("upstream_request_id")
 	logs, total, err := model.GetUserLogsByTokenId(userId, tokenId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId)
 	if err != nil {
-		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		writeLogQueryError(c, err)
 		return
 	}
 	pageInfo.SetTotal(int(total))
@@ -129,7 +130,7 @@ func GetLogsStat(c *gin.Context) {
 	group := c.Query("group")
 	stat, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
 	if err != nil {
-		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		writeLogQueryError(c, err)
 		return
 	}
 	common.ApiSuccess(c, stat)
@@ -146,8 +147,32 @@ func GetLogsSelfStat(c *gin.Context) {
 	group := c.Query("group")
 	stat, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
 	if err != nil {
-		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		writeLogQueryError(c, err)
 		return
 	}
 	common.ApiSuccess(c, stat)
+}
+
+// writeLogQueryError translates the shared search validator errors at the log
+// HTTP boundary, preserving the existing response for other storage errors.
+func writeLogQueryError(c *gin.Context, err error) {
+	var key string
+	switch {
+	case errors.Is(err, keydomain.ErrSearchConsecutiveWildcards):
+		key = i18n.MsgTokenSearchConsecutiveWildcards
+	case errors.Is(err, keydomain.ErrSearchTooManyWildcards):
+		key = i18n.MsgTokenSearchTooManyWildcards
+	case errors.Is(err, keydomain.ErrSearchKeywordTooShort):
+		key = i18n.MsgTokenSearchKeywordTooShort
+	default:
+		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
+		return
+	}
+	lang := i18n.GetLangFromContext(c)
+	if lang == "zh-TW" {
+		// These log errors were Chinese literals on origin/main for both
+		// Chinese locales. Keep those bytes using the existing zh-CN text.
+		lang = "zh-CN"
+	}
+	common.ApiErrorMsgStatusCode(c, http.StatusInternalServerError, "internal_error", i18n.Translate(lang, key))
 }
