@@ -1,0 +1,52 @@
+{
+  "export": [],
+  "final": {
+    "channel_used_quota": 0,
+    "request_count": 0,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 1000,
+    "token_used_quota": 0,
+    "user_used_quota": 0,
+    "wallet": 1000,
+    "wallet_batch_held_quota": 0
+  },
+  "relay_logs": [],
+  "response": {
+    "body": {
+      "error": {
+        "code": "usage_rejected",
+        "message": "usage fixture rejected",
+        "param": "",
+        "type": "invalid_request_error"
+      }
+    },
+    "headers": {
+      "Content-Type": [
+        "application/json; charset=utf-8"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 400
+  },
+  "separate_log_db": false,
+  "upstream_calls": 1,
+  "upstream_observations": [
+    {
+      "ledger": {
+        "channel_used_quota": 0,
+        "request_count": 0,
+        "subscription_used": 0,
+        "token_batch_held_quota": 0,
+        "token_remain_quota": 900,
+        "token_used_quota": 100,
+        "user_used_quota": 0,
+        "wallet": 900,
+        "wallet_batch_held_quota": 0
+      },
+      "log_types": []
+    }
+  ]
+}

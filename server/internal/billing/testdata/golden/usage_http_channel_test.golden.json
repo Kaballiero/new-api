@@ -1,0 +1,107 @@
+{
+  "export": [],
+  "final": {
+    "channel_used_quota": 0,
+    "request_count": 0,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 1000,
+    "token_used_quota": 0,
+    "user_used_quota": 0,
+    "wallet": 1000,
+    "wallet_batch_held_quota": 0
+  },
+  "relay_logs": [
+    {
+      "channel": 1,
+      "channel_name": "",
+      "completion_tokens": 10,
+      "content": "模型测试",
+      "created_at": "__number__",
+      "group": "default",
+      "id": 1,
+      "ip": "",
+      "is_stream": false,
+      "model_name": "billing-contract-model",
+      "other": {
+        "admin_info": {
+          "billing_applied_group": {
+            "effective_ratio": 1,
+            "pure_ratio": 1
+          },
+          "billing_fx": {
+            "effective_at": 1700000000,
+            "fetched_at": 1700000000,
+            "publication_version": 1,
+            "rate": 100,
+            "schema_version": 1,
+            "source": "cbr-xml-daily.ru"
+          },
+          "billing_stage": "request",
+          "use_channel": null
+        },
+        "cache_ratio": 0.1,
+        "cache_tokens": 0,
+        "completion_ratio": 1,
+        "frt": "__duration__",
+        "group_ratio": 1,
+        "model_price": -1,
+        "model_ratio": 1,
+        "request_conversion": [
+          "OpenAI Compatible"
+        ],
+        "request_path": "/v1/chat/completions",
+        "user_group_ratio": -1
+      },
+      "other_raw": "{\"admin_info\":{\"billing_applied_group\":{\"effective_ratio\":1,\"pure_ratio\":1},\"billing_fx\":{\"effective_at\":1700000000,\"fetched_at\":1700000000,\"publication_version\":1,\"rate\":100,\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\"},\"billing_stage\":\"request\",\"use_channel\":null},\"cache_ratio\":0.1,\"cache_tokens\":0,\"completion_ratio\":1,\"frt\":\"__duration__\",\"group_ratio\":1,\"model_price\":-1,\"model_ratio\":1,\"request_conversion\":[\"OpenAI Compatible\"],\"request_path\":\"/v1/chat/completions\",\"user_group_ratio\":-1}",
+      "prompt_tokens": 40,
+      "quota": 50,
+      "request_id": "__generated_request_id__",
+      "token_id": 0,
+      "token_name": "模型测试",
+      "type": 2,
+      "use_time": "__duration__",
+      "user_id": 3,
+      "username": "contract-root"
+    }
+  ],
+  "response": {
+    "body": {
+      "data": {
+        "time": "__duration__"
+      },
+      "message": "",
+      "success": true
+    },
+    "headers": {
+      "Auth-Version": [
+        "864b7076dbcd0a3c01b5520316720ebf"
+      ],
+      "Content-Type": [
+        "application/json; charset=utf-8"
+      ],
+      "X-Oneapi-Request-Id": [
+        "__generated_request_id__"
+      ]
+    },
+    "status": 200
+  },
+  "separate_log_db": false,
+  "upstream_calls": 1,
+  "upstream_observations": [
+    {
+      "ledger": {
+        "channel_used_quota": 0,
+        "request_count": 0,
+        "subscription_used": 0,
+        "token_batch_held_quota": 0,
+        "token_remain_quota": 1000,
+        "token_used_quota": 0,
+        "user_used_quota": 0,
+        "wallet": 1000,
+        "wallet_batch_held_quota": 0
+      },
+      "log_types": []
+    }
+  ]
+}
