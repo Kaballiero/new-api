@@ -78,8 +78,11 @@
 
 ### 2b — billing
 
-- [ ] Новый модуль `billing`: `reserve`, `settle`, `refund`, `cost`; источник оплаты (кошелёк, подписка); Lua-скрипты резерва → `adapter/redis/billing`.
-- [ ] `BillingSession` без `*gin.Context`: шлюз вызывает сценарии `billing` через узкий интерфейс.
+- [x] **2b1 implementation**: `internal/billing` — create/increase/settle/refund/apply delta/notify; wallet/subscription и token quota; gateway mapping в `relay/billing`, сборка `internal/app/billing`, один временный service bridge.
+- [x] Контракт до переноса: commit `11b9dc672`, 62 goldens на origin/main, 3 стабильных повтора; goldens не изменяются.
+- [ ] Host acceptance после переноса: неизменные 62 HTTP/state goldens, WSS/full suite и реальный PostgreSQL 15. Локальные usecase/locale/architecture проверки не заменяют этот прогон.
+- [ ] **2b2**: cost calculation (`text_quota.go`, `tiered_settle.go`, `billing_fx.go`, audio/realtime quota math и provider cost); убрать оставшиеся service consumers/bridge по фактическому переносу.
+
 ### 2c — запись использования
 
 - [ ] Новый модуль `usage`: сценарий записи потребления (лог запроса), его вызывает шлюз.
@@ -116,6 +119,8 @@
 - [ ] Уведомления пользователям: `service/user_notify.go`.
 
 ## Волна 7 — доводка ⬜
+
+- [ ] Общие quota cache/Lua/DB primitives из `model/quota_reserve.go`, user/token/task consumers → технические адаптеры с одним владельцем; 2b1 сохраняет primitives и SQL/Redis semantics без изменений.
 
 - [ ] identity: логика сессий и проверок из `service/auth_session.go`, `security_verification.go`, `login_verification.go`, `twofa.go`, `email_binding.go`, `service/passkey` → сценарии; `model/account_security.go`, `auth_flow.go` → адаптеры.
 - [ ] Убрать алиасы ошибок в `model`, `service`, `oauth`, когда у них не останется потребителей.

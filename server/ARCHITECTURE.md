@@ -94,35 +94,23 @@ client
 - **`pricing`** отвечает, сколько стоит: цены, коэффициенты, каталог цен, публикация.
 - **`billing`** отвечает, сколько списать с конкретного пользователя за конкретный запрос и с какого источника.
 
-Отдельный модуль нужен потому, что деньги списываются из нескольких мест, и у правил списания должен быть один владелец:
+Жизненный цикл request-local резерва перенесён в `internal/billing`: создание, увеличение hold, settle, refund, legacy delta и notification eligibility. Gateway mapping и реализация существующего BillingSettler находятся в `relay/billing`; сборка — `internal/app/billing`; единственная реализация service bridge регистрируется в `relay/billing.init` при явном подключении gateway из relay entry points. Бизнес-модуль не зависит от Gin/GORM/Redis/relay/relaykit.
 
-| Кто списывает | Где сейчас |
+| Область | Владелец |
 |---|---|
-| обычный запрос шлюза | `service/billing_session.go` (`BillingSession`: Reserve → Settle → Refund) |
-| асинхронные задачи: резерв при отправке, итог при опросе, возврат при сбое | `service/task_billing.go`, `service/midjourney.go` |
-| batch: удержание квоты на весь пакет | `service/batch_billing.go`, поля `BatchHeldQuota` |
-| realtime (WebSocket) | `BillingSession.SettleWss` |
-| источник оплаты: кошелёк или подписка | `service/funding_source.go` |
-| ступенчатая цена и фактическая стоимость провайдера | `service/tiered_settle.go`, `pkg/billingexpr`, `relay/channel/openrouter/cost.go` |
-| атомарный резерв в кэше | `model/quota_reserve.go` (Lua-скрипты Redis) |
+| reserve → settle → refund, wallet/subscription fallback и token quota | `internal/billing`, [README](internal/billing/README.md) |
+| RelayInfo, request-local mutex, NewAPIError, Gin Refund | `relay/billing` |
+| прежние cost/task consumers | `service/billing.go`: один временный BillingLifecycle bridge, регистрация в `relay/billing.init`; root relay подключает gateway явно |
+| durable Task и legacy Midjourney после отправки | `service/task_billing.go`, `service/midjourney.go` |
+| Batch holds и terminal settlement | `service/batch_billing.go`, `model/batch*`, `BatchHeldQuota` |
+| cost, tiered expressions, FX, consume logs | прежние `service/text_quota.go`, `tiered_settle.go`, `billing_fx.go`, `quota.go`, `pkg/billingexpr`, provider cost |
+| атомарные reserve/delta primitives, Redis Lua, DB fallback и batch queue | `model/quota_reserve.go`, generic mutators; вызываются через `internal/adapter/gorm/billing` |
 
-Инварианты `billing`: не списать дважды; резерв → итог → доплата или возврат разницы; нельзя уйти в минус с учётом удержанного; возврат при сбое повторяется до успеха.
+Initial reserve и OpenRouter additional reserve проверяют available quota с held; ordinary top-up и terminal debit сохраняют legacy debt. Повторный terminal вызов не повторяет применённые leg; funding и token partial failures учитываются отдельно. Это не гарантия durable exact-once после падения процесса.
 
-Целевая раскладка:
+Refund: синхронный terminal gate и прежняя async job; subscription initial refund до 3 попыток с 200/400 ms, wallet/token/extraReserved — по одной попытке. Notification policy принадлежит billing, доставка через adapter → прежний NotifyUser, язык получателя с English fallback.
 
-```
-internal/billing/
-  domain/       # Reservation, FundingSource (wallet|subscription), settle/refund rules
-  reserve/      # hold quota on funding source + key before the call
-  settle/       # actual cost → charge the delta or return the rest
-  refund/       # release the whole hold on failure
-  cost/         # quota from usage: ratios, tiered expression (pkg/billingexpr), fx
-internal/adapter/
-  gorm/billing/record/   # quota rows, held quota, subscription usage
-  redis/billing/         # Lua scripts from model/quota_reserve.go
-```
-
-`BillingSession` сейчас держит `*gin.Context` и `RelayInfo`; в целевой схеме резерв — доменный объект без Gin, состояние запроса передаётся в него явно. Шлюз, задачи и batch вызывают одни и те же сценарии.
+Общие model primitives не копируются и не импортируют новый модуль; их перенос в технические адаптеры отложен до волны 7. Расчёт стоимости — следующий шаг 2b2, durable tasks/batch — волна 5.
 
 ## Таблицы БД
 

@@ -16,6 +16,7 @@
 | `catalog` | каталог моделей и вендоров: CRUD, синхронизация метаданных, модели без настроек | 26 | [README](catalog/README.md) |
 | `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 25 | [README](pricing/README.md) |
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
+| `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; cost и durable Task/Batch остаются снаружи | 6 | [README](billing/README.md) |
 
 README каждого модуля появляется в коммите, который чистит или переносит этот модуль.
 
@@ -23,7 +24,7 @@ README каждого модуля появляется в коммите, ко�
 
 | Папка | Что внутри |
 |---|---|
-| `app/` | сборка зависимостей модулей и HTTP-обработчики для `controller/`; `app/authentication` — сборка проверок credentials без обратного импорта middleware |
+| `app/` | сборка зависимостей модулей и HTTP-обработчики для `controller/`; `app/authentication` — сборка проверок credentials без обратного импорта middleware; `app/billing` — сборка lifecycle без gateway types |
 | `adapter/gorm/<module>` | хранение через GORM |
 | `adapter/settings/<module>` | чтение настроек |
 | `adapter/casbin`, `adapter/identity`, `adapter/channels`, `adapter/pricing`, `adapter/catalog` | технические реализации интерфейсов модулей |
