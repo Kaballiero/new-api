@@ -27,7 +27,7 @@
       "channel": 1,
       "channel_name": "",
       "completion_tokens": 2,
-      "content": "usage fixture, 模型 gpt-4o-gizmo-fixture",
+      "content": "usage fixture, Model gpt-4o-gizmo-fixture",
       "created_at": "__number__",
       "group": "default",
       "id": 1,

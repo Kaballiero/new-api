@@ -30,7 +30,7 @@
       "channel": 1,
       "channel_name": "",
       "completion_tokens": 20,
-      "content": "模型价格 0.00，分组倍率 1.00",
+      "content": "Model price 0.00, group ratio 1.00",
       "created_at": "__number__",
       "group": "default",
       "id": 1,

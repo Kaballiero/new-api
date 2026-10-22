@@ -86,7 +86,7 @@ func TestPostAudioConsumeQuotaUsesEffectiveBillingGroupRatio(t *testing.T) {
 	require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
 	require.Len(t, logs, 1)
 	assert.Equal(t, 2, logs[0].Quota)
-	assert.Contains(t, logs[0].Content, "分组倍率 1.00")
+	assert.Contains(t, logs[0].Content, "group ratio 1.00")
 	other, err := common.StrToMap(logs[0].Other)
 	require.NoError(t, err)
 	assert.Equal(t, float64(1), other["group_ratio"])

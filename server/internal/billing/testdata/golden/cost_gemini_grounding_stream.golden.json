@@ -30,7 +30,7 @@
       "channel": 1,
       "channel_name": "",
       "completion_tokens": 20,
-      "content": "google_search 调用 1 次，调用花费 7000 点额度",
+      "content": "google_search called 1 times, cost 7000 quota units",
       "created_at": "__number__",
       "group": "default",
       "id": 1,

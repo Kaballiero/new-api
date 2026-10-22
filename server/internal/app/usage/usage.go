@@ -36,7 +36,7 @@ func New() Usecases {
 		ConsumeEnabled: func() bool { return common.LogConsumeEnabled },
 		ExportEnabled:  func() bool { return common.DataExportEnabled },
 	}
-	renderer := storage.Content{Quota: logger.LogQuota}
+	renderer := storage.Content{Quota: logger.LogQuotaEnglish}
 	errorsEnabled := func() bool { return constant.ErrorLogEnabled }
 	return Usecases{
 		Count: count_consumption.NewUsecase(store),

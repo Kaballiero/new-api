@@ -30,7 +30,7 @@
       "channel": 1,
       "channel_name": "",
       "completion_tokens": 20,
-      "content": "模型倍率 1.00，补全倍率 2.00，音频倍率 10.00，音频补全倍率 2.00，分组倍率 1.00",
+      "content": "Model ratio 1.00, completion ratio 2.00, audio ratio 10.00, audio completion ratio 2.00, group ratio 1.00",
       "created_at": "__number__",
       "group": "default",
       "id": 1,

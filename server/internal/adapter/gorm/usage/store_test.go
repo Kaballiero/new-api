@@ -165,11 +165,11 @@ func TestSerializerOwnsBillingShapesAndPreservesProviderJSON(t *testing.T) {
 }
 func TestRendererOwnsTextAndAudioNoteJoining(t *testing.T) {
 	renderer := Content{Quota: func(int) string { return "17" }}
-	assert.Equal(t, ", search 调用 2 次，调用花费 17", renderer.RenderContent([]domain.Note{
+	assert.Equal(t, ", search called 2 times, cost 17", renderer.RenderContent([]domain.Note{
 		{Kind: domain.LiteralContent},
 		{Kind: domain.ToolCharge, Name: "search", Count: 2, Quota: 17},
 	}))
-	assert.Equal(t, "audio（可能是上游超时）, extra", renderer.RenderContent([]domain.Note{
+	assert.Equal(t, "audio (possible upstream timeout), extra", renderer.RenderContent([]domain.Note{
 		{Kind: domain.LiteralContent, Name: "audio"},
 		{Kind: domain.PossibleTimeout, Join: domain.Adjacent},
 		{Kind: domain.LiteralContent, Name: "extra"},

@@ -91,7 +91,7 @@
 - [x] Baseline: commit 2dd83ad14, 28 usage goldens на origin/main, record + два стабильных повтора + branch compare; прежние 126 неизменны, всего 154.
 - [x] Implementation: usage count_consumption/record_consumption/record_failure; plain gateway snapshots, один serializer/storage adapter, late settings seam в model без schema/queries changes. Ленивый sync.OnceValue bridge, app-owned metadata port, business note policy в usage и Billable fact от billing; unsupported context возвращает error без panic.
 - [x] Общий upstream failure writer для relay/task submission; Task billing остаётся wave 5. Сохранены ordinary/provider/realtime write order, flags, DB routing и async jobs.
-- [x] Отдельно подготовлен, но не применён wave2c-english.patch (source + docs + formatter regression test); branch -update и exact content-only checker запускает оркестратор после Chinese parity proof. Старые rows не мигрируются. Исключение A6 подтверждено пользователем: channel-test MsgChannelTestLogName остаётся на языке получателя, без изменения immutable теста.
+- [x] Применён отдельный English content patch: единый logger formatter, ASCII USD $, source/docs/regression test; branch -update и exact content-only checker запускает оркестратор после Chinese parity proof. Старые rows не мигрируются. Исключение A6 подтверждено пользователем: channel-test MsgChannelTestLogName остаётся на языке получателя, без изменения immutable теста.
 - [ ] Host acceptance переноса: immutable SHA154, все contracts без -update на plain Chinese tree, WSS, реальный PostgreSQL, full suite, relaykit/OpenAPI/U1000.
 - [ ] Host English re-record только affected cases, content-only checker, затем финальный host suite. Пока это не PASS.
 

@@ -30,7 +30,7 @@
       "channel": 1,
       "channel_name": "",
       "completion_tokens": 20,
-      "content": "Audio Input 花费 40 点额度",
+      "content": "Audio input cost 40 quota units",
       "created_at": "__number__",
       "group": "default",
       "id": 1,

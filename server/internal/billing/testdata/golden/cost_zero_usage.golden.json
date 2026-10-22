@@ -30,7 +30,7 @@
       "channel": 1,
       "channel_name": "",
       "completion_tokens": 0,
-      "content": "上游没有返回计费信息，无法扣费（可能是上游超时）",
+      "content": "Upstream returned no billing information; unable to charge (possible upstream timeout)",
       "created_at": "__number__",
       "group": "default",
       "id": 1,

@@ -123,39 +123,25 @@ func logHelper(ctx context.Context, level string, msg string) {
 }
 
 func LogQuota(quota int) string {
-	// 新逻辑：根据额度展示类型输出
-	q := float64(quota)
-	switch operation_setting.GetQuotaDisplayType() {
-	case operation_setting.QuotaDisplayTypeCNY:
-		usd := q / common.QuotaPerUnit
-		cny := usd * operation_setting.USDExchangeRate
-		return fmt.Sprintf("¥%.6f 额度", cny)
-	case operation_setting.QuotaDisplayTypeCustom:
-		usd := q / common.QuotaPerUnit
-		rate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
-		symbol := operation_setting.GetGeneralSetting().CustomCurrencySymbol
-		if symbol == "" {
-			symbol = "¤"
-		}
-		if rate <= 0 {
-			rate = 1
-		}
-		v := usd * rate
-		return fmt.Sprintf("%s%.6f 额度", symbol, v)
-	case operation_setting.QuotaDisplayTypeTokens:
-		return fmt.Sprintf("%d 点额度", quota)
-	default: // USD
-		return fmt.Sprintf("＄%.6f 额度", q/common.QuotaPerUnit)
-	}
+	return formatQuota(quota, " 额度", " 点额度", "＄")
+}
+
+// LogQuotaEnglish formats new request log content without changing legacy logs.
+func LogQuotaEnglish(quota int) string {
+	return formatQuota(quota, " quota", " quota units", "$")
 }
 
 func FormatQuota(quota int) string {
+	return formatQuota(quota, "", "", "＄")
+}
+
+func formatQuota(quota int, amountSuffix, tokensSuffix, usdSymbol string) string {
 	q := float64(quota)
 	switch operation_setting.GetQuotaDisplayType() {
 	case operation_setting.QuotaDisplayTypeCNY:
 		usd := q / common.QuotaPerUnit
 		cny := usd * operation_setting.USDExchangeRate
-		return fmt.Sprintf("¥%.6f", cny)
+		return fmt.Sprintf("¥%.6f%s", cny, amountSuffix)
 	case operation_setting.QuotaDisplayTypeCustom:
 		usd := q / common.QuotaPerUnit
 		rate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
@@ -167,11 +153,11 @@ func FormatQuota(quota int) string {
 			rate = 1
 		}
 		v := usd * rate
-		return fmt.Sprintf("%s%.6f", symbol, v)
+		return fmt.Sprintf("%s%.6f%s", symbol, v, amountSuffix)
 	case operation_setting.QuotaDisplayTypeTokens:
-		return fmt.Sprintf("%d", quota)
-	default:
-		return fmt.Sprintf("＄%.6f", q/common.QuotaPerUnit)
+		return fmt.Sprintf("%d%s", quota, tokensSuffix)
+	default: // USD
+		return fmt.Sprintf("%s%.6f%s", usdSymbol, q/common.QuotaPerUnit, amountSuffix)
 	}
 }
 

@@ -14,27 +14,27 @@ func (f Content) RenderNote(note domain.Note) string {
 	case domain.LiteralContent:
 		return note.Name
 	case domain.MissingUpstreamUsage:
-		return "上游无计费信息"
+		return "No upstream billing information"
 	case domain.ToolCharge:
-		return fmt.Sprintf("%s 调用 %d 次，调用花费 %s", note.Name, note.Count, f.Quota(note.Quota))
+		return fmt.Sprintf("%s called %d times, cost %s", note.Name, note.Count, f.Quota(note.Quota))
 	case domain.AudioInputCharge:
-		return fmt.Sprintf("Audio Input 花费 %s", f.Quota(note.Quota))
+		return fmt.Sprintf("Audio input cost %s", f.Quota(note.Quota))
 	case domain.UnbillableUsage:
-		return "上游没有返回计费信息，无法扣费（可能是上游超时）"
+		return "Upstream returned no billing information; unable to charge (possible upstream timeout)"
 	case domain.SettlementRepair:
 		return "OpenRouter settlement requires manual repair"
 	case domain.OriginalModel:
-		return fmt.Sprintf("模型 %s", note.Name)
+		return fmt.Sprintf("Model %s", note.Name)
 	case domain.AudioRatios:
 		return fmt.Sprintf(
-			"模型倍率 %.2f，补全倍率 %.2f，音频倍率 %.2f，音频补全倍率 %.2f，分组倍率 %.2f",
+			"Model ratio %.2f, completion ratio %.2f, audio ratio %.2f, audio completion ratio %.2f, group ratio %.2f",
 			note.Prices.ModelRatio, note.Prices.CompletionRatio,
 			note.AudioRatio, note.AudioCompletionRatio, note.Prices.GroupRatio,
 		)
 	case domain.ModelPrice:
-		return fmt.Sprintf("模型价格 %.2f，分组倍率 %.2f", note.Prices.ModelPrice, note.Prices.GroupRatio)
+		return fmt.Sprintf("Model price %.2f, group ratio %.2f", note.Prices.ModelPrice, note.Prices.GroupRatio)
 	case domain.PossibleTimeout:
-		return "（可能是上游超时）"
+		return " (possible upstream timeout)"
 	case domain.DeliveryFailed:
 		return "response delivery failed: " + note.Name
 	default:
