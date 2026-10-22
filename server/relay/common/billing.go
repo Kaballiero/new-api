@@ -2,23 +2,17 @@ package common
 
 import "github.com/gin-gonic/gin"
 
-// BillingSettler 抽象计费会话的生命周期操作。
-// 由 service.BillingSession 实现，存储在 RelayInfo 上以避免循环引用。
+// BillingSettler is the existing gateway lifecycle contract, implemented by
+// relay/billing.Session. Business reservation state itself has no Gin dependency.
 type BillingSettler interface {
-	// Settle 根据实际消耗额度进行结算，计算 delta = actualQuota - preConsumedQuota，
-	// 同时调整资金来源（钱包/订阅）和令牌额度。
+	// Settle applies the difference between actual quota and the hold.
 	Settle(actualQuota int) error
-
-	// Refund 退还所有预扣费额度（资金来源 + 令牌），幂等安全。
-	// 通过 gopool 异步执行。如果已经结算或退款则不做任何操作。
+	// Refund queues the remaining hold's refund once, unless already terminal.
 	Refund(c *gin.Context)
-
-	// NeedsRefund 返回会话是否存在需要退还的预扣状态（未结算且未退款）。
+	// NeedsRefund reports a nonterminal, refundable funding/token hold.
 	NeedsRefund() bool
-
-	// GetPreConsumedQuota 返回实际预扣的额度值（信任用户可能为 0）。
+	// GetPreConsumedQuota returns the current hold, including the trusted zero.
 	GetPreConsumedQuota() int
-
-	// Reserve 将预扣额度补到目标值；若目标值不高于当前预扣额度则不做任何事。
+	// Reserve raises the hold to a higher target and keeps lower targets intact.
 	Reserve(targetQuota int) error
 }

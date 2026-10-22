@@ -20,7 +20,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	_ "github.com/QuantumNous/new-api/relay/billing" // This adaptor test binary does not link the root relay package.
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -36,6 +39,13 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
+
+// Initialize translations for this test binary, which does not run main.
+func init() {
+	if err := i18n.Init(); err != nil {
+		panic(err)
+	}
+}
 
 func TestNativeImageRequestContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -1365,7 +1375,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString(pngData.Bytes())
 	const upstreamModel = "vendor/image"
 	for i, tc := range []struct {
-		name, cost, pricing, extra, crash, source, requestID                                                                                                                                                            string
+		name, cost, pricing, extra, crash, source, requestID, language                                                                                                                                                  string
 		reserve                                                                                                                                                                                                         float64
 		noReserve, aliasReserve, badImage, transportError, httpError, noEndpoint, noProvider, noCapability, storageDisabled, insufficient, changeChannel, partial, sourceSet, noGeneration, expired, swept, lateHeaders bool
 		wantError                                                                                                                                                                                                       string
@@ -1426,7 +1436,8 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 		{name: "crash hold", reserve: .02, crash: "hold"},
 		{name: "crash dispatch", reserve: .02, crash: "dispatch"},
 		{name: "image without local storage", reserve: .02, storageDisabled: true, cost: "0.01"},
-		{name: "insufficient funds", reserve: .02, insufficient: true, wantError: "预扣费额度失败"},
+		{name: "insufficient funds", reserve: .02, insufficient: true, language: "zh-CN", wantError: "预扣费额度失败, 用户剩余额度: %s, 需要预扣费额度: %s"},
+		{name: "insufficient funds English", reserve: .02, insufficient: true, language: "en", wantError: "Failed to reserve quota, remaining user quota: %s, required quota: %s"},
 		{name: "channel changed", reserve: .02, changeChannel: true, wantError: "cannot be repeated"},
 		{name: "settlement partial failure", reserve: .02, cost: "0.03", partial: true},
 	} {
@@ -1536,6 +1547,9 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(body))
+			if tc.language != "" {
+				c.Request.Header.Set("Accept-Language", tc.language)
+			}
 			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: id, ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: server.URL, UpstreamModelName: upstreamModel, ApiKey: "selected-key"}, UserId: id, TokenId: id, TokenKey: key, OriginModelName: "image-alias", RequestId: fmt.Sprint("image-request-", id), RelayMode: relayconstant.RelayModeImagesEdits, Request: &request}
 			info.UserSetting.BillingPreference = "wallet_only"
 			info.PriceData.BillingGroupRatio = 1.5
@@ -1601,7 +1615,12 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 				}
 			}
 			if tc.wantError != "" {
-				require.ErrorContains(t, err, tc.wantError)
+				if tc.insufficient {
+					planned := common.QuotaRound(tc.reserve * common.QuotaPerUnit * 1.5)
+					require.EqualError(t, err, fmt.Sprintf(tc.wantError, logger.FormatQuota(quota), logger.FormatQuota(planned)))
+				} else {
+					require.ErrorContains(t, err, tc.wantError)
+				}
 				assert.Zero(t, posts)
 				var user model.User
 				require.NoError(t, db.First(&user, id).Error)

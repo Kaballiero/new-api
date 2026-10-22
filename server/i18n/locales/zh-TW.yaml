@@ -421,3 +421,13 @@ channel.model_update_add_samples: "新增模型範例（展示 {{.Shown}}/{{.Tot
 channel.model_update_remove_samples: "刪除模型範例（展示 {{.Shown}}/{{.Total}}）：{{.Models}}"
 channel.model_update_failed_ids: "失敗渠道 ID（展示 {{.Shown}}/{{.Total}}）：{{.IDs}}"
 channel.model_update_omitted: "（其餘 {{.Count}} 個已省略）"
+
+billing.wallet_insufficient: "用户额度不足, 剩余额度: {{.Remaining}}"
+billing.wallet_below_reserve: "预扣费额度失败, 用户剩余额度: {{.Remaining}}, 需要预扣费额度: {{.Required}}"
+billing.subscription_insufficient: "订阅额度不足或未配置订阅: {{.Reason}}"
+billing.quota_negative: "quota 不能为负数！"
+billing.wallet_warning: "您的额度即将用尽"
+billing.subscription_warning: "您的订阅额度即将用尽"
+billing.quota_warning_brief: "{{.Title}}，剩余额度：{{.Remaining}}，请及时充值"
+billing.quota_warning_text: "{{.Title}}，当前剩余额度为 {{.Remaining}}，请及时充值。"
+billing.quota_warning_html: "{{.Title}}，当前剩余额度为 {{.Remaining}}，为了不影响您的使用，请及时充值。<br/>充值链接：<a href='{{.URL}}'>{{.URL}}</a>"

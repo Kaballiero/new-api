@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -865,12 +866,12 @@ func TestPrepareTieredBillingForSelectedGroupTopUpArrearsAllowsNegativeBalance(t
 	truncate(t)
 
 	const userID = 701
-	// Balance covers the initial 50k pre-consume (already deducted before this
-	// test's seed) but not the 50k top-up to the more expensive retry group.
+	// Balance covers the initial 50k pre-consume; the remaining 20k cannot cover
+	// the 50k top-up to the more expensive retry group.
 	// The top-up must NOT abort the request: the full delta is deducted, the
 	// uncovered 30k becomes arrears (negative balance), mirroring how
 	// settlement charges a positive delta unconditionally.
-	seedUser(t, userID, 20_000)
+	seedUser(t, userID, 70_000)
 
 	relayInfo := &relaycommon.RelayInfo{
 		UserId:                userID,
@@ -889,12 +890,11 @@ func TestPrepareTieredBillingForSelectedGroupTopUpArrearsAllowsNegativeBalance(t
 			GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 0.20},
 		},
 	}
-	session := &BillingSession{
-		relayInfo:        relayInfo,
-		funding:          &WalletFunding{userId: userID, consumed: 50_000},
-		preConsumedQuota: 50_000,
-	}
-	relayInfo.Billing = session
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	relayInfo.UserSetting.BillingPreference = "wallet_only"
+	require.Nil(t, PreConsumeBilling(ctx, 50_000, relayInfo))
+	session := relayInfo.Billing
 
 	require.Nil(t, PrepareTieredBillingForSelectedGroup(nil, relayInfo))
 
@@ -918,17 +918,17 @@ func TestBillingSessionReserveWalletTopUpDecrementsBalance(t *testing.T) {
 	truncate(t)
 
 	const userID = 702
-	seedUser(t, userID, 500_000)
+	seedUser(t, userID, 550_000)
 
 	relayInfo := &relaycommon.RelayInfo{
 		UserId:       userID,
 		IsPlayground: true,
 	}
-	session := &BillingSession{
-		relayInfo:        relayInfo,
-		funding:          &WalletFunding{userId: userID, consumed: 50_000},
-		preConsumedQuota: 50_000,
-	}
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	relayInfo.UserSetting.BillingPreference = "wallet_only"
+	require.Nil(t, PreConsumeBilling(ctx, 50_000, relayInfo))
+	session := relayInfo.Billing
 
 	require.NoError(t, session.Reserve(100_000))
 

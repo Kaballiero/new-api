@@ -494,3 +494,15 @@ const (
 	MsgGatewayGroupDeprecated  = "gateway.group_deprecated"
 	MsgGatewayChannelForbidden = "gateway.channel_forbidden"
 )
+
+const (
+	MsgBillingWalletInsufficient       = "billing.wallet_insufficient"
+	MsgBillingWalletBelowReserve       = "billing.wallet_below_reserve"
+	MsgBillingSubscriptionInsufficient = "billing.subscription_insufficient"
+	MsgBillingQuotaNegative            = "billing.quota_negative"
+	MsgBillingWalletWarning            = "billing.wallet_warning"
+	MsgBillingSubscriptionWarning      = "billing.subscription_warning"
+	MsgBillingQuotaWarningBrief        = "billing.quota_warning_brief"
+	MsgBillingQuotaWarningText         = "billing.quota_warning_text"
+	MsgBillingQuotaWarningHTML         = "billing.quota_warning_html"
+)

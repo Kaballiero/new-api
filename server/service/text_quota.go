@@ -489,7 +489,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	var costOutcome *OpenRouterSettlementOutcome
 	if relayInfo.OpenRouterCost != nil {
-		if session, ok := relayInfo.Billing.(*BillingSession); ok {
+		if session, ok := relayInfo.Billing.(interface {
+			OpenRouterSettlementOutcome() OpenRouterSettlementOutcome
+		}); ok {
 			result := session.OpenRouterSettlementOutcome()
 			costOutcome = &result
 			summary.Quota = result.FundingAppliedQuota

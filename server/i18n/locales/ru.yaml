@@ -426,3 +426,13 @@ gateway.ip_denied: "Ваш IP-адрес отсутствует в списке 
 gateway.group_forbidden: "Нет разрешения на доступ к группе {{.Group}}"
 gateway.group_deprecated: "Группа {{.Group}} больше не поддерживается"
 gateway.channel_forbidden: "Обычные пользователи не могут указывать канал"
+
+billing.wallet_insufficient: "Недостаточно квоты пользователя, осталось: {{.Remaining}}"
+billing.wallet_below_reserve: "Не удалось зарезервировать квоту, осталось у пользователя: {{.Remaining}}, требуется: {{.Required}}"
+billing.subscription_insufficient: "Недостаточно квоты подписки или подписка не настроена: {{.Reason}}"
+billing.quota_negative: "Квота не может быть отрицательной!"
+billing.wallet_warning: "Ваша квота скоро закончится"
+billing.subscription_warning: "Квота вашей подписки скоро закончится"
+billing.quota_warning_brief: "{{.Title}}, осталось квоты: {{.Remaining}}. Пожалуйста, пополните баланс."
+billing.quota_warning_text: "{{.Title}}, сейчас осталось квоты: {{.Remaining}}. Пожалуйста, пополните баланс."
+billing.quota_warning_html: "{{.Title}}, сейчас осталось квоты: {{.Remaining}}. Пополните баланс, чтобы избежать перерывов в работе.<br/>Ссылка для пополнения: <a href='{{.URL}}'>{{.URL}}</a>"
