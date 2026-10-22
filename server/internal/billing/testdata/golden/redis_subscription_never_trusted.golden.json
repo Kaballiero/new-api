@@ -1,0 +1,143 @@
+{
+  "final": {
+    "channel_used_quota": 50,
+    "request_count": 1,
+    "subscription_used": 50,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 9999950,
+    "token_used_quota": 50,
+    "user_used_quota": 50,
+    "wallet": 10000000,
+    "wallet_batch_held_quota": 0
+  },
+  "hold_at_upstream": {
+    "channel_used_quota": 0,
+    "request_count": 0,
+    "subscription_used": 100,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 9999900,
+    "token_used_quota": 100,
+    "user_used_quota": 0,
+    "wallet": 10000000,
+    "wallet_batch_held_quota": 0
+  },
+  "relay_logs": [
+    {
+      "channel": 1,
+      "channel_name": "",
+      "completion_tokens": 10,
+      "content": "",
+      "created_at": "__number__",
+      "group": "default",
+      "id": 1,
+      "ip": "",
+      "is_stream": false,
+      "model_name": "billing-contract-model",
+      "other": {
+        "admin_info": {
+          "billing_applied_group": {
+            "effective_ratio": 1,
+            "pure_ratio": 1
+          },
+          "billing_fx": {
+            "effective_at": 1700000000,
+            "fetched_at": 1700000000,
+            "publication_version": 1,
+            "rate": 100,
+            "schema_version": 1,
+            "source": "cbr-xml-daily.ru"
+          },
+          "billing_stage": "request",
+          "usage_billing_path": "upstream",
+          "use_channel": [
+            "1"
+          ]
+        },
+        "billing_preference": "subscription_only",
+        "billing_source": "subscription",
+        "cache_ratio": 1,
+        "cache_tokens": 0,
+        "completion_ratio": 1,
+        "frt": "__duration__",
+        "group_ratio": 1,
+        "model_price": -1,
+        "model_ratio": 1,
+        "request_conversion": [
+          "OpenAI Compatible"
+        ],
+        "request_path": "/v1/chat/completions",
+        "subscription_consumed": 50,
+        "subscription_id": 1,
+        "subscription_plan_id": 1,
+        "subscription_plan_title": "billing-contract-plan",
+        "subscription_post_delta": -50,
+        "subscription_pre_consumed": 100,
+        "subscription_remain": 9999950,
+        "subscription_total": 10000000,
+        "subscription_used": 50,
+        "user_group_ratio": -1,
+        "wallet_quota_deducted": 0
+      },
+      "prompt_tokens": 40,
+      "quota": 50,
+      "request_id": "billing-contract-request",
+      "token_id": 1,
+      "token_name": "billing-contract-token",
+      "type": 2,
+      "use_time": "__duration__",
+      "user_id": 1,
+      "username": "contract-user"
+    }
+  ],
+  "response": {
+    "body": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "message": {
+            "content": "hello",
+            "role": "assistant"
+          }
+        }
+      ],
+      "created": 1700000000,
+      "id": "chatcmpl-fixture",
+      "model": "billing-contract-model",
+      "object": "chat.completion",
+      "usage": {
+        "completion_tokens": 10,
+        "prompt_tokens": 40,
+        "total_tokens": 50
+      }
+    },
+    "headers": {
+      "Content-Length": [
+        "272"
+      ],
+      "Content-Type": [
+        "application/json"
+      ],
+      "Date": [
+        "__timestamp__"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 200
+  },
+  "subscription_records": [
+    {
+      "created_at": "__number__",
+      "id": 1,
+      "pre_consumed": 100,
+      "request_id": "billing-contract-request",
+      "status": "consumed",
+      "updated_at": "__number__",
+      "user_id": 1,
+      "user_subscription_id": 1
+    }
+  ],
+  "upstream_calls": 1
+}

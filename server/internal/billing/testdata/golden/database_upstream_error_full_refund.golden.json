@@ -1,0 +1,79 @@
+{
+  "final": {
+    "channel_used_quota": 0,
+    "request_count": 0,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 1000,
+    "token_used_quota": 0,
+    "user_used_quota": 0,
+    "wallet": 1000,
+    "wallet_batch_held_quota": 0
+  },
+  "hold_at_upstream": {
+    "channel_used_quota": 0,
+    "request_count": 0,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 900,
+    "token_used_quota": 100,
+    "user_used_quota": 0,
+    "wallet": 900,
+    "wallet_batch_held_quota": 0
+  },
+  "relay_logs": [
+    {
+      "channel": 1,
+      "channel_name": "",
+      "completion_tokens": 0,
+      "content": "status_code=400, fixture upstream rejected",
+      "created_at": "__number__",
+      "group": "default",
+      "id": 1,
+      "ip": "",
+      "is_stream": false,
+      "model_name": "billing-contract-model",
+      "other": {
+        "admin_info": {
+          "use_channel": [
+            "1"
+          ]
+        },
+        "error_code": "fixture_rejected",
+        "error_type": "openai_error",
+        "request_path": "/v1/chat/completions",
+        "status_code": 400
+      },
+      "prompt_tokens": 0,
+      "quota": 0,
+      "request_id": "billing-contract-request",
+      "token_id": 1,
+      "token_name": "billing-contract-token",
+      "type": 5,
+      "use_time": "__duration__",
+      "user_id": 1,
+      "username": "contract-user"
+    }
+  ],
+  "response": {
+    "body": {
+      "error": {
+        "code": "fixture_rejected",
+        "message": "fixture upstream rejected",
+        "param": "",
+        "type": "invalid_request_error"
+      }
+    },
+    "headers": {
+      "Content-Type": [
+        "application/json; charset=utf-8"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 400
+  },
+  "subscription_records": [],
+  "upstream_calls": 1
+}

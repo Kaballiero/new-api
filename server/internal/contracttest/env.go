@@ -5,6 +5,7 @@
 package contracttest
 
 import (
+	"context"
 	"flag"
 	"net/http"
 	"net/http/httptest"
@@ -46,6 +47,20 @@ type Env struct {
 	// UserPAT is a personal access token of User.
 	UserPAT string
 	UserID  int
+}
+
+// MountRelay adds the production relay routes, including their authentication
+// and distribution middleware. A stable request ID also pins errors that embed
+// the ID in their message; the upstream itself is supplied by the test channel.
+func (env *Env) MountRelay() {
+	env.engine.Use(func(c *gin.Context) {
+		const requestID = "billing-contract-request"
+		c.Set(common.RequestIdKey, requestID)
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), common.RequestIdKey, requestID))
+		c.Header(common.RequestIdKey, requestID)
+		c.Next()
+	})
+	router.SetRelayRouter(env.engine)
 }
 
 // Route mounts the production middleware under test without contacting upstreams.

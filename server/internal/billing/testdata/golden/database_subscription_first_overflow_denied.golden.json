@@ -1,0 +1,36 @@
+{
+  "final": {
+    "channel_used_quota": 0,
+    "request_count": 0,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 1000,
+    "token_used_quota": 0,
+    "user_used_quota": 0,
+    "wallet": 1000,
+    "wallet_batch_held_quota": 0
+  },
+  "hold_at_upstream": null,
+  "relay_logs": [],
+  "response": {
+    "body": {
+      "error": {
+        "code": "insufficient_user_quota",
+        "message": "订阅额度不足或未配置订阅: subscription quota insufficient, need=100 (request id: billing-contract-request)",
+        "param": "",
+        "type": "new_api_error"
+      }
+    },
+    "headers": {
+      "Content-Type": [
+        "application/json; charset=utf-8"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 403
+  },
+  "subscription_records": [],
+  "upstream_calls": 0
+}
