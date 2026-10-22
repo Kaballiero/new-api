@@ -6,9 +6,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -268,9 +268,9 @@ func AccessTokenAudit() gin.HandlerFunc {
 		if present {
 			_, internal, _ := service.ParseDashboardAccessToken(raw)
 			if !internal {
-				user, err := model.ValidateAccessToken(raw)
+				user, err := personalAccessTokenAuth().Execute(raw)
 				if err == nil && user != nil && user.Id > 0 {
-					beginAccessTokenAudit(c, user, raw)
+					beginAccessTokenAudit(c, user)
 					defer finishAccessTokenAudit(c)
 				}
 			}
@@ -279,14 +279,14 @@ func AccessTokenAudit() gin.HandlerFunc {
 	}
 }
 
-func beginAccessTokenAudit(c *gin.Context, user *model.User, token string) {
+func beginAccessTokenAudit(c *gin.Context, user *patdomain.Caller) {
 	if _, exists := c.Get(accessTokenAuditContextKey); exists {
 		return
 	}
 	writer := &auditResponseWriter{ResponseWriter: c.Writer, body: bytes.NewBuffer(nil), maxSize: 64 * 1024}
 	c.Writer = writer
 	c.Set(accessTokenAuditContextKey, &accessTokenRequestAudit{
-		entry:  model.AuditLog{UserId: user.Id, Username: user.Username, ActorRole: user.Role, Category: model.AuditCategoryAccessToken, AuthMethod: "access_token", TokenRef: model.AccessTokenFingerprint(token), CreatedAt: common.GetTimestamp(), EventId: common.NewRequestId()},
+		entry:  model.AuditLog{UserId: user.Id, Username: user.Username, ActorRole: user.Role, Category: model.AuditCategoryAccessToken, AuthMethod: "access_token", TokenRef: user.TokenRef, CreatedAt: common.GetTimestamp(), EventId: common.NewRequestId()},
 		writer: writer,
 	})
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -776,7 +777,7 @@ func verifyAPITokenAudit(t *testing.T) {
 					operation = &events[i]
 				} else {
 					assert.Equal(t, model.AuditCategoryAccessToken, events[i].Category)
-					assert.Equal(t, model.AccessTokenFingerprint(pat), events[i].TokenRef)
+					assert.Equal(t, patdomain.Fingerprint(pat), events[i].TokenRef)
 				}
 			}
 			require.NotNil(t, operation)
@@ -972,31 +973,6 @@ func TestAPIKeyCompatibilityDatabaseMatrix(t *testing.T) {
 				assert.Zero(t, total)
 				require.Error(t, model.DeleteTokenById(token.Id, token.UserId+1))
 				require.Error(t, model.DeleteTokenById(0, token.UserId))
-			})
-			t.Run("validation expiry and exhausted state", func(t *testing.T) {
-				loaded, err := model.ValidateUserToken(token.Key)
-				require.NoError(t, err)
-				assert.Equal(t, token.Id, loaded.Id)
-				token.ExpiredTime = 1
-				require.NoError(t, token.Update())
-				loaded, err = model.ValidateUserToken(token.Key)
-				require.ErrorIs(t, err, model.ErrTokenInvalid)
-				require.NotNil(t, loaded)
-				assert.Equal(t, common.TokenStatusExpired, loaded.Status)
-				require.NoError(t, db.First(&model.Token{}, token.Id).Error)
-				token.Status, token.ExpiredTime, token.RemainQuota = common.TokenStatusEnabled, -1, 0
-				require.NoError(t, token.Update())
-				loaded, err = model.ValidateUserToken(token.Key)
-				require.ErrorIs(t, err, model.ErrTokenInvalid)
-				require.NotNil(t, loaded)
-				assert.Equal(t, common.TokenStatusExhausted, loaded.Status)
-				persisted, err := model.GetTokenById(token.Id)
-				require.NoError(t, err)
-				assert.Equal(t, common.TokenStatusExhausted, persisted.Status)
-				token.Status, token.UnlimitedQuota = common.TokenStatusEnabled, true
-				require.NoError(t, token.Update())
-				_, err = model.ValidateUserToken(token.Key)
-				require.NoError(t, err)
 			})
 			t.Run("disable limits and owner deletion", func(t *testing.T) {
 				require.NoError(t, model.DisableModelLimits(token.Id))

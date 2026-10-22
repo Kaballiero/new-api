@@ -3,19 +3,21 @@ package controller
 import (
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/app/authentication"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetAPICustomCreateAndInitializeRetainsPAT(t *testing.T) {
@@ -250,7 +252,7 @@ func TestGetAPIPATSurvivesNativeBlockEnableAndIsDeniedWhileBlocked(t *testing.T)
 	require.Equal(t, oldPAT, enabled.GetAccessToken())
 	_, err = revokeUserAccessToken(envelope.Data.UserID)
 	require.NoError(t, err)
-	validated, err := model.ValidateAccessToken(oldPAT)
+	validated, err := authentication.NewPATAuth().Execute(oldPAT)
 	require.NoError(t, err)
 	assert.Nil(t, validated)
 	var revoked model.User

@@ -31,6 +31,7 @@ type Token struct {
 
 const (
 	StatusEnabled   = 1
+	StatusDisabled  = 2
 	StatusExpired   = 3
 	StatusExhausted = 4
 )

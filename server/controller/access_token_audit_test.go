@@ -13,10 +13,8 @@ import (
 	"testing"
 	"time"
 
-	sqlmysql "github.com/go-sql-driver/mysql"
-	"gorm.io/driver/clickhouse"
-
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/app/authentication"
 	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/get_status"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/revoke_token"
@@ -26,8 +24,10 @@ import (
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	sqlmysql "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -104,7 +104,7 @@ func TestAccessTokenLifecycleAndLateRequests(t *testing.T) {
 	require.Equal(t, 200, auditRequest(router, "POST", "/rotate-in-flight", old).Code)
 	status, err = userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, model.AccessTokenFingerprint("new-token"), status.TokenRef)
+	assert.Equal(t, patdomain.Fingerprint("new-token"), status.TokenRef)
 	assert.NotNil(t, status.CreatedAt)
 	assert.Nil(t, status.LastUsedAt, "in-flight old requests must not mark the new generation as used")
 	assert.Equal(t, 401, auditRequest(router, "GET", "/api/user/token/status", old).Code)
@@ -248,7 +248,7 @@ func TestAuditIsolationVisibilityAndFailureContracts(t *testing.T) {
 	model.DB.Callback().Update().Remove("audit:write-fail")
 	status, err := userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, model.AccessTokenFingerprint(pat), status.TokenRef)
+	assert.Equal(t, patdomain.Fingerprint(pat), status.TokenRef)
 }
 
 func TestAuditRoleVisibilityAndPermissions(t *testing.T) {
@@ -708,8 +708,8 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 					assert.Equal(t, upgrade, status.Exists)
 					assert.Nil(t, status.CreatedAt)
 					if upgrade {
-						assert.Equal(t, model.AccessTokenFingerprint("released-token"), status.TokenRef)
-						legacyUser, validationErr := model.ValidateAccessToken("released-token")
+						assert.Equal(t, patdomain.Fingerprint("released-token"), status.TokenRef)
+						legacyUser, validationErr := authentication.NewPATAuth().Execute("released-token")
 						require.NoError(t, validationErr)
 						require.NotNil(t, legacyUser)
 						var user model.User
@@ -722,7 +722,7 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 					require.NoError(t, model.UpdateUserAccessToken(1, "matrix-token"))
 					require.Error(t, db.Create(&model.User{Username: "duplicate", Password: "placeholder", AffCode: "duplicate-aff", AccessToken: common.GetPointer("matrix-token")}).Error, "PAT uniqueness must survive upgrade")
 					for _, timestamp := range []int64{101, 102, 103} {
-						model.RecordAuditLog(nil, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "owner", CreatedAt: timestamp, Category: model.AuditCategoryAccessToken, TokenRef: model.AccessTokenFingerprint("matrix-token"), Ip: "192.0.2.1", Success: timestamp != 102})
+						model.RecordAuditLog(nil, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "owner", CreatedAt: timestamp, Category: model.AuditCategoryAccessToken, TokenRef: patdomain.Fingerprint("matrix-token"), Ip: "192.0.2.1", Success: timestamp != 102})
 					}
 					first, total, err := model.GetAuditLogs(model.AuditLogFilter{UserId: 1}, 0, 2, common.RoleCommonUser)
 					require.NoError(t, err)
@@ -805,7 +805,7 @@ func TestIndependentAuditLogStores(t *testing.T) {
 					assert.Equal(t, "retained historical login", old.Content)
 				}
 				require.NoError(t, model.UpdateUserAccessToken(1, "independent-pat"))
-				model.RecordAuditLog(nil, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "independent", Category: model.AuditCategoryAccessToken, TokenRef: model.AccessTokenFingerprint("independent-pat"), Ip: "192.0.2.8", Success: false, Status: 403})
+				model.RecordAuditLog(nil, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "independent", Category: model.AuditCategoryAccessToken, TokenRef: patdomain.Fingerprint("independent-pat"), Ip: "192.0.2.8", Success: false, Status: 403})
 				entries, total, err := model.GetAuditLogs(model.AuditLogFilter{UserId: 1}, 0, 20, common.RoleAdminUser)
 				require.NoError(t, err)
 				assert.EqualValues(t, 1, total)
@@ -883,11 +883,11 @@ func TestPersonalAccessTokenRevocationRollsBackOnWriteFailure(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.Callback().Update().Remove("pat:fail_revoke")) })
 	ref, err := revokeUserAccessToken(user.Id)
 	require.ErrorIs(t, err, writeFailure)
-	assert.Equal(t, model.AccessTokenFingerprint(token), ref, "the Go API retains the attempted generation reference on failure")
+	assert.Equal(t, patdomain.Fingerprint(token), ref, "the Go API retains the attempted generation reference on failure")
 	after, err := userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, before, after, "a failed revoke must retain the original PAT and creation time")
-	loaded, err := model.ValidateAccessToken(token)
+	loaded, err := authentication.NewPATAuth().Execute(token)
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	assert.Equal(t, user.Id, loaded.Id)

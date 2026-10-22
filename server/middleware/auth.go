@@ -2,23 +2,16 @@ package middleware
 
 import (
 	"errors"
-	"fmt"
-	"net"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/logger"
+	record "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
+	"github.com/QuantumNous/new-api/internal/apikeys/validate_key"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
-
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -171,14 +164,14 @@ func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthI
 		}
 		return user, identity, dashboardCredentialInternal, nil
 	}
-	patUser, err := model.ValidateAccessToken(raw)
+	patUser, err := personalAccessTokenAuth().Execute(raw)
 	if err != nil {
 		return nil, service.AuthIdentity{}, dashboardCredentialPAT, err
 	}
 	if patUser == nil || patUser.Id <= 0 {
 		return nil, service.AuthIdentity{}, dashboardCredentialUnmatched, nil
 	}
-	beginAccessTokenAudit(c, patUser, raw)
+	beginAccessTokenAudit(c, patUser)
 	user, err := model.GetUserCache(patUser.Id)
 	if err != nil {
 		return nil, service.AuthIdentity{}, dashboardCredentialPAT, err
@@ -281,86 +274,34 @@ func TokenOrUserAuth() func(c *gin.Context) {
 	}
 }
 
-// TokenAuthReadOnly 宽松版本的令牌认证中间件，用于只读查询接口。
-// 只验证令牌 key 是否存在，不检查令牌状态、过期时间和额度。
-// 即使令牌已过期、已耗尽或已禁用，也允许访问。
-// 仍然检查用户是否被封禁。
+// TokenAuthReadOnly allows expired and exhausted keys to read their usage.
+// Explicitly disabled keys and banned owners remain rejected.
 func TokenAuthReadOnly() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		key := c.Request.Header.Get("Authorization")
+		key := c.GetHeader("Authorization")
 		if key == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"message": common.TranslateMessage(c, i18n.MsgTokenNotProvided),
-			})
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgTokenNotProvided)})
 			return
 		}
 		if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
 			key = strings.TrimSpace(key[7:])
 		}
-		key = strings.TrimPrefix(key, "sk-")
-		parts := strings.Split(key, "-")
-		key = parts[0]
-
-		token, err := model.GetTokenByKey(key, false)
+		key = strings.Split(strings.TrimPrefix(key, "sk-"), "-")[0]
+		caller, err := gatewayKeyAuth().Execute(c, validate_key.Input{Key: key, ReadOnly: true})
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				c.JSON(http.StatusUnauthorized, gin.H{
-					"success": false,
-					"message": common.TranslateMessage(c, i18n.MsgTokenInvalid),
-				})
-			} else {
-				common.SysLog("TokenAuthReadOnly GetTokenByKey database error: " + err.Error())
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"message": common.TranslateMessage(c, i18n.MsgDatabaseError),
-				})
-			}
-			c.Abort()
+			writeGatewayKeyError(c, err, true)
 			return
 		}
-
-		// TokenAuthReadOnly must keep allowing other token states to query read-only
-		// data, such as token usage logs; only explicitly disabled tokens are denied.
-		if token.Status == common.TokenStatusDisabled {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"message": common.TranslateMessage(c, i18n.MsgTokenStatusUnavailable),
-			})
-			c.Abort()
-			return
-		}
-
-		userCache, err := model.GetUserCache(token.UserId)
-		if err != nil {
-			common.SysLog(fmt.Sprintf("TokenAuthReadOnly GetUserCache error for user %d: %v", token.UserId, err))
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": common.TranslateMessage(c, i18n.MsgDatabaseError),
-			})
-			c.Abort()
-			return
-		}
-		if userCache.Status != common.UserStatusEnabled {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": common.TranslateMessage(c, i18n.MsgAuthUserBanned),
-			})
-			c.Abort()
-			return
-		}
-
-		c.Set("id", token.UserId)
-		c.Set("token_id", token.Id)
-		c.Set("token_key", token.Key)
+		c.Set("id", caller.Token.UserId)
+		c.Set("token_id", caller.Token.Id)
+		c.Set("token_key", caller.Token.Key)
 		c.Next()
 	}
 }
 
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		// 先检测是否为ws
+		// Read a realtime key from the WebSocket subprotocol.
 		if c.Request.Header.Get("Sec-WebSocket-Protocol") != "" {
 			// Sec-WebSocket-Protocol: realtime, openai-insecure-api-key.sk-xxx, openai-beta.realtime-v1
 			// read sk from Sec-WebSocket-Protocol
@@ -375,14 +316,14 @@ func TokenAuth() func(c *gin.Context) {
 			}
 			c.Request.Header.Set("Authorization", "Bearer "+key)
 		}
-		// 检查path包含/v1/messages 或 /v1/models
+		// Anthropic-compatible paths also accept x-api-key.
 		if strings.Contains(c.Request.URL.Path, "/v1/messages") || strings.Contains(c.Request.URL.Path, "/v1/models") {
 			anthropicKey := c.Request.Header.Get("x-api-key")
 			if anthropicKey != "" {
 				c.Request.Header.Set("Authorization", "Bearer "+anthropicKey)
 			}
 		}
-		// gemini api 从query中获取key
+		// Gemini-compatible paths accept query and Google header keys.
 		if c.Request.URL.Path == "/v1/models" ||
 			strings.HasPrefix(c.Request.URL.Path, "/v1beta/models") ||
 			strings.HasPrefix(c.Request.URL.Path, "/v1beta/openai/models") ||
@@ -391,7 +332,7 @@ func TokenAuth() func(c *gin.Context) {
 			if skKey != "" {
 				c.Request.Header.Set("Authorization", "Bearer "+skKey)
 			}
-			// 从x-goog-api-key header中获取key
+			// The Google header overrides the query key.
 			xGoogKey := c.Request.Header.Get("x-goog-api-key")
 			if xGoogKey != "" {
 				c.Request.Header.Set("Authorization", "Bearer "+xGoogKey)
@@ -415,131 +356,32 @@ func TokenAuth() func(c *gin.Context) {
 			parts = strings.Split(key, "-")
 			key = parts[0]
 		}
-		token, err := model.ValidateUserToken(key)
-		if token != nil {
-			id := c.GetInt("id")
-			if id == 0 {
-				c.Set("id", token.UserId)
-			}
+		var channel *string
+		if len(parts) > 1 {
+			channel = &parts[1]
 		}
+		caller, err := gatewayKeyAuth().Execute(c, validate_key.Input{Key: key, ClientIP: c.ClientIP(), Channel: channel})
+		writeGatewayCaller(c, caller)
 		if err != nil {
-			if errors.Is(err, model.ErrDatabase) {
-				common.SysLog("TokenAuth ValidateUserToken database error: " + err.Error())
-				abortWithOpenAiMessage(c, http.StatusInternalServerError,
-					common.TranslateMessage(c, i18n.MsgDatabaseError))
-			} else {
-				abortWithOpenAiMessage(c, http.StatusUnauthorized,
-					common.TranslateMessage(c, i18n.MsgTokenInvalid))
-			}
-			return
-		}
-
-		allowIps := token.GetIpLimits()
-		if len(allowIps) > 0 {
-			clientIp := c.ClientIP()
-			logger.LogDebug(c, "Token has IP restrictions, checking client IP %s", clientIp)
-			ip := net.ParseIP(clientIp)
-			if ip == nil {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "Unable to parse client IP address")
-				return
-			}
-			if common.IsIpInCIDRList(ip, allowIps) == false {
-				abortWithOpenAiMessage(c, http.StatusForbidden, "Your IP is not in the allowed IP list for this token", types.ErrorCodeAccessDenied)
-				return
-			}
-			logger.LogDebug(c, "Client IP %s passed the token IP restrictions check", clientIp)
-		}
-
-		userCache, err := model.GetUserCache(token.UserId)
-		if err != nil {
-			common.SysLog(fmt.Sprintf("TokenAuth GetUserCache error for user %d: %v", token.UserId, err))
-			abortWithOpenAiMessage(c, http.StatusInternalServerError,
-				common.TranslateMessage(c, i18n.MsgDatabaseError))
-			return
-		}
-		userEnabled := userCache.Status == common.UserStatusEnabled
-		if !userEnabled {
-			abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgAuthUserBanned))
-			return
-		}
-
-		userCache.WriteContext(c)
-
-		userGroup := userCache.Group
-		tokenGroup := token.Group
-		if tokenGroup != "" {
-			// check common.UserUsableGroups[userGroup]
-			if _, ok := service.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
-				abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("No permission to access group %s", tokenGroup))
-				return
-			}
-			// check group in common.GroupRatio
-			if !ratio_setting.ContainsGroupRatio(tokenGroup) {
-				if tokenGroup != "auto" {
-					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("Group %s has been deprecated", tokenGroup))
-					return
-				}
-			}
-			userGroup = tokenGroup
-		}
-		common.SetContextKey(c, constant.ContextKeyUsingGroup, userGroup)
-
-		err = SetupContextForToken(c, token, parts...)
-		if err != nil {
+			writeGatewayKeyError(c, err, false)
 			return
 		}
 		c.Next()
 	}
 }
 
+// BRIDGE: controller/playground.go and legacy context tests use a trusted key.
 func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) error {
-	if token == nil {
-		return fmt.Errorf("token is nil")
-	}
-	c.Set("id", token.UserId)
-	c.Set("token_id", token.Id)
-	c.Set("token_key", token.Key)
-	c.Set("token_name", token.Name)
-	c.Set("token_unlimited_quota", token.UnlimitedQuota)
-	if !token.UnlimitedQuota {
-		c.Set("token_quota", token.RemainQuota)
-	}
-	if token.ModelLimitsEnabled {
-		c.Set("token_model_limit_enabled", true)
-		c.Set("token_model_limit", token.GetModelLimitsMap())
-	} else {
-		c.Set("token_model_limit_enabled", false)
-	}
-	common.SetContextKey(c, constant.ContextKeyTokenGroup, token.Group)
-	common.SetContextKey(c, constant.ContextKeyTokenCrossGroupRetry, token.CrossGroupRetry)
-	if token.AutoGroups != "" {
-		autoGroups, err := token.GetAutoGroups()
-		if err != nil {
-			common.SysError(fmt.Sprintf("failed to parse auto groups for token %d: %v", token.Id, err))
-			autoGroups = []string{}
-			common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, autoGroups)
-		} else if len(autoGroups) > 0 {
-			common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, autoGroups)
-		}
-	}
+	var channel *string
 	if len(parts) > 1 {
-		if model.IsAdmin(token.UserId) {
-			id, err := strconv.Atoi(parts[1])
-			if err != nil {
-				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidChannelId))
-				return fmt.Errorf("invalid specific channel id")
-			}
-			service.GetChannelConstraints(c).AddPin(dto.ChannelPin{
-				ChannelId: id,
-				Source:    dto.PinSourceToken,
-				Rank:      dto.PinRankToken,
-				RetryMode: dto.PinRetrySingleAttempt,
-			})
-		} else {
-			c.Header("specific_channel_version", "701e3ae1dc3f7975556d354e0675168d004891c8")
-			abortWithOpenAiMessage(c, http.StatusForbidden, "Specifying a channel is not supported for regular users")
-			return fmt.Errorf("Specifying a channel is not supported for regular users")
-		}
+		channel = &parts[1]
 	}
-	return nil
+	result, err := gatewayKeyAuth().PrepareContext(validate_key.ContextInput{Token: record.ToDomain((*record.Token)(token)), Channel: channel})
+	if result != nil {
+		writeGatewayTokenContext(c, result)
+	}
+	if err != nil && result != nil {
+		writeGatewayKeyError(c, err, false)
+	}
+	return err
 }

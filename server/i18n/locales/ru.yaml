@@ -420,3 +420,9 @@ channel.model_update_add_samples: "Примеры добавленных мод�
 channel.model_update_remove_samples: "Примеры удалённых моделей (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_failed_ids: "ID каналов с ошибками (показано {{.Shown}}/{{.Total}}): {{.IDs}}"
 channel.model_update_omitted: " (ещё {{.Count}} не показано)"
+
+gateway.ip_invalid: "Не удалось разобрать IP-адрес клиента"
+gateway.ip_denied: "Ваш IP-адрес отсутствует в списке разрешённых для этого токена"
+gateway.group_forbidden: "Нет разрешения на доступ к группе {{.Group}}"
+gateway.group_deprecated: "Группа {{.Group}} больше не поддерживается"
+gateway.channel_forbidden: "Обычные пользователи не могут указывать канал"

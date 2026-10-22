@@ -24,6 +24,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/app/authentication"
+	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
@@ -144,7 +146,7 @@ func TestSecurityEnrollmentAccessTokenRequiresProofBeforeMutation(t *testing.T) 
 			assert.Equal(t, http.StatusForbidden, response.Code)
 			assert.False(t, body.Success)
 			assert.Equal(t, "SECURITY_PROOF_REQUIRED", body.Code)
-			stored, err := model.ValidateAccessToken("existing-system-token")
+			stored, err := authentication.NewPATAuth().Execute("existing-system-token")
 			require.NoError(t, err)
 			require.NotNil(t, stored)
 			assert.Equal(t, user.Id, stored.Id)
@@ -247,12 +249,12 @@ func TestSecurityEnrollmentAccessTokenLifecycleConsumesProofs(t *testing.T) {
 		assert.GreaterOrEqual(t, len(token), 28)
 		assert.LessOrEqual(t, len(token), 32)
 		assert.NotEqual(t, previousToken, token)
-		stored, err := model.ValidateAccessToken(token)
+		stored, err := authentication.NewPATAuth().Execute(token)
 		require.NoError(t, err)
 		require.NotNil(t, stored)
 		assert.Equal(t, user.Id, stored.Id)
-		assert.Equal(t, model.AccessTokenFingerprint(token), model.AccessTokenFingerprint(stored.GetAccessToken()))
-		oldUser, err := model.ValidateAccessToken(previousToken)
+		assert.Equal(t, patdomain.Fingerprint(token), stored.TokenRef)
+		oldUser, err := authentication.NewPATAuth().Execute(previousToken)
 		assert.Nil(t, oldUser)
 		require.NoError(t, err)
 		response = securityEnrollmentRequest(method, "/api/user/token", "", proof.ProofToken, identity, GenerateAccessToken)
@@ -267,7 +269,7 @@ func TestSecurityEnrollmentAccessTokenLifecycleConsumesProofs(t *testing.T) {
 	stored, err := model.GetUserById(user.Id, true)
 	require.NoError(t, err)
 	assert.Empty(t, stored.GetAccessToken())
-	revokedUser, err := model.ValidateAccessToken(previousToken)
+	revokedUser, err := authentication.NewPATAuth().Execute(previousToken)
 	require.NoError(t, err)
 	assert.Nil(t, revokedUser)
 	response = securityEnrollmentRequest("DELETE", "/api/user/token", "", proof, identity, RevokeAccessToken)
@@ -313,7 +315,7 @@ func TestSecurityEnrollmentAccessTokenRejectsInvalidProofs(t *testing.T) {
 				response := securityEnrollmentRequest(endpoint.method, "/api/user/token", "", proof, requestIdentity, endpoint.handler)
 				assert.Equal(t, http.StatusForbidden, response.Code)
 				assert.Contains(t, response.Body.String(), code)
-				stored, err := model.ValidateAccessToken("unchanged-token")
+				stored, err := authentication.NewPATAuth().Execute("unchanged-token")
 				require.NoError(t, err)
 				require.NotNil(t, stored)
 				assert.Equal(t, user.Id, stored.Id)
@@ -344,7 +346,7 @@ func TestSecurityEnrollmentAccessTokenFailureDoesNotRestoreProof(t *testing.T) {
 		response = securityEnrollmentRequest(endpoint.method, "/api/user/token", "", proof, identity, endpoint.handler)
 		assert.Contains(t, response.Body.String(), `"code":"SECURITY_PROOF_CONSUMED"`)
 	}
-	stored, err := model.ValidateAccessToken("unchanged-token")
+	stored, err := authentication.NewPATAuth().Execute("unchanged-token")
 	require.NoError(t, err)
 	require.NotNil(t, stored)
 	assert.Equal(t, user.Id, stored.Id)

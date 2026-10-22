@@ -35,12 +35,13 @@
 | 22 | `channels/search_channels` | Загружает все совпадения (в режиме тегов — все каналы каждого тега), фильтрует по статусу и типу и пагинирует в памяти |
 | 23 | `channels/update_channels_balances`, `run_channel_tests` | Загружают все каналы с ключами одним запросом (`GetAllChannels(0, 0, true, false)`) |
 | 24 | `channels` уведомления без запроса | Язык root читается отдельным запросом `GetRootUser` перед каждым уведомлением; `NotifyRootUser` читает root ещё раз |
+| 25 | `personal_access_tokens/validate_token`, dashboard `AccessTokenAudit` + auth | Один PAT проверяется отдельным SQL-чтением в общем аудите и ещё раз в auth; при отзыве между чтениями аудит и результат аутентификации могут относиться к разным моментам. Отдельно спроектировать переиспользование проверенного результата в запросе с явной гарантией отзыва; изменятся число/момент чтений, поэтому wave 2a сохраняет оба вызова |
 
 ## Архитектурный долг
 
 Текущий список — `server/internal/architecture_known_violations_test.go` (только сокращается). Крупные пункты:
 
-- **`model` и `service` создают usecase'ы и импортируют `internal`** (`legacy-imports-internal`): apikeys (`model/token.go`: `type Token record.Token`, `ValidateUserToken`, `SearchUserTokens`, `DisableModelLimits`, `DeleteTokenById`, `sanitizeLikePattern`), accounts, catalog (24 записи), identity (сессии и проверки в `service/*`), PAT (`NewPersonalAccessTokenPersistence` из-за приватного `lockForUpdate`; `AccessTokenFingerprint` для `middleware.AccessTokenAudit`). Разбирается вместе с волной шлюза: `middleware` не может импортировать `internal/app`, потому что `app` импортирует `middleware`.
+- **`model` и `service` создают usecase'ы и импортируют `internal`** (`legacy-imports-internal`): apikeys (`model/token.go`: `type Token record.Token`, `SearchUserTokens`, `DisableModelLimits`, `DeleteTokenById`, `sanitizeLikePattern`), accounts, catalog (24 записи), identity (сессии и проверки в `service/*`), PAT (`NewPersonalAccessTokenPersistence` из-за приватного `lockForUpdate`). Разбирается вместе с волной шлюза: `middleware` не может импортировать `internal/app`, потому что `app` импортирует `middleware`.
 - **`service/authz` (14 записей)**: сборка не может переехать в `app`, пока `middleware.RequirePermission` вызывает `authz.Can`.
 - **`catalog/domain` импортирует `common`** (`common.Marshal` для хешей версий, `UnmarshalJsonStr`) — 1 domain-transitive + 26 usecase-transitive записей. Нужен общий подход к JSON в `domain`; та же проблема у channels и pricing.
 - **accounts**: usecase-transitive у `adjust_quota`, `transfer_affiliate_quota` (импорт `common`), `get_profile`, `update_notification_preferences`, `update_profile`, `dto` (relaykit `UserSetting`).

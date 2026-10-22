@@ -3,7 +3,6 @@ package model
 import (
 	"context"
 	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
-	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 
 	"fmt"
 	"strings"
@@ -56,8 +55,6 @@ type AuditLogFilter struct {
 	EndTimestamp    int64
 	Success         *bool
 }
-
-func AccessTokenFingerprint(token string) string { return patdomain.Fingerprint(token) }
 
 // RecordAuditLog captures safe request metadata only; raw URLs, query strings,
 // credentials and response/request bodies must never enter this table.

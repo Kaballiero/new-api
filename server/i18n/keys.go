@@ -486,3 +486,11 @@ const (
 	MsgChannelModelUpdateFailedIDs       = "channel.model_update_failed_ids"
 	MsgChannelModelUpdateOmitted         = "channel.model_update_omitted"
 )
+
+const (
+	MsgGatewayIPInvalid        = "gateway.ip_invalid"
+	MsgGatewayIPDenied         = "gateway.ip_denied"
+	MsgGatewayGroupForbidden   = "gateway.group_forbidden"
+	MsgGatewayGroupDeprecated  = "gateway.group_deprecated"
+	MsgGatewayChannelForbidden = "gateway.channel_forbidden"
+)

@@ -36,7 +36,8 @@
 | `reveal_keys_batch` | полные ключи пачкой (до 100 id), аудит `token.key_view_batch` | `POST /api/token/batch/keys` + `CriticalRateLimit`, `DisableCache` |
 | `get_key_usage` | остаток и расход квоты по самому ключу из `Authorization: Bearer sk-…` | `GET /api/usage/token/` + `CORS`, `CriticalRateLimit`, `TokenAuthReadOnly` |
 | `get_key_status` | сводка `credit_summary` по ключу | маршрута нет (как и в `origin/main`); обработчик `controller.GetTokenStatus` остаётся в OpenAPI-генераторе |
-| `validate_key` | проверка ключа шлюзом: существует, включён, не просрочен и не исчерпан; без Redis сохраняет статус expired/exhausted | без HTTP, через `model.ValidateUserToken` (`middleware.TokenAuth`) |
+| `validate_key` | проверка ключа и владельца, срока/квоты с прежней записью статуса, IP, группы, ограничений моделей и pin канала; возвращает типизированный `Caller` | `TokenAuth`, ключевая ветка `TokenOrUserAuth`; `TokenAuthReadOnly` допускает expired/exhausted, но отклоняет disabled |
+| `validate_key.PrepareContext` | контекст доверенного временного ключа playground, включая auto-группы и pin; те же правила, что у ключа шлюза | мост `middleware.SetupContextForToken` для `controller/playground.go` |
 | `disable_model_limits` | снимает ограничения по моделям у ключа | без HTTP, через `model.DisableModelLimits` |
 | `delete_owned_key` | удаляет ключ владельца по id | без HTTP, через `model.DeleteTokenById` |
 
@@ -51,7 +52,9 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/apikeys.go`) берёт ко�
 
 ## Зависимости
 
-- Чужие `domain` модуль не импортирует.
+- Чужие `domain` модуль не импортирует. `domain.Caller`, `Owner`, `KeyContext` не содержат Gin/ORM/relay-типы.
+- Gateway-сборка — `internal/app/authentication/apikeys.go`; узкий пакет сборки не импортирует middleware и предотвращает цикл с прежним `app`. `middleware.gatewayKeyAuth` держит её один раз через `sync.OnceValue`; настройки/БД читаются при запросе.
+- `internal/adapter/apikeys.Authentication` адаптирует прежние кэш/хранилище, снимок владельца, admin-проверку и декодирование auto-групп; бизнес-проверки находятся в сценарии.
 - Сборка — `internal/app/apikeys.go`, один раз через `sync.OnceValue` в `controller/token.go`.
 - Хранение: `internal/adapter/gorm/apikeys` (`Store`) поверх `internal/adapter/gorm/apikeys/record` (GORM-запись `tokens`, кэш-fence при записи, чтение по ключу через Redis-кэш).
 - Настройки: `internal/adapter/settings/apikeys` (`MaxQuota`), `operation_setting.GetMaxUserTokens`, `setting.GetMaxTokenAutoGroups`.
@@ -62,10 +65,13 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/apikeys.go`) берёт ко�
 ## Границы и долг
 
 - Модулю не принадлежат списание и возврат квоты ключа (`model.IncreaseTokenQuota` / `DecreaseTokenQuota`, batch updater) и кэш ключей в Redis — это часть биллинга шлюза, они остаются в `model`.
-- ⚠ `model/token.go` всё ещё импортирует `internal` (7 записей в списке исключений архитектурного теста):
+- ⚠ `model/token.go` всё ещё импортирует `internal` (6 записей в списке исключений архитектурного теста):
   - `type Token record.Token` — GORM-запись живёт в адаптере, а `model.Token` на неё ссылается;
-  - `model.ValidateUserToken`, `SearchUserTokens`, `DisableModelLimits`, `DeleteTokenById` создают usecase внутри `model`;
+  - `SearchUserTokens`, `DisableModelLimits`, `DeleteTokenById` создают usecase внутри `model`;
   - `sanitizeLikePattern` / `validateLikePattern` (их используют `model/log.go`, `model/topup.go`) берутся из `domain`.
 
-  Разбираем вместе с контрактом шлюза: `ValidateUserToken` и `GetTokenByKey` вызываются из relay-цепочки `middleware/`, а `middleware` не может импортировать `internal/app` (`app` сам импортирует `middleware`).
+  По решению архитектора wave 2a эти шесть зависимостей остаются вне scope. Удалён только импорт `validate_key`; `model.ValidateUserToken` и его stateful validation-адаптер удалены. `GetTokenByKey` остаётся общим техническим чтением для billing/batch; шлюз вызывает его только через адаптер сценария.
+- Мосты wave 2a: `middleware.gatewayKeyAuth` для прежних router-фабрик; `middleware.SetupContextForToken` для playground и существующих context-тестов. Оба помечены `BRIDGE`. Технические мосты `model.GetTokenByKey` (billing/batch/credential adapter) и `model.NewTokenPersistence` (mutation adapters/legacy) также отмечены `BRIDGE`. Контекст сохраняет прежние имена, типы и условность записей, включая частичное заполнение при отказе.
+- Ограничения моделей передаются сценарием в контекст; фактический запрошенный model по-прежнему проверяет `middleware.Distribute` до выбора канала.
+- HTTP goldens `gateway_*` записаны на `origin/main` `6b0f439a4`; тест не обращается к upstream. Это проверка контракта, не подтверждение работы провайдера.
 - Ошибки шаблона поиска (`ErrSearch*Wildcards`, `ErrSearchKeywordTooShort`) возвращает и `model.sanitizeLikePattern`, который используют поиск логов и пополнений. Там они уходят клиенту английским текстом ошибки без перевода, пока эти модули не перенесены.

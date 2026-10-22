@@ -30,8 +30,7 @@ var (
 	ErrFuzzySearchLimit           = errors.New("too many api keys for fuzzy search; use exact search without %")
 	ErrSearchFailed               = errors.New("failed to search api keys")
 
-	// Texts are shared with the legacy model.ErrTokenNotProvided and
-	// model.ErrTokenInvalid aliases.
+	// Credential validation errors are mapped at the gateway transport boundary.
 	ErrKeyNotProvided = errors.New("token not provided")
 	ErrKeyInvalid     = errors.New("token invalid")
 

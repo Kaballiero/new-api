@@ -2,29 +2,20 @@ package model
 
 import (
 	"errors"
-	"fmt"
 
+	"github.com/QuantumNous/new-api/common"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	"github.com/QuantumNous/new-api/internal/apikeys/delete_owned_key"
 	"github.com/QuantumNous/new-api/internal/apikeys/disable_model_limits"
 	keydomain "github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/apikeys/search_keys"
-	"github.com/QuantumNous/new-api/internal/apikeys/validate_key"
-
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 )
 
 type Token record.Token
-
-// Token auth errors are owned by the API keys domain.
-var (
-	ErrTokenNotProvided = keydomain.ErrKeyNotProvided
-	ErrTokenInvalid     = keydomain.ErrKeyInvalid
-)
 
 func (token *Token) GetAutoGroups() ([]string, error) {
 	if token.AutoGroups == "" {
@@ -104,18 +95,6 @@ func SearchUserTokens(userId int, keyword, token string, offset, limit int) ([]*
 	return out, result.Total, nil
 }
 
-func ValidateUserToken(key string) (*Token, error) {
-	store := record.NewValidation(func(key string) (*record.Token, error) {
-		t, err := GetTokenByKey(key, false)
-		return (*record.Token)(t), err
-	}, func(t *record.Token) error { return (*Token)(t).SelectUpdate() })
-	err := validate_key.NewUsecase(store, common.GetTimestamp, func() bool { return common.RedisEnabled }, common.SysLog).Execute(key)
-	if errors.Is(err, keydomain.ErrInternal) {
-		err = fmt.Errorf("%w: %v", ErrDatabase, errors.Unwrap(err))
-	}
-	return (*Token)(store.Token), err
-}
-
 func GetTokenByIds(id, userId int) (*Token, error) {
 	t, err := NewTokenPersistence().Get(id, userId)
 	return (*Token)(t), err
@@ -126,6 +105,7 @@ func GetTokenById(id int) (*Token, error) {
 	return (*Token)(t), err
 }
 
+// BRIDGE: billing, batch quota and the credential adapter share this cached read.
 func GetTokenByKey(key string, fromDB bool) (*Token, error) {
 	cache := record.KeyCache{
 		Enabled: func() bool { return common.RedisEnabled },
@@ -143,10 +123,6 @@ func (token *Token) Insert() error { return NewTokenPersistence().Insert((*recor
 
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (token *Token) Update() error { return NewTokenPersistence().Update((*record.Token)(token)) }
-
-func (token *Token) SelectUpdate() error {
-	return NewTokenPersistence().UpdateStatus((*record.Token)(token))
-}
 
 func (token *Token) Delete() error { return NewTokenPersistence().Delete((*record.Token)(token)) }
 
@@ -290,7 +266,7 @@ func invalidateTokensCache(tokens []Token) error {
 	return firstErr
 }
 
-// NewTokenPersistence supplies the legacy cache fence hooks to the technical adapter.
+// BRIDGE: API key adapters and legacy token mutations share cache fence hooks.
 func NewTokenPersistence() record.Store {
 	return record.NewStore(func() *gorm.DB { return DB }, func() string { return commonKeyCol }, invalidateTokenCacheForMutation, func(tokens []record.Token) error {
 		values := make([]Token, len(tokens))

@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
 	bindemail "github.com/QuantumNous/new-api/internal/accounts/bind_email"
 	"github.com/QuantumNous/new-api/internal/accounts/delete_account"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
@@ -11,17 +14,9 @@ import (
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/identity/password_login"
 	resetpassword "github.com/QuantumNous/new-api/internal/identity/reset_password"
-
-	"strings"
-
-	"github.com/QuantumNous/new-api/common"
-
 	"github.com/QuantumNous/new-api/relaykit/dto"
-
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
-
-	gormlogger "gorm.io/gorm/logger"
 )
 
 const UserNameMaxLength = 20
@@ -517,22 +512,6 @@ func IsAdmin(userId int) bool {
 		return false
 	}
 	return user.Role >= common.RoleAdminUser
-}
-
-func ValidateAccessToken(token string) (*User, error) {
-	if token == "" {
-		return nil, nil
-	}
-	token = strings.Replace(token, "Bearer ", "", 1)
-	user := &User{}
-	err := DB.Session(&gorm.Session{Logger: gormlogger.Default.LogMode(gormlogger.Silent)}).Where("access_token = ?", token).First(user).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("%w: %v", ErrDatabase, err)
-	}
-	return user, nil
 }
 
 // GetUserQuota gets quota from Redis first, falls back to DB if needed

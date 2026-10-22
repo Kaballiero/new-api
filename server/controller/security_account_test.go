@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/app/authentication"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/service"
@@ -152,7 +153,7 @@ func TestSecurityAccountDeletionAcceptsEitherFactorAndRevokesSessions(t *testing
 			count, err := model.CountActiveUserSessions(user.Id, time.Now().Unix())
 			require.NoError(t, err)
 			assert.Zero(t, count)
-			tokenUser, err := model.ValidateAccessToken("account-delete-access-token")
+			tokenUser, err := authentication.NewPATAuth().Execute("account-delete-access-token")
 			require.NoError(t, err)
 			assert.Nil(t, tokenUser)
 			var audit model.AuditLog

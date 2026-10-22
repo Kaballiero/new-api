@@ -420,3 +420,9 @@ channel.model_update_add_samples: "Added model samples (showing {{.Shown}}/{{.To
 channel.model_update_remove_samples: "Removed model samples (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_failed_ids: "Failed channel IDs (showing {{.Shown}}/{{.Total}}): {{.IDs}}"
 channel.model_update_omitted: " ({{.Count}} more omitted)"
+
+gateway.ip_invalid: "Unable to parse client IP address"
+gateway.ip_denied: "Your IP is not in the allowed IP list for this token"
+gateway.group_forbidden: "No permission to access group {{.Group}}"
+gateway.group_deprecated: "Group {{.Group}} has been deprecated"
+gateway.channel_forbidden: "Specifying a channel is not supported for regular users"

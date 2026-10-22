@@ -29,7 +29,7 @@
 |---|---|---|---|
 | 0 | Карта системы и roadmap | ✅ | нет |
 | 1 | Бизнес-модули панели: apikeys, accounts, catalog, authorization + PAT, identity, pricing, channels | ✅ (не слито в main) | — |
-| 2 | Граница шлюза: проверка ключа, billing, запись использования | ⬜ | высокий |
+| 2 | Граница шлюза: проверка ключа, billing, запись использования | 🔄 (2a реализована; проверки с ограничениями окружения) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ⬜ | средний |
 | 4 | Платежи, подписки, коды пополнения | ⬜ | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
@@ -60,15 +60,27 @@
 - [ ] Rebase на свежий main, полный прогон проверок.
 - [ ] PR. ⏳ Решение: PR на волну вместо одного PR в конце.
 
-## Волна 2 — граница шлюза ⬜
+## Волна 2 — граница шлюза 🔄
+
+### 2a — аутентификация credentials
+
+Реализация и HTTP baseline готовы. Итоговые ограничения проверок и коммитов — в отчёте wave 2a; полного подтверждения завершённости пока нет.
 
 Что шлюзу нужно от бизнеса — сценарии владельцев; код шлюза (`relay/`) остаётся снаружи `internal`.
 
-- [ ] Разбор: `middleware/auth.go` (`TokenAuth`, `TokenAuthReadOnly`, `TokenOrUserAuth`, `SetupContextForToken`), `model.ValidateUserToken`, `service/billing_session.go`, `funding_source.go`, `quota.go`, `text_quota.go`, `tiered_settle.go`, `billing_fx.go`, `model/quota_reserve.go`, запись логов потребления.
-- [ ] `apikeys`: проверка ключа для шлюза на сценарии `validate_key` → типизированный `Caller`; `TokenAuth` становится тонкой обёрткой (порядок поиска ключа и ошибки прежние; прежние ключи контекста сохраняются).
-- [ ] `personal_access_tokens`: сценарий проверки PAT вместо `model.ValidateAccessToken`.
+- [x] Разбор `TokenAuth`, `TokenAuthReadOnly`, `TokenOrUserAuth`, `SetupContextForToken`, потребителей чтения ключа и PAT.
+- [x] HTTP goldens всех источников ключа, отказов и типов контекста записаны на `origin/main` до переноса.
+- [x] `apikeys/validate_key` → типизированный `Caller`; middleware сохраняет порядок извлечения ключа, ответы и context keys. Read-only сохраняет фактический запрет disabled.
+- [x] `personal_access_tokens/validate_token` вместо `model.ValidateAccessToken` в auth и audit middleware.
+- [x] Удалены `model/token.go -> internal/apikeys/validate_key` и ставший неиспользуемым `model/audit_log.go -> personal_access_tokens/domain`; остальные существующие зависимости сохранены по решению архитектора.
+- [ ] Полный зелёный прогон, реальный PostgreSQL и предусмотренные коммиты (блокеры окружения указаны в отчёте).
+
+### 2b — billing
+
 - [ ] Новый модуль `billing`: `reserve`, `settle`, `refund`, `cost`; источник оплаты (кошелёк, подписка); Lua-скрипты резерва → `adapter/redis/billing`.
 - [ ] `BillingSession` без `*gin.Context`: шлюз вызывает сценарии `billing` через узкий интерфейс.
+### 2c — запись использования
+
 - [ ] Новый модуль `usage`: сценарий записи потребления (лог запроса), его вызывает шлюз.
 - [ ] Контрактные тесты: списание и возврат на типовых сценариях (обычный запрос, ошибка провайдера, подписка, realtime). ⏳ Подтвердить.
 

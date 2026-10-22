@@ -2,7 +2,7 @@
 
 ## Ответственность
 
-Модуль владеет персональным токеном доступа (PAT) пользователя к API панели управления: одно поколение токена на аккаунт (`users.access_token`, `users.access_token_created_at`), его выпуск, статус и отзыв.
+Модуль владеет персональным токеном доступа (PAT) пользователя к API панели управления: одно поколение токена на аккаунт (`users.access_token`, `users.access_token_created_at`), его выпуск, статус, отзыв и проверку при входе.
 
 Модуль отвечает за инварианты токена:
 - у аккаунта не больше одного действующего токена; выпуск заменяет предыдущее поколение;
@@ -24,8 +24,9 @@
 | `get_status` | есть ли токен, его отпечаток `token_ref`, время выпуска, время и IP последнего использования | `GET /api/user/token/status` |
 | `generate_token` | выпуск нового токена (29–32 символа) вместо прежнего, ответ — сам токен, аудит `access_token.generate` с `token_ref` | `GET` и `POST /api/user/token` + `CriticalRateLimit`, `UserCriticalRateLimit("access-token")`, повторная проверка `access_token.generate` |
 | `revoke_token` | отзыв токена, аудит `access_token.revoke` с `token_ref` (только если токен был) | `DELETE /api/user/token` + `CriticalRateLimit`, `UserCriticalRateLimit("access-token")`, повторная проверка `access_token.revoke` |
+| `validate_token` | нормализация PAT, живое чтение владельца; неизвестный/отозванный PAT → nil, сбой хранения → `domain.Internal`; возвращает `Caller` без секрета | проверка PAT в `middleware.UserAuth` / `TryUserAuth` и `AccessTokenAudit` |
 
-Аутентификация запросов по PAT (`middleware.UserAuth`, `model.ValidateAccessToken`) и запись аудита использования (`middleware.AccessTokenAudit`) модулю пока не принадлежат: они живут в `middleware/` и `model/`.
+Сценарий проверки PAT не проверяет dashboard-сессии и не заменяет последующие проверки статуса/роли владельца в middleware. Аудит использования остаётся в middleware и получает из сценария идентификатор, имя, роль и отпечаток токена.
 
 Ошибки сценариев — значения из `domain/errors.go`. Их переводит в HTTP общий `transport.WriteError`:
 - `ErrTokenDuplicate` (сгенерированный токен уже занят) → 200 `{success:false}` с i18n-сообщением `common.uuid_duplicate`;
@@ -37,17 +38,21 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/personal_access_tokens.go`) �
 ## Зависимости
 
 - Чужие `domain` модуль не импортирует.
+- Проверка PAT собирается в `internal/app/authentication/personal_access_tokens.go`; `middleware.personalAccessTokenAuth` создаёт её один раз через `sync.OnceValue` (BRIDGE для dashboard auth и аудита).
+- `internal/adapter/gorm/personal_access_tokens.Authentication` выполняет прежний поиск `users.access_token` с прежним подавлением SQL-логов; выборка и soft-delete semantics сохранены. Секрет не выходит из адаптера в результат сценария.
 - Сборка — `internal/app/personal_access_tokens.go`, один раз через `sync.OnceValue` в `controller/access_token.go`.
 - Хранение: `internal/adapter/gorm/personal_access_tokens` (`Store`) поверх GORM-записи `users` из `internal/adapter/gorm/accounts/record` и таблицы аудита; экземпляр создаёт `model.NewPersonalAccessTokenPersistence` (`model.DB`, `model.LOG_DB`, `lockForUpdate`).
 - Повторная проверка: `middleware.RequireSecurityProof` со скоупами `service.VerificationScopeAccessTokenGenerate` / `...Revoke`.
 - Ошибки операций безопасности: `internal/identity/transport` (`Writer.WriteError`, собирается `app.NewIdentityErrors`).
 - Аудит: `recordUserSecurityAudit` из `controller/audit.go`.
-- Потребители: `controller/access_token.go` (HTTP), `model/audit_log.go` (`AccessTokenFingerprint` для `middleware.AccessTokenAudit`).
+- Потребители: `controller/access_token.go` (HTTP), `middleware.AccessTokenAudit` (отпечаток из `Caller`).
 
 ## Границы и долг
 
-- Модулю не принадлежат аутентификация по PAT, аудит использования и чтение журнала аудита (`GET /api/audit*`, `controller.GetAuditLogs`).
-- ⚠ `model` всё ещё импортирует `internal` (2 записи в списке исключений архитектурного теста):
+- Модулю не принадлежат проверка dashboard-сессий, аудит использования и чтение журнала аудита (`GET /api/audit*`, `controller.GetAuditLogs`).
+- ⚠ `model` всё ещё импортирует `internal` (1 запись в списке исключений архитектурного теста):
   - `model/personal_access_tokens.go` → `adapter/gorm/personal_access_tokens`: `NewPersonalAccessTokenPersistence` нужен приватный `lockForUpdate`, а `UpdateUserAccessToken` используют тесты `model/` и `controller/`;
-  - `model/audit_log.go` → `personal_access_tokens/domain`: `AccessTokenFingerprint` для `middleware.AccessTokenAudit` (`middleware` не может импортировать `internal/app`).
+  - Неиспользуемый после переноса `model.AccessTokenFingerprint` удалён; тесты используют `domain.Fingerprint`, исключение `model/audit_log.go -> personal_access_tokens/domain` удалено.
 - Ошибки хранения и формат ответа 401/500 принадлежат identity (`identity/transport.Writer.WriteError`); модуль только передаёт их дальше.
+
+`model.ValidateAccessToken` удалён вместе с двумя production-потребителями; существующие controller-тесты обращаются к сценарию через сборку. Новых model→internal исключений нет. HTTP valid/invalid/revoked зафиксированы в контрактном тесте apikeys на origin/main.
