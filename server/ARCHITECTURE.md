@@ -100,17 +100,20 @@ client
 |---|---|
 | reserve → settle → refund, wallet/subscription fallback и token quota | `internal/billing`, [README](internal/billing/README.md) |
 | RelayInfo, request-local mutex, NewAPIError, Gin Refund | `relay/billing` |
-| прежние cost/task consumers | `service/billing.go`: один временный BillingLifecycle bridge, регистрация в `relay/billing.init`; root relay подключает gateway явно |
+| прежние cost/task consumers | `service/billing.go`: один временный BillingGateway bridge, регистрация в `relay/billing.init`; root relay подключает gateway явно |
 | durable Task и legacy Midjourney после отправки | `service/task_billing.go`, `service/midjourney.go` |
 | Batch holds и terminal settlement | `service/batch_billing.go`, `model/batch*`, `BatchHeldQuota` |
-| cost, tiered expressions, FX, consume logs | прежние `service/text_quota.go`, `tiered_settle.go`, `billing_fx.go`, `quota.go`, `pkg/billingexpr`, provider cost |
+| text/audio/realtime cost, tiered policy и FX | `internal/billing` cost-сценарии/domain; plain mapping в `relay/billing`, late settings и RAM FX в app/adapters |
+| consume log content/other и storage | `service.RecordTextCost`, `RecordAudioCost`, `RecordRealtimeCost` до 2c; получают готовые quota/facts |
+| expression engine и централизованная quota conversion | narrow adapters `internal/adapter/billing` → прежние `pkg/billingexpr`/`common`; чистая библиотека — волна 9 |
+| provider discovery и unknown/capability policy | `relay/channel/openrouter/cost.go`, вне переноса 2b2 |
 | атомарные reserve/delta primitives, Redis Lua, DB fallback и batch queue | `model/quota_reserve.go`, generic mutators; вызываются через `internal/adapter/gorm/billing` |
 
 Initial reserve и OpenRouter additional reserve проверяют available quota с held; ordinary top-up и terminal debit сохраняют legacy debt. Повторный terminal вызов не повторяет применённые leg; funding и token partial failures учитываются отдельно. Это не гарантия durable exact-once после падения процесса.
 
 Refund: синхронный terminal gate и прежняя async job; subscription initial refund до 3 попыток с 200/400 ms, wallet/token/extraReserved — по одной попытке. Notification policy принадлежит billing, доставка через adapter → прежний NotifyUser, язык получателя с English fallback.
 
-Общие model primitives не копируются и не импортируют новый модуль; их перенос в технические адаптеры отложен до волны 7. Расчёт стоимости — следующий шаг 2b2, durable tasks/batch — волна 5.
+Общие model primitives не копируются и не импортируют новый модуль; их перенос в технические адаптеры отложен до волны 7. Расчёт стоимости 2b2 выделен в пять action-пакетов; accepted bridge остаётся для service log orchestration, Batch/Task/Midjourney/violation и неизменных service WSS entrypoints до 2c / волны 5. Инициализация не зависит от main: gateway регистрирует единственную реализацию при linking; pricing composition использует billing FX scenario непосредственно. Host acceptance нового переноса ещё требуется.
 
 ## Таблицы БД
 
