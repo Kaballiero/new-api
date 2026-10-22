@@ -1,0 +1,7 @@
+{
+  "body": "{\"code\":\"invalid_params\",\"message\":\"invalid aggregate request: granularity must be one of hour, day, week, month\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 400
+}

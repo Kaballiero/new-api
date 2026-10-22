@@ -1,0 +1,7 @@
+{
+  "body": "{\"data\":[{\"token_id\":11,\"token_name\":\"read-token\",\"use_group\":\"paid\",\"model_name\":\"Model\",\"token_used\":154,\"count\":14,\"quota\":98},{\"token_id\":13,\"use_group\":\"paid\",\"model_name\":\"model\",\"token_used\":19,\"count\":2,\"quota\":17}],\"message\":\"\",\"success\":true}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

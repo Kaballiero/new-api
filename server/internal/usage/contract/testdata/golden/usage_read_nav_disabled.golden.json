@@ -1,0 +1,7 @@
+{
+  "body": "{\"message\":\"rankings is disabled\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 403
+}

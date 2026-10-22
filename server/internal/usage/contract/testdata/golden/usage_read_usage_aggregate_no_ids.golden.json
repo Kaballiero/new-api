@@ -1,0 +1,7 @@
+{
+  "body": "{\"code\":\"invalid_params\",\"message\":\"invalid aggregate request: user_ids must contain 1..100 positive integers\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 400
+}

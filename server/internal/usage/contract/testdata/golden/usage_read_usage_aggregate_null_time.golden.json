@@ -1,0 +1,7 @@
+{
+  "body": "{\"code\":\"invalid_params\",\"message\":\"invalid aggregate request: inclusive timestamps must be nonnegative safe integers in order\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 400
+}

@@ -1,0 +1,7 @@
+{
+  "body": "{\"data\":{\"page\":1,\"page_size\":10,\"total\":1,\"items\":[{\"id\":102,\"user_id\":1,\"created_at\":1706742001,\"type\":2,\"content\":\"\",\"username\":\"contract-user\",\"token_name\":\"read-token\",\"model_name\":\"Model\",\"quota\":2,\"prompt_tokens\":11,\"completion_tokens\":2,\"use_time\":0,\"is_stream\":false,\"channel\":11,\"channel_name\":\"read-channel\",\"token_id\":11,\"group\":\"paid\",\"ip\":\"\",\"request_id\":\"legacy\",\"upstream_request_id\":\"upstream-102\",\"other\":\"{\\\"admin_info\\\":{\\\"reject_reason\\\":\\\"legacy\\\"},\\\"channel_id\\\":11,\\\"channel_name\\\":\\\"secret\\\",\\\"channel_type\\\":1}\"}]},\"message\":\"\",\"success\":true}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

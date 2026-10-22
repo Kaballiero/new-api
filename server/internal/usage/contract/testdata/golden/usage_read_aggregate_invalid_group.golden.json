@@ -1,0 +1,7 @@
+{
+  "body": "{\"code\":\"invalid_params\",\"message\":\"invalid aggregate request: group_by must be time, model, time_model or user\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 400
+}

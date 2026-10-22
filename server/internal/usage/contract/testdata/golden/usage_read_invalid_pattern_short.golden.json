@@ -1,0 +1,7 @@
+{
+  "body": "{\"code\":\"internal_error\",\"message\":\"使用模糊搜索时，关键词长度至少为 2 个字符\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 500
+}

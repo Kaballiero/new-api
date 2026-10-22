@@ -1,0 +1,7 @@
+{
+  "body": "{\"data\":[{\"user_id\":1,\"quota\":216,\"count\":113,\"token_used\":276},{\"user_id\":2,\"quota\":23,\"count\":3,\"token_used\":29}],\"message\":\"\",\"success\":true}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

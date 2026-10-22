@@ -1,0 +1,598 @@
+{
+  "body": {
+    "data": {
+      "models": [
+        {
+          "category": "all",
+          "growth_pct": 200,
+          "model_name": "rank-00",
+          "previous_rank": 23,
+          "rank": 1,
+          "share": 0.0532,
+          "total_tokens": 3000,
+          "vendor": "Vendor-0",
+          "vendor_icon": "Icon-0"
+        },
+        {
+          "category": "all",
+          "growth_pct": 187.8049,
+          "model_name": "rank-01",
+          "previous_rank": 22,
+          "rank": 2,
+          "share": 0.0523,
+          "total_tokens": 2950,
+          "vendor": "Vendor-1",
+          "vendor_icon": "Icon-1"
+        },
+        {
+          "category": "all",
+          "growth_pct": 176.1905,
+          "model_name": "rank-02",
+          "previous_rank": 21,
+          "rank": 3,
+          "share": 0.0515,
+          "total_tokens": 2900,
+          "vendor": "Vendor-2",
+          "vendor_icon": "Icon-2"
+        },
+        {
+          "category": "all",
+          "growth_pct": 165.1163,
+          "model_name": "rank-03",
+          "previous_rank": 20,
+          "rank": 4,
+          "share": 0.0506,
+          "total_tokens": 2850,
+          "vendor": "Vendor-3",
+          "vendor_icon": "Icon-3"
+        },
+        {
+          "category": "all",
+          "growth_pct": 154.5455,
+          "model_name": "rank-04",
+          "previous_rank": 19,
+          "rank": 5,
+          "share": 0.0497,
+          "total_tokens": 2800,
+          "vendor": "Vendor-4",
+          "vendor_icon": "Icon-4"
+        },
+        {
+          "category": "all",
+          "growth_pct": 144.4444,
+          "model_name": "rank-05",
+          "previous_rank": 18,
+          "rank": 6,
+          "share": 0.0488,
+          "total_tokens": 2750,
+          "vendor": "Vendor-5",
+          "vendor_icon": "Icon-5"
+        },
+        {
+          "category": "all",
+          "growth_pct": 134.7826,
+          "model_name": "rank-06",
+          "previous_rank": 17,
+          "rank": 7,
+          "share": 0.0479,
+          "total_tokens": 2700,
+          "vendor": "Vendor-6",
+          "vendor_icon": "Icon-6"
+        },
+        {
+          "category": "all",
+          "growth_pct": 125.5319,
+          "model_name": "rank-07",
+          "previous_rank": 16,
+          "rank": 8,
+          "share": 0.047,
+          "total_tokens": 2650,
+          "vendor": "Vendor-0",
+          "vendor_icon": "Icon-0"
+        },
+        {
+          "category": "all",
+          "growth_pct": 116.6667,
+          "model_name": "rank-08",
+          "previous_rank": 15,
+          "rank": 9,
+          "share": 0.0461,
+          "total_tokens": 2600,
+          "vendor": "Vendor-1",
+          "vendor_icon": "Icon-1"
+        },
+        {
+          "category": "all",
+          "growth_pct": 108.1633,
+          "model_name": "rank-09",
+          "previous_rank": 14,
+          "rank": 10,
+          "share": 0.0452,
+          "total_tokens": 2550,
+          "vendor": "Vendor-2",
+          "vendor_icon": "Icon-2"
+        },
+        {
+          "category": "all",
+          "growth_pct": 100,
+          "model_name": "rank-10",
+          "previous_rank": 13,
+          "rank": 11,
+          "share": 0.0444,
+          "total_tokens": 2500,
+          "vendor": "Vendor-3",
+          "vendor_icon": "Icon-3"
+        },
+        {
+          "category": "all",
+          "growth_pct": 92.1569,
+          "model_name": "rank-11",
+          "previous_rank": 12,
+          "rank": 12,
+          "share": 0.0435,
+          "total_tokens": 2450,
+          "vendor": "Vendor-4",
+          "vendor_icon": "Icon-4"
+        },
+        {
+          "category": "all",
+          "growth_pct": 84.6154,
+          "model_name": "rank-12",
+          "previous_rank": 11,
+          "rank": 13,
+          "share": 0.0426,
+          "total_tokens": 2400,
+          "vendor": "Vendor-5",
+          "vendor_icon": "Icon-5"
+        },
+        {
+          "category": "all",
+          "growth_pct": 77.3585,
+          "model_name": "rank-13",
+          "previous_rank": 10,
+          "rank": 14,
+          "share": 0.0417,
+          "total_tokens": 2350,
+          "vendor": "Vendor-6",
+          "vendor_icon": "Icon-6"
+        },
+        {
+          "category": "all",
+          "growth_pct": 70.3704,
+          "model_name": "rank-14",
+          "previous_rank": 9,
+          "rank": 15,
+          "share": 0.0408,
+          "total_tokens": 2300,
+          "vendor": "Vendor-0",
+          "vendor_icon": "Icon-0"
+        },
+        {
+          "category": "all",
+          "growth_pct": 63.6364,
+          "model_name": "rank-15",
+          "previous_rank": 8,
+          "rank": 16,
+          "share": 0.0399,
+          "total_tokens": 2250,
+          "vendor": "Vendor-1",
+          "vendor_icon": "Icon-1"
+        },
+        {
+          "category": "all",
+          "growth_pct": 57.1429,
+          "model_name": "rank-16",
+          "previous_rank": 7,
+          "rank": 17,
+          "share": 0.039,
+          "total_tokens": 2200,
+          "vendor": "Vendor-2",
+          "vendor_icon": "Icon-2"
+        },
+        {
+          "category": "all",
+          "growth_pct": 50.8772,
+          "model_name": "rank-17",
+          "previous_rank": 6,
+          "rank": 18,
+          "share": 0.0381,
+          "total_tokens": 2150,
+          "vendor": "Vendor-3",
+          "vendor_icon": "Icon-3"
+        },
+        {
+          "category": "all",
+          "growth_pct": 44.8276,
+          "model_name": "rank-18",
+          "previous_rank": 5,
+          "rank": 19,
+          "share": 0.0373,
+          "total_tokens": 2100,
+          "vendor": "Vendor-4",
+          "vendor_icon": "Icon-4"
+        },
+        {
+          "category": "all",
+          "growth_pct": 38.9831,
+          "model_name": "rank-19",
+          "previous_rank": 4,
+          "rank": 20,
+          "share": 0.0364,
+          "total_tokens": 2050,
+          "vendor": "Vendor-5",
+          "vendor_icon": "Icon-5"
+        }
+      ],
+      "models_history": {
+        "buckets": 1,
+        "models": [
+          {
+            "name": "rank-00",
+            "total": 3000,
+            "vendor": "Vendor-0"
+          },
+          {
+            "name": "rank-01",
+            "total": 2950,
+            "vendor": "Vendor-1"
+          },
+          {
+            "name": "rank-02",
+            "total": 2900,
+            "vendor": "Vendor-2"
+          },
+          {
+            "name": "rank-03",
+            "total": 2850,
+            "vendor": "Vendor-3"
+          },
+          {
+            "name": "rank-04",
+            "total": 2800,
+            "vendor": "Vendor-4"
+          },
+          {
+            "name": "rank-05",
+            "total": 2750,
+            "vendor": "Vendor-5"
+          },
+          {
+            "name": "rank-06",
+            "total": 2700,
+            "vendor": "Vendor-6"
+          },
+          {
+            "name": "rank-07",
+            "total": 2650,
+            "vendor": "Vendor-0"
+          },
+          {
+            "name": "rank-08",
+            "total": 2600,
+            "vendor": "Vendor-1"
+          },
+          {
+            "name": "rank-09",
+            "total": 2550,
+            "vendor": "Vendor-2"
+          },
+          {
+            "name": "Others",
+            "total": 28607,
+            "vendor": "Various"
+          }
+        ],
+        "points": [
+          {
+            "model": "rank-00",
+            "tokens": 3000,
+            "vendor": "Vendor-0"
+          },
+          {
+            "model": "rank-01",
+            "tokens": 2950,
+            "vendor": "Vendor-1"
+          },
+          {
+            "model": "rank-02",
+            "tokens": 2900,
+            "vendor": "Vendor-2"
+          },
+          {
+            "model": "rank-03",
+            "tokens": 2850,
+            "vendor": "Vendor-3"
+          },
+          {
+            "model": "rank-04",
+            "tokens": 2800,
+            "vendor": "Vendor-4"
+          },
+          {
+            "model": "rank-05",
+            "tokens": 2750,
+            "vendor": "Vendor-5"
+          },
+          {
+            "model": "rank-06",
+            "tokens": 2700,
+            "vendor": "Vendor-6"
+          },
+          {
+            "model": "rank-07",
+            "tokens": 2650,
+            "vendor": "Vendor-0"
+          },
+          {
+            "model": "rank-08",
+            "tokens": 2600,
+            "vendor": "Vendor-1"
+          },
+          {
+            "model": "rank-09",
+            "tokens": 2550,
+            "vendor": "Vendor-2"
+          },
+          {
+            "model": "Others",
+            "tokens": 28607,
+            "vendor": "Various"
+          }
+        ]
+      },
+      "top_droppers": [
+        {
+          "current_rank": 23,
+          "growth_pct": 22.5806,
+          "model_name": "rank-22",
+          "rank_delta": -22,
+          "vendor": "Vendor-1",
+          "vendor_icon": "Icon-1"
+        },
+        {
+          "current_rank": 22,
+          "growth_pct": 27.8689,
+          "model_name": "rank-21",
+          "rank_delta": -20,
+          "vendor": "Vendor-0",
+          "vendor_icon": "Icon-0"
+        },
+        {
+          "current_rank": 21,
+          "growth_pct": 33.3333,
+          "model_name": "rank-20",
+          "rank_delta": -18,
+          "vendor": "Vendor-6",
+          "vendor_icon": "Icon-6"
+        },
+        {
+          "current_rank": 20,
+          "growth_pct": 38.9831,
+          "model_name": "rank-19",
+          "rank_delta": -16,
+          "vendor": "Vendor-5",
+          "vendor_icon": "Icon-5"
+        },
+        {
+          "current_rank": 19,
+          "growth_pct": 44.8276,
+          "model_name": "rank-18",
+          "rank_delta": -14,
+          "vendor": "Vendor-4",
+          "vendor_icon": "Icon-4"
+        },
+        {
+          "current_rank": 18,
+          "growth_pct": 50.8772,
+          "model_name": "rank-17",
+          "rank_delta": -12,
+          "vendor": "Vendor-3",
+          "vendor_icon": "Icon-3"
+        }
+      ],
+      "top_movers": [
+        {
+          "current_rank": 1,
+          "growth_pct": 200,
+          "model_name": "rank-00",
+          "rank_delta": 22,
+          "vendor": "Vendor-0",
+          "vendor_icon": "Icon-0"
+        },
+        {
+          "current_rank": 2,
+          "growth_pct": 187.8049,
+          "model_name": "rank-01",
+          "rank_delta": 20,
+          "vendor": "Vendor-1",
+          "vendor_icon": "Icon-1"
+        },
+        {
+          "current_rank": 3,
+          "growth_pct": 176.1905,
+          "model_name": "rank-02",
+          "rank_delta": 18,
+          "vendor": "Vendor-2",
+          "vendor_icon": "Icon-2"
+        },
+        {
+          "current_rank": 4,
+          "growth_pct": 165.1163,
+          "model_name": "rank-03",
+          "rank_delta": 16,
+          "vendor": "Vendor-3",
+          "vendor_icon": "Icon-3"
+        },
+        {
+          "current_rank": 5,
+          "growth_pct": 154.5455,
+          "model_name": "rank-04",
+          "rank_delta": 14,
+          "vendor": "Vendor-4",
+          "vendor_icon": "Icon-4"
+        },
+        {
+          "current_rank": 6,
+          "growth_pct": 144.4444,
+          "model_name": "rank-05",
+          "rank_delta": 12,
+          "vendor": "Vendor-5",
+          "vendor_icon": "Icon-5"
+        }
+      ],
+      "vendor_share_history": {
+        "buckets": 1,
+        "points": [
+          {
+            "share": 0.1757,
+            "tokens": 9900,
+            "vendor": "Vendor-0"
+          },
+          {
+            "share": 0.1721,
+            "tokens": 9700,
+            "vendor": "Vendor-1"
+          },
+          {
+            "share": 0.1357,
+            "tokens": 7650,
+            "vendor": "Vendor-2"
+          },
+          {
+            "share": 0.1331,
+            "tokens": 7500,
+            "vendor": "Vendor-3"
+          },
+          {
+            "share": 0.1304,
+            "tokens": 7350,
+            "vendor": "Vendor-4"
+          },
+          {
+            "share": 0.253,
+            "tokens": 14257,
+            "vendor": "Others"
+          }
+        ],
+        "vendors": [
+          {
+            "name": "Vendor-0",
+            "share": 0.1757,
+            "total": 9900
+          },
+          {
+            "name": "Vendor-1",
+            "share": 0.1721,
+            "total": 9700
+          },
+          {
+            "name": "Vendor-2",
+            "share": 0.1357,
+            "total": 7650
+          },
+          {
+            "name": "Vendor-3",
+            "share": 0.1331,
+            "total": 7500
+          },
+          {
+            "name": "Vendor-4",
+            "share": 0.1304,
+            "total": 7350
+          },
+          {
+            "name": "Others",
+            "share": 0.253,
+            "total": 14257
+          }
+        ]
+      },
+      "vendors": [
+        {
+          "growth_pct": 96.0396,
+          "models_count": 4,
+          "rank": 1,
+          "share": 0.1757,
+          "top_model": "rank-00",
+          "total_tokens": 9900,
+          "vendor": "Vendor-0",
+          "vendor_icon": "Icon-0"
+        },
+        {
+          "growth_pct": 88.3495,
+          "models_count": 4,
+          "rank": 2,
+          "share": 0.1721,
+          "top_model": "rank-01",
+          "total_tokens": 9700,
+          "vendor": "Vendor-1",
+          "vendor_icon": "Icon-1"
+        },
+        {
+          "growth_pct": 108.1633,
+          "models_count": 3,
+          "rank": 3,
+          "share": 0.1357,
+          "top_model": "rank-02",
+          "total_tokens": 7650,
+          "vendor": "Vendor-2",
+          "vendor_icon": "Icon-2"
+        },
+        {
+          "growth_pct": 100,
+          "models_count": 3,
+          "rank": 4,
+          "share": 0.1331,
+          "top_model": "rank-03",
+          "total_tokens": 7500,
+          "vendor": "Vendor-3",
+          "vendor_icon": "Icon-3"
+        },
+        {
+          "growth_pct": 92.1569,
+          "models_count": 3,
+          "rank": 5,
+          "share": 0.1304,
+          "top_model": "rank-04",
+          "total_tokens": 7350,
+          "vendor": "Vendor-4",
+          "vendor_icon": "Icon-4"
+        },
+        {
+          "growth_pct": 84.6154,
+          "models_count": 3,
+          "rank": 6,
+          "share": 0.1278,
+          "top_model": "rank-05",
+          "total_tokens": 7200,
+          "vendor": "Vendor-5",
+          "vendor_icon": "Icon-5"
+        },
+        {
+          "growth_pct": 77.3585,
+          "models_count": 3,
+          "rank": 7,
+          "share": 0.1251,
+          "top_model": "rank-06",
+          "total_tokens": 7050,
+          "vendor": "Vendor-6",
+          "vendor_icon": "Icon-6"
+        },
+        {
+          "growth_pct": 100,
+          "models_count": 1,
+          "rank": 8,
+          "share": 0.0001,
+          "top_model": "unknown-ranking-model",
+          "total_tokens": 7,
+          "vendor": "Unknown"
+        }
+      ]
+    },
+    "success": true
+  },
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

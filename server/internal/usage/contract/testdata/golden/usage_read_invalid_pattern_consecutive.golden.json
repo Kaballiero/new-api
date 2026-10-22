@@ -1,0 +1,7 @@
+{
+  "body": "{\"code\":\"internal_error\",\"message\":\"搜索模式中不允许包含连续的 % 通配符\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 500
+}

@@ -1,0 +1,7 @@
+{
+  "body": "{\"data\":{\"models\":[],\"vendors\":[],\"top_movers\":[],\"top_droppers\":[],\"models_history\":{\"points\":[],\"models\":[],\"buckets\":0},\"vendor_share_history\":{\"points\":[],\"vendors\":[],\"buckets\":0}},\"success\":true}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

@@ -1,0 +1,7 @@
+{
+  "body": "{\"code\":\"month_span_exceeded\",\"message\":\"granularity month supports at most 120 months per request\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 400
+}

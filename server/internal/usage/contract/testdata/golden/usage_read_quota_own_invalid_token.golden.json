@@ -1,0 +1,7 @@
+{
+  "body": "{\"code\":\"invalid_token_id\",\"message\":\"token_id must be a positive integer\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 400
+}

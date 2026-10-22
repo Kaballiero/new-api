@@ -1,0 +1,7 @@
+{
+  "body": "{\"data\":[{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model\",\"created_at\":1709078400,\"token_used\":77,\"count\":7,\"quota\":49},{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model\",\"created_at\":1709164800,\"token_used\":88,\"count\":8,\"quota\":56},{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model\",\"created_at\":1709251200,\"token_used\":99,\"count\":9,\"quota\":63}],\"message\":\"\",\"success\":true}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

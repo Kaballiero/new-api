@@ -1,0 +1,7 @@
+{
+  "body": "{\"data\":[{\"user_id\":1,\"username\":\"contract-user\",\"model_name\":\"Model\",\"created_at\":1706486400,\"token_used\":154,\"count\":14,\"quota\":98},{\"user_id\":1,\"username\":\"old-username\",\"model_name\":\"legacy\",\"created_at\":1706486400,\"token_used\":103,\"count\":97,\"quota\":101},{\"user_id\":1,\"username\":\"contract-user\",\"model_name\":\"model\",\"created_at\":1706486400,\"token_used\":19,\"count\":2,\"quota\":17}],\"message\":\"\",\"success\":true}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

@@ -1,0 +1,7 @@
+{
+  "body": "{\"data\":[{\"created_at\":1706659200,\"quota\":153,\"count\":104,\"token_used\":177},{\"created_at\":1706745600,\"quota\":28,\"count\":4,\"token_used\":44},{\"created_at\":1706832000,\"quota\":58,\"count\":8,\"token_used\":84}],\"message\":\"\",\"success\":true}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

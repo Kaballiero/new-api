@@ -1,0 +1,7 @@
+{
+  "body": "{\"code\":\"aggregate_user_not_found\",\"message\":\"aggregate user not found\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 404
+}

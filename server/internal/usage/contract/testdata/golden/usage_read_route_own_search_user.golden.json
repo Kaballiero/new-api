@@ -1,0 +1,7 @@
+{
+  "body": "{\"message\":\"该接口已废弃\",\"success\":false}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

@@ -1,0 +1,7 @@
+{
+  "body": "{\"data\":{\"page\":2,\"page_size\":2,\"total\":9,\"items\":[{\"id\":106,\"user_id\":1,\"created_at\":1706742001,\"type\":2,\"content\":\"\",\"username\":\"contract-user\",\"token_name\":\"read-token\",\"model_name\":\"Model\",\"quota\":6,\"prompt_tokens\":15,\"completion_tokens\":2,\"use_time\":0,\"is_stream\":false,\"channel\":11,\"channel_name\":\"read-channel\",\"token_id\":11,\"group\":\"paid\",\"ip\":\"\",\"request_id\":\"scoped_rejection\",\"upstream_request_id\":\"upstream-106\",\"other\":\"{\\\"admin_info\\\":{\\\"reject_reason\\\":\\\"scoped\\\"},\\\"root_info\\\":{}}\"},{\"id\":104,\"user_id\":1,\"created_at\":1706742001,\"type\":2,\"content\":\"\",\"username\":\"contract-user\",\"token_name\":\"read-token\",\"model_name\":\"Model\",\"quota\":4,\"prompt_tokens\":13,\"completion_tokens\":2,\"use_time\":0,\"is_stream\":false,\"channel\":11,\"channel_name\":\"read-channel\",\"token_id\":11,\"group\":\"paid\",\"ip\":\"\",\"request_id\":\"null\",\"upstream_request_id\":\"upstream-104\",\"other\":\"null\"}]},\"message\":\"\",\"success\":true}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}

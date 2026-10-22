@@ -1,0 +1,7 @@
+{
+  "body": "{\"data\":[{\"id\":0,\"user_id\":1,\"username\":\"contract-user\",\"model_name\":\"Model\",\"created_at\":1706742000,\"use_group\":\"\",\"token_id\":0,\"channel_id\":0,\"node_name\":\"\",\"token_used\":22,\"count\":2,\"quota\":14},{\"id\":0,\"user_id\":1,\"username\":\"contract-user\",\"model_name\":\"Model\",\"created_at\":1706745599,\"use_group\":\"\",\"token_id\":0,\"channel_id\":0,\"node_name\":\"\",\"token_used\":33,\"count\":3,\"quota\":21},{\"id\":0,\"user_id\":1,\"username\":\"contract-user\",\"model_name\":\"Model\",\"created_at\":1706745600,\"use_group\":\"\",\"token_id\":0,\"channel_id\":0,\"node_name\":\"\",\"token_used\":44,\"count\":4,\"quota\":28},{\"id\":0,\"user_id\":1,\"username\":\"contract-user\",\"model_name\":\"Model\",\"created_at\":1706832000,\"use_group\":\"\",\"token_id\":0,\"channel_id\":0,\"node_name\":\"\",\"token_used\":55,\"count\":5,\"quota\":35}],\"message\":\"\",\"success\":true}",
+  "headers": {
+    "Content-Type": "application/json; charset=utf-8"
+  },
+  "status": 200
+}
