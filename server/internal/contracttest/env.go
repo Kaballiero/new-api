@@ -6,6 +6,7 @@ package contracttest
 
 import (
 	"flag"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -35,7 +36,7 @@ const goldenDir = "testdata/golden"
 const Anonymous = ""
 
 // Headers that belong to the contract when present: caching of secrets and limits.
-var contractHeaders = []string{"Cache-Control", "Retry-After"}
+var contractHeaders = []string{"Cache-Control", "Retry-After", "Specific_channel_version"}
 
 type Env struct {
 	DB     *gorm.DB
@@ -45,6 +46,19 @@ type Env struct {
 	// UserPAT is a personal access token of User.
 	UserPAT string
 	UserID  int
+}
+
+// Route mounts the production middleware under test without contacting upstreams.
+func (env *Env) Route(method, path string, handlers ...gin.HandlerFunc) {
+	stableRequestID := func(c *gin.Context) { c.Set(common.RequestIdKey, "gateway-contract-request"); c.Next() }
+	env.engine.Handle(method, path, append([]gin.HandlerFunc{stableRequestID}, handlers...)...)
+}
+
+// Serve sends a request with protocol-specific credential headers.
+func (env *Env) Serve(request *http.Request) *httptest.ResponseRecorder {
+	recorder := httptest.NewRecorder()
+	env.engine.ServeHTTP(recorder, request)
+	return recorder
 }
 
 // New creates a fresh SQLite database through the production model.InitDB and

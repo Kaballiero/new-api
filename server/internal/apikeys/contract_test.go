@@ -1,11 +1,20 @@
 package apikeys_test
 
 import (
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/contracttest"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,4 +87,130 @@ func TestAPIKeyUsageHTTPContract(t *testing.T) {
 	contracttest.Golden(t, "usage_invalid_key", env.Do(http.MethodGet, "/api/usage/token/", "sk-invalid", ""), dynamic...)
 	contracttest.Golden(t, "usage_disabled_key", env.Do(http.MethodGet, "/api/usage/token/", "sk-"+disabled, ""), dynamic...)
 	contracttest.Golden(t, "usage", env.Do(http.MethodGet, "/api/usage/token/", "sk-"+active, ""), dynamic...)
+}
+
+// TestGatewayCredentialHTTPContract records authentication without paid upstream IO.
+// Context values include Go types because legacy relay consumers use typed getters.
+func TestGatewayCredentialHTTPContract(t *testing.T) {
+	env := contracttest.New(t)
+	previousGroups := setting.UserUsableGroups2JSONString()
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"default","vip":"vip","auto":"auto","retired":"retired"}`))
+	t.Cleanup(func() { require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousGroups)) })
+	contextValues := func(c *gin.Context) map[string]any {
+		values := map[string]any{}
+		for _, key := range []string{"id", "token_id", "token_key", "token_name", "token_unlimited_quota", "token_quota", "token_model_limit_enabled", "token_model_limit", "token_group", "token_cross_group_retry", "token_auto_groups", "group", "user_group", "user_quota", "user_status", "user_email", "username", "user_setting"} {
+			if value, ok := c.Get(key); ok {
+				values[key] = map[string]any{"value": value, "type": reflect.TypeOf(value).String()}
+			}
+		}
+		return values
+	}
+	var lastContext map[string]any
+	capture := func(c *gin.Context) { c.Next(); lastContext = contextValues(c) }
+	snapshot := func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"context": contextValues(c), "constraints": service.GetChannelConstraints(c)})
+	}
+	for _, path := range []string{"/v1/models", "/v1/messages", "/v1beta/models/gemini", "/mj/auth-contract"} {
+		env.Route(http.MethodGet, path, capture, middleware.TokenAuth(), snapshot)
+	}
+	env.Route(http.MethodPost, "/v1/chat/completions", capture, middleware.TokenAuth(), middleware.Distribute(), snapshot)
+	env.Route(http.MethodGet, "/contract/mixed", capture, middleware.TokenOrUserAuth(), snapshot)
+	env.Route(http.MethodGet, "/contract/read", capture, middleware.TokenAuthReadOnly(), snapshot)
+	ips := "10.0.0.1"
+	tokens := []model.Token{
+		{Id: 1, UserId: 1, Key: "gatewayvalid", Name: "gateway", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100},
+		{Id: 2, UserId: 1, Key: "gatewaydisabled", Status: common.TokenStatusDisabled, ExpiredTime: -1, RemainQuota: 100},
+		{Id: 3, UserId: 1, Key: "gatewayexpired", Status: common.TokenStatusEnabled, ExpiredTime: 1, RemainQuota: 100},
+		{Id: 4, UserId: 1, Key: "gatewayexhausted", Status: common.TokenStatusEnabled, ExpiredTime: -1},
+		{Id: 5, UserId: 4, Key: "gatewaybanned", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100},
+		{Id: 6, UserId: 1, Key: "gatewayip", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100, AllowIps: &ips},
+		{Id: 7, UserId: 1, Key: "gatewaylimited", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100, ModelLimitsEnabled: true, ModelLimits: "allowed,second", AutoGroups: `["vip","default"]`},
+		{Id: 8, UserId: 2, Key: "gatewayadmin", Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true},
+		{Id: 9, UserId: 1, Key: "gatewaygroup", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100, Group: "vip"},
+		{Id: 10, UserId: 1, Key: "gatewayforbidden", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100, Group: "forbidden"},
+		{Id: 11, UserId: 1, Key: "gatewayretired", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100, Group: "retired"},
+		{Id: 12, UserId: 1, Key: "gatewayauto", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100, Group: "auto", AutoGroups: `["vip","default"]`, CrossGroupRetry: true},
+		{Id: 13, UserId: 1, Key: "gatewaymalformed", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100, AutoGroups: `not-json`},
+		{Id: 14, UserId: 1, Key: "gatewayemptyauto", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 100, AutoGroups: `[]`},
+	}
+	require.NoError(t, env.DB.Create(&model.User{Id: 4, Username: "banned", Role: common.RoleCommonUser, Status: common.UserStatusDisabled, Group: "default", AffCode: "banned", AuthVersion: 1}).Error)
+	for i := range tokens {
+		require.NoError(t, env.DB.Create(&tokens[i]).Error)
+	}
+	type step struct{ name, path, header, value, body string }
+	steps := []step{
+		{"google_overrides_query", "/v1/models?key=sk-unknown", "x-goog-api-key", "sk-gatewayvalid", ""},
+		{"query_overrides_anthropic", "/v1/models?key=sk-gatewayvalid", "x-api-key", "sk-unknown", ""},
+		{"ws_overrides_bearer", "/v1/models", "Sec-WebSocket-Protocol", "openai-insecure-api-key.sk-gatewayvalid", ""},
+		{"anthropic_overrides_ws", "/v1/models", "x-api-key", "sk-gatewayvalid", ""},
+		{"midjourney_sentinel", "/mj/auth-contract", "mj-api-secret", "sk-gatewayvalid", ""},
+		{"group", "/v1/models", "Authorization", "Bearer sk-gatewaygroup", ""},
+		{"group_forbidden", "/v1/models", "Authorization", "Bearer sk-gatewayforbidden", ""},
+		{"group_deprecated", "/v1/models", "Authorization", "Bearer sk-gatewayretired", ""},
+		{"auto_groups", "/v1/models", "Authorization", "Bearer sk-gatewayauto", ""},
+		{"auto_malformed", "/v1/models", "Authorization", "Bearer sk-gatewaymalformed", ""},
+		{"auto_inherit", "/v1/models", "Authorization", "Bearer sk-gatewayemptyauto", ""},
+		{"read_alternate_ignored", "/contract/read", "x-api-key", "sk-gatewayvalid", ""},
+		{"bearer", "/v1/models", "Authorization", "Bearer sk-gatewayvalid", ""},
+		{"anthropic", "/v1/messages", "x-api-key", "sk-gatewayvalid", ""},
+		{"query", "/v1beta/models/gemini?key=sk-gatewayvalid", "", "", ""},
+		{"google", "/v1beta/models/gemini", "x-goog-api-key", "sk-gatewayvalid", ""},
+		{"websocket", "/v1/models", "Sec-WebSocket-Protocol", "realtime, openai-insecure-api-key.sk-gatewayvalid, openai-beta.realtime-v1", ""},
+		{"midjourney", "/mj/auth-contract", "mj-api-secret", "sk-gatewayvalid", ""},
+		{"mixed_key", "/contract/mixed", "Authorization", "Bearer sk-gatewayvalid", ""},
+		{"missing", "/v1/models", "", "", ""},
+		{"unknown", "/v1/models", "Authorization", "Bearer sk-unknown", ""},
+		{"ip_denied", "/v1/models", "Authorization", "Bearer sk-gatewayip", ""},
+		{"limited_context", "/v1/models", "Authorization", "Bearer sk-gatewaylimited", ""},
+		{"model_denied", "/v1/chat/completions", "Authorization", "Bearer sk-gatewaylimited", `{"model":"forbidden"}`},
+		{"pin_admin", "/v1/models", "Authorization", "Bearer sk-gatewayadmin-42", ""},
+		{"pin_user", "/v1/models", "Authorization", "Bearer sk-gatewayvalid-42", ""},
+		{"pin_invalid", "/v1/models", "Authorization", "Bearer sk-gatewayadmin-bad", ""},
+	}
+	for _, state := range []string{"disabled", "expired", "exhausted", "banned"} {
+		steps = append(steps, step{state, "/v1/models", "Authorization", "Bearer sk-gateway" + state, ""}, step{"read_" + state, "/contract/read", "Authorization", "Bearer sk-gateway" + state, ""})
+	}
+	steps = append(steps, step{"read_valid", "/contract/read", "Authorization", "Bearer sk-gatewayvalid", ""}, step{"read_missing", "/contract/read", "", "", ""}, step{"read_unknown", "/contract/read", "Authorization", "Bearer sk-unknown", ""})
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			method := http.MethodGet
+			if step.body != "" {
+				method = http.MethodPost
+			}
+			req := httptest.NewRequest(method, step.path, strings.NewReader(step.body))
+			req.RemoteAddr = "192.0.2.1:1234"
+			switch step.name {
+			case "ws_overrides_bearer":
+				req.Header.Set("Authorization", "Bearer sk-unknown")
+			case "anthropic_overrides_ws":
+				req.Header.Set("Sec-WebSocket-Protocol", "openai-insecure-api-key.sk-unknown")
+			case "midjourney_sentinel":
+				req.Header.Set("Authorization", "Bearer midjourney-proxy")
+			}
+			req.Header.Set("Accept-Language", "en")
+			if step.header != "" {
+				req.Header.Set(step.header, step.value)
+			}
+			if step.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			rec := env.Serve(req)
+			contracttest.Golden(t, "gateway_"+step.name, rec, "request_id")
+			if rec.Code >= 400 {
+				contracttest.GoldenValue(t, "gateway_"+step.name+"_context", lastContext)
+			}
+		})
+	}
+	var states []model.Token
+	require.NoError(t, env.DB.Order("id").Find(&states).Error)
+	result := map[string]int{}
+	for _, token := range states {
+		result[fmt.Sprint(token.Id)] = token.Status
+	}
+	contracttest.GoldenValue(t, "gateway_persisted_status", result)
+	for _, step := range []struct{ name, token string }{{"valid", env.UserPAT}, {"invalid", "unknownpat"}} {
+		contracttest.Golden(t, "gateway_pat_"+step.name, env.Do(http.MethodGet, "/api/token/", step.token, ""), dynamic...)
+	}
+	require.NoError(t, env.DB.Model(&model.User{}).Where("id = ?", env.UserID).Update("access_token", nil).Error)
+	contracttest.Golden(t, "gateway_pat_revoked", env.Do(http.MethodGet, "/api/token/", env.UserPAT, ""), dynamic...)
 }

@@ -1,0 +1,11 @@
+{
+  "body": {
+    "error": {
+      "code": "access_denied",
+      "message": "Your IP is not in the allowed IP list for this token (request id: gateway-contract-request)",
+      "type": "new_api_error"
+    }
+  },
+  "headers": {},
+  "status": 403
+}

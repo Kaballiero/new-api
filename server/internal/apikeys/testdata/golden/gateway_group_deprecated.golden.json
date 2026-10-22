@@ -1,0 +1,11 @@
+{
+  "body": {
+    "error": {
+      "code": "",
+      "message": "Group retired has been deprecated (request id: gateway-contract-request)",
+      "type": "new_api_error"
+    }
+  },
+  "headers": {},
+  "status": 403
+}

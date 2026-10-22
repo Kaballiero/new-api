@@ -1,0 +1,81 @@
+{
+  "body": {
+    "constraints": {
+      "Filters": null,
+      "Pins": [
+        {
+          "ChannelId": 42,
+          "Rank": 0,
+          "RetryMode": 1,
+          "Source": "token"
+        }
+      ]
+    },
+    "context": {
+      "group": {
+        "type": "string",
+        "value": "default"
+      },
+      "id": {
+        "type": "int",
+        "value": 2
+      },
+      "token_cross_group_retry": {
+        "type": "bool",
+        "value": false
+      },
+      "token_group": {
+        "type": "string",
+        "value": ""
+      },
+      "token_id": {
+        "type": "int",
+        "value": 8
+      },
+      "token_key": {
+        "type": "string",
+        "value": "gatewayadmin"
+      },
+      "token_model_limit_enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "token_name": {
+        "type": "string",
+        "value": ""
+      },
+      "token_unlimited_quota": {
+        "type": "bool",
+        "value": true
+      },
+      "user_email": {
+        "type": "string",
+        "value": ""
+      },
+      "user_group": {
+        "type": "string",
+        "value": "default"
+      },
+      "user_quota": {
+        "type": "int",
+        "value": 1000000
+      },
+      "user_setting": {
+        "type": "dto.UserSetting",
+        "value": {
+          "gotify_priority": 0
+        }
+      },
+      "user_status": {
+        "type": "int",
+        "value": 1
+      },
+      "username": {
+        "type": "string",
+        "value": "contract-admin"
+      }
+    }
+  },
+  "headers": {},
+  "status": 200
+}
