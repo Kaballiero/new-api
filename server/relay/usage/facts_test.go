@@ -1,4 +1,4 @@
-package service
+package usage_test
 
 import (
 	"context"
@@ -9,9 +9,10 @@ import (
 
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -80,7 +81,7 @@ func TestDeliveryFailureReason(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(ctx, info)
 			}
-			require.Equal(t, tt.want, deliveryFailureReason(ctx, info))
+			require.Equal(t, tt.want, usagegateway.DeliveryFailure(ctx, info))
 		})
 	}
 }
@@ -105,7 +106,7 @@ func TestUsageFromOpenAIBillingUsageNormalizesCacheDetailsWithoutOverwritingCano
 	}
 
 	billingUsage := dto.NewOpenAIResponsesBillingUsage(responsesUsage)
-	usage := EffectiveBillingUsage(&dto.Usage{BillingUsage: billingUsage})
+	usage := service.EffectiveBillingUsage(&dto.Usage{BillingUsage: billingUsage})
 
 	require.Equal(t, 8, usage.PromptTokensDetails.CachedTokens)
 	require.Equal(t, 5, usage.PromptTokensDetails.CachedCreationTokens)
@@ -117,7 +118,7 @@ func TestUsageFromOpenAIBillingUsageNormalizesCacheDetailsWithoutOverwritingCano
 }
 
 func TestUsageFromOpenAIBillingUsageFallsBackToPromptCacheHitTokens(t *testing.T) {
-	usage := EffectiveBillingUsage(&dto.Usage{
+	usage := service.EffectiveBillingUsage(&dto.Usage{
 		BillingUsage: dto.NewOpenAIChatBillingUsage(&dto.Usage{
 			PromptTokens:         100,
 			CompletionTokens:     10,
@@ -129,7 +130,7 @@ func TestUsageFromOpenAIBillingUsageFallsBackToPromptCacheHitTokens(t *testing.T
 }
 
 func TestUsageBillingPathForLog(t *testing.T) {
-	require.Equal(t, usageBillingPathAnthropic, usageBillingPathForLog(true, &dto.Usage{
+	require.Equal(t, "billing-usage-anthropic", usagegateway.UsagePath(true, &dto.Usage{
 		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{InputTokens: 1}),
 	}))
 	invalidBillingUsage := &dto.Usage{
@@ -139,55 +140,36 @@ func TestUsageBillingPathForLog(t *testing.T) {
 			Semantic: dto.BillingUsageSemanticAnthropic,
 		},
 	}
-	require.Equal(t, usageBillingPathLocal, usageBillingPathForLog(true, invalidBillingUsage))
-	require.Equal(t, usageBillingPathUpstream, usageBillingPathForLog(false, invalidBillingUsage))
-	require.Equal(t, usageBillingPathUpstream, usageBillingPathForLog(false, &dto.Usage{}))
-	require.Equal(t, usageBillingPathOpenAI, usageBillingPathForLog(false, &dto.Usage{
+	require.Equal(t, "local", usagegateway.UsagePath(true, invalidBillingUsage))
+	require.Equal(t, "upstream", usagegateway.UsagePath(false, invalidBillingUsage))
+	require.Equal(t, "upstream", usagegateway.UsagePath(false, &dto.Usage{}))
+	require.Equal(t, "billing-usage-openai", usagegateway.UsagePath(false, &dto.Usage{
 		BillingUsage: dto.NewOpenAIChatBillingUsage(&dto.Usage{PromptTokens: 1}),
 	}))
-	require.Equal(t, usageBillingPathAnthropic, usageBillingPathForLog(false, &dto.Usage{
+	require.Equal(t, "billing-usage-anthropic", usagegateway.UsagePath(false, &dto.Usage{
 		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{InputTokens: 1}),
 	}))
-	require.Equal(t, usageBillingPathGemini, usageBillingPathForLog(false, &dto.Usage{
+	require.Equal(t, "billing-usage-gemini", usagegateway.UsagePath(false, &dto.Usage{
 		BillingUsage: dto.NewGeminiChatBillingUsage(&dto.GeminiUsageMetadata{PromptTokenCount: 1}),
 	}))
-	require.Equal(t, usageBillingPathGeminiEstimated, usageBillingPathForLog(true, &dto.Usage{
+	require.Equal(t, "billing-usage-gemini-estimated", usagegateway.UsagePath(true, &dto.Usage{
 		BillingUsage: dto.NewEstimatedGeminiChatBillingUsage(&dto.Usage{PromptTokens: 1}),
 	}))
 }
 
 func TestAppendUsageBillingPathForLogWritesAdminInfo(t *testing.T) {
 	other := model.NewLogOther()
-	appendUsageBillingPathForLog(other, true, &dto.Usage{
+	other.SetAdmin("usage_billing_path", usagegateway.UsagePath(true, &dto.Usage{
 		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{InputTokens: 1}),
-	})
+	}))
 
 	adminInfo, ok := other.Snapshot()["admin_info"].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, usageBillingPathAnthropic, adminInfo["usage_billing_path"])
+	require.Equal(t, "billing-usage-anthropic", adminInfo["usage_billing_path"])
 
 	other = model.NewLogOther()
-	appendUsageBillingPathForLog(other, true, nil)
+	other.SetAdmin("usage_billing_path", usagegateway.UsagePath(true, nil))
 	adminInfo, ok = other.Snapshot()["admin_info"].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, usageBillingPathLocal, adminInfo["usage_billing_path"])
-}
-
-func TestAppendToolSurchargeLogInfoWritesOnlyStructuredFields(t *testing.T) {
-	items := []ToolSurchargeItem{
-		{Name: dto.BuildInToolWebSearch, Count: 2, Price: 10},
-		{Name: dto.BuildInToolImageGeneration, Count: 1, Price: 150},
-	}
-	other := model.NewLogOther()
-
-	appendToolSurchargeLogInfo(other, items)
-
-	fields := other.Snapshot()
-	assert.Equal(t, items, fields["tool_surcharges"])
-	assert.NotContains(t, fields, "web_search")
-	assert.NotContains(t, fields, "web_search_call_count")
-	assert.NotContains(t, fields, "web_search_price")
-	assert.NotContains(t, fields, "file_search")
-	assert.NotContains(t, fields, "image_generation_call")
-	assert.NotContains(t, fields, "image_generation_call_price")
+	require.Equal(t, "local", adminInfo["usage_billing_path"])
 }

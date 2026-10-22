@@ -345,7 +345,12 @@ type RecordConsumeLogParams struct {
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
-	if !common.LogConsumeEnabled {
+	RecordConsumeLogWithSettings(c, userId, params, func() bool { return common.LogConsumeEnabled }, func() bool { return common.DataExportEnabled })
+}
+
+// RecordConsumeLogWithSettings preserves late policy reads for request recording.
+func RecordConsumeLogWithSettings(c *gin.Context, userId int, params RecordConsumeLogParams, consumeEnabled, exportEnabled func() bool) {
+	if !consumeEnabled() {
 		return
 	}
 	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
@@ -391,7 +396,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())
 	}
-	if common.DataExportEnabled {
+	if exportEnabled() {
 		LogQuotaData(QuotaDataLogParams{
 			UserID:    userId,
 			Username:  username,

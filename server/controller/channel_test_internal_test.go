@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -257,7 +258,7 @@ func TestSettleTestQuotaUsesTieredBilling(t *testing.T) {
 	require.Equal(t, "stream", result.MatchedTier)
 }
 
-func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
+func TestChannelTestRecordingPreservesTieredInfo(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 
@@ -268,30 +269,24 @@ func TestBuildTestLogOtherInjectsTieredInfo(t *testing.T) {
 		},
 		ChannelMeta: &relaycommon.ChannelMeta{},
 	}
-	priceData := types.PriceData{
-		GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1},
-	}
-	usage := &dto.Usage{
-		PromptTokensDetails: dto.InputTokenDetails{
-			CachedTokens: 12,
-		},
-	}
 
 	requestRules := []billingexpr.RequestRuleTrace{{
 		Cond:       `param("service_tier") == "fast"`,
 		Multiplier: 2,
 		Matched:    true,
 	}}
-	other := buildTestLogOther(ctx, info, priceData, usage, &billingexpr.TieredResult{
+	facts := usagegateway.Facts(ctx, info)
+	facts.Tiered = usagegateway.Tiered(info, &billingexpr.TieredResult{
 		MatchedTier:  "base",
 		RequestRules: requestRules,
 	})
-
-	fields := other.Snapshot()
-	require.Equal(t, "tiered_expr", fields["billing_mode"])
-	require.Equal(t, "base", fields["matched_tier"])
-	require.Equal(t, requestRules, fields["request_rules"])
-	require.NotEmpty(t, fields["expr_b64"])
+	require.NotNil(t, facts.Tiered)
+	require.NotNil(t, facts.Tiered.Actual)
+	assert.Equal(t, info.TieredBillingSnapshot.ExprString, facts.Tiered.ExprString)
+	assert.Equal(t, "base", facts.Tiered.Actual.MatchedTier)
+	assert.Equal(t, requestRules[0].Cond, facts.Tiered.Actual.RequestRules[0].Cond)
+	assert.Equal(t, requestRules[0].Multiplier, facts.Tiered.Actual.RequestRules[0].Multiplier)
+	assert.Equal(t, requestRules[0].Matched, facts.Tiered.Actual.RequestRules[0].Matched)
 }
 
 func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {

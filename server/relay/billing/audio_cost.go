@@ -6,23 +6,36 @@ import (
 	"github.com/QuantumNous/new-api/internal/billing/domain"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
-func (g *Gateway) AudioCost(info *relaycommon.RelayInfo, usage *dto.Usage) service.AudioCostResult {
+func (g *Gateway) AudioCost(info *relaycommon.RelayInfo, usage *dto.Usage) AudioCostResult {
 	u := costUsage(usage)
-	price := domain.AudioPrice{InputDetails: u.PromptTokensDetails, OutputDetails: u.CompletionTokenDetails, ModelName: info.GetBillingModelName(), UsePrice: info.PriceData.UsePrice, ModelRatio: info.PriceData.ModelRatio, GroupRatio: info.PriceData.EffectiveGroupRatio()}
+	price := domain.AudioPrice{
+		InputDetails:  u.PromptTokensDetails,
+		OutputDetails: u.CompletionTokenDetails,
+		ModelName:     info.GetBillingModelName(),
+		UsePrice:      info.PriceData.UsePrice,
+		ModelRatio:    info.PriceData.ModelRatio,
+		GroupRatio:    info.PriceData.EffectiveGroupRatio(),
+	}
 	prior := costClamp(info.QuotaClamp)
 	result := g.costs.Audio.Execute(calculate_audio_cost.Input{Usage: *u, Price: price, Snapshot: costSnapshot(info.TieredBillingSnapshot), Request: costRequest(info.BillingRequestInput), Reserved: info.FinalPreConsumedQuota, PriorClamp: prior})
 	if result.Clamp != prior {
 		info.QuotaClamp = gatewayClamp(result.Clamp)
 	}
-	return service.AudioCostResult{Quota: result.Quota, TieredResult: gatewayTiered(result.TieredResult), FixedPriceBilling: result.FixedPriceBilling}
+	return AudioCostResult{Quota: result.Quota, TieredResult: gatewayTiered(result.TieredResult), Billable: result.Billable}
 }
-func (g *Gateway) RealtimeCost(info *relaycommon.RelayInfo, model string, usage *dto.RealtimeUsage) (service.AudioCostResult, error) {
+func (g *Gateway) RealtimeCost(info *relaycommon.RelayInfo, model string, usage *dto.RealtimeUsage) (AudioCostResult, error) {
 	u := realtimeUsage(usage)
-	price := domain.AudioPrice{ModelName: model, UsePrice: info.PriceData.UsePrice, ModelPrice: info.PriceData.ModelPrice, ModelRatio: info.PriceData.ModelRatio, GroupRatio: info.PriceData.GroupRatioInfo.GroupRatio, FXFactor: info.BillingFXFactor}
+	price := domain.AudioPrice{
+		ModelName:  model,
+		UsePrice:   info.PriceData.UsePrice,
+		ModelPrice: info.PriceData.ModelPrice,
+		ModelRatio: info.PriceData.ModelRatio,
+		GroupRatio: info.PriceData.GroupRatioInfo.GroupRatio,
+		FXFactor:   info.BillingFXFactor,
+	}
 	if u != nil {
 		price.InputDetails = u.InputTokenDetails
 		price.OutputDetails = u.OutputTokenDetails
@@ -32,7 +45,7 @@ func (g *Gateway) RealtimeCost(info *relaycommon.RelayInfo, model string, usage 
 	if result.Clamp != prior {
 		info.QuotaClamp = gatewayClamp(result.Clamp)
 	}
-	return service.AudioCostResult{Quota: result.Quota, TieredResult: gatewayTiered(result.TieredResult)}, costError(err)
+	return AudioCostResult{Quota: result.Quota, TieredResult: gatewayTiered(result.TieredResult), Billable: result.Billable}, costError(err)
 }
 
 func PostAudioConsumeQuota(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage, extra string) {
@@ -47,7 +60,7 @@ func (g *Gateway) PostAudio(c *gin.Context, info *relaycommon.RelayInfo, usage *
 		usage = &dto.Usage{PromptTokens: info.GetEstimatePromptTokens(), TotalTokens: info.GetEstimatePromptTokens()}
 	}
 	cost := g.AudioCost(info, usage)
-	service.RecordAudioCost(c, info, usage, cost, extra)
+	g.recordAudioCost(c, info, usage, cost, extra)
 }
 func PostWssConsumeQuota(c *gin.Context, info *relaycommon.RelayInfo, model string, usage *dto.RealtimeUsage, extra string) error {
 	return defaultGateway.PostWss(c, info, model, usage, extra)
@@ -57,5 +70,5 @@ func (g *Gateway) PostWss(c *gin.Context, info *relaycommon.RelayInfo, model str
 	if err != nil {
 		return err
 	}
-	return service.RecordRealtimeCost(c, info, model, usage, cost, extra)
+	return g.recordRealtimeCost(c, info, model, usage, cost, extra)
 }

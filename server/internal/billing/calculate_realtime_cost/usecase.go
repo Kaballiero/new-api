@@ -57,7 +57,8 @@ func (u Usecase) Execute(in Input) (domain.AudioCost, error) {
 	if applied {
 		result.Quota = quota
 	}
-	if in.Usage.TotalTokens == 0 {
+	result.Billable = in.Usage.TotalTokens != 0
+	if !result.Billable {
 		result.Quota = 0
 	}
 	return result, nil

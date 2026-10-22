@@ -1,6 +1,7 @@
 package relay
 
 import (
+	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -58,10 +59,10 @@ func TestOptInSafeToolLossRejectedAsBadRequestWithAdminDiagnostics(t *testing.T)
 	require.NotEmpty(t, diagnostics)
 	assert.True(t, hasHostDiagnosticCode(diagnostics, "unsupported_hosted_tool"))
 
-	other := service.GenerateTextOtherInfo(c, info, 1, 1, 1, 0, 0, 0, 1)
-	adminInfo, ok := other.Snapshot()["admin_info"].(map[string]any)
-	require.True(t, ok)
-	require.Contains(t, adminInfo, "conversion_diagnostics")
+	facts := usagegateway.Facts(c, info)
+	require.NotEmpty(t, facts.Diagnostics)
+	assert.Equal(t, diagnostics[0].Code, facts.Diagnostics[0].Code)
+	assert.Equal(t, diagnostics[0].Message, facts.Diagnostics[0].Message)
 }
 
 func TestUnknownModelModifierIsBadRequestWithoutRetry(t *testing.T) {

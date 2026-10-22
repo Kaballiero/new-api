@@ -221,7 +221,7 @@ func SettleBatchResults(job *model.BatchJob) error {
 				details.Other.SetAdmin("upstream_cost_details", raw)
 			}
 			details.Other.SetAdmin("openrouter_cost_basis", snapshot.OpenRouterCost)
-			attachQuotaSaturationToOther(details.Other, clamp)
+			BillingGateway.AppendTaskClamp(details.Other, clamp)
 			if clamp != nil {
 				requestID := fmt.Sprintf("%x", sha256.Sum256([]byte(job.PublicID+":"+item.CustomID)))
 				ctx := context.WithValue(context.Background(), common.RequestIdKey, requestID)
@@ -247,8 +247,8 @@ func SettleBatchResults(job *model.BatchJob) error {
 			}
 			quota = computed.ActualQuotaAfterGroup
 			details.Other = &model.LogOther{}
-			InjectTieredBillingInfo(details.Other, &relaycommon.RelayInfo{TieredBillingSnapshot: &snapshot.Client}, &computed)
-			attachQuotaSaturationToOther(details.Other, computed.Clamp)
+			BillingGateway.AppendTaskTiered(details.Other, &relaycommon.RelayInfo{TieredBillingSnapshot: &snapshot.Client}, &computed)
+			BillingGateway.AppendTaskClamp(details.Other, computed.Clamp)
 			if computed.Clamp != nil {
 				requestID := fmt.Sprintf("%x", sha256.Sum256([]byte(job.PublicID+":"+item.CustomID)))
 				ctx := context.WithValue(context.Background(), common.RequestIdKey, requestID)

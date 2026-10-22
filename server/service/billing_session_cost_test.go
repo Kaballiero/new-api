@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"net/http/httptest"
 	"testing"
 
@@ -63,7 +64,7 @@ func TestOpenRouterLocalReserveSettlesActualCost(t *testing.T) {
 			info.PriceData.BillingGroupRatio, info.PriceData.ModelPrice = 9, 999
 			service.PostTextConsumeQuota(ctx, info, &dto.Usage{Cost: info.OpenRouterCost.CostUSD}, nil)
 			outcome := session.(interface {
-				OpenRouterSettlementOutcome() service.OpenRouterSettlementOutcome
+				OpenRouterSettlementOutcome() billingdomain.Outcome
 			}).OpenRouterSettlementOutcome()
 			assert.Equal(t, "settled", outcome.SettlementStatus)
 			assert.Equal(t, tc.actualQuota, outcome.TargetQuota)

@@ -25,4 +25,9 @@ func TestRealtimeRejectsLegacyClampEvenWithValidTieredResult(t *testing.T) {
 	result, err = u.Execute(in)
 	require.NoError(t, err)
 	assert.Zero(t, result.Quota)
+	assert.False(t, result.Billable, "realtime zero usage stays unbillable even with a fixed tier")
+	in.Usage = &domain.Usage{TotalTokens: 1, InputTokens: 1, InputTokenDetails: domain.TokenDetails{TextTokens: 1}}
+	result, err = u.Execute(in)
+	require.NoError(t, err)
+	assert.True(t, result.Billable)
 }

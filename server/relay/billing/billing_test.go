@@ -247,7 +247,7 @@ func TestSessionProjectsSubscriptionAndOutcome(t *testing.T) {
 	assert.Equal(t, int64(250), info.SubscriptionAmountUsedAfterPreConsume)
 	assert.Equal(t, 6, info.SubscriptionPlanId)
 	assert.Equal(t, "Pro", info.SubscriptionPlanTitle)
-	assert.Equal(t, service.OpenRouterSettlementOutcome{TargetQuota: 180, ReservedQuota: 150, FundingAppliedQuota: 180, TokenAppliedQuota: 150, SettlementStatus: "token_delta_failed", FailureStage: "token_delta"}, s.OpenRouterSettlementOutcome())
+	assert.Equal(t, domain.Outcome{TargetQuota: 180, ReservedQuota: 150, FundingAppliedQuota: 180, TokenAppliedQuota: 150, SettlementStatus: "token_delta_failed", FailureStage: "token_delta"}, s.OpenRouterSettlementOutcome())
 	s.reservation.Source = domain.Wallet
 	s.syncRelayInfo()
 	assert.Equal(t, domain.Wallet, info.BillingSource)

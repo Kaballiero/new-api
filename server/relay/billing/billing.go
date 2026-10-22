@@ -178,10 +178,10 @@ func (s *Session) NeedsRefund() bool {
 	return s.reservation.NeedsRefund()
 }
 func (s *Session) GetPreConsumedQuota() int { return s.reservation.PreConsumed }
-func (s *Session) OpenRouterSettlementOutcome() service.OpenRouterSettlementOutcome {
+func (s *Session) OpenRouterSettlementOutcome() domain.Outcome {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return service.OpenRouterSettlementOutcome(s.reservation.Outcome)
+	return s.reservation.Outcome
 }
 
 func (g *Gateway) Settle(c *gin.Context, info *relaycommon.RelayInfo, actual int) error {

@@ -27,6 +27,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -494,22 +495,10 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	tok := time.Now()
 	milliseconds := tok.Sub(tik).Milliseconds()
 	consumedTime := float64(milliseconds) / 1000.0
-	other := buildTestLogOther(c, info, priceData, usage, tieredResult)
-	// The log is shown to the testing user, so its label uses their language.
+	// The testing user's label retains its existing language policy.
 	logName := i18n.Translate(model.GetUserLanguage(testUserID), i18n.MsgChannelTestLogName)
-	model.RecordConsumeLog(c, testUserID, model.RecordConsumeLogParams{
-		ChannelId:        channel.Id,
-		PromptTokens:     usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens,
-		ModelName:        info.OriginModelName,
-		TokenName:        logName,
-		Quota:            quota,
-		Content:          logName,
-		UseTimeSeconds:   int(consumedTime),
-		IsStream:         info.IsStream,
-		Group:            info.UsingGroup,
-		Other:            other,
-	})
+	usagegateway.RecordChannelTest(c, info, testUserID, logName, quota, usage, priceData, tieredResult, int(consumedTime))
+
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
 	return testResult{
 		context:     c,
@@ -552,15 +541,6 @@ func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData,
 	}
 
 	return common.QuotaFromFloat(priceData.ModelPrice * common.QuotaPerUnit), nil
-}
-
-func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage, tieredResult *billingexpr.TieredResult) *model.LogOther {
-	other := service.GenerateTextOtherInfo(c, info, priceData.ModelRatio, priceData.GroupRatioInfo.GroupRatio, priceData.CompletionRatio,
-		usage.PromptTokensDetails.CachedTokens, priceData.CacheRatio, priceData.ModelPrice, priceData.GroupRatioInfo.GroupSpecialRatio)
-	if tieredResult != nil {
-		service.InjectTieredBillingInfo(other, info, tieredResult)
-	}
-	return other
 }
 
 func coerceTestUsage(usageAny any, isStream bool, estimatePromptTokens int) (*dto.Usage, error) {

@@ -2222,8 +2222,8 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 		assert.Equal(t, quota, clamp.Clamped, clampCase.requestID)
 		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 		ctx.Set(common.RequestIdKey, clampCase.requestID)
-		other := GenerateMjOtherInfo(logInfo, priceData)
-		attachQuotaSaturationToOther(other, clamp)
+		other := BillingGateway.MidjourneyOther(logInfo, priceData)
+		BillingGateway.AppendTaskClamp(other, clamp)
 		model.RecordConsumeLog(ctx, userID, model.RecordConsumeLogParams{
 			ChannelId: channelID, TokenId: 191, TokenName: "fx-real-3db-token", ModelName: "test-model", Quota: 60, Group: "default", Other: other,
 		})

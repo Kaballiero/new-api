@@ -20,7 +20,7 @@ import (
 )
 
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
-// 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
+// Request-local funding and token settlement is owned by the gateway session.
 func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model.Task) error {
 	tokenName := c.GetString("token_name")
 	logContent := fmt.Sprintf("操作 %s", info.Action)
@@ -47,7 +47,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 	}
 	other := model.NewLogOther()
 	other.SetPublic("is_task", true)
-	appendBillingFXLogInfo(other, info, info.PriceData, "submit")
+	BillingGateway.AppendTaskBillingFX(other, info, info.PriceData, "submit")
 	other.SetPublic("request_path", c.Request.URL.Path)
 	other.SetPublic("model_price", info.PriceData.ModelPrice)
 	if info.PriceData.ModelRatio > 0 {
@@ -70,7 +70,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		}
 	}
 	appendTaskLogInfo(task, other)
-	attachQuotaSaturation(c, info, other)
+	BillingGateway.AppendTaskQuotaSaturation(c, info, other)
 	var logErr error
 	if bc := task.PrivateData.BillingContext; bc != nil && (bc.SettlementMode == model.TaskSettlementOpenRouterCostV1 || bc.SettlementMode == model.TaskSettlementOpenRouterCostV2) {
 		other.SetPublic("settlement_mode", bc.SettlementMode)
@@ -286,7 +286,7 @@ func appendTaskLogInfo(task *model.Task, other *model.LogOther) {
 		other.SetPublic("task_id", task.TaskID)
 	}
 	if task.PrivateData.Execution != nil {
-		AppendTaskPluginAuditInfo(other, task.PrivateData.Execution.TaskPlugin)
+		BillingGateway.AppendTaskPlugin(other, task.PrivateData.Execution.TaskPlugin)
 	}
 	if task.PrivateData.UpstreamTaskID == "" && task.PrivateData.NodeName == "" {
 		return
@@ -485,7 +485,7 @@ func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	other.SetPublic("pre_consumed_quota", preConsumedQuota)
 	other.SetPublic("actual_quota", actualQuota)
 	for _, clamp := range clamps {
-		attachQuotaSaturationToOther(other, clamp)
+		BillingGateway.AppendTaskClamp(other, clamp)
 	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:    task.UserId,

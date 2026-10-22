@@ -36,7 +36,7 @@ func TestAttachQuotaSaturationNestsUnderAdminInfo(t *testing.T) {
 
 	other := model.NewLogOther()
 	other.SetPublic("model_price", 0.004)
-	attachQuotaSaturation(ctx, relayInfo, other)
+	BillingGateway.AppendTaskQuotaSaturation(ctx, relayInfo, other)
 
 	adminInfo, ok := other.Snapshot()["admin_info"].(map[string]any)
 	require.True(t, ok, "admin_info should be created")
@@ -80,7 +80,7 @@ func TestAttachQuotaSaturationPreservesExistingAdminInfo(t *testing.T) {
 	}
 	other := model.NewLogOther()
 	other.SetAdmin("admin_username", "root")
-	attachQuotaSaturation(ctx, relayInfo, other)
+	BillingGateway.AppendTaskQuotaSaturation(ctx, relayInfo, other)
 
 	adminInfo := other.Snapshot()["admin_info"].(map[string]any)
 	require.Equal(t, "root", adminInfo["admin_username"], "existing admin_info fields preserved")
@@ -96,7 +96,7 @@ func TestAttachQuotaSaturationNoClampNoMarker(t *testing.T) {
 	relayInfo := &relaycommon.RelayInfo{QuotaClamp: nil}
 	other := model.NewLogOther()
 	other.SetPublic("model_price", 0.004)
-	attachQuotaSaturation(ctx, relayInfo, other)
+	BillingGateway.AppendTaskQuotaSaturation(ctx, relayInfo, other)
 
 	_, hasAdmin := other.Snapshot()["admin_info"]
 	require.False(t, hasAdmin, "no admin_info should be added when there is no clamp")

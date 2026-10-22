@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -699,17 +698,15 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 	c.Set(ginKeyChannelAffinityLogInfo, info)
 }
 
-func AppendChannelAffinityAdminInfo(c *gin.Context, other *model.LogOther) {
-	if c == nil || other == nil {
-		return
+// ChannelAffinityLogInfo returns the owner's existing, non-secret audit projection.
+func ChannelAffinityLogInfo(c *gin.Context) map[string]any {
+	if c == nil {
+		return nil
 	}
-	anyInfo, ok := c.Get(ginKeyChannelAffinityLogInfo)
-	if !ok || anyInfo == nil {
-		return
-	}
-	other.SetAdmin("channel_affinity", anyInfo)
+	info, _ := c.Get(ginKeyChannelAffinityLogInfo)
+	projection, _ := info.(map[string]any)
+	return projection
 }
-
 func RecordChannelAffinity(c *gin.Context, channelID int) {
 	if channelID <= 0 {
 		return

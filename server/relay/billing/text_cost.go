@@ -15,10 +15,35 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (g *Gateway) TextCost(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage) service.TextCostSummary {
-	in := calculate_text_cost.Input{Usage: costUsage(usage), Prices: costPrices(info.PriceData), ModelName: info.GetBillingModelName(), Semantic: usageSemanticFromUsage(info, usage), Estimate: info.GetEstimatePromptTokens(), NativeCost: info.NativeImage != nil && info.NativeImage.ActualCostUSD != nil, LegacyClaudeDerived: isLegacyClaudeDerivedOpenAIUsage(info, usage), OpenRouterClaude: info.HasChannelMeta() && info.ChannelType == constant.ChannelTypeOpenRouter && usageSemanticFromUsage(info, usage) == "anthropic", Snapshot: costSnapshot(info.TieredBillingSnapshot), Request: costRequest(info.BillingRequestInput), Reserved: info.FinalPreConsumedQuota, PriorClamp: costClamp(info.QuotaClamp)}
+func (g *Gateway) TextCost(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage) TextCostSummary {
+	in := calculate_text_cost.Input{
+		Usage:               costUsage(usage),
+		Prices:              costPrices(info.PriceData),
+		ModelName:           info.GetBillingModelName(),
+		Semantic:            usageSemanticFromUsage(info, usage),
+		Estimate:            info.GetEstimatePromptTokens(),
+		NativeCost:          info.NativeImage != nil && info.NativeImage.ActualCostUSD != nil,
+		LegacyClaudeDerived: isLegacyClaudeDerivedOpenAIUsage(info, usage),
+		OpenRouterClaude: info.HasChannelMeta() && info.ChannelType == constant.ChannelTypeOpenRouter &&
+			usageSemanticFromUsage(info, usage) == "anthropic",
+		Snapshot:   costSnapshot(info.TieredBillingSnapshot),
+		Request:    costRequest(info.BillingRequestInput),
+		Reserved:   info.FinalPreConsumedQuota,
+		PriorClamp: costClamp(info.QuotaClamp),
+	}
 	if state := info.OpenRouterCost; state != nil {
-		in.Provider = domain.ProviderCost{Present: true, Final: state.Final, Valid: state.Valid, CostUSD: state.CostUSD, Basis: domain.ProviderBasis{Version: state.Basis.Version, EffectiveGroupRatio: state.Basis.EffectiveGroupRatio, QuotaPerUnit: state.Basis.QuotaPerUnit, EstimatedUSD: state.Basis.EstimatedUSD}}
+		in.Provider = domain.ProviderCost{
+			Present: true,
+			Final:   state.Final,
+			Valid:   state.Valid,
+			CostUSD: state.CostUSD,
+			Basis: domain.ProviderBasis{
+				Version:             state.Basis.Version,
+				EffectiveGroupRatio: state.Basis.EffectiveGroupRatio,
+				QuotaPerUnit:        state.Basis.QuotaPerUnit,
+				EstimatedUSD:        state.Basis.EstimatedUSD,
+			},
+		}
 	}
 	if info.ResponsesUsageInfo != nil {
 		for name, tool := range info.ResponsesUsageInfo.BuiltInTools {
@@ -38,42 +63,39 @@ func (g *Gateway) TextCost(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 	if result.Clamp != in.PriorClamp {
 		info.QuotaClamp = gatewayClamp(result.Clamp)
 	}
-	out := service.TextCostSummary{
-		PromptTokens:           result.PromptTokens,
-		CompletionTokens:       result.CompletionTokens,
-		TotalTokens:            result.TotalTokens,
-		CacheTokens:            result.CacheTokens,
-		CacheCreationTokens:    result.CacheCreationTokens,
-		CacheCreationTokens5m:  result.CacheCreationTokens5m,
-		CacheCreationTokens1h:  result.CacheCreationTokens1h,
-		ImageTokens:            result.ImageTokens,
-		AudioTokens:            result.AudioTokens,
-		ModelName:              result.ModelName,
-		CompletionRatio:        result.CompletionRatio,
-		CacheRatio:             result.CacheRatio,
-		ImageRatio:             result.ImageRatio,
-		ModelRatio:             result.ModelRatio,
-		GroupRatio:             result.GroupRatio,
-		BillingGroupRatio:      result.BillingGroupRatio,
-		ModelPrice:             result.ModelPrice,
-		CacheCreationRatio:     result.CacheCreationRatio,
-		CacheCreationRatio5m:   result.CacheCreationRatio5m,
-		CacheCreationRatio1h:   result.CacheCreationRatio1h,
-		Quota:                  result.Quota,
-		IsClaudeUsageSemantic:  result.IsClaudeUsageSemantic,
-		UsageSemantic:          result.UsageSemantic,
-		AudioInputPrice:        result.AudioInputPrice,
-		ToolCallSurchargeQuota: result.ToolCallSurchargeQuota,
-		FixedPriceBilling:      result.FixedPriceBilling,
-		ProviderCostBilling:    result.ProviderCostBilling,
-		TieredResult:           gatewayTiered(result.TieredResult), TieredApplied: result.TieredApplied, AudioDisplayQuota: result.AudioDisplayQuota, CacheWriteTokens: result.CacheWriteTokens, BillableUsage: result.HasBillableUsage(),
+	out := TextCostSummary{
+		PromptTokens:     result.PromptTokens,
+		CompletionTokens: result.CompletionTokens,
+
+		CacheTokens:           result.CacheTokens,
+		CacheCreationTokens:   result.CacheCreationTokens,
+		CacheCreationTokens5m: result.CacheCreationTokens5m,
+		CacheCreationTokens1h: result.CacheCreationTokens1h,
+		ImageTokens:           result.ImageTokens,
+		AudioTokens:           result.AudioTokens,
+		ModelName:             result.ModelName,
+		CompletionRatio:       result.CompletionRatio,
+		CacheRatio:            result.CacheRatio,
+		ImageRatio:            result.ImageRatio,
+		ModelRatio:            result.ModelRatio,
+		GroupRatio:            result.GroupRatio,
+
+		ModelPrice:            result.ModelPrice,
+		CacheCreationRatio:    result.CacheCreationRatio,
+		CacheCreationRatio5m:  result.CacheCreationRatio5m,
+		CacheCreationRatio1h:  result.CacheCreationRatio1h,
+		Quota:                 result.Quota,
+		IsClaudeUsageSemantic: result.IsClaudeUsageSemantic,
+
+		AudioInputPrice: result.AudioInputPrice,
+
+		TieredResult:      gatewayTiered(result.TieredResult),
+		TieredApplied:     result.TieredApplied,
+		AudioDisplayQuota: result.AudioDisplayQuota,
+		CacheWriteTokens:  result.CacheWriteTokens,
+		BillableUsage:     result.HasBillableUsage(),
 	}
-	if result.ToolSurchargeItems != nil {
-		out.ToolSurchargeItems = make([]service.ToolSurchargeItem, len(result.ToolSurchargeItems))
-		for i, item := range result.ToolSurchargeItems {
-			out.ToolSurchargeItems[i] = service.ToolSurchargeItem{Name: item.Name, Count: item.Count, Price: item.Price, DisplayQuota: item.DisplayQuota}
-		}
-	}
+	out.ToolSurchargeItems = result.ToolSurchargeItems
 	return out
 }
 func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) bool {
@@ -114,5 +136,5 @@ func (g *Gateway) PostText(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 	summary := g.TextCost(c, info, effective)
 	summary.TokenName = c.GetString("token_name")
 	summary.UseTimeSeconds = elapsed
-	service.RecordTextCost(c, info, usage, effective, summary, extra)
+	g.recordTextCost(c, info, usage, effective, summary, extra)
 }

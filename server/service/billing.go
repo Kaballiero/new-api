@@ -1,6 +1,8 @@
 package service
 
 import (
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -18,7 +20,6 @@ const (
 // its implementation once without a service -> gateway import cycle.
 type BillingGatewayPort interface {
 	PreConsume(*gin.Context, int, *relaycommon.RelayInfo) *types.NewAPIError
-	Settle(*gin.Context, *relaycommon.RelayInfo, int) error
 	SettleWss(*gin.Context, *relaycommon.RelayInfo, int) error
 	ApplyDelta(*relaycommon.RelayInfo, int, int, bool) (bool, bool, error)
 	PostText(*gin.Context, *relaycommon.RelayInfo, *dto.Usage, []string)
@@ -29,28 +30,20 @@ type BillingGatewayPort interface {
 	CurrentFX() (BillingFXBasis, error)
 	CaptureFX(*relaycommon.RelayInfo) (float64, error)
 	ApplyFX(float64, float64) (float64, error)
+	AppendTaskBillingFX(*model.LogOther, *relaycommon.RelayInfo, hosttypes.PriceData, string)
+	AppendTaskQuotaSaturation(*gin.Context, *relaycommon.RelayInfo, *model.LogOther)
+	AppendTaskClamp(*model.LogOther, *common.QuotaClamp)
+	AppendTaskTiered(*model.LogOther, *relaycommon.RelayInfo, *billingexpr.TieredResult)
+	AppendTaskPlugin(*model.LogOther, *model.TaskPluginSnapshot)
+	MidjourneyOther(*relaycommon.RelayInfo, hosttypes.PriceData) *model.LogOther
 }
 
-// BRIDGE: service/{text_quota,quota,batch_billing,midjourney,violation_fee}.go,
-// internal/billing/contract_test.go and controller/wss_characterization_test.go until 2c / wave 5.
+// BRIDGE: service/{batch_billing,task_billing,midjourney,violation_fee,billing_fx,tiered_settle}.go until wave 5;
+// immutable internal/billing/{contract,usage_contract}_test.go and controller/wss_characterization_test.go.
 var BillingGateway BillingGatewayPort
-
-// OpenRouterSettlementOutcome is the projection consumed by existing cost logs.
-type OpenRouterSettlementOutcome struct {
-	TargetQuota         int    `json:"target_quota"`
-	ReservedQuota       int    `json:"reserved_quota"`
-	FundingAppliedQuota int    `json:"funding_applied_quota"`
-	TokenAppliedQuota   int    `json:"token_applied_quota"`
-	SettlementStatus    string `json:"settlement_status"`
-	FailureStage        string `json:"failure_stage,omitempty"`
-}
 
 func PreConsumeBilling(c *gin.Context, quota int, info *relaycommon.RelayInfo) *types.NewAPIError {
 	return BillingGateway.PreConsume(c, quota, info)
-}
-
-func SettleBilling(c *gin.Context, info *relaycommon.RelayInfo, actual int) error {
-	return BillingGateway.Settle(c, info, actual)
 }
 
 func SettleWssBilling(c *gin.Context, info *relaycommon.RelayInfo, actual int) error {
