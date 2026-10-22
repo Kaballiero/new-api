@@ -29,7 +29,7 @@
 |---|---|---|---|
 | 0 | Карта системы и roadmap | ✅ | нет |
 | 1 | Бизнес-модули панели: apikeys, accounts, catalog, authorization + PAT, identity, pricing, channels | ✅ (не слито в main) | — |
-| 2 | Граница шлюза: проверка ключа, billing, запись использования | 🔄 (2a ✅, 2b1/2b2 implementation, host acceptance и 2c впереди) | высокий |
+| 2 | Граница шлюза: проверка ключа, billing, запись использования | 🔄 (2a ✅, 2b1 ✅, 2b2 ✅, 2c впереди) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ⬜ | средний |
 | 4 | Платежи, подписки, коды пополнения | ⬜ | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
@@ -80,10 +80,10 @@
 
 - [x] **2b1 implementation**: `internal/billing` — create/increase/settle/refund/apply delta/notify; wallet/subscription и token quota; gateway mapping в `relay/billing`, сборка `internal/app/billing`, один временный service bridge.
 - [x] Контракт до переноса: commit `11b9dc672`, 62 goldens на origin/main, 3 стабильных повтора; goldens не изменяются.
-- [ ] Host acceptance после переноса: неизменные 62 HTTP/state goldens, WSS/full suite и реальный PostgreSQL 15. Локальные usecase/locale/architecture проверки не заменяют этот прогон.
+- [x] Host acceptance после переноса: неизменные 62 HTTP/state goldens, WSS/full suite и реальный PostgreSQL 15.19 — без регрессий относительно origin/main.
 - [x] **2b2 implementation**: text/audio/realtime cost, token/cache normalization, tiered policy, selected-group refresh и FX в flat action-пакетах `internal/billing`; plain gateway mapping и late readers. `ExpressionEvaluator`/`QuotaMath` adapters используют прежний engine/rounding. Provider discovery/unknown policy не переносились.
 - [x] Cost baseline до переноса: `fa7f25e43`, 64 goldens, origin/main record + два повтора + branch compare; прежние 62 неизменны.
-- [ ] **2b2 host acceptance**: все 126 immutable goldens, неизменный WSS characterization, реальный изолированный PostgreSQL и full suite. Локальные pure/gateway/SQLite/architecture checks не заменяют host evidence.
+- [x] **2b2 host acceptance**: все 126 immutable goldens, неизменный WSS characterization, full suite, vet/OpenAPI/U1000; PostgreSQL 15.19 full suite совпадает с origin/main, изолированные adapter/WSS/cost/task проверки зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [ ] Удалить единственный service BillingGateway bridge после переноса log orchestration в 2c и Batch/Task/Midjourney/violation в волну 5; WSS facades пока нужны неизменному characterization.
 
 ### 2c — запись использования
