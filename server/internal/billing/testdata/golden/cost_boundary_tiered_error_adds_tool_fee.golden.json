@@ -1,0 +1,74 @@
+{
+  "final": {
+    "channel_used_quota": 10037,
+    "request_count": 1,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 1989963,
+    "token_used_quota": 10037,
+    "user_used_quota": 10037,
+    "wallet": 1989963,
+    "wallet_batch_held_quota": 0
+  },
+  "hold_before_boundary": {
+    "channel_used_quota": 0,
+    "request_count": 0,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 1999963,
+    "token_used_quota": 37,
+    "user_used_quota": 0,
+    "wallet": 1999963,
+    "wallet_batch_held_quota": 0
+  },
+  "relay_logs": [
+    {
+      "channel": 1,
+      "channel_name": "",
+      "completion_tokens": 20,
+      "content": "web_search 调用 2 次，调用花费 10000 点额度",
+      "created_at": "__number__",
+      "group": "default",
+      "id": 1,
+      "ip": "",
+      "is_stream": false,
+      "model_name": "billing-contract-model",
+      "other": {
+        "admin_info": {
+          "usage_billing_path": "upstream",
+          "use_channel": null
+        },
+        "billing_mode": "tiered_expr",
+        "billing_preference": "wallet_only",
+        "billing_source": "wallet",
+        "cache_ratio": 0,
+        "cache_tokens": 0,
+        "completion_ratio": 1,
+        "expr_b64": "aW52YWxpZCArLSsgZXhwcg==",
+        "frt": "__duration__",
+        "group_ratio": 1,
+        "model_price": 0,
+        "model_ratio": 1,
+        "request_path": "/v1/chat/completions",
+        "tool_surcharges": [
+          {
+            "count": 2,
+            "name": "web_search",
+            "price": 10
+          }
+        ],
+        "user_group_ratio": 0
+      },
+      "other_raw": "{\"admin_info\":{\"usage_billing_path\":\"upstream\",\"use_channel\":null},\"billing_mode\":\"tiered_expr\",\"billing_preference\":\"wallet_only\",\"billing_source\":\"wallet\",\"cache_ratio\":0,\"cache_tokens\":0,\"completion_ratio\":1,\"expr_b64\":\"aW52YWxpZCArLSsgZXhwcg==\",\"frt\":\"__duration__\",\"group_ratio\":1,\"model_price\":0,\"model_ratio\":1,\"request_path\":\"/v1/chat/completions\",\"tool_surcharges\":[{\"name\":\"web_search\",\"count\":2,\"price\":10}],\"user_group_ratio\":0}",
+      "prompt_tokens": 100,
+      "quota": 10037,
+      "request_id": "__generated_request_id__",
+      "token_id": 1,
+      "token_name": "billing-contract-token",
+      "type": 2,
+      "use_time": "__duration__",
+      "user_id": 1,
+      "username": ""
+    }
+  ]
+}

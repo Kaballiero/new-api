@@ -1,0 +1,136 @@
+{
+  "final": {
+    "channel_used_quota": 10120,
+    "request_count": 1,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 1989880,
+    "token_used_quota": 10120,
+    "user_used_quota": 10120,
+    "wallet": 1989880,
+    "wallet_batch_held_quota": 0
+  },
+  "hold_at_upstream": {
+    "ledger": {
+      "channel_used_quota": 0,
+      "request_count": 0,
+      "subscription_used": 0,
+      "token_batch_held_quota": 0,
+      "token_remain_quota": 1999900,
+      "token_used_quota": 100,
+      "user_used_quota": 0,
+      "wallet": 1999900,
+      "wallet_batch_held_quota": 0
+    },
+    "path": "/v1/messages"
+  },
+  "metadata_calls": 0,
+  "relay_logs": [
+    {
+      "channel": 1,
+      "channel_name": "",
+      "completion_tokens": 20,
+      "content": "web_search 调用 2 次，调用花费 10000 点额度",
+      "created_at": "__number__",
+      "group": "default",
+      "id": 1,
+      "ip": "",
+      "is_stream": false,
+      "model_name": "billing-contract-model",
+      "other": {
+        "admin_info": {
+          "billing_applied_group": {
+            "effective_ratio": 1,
+            "pure_ratio": 1
+          },
+          "billing_fx": {
+            "effective_at": 1700000000,
+            "fetched_at": 1700000000,
+            "publication_version": 1,
+            "rate": 100,
+            "schema_version": 1,
+            "source": "cbr-xml-daily.ru"
+          },
+          "billing_stage": "request",
+          "usage_billing_path": "billing-usage-anthropic",
+          "use_channel": [
+            "1"
+          ]
+        },
+        "billing_preference": "wallet_only",
+        "billing_source": "wallet",
+        "cache_creation_ratio": 1.25,
+        "cache_creation_tokens": 0,
+        "cache_ratio": 0.1,
+        "cache_tokens": 0,
+        "claude": true,
+        "completion_ratio": 1,
+        "frt": "__duration__",
+        "group_ratio": 1,
+        "model_price": -1,
+        "model_ratio": 1,
+        "request_conversion": [
+          "Claude Messages"
+        ],
+        "request_path": "/v1/messages",
+        "tool_surcharges": [
+          {
+            "count": 2,
+            "name": "web_search",
+            "price": 10
+          }
+        ],
+        "usage_semantic": "anthropic",
+        "user_group_ratio": -1
+      },
+      "other_raw": "{\"admin_info\":{\"billing_applied_group\":{\"effective_ratio\":1,\"pure_ratio\":1},\"billing_fx\":{\"effective_at\":1700000000,\"fetched_at\":1700000000,\"publication_version\":1,\"rate\":100,\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\"},\"billing_stage\":\"request\",\"usage_billing_path\":\"billing-usage-anthropic\",\"use_channel\":[\"1\"]},\"billing_preference\":\"wallet_only\",\"billing_source\":\"wallet\",\"cache_creation_ratio\":1.25,\"cache_creation_tokens\":0,\"cache_ratio\":0.1,\"cache_tokens\":0,\"claude\":true,\"completion_ratio\":1,\"frt\":\"__duration__\",\"group_ratio\":1,\"model_price\":-1,\"model_ratio\":1,\"request_conversion\":[\"Claude Messages\"],\"request_path\":\"/v1/messages\",\"tool_surcharges\":[{\"name\":\"web_search\",\"count\":2,\"price\":10}],\"usage_semantic\":\"anthropic\",\"user_group_ratio\":-1}",
+      "prompt_tokens": 100,
+      "quota": 10120,
+      "request_id": "billing-contract-request",
+      "token_id": 1,
+      "token_name": "billing-contract-token",
+      "type": 2,
+      "use_time": "__duration__",
+      "user_id": 1,
+      "username": "contract-user"
+    }
+  ],
+  "response": {
+    "body": {
+      "content": [
+        {
+          "text": "hello",
+          "type": "text"
+        }
+      ],
+      "id": "msg-fixture",
+      "model": "billing-contract-model",
+      "role": "assistant",
+      "stop_reason": "end_turn",
+      "type": "message",
+      "usage": {
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "server_tool_use": {
+          "web_search_requests": 2
+        }
+      }
+    },
+    "headers": {
+      "Content-Length": [
+        "249"
+      ],
+      "Content-Type": [
+        "application/json"
+      ],
+      "Date": [
+        "__timestamp__"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 200
+  },
+  "upstream_calls": 1
+}

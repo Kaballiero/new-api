@@ -1,0 +1,110 @@
+{
+  "final": {
+    "channel_used_quota": 340,
+    "request_count": 1,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 1999660,
+    "token_used_quota": 340,
+    "user_used_quota": 340,
+    "wallet": 1999660,
+    "wallet_batch_held_quota": 0
+  },
+  "hold_at_upstream": {
+    "ledger": {
+      "channel_used_quota": 0,
+      "request_count": 0,
+      "subscription_used": 0,
+      "token_batch_held_quota": 0,
+      "token_remain_quota": 1999920,
+      "token_used_quota": 80,
+      "user_used_quota": 0,
+      "wallet": 1999920,
+      "wallet_batch_held_quota": 0
+    },
+    "path": "/v1/audio/speech"
+  },
+  "metadata_calls": 0,
+  "relay_logs": [
+    {
+      "channel": 1,
+      "channel_name": "",
+      "completion_tokens": 17,
+      "content": "模型倍率 1.00，补全倍率 1.00，音频倍率 10.00，音频补全倍率 2.00，分组倍率 1.00",
+      "created_at": "__number__",
+      "group": "default",
+      "id": 1,
+      "ip": "",
+      "is_stream": false,
+      "model_name": "billing-contract-model",
+      "other": {
+        "admin_info": {
+          "billing_applied_group": {
+            "effective_ratio": 1,
+            "pure_ratio": 1
+          },
+          "billing_fx": {
+            "effective_at": 1700000000,
+            "fetched_at": 1700000000,
+            "publication_version": 1,
+            "rate": 100,
+            "schema_version": 1,
+            "source": "cbr-xml-daily.ru"
+          },
+          "billing_stage": "request",
+          "local_count_tokens": true,
+          "use_channel": [
+            "1"
+          ]
+        },
+        "audio": true,
+        "audio_completion_ratio": 2,
+        "audio_input": 0,
+        "audio_output": 17,
+        "audio_ratio": 10,
+        "billing_preference": "wallet_only",
+        "billing_source": "wallet",
+        "cache_ratio": 0,
+        "cache_tokens": 0,
+        "completion_ratio": 1,
+        "frt": "__duration__",
+        "group_ratio": 1,
+        "model_price": -1,
+        "model_ratio": 1,
+        "request_conversion": [
+          "openai_audio"
+        ],
+        "request_path": "/v1/audio/speech",
+        "text_input": 0,
+        "text_output": 0,
+        "user_group_ratio": -1
+      },
+      "other_raw": "{\"admin_info\":{\"billing_applied_group\":{\"effective_ratio\":1,\"pure_ratio\":1},\"billing_fx\":{\"effective_at\":1700000000,\"fetched_at\":1700000000,\"publication_version\":1,\"rate\":100,\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\"},\"billing_stage\":\"request\",\"local_count_tokens\":true,\"use_channel\":[\"1\"]},\"audio\":true,\"audio_completion_ratio\":2,\"audio_input\":0,\"audio_output\":17,\"audio_ratio\":10,\"billing_preference\":\"wallet_only\",\"billing_source\":\"wallet\",\"cache_ratio\":0,\"cache_tokens\":0,\"completion_ratio\":1,\"frt\":\"__duration__\",\"group_ratio\":1,\"model_price\":-1,\"model_ratio\":1,\"request_conversion\":[\"openai_audio\"],\"request_path\":\"/v1/audio/speech\",\"text_input\":0,\"text_output\":0,\"user_group_ratio\":-1}",
+      "prompt_tokens": 0,
+      "quota": 340,
+      "request_id": "billing-contract-request",
+      "token_id": 1,
+      "token_name": "billing-contract-token",
+      "type": 2,
+      "use_time": "__duration__",
+      "user_id": 1,
+      "username": "contract-user"
+    }
+  ],
+  "response": {
+    "body": "\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000",
+    "headers": {
+      "Content-Type": [
+        "audio/pcm"
+      ],
+      "Date": [
+        "__timestamp__"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 200
+  },
+  "upstream_calls": 1
+}

@@ -1,0 +1,123 @@
+{
+  "final": {
+    "channel_used_quota": 100,
+    "request_count": 1,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 1999900,
+    "token_used_quota": 100,
+    "user_used_quota": 100,
+    "wallet": 1999900,
+    "wallet_batch_held_quota": 0
+  },
+  "hold_at_upstream": {
+    "ledger": {
+      "channel_used_quota": 0,
+      "request_count": 0,
+      "subscription_used": 0,
+      "token_batch_held_quota": 0,
+      "token_remain_quota": 1999920,
+      "token_used_quota": 80,
+      "user_used_quota": 0,
+      "wallet": 1999920,
+      "wallet_batch_held_quota": 0
+    },
+    "path": "/v1/embeddings"
+  },
+  "metadata_calls": 0,
+  "relay_logs": [
+    {
+      "channel": 1,
+      "channel_name": "",
+      "completion_tokens": 0,
+      "content": "",
+      "created_at": "__number__",
+      "group": "default",
+      "id": 1,
+      "ip": "",
+      "is_stream": false,
+      "model_name": "billing-contract-model",
+      "other": {
+        "admin_info": {
+          "billing_applied_group": {
+            "effective_ratio": 1,
+            "pure_ratio": 1
+          },
+          "billing_fx": {
+            "effective_at": 1700000000,
+            "fetched_at": 1700000000,
+            "publication_version": 1,
+            "rate": 100,
+            "schema_version": 1,
+            "source": "cbr-xml-daily.ru"
+          },
+          "billing_stage": "request",
+          "usage_billing_path": "upstream",
+          "use_channel": [
+            "1"
+          ]
+        },
+        "billing_preference": "wallet_only",
+        "billing_source": "wallet",
+        "cache_ratio": 0.1,
+        "cache_tokens": 0,
+        "completion_ratio": 1,
+        "frt": "__duration__",
+        "group_ratio": 1,
+        "model_price": -1,
+        "model_ratio": 1,
+        "request_conversion": [
+          "embedding"
+        ],
+        "request_path": "/v1/embeddings",
+        "user_group_ratio": -1
+      },
+      "other_raw": "{\"admin_info\":{\"billing_applied_group\":{\"effective_ratio\":1,\"pure_ratio\":1},\"billing_fx\":{\"effective_at\":1700000000,\"fetched_at\":1700000000,\"publication_version\":1,\"rate\":100,\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\"},\"billing_stage\":\"request\",\"usage_billing_path\":\"upstream\",\"use_channel\":[\"1\"]},\"billing_preference\":\"wallet_only\",\"billing_source\":\"wallet\",\"cache_ratio\":0.1,\"cache_tokens\":0,\"completion_ratio\":1,\"frt\":\"__duration__\",\"group_ratio\":1,\"model_price\":-1,\"model_ratio\":1,\"request_conversion\":[\"embedding\"],\"request_path\":\"/v1/embeddings\",\"user_group_ratio\":-1}",
+      "prompt_tokens": 100,
+      "quota": 100,
+      "request_id": "billing-contract-request",
+      "token_id": 1,
+      "token_name": "billing-contract-token",
+      "type": 2,
+      "use_time": "__duration__",
+      "user_id": 1,
+      "username": "contract-user"
+    }
+  ],
+  "response": {
+    "body": {
+      "data": [
+        {
+          "embedding": [
+            0.25,
+            0.5
+          ],
+          "index": 0,
+          "object": "embedding"
+        }
+      ],
+      "model": "billing-contract-model",
+      "object": "list",
+      "usage": {
+        "prompt_tokens": 100,
+        "total_tokens": 100
+      }
+    },
+    "headers": {
+      "Content-Length": [
+        "164"
+      ],
+      "Content-Type": [
+        "application/json"
+      ],
+      "Date": [
+        "__timestamp__"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 200
+  },
+  "upstream_calls": 1
+}

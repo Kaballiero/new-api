@@ -1,0 +1,36 @@
+{
+  "final": {
+    "channel_used_quota": 0,
+    "request_count": 0,
+    "subscription_used": 0,
+    "token_batch_held_quota": 0,
+    "token_remain_quota": 2000000,
+    "token_used_quota": 0,
+    "user_used_quota": 0,
+    "wallet": 2000000,
+    "wallet_batch_held_quota": 0
+  },
+  "hold_at_upstream": null,
+  "metadata_calls": 0,
+  "relay_logs": [],
+  "response": {
+    "body": {
+      "error": {
+        "code": "model_price_error",
+        "message": "model cost accounting configuration is invalid (request id: billing-contract-request)",
+        "param": "",
+        "type": "new_api_error"
+      }
+    },
+    "headers": {
+      "Content-Type": [
+        "application/json; charset=utf-8"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 503
+  },
+  "upstream_calls": 0
+}
