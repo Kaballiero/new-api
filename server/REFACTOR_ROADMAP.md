@@ -29,7 +29,7 @@
 |---|---|---|---|
 | 0 | Карта системы и roadmap | ✅ | нет |
 | 1 | Бизнес-модули панели: apikeys, accounts, catalog, authorization + PAT, identity, pricing, channels | ✅ (не слито в main) | — |
-| 2 | Граница шлюза: проверка ключа, billing, запись использования | 🔄 (2a ✅, 2b1 ✅, 2b2 ✅, 2c implementation готова, host acceptance впереди) | высокий |
+| 2 | Граница шлюза: проверка ключа, billing, запись использования | ✅ (2a, 2b1, 2b2, 2c) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ⬜ | средний |
 | 4 | Платежи, подписки, коды пополнения | ⬜ | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
@@ -92,8 +92,8 @@
 - [x] Implementation: usage count_consumption/record_consumption/record_failure; plain gateway snapshots, один serializer/storage adapter, late settings seam в model без schema/queries changes. Ленивый sync.OnceValue bridge, app-owned metadata port, business note policy в usage и Billable fact от billing; unsupported context возвращает error без panic.
 - [x] Общий upstream failure writer для relay/task submission; Task billing остаётся wave 5. Сохранены ordinary/provider/realtime write order, flags, DB routing и async jobs.
 - [x] Применён отдельный English content patch: единый logger formatter, ASCII USD $, source/docs/regression test; branch -update и exact content-only checker запускает оркестратор после Chinese parity proof. Старые rows не мигрируются. Исключение A6 подтверждено пользователем: channel-test MsgChannelTestLogName остаётся на языке получателя, без изменения immutable теста.
-- [ ] Host acceptance переноса: immutable SHA154, все contracts без -update на plain Chinese tree, WSS, реальный PostgreSQL, full suite, relaykit/OpenAPI/U1000.
-- [ ] Host English re-record только affected cases, content-only checker, затем финальный host suite. Пока это не PASS.
+- [x] Host acceptance переноса (commit 60ae79859): SHA154, все contracts без -update на plain Chinese tree, WSS, full suite, relaykit/OpenAPI/U1000; PostgreSQL 15.19 full suite совпадает с origin/main, изолированные usage/billing adapter, WSS, cost/task проверки зелёные. SQLite/MySQL полной матрицей не проверялись.
+- [x] English (commit 6b22c3bbd): перезаписаны только 27 затронутых cases, checker подтвердил изменение только `content` по утверждённой таблице; финальный host suite зелёный.
 
 ## Волна 3 — учёт и аналитика ⬜
 
