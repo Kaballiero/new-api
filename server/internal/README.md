@@ -17,6 +17,7 @@
 | `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 25 | [README](pricing/README.md) |
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
 | `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 11 | [README](billing/README.md) |
+| `usage` | запись request consumption/error, used/request counters и persisted metadata; чтение/аналитика остаются волне 3 | 3 | [README](usage/README.md) |
 
 README каждого модуля появляется в коммите, который чистит или переносит этот модуль.
 
@@ -33,4 +34,4 @@ README каждого модуля появляется в коммите, ко�
 
 ## Ещё не перенесено
 
-Платежи и пополнение баланса, подписки, коды погашения, логи и статистика использования, настройки и системные функции, деплойменты, batch, а также шлюз и асинхронные задачи (`relay/`, `controller/relay.go`, `task*`). Пока они живут в `controller/`, `service/` и `model/`.
+Платежи и пополнение баланса, подписки, коды погашения, чтение логов и аналитика использования, настройки и системные функции, деплойменты, batch, а также шлюз и асинхронные задачи (`relay/`, `controller/relay.go`, `task*`). Пока они живут в `controller/`, `service/` и `model/`.

@@ -29,7 +29,7 @@
 |---|---|---|---|
 | 0 | Карта системы и roadmap | ✅ | нет |
 | 1 | Бизнес-модули панели: apikeys, accounts, catalog, authorization + PAT, identity, pricing, channels | ✅ (не слито в main) | — |
-| 2 | Граница шлюза: проверка ключа, billing, запись использования | 🔄 (2a ✅, 2b1 ✅, 2b2 ✅, 2c впереди) | высокий |
+| 2 | Граница шлюза: проверка ключа, billing, запись использования | 🔄 (2a ✅, 2b1 ✅, 2b2 ✅, 2c implementation готова, host acceptance впереди) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ⬜ | средний |
 | 4 | Платежи, подписки, коды пополнения | ⬜ | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
@@ -88,14 +88,18 @@
 
 ### 2c — запись использования
 
-- [ ] Новый модуль `usage`: сценарий записи потребления (лог запроса), его вызывает шлюз.
-- [ ] Контрактные тесты: списание и возврат на типовых сценариях (обычный запрос, ошибка провайдера, подписка, realtime). ⏳ Подтвердить.
+- [x] Baseline: commit 2dd83ad14, 28 usage goldens на origin/main, record + два стабильных повтора + branch compare; прежние 126 неизменны, всего 154.
+- [x] Implementation: usage count_consumption/record_consumption/record_failure; plain gateway snapshots, один serializer/storage adapter, late settings seam в model без schema/queries changes. Ленивый sync.OnceValue bridge, app-owned metadata port, business note policy в usage и Billable fact от billing; unsupported context возвращает error без panic.
+- [x] Общий upstream failure writer для relay/task submission; Task billing остаётся wave 5. Сохранены ordinary/provider/realtime write order, flags, DB routing и async jobs.
+- [x] Отдельно подготовлен, но не применён wave2c-english.patch (source + docs + formatter regression test); branch -update и exact content-only checker запускает оркестратор после Chinese parity proof. Старые rows не мигрируются. Исключение A6 подтверждено пользователем: channel-test MsgChannelTestLogName остаётся на языке получателя, без изменения immutable теста.
+- [ ] Host acceptance переноса: immutable SHA154, все contracts без -update на plain Chinese tree, WSS, реальный PostgreSQL, full suite, relaykit/OpenAPI/U1000.
+- [ ] Host English re-record только affected cases, content-only checker, затем финальный host suite. Пока это не PASS.
 
 ## Волна 3 — учёт и аналитика ⬜
 
 - [ ] `usage`: `controller/log.go`, `log_query.go`, `usedata.go`, `usedata_bucket.go`, `usage_aggregate.go`, `rankings.go`, `model/log*.go`, агрегаты `model.UpdateQuotaData`, пакетная запись счётчиков `model.InitBatchUpdater`.
 - [ ] `audit`: `controller/audit.go`, `model/audit_*.go`.
-- [ ] Отделить запросы к `LOG_DB` в адаптер (отдельная БД логов сохраняется).
+- [ ] Отделить запросы к `LOG_DB` в адаптер (отдельная БД логов сохраняется); убрать временное восстановление Gin context в usage storage adapter (#36).
 
 ## Волна 4 — платежи, подписки, коды ⬜
 
@@ -105,6 +109,8 @@
 - [ ] Контрактные тесты вебхуков (подпись, повтор, идемпотентность). ⏳ Подтвердить.
 
 ## Волна 5 — асинхронные задачи и batch ⬜
+
+- [ ] Перевести persisted Task/Batch/Midjourney/violation log texts на English (translate persisted log texts to English); удалить metadata delegates единственного bridge после переноса consumers.
 
 Отправка задачи провайдеру — шлюз; учёт задач, их биллинг и опрос — бизнес.
 
