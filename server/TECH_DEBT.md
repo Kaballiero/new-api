@@ -57,6 +57,10 @@
 | 24 | `channels` уведомления без запроса | Язык root читается отдельным запросом `GetRootUser` перед каждым уведомлением; `NotifyRootUser` читает root ещё раз |
 | 25 | `personal_access_tokens/validate_token`, dashboard `AccessTokenAudit` + auth | Один PAT проверяется отдельным SQL-чтением в общем аудите и ещё раз в auth; при отзыве между чтениями аудит и результат аутентификации могут относиться к разным моментам. Отдельно спроектировать переиспользование проверенного результата в запросе с явной гарантией отзыва; изменятся число/момент чтений, поэтому wave 2a сохраняет оба вызова |
 
+| 42 | `audit/record_event` и вызывающие операции | Business write и audit row не атомарны; ошибка audit только логируется, без retry, manual marker всё равно подавляет fallback. Сохранено при переносе | Можно потерять evidence; durable recording и repair требуют отдельного решения |
+| 43 | `audit` Count/Find | Два чтения без общей snapshot transaction; concurrent inserts могут менять total/items между запросами. Риск по коду, отдельного concurrency-воспроизведения нет | Несогласованная страница; не менять SQL semantics без отдельного решения |
+| 44 | PAT last-use reader | PAT adapter напрямую читает audit_logs и применяет свою actor-role policy. По решению A3 SQL оставлен прежним; audit → PAT зависимости нет. Это вопрос владения reader, отдельно от двойной validation #25 | Пересмотреть узкий audit-owned reader при следующем изменении границ |
+
 ## Архитектурный долг
 
 Текущий список — `server/internal/architecture_known_violations_test.go` (только сокращается). Крупные пункты:
@@ -75,6 +79,8 @@
 - **`oauth/telegram.go` импортирует `internal/identity/domain`** (алиасы ошибок); архитектурный тест пакет `oauth` не проверяет.
 
 - **usage 3a**: model/usedata.go и model/utils.go содержат единственные технические RAM cache/queue для legacy producers до волны 7 (A2); legacy writers/cleanup — A4, #35/#37/#38/#41. Pure record aliases разрешены строгим AST-правилом, allowlist не расширялся.
+
+- **audit**: records/codec вынесены в adapter, model/audit_records.go — alias-only. Migration helper остаётся technical residue без изменения DDL; controller/middleware bridges перечислены в internal/audit/README.md.
 
 ## Генератор OpenAPI
 

@@ -18,6 +18,7 @@
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
 | `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 11 | [README](billing/README.md) |
 | `usage` | запись consumption/error; чтение логов, quota_data, flow, агрегаты и рейтинги; role visibility и metadata | 3 | [README](usage/README.md) |
+| `audit` | чтение событий и role projection; запись login/security/operation/PAT, metadata policy | 3 | [README](audit/README.md) |
 
 README каждого модуля появляется в коммите, который чистит или переносит этот модуль.
 

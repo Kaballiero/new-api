@@ -121,7 +121,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 - В `model/` остаётся алиас для не перенесённого кода: `type Token record.Token` (`model/token.go`).
 - Доменные типы (`<module>/domain`) — отдельные структуры без тегов; преобразование — в `record/conversion.go`. Структура таблицы не выходит за пределы адаптера, usecase видит только domain.
 - Список миграций (`AutoMigrate` в `model/main.go`) остаётся на месте: состав и порядок таблиц — часть поведения БД.
-- Сейчас в `internal/adapter/gorm/*/record/` лежат таблицы accounts, apikeys, authorization, catalog, channels, pricing и usage; остальные пока в `model/`.
+- Сейчас в `internal/adapter/gorm/*/record/` лежат таблицы accounts, apikeys, authorization, catalog, channels, pricing, usage и audit; остальные пока в `model/`.
 
 Код обязан работать на SQLite, MySQL и PostgreSQL (правила — корневой `CLAUDE.md`, Rule 2).
 
@@ -185,3 +185,13 @@ ranking period — typed error с полем Period. Storage-specific malformed/
 не передаются в VisibilityPolicy: codec выводит их из permissions. Legacy LogOther consumers
 используют zero-value type alias, без дополнительного model constructor bridge.
 Архитектурный тест, как и до 3a, пропускает файлы `_test.go`; AST-исключение применяется к production aliases.
+
+### Audit
+
+`internal/audit` владеет admin_list_events/list_own_events/record_event. Domain выбирает
+owner/actor/category, metadata и visibility; transport захватывает plain request-local snapshots,
+а единственный write Execute вызывается после операции. Records, JSON codec и SQL принадлежат
+gorm/audit; model сохраняет только alias-only surface и отдельный migration helper с прежним DDL.
+`internal/app/audit` не импортирует middleware/parent app; controller/middleware используют
+sync.OnceValue bridges. Read/write остаются на LOG_DB, routes/auth ordering неизменны.
+PAT last-use SQL пока остаётся в PAT adapter (#44), без встречной зависимости audit → PAT.
