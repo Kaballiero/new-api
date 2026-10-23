@@ -21,8 +21,7 @@ var (
 	ErrUsageUnavailable      = errors.New("api key usage is unavailable")
 	ErrKeyIDRequired         = errors.New("api key id or user id is empty")
 
-	// Search errors. The pattern errors are shared with log and top-up search
-	// through model.sanitizeLikePattern.
+	// Search errors are shared with usage and payment search through SanitizeSearchPattern.
 	ErrSearchConsecutiveWildcards = errors.New("search pattern must not contain consecutive % wildcards")
 	ErrSearchTooManyWildcards     = errors.New("search pattern allows at most 2 % wildcards")
 	ErrSearchKeywordTooShort      = errors.New("fuzzy search keyword must be at least 2 characters")

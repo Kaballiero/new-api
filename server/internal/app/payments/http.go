@@ -14,37 +14,47 @@ import (
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/payments"
 	creemadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/creem"
 	epayadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/epay"
-
+	pancakeadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/pancake"
 	stripeadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/stripe"
 	waffoadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/waffo"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
 	"github.com/QuantumNous/new-api/internal/payments/admin_list_topups"
 	"github.com/QuantumNous/new-api/internal/payments/complete_topup"
-
+	"github.com/QuantumNous/new-api/internal/payments/confirm_compliance"
 	"github.com/QuantumNous/new-api/internal/payments/create_creem_topup"
 	"github.com/QuantumNous/new-api/internal/payments/create_epay_topup"
-
+	"github.com/QuantumNous/new-api/internal/payments/create_pancake_pair"
+	"github.com/QuantumNous/new-api/internal/payments/create_pancake_topup"
 	"github.com/QuantumNous/new-api/internal/payments/create_stripe_topup"
 	"github.com/QuantumNous/new-api/internal/payments/create_waffo_topup"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
-
+	"github.com/QuantumNous/new-api/internal/payments/dto"
 	"github.com/QuantumNous/new-api/internal/payments/get_topup_info"
 	"github.com/QuantumNous/new-api/internal/payments/list_own_topups"
-
+	"github.com/QuantumNous/new-api/internal/payments/list_pancake_catalog"
 	"github.com/QuantumNous/new-api/internal/payments/quote_epay_topup"
-
+	"github.com/QuantumNous/new-api/internal/payments/quote_pancake_topup"
 	"github.com/QuantumNous/new-api/internal/payments/quote_stripe_topup"
 	"github.com/QuantumNous/new-api/internal/payments/quote_waffo_topup"
 	"github.com/QuantumNous/new-api/internal/payments/receive_creem_webhook"
 	"github.com/QuantumNous/new-api/internal/payments/receive_epay_notify"
-
+	"github.com/QuantumNous/new-api/internal/payments/receive_pancake_webhook"
 	"github.com/QuantumNous/new-api/internal/payments/receive_stripe_webhook"
 	"github.com/QuantumNous/new-api/internal/payments/receive_waffo_webhook"
-
+	"github.com/QuantumNous/new-api/internal/payments/save_pancake_config"
 	"github.com/QuantumNous/new-api/model"
 )
 
 type HTTP struct {
+	QuotePancake   quote_pancake_topup.HTTP
+	CreatePancake  create_pancake_topup.HTTP
+	PancakeWebhook receive_pancake_webhook.HTTP
+	Catalog        list_pancake_catalog.HTTP
+	Pair           create_pancake_pair.HTTP
+	SavePancake    save_pancake_config.HTTP
+	Compliance     confirm_compliance.HTTP
+	catalog        list_pancake_catalog.Usecase
+
 	QuoteWaffo    quote_waffo_topup.HTTP
 	CreateWaffo   create_waffo_topup.HTTP
 	WaffoWebhook  receive_waffo_webhook.HTTP
@@ -73,8 +83,42 @@ func NewHTTP() HTTP {
 		QuotaPerUnit: settings.Settings{}.QuotaPerUnit,
 	}
 	pricing := domain.Pricing{Settings: settings.Settings{}, Math: quotaMath{}, Wallet: storage.Wallet{}}
-
+	catalog := list_pancake_catalog.NewUsecase(pancakeadapter.Factory{}, settings.Settings{}, paymentDiagnostics{})
 	return HTTP{
+
+		QuotePancake: quote_pancake_topup.NewHTTP(quote_pancake_topup.NewUsecase(pricing, storage.Users{})),
+
+		CreatePancake: create_pancake_topup.NewHTTP(
+			create_pancake_topup.NewUsecase(
+				pricing,
+				storage.Users{},
+				store,
+				pancakeadapter.Client{},
+				settings.Settings{},
+				create_pancake_topup.Timing{Now: common.GetTimestamp, Reference: func(userID int) string {
+					return fmt.Sprintf("WAFFO_PANCAKE-%d-%d-%s", userID, time.Now().UnixMilli(), randstr.String(6))
+				}},
+				paymentDiagnostics{}),
+			func() bool { return settings.Settings{}.Availability().TopUp(domain.PaymentProviderWaffoPancake) },
+		),
+
+		PancakeWebhook: receive_pancake_webhook.NewHTTP(
+			receive_pancake_webhook.NewUsecase(pancakeadapter.Client{}, store, subscriptions{}, completion, &orderAdmission, paymentDiagnostics{}),
+			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderWaffoPancake) },
+			func(c *gin.Context, payload []byte, signature string) {
+				observeWebhook(c, "Waffo Pancake", payload, signature)
+			},
+		),
+
+		Catalog: list_pancake_catalog.NewHTTP(catalog),
+
+		catalog: catalog,
+
+		Pair: create_pancake_pair.NewHTTP(create_pancake_pair.NewUsecase(pancakeadapter.Factory{}, settings.Settings{}, paymentDiagnostics{})),
+
+		SavePancake: save_pancake_config.NewHTTP(save_pancake_config.NewUsecase(storage.Options{}, settings.Settings{}), paymentDiagnostics{}),
+
+		Compliance: confirm_compliance.NewHTTP(confirm_compliance.NewUsecase(storage.Options{}, settings.Settings{}.Terms, common.GetTimestamp, paymentDiagnostics{})),
 
 		QuoteWaffo: quote_waffo_topup.NewHTTP(quote_waffo_topup.NewUsecase(pricing, storage.Users{})),
 
@@ -190,10 +234,20 @@ func CreemLink(ctx context.Context, reference string, product domain.CreemProduc
 }
 
 // BRIDGE: subscription_payment_waffo_pancake checkout; remove when it injects the Pancake checkout port directly.
+func PancakeCheckout(ctx context.Context, params *domain.WaffoPancakeCreateSessionParams) (*domain.WaffoPancakeCheckoutSession, error) {
+	return domain.CreatePancakeCheckout(ctx, pancakeadapter.Client{}, params)
+}
 
 // BRIDGE: subscription_payment_waffo_pancake_config plan creation; remove when it injects the management port directly.
+func PancakeManagement(creds domain.PancakeCredentials) (domain.PancakeManagement, error) {
+	return pancakeadapter.Factory{}.Management(creds)
+}
 
 // BRIDGE: subscription_payment_waffo_pancake_config product dropdown; remove when its catalog dependency is injected.
+func (h HTTP) PancakeCatalog(ctx context.Context, merchant, private string) (*dto.WaffoPancakeCatalog, error) {
+	catalog, err := h.catalog.Execute(ctx, list_pancake_catalog.Input{MerchantID: merchant, PrivateKey: private})
+	return dto.FromCatalog(catalog), err
+}
 
 // BRIDGE: subscription_payment_stripe/epay redirects; remove when subscription settings own their address dependency.
 func ReturnPath(suffix string) string { return settings.Settings{}.ReturnPath(suffix) }

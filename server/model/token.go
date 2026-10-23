@@ -74,17 +74,6 @@ func GetAllUserTokens(userId, startIdx, num int) ([]*Token, error) {
 	return out, err
 }
 
-// sanitizeLikePattern validates and escapes a user LIKE search pattern.
-// Rules:
-//  1. ! and _ are escaped (! is the ESCAPE character, compatible with MySQL/PostgreSQL/SQLite)
-//  2. consecutive % are merged into a single %
-//  3. at most 2 % are allowed
-//  4. with % (fuzzy search) the keyword without % must be at least 2 characters long
-//  5. without % the match is exact
-func sanitizeLikePattern(input string) (string, error) {
-	return keydomain.SanitizeSearchPattern(input)
-}
-
 func SearchUserTokens(userId int, keyword, token string, offset, limit int) ([]*Token, int64, error) {
 	result, err := search_keys.NewUsecase(NewTokenPersistence(), operation_setting.GetMaxUserTokens, common.SysLog, common.SysError).Execute(search_keys.Input{UserID: userId, Keyword: keyword, Key: token, Start: offset, Limit: limit})
 	if err != nil {

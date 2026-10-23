@@ -97,7 +97,15 @@ func bootstrap() error {
 	if err := parseModels("./internal/adapter/gorm/redemption/record"); err != nil {
 		return err
 	}
-	if err := parseModels("./internal/app/payments"); err != nil { return err }
+	if err := parseModels("./internal/adapter/gorm/payments/record"); err != nil {
+		return err
+	}
+	if err := parseModels("./internal/payments/dto"); err != nil {
+		return err
+	}
+	if err := parseModels("./internal/app/payments"); err != nil {
+		return err
+	}
 	if err := parseModels("./model"); err != nil {
 		return fmt.Errorf("parse models: %w", err)
 	}
@@ -149,6 +157,9 @@ func bootstrap() error {
 		return err
 	}
 	if err := parseRedemptionHandlers(); err != nil {
+		return err
+	}
+	if err := parsePaymentsHandlers(); err != nil {
 		return err
 	}
 	if err := parseAuditHandlers(); err != nil {

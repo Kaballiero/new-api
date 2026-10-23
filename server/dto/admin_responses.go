@@ -53,14 +53,14 @@ type PerfMetricsSummaryResponse struct {
 	Models []PerfMetricsModelSummary `json:"models"`
 }
 
-// WaffoPancakeCatalogProduct mirrors service.WaffoPancakeCatalogProduct.
+// WaffoPancakeCatalogProduct mirrors internal/payments/domain.WaffoPancakeCatalogProduct.
 type WaffoPancakeCatalogProduct struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Status string `json:"status"`
 }
 
-// WaffoPancakeCatalogStore mirrors service.WaffoPancakeCatalogStore.
+// WaffoPancakeCatalogStore mirrors internal/payments/domain.WaffoPancakeCatalogStore.
 type WaffoPancakeCatalogStore struct {
 	ID              string                       `json:"id"`
 	Name            string                       `json:"name"`
@@ -70,7 +70,7 @@ type WaffoPancakeCatalogStore struct {
 }
 
 // WaffoPancakeCatalogResponse — GET /api/option/waffo-pancake/catalog,
-// mirrors service.WaffoPancakeCatalog.
+// mirrors internal/payments/domain.WaffoPancakeCatalog.
 type WaffoPancakeCatalogResponse struct {
 	Stores []WaffoPancakeCatalogStore `json:"stores"`
 }
@@ -106,7 +106,7 @@ type WaffoPancakeSubscriptionProductResponse struct {
 
 // WaffoPancakeCheckoutResponse — POST /api/user/waffo-pancake/pay and
 // POST /api/subscription/waffo-pancake/pay (gin.H remap of
-// service.WaffoPancakeCheckoutSession).
+// internal/payments/domain.WaffoPancakeCheckoutSession).
 type WaffoPancakeCheckoutResponse struct {
 	CheckoutURL    string `json:"checkout_url"`
 	SessionID      string `json:"session_id"`

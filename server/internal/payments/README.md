@@ -29,3 +29,9 @@ manual completion сохраняет legacy Amount × QuotaPerUnit.
 Waffo: quote_waffo_topup, create_waffo_topup, receive_waffo_webhook; прежние /api/user/waffo/{amount,pay}
 и /api/waffo/webhook. SDK остаётся provider adapter; method selection, pending transitions и подписанный
 ACK выбираются сценарием. Любой non-success notification по-прежнему переводит pending в failed.
+
+Pancake: quote_pancake_topup/create_pancake_topup/receive_pancake_webhook, list_pancake_catalog,
+create_pancake_pair/save_pancake_config; confirm_compliance. Config endpoints — RootAuth session/PAT,
+compliance дополнительно требует session. User amount/pay — UserAuth; pay — CriticalRateLimit; webhook
+public с signature+environment check. Subscription completion/plan workflow остаётся legacy через app bridge.
+Wallet credit теперь целиком в adapter/wallet; TopUp stored shape — gorm/payments/record, model — alias-only.

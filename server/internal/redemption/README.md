@@ -47,15 +47,14 @@ Scenarios объявляют consumer-owned Reader/Store/Tx/Receipt/Admission; �
 не зависят от main, middleware или скрытой регистрации. Controller использует sync.OnceValue.
 
 Wallet credit и post-commit cache sync подключаются через общий technical adapter `internal/adapter/wallet`.
-Пока legacy payment completions ещё в model, adapter использует единственное прежнее credit body;
-после их переноса body переезжает в wallet. Redemption передаёт тот же tx. Чужие account workflows не вызываются.
+Wallet владеет единственным credit body и capacity guard; redemption передаёт тот же tx. Чужие account workflows не вызываются.
 Receipt использует прежний model.RecordLog; аудит — уже существующий audit owner, не новый writer.
 
 ## Границы и долг
 
 Payments/webhooks/subscriptions, generic quota primitives и usage/audit policy остаются у владельцев.
 Новых architecture exceptions нет. Технические мосты: controller/redemption.go и TopUp в controller/user.go;
-экспорты CreditTopUpQuota, LockForUpdate, SyncCreditUserQuotaCache в исходных model файлах. Существующие
+общие экспорты LockForUpdate и SyncCreditUserQuotaCache в исходных model файлах до переноса shared primitives. Существующие
 model consumers механически переведены на те же exported entrypoints; private forwarders удалены.
 
 Единственная новая default delta: id=0 error `id is empty`, ru `ID не указан`; обе zh сохраняют старые bytes.

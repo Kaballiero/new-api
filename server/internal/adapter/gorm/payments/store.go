@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/payments/record"
 	"github.com/QuantumNous/new-api/internal/adapter/wallet"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/model"
@@ -15,7 +16,7 @@ type Store struct{ db func() *gorm.DB }
 
 func NewStore(db func() *gorm.DB) Store { return Store{db: db} }
 
-func toOrder(row model.TopUp) domain.Order {
+func toOrder(row record.TopUp) domain.Order {
 	return domain.Order{
 		ID:              row.Id,
 		UserID:          row.UserId,
@@ -30,8 +31,8 @@ func toOrder(row model.TopUp) domain.Order {
 	}
 }
 
-func fromOrder(o domain.Order) model.TopUp {
-	return model.TopUp{
+func fromOrder(o domain.Order) record.TopUp {
+	return record.TopUp{
 		Id:              o.ID,
 		UserId:          o.UserID,
 		Amount:          o.Amount,
@@ -60,7 +61,7 @@ func (s Store) Save(order *domain.Order) error {
 }
 
 func (s Store) Find(tradeNo string) *domain.Order {
-	var row *model.TopUp
+	var row *record.TopUp
 	if s.db().Where("trade_no = ?", tradeNo).First(&row).Error != nil {
 		return nil
 	}
@@ -79,7 +80,7 @@ func (t orderTx) FindLocked(tradeNo string) (domain.Order, error) {
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		column = `"trade_no"`
 	}
-	var row model.TopUp
+	var row record.TopUp
 	err := model.LockForUpdate(t.db).Where(column+" = ?", tradeNo).First(&row).Error
 	return toOrder(row), err
 }
@@ -110,9 +111,9 @@ func (t orderTx) Credit(userID, quota int, profile domain.CreditProfile) error {
 
 func walletError(err error) error {
 	switch {
-	case errors.Is(err, model.ErrInvalidTopUpQuota):
+	case errors.Is(err, wallet.ErrInvalidQuota):
 		return domain.ErrInvalidQuota
-	case errors.Is(err, model.ErrTopUpQuotaLimitExceeded):
+	case errors.Is(err, wallet.ErrQuotaLimit):
 		return domain.ErrWalletLimit
 	default:
 		return err

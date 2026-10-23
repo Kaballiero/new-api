@@ -597,4 +597,5 @@ const (
 	MsgPaymentsMaximum           = "payments.maximum"
 )
 
+// Creem request-body read failure keeps its original compatibility bytes.
 const MsgPaymentsReadQuery = "payments.read_query"

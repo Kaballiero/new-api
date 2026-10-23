@@ -4,8 +4,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/payments/record"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
-	"github.com/QuantumNous/new-api/model"
 )
 
 // Read preserves Begin/Commit errors and rollback-only panic recovery.
@@ -29,7 +29,7 @@ func (s Store) Read(run func(reader domain.PageReader) error) (err error) {
 type pageReader struct{ db *gorm.DB }
 
 func (r pageReader) query(in domain.Query) *gorm.DB {
-	q := r.db.Model(&model.TopUp{})
+	q := r.db.Model(&record.TopUp{})
 	if in.UserID != nil {
 		q = q.Where("user_id = ? AND create_time >= ?", *in.UserID, in.Cutoff)
 	}
@@ -55,7 +55,7 @@ func (r pageReader) Count(in domain.Query, total *int64) error {
 }
 
 func (r pageReader) Find(in domain.Query, start, limit int, orders *[]domain.Order) error {
-	var rows []*model.TopUp
+	var rows []*record.TopUp
 	defer func() {
 		if rows != nil {
 			*orders = make([]domain.Order, len(rows))
