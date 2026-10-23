@@ -1,0 +1,112 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      "body": "{\"data\":{\"products\":[{\"id\":\"PROD_1234567890abcdefghijkl\",\"name\":\"Fixture product\",\"status\":\"active\"}],\"store_id\":\"STO_1234567890abcdefghijkl\"},\"message\":\"success\"}"
+    },
+    "plans": [
+      {
+        "id": 77,
+        "title": "Contract plan",
+        "subtitle": "Subscription fixture",
+        "price_amount": 3.5,
+        "currency": "USD",
+        "duration_unit": "month",
+        "duration_value": 1,
+        "custom_seconds": 0,
+        "enabled": true,
+        "sort_order": 0,
+        "allow_balance_pay": null,
+        "allow_wallet_overflow": null,
+        "stripe_price_id": "price_subscription",
+        "creem_product_id": "prod_subscription",
+        "waffo_pancake_product_id": "PROD_1234567890abcdefghijkl",
+        "max_purchase_per_user": 0,
+        "upgrade_group": "",
+        "downgrade_group": "",
+        "total_amount": 1000,
+        "quota_reset_period": "custom",
+        "quota_reset_custom_seconds": 3600,
+        "created_at": 1,
+        "updated_at": 1
+      },
+      {
+        "id": 78,
+        "title": "Disabled plan",
+        "subtitle": "Subscription fixture",
+        "price_amount": 3.5,
+        "currency": "USD",
+        "duration_unit": "month",
+        "duration_value": 1,
+        "custom_seconds": 0,
+        "enabled": false,
+        "sort_order": 10,
+        "allow_balance_pay": null,
+        "allow_wallet_overflow": null,
+        "stripe_price_id": "price_subscription",
+        "creem_product_id": "prod_subscription",
+        "waffo_pancake_product_id": "PROD_1234567890abcdefghijkl",
+        "max_purchase_per_user": 0,
+        "upgrade_group": "",
+        "downgrade_group": "",
+        "total_amount": 1000,
+        "quota_reset_period": "custom",
+        "quota_reset_custom_seconds": 3600,
+        "created_at": 1,
+        "updated_at": 1
+      }
+    ],
+    "orders": [],
+    "subscriptions": [],
+    "ledger": [],
+    "history": [],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      },
+      {
+        "id": 2,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      },
+      {
+        "id": 3,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      }
+    ],
+    "logs": [],
+    "events": [],
+    "outbound": [
+      {
+        "method": "POST",
+        "url": "https://api.waffo.ai/v1/graphql",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Merchant-Id": "MER_1234567890abcdefghijkl",
+          "X-SIGNATURE": "\u003cverified-signature\u003e",
+          "X-Timestamp": "\u003ctimestamp\u003e"
+        },
+        "body": "{\"query\":\"query {\\n\\t\\t\\tstores(limit: 100) {\\n\\t\\t\\t\\tid\\n\\t\\t\\t\\tname\\n\\t\\t\\t\\tstatus\\n\\t\\t\\t\\tprodEnabled\\n\\t\\t\\t\\tonetimeProducts {\\n\\t\\t\\t\\t\\tid\\n\\t\\t\\t\\t\\tname\\n\\t\\t\\t\\t\\tstatus\\n\\t\\t\\t\\t}\\n\\t\\t\\t}\\n\\t\\t}\"}"
+      }
+    ],
+    "options": []
+  }
+]

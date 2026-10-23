@@ -1,0 +1,170 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8"
+      },
+      "body": "OK"
+    },
+    "plans": [
+      {
+        "id": 77,
+        "title": "Contract plan",
+        "subtitle": "Subscription fixture",
+        "price_amount": 3.5,
+        "currency": "USD",
+        "duration_unit": "month",
+        "duration_value": 1,
+        "custom_seconds": 0,
+        "enabled": true,
+        "sort_order": 0,
+        "allow_balance_pay": null,
+        "allow_wallet_overflow": null,
+        "stripe_price_id": "price_subscription",
+        "creem_product_id": "prod_subscription",
+        "waffo_pancake_product_id": "PROD_1234567890abcdefghijkl",
+        "max_purchase_per_user": 0,
+        "upgrade_group": "",
+        "downgrade_group": "",
+        "total_amount": 1000,
+        "quota_reset_period": "custom",
+        "quota_reset_custom_seconds": 3600,
+        "created_at": 1,
+        "updated_at": 1
+      },
+      {
+        "id": 78,
+        "title": "Disabled plan",
+        "subtitle": "Subscription fixture",
+        "price_amount": 3.5,
+        "currency": "USD",
+        "duration_unit": "month",
+        "duration_value": 1,
+        "custom_seconds": 0,
+        "enabled": false,
+        "sort_order": 10,
+        "allow_balance_pay": null,
+        "allow_wallet_overflow": null,
+        "stripe_price_id": "price_subscription",
+        "creem_product_id": "prod_subscription",
+        "waffo_pancake_product_id": "PROD_1234567890abcdefghijkl",
+        "max_purchase_per_user": 0,
+        "upgrade_group": "",
+        "downgrade_group": "",
+        "total_amount": 1000,
+        "quota_reset_period": "custom",
+        "quota_reset_custom_seconds": 3600,
+        "created_at": 1,
+        "updated_at": 1
+      }
+    ],
+    "orders": [
+      {
+        "id": 21,
+        "user_id": 1,
+        "plan_id": 77,
+        "money": 3.5,
+        "trade_no": "WAFFO_PANCAKE_SUB-CONTRACT",
+        "payment_method": "pancake",
+        "payment_provider": "waffo_pancake",
+        "status": "success",
+        "create_time": 100,
+        "complete_time": 1,
+        "provider_payload": "{\"id\":\"evt_fixture\",\"eventType\":\"order.completed\",\"eventId\":\"event_fixture\",\"storeId\":\"STO_1234567890abcdefghijkl\",\"mode\":\"test\",\"data\":{\"orderId\":\"ORD_internal123456\",\"orderMerchantExternalId\":\"WAFFO_PANCAKE_SUB-CONTRACT\",\"merchantProvidedBuyerIdentity\":\"new-api-user-1\",\"amount\":\"0.01\",\"currency\":\"EUR\"}}"
+      }
+    ],
+    "subscriptions": [
+      {
+        "id": 1,
+        "user_id": 1,
+        "plan_id": 77,
+        "amount_total": 1000,
+        "amount_used": 0,
+        "start_time": 1893456000,
+        "end_time": 1896134400,
+        "status": "active",
+        "source": "order",
+        "last_reset_time": 1893456000,
+        "next_reset_time": 1893459600,
+        "upgrade_group": "",
+        "prev_user_group": "",
+        "downgrade_group": "",
+        "allow_wallet_overflow": true,
+        "created_at": 1,
+        "updated_at": 1
+      }
+    ],
+    "ledger": [],
+    "history": [
+      {
+        "id": 1,
+        "user_id": 1,
+        "amount": 0,
+        "money": 3.5,
+        "trade_no": "WAFFO_PANCAKE_SUB-CONTRACT",
+        "payment_method": "pancake",
+        "payment_provider": "",
+        "create_time": 100,
+        "complete_time": 1,
+        "status": "success"
+      }
+    ],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      },
+      {
+        "id": 2,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      },
+      {
+        "id": 3,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      }
+    ],
+    "logs": [
+      {
+        "id": 1,
+        "user_id": 1,
+        "created_at": 1,
+        "type": 1,
+        "content": "订阅购买成功，套餐: Contract plan，支付金额: 3.50，支付方式: pancake",
+        "username": "contract-user",
+        "token_name": "",
+        "model_name": "",
+        "quota": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "use_time": 0,
+        "is_stream": false,
+        "channel": 0,
+        "channel_name": "",
+        "token_id": 0,
+        "group": "",
+        "ip": "",
+        "request_id": "\u003cusage-1\u003e",
+        "other": ""
+      }
+    ],
+    "events": [],
+    "outbound": [],
+    "options": []
+  }
+]

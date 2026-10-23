@@ -1,0 +1,139 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      "body": "{\"message\":\"价格不能超过9999\",\"success\":false}"
+    },
+    "plans": [
+      {
+        "id": 77,
+        "title": "Contract plan",
+        "subtitle": "Subscription fixture",
+        "price_amount": 3.5,
+        "currency": "USD",
+        "duration_unit": "month",
+        "duration_value": 1,
+        "custom_seconds": 0,
+        "enabled": true,
+        "sort_order": 0,
+        "allow_balance_pay": null,
+        "allow_wallet_overflow": null,
+        "stripe_price_id": "price_subscription",
+        "creem_product_id": "prod_subscription",
+        "waffo_pancake_product_id": "PROD_1234567890abcdefghijkl",
+        "max_purchase_per_user": 0,
+        "upgrade_group": "",
+        "downgrade_group": "",
+        "total_amount": 1000,
+        "quota_reset_period": "custom",
+        "quota_reset_custom_seconds": 3600,
+        "created_at": 1,
+        "updated_at": 1
+      },
+      {
+        "id": 78,
+        "title": "Disabled plan",
+        "subtitle": "Subscription fixture",
+        "price_amount": 3.5,
+        "currency": "USD",
+        "duration_unit": "month",
+        "duration_value": 1,
+        "custom_seconds": 0,
+        "enabled": false,
+        "sort_order": 10,
+        "allow_balance_pay": null,
+        "allow_wallet_overflow": null,
+        "stripe_price_id": "price_subscription",
+        "creem_product_id": "prod_subscription",
+        "waffo_pancake_product_id": "PROD_1234567890abcdefghijkl",
+        "max_purchase_per_user": 0,
+        "upgrade_group": "",
+        "downgrade_group": "",
+        "total_amount": 1000,
+        "quota_reset_period": "custom",
+        "quota_reset_custom_seconds": 3600,
+        "created_at": 1,
+        "updated_at": 1
+      }
+    ],
+    "orders": [],
+    "subscriptions": [],
+    "ledger": [],
+    "history": [],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      },
+      {
+        "id": 2,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      },
+      {
+        "id": 3,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      }
+    ],
+    "logs": [],
+    "events": [
+      {
+        "id": 1,
+        "event_id": "\u003cevent-1\u003e",
+        "user_id": 2,
+        "username": "contract-admin",
+        "actor_role": 10,
+        "created_at": 1,
+        "category": "operation",
+        "action": "subscription.plan_create",
+        "token_ref": "",
+        "auth_method": "session",
+        "ip": "192.0.2.8",
+        "user_agent": "subscriptions-contract-agent",
+        "method": "POST",
+        "route": "/api/subscription/admin/plans",
+        "status": 200,
+        "success": false,
+        "request_id": "\u003crequest-1\u003e",
+        "content": "POST /api/subscription/admin/plans",
+        "other": {
+          "op": {
+            "action": "subscription.plan_create"
+          },
+          "admin_info": {
+            "admin_id": 2,
+            "admin_username": "contract-admin",
+            "admin_role": 10,
+            "auth_method": "session"
+          },
+          "audit_info": {
+            "method": "POST",
+            "route": "/api/subscription/admin/plans",
+            "path": "/api/subscription/admin/plans",
+            "status": 200,
+            "success": false
+          }
+        }
+      }
+    ],
+    "outbound": [],
+    "options": []
+  }
+]

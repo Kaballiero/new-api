@@ -1,0 +1,168 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      "body": "{\"data\":{\"product_id\":\"PROD_1234567890abcdefghijkl\",\"product_name\":\" New product \",\"store_id\":\"STO_1234567890abcdefghijkl\"},\"message\":\"success\"}"
+    },
+    "plans": [
+      {
+        "id": 77,
+        "title": "Contract plan",
+        "subtitle": "Subscription fixture",
+        "price_amount": 3.5,
+        "currency": "USD",
+        "duration_unit": "month",
+        "duration_value": 1,
+        "custom_seconds": 0,
+        "enabled": true,
+        "sort_order": 0,
+        "allow_balance_pay": null,
+        "allow_wallet_overflow": null,
+        "stripe_price_id": "price_subscription",
+        "creem_product_id": "prod_subscription",
+        "waffo_pancake_product_id": "PROD_1234567890abcdefghijkl",
+        "max_purchase_per_user": 0,
+        "upgrade_group": "",
+        "downgrade_group": "",
+        "total_amount": 1000,
+        "quota_reset_period": "custom",
+        "quota_reset_custom_seconds": 3600,
+        "created_at": 1,
+        "updated_at": 1
+      },
+      {
+        "id": 78,
+        "title": "Disabled plan",
+        "subtitle": "Subscription fixture",
+        "price_amount": 3.5,
+        "currency": "USD",
+        "duration_unit": "month",
+        "duration_value": 1,
+        "custom_seconds": 0,
+        "enabled": false,
+        "sort_order": 10,
+        "allow_balance_pay": null,
+        "allow_wallet_overflow": null,
+        "stripe_price_id": "price_subscription",
+        "creem_product_id": "prod_subscription",
+        "waffo_pancake_product_id": "PROD_1234567890abcdefghijkl",
+        "max_purchase_per_user": 0,
+        "upgrade_group": "",
+        "downgrade_group": "",
+        "total_amount": 1000,
+        "quota_reset_period": "custom",
+        "quota_reset_custom_seconds": 3600,
+        "created_at": 1,
+        "updated_at": 1
+      }
+    ],
+    "orders": [],
+    "subscriptions": [],
+    "ledger": [],
+    "history": [],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      },
+      {
+        "id": 2,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      },
+      {
+        "id": 3,
+        "quota": 5000000,
+        "group": "default",
+        "setting": "{}",
+        "email": "",
+        "stripe_customer": "",
+        "auth_version": 1
+      }
+    ],
+    "logs": [],
+    "events": [
+      {
+        "id": 1,
+        "event_id": "\u003cevent-1\u003e",
+        "user_id": 3,
+        "username": "contract-root",
+        "actor_role": 100,
+        "created_at": 1,
+        "category": "operation",
+        "action": "generic",
+        "token_ref": "",
+        "auth_method": "session",
+        "ip": "192.0.2.8",
+        "user_agent": "subscriptions-contract-agent",
+        "method": "POST",
+        "route": "/api/option/waffo-pancake/subscription-product",
+        "status": 200,
+        "success": true,
+        "request_id": "\u003crequest-1\u003e",
+        "content": "POST /api/option/waffo-pancake/subscription-product",
+        "other": {
+          "op": {
+            "action": "generic",
+            "params": {
+              "method": "POST",
+              "route": "/api/option/waffo-pancake/subscription-product"
+            }
+          },
+          "admin_info": {
+            "admin_id": 3,
+            "admin_username": "contract-root",
+            "admin_role": 100,
+            "auth_method": "session"
+          },
+          "audit_info": {
+            "method": "POST",
+            "route": "/api/option/waffo-pancake/subscription-product",
+            "path": "/api/option/waffo-pancake/subscription-product",
+            "status": 200,
+            "success": true
+          }
+        }
+      }
+    ],
+    "outbound": [
+      {
+        "method": "POST",
+        "url": "https://api.waffo.ai/v1/actions/onetime-product/create-product",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Idempotency-Key": "\u003cverified-idempotency\u003e",
+          "X-Merchant-Id": "MER_1234567890abcdefghijkl",
+          "X-SIGNATURE": "\u003cverified-signature\u003e",
+          "X-Timestamp": "\u003ctimestamp\u003e"
+        },
+        "body": "{\"storeId\":\"STO_1234567890abcdefghijkl\",\"name\":\"New product\",\"prices\":{\"USD\":{\"amount\":\"3.50\",\"taxCategory\":\"saas\"}}}"
+      },
+      {
+        "method": "POST",
+        "url": "https://api.waffo.ai/v1/actions/onetime-product/publish-product",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Idempotency-Key": "\u003cverified-idempotency\u003e",
+          "X-Merchant-Id": "MER_1234567890abcdefghijkl",
+          "X-SIGNATURE": "\u003cverified-signature\u003e",
+          "X-Timestamp": "\u003ctimestamp\u003e"
+        },
+        "body": "{\"id\":\"PROD_1234567890abcdefghijkl\"}"
+      }
+    ],
+    "options": []
+  }
+]
