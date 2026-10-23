@@ -461,3 +461,9 @@ usage.aggregate_granularity: "недопустимый запрос агрега
 usage.aggregate_months: "недопустимый запрос агрегации: granularity month поддерживает не более 120 месяцев в одном запросе"
 usage.aggregate_group: "недопустимый запрос агрегации: group_by должен быть time, model, time_model или user"
 usage.ranking_period: "недопустимый период рейтинга: {{.Period}}"
+
+# Audit query validation
+audit.invalid_pagination: "Недопустимые параметры пагинации аудита"
+audit.invalid_filters: "Недопустимые фильтры аудита"
+audit.invalid_time_range: "Недопустимый временной диапазон аудита"
+audit.invalid_result: "Недопустимый результат аудита"

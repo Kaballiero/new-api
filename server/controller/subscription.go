@@ -5,12 +5,15 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
+	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
+	audittransport "github.com/QuantumNous/new-api/internal/audit/transport"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 // ---- Shared types ----
@@ -407,13 +410,13 @@ func resolveAdvanceResetTime(value *bool) bool {
 	return *value
 }
 
-func recordSubscriptionResetUserLogs(c *gin.Context, result *model.SubscriptionResetResult, adminInfo *model.AuditAdminInfo) {
+func recordSubscriptionResetUserLogs(c *gin.Context, result *model.SubscriptionResetResult, operator *auditdomain.Operator) {
 	if result == nil || result.ResetCount == 0 {
 		return
 	}
 	content := fmt.Sprintf("管理员重置订阅套餐 %s（ID: %d）额度", result.PlanTitle, result.PlanId)
 	for _, userId := range result.AffectedUserIds {
-		model.RecordLogWithAdminInfo(userId, model.LogTypeManage, content, adminInfo, nil, c)
+		auditRecording().Subscription(c, userId, content, operator)
 	}
 }
 
@@ -466,7 +469,7 @@ func AdminResetUserSubscriptionsByPlan(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	recordSubscriptionResetUserLogs(c, result, auditOperatorInfo(c))
+	recordSubscriptionResetUserLogs(c, result, audittransport.Operator(c))
 	recordManageAuditFor(c, userId, "subscription.user_plan_reset", map[string]any{
 		"target_user_id":     userId,
 		"plan_id":            result.PlanId,
@@ -495,7 +498,7 @@ func AdminResetPlanSubscriptions(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	recordSubscriptionResetUserLogs(c, result, auditOperatorInfo(c))
+	recordSubscriptionResetUserLogs(c, result, audittransport.Operator(c))
 	common.SysLog(fmt.Sprintf("admin reset subscription plan %d quota: reset_count=%d user_count=%d advance_reset_time=%t",
 		result.PlanId, result.ResetCount, result.UserCount, result.AdvanceResetTime))
 	recordManageAudit(c, "subscription.plan_reset", map[string]any{

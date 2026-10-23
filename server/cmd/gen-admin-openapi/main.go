@@ -79,6 +79,9 @@ func bootstrap() error {
 	if err := parseModels("./internal/pricing/domain"); err != nil {
 		return err
 	}
+	if err := parseModels("./internal/adapter/gorm/audit/record"); err != nil {
+		return err
+	}
 	if err := parseModels("./internal/adapter/gorm/usage/record"); err != nil {
 		return err
 	}
@@ -139,6 +142,9 @@ func bootstrap() error {
 		return err
 	}
 	if err := parsePricingHandlers(); err != nil {
+		return err
+	}
+	if err := parseAuditHandlers(); err != nil {
 		return err
 	}
 	if err := parseUsageHandlers(); err != nil {

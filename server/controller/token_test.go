@@ -14,11 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
-	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +21,13 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/audittest"
+	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 )
 
 type tokenAPIResponse struct {
@@ -614,14 +616,14 @@ func TestAPITokenAuditDatabaseMatrix(t *testing.T) {
 				common.RedisEnabled, common.IsMasterNode = false, true
 				common.SessionSecret = "api-token-audit-test-secret"
 				t.Setenv("LOG_SQL_DSN", "")
-				db, _ := newAuditTestDatabase(t, database.name, dsn)
+				db, _ := audittest.NewDatabase(t, database.name, dsn)
 				model.DB = db
 				common.SetDatabaseTypes(database.typ, database.typ)
 				require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Token{}))
 				// Initialize production column quoting as well as the existing audit table.
 				require.NoError(t, model.InitLogDB())
 				if separateLog {
-					logDB, _ := newAuditTestDatabase(t, database.name, dsn)
+					logDB, _ := audittest.NewDatabase(t, database.name, dsn)
 					model.LOG_DB = logDB
 					require.NoError(t, model.MigrateAuditLogs())
 				}
@@ -885,7 +887,7 @@ func verifyAPITokenAudit(t *testing.T) {
 	})
 
 	t.Run("self audit excludes other owners", func(t *testing.T) {
-		model.RecordAuditLog(nil, model.AuditLog{UserId: other.Id, Username: other.Username, ActorRole: common.RoleCommonUser, Category: model.AuditCategorySecurity, Action: "token.delete", Content: "other-user-audit", Success: true})
+		audittest.Seed(t, model.AuditLog{UserId: other.Id, Username: other.Username, ActorRole: common.RoleCommonUser, Category: model.AuditCategorySecurity, Action: "token.delete", Content: "other-user-audit", Success: true})
 		response := auditRequest(router, "GET", "/api/audit/self?category=security&page_size=100", jwt)
 		assert.Equal(t, http.StatusOK, response.Code)
 		assert.Contains(t, response.Body.String(), "token.create")
@@ -936,7 +938,7 @@ func TestAPIKeyCompatibilityDatabaseMatrix(t *testing.T) {
 			})
 			common.RedisEnabled, common.IsMasterNode = false, false
 			common.SetDatabaseTypes(database.typ, database.typ)
-			db, _ := newAuditTestDatabase(t, database.name, dsn)
+			db, _ := audittest.NewDatabase(t, database.name, dsn)
 			model.DB, model.LOG_DB = db, db
 			t.Setenv("LOG_SQL_DSN", "")
 			require.NoError(t, model.InitLogDB())

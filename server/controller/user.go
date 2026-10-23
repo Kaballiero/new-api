@@ -2,6 +2,13 @@ package controller
 
 import (
 	"fmt"
+	"net/http"
+	"sync"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/accounts/change_group"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	profiledto "github.com/QuantumNous/new-api/internal/accounts/dto"
@@ -11,20 +18,12 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts"
 	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
+	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	"github.com/QuantumNous/new-api/internal/identity/password_login"
-	"net/http"
-
-	"sync"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-
-	"github.com/gin-gonic/gin"
 )
 
 type LoginRequest = password_login.LoginRequest
@@ -36,22 +35,9 @@ func Login(c *gin.Context) { identityHTTP().PasswordLogin.Handle(c) }
 // loginMethodFromContext 根据请求路径推导登录方式，用于登录审计日志。
 func loginMethodFromContext(c *gin.Context) string { return identityhttp.LoginMethodFromContext(c) }
 
-// recordLoginAudit 记录登录成功审计日志（对所有用户启用，仅记录成功，不记录失败）。
+// BRIDGE: successful login callbacks from identity workflows.
 func recordLoginAudit(user *model.User, c *gin.Context) {
-	method := loginMethodFromContext(c)
-	ip := c.ClientIP()
-	extra := model.AuditOther{
-		LoginMethod: method,
-		UserAgent:   c.Request.UserAgent(),
-	}
-	content := fmt.Sprintf("Logged in successfully via %s", method)
-	params := map[string]any{
-		"method": method,
-	}
-	if verifiedMethod := c.GetString("login_verification_method"); verifiedMethod != "" {
-		params["verification_method"] = verifiedMethod
-	}
-	model.RecordLoginLog(user.Id, user.Role, user.Username, content, ip, "login", params, extra, c)
+	auditRecording().Login(c, auditdomain.Actor{ID: user.Id, Username: user.Username, Role: user.Role}, loginMethodFromContext(c))
 }
 
 // setupLogin evaluates the shared login policy after primary authentication.
@@ -125,6 +111,7 @@ type topUpRequest struct {
 }
 
 var topUpLocks sync.Map
+
 var topUpCreateLock sync.Mutex
 
 type topUpTryLock struct {

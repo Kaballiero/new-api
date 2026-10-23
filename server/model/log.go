@@ -53,18 +53,6 @@ func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo *
 		Type:      logType,
 		Content:   content,
 	}
-	if logType == LogTypeManage {
-		var c *gin.Context
-		if len(request) > 0 {
-			c = request[0]
-		}
-		actorRole := 0
-		if c != nil {
-			actorRole = c.GetInt("role")
-		}
-		RecordAuditLog(c, AuditLog{UserId: userId, Username: username, ActorRole: actorRole, Category: AuditCategoryOperation, Content: content, Other: AuditOther{AdminInfo: adminInfo, Op: operation}, Success: true})
-		return
-	}
 	if len(request) > 0 && request[0] != nil {
 		log.RequestId = request[0].GetString(common.RequestIdKey)
 	}
@@ -79,48 +67,6 @@ func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo *
 	if err := createLog(log); err != nil {
 		common.SysLog("failed to record log: " + err.Error())
 	}
-}
-
-// RecordLoginLog writes new login events to the independent audit table.
-// username 由调用方传入（登录流程已持有用户对象），避免额外的数据库查询。
-// content 为英文兜底文本（用于导出）；action+params 供前端本地化渲染。
-// other 包含 login_method、user_agent 等结构化信息。
-func RecordLoginLog(userId, actorRole int, username string, content string, ip string, action string, params map[string]any, other AuditOther, request ...*gin.Context) {
-	other.Op = &AuditOperation{Action: action, Params: params}
-	var c *gin.Context
-	if len(request) > 0 {
-		c = request[0]
-	}
-	RecordAuditLog(c, AuditLog{UserId: userId, Username: username, ActorRole: actorRole, Category: AuditCategoryLogin, Action: action, Content: content, Ip: ip, Other: other, Success: true})
-}
-
-// RecordOperationAuditLog writes new operation/security events to the audit table.
-// logUserId 为日志归属者，管理审计日志应归属实际操作者；目标资源/用户放入
-// action params。username 内部按 logUserId 查询。content 为英文兜底文本（供导出使用）。
-// action+params 写入 Other.op，供前端本地化渲染（普通用户可见，不含敏感信息）。
-// adminInfo 存放操作者身份（写入 Other.admin_info，普通用户查询时剥离）；
-// auditInfo 存放路由/方法/结果等中间件兜底信息（写入 Other.audit_info，普通用户查询时剥离）。
-func RecordOperationAuditLog(logUserId, actorRole int, content string, ip string, action string, params map[string]any, adminInfo *AuditAdminInfo, auditInfo *AuditRequestInfo, request ...*gin.Context) {
-	username, _ := GetUsernameById(logUserId, false)
-	other := AuditOther{
-		Op:        &AuditOperation{Action: action, Params: params},
-		AdminInfo: adminInfo,
-		AuditInfo: auditInfo,
-	}
-	var c *gin.Context
-	if len(request) > 0 {
-		c = request[0]
-	}
-	category := AuditCategoryOperation
-	if adminInfo == nil {
-		category = AuditCategorySecurity
-	}
-	status, success := 200, true
-	if auditInfo != nil {
-		status = auditInfo.Status
-		success = auditInfo.Success
-	}
-	RecordAuditLog(c, AuditLog{UserId: logUserId, Username: username, ActorRole: actorRole, Category: category, Action: action, Content: content, Ip: ip, Status: status, Success: success, Other: other})
 }
 
 func RecordTopupLog(userId int, content string, callerIp string, paymentMethod string, callbackPaymentMethod string) {

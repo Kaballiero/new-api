@@ -456,3 +456,9 @@ usage.aggregate_granularity: "invalid aggregate request: granularity must be one
 usage.aggregate_months: "invalid aggregate request: granularity month supports at most 120 months per request"
 usage.aggregate_group: "invalid aggregate request: group_by must be time, model, time_model or user"
 usage.ranking_period: "invalid ranking period: {{.Period}}"
+
+# Audit query validation
+audit.invalid_pagination: "Invalid audit pagination"
+audit.invalid_filters: "Invalid audit filters"
+audit.invalid_time_range: "Invalid audit time range"
+audit.invalid_result: "Invalid audit result"

@@ -534,3 +534,11 @@ const (
 	MsgUsageAggregateGroup        = "usage.aggregate_group"
 	MsgUsageRankingPeriod         = "usage.ranking_period"
 )
+
+// Audit query validation messages.
+const (
+	MsgAuditInvalidPagination = "audit.invalid_pagination"
+	MsgAuditInvalidFilters    = "audit.invalid_filters"
+	MsgAuditInvalidTimeRange  = "audit.invalid_time_range"
+	MsgAuditInvalidResult     = "audit.invalid_result"
+)

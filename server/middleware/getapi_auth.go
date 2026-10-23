@@ -6,11 +6,12 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
 type getAPIIntegration struct {
@@ -84,6 +85,7 @@ func getAPIIntegrationForPrincipal(principalID int, capability string) string {
 	return matched
 }
 
+// BRIDGE: integration authentication records its existing completion event.
 func recordGetAPIAudit(c *gin.Context, action string) {
-	model.RecordAuditLog(c, model.AuditLog{UserId: c.GetInt("id"), Username: c.GetString("username"), ActorRole: c.GetInt("role"), Category: model.AuditCategoryOperation, Action: action, Success: c.Writer.Status() < 400, Other: model.AuditOther{RootInfo: model.AuditFields{"integration_id": c.GetString("getapi_integration_id"), "target_user_id": c.GetInt("getapi_target_user_id")}}})
+	auditRecording().Integration(c, action)
 }
