@@ -218,7 +218,7 @@ func DeleteTaskPluginVersion(key, version string) (TaskPluginDeleteResult, error
 	result := TaskPluginDeleteResult{}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var plugin TaskPlugin
-		if err := lockForUpdate(tx).Where(&TaskPlugin{Key: key, Version: version}).First(&plugin).Error; err != nil {
+		if err := LockForUpdate(tx).Where(&TaskPlugin{Key: key, Version: version}).First(&plugin).Error; err != nil {
 			return err
 		}
 		result.DeletedActive = plugin.Active
@@ -230,7 +230,7 @@ func DeleteTaskPluginVersion(key, version string) (TaskPluginDeleteResult, error
 		}
 
 		var promoted TaskPlugin
-		err := lockForUpdate(tx).
+		err := LockForUpdate(tx).
 			Where(&TaskPlugin{Key: key}).
 			Order("created_at DESC, id DESC").
 			First(&promoted).Error

@@ -253,7 +253,7 @@ func deletePasskeyWithAuthVersion(userID int, identity *AuthSessionIdentity) err
 			}
 		}
 		var credential PasskeyCredential
-		if err := lockForUpdate(tx).Where("user_id = ?", userID).First(&credential).Error; err != nil {
+		if err := LockForUpdate(tx).Where("user_id = ?", userID).First(&credential).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrPasskeyNotFound
 			}

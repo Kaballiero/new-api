@@ -178,7 +178,7 @@ func SaveModelCostFX(ctx context.Context, snapshot ModelCostFXSnapshot, expected
 	}
 	err = DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row ModelCostFXRow
-		query := lockForUpdate(tx).Where("source = ?", validated.Source).First(&row)
+		query := LockForUpdate(tx).Where("source = ?", validated.Source).First(&row)
 		if errors.Is(query.Error, gorm.ErrRecordNotFound) {
 			if expectedVersion != 0 {
 				return ErrModelCostFXVersionConflict

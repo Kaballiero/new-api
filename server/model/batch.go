@@ -151,11 +151,11 @@ func CreateBatchReservation(job *BatchJob, items []BatchItem) error {
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := lockForUpdate(tx).First(&user, job.UserID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token Token
-		if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", job.TokenID, job.UserID).First(&token).Error; err != nil {
+		if err := LockForUpdate(tx).Where("id = ? AND user_id = ?", job.TokenID, job.UserID).First(&token).Error; err != nil {
 			return err
 		}
 		if user.BatchHeldQuota < 0 || user.BatchHeldQuota > common.MaxWalletQuota-job.ReservedQuota || int64(user.Quota)-user.BatchHeldQuota < job.ReservedQuota {
@@ -226,11 +226,11 @@ func StoreBatchResult(batchID int64, customID, result, hash string) error {
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var job BatchJob
-		if err := lockForUpdate(tx).First(&job, batchID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
 		}
 		var item BatchItem
-		if err := lockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID, fmt.Sprintf("%x", sha256.Sum256([]byte(customID)))).First(&item).Error; err != nil {
+		if err := LockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID, fmt.Sprintf("%x", sha256.Sum256([]byte(customID)))).First(&item).Error; err != nil {
 			return err
 		}
 		if item.ResultHash != "" {

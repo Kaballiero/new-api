@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm/utils/tests"
 )
 
-// lockForUpdate must emit FOR UPDATE on databases that support it and skip
+// LockForUpdate must emit FOR UPDATE on databases that support it and skip
 // it on SQLite, where the syntax does not exist.
 //
 // The dummy dialector is used because SQLite drivers strip locking clauses
@@ -20,7 +20,7 @@ func TestLockForUpdateEmitsRowLock(t *testing.T) {
 	require.NoError(t, err)
 	buildSQL := func() string {
 		var rows []Redemption
-		return lockForUpdate(dummyDB).Where("id = ?", 1).Find(&rows).Statement.SQL.String()
+		return LockForUpdate(dummyDB).Where("id = ?", 1).Find(&rows).Statement.SQL.String()
 	}
 
 	t.Cleanup(func() {

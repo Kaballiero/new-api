@@ -399,7 +399,7 @@ func NewChannelPersistence() record.Store {
 			channel, err := CacheGetChannel(id)
 			return (*record.Channel)(channel), err
 		}, CacheStatus: CacheUpdateChannelStatus, StatusLock: func() func() { channelStatusLock.Lock(); return channelStatusLock.Unlock }, PollingLock: func(id int) func() { lock := GetChannelPollingLock(id); lock.Lock(); return lock.Unlock }, AbilityStatus: UpdateAbilityStatus,
-		DB: func() *gorm.DB { return DB }, LockForUpdate: lockForUpdate, GroupColumn: func() string { return commonGroupCol }, KeyColumn: func() string { return commonKeyCol },
+		DB: func() *gorm.DB { return DB }, LockForUpdate: LockForUpdate, GroupColumn: func() string { return commonGroupCol }, KeyColumn: func() string { return commonKeyCol },
 		AddAbilities: func(channel *record.Channel, tx *gorm.DB) error { return (*Channel)(channel).AddAbilities(tx) }, UpdateAbilities: func(channel *record.Channel, tx *gorm.DB) error { return (*Channel)(channel).UpdateAbilities(tx) }, DeleteAbilities: func(channel *record.Channel) error { return (*Channel)(channel).DeleteAbilities() }, DeleteAbilityIDs: func(tx *gorm.DB, ids []int) error { return tx.Where("channel_id in (?)", ids).Delete(&Ability{}).Error }, UpdateAbilityStatusByTag: UpdateAbilityStatusByTag, UpdateAbilityByTag: UpdateAbilityByTag,
 	})
 }

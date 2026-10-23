@@ -192,7 +192,7 @@ func (t *Task) UpdateOpenRouterSync(expectedRevision int) error {
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var saved Task
-		if err := lockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
 			return err
 		}
 		state := saved.PrivateData.OpenRouterSyncState()
@@ -975,7 +975,7 @@ func (t *Task) ApplyTaskCostSettlement() (string, error) {
 	tokenKey := ""
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var saved Task
-		if err := lockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
 			return err
 		}
 		expected, state := t.PrivateData.Reconciliation, saved.PrivateData.Reconciliation
@@ -1009,7 +1009,7 @@ func (t *Task) ApplyTaskCostSettlement() (string, error) {
 		}
 		if saved.PrivateData.BillingSource == "subscription" && saved.PrivateData.SubscriptionId > 0 {
 			var sub UserSubscription
-			if err := lockForUpdate(tx).Where("id = ? AND user_id = ?", saved.PrivateData.SubscriptionId, saved.UserId).First(&sub).Error; err != nil {
+			if err := LockForUpdate(tx).Where("id = ? AND user_id = ?", saved.PrivateData.SubscriptionId, saved.UserId).First(&sub).Error; err != nil {
 				return err
 			}
 			used := max(sub.AmountUsed+int64(delta), 0)
@@ -1086,7 +1086,7 @@ func (t *Task) FinalizeTaskCostSettlement() error {
 	var committedData json.RawMessage
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var saved Task
-		if err := lockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
 			return err
 		}
 		state, expected := saved.PrivateData.Reconciliation, t.PrivateData.Reconciliation

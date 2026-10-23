@@ -168,11 +168,11 @@ func replaceBackupCodesWithAuthVersion(userId int, codes []string, identity *Aut
 			if err := ValidateAuthSessionWithTx(tx, *identity); err != nil {
 				return err
 			}
-		} else if err := lockForUpdate(tx).Select("id").First(&User{}, userId).Error; err != nil {
+		} else if err := LockForUpdate(tx).Select("id").First(&User{}, userId).Error; err != nil {
 			return err
 		}
 		var enabled TwoFA
-		if err := lockForUpdate(tx).Where("user_id = ? AND is_enabled = ?", userId, true).First(&enabled).Error; err != nil {
+		if err := LockForUpdate(tx).Where("user_id = ? AND is_enabled = ?", userId, true).First(&enabled).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrTwoFANotEnabled
 			}
@@ -245,11 +245,11 @@ func disableTwoFAWithAuthVersion(userId int, identity *AuthSessionIdentity) erro
 			if err := ValidateAuthSessionWithTx(tx, *identity); err != nil {
 				return err
 			}
-		} else if err := lockForUpdate(tx).Select("id").First(&User{}, userId).Error; err != nil {
+		} else if err := LockForUpdate(tx).Select("id").First(&User{}, userId).Error; err != nil {
 			return err
 		}
 		var twoFA TwoFA
-		if err := lockForUpdate(tx).Where("user_id = ? AND is_enabled = ?", userId, true).First(&twoFA).Error; err != nil {
+		if err := LockForUpdate(tx).Where("user_id = ? AND is_enabled = ?", userId, true).First(&twoFA).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrTwoFANotEnabled
 			}

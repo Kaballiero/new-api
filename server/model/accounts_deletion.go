@@ -17,7 +17,7 @@ func newSoftDeletionOperation(user *User) record.SoftDeletionOperation {
 func newHardDeletionOperation(user *User) *record.HardDeletionOperation {
 	var tokens []Token
 	return record.NewHardDeletionOperation((*record.User)(user), record.HardDeletionDependencies{
-		DB: func() *gorm.DB { return DB }, Lock: lockForUpdate, Publish: publishCommittedUserAuthVersion, Invalidate: invalidateUserCache, Advance: IncrementUserAuthVersionWithTx,
+		DB: func() *gorm.DB { return DB }, Lock: LockForUpdate, Publish: publishCommittedUserAuthVersion, Invalidate: invalidateUserCache, Advance: IncrementUserAuthVersionWithTx,
 		InvalidateCredentials: func() error { return invalidateTokensCache(tokens) },
 		SnapshotCredentials: func(tx *gorm.DB) error {
 			return tx.Unscoped().Select("id", commonKeyCol).Where("user_id = ?", user.Id).Find(&tokens).Error

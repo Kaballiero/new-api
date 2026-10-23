@@ -60,7 +60,7 @@ func InitializeGetAPIPAT(request GetAPIInitializePATRequest) (*GetAPIInitializeP
 	var result *GetAPIInitializePATResult
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := lockForUpdate(tx).First(&user, request.UserID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&user, request.UserID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return ErrGetAPIAccountNotFound
 			}

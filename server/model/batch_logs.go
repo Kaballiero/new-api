@@ -97,7 +97,7 @@ func deliverBatchConsumeLog(event BatchLogEvent) error {
 				return created.Error
 			}
 			var stored BatchLogReceipt
-			if err := lockForUpdate(tx).Where("request_id = ?", receipt.RequestID).First(&stored).Error; err != nil {
+			if err := LockForUpdate(tx).Where("request_id = ?", receipt.RequestID).First(&stored).Error; err != nil {
 				return err
 			}
 			if stored.LogID != 0 {

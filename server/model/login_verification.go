@@ -37,7 +37,7 @@ func getUserVerificationState(tx *gorm.DB, userID int, forUpdate bool) (*UserVer
 		tx.Model(&PasskeyCredential{}).Select("1").Where("user_id = ?", userID),
 	).Where("id = ?", userID)
 	if forUpdate {
-		query = lockForUpdate(query)
+		query = LockForUpdate(query)
 	}
 	if err := query.Take(&state).Error; err != nil {
 		return nil, err

@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// lockForUpdate makes the next query emit SELECT ... FOR UPDATE so the matched
+// LockForUpdate makes the next query emit SELECT ... FOR UPDATE so the matched
 // rows stay locked until the surrounding transaction ends.
 //
 // GORM v2 silently ignores the legacy `Set("gorm:query_option", "FOR UPDATE")`
@@ -17,7 +17,8 @@ import (
 // SQLite has no FOR UPDATE syntax (the clause would be a syntax error), so it
 // is skipped there; SQLite's single-writer model makes one of two conflicting
 // transactions fail instead of both committing.
-func lockForUpdate(tx *gorm.DB) *gorm.DB {
+// BRIDGE: redemption persistence; moves to its wallet owner in the payments wave.
+func LockForUpdate(tx *gorm.DB) *gorm.DB {
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		return tx
 	}

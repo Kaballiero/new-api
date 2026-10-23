@@ -10,7 +10,7 @@ import (
 
 func NewCatalogPersistence() record.Store {
 	return record.NewStore(record.Environment{
-		LockMetadata: func() func() { metadataMutationMu.Lock(); return metadataMutationMu.Unlock }, LockRows: lockForUpdate, PricingMutation: mutateModelPricingOptions, LockMetadataRow: lockMetadataMutation,
+		LockMetadata: func() func() { metadataMutationMu.Lock(); return metadataMutationMu.Unlock }, LockRows: LockForUpdate, PricingMutation: mutateModelPricingOptions, LockMetadataRow: lockMetadataMutation,
 		ReadRouting: func(tx *gorm.DB) ([]domain.ChannelRouting, error) {
 			var rows []Channel
 			err := tx.Select("id", "models", "status", "group", "priority", "weight", "tag").Order("id").Find(&rows).Error

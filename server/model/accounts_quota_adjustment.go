@@ -18,5 +18,5 @@ func AdjustUserQuota(userID, operatorRole int, mode string, value int) (*UserQuo
 }
 
 func NewQuotaAdjustmentStore() record.QuotaAdjustmentStore {
-	return record.NewQuotaAdjustmentStore(func() *gorm.DB { return DB }, lockForUpdate, cacheIncrUserQuota)
+	return record.NewQuotaAdjustmentStore(func() *gorm.DB { return DB }, LockForUpdate, cacheIncrUserQuota)
 }

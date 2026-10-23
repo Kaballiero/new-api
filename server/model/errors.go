@@ -23,6 +23,3 @@ var (
 	ErrEmailNotFound        = errors.New("email not found")
 	ErrEmailAmbiguous       = errors.New("email matches multiple users")
 )
-
-// Redemption errors
-var ErrRedeemFailed = errors.New("redeem.failed")

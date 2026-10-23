@@ -8,7 +8,7 @@ import (
 
 // NewPersonalAccessTokenPersistence preserves replaceable host DB handles and lock semantics.
 func NewPersonalAccessTokenPersistence() repository.Store {
-	return repository.NewStore(func() *gorm.DB { return DB }, func() *gorm.DB { return LOG_DB.Model(&AuditLog{}) }, lockForUpdate, common.GetTimestamp)
+	return repository.NewStore(func() *gorm.DB { return DB }, func() *gorm.DB { return LOG_DB.Model(&AuditLog{}) }, LockForUpdate, common.GetTimestamp)
 }
 
 // UpdateUserAccessToken writes only the current PAT generation fields.

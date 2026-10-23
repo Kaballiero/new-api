@@ -462,3 +462,11 @@ audit.invalid_pagination: "Invalid audit pagination"
 audit.invalid_filters: "Invalid audit filters"
 audit.invalid_time_range: "Invalid audit time range"
 audit.invalid_result: "Invalid audit result"
+
+# Redemption compatibility and credit receipts
+redemption.id_empty: "id 为空！"
+redemption.quota_positive: "redemption quota must be positive"
+redemption.wallet_quota: "wallet quota exceeds {{.Max}}"
+redemption.quota_amount: "{{.Amount}} 额度"
+redemption.quota_tokens: "{{.Amount}} 点额度"
+redemption.credit_log: "通过兑换码充值 {{.Quota}}，兑换码ID {{.ID}}"

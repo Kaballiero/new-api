@@ -36,14 +36,14 @@ func SettleBatchItem(batchID int64, customID string, quota int, details string) 
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := lockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token Token
-		if err := lockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
 			return err
 		}
-		if err := lockForUpdate(tx).First(&job, batchID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
 		}
 		var settlement struct {
@@ -58,7 +58,7 @@ func SettleBatchItem(batchID int64, customID string, quota int, details string) 
 			return ErrBatchConflict
 		}
 		var item BatchItem
-		if err := lockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID, fmt.Sprintf("%x", sha256.Sum256([]byte(customID)))).First(&item).Error; err != nil {
+		if err := LockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID, fmt.Sprintf("%x", sha256.Sum256([]byte(customID)))).First(&item).Error; err != nil {
 			return err
 		}
 		if item.BillingStatus == "settled" {
@@ -70,7 +70,7 @@ func SettleBatchItem(batchID int64, customID string, quota int, details string) 
 		// Final upstream usage may exceed admission estimates. Debt is allowed,
 		// but each persisted signed field must remain representable.
 		var channel Channel
-		if err := lockForUpdate(tx).First(&channel, job.ChannelID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&channel, job.ChannelID).Error; err != nil {
 			return err
 		}
 		if int64(user.Quota) < math.MinInt32+int64(quota) || int64(user.UsedQuota) > math.MaxInt32-int64(quota) || user.RequestCount >= math.MaxInt32 ||
@@ -143,18 +143,18 @@ func RaiseBatchItemReservation(batchID int64, customID string, required int) err
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := lockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token Token
-		if err := lockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
 			return err
 		}
-		if err := lockForUpdate(tx).First(&job, batchID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
 		}
 		var item BatchItem
-		if err := lockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID, fmt.Sprintf("%x", sha256.Sum256([]byte(customID)))).First(&item).Error; err != nil {
+		if err := LockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID, fmt.Sprintf("%x", sha256.Sum256([]byte(customID)))).First(&item).Error; err != nil {
 			return err
 		}
 		if item.BillingStatus == "settled" {
@@ -367,15 +367,15 @@ func confirmBatchReservation(tx *gorm.DB, job *BatchJob, user *User, token *Toke
 func MarkBatchSubmissionUnknown(job *BatchJob, runnerID string) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := lockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token Token
-		if err := lockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
 			return err
 		}
 		var current BatchJob
-		if err := lockForUpdate(tx).First(&current, job.ID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&current, job.ID).Error; err != nil {
 			return err
 		}
 		if current.SubmitState != "preparing" || current.UpstreamID != "" || current.LeaseOwner != runnerID || current.LeaseUntil <= common.GetTimestamp() {
@@ -407,14 +407,14 @@ func ReleaseSettledBatchHolds(batchID int64) error {
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := lockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token Token
-		if err := lockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
 			return err
 		}
-		if err := lockForUpdate(tx).First(&job, batchID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
 		}
 		var pending int64
@@ -453,7 +453,7 @@ func ReleaseSettledBatchHolds(batchID int64) error {
 			return saveBatchAccountEvents(tx, &user, &token, batchID, 0, 0)
 		}
 		var items []BatchItem
-		if err := lockForUpdate(tx).Select("id", "reserved_quota").Where("batch_id = ? AND cache_pending = ?", batchID, true).Find(&items).Error; err != nil {
+		if err := LockForUpdate(tx).Select("id", "reserved_quota").Where("batch_id = ? AND cache_pending = ?", batchID, true).Find(&items).Error; err != nil {
 			return err
 		}
 		var release int64
@@ -496,7 +496,7 @@ func ReleaseSettledBatchHolds(batchID int64) error {
 func ConfirmBatchPurchaseCost(publicID, costUSD, evidence string) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var job BatchJob
-		if err := lockForUpdate(tx).Where("public_id = ? AND deleted_at = 0", publicID).First(&job).Error; err != nil {
+		if err := LockForUpdate(tx).Where("public_id = ? AND deleted_at = 0", publicID).First(&job).Error; err != nil {
 			return err
 		}
 		switch job.Status {
@@ -535,14 +535,14 @@ func SettleBatchJobCost(batchID int64) error {
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var user User
-		if err := lockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token Token
-		if err := lockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+		if err := LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
 			return err
 		}
-		if err := lockForUpdate(tx).First(&job, batchID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
 		}
 		var snapshot struct {
@@ -600,7 +600,7 @@ func SettleBatchJobCost(batchID int64) error {
 			return ErrBatchConflict
 		}
 		var channel Channel
-		if err := lockForUpdate(tx).First(&channel, job.ChannelID).Error; err != nil {
+		if err := LockForUpdate(tx).First(&channel, job.ChannelID).Error; err != nil {
 			return err
 		}
 		if int64(user.Quota) < math.MinInt32+int64(quota) || int64(user.UsedQuota) > math.MaxInt32-int64(quota) || job.RequestCount > math.MaxInt32 || user.RequestCount > math.MaxInt32-job.RequestCount || token.RemainQuota < math.MinInt+quota || token.UsedQuota > math.MaxInt-quota || channel.UsedQuota > math.MaxInt64-int64(quota) {

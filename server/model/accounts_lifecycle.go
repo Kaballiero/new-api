@@ -46,11 +46,11 @@ func (user *User) Edit(password bool) error {
 }
 
 func (user *User) UpdateWithTx(tx *gorm.DB, password bool) error {
-	return persist.NewUsecase(newPersistenceOperation(user, false)).WithTransaction(record.NewPersistenceMutation((*record.User)(user), tx, password, false, IncrementUserAuthVersionWithTx, lockForUpdate), password, false)
+	return persist.NewUsecase(newPersistenceOperation(user, false)).WithTransaction(record.NewPersistenceMutation((*record.User)(user), tx, password, false, IncrementUserAuthVersionWithTx, LockForUpdate), password, false)
 }
 
 func (user *User) EditWithTx(tx *gorm.DB, password bool) error {
-	return persist.NewUsecase(newPersistenceOperation(user, false)).WithTransaction(record.NewPersistenceMutation((*record.User)(user), tx, password, true, IncrementUserAuthVersionWithTx, lockForUpdate), password, true)
+	return persist.NewUsecase(newPersistenceOperation(user, false)).WithTransaction(record.NewPersistenceMutation((*record.User)(user), tx, password, true, IncrementUserAuthVersionWithTx, LockForUpdate), password, true)
 }
 func newRegistrationOperation(user *User, lang string) record.RegistrationOperation {
 	return record.NewRegistrationOperation((*record.User)(user), lang, record.RegistrationDependencies{
@@ -62,7 +62,7 @@ func newRegistrationOperation(user *User, lang string) record.RegistrationOperat
 }
 func newPersistenceOperation(user *User, edit bool) record.PersistenceOperation {
 	return record.NewPersistenceOperation((*record.User)(user), edit, record.PersistenceDependencies{
-		DB: func() *gorm.DB { return DB }, LockForUpdate: lockForUpdate, AdvanceAuthVersion: IncrementUserAuthVersionWithTx,
+		DB: func() *gorm.DB { return DB }, LockForUpdate: LockForUpdate, AdvanceAuthVersion: IncrementUserAuthVersionWithTx,
 		UpdateCache: func() error { return updateUserCache(*user) }, RevokeSessions: func(reason string) error { _, err := RevokeAllUserSessions(user.Id, reason); return err },
 	})
 }

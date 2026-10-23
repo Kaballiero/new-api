@@ -95,7 +95,7 @@ func PublishPricingCatalogContext(ctx context.Context, entries []PricingCatalogE
 }
 
 func publishPricingCatalogContext(ctx context.Context, entries []PricingCatalogEntry, allowChangedSources bool) (int, error) {
-	return publish_native_catalogue.NewUsecase(store.NewNative(store.NativeEnvironment{DB: func() *gorm.DB { return DB }, LockRows: lockForUpdate, Lock: func() func() { groupRatioOptionMutex.Lock(); return groupRatioOptionMutex.Unlock }, Snapshot: pricingCatalogState.Load, Publish: updateOptionMap})).Execute(ctx, entries, allowChangedSources)
+	return publish_native_catalogue.NewUsecase(store.NewNative(store.NativeEnvironment{DB: func() *gorm.DB { return DB }, LockRows: LockForUpdate, Lock: func() func() { groupRatioOptionMutex.Lock(); return groupRatioOptionMutex.Unlock }, Snapshot: pricingCatalogState.Load, Publish: updateOptionMap})).Execute(ctx, entries, allowChangedSources)
 }
 
 func pricingCatalogSemanticallyEqual(left, right PricingCatalogSnapshot) bool {

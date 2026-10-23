@@ -542,3 +542,12 @@ const (
 	MsgAuditInvalidTimeRange  = "audit.invalid_time_range"
 	MsgAuditInvalidResult     = "audit.invalid_result"
 )
+
+const (
+	MsgRedemptionIDEmpty       = "redemption.id_empty"
+	MsgRedemptionQuotaPositive = "redemption.quota_positive"
+	MsgRedemptionWalletQuota   = "redemption.wallet_quota"
+	MsgRedemptionQuotaAmount   = "redemption.quota_amount"
+	MsgRedemptionQuotaTokens   = "redemption.quota_tokens"
+	MsgRedemptionCreditLog     = "redemption.credit_log"
+)

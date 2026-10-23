@@ -109,7 +109,7 @@ func GetUserCache(userId int) (*UserBase, error) {
 	// Serialize cold fills with Batch account changes. Otherwise a DB snapshot
 	// read before settlement could be published after its cache event was acked.
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		if err := lockForUpdate(tx).Omit("password", "access_token").First(&user, userId).Error; err != nil {
+		if err := LockForUpdate(tx).Omit("password", "access_token").First(&user, userId).Error; err != nil {
 			return err
 		}
 		floor, floorErr := getUserAuthVersionFloor(userId)
@@ -168,10 +168,11 @@ func cacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)
 }
 
-// syncCreditUserQuotaCache 在授信事务（充值/兑换等）提交后同步把增量补进缓存
+// SyncCreditUserQuotaCache 在授信事务（充值/兑换等）提交后同步把增量补进缓存
 // 余额。预扣以缓存值为准（存在期间），授信不能绕过它，否则新到账的额度在
 // 缓存过期前不可用；缓存未命中无需处理，下次读取会从已提交的数据库余额水合。
-func syncCreditUserQuotaCache(userId int, quota int, operation string) {
+// BRIDGE: redemption persistence; moves to its wallet owner in the payments wave.
+func SyncCreditUserQuotaCache(userId int, quota int, operation string) {
 	if quota <= 0 {
 		return
 	}

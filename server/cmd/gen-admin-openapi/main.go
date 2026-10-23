@@ -94,6 +94,9 @@ func bootstrap() error {
 	if err := parseModels("./internal/usage/admin_query_user_logs"); err != nil {
 		return err
 	}
+	if err := parseModels("./internal/adapter/gorm/redemption/record"); err != nil {
+		return err
+	}
 	if err := parseModels("./model"); err != nil {
 		return fmt.Errorf("parse models: %w", err)
 	}
@@ -142,6 +145,9 @@ func bootstrap() error {
 		return err
 	}
 	if err := parsePricingHandlers(); err != nil {
+		return err
+	}
+	if err := parseRedemptionHandlers(); err != nil {
 		return err
 	}
 	if err := parseAuditHandlers(); err != nil {

@@ -467,3 +467,11 @@ audit.invalid_pagination: "Недопустимые параметры паги�
 audit.invalid_filters: "Недопустимые фильтры аудита"
 audit.invalid_time_range: "Недопустимый временной диапазон аудита"
 audit.invalid_result: "Недопустимый результат аудита"
+
+# Redemption compatibility and credit receipts
+redemption.id_empty: "ID не указан"
+redemption.quota_positive: "Квота кода пополнения должна быть положительной"
+redemption.wallet_quota: "Квота кошелька превышает {{.Max}}"
+redemption.quota_amount: "{{.Amount}} единиц квоты"
+redemption.quota_tokens: "{{.Amount}} единиц квоты"
+redemption.credit_log: "Пополнение кодом на {{.Quota}}, ID кода {{.ID}}"

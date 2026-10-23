@@ -443,7 +443,7 @@ func ListActiveUserSessions(userID int, currentSID string, now int64) ([]UserSes
 }
 
 // RotateUserSessionRefresh atomically rotates HMAC digests. The UPDATE itself
-// is a compare-and-swap so SQLite, where lockForUpdate is intentionally a
+// is a compare-and-swap so SQLite, where LockForUpdate is intentionally a
 // no-op, has the same single-winner behavior as MySQL and PostgreSQL. Only a
 // recognized previous digest outside its grace window is treated as reuse;
 // an unknown secret never revokes the victim session.
@@ -562,7 +562,7 @@ func RevokeUserSession(userID int, sid, reason string) (bool, error) {
 	var revoked bool
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var current UserSession
-		if err := lockForUpdate(tx).Where("sid = ? AND user_id = ?", sid, userID).First(&current).Error; err != nil {
+		if err := LockForUpdate(tx).Where("sid = ? AND user_id = ?", sid, userID).First(&current).Error; err != nil {
 			return err
 		}
 		if current.Status != UserSessionStatusActive || current.RevokedAt != 0 || current.ExpiresAt <= now {
@@ -604,7 +604,7 @@ func RevokeUserSessionByRefreshHash(sid, presentedHash, reason string) (bool, er
 	var session UserSession
 	var revoked bool
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		if err := lockForUpdate(tx).Where("sid = ?", sid).First(&session).Error; err != nil {
+		if err := LockForUpdate(tx).Where("sid = ?", sid).First(&session).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil
 			}
@@ -660,7 +660,7 @@ func AdvanceUserSessionAuthVersion(userID int, sid string, expectedSessionVersio
 	now := time.Now().Unix()
 	var session UserSession
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		if err := lockForUpdate(tx).Where("sid = ? AND user_id = ?", sid, userID).First(&session).Error; err != nil {
+		if err := LockForUpdate(tx).Where("sid = ? AND user_id = ?", sid, userID).First(&session).Error; err != nil {
 			return err
 		}
 		if session.Status != UserSessionStatusActive || session.ExpiresAt <= now ||
@@ -739,7 +739,7 @@ func revokeUserSessions(userID int, excludedSID, reason string) (int64, error) {
 		var affected int64
 		var revoked []UserSession
 		err := DB.Transaction(func(tx *gorm.DB) error {
-			if err := lockForUpdate(tx).Where("sid IN ? AND status = ?", sids, UserSessionStatusActive).Find(&revoked).Error; err != nil {
+			if err := LockForUpdate(tx).Where("sid IN ? AND status = ?", sids, UserSessionStatusActive).Find(&revoked).Error; err != nil {
 				return err
 			}
 			if len(revoked) == 0 {

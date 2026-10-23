@@ -120,7 +120,7 @@ func GetTokenByKey(key string, fromDB bool) (*Token, error) {
 		},
 		Initialize: func(token record.Token) (int, error) { return cacheInitToken(Token(token)) },
 	}
-	token, err := record.NewKeyReader(func() *gorm.DB { return DB }, func() string { return commonKeyCol }, lockForUpdate, cache, common.SysLog).Read(key, fromDB)
+	token, err := record.NewKeyReader(func() *gorm.DB { return DB }, func() string { return commonKeyCol }, LockForUpdate, cache, common.SysLog).Read(key, fromDB)
 	return (*Token)(token), err
 }
 
