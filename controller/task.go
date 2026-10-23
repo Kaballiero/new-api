@@ -408,6 +408,26 @@ func taskArtifactClientHeaders(headers http.Header) map[string]string {
 	Artifact projection is confined to the explicit endpoints above.
 */
 
+// ReleaseOpenRouterSyncHold lets root refund an audio hold parked as an
+// unknown submission, once upstream evidence shows the request was not billed.
+func ReleaseOpenRouterSyncHold(c *gin.Context) {
+	var request struct {
+		Evidence string `json:"evidence"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8192)
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil || strings.TrimSpace(request.Evidence) == "" || len(request.Evidence) > 4096 {
+		common.ApiErrorMsgStatus(c, http.StatusBadRequest, "bounded upstream evidence is required")
+		return
+	}
+	taskID := c.Param("task_id")
+	if err := service.ReleaseOpenRouterSyncHold(taskID); err != nil {
+		common.ApiErrorMsgStatus(c, http.StatusConflict, "task is unavailable, not a releasable OpenRouter hold, or already settled")
+		return
+	}
+	common.SysLog(fmt.Sprintf("OpenRouter sync hold released: task_id=%s operator_id=%d evidence=%q", taskID, c.GetInt("id"), request.Evidence))
+	common.ApiSuccess(c, gin.H{"task_id": taskID})
+}
+
 func GetAllTask(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
