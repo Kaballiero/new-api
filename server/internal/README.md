@@ -19,6 +19,7 @@
 | `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 11 | [README](billing/README.md) |
 | `usage` | запись consumption/error; чтение логов, quota_data, flow, агрегаты и рейтинги; role visibility и metadata | 3 | [README](usage/README.md) |
 | `audit` | чтение событий и role projection; запись login/security/operation/PAT, metadata policy | 3 | [README](audit/README.md) |
+| `redemption` | выпуск и управление кодами пополнения, атомарное погашение с начислением квоты | 9 | [README](redemption/README.md) |
 
 README каждого модуля появляется в коммите, который чистит или переносит этот модуль.
 
@@ -35,4 +36,4 @@ README каждого модуля появляется в коммите, ко�
 
 ## Ещё не перенесено
 
-Платежи и пополнение баланса, подписки, коды погашения, чтение логов и аналитика использования, настройки и системные функции, деплойменты, batch, а также шлюз и асинхронные задачи (`relay/`, `controller/relay.go`, `task*`). Пока они живут в `controller/`, `service/` и `model/`.
+Платежи и пополнение баланса, подписки, настройки и системные функции, деплойменты, batch, а также шлюз и асинхронные задачи (`relay/`, `controller/relay.go`, `task*`). Пока они живут в `controller/`, `service/` и `model/`.

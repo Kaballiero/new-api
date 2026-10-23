@@ -31,7 +31,7 @@
 | 1 | Бизнес-модули панели: apikeys, accounts, catalog, authorization + PAT, identity, pricing, channels | ✅ (не слито в main) | — |
 | 2 | Граница шлюза: проверка ключа, billing, запись использования | ✅ (2a, 2b1, 2b2, 2c) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ✅ (3a, 3b) | средний |
-| 4 | Платежи, подписки, коды пополнения | ⬜ | высокий |
+| 4 | Платежи, подписки, коды пополнения | 🔄 (коды перенесены, host acceptance ожидается) | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
 | 6 | Настройки и система | ⬜ | низкий |
 | 7 | Доводка: остатки в `service`/`model`, алиасы, список исключений → 0 | ⬜ | средний |
@@ -109,7 +109,12 @@
 
 - [ ] `payments`: `controller/topup*.go` (Stripe, Creem, Waffo, Waffo Pancake, Epay), `payment_webhook_availability.go`, `payment_compliance.go`, `model/topup.go`. Каждый провайдер — адаптер, вебхук — сценарий.
 - [ ] `subscriptions`: `controller/subscription*.go`, `model/subscription.go`, задача сброса квоты подписок.
-- [ ] `redemption`: `controller/redemption.go`, `model/redemption.go`.
+- [x] `redemption`: девять сценариев, record/SQL adapter, atomic CAS + единый wallet credit, late composition и thin bridges.
+- [x] Baseline: commit 00c8bbd6e, 214 новых HTTP/state goldens, два стабильных origin повтора, candidate parity;
+  прежние 758 неизменны, всего 972. Два locale baselines отделяют inherited ru переводы от новой ID delta.
+- [ ] Host acceptance переноса: immutable 972, WSS/full suite, OpenAPI/U1000 и изолированный PostgreSQL.
+- [ ] Отдельный согласованный content-only patch: язык получателя/English fallback после acceptance, без
+  изменения финансовых полей и origin baselines. В дереве переноса не применяется.
 - [ ] Контрактные тесты вебхуков (подпись, повтор, идемпотентность). ⏳ Подтвердить.
 
 ## Волна 5 — асинхронные задачи и batch ⬜

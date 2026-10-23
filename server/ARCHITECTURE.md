@@ -195,3 +195,12 @@ gorm/audit; model сохраняет только alias-only surface и отде
 `internal/app/audit` не импортирует middleware/parent app; controller/middleware используют
 sync.OnceValue bridges. Read/write остаются на LOG_DB, routes/auth ordering неизменны.
 PAT last-use SQL пока остаётся в PAT adapter (#44), без встречной зависимости audit → PAT.
+
+### Коды пополнения
+
+`internal/redemption` владеет девятью endpoint scenarios. Record/tags и SQL находятся в gorm/redemption,
+model/redemption.go — alias-only. Read Count/Find сохраняют transaction; redeem выбирает проверки и CAS,
+а adapter вызывает injected единый model.CreditTopUpQuota в том же tx. Cache sync и receipt следуют после
+commit; audit callback использует уже перенесённый audit owner. Сборка — app/redemption, controller bridges
+через sync.OnceValue, DB читается поздно. Payment/webhook/subscription workflow не переносился.
+Технические экспорты credit/locking/cache временно остаются в исходных model файлах до переноса платежей.
