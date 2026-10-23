@@ -241,14 +241,14 @@
         "status": 200,
         "success": true,
         "request_id": "\u003chttp-request-1\u003e",
-        "content": "Created 2 redemption codes named new (＄0.001000 额度 each)",
+        "content": "Created 2 redemption codes named new ($0.001000 quota each)",
         "other": {
           "op": {
             "action": "redemption.create",
             "params": {
               "count": 2,
               "name": "new",
-              "quota": "＄0.001000 额度"
+              "quota": "$0.001000 quota"
             }
           },
           "admin_info": {

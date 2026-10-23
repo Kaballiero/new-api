@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/redemption"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	"github.com/QuantumNous/new-api/internal/redemption/create_codes"
@@ -63,7 +62,9 @@ func NewHTTP() HTTP {
 		Get:    get_code.NewHTTP(get_code.NewUsecase(store)),
 		Create: create_codes.NewHTTP(create_codes.NewUsecase(store, walletQuota, common.GetTimestamp, common.GetUUID),
 			operation_setting.IsPaymentComplianceConfirmed, func(c *gin.Context, in create_codes.Input) {
-				recording.Manage(c, 0, "redemption.create", map[string]any{"name": in.Name, "count": in.Count, "quota": quotaText(in.Quota, i18n.LangZhCN)})
+				recording.Manage(c, 0, "redemption.create", map[string]any{
+					"name": in.Name, "count": in.Count, "quota": quotaText(in.Quota, receiptLanguage(in.IssuerID)),
+				})
 			}, func(err error) { common.SysError("failed to insert redemption: " + err.Error()) }),
 		Update: update_code.NewHTTP(update_code.NewUsecase(store, walletQuota, common.GetTimestamp)),
 		Delete: delete_code.NewHTTP(delete_code.NewUsecase(store)),

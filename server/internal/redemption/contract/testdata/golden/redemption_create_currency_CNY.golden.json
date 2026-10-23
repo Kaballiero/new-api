@@ -227,14 +227,14 @@
         "status": 200,
         "success": true,
         "request_id": "\u003chttp-request-1\u003e",
-        "content": "Created 1 redemption codes named new (¥0.007000 额度 each)",
+        "content": "Created 1 redemption codes named new (¥0.007000 quota each)",
         "other": {
           "op": {
             "action": "redemption.create",
             "params": {
               "count": 1,
               "name": "new",
-              "quota": "¥0.007000 额度"
+              "quota": "¥0.007000 quota"
             }
           },
           "admin_info": {

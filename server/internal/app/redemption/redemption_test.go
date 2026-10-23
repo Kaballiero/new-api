@@ -32,6 +32,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/redemption/search_codes"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 func isolatedDatabase(t *testing.T, kind string) *gorm.DB {
@@ -521,4 +522,36 @@ func TestReadRecoveryPreservesScannedDestinations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReceiptLanguageAliases(t *testing.T) {
+	db, _ := newPersistence(t, "sqlite")
+	user := model.User{Id: 91, Username: "receipt-language", Password: "unused"}
+	require.NoError(t, db.Create(&user).Error)
+	for _, tc := range []struct{ language, want string }{
+		{"", i18n.LangEn}, {"en-US", i18n.LangEn}, {"unknown", i18n.LangEn},
+		{"ru", i18n.LangRu}, {"ru-RU", i18n.LangRu}, {"RU", i18n.LangRu},
+		{"zh", i18n.LangZhCN}, {"zhCN", i18n.LangZhCN}, {"zh-CN", i18n.LangZhCN}, {"zh-TW", i18n.LangZhCN},
+	} {
+		t.Run(tc.language, func(t *testing.T) {
+			setting, err := common.Marshal(map[string]any{"language": tc.language})
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&model.User{}).Where("id = ?", user.Id).Update("setting", string(setting)).Error)
+			assert.Equal(t, tc.want, receiptLanguage(user.Id))
+		})
+	}
+}
+
+func TestQuotaTextPreservesCustomDollar(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	settings := operation_setting.GetGeneralSetting()
+	previous := *settings
+	previousQuota := common.QuotaPerUnit
+	t.Cleanup(func() { *settings = previous; common.QuotaPerUnit = previousQuota })
+	common.QuotaPerUnit = 500 * 1000.0
+	settings.QuotaDisplayType = operation_setting.QuotaDisplayTypeCustom
+	settings.CustomCurrencySymbol = "\uff04"
+	settings.CustomCurrencyExchangeRate = 1
+	assert.Equal(t, "\uff040.001000 quota", quotaText(500, i18n.LangEn))
+	assert.Equal(t, "\uff040.001000 единиц квоты", quotaText(500, i18n.LangRu))
 }

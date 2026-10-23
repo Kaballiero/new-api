@@ -311,7 +311,11 @@ func codeKey(id int) string { return fmt.Sprintf("%032d", id) }
 func TestRedemptionContract(t *testing.T) {
 	updating := flag.Lookup("update").Value.String() == "true"
 	if updating {
-		verifyOriginRecording(t)
+		if path := os.Getenv("REDEMPTION_CONTRACT_CONTENT_RECORD"); path != "" {
+			verifyContentRecording(t, path)
+		} else {
+			verifyOriginRecording(t)
+		}
 	}
 	cases := contractCases()
 	names := map[string]bool{}
@@ -358,6 +362,32 @@ func TestRedemptionContract(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Content recording accepts only explicitly selected cases against the host-verified source manifest.
+func verifyContentRecording(t *testing.T, path string) {
+	t.Helper()
+	require.False(t, *manifest || *preflight)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var gate struct {
+		Root   string
+		Cases  []string
+		Inputs map[string]string
+	}
+	require.NoError(t, common.Unmarshal(data, &gate))
+	require.Contains(t, gate.Cases, os.Getenv("REDEMPTION_CONTRACT_CASE"), "only approved content cases may be updated")
+	directory, err := os.Getwd()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(gate.Root, "server/internal/redemption/contract"), directory)
+	require.NotEmpty(t, gate.Inputs)
+	for name, digest := range gate.Inputs {
+		require.False(t, filepath.IsAbs(name))
+		require.False(t, strings.Contains(name, ".."))
+		data, err := os.ReadFile(filepath.Join(gate.Root, name))
+		require.NoError(t, err)
+		require.Equal(t, digest, fmt.Sprintf("%x", sha256.Sum256(data)), "localized recording input changed: %s", name)
 	}
 }
 
