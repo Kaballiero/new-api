@@ -68,3 +68,7 @@ func (Settings) UnitPrice(provider string) float64 {
 		return operation_setting.Price
 	}
 }
+
+func (Settings) ContainsMethod(method string) bool {
+	return operation_setting.ContainsPayMethod(method)
+}

@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	paymentsapp "github.com/QuantumNous/new-api/internal/app/payments"
 	"io"
 	"net/http"
 	"strconv"
@@ -251,7 +252,7 @@ func RequestWaffoPay(c *gin.Context) {
 	if setting.WaffoNotifyUrl != "" {
 		notifyUrl = setting.WaffoNotifyUrl
 	}
-	returnUrl := paymentReturnPath("/wallet?show_history=true")
+	returnUrl := paymentsapp.ReturnPath("/wallet?show_history=true")
 	if setting.WaffoReturnUrl != "" {
 		returnUrl = setting.WaffoReturnUrl
 	}

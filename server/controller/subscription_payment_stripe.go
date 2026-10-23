@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	paymentsapp "github.com/QuantumNous/new-api/internal/app/payments"
 	"net/http"
 	"strings"
 	"time"
@@ -114,8 +115,8 @@ func genStripeSubscriptionLink(referenceId string, customerId string, email stri
 
 	params := &stripe.CheckoutSessionParams{
 		ClientReferenceID: stripe.String(referenceId),
-		SuccessURL:        stripe.String(paymentReturnPath("/wallet")),
-		CancelURL:         stripe.String(paymentReturnPath("/wallet")),
+		SuccessURL:        stripe.String(paymentsapp.ReturnPath("/wallet")),
+		CancelURL:         stripe.String(paymentsapp.ReturnPath("/wallet")),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
 				Price:    stripe.String(priceId),

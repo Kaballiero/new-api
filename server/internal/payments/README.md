@@ -11,3 +11,7 @@ slices; subscription completion остаётся legacy. `list_own_topups` за�
 
 Маршруты: GET /api/user/topup/info и /self — UserAuth session/PAT; GET /api/user/topup и
 POST /api/user/topup/complete — AdminAuth session/PAT. Новых фильтров и permissions нет.
+
+Epay: quote_epay_topup (POST /api/user/amount), create_epay_topup (POST /api/user/pay), receive_epay_notify
+(GET/POST /api/user/epay/notify). Quote/pay — UserAuth session/PAT, pay дополнительно CriticalRateLimit;
+notify — public provider signature. Epay Purchase формирует подписанную форму, сетевого вызова нет.
