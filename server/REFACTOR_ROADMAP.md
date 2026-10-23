@@ -31,7 +31,7 @@
 | 1 | Бизнес-модули панели: apikeys, accounts, catalog, authorization + PAT, identity, pricing, channels | ✅ (не слито в main) | — |
 | 2 | Граница шлюза: проверка ключа, billing, запись использования | ✅ (2a, 2b1, 2b2, 2c) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ✅ (3a, 3b) | средний |
-| 4 | Платежи, подписки, коды пополнения | 🔄 (4a коды ✅; 4b implementation, acceptance ожидает host; 4c подписки) | высокий |
+| 4 | Платежи, подписки, коды пополнения | 🔄 (4a коды ✅; 4b платежи ✅; 4c подписки) | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
 | 6 | Настройки и система | ⬜ | низкий |
 | 7 | Доводка: остатки в `service`/`model`, алиасы, список исключений → 0 | ⬜ | средний |
@@ -107,7 +107,7 @@
 
 ## Волна 4 — платежи, подписки, коды ⬜
 
-- [x] `payments` implementation: 22 сценария, 23 регистрации, пять provider adapters, wallet owner, strict TopUp record alias; subscription workflow остаётся legacy. Host acceptance после переноса ещё ожидается.
+- [x] `payments` implementation: 22 сценария, 23 регистрации, пять provider adapters, wallet owner, strict TopUp record alias; subscription workflow остаётся legacy до 4c (commits 1168444a1..20d2e7035).
 - [ ] `subscriptions`: `controller/subscription*.go`, `model/subscription.go`, задача сброса квоты подписок.
 - [x] `redemption`: девять сценариев, record/SQL adapter, atomic CAS + единый wallet credit, late composition и thin bridges.
 - [x] Baseline: commit 00c8bbd6e, 214 новых HTTP/state goldens, два стабильных origin повтора, candidate parity;
@@ -118,7 +118,12 @@
 - [x] Content-only (commit 1a7402149): запись о пополнении и quota в аудите redemption.create — на языке
   пользователя, English по умолчанию, zh без изменений; 31 golden, только content/quota.
 - [x] Payments baseline: 615 HTTP/state/outbound goldens, два стабильных origin повтора, candidate parity; 204 locale snapshots. Waffo transport test-only substitution явно отделён от production SDK.
-- [ ] Payments host acceptance: 1587 immutable oracles, PostgreSQL isolated schemas, Redis/WSS/full suite, relaykit/OpenAPI/U1000. English/ru content и log redaction — отдельные неприменённые пакеты.
+- [x] Payments host acceptance: 1681 immutable oracles без -update, Redis/WSS/full suite, relaykit/OpenAPI/U1000;
+  PostgreSQL 15.19 full suite совпадает с 3b, изолированные wallet/payments/redemption/model/controller на PG зелёные.
+  SQLite/MySQL полной матрицей не проверялись.
+- [x] Content-only (commit 93ea992dc): ошибки платежей — English по умолчанию + ru, receipts на языке получателя,
+  zh без изменений, ACK неизменны; 69 строк в 53 goldens.
+- [x] Log redaction (commit ea1ab44b4): из платёжных логов убраны подписи, тела webhook, данные покупателя; goldens без изменений (#50).
 
 ## Волна 5 — асинхронные задачи и batch ⬜
 

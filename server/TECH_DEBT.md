@@ -68,7 +68,7 @@
 | 49 | redemption post-commit cache / receipt | DB commit предшествует best-effort cache increment и log INSERT, без durable repair | Credit может остаться без актуального кеша/usage evidence; отдельная crash/fault policy, не гарантия durability |
 
 
-| 50 | payments operational logs | Подписи/raw webhook bodies, Epay form/link и Creem customer/response/link сохраняют legacy logging; отдельный source-only redaction package не применён | Security candidate: usable auth/payment/customer data в логах; отдельное исправление после parity acceptance |
+| 50 | Закрыто в 4b: payments operational logs | Подписи, raw webhook bodies, Epay form/link, данные покупателя Creem/Pancake и query strings писались в логи; теперь пишутся размер тела и path (commit ea1ab44b4) | Ответ API и goldens не менялись |
 | 51 | Pancake catalog GET private_key | Typed private key передаётся в query и может попасть в history/proxy/access logs | Security candidate; миграция API к body/session config отдельно, GET контракт пока сохранён |
 | 52 | payments manual completion Creem / repeat | Manual считает Amount × QuotaPerUnit вместо automatic Amount; повтор success пишет user0/zero receipt | Financial/security candidate: возможен избыточный credit и ложная receipt; отдельная formula/repeat policy |
 | 53 | Waffo notification transitions | Любой status != PAY_SUCCESS переводит pending в failed, поздний paid затем отвергается | Возможна потеря пополнения при промежуточном/переупорядоченном event; state machine отдельно |
