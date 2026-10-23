@@ -16,7 +16,7 @@ func (f Content) RenderNote(note domain.Note) string {
 	case domain.MissingUpstreamUsage:
 		return "No upstream billing information"
 	case domain.ToolCharge:
-		return fmt.Sprintf("%s called %d times, cost %s", note.Name, note.Count, f.Quota(note.Quota))
+		return fmt.Sprintf("%s calls: %d, cost %s", note.Name, note.Count, f.Quota(note.Quota))
 	case domain.AudioInputCharge:
 		return fmt.Sprintf("Audio input cost %s", f.Quota(note.Quota))
 	case domain.UnbillableUsage:

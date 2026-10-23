@@ -30,7 +30,7 @@
       "channel": 1,
       "channel_name": "",
       "completion_tokens": 1,
-      "content": "web_search_preview called 1 times, cost 1 quota units",
+      "content": "web_search_preview calls: 1, cost 1 quota units",
       "created_at": "__number__",
       "group": "default",
       "id": 1,

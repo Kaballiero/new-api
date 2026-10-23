@@ -30,7 +30,7 @@
       "channel": 1,
       "channel_name": "",
       "completion_tokens": 20,
-      "content": "google_search called 1 times, cost 7000 quota units",
+      "content": "google_search calls: 1, cost 7000 quota units",
       "created_at": "__number__",
       "group": "default",
       "id": 1,

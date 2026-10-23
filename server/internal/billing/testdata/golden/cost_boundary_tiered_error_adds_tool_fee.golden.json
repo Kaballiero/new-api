@@ -26,7 +26,7 @@
       "channel": 1,
       "channel_name": "",
       "completion_tokens": 20,
-      "content": "web_search called 2 times, cost 10000 quota units",
+      "content": "web_search calls: 2, cost 10000 quota units",
       "created_at": "__number__",
       "group": "default",
       "id": 1,

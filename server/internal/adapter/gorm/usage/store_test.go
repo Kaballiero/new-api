@@ -171,7 +171,7 @@ func TestSerializerOwnsBillingShapesAndPreservesProviderJSON(t *testing.T) {
 
 func TestRendererOwnsTextAndAudioNoteJoining(t *testing.T) {
 	renderer := Content{Quota: func(int) string { return "17" }}
-	assert.Equal(t, ", search called 2 times, cost 17", renderer.RenderContent([]domain.Note{
+	assert.Equal(t, ", search calls: 2, cost 17", renderer.RenderContent([]domain.Note{
 		{Kind: domain.LiteralContent},
 		{Kind: domain.ToolCharge, Name: "search", Count: 2, Quota: 17},
 	}))
