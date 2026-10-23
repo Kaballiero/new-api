@@ -1,0 +1,241 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Auth-Version": "864b7076dbcd0a3c01b5520316720ebf",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Oneapi-Request-Id": "\u003chttp-request\u003e"
+      },
+      "body": "{\"message\":\"record not found\",\"success\":false}"
+    },
+    "codes": [
+      {
+        "id": 11,
+        "user_id": 2,
+        "key": "00000000000000000000000000000011",
+        "status": 1,
+        "name": "alpha-active",
+        "quota": 500,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": null,
+        "expired_time": 0
+      },
+      {
+        "id": 12,
+        "user_id": 2,
+        "key": "00000000000000000000000000000012",
+        "status": 1,
+        "name": "alpha-future",
+        "quota": 700,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": null,
+        "expired_time": 4102444800
+      },
+      {
+        "id": 13,
+        "user_id": 2,
+        "key": "00000000000000000000000000000013",
+        "status": 1,
+        "name": "alpha-expired",
+        "quota": 900,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": null,
+        "expired_time": 1
+      },
+      {
+        "id": 14,
+        "user_id": 2,
+        "key": "00000000000000000000000000000014",
+        "status": 2,
+        "name": "beta-disabled",
+        "quota": 1000,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": null,
+        "expired_time": 0
+      },
+      {
+        "id": 15,
+        "user_id": 2,
+        "key": "00000000000000000000000000000015",
+        "status": 3,
+        "name": "beta-used",
+        "quota": 1100,
+        "created_time": 100,
+        "redeemed_time": 102,
+        "count": 0,
+        "used_user_id": 2,
+        "DeletedAt": null,
+        "expired_time": 0
+      },
+      {
+        "id": 16,
+        "user_id": 2,
+        "key": "00000000000000000000000000000016",
+        "status": 1,
+        "name": "11-prefix",
+        "quota": 1200,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": null,
+        "expired_time": 0
+      },
+      {
+        "id": 17,
+        "user_id": 2,
+        "key": "00000000000000000000000000000017",
+        "status": 1,
+        "name": "111-numeric",
+        "quota": 1300,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": null,
+        "expired_time": 0
+      },
+      {
+        "id": 18,
+        "user_id": 2,
+        "key": "00000000000000000000000000000018",
+        "status": 1,
+        "name": "测试",
+        "quota": 1400,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": null,
+        "expired_time": 0
+      },
+      {
+        "id": 19,
+        "user_id": 2,
+        "key": "00000000000000000000000000000019",
+        "status": 9,
+        "name": "unknown-expired",
+        "quota": 1500,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": null,
+        "expired_time": 1
+      },
+      {
+        "id": 20,
+        "user_id": 2,
+        "key": "00000000000000000000000000000020",
+        "status": 2,
+        "name": "disabled-expired",
+        "quota": 1600,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": null,
+        "expired_time": 1
+      },
+      {
+        "id": 21,
+        "user_id": 2,
+        "key": "00000000000000000000000000000021",
+        "status": 3,
+        "name": "used-future",
+        "quota": 1700,
+        "created_time": 100,
+        "redeemed_time": 103,
+        "count": 0,
+        "used_user_id": 3,
+        "DeletedAt": null,
+        "expired_time": 4102444800
+      },
+      {
+        "id": 22,
+        "user_id": 2,
+        "key": "00000000000000000000000000000022",
+        "status": 1,
+        "name": "soft-deleted",
+        "quota": 1800,
+        "created_time": 100,
+        "redeemed_time": 0,
+        "count": 0,
+        "used_user_id": 0,
+        "DeletedAt": "1970-01-01T00:00:50Z",
+        "expired_time": 0
+      }
+    ],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 1000000
+      },
+      {
+        "id": 2,
+        "quota": 1000000
+      },
+      {
+        "id": 3,
+        "quota": 1000000
+      }
+    ],
+    "logs": [],
+    "events": [
+      {
+        "id": 1,
+        "event_id": "\u003cevent-1\u003e",
+        "user_id": 2,
+        "username": "contract-admin",
+        "actor_role": 10,
+        "created_at": 1,
+        "category": "operation",
+        "action": "redemption.delete",
+        "token_ref": "",
+        "auth_method": "session",
+        "ip": "192.0.2.8",
+        "user_agent": "redemption-contract-agent",
+        "method": "DELETE",
+        "route": "/api/redemption/:id",
+        "status": 200,
+        "success": false,
+        "request_id": "\u003chttp-request-1\u003e",
+        "content": "DELETE /api/redemption/:id",
+        "other": {
+          "op": {
+            "action": "redemption.delete"
+          },
+          "admin_info": {
+            "admin_id": 2,
+            "admin_username": "contract-admin",
+            "admin_role": 10,
+            "auth_method": "session"
+          },
+          "audit_info": {
+            "method": "DELETE",
+            "route": "/api/redemption/:id",
+            "path": "/api/redemption/:id",
+            "status": 200,
+            "success": false,
+            "params": {
+              "id": "-1"
+            }
+          }
+        }
+      }
+    ]
+  }
+]
