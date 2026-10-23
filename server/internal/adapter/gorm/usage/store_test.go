@@ -7,10 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
-	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
-	"github.com/QuantumNous/new-api/internal/usage/domain"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
+	"github.com/QuantumNous/new-api/internal/usage/domain"
+	"github.com/QuantumNous/new-api/model"
 )
 
 func usagePostgres(t *testing.T, dsn string) *gorm.DB {
@@ -50,6 +51,7 @@ func usagePostgres(t *testing.T, dsn string) *gorm.DB {
 	t.Logf("PostgreSQL %s, isolated schema %s", version, schema)
 	return db
 }
+
 func TestUsageAdapterPostgres(t *testing.T) {
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -77,17 +79,20 @@ func TestUsageAdapterPostgres(t *testing.T) {
 	c, _ := gin.CreateTestContext(nil)
 	c.Set("username", user.Username)
 	c.Set(common.RequestIdKey, "usage-pg-request")
+	ctx := WithRequestObservation(c, model.LogObservation{Context: c, Identity: func() (string, string, string) {
+		return c.GetString("username"), c.GetString(common.RequestIdKey), c.GetString(common.UpstreamRequestIdKey)
+	}, ClientIP: c.ClientIP})
 	enabled := true
 	gateReads := 0
 	store := Store{ConsumeEnabled: func() bool { gateReads++; return enabled }, ExportEnabled: func() bool { return false }}
 	in := domain.Consumption{Record: domain.UsageRecord{UserID: user.Id, ChannelID: channel.Id, ModelName: "usage-model", Quota: 7, PromptTokens: 3, CompletionTokens: 4, Group: "default"}, RenderedContent: "usage fixture", Request: domain.RequestFacts{ContextPresent: true, FirstResponseMilliseconds: -1000}}
 	store.AddUserConsumption(user.Id, 7)
 	store.AddChannelConsumption(channel.Id, 7)
-	require.NoError(t, store.WriteConsumption(c, in))
+	require.NoError(t, store.WriteConsumption(ctx, in))
 	enabled = false
-	require.NoError(t, store.WriteConsumption(c, in))
+	require.NoError(t, store.WriteConsumption(ctx, in))
 	require.Equal(t, 2, gateReads, "one late consume gate read per attempt")
-	require.NoError(t, store.WriteFailure(c, domain.Failure{Record: in.Record, Content: "usage failure", Consumption: &in}))
+	require.NoError(t, store.WriteFailure(ctx, domain.Failure{Record: in.Record, Content: "usage failure", Consumption: &in}))
 	var rows []model.Log
 	require.NoError(t, logDB.Order("id").Find(&rows).Error)
 	require.Len(t, rows, 2)
@@ -107,7 +112,7 @@ func TestUsageAdapterPostgres(t *testing.T) {
 	assert.EqualValues(t, 7, channel.UsedQuota)
 
 	// An existing URL with an empty Path still produces a present request_path.
-	require.NoError(t, store.WriteFailure(c, domain.Failure{
+	require.NoError(t, store.WriteFailure(ctx, domain.Failure{
 		Record: in.Record, Content: "empty URL path",
 		Request: domain.RequestFacts{URLPresent: true},
 	}))
@@ -163,6 +168,7 @@ func TestSerializerOwnsBillingShapesAndPreservesProviderJSON(t *testing.T) {
 	}, admin["openrouter_cost_basis"])
 	assert.Contains(t, admin, "channel_affinity")
 }
+
 func TestRendererOwnsTextAndAudioNoteJoining(t *testing.T) {
 	renderer := Content{Quota: func(int) string { return "17" }}
 	assert.Equal(t, ", search called 2 times, cost 17", renderer.RenderContent([]domain.Note{
@@ -246,10 +252,61 @@ func TestStoredFXUsesBillingValidationAndCapturedMetadata(t *testing.T) {
 		{name: "missing capture time", fx: domain.FX{Rate: 200, Factor: 2, Source: "fixture", EffectiveAt: 1}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			other := model.NewLogOther()
+			other := new(model.LogOther)
 			appendBillingFX(other, &domain.RequestFacts{FX: tc.fx}, domain.PriceFacts{}, "request")
 			admin, _ := other.Snapshot()["admin_info"].(map[string]any)
 			assert.Equal(t, tc.present, admin["billing_fx"] != nil)
 		})
 	}
+}
+
+func TestPlainObservationKeepsLateRecordingAndIPSettings(t *testing.T) {
+	mainDB, logDB := readTestDatabase(t, "sqlite", ""), readTestDatabase(t, "sqlite", "")
+	oldDB, oldLog := model.DB, model.LOG_DB
+	oldMainType, oldLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	oldRedis := common.RedisEnabled
+	model.DB, model.LOG_DB = mainDB, logDB
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.RedisEnabled = false
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = oldDB, oldLog
+		common.SetDatabaseTypes(oldMainType, oldLogType)
+		common.RedisEnabled = oldRedis
+	})
+	require.NoError(t, mainDB.AutoMigrate(&model.User{}, &model.Log{}))
+	require.NoError(t, logDB.AutoMigrate(&model.Log{}))
+	user := model.User{Username: "plain-observation", Setting: `{"record_ip_log":false}`}
+	require.NoError(t, mainDB.Create(&user).Error)
+	identityReads, ipReads := 0, 0
+	observation := model.LogObservation{Context: context.Background(), Identity: func() (string, string, string) {
+		identityReads++
+		return "plain-observation", "plain-request", "plain-upstream"
+	}, ClientIP: func() string { ipReads++; return "192.0.2.10" }}
+	ctx := WithRequestObservation(context.Background(), observation)
+	enabled := false
+	store := Store{ConsumeEnabled: func() bool { return enabled }, ExportEnabled: func() bool { return false }}
+	in := domain.Consumption{Record: domain.UsageRecord{UserID: user.Id, Quota: 7}, RenderedContent: "plain"}
+	require.NoError(t, store.WriteConsumption(ctx, in))
+	assert.Zero(t, identityReads)
+	enabled = true
+	require.NoError(t, store.WriteConsumption(ctx, in))
+	assert.Equal(t, 1, identityReads)
+	assert.Zero(t, ipReads)
+	require.NoError(t, mainDB.Model(&user).Update("setting", `{"record_ip_log":true}`).Error)
+	require.NoError(t, store.WriteFailure(ctx, domain.Failure{Record: in.Record, Content: "failure"}))
+	assert.Equal(t, 2, identityReads)
+	assert.Equal(t, 1, ipReads)
+	var rows []model.Log
+	require.NoError(t, logDB.Order("id").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	assert.Equal(t, "", rows[0].Ip)
+	assert.Equal(t, "192.0.2.10", rows[1].Ip)
+	for _, row := range rows {
+		assert.Equal(t, "plain-observation", row.Username)
+		assert.Equal(t, "plain-request", row.RequestId)
+		assert.Equal(t, "plain-upstream", row.UpstreamRequestId)
+	}
+	var mainRows int64
+	require.NoError(t, mainDB.Table("logs").Count(&mainRows).Error)
+	assert.Zero(t, mainRows)
 }

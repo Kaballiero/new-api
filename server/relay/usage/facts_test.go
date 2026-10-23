@@ -7,13 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/require"
 )
 
 func TestDeliveryFailureReason(t *testing.T) {
@@ -158,7 +159,7 @@ func TestUsageBillingPathForLog(t *testing.T) {
 }
 
 func TestAppendUsageBillingPathForLogWritesAdminInfo(t *testing.T) {
-	other := model.NewLogOther()
+	other := new(model.LogOther)
 	other.SetAdmin("usage_billing_path", usagegateway.UsagePath(true, &dto.Usage{
 		BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{InputTokens: 1}),
 	}))
@@ -167,7 +168,7 @@ func TestAppendUsageBillingPathForLogWritesAdminInfo(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "billing-usage-anthropic", adminInfo["usage_billing_path"])
 
-	other = model.NewLogOther()
+	other = new(model.LogOther)
 	other.SetAdmin("usage_billing_path", usagegateway.UsagePath(true, nil))
 	adminInfo, ok = other.Snapshot()["admin_info"].(map[string]any)
 	require.True(t, ok)

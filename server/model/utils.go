@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"math"
 	"sync"
-	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
-
-	"github.com/bytedance/gopkg/util/gopool"
-	"gorm.io/gorm"
 )
 
 const (
@@ -23,6 +21,7 @@ const (
 )
 
 var batchUpdateStores []map[int]int
+
 var batchUpdateLocks []sync.Mutex
 
 func init() {
@@ -30,15 +29,6 @@ func init() {
 		batchUpdateStores = append(batchUpdateStores, make(map[int]int))
 		batchUpdateLocks = append(batchUpdateLocks, sync.Mutex{})
 	}
-}
-
-func InitBatchUpdater() {
-	gopool.Go(func() {
-		for {
-			time.Sleep(time.Duration(common.BatchUpdateInterval) * time.Second)
-			batchUpdate()
-		}
-	})
 }
 
 func addNewRecord(type_ int, id int, value int) {
@@ -62,7 +52,7 @@ func addNewRecord(type_ int, id int, value int) {
 	batchUpdateStores[type_][id] = sum
 }
 
-func batchUpdate() {
+func FlushBatchUpdates() {
 	// check if there's any data to update
 	hasData := false
 	for i := range BatchUpdateTypeCount {

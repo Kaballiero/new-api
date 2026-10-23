@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/gin-gonic/gin"
+	"github.com/QuantumNous/new-api/model"
 )
 
 // logMetadata contains storage-only data, never business policy.
@@ -14,6 +14,7 @@ type logMetadata struct {
 	CostDetails json.RawMessage
 	Affinity    map[string]any
 }
+
 type recordingContext struct {
 	context.Context
 	metadata logMetadata
@@ -22,14 +23,24 @@ type recordingContext struct {
 func WithLogMetadata(ctx context.Context, details []byte, affinity map[string]any) context.Context {
 	return recordingContext{Context: ctx, metadata: logMetadata{CostDetails: details, Affinity: affinity}}
 }
-func gatewayContext(ctx context.Context) (*gin.Context, logMetadata, error) {
+
+type observationContext struct {
+	context.Context
+	observation model.LogObservation
+}
+
+func WithRequestObservation(ctx context.Context, observation model.LogObservation) context.Context {
+	return observationContext{Context: ctx, observation: observation}
+}
+
+func recordingObservation(ctx context.Context) (model.LogObservation, logMetadata, error) {
 	metadata, wrapped := ctx.(recordingContext)
 	if wrapped {
 		ctx = metadata.Context
 	}
-	c, ok := ctx.(*gin.Context)
-	if !ok || c == nil {
-		return nil, metadata.metadata, errGatewayContext
+	observed, ok := ctx.(observationContext)
+	if !ok || observed.observation.Identity == nil || observed.observation.ClientIP == nil {
+		return model.LogObservation{}, metadata.metadata, errGatewayContext
 	}
-	return c, metadata.metadata, nil
+	return observed.observation, metadata.metadata, nil
 }

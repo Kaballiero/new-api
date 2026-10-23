@@ -17,17 +17,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/controller"
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/contracttest"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/controller"
+	"github.com/QuantumNous/new-api/i18n"
+	appusage "github.com/QuantumNous/new-api/internal/app/usage"
+	"github.com/QuantumNous/new-api/internal/contracttest"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
 )
 
 const (
@@ -37,6 +39,7 @@ const (
 )
 
 var readManifest = flag.Bool("wave3a-manifest", false, "print the reviewed case manifest without opening a database")
+
 var searchLocalePreflight = flag.Bool("wave3a-search-locale-preflight", false, "check pre-existing search error parity before recording")
 
 type readCase struct {
@@ -946,12 +949,12 @@ func runQuotaAggregation(t *testing.T) {
 		}
 		model.LogQuotaData(changed)
 	}
-	model.SaveQuotaDataCache()
+	appusage.FlushQuotaData()
 	first := quotaJobRows(t, env.DB)
 	model.LogQuotaData(params)
-	model.SaveQuotaDataCache()
+	appusage.FlushQuotaData()
 	second := quotaJobRows(t, env.DB)
-	model.SaveQuotaDataCache()
+	appusage.FlushQuotaData()
 	assert.Equal(t, second, quotaJobRows(t, env.DB), "empty repeat flush changed persistent aggregates")
 	model.CacheQuotaDataLock.Lock()
 	assert.Empty(t, model.CacheQuotaData)

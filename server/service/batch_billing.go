@@ -10,6 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
@@ -23,12 +27,10 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
-	"gorm.io/gorm"
 )
 
 const BatchSettlementOpenRouterCostV1 = "openrouter_cost_v1"
+
 const BatchSettlementOpenRouterJobCostV2 = model.BatchSettlementOpenRouterJobCostV2
 
 type BatchBillingSnapshot struct {
@@ -209,7 +211,7 @@ func SettleBatchResults(job *model.BatchJob) error {
 			// Tokens are optional accounting evidence; their absence or malformed
 			// projection cannot invalidate independently authoritative item cost.
 			details.Usage, _ = batchResultUsage(job, result)
-			details.Other = model.NewLogOther()
+			details.Other = new(model.LogOther)
 			details.Other.SetPublic("settlement_mode", snapshot.SettlementMode)
 			details.Other.SetPublic("reserved_quota", item.ReservedQuota)
 			details.Other.SetPublic("actual_quota", quota)

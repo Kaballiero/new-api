@@ -3,6 +3,9 @@ package model
 import (
 	"errors"
 
+	"github.com/bytedance/gopkg/util/gopool"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
@@ -11,8 +14,6 @@ import (
 	keydomain "github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/apikeys/search_keys"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/bytedance/gopkg/util/gopool"
-	"gorm.io/gorm"
 )
 
 type Token record.Token
@@ -45,7 +46,9 @@ func (token *Token) Clean() {
 	token.Key = ""
 }
 
-func MaskTokenKey(key string) string { return keydomain.MaskKey(key) }
+func MaskTokenKey(key string) string {
+	return keydomain.MaskKey(key)
+}
 
 func (token *Token) GetFullKey() string {
 	return token.Key
@@ -78,8 +81,10 @@ func GetAllUserTokens(userId, startIdx, num int) ([]*Token, error) {
 //  3. at most 2 % are allowed
 //  4. with % (fuzzy search) the keyword without % must be at least 2 characters long
 //  5. without % the match is exact
-func sanitizeLikePattern(input string) (string, error) { return keydomain.SanitizeSearchPattern(input) }
-func validateLikePattern(input string) error           { return keydomain.ValidateSearchPattern(input) }
+func sanitizeLikePattern(input string) (string, error) {
+	return keydomain.SanitizeSearchPattern(input)
+}
+
 func SearchUserTokens(userId int, keyword, token string, offset, limit int) ([]*Token, int64, error) {
 	result, err := search_keys.NewUsecase(NewTokenPersistence(), operation_setting.GetMaxUserTokens, common.SysLog, common.SysError).Execute(search_keys.Input{UserID: userId, Keyword: keyword, Key: token, Start: offset, Limit: limit})
 	if err != nil {
@@ -119,12 +124,18 @@ func GetTokenByKey(key string, fromDB bool) (*Token, error) {
 	return (*Token)(token), err
 }
 
-func (token *Token) Insert() error { return NewTokenPersistence().Insert((*record.Token)(token)) }
+func (token *Token) Insert() error {
+	return NewTokenPersistence().Insert((*record.Token)(token))
+}
 
 // Update Make sure your token's fields is completed, because this will update non-zero values
-func (token *Token) Update() error { return NewTokenPersistence().Update((*record.Token)(token)) }
+func (token *Token) Update() error {
+	return NewTokenPersistence().Update((*record.Token)(token))
+}
 
-func (token *Token) Delete() error { return NewTokenPersistence().Delete((*record.Token)(token)) }
+func (token *Token) Delete() error {
+	return NewTokenPersistence().Delete((*record.Token)(token))
+}
 
 func (token *Token) IsModelLimitsEnabled() bool {
 	return token.ModelLimitsEnabled
@@ -133,12 +144,15 @@ func (token *Token) IsModelLimitsEnabled() bool {
 func (token *Token) GetModelLimits() []string {
 	return record.ToDomain((*record.Token)(token)).GetModelLimits()
 }
+
 func (token *Token) GetModelLimitsMap() map[string]bool {
 	return record.ToDomain((*record.Token)(token)).GetModelLimitsMap()
 }
+
 func DisableModelLimits(tokenId int) error {
 	return disable_model_limits.NewUsecase(repository.NewStore(NewTokenPersistence(), tokenDomainByKey)).Execute(tokenId)
 }
+
 func DeleteTokenById(id, userId int) error {
 	return delete_owned_key.NewUsecase(repository.NewStore(NewTokenPersistence(), tokenDomainByKey)).Execute(id, userId)
 }
@@ -210,7 +224,9 @@ func decreaseTokenQuota(id int, quota int) (err error) {
 }
 
 // CountUserTokens returns total number of tokens for the given user, used for pagination
-func CountUserTokens(userId int) (int64, error) { return NewTokenPersistence().Count(userId) }
+func CountUserTokens(userId int) (int64, error) {
+	return NewTokenPersistence().Count(userId)
+}
 
 // BatchDeleteTokens deletes a set of tokens of the user and returns the number deleted
 func BatchDeleteTokens(ids []int, userId int) (int, error) {

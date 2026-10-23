@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	app "github.com/QuantumNous/new-api/internal/app/usage"
@@ -22,14 +24,15 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	hosttypes "github.com/QuantumNous/new-api/types"
-	"github.com/gin-gonic/gin"
 )
 
 // BRIDGE: relay/billing and remaining Task/Batch/MJ metadata consumers.
 // Construction is lazy and shared by every binary linking these entrypoints.
 var recording = sync.OnceValue(app.New)
 
-func Recording() app.Usecases { return recording() }
+func Recording() app.Usecases {
+	return recording()
+}
 
 func Facts(c *gin.Context, info *relaycommon.RelayInfo) domain.RequestFacts {
 	out := domain.RequestFacts{ContextPresent: c != nil}
@@ -136,6 +139,7 @@ func Facts(c *gin.Context, info *relaycommon.RelayInfo) domain.RequestFacts {
 	}
 	return out
 }
+
 func priceFacts(p hosttypes.PriceData) domain.PriceFacts {
 	return domain.PriceFacts{
 		GroupRatioInfo: domain.GroupRatios{
@@ -146,6 +150,7 @@ func priceFacts(p hosttypes.PriceData) domain.PriceFacts {
 		EffectiveRatio: p.EffectiveGroupRatio(),
 	}
 }
+
 func Tiered(info *relaycommon.RelayInfo, result *billingexpr.TieredResult) *domain.Tiered {
 	if info == nil || info.TieredBillingSnapshot == nil {
 		return nil
@@ -165,6 +170,7 @@ func Tiered(info *relaycommon.RelayInfo, result *billingexpr.TieredResult) *doma
 	}
 	return out
 }
+
 func DeliveryFailure(c *gin.Context, info *relaycommon.RelayInfo) string {
 	reason := ""
 	if c != nil && c.Request != nil {
@@ -177,6 +183,7 @@ func DeliveryFailure(c *gin.Context, info *relaycommon.RelayInfo) string {
 	}
 	return domain.DeliveryFailure(reason, streamFacts(info))
 }
+
 func UsagePath(local bool, usage *dto.Usage) string {
 	if usage == nil || usage.BillingUsage == nil {
 		return domain.UsagePath(local, false, false, "")
@@ -187,6 +194,7 @@ func UsagePath(local bool, usage *dto.Usage) string {
 	}
 	return domain.UsagePath(local, true, usage.BillingUsage.Estimated, effective.UsageSemantic)
 }
+
 func AppendTaskBillingFX(other *model.LogOther, info *relaycommon.RelayInfo, p hosttypes.PriceData, stage string) {
 	if info == nil {
 		return
@@ -203,11 +211,13 @@ func AppendTaskBillingFX(other *model.LogOther, info *relaycommon.RelayInfo, p h
 	}
 	Recording().Metadata.BillingFX(other, f, priceFacts(p), stage)
 }
+
 func AppendTaskClamp(other *model.LogOther, clamp *common.QuotaClamp) {
 	if clamp != nil {
 		Recording().Metadata.Clamp(other, clampFacts(clamp))
 	}
 }
+
 func AppendTaskQuotaSaturation(c *gin.Context, info *relaycommon.RelayInfo, other *model.LogOther) {
 	if info == nil || info.QuotaClamp == nil {
 		return
@@ -219,9 +229,11 @@ func AppendTaskQuotaSaturation(c *gin.Context, info *relaycommon.RelayInfo, othe
 	}
 	logger.LogWarn(ctx, quotaSaturationWarning(info))
 }
+
 func AppendTaskTiered(other *model.LogOther, info *relaycommon.RelayInfo, result *billingexpr.TieredResult) {
 	Recording().Metadata.Tiered(other, Tiered(info, result))
 }
+
 func MidjourneyOther(info *relaycommon.RelayInfo, p hosttypes.PriceData) *model.LogOther {
 	f := domain.RequestFacts{PriceData: priceFacts(p)}
 	if info != nil {
@@ -237,6 +249,7 @@ func MidjourneyOther(info *relaycommon.RelayInfo, p hosttypes.PriceData) *model.
 		UserGroupRatio: p.GroupRatioInfo.GroupSpecialRatio,
 	})
 }
+
 func Plugin(in *model.TaskPluginSnapshot) *domain.Plugin {
 	if in == nil {
 		return nil
@@ -247,9 +260,11 @@ func Plugin(in *model.TaskPluginSnapshot) *domain.Plugin {
 	}
 	return out
 }
+
 func AppendTaskPlugin(other *model.LogOther, in *model.TaskPluginSnapshot) {
 	Recording().Metadata.Plugin(other, Plugin(in))
 }
+
 func RecordUpstreamFailure(c *gin.Context, channelID int, err *types.NewAPIError, info *relaycommon.RelayInfo) {
 	admission, gateErr := Recording().Failure.Execute(c, record_failure.Input{Step: record_failure.AdmitUpstream})
 	if gateErr != nil {
@@ -377,8 +392,13 @@ func RecordingContext(c *gin.Context, info *relaycommon.RelayInfo) context.Conte
 	if info != nil && info.OpenRouterCost != nil {
 		details = info.OpenRouterCost.CostDetails
 	}
-	return app.WithLogMetadata(c, details, service.ChannelAffinityLogInfo(c))
+	var ctx context.Context
+	if c != nil {
+		ctx = app.WithRequestObservation(c, model.ObserveLogRequest(c))
+	}
+	return app.WithLogMetadata(ctx, details, service.ChannelAffinityLogInfo(c))
 }
+
 func clampFacts(clamp *common.QuotaClamp) *billingdomain.Clamp {
 	if clamp == nil {
 		return nil

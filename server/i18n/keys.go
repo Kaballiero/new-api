@@ -506,3 +506,31 @@ const (
 	MsgBillingQuotaWarningText         = "billing.quota_warning_text"
 	MsgBillingQuotaWarningHTML         = "billing.quota_warning_html"
 )
+
+// Usage read-side messages.
+const (
+	MsgUsageDeprecated            = "usage.deprecated"
+	MsgUsageInvalidToken          = "usage.invalid_token"
+	MsgUsageQueryFailed           = "usage.query_failed"
+	MsgUsageStatsFailed           = "usage.stats_failed"
+	MsgUsageSpanExceeded          = "usage.span_exceeded"
+	MsgUsageInvalidStart          = "usage.invalid_start"
+	MsgUsageInvalidEnd            = "usage.invalid_end"
+	MsgUsageInvalidRange          = "usage.invalid_range"
+	MsgUsageInvalidTokenID        = "usage.invalid_token_id"
+	MsgUsagePositiveTime          = "usage.positive_time"
+	MsgUsageGranularity           = "usage.granularity"
+	MsgUsageMonthLimit            = "usage.month_limit"
+	MsgUsageAggregateRequestSize  = "usage.aggregate_request_size"
+	MsgUsageAggregateJSON         = "usage.aggregate_json"
+	MsgUsageAggregateNotFound     = "usage.aggregate_not_found"
+	MsgUsageAggregateResponseSize = "usage.aggregate_response_size"
+	MsgUsageAggregateOverflow     = "usage.aggregate_overflow"
+	MsgUsageAggregateUserCount    = "usage.aggregate_user_count"
+	MsgUsageAggregateUserIDs      = "usage.aggregate_user_ids"
+	MsgUsageAggregateTimes        = "usage.aggregate_times"
+	MsgUsageAggregateGranularity  = "usage.aggregate_granularity"
+	MsgUsageAggregateMonths       = "usage.aggregate_months"
+	MsgUsageAggregateGroup        = "usage.aggregate_group"
+	MsgUsageRankingPeriod         = "usage.ranking_period"
+)

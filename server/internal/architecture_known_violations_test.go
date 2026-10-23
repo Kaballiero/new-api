@@ -40,8 +40,6 @@ var knownViolations = []string{
 	"legacy-imports-internal: model/accounts_quota_adjustment.go -> github.com/QuantumNous/new-api/internal/accounts/adjust_quota",
 	"legacy-imports-internal: model/accounts_quota_adjustment.go -> github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record",
 	"legacy-imports-internal: model/auth_flow.go -> github.com/QuantumNous/new-api/internal/identity/domain",
-	"legacy-imports-internal: model/authz_role.go -> github.com/QuantumNous/new-api/internal/adapter/gorm/authorization/record",
-	"legacy-imports-internal: model/casbin_rule.go -> github.com/QuantumNous/new-api/internal/adapter/gorm/authorization/record",
 	"legacy-imports-internal: model/catalog_persistence.go -> github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record",
 	"legacy-imports-internal: model/catalog_persistence.go -> github.com/QuantumNous/new-api/internal/catalog/domain",
 	"legacy-imports-internal: model/channel.go -> github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record",

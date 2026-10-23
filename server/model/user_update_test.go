@@ -4,12 +4,12 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 func setupUserUpdateTestState(t *testing.T) {
@@ -136,7 +136,7 @@ func TestUsageAccountingSupportsSignedDirectAndBatchDeltas(t *testing.T) {
 	require.NoError(t, DB.Select("used_quota").First(&gotChannel, channel.Id).Error)
 	assert.Equal(t, int64(850), gotChannel.UsedQuota, "batch deltas must remain queued until flush")
 
-	batchUpdate()
+	FlushBatchUpdates()
 	require.NoError(t, DB.Select("used_quota", "request_count").First(&got, user.Id).Error)
 	assert.Equal(t, 1150, got.UsedQuota)
 	assert.Equal(t, 3, got.RequestCount)

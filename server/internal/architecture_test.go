@@ -3,6 +3,7 @@ package internal
 import (
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -67,7 +68,7 @@ func TestInternalArchitecture(t *testing.T) {
 		if parts[0] != "internal" && parts[0] != "model" && parts[0] != "service" {
 			return nil
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
 		if err != nil {
 			return err
 		}
@@ -80,6 +81,9 @@ func TestInternalArchitecture(t *testing.T) {
 			imports = append(imports, value)
 		}
 
+		if parts[0] == "model" && isRecordAliasFile(file) {
+			return nil
+		}
 		if parts[0] == "model" || parts[0] == "service" {
 			for _, imported := range imports {
 				if strings.HasPrefix(imported, modulePath+"/internal/") {
@@ -235,4 +239,102 @@ func infrastructureRoot(importPath string) string {
 		}
 	}
 	return importPath
+}
+
+// isRecordAliasFile permits only the technical compatibility surface explicitly
+// allowed in model: aliases of one record package, with no executable declarations.
+func isRecordAliasFile(file *ast.File) bool {
+	if file.Name.Name != "model" || len(file.Imports) != 1 {
+		return false
+	}
+	imported := file.Imports[0]
+	path, err := strconv.Unquote(imported.Path.Value)
+	if err != nil {
+		return false
+	}
+	relative, ok := strings.CutPrefix(path, modulePath+"/internal/adapter/gorm/")
+	parts := strings.Split(relative, "/")
+	if !ok || len(parts) != 2 || parts[0] == "" || parts[0] == "." || parts[0] == ".." || parts[1] != "record" {
+		return false
+	}
+	qualifier := "record"
+	if imported.Name != nil {
+		qualifier = imported.Name.Name
+	}
+	if qualifier == "_" || qualifier == "." {
+		return false
+	}
+	alias := func(expression ast.Expr, name string) bool {
+		selector, ok := expression.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != name {
+			return false
+		}
+		pkg, ok := selector.X.(*ast.Ident)
+		return ok && pkg.Name == qualifier
+	}
+	count := 0
+	for _, declaration := range file.Decls {
+		group, ok := declaration.(*ast.GenDecl)
+		if !ok {
+			return false
+		}
+		switch group.Tok {
+		case token.IMPORT:
+			// The sole import was validated above.
+		case token.TYPE:
+			for _, spec := range group.Specs {
+				item, ok := spec.(*ast.TypeSpec)
+				if !ok || !item.Assign.IsValid() || item.TypeParams != nil || !alias(item.Type, item.Name.Name) {
+					return false
+				}
+				count++
+			}
+		case token.CONST:
+			for _, spec := range group.Specs {
+				item, ok := spec.(*ast.ValueSpec)
+				if !ok || item.Type != nil || len(item.Names) != len(item.Values) {
+					return false
+				}
+				for i, name := range item.Names {
+					if !alias(item.Values[i], name.Name) {
+						return false
+					}
+					count++
+				}
+			}
+		default:
+			return false
+		}
+	}
+	return count > 0
+}
+
+func TestRecordAliasExceptionRejectsNonAliasDeclarations(t *testing.T) {
+	const recordImport = `import "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"`
+	for _, tc := range []struct {
+		name, body string
+		allowed    bool
+	}{
+		{"type", "type Log = record.Log", true},
+		{"constant", "const LogTypeConsume = record.LogTypeConsume", true},
+		{"both", "type Log = record.Log; const LogTypeConsume = record.LogTypeConsume", true},
+		{"defined_type", "type Log record.Log", false},
+		{"function", "type Log = record.Log; func Run() {}", false},
+		{"method", "type Log = record.Log; func (Log) Run() {}", false},
+		{"variable", "type Log = record.Log; var Value = 1", false},
+		{"init", "type Log = record.Log; func init() {}", false},
+		{"literal_constant", "const LogTypeConsume = 2", false},
+		{"expression_constant", "const LogTypeConsume = record.LogTypeConsume + 0", false},
+		{"implicit_constant", "const (LogTypeConsume = record.LogTypeConsume; Other)", false},
+		{"different_export", "type Log = record.Other", false},
+		{"other_qualifier", "type Log = other.Log", false},
+		{"extra_import", "import \"fmt\"; type Log = record.Log", false},
+		{"import_only", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			file, err := parser.ParseFile(token.NewFileSet(), "alias.go", "package model;"+recordImport+";"+tc.body, 0)
+			require.NoError(t, err)
+			assert.Equal(t, tc.allowed, isRecordAliasFile(file))
+		})
+	}
 }

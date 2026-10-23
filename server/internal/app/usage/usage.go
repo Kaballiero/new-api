@@ -3,6 +3,7 @@ package usage
 
 import (
 	"context"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
@@ -24,6 +25,7 @@ type TaskMetadata interface {
 	Plugin(*model.LogOther, *domain.Plugin)
 	MidjourneyOther(domain.RequestFacts, domain.Prices) *model.LogOther
 }
+
 type Usecases struct {
 	Count    count_consumption.Usecase
 	Record   record_consumption.Usecase
@@ -50,8 +52,14 @@ func New() Usecases {
 	}
 }
 
-// WithLogMetadata keeps raw storage data out of business facts and passes the
-// original Gin context through to model writers without introducing fake Gin.
+// WithLogMetadata keeps raw storage data out of business facts.
 func WithLogMetadata(ctx context.Context, details []byte, affinity map[string]any) context.Context {
 	return storage.WithLogMetadata(ctx, details, affinity)
+}
+
+// RequestObservation is plain technical data captured at the gateway boundary.
+type RequestObservation = model.LogObservation
+
+func WithRequestObservation(ctx context.Context, observation RequestObservation) context.Context {
+	return storage.WithRequestObservation(ctx, observation)
 }

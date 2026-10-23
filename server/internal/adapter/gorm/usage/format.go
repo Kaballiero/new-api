@@ -2,9 +2,9 @@ package usage
 
 import (
 	"encoding/base64"
-	"github.com/QuantumNous/new-api/common"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/model"
@@ -78,7 +78,7 @@ func appendRelayAdmin(other *model.LogOther, relayInfo *domain.RequestFacts, met
 }
 
 func baseOther(relayInfo domain.RequestFacts, p domain.Prices, metadata logMetadata) *model.LogOther {
-	other := model.NewLogOther()
+	other := new(model.LogOther)
 	appendBillingFX(other, &relayInfo, relayInfo.PriceData, "request")
 	other.SetPublic("model_ratio", p.ModelRatio)
 	other.SetPublic("group_ratio", p.GroupRatio)
@@ -279,6 +279,7 @@ func consumptionOther(in domain.Consumption, metadata logMetadata) *model.LogOth
 	appendClamp(other, in.Request.Clamp)
 	return other
 }
+
 func appendTextConsumption(other *model.LogOther, request domain.RequestFacts, text *domain.TextFacts) {
 	if text == nil {
 		return
@@ -346,6 +347,7 @@ func appendTextConsumption(other *model.LogOther, request domain.RequestFacts, t
 		appendTiered(other, request.Tiered)
 	}
 }
+
 func appendOpenRouterConsumption(other *model.LogOther, request domain.RequestFacts, outcome *billingdomain.Outcome) {
 	if state := request.OpenRouterCost; state != nil {
 		other.SetPublic("settlement_mode", "openrouter_actual_cost")
@@ -389,6 +391,7 @@ func appendOpenRouterConsumption(other *model.LogOther, request domain.RequestFa
 		}
 	}
 }
+
 func appendAudioConsumption(other *model.LogOther, request domain.RequestFacts, a *domain.AudioFacts) {
 	if a == nil {
 		return
@@ -411,6 +414,7 @@ func appendAudioConsumption(other *model.LogOther, request domain.RequestFacts, 
 		other.SetAdmin("realtime_cache_discount", map[string]string{"scope": "session", "reason": a.CacheDiscountReason})
 	}
 }
+
 func appendClamp(other *model.LogOther, clamp *billingdomain.Clamp) {
 	if other != nil && clamp != nil {
 		checked := common.QuotaClamp{
@@ -419,6 +423,7 @@ func appendClamp(other *model.LogOther, clamp *billingdomain.Clamp) {
 		other.SetAdmin("quota_saturation", checked.AuditMap())
 	}
 }
+
 func appendPlugin(other *model.LogOther, in *domain.Plugin) {
 	if other == nil || in == nil || in.Key == "" {
 		return
@@ -446,6 +451,7 @@ type storedDiagnostic struct {
 	From     string `json:"from"`
 	To       string `json:"to"`
 }
+
 type storedRule struct {
 	Cond       string  `json:"cond"`
 	Multiplier float64 `json:"multiplier"`
@@ -458,11 +464,21 @@ type Metadata struct{}
 func (Metadata) BillingFX(other *model.LogOther, facts domain.RequestFacts, prices domain.PriceFacts, stage string) {
 	appendBillingFX(other, &facts, prices, stage)
 }
-func (Metadata) Clamp(other *model.LogOther, clamp *billingdomain.Clamp) { appendClamp(other, clamp) }
-func (Metadata) Tiered(other *model.LogOther, tiered *domain.Tiered)     { appendTiered(other, tiered) }
-func (Metadata) Plugin(other *model.LogOther, plugin *domain.Plugin)     { appendPlugin(other, plugin) }
+
+func (Metadata) Clamp(other *model.LogOther, clamp *billingdomain.Clamp) {
+	appendClamp(other, clamp)
+}
+
+func (Metadata) Tiered(other *model.LogOther, tiered *domain.Tiered) {
+	appendTiered(other, tiered)
+}
+
+func (Metadata) Plugin(other *model.LogOther, plugin *domain.Plugin) {
+	appendPlugin(other, plugin)
+}
+
 func (Metadata) MidjourneyOther(facts domain.RequestFacts, prices domain.Prices) *model.LogOther {
-	other := model.NewLogOther()
+	other := new(model.LogOther)
 	appendBillingFX(other, &facts, facts.PriceData, "submit")
 	other.SetPublic("model_price", prices.ModelPrice)
 	other.SetPublic("group_ratio", prices.GroupRatio)
@@ -482,6 +498,7 @@ type storedToolCharge struct {
 	Count int     `json:"count"`
 	Price float64 `json:"price"`
 }
+
 type storedSettlement struct {
 	TargetQuota         int    `json:"target_quota"`
 	ReservedQuota       int    `json:"reserved_quota"`
@@ -490,6 +507,7 @@ type storedSettlement struct {
 	SettlementStatus    string `json:"settlement_status"`
 	FailureStage        string `json:"failure_stage,omitempty"`
 }
+
 type storedCostBasis struct {
 	Version             string  `json:"version"`
 	EffectiveGroupRatio float64 `json:"effective_group_ratio"`

@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"math"
 
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"gorm.io/gorm"
 )
 
 // SettleBatchItem commits the wallet debit, token counters, usage counters and
@@ -624,7 +625,7 @@ func SettleBatchJobCost(batchID int64) error {
 			return err
 		}
 		if common.LogConsumeEnabled {
-			other := NewLogOther()
+			other := new(LogOther)
 			other.SetPublic("batch_id", job.PublicID)
 			other.SetPublic("settlement_scope", "job")
 			other.SetPublic("settlement_mode", BatchSettlementOpenRouterJobCostV2)

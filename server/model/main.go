@@ -9,23 +9,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 )
 
 var commonGroupCol string
-var commonKeyCol string
-var commonTrueVal string
-var commonFalseVal string
 
-var logKeyCol string
-var logGroupCol string
+var commonKeyCol string
+
+var commonTrueVal string
+
+var commonFalseVal string
 
 // jsonScanBytes 归一化 json 列的驱动返回值:不同驱动/协议模式下同一列可能
 // 以 []byte 或 string 返回,静默丢弃 string 会导致字段被清零而不报错。
@@ -53,14 +53,7 @@ func initCol() {
 		commonTrueVal = "1"
 		commonFalseVal = "0"
 	}
-	switch common.LogDatabaseType() {
-	case common.DatabaseTypePostgreSQL:
-		logGroupCol = `"group"`
-		logKeyCol = `"key"`
-	default:
-		logGroupCol = "`group`"
-		logKeyCol = "`key`"
-	}
+
 }
 
 var DB *gorm.DB

@@ -10,31 +10,38 @@ import (
 	"github.com/QuantumNous/new-api/model"
 )
 
-type Store struct{ ConsumeEnabled, ExportEnabled func() bool }
+type Store struct {
+	ConsumeEnabled, ExportEnabled func() bool
+}
 
 var errGatewayContext = errors.New("usage recording requires a non-nil gateway Gin context")
 
-func (Store) AddUserConsumption(id, quota int)    { model.UpdateUserUsedQuotaAndRequestCount(id, quota) }
-func (Store) AddChannelConsumption(id, quota int) { model.UpdateChannelUsedQuota(id, quota) }
+func (Store) AddUserConsumption(id, quota int) {
+	model.UpdateUserUsedQuotaAndRequestCount(id, quota)
+}
 
-// A3 compatibility: valid Gin contexts retain their identity, including without Request.
-// Other context.Context implementations return a technical error before any side effect.
+func (Store) AddChannelConsumption(id, quota int) {
+	model.UpdateChannelUsedQuota(id, quota)
+}
+
+// Missing request observations return a technical error before any side effect.
+// Storage never imports Gin or recovers the gateway context.
 func (s Store) WriteConsumption(ctx context.Context, in domain.Consumption) error {
-	c, metadata, err := gatewayContext(ctx)
+	observation, metadata, err := recordingObservation(ctx)
 	if err != nil {
 		return err
 	}
 	other := consumptionOther(in, metadata)
 	if in.Audio != nil && in.Audio.CacheDiscountUnavailable {
-		logger.LogWarn(c, fmt.Sprintf(
+		logger.LogWarn(observation.Context, fmt.Sprintf(
 			"realtime cache discount unavailable: scope=session reason=%s", in.Audio.CacheDiscountReason,
 		))
 	}
 	if in.Request.ClampWarning != "" {
-		logger.LogWarn(c, in.Request.ClampWarning)
+		logger.LogWarn(observation.Context, in.Request.ClampWarning)
 	}
 	id := in.Record
-	model.RecordConsumeLogWithSettings(c, id.UserID, model.RecordConsumeLogParams{
+	model.WriteConsumeLog(observation, id.UserID, model.RecordConsumeLogParams{
 		ChannelId:        id.ChannelID,
 		PromptTokens:     id.PromptTokens,
 		CompletionTokens: id.CompletionTokens,
@@ -50,8 +57,9 @@ func (s Store) WriteConsumption(ctx context.Context, in domain.Consumption) erro
 	}, s.ConsumeEnabled, s.ExportEnabled)
 	return nil
 }
+
 func (Store) WriteFailure(ctx context.Context, in domain.Failure) error {
-	c, metadata, err := gatewayContext(ctx)
+	observation, metadata, err := recordingObservation(ctx)
 	if err != nil {
 		return err
 	}
@@ -59,7 +67,7 @@ func (Store) WriteFailure(ctx context.Context, in domain.Failure) error {
 	if in.Consumption != nil {
 		other = consumptionOther(*in.Consumption, metadata)
 	} else {
-		other = model.NewLogOther()
+		other = new(model.LogOther)
 		if in.Request.URLPresent {
 			other.SetPublic("request_path", in.Request.Path)
 		}
@@ -70,8 +78,8 @@ func (Store) WriteFailure(ctx context.Context, in domain.Failure) error {
 		appendPlugin(other, in.Plugin)
 	}
 	id := in.Record
-	model.RecordErrorLog(
-		c, id.UserID, id.ChannelID, id.ModelName, id.TokenName, in.Content,
+	model.WriteErrorLog(
+		observation, id.UserID, id.ChannelID, id.ModelName, id.TokenName, in.Content,
 		id.TokenID, id.UseTimeSeconds, id.IsStream, id.Group, other,
 	)
 	return nil

@@ -14,16 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/billing/domain"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/QuantumNous/new-api/types"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -34,10 +24,27 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	"github.com/QuantumNous/new-api/internal/billing/domain"
+	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
+	usagedto "github.com/QuantumNous/new-api/internal/usage/dto"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/types"
 )
 
 var taskBillingTestDialect string
+
 var taskBillingTestMainDSN string
+
 var taskBillingTestTempDir string
 
 func TestMain(m *testing.M) {
@@ -1638,12 +1645,15 @@ type mockAdaptor struct {
 }
 
 func (m *mockAdaptor) Init(_ *relaycommon.RelayInfo) {}
+
 func (m *mockAdaptor) FetchTask(string, string, *model.Task, string) (*http.Response, error) {
 	return nil, nil
 }
+
 func (m *mockAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
 	return nil, nil
 }
+
 func (m *mockAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
 	return m.adjustReturn
 }
@@ -2237,15 +2247,18 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 			"original": clampCase.original, "op": clampCase.op,
 			"kind": string(clampCase.kind), "clamped": float64(clampCase.quota),
 		}, admin["quota_saturation"], clampCase.requestID)
-		userLogs, total, err := model.GetUserLogs(userID, model.LogTypeConsume, 0, 0, "", "", 0, 10, "", clampCase.requestID, "")
+		userLogs, total, err := (usageadapter.Store{}).ListOwnLogs(usagedomain.LogQuery{CountLimit: usagedomain.MaxLogSearchCount,
+			UserID: userID, Kind: model.LogTypeConsume, StartTimestamp: 0, EndTimestamp: 0, ModelName: "",
+			TokenName: "", Start: 0, Count: 10, Group: "", RequestID: clampCase.requestID, UpstreamRequestID: ""},
+			usagedomain.LogVisibility(usagedomain.AudienceUser))
 		require.NoError(t, err)
 		require.Equal(t, int64(1), total)
 		require.Len(t, userLogs, 1)
-		tokenLogs, err := model.GetLogByTokenId(191)
+		tokenLogs, err := (usageadapter.Store{}).ListKeyLogs(191, common.MaxRecentItems, usagedomain.LogVisibility(usagedomain.AudienceUser))
 		require.NoError(t, err)
 		require.NotEmpty(t, tokenLogs)
 		require.Equal(t, clampCase.requestID, tokenLogs[0].RequestId)
-		for _, projected := range []*model.Log{userLogs[0], tokenLogs[0]} {
+		for _, projected := range []*usagedto.Log{userLogs[0], tokenLogs[0]} {
 			var public map[string]any
 			require.NoError(t, common.UnmarshalJsonStr(projected.Other, &public))
 			assert.NotContains(t, public, "admin_info", clampCase.requestID)
@@ -2275,7 +2288,8 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 	assert.Equal(t, "+Inf", saturation["original"])
 
 	adminProjection := []*model.Log{{Other: persisted.Other}}
-	model.FormatAdminLogs(adminProjection)
+	adminProjection[0].Other = usagerecord.FormatLogOtherJSON(
+		adminProjection[0].Other, usagedomain.LogVisibility(usagedomain.AudienceAdmin))
 	assert.Contains(t, adminProjection[0].Other, "billing_fx")
 
 }

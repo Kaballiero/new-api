@@ -2,14 +2,14 @@ package model
 
 import (
 	"context"
-	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
-
 	"fmt"
 	"strings"
 
+	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -58,6 +58,15 @@ type AuditLogFilter struct {
 
 // RecordAuditLog captures safe request metadata only; raw URLs, query strings,
 // credentials and response/request bodies must never enter this table.
+// Audit metadata keeps its existing independent audience projection until wave 3b.
+type auditOtherVisibility int
+
+const (
+	auditVisibilityUser auditOtherVisibility = iota
+	auditVisibilityAdmin
+	auditVisibilityRoot
+)
+
 func RecordAuditLog(c *gin.Context, entry AuditLog) {
 	ctx := context.Background()
 	if c != nil && c.Request != nil {
@@ -171,17 +180,17 @@ func GetAuditLogs(filter AuditLogFilter, start, limit, viewerRole int) ([]*Audit
 	if err := query.Order("created_at DESC").Order("event_id DESC").Offset(start).Limit(limit).Find(&logs).Error; err != nil {
 		return nil, 0, err
 	}
-	visibility := logOtherVisibilityUser
+	visibility := auditVisibilityUser
 	if !filter.SelfView && viewerRole >= common.RoleRootUser {
-		visibility = logOtherVisibilityRoot
+		visibility = auditVisibilityRoot
 	} else if !filter.SelfView && viewerRole >= common.RoleAdminUser {
-		visibility = logOtherVisibilityAdmin
+		visibility = auditVisibilityAdmin
 	}
 	for _, entry := range logs {
-		if visibility != logOtherVisibilityRoot {
+		if visibility != auditVisibilityRoot {
 			entry.Other.RootInfo = nil
 		}
-		if visibility == logOtherVisibilityUser {
+		if visibility == auditVisibilityUser {
 			entry.Other.AdminInfo = nil
 			entry.Other.AuditInfo = nil
 		}

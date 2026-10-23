@@ -8,6 +8,9 @@ import (
 	"math"
 	"strings"
 
+	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
@@ -15,8 +18,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
-	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
 )
 
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
@@ -45,7 +46,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 			logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
 		}
 	}
-	other := model.NewLogOther()
+	other := new(model.LogOther)
 	other.SetPublic("is_task", true)
 	BillingGateway.AppendTaskBillingFX(other, info, info.PriceData, "submit")
 	other.SetPublic("request_path", c.Request.URL.Path)
@@ -160,7 +161,7 @@ func taskBillingOther(task *model.Task) *model.LogOther {
 }
 
 func taskBillingOtherWithProjection(task *model.Task, projection *taskBillingProjection) *model.LogOther {
-	other := model.NewLogOther()
+	other := new(model.LogOther)
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other.SetPublic("model_price", bc.ModelPrice)
 		if bc.ModelRatio > 0 {
@@ -705,7 +706,7 @@ func settleOpenRouterCost(task *model.Task) error {
 	}
 	delta := r.TargetQuota - r.ReservedQuota
 	if delta != 0 {
-		other := model.NewLogOther()
+		other := new(model.LogOther)
 		appendTaskLogInfo(task, other)
 		other.SetPublic("settlement_mode", task.PrivateData.BillingContext.SettlementMode)
 		other.SetPublic("pre_consumed_quota", r.ReservedQuota)
