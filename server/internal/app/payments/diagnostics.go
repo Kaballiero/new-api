@@ -14,6 +14,18 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 )
 
+func observeWebhook(c *gin.Context, provider string, payload []byte, signature string) {
+	path, ip := "", ""
+	if c != nil && c.Request != nil {
+		path = c.Request.RequestURI
+		ip = c.ClientIP()
+	}
+	logger.LogInfo(
+		transport.Context(c),
+		fmt.Sprintf("%s webhook 收到请求 path=%q client_ip=%s signature=%q body=%q", provider, path, ip, signature, string(payload)),
+	)
+}
+
 func observeEpay(c *gin.Context, params map[string]string) {
 	path, ip, method := "", "", ""
 	if c != nil && c.Request != nil {

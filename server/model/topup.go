@@ -170,62 +170,6 @@ func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, ta
 	})
 }
 
-func Recharge(referenceId string, customerId string, callerIp string) (err error) {
-	if referenceId == "" {
-		return errors.New("未提供支付单号")
-	}
-
-	var quota int
-	topUp := &TopUp{}
-
-	refCol := "`trade_no`"
-	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		refCol = `"trade_no"`
-	}
-
-	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := LockForUpdate(tx).Where(refCol+" = ?", referenceId).First(topUp).Error
-		if err != nil {
-			return errors.New("充值订单不存在")
-		}
-
-		if topUp.PaymentProvider != PaymentProviderStripe {
-			return ErrPaymentMethodMismatch
-		}
-
-		if topUp.Status != common.TopUpStatusPending {
-			return errors.New("充值订单状态错误")
-		}
-
-		topUp.CompleteTime = common.GetTimestamp()
-		topUp.Status = common.TopUpStatusSuccess
-		err = tx.Save(topUp).Error
-		if err != nil {
-			return err
-		}
-
-		quota, err = common.WalletQuotaFromDecimalStrict(
-			decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
-		)
-		if err != nil || quota <= 0 {
-			return ErrInvalidTopUpQuota
-		}
-		return CreditTopUpQuota(tx, topUp.UserId, quota, map[string]any{
-			"stripe_customer": customerId,
-		})
-	})
-
-	if err != nil {
-		common.SysError("topup failed: " + err.Error())
-		return errors.New("充值失败，请稍后重试")
-	}
-	SyncCreditUserQuotaCache(topUp.UserId, quota, "stripe topup")
-
-	RecordTopupLog(topUp.UserId, fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%d", logger.FormatQuota(quota), topUp.Amount), callerIp, topUp.PaymentMethod, PaymentMethodStripe)
-
-	return nil
-}
-
 func RechargeCreem(referenceId string, customerEmail string, customerName string, callerIp string) (err error) {
 	if referenceId == "" {
 		return errors.New("未提供支付单号")

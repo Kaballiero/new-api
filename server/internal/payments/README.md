@@ -15,3 +15,8 @@ POST /api/user/topup/complete — AdminAuth session/PAT. Новых фильтр
 Epay: quote_epay_topup (POST /api/user/amount), create_epay_topup (POST /api/user/pay), receive_epay_notify
 (GET/POST /api/user/epay/notify). Quote/pay — UserAuth session/PAT, pay дополнительно CriticalRateLimit;
 notify — public provider signature. Epay Purchase формирует подписанную форму, сетевого вызова нет.
+
+Stripe: quote_stripe_topup, create_stripe_topup и receive_stripe_webhook. POST /api/user/stripe/amount
+и /pay используют UserAuth session/PAT, pay — CriticalRateLimit; POST /api/stripe/webhook public
+с исходной проверкой подписи SDK. Subscription completion/expiration вызывается первым; только
+not-found разрешает top-up fallback. Verified webhook всегда получает прежний ACK 200 empty.

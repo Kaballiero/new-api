@@ -2,9 +2,11 @@ package payments
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/Calcium-Ion/go-epay/epay"
-
+	"github.com/gin-gonic/gin"
+	"github.com/thanhpk/randstr"
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,11 +14,15 @@ import (
 
 	epayadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/epay"
 
+	stripeadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/stripe"
+
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
 	"github.com/QuantumNous/new-api/internal/payments/admin_list_topups"
 	"github.com/QuantumNous/new-api/internal/payments/complete_topup"
 
 	"github.com/QuantumNous/new-api/internal/payments/create_epay_topup"
+
+	"github.com/QuantumNous/new-api/internal/payments/create_stripe_topup"
 
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 
@@ -25,19 +31,26 @@ import (
 
 	"github.com/QuantumNous/new-api/internal/payments/quote_epay_topup"
 
+	"github.com/QuantumNous/new-api/internal/payments/quote_stripe_topup"
+
 	"github.com/QuantumNous/new-api/internal/payments/receive_epay_notify"
+
+	"github.com/QuantumNous/new-api/internal/payments/receive_stripe_webhook"
 
 	"github.com/QuantumNous/new-api/model"
 )
 
 type HTTP struct {
-	QuoteEpay  quote_epay_topup.HTTP
-	CreateEpay create_epay_topup.HTTP
-	EpayNotify receive_epay_notify.HTTP
-	ListOwn    list_own_topups.HTTP
-	ListAll    admin_list_topups.HTTP
-	Complete   complete_topup.HTTP
-	Info       get_topup_info.HTTP
+	QuoteStripe   quote_stripe_topup.HTTP
+	CreateStripe  create_stripe_topup.HTTP
+	StripeWebhook receive_stripe_webhook.HTTP
+	QuoteEpay     quote_epay_topup.HTTP
+	CreateEpay    create_epay_topup.HTTP
+	EpayNotify    receive_epay_notify.HTTP
+	ListOwn       list_own_topups.HTTP
+	ListAll       admin_list_topups.HTTP
+	Complete      complete_topup.HTTP
+	Info          get_topup_info.HTTP
 }
 
 // NewHTTP wires request-independent dependencies with late database and settings reads.
@@ -53,6 +66,29 @@ func NewHTTP() HTTP {
 	pricing := domain.Pricing{Settings: settings.Settings{}, Math: quotaMath{}, Wallet: storage.Wallet{}}
 
 	return HTTP{
+
+		QuoteStripe: quote_stripe_topup.NewHTTP(quote_stripe_topup.NewUsecase(pricing, storage.Users{})),
+
+		CreateStripe: create_stripe_topup.NewHTTP(
+			create_stripe_topup.NewUsecase(
+				pricing,
+				storage.Users{},
+				store,
+				stripeadapter.Client{},
+				common.ValidateRedirectURL,
+				create_stripe_topup.Timing{Now: common.GetTimestamp, Reference: func(userID int) string {
+					return "ref_" + common.Sha1([]byte(fmt.Sprintf("new-api-ref-%d-%d-%s", userID, time.Now().UnixMilli(), randstr.String(4))))
+				}},
+				paymentDiagnostics{}),
+		),
+
+		StripeWebhook: receive_stripe_webhook.NewHTTP(
+			receive_stripe_webhook.NewUsecase(stripeadapter.Client{}, store, store, subscriptions{}, completion, &orderAdmission, paymentDiagnostics{}),
+			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderStripe) },
+			func(c *gin.Context, payload []byte, signature string) {
+				observeWebhook(c, "Stripe", payload, signature)
+			},
+		),
 
 		QuoteEpay: quote_epay_topup.NewHTTP(quote_epay_topup.NewUsecase(pricing, storage.Users{})),
 
