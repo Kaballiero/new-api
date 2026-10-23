@@ -25,6 +25,11 @@ import {
   transformChannelToFormDefaults,
 } from '../channel-form'
 import { hasAdvancedSettingsErrors } from '../channel-form-errors'
+import {
+  parseOpenRouterPolicyEntries,
+  serializeOpenRouterPolicyEntries,
+  validateOpenRouterPolicyEntries,
+} from '../openrouter-policy-entries'
 
 function reserveForm(setting: Record<string, unknown>) {
   return transformChannelToFormDefaults(
@@ -163,5 +168,122 @@ describe('OpenRouter model reserve channel form', () => {
         )
       ).toBe(true)
     }
+  })
+})
+
+describe('OpenRouter policy table entries', () => {
+  test('saved reserve map round-trips through table entries into the same setting', () => {
+    const policy = { 'openai/gpt-audio': 0.1, 'openai/gpt-5-mini': 0.05 }
+    const form = reserveForm({ openrouter_model_reserve_usd: policy })
+    const entries = parseOpenRouterPolicyEntries(
+      form.openrouter_model_reserve_usd || ''
+    )
+    expect(entries).toEqual([
+      { model: 'openai/gpt-audio', value: '0.1' },
+      { model: 'openai/gpt-5-mini', value: '0.05' },
+    ])
+    form.openrouter_model_reserve_usd = serializeOpenRouterPolicyEntries(
+      entries ?? [],
+      'reserve'
+    )
+    expect(channelFormSchema.safeParse(form).success).toBe(true)
+    expect(
+      JSON.parse(buildSettingJSON(form)).openrouter_model_reserve_usd
+    ).toEqual(policy)
+  })
+
+  test('legacy Sonar hold appears as an editable table row', () => {
+    const form = reserveForm({ openrouter_sonar_research_reserve_usd: 2 })
+    expect(
+      parseOpenRouterPolicyEntries(form.openrouter_model_reserve_usd || '')
+    ).toEqual([{ model: 'perplexity/sonar-deep-research', value: '2' }])
+  })
+
+  test('empty table serializes to an empty object and omits both settings', () => {
+    const form = reserveForm({ openrouter_sonar_research_reserve_usd: 2 })
+    form.openrouter_model_reserve_usd = serializeOpenRouterPolicyEntries(
+      [],
+      'reserve'
+    )
+    form.openrouter_reservation_source = serializeOpenRouterPolicyEntries(
+      [],
+      'source'
+    )
+    expect(form.openrouter_model_reserve_usd).toBe('{}')
+    const saved = JSON.parse(buildSettingJSON(form))
+    expect(saved.openrouter_model_reserve_usd).toBeUndefined()
+    expect(saved.openrouter_sonar_research_reserve_usd).toBeUndefined()
+    expect(saved.openrouter_reservation_source).toBeUndefined()
+  })
+
+  test.each([
+    [{ model: '', value: '1' }, { model: 'Enter an upstream model ID' }],
+    [
+      { model: 'other/reasoner ', value: '1' },
+      { model: 'Model IDs cannot contain spaces or *' },
+    ],
+    [
+      { model: 'other/*', value: '1' },
+      { model: 'Model IDs cannot contain spaces or *' },
+    ],
+    [
+      { model: 'other/reasoner', value: '0' },
+      { value: 'Enter a positive USD amount' },
+    ],
+    [
+      { model: 'other/reasoner', value: '-1' },
+      { value: 'Enter a positive USD amount' },
+    ],
+    [
+      { model: 'other/reasoner', value: '' },
+      { value: 'Enter a positive USD amount' },
+    ],
+    [
+      { model: 'other/reasoner', value: 'abc' },
+      { value: 'Enter a positive USD amount' },
+    ],
+    [
+      { model: 'other/reasoner', value: '1e999' },
+      { value: 'Enter a positive USD amount' },
+    ],
+  ])(
+    'invalid reserve row %j is reported and blocks the form',
+    (entry, error) => {
+      expect(validateOpenRouterPolicyEntries([entry], 'reserve')).toEqual([
+        error,
+      ])
+      const form = reserveForm({})
+      form.openrouter_model_reserve_usd = serializeOpenRouterPolicyEntries(
+        [entry],
+        'reserve'
+      )
+      expect(channelFormSchema.safeParse(form).success).toBe(false)
+    }
+  )
+
+  test('duplicate model IDs are reported on each row and block the form', () => {
+    const entries = [
+      { model: 'other/reasoner', value: 'upstream' },
+      { model: 'other/reasoner', value: 'configured_price' },
+    ]
+    expect(validateOpenRouterPolicyEntries(entries, 'source')).toEqual([
+      { model: 'Duplicate model ID' },
+      { model: 'Duplicate model ID' },
+    ])
+    const form = reserveForm({})
+    form.openrouter_reservation_source = serializeOpenRouterPolicyEntries(
+      entries,
+      'source'
+    )
+    expect(channelFormSchema.safeParse(form).success).toBe(false)
+  })
+
+  test('unknown reservation source is reported', () => {
+    expect(
+      validateOpenRouterPolicyEntries(
+        [{ model: 'other/reasoner', value: 'cheapest' }],
+        'source'
+      )
+    ).toEqual([{ value: 'Select upstream or configured_price' }])
   })
 })

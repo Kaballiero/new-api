@@ -503,7 +503,7 @@ func OpenRouterSyncReconciliation(task *model.Task) map[string]any {
 		billing = "manual_reconciliation"
 	}
 	switch a.LastError {
-	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected":
+	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected", "operator_released":
 		reason = a.LastError
 	default:
 		if billing == "manual_reconciliation" {
@@ -521,6 +521,31 @@ func OpenRouterSyncReconciliation(task *model.Task) map[string]any {
 		"replay_allowed": false, "identity_available": task.PrivateData.UpstreamTaskID != "" && !a.IdentityConflict,
 		"cost_confirmed": r.HasUpstreamCost && r.UpstreamCostConfirmed, "next_lookup_at": nextLookup,
 		"result_ready": a.ResultReady, "result_failed": a.ResultFailed}
+}
+
+// ReleaseOpenRouterSyncHold refunds a releasable audio hold after an operator
+// verified that OpenRouter rejected the submission without billing it.
+func ReleaseOpenRouterSyncHold(taskID string) error {
+	task, exists, err := model.GetUniqueByOnlyTaskId(taskID)
+	if err != nil {
+		return err
+	}
+	if !exists || !task.OpenRouterSyncReleasable() {
+		return errors.New("task is not a releasable OpenRouter hold")
+	}
+	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
+	r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
+	a.LastError = "operator_released"
+	prepareOpenRouterCostSettlement(task)
+	if !r.SettlementPending || r.TargetQuota != 0 {
+		return errors.New("OpenRouter hold settlement basis is unavailable")
+	}
+	task.FailReason = "OpenRouter rejected the submission; reservation released by operator"
+	projectOpenRouterSyncState(task)
+	if err := task.UpdateOpenRouterSync(a.Revision); err != nil {
+		return err
+	}
+	return settleOpenRouterCost(task)
 }
 
 func manualOpenRouterSync(task *model.Task, reason string) {

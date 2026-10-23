@@ -33,6 +33,8 @@ type OpenRouterCostState struct {
 	ApproximateResearchReserveUSD *float64
 	ApproximateReserveUSD         *float64
 	ApproximateReserveModel       string
+	AddOnReserveUSD               *float64
+	AddOnReserveModel             string
 	ConfiguredReserveUSD          *float64
 	ConfiguredReserveModel        string
 	ConfiguredReserveExprHash     string

@@ -548,13 +548,15 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		rate                                  any
 		reserve                               *float64
 		insufficient, knownAboveReserve       bool
-		general                               bool
+		general, hostedSearch                 bool
 		policyModel                           string
 		endpointModel                         string
 		missingCost                           bool
 		nonOpenRouter                         bool
 		operation                             string
 		wantError                             string
+		zeroReasoning                         bool
+		reserveUse                            openrouter.ReserveUse
 	}{
 		{name: "general Sonar overrides legacy", general: true, reserve: common.GetPointer(2.0)},
 		{name: "general missing terminal cost remains unknown", model: "other/reasoner", general: true, reserve: common.GetPointer(2.0), missingCost: true},
@@ -596,7 +598,11 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		{name: "multiple outputs rejected", reserve: common.GetPointer(2.0), extra: `,"n":2`, wantError: "one nonstream text chat response"},
 		{name: "fallback models rejected", reserve: common.GetPointer(2.0), extra: `,"models":["other/reasoner"]`, wantError: "one nonstream text chat response"},
 		{name: "tools rejected", reserve: common.GetPointer(2.0), extra: `,"tools":[{"type":"function","function":{"name":"f"}}]`, wantError: "one nonstream text chat response"},
-		{name: "hosted search rejected", reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, wantError: "hosted-search quantity is unpriced"},
+		{name: "hosted search hold adds to token estimate", reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, hostedSearch: true},
+		{name: "general hosted search hold adds to token estimate", model: "other/reasoner", general: true, reserve: common.GetPointer(2.0), extra: `,"web_search_options":{}`, hostedSearch: true},
+		{name: "general hosted search without channel hold", model: "other/reasoner", general: true, extra: `,"web_search_options":{}`, wantError: "hosted-search quantity is unpriced"},
+		{name: "general priced native search reserve is add-on", model: "other/reasoner", general: true, zeroReasoning: true, reserve: common.GetPointer(2.0), hostedSearch: true, reserveUse: openrouter.ReserveAddOn},
+		{name: "general priced reserve without search is not applied", model: "other/reasoner", general: true, zeroReasoning: true, rateKey: "web_search", rate: "0", reserve: common.GetPointer(2.0), reserveUse: openrouter.ReserveNotApplied},
 		{name: "preset rejected", reserve: common.GetPointer(2.0), extra: `,"preset":"some-preset"`, wantError: "unpriced execution dimensions"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -609,6 +615,12 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 				tag = "perplexity"
 			}
 			prices := map[string]any{"prompt": "0.000002", "completion": "0.000008", "internal_reasoning": "0.000003", "web_search": "0.005"}
+			if tc.zeroReasoning {
+				prices["internal_reasoning"] = "0"
+			}
+			if tc.reserveUse == openrouter.ReserveNotApplied && !tc.zeroReasoning {
+				tc.reserveUse = openrouter.ReserveWholeHold
+			}
 			if tc.rateKey != "" {
 				prices[tc.rateKey] = tc.rate
 			}
@@ -661,7 +673,15 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 				if tc.nonOpenRouter {
 					info.ChannelType = constant.ChannelTypeOpenAI
 				}
-				_, err := openrouter.NewRequestEstimator().Estimate(info, []byte(body), operation)
+				var discovered struct {
+					Data struct {
+						Endpoints []openrouter.PricedEndpoint `json:"endpoints"`
+					} `json:"data"`
+				}
+				require.NoError(t, common.Unmarshal(metadata, &discovered))
+				estimator := openrouter.NewRequestEstimator()
+				estimator.Models[requestedModel] = discovered.Data.Endpoints
+				_, err := estimator.Estimate(info, []byte(body), operation)
 				require.ErrorContains(t, err, tc.wantError)
 				assert.Zero(t, transport.posts)
 				return
@@ -688,11 +708,29 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 			assert.JSONEq(t, body, string(transport.body), "pricing and paid transport must inspect the same final body")
 			require.NotNil(t, info.OpenRouterCost)
 			assert.True(t, info.OpenRouterCost.Sent)
-			require.NotNil(t, info.OpenRouterCost.ApproximateReserveUSD)
-			assert.Equal(t, 2.0, *info.OpenRouterCost.ApproximateReserveUSD)
-			assert.Equal(t, requestedModel, info.OpenRouterCost.ApproximateReserveModel)
-			if tc.knownAboveReserve {
+			switch tc.reserveUse {
+			case openrouter.ReserveWholeHold:
+				require.NotNil(t, info.OpenRouterCost.ApproximateReserveUSD)
+				assert.Equal(t, 2.0, *info.OpenRouterCost.ApproximateReserveUSD)
+				assert.Equal(t, requestedModel, info.OpenRouterCost.ApproximateReserveModel)
+				assert.Nil(t, info.OpenRouterCost.AddOnReserveUSD)
+			case openrouter.ReserveAddOn:
+				assert.Nil(t, info.OpenRouterCost.ApproximateReserveUSD)
+				require.NotNil(t, info.OpenRouterCost.AddOnReserveUSD)
+				assert.Equal(t, 2.0, *info.OpenRouterCost.AddOnReserveUSD)
+				assert.Equal(t, requestedModel, info.OpenRouterCost.AddOnReserveModel)
+			default:
+				assert.Nil(t, info.OpenRouterCost.ApproximateReserveUSD)
+				assert.Nil(t, info.OpenRouterCost.AddOnReserveUSD)
+			}
+			if tc.reserveUse == openrouter.ReserveNotApplied {
+				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 0.01, "an unused reserve does not raise the token hold")
+			} else if tc.knownAboveReserve {
 				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 128.0)
+				assert.Greater(t, billing.reserved, 1500000)
+			} else if tc.hostedSearch {
+				assert.Greater(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.0, "search hold is added to the token estimate")
+				assert.Less(t, info.OpenRouterCost.Basis.EstimatedUSD, 2.01)
 				assert.Greater(t, billing.reserved, 1500000)
 			} else {
 				assert.Equal(t, 2.0, info.OpenRouterCost.Basis.EstimatedUSD)
@@ -725,7 +763,9 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, clamp)
 			assert.Equal(t, 2250000, quota, "full excess is charged, not capped to the approximate hold")
-			assert.Equal(t, 2.0, *info.OpenRouterCost.ApproximateReserveUSD)
+			if tc.reserveUse == openrouter.ReserveWholeHold {
+				assert.Equal(t, 2.0, *info.OpenRouterCost.ApproximateReserveUSD)
+			}
 			assert.Contains(t, recorder.Body.String(), "ok")
 		})
 	}
@@ -1377,7 +1417,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "oversize channel hold rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(1e20), wantError: "quota conversion"},
 		{name: "negative status TTS uses channel reserve", kind: "tts", noSource: true, endpointStatus: -5, channelReserve: common.GetPointer(0.3), cost: "0.04"},
 		{name: "missing capability cannot use channel reserve", kind: "stt", noSource: true, unknownCapability: true, channelReserve: common.GetPointer(0.3), wantError: "capability is missing"},
-		{name: "Chat audio still requires configured price", kind: "chat", noSource: true, channelReserve: common.GetPointer(0.3), wantError: "requires configured_price"},
+		{name: "Chat audio channel reserve without global price", kind: "chat", cost: "3", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "Chat audio channel reserve retains unknown cost", kind: "chat", missingCost: true, noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
+		{name: "Chat audio channel reserve requires streaming", kind: "chat", extra: `,"stream":false`, noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3), wantError: "requires streaming"},
 		{name: "multipart STT final usage cost", kind: "stt", cost: "3"},
 		{name: "multipart STT confirmed zero", kind: "stt", cost: "0"},
 		{name: "STT expression sees outgoing form", kind: "stt", cost: "3", expression: `param("language") == "en" ? tier("english", fixed(2)) : tier("other", fixed(8))`},

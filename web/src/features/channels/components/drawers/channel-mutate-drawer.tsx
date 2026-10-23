@@ -1143,6 +1143,18 @@ export function ChannelMutateDrawer({
     [currentModelMapping]
   )
 
+  const openRouterUpstreamModels = useMemo(
+    () => [
+      ...new Set([
+        ...currentModelsArray.filter(
+          (model) => !redirectModelKeyList.includes(model)
+        ),
+        ...redirectModelList,
+      ]),
+    ],
+    [currentModelsArray, redirectModelKeyList, redirectModelList]
+  )
+
   // Transform models to multi-select options
   const modelOptions = useMemo(() => {
     const allModels = new Set([...allModelsList, ...currentModelsArray])
@@ -4309,6 +4321,7 @@ export function ChannelMutateDrawer({
                               <OpenRouterReserveField
                                 control={form.control}
                                 disabled={sensitiveLocked || isSubmitting}
+                                modelOptions={openRouterUpstreamModels}
                               />
                             )}
 

@@ -2473,7 +2473,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	})
 }
 
-func TestUpstreamCatalogDetailCollapsesModelPageDuplicates(t *testing.T) {
+func TestUpstreamCatalogDetailDropsModelPagePricesShadowedByGenericSchedule(t *testing.T) {
 	raw, err := os.ReadFile("../model/testdata/upstream_catalog/aggregator.json")
 	require.NoError(t, err)
 	doc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "router/aggregated", Hash: catalogsync.Hash(raw)})
@@ -2515,27 +2515,26 @@ func TestUpstreamCatalogDetailCollapsesModelPageDuplicates(t *testing.T) {
 		expected   []string
 	}{
 		{"exact duplicate keeps generic", true, func(*catalogsync.Component) {}, []string{"prompt"}},
-		{"reordered conditions are equal", true, func(rate *catalogsync.Component) {
-			rate.Conditions = json.RawMessage(`{"utcEnd":2400, "utcStart":0}`)
-		}, []string{"prompt"}},
 		{"usd fallback without rouble amounts", false, func(*catalogsync.Component) {}, []string{"prompt"}},
-		{"different amount", true, func(rate *catalogsync.Component) { rate.AmountUSD = common.GetPointer("0.6629") }, []string{"prompt", "openai:prompt_tokens"}},
-		{"different conditions", true, func(rate *catalogsync.Component) { rate.Conditions = json.RawMessage(`{}`) }, []string{"prompt", "openai:prompt_tokens"}},
+		{"unconditional base price beside a context schedule", true, func(rate *catalogsync.Component) { rate.Conditions = json.RawMessage(`{}`) }, []string{"prompt"}},
+		{"different amount", true, func(rate *catalogsync.Component) { rate.AmountUSD = common.GetPointer("0.6629") }, []string{"prompt"}},
 		{"own context window", true, func(rate *catalogsync.Component) {
 			rate.Conditions = json.RawMessage(`{"contextMin":0,"contextMax":8192,"utcStart":0,"utcEnd":2400}`)
-		}, []string{"prompt", "openai:prompt_tokens"}},
-		{"different variant", true, func(rate *catalogsync.Component) { rate.Variant = json.RawMessage(`{"service_tier":"flex"}`) }, []string{"prompt", "openai:prompt_tokens"}},
-		{"different unit", true, func(rate *catalogsync.Component) { rate.Unit = "thousand_tokens" }, []string{"prompt", "openai:prompt_tokens"}},
-		{"different quantity", true, func(rate *catalogsync.Component) { rate.Quantity = "1000" }, []string{"prompt", "openai:prompt_tokens"}},
-		{"different billable", true, func(rate *catalogsync.Component) {
+		}, []string{"prompt"}},
+		{"different variant", true, func(rate *catalogsync.Component) { rate.Variant = json.RawMessage(`{"service_tier":"flex"}`) }, []string{"prompt"}},
+		{"different quantity", true, func(rate *catalogsync.Component) { rate.Quantity = "1000" }, []string{"prompt"}},
+		{"billable alias of the same component", true, func(rate *catalogsync.Component) {
 			rate.Billable, rate.ComponentID = common.GetPointer("input_tokens"), `{"billable":"input_tokens"}`
-		}, []string{"prompt", "openai:prompt_tokens"}},
+		}, []string{"prompt"}},
+		{"different unit stays", true, func(rate *catalogsync.Component) { rate.Unit = "thousand_tokens" }, []string{"prompt", "openai:prompt_tokens"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			scheduled := meter("generic", "prompt", "input_text", "0.6628", `{"utcStart":0,"utcEnd":2400}`)
-			page := meter("model_page", "openai:prompt_tokens", "input_text", "0.6628", `{"utcStart":0,"utcEnd":2400}`)
+			window := `{"contextMin":0,"contextMax":272000,"utcStart":0,"utcEnd":2400}`
+			scheduled := meter("generic", "prompt", "input_text", "0.6628", window)
+			page := meter("model_page", "openai:prompt_tokens", "input_text", "0.6628", window)
 			tc.mutate(&page)
 			prices := pricesFor(tc.validRatio, scheduled, page)
+			require.NotEmpty(t, prices)
 			assert.Equal(t, tc.expected, parameters(prices))
 			assert.Contains(t, string(prices[0].Provenance), `"source":"generic"`)
 		})
@@ -2556,6 +2555,133 @@ func TestUpstreamCatalogDetailCollapsesModelPageDuplicates(t *testing.T) {
 			assert.Nil(t, price.AmountRub)
 		}
 	})
+}
+
+func TestUpstreamCatalogDetailFoldsModelScopeOffersIntoProviderOffers(t *testing.T) {
+	rate := func(scope, source, parameter, billable, unit, amount, conditions string) catalogsync.Component {
+		component := catalogsync.Component{Parameter: parameter, ComponentID: `{"billable":"` + billable + `","unit":"` + unit + `"}`, Billable: common.GetPointer(billable), Direction: common.GetPointer("output"), Modality: common.GetPointer("video"), Unit: unit, Quantity: "1", Variant: json.RawMessage(`{}`), Conditions: json.RawMessage(conditions), Provenance: json.RawMessage(`{"scope":"` + scope + `","source":"` + source + `"}`)}
+		if amount != "" {
+			component.AmountUSD = common.GetPointer(amount)
+			component.Normalization.Comparable, component.Normalization.Effective = true, true
+		}
+		return component
+	}
+	provider := func(tag string, variant string, capabilities string, components ...catalogsync.Component) catalogsync.Offer {
+		return catalogsync.Offer{ID: tag, Scope: "endpoint", Provider: &catalogsync.Provider{ID: common.GetPointer(tag), Name: common.GetPointer(tag), Tag: common.GetPointer(tag)}, Variant: json.RawMessage(variant), Eligibility: &catalogsync.Eligibility{Eligible: true}, Capabilities: json.RawMessage(capabilities), Components: components}
+	}
+	modelScope := func(id, capabilities string, components ...catalogsync.Component) catalogsync.Offer {
+		return catalogsync.Offer{ID: id, Scope: "model", Variant: json.RawMessage(`{}`), Capabilities: json.RawMessage(capabilities), Limitations: []string{"model_level_no_provider_binding"}, Components: components}
+	}
+	minimum := `{"chargeRelationship":"minimum"}`
+	standard := `{"variant":"standard"}`
+	runwayCapabilities := `{"allowed_passthrough_parameters":["keyframes"],"context_length":0}`
+	videoCapabilities := `{"allowed_passthrough_parameters":["contentModeration","keyframes"],"seed":true}`
+	mergedCapabilities := `{"allowed_passthrough_parameters":["keyframes"],"context_length":0,"seed":true}`
+	display := rate("endpoint", "model_page", "display:0:0:Video Output", "output_video", "second", "0.28", `{}`)
+	perSecond := rate("endpoint", "model_page", "runway_video:cents_per_second_output", "output_video", "second", "0.280", `{}`)
+	endpointMinimum := rate("endpoint", "model_page", "runway_video:minimum_cents_per_generation", "minimum_generation_charge", "request", "0.56", minimum)
+	modelMinimum := rate("model", "video_api", "minimum_cents_per_generation", "minimum_generation_charge", "request", "0.56", minimum)
+	unpricedPerSecond := rate("model", "video_api", "cents_per_second_output", "output_video", "source_defined", "", `{}`)
+	generic := modelScope("generic", `{}`, rate("model", "generic", "prompt", "input_text", "source_defined", "", `{}`), rate("model", "generic", "completion", "output_text", "source_defined", "", `{}`))
+	flexOutput := rate("endpoint", "model_page", "flex:output", "output_video", "second", "0.2", `{}`)
+	flexOutput.Variant = json.RawMessage(`{"service_tier":"flex"}`)
+	modelOutput := rate("model", "video_api", "cents_per_second_output", "output_video", "second", "0.28", `{}`)
+	conflictingOutput := rate("model", "video_api", "cents_per_second_output", "output_video", "second", "0.4", `{}`)
+	uncarriable := rate("model", "video_api", "cents_per_second_output", "output_video", "source_defined", "0.28", `{}`)
+
+	type expectedOffer struct {
+		scope, provider, capabilities string
+		parameters                    []string
+	}
+	for _, tc := range []struct {
+		name      string
+		documents [][]catalogsync.Offer
+		expected  []expectedOffer
+	}{
+		{"aleph: model offers without new prices fold into the Runway offer", [][]catalogsync.Offer{{provider("runway", standard, runwayCapabilities, display, perSecond, endpointMinimum), modelScope("video", videoCapabilities, modelMinimum, unpricedPerSecond), generic}}, []expectedOffer{
+			{"endpoint", "runway", mergedCapabilities, []string{"display:0:0:Video Output", "runway_video:minimum_cents_per_generation"}},
+		}},
+		{"gen-4.5: unpriced model offers fold into the Runway offer", [][]catalogsync.Offer{{provider("runway", standard, runwayCapabilities, display, perSecond), modelScope("video", videoCapabilities, unpricedPerSecond), generic}}, []expectedOffer{
+			{"endpoint", "runway", mergedCapabilities, []string{"display:0:0:Video Output"}},
+		}},
+		{"model price missing from the provider offer is carried into it", [][]catalogsync.Offer{{provider("runway", standard, runwayCapabilities, display), modelScope("video", videoCapabilities, modelMinimum, unpricedPerSecond), generic}}, []expectedOffer{
+			{"endpoint", "runway", mergedCapabilities, []string{"display:0:0:Video Output", "minimum_cents_per_generation"}},
+		}},
+		{"each provider offer receives only its missing slots", [][]catalogsync.Offer{{provider("runway", standard, runwayCapabilities, display, endpointMinimum), provider("flex", `{"service_tier":"flex"}`, `{"seed":false}`, flexOutput), modelScope("video", videoCapabilities, modelOutput, modelMinimum)}}, []expectedOffer{
+			{"endpoint", "runway", mergedCapabilities, []string{"display:0:0:Video Output", "runway_video:minimum_cents_per_generation"}},
+			{"endpoint", "flex", `{"allowed_passthrough_parameters":["contentModeration","keyframes"],"seed":false}`, []string{"flex:output", "cents_per_second_output", "minimum_cents_per_generation"}},
+		}},
+		{"conflicting model amount keeps the model offer separate", [][]catalogsync.Offer{{provider("runway", standard, runwayCapabilities, display), modelScope("video", videoCapabilities, conflictingOutput, modelMinimum)}}, []expectedOffer{
+			{"endpoint", "runway", runwayCapabilities, []string{"display:0:0:Video Output"}},
+			{"model", "", videoCapabilities, []string{"cents_per_second_output", "minimum_cents_per_generation"}},
+		}},
+		{"priced rate that cannot be carried keeps the model offer separate", [][]catalogsync.Offer{{provider("runway", standard, runwayCapabilities, display), modelScope("video", videoCapabilities, uncarriable)}}, []expectedOffer{
+			{"endpoint", "runway", runwayCapabilities, []string{"display:0:0:Video Output"}},
+			{"model", "", videoCapabilities, []string{"cents_per_second_output"}},
+		}},
+		{"model offers of another document are not folded", [][]catalogsync.Offer{{provider("runway", standard, runwayCapabilities, display)}, {modelScope("video", videoCapabilities, modelMinimum)}}, []expectedOffer{
+			{"endpoint", "runway", runwayCapabilities, []string{"display:0:0:Video Output"}},
+			{"model", "", videoCapabilities, []string{"minimum_cents_per_generation"}},
+		}},
+		{"model-only description stays unchanged", [][]catalogsync.Offer{{modelScope("video", videoCapabilities, modelMinimum, unpricedPerSecond), generic}}, []expectedOffer{
+			{"model", "", videoCapabilities, []string{"minimum_cents_per_generation", "cents_per_second_output"}},
+			{"model", "", `{}`, []string{"prompt", "completion"}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			routes := []model.UpstreamCatalogRoute{}
+			for index, offers := range tc.documents {
+				document := catalogsync.Document{ID: "runway/aleph-2", Offers: offers}
+				routes = append(routes, model.UpstreamCatalogRoute{Operation: "video_generation", Mode: "sync", ModelID: document.ID, DocumentHash: catalogsync.Hash([]byte(tc.name + strconv.Itoa(index))), Document: &document})
+			}
+			item := model.Pricing{ModelName: "aleph", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": routes}}
+			detail := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, true)
+			summary := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, false)
+			require.Len(t, detail.GroupPrices, 1)
+			require.Len(t, summary.GroupPrices, 1)
+			assert.Equal(t, summary.GroupPrices[0].Operations, detail.GroupPrices[0].Operations, "folding is presentation only and must not change minima")
+			actual := []expectedOffer{}
+			for _, offer := range detail.GroupPrices[0].ProviderOffers {
+				parameters := []string{}
+				for _, price := range offer.Prices {
+					parameters = append(parameters, price.Parameter)
+				}
+				tag := ""
+				if offer.Provider != nil {
+					tag = *offer.Provider.Tag
+				}
+				actual = append(actual, expectedOffer{offer.Scope, tag, string(offer.Capabilities), parameters})
+			}
+			assert.ElementsMatch(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestUpstreamCatalogDetailKeepsPricedCopyOfDuplicatePrice(t *testing.T) {
+	priced := catalogsync.Component{Parameter: "runway_video:cents_per_second_output", ComponentID: "output_video", Billable: common.GetPointer("output_video"), Direction: common.GetPointer("output"), Modality: common.GetPointer("video"), AmountUSD: common.GetPointer("0.28"), Unit: "second", Quantity: "1", Variant: json.RawMessage(`{}`), Conditions: json.RawMessage(`{}`), Provenance: json.RawMessage(`{"scope":"endpoint","source":"model_page"}`)}
+	priced.Normalization.Comparable, priced.Normalization.Effective = true, true
+	unnormalized := priced
+	unnormalized.Parameter = "display:0:0:Video Output"
+	unnormalized.Normalization.Comparable, unnormalized.Normalization.Effective = false, false
+	unnormalized.Provenance = json.RawMessage(`not json`)
+	build := func(details bool, components ...catalogsync.Component) consumerPricingModel {
+		document := catalogsync.Document{ID: "runway/gen-4.5", Offers: []catalogsync.Offer{{ID: "runway", Scope: "endpoint", Provider: &catalogsync.Provider{Tag: common.GetPointer("runway")}, Variant: json.RawMessage(`{"variant":"standard"}`), Eligibility: &catalogsync.Eligibility{Eligible: true}, Components: components}}}
+		route := model.UpstreamCatalogRoute{Operation: "video_generation", Mode: "sync", ModelID: document.ID, DocumentHash: catalogsync.Hash([]byte("duplicate")), Document: &document}
+		item := model.Pricing{ModelName: "gen", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
+		return buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, details)
+	}
+	baseline := build(false, priced)
+	require.NotEmpty(t, baseline.GroupPrices[0].Operations)
+	for _, details := range []bool{false, true} {
+		deduplicated := build(details, unnormalized, priced)
+		assert.Equal(t, baseline.GroupPrices[0].Operations, deduplicated.GroupPrices[0].Operations)
+		if details {
+			prices := deduplicated.GroupPrices[0].ProviderOffers[0].Prices
+			require.Len(t, prices, 1)
+			assert.Equal(t, "runway_video:cents_per_second_output", prices[0].Parameter)
+			assert.NotNil(t, prices[0].AmountRub)
+		}
+	}
 }
 
 func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
@@ -2834,10 +2960,32 @@ func TestCatalogSemanticSnapshotProjection(t *testing.T) {
 		t.Logf("normalized minima: %s", wire)
 	})
 
-	t.Run("normalization preserves every source amount condition and identity", func(t *testing.T) {
+	t.Run("normalization preserves every source amount condition and identity except shadowed model-page prices", func(t *testing.T) {
 		before, after := []string{}, []string{}
 		for _, original := range doc.Offers {
-			wire, err := common.Marshal([]any{original.Provider, original.Variant, original.Components})
+			scheduled := map[string]bool{}
+			for _, rate := range original.Components {
+				var provenance struct {
+					Source string `json:"source"`
+				}
+				require.NoError(t, common.Unmarshal(rate.Provenance, &provenance))
+				if provenance.Source == "generic" {
+					scheduled[catalogComponentName(rate)+"/"+rate.Unit] = true
+				}
+			}
+			kept := []catalogsync.Component{}
+			for _, rate := range original.Components {
+				var provenance struct {
+					Source string `json:"source"`
+				}
+				require.NoError(t, common.Unmarshal(rate.Provenance, &provenance))
+				component := catalogComponentName(rate)
+				if provenance.Source == "model_page" && component != "unknown" && scheduled[component+"/"+rate.Unit] {
+					continue
+				}
+				kept = append(kept, rate)
+			}
+			wire, err := common.Marshal([]any{original.Provider, original.Variant, kept})
 			require.NoError(t, err)
 			before = append(before, catalogsync.Hash(wire))
 		}
@@ -2851,6 +2999,25 @@ func TestCatalogSemanticSnapshotProjection(t *testing.T) {
 			after = append(after, catalogsync.Hash(wire))
 		}
 		assert.ElementsMatch(t, before, after)
+	})
+
+	t.Run("each priced component of a provider has one price per context window", func(t *testing.T) {
+		for _, offer := range offers {
+			if offer.Provider == nil || offer.Provider.Tag == nil {
+				continue
+			}
+			windows := map[string]int{}
+			for _, price := range offer.Prices {
+				if price.Component == "unknown" || price.AmountRub == nil {
+					continue
+				}
+				assert.NotContains(t, string(price.Provenance), `"source":"model_page"`, *offer.Provider.Tag+" "+price.Parameter)
+				windows[price.Component+"/"+price.Unit+"/"+string(price.Conditions)]++
+			}
+			for window, count := range windows {
+				assert.Equal(t, 1, count, window)
+			}
+		}
 	})
 
 	t.Run("Flex standard and long context retain distinct price conditions", func(t *testing.T) {
@@ -3507,6 +3674,84 @@ func TestCatalogVariantMinimaKeepDistinctPrices(t *testing.T) {
 		require.Len(t, minima, 1)
 		assert.Empty(t, minima[0].Prices)
 	})
+}
+
+func TestCatalogMinimumGenerationChargeIsPublished(t *testing.T) {
+	component := func(billable, unit, amount, conditions string) catalogsync.Component {
+		rate := catalogsync.Component{Parameter: billable, Billable: common.GetPointer(billable), AmountUSD: common.GetPointer(amount), Unit: unit, Quantity: "1", Variant: []byte(`{}`), Conditions: []byte(conditions), Provenance: []byte(`{"source":"generic"}`)}
+		rate.Normalization.Comparable, rate.Normalization.Effective = true, true
+		return rate
+	}
+	document := func(conditions string) *catalogsync.Document {
+		return &catalogsync.Document{ID: "runway/aleph-2", Type: "video", Offers: []catalogsync.Offer{{
+			ID: "runway", Scope: "endpoint", Provider: &catalogsync.Provider{Tag: common.GetPointer("runway")}, Variant: []byte(`{}`), Eligibility: &catalogsync.Eligibility{Eligible: true},
+			Components: []catalogsync.Component{
+				component("output_video", "second", "0.2", `{}`),
+				component("minimum_generation_charge", "request", "0.56", conditions),
+			},
+		}}}
+	}
+	pricing := func(doc *catalogsync.Document) model.Pricing {
+		return model.Pricing{ModelName: "aleph-alias", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {
+			{Operation: "video_editing", Mode: "sync", ModelID: doc.ID, DocumentHash: strings.Repeat("a", 64), Document: doc},
+		}}}
+	}
+	amounts := func(prices []consumerUnitPrice) map[string]float64 {
+		result := map[string]float64{}
+		for _, price := range prices {
+			require.NotNil(t, price.AmountRub)
+			result[price.Component+"/"+price.Unit] = *price.AmountRub
+		}
+		return result
+	}
+	expected := map[string]float64{"output_video/second": 20, "minimum_charge/request": 56}
+
+	item := pricing(document(`{"chargeRelationship":"minimum"}`))
+	offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
+	require.Len(t, offers, 1)
+	minimum := -1
+	for index, price := range offers[0].Prices {
+		if price.Component == "minimum_charge" {
+			minimum = index
+		}
+	}
+	require.GreaterOrEqual(t, minimum, 0)
+	assert.Equal(t, "request", offers[0].Prices[minimum].Unit)
+	require.NotNil(t, offers[0].Prices[minimum].AmountRub)
+	assert.Equal(t, "56", *offers[0].Prices[minimum].AmountRub)
+	assert.JSONEq(t, `{"chargeRelationship":"minimum"}`, string(offers[0].Prices[minimum].Conditions))
+
+	minima := catalogMinima(offers)
+	require.Len(t, minima, 1)
+	assert.Equal(t, expected, amounts(minima[0].Prices))
+	require.Len(t, minima[0].Tiers, 1)
+	assert.Nil(t, minima[0].Tiers[0].Condition)
+	assert.Equal(t, expected, amounts(minima[0].Tiers[0].Prices))
+
+	consumer := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, true)
+	require.Len(t, consumer.GroupPrices, 1)
+	require.Len(t, consumer.GroupPrices[0].Operations, 1)
+	assert.Equal(t, expected, amounts(consumer.GroupPrices[0].Operations[0].Prices))
+	require.Len(t, consumer.GroupPrices[0].ProviderOffers, 1)
+	components := []string{}
+	for _, price := range consumer.GroupPrices[0].ProviderOffers[0].Prices {
+		components = append(components, price.Component+"/"+price.Unit)
+	}
+	assert.ElementsMatch(t, []string{"output_video/second", "minimum_charge/request"}, components)
+
+	tariff := buildCatalogModelTariff(effectivePricingPageContext{groupRatios: map[string]float64{"default": 1}, fxFactor: 1}, item, "default")
+	require.Len(t, tariff.Operations, 1)
+	assert.Equal(t, expected, amounts(tariff.Operations[0].Prices))
+
+	for _, conditions := range []string{`{"chargeRelationship":"maximum"}`, `{"chargeRelationship":""}`, `{"chargeRelationship":true}`, `{"chargeRelationship":null}`} {
+		price := offers[0].Prices[minimum]
+		price.Conditions = []byte(conditions)
+		_, valid := catalogRateWindow(price)
+		assert.False(t, valid, conditions)
+		rejected := catalogMinima(upstreamProviderOffers(pricing(document(conditions)), "default", 1, true, pricingUserContext{}))
+		require.Len(t, rejected, 1, conditions)
+		assert.Equal(t, map[string]float64{"output_video/second": 20}, amounts(rejected[0].Prices), conditions)
+	}
 }
 
 func TestConsumerPricingTagsPreserveStoredTags(t *testing.T) {

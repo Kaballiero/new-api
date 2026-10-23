@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"iter"
 	"math"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,6 +25,7 @@ type consumerProviderPrice struct {
 }
 type consumerProviderOffer struct {
 	minimumEligible bool
+	documentHash    string
 
 	Availability  string                   `json:"catalog_availability"`
 	Limitations   []string                 `json:"limitations"`
@@ -67,6 +67,8 @@ func catalogComponentName(rate catalogsync.Component) string {
 		component, direction, modality = "cache_write_1h", "input", "text"
 	case "web_search":
 		component = "web_search"
+	case "minimum_generation_charge":
+		component = "minimum_charge"
 	case "input_image", "image", "image_token":
 		component, direction, modality = "input_image", "input", "image"
 	case "image_output", "output_image":
@@ -313,7 +315,7 @@ func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float
 				}
 				certain := known && offer.Eligibility != nil
 				id := catalogsync.Hash([]byte(route.DocumentHash + "\n" + route.ModelID + "\n" + strconv.Itoa(offerIndex) + "\n" + route.Operation + "\n" + route.Mode))
-				row := consumerProviderOffer{minimumEligible: tierAllowed, ID: id, UpstreamModel: route.ModelID, Operation: route.Operation, Mode: route.Mode, Scope: offer.Scope, Provider: offer.Provider, Variant: offer.Variant, Prices: []consumerProviderPrice{}, Coverage: offer.Coverage, Eligibility: offer.Eligibility, Capabilities: offer.Capabilities, Limits: offer.Limits}
+				row := consumerProviderOffer{minimumEligible: tierAllowed, documentHash: route.DocumentHash, ID: id, UpstreamModel: route.ModelID, Operation: route.Operation, Mode: route.Mode, Scope: offer.Scope, Provider: offer.Provider, Variant: offer.Variant, Prices: []consumerProviderPrice{}, Coverage: offer.Coverage, Eligibility: offer.Eligibility, Capabilities: offer.Capabilities, Limits: offer.Limits}
 				row.Limitations = slices.Clone(offer.Limitations)
 				row.Availability = "eligible"
 				if offer.Eligibility != nil && !offer.Eligibility.Eligible {
@@ -343,61 +345,202 @@ func iterateUpstreamProviderOffers(item model.Pricing, group string, ratio float
 	}
 }
 
-func catalogDetailPrices(prices []consumerProviderPrice) []consumerProviderPrice {
+// catalogShadowedModelPrices marks model-page prices that the generic endpoint
+// schedule replaces for the same component and unit. Public minima and schedule
+// tiers (catalogSchedulePrices) ignore them, so offer details must not show them
+// either.
+func catalogShadowedModelPrices(prices []consumerProviderPrice) []bool {
 	sources := make([]string, len(prices))
+	generic := map[string]bool{}
 	for index, price := range prices {
 		var provenance struct {
 			Source string `json:"source"`
 		}
-		if common.Unmarshal(price.Provenance, &provenance) == nil {
-			sources[index] = provenance.Source
+		if common.Unmarshal(price.Provenance, &provenance) != nil {
+			continue
+		}
+		sources[index] = provenance.Source
+		if provenance.Source == "generic" && price.Component != "unknown" {
+			generic[price.Component+"/"+price.Unit] = true
 		}
 	}
-	sameJSON := func(a, b json.RawMessage) bool {
-		var left, right any
-		if len(a) != 0 && common.Unmarshal(a, &left) != nil || len(b) != 0 && common.Unmarshal(b, &right) != nil {
-			return false
-		}
-		return reflect.DeepEqual(left, right)
+	shadowed := make([]bool, len(prices))
+	for index, price := range prices {
+		shadowed[index] = sources[index] == "model_page" && price.Component != "unknown" && generic[price.Component+"/"+price.Unit]
 	}
-	sameAmount := func(a, b *string) bool {
-		if a == nil || b == nil {
-			return false
-		}
-		left, leftErr := decimal.NewFromString(*a)
-		right, rightErr := decimal.NewFromString(*b)
-		return leftErr == nil && rightErr == nil && left.Equal(right)
-	}
+	return shadowed
+}
+
+func catalogDetailPrices(prices []consumerProviderPrice) []consumerProviderPrice {
+	shadowed := catalogShadowedModelPrices(prices)
 	result := make([]consumerProviderPrice, 0, len(prices))
 	for index, price := range prices {
-		duplicate := false
-		for other, generic := range prices {
-			if sources[index] != "model_page" || price.Component == "unknown" || sources[other] != "generic" {
-				continue
-			}
-			if price.Component != generic.Component || price.ComponentID != generic.ComponentID || !reflect.DeepEqual(price.Billable, generic.Billable) || !reflect.DeepEqual(price.Direction, generic.Direction) || !reflect.DeepEqual(price.Modality, generic.Modality) || price.Unit != generic.Unit || price.Quantity != generic.Quantity {
-				continue
-			}
-			if price.Normalization.Comparable != generic.Normalization.Comparable || price.Normalization.Effective != generic.Normalization.Effective {
-				continue
-			}
-			if price.AmountRub != nil || generic.AmountRub != nil {
-				if !sameAmount(price.AmountRub, generic.AmountRub) {
-					continue
-				}
-			} else if !sameAmount(price.AmountUSD, generic.AmountUSD) {
-				continue
-			}
-			if sameJSON(price.Conditions, generic.Conditions) && sameJSON(price.Variant, generic.Variant) {
-				duplicate = true
-				break
-			}
+		if shadowed[index] {
+			continue
 		}
-		if !duplicate {
+		duplicate := slices.IndexFunc(result, func(kept consumerProviderPrice) bool { return catalogSamePrice(kept, price) })
+		if duplicate < 0 {
 			result = append(result, price)
+			continue
+		}
+		if catalogPreferredDuplicate(price, result[duplicate]) {
+			result[duplicate] = price
 		}
 	}
 	return result
+}
+
+// catalogPreferredDuplicate keeps the copy of an identical price that schedules
+// and minima can use: a rouble amount first, then readable provenance.
+func catalogPreferredDuplicate(candidate, kept consumerProviderPrice) bool {
+	if (candidate.AmountRub != nil) != (kept.AmountRub != nil) {
+		return candidate.AmountRub != nil
+	}
+	var provenance struct {
+		Source string `json:"source"`
+	}
+	candidateReadable := common.Unmarshal(candidate.Provenance, &provenance) == nil
+	keptReadable := common.Unmarshal(kept.Provenance, &provenance) == nil
+	return candidateReadable && !keptReadable
+}
+
+func catalogPricedRate(price consumerProviderPrice) bool {
+	return price.AmountUSD != nil && price.Unit != "" && price.Unit != "unknown" && price.Unit != "source_defined"
+}
+
+// catalogSamePriceSlot reports whether two rates bill the same component, unit,
+// quantity, conditions and variant, regardless of amount and source labels.
+func catalogSamePriceSlot(a, b consumerProviderPrice) bool {
+	if a.Component != b.Component || a.Unit != b.Unit || a.Component == "unknown" && a.ComponentID != b.ComponentID {
+		return false
+	}
+	quantityA, errA := decimal.NewFromString(a.Quantity)
+	quantityB, errB := decimal.NewFromString(b.Quantity)
+	if errA != nil || errB != nil || !quantityA.Equal(quantityB) {
+		return false
+	}
+	for _, pair := range [][2]json.RawMessage{{a.Conditions, b.Conditions}, {a.Variant, b.Variant}} {
+		var left, right map[string]any
+		if len(pair[0]) > 0 && common.Unmarshal(pair[0], &left) != nil || len(pair[1]) > 0 && common.Unmarshal(pair[1], &right) != nil {
+			return false
+		}
+		if len(left) == 0 || len(right) == 0 {
+			if len(left) != len(right) {
+				return false
+			}
+			continue
+		}
+		leftRaw, errL := common.Marshal(left)
+		rightRaw, errR := common.Marshal(right)
+		if errL != nil || errR != nil || string(leftRaw) != string(rightRaw) {
+			return false
+		}
+	}
+	return true
+}
+
+func catalogSamePrice(a, b consumerProviderPrice) bool {
+	if !catalogPricedRate(a) || !catalogPricedRate(b) || !catalogSamePriceSlot(a, b) {
+		return false
+	}
+	amountA, errA := decimal.NewFromString(*a.AmountUSD)
+	amountB, errB := decimal.NewFromString(*b.AmountUSD)
+	return errA == nil && errB == nil && amountA.Equal(amountB)
+}
+
+// catalogProviderDisplayOffers folds a model-scope offer into the provider
+// (endpoint-scope) offers of the same catalog document, upstream model,
+// operation and mode. Its priced rates fill only price slots a provider offer
+// lacks and its capabilities fill only keys a provider offer does not declare.
+// The model-scope offer stays separate when that group has no provider offer,
+// when it holds a priced rate that cannot be carried, or when one of its prices
+// contradicts a provider price in the same slot.
+func catalogProviderDisplayOffers(offers []consumerProviderOffer) []consumerProviderOffer {
+	type key struct{ document, model, operation, mode string }
+	endpoints := map[key][]int{}
+	result := make([]consumerProviderOffer, 0, len(offers))
+	for _, offer := range offers {
+		if offer.Scope == "endpoint" {
+			offer.Prices = slices.Clone(offer.Prices)
+			k := key{offer.documentHash, offer.UpstreamModel, offer.Operation, offer.Mode}
+			endpoints[k] = append(endpoints[k], len(result))
+		}
+		result = append(result, offer)
+	}
+	folded := make([]bool, len(result))
+	for index, offer := range result {
+		targets := endpoints[key{offer.documentHash, offer.UpstreamModel, offer.Operation, offer.Mode}]
+		if offer.Scope != "model" || len(targets) == 0 {
+			continue
+		}
+		foldable := true
+		for _, price := range offer.Prices {
+			if price.AmountUSD == nil {
+				continue
+			}
+			if !catalogPricedRate(price) {
+				foldable = false
+				break
+			}
+			for _, target := range targets {
+				if slices.ContainsFunc(result[target].Prices, func(kept consumerProviderPrice) bool {
+					return catalogPricedRate(kept) && catalogSamePriceSlot(kept, price) && !catalogSamePrice(kept, price)
+				}) {
+					foldable = false
+					break
+				}
+			}
+			if !foldable {
+				break
+			}
+		}
+		if !foldable {
+			continue
+		}
+		folded[index] = true
+		var capabilities map[string]json.RawMessage
+		if len(offer.Capabilities) > 0 && common.Unmarshal(offer.Capabilities, &capabilities) != nil {
+			capabilities = nil
+		}
+		for _, target := range targets {
+			endpoint := &result[target]
+			for _, price := range offer.Prices {
+				if catalogPricedRate(price) && !slices.ContainsFunc(endpoint.Prices, func(kept consumerProviderPrice) bool { return catalogSamePrice(kept, price) }) {
+					endpoint.Prices = append(endpoint.Prices, price)
+				}
+			}
+			if len(capabilities) == 0 {
+				continue
+			}
+			merged := map[string]json.RawMessage{}
+			if len(endpoint.Capabilities) > 0 && common.Unmarshal(endpoint.Capabilities, &merged) != nil {
+				continue
+			}
+			if merged == nil {
+				merged = map[string]json.RawMessage{}
+			}
+			added := false
+			for name, value := range capabilities {
+				if _, exists := merged[name]; !exists {
+					merged[name] = value
+					added = true
+				}
+			}
+			if !added {
+				continue
+			}
+			if raw, err := common.Marshal(merged); err == nil {
+				endpoint.Capabilities = raw
+			}
+		}
+	}
+	kept := make([]consumerProviderOffer, 0, len(result))
+	for index, offer := range result {
+		if !folded[index] {
+			kept = append(kept, offer)
+		}
+	}
+	return kept
 }
 
 func catalogMinima(offers []consumerProviderOffer) []consumerPricingOperation {

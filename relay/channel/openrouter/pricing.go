@@ -67,11 +67,23 @@ func (e *PricedEndpoint) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type ReserveUse int
+
+const (
+	ReserveNotApplied ReserveUse = iota
+	ReserveWholeHold
+	ReserveAddOn
+)
+
 // RequestEstimator is request-scoped discovery, reused for all items in a
 // batch. It deliberately has no global cache or routing lifecycle.
 type RequestEstimator struct {
 	Models           map[string][]PricedEndpoint
 	OutputModalities map[string][]string
+	// ReserveUse and ReserveModel describe the channel reserve policy applied
+	// by the last successful estimate.
+	ReserveUse   ReserveUse
+	ReserveModel string
 }
 
 func NewRequestEstimator() *RequestEstimator {
@@ -182,16 +194,16 @@ func ReadEndpointPrice(raw json.RawMessage) (float64, error) {
 // Estimate takes the complete maximum over eligible endpoints, preserving the
 // actual routing payload. Price strings are USD per token/request/image.
 func (e *RequestEstimator) Estimate(info *relaycommon.RelayInfo, body []byte, operation string) (float64, error) {
-	return e.estimate(info, body, operation, nil)
+	return e.estimate(info, body, operation, nil, false)
 }
 
 // EstimateWithLocalPrice retains all endpoint and request guards. A configured
 // price preserves known complete estimates and covers unavailable monetary metadata.
 func (e *RequestEstimator) EstimateWithLocalPrice(info *relaycommon.RelayInfo, body []byte, operation string, localUSD float64) (float64, error) {
-	return e.estimate(info, body, operation, &localUSD)
+	return e.estimate(info, body, operation, &localUSD, false)
 }
 
-func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, operation string, localUSD *float64) (float64, error) {
+func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, operation string, localUSD *float64, wholeReserve bool) (float64, error) {
 	var request struct {
 		Model       string          `json:"model"`
 		Models      []string        `json:"models"`
@@ -221,6 +233,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if common.Unmarshal(body, &request) != nil {
 		return 0, errors.New("invalid OpenRouter final request")
 	}
+	requestedOperation := operation
 	batch := strings.HasPrefix(operation, "batch_")
 	operation = strings.TrimPrefix(operation, "batch_")
 	if batch {
@@ -261,8 +274,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	imageOutput := false
 	audioOutput := false
 	dedicatedAudio := operation == "audio/speech" || operation == "audio/transcriptions"
-	// Dedicated audio may use an explicit channel hold without a global model
-	// price. This is an approximate reserve, never a ceiling on actual spend.
+	// Audio and hosted search may use an explicit channel hold without a global
+	// model price. This is an approximate reserve, never a ceiling on actual spend.
 	var reserveUSD *float64
 	if info.ChannelMeta != nil {
 		reserveUSD = info.ChannelSetting.OpenRouterReserveUSD(request.Model)
@@ -303,8 +316,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if raw, present := fields["audio"]; imageOutput && present && string(bytes.TrimSpace(raw)) != "null" {
 		return 0, errors.New("OpenRouter audio output remains unsupported by image reserve")
 	}
-	if audioOutput && (imageOutput || operation != "chat/completions" || localUSD == nil || info.RelayFormat != types.RelayFormatOpenAI) {
-		return 0, errors.New("OpenRouter audio output requires configured_price reservation and OpenAI Chat format")
+	if audioOutput && (imageOutput || operation != "chat/completions" || localUSD == nil && reserveUSD == nil || info.RelayFormat != types.RelayFormatOpenAI) {
+		return 0, errors.New("OpenRouter audio output requires configured_price or an explicit approximate channel reserve and OpenAI Chat format")
 	}
 	if audioOutput && (!request.Stream || !info.IsStream) {
 		return 0, errors.New("OpenRouter Chat audio output requires streaming")
@@ -342,6 +355,19 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			return 0, errors.New("invalid OpenRouter routing speed")
 		}
 	}
+	var searchReserveUSD *float64
+	if raw, present := fields["web_search_options"]; present && string(bytes.TrimSpace(raw)) != "null" {
+		if operation != "chat/completions" || reserveUSD == nil || !(*reserveUSD > 0) || info.ChannelType != constant.ChannelTypeOpenRouter {
+			return 0, errors.New("OpenRouter hosted-search quantity is unpriced without a positive approximate channel reserve")
+		}
+		if imageOutput || audioOutput {
+			return 0, errors.New("OpenRouter hosted search cannot share an approximate reserve with image or audio output")
+		}
+		if batch {
+			return 0, errors.New("OpenRouter hosted search is unavailable for Batch")
+		}
+		searchReserveUSD = reserveUSD
+	}
 	imageCount, err := requestInputMediaQuantities(fields)
 	if err != nil {
 		return 0, err
@@ -371,13 +397,18 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		reserveUSD = &minimum
 	}
-	approximateReserve := reserveUSD != nil
 	sonarModel := request.Model == "perplexity/sonar-deep-research"
+	if reserveUSD != nil && (math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD < 0 || *reserveUSD == 0 && localUSD == nil) {
+		return 0, errors.New("invalid OpenRouter approximate reserve")
+	}
+	approximateReserve := reserveUSD != nil && (wholeReserve || localUSD != nil || decisions || rerank || dedicatedAudio || audioOutput || imageReserveOnly || sonarModel)
+	addOnReserve := reserveUSD != nil && !approximateReserve
+	var endpointReserveUSD *float64
 	if approximateReserve {
-		if math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD < 0 || *reserveUSD == 0 && localUSD == nil {
-			return 0, errors.New("invalid OpenRouter approximate reserve")
-		}
-		streamAllowed := audioOutput && localUSD != nil && request.Stream && info.IsStream
+		endpointReserveUSD = reserveUSD
+	}
+	if approximateReserve {
+		streamAllowed := audioOutput && request.Stream && info.IsStream
 		operationAllowed := operation == "chat/completions" || decisions || rerank || dedicatedAudio
 		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || imageCount > 0 {
 			return 0, errors.New("OpenRouter approximate reserve only supports one nonstream text chat response without routing or tools")
@@ -404,6 +435,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		flexFallback  bool
 	}
 	var maximum decimal.Decimal
+	maximumIncludesReserve := false
 	found := false
 	for _, model := range models {
 		if model == "perplexity/sonar-deep-research" && !approximateReserve {
@@ -564,7 +596,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 					continue
 				}
 			}
-			if approximateReserve {
+			if approximateReserve || searchReserveUSD != nil {
 				if sonarModel && tag != "perplexity" {
 					return 0, errors.New("OpenRouter Sonar research reserve requires the Perplexity endpoint")
 				}
@@ -622,6 +654,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			outputUnknown, pricingErr := candidate.outputUnknown, candidate.pricingErr
 			var cost decimal.Decimal
 			var estimateErr error
+			includesReserve := false
 			if rerank {
 				// Search and token units are heterogeneous; catalog token zeros are not a tariff.
 				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter rerank monetary quantity is unmeasured")}
@@ -637,11 +670,24 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			} else if outputUnknown {
 				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter endpoint lacks a finite default completion cap")}
 			} else {
-				cost, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, reserveUSD, imageOutput)
+				cost, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, endpointReserveUSD, imageOutput)
+				if raw, ok := tariff.Pricing["web_search"]; ok && estimateErr == nil && addOnReserve {
+					searchRate, err := readRate(raw)
+					if err != nil {
+						return 0, err
+					}
+					if searchReserveUSD == nil && !searchRate.IsZero() {
+						cost = cost.Add(decimal.NewFromFloat(*reserveUSD))
+						includesReserve = true
+					}
+				}
 			}
 			if estimateErr != nil {
 				var unavailable *EstimateUnavailableError
-				if (localUSD == nil && !((decisions || rerank || dedicatedAudio || imageReserveOnly) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
+				if addOnReserve && errors.As(estimateErr, &unavailable) {
+					return e.estimate(info, body, requestedOperation, localUSD, true)
+				}
+				if (localUSD == nil && !((decisions || rerank || audioOutput || dedicatedAudio || imageReserveOnly) && reserveUSD != nil)) || !errors.As(estimateErr, &unavailable) {
 					return 0, estimateErr
 				}
 				if *reserveUSD <= 0 {
@@ -654,6 +700,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			}
 			if !found || cost.GreaterThan(maximum) {
 				maximum = cost
+				maximumIncludesReserve = includesReserve
 			}
 			found = true
 		}
@@ -661,12 +708,21 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if !found {
 		return 0, errors.New("OpenRouter request has no compatible priced endpoint")
 	}
+	if searchReserveUSD != nil {
+		maximum = maximum.Add(decimal.NewFromFloat(*searchReserveUSD))
+	}
 	if approximateReserve {
 		maximum = decimal.Max(maximum, decimal.NewFromFloat(*reserveUSD))
 	}
 	result, _ := maximum.Float64()
 	if math.IsInf(result, 0) || math.IsNaN(result) {
 		return 0, errors.New("OpenRouter estimate overflow")
+	}
+	e.ReserveUse, e.ReserveModel = ReserveNotApplied, ""
+	if approximateReserve {
+		e.ReserveUse, e.ReserveModel = ReserveWholeHold, request.Model
+	} else if addOnReserve && (searchReserveUSD != nil || maximumIncludesReserve) {
+		e.ReserveUse, e.ReserveModel = ReserveAddOn, request.Model
 	}
 	return result, nil
 }
@@ -792,6 +848,14 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 			// explicit approximate hold does not make them free or bounded.
 			continue
 		}
+		if approximateReserve && (key == "audio" || key == "input_audio" || key == "input_audio_cache") {
+			// requestInputMediaQuantities rejects every audio input block before
+			// estimation, so these published input rates are inactive here.
+			if _, err := readRate(raw); err != nil {
+				return decimal.Zero, err
+			}
+			continue
+		}
 		switch key {
 		case "prompt", "completion", "request", "input_cache_read", "input_cache_write", "input_cache_write_1h", "discount", "image":
 			continue
@@ -844,9 +908,6 @@ func ModelsFromRequest(body []byte) ([]string, error) {
 // requestInputMediaQuantities inspects protocol content, never arbitrary tool
 // schemas, function arguments or user text that happen to name media fields.
 func requestInputMediaQuantities(fields map[string]json.RawMessage) (int, error) {
-	if raw, present := fields["web_search_options"]; present && string(bytes.TrimSpace(raw)) != "null" {
-		return 0, errors.New("OpenRouter hosted-search quantity is unpriced")
-	}
 	var blocks []json.RawMessage
 	for _, field := range []string{"messages", "input"} {
 		raw := bytes.TrimSpace(fields[field])

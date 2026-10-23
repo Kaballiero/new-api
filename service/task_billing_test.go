@@ -3315,6 +3315,58 @@ func TestOpenRouterAudioSubmissionRejectionReleasesHold(t *testing.T) {
 	}
 }
 
+func TestOpenRouterAudioOperatorReleaseRefundsUnknownSubmissionOnce(t *testing.T) {
+	parkUnknown := func(t *testing.T) *relaycommon.RelayInfo {
+		_, info := newOpenRouterAudioReservation(t)
+		require.NoError(t, ConfigureOpenRouterSyncSubmission(info, "https://metadata.invalid/generation", nil))
+		require.NoError(t, RecordOpenRouterSyncSubmission(info, nil, fmt.Errorf("connection reset")))
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		require.True(t, task.OpenRouterSyncReleasable())
+		require.Equal(t, 9950, getUserQuota(t, info.UserId))
+		return info
+	}
+	t.Run("releases once", func(t *testing.T) {
+		info := parkUnknown(t)
+		require.NoError(t, ReleaseOpenRouterSyncHold(info.OpenRouterCost.TaskID))
+		assert.Error(t, ReleaseOpenRouterSyncHold(info.OpenRouterCost.TaskID))
+		RunTaskPollingOnce(t.Context(), nil)
+
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), task.Status)
+		assert.True(t, task.PrivateData.Reconciliation.Finalized)
+		assert.Zero(t, task.Quota)
+		reconciliation := OpenRouterSyncReconciliation(task)
+		assert.Equal(t, "settled", reconciliation["billing_state"])
+		assert.Equal(t, "operator_released", reconciliation["reason_code"])
+		assert.Equal(t, 10000, getUserQuota(t, info.UserId))
+		assert.Equal(t, 10000, getTokenRemainQuota(t, info.TokenId))
+		var refunds []model.Log
+		require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeRefund).Find(&refunds).Error)
+		require.Len(t, refunds, 1)
+		assert.Equal(t, 50, refunds[0].Quota)
+	})
+	t.Run("rejects a hold with generation identity", func(t *testing.T) {
+		_, info := newOpenRouterAudioReservation(t)
+		require.NoError(t, ConfigureOpenRouterSyncSubmission(info, "https://metadata.invalid/generation", nil))
+		require.NoError(t, RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: http.StatusBadGateway, Header: http.Header{"X-Generation-Id": []string{"gen-billed"}}}, nil))
+		assert.Error(t, ReleaseOpenRouterSyncHold(info.OpenRouterCost.TaskID))
+		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+	})
+	t.Run("guard rejects a non-zero release", func(t *testing.T) {
+		info := parkUnknown(t)
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		r := task.PrivateData.Reconciliation
+		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0.04
+		r.TargetQuota, r.SettlementPending = 40, true
+		assert.Error(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterAudio.Revision))
+		assert.Error(t, ReleaseOpenRouterSyncHold("task_missing"))
+		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+	})
+}
+
 func TestOpenRouterAudioConcurrentPollersSettleOnce(t *testing.T) {
 	c, info := newOpenRouterAudioReservation(t)
 	entered, release := make(chan struct{}, 2), make(chan struct{})

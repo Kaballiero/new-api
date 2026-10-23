@@ -1776,7 +1776,8 @@ function videoOrder(ctx) {
   if (parameters.duration !== undefined) {
     const seconds = Number(parameters.duration);
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 3600) throw new Error("seconds must be an integer between 1 and 3600");
-    if (!(capability.supported_durations || []).includes(seconds)) throw new Error("Unsupported duration for " + model);
+    const durations = capability.supported_durations || [];
+    if (durations.length && !durations.includes(seconds)) throw new Error("Unsupported duration for " + model);
     body.duration = seconds;
   }
   for (const pair of [["resolution", "supported_resolutions"], ["aspect_ratio", "supported_aspect_ratios"], ["size", "supported_sizes"]]) {
