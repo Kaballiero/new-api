@@ -1,0 +1,41 @@
+{
+  "http": {
+    "status": 201,
+    "headers": {
+      "Auth-Version": "864b7076dbcd0a3c01b5520316720ebf",
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Oneapi-Request-Id": "\u003crequest-id\u003e"
+    },
+    "body": "{\"data\":{\"user_id\":4,\"access_token\":\"\u003cgenerated-credential\u003e\",\"initial_quota\":0},\"success\":true}"
+  },
+  "events": [
+    {
+      "id": 0,
+      "event_id": "\u003cevent-1\u003e",
+      "user_id": 2,
+      "username": "contract-admin",
+      "actor_role": 10,
+      "created_at": 0,
+      "category": "operation",
+      "action": "getapi.users.provision",
+      "token_ref": "",
+      "auth_method": "session",
+      "ip": "192.0.2.8",
+      "user_agent": "audit-contract-agent",
+      "method": "POST",
+      "route": "/api/getapi/users",
+      "status": 201,
+      "success": true,
+      "request_id": "\u003crequest-id\u003e",
+      "content": "",
+      "other": {
+        "root_info": {
+          "integration_id": "fixture-integration",
+          "target_user_id": 4
+        }
+      }
+    }
+  ],
+  "usage": []
+}

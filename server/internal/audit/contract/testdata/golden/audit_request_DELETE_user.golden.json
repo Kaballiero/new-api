@@ -1,0 +1,12 @@
+{
+  "http": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Oneapi-Request-Id": "\u003crequest-id\u003e"
+    },
+    "body": "{\"success\":true}"
+  },
+  "events": [],
+  "usage": []
+}

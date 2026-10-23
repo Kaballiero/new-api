@@ -1,0 +1,46 @@
+{
+  "http": {
+    "status": 200,
+    "headers": {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json; charset=utf-8",
+      "Expires": "0",
+      "Pragma": "no-cache",
+      "X-Oneapi-Request-Id": "\u003crequest-id\u003e"
+    },
+    "body": "{\"data\":{\"access_expires_at\":0,\"access_token\":\"\u003caccess-jwt\u003e\",\"session\":{\"sid\":\"\u003csession-id\u003e\",\"current\":true,\"login_method\":\"password\",\"ip\":\"192.0.2.8\",\"user_agent\":\"audit-contract-agent\",\"created_at\":0,\"last_active_at\":0,\"expires_at\":0},\"token_type\":\"Bearer\",\"user\":{\"aff_code\":\"contract-user\",\"aff_count\":0,\"aff_history_quota\":0,\"aff_quota\":0,\"discord_id\":\"\",\"display_name\":\"\",\"email\":\"\",\"github_id\":\"\",\"group\":\"default\",\"has_password\":true,\"id\":1,\"inviter_id\":0,\"linux_do_id\":\"\",\"oidc_id\":\"\",\"permissions\":{\"admin_permissions\":{\"audit\":{\"read\":false},\"channel\":{\"operate\":false,\"read\":false,\"secret_view\":false,\"sensitive_write\":false,\"write\":false},\"task_plugin\":{\"bind\":false}},\"sidebar_modules\":{\"admin\":false},\"sidebar_settings\":true},\"quota\":1000000,\"request_count\":0,\"role\":1,\"setting\":\"\",\"sidebar_modules\":\"\",\"status\":1,\"stripe_customer\":\"\",\"telegram_id\":\"\",\"used_quota\":0,\"username\":\"contract-user\",\"wechat_id\":\"\"}},\"message\":\"\",\"success\":true}"
+  },
+  "events": [
+    {
+      "id": 0,
+      "event_id": "\u003cevent-1\u003e",
+      "user_id": 1,
+      "username": "contract-user",
+      "actor_role": 1,
+      "created_at": 0,
+      "category": "login",
+      "action": "login",
+      "token_ref": "",
+      "auth_method": "session",
+      "ip": "192.0.2.8",
+      "user_agent": "audit-contract-agent",
+      "method": "POST",
+      "route": "/api/user/login",
+      "status": 200,
+      "success": true,
+      "request_id": "\u003crequest-id\u003e",
+      "content": "Logged in successfully via password",
+      "other": {
+        "op": {
+          "action": "login",
+          "params": {
+            "method": "password"
+          }
+        },
+        "login_method": "password",
+        "user_agent": "audit-contract-agent"
+      }
+    }
+  ],
+  "usage": []
+}

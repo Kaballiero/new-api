@@ -1,0 +1,59 @@
+{
+  "http": {
+    "status": 400,
+    "headers": {
+      "Auth-Version": "864b7076dbcd0a3c01b5520316720ebf",
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Oneapi-Request-Id": "\u003crequest-id\u003e"
+    },
+    "body": "{\"success\":false}"
+  },
+  "events": [
+    {
+      "id": 0,
+      "event_id": "\u003cevent-1\u003e",
+      "user_id": 3,
+      "username": "contract-root",
+      "actor_role": 100,
+      "created_at": 0,
+      "category": "operation",
+      "action": "generic",
+      "token_ref": "",
+      "auth_method": "session",
+      "ip": "192.0.2.8",
+      "user_agent": "audit-contract-agent",
+      "method": "POST",
+      "route": "/audit-contract/admin/:id",
+      "status": 400,
+      "success": false,
+      "request_id": "\u003crequest-id\u003e",
+      "content": "POST /audit-contract/admin/:id",
+      "other": {
+        "op": {
+          "action": "generic",
+          "params": {
+            "method": "POST",
+            "route": "/audit-contract/admin/:id"
+          }
+        },
+        "admin_info": {
+          "admin_id": 3,
+          "admin_username": "contract-root",
+          "admin_role": 100,
+          "auth_method": "session"
+        },
+        "audit_info": {
+          "method": "POST",
+          "route": "/audit-contract/admin/:id",
+          "path": "/audit-contract/admin/:id",
+          "status": 400,
+          "success": false,
+          "params": {
+            "id": "11"
+          }
+        }
+      }
+    }
+  ],
+  "usage": []
+}
