@@ -60,7 +60,7 @@ Quota export сохраняет один RAM cache и один batch queue в mo
 
 347 `usage_read_*` goldens и default-locale origin baseline из commit 5ca688857 immutable. Parity cases посылают explicit zh-CN/zh-TW. English default и ru проверяются отдельно exact old→new таблицей; неизвестные storage errors не нормализуются. Commit 0 (05edd5ad1) устраняет wave-1 регрессию raw search errors до записи baseline.
 
-Отдельный tool-note patch `%s calls: %d, cost %s` применяется оркестратором после host parity; до этого renderer сохраняет старую строку. Host update разрешён только точным affected cases и content-only checker; исторические DB rows не мигрируются. Артефакты/команды и реальные границы проверки находятся в `/dev/shm/refactor-plans/wave3a-report.md`.
+Tool note рендерится как `%s calls: %d, cost %s` (прежде `%s called %d times, cost %s`); исторические DB rows не мигрируются.
 
 Исправление review 1: admin_list_user_usage_data и list_own_usage_data явно сбрасывают Username,
 поскольку /api/data/users и /api/data/self никогда не принимали этот фильтр. Остальные query dimensions

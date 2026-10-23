@@ -30,7 +30,7 @@
 | 0 | Карта системы и roadmap | ✅ | нет |
 | 1 | Бизнес-модули панели: apikeys, accounts, catalog, authorization + PAT, identity, pricing, channels | ✅ (не слито в main) | — |
 | 2 | Граница шлюза: проверка ключа, billing, запись использования | ✅ (2a, 2b1, 2b2, 2c) | высокий |
-| 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ⬜ | средний |
+| 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | 🔄 (3a ✅, 3b аудит впереди) | средний |
 | 4 | Платежи, подписки, коды пополнения | ⬜ | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
 | 6 | Настройки и система | ⬜ | низкий |
@@ -95,9 +95,11 @@
 - [x] Host acceptance переноса (commit 60ae79859): SHA154, все contracts без -update на plain Chinese tree, WSS, full suite, relaykit/OpenAPI/U1000; PostgreSQL 15.19 full suite совпадает с origin/main, изолированные usage/billing adapter, WSS, cost/task проверки зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] English (commit 6b22c3bbd): перезаписаны только 27 затронутых cases, checker подтвердил изменение только `content` по утверждённой таблице; финальный host suite зелёный.
 
-## Волна 3 — учёт и аналитика ⬜
+## Волна 3 — учёт и аналитика 🔄
 
-- [x] 3a: usage read side, aggregates, rankings перенесены в 14 action packages; SQL/records/codec — usage adapter, quota scheduling — usage app; общие counter jobs — app/background.go. Controller bridges сохранены. Host acceptance для текущего переноса и отдельный tool-note patch перечислены в wave3a-report; real MySQL/PostgreSQL/WSS/full suite ещё требуют host run.
+- [x] 3a: usage read side, aggregates, rankings перенесены в 14 action packages; SQL/records/codec — usage adapter, quota scheduling — usage app; общие counter jobs — app/background.go. Controller bridges сохранены.
+- [x] Host acceptance 3a (commit 514905572): 347 usage_read + 154 billing/usage goldens без -update, locale defaults, WSS, full suite, relaykit/OpenAPI/U1000; PostgreSQL 15.19 full suite совпадает с origin/main, изолированные usage adapter/app проверки (main + отдельная log schema) зелёные. SQLite/MySQL полной матрицей не проверялись.
+- [x] Tool note (commit 36bcaf486): `<tool> calls: N, cost X`; перезаписаны только 8 затронутых billing cases, checker подтвердил изменение только `content`.
 - [ ] `audit`: `controller/audit.go`, `model/audit_*.go`.
 - [x] Read queries к `LOG_DB` отделены, отдельная log DB сохранена; #36 закрыт plain request observation. Legacy writers/cleanup и общие RAM queues остаются до волн 5/7 (A2/A4), без нового locator.
 
