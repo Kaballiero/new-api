@@ -183,6 +183,17 @@ func (p *TaskPrivateData) OpenRouterSyncState() *OpenRouterSyncTask {
 	return p.OpenRouterAudio
 }
 
+// OpenRouterSyncReleasable reports an audio hold parked in manual
+// reconciliation only because the submission outcome was unknown: no
+// generation identity and no upstream cost were ever observed.
+func (t *Task) OpenRouterSyncReleasable() bool {
+	a, r := t.PrivateData.OpenRouterSyncState(), t.PrivateData.Reconciliation
+	return t.Platform == constant.TaskPlatformOpenRouterAudio && t.Status == TaskStatusFailure && a != nil && r != nil &&
+		a.LastError == "submission_outcome_unknown" && !a.IdentityConflict && t.PrivateData.UpstreamTaskID == "" &&
+		r.Required && r.ReservedQuota > 0 && !r.ReservationPending && !r.SubmissionPending && !r.HasUpstreamCost &&
+		!r.SettlementPending && !r.MainApplied && !r.Finalized
+}
+
 // UpdateOpenRouterSync guards same-status updates as well as terminal claims.
 // SQLite's read/write transaction conflicts reject a stale writer; other
 // engines lock the row before checking the private JSON revision.
@@ -214,8 +225,12 @@ func (t *Task) UpdateOpenRouterSync(expectedRevision int) error {
 			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.SubmissionPending && !next.ReservationPending
 		lateImageReceipt := (saved.Platform == constant.TaskPlatformOpenRouterImage || saved.Platform == constant.TaskPlatformOpenRouterChatImage) && saved.Status == TaskStatusFailure && t.Status == TaskStatusFailure &&
 			prior != nil && next != nil && prior.Required && !prior.ReservationPending && !prior.HasUpstreamCost && !prior.SettlementPending && !prior.Finalized && !next.HasUpstreamCost
+		// An operator may release such a hold only as a confirmed zero cost.
+		operatorRelease := saved.OpenRouterSyncReleasable() && t.Status == TaskStatusFailure && next != nil && t.PrivateData.UpstreamTaskID == "" &&
+			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.UpstreamCostUSD == 0 && next.SettlementPending &&
+			next.TargetQuota == 0 && next.ReservedQuota == prior.ReservedQuota && !next.MainApplied && !next.Finalized
 		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID ||
-			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure && !lateImageCost && !lateImageReceipt ||
+			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure && !lateImageCost && !lateImageReceipt && !operatorRelease ||
 			saved.Platform != t.Platform || saved.Action != t.Action || saved.UserId != t.UserId || saved.ChannelId != t.ChannelId || saved.PrivateData.TokenId != t.PrivateData.TokenId || saved.Properties.UpstreamModelName != t.Properties.UpstreamModelName {
 			return fmt.Errorf("OpenRouter synchronous task claim changed")
 		}
