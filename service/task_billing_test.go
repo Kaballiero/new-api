@@ -3267,6 +3267,54 @@ func TestOpenRouterAudioPendingReservationAndSettlementNeverReplay(t *testing.T)
 	})
 }
 
+func TestOpenRouterAudioSubmissionRejectionReleasesHold(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		requestErr error
+		released   bool
+	}{
+		{name: "provider format rejection", status: http.StatusBadRequest, released: true},
+		{name: "forbidden", status: http.StatusForbidden, released: true},
+		{name: "request timeout", status: http.StatusRequestTimeout},
+		{name: "rate limit", status: http.StatusTooManyRequests},
+		{name: "server error", status: http.StatusBadGateway},
+		{name: "transport error", requestErr: fmt.Errorf("connection reset")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, info := newOpenRouterAudioReservation(t)
+			require.NoError(t, ConfigureOpenRouterSyncSubmission(info, "https://metadata.invalid/generation", nil))
+			var resp *http.Response
+			if tc.requestErr == nil {
+				resp = &http.Response{StatusCode: tc.status, Header: http.Header{}}
+			}
+			require.NoError(t, RecordOpenRouterSyncSubmission(info, resp, tc.requestErr))
+			RunTaskPollingOnce(t.Context(), nil)
+
+			task, err := openRouterSyncTask(info)
+			require.NoError(t, err)
+			assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), task.Status)
+			reconciliation := OpenRouterSyncReconciliation(task)
+			if !tc.released {
+				assert.Contains(t, task.FailReason, "manual reconciliation")
+				assert.Equal(t, "manual_reconciliation", reconciliation["billing_state"])
+				assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+				return
+			}
+			assert.True(t, task.PrivateData.Reconciliation.Finalized)
+			assert.Zero(t, task.Quota)
+			assert.Equal(t, "settled", reconciliation["billing_state"])
+			assert.Equal(t, "upstream_rejected", reconciliation["reason_code"])
+			assert.Equal(t, 10000, getUserQuota(t, info.UserId))
+			assert.Equal(t, 10000, getTokenRemainQuota(t, info.TokenId))
+			var refunds []model.Log
+			require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeRefund).Find(&refunds).Error)
+			require.Len(t, refunds, 1)
+			assert.Equal(t, 50, refunds[0].Quota)
+		})
+	}
+}
+
 func TestOpenRouterAudioConcurrentPollersSettleOnce(t *testing.T) {
 	c, info := newOpenRouterAudioReservation(t)
 	entered, release := make(chan struct{}, 2), make(chan struct{})
