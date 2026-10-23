@@ -1,0 +1,118 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Auth-Version": "864b7076dbcd0a3c01b5520316720ebf",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Oneapi-Request-Id": "\u003chttp-request\u003e"
+      },
+      "body": "{\"data\":null,\"message\":\"\",\"success\":true}"
+    },
+    "orders": [
+      {
+        "id": 11,
+        "user_id": 1,
+        "amount": 2,
+        "money": 3.5,
+        "trade_no": "PAYMENT-CONTRACT-ORDER",
+        "payment_method": "waffo",
+        "payment_provider": "waffo",
+        "create_time": 100,
+        "complete_time": 1,
+        "status": "success"
+      }
+    ],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 2000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 2,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 3,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      }
+    ],
+    "logs": [
+      {
+        "id": 1,
+        "user_id": 1,
+        "created_at": 1,
+        "type": 1,
+        "content": "管理员补单成功，充值金额: ＄2.000000，支付金额：3.500000",
+        "username": "contract-user",
+        "token_name": "",
+        "model_name": "",
+        "quota": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "use_time": 0,
+        "is_stream": false,
+        "channel": 0,
+        "channel_name": "",
+        "token_id": 0,
+        "group": "",
+        "ip": "192.0.2.8",
+        "request_id": "\u003cusage-request-1\u003e",
+        "other": "{\"admin_info\":{\"callback_payment_method\":\"admin\",\"caller_ip\":\"192.0.2.8\",\"node_name\":\"payments-contract-node\",\"payment_method\":\"waffo\",\"server_ip\":\"\\u003cserver-ip\\u003e\",\"version\":\"contract\"}}"
+      }
+    ],
+    "events": [
+      {
+        "id": 1,
+        "event_id": "\u003cevent-1\u003e",
+        "user_id": 2,
+        "username": "contract-admin",
+        "actor_role": 10,
+        "created_at": 1,
+        "category": "operation",
+        "action": "user.topup_complete",
+        "token_ref": "",
+        "auth_method": "session",
+        "ip": "192.0.2.8",
+        "user_agent": "payments-contract-agent",
+        "method": "POST",
+        "route": "/api/user/topup/complete",
+        "status": 200,
+        "success": true,
+        "request_id": "\u003chttp-request-1\u003e",
+        "content": "POST /api/user/topup/complete",
+        "other": {
+          "op": {
+            "action": "user.topup_complete"
+          },
+          "admin_info": {
+            "admin_id": 2,
+            "admin_username": "contract-admin",
+            "admin_role": 10,
+            "auth_method": "session"
+          },
+          "audit_info": {
+            "method": "POST",
+            "route": "/api/user/topup/complete",
+            "path": "/api/user/topup/complete",
+            "status": 200,
+            "success": true
+          }
+        }
+      }
+    ],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "options": [],
+    "outbound": []
+  }
+]

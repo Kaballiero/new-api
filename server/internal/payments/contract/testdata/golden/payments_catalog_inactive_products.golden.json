@@ -1,0 +1,55 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Auth-Version": "864b7076dbcd0a3c01b5520316720ebf",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Oneapi-Request-Id": "\u003chttp-request\u003e"
+      },
+      "body": "{\"data\":{\"stores\":[{\"id\":\"STO_1234567890abcdefghijkl\",\"name\":\"Fixture store\",\"status\":\"active\",\"prodEnabled\":true,\"onetimeProducts\":[{\"id\":\"PROD_1234567890abcdefghijkl\",\"name\":\"Kept\",\"status\":\" ACTIVE \"}]}]},\"message\":\"success\"}"
+    },
+    "orders": [],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 2,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 3,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      }
+    ],
+    "logs": [],
+    "events": [],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "options": [],
+    "outbound": [
+      {
+        "method": "POST",
+        "url": "https://api.waffo.ai/v1/graphql",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Merchant-Id": "MER_1234567890abcdefghijkl",
+          "X-SIGNATURE": "\u003cverified-signature\u003e",
+          "X-Timestamp": "\u003ctimestamp\u003e"
+        },
+        "body": "{\"query\":\"query {\\n\\t\\t\\tstores(limit: 100) {\\n\\t\\t\\t\\tid\\n\\t\\t\\t\\tname\\n\\t\\t\\t\\tstatus\\n\\t\\t\\t\\tprodEnabled\\n\\t\\t\\t\\tonetimeProducts {\\n\\t\\t\\t\\t\\tid\\n\\t\\t\\t\\t\\tname\\n\\t\\t\\t\\t\\tstatus\\n\\t\\t\\t\\t}\\n\\t\\t\\t}\\n\\t\\t}\"}"
+      }
+    ]
+  }
+]

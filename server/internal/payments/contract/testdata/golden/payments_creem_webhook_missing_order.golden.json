@@ -1,0 +1,41 @@
+[
+  {
+    "http": {
+      "status": 400,
+      "headers": {
+        "X-Oneapi-Request-Id": "\u003chttp-request\u003e"
+      },
+      "body": ""
+    },
+    "orders": [],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 2,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 3,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      }
+    ],
+    "logs": [],
+    "events": [],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "options": [],
+    "outbound": []
+  }
+]

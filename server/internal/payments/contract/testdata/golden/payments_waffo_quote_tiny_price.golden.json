@@ -1,0 +1,46 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Auth-Version": "864b7076dbcd0a3c01b5520316720ebf",
+        "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0",
+        "Content-Type": "application/json; charset=utf-8",
+        "Expires": "0",
+        "Pragma": "no-cache",
+        "X-Oneapi-Request-Id": "\u003chttp-request\u003e"
+      },
+      "body": "{\"data\":\"充值金额过低\",\"message\":\"error\"}"
+    },
+    "orders": [],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 2,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 3,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      }
+    ],
+    "logs": [],
+    "events": [],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "options": [],
+    "outbound": []
+  }
+]

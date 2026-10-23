@@ -1,0 +1,59 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Auth-Version": "864b7076dbcd0a3c01b5520316720ebf",
+        "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0",
+        "Content-Type": "application/json; charset=utf-8",
+        "Expires": "0",
+        "Pragma": "no-cache",
+        "X-Oneapi-Request-Id": "\u003chttp-request\u003e"
+      },
+      "body": "{\"data\":{\"device\":\"pc\",\"money\":\"10.00\",\"name\":\"TUC10\",\"notify_url\":\"https://console.example.test//api/user/epay/notify\",\"out_trade_no\":\"\u003cgenerated-order\u003e\",\"pid\":\"test-merchant\",\"return_url\":\"https://console.example.test/usage-logs\",\"sign\":\"\u003cverified-signature\u003e\",\"sign_type\":\"MD5\",\"type\":\"alipay\"},\"message\":\"success\",\"url\":\"https://epay.example.test/submit.php\"}"
+    },
+    "orders": [
+      {
+        "id": 1,
+        "user_id": 2,
+        "amount": 10,
+        "money": 10,
+        "trade_no": "\u003cgenerated-order\u003e",
+        "payment_method": "alipay",
+        "payment_provider": "epay",
+        "create_time": 1,
+        "complete_time": 0,
+        "status": "pending"
+      }
+    ],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 2,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 3,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      }
+    ],
+    "logs": [],
+    "events": [],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "options": [],
+    "outbound": []
+  }
+]

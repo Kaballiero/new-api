@@ -1,0 +1,73 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Auth-Version": "864b7076dbcd0a3c01b5520316720ebf",
+        "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0",
+        "Content-Type": "application/json; charset=utf-8",
+        "Expires": "0",
+        "Pragma": "no-cache",
+        "X-Oneapi-Request-Id": "\u003chttp-request\u003e"
+      },
+      "body": "{\"data\":{\"pay_link\":\"\u003cfixture-checkout-link\u003e\"},\"message\":\"success\"}"
+    },
+    "orders": [
+      {
+        "id": 1,
+        "user_id": 3,
+        "amount": 10,
+        "money": 10,
+        "trade_no": "\u003cgenerated-order\u003e",
+        "payment_method": "stripe",
+        "payment_provider": "stripe",
+        "create_time": 1,
+        "complete_time": 0,
+        "status": "pending"
+      }
+    ],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 2,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 3,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      }
+    ],
+    "logs": [],
+    "events": [],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "options": [],
+    "outbound": [
+      {
+        "method": "POST",
+        "url": "https://api.stripe.com/v1/checkout/sessions",
+        "headers": {
+          "Authorization": "\u003cfixture-credential\u003e",
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Idempotency-Key": "\u003cverified-idempotency\u003e",
+          "Stripe-Version": "2025-02-24.acacia",
+          "User-Agent": "Stripe/v1 GoBindings/81.4.0",
+          "X-Stripe-Client-User-Agent": "{\"application\":null,\"bindings_version\":\"81.4.0\",\"lang\":\"go\",\"lang_version\":\"go1.27.1\",\"publisher\":\"stripe\",\"uname\":\"Linux egor 6.8.0-139-generic #139-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 03:52:05 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\\n\"}"
+        },
+        "body": "allow_promotion_codes=false\u0026cancel_url=https%3A%2F%2Fconsole.example.test%2Fwallet\u0026client_reference_id=\u003cgenerated-order\u003e\u0026customer_creation=always\u0026line_items[0][price]=price_fixture\u0026line_items[0][quantity]=10\u0026mode=payment\u0026success_url=https%3A%2F%2Fconsole.example.test%2Fusage-logs"
+      }
+    ]
+  }
+]

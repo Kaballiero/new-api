@@ -1,0 +1,94 @@
+[
+  {
+    "http": {
+      "status": 200,
+      "headers": {
+        "Auth-Version": "864b7076dbcd0a3c01b5520316720ebf",
+        "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0",
+        "Content-Type": "application/json; charset=utf-8",
+        "Expires": "0",
+        "Pragma": "no-cache",
+        "X-Oneapi-Request-Id": "\u003chttp-request\u003e"
+      },
+      "body": "{\"data\":{\"order_id\":\"\u003cgenerated-order\u003e\",\"payment_url\":\"\u003cfixture-checkout-link\u003e\"},\"message\":\"success\"}"
+    },
+    "orders": [
+      {
+        "id": 1,
+        "user_id": 1,
+        "amount": 10,
+        "money": 10,
+        "trade_no": "\u003cgenerated-order\u003e",
+        "payment_method": "waffo",
+        "payment_provider": "waffo",
+        "create_time": 1,
+        "complete_time": 0,
+        "status": "pending"
+      }
+    ],
+    "wallets": [
+      {
+        "id": 1,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 2,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      },
+      {
+        "id": 3,
+        "quota": 1000000,
+        "email": "",
+        "stripe_customer": "",
+        "group": "default"
+      }
+    ],
+    "logs": [],
+    "events": [
+      {
+        "id": 1,
+        "event_id": "\u003cevent-1\u003e",
+        "user_id": 1,
+        "username": "contract-user",
+        "actor_role": 1,
+        "created_at": 1,
+        "category": "access_token",
+        "action": "",
+        "token_ref": "4beb5ac59fc57d917d59a8fb4cd915287bf055616609140b181e4e6a7ef6f809",
+        "auth_method": "access_token",
+        "ip": "192.0.2.8",
+        "user_agent": "payments-contract-agent",
+        "method": "POST",
+        "route": "/api/user/waffo/pay",
+        "status": 200,
+        "success": true,
+        "request_id": "\u003chttp-request-1\u003e",
+        "content": "",
+        "other": {}
+      }
+    ],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "options": [],
+    "outbound": [
+      {
+        "method": "POST",
+        "url": "https://api.waffo.com/api/v1/order/create",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-API-KEY": "\u003cfixture-credential\u003e",
+          "X-API-VERSION": "1.0.0",
+          "X-SDK-VERSION": "waffo-go/1.3.2",
+          "X-SIGNATURE": "\u003cverified-signature\u003e"
+        },
+        "body": "{\"paymentRequestId\":\"\u003cgenerated-order\u003e\",\"merchantOrderId\":\"\u003cgenerated-order\u003e\",\"orderCurrency\":\"USD\",\"orderAmount\":\"10.00\",\"orderDescription\":\"Recharge 10 credits\",\"orderRequestedAt\":\"\u003crequest-time\u003e\",\"successRedirectUrl\":\"https://console.example.test/wallet?show_history=true\",\"failedRedirectUrl\":\"https://console.example.test/wallet?show_history=true\",\"notifyUrl\":\"https://console.example.test//api/waffo/webhook\",\"merchantInfo\":{\"merchantId\":\"MER_1234567890abcdefghijkl\"},\"userInfo\":{\"userId\":\"1\",\"userEmail\":\"1@examples.com\",\"userTerminal\":\"WEB\"},\"goodsInfo\":{\"goodsName\":\"Recharge 10 credits\",\"appName\":\"New API\"},\"paymentInfo\":{\"productName\":\"ONE_TIME_PAYMENT\",\"payMethodType\":\"CARD\",\"payMethodName\":\"VISA\"}}"
+      }
+    ]
+  }
+]
