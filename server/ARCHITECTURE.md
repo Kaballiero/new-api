@@ -121,7 +121,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 - В `model/` остаётся алиас для не перенесённого кода: `type Token record.Token` (`model/token.go`).
 - Доменные типы (`<module>/domain`) — отдельные структуры без тегов; преобразование — в `record/conversion.go`. Структура таблицы не выходит за пределы адаптера, usecase видит только domain.
 - Список миграций (`AutoMigrate` в `model/main.go`) остаётся на месте: состав и порядок таблиц — часть поведения БД.
-- Сейчас в `internal/adapter/gorm/*/record/` лежат таблицы accounts, apikeys, authorization, catalog, channels и pricing; остальные пока в `model/`.
+- Сейчас в `internal/adapter/gorm/*/record/` лежат таблицы accounts, apikeys, authorization, catalog, channels, pricing и usage; остальные пока в `model/`.
 
 Код обязан работать на SQLite, MySQL и PostgreSQL (правила — корневой `CLAUDE.md`, Rule 2).
 
@@ -134,7 +134,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 | кэш каналов | `model.SyncChannelCache` | channels |
 | перечитывание настроек | `model.SyncOptions` | settings |
 | синхронизация политики прав | `authz.StartPolicySync` | authorization |
-| агрегаты для дашборда | `model.UpdateQuotaData` | usage |
+| агрегаты для дашборда | `internal/app/usage.StartQuotaData` | usage |
 | обновление баланса каналов | `controller.AutomaticallyUpdateChannels` (если задан `CHANNEL_UPDATE_FREQUENCY`) | channels |
 | периодические системные задачи: тест каналов, модели upstream, опрос Midjourney и асинхронных задач, сборка каталога цен | `controller.RegisterScheduledSystemTasks` + `service.StartSystemTaskRunner` | channels, tasks, pricing; запуск — system |
 | плагины задач | `controller.SyncTaskPlugins` | tasks |
@@ -143,7 +143,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 | курсы валют для цен | `service.StartModelCostFX` | pricing |
 | отчёт об инстансе | `service.StartSystemInstanceReporter` | system |
 | очистка артефактов входа | `service.StartAuthArtifactCleanup` | identity |
-| пакетная запись счётчиков | `model.InitBatchUpdater` | usage |
+| пакетная запись счётчиков | `internal/app.StartBatchUpdater` | shared counter composition |
 
 Интервалы, порядок шагов и master-only поведение при переносе не меняются.
 
@@ -152,3 +152,36 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 - Ответы клиенту — через backend i18n (`i18n/locales`), ключи минимум en + ru.
 - Логи — на английском, без i18n.
 - Фоновые и сохраняемые тексты без запроса — на языке пользователя-получателя (для каналов — root), а если язык не задан — на английском.
+
+### Технические aliases records в model
+
+Файл пакета `model` может импортировать ровно один пакет
+`internal/adapter/gorm/<module>/record` без записи в architecture allowlist,
+только если все его декларации кроме самого import — `type X = record.X`
+либо прямые const re-exports `const X = record.X`. Имя re-export совпадает
+с именем исходного символа. Других imports, funcs, methods, vars, init,
+вычисляемых/неявных constants и defined types в таком файле быть не может.
+Это проверяется по полному AST; отрицательные случаи покрыты тестом.
+Исключение относится только к техническим aliases, а не к вызовам бизнеса
+из model. `service` под исключение не попадает. Allowlist по-прежнему
+может только сокращаться.
+
+### Usage read side (3a)
+
+Action-local HTTP handlers и узкие consumer-owned ports собираются в internal/app/usage.
+Controller bridge использует sync.OnceValue; routers/middleware не меняются.
+Log/QuotaData records и общий raw-preserving metadata codec принадлежат gorm/usage/record;
+HTTP DTO и domain.VisibilityPolicy не зависят от хранимой JSON формы. Domain/scenarios выбирают
+visibility, identity scope, validation, grouping, count limits, ranking windows и TTL; adapters
+исполняют SQL/codec/cache operations. Read SQL использует прежние main/LOG_DB и dialect branches.
+
+Планирование quota export — internal/app/usage; общих user/token/channel counter flush — internal/app/background.go. До волны 7 единственные RAM
+cache/queue и технические producer primitives остаются в model (A2). Legacy Gin writers делегируют
+plain LogObservation writers; usage adapter Gin не импортирует (#36 закрыт). system_task cleanup
+остаётся technical service/model residue по A4; новый reverse import или locator не вводится.
+
+Usage domain errors сопоставляются в transport через errors.Is/errors.As и i18n.MsgUsage*;
+ranking period — typed error с полем Period. Storage-specific malformed/rejection правила
+не передаются в VisibilityPolicy: codec выводит их из permissions. Legacy LogOther consumers
+используют zero-value type alias, без дополнительного model constructor bridge.
+Архитектурный тест, как и до 3a, пропускает файлы `_test.go`; AST-исключение применяется к production aliases.

@@ -1,8 +1,8 @@
-# Usage — запись потребления и ошибок запроса
+# Usage — запись, чтение и аналитика потребления
 
 ## Ответственность
 
-Модуль владеет записью результата gateway-запроса: used quota/request counters, consume/error rows и фактами для их content/other. Цена, расчёт списания, резерв, settlement/refund и политика неизвестной стоимости остаются в billing/gateway. Чтение логов, usedata, агрегаты, рейтинги, аудит и batch-updater — волна 3; Task/Batch/Midjourney/violation billing — волна 5.
+Модуль владеет записью результата gateway-запроса: used quota/request counters, consume/error rows и фактами для их content/other. Цена, расчёт списания, резерв, settlement/refund и политика неизвестной стоимости остаются в billing/gateway. Чтение логов, usedata, агрегаты и рейтинги входят в модуль. Аудит — отдельная волна 3b; Task/Batch/Midjourney/violation billing — волна 5.
 
 ## Возможности
 
@@ -12,7 +12,7 @@
 | `record_consumption` | Записать consume row через прежний writer; text, audio, realtime и channel test. Disabled consume не отключает counters/settlement |
 | `record_failure` | Записать upstream-attempt или delivery-failure row; сценарий владеет early upstream admission и late delivery gate |
 
-Собственных HTTP-маршрутов, scheduler и фоновых циклов нет. Потребители — прежние relay endpoints, playground и channel-test handler; общий upstream writer используется также task-submission error path. Пути, middleware и полномочия не меняются.
+Запись вызывают relay endpoints, playground и channel-test handler; общий upstream writer используется также task-submission error path. HTTP read handlers находятся рядом со сценариями. Пути, middleware и полномочия не меняются; controller сохраняет тонкие entrypoints через sync.OnceValue(app.NewHTTP). Фоновые циклы собирает internal/app/usage, а запускает main в прежних точках.
 
 ## Зависимости и сборка
 
@@ -20,9 +20,9 @@
 - Узкие Counter/Writer ports объявлены у потребителей. Record Execute принимает context.Context и Input/usage facts. Count Execute принимает явные facts и момент BeforeSettlement/AfterSettlement, сам выбирает эффект. Это осознанное исключение из формы Execute/error: model primitives работают fire-and-forget, складывая batch updates в RAM либо логируя direct-write error внутри; результата для возврата у Counter нет. Writer возвращает техническую ошибку при неподдерживаемом context; сценарии и gateway её обрабатывают. Ошибки DB прежние model writers логируют без возврата, поэтому nil не доказывает durable запись. RecordConsumption имеет один Execute: Describe выбирает и фиксирует notes/display reads до settlement, Persist завершает notes/model и пишет row. Audio price readers инъецированы в этот сценарий и наружу не выдаются. RecordFailure владеет delivery reason и обеими enabled gates. Единственный Execute имеет этапы AdmitUpstream/Persist: первый выдаёт Admission с закрытым полем в прежней ранней точке, второй использует этот снимок для upstream либо читает late gate для delivery. Нулевой Admission не разрешает upstream write; создать разрешение извне нельзя. Renderer форматирует и соединяет все notes в одном месте. Consumption.ProbeLabel — вход channel test; RenderedContent — результат рендеринга для storage, роли не смешаны.
 - `relay/usage.Recording()` — явный временный composition bridge через sync.OnceValue(app.New), без package-init construction. Только app знает конкретные storage/renderer implementations; gateway получает usecases и TaskMetadata port. `internal/app/usage.New` собирает stateless scenarios; настройки consume/export/error и display ratios читаются поздно через функции, а не при package init.
 - `relay/usage` переводит Gin/RelayInfo/DTO snapshots в usage facts. Gateway billing сохраняет последовательность cost → count → settle → record. Failure metadata capture защищён от отсутствующего Request; cancellation/path fallback не обращаются к нему без проверки.
-- `internal/adapter/gorm/usage` сериализует exact metadata через существующий model.LogOther/common codec и вызывает прежние model writers/counter primitives. LOG_SQL_DSN routing и таблицы не переносятся. Model.RecordConsumeLogWithSettings содержит одну body и по одному чтению consume/export в прежних точках; legacy RecordConsumeLog делегирует ей для оставшихся Task/MJ/violation consumers.
+- `internal/adapter/gorm/usage` владеет SQL чтения main/LOG_DB, проекцией DTO и exact metadata codec в record/log_other.go. Типы Log/QuotaData находятся в record, model/usage_records.go оставляет чистые type/const aliases для миграций и legacy writers. Schema/tags, LOG_SQL_DSN routing и таблицы прежние. Plain model.WriteConsumeLog содержит одну body и по одному чтению consume/export в прежних точках; legacy RecordConsumeLog делегирует ей для оставшихся Task/MJ/violation consumers. Неиспользуемый RecordErrorLog и одноразовый RecordConsumeLogWithSettings удалены. Legacy metadata consumers создают new(model.LogOther) через разрешённый type alias, без model factory bridge.
 - Числовую FX validity adapter проверяет через billing domain PublishedUSD/ApplyBillingFX; локально проверяются только согласованность captured rate/factor и наличие audit metadata.
-- Технический adapter снимает собственную metadata wrapper с context.Context и получает тот же исходный *gin.Context — без fake Gin и request-local constructor. Это временная связь до волны 3 (TECH_DEBT #36). Ненулевой Gin без Request поддерживается; nil Gin и другие реализации context.Context возвращают явную техническую ошибку до effects, без panic. URLPresent отличает отсутствующий URL от существующего URL с пустым Path.
+- Технический adapter снимает metadata и plain LogObservation с context.Context, не импортирует Gin и не восстанавливает его (#36 закрыт). relay/usage.RecordingContext захватывает Identity/ClientIP callbacks; model plain writers читают их в прежних поздних точках. Ненулевой Gin без Request поддерживается на gateway boundary; запись работает и с plain observation без Gin. Неподдерживаемый context возвращает прежнюю техническую ошибку до effects. URLPresent отличает отсутствующий URL от существующего URL с пустым Path.
 
 ## Порядок и совместимость
 
@@ -40,4 +40,32 @@ Persisted templates request consumption переведены на fixed English 
 
 `adapter/gorm/usage/TestUsageAdapterPostgres` требует TEST_POSTGRES_DSN с CREATE SCHEMA; создаёт две собственные schemas, задаёт search_path всем pooled connections, проверяет версию/current_schema и удаляет schemas при cleanup. Без DSN это SKIP, не PASS.
 
-Sandbox compile, pure/boundary SQLite и architecture не заменяют host HTTP/Redis/WSS/full suite/PostgreSQL. Сначала `wave2c-verify-host.sh parity` проверяет plain Chinese tree. Затем оркестратор применяет `wave2c-english.patch` через git apply, запускает `wave2c-update-english.sh` и `wave2c-verify-host.sh english`; source overlays не нужны. Английский update запускает только оркестратор; checker допускает только exact content token replacements, все остальные bytes 154 файлов фиксированы. Финальные host результаты и файлы по коммитам — в wave2c-report.md у оркестратора.
+Sandbox checks не заменяют host HTTP/Redis/WSS/full suite и real MySQL/PostgreSQL. Сценарии и SQL fixtures используют отдельные SQLite DB, PostgreSQL schemas с search_path на каждом соединении и временные MySQL databases. DSN без прав изоляции — ошибка; отсутствие DSN — SKIP, не доказательство совместимости. Optional ClickHouse проверяется отдельным LOG fixture.
+
+## Read side (волна 3a)
+
+| Сценарии | Решение | Хранилище |
+|---|---|---|
+| `admin_list_logs`, `admin_query_user_logs` | admin/root visibility; strict bounded query, dedup IDs | LOG_DB; token ownership — main |
+| `list_own_logs`, `list_key_logs` | ownership до чтения, user visibility, literal model для token-filter, count/recent limits | LOG_DB; credentials — main |
+| `admin_get_log_stats`, `get_own_log_stats` | consume-only; own username из authenticated context; rate window clock читается после проверки filters | LOG_DB |
+| `admin_list_usage_data`, `admin_list_user_usage_data`, `list_own_usage_data` | legacy/bucket choice, grouping и прежние разные range/identity rules | main quota_data |
+| `admin_get_usage_flow`, `get_own_usage_flow` | role dimensions, token/channel name enrichment, fallback labels | main quota_data/users/tokens/channels |
+| `aggregate_logs`, `aggregate_usage_data` | bounded scope, deleted-user inclusion, row/integer limits | main users + LOG_DB logs / main quota_data |
+| `get_rankings` | rolling/previous periods, vendor mapping, rank/share/history, cache TTL | main quota_data + catalog scalar metadata; memory cache |
+
+`transport` содержит общие parsers/envelopes/i18n, не SQL и не orchestration. Deprecated search handlers — прямой transport response, без пустого usecase. domain.VisibilityPolicy описывает разрешения, не persisted JSON; codec применяет их с сохранением raw lexemes и исторического rejection precedence. Adapter не выбирает роль/лимиты/ранжирование. HTTP DTO и record раздельны.
+
+Quota export сохраняет один RAM cache и один batch queue в model до волны 7 (A2). usage app запускает quota flush немедленно при старте и далее через DataExportInterval минут с поздним export gate; общая counter composition internal/app/background.go запускает batch writer со sleep-first interval и прежнее shutdown поведение. Adapter flush сохраняет lock-through-I/O, ignored errors и clear-on-failure. Пустого flush usecase нет. system_task orchestration и technical CountOldLog/DeleteOldLogBatch остаются service/model по A4: перенос потребовал бы нового запрещённого service→internal импорта либо locator. Это явно учтено в TECH_DEBT.
+
+347 `usage_read_*` goldens и default-locale origin baseline из commit 5ca688857 immutable. Parity cases посылают explicit zh-CN/zh-TW. English default и ru проверяются отдельно exact old→new таблицей; неизвестные storage errors не нормализуются. Commit 0 (05edd5ad1) устраняет wave-1 регрессию raw search errors до записи baseline.
+
+Отдельный tool-note patch `%s calls: %d, cost %s` применяется оркестратором после host parity; до этого renderer сохраняет старую строку. Host update разрешён только точным affected cases и content-only checker; исторические DB rows не мигрируются. Артефакты/команды и реальные границы проверки находятся в `/dev/shm/refactor-plans/wave3a-report.md`.
+
+Исправление review 1: admin_list_user_usage_data и list_own_usage_data явно сбрасывают Username,
+поскольку /api/data/users и /api/data/self никогда не принимали этот фильтр. Остальные query dimensions
+сверены с прежними handlers/SQL. Ошибки сопоставляются по errors.Is/errors.As с i18n.MsgUsage*;
+InvalidRankingPeriod несёт period отдельным полем. Единственное usage Translate сохраняет старые
+Simplified bytes для zh-TW. Domain policy содержит только permissions; malformed/rejection codec
+правила выводит сам record codec. Log kind constants имеют одного владельца domain; record экспортирует
+их для model alias compatibility (кратчайшая цепь при запрете model→domain импорта).

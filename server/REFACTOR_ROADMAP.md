@@ -97,9 +97,9 @@
 
 ## Волна 3 — учёт и аналитика ⬜
 
-- [ ] `usage`: `controller/log.go`, `log_query.go`, `usedata.go`, `usedata_bucket.go`, `usage_aggregate.go`, `rankings.go`, `model/log*.go`, агрегаты `model.UpdateQuotaData`, пакетная запись счётчиков `model.InitBatchUpdater`.
+- [x] 3a: usage read side, aggregates, rankings перенесены в 14 action packages; SQL/records/codec — usage adapter, quota scheduling — usage app; общие counter jobs — app/background.go. Controller bridges сохранены. Host acceptance для текущего переноса и отдельный tool-note patch перечислены в wave3a-report; real MySQL/PostgreSQL/WSS/full suite ещё требуют host run.
 - [ ] `audit`: `controller/audit.go`, `model/audit_*.go`.
-- [ ] Отделить запросы к `LOG_DB` в адаптер (отдельная БД логов сохраняется); убрать временное восстановление Gin context в usage storage adapter (#36).
+- [x] Read queries к `LOG_DB` отделены, отдельная log DB сохранена; #36 закрыт plain request observation. Legacy writers/cleanup и общие RAM queues остаются до волн 5/7 (A2/A4), без нового locator.
 
 ## Волна 4 — платежи, подписки, коды ⬜
 

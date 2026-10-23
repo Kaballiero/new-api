@@ -31,7 +31,14 @@
 
 | 34 | Исторические persisted log texts | Новые request templates 2c переведены на English отдельным разрешённым patch; старые rows остаются китайскими без миграции. Task/MJ/violation тексты переводятся в волне 5. Персональная локализация key+params/render-on-read — отдельное будущее улучшение | Смешанный язык исторических данных; смена новых content меняет /api/log тела и требует content-only проверки |
 | 35 | Recording counters / settlement / rows / export | Прежняя последовательность неатомарна: realtime counters уже применены при failed settle без consume; text/audio могут писать после settlement error; export пополняется даже после failed insert. Realtime failed-token case закреплён immutable usage contract; остальные риски установлены чтением кода. Не исправлять rollback/retry/idempotency молча; отдельно определить обязательность evidence/repair и fault/crash tests | Возможное расхождение counters, финансового состояния, rows и RAM export при сбое |
-| 36 | usage storage и Gin | По решению A3 domain/usecases принимают context.Context, но gorm/usage adapter снимает собственную wrapper с raw cost/affinity metadata и проверяет прежний исходный *gin.Context для model writer (без fake Gin и без обязательного Request); nil/другой context возвращает техническую ошибку до effects, без panic. В волне 3 выделить plain request metadata/storage primitive с прежними ID/IP/log timing; не создавать новый business bridge в model | Транспортная связь технического adapter; DB writers по-прежнему не возвращают durable результат; unsupported context явно отклоняется |
+
+
+| 36 | Закрыто в 3a: usage storage и Gin | Adapter получает plain request observation, ID/IP callbacks читаются поздно в техническом writer; Gin recovery удалён. Поддержаны direct/no-Request boundaries и unsupported-context rejection | Durable DB result остаётся прежним ограничением #35 |
+| 37 | Quota export RAM cache / adapter quota_cache | Flush держит lock во время SQL, ошибки First/update/create не возвращаются; cache очищается и при write failure. Сохранено по A2 | Возможна потеря export data и задержка producers; durability/retry требуют отдельного решения |
+| 38 | Batch counter RAM queue | Не durable, write errors логируются без requeue; scheduling/очерёдность прежние | Потеря counters при crash/ошибке записи; перенос единственной queue из model — волна 7 |
+| 39 | Log stats / own identity | Прежние stats принудительно считают consume независимо от type; rate window не ограничен запрошенным historical range; own stats/legacy quota используют username | Исторические/переименованные данные и rate window могут удивлять клиента; исправление меняет контракт |
+| 40 | Rankings | При равных totals порядок зависит от map traversal; labels зависят от local time, cache не объединяет concurrent misses | Нестабильный tie order и повторные запросы; политика не менялась в 3a |
+| 41 | system_task log cleanup | CountOldLog/DeleteOldLogBatch остаются technical model SQL: новый service→adapter import нарушил бы shrink-only boundary, main-registration/locator запрещены A4. Сохраняются прежние dialect LIMIT semantics | Перенос orchestration/cleanup port — системная волна; real-dialect удаление требует отдельной проверки |
 
 
 ## Оптимизации (без изменений схемы БД)
@@ -62,10 +69,12 @@
 - **accounts/update_profile**: ошибка смены пароля идёт в `writeSecurityError` из controller, а не через `transport.WriteError`.
 - **accounts/password_login**: `PasswordLoginLookup` в `adapter/gorm/accounts/record` по-прежнему отдаёт фабрики ошибок для identity.
 - **identity**: `http.go` passkey / complete_oauth / login_wechat зависят от `*model.User` (7 записей); пакет `adapter/identity/http` не удалён целиком (`PrimaryLogin`, `GetAuthenticatedUser`, `WriteOAuthError`, `SetAuthNoStore`).
-- **authorization**: модели `model/casbin_rule.go`, `model/authz_role.go` — алиасы для миграций.
+- **authorization**: чистые record aliases `model/casbin_rule.go`, `model/authz_role.go` для миграций проходят узкое AST-правило, их две allowlist-записи удалены; исполняемый код этим исключением не разрешается.
 - **pricing**: `domain` импортирует `common` и `relaykit` (`domain-transitive`, все `usecase-transitive: internal/pricing/*`, 8 `business-imports-gateway`); каналы для ratio sync читаются из `model` в `app/pricing.go`, а не через `channels`; `adapter/gorm/pricing` и `adapter/pricing/upstream` используют записи `catalog`/`channels` напрямую; `model/*` и `service/catalog_sync.go` создают сценарии pricing сами; `consumerContext` продублирован в пяти сценариях чтения.
 - **channels**: `domain` импортирует `common` (1 domain-transitive + 35 usecase-transitive); `service/channel.go` собирает `disable_channel` / `enable_channel` и формирует тексты уведомлений root, `service/codex_*` и `model/channel.go` создают сценарии (legacy-imports-internal); ошибки маппинга моделей приходят из `model` функцией `ModelUpdateRules.Errors`; `Check` и `Apply` продублированы в парах сценариев detect/scan и apply/apply_all; `adapter/gorm/channels.Store` хранит загруженные записи и поэтому собирается на каждый запрос; сводку обновления моделей получают все администраторы на языке root, а не каждый на своём.
 - **`oauth/telegram.go` импортирует `internal/identity/domain`** (алиасы ошибок); архитектурный тест пакет `oauth` не проверяет.
+
+- **usage 3a**: model/usedata.go и model/utils.go содержат единственные технические RAM cache/queue для legacy producers до волны 7 (A2); legacy writers/cleanup — A4, #35/#37/#38/#41. Pure record aliases разрешены строгим AST-правилом, allowlist не расширялся.
 
 ## Генератор OpenAPI
 
@@ -87,7 +96,7 @@
 Остальное — в своих волнах:
 
 - legacy `controller/`, `service/`, `model/`, `common/`, `middleware/` (≈ 700 строк вне комментариев на 2026-10-21) — по мере переноса соответствующих модулей;
-- ошибки шаблона поиска (`ErrSearch*`) в поиске логов и пополнений уходят клиенту английским текстом без перевода, пока эти модули не перенесены;
+- ошибки шаблона поиска (`ErrSearch*`) в пополнениях остаются вне переноса; в log endpoints wave-1 регрессия исправлена commit 0 (05edd5ad1), usage переводит ошибки существующими i18n keys;
 - метки групп «用户分组» / «自动» для потребителей вне accounts (service, pricing, relay) по-прежнему китайские: `accountssettings.UserGroups()` берёт их из zh-CN; локализован только `GET` групп пользователя;
 - те же старые тексты в legacy-файлах: `quota 不能为负数！` (`model/user.go`, `model/quota_reserve.go`), `id 为空！` (`model/user.go`, `model/redemption.go`);
 - сообщения успеха в identity переводятся через `TranslateMessage`, и AST-генератор OpenAPI не выводит их тип: схема `message: string` для 5 обработчиков зафиксирована вручную в `preserveIdentityHandlerContract`.
