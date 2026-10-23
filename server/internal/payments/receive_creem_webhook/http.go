@@ -23,13 +23,13 @@ func NewHTTP(usecase Usecase, enabled func() bool, observe func(c *gin.Context, 
 
 func (h HTTP) Handle(c *gin.Context) {
 	if !h.enabled() {
-		h.usecase.diagnostics.Warn(transport.Context(c), "Creem webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP())
+		h.usecase.diagnostics.Warn(transport.Context(c), "Creem webhook rejected reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP())
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
 	payload, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		h.usecase.diagnostics.Error(transport.Context(c), "Creem webhook 读取请求体失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err)
+		h.usecase.diagnostics.Error(transport.Context(c), "Creem webhook request body read failed path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err)
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}

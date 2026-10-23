@@ -21,14 +21,14 @@ func NewHTTP(usecase Usecase, enabled func() bool, observe func(c *gin.Context, 
 
 func (h HTTP) Handle(c *gin.Context) {
 	if !h.enabled() {
-		h.usecase.diagnostics.Warn(transport.Context(c), "易支付 webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP())
+		h.usecase.diagnostics.Warn(transport.Context(c), "Epay webhook rejected reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP())
 		_, _ = c.Writer.Write([]byte("fail"))
 		return
 	}
 	values := c.Request.URL.Query()
 	if c.Request.Method == "POST" {
 		if err := c.Request.ParseForm(); err != nil {
-			h.usecase.diagnostics.Error(transport.Context(c), "易支付 webhook POST 表单解析失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err)
+			h.usecase.diagnostics.Error(transport.Context(c), "Epay webhook POST form parsing failed path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err)
 			_, _ = c.Writer.Write([]byte("fail"))
 			return
 		}
@@ -46,25 +46,25 @@ func (h HTTP) Handle(c *gin.Context) {
 		switch {
 		case errors.As(err, &signatureFailure):
 			if writeErr != nil {
-				h.usecase.diagnostics.Error(transport.Context(c), "易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), writeErr)
+				h.usecase.diagnostics.Error(transport.Context(c), "Epay webhook response write failed path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), writeErr)
 			}
 			if signatureFailure.Cause != nil {
-				h.usecase.diagnostics.Warn(transport.Context(c), "易支付 webhook 验签失败 path=%q client_ip=%s verify_error=%q", c.Request.RequestURI, c.ClientIP(), signatureFailure.Cause)
+				h.usecase.diagnostics.Warn(transport.Context(c), "Epay webhook signature verification failed path=%q client_ip=%s verify_error=%q", c.Request.RequestURI, c.ClientIP(), signatureFailure.Cause)
 			} else {
-				h.usecase.diagnostics.Warn(transport.Context(c), "易支付 webhook 验签失败 path=%q client_ip=%s verify_status=false", c.Request.RequestURI, c.ClientIP())
+				h.usecase.diagnostics.Warn(transport.Context(c), "Epay webhook signature verification failed path=%q client_ip=%s verify_status=false", c.Request.RequestURI, c.ClientIP())
 			}
 		case errors.Is(err, domain.ErrEpayConfig):
 			if writeErr != nil {
-				h.usecase.diagnostics.Error(transport.Context(c), "易支付 webhook 响应写入失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), writeErr)
+				h.usecase.diagnostics.Error(transport.Context(c), "Epay webhook response write failed path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), writeErr)
 			}
 		case result.Event.Verified:
 			if writeErr != nil {
-				h.usecase.diagnostics.Error(transport.Context(c), "易支付 webhook 响应写入失败 trade_no=%s client_ip=%s error=%q", result.Event.TradeNo, c.ClientIP(), writeErr)
+				h.usecase.diagnostics.Error(transport.Context(c), "Epay webhook response write failed trade_no=%s client_ip=%s error=%q", result.Event.TradeNo, c.ClientIP(), writeErr)
 			}
 		}
 		return
 	}
 	if _, writeErr := c.Writer.Write([]byte("success")); writeErr != nil {
-		h.usecase.diagnostics.Error(transport.Context(c), "易支付 webhook 响应写入失败 trade_no=%s client_ip=%s error=%q", result.Event.TradeNo, c.ClientIP(), writeErr)
+		h.usecase.diagnostics.Error(transport.Context(c), "Epay webhook response write failed trade_no=%s client_ip=%s error=%q", result.Event.TradeNo, c.ClientIP(), writeErr)
 	}
 }

@@ -48,7 +48,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	}
 	products, err := u.products.Products()
 	if err != nil {
-		u.diagnostics.Error(ctx, "Creem 产品配置解析失败 user_id=%d error=%q", in.UserID, err)
+		u.diagnostics.Error(ctx, "Creem product configuration parsing failed user_id=%d error=%q", in.UserID, err)
 		return Result{}, domain.ErrProductsConfig
 	}
 	var product *domain.CreemProduct
@@ -80,14 +80,14 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 		Status:          domain.StatusPending,
 	}
 	if err := u.orders.Insert(&order); err != nil {
-		u.diagnostics.Error(ctx, "Creem 创建充值订单失败 user_id=%d trade_no=%s product_id=%s error=%q", in.UserID, reference, product.ProductId, err)
+		u.diagnostics.Error(ctx, "Creem topup order creation failed user_id=%d trade_no=%s product_id=%s error=%q", in.UserID, reference, product.ProductId, err)
 		return Result{}, domain.ErrInsert
 	}
 	link, err := u.client.Checkout(ctx, reference, *product, user.Email, user.Username)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Creem 创建支付链接失败 user_id=%d trade_no=%s product_id=%s error=%q", in.UserID, reference, product.ProductId, err)
+		u.diagnostics.Error(ctx, "Creem payment link creation failed user_id=%d trade_no=%s product_id=%s error=%q", in.UserID, reference, product.ProductId, err)
 		return Result{}, domain.ErrCheckout
 	}
-	u.diagnostics.Info(ctx, "Creem 充值订单创建成功 user_id=%d trade_no=%s product_id=%s product_name=%q quota=%d money=%.2f", in.UserID, reference, product.ProductId, product.Name, product.Quota, product.Price)
+	u.diagnostics.Info(ctx, "Creem topup order created user_id=%d trade_no=%s product_id=%s product_name=%q quota=%d money=%.2f", in.UserID, reference, product.ProductId, product.Name, product.Quota, product.Price)
 	return Result{CheckoutURL: link, OrderID: reference}, nil
 }

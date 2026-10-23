@@ -36,7 +36,7 @@ func (h HTTP) Handle(c *gin.Context) {
 		Input{MerchantID: req.MerchantID, PrivateKey: req.PrivateKey, ReturnURL: req.ReturnURL, StoreID: req.StoreID, ProductID: req.ProductID},
 	)
 	if err != nil {
-		h.diagnostics.Error(transport.Context(c), "Waffo Pancake 保存配置失败 store_id=%q product_id=%q error=%q", req.StoreID, req.ProductID, err)
+		h.diagnostics.Error(transport.Context(c), "Waffo Pancake configuration save failed store_id=%q product_id=%q error=%q", req.StoreID, req.ProductID, err)
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": transport.Message(c, err)})
 		return
 	}

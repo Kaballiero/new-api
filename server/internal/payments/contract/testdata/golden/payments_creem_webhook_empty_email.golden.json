@@ -50,7 +50,7 @@
         "user_id": 1,
         "created_at": 1,
         "type": 1,
-        "content": "使用Creem充值成功，充值额度: 12345，支付金额：3.50",
+        "content": "Creem top-up succeeded, quota: 12345, paid: 3.50",
         "username": "contract-user",
         "token_name": "",
         "model_name": "",

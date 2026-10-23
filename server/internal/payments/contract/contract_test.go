@@ -571,8 +571,13 @@ func administrativeCases() []contractCase {
 
 func TestPaymentsContract(t *testing.T) {
 	updating := flag.Lookup("update").Value.String() == "true"
+	var contentCases map[string]bool
 	if updating {
-		verifyOriginRecording(t)
+		if os.Getenv("PAYMENTS_CONTRACT_CONTENT_RECORD") != "" {
+			contentCases = verifyContentRecording(t)
+		} else {
+			verifyOriginRecording(t)
+		}
 	}
 	cases := contractCases()
 	seen := map[string]bool{}
@@ -598,6 +603,9 @@ func TestPaymentsContract(t *testing.T) {
 		t.Skip("payments contract requires SDK transport fixture; run the dedicated overlay command")
 	}
 	if name := os.Getenv("PAYMENTS_CONTRACT_CASE"); name != "" {
+		if contentCases != nil {
+			require.True(t, contentCases[name], "unapproved content recording case")
+		}
 		for _, tc := range cases {
 			if tc.Name == name {
 				runContractCase(t, tc, os.Getenv("PAYMENTS_CONTRACT_LANGUAGE"))
@@ -612,6 +620,9 @@ func TestPaymentsContract(t *testing.T) {
 		return
 	}
 	for _, tc := range cases {
+		if contentCases != nil && !contentCases[tc.Name] {
+			continue
+		}
 		t.Run(tc.Name, func(t *testing.T) {
 			output := runChild(t, tc.Name, "zh-CN", updating, *preflight)
 			if *preflight {
@@ -2388,4 +2399,39 @@ func localeCases() []string {
 		"manual_epay_empty", "manual_epay_missing", "manual_epay_failed_order", "manual_epay_wallet_full", "compliance_missing_fields", "access_compliance_root_pat",
 		"catalog_missing_fields", "pair_orphan_product", "save_missing_fields", "save_save_failure", "self_bad_pattern", "self_many_pattern", "self_short_pattern",
 	}
+}
+
+// verifyContentRecording permits only the host-reviewed strings-only recording package.
+func verifyContentRecording(t *testing.T) map[string]bool {
+	t.Helper()
+	require.Equal(t, "approved", os.Getenv("PAYMENTS_CONTRACT_CONTENT_RECORD"))
+	require.False(t, *manifest || *preflight)
+	require.Empty(t, os.Getenv("PAYMENTS_CONTRACT_LOCALE_EVIDENCE"))
+	data, err := os.ReadFile(os.Getenv("PAYMENTS_CONTRACT_CONTENT_INPUTS"))
+	require.NoError(t, err)
+	var input struct {
+		Root    string
+		Sources map[string]string
+		Cases   []string
+	}
+	require.NoError(t, common.Unmarshal(data, &input))
+	require.NotEmpty(t, input.Sources)
+	require.NotEmpty(t, input.Cases)
+	root, err := filepath.EvalSymlinks(input.Root)
+	require.NoError(t, err)
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "internal/payments/contract"), cwd)
+	for name, digest := range input.Sources {
+		require.False(t, filepath.IsAbs(name) || strings.Contains(name, ".."))
+		source, err := os.ReadFile(filepath.Join(root, name))
+		require.NoError(t, err)
+		require.Equal(t, digest, fmt.Sprintf("%x", sha256.Sum256(source)), name)
+	}
+	allowed := map[string]bool{}
+	for _, name := range input.Cases {
+		require.False(t, allowed[name])
+		allowed[name] = true
+	}
+	return allowed
 }

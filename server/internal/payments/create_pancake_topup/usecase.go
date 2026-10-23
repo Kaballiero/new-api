@@ -74,7 +74,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 		Status:          domain.StatusPending,
 	}
 	if err := u.orders.Insert(&order); err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 创建充值订单失败 user_id=%d trade_no=%s amount=%d error=%q", in.UserID, trade, in.Amount, err)
+		u.diagnostics.Error(ctx, "Waffo Pancake topup order creation failed user_id=%d trade_no=%s amount=%d error=%q", in.UserID, trade, in.Amount, err)
 		return Result{}, domain.ErrInsert
 	}
 	expires := 45 * 60
@@ -91,11 +91,11 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 		},
 	)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 创建结账会话失败 user_id=%d trade_no=%s error=%q", in.UserID, trade, err)
+		u.diagnostics.Error(ctx, "Waffo Pancake checkout session creation failed user_id=%d trade_no=%s error=%q", in.UserID, trade, err)
 		order.Status = domain.StatusFailed
 		_ = u.orders.Save(&order)
 		return Result{}, domain.ErrCheckout
 	}
-	u.diagnostics.Info(ctx, "Waffo Pancake 充值订单创建成功 user_id=%d trade_no=%s session_id=%s amount=%d money=%.2f", in.UserID, trade, session.SessionID, in.Amount, money)
+	u.diagnostics.Info(ctx, "Waffo Pancake topup order created user_id=%d trade_no=%s session_id=%s amount=%d money=%.2f", in.UserID, trade, session.SessionID, in.Amount, money)
 	return Result{Session: *session, OrderID: trade}, nil
 }

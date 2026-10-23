@@ -37,12 +37,12 @@ func NewUsecase(clients domain.EpayFactory, completion domain.Completion, admiss
 
 func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	if len(in.Params) == 0 {
-		u.diagnostics.Warn(ctx, "易支付 webhook 参数为空 path=%q client_ip=%s", in.Path, in.CallerIP)
+		u.diagnostics.Warn(ctx, "Epay webhook parameters are empty path=%q client_ip=%s", in.Path, in.CallerIP)
 		return Result{}, domain.ErrInvalidParameters
 	}
 	client := u.clients.Client()
 	if client == nil {
-		u.diagnostics.Error(ctx, "易支付 client 未初始化 path=%q client_ip=%s", in.Path, in.CallerIP)
+		u.diagnostics.Error(ctx, "Epay client is not initialized path=%q client_ip=%s", in.Path, in.CallerIP)
 		return Result{}, domain.ErrEpayConfig
 	}
 	event, err := client.Verify(in.Params)
@@ -50,9 +50,9 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 		return Result{}, SignatureFailure{Cause: err}
 	}
 	result := Result{Event: event}
-	u.diagnostics.Info(ctx, "易支付 webhook 验签成功 trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", event.TradeNo, event.Method, event.Status, in.CallerIP, event.Verification)
+	u.diagnostics.Info(ctx, "Epay webhook signature verified trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", event.TradeNo, event.Method, event.Status, in.CallerIP, event.Verification)
 	if event.Status != "TRADE_SUCCESS" {
-		u.diagnostics.Info(ctx, "易支付 webhook 忽略事件 trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", event.TradeNo, event.Method, event.Status, in.CallerIP, event.Verification)
+		u.diagnostics.Info(ctx, "Epay webhook event ignored trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", event.TradeNo, event.Method, event.Status, in.CallerIP, event.Verification)
 		return result, nil
 	}
 	u.admission.Lock(event.TradeNo)
@@ -61,20 +61,20 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
-			u.diagnostics.Warn(ctx, "易支付 回调订单不存在 trade_no=%s callback_type=%s client_ip=%s verify_info=%q", event.TradeNo, event.Method, in.CallerIP, event.Verification)
+			u.diagnostics.Warn(ctx, "Epay callback order not found trade_no=%s callback_type=%s client_ip=%s verify_info=%q", event.TradeNo, event.Method, in.CallerIP, event.Verification)
 		case errors.Is(err, domain.ErrProviderMismatch):
-			u.diagnostics.Warn(ctx, "易支付 订单支付网关不匹配 trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
+			u.diagnostics.Warn(ctx, "Epay order payment provider mismatch trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
 		case errors.Is(err, domain.ErrNotPending):
-			u.diagnostics.Warn(ctx, "易支付 订单状态非法 trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
+			u.diagnostics.Warn(ctx, "Epay order status is invalid trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
 		default:
-			u.diagnostics.Error(ctx, "易支付 充值处理失败 trade_no=%s client_ip=%s error=%q", event.TradeNo, in.CallerIP, err)
+			u.diagnostics.Error(ctx, "Epay topup processing failed trade_no=%s client_ip=%s error=%q", event.TradeNo, in.CallerIP, err)
 		}
 		return result, err
 	}
 	if alreadyDone {
-		u.diagnostics.Info(ctx, "易支付 重复回调幂等忽略 trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
+		u.diagnostics.Info(ctx, "Epay duplicate callback ignored idempotently trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
 	} else {
-		u.diagnostics.Info(ctx, "易支付 充值成功 trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
+		u.diagnostics.Info(ctx, "Epay topup succeeded trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
 	}
 	return result, nil
 }

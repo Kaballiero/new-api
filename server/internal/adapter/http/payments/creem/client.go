@@ -21,9 +21,9 @@ type Client struct{}
 
 func (Client) Verify(payload []byte, signature string) bool {
 	if setting.CreemWebhookSecret == "" {
-		logger.LogWarn(context.Background(), fmt.Sprintf("Creem webhook secret 未配置 test_mode=%t signature=%q body=%q", setting.CreemTestMode, signature, string(payload)))
+		logger.LogWarn(context.Background(), fmt.Sprintf("Creem webhook secret is not configured test_mode=%t signature=%q body=%q", setting.CreemTestMode, signature, string(payload)))
 		if setting.CreemTestMode {
-			logger.LogInfo(context.Background(), fmt.Sprintf("Creem webhook 验签已跳过 reason=test_mode signature=%q body=%q", signature, string(payload)))
+			logger.LogInfo(context.Background(), fmt.Sprintf("Creem webhook signature verification skipped reason=test_mode signature=%q body=%q", signature, string(payload)))
 		}
 		return setting.CreemTestMode
 	}
@@ -131,7 +131,7 @@ func (Client) Checkout(ctx context.Context, referenceId string, product domain.C
 	apiUrl := "https://api.creem.io/v1/checkouts"
 	if setting.CreemTestMode {
 		apiUrl = "https://test-api.creem.io/v1/checkouts"
-		logger.LogInfo(ctx, fmt.Sprintf("Creem 使用测试环境 api_url=%s", apiUrl))
+		logger.LogInfo(ctx, fmt.Sprintf("Creem using test environment api_url=%s", apiUrl))
 	}
 
 	requestData := CreemCheckoutRequest{
@@ -165,7 +165,7 @@ func (Client) Checkout(ctx context.Context, referenceId string, product domain.C
 
 	logger.LogInfo(
 		ctx,
-		fmt.Sprintf("Creem 支付请求已发送 api_url=%s product_id=%s email=%q trade_no=%s", apiUrl, product.ProductId, email, referenceId),
+		fmt.Sprintf("Creem payment request sent api_url=%s product_id=%s email=%q trade_no=%s", apiUrl, product.ProductId, email, referenceId),
 	)
 
 	client := &http.Client{
@@ -182,7 +182,7 @@ func (Client) Checkout(ctx context.Context, referenceId string, product domain.C
 		return "", fmt.Errorf("failed to read response: %v", err)
 	}
 
-	logger.LogInfo(ctx, fmt.Sprintf("Creem API 响应已收到 trade_no=%s status_code=%d body=%q", referenceId, resp.StatusCode, string(body)))
+	logger.LogInfo(ctx, fmt.Sprintf("Creem API response received trade_no=%s status_code=%d body=%q", referenceId, resp.StatusCode, string(body)))
 
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("Creem API http status %d ", resp.StatusCode)
@@ -200,7 +200,7 @@ func (Client) Checkout(ctx context.Context, referenceId string, product domain.C
 
 	logger.LogInfo(
 		ctx,
-		fmt.Sprintf("Creem 支付链接创建成功 trade_no=%s response_id=%s checkout_url=%q", referenceId, checkoutResp.Id, checkoutResp.CheckoutUrl),
+		fmt.Sprintf("Creem payment link created trade_no=%s response_id=%s checkout_url=%q", referenceId, checkoutResp.Id, checkoutResp.CheckoutUrl),
 	)
 	return checkoutResp.CheckoutUrl, nil
 }

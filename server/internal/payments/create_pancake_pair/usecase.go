@@ -37,20 +37,20 @@ func (u Usecase) Execute(ctx context.Context, in Input) (*Result, error) {
 	}
 	client, err := u.factory.Management(creds)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 创建店铺与产品失败 orphan_store=%t store_id=%q error=%q", false, "", err)
+		u.diagnostics.Error(ctx, "Waffo Pancake store and product creation failed orphan_store=%t store_id=%q error=%q", false, "", err)
 		return nil, err
 	}
 	store, err := client.CreateStore(ctx, domain.PancakeStoreName)
 	if err != nil {
 		err = fmt.Errorf("create Waffo Pancake store: %w", err)
-		u.diagnostics.Error(ctx, "Waffo Pancake 创建店铺与产品失败 orphan_store=%t store_id=%q error=%q", false, "", err)
+		u.diagnostics.Error(ctx, "Waffo Pancake store and product creation failed orphan_store=%t store_id=%q error=%q", false, "", err)
 		return nil, err
 	}
 	result := &Result{StoreID: store, StoreName: domain.PancakeStoreName, OrphanStore: true}
 	product, err := u.product(ctx, creds, store, in.ReturnURL)
 	if err != nil {
 		err = fmt.Errorf("store created at %s but product creation failed: %w", store, err)
-		u.diagnostics.Error(ctx, "Waffo Pancake 创建店铺与产品失败 orphan_store=%t store_id=%q error=%q", true, store, err)
+		u.diagnostics.Error(ctx, "Waffo Pancake store and product creation failed orphan_store=%t store_id=%q error=%q", true, store, err)
 		return result, err
 	}
 	result.ProductID = product

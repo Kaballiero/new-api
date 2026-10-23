@@ -24,19 +24,19 @@ func NewHTTP(usecase Usecase, enabled func() bool, observe func(c *gin.Context, 
 
 func (h HTTP) Handle(c *gin.Context) {
 	if !h.enabled() {
-		h.usecase.diagnostics.Warn(transport.Context(c), "Waffo Pancake webhook 被拒绝 reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP())
+		h.usecase.diagnostics.Warn(transport.Context(c), "Waffo Pancake webhook rejected reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP())
 		c.String(http.StatusForbidden, "webhook disabled")
 		return
 	}
 	environment := strings.TrimSpace(c.Param("env"))
 	if environment != "test" && environment != "prod" {
-		h.usecase.diagnostics.Warn(transport.Context(c), "Waffo Pancake webhook 路径环境段无效 env=%q path=%q client_ip=%s", environment, c.Request.RequestURI, c.ClientIP())
+		h.usecase.diagnostics.Warn(transport.Context(c), "Waffo Pancake webhook path environment segment is invalid env=%q path=%q client_ip=%s", environment, c.Request.RequestURI, c.ClientIP())
 		c.String(http.StatusNotFound, "unknown env")
 		return
 	}
 	payload, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		h.usecase.diagnostics.Error(transport.Context(c), "Waffo Pancake webhook 读取请求体失败 path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err)
+		h.usecase.diagnostics.Error(transport.Context(c), "Waffo Pancake webhook request body read failed path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err)
 		c.String(http.StatusBadRequest, "bad request")
 		return
 	}

@@ -69,7 +69,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (string, error) {
 		},
 	)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Stripe 创建 Checkout Session 失败 user_id=%d trade_no=%s amount=%d error=%q", in.UserID, reference, in.Amount, err)
+		u.diagnostics.Error(ctx, "Stripe create Checkout Session failed user_id=%d trade_no=%s amount=%d error=%q", in.UserID, reference, in.Amount, err)
 		return "", domain.ErrCheckout
 	}
 	order := domain.Order{
@@ -83,9 +83,9 @@ func (u Usecase) Execute(ctx context.Context, in Input) (string, error) {
 		Status:          domain.StatusPending,
 	}
 	if err := u.orders.Insert(&order); err != nil {
-		u.diagnostics.Error(ctx, "Stripe 创建充值订单失败 user_id=%d trade_no=%s amount=%d error=%q", in.UserID, reference, in.Amount, err)
+		u.diagnostics.Error(ctx, "Stripe topup order creation failed user_id=%d trade_no=%s amount=%d error=%q", in.UserID, reference, in.Amount, err)
 		return "", domain.ErrInsert
 	}
-	u.diagnostics.Info(ctx, "Stripe 充值订单创建成功 user_id=%d trade_no=%s amount=%d money=%.2f", in.UserID, reference, in.Amount, money)
+	u.diagnostics.Info(ctx, "Stripe topup order created user_id=%d trade_no=%s amount=%d money=%.2f", in.UserID, reference, in.Amount, money)
 	return link, nil
 }

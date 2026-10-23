@@ -83,7 +83,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 		},
 	)
 	if err != nil {
-		u.diagnostics.Error(ctx, "易支付 拉起支付失败 user_id=%d trade_no=%s payment_method=%s amount=%d error=%q", in.UserID, trade, in.PaymentMethod, in.Amount, err)
+		u.diagnostics.Error(ctx, "Epay payment checkout failed user_id=%d trade_no=%s payment_method=%s amount=%d error=%q", in.UserID, trade, in.PaymentMethod, in.Amount, err)
 		return Result{}, domain.ErrCheckout
 	}
 	order := domain.Order{
@@ -97,7 +97,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 		Status:          domain.StatusPending,
 	}
 	if err := u.orders.Insert(&order); err != nil {
-		u.diagnostics.Error(ctx, "易支付 创建充值订单失败 user_id=%d trade_no=%s payment_method=%s amount=%d error=%q", in.UserID, trade, in.PaymentMethod, in.Amount, err)
+		u.diagnostics.Error(ctx, "Epay topup order creation failed user_id=%d trade_no=%s payment_method=%s amount=%d error=%q", in.UserID, trade, in.PaymentMethod, in.Amount, err)
 		return Result{}, domain.ErrInsert
 	}
 	return Result{URL: uri, Params: params, TradeNo: trade, Money: money}, nil

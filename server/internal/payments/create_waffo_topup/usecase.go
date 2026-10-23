@@ -66,9 +66,9 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	kind, name, err := domain.ResolveMethod(in.Index, in.MethodType, in.MethodName, methods)
 	if err != nil {
 		if in.Index != nil {
-			u.diagnostics.Warn(ctx, "Waffo 支付方式索引无效 user_id=%d pay_method_index=%d method_count=%d", in.UserID, *in.Index, len(methods))
+			u.diagnostics.Warn(ctx, "Waffo payment method index is invalid user_id=%d pay_method_index=%d method_count=%d", in.UserID, *in.Index, len(methods))
 		} else {
-			u.diagnostics.Warn(ctx, "Waffo 支付方式无效 user_id=%d pay_method_type=%s pay_method_name=%q", in.UserID, in.MethodType, in.MethodName)
+			u.diagnostics.Warn(ctx, "Waffo payment method is invalid user_id=%d pay_method_type=%s pay_method_name=%q", in.UserID, in.MethodType, in.MethodName)
 		}
 		return Result{}, err
 	}
@@ -93,12 +93,12 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 		Status:          domain.StatusPending,
 	}
 	if err := u.orders.Insert(&order); err != nil {
-		u.diagnostics.Error(ctx, "Waffo 创建充值订单失败 user_id=%d trade_no=%s amount=%d error=%q", in.UserID, trade, in.Amount, err)
+		u.diagnostics.Error(ctx, "Waffo topup order creation failed user_id=%d trade_no=%s amount=%d error=%q", in.UserID, trade, in.Amount, err)
 		return Result{}, domain.ErrInsert
 	}
 	client, err := u.clients.Client()
 	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo SDK 初始化失败 user_id=%d trade_no=%s error=%q", in.UserID, trade, err)
+		u.diagnostics.Error(ctx, "Waffo SDK initialization failed user_id=%d trade_no=%s error=%q", in.UserID, trade, err)
 		order.Status = domain.StatusFailed
 		_ = u.orders.Save(&order)
 		return Result{}, domain.ErrPaymentConfig
@@ -139,14 +139,14 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	if err != nil {
 		var rejection domain.WaffoRejection
 		if errors.As(err, &rejection) {
-			u.diagnostics.Warn(ctx, "Waffo 创建订单业务失败 user_id=%d trade_no=%s code=%s message=%q response=%q", in.UserID, trade, rejection.Code, rejection.Message, rejection.Response)
+			u.diagnostics.Warn(ctx, "Waffo order creation rejected user_id=%d trade_no=%s code=%s message=%q response=%q", in.UserID, trade, rejection.Code, rejection.Message, rejection.Response)
 		} else {
-			u.diagnostics.Error(ctx, "Waffo 创建订单失败 user_id=%d trade_no=%s error=%q", in.UserID, trade, err)
+			u.diagnostics.Error(ctx, "Waffo order creation failed user_id=%d trade_no=%s error=%q", in.UserID, trade, err)
 		}
 		order.Status = domain.StatusFailed
 		_ = u.orders.Save(&order)
 		return Result{}, domain.ErrCheckout
 	}
-	u.diagnostics.Info(ctx, "Waffo 充值订单创建成功 user_id=%d trade_no=%s amount=%d money=%.2f pay_method_type=%s pay_method_name=%q", in.UserID, trade, in.Amount, money, kind, name)
+	u.diagnostics.Info(ctx, "Waffo topup order created user_id=%d trade_no=%s amount=%d money=%.2f pay_method_type=%s pay_method_name=%q", in.UserID, trade, in.Amount, money, kind, name)
 	return Result{PaymentURL: link, OrderID: trade}, nil
 }

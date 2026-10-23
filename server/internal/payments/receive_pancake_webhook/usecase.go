@@ -31,14 +31,14 @@ func NewUsecase(
 func (u Usecase) Execute(ctx context.Context, in Input) error {
 	event, err := u.client.Verify(in.Payload, in.Signature)
 	if err != nil {
-		u.diagnostics.Warn(ctx, "Waffo Pancake webhook 验签失败 path=%q client_ip=%s signature=%q body=%q error=%q", in.Path, in.CallerIP, in.Signature, in.Payload, err)
+		u.diagnostics.Warn(ctx, "Waffo Pancake webhook signature verification failed path=%q client_ip=%s signature=%q body=%q error=%q", in.Path, in.CallerIP, in.Signature, in.Payload, err)
 		return fmt.Errorf("%w: %v", domain.ErrPancakeSignature, err)
 	}
 	if !strings.EqualFold(strings.TrimSpace(event.Mode), in.Environment) {
-		u.diagnostics.Error(ctx, "Waffo Pancake webhook 环境不匹配 expected=%q actual_mode=%q event_id=%s order_id=%s client_ip=%s", in.Environment, event.Mode, event.ID, event.Data.OrderID, in.CallerIP)
+		u.diagnostics.Error(ctx, "Waffo Pancake webhook environment mismatch expected=%q actual_mode=%q event_id=%s order_id=%s client_ip=%s", in.Environment, event.Mode, event.ID, event.Data.OrderID, in.CallerIP)
 		return nil
 	}
-	u.diagnostics.Info(ctx, "Waffo Pancake webhook 验签成功 event_type=%s event_id=%s order_id=%s client_ip=%s", event.NormalizedEventType(), event.ID, event.Data.OrderID, in.CallerIP)
+	u.diagnostics.Info(ctx, "Waffo Pancake webhook signature verified event_type=%s event_id=%s order_id=%s client_ip=%s", event.NormalizedEventType(), event.ID, event.Data.OrderID, in.CallerIP)
 	if event.NormalizedEventType() != "order.completed" {
 		return nil
 	}
@@ -70,9 +70,9 @@ func (u Usecase) Execute(ctx context.Context, in Input) error {
 	}
 	if resolveError != nil {
 		if subscription {
-			u.diagnostics.Error(ctx, "Waffo Pancake webhook 订阅订单解析失败 event_id=%s order_id=%s buyer_identity=%q client_ip=%s error=%q", event.ID, event.Data.OrderID, event.Data.MerchantProvidedBuyerIdentity, in.CallerIP, resolveError)
+			u.diagnostics.Error(ctx, "Waffo Pancake webhook subscription order resolution failed event_id=%s order_id=%s buyer_identity=%q client_ip=%s error=%q", event.ID, event.Data.OrderID, event.Data.MerchantProvidedBuyerIdentity, in.CallerIP, resolveError)
 		} else {
-			u.diagnostics.Error(ctx, "Waffo Pancake webhook 订单解析失败 event_id=%s order_id=%s buyer_identity=%q client_ip=%s error=%q", event.ID, event.Data.OrderID, event.Data.MerchantProvidedBuyerIdentity, in.CallerIP, resolveError)
+			u.diagnostics.Error(ctx, "Waffo Pancake webhook order resolution failed event_id=%s order_id=%s buyer_identity=%q client_ip=%s error=%q", event.ID, event.Data.OrderID, event.Data.MerchantProvidedBuyerIdentity, in.CallerIP, resolveError)
 		}
 		return nil
 	}
@@ -81,17 +81,17 @@ func (u Usecase) Execute(ctx context.Context, in Input) error {
 	if subscription {
 		err = u.subscriptions.Complete(trade, in.Payload, domain.PaymentProviderWaffoPancake)
 		if err != nil {
-			u.diagnostics.Error(ctx, "Waffo Pancake 订阅完成失败 trade_no=%s event_id=%s order_id=%s client_ip=%s error=%q", trade, event.ID, event.Data.OrderID, in.CallerIP, err)
+			u.diagnostics.Error(ctx, "Waffo Pancake subscription completion failed trade_no=%s event_id=%s order_id=%s client_ip=%s error=%q", trade, event.ID, event.Data.OrderID, in.CallerIP, err)
 			return err
 		}
-		u.diagnostics.Info(ctx, "Waffo Pancake 订阅完成 trade_no=%s event_id=%s order_id=%s client_ip=%s", trade, event.ID, event.Data.OrderID, in.CallerIP)
+		u.diagnostics.Info(ctx, "Waffo Pancake subscription completed trade_no=%s event_id=%s order_id=%s client_ip=%s", trade, event.ID, event.Data.OrderID, in.CallerIP)
 		return nil
 	}
 	_, err = u.completion.Complete(domain.CompletionInput{TradeNo: trade, Provider: domain.PaymentProviderWaffoPancake})
 	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 充值处理失败 trade_no=%s event_id=%s order_id=%s client_ip=%s error=%q", trade, event.ID, event.Data.OrderID, in.CallerIP, err)
+		u.diagnostics.Error(ctx, "Waffo Pancake topup processing failed trade_no=%s event_id=%s order_id=%s client_ip=%s error=%q", trade, event.ID, event.Data.OrderID, in.CallerIP, err)
 		return err
 	}
-	u.diagnostics.Info(ctx, "Waffo Pancake 充值成功 trade_no=%s event_id=%s order_id=%s client_ip=%s", trade, event.ID, event.Data.OrderID, in.CallerIP)
+	u.diagnostics.Info(ctx, "Waffo Pancake topup succeeded trade_no=%s event_id=%s order_id=%s client_ip=%s", trade, event.ID, event.Data.OrderID, in.CallerIP)
 	return nil
 }

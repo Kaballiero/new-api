@@ -599,3 +599,9 @@ const (
 
 // Creem request-body read failure keeps its original compatibility bytes.
 const MsgPaymentsReadQuery = "payments.read_query"
+
+// Payment receipt suffixes follow the beneficiary language.
+const (
+	MsgPaymentsQuotaAmount = "payments.quota_amount"
+	MsgPaymentsQuotaTokens = "payments.quota_tokens"
+)

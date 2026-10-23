@@ -23,7 +23,7 @@ func NewHTTP(usecase Usecase, observe func(c *gin.Context, payload []byte)) HTTP
 func (h HTTP) Handle(c *gin.Context) {
 	payload, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		h.usecase.diagnostics.Error(transport.Context(c), "Creem 支付请求读取失败 error=%q", err)
+		h.usecase.diagnostics.Error(transport.Context(c), "Creem payment request read failed error=%q", err)
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": transport.Message(c, domain.ErrReadQuery)})
 		return
 	}

@@ -33,68 +33,68 @@ func NewUsecase(
 
 func (u Usecase) Execute(ctx context.Context, in Input) error {
 	if in.Signature == "" {
-		u.diagnostics.Warn(ctx, "Creem webhook 缺少签名 path=%q client_ip=%s body=%q", in.Path, in.CallerIP, string(in.Payload))
+		u.diagnostics.Warn(ctx, "Creem webhook signature is missing path=%q client_ip=%s body=%q", in.Path, in.CallerIP, string(in.Payload))
 		return domain.ErrCreemSignature
 	}
 	if !u.client.Verify(in.Payload, in.Signature) {
-		u.diagnostics.Warn(ctx, "Creem webhook 验签失败 path=%q client_ip=%s signature=%q body=%q", in.Path, in.CallerIP, in.Signature, string(in.Payload))
+		u.diagnostics.Warn(ctx, "Creem webhook signature verification failed path=%q client_ip=%s signature=%q body=%q", in.Path, in.CallerIP, in.Signature, string(in.Payload))
 		return domain.ErrCreemSignature
 	}
-	u.diagnostics.Info(ctx, "Creem webhook 验签成功 path=%q client_ip=%s", in.Path, in.CallerIP)
+	u.diagnostics.Info(ctx, "Creem webhook signature verified path=%q client_ip=%s", in.Path, in.CallerIP)
 	event, err := u.client.Parse(in.Payload)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Creem webhook 解析失败 path=%q client_ip=%s error=%q body=%q", in.Path, in.CallerIP, err, string(in.Payload))
+		u.diagnostics.Error(ctx, "Creem webhook parsing failed path=%q client_ip=%s error=%q body=%q", in.Path, in.CallerIP, err, string(in.Payload))
 		return fmt.Errorf("%w: %v", domain.ErrCreemPayload, err)
 	}
-	u.diagnostics.Info(ctx, "Creem webhook 解析成功 event_type=%s event_id=%s request_id=%s order_id=%s order_status=%s", event.Type, event.ID, event.Reference, event.OrderID, event.Status)
+	u.diagnostics.Info(ctx, "Creem webhook parsed successfully event_type=%s event_id=%s request_id=%s order_id=%s order_status=%s", event.Type, event.ID, event.Reference, event.OrderID, event.Status)
 	if event.Type != "checkout.completed" {
-		u.diagnostics.Info(ctx, "Creem webhook 忽略事件 event_type=%s event_id=%s", event.Type, event.ID)
+		u.diagnostics.Info(ctx, "Creem webhook event ignored event_type=%s event_id=%s", event.Type, event.ID)
 		return nil
 	}
 	if event.Status != "paid" {
-		u.diagnostics.Info(ctx, "Creem 订单状态未支付，忽略处理 request_id=%s order_id=%s order_status=%s", event.Reference, event.OrderID, event.Status)
+		u.diagnostics.Info(ctx, "Creem order is unpaid, ignoring request_id=%s order_id=%s order_status=%s", event.Reference, event.OrderID, event.Status)
 		return nil
 	}
 	if event.Reference == "" {
-		u.diagnostics.Warn(ctx, "Creem webhook 缺少 request_id event_id=%s order_id=%s", event.ID, event.OrderID)
+		u.diagnostics.Warn(ctx, "Creem webhook missing request_id event_id=%s order_id=%s", event.ID, event.OrderID)
 		return domain.ErrPaymentTradeNo
 	}
 	u.admission.Lock(event.Reference)
 	defer u.admission.Unlock(event.Reference)
 	err = u.subscriptions.Complete(event.Reference, event.SubscriptionPayload, domain.PaymentProviderCreem)
 	if err == nil {
-		u.diagnostics.Info(ctx, "Creem 订阅订单处理成功 trade_no=%s creem_order_id=%s", event.Reference, event.OrderID)
+		u.diagnostics.Info(ctx, "Creem subscription order processed trade_no=%s creem_order_id=%s", event.Reference, event.OrderID)
 		return nil
 	}
 	if !errors.Is(err, domain.ErrSubscriptionNotFound) {
-		u.diagnostics.Error(ctx, "Creem 订阅订单处理失败 trade_no=%s creem_order_id=%s error=%q", event.Reference, event.OrderID, err)
+		u.diagnostics.Error(ctx, "Creem subscription order processing failed trade_no=%s creem_order_id=%s error=%q", event.Reference, event.OrderID, err)
 		return err
 	}
 	if event.OrderType != "onetime" {
-		u.diagnostics.Info(ctx, "Creem 暂不支持该订单类型，忽略处理 request_id=%s creem_order_id=%s order_type=%s", event.Reference, event.OrderID, event.OrderType)
+		u.diagnostics.Info(ctx, "Creem unsupported order type, ignoring request_id=%s creem_order_id=%s order_type=%s", event.Reference, event.OrderID, event.OrderType)
 		return nil
 	}
-	u.diagnostics.Info(ctx, "Creem 支付完成回调 trade_no=%s creem_order_id=%s amount_paid=%d currency=%s product_name=%q customer_email=%q customer_name=%q", event.Reference, event.OrderID, event.AmountPaid, event.Currency, event.ProductName, event.Email, event.CustomerName)
+	u.diagnostics.Info(ctx, "Creem payment completion callback trade_no=%s creem_order_id=%s amount_paid=%d currency=%s product_name=%q customer_email=%q customer_name=%q", event.Reference, event.OrderID, event.AmountPaid, event.Currency, event.ProductName, event.Email, event.CustomerName)
 	order := u.orders.Find(event.Reference)
 	if order == nil {
-		u.diagnostics.Warn(ctx, "Creem 充值订单不存在 trade_no=%s creem_order_id=%s", event.Reference, event.OrderID)
+		u.diagnostics.Warn(ctx, "Creem topup order not found trade_no=%s creem_order_id=%s", event.Reference, event.OrderID)
 		return domain.ErrOrderMissing
 	}
 	if order.Status != domain.StatusPending {
-		u.diagnostics.Info(ctx, "Creem 充值订单状态非 pending，忽略处理 trade_no=%s status=%s creem_order_id=%s", event.Reference, order.Status, event.OrderID)
+		u.diagnostics.Info(ctx, "Creem topup order status is not pending, ignoring trade_no=%s status=%s creem_order_id=%s", event.Reference, order.Status, event.OrderID)
 		return nil
 	}
 	if event.Email == "" {
-		u.diagnostics.Warn(ctx, "Creem 回调客户邮箱为空 trade_no=%s creem_order_id=%s", event.Reference, event.OrderID)
+		u.diagnostics.Warn(ctx, "Creem callback customer email is empty trade_no=%s creem_order_id=%s", event.Reference, event.OrderID)
 	}
 	if event.CustomerName == "" {
-		u.diagnostics.Warn(ctx, "Creem 回调客户姓名为空 trade_no=%s creem_order_id=%s", event.Reference, event.OrderID)
+		u.diagnostics.Warn(ctx, "Creem callback customer name is empty trade_no=%s creem_order_id=%s", event.Reference, event.OrderID)
 	}
 	_, err = u.completion.Complete(domain.CompletionInput{TradeNo: event.Reference, Provider: domain.PaymentProviderCreem, Email: event.Email, CallerIP: in.CallerIP})
 	if err != nil {
-		u.diagnostics.Error(ctx, "Creem 充值处理失败 trade_no=%s creem_order_id=%s client_ip=%s error=%q", event.Reference, event.OrderID, in.CallerIP, err)
+		u.diagnostics.Error(ctx, "Creem topup processing failed trade_no=%s creem_order_id=%s client_ip=%s error=%q", event.Reference, event.OrderID, in.CallerIP, err)
 		return err
 	}
-	u.diagnostics.Info(ctx, "Creem 充值成功 trade_no=%s creem_order_id=%s quota=%d money=%.2f client_ip=%s", event.Reference, event.OrderID, order.Amount, order.Money, in.CallerIP)
+	u.diagnostics.Info(ctx, "Creem topup succeeded trade_no=%s creem_order_id=%s quota=%d money=%.2f client_ip=%s", event.Reference, event.OrderID, order.Amount, order.Money, in.CallerIP)
 	return nil
 }

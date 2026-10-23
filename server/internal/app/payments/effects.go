@@ -3,6 +3,8 @@ package payments
 import (
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"strings"
 
 	"github.com/shopspring/decimal"
 
@@ -34,27 +36,28 @@ func (completionEffects) Failed(operation string, err error) {
 
 func (completionEffects) Receipt(order domain.Order, quota int, ip, provider string) {
 	params := map[string]any{"Money": fmt.Sprintf("%.2f", order.Money), "Amount": order.Amount}
+	lang := paymentReceiptLanguage(order.UserID)
 	key := "payments.receipt_" + provider
 	switch provider {
 	case "epay":
-		common.SysLog(fmt.Sprintf("易支付充值成功 trade_no=%s user_id=%d quota_to_add=%d money=%.2f", order.TradeNo, order.UserID, quota, order.Money))
-		params["Quota"] = logger.LogQuota(quota)
+		common.SysLog(fmt.Sprintf("Epay topup succeeded trade_no=%s user_id=%d quota_to_add=%d money=%.2f", order.TradeNo, order.UserID, quota, order.Money))
+		params["Quota"] = paymentQuotaText(quota, lang, true)
 		params["Money"] = fmt.Sprintf("%f", order.Money)
 	case "stripe":
-		params["Quota"] = logger.FormatQuota(quota)
+		params["Quota"] = paymentQuotaText(quota, lang, false)
 	case "creem":
 		params["Quota"] = quota
 	case "waffo":
-		params["Quota"] = logger.FormatQuota(quota)
+		params["Quota"] = paymentQuotaText(quota, lang, false)
 	case "waffo_pancake":
-		params["Quota"] = logger.FormatQuota(quota)
+		params["Quota"] = paymentQuotaText(quota, lang, false)
 		key = "payments.receipt_pancake"
 	case "admin":
-		params["Quota"] = logger.FormatQuota(quota)
+		params["Quota"] = paymentQuotaText(quota, lang, false)
 		key = "payments.receipt_manual"
 		params["Money"] = fmt.Sprintf("%f", order.Money)
 	}
-	content := i18n.Translate("zh-CN", key, params)
+	content := i18n.Translate(lang, key, params)
 	if provider == domain.PaymentProviderWaffoPancake {
 		model.RecordLog(order.UserID, model.LogTypeTopup, content)
 		return
@@ -66,14 +69,55 @@ func (completionEffects) Receipt(order domain.Order, quota int, ip, provider str
 func paymentLogError(err error) string {
 	switch {
 	case errors.Is(err, domain.ErrOrderMissing):
-		return "充值订单不存在"
+		return "topup order not found"
 	case errors.Is(err, domain.ErrOrderStatus):
-		return "充值订单状态错误"
+		return "invalid topup order status"
 	case errors.Is(err, domain.ErrRecharge):
-		return "充值失败，请稍后重试"
+		return "topup failed, please try again later"
 	case errors.Is(err, domain.ErrPaymentTradeNo):
-		return "未提供支付单号"
+		return "payment order number is required"
 	default:
 		return err.Error()
 	}
+}
+
+// Receipt language belongs to the beneficiary; both Chinese variants retain the legacy bytes.
+func paymentReceiptLanguage(userID int) string {
+	lang := i18n.ParseAcceptLanguage(model.GetUserLanguage(userID))
+	switch lang {
+	case i18n.LangZhCN, i18n.LangZhTW:
+		return i18n.LangZhCN
+	case i18n.LangRu:
+		return i18n.LangRu
+	default:
+		return i18n.DefaultLang
+	}
+}
+
+// paymentQuotaText preserves the shared formatter and custom currency symbols.
+func paymentQuotaText(quota int, lang string, suffix bool) string {
+	chinese := lang == i18n.LangZhCN || lang == i18n.LangZhTW
+	if chinese {
+		if suffix {
+			return logger.LogQuota(quota)
+		}
+		return logger.FormatQuota(quota)
+	}
+	if suffix && lang == i18n.DefaultLang {
+		return logger.LogQuotaEnglish(quota)
+	}
+	amount := logger.FormatQuota(quota)
+	if operation_setting.GetQuotaDisplayType() != operation_setting.QuotaDisplayTypeCustom {
+		// The legacy amount-only formatter uses the fullwidth dollar for Chinese output.
+		const asciiDollar = "$"
+		amount = strings.ReplaceAll(amount, "\uff04", asciiDollar)
+	}
+	if !suffix {
+		return amount
+	}
+	key := i18n.MsgPaymentsQuotaAmount
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		key = i18n.MsgPaymentsQuotaTokens
+	}
+	return i18n.Translate(lang, key, map[string]any{"Amount": amount})
 }

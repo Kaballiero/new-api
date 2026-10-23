@@ -22,7 +22,7 @@ func observeWebhook(c *gin.Context, provider string, payload []byte, signature s
 	}
 	logger.LogInfo(
 		transport.Context(c),
-		fmt.Sprintf("%s webhook 收到请求 path=%q client_ip=%s signature=%q body=%q", provider, path, ip, signature, string(payload)),
+		fmt.Sprintf("%s webhook request received path=%q client_ip=%s signature=%q body=%q", provider, path, ip, signature, string(payload)),
 	)
 }
 
@@ -35,7 +35,7 @@ func observeEpay(c *gin.Context, params map[string]string) {
 	}
 	logger.LogInfo(
 		transport.Context(c),
-		fmt.Sprintf("易支付 webhook 收到请求 path=%q client_ip=%s method=%s params=%q", path, ip, method, common.GetJsonString(params)),
+		fmt.Sprintf("Epay webhook request received path=%q client_ip=%s method=%s params=%q", path, ip, method, common.GetJsonString(params)),
 	)
 }
 
@@ -47,7 +47,7 @@ func observeEpayCheckout(c *gin.Context, req dto.EpayRequest, result create_epay
 	logger.LogInfo(
 		transport.Context(c),
 		fmt.Sprintf(
-			"易支付 充值订单创建成功 user_id=%d trade_no=%s payment_method=%s amount=%d money=%.2f uri=%q params=%q",
+			"Epay topup order created user_id=%d trade_no=%s payment_method=%s amount=%d money=%.2f uri=%q params=%q",
 			userID,
 			result.TradeNo,
 			req.PaymentMethod,
@@ -64,7 +64,7 @@ func observeCreemPay(c *gin.Context, payload []byte) {
 	if c != nil {
 		userID = c.GetInt("id")
 	}
-	logger.LogInfo(transport.Context(c), fmt.Sprintf("Creem 支付请求已收到 user_id=%d body=%q", userID, string(payload)))
+	logger.LogInfo(transport.Context(c), fmt.Sprintf("Creem payment request received user_id=%d body=%q", userID, string(payload)))
 }
 
 // waffoObservation retains the original SDK-build-before-payload-log boundary.
@@ -74,7 +74,7 @@ func (waffoObservation) Received(ctx context.Context, in receive_waffo_webhook.I
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	logger.LogInfo(ctx, fmt.Sprintf("Waffo webhook 收到请求 path=%q client_ip=%s signature=%q body=%q", in.Path, in.CallerIP, in.Signature, string(in.Payload)))
+	logger.LogInfo(ctx, fmt.Sprintf("Waffo webhook request received path=%q client_ip=%s signature=%q body=%q", in.Path, in.CallerIP, in.Signature, string(in.Payload)))
 }
 
 // paymentDiagnostics writes request-correlated events without retaining a Gin context.

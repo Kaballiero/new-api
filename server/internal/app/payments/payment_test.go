@@ -618,7 +618,7 @@ func TestRequestAmountRejectsTopUpThatCannotBeSettled(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.JSONEq(
 		t,
-		fmt.Sprintf(`{"message":"error","data":%q}`, i18n.Translate("zh-CN", i18n.MsgPaymentsMaximum, map[string]any{"Amount": maxAmount})),
+		fmt.Sprintf(`{"message":"error","data":%q}`, i18n.Translate(i18n.DefaultLang, i18n.MsgPaymentsMaximum, map[string]any{"Amount": maxAmount})),
 		recorder.Body.String(),
 	)
 }
@@ -957,7 +957,7 @@ func TestPaymentsHistoryQueries(t *testing.T) {
 func TestCreemPayReadFailure(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	for _, tc := range []struct{ lang, want string }{
-		{"en", "read query error"}, {"ru", "read query error"}, {"zh-CN", "read query error"}, {"zh-TW", "read query error"}, {"xx-YY", "read query error"},
+		{"en", "read query error"}, {"ru", "Не удалось прочитать тело запроса"}, {"zh-CN", "read query error"}, {"zh-TW", "read query error"}, {"xx-YY", "read query error"},
 	} {
 		t.Run(tc.lang, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -1029,10 +1029,10 @@ func TestPaymentStripeFailureDiagnostics(t *testing.T) {
 		subscriptionError                 error
 		failSave                          bool
 	}{
-		{"subscription_completion", "checkout.session.completed", "complete", "error: Stripe 订阅订单处理失败 trade_no=diagnostic event_type=checkout.session.completed client_ip=fixture error=\"subscription failed\"", errors.New("subscription failed"), false},
-		{"subscription_expiry", "checkout.session.expired", "expired", "error: Stripe 订阅订单过期处理失败 trade_no=diagnostic error=\"expiry failed\"", errors.New("expiry failed"), false},
-		{"async_failed_save", "checkout.session.async_payment_failed", "", "error: Stripe 标记充值订单失败状态失败 trade_no=diagnostic client_ip=fixture error=\"write failed\"", domain.ErrSubscriptionNotFound, true},
-		{"topup_expiry_save", "checkout.session.expired", "expired", "error: Stripe 充值订单过期处理失败 trade_no=diagnostic error=\"write failed\"", domain.ErrSubscriptionNotFound, true},
+		{"subscription_completion", "checkout.session.completed", "complete", "error: Stripe subscription order processing failed trade_no=diagnostic event_type=checkout.session.completed client_ip=fixture error=\"subscription failed\"", errors.New("subscription failed"), false},
+		{"subscription_expiry", "checkout.session.expired", "expired", "error: Stripe subscription order expiry failed trade_no=diagnostic error=\"expiry failed\"", errors.New("expiry failed"), false},
+		{"async_failed_save", "checkout.session.async_payment_failed", "", "error: Stripe failed to mark topup order failed trade_no=diagnostic client_ip=fixture error=\"write failed\"", domain.ErrSubscriptionNotFound, true},
+		{"topup_expiry_save", "checkout.session.expired", "expired", "error: Stripe topup order expiry failed trade_no=diagnostic error=\"write failed\"", domain.ErrSubscriptionNotFound, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, _ := newPersistence(t, "sqlite")
@@ -1072,8 +1072,8 @@ func (e *completionEffectCapture) Sync(userID, quota int, operation string) { e.
 func (e *completionEffectCapture) Receipt(order domain.Order, quota int, ip, provider string) {}
 
 func TestPaymentCompletionOperationalMessages(t *testing.T) {
-	assert.Equal(t, "充值失败，请稍后重试", paymentLogValues([]any{domain.ErrRecharge})[0])
-	assert.Equal(t, "充值订单不存在", paymentLogValues([]any{domain.ErrOrderMissing})[0])
+	assert.Equal(t, "topup failed, please try again later", paymentLogValues([]any{domain.ErrRecharge})[0])
+	assert.Equal(t, "topup order not found", paymentLogValues([]any{domain.ErrOrderMissing})[0])
 	for _, tc := range []struct{ provider, failure, sync string }{
 		{domain.PaymentProviderEpay, "epay topup failed: credit failed", "epay topup"},
 		{domain.PaymentProviderStripe, "topup failed: credit failed", "stripe topup"},
@@ -1100,5 +1100,31 @@ func TestPaymentCompletionOperationalMessages(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.sync, effects.synced)
 		})
+	}
+}
+
+func TestPaymentReceiptLanguages(t *testing.T) {
+	db, _ := newPersistence(t, "sqlite")
+	for i, tc := range []struct{ raw, want string }{
+		{"", "en"}, {"en-US", "en"}, {"ru", "ru"}, {"ru-RU", "ru"}, {"zh", "zh-CN"}, {"zh-CN", "zh-CN"}, {"zh-TW", "zh-CN"}, {"zh-Hant", "zh-CN"}, {"zh-Hans", "zh-CN"}, {"unknown", "en"},
+	} {
+		user := model.User{Id: 1000 + i, Username: fmt.Sprintf("language-%d", i), AffCode: fmt.Sprintf("lang-%d", i), Setting: fmt.Sprintf(`{"language":%q}`, tc.raw)}
+		require.NoError(t, db.Create(&user).Error)
+		assert.Equal(t, tc.want, paymentReceiptLanguage(user.Id), tc.raw)
+	}
+	oldDisplay := operation_setting.GetGeneralSetting().QuotaDisplayType
+	oldSymbol := operation_setting.GetGeneralSetting().CustomCurrencySymbol
+	oldRate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	t.Cleanup(func() {
+		operation_setting.GetGeneralSetting().QuotaDisplayType = oldDisplay
+		operation_setting.GetGeneralSetting().CustomCurrencySymbol = oldSymbol
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = oldRate
+	})
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeCustom
+	operation_setting.GetGeneralSetting().CustomCurrencySymbol = "\uff04"
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 1
+	for _, lang := range []string{"en", "ru"} {
+		assert.Contains(t, paymentQuotaText(100, lang, false), "\uff04")
+		assert.Contains(t, paymentQuotaText(100, lang, true), "\uff04")
 	}
 }

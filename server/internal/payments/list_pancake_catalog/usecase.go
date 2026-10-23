@@ -31,12 +31,12 @@ func (u Usecase) Execute(ctx context.Context, in Input) (*domain.WaffoPancakeCat
 	}
 	client, err := u.factory.Management(creds)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 拉取店铺与产品目录失败 error=%q", err)
+		u.diagnostics.Error(ctx, "Waffo Pancake store and product catalog query failed error=%q", err)
 		return nil, domain.ErrCatalog
 	}
 	catalog, err := client.Catalog(ctx)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 拉取店铺与产品目录失败 error=%q", err)
+		u.diagnostics.Error(ctx, "Waffo Pancake store and product catalog query failed error=%q", err)
 		return nil, domain.ErrCatalog
 	}
 	for i := range catalog.Stores {

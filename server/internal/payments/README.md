@@ -90,10 +90,10 @@ sentinels через errors.Is. Stripe/Creem продолжают top-up тол�
 query semantics и audit policy не менялись. Сохраняются известные #50–59 в TECH_DEBT; #52 и #55 —
 financial/security candidates. Отдельное исправление operational logging подготовлено вне дерева.
 
-Структурный перенос сохраняет все прежние HTTP/persisted bytes, включая Chinese compatibility templates
-в en/ru. Три inherited search-pattern ошибки остаются English во всех локалях, как до переноса.
-English default/ru и язык получателя для payment receipts подготовлены отдельным неприменённым пакетом.
-Operational events сохраняют прежние уровни, места и bytes, включая Chinese legacy messages; их English replacement также отложен в content package.
+После отдельного content-only изменения HTTP ошибки получают English default/en и ru; обе zh
+сохраняют прежние bytes. Payment receipts используют язык получателя, English fallback; обе zh
+сохраняют legacy content. Три inherited search-pattern ошибки остаются English во всех локалях.
+Operational events сохраняют уровни и места вызова; их English messages применены отдельным content-only изменением.
 Старые rows не мигрируются.
 
 ## Проверки и границы evidence
