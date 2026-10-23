@@ -9,7 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/payments/create_epay_topup"
 	"github.com/QuantumNous/new-api/internal/payments/dto"
-
+	"github.com/QuantumNous/new-api/internal/payments/receive_waffo_webhook"
 	"github.com/QuantumNous/new-api/internal/payments/transport"
 	"github.com/QuantumNous/new-api/logger"
 )
@@ -68,6 +68,14 @@ func observeCreemPay(c *gin.Context, payload []byte) {
 }
 
 // waffoObservation retains the original SDK-build-before-payload-log boundary.
+type waffoObservation struct{}
+
+func (waffoObservation) Received(ctx context.Context, in receive_waffo_webhook.Input) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	logger.LogInfo(ctx, fmt.Sprintf("Waffo webhook 收到请求 path=%q client_ip=%s signature=%q body=%q", in.Path, in.CallerIP, in.Signature, string(in.Payload)))
+}
 
 // paymentDiagnostics writes request-correlated events without retaining a Gin context.
 type paymentDiagnostics struct{}

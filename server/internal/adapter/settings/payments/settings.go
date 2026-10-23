@@ -72,3 +72,21 @@ func (Settings) UnitPrice(provider string) float64 {
 func (Settings) ContainsMethod(method string) bool {
 	return operation_setting.ContainsPayMethod(method)
 }
+
+func (Settings) Methods() []domain.PayMethod {
+	methods := setting.GetWaffoPayMethods()
+	if methods == nil {
+		return nil
+	}
+	result := make([]domain.PayMethod, len(methods))
+	for i, m := range methods {
+		result[i] = domain.PayMethod{Name: m.Name, Icon: m.Icon, PayMethodType: m.PayMethodType, PayMethodName: m.PayMethodName}
+	}
+	return result
+}
+func (Settings) WaffoEnabled() bool      { return setting.WaffoEnabled }
+func (Settings) WaffoNotifyURL() string  { return setting.WaffoNotifyUrl }
+func (Settings) WaffoReturnURL() string  { return setting.WaffoReturnUrl }
+func (Settings) WaffoCurrency() string   { return setting.WaffoCurrency }
+func (Settings) WaffoMerchantID() string { return setting.WaffoMerchantId }
+func (Settings) AppName() string         { return common.SystemName }

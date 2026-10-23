@@ -25,3 +25,7 @@ Creem: create_creem_topup (POST /api/user/creem/pay, UserAuth session/PAT + Crit
 receive_creem_webhook (POST /api/creem/webhook, public HMAC). Local order создаётся до remote checkout.
 Subscription-first dispatch предшествует onetime check. Автоматическая quota равна Amount;
 manual completion сохраняет legacy Amount × QuotaPerUnit.
+
+Waffo: quote_waffo_topup, create_waffo_topup, receive_waffo_webhook; прежние /api/user/waffo/{amount,pay}
+и /api/waffo/webhook. SDK остаётся provider adapter; method selection, pending transitions и подписанный
+ACK выбираются сценарием. Любой non-success notification по-прежнему переводит pending в failed.

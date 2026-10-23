@@ -16,7 +16,7 @@ import (
 	epayadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/epay"
 
 	stripeadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/stripe"
-
+	waffoadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/waffo"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
 	"github.com/QuantumNous/new-api/internal/payments/admin_list_topups"
 	"github.com/QuantumNous/new-api/internal/payments/complete_topup"
@@ -25,7 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/payments/create_epay_topup"
 
 	"github.com/QuantumNous/new-api/internal/payments/create_stripe_topup"
-
+	"github.com/QuantumNous/new-api/internal/payments/create_waffo_topup"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 
 	"github.com/QuantumNous/new-api/internal/payments/get_topup_info"
@@ -34,16 +34,20 @@ import (
 	"github.com/QuantumNous/new-api/internal/payments/quote_epay_topup"
 
 	"github.com/QuantumNous/new-api/internal/payments/quote_stripe_topup"
-
+	"github.com/QuantumNous/new-api/internal/payments/quote_waffo_topup"
 	"github.com/QuantumNous/new-api/internal/payments/receive_creem_webhook"
 	"github.com/QuantumNous/new-api/internal/payments/receive_epay_notify"
 
 	"github.com/QuantumNous/new-api/internal/payments/receive_stripe_webhook"
+	"github.com/QuantumNous/new-api/internal/payments/receive_waffo_webhook"
 
 	"github.com/QuantumNous/new-api/model"
 )
 
 type HTTP struct {
+	QuoteWaffo    quote_waffo_topup.HTTP
+	CreateWaffo   create_waffo_topup.HTTP
+	WaffoWebhook  receive_waffo_webhook.HTTP
 	CreateCreem   create_creem_topup.HTTP
 	CreemWebhook  receive_creem_webhook.HTTP
 	QuoteStripe   quote_stripe_topup.HTTP
@@ -71,6 +75,27 @@ func NewHTTP() HTTP {
 	pricing := domain.Pricing{Settings: settings.Settings{}, Math: quotaMath{}, Wallet: storage.Wallet{}}
 
 	return HTTP{
+
+		QuoteWaffo: quote_waffo_topup.NewHTTP(quote_waffo_topup.NewUsecase(pricing, storage.Users{})),
+
+		CreateWaffo: create_waffo_topup.NewHTTP(
+			create_waffo_topup.NewUsecase(
+				pricing,
+				storage.Users{},
+				store,
+				waffoadapter.Factory{},
+				settings.Settings{},
+				create_waffo_topup.Timing{Now: common.GetTimestamp, Reference: func(userID int) string {
+					return fmt.Sprintf("WAFFO-%d-%d-%s", userID, time.Now().UnixMilli(), randstr.String(6))
+				}, RequestedAt: func() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z") }},
+				paymentDiagnostics{}),
+			settings.Settings{}.WaffoEnabled,
+		),
+
+		WaffoWebhook: receive_waffo_webhook.NewHTTP(
+			receive_waffo_webhook.NewUsecase(waffoadapter.Factory{}, store, completion, &orderAdmission, waffoObservation{}, paymentDiagnostics{}),
+			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderWaffo) },
+		),
 
 		CreateCreem: create_creem_topup.NewHTTP(
 			create_creem_topup.NewUsecase(
