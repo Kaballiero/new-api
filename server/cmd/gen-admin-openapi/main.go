@@ -97,6 +97,7 @@ func bootstrap() error {
 	if err := parseModels("./internal/adapter/gorm/redemption/record"); err != nil {
 		return err
 	}
+	if err := parseModels("./internal/app/payments"); err != nil { return err }
 	if err := parseModels("./model"); err != nil {
 		return fmt.Errorf("parse models: %w", err)
 	}

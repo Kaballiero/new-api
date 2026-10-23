@@ -1,6 +1,7 @@
 package payments
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/payments"
-
+	creemadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/creem"
 	epayadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/epay"
 
 	stripeadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/stripe"
@@ -20,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/payments/admin_list_topups"
 	"github.com/QuantumNous/new-api/internal/payments/complete_topup"
 
+	"github.com/QuantumNous/new-api/internal/payments/create_creem_topup"
 	"github.com/QuantumNous/new-api/internal/payments/create_epay_topup"
 
 	"github.com/QuantumNous/new-api/internal/payments/create_stripe_topup"
@@ -33,6 +35,7 @@ import (
 
 	"github.com/QuantumNous/new-api/internal/payments/quote_stripe_topup"
 
+	"github.com/QuantumNous/new-api/internal/payments/receive_creem_webhook"
 	"github.com/QuantumNous/new-api/internal/payments/receive_epay_notify"
 
 	"github.com/QuantumNous/new-api/internal/payments/receive_stripe_webhook"
@@ -41,6 +44,8 @@ import (
 )
 
 type HTTP struct {
+	CreateCreem   create_creem_topup.HTTP
+	CreemWebhook  receive_creem_webhook.HTTP
 	QuoteStripe   quote_stripe_topup.HTTP
 	CreateStripe  create_stripe_topup.HTTP
 	StripeWebhook receive_stripe_webhook.HTTP
@@ -66,6 +71,26 @@ func NewHTTP() HTTP {
 	pricing := domain.Pricing{Settings: settings.Settings{}, Math: quotaMath{}, Wallet: storage.Wallet{}}
 
 	return HTTP{
+
+		CreateCreem: create_creem_topup.NewHTTP(
+			create_creem_topup.NewUsecase(
+				pricing,
+				storage.Users{},
+				store,
+				creemadapter.Client{},
+				settings.Settings{},
+				create_creem_topup.Timing{Now: common.GetTimestamp, Reference: func(userID int) string {
+					return "ref_" + common.Sha1([]byte(fmt.Sprintf("creem-api-ref-%d-%d-%s", userID, time.Now().UnixMilli(), randstr.String(4))))
+				}},
+				paymentDiagnostics{}),
+			observeCreemPay,
+		),
+
+		CreemWebhook: receive_creem_webhook.NewHTTP(
+			receive_creem_webhook.NewUsecase(creemadapter.Client{}, store, subscriptions{}, completion, &orderAdmission, paymentDiagnostics{}),
+			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderCreem) },
+			func(c *gin.Context, payload []byte, signature string) { observeWebhook(c, "Creem", payload, signature) },
+		),
 
 		QuoteStripe: quote_stripe_topup.NewHTTP(quote_stripe_topup.NewUsecase(pricing, storage.Users{})),
 
@@ -135,6 +160,9 @@ func UnlockOrder(tradeNo string) { orderAdmission.Unlock(tradeNo) }
 func EpayClient() *epay.Client { return epayadapter.NewClient() }
 
 // BRIDGE: subscription_payment_creem checkout; remove when it injects the Creem port directly.
+func CreemLink(ctx context.Context, reference string, product domain.CreemProduct, email, username string) (string, error) {
+	return creemadapter.Client{}.Checkout(ctx, reference, product, email, username)
+}
 
 // BRIDGE: subscription_payment_waffo_pancake checkout; remove when it injects the Pancake checkout port directly.
 

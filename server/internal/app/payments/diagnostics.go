@@ -59,6 +59,14 @@ func observeEpayCheckout(c *gin.Context, req dto.EpayRequest, result create_epay
 	)
 }
 
+func observeCreemPay(c *gin.Context, payload []byte) {
+	userID := 0
+	if c != nil {
+		userID = c.GetInt("id")
+	}
+	logger.LogInfo(transport.Context(c), fmt.Sprintf("Creem 支付请求已收到 user_id=%d body=%q", userID, string(payload)))
+}
+
 // waffoObservation retains the original SDK-build-before-payload-log boundary.
 
 // paymentDiagnostics writes request-correlated events without retaining a Gin context.

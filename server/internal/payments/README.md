@@ -20,3 +20,8 @@ Stripe: quote_stripe_topup, create_stripe_topup и receive_stripe_webhook. POST 
 и /pay используют UserAuth session/PAT, pay — CriticalRateLimit; POST /api/stripe/webhook public
 с исходной проверкой подписи SDK. Subscription completion/expiration вызывается первым; только
 not-found разрешает top-up fallback. Verified webhook всегда получает прежний ACK 200 empty.
+
+Creem: create_creem_topup (POST /api/user/creem/pay, UserAuth session/PAT + CriticalRateLimit) и
+receive_creem_webhook (POST /api/creem/webhook, public HMAC). Local order создаётся до remote checkout.
+Subscription-first dispatch предшествует onetime check. Автоматическая quota равна Amount;
+manual completion сохраняет legacy Amount × QuotaPerUnit.
