@@ -345,6 +345,23 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 		// Preserve correlation, then inspect a late body for monetary evidence.
 		return task.UpdateOpenRouterSync(a.Revision)
 	}
+	// A definitive 4xx without a generation is rejected before any work and
+	// OpenRouter charges nothing for it, so the hold settles to zero. Timeouts
+	// and rate limits stay unknown: they can follow upstream processing.
+	if !image && requestErr == nil && resp != nil && resp.StatusCode >= 400 && resp.StatusCode < 500 &&
+		resp.StatusCode != http.StatusRequestTimeout && resp.StatusCode != http.StatusTooManyRequests && task.PrivateData.UpstreamTaskID == "" {
+		r := task.PrivateData.Reconciliation
+		r.SubmissionPending = false
+		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
+		a.ResultFailed, a.LastError = true, "upstream_rejected"
+		finishOpenRouterSync(task)
+		task.FailReason = fmt.Sprintf("OpenRouter rejected the request with HTTP %d; reservation released", resp.StatusCode)
+		projectOpenRouterSyncState(task)
+		if err := task.UpdateOpenRouterSync(a.Revision); err != nil {
+			return err
+		}
+		return settleOpenRouterCost(task)
+	}
 	if requestErr != nil || resp == nil || resp.StatusCode != http.StatusOK && !image {
 		task.PrivateData.Reconciliation.SubmissionPending = false
 		a.ResultFailed, a.LastError = true, "submission_outcome_unknown"
@@ -486,7 +503,7 @@ func OpenRouterSyncReconciliation(task *model.Task) map[string]any {
 		billing = "manual_reconciliation"
 	}
 	switch a.LastError {
-	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "operator_released":
+	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected", "operator_released":
 		reason = a.LastError
 	default:
 		if billing == "manual_reconciliation" {
