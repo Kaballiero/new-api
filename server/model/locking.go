@@ -17,7 +17,8 @@ import (
 // SQLite has no FOR UPDATE syntax (the clause would be a syntax error), so it
 // is skipped there; SQLite's single-writer model makes one of two conflicting
 // transactions fail instead of both committing.
-// BRIDGE: redemption persistence; moves to its wallet owner in the payments wave.
+// BRIDGE: gorm/payments and app/redemption (injected into gorm/redemption) wallet transactions;
+// remove when the shared row-lock primitive has its own adapter owner.
 func LockForUpdate(tx *gorm.DB) *gorm.DB {
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		return tx

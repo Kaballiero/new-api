@@ -171,7 +171,8 @@ func cacheDecrUserQuota(userId int, delta int64) error {
 // SyncCreditUserQuotaCache 在授信事务（充值/兑换等）提交后同步把增量补进缓存
 // 余额。预扣以缓存值为准（存在期间），授信不能绕过它，否则新到账的额度在
 // 缓存过期前不可用；缓存未命中无需处理，下次读取会从已提交的数据库余额水合。
-// BRIDGE: redemption persistence; moves to its wallet owner in the payments wave.
+// BRIDGE: adapter/wallet post-commit sync for payments and redemption;
+// remove when the shared quota-cache primitive has its own adapter owner.
 func SyncCreditUserQuotaCache(userId int, quota int, operation string) {
 	if quota <= 0 {
 		return

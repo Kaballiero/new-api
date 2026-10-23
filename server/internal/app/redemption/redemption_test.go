@@ -24,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/redemption"
+	"github.com/QuantumNous/new-api/internal/adapter/wallet"
 	"github.com/QuantumNous/new-api/internal/redemption/create_codes"
 	"github.com/QuantumNous/new-api/internal/redemption/delete_codes"
 	"github.com/QuantumNous/new-api/internal/redemption/domain"
@@ -189,7 +190,7 @@ func TestDeleteRedemptionBatch(t *testing.T) {
 					assert.Equal(t, "redemption.delete_batch", events[0].Action)
 				})
 			}
-			_, err = delete_codes.NewUsecase(storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, model.CreditTopUpQuota)).Execute(nil)
+			_, err = delete_codes.NewUsecase(storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, wallet.Credit)).Execute(nil)
 			require.Error(t, err)
 			requestedIDs := make([]int, 0, 17)
 			for _, code := range codes[:15] {
@@ -259,7 +260,7 @@ func TestSearchRedemptionsFiltersAndPaginates(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
 		t.Run(dialect, func(t *testing.T) {
 			newPersistence(t, dialect)
-			search := search_codes.NewUsecase(storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, model.CreditTopUpQuota),
+			search := search_codes.NewUsecase(storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, wallet.Credit),
 				common.GetTimestamp)
 
 			require.NoError(t, model.DB.AutoMigrate(&model.Redemption{}))
@@ -439,7 +440,7 @@ func TestRedemptionQuotaRejectsWalletOverflow(t *testing.T) {
 				Quota:       common.MaxWalletQuota + 1,
 				CreatedTime: common.GetTimestamp(),
 			}
-			_, err := create_codes.NewUsecase(storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, model.CreditTopUpQuota),
+			_, err := create_codes.NewUsecase(storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, wallet.Credit),
 				func(quota int) error { return common.ValidateWalletQuota(quota) }, common.GetTimestamp, common.GetUUID).
 				Execute(create_codes.Input{Name: redemption.Name, Count: 1, Quota: redemption.Quota})
 			require.Error(t, err)
@@ -509,7 +510,7 @@ func TestReadRecoveryPreservesScannedDestinations(t *testing.T) {
 				}
 			}))
 			t.Cleanup(func() { assert.NoError(t, db.Callback().Query().Remove("redemption_read_panic")) })
-			store := storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, model.CreditTopUpQuota)
+			store := storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, wallet.Credit)
 			result, err := list_codes.NewUsecase(store).Execute(list_codes.Input{Limit: 10})
 			require.NoError(t, err)
 			assert.EqualValues(t, 2, result.Total)

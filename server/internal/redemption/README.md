@@ -46,8 +46,9 @@ Scenarios объявляют consumer-owned Reader/Store/Tx/Receipt/Admission; �
 поздние DB getters, часы/UUID/задержку, compliance, process-local admission и audit app. Constructors
 не зависят от main, middleware или скрытой регистрации. Controller использует sync.OnceValue.
 
-Wallet maximum/conditional increment остаётся единственной реализацией model.CreditTopUpQuota до переноса
-платежей. Adapter получает её callback из app и передаёт тот же tx. Чужие account workflows не вызываются.
+Wallet credit и post-commit cache sync подключаются через общий technical adapter `internal/adapter/wallet`.
+Пока legacy payment completions ещё в model, adapter использует единственное прежнее credit body;
+после их переноса body переезжает в wallet. Redemption передаёт тот же tx. Чужие account workflows не вызываются.
 Receipt использует прежний model.RecordLog; аудит — уже существующий audit owner, не новый writer.
 
 ## Границы и долг
