@@ -121,7 +121,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 - В `model/` остаётся алиас для не перенесённого кода: `type Token record.Token` (`model/token.go`).
 - Доменные типы (`<module>/domain`) — отдельные структуры без тегов; преобразование — в `record/conversion.go`. Структура таблицы не выходит за пределы адаптера, usecase видит только domain.
 - Список миграций (`AutoMigrate` в `model/main.go`) остаётся на месте: состав и порядок таблиц — часть поведения БД.
-- Сейчас в `internal/adapter/gorm/*/record/` лежат таблицы accounts, apikeys, authorization, catalog, channels, pricing, usage и audit; остальные пока в `model/`.
+- Сейчас в `internal/adapter/gorm/*/record/` лежат таблицы accounts, apikeys, authorization, catalog, channels, pricing, usage, audit, redemption и payments; остальные пока в `model/`.
 
 Код обязан работать на SQLite, MySQL и PostgreSQL (правила — корневой `CLAUDE.md`, Rule 2).
 
@@ -200,7 +200,22 @@ PAT last-use SQL пока остаётся в PAT adapter (#44), без встр
 
 `internal/redemption` владеет девятью endpoint scenarios. Record/tags и SQL находятся в gorm/redemption,
 model/redemption.go — alias-only. Read Count/Find сохраняют transaction; redeem выбирает проверки и CAS,
-а adapter вызывает injected единый model.CreditTopUpQuota в том же tx. Cache sync и receipt следуют после
+а adapter вызывает единый adapter/wallet.Credit в том же tx. Cache sync и receipt следуют после
 commit; audit callback использует уже перенесённый audit owner. Сборка — app/redemption, controller bridges
 через sync.OnceValue, DB читается поздно. Payment/webhook/subscription workflow не переносился.
-Технические экспорты credit/locking/cache временно остаются в исходных model файлах до переноса платежей.
+Credit/capacity/cache orchestration принадлежат adapter/wallet. Общие model.LockForUpdate и
+model.SyncCreditUserQuotaCache сохраняются до переноса shared row-lock/quota-cache primitives.
+
+### Платёжные заказы и callbacks
+
+`internal/payments` владеет 22 сценариями/23 registrations, pricing/availability и completion policy.
+Webhook выбирает subscription-first или prefix dispatch; узкий app-owned legacy bridge вызывает
+существующий subscription owner. SQL/record/projection — adapter/gorm/payments, SDK/исходящие calls —
+adapter/http/payments, late settings — adapter/settings/payments. model/topup.go — strict alias-only;
+common сохраняет прямые aliases статусов для legacy consumers. Schema/миграции не менялись.
+
+Общий adapter/wallet используется payments и redemption с тем же tx и единственным ceiling predicate.
+Process-local order admission один для payments и legacy subscriptions. Cache/receipt следуют после
+commit. Provider ACK, provider-specific money formulas и legacy idempotency/status различия сохранены.
+Реальные мосты, неизменные 615 HTTP/state/outbound oracles и подставленный Waffo SDK transport описаны
+в internal/payments/README.md. Host/PostgreSQL acceptance после переноса выполняется отдельно.

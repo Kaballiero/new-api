@@ -31,7 +31,7 @@
 | 1 | Бизнес-модули панели: apikeys, accounts, catalog, authorization + PAT, identity, pricing, channels | ✅ (не слито в main) | — |
 | 2 | Граница шлюза: проверка ключа, billing, запись использования | ✅ (2a, 2b1, 2b2, 2c) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ✅ (3a, 3b) | средний |
-| 4 | Платежи, подписки, коды пополнения | 🔄 (4a коды ✅; 4b платежи, 4c подписки) | высокий |
+| 4 | Платежи, подписки, коды пополнения | 🔄 (4a коды ✅; 4b implementation, acceptance ожидает host; 4c подписки) | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
 | 6 | Настройки и система | ⬜ | низкий |
 | 7 | Доводка: остатки в `service`/`model`, алиасы, список исключений → 0 | ⬜ | средний |
@@ -107,7 +107,7 @@
 
 ## Волна 4 — платежи, подписки, коды ⬜
 
-- [ ] `payments`: `controller/topup*.go` (Stripe, Creem, Waffo, Waffo Pancake, Epay), `payment_webhook_availability.go`, `payment_compliance.go`, `model/topup.go`. Каждый провайдер — адаптер, вебхук — сценарий.
+- [x] `payments` implementation: 22 сценария, 23 регистрации, пять provider adapters, wallet owner, strict TopUp record alias; subscription workflow остаётся legacy. Host acceptance после переноса ещё ожидается.
 - [ ] `subscriptions`: `controller/subscription*.go`, `model/subscription.go`, задача сброса квоты подписок.
 - [x] `redemption`: девять сценариев, record/SQL adapter, atomic CAS + единый wallet credit, late composition и thin bridges.
 - [x] Baseline: commit 00c8bbd6e, 214 новых HTTP/state goldens, два стабильных origin повтора, candidate parity;
@@ -117,7 +117,8 @@
   SQLite/MySQL полной матрицей не проверялись.
 - [x] Content-only (commit 1a7402149): запись о пополнении и quota в аудите redemption.create — на языке
   пользователя, English по умолчанию, zh без изменений; 31 golden, только content/quota.
-- [ ] Контрактные тесты вебхуков: полный объём (подпись, повтор, идемпотентность, состояние БД) — 4b.
+- [x] Payments baseline: 615 HTTP/state/outbound goldens, два стабильных origin повтора, candidate parity; 204 locale snapshots. Waffo transport test-only substitution явно отделён от production SDK.
+- [ ] Payments host acceptance: 1587 immutable oracles, PostgreSQL isolated schemas, Redis/WSS/full suite, relaykit/OpenAPI/U1000. English/ru content и log redaction — отдельные неприменённые пакеты.
 
 ## Волна 5 — асинхронные задачи и batch ⬜
 
@@ -140,6 +141,7 @@
 
 ## Волна 7 — доводка ⬜
 
+- [ ] Перенести оставшиеся model.LockForUpdate и model.SyncCreditUserQuotaCache вместе с shared row-lock/quota-cache primitives; без копирования Lua/key/schema.
 - [ ] Общие quota cache/Lua/DB primitives из `model/quota_reserve.go`, user/token/task consumers → технические адаптеры с одним владельцем; 2b1 сохраняет primitives и SQL/Redis semantics без изменений.
 
 - [ ] identity: логика сессий и проверок из `service/auth_session.go`, `security_verification.go`, `login_verification.go`, `twofa.go`, `email_binding.go`, `service/passkey` → сценарии; `model/account_security.go`, `auth_flow.go` → адаптеры.

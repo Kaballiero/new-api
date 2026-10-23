@@ -1,37 +1,129 @@
-# Payments — платёжные заказы
+# Payments — пополнения через платёжных провайдеров
 
-Модуль владеет историей top-up, ручным завершением и dashboard info. Providers переносятся последующими
-slices; subscription completion остаётся legacy. `list_own_topups` задаёт user ID и окно 30 дней,
-`admin_list_topups` — all-time history; оба выбирают только keyword и pagination. Read transaction
-и generic search failures сохранены. `complete_topup` сохраняет provider-specific quota и повторную receipt.
+## Ответственность
 
-Сборка: app/payments, SQL: adapter/gorm/payments, общий credit: adapter/wallet. Данные и настройки читаются
-поздно. Controller singleton и общая order admission используются также legacy subscription callbacks.
-Доменные понятия не зависят от GORM/Gin; общий search pattern принадлежит apikeys/domain.
+Модуль владеет top-up orders: историей, расчётом суммы, созданием checkout, подтверждением через webhook,
+переходами pending/success/failed/expired и ручным завершением. Источник истины — top_ups в main DB.
+Он также владеет payment availability, подтверждением compliance и конфигурационным потоком Pancake.
+Подписки, их планы, completion и quota reset остаются у legacy subscription owner.
 
-Маршруты: GET /api/user/topup/info и /self — UserAuth session/PAT; GET /api/user/topup и
-POST /api/user/topup/complete — AdminAuth session/PAT. Новых фильтров и permissions нет.
+## Возможности
 
-Epay: quote_epay_topup (POST /api/user/amount), create_epay_topup (POST /api/user/pay), receive_epay_notify
-(GET/POST /api/user/epay/notify). Quote/pay — UserAuth session/PAT, pay дополнительно CriticalRateLimit;
-notify — public provider signature. Epay Purchase формирует подписанную форму, сетевого вызова нет.
+| Сценарий | Маршрут | Доступ / особенность |
+|---|---|---|
+| get_topup_info | GET /api/user/topup/info | UserAuth, session/PAT; enable_redemption сохраняется |
+| list_own_topups | GET /api/user/topup/self | UserAuth; свой user ID, окно 30 дней |
+| admin_list_topups | GET /api/user/topup | AdminAuth, session/PAT; история всех пользователей без окна |
+| complete_topup | POST /api/user/topup/complete | AdminAuth; прежняя manual formula и repeat receipt |
+| quote_epay_topup | POST /api/user/amount | UserAuth; decimal quote |
+| create_epay_topup | POST /api/user/pay | UserAuth + CriticalRateLimit; подписанная форма, без исходящего HTTP |
+| receive_epay_notify | GET/POST /api/user/epay/notify | Public; SDK signature, POST использует только PostForm |
+| quote_stripe_topup | POST /api/user/stripe/amount | UserAuth; group multiplier входит в credited quota |
+| create_stripe_topup | POST /api/user/stripe/pay | UserAuth + CriticalRateLimit; remote checkout перед local Insert |
+| receive_stripe_webhook | POST /api/stripe/webhook | Public; подпись SDK, subscription-first dispatch |
+| create_creem_topup | POST /api/user/creem/pay | UserAuth + CriticalRateLimit; local Insert перед checkout |
+| receive_creem_webhook | POST /api/creem/webhook | Public; HMAC, subscription-first до onetime check |
+| quote_waffo_topup | POST /api/user/waffo/amount | UserAuth; прежний float quote |
+| create_waffo_topup | POST /api/user/waffo/pay | UserAuth + CriticalRateLimit; Enabled до bind, method index имеет приоритет |
+| receive_waffo_webhook | POST /api/waffo/webhook | Public; SDK verify и signed ACK; любой non-success переводит pending в failed |
+| quote_pancake_topup | POST /api/user/waffo-pancake/amount | UserAuth; decimal quote |
+| create_pancake_topup | POST /api/user/waffo-pancake/pay | UserAuth + CriticalRateLimit; authenticated checkout, два параллельных SDK calls |
+| receive_pancake_webhook | POST /api/waffo-pancake/webhook/:env | Public; подпись, env и buyer identity; prefix dispatch |
+| confirm_compliance | POST /api/option/payment_compliance | RootAuth; только dashboard session, PAT запрещён |
+| list_pancake_catalog | GET /api/option/waffo-pancake/catalog | RootAuth, session/PAT; fallback creds только при двух пустых typed полях, active products |
+| create_pancake_pair | POST /api/option/waffo-pancake/pair | RootAuth; store → product → publish, partial orphan-store result |
+| save_pancake_config | POST /api/option/waffo-pancake/save | RootAuth; atomic bulk options, blank private key сохраняет текущий |
 
-Stripe: quote_stripe_topup, create_stripe_topup и receive_stripe_webhook. POST /api/user/stripe/amount
-и /pay используют UserAuth session/PAT, pay — CriticalRateLimit; POST /api/stripe/webhook public
-с исходной проверкой подписи SDK. Subscription completion/expiration вызывается первым; только
-not-found разрешает top-up fallback. Verified webhook всегда получает прежний ACK 200 empty.
+Итого 22 сценария и 23 method/path registrations. Router, middleware и permissions не менялись.
+User endpoints сохраняют DisableCache; public POST callbacks — AnonymousRequestBodyLimit.
+Lists принимают только keyword и прежнюю pagination (p/page_size/ps/size); остальные фильтры игнорируются.
+Search pattern принадлежит apikeys/domain. Count и Find остаются в одной read transaction с прежним
+rollback-only panic recovery и partial destinations; count limit поиска остаётся 10000.
 
-Creem: create_creem_topup (POST /api/user/creem/pay, UserAuth session/PAT + CriticalRateLimit) и
-receive_creem_webhook (POST /api/creem/webhook, public HMAC). Local order создаётся до remote checkout.
-Subscription-first dispatch предшествует onetime check. Автоматическая quota равна Amount;
-manual completion сохраняет legacy Amount × QuotaPerUnit.
+## Зависимости и транзакции
 
-Waffo: quote_waffo_topup, create_waffo_topup, receive_waffo_webhook; прежние /api/user/waffo/{amount,pay}
-и /api/waffo/webhook. SDK остаётся provider adapter; method selection, pending transitions и подписанный
-ACK выбираются сценарием. Любой non-success notification по-прежнему переводит pending в failed.
+Domain содержит чистые Order/User/provider facts, availability, pricing и общую Completion policy.
+Он не содержит GORM/JSON stored shape и не зависит от Gin, common или SDK. Общие payment statuses и
+method/provider constants определены здесь; record/model/common сохраняют необходимые прямые aliases.
+Сценарии объявляют consumer-owned ports, получают зависимости через NewUsecase и возвращают error. Чистая info projection возвращает Info без фиктивной ошибки.
+HTTP хранит wire DTO и сопоставляет domain errors через errors.Is/errors.As с i18n.MsgPayments*.
+Raw storage/SDK/bind ошибки не распознаются по тексту.
 
-Pancake: quote_pancake_topup/create_pancake_topup/receive_pancake_webhook, list_pancake_catalog,
-create_pancake_pair/save_pancake_config; confirm_compliance. Config endpoints — RootAuth session/PAT,
-compliance дополнительно требует session. User amount/pay — UserAuth; pay — CriticalRateLimit; webhook
-public с signature+environment check. Subscription completion/plan workflow остаётся legacy через app bridge.
-Wallet credit теперь целиком в adapter/wallet; TopUp stored shape — gorm/payments/record, model — alias-only.
+SQL, records и projection — adapter/gorm/payments; исходящие API/signature codecs — adapter/http/payments
+с отдельными epay/stripe/creem/waffo/pancake. Настройки читаются поздно через adapter/settings/payments.
+Сборка — app/payments, controller singleton — sync.OnceValue. Она работает в любом linked binary и не
+требует main-only регистрации. Диагностика получает request context явно и выдерживает nil Gin/Request.
+
+Completion выбирает порядок lookup/provider/status/quota/Save/credit; adapter выполняет их в одном tx.
+FOR UPDATE использует прежний model.LockForUpdate: MySQL/PostgreSQL получают clause, SQLite пропускает.
+Общий adapter/wallet владеет capacity check, единственным atomic ceiling credit и post-commit cache sync;
+тот же tx передаёт redemption. Lua/key/schema не копируются. Cache credit не создаёт partial hash и не
+отменяет committed payment при ошибке. Receipt идёт после commit в LOG_DB; Pancake сохраняет RecordLog,
+остальные — RecordTopupLog с прежними payment metadata/IP. Audit продолжает писать существующий middleware.
+
+Сохранены разные quota formulas: Stripe — Money × QuotaPerUnit; Creem automatic — Amount как quota;
+Epay/Waffo/Pancake — Amount × QuotaPerUnit; manual — Stripe Money, остальные Amount × QuotaPerUnit.
+Повтор Epay/Waffo/Pancake не кредитует снова; Stripe/Creem сохраняют прежние status errors.
+Manual repeat сохраняет zero/user0 receipt. Проверенный Stripe webhook подтверждается 200 empty даже при
+ошибке completion; Pancake возвращает retry/500; provider ACK constants не локализуются.
+
+## Границы и мосты
+
+Webhook usecase выбирает subscription dispatch и fallback. Узкий app-owned subscriptions bridge вызывает
+model.CompleteSubscriptionOrder/ExpireSubscriptionOrder/GetSubscriptionOrderByTradeNo и преобразует
+sentinels через errors.Is. Stripe/Creem продолжают top-up только при subscription not-found; Pancake
+выбирает по WAFFO_PANCAKE_SUB- и проверяет provider/buyer identity до process-local lock.
+
+Оставшиеся мосты:
+
+- controller/topup*.go и payment_compliance.go: прежние router entrypoints; GetEpayClient и общий
+  LockOrder/UnlockOrder для legacy subscription callbacks;
+- subscription_payment_epay/stripe/creem вызывают app-owned address/checkout bridges напрямую, без private controller forwarders;
+- app/payments: один ref-counted order registry; Epay client builder, Creem checkout, Pancake checkout,
+  management SDK и filtered catalog для legacy subscription consumers;
+- controller/subscription_payment_waffo_pancake_config.go: прежний plan-owned workflow, не payments scenario;
+- model/topup.go: строгий record-only alias для миграций и legacy subscriptions;
+- common/constants.go: прямые status aliases для legacy/immutable consumers;
+- model.LockForUpdate/SyncCreditUserQuotaCache остаются единственными shared primitives до их отдельного переноса.
+
+Новых architecture exceptions нет. Schema, migrations, tags/indexes, money arithmetic, routes, ordering,
+query semantics и audit policy не менялись. Сохраняются известные #50–59 в TECH_DEBT; #52 и #55 —
+financial/security candidates. Отдельное исправление operational logging подготовлено вне дерева.
+
+Структурный перенос сохраняет все прежние HTTP/persisted bytes, включая Chinese compatibility templates
+в en/ru. Три inherited search-pattern ошибки остаются English во всех локалях, как до переноса.
+English default/ru и язык получателя для payment receipts подготовлены отдельным неприменённым пакетом.
+Operational events сохраняют прежние уровни, места и bytes, включая Chinese legacy messages; их English replacement также отложен в content package.
+Старые rows не мигрируются.
+
+## Проверки и границы evidence
+
+615 immutable HTTP/state/outbound oracles записаны до переноса; прежние 972 oracles не обновляются.
+Матрица фиксирует реальные routes/middleware, подписи, повторы, out-of-order events, quota ceiling,
+rollback/commit failures, subscription effects, split main/LOG_DB и исходящие provider requests.
+Отдельные 204 locale snapshots сохраняют default/en/ru/обе zh/unknown. App regressions используют
+изолированные main/log PostgreSQL schemas и startup search_path каждого pool connection.
+MySQL без DSN явно SKIP; его совместимость этим не подтверждается.
+
+Waffo outbound evidence проходит через **подставленный SDK transport**: byte-identical SDK mirror,
+alternate modfile и overlay заменяют только три Transport bindings. Serialization/signatures/response
+verification прежние. Fake закрыт для неизвестных destinations; реальная сеть/provider payment не нужны.
+Обычный full suite без этих artifacts явно SKIP-ит payments contract; он не заменяет dedicated run:
+
+```sh
+go test -mod=readonly -modfile="$PAYMENTS_CONTRACT_MODFILE" \
+  -overlay="$PAYMENTS_CONTRACT_OVERLAY" ./internal/payments/contract \
+  -run '^TestPaymentsContract$' -count=1 -update=false
+```
+
+Транспортные artifacts проверяются внешним guard по hashes и точному diff. Sandbox parity/review не
+являются host/PostgreSQL/Redis/WSS/production acceptance. Все host проверки запускаются отдельно;
+никакой durable exactly-once после crash этим переносом не заявлен.
+
+Raw bind/GORM/SDK errors сохраняют прежнюю raw форму. В частности, data.error у Pancake pair —
+динамический SDK error-chain вместе с прежними English prefixes create/publish/store-created;
+полный перевод этих внешних errors на ru не заявляется. Они не распознаются по err.Error().
+Фиксированный Creem read-query error, в отличие от raw cause, имеет собственный compatibility i18n key.
+
+Transport default err.Error() для трёх search-pattern ошибок — явно принятый inherited exception: English во всех локалях сохраняется.
+CreditProfile передаёт optional Stripe customer/email facts; имена SQL columns принадлежат GORM adapter.

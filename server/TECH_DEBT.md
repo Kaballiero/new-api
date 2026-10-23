@@ -67,6 +67,18 @@
 | 48 | redemption admission | Process-local map сохраняет entry каждого userId навсегда, включая malformed request после compliance | Рост RAM; bounded lifecycle требует отдельного решения, простое удаление на Unlock может сломать mutual exclusion |
 | 49 | redemption post-commit cache / receipt | DB commit предшествует best-effort cache increment и log INSERT, без durable repair | Credit может остаться без актуального кеша/usage evidence; отдельная crash/fault policy, не гарантия durability |
 
+
+| 50 | payments operational logs | Подписи/raw webhook bodies, Epay form/link и Creem customer/response/link сохраняют legacy logging; отдельный source-only redaction package не применён | Security candidate: usable auth/payment/customer data в логах; отдельное исправление после parity acceptance |
+| 51 | Pancake catalog GET private_key | Typed private key передаётся в query и может попасть в history/proxy/access logs | Security candidate; миграция API к body/session config отдельно, GET контракт пока сохранён |
+| 52 | payments manual completion Creem / repeat | Manual считает Amount × QuotaPerUnit вместо automatic Amount; повтор success пишет user0/zero receipt | Financial/security candidate: возможен избыточный credit и ложная receipt; отдельная formula/repeat policy |
+| 53 | Waffo notification transitions | Любой status != PAY_SUCCESS переводит pending в failed, поздний paid затем отвергается | Возможна потеря пополнения при промежуточном/переупорядоченном event; state machine отдельно |
+| 54 | Stripe async-fail | Plain First → Save вне locked transaction может перезаписать concurrent success | Риск stale failed status после credit; отдельный race regression и transition fix |
+| 55 | Payment callback invoice validation | Wallet callbacks не сверяют paid amount/currency с local order; Epay merchant pid отдельно не сверяется сверх signature | Financial/security candidate: подписанные неверные invoice facts; provider-specific validation требует отдельного решения |
+| 56 | Payment admission asymmetry | Quote и Epay/Stripe/Creem pay не имеют общей compliance/enabled проверки; info/webhook строже | Order/link может быть создан при недоступном webhook; поведение сохранено |
+| 57 | Remote checkout / local order boundary | Stripe remote-first, Creem local-first; failed Save Waffo/Pancake игнорируется | Orphan/ambiguous orders; reconciliation без auto replay отдельно. Postcommit evidence/cache — также #49 |
+| 58 | Compliance option publication | Пять отдельных UpdateOption, map order и ignored SQL errors; bulk save DB-first/runtime-second | Возможны ложное подтверждение и расхождение runtime/DB; shared settings policy отдельно |
+| 59 | Payment concurrency on SQLite | FOR UPDATE пропускается, top-up status transition без CAS | Межпроцессная/crash exactly-once гарантия не доказана; отдельная durable state-transition policy |
+
 ## Архитектурный долг
 
 Текущий список — `server/internal/architecture_known_violations_test.go` (только сокращается). Крупные пункты:
@@ -108,7 +120,7 @@
 Остальное — в своих волнах:
 
 - legacy `controller/`, `service/`, `model/`, `common/`, `middleware/` (≈ 700 строк вне комментариев на 2026-10-21) — по мере переноса соответствующих модулей;
-- ошибки шаблона поиска (`ErrSearch*`) в пополнениях остаются вне переноса; в log endpoints wave-1 регрессия исправлена commit 0 (05edd5ad1), usage переводит ошибки существующими i18n keys;
+- payments сохраняет inherited English search-pattern errors из apikeys/domain; новые payment HTTP/receipt templates находятся в locale files и пока сохраняют legacy bytes до отдельного content package;
 - метки групп «用户分组» / «自动» для потребителей вне accounts (service, pricing, relay) по-прежнему китайские: `accountssettings.UserGroups()` берёт их из zh-CN; локализован только `GET` групп пользователя;
 - те же старые тексты в legacy-файлах: `quota 不能为负数！` (`model/user.go`, `model/quota_reserve.go`), `id 为空！` (`model/user.go`, `model/redemption.go`);
 - сообщения успеха в identity переводятся через `TranslateMessage`, и AST-генератор OpenAPI не выводит их тип: схема `message: string` для 5 обработчиков зафиксирована вручную в `preserveIdentityHandlerContract`.

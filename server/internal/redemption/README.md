@@ -61,8 +61,8 @@ model consumers механически переведены на те же expor
 Дополнительно ru quota errors переведены: «Квота кода пополнения должна быть положительной» и
 «Квота кошелька превышает {{.Max}}»; default/en/zh этих ошибок не менялись.
 Остальные ошибки сопоставляются по errors.Is, raw bind/Atoi/storage errors не распознаются по тексту.
-Persisted receipt и quota display fragment audit.create сохраняют прежние Chinese bytes через locale и
-фиксированный zh-CN. Отдельная согласованная смена сохраняемого content подготавливается вне этого дерева.
+Persisted receipt и quota display fragment audit.create используют язык получателя, English fallback;
+обе zh сохраняют прежние bytes. Этот ранее принятый content contract не меняется при подключении wallet.
 
 Долг: partial create #45; management/redeem races и re-enable #46; маска кода в operational error log (#47 закрыт)
 (security candidate, намеренно не исправлен); retained admission entries #48; post-commit cache/log #49.
