@@ -555,3 +555,9 @@ func TestQuotaTextPreservesCustomDollar(t *testing.T) {
 	assert.Equal(t, "\uff040.001000 quota", quotaText(500, i18n.LangEn))
 	assert.Equal(t, "\uff040.001000 единиц квоты", quotaText(500, i18n.LangRu))
 }
+
+func TestMaskCodeHidesTheCode(t *testing.T) {
+	assert.Equal(t, "0123***cdef", maskCode("0123456789abcdef0123456789abcdef"))
+	assert.Equal(t, "***", maskCode("short-code"))
+	assert.Equal(t, "***", maskCode(""))
+}

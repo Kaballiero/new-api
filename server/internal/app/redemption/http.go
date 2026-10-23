@@ -76,11 +76,20 @@ func NewHTTP() HTTP {
 	}
 }
 
-// The existing operational log includes the submitted code; changing that policy requires a separate security fix.
+// logRedemptionFailure never writes the submitted code: an unused code is a bearer credit.
 func logRedemptionFailure(c *gin.Context, key string, user int, err error) {
 	var ctx context.Context = context.Background()
 	if c != nil && c.Request != nil {
 		ctx = c.Request.Context()
 	}
-	logger.LogError(ctx, fmt.Sprintf("failed to redeem key %s for user %d: %s", key, user, err.Error()))
+	logger.LogError(ctx, fmt.Sprintf("failed to redeem key %s for user %d: %s", maskCode(key), user, err.Error()))
+}
+
+// maskCode keeps enough of a code to find its row and hides the rest.
+func maskCode(key string) string {
+	const visible = 4
+	if len(key) <= 3*visible {
+		return "***"
+	}
+	return key[:visible] + "***" + key[len(key)-visible:]
 }

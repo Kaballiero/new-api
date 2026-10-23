@@ -63,7 +63,7 @@
 
 | 45 | redemption/create_codes | Отдельные inserts оставляют partial batch при success=false; manual audit отсутствует, fallback не перечисляет выданные keys | Отдельно определить atomic batch или partial-result policy; в переносе rollback не добавлен |
 | 46 | redemption management / redeem | Update/delete неатомарны с lookup; stale full update или status-only могут вернуть used code в enabled, used_user_id сохраняется | Возможное повторное credit; state transition/CAS/locking исправлять отдельно с regression |
-| 47 | redemption operational failure log | Прежний TopUp logger включает полный submitted key при ошибке; сохранено по явному решению | Security candidate для пользователя; отдельно заменить raw code безопасной ссылкой, не добавлять secrets в audit |
+| 47 | Закрыто в 4a: redemption operational failure log | Прежний TopUp logger включал полный submitted key при ошибке; теперь пишется маска `abcd***wxyz` | Ответ API и goldens не менялись |
 | 48 | redemption admission | Process-local map сохраняет entry каждого userId навсегда, включая malformed request после compliance | Рост RAM; bounded lifecycle требует отдельного решения, простое удаление на Unlock может сломать mutual exclusion |
 | 49 | redemption post-commit cache / receipt | DB commit предшествует best-effort cache increment и log INSERT, без durable repair | Credit может остаться без актуального кеша/usage evidence; отдельная crash/fault policy, не гарантия durability |
 

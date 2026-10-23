@@ -64,7 +64,7 @@ model consumers механически переведены на те же expor
 Persisted receipt и quota display fragment audit.create сохраняют прежние Chinese bytes через locale и
 фиксированный zh-CN. Отдельная согласованная смена сохраняемого content подготавливается вне этого дерева.
 
-Долг: partial create #45; management/redeem races и re-enable #46; полный key в operational error log #47
+Долг: partial create #45; management/redeem races и re-enable #46; маска кода в operational error log (#47 закрыт)
 (security candidate, намеренно не исправлен); retained admission entries #48; post-commit cache/log #49.
 Новые guards, retries, repair и очищение lock map не добавлялись.
 
