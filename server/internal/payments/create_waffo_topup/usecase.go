@@ -139,7 +139,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	if err != nil {
 		var rejection domain.WaffoRejection
 		if errors.As(err, &rejection) {
-			u.diagnostics.Warn(ctx, "Waffo order creation rejected user_id=%d trade_no=%s code=%s message=%q response=%q", in.UserID, trade, rejection.Code, rejection.Message, rejection.Response)
+			u.diagnostics.Warn(ctx, "Waffo order creation rejected user_id=%d trade_no=%s code=%s message=%q", in.UserID, trade, rejection.Code, rejection.Message)
 		} else {
 			u.diagnostics.Error(ctx, "Waffo order creation failed user_id=%d trade_no=%s error=%q", in.UserID, trade, err)
 		}

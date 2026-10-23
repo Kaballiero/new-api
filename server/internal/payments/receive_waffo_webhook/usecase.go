@@ -38,16 +38,16 @@ func (u Usecase) Execute(ctx context.Context, in Input) (domain.WaffoReply, erro
 	}
 	u.observer.Received(ctx, in)
 	if !client.Verify(in.Payload, in.Signature) {
-		u.diagnostics.Warn(ctx, "Waffo webhook signature verification failed path=%q client_ip=%s signature=%q body=%q", in.Path, in.CallerIP, in.Signature, string(in.Payload))
+		u.diagnostics.Warn(ctx, "Waffo webhook signature verification failed path=%q client_ip=%s body_bytes=%d", in.Path, in.CallerIP, len(in.Payload))
 		return domain.WaffoReply{}, domain.ErrWaffoSignature
 	}
 	event, err := client.Parse(in.Payload)
 	if err != nil {
 		var payloadError domain.WaffoPayloadError
 		if errors.As(err, &payloadError) {
-			u.diagnostics.Error(ctx, "Waffo payment notification payload parsing failed event_type=%s client_ip=%s error=%q body=%q", payloadError.EventType, in.CallerIP, payloadError.Cause, string(in.Payload))
+			u.diagnostics.Error(ctx, "Waffo payment notification payload parsing failed event_type=%s client_ip=%s error=%q body_bytes=%d", payloadError.EventType, in.CallerIP, payloadError.Cause, len(in.Payload))
 		} else {
-			u.diagnostics.Error(ctx, "Waffo webhook parsing failed path=%q client_ip=%s error=%q body=%q", in.Path, in.CallerIP, err, string(in.Payload))
+			u.diagnostics.Error(ctx, "Waffo webhook parsing failed path=%q client_ip=%s error=%q body_bytes=%d", in.Path, in.CallerIP, err, len(in.Payload))
 		}
 		return client.Reply(false, "invalid payload"), nil
 	}

@@ -22,17 +22,17 @@ func NewHTTP(usecase Usecase, enabled func() bool) HTTP {
 
 func (h HTTP) Handle(c *gin.Context) {
 	if !h.enabled() {
-		h.usecase.diagnostics.Warn(transport.Context(c), "Waffo webhook rejected reason=webhook_disabled path=%q client_ip=%s", c.Request.RequestURI, c.ClientIP())
+		h.usecase.diagnostics.Warn(transport.Context(c), "Waffo webhook rejected reason=webhook_disabled path=%q client_ip=%s", c.Request.URL.Path, c.ClientIP())
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
 	payload, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		h.usecase.diagnostics.Error(transport.Context(c), "Waffo webhook request body read failed path=%q client_ip=%s error=%q", c.Request.RequestURI, c.ClientIP(), err)
+		h.usecase.diagnostics.Error(transport.Context(c), "Waffo webhook request body read failed path=%q client_ip=%s error=%q", c.Request.URL.Path, c.ClientIP(), err)
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
-	result, err := h.usecase.Execute(transport.Context(c), Input{Payload: payload, Signature: c.GetHeader("X-SIGNATURE"), CallerIP: c.ClientIP(), Path: c.Request.RequestURI})
+	result, err := h.usecase.Execute(transport.Context(c), Input{Payload: payload, Signature: c.GetHeader("X-SIGNATURE"), CallerIP: c.ClientIP(), Path: c.Request.URL.Path})
 	if err != nil {
 		if errors.Is(err, domain.ErrPaymentConfig) {
 			c.AbortWithStatus(http.StatusInternalServerError)

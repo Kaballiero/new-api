@@ -33,17 +33,17 @@ func NewUsecase(
 
 func (u Usecase) Execute(ctx context.Context, in Input) error {
 	if in.Signature == "" {
-		u.diagnostics.Warn(ctx, "Creem webhook signature is missing path=%q client_ip=%s body=%q", in.Path, in.CallerIP, string(in.Payload))
+		u.diagnostics.Warn(ctx, "Creem webhook signature is missing path=%q client_ip=%s body_bytes=%d", in.Path, in.CallerIP, len(in.Payload))
 		return domain.ErrCreemSignature
 	}
 	if !u.client.Verify(in.Payload, in.Signature) {
-		u.diagnostics.Warn(ctx, "Creem webhook signature verification failed path=%q client_ip=%s signature=%q body=%q", in.Path, in.CallerIP, in.Signature, string(in.Payload))
+		u.diagnostics.Warn(ctx, "Creem webhook signature verification failed path=%q client_ip=%s body_bytes=%d", in.Path, in.CallerIP, len(in.Payload))
 		return domain.ErrCreemSignature
 	}
 	u.diagnostics.Info(ctx, "Creem webhook signature verified path=%q client_ip=%s", in.Path, in.CallerIP)
 	event, err := u.client.Parse(in.Payload)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Creem webhook parsing failed path=%q client_ip=%s error=%q body=%q", in.Path, in.CallerIP, err, string(in.Payload))
+		u.diagnostics.Error(ctx, "Creem webhook parsing failed path=%q client_ip=%s error=%q body_bytes=%d", in.Path, in.CallerIP, err, len(in.Payload))
 		return fmt.Errorf("%w: %v", domain.ErrCreemPayload, err)
 	}
 	u.diagnostics.Info(ctx, "Creem webhook parsed successfully event_type=%s event_id=%s request_id=%s order_id=%s order_status=%s", event.Type, event.ID, event.Reference, event.OrderID, event.Status)
@@ -74,7 +74,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) error {
 		u.diagnostics.Info(ctx, "Creem unsupported order type, ignoring request_id=%s creem_order_id=%s order_type=%s", event.Reference, event.OrderID, event.OrderType)
 		return nil
 	}
-	u.diagnostics.Info(ctx, "Creem payment completion callback trade_no=%s creem_order_id=%s amount_paid=%d currency=%s product_name=%q customer_email=%q customer_name=%q", event.Reference, event.OrderID, event.AmountPaid, event.Currency, event.ProductName, event.Email, event.CustomerName)
+	u.diagnostics.Info(ctx, "Creem payment completion callback trade_no=%s creem_order_id=%s amount_paid=%d currency=%s product_name=%q", event.Reference, event.OrderID, event.AmountPaid, event.Currency, event.ProductName)
 	order := u.orders.Find(event.Reference)
 	if order == nil {
 		u.diagnostics.Warn(ctx, "Creem topup order not found trade_no=%s creem_order_id=%s", event.Reference, event.OrderID)

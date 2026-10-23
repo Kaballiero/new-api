@@ -50,9 +50,9 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 		return Result{}, SignatureFailure{Cause: err}
 	}
 	result := Result{Event: event}
-	u.diagnostics.Info(ctx, "Epay webhook signature verified trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", event.TradeNo, event.Method, event.Status, in.CallerIP, event.Verification)
+	u.diagnostics.Info(ctx, "Epay webhook signature verified trade_no=%s callback_type=%s trade_status=%s client_ip=%s", event.TradeNo, event.Method, event.Status, in.CallerIP)
 	if event.Status != "TRADE_SUCCESS" {
-		u.diagnostics.Info(ctx, "Epay webhook event ignored trade_no=%s callback_type=%s trade_status=%s client_ip=%s verify_info=%q", event.TradeNo, event.Method, event.Status, in.CallerIP, event.Verification)
+		u.diagnostics.Info(ctx, "Epay webhook event ignored trade_no=%s callback_type=%s trade_status=%s client_ip=%s", event.TradeNo, event.Method, event.Status, in.CallerIP)
 		return result, nil
 	}
 	u.admission.Lock(event.TradeNo)
@@ -61,7 +61,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
-			u.diagnostics.Warn(ctx, "Epay callback order not found trade_no=%s callback_type=%s client_ip=%s verify_info=%q", event.TradeNo, event.Method, in.CallerIP, event.Verification)
+			u.diagnostics.Warn(ctx, "Epay callback order not found trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
 		case errors.Is(err, domain.ErrProviderMismatch):
 			u.diagnostics.Warn(ctx, "Epay order payment provider mismatch trade_no=%s callback_type=%s client_ip=%s", event.TradeNo, event.Method, in.CallerIP)
 		case errors.Is(err, domain.ErrNotPending):

@@ -21,9 +21,9 @@ type Client struct{}
 
 func (Client) Verify(payload []byte, signature string) bool {
 	if setting.CreemWebhookSecret == "" {
-		logger.LogWarn(context.Background(), fmt.Sprintf("Creem webhook secret is not configured test_mode=%t signature=%q body=%q", setting.CreemTestMode, signature, string(payload)))
+		logger.LogWarn(context.Background(), fmt.Sprintf("Creem webhook secret is not configured test_mode=%t body_bytes=%d", setting.CreemTestMode, len(payload)))
 		if setting.CreemTestMode {
-			logger.LogInfo(context.Background(), fmt.Sprintf("Creem webhook signature verification skipped reason=test_mode signature=%q body=%q", signature, string(payload)))
+			logger.LogInfo(context.Background(), fmt.Sprintf("Creem webhook signature verification skipped reason=test_mode body_bytes=%d", len(payload)))
 		}
 		return setting.CreemTestMode
 	}
@@ -165,7 +165,7 @@ func (Client) Checkout(ctx context.Context, referenceId string, product domain.C
 
 	logger.LogInfo(
 		ctx,
-		fmt.Sprintf("Creem payment request sent api_url=%s product_id=%s email=%q trade_no=%s", apiUrl, product.ProductId, email, referenceId),
+		fmt.Sprintf("Creem payment request sent api_url=%s product_id=%s trade_no=%s", apiUrl, product.ProductId, referenceId),
 	)
 
 	client := &http.Client{
@@ -182,7 +182,7 @@ func (Client) Checkout(ctx context.Context, referenceId string, product domain.C
 		return "", fmt.Errorf("failed to read response: %v", err)
 	}
 
-	logger.LogInfo(ctx, fmt.Sprintf("Creem API response received trade_no=%s status_code=%d body=%q", referenceId, resp.StatusCode, string(body)))
+	logger.LogInfo(ctx, fmt.Sprintf("Creem API response received trade_no=%s status_code=%d body_bytes=%d", referenceId, resp.StatusCode, len(body)))
 
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("Creem API http status %d ", resp.StatusCode)
@@ -200,7 +200,7 @@ func (Client) Checkout(ctx context.Context, referenceId string, product domain.C
 
 	logger.LogInfo(
 		ctx,
-		fmt.Sprintf("Creem payment link created trade_no=%s response_id=%s checkout_url=%q", referenceId, checkoutResp.Id, checkoutResp.CheckoutUrl),
+		fmt.Sprintf("Creem payment link created trade_no=%s response_id=%s", referenceId, checkoutResp.Id),
 	)
 	return checkoutResp.CheckoutUrl, nil
 }

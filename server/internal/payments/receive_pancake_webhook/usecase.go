@@ -31,7 +31,7 @@ func NewUsecase(
 func (u Usecase) Execute(ctx context.Context, in Input) error {
 	event, err := u.client.Verify(in.Payload, in.Signature)
 	if err != nil {
-		u.diagnostics.Warn(ctx, "Waffo Pancake webhook signature verification failed path=%q client_ip=%s signature=%q body=%q error=%q", in.Path, in.CallerIP, in.Signature, in.Payload, err)
+		u.diagnostics.Warn(ctx, "Waffo Pancake webhook signature verification failed path=%q client_ip=%s body_bytes=%d error=%q", in.Path, in.CallerIP, len(in.Payload), err)
 		return fmt.Errorf("%w: %v", domain.ErrPancakeSignature, err)
 	}
 	if !strings.EqualFold(strings.TrimSpace(event.Mode), in.Environment) {
@@ -70,9 +70,9 @@ func (u Usecase) Execute(ctx context.Context, in Input) error {
 	}
 	if resolveError != nil {
 		if subscription {
-			u.diagnostics.Error(ctx, "Waffo Pancake webhook subscription order resolution failed event_id=%s order_id=%s buyer_identity=%q client_ip=%s error=%q", event.ID, event.Data.OrderID, event.Data.MerchantProvidedBuyerIdentity, in.CallerIP, resolveError)
+			u.diagnostics.Error(ctx, "Waffo Pancake webhook subscription order resolution failed event_id=%s order_id=%s client_ip=%s error=%q", event.ID, event.Data.OrderID, in.CallerIP, "order reference or buyer identity validation failed")
 		} else {
-			u.diagnostics.Error(ctx, "Waffo Pancake webhook order resolution failed event_id=%s order_id=%s buyer_identity=%q client_ip=%s error=%q", event.ID, event.Data.OrderID, event.Data.MerchantProvidedBuyerIdentity, in.CallerIP, resolveError)
+			u.diagnostics.Error(ctx, "Waffo Pancake webhook order resolution failed event_id=%s order_id=%s client_ip=%s error=%q", event.ID, event.Data.OrderID, in.CallerIP, "order reference or buyer identity validation failed")
 		}
 		return nil
 	}

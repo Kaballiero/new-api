@@ -3,10 +3,10 @@ package payments
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/payments/create_epay_topup"
 	"github.com/QuantumNous/new-api/internal/payments/dto"
 	"github.com/QuantumNous/new-api/internal/payments/receive_waffo_webhook"
@@ -17,25 +17,29 @@ import (
 func observeWebhook(c *gin.Context, provider string, payload []byte, signature string) {
 	path, ip := "", ""
 	if c != nil && c.Request != nil {
-		path = c.Request.RequestURI
+		if c.Request.URL != nil {
+			path = c.Request.URL.Path
+		}
 		ip = c.ClientIP()
 	}
 	logger.LogInfo(
 		transport.Context(c),
-		fmt.Sprintf("%s webhook request received path=%q client_ip=%s signature=%q body=%q", provider, path, ip, signature, string(payload)),
+		fmt.Sprintf("%s webhook request received path=%q client_ip=%s body_bytes=%d", provider, path, ip, len(payload)),
 	)
 }
 
 func observeEpay(c *gin.Context, params map[string]string) {
 	path, ip, method := "", "", ""
 	if c != nil && c.Request != nil {
-		path = c.Request.RequestURI
+		if c.Request.URL != nil {
+			path = c.Request.URL.Path
+		}
 		ip = c.ClientIP()
 		method = c.Request.Method
 	}
 	logger.LogInfo(
 		transport.Context(c),
-		fmt.Sprintf("Epay webhook request received path=%q client_ip=%s method=%s params=%q", path, ip, method, common.GetJsonString(params)),
+		fmt.Sprintf("Epay webhook request received path=%q client_ip=%s method=%s param_count=%d", path, ip, method, len(params)),
 	)
 }
 
@@ -47,14 +51,12 @@ func observeEpayCheckout(c *gin.Context, req dto.EpayRequest, result create_epay
 	logger.LogInfo(
 		transport.Context(c),
 		fmt.Sprintf(
-			"Epay topup order created user_id=%d trade_no=%s payment_method=%s amount=%d money=%.2f uri=%q params=%q",
+			"Epay topup order created user_id=%d trade_no=%s payment_method=%s amount=%d money=%.2f param_count=%d",
 			userID,
 			result.TradeNo,
 			req.PaymentMethod,
 			req.Amount,
-			result.Money,
-			result.URL,
-			common.GetJsonString(result.Params),
+			result.Money, len(result.Params),
 		),
 	)
 }
@@ -64,7 +66,7 @@ func observeCreemPay(c *gin.Context, payload []byte) {
 	if c != nil {
 		userID = c.GetInt("id")
 	}
-	logger.LogInfo(transport.Context(c), fmt.Sprintf("Creem payment request received user_id=%d body=%q", userID, string(payload)))
+	logger.LogInfo(transport.Context(c), fmt.Sprintf("Creem payment request received user_id=%d body_bytes=%d", userID, len(payload)))
 }
 
 // waffoObservation retains the original SDK-build-before-payload-log boundary.
@@ -74,7 +76,8 @@ func (waffoObservation) Received(ctx context.Context, in receive_waffo_webhook.I
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	logger.LogInfo(ctx, fmt.Sprintf("Waffo webhook request received path=%q client_ip=%s signature=%q body=%q", in.Path, in.CallerIP, in.Signature, string(in.Payload)))
+	path, _, _ := strings.Cut(in.Path, "?")
+	logger.LogInfo(ctx, fmt.Sprintf("Waffo webhook request received path=%q client_ip=%s body_bytes=%d", path, in.CallerIP, len(in.Payload)))
 }
 
 // paymentDiagnostics writes request-correlated events without retaining a Gin context.
