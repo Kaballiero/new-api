@@ -46,6 +46,10 @@ func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform,
 		if info.OpenRouterCost != nil && info.OpenRouterCost.BufferedAudio {
 			return constant.TaskPlatformOpenRouterAudio, "audio", nil
 		}
+		// Chat text reuses the chat account binding and completions lookup.
+		if info.OpenRouterCost != nil && info.OpenRouterCost.ChatText {
+			return constant.TaskPlatformOpenRouterChatImage, "chat", nil
+		}
 	}
 	return "", "", errors.New("unsupported OpenRouter synchronous operation")
 }
@@ -53,7 +57,7 @@ func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform,
 // BeginOpenRouterSyncTask persists an intent before any hold changes. An
 // interrupted reservation deliberately records unknown applied ledger legs.
 func BeginOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, quota int) error {
-	if quota < 0 || quota == 0 && info.NativeImage == nil && (info.OpenRouterCost == nil || !info.OpenRouterCost.ChatImage) || HasOpenRouterSyncTask(info) {
+	if quota < 0 || quota == 0 && info.NativeImage == nil && (info.OpenRouterCost == nil || !info.OpenRouterCost.ChatImage && !info.OpenRouterCost.ChatText) || HasOpenRouterSyncTask(info) {
 		return errors.New("OpenRouter synchronous requires a new positive reservation")
 	}
 	platform, action, err := openRouterSyncIdentity(info)
@@ -406,7 +410,8 @@ func CompleteOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, bod
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, state.CostUSD
 		r.UpstreamIsBYOK, r.UpstreamCostDetails = state.IsBYOK, string(state.CostDetails)
 		finishOpenRouterSync(task)
-	} else if task.PrivateData.UpstreamTaskID == "" {
+	} else if task.PrivateData.UpstreamTaskID == "" || task.Platform == constant.TaskPlatformOpenRouterChatImage && a.MetadataURL == "" {
+		// Same rule as the poller: without a lookup endpoint the cost is unrecoverable.
 		manualOpenRouterSync(task, "missing_generation_identity")
 	}
 	projectOpenRouterSyncState(task)
@@ -457,6 +462,26 @@ func FailOpenRouterSyncTask(info *relaycommon.RelayInfo, reason string) error {
 		return settleOpenRouterCost(task)
 	}
 	return nil
+}
+
+// HoldOpenRouterSyncTaskForReconciliation parks a Task whose result never
+// reached the client. The hold is retained without an automatic charge; an
+// operator decides from the recorded generation.
+func HoldOpenRouterSyncTaskForReconciliation(info *relaycommon.RelayInfo, reason string) error {
+	task, err := openRouterSyncTask(info)
+	if err != nil {
+		return err
+	}
+	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
+	if !r.SubmissionPending || time.Now().Unix() >= a.LeaseUntil {
+		return errors.New("OpenRouter synchronous result lease expired")
+	}
+	a.IdentityConflict = a.IdentityConflict || info.OpenRouterCost.IdentityConflict
+	r.SubmissionPending = false
+	a.ResultFailed = true
+	manualOpenRouterSync(task, reason)
+	projectOpenRouterSyncState(task)
+	return task.UpdateOpenRouterSync(a.Revision)
 }
 
 func projectOpenRouterSyncState(task *model.Task) {
@@ -568,7 +593,7 @@ func finishOpenRouterSync(task *model.Task) {
 // Only the winner of a revision-checked terminal claim may move funds.
 func pollOpenRouterSync(ctx context.Context, task *model.Task) error {
 	validIdentity := task.Platform == constant.TaskPlatformOpenRouterAudio && task.Action == "audio" && task.PrivateData.OpenRouterSync == nil ||
-		(task.Platform == constant.TaskPlatformOpenRouterRerank && task.Action == "rerank" || task.Platform == constant.TaskPlatformOpenRouterImage && task.Action == "image" || task.Platform == constant.TaskPlatformOpenRouterChatImage && task.Action == "chat-image") && task.PrivateData.OpenRouterAudio == nil
+		(task.Platform == constant.TaskPlatformOpenRouterRerank && task.Action == "rerank" || task.Platform == constant.TaskPlatformOpenRouterImage && task.Action == "image" || task.Platform == constant.TaskPlatformOpenRouterChatImage && (task.Action == "chat-image" || task.Action == "chat")) && task.PrivateData.OpenRouterAudio == nil
 	if !validIdentity {
 		manualOpenRouterSync(task, "operation_identity_changed")
 		projectOpenRouterSyncState(task)
@@ -697,7 +722,11 @@ func lookupOpenRouterSyncCost(ctx context.Context, task *model.Task) (float64, i
 	// TTS does not populate generation_time. A fully received speech result,
 	// an uncancelled generation and a confirmed cost establish completion instead.
 	completedSpeech := d.APIType == "tts" && a.ResultReady && !a.ResultFailed && strings.HasPrefix(a.ResultMimeType, "audio/")
-	if d.Cancelled == nil || *d.Cancelled || d.GenerationTime == nil && !completedSpeech {
+	// A client-aborted chat text stream is cancelled yet stably billed for the
+	// tokens produced. Its total_cost is accepted only once the generation had
+	// time to settle; earlier lookups retry as incomplete metadata.
+	billedCancel := task.Action == "chat" && d.Cancelled != nil && *d.Cancelled && time.Now().Unix()-task.StartTime >= 30
+	if d.Cancelled == nil || *d.Cancelled && !billedCancel || d.GenerationTime == nil && !completedSpeech {
 		return 0, status, retryAfter, "incomplete_metadata"
 	}
 	if d.GenerationTime != nil && (*d.GenerationTime < 0 || math.IsNaN(*d.GenerationTime) || math.IsInf(*d.GenerationTime, 0)) {

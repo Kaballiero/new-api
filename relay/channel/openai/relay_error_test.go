@@ -337,33 +337,144 @@ func TestOaiStreamHandlerRecordsErrorEventWriteFailure(t *testing.T) {
 	require.GreaterOrEqual(t, info.StreamStatus.TotalErrorCount(), 2)
 }
 
+// newOpenRouterChatTextRequest binds a chat text hold to a persisted OpenRouter
+// account so a missing cost can be deferred to the durable Task.
+func newOpenRouterChatTextRequest(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder, *http.Response, *relaycommon.RelayInfo, *sonarAdmissionBilling) {
+	t.Helper()
+	previousDB, previousLogDB := modelpkg.DB, modelpkg.LOG_DB
+	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis, previousBatch, previousLog := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&modelpkg.Task{}, &modelpkg.User{}, &modelpkg.Token{}, &modelpkg.Channel{}, &modelpkg.Log{}))
+	modelpkg.DB, modelpkg.LOG_DB = db, db
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
+	t.Cleanup(func() {
+		modelpkg.DB, modelpkg.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousType, previousLogType)
+		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousRedis, previousBatch, previousLog
+		require.NoError(t, sqlDB.Close())
+	})
+	require.NoError(t, db.Create(&modelpkg.User{Id: 1, Username: "chat-text", Quota: 1000000}).Error)
+	c, recorder, resp, info := newEmbeddedErrorTestRequest(body, http.StatusOK)
+	info.ChannelType, info.ChannelId, info.ChannelBaseUrl = constant.ChannelTypeOpenRouter, 1, "https://openrouter.test/api"
+	info.ApiKey, info.UpstreamModelName, info.OriginModelName = "chat-text-account", "vendor/text", "text-alias"
+	info.RelayMode, info.UserId, info.RequestId, info.BillingSource = relayconstant.RelayModeChatCompletions, 1, t.Name(), "wallet"
+	info.OpenRouterCost = &relaycommon.OpenRouterCostState{ChatText: true, Sent: true, Basis: common.OpenRouterCostBasis{Version: "openrouter_cost_v1", EffectiveGroupRatio: 1, QuotaPerUnit: 1000, EstimatedUSD: .05}}
+	channel := &modelpkg.Channel{Id: 1, Type: constant.ChannelTypeOpenRouter, Key: info.ApiKey, BaseURL: &info.ChannelBaseUrl}
+	channel.SetSetting(info.ChannelSetting)
+	require.NoError(t, db.Create(channel).Error)
+	billing := &sonarAdmissionBilling{}
+	require.NoError(t, billing.Reserve(50))
+	info.Billing, info.FinalPreConsumedQuota = billing, 50
+	info.SetEstimatePromptTokens(12)
+	return c, recorder, resp, info, billing
+}
+
 func TestOpenRouterCostGateBeforeClientWrite(t *testing.T) {
 	for _, tc := range []struct {
 		name, body string
 		valid      bool
 		cost       float64
+		chatText   bool
+		// deferred means the hold moved to a Task awaiting generation metadata.
+		deferred bool
+		upstream string
+		// lookupDrift breaks Configure after Begin by moving the request origin.
+		lookupDrift  bool
+		billingState string
+		// commitFailure fails the hold transfer after Begin persisted the Task.
+		commitFailure bool
 	}{
-		{"cost only positive", `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":0.03}}`, true, .03},
-		{"cost explicit zero", `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":0}}`, true, 0},
-		{"missing cost", `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, false, 0},
-		{"null cost", `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":null}}`, false, 0},
-		{"string cost", `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":"0"}}`, false, 0},
+		{name: "cost only positive", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":0.03}}`, valid: true, cost: .03},
+		{name: "cost explicit zero", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":0}}`, valid: true, cost: 0},
+		{name: "missing cost", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`},
+		{name: "null cost", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":null}}`},
+		{name: "string cost", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"cost":"0"}}`},
+		{name: "chat text missing cost defers to generation", body: `{"id":"gen-text-missing","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true},
+		{name: "chat text null cost defers to generation", body: `{"id":"gen-text-null","choices":[{"message":{"content":"ok"}}],"usage":{"cost":null}}`, chatText: true, valid: true, deferred: true},
+		{name: "chat text lookup drift after Begin still delivers", body: `{"id":"gen-text-drift","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true, lookupDrift: true, billingState: "manual_reconciliation"},
+		{name: "chat text failed hold transfer after Begin still delivers", body: `{"id":"gen-text-commit","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true, valid: true, deferred: true, commitFailure: true, billingState: "reservation_unknown"},
+		{name: "chat text handler failure after deferral holds for reconciliation", body: `{"id":"gen-text-broken","choices":"broken","usage":{"prompt_tokens":1}}`, chatText: true, deferred: true, billingState: "manual_reconciliation"},
+		{name: "chat text missing cost without identity refunds", body: `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true},
+		{name: "chat text missing cost with invalid identity refunds", body: `{"id":"chatcmpl-foreign","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1}}`, chatText: true},
+		{name: "chat text upstream error is surfaced", body: `{"id":"gen-text-error","choices":[],"error":{"code":502,"message":"Upstream error from Nvidia: Service temporarily overloaded","metadata":{"provider_name":"Nvidia"}}}`, chatText: true, upstream: "Upstream error from Nvidia: Service temporarily overloaded"},
+		{name: "chat text valid cost ignores invalid identity", body: `{"id":"chatcmpl-foreign","choices":[{"message":{"content":"ok"}}],"usage":{"cost":0.03}}`, chatText: true, valid: true, cost: .03},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, recorder, resp, info := newEmbeddedErrorTestRequest(tc.body, http.StatusOK)
 			info.ChannelType = constant.ChannelTypeOpenRouter
 			info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
 			info.SetEstimatePromptTokens(12)
+			billing := &sonarAdmissionBilling{}
+			if tc.chatText {
+				c, recorder, resp, info, billing = newOpenRouterChatTextRequest(t, tc.body)
+			}
+			if tc.lookupDrift {
+				info.ChannelBaseUrl = "https://openrouter-drift.test/api"
+			}
+			if tc.commitFailure {
+				billing.err = errors.New("injected hold transfer failure")
+			}
+			if tc.billingState == "" {
+				tc.billingState = "awaiting_cost"
+			}
 			usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+			assert.Equal(t, tc.deferred, service.HasOpenRouterSyncTask(info), "only a deferred Task keeps the hold; otherwise the controller refunds")
 			if !tc.valid {
 				require.NotNil(t, apiErr)
+				if tc.upstream != "" {
+					assert.Contains(t, apiErr.Error(), tc.upstream)
+				}
 				assert.Empty(t, recorder.Body.String())
+				if !tc.deferred {
+					assert.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+					assert.Empty(t, billing.settled)
+					return
+				}
+				// The hold stays in the Task without an automatic charge.
+				assert.Equal(t, []int{50}, billing.settled)
+				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				require.NoError(t, err)
+				require.True(t, exists)
+				assert.Equal(t, 50, task.Quota)
+				assert.Equal(t, "undelivered_chat_result", task.PrivateData.OpenRouterSync.LastError)
+				assert.Equal(t, tc.billingState, service.OpenRouterSyncReconciliation(task)["billing_state"])
 				return
 			}
 			require.Nil(t, apiErr)
 			require.NotNil(t, usage)
 			assert.Equal(t, tc.cost, usage.(*dto.Usage).Cost)
 			assert.Contains(t, recorder.Body.String(), "ok")
+			if !tc.deferred {
+				assert.Empty(t, billing.settled)
+				return
+			}
+			assert.Equal(t, []int{50}, billing.settled, "the session hold moves into the Task unchanged")
+			assert.Equal(t, info.OpenRouterCost.TaskID, recorder.Header().Get("X-Task-Id"))
+			task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			require.NoError(t, err)
+			require.True(t, exists)
+			assert.Equal(t, constant.TaskPlatformOpenRouterChatImage, task.Platform)
+			assert.Equal(t, "chat", task.Action)
+			assert.Equal(t, 50, task.Quota)
+			assert.Equal(t, info.OpenRouterCost.GenerationID, task.PrivateData.UpstreamTaskID)
+			assert.Equal(t, tc.billingState, service.OpenRouterSyncReconciliation(task)["billing_state"])
+			if tc.commitFailure {
+				// The poller parks it as interrupted_reservation_or_submission after the lease.
+				assert.True(t, task.PrivateData.Reconciliation.ReservationPending)
+				return
+			}
+			if tc.lookupDrift {
+				assert.Empty(t, task.PrivateData.OpenRouterSync.MetadataURL)
+				assert.Equal(t, "missing_generation_identity", service.OpenRouterSyncReconciliation(task)["reason_code"])
+				return
+			}
+			assert.Equal(t, "https://openrouter.test/api/v1/generation", task.PrivateData.OpenRouterSync.MetadataURL)
 		})
 	}
 }
@@ -374,26 +485,72 @@ func TestOpenRouterStreamRequiresTerminalCost(t *testing.T) {
 		name, frames string
 		valid        bool
 		cost         float64
+		chatText     bool
+		// billingState is the Task outcome that retains the streamed hold.
+		billingState, generationID, upstream string
+		// undelivered is content that must never reach the client.
+		undelivered string
 	}{
-		{"final cost zero replaces provisional", "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\ndata: {\"choices\":[],\"usage\":{\"cost\":0}}\n\ndata: [DONE]\n\n", true, 0},
-		{"null final invalidates provisional", "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\ndata: {\"choices\":[],\"usage\":{\"cost\":null}}\n\ndata: [DONE]\n\n", false, 0},
-		{"disconnect without terminal", "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\n", false, 0},
+		{name: "final cost zero replaces provisional", frames: "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\ndata: {\"choices\":[],\"usage\":{\"cost\":0}}\n\ndata: [DONE]\n\n", valid: true},
+		{name: "null final invalidates provisional", frames: "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\ndata: {\"choices\":[],\"usage\":{\"cost\":null}}\n\ndata: [DONE]\n\n"},
+		{name: "disconnect without terminal", frames: "data: {\"choices\":[],\"usage\":{\"cost\":0.1}}\n\n"},
+		{name: "chat text without terminal cost defers to generation", chatText: true, valid: true, billingState: "awaiting_cost", generationID: "gen-stream-text",
+			frames: "data: {\"id\":\"gen-stream-text\",\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"id\":\"gen-stream-text\",\"choices\":[],\"usage\":{\"prompt_tokens\":1}}\n\ndata: [DONE]\n\n"},
+		{name: "chat text without identity keeps streamed hold for reconciliation", chatText: true, valid: true, billingState: "manual_reconciliation",
+			frames: "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":1}}\n\ndata: [DONE]\n\n"},
+		{name: "chat text tool call without terminal cost keeps the hold", chatText: true, valid: true, billingState: "awaiting_cost", generationID: "gen-stream-tool",
+			frames: "data: {\"id\":\"gen-stream-tool\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{}\"}}]}}]}\n\ndata: {\"id\":\"gen-stream-tool\",\"choices\":[],\"usage\":{\"prompt_tokens\":1}}\n\ndata: [DONE]\n\n"},
+		{name: "chat text role-only chunk then error refunds", chatText: true, upstream: "Upstream error from Nvidia",
+			frames: "data: {\"id\":\"gen-stream-role\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\ndata: {\"id\":\"gen-stream-role\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
+		{name: "chat text role-only stream without usage or identity refunds", chatText: true,
+			frames: "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\ndata: [DONE]\n\n"},
+		{name: "chat text content inside the error chunk is not delivered and refunds", chatText: true, upstream: "Upstream error from Nvidia", undelivered: "lost-content",
+			frames: "data: {\"id\":\"gen-stream-joint\",\"choices\":[{\"delta\":{\"content\":\"lost-content\"}}],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
+		{name: "chat text reasoning then error keeps the hold", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-reasoning",
+			frames: "data: {\"id\":\"gen-stream-reasoning\",\"choices\":[{\"delta\":{\"reasoning\":\"thinking\"}}]}\n\ndata: {\"id\":\"gen-stream-reasoning\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
+		{name: "chat text upstream error before content refunds", chatText: true, upstream: "Upstream error from Nvidia",
+			frames: "data: {\"id\":\"gen-stream-error\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
+		{name: "chat text upstream error after content keeps the hold", chatText: true, upstream: "Upstream error from Nvidia", billingState: "awaiting_cost", generationID: "gen-stream-partial",
+			frames: "data: {\"id\":\"gen-stream-partial\",\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"id\":\"gen-stream-partial\",\"choices\":[],\"error\":{\"code\":502,\"message\":\"Upstream error from Nvidia\"}}\n\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c, _, resp, info := newEmbeddedErrorTestRequest(tc.frames, http.StatusOK)
+			c, recorder, resp, info := newEmbeddedErrorTestRequest(tc.frames, http.StatusOK)
+			info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
+			billing := &sonarAdmissionBilling{}
+			if tc.chatText {
+				c, recorder, resp, info, billing = newOpenRouterChatTextRequest(t, tc.frames)
+			}
 			resp.Header.Set("Content-Type", "text/event-stream")
 			info.ChannelType = constant.ChannelTypeOpenRouter
 			info.IsStream = true
-			info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
 			info.DisablePing = true
 			usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
-			if !tc.valid {
+			assert.Equal(t, tc.billingState != "", service.HasOpenRouterSyncTask(info), "only a Task keeps the streamed hold; otherwise the controller refunds")
+			if tc.undelivered != "" {
+				assert.NotContains(t, recorder.Body.String(), tc.undelivered)
+			}
+			if tc.valid {
+				require.Nil(t, apiErr)
+				require.NotNil(t, usage)
+				assert.Equal(t, tc.cost, usage.(*dto.Usage).Cost)
+			} else {
 				require.NotNil(t, apiErr)
+				if tc.upstream != "" {
+					assert.Contains(t, apiErr.Error(), tc.upstream)
+				}
+			}
+			if tc.billingState == "" {
+				assert.Empty(t, billing.settled)
 				return
 			}
-			require.Nil(t, apiErr)
-			require.NotNil(t, usage)
-			assert.Equal(t, tc.cost, usage.(*dto.Usage).Cost)
+			assert.Equal(t, []int{50}, billing.settled)
+			task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			require.NoError(t, err)
+			require.True(t, exists)
+			assert.Equal(t, "chat", task.Action)
+			assert.Equal(t, 50, task.Quota)
+			assert.Equal(t, tc.generationID, task.PrivateData.UpstreamTaskID)
+			assert.Equal(t, tc.billingState, service.OpenRouterSyncReconciliation(task)["billing_state"])
 		})
 	}
 }
@@ -525,6 +682,7 @@ func (s *sonarAdmissionTransport) RoundTrip(request *http.Request) (*http.Respon
 type sonarAdmissionBilling struct {
 	reserveCalls int
 	reserved     int
+	settled      []int
 	err          error
 }
 
@@ -537,9 +695,12 @@ func (s *sonarAdmissionBilling) Reserve(quota int) error {
 	return nil
 }
 func (s *sonarAdmissionBilling) GetPreConsumedQuota() int { return s.reserved }
-func (s *sonarAdmissionBilling) Settle(int) error         { return nil }
-func (s *sonarAdmissionBilling) Refund(*gin.Context)      {}
-func (s *sonarAdmissionBilling) NeedsRefund() bool        { return s.reserved > 0 }
+func (s *sonarAdmissionBilling) Settle(quota int) error {
+	s.settled = append(s.settled, quota)
+	return s.err
+}
+func (s *sonarAdmissionBilling) Refund(*gin.Context) {}
+func (s *sonarAdmissionBilling) NeedsRefund() bool   { return s.reserved > 0 }
 
 func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 	const model = "perplexity/sonar-deep-research"
@@ -708,6 +869,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 			assert.JSONEq(t, body, string(transport.body), "pricing and paid transport must inspect the same final body")
 			require.NotNil(t, info.OpenRouterCost)
 			assert.True(t, info.OpenRouterCost.Sent)
+			assert.True(t, info.OpenRouterCost.ChatText, "a plain chat completion may defer a missing cost to its generation")
 			switch tc.reserveUse {
 			case openrouter.ReserveWholeHold:
 				require.NotNil(t, info.OpenRouterCost.ApproximateReserveUSD)

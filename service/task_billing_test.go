@@ -3605,6 +3605,7 @@ func TestOpenRouterChatImageDurableReconciliation(t *testing.T) {
 	for _, tc := range []struct {
 		name, cost, metadataCost                           string
 		noID, conflict, rotate, wrongModel, wrongOperation bool
+		cancelled                                          bool
 		target                                             int
 		confirmed                                          bool
 	}{
@@ -3620,6 +3621,7 @@ func TestOpenRouterChatImageDurableReconciliation(t *testing.T) {
 		{name: "credential rotated", rotate: true, metadataCost: "0.04", target: 50},
 		{name: "wrong model", wrongModel: true, metadataCost: "0.04", target: 50},
 		{name: "wrong operation", wrongOperation: true, metadataCost: "0.04", target: 50},
+		{name: "cancelled image generation remains unknown", cancelled: true, metadataCost: "0.04", target: 50},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
@@ -3638,7 +3640,7 @@ func TestOpenRouterChatImageDurableReconciliation(t *testing.T) {
 					w.WriteHeader(404)
 					return
 				}
-				fmt.Fprintf(w, `{"data":{"id":"gen-chat-fixture","model":%q,"api_type":%q,"cancelled":false,"generation_time":1,"total_cost":%s}}`, modelName, apiType, tc.metadataCost)
+				fmt.Fprintf(w, `{"data":{"id":"gen-chat-fixture","model":%q,"api_type":%q,"cancelled":%t,"generation_time":1,"total_cost":%s}}`, modelName, apiType, tc.cancelled, tc.metadataCost)
 			}))
 			defer server.Close()
 			c, info := newOpenRouterChatImageReservation(t, server.URL)
@@ -3832,6 +3834,118 @@ func TestOpenRouterChatImageLookupBoundsAndConfigBinding(t *testing.T) {
 			assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), saved.Status)
 			assert.Equal(t, "manual_reconciliation", OpenRouterSyncReconciliation(saved)["billing_state"])
 			assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+		})
+	}
+}
+
+// Chat text adopts an existing session hold into the chat Task only after the
+// response proved its cost unrecoverable but carried a generation identity.
+func TestOpenRouterChatTextDeferredCostSettlement(t *testing.T) {
+	for _, tc := range []struct {
+		name, metadata        string
+		configDrift, deadline bool
+		// settling requires the generation to age before its cost is accepted.
+		settling                      bool
+		target                        int
+		logType                       int
+		logQuota                      int
+		finalized, manual, noTaskMade bool
+	}{
+		{name: "cost above hold charges the delta", metadata: `"cancelled":false,"generation_time":1,"total_cost":0.08`, target: 80, logType: model.LogTypeConsume, logQuota: 30, finalized: true},
+		{name: "cost below hold refunds the delta", metadata: `"cancelled":false,"generation_time":1,"total_cost":0.02`, target: 20, logType: model.LogTypeRefund, logQuota: 30, finalized: true},
+		{name: "client-aborted generation settles by total cost after it ages", settling: true, metadata: `"cancelled":true,"finish_reason":null,"native_finish_reason":null,"total_cost":0.03,"tokens_completion":309,"native_tokens_completion":309,"generation_time":2910`, target: 30, logType: model.LogTypeRefund, logQuota: 20, finalized: true},
+		{name: "null finish reason settles by total cost", metadata: `"cancelled":false,"finish_reason":null,"native_finish_reason":null,"total_cost":0.06,"tokens_completion":805,"generation_time":2956`, target: 60, logType: model.LogTypeConsume, logQuota: 10, finalized: true},
+		{name: "cancelled generation without total cost keeps the hold awaiting cost", metadata: `"cancelled":true,"finish_reason":null,"total_cost":null,"generation_time":2910`, target: 50},
+		{name: "expired deadline keeps the hold for manual reconciliation", deadline: true, target: 50, manual: true},
+		{name: "channel config drift leaves the hold to the session", configDrift: true, target: 50, noTaskMade: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				assert.Equal(t, "Bearer chat-text-account", r.Header.Get("Authorization"))
+				if r.URL.Path != "/v1/generation" || r.URL.Query().Get("id") != "gen-chat-text" {
+					w.WriteHeader(404)
+					return
+				}
+				fmt.Fprintf(w, `{"data":{"id":"gen-chat-text","model":"vendor/text","api_type":"completions",%s}}`, tc.metadata)
+			}))
+			defer server.Close()
+			truncate(t)
+			const id = 988
+			seedUser(t, id, 10000)
+			seedToken(t, id, id, "chat-text-token", 10000)
+			baseURL := server.URL
+			require.NoError(t, model.DB.Create(&model.Channel{Id: id, Name: "chat-text-fixture", Type: constant.ChannelTypeOpenRouter, Key: "chat-text-account", BaseURL: &baseURL}).Error)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{ChannelId: id, ChannelType: constant.ChannelTypeOpenRouter, ApiKey: "chat-text-account", ChannelBaseUrl: baseURL, UpstreamModelName: "vendor/text"},
+				RelayMode:   relayconstant.RelayModeChatCompletions, UserId: id, TokenId: id, TokenKey: "chat-text-token", OriginModelName: "text-alias", RequestId: "chat-text-request", ForcePreConsume: true,
+				OpenRouterCost: &relaycommon.OpenRouterCostState{ChatText: true, Sent: true, Basis: common.OpenRouterCostBasis{Version: "openrouter_cost_v1", EffectiveGroupRatio: 1, QuotaPerUnit: 1000, EstimatedUSD: .05}},
+			}
+			info.UserSetting.BillingPreference = "wallet_only"
+			require.Nil(t, PreConsumeBilling(c, 50, info))
+			info.OpenRouterCost.Observe([]byte(`{"id":"gen-chat-text","choices":[{"message":{"content":"delivered text"}}],"usage":{"prompt_tokens":1}}`), true)
+			require.False(t, info.OpenRouterCost.Final)
+			require.Equal(t, "gen-chat-text", info.OpenRouterCost.GenerationID)
+			if tc.configDrift {
+				info.ChannelSetting.ForceFormat = true
+			}
+			info.PriceData.Quota = info.Billing.GetPreConsumedQuota()
+			err := BeginOpenRouterSyncTask(c, info, info.PriceData.Quota)
+			if tc.noTaskMade {
+				require.ErrorContains(t, err, "configuration changed")
+				assert.False(t, HasOpenRouterSyncTask(info))
+				assert.True(t, info.Billing.NeedsRefund(), "without a Task the controller still refunds the session hold")
+				assert.Equal(t, 10000-tc.target, getUserQuota(t, id))
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, CommitOpenRouterSyncReservation(c, info))
+			assert.False(t, info.Billing.NeedsRefund(), "the Task owns the hold")
+			require.NoError(t, ConfigureOpenRouterSyncSubmission(info, baseURL+"/v1/generation", http.Header{"Authorization": []string{"Bearer chat-text-account"}}))
+			require.NoError(t, CompleteOpenRouterSyncTask(c, info, nil, "application/json"))
+			saved, err := openRouterSyncTask(info)
+			require.NoError(t, err)
+			assert.Equal(t, "chat", saved.Action)
+			assert.Equal(t, "gen-chat-text", saved.PrivateData.UpstreamTaskID)
+			if tc.deadline {
+				saved.PrivateData.OpenRouterSync.Deadline = time.Now().Add(-time.Second).Unix()
+				require.NoError(t, saved.UpdateOpenRouterSync(saved.PrivateData.OpenRouterSync.Revision))
+			}
+			require.NoError(t, pollOpenRouterSync(t.Context(), saved))
+			saved, err = openRouterSyncTask(info)
+			require.NoError(t, err)
+			if tc.settling {
+				assert.False(t, saved.PrivateData.Reconciliation.Finalized, "a fresh cancelled generation cost is not yet final")
+				assert.Equal(t, 50, saved.Quota)
+				assert.Equal(t, 9950, getUserQuota(t, id))
+				saved.StartTime = time.Now().Add(-31 * time.Second).Unix()
+				saved.PrivateData.OpenRouterSync.NextPoll = 0
+				require.NoError(t, saved.UpdateOpenRouterSync(saved.PrivateData.OpenRouterSync.Revision))
+				require.NoError(t, pollOpenRouterSync(t.Context(), saved))
+				saved, err = openRouterSyncTask(info)
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tc.target, saved.Quota)
+			assert.Equal(t, 10000-tc.target, getUserQuota(t, id))
+			assert.Equal(t, 10000-tc.target, getTokenRemainQuota(t, id))
+			assert.Equal(t, tc.finalized, saved.PrivateData.Reconciliation.Finalized)
+			if tc.manual {
+				assert.Zero(t, calls)
+				assert.Equal(t, "manual_reconciliation", OpenRouterSyncReconciliation(saved)["billing_state"])
+			}
+			var logs []model.Log
+			require.NoError(t, model.LOG_DB.Order("id").Find(&logs).Error)
+			if !tc.finalized {
+				assert.Len(t, logs, 1, "only the adopted reservation")
+				return
+			}
+			require.Len(t, logs, 2, "one adopted reservation and one settlement delta")
+			assert.Equal(t, 50, logs[0].Quota)
+			assert.Equal(t, tc.logType, logs[1].Type)
+			assert.Equal(t, tc.logQuota, logs[1].Quota)
 		})
 	}
 }
