@@ -1092,6 +1092,8 @@ func (p *providerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 			headers[key] = "<verified-signature>"
 		case "X-Timestamp":
 			headers[key] = "<timestamp>"
+		case "X-Stripe-Client-User-Agent":
+			headers[key] = contracttest.NormalizeStripeClientUserAgent(p.t, value)
 		case "X-Idempotency-Key", "Idempotency-Key":
 			headers[key] = "<verified-idempotency>"
 		default:
