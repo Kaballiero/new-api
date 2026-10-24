@@ -32,7 +32,7 @@
 | 2 | Граница шлюза: проверка ключа, billing, запись использования | ✅ (2a, 2b1, 2b2, 2c) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ✅ (3a, 3b) | средний |
 | 4 | Платежи, подписки, коды пополнения | ✅ (4a коды, 4b платежи, 4c подписки) | высокий |
-| 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
+| 5 | Асинхронные задачи и batch (бизнес-часть) | 🔄 (5a задачи ✅; 5b batch; 5c плагины задач) | средний |
 | 6 | Настройки и система | ⬜ | низкий |
 | 7 | Доводка: остатки в `service`/`model`, алиасы, список исключений → 0 | ⬜ | средний |
 | 8 | *(по желанию)* Раскладка внутри шлюза | ⬜ | средний |
@@ -131,16 +131,19 @@
 
 ## Волна 5 — асинхронные задачи и batch ⬜
 
-- [x] 5a implementation: standalone delta единственным телом в gorm/billing; same-tx task capability, nested refund #27 сохранён. Host acceptance отдельно.
+- [x] 5a implementation: standalone delta единственным телом в gorm/billing; same-tx task capability, nested refund #27 сохранён.
 
 - [ ] Перевести persisted Task/Batch/Midjourney/violation log texts на English (translate persisted log texts to English); удалить metadata delegates единственного bridge после переноса consumers.
 
 Отправка задачи провайдеру — шлюз; учёт задач, их биллинг и опрос — бизнес.
 
-- [x] 5a implementation: Task/MJ records, accounting, polling, dashboard/media и OR durable sync — internal/tasks. Host/PostgreSQL acceptance pending; plugin routing/cache model/task_model_alias.go остаётся до5c.
+- [x] 5a implementation: Task/MJ records, accounting, polling, dashboard/media и OR durable sync — internal/tasks (commits df33308eb контракты, 1113bf66f перенос, 97de3dcf3 docs); plugin routing/cache model/task_model_alias.go остаётся до 5c.
 - [ ] `batch`: `controller/batch.go`, `service/batch_billing.go`, `model/batch*.go`.
 - [ ] Плагины задач: `controller/plugin_protocol*.go`, `SyncTaskPlugins`.
 - [x] 5a: polling consumer port → adapter/gateway/taskplugins → leaf relay/taskregistry; явная runtime assembly, main-only factory удалена.
+- [x] 5a host acceptance: 586 новых + 2237 прежних goldens без -update, Redis/WSS/full suite, relaykit/OpenAPI/U1000;
+  PostgreSQL 15.19 full suite совпадает с 3b, изолированные tasks/billing/subscriptions/payments на PG зелёные. SQLite/MySQL полной матрицей не проверялись.
+- [x] Content-only (commit e2956edbd): ошибки задач — English по умолчанию + ru, тексты биллинга и причины сбоя на языке владельца, zh без изменений; 344 строки в 147 goldens. Общий fail_reason bulk UPDATE — English (#75).
 
 ## Волна 6 — настройки и система ⬜
 
