@@ -77,12 +77,12 @@ func (u Usecase) Recalculate(ctx context.Context, task *domain.Task, actualQuota
 	quotaDelta := actualQuota - preConsumedQuota
 
 	if quotaDelta == 0 {
-		u.diagnostics.Info(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
+		u.diagnostics.Info(ctx, fmt.Sprintf("Task %s reserved quota is accurate (%s, %s)",
 			task.TaskID, u.diagnostics.Quota(actualQuota), reason))
 		return
 	}
 
-	u.diagnostics.Info(ctx, fmt.Sprintf("任务 %s 差额结算：delta=%s（实际：%s，预扣：%s，%s）",
+	u.diagnostics.Info(ctx, fmt.Sprintf("Task %s quota settlement: delta=%s (actual: %s, reserved: %s, %s)",
 		task.TaskID,
 		u.diagnostics.Quota(quotaDelta),
 		u.diagnostics.Quota(actualQuota),
@@ -94,7 +94,7 @@ func (u Usecase) Recalculate(ctx context.Context, task *domain.Task, actualQuota
 	outcome, billingErr := u.billing.Apply(ctx, task, quotaDelta)
 	if !outcome.FundingApplied {
 		err := billingErr
-		u.diagnostics.Error(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
+		u.diagnostics.Error(ctx, fmt.Sprintf("Failed to adjust settlement funding for task %s: %s", task.TaskID, err.Error()))
 		return
 	}
 
@@ -102,7 +102,7 @@ func (u Usecase) Recalculate(ctx context.Context, task *domain.Task, actualQuota
 
 	task.Quota = actualQuota
 	if err := u.store.UpdateQuota(task); err != nil {
-		u.diagnostics.Error(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
+		u.diagnostics.Error(ctx, fmt.Sprintf("Failed to persist settlement quota for task %s: %s", task.TaskID, err.Error()))
 	}
 
 	// Submission counted the request; completion adjusts usage only.
@@ -121,7 +121,7 @@ func (u Usecase) byTokens(ctx context.Context, task *domain.Task, totalTokens in
 	}
 	factor, modern, err := domain.TaskBillingFXFactor(task.PrivateData.BillingContext, u.fxSource)
 	if err != nil {
-		u.diagnostics.Warn(ctx, fmt.Sprintf("任务 %s 计费 FX 历史无效: %s", task.TaskID, err.Error()))
+		u.diagnostics.Warn(ctx, fmt.Sprintf("Task %s has invalid billing FX history: %s", task.TaskID, err.Error()))
 		return false
 	}
 
@@ -177,7 +177,7 @@ func (u Usecase) byTokens(ctx context.Context, task *domain.Task, totalTokens in
 		actualQuota, clamp = u.math.Float(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
 	}
 
-	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
+	reason := fmt.Sprintf("Token recalculation: tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
 	// Completion fields are current pricing policy, while billing_submit_group
 	// in admin_info remains immutable submission provenance.
 	projection := (*domain.BillingProjection)(nil)
@@ -216,25 +216,25 @@ func (u Usecase) Execute(ctx context.Context, input Input) (bool, error) {
 		maps.Copy(usageFacts, taskResult.UsageFacts)
 		result, err := u.expression.Compute(bc.TieredSnapshot, billingdomain.TokenParams{}, billingdomain.RequestInput{Usage: usageFacts})
 		if err != nil {
-			u.diagnostics.Warn(ctx, fmt.Sprintf("任务 %s 表达式结算失败，保留预扣额度: %v", task.TaskID, err))
+			u.diagnostics.Warn(ctx, fmt.Sprintf("Task %s expression settlement failed; reserved quota retained: %v", task.TaskID, err))
 			return true, nil
 		}
 		if result.Clamp != nil {
-			u.diagnostics.Warn(ctx, fmt.Sprintf("任务 %s 表达式结算额度发生饱和: %+v", task.TaskID, result.Clamp))
+			u.diagnostics.Warn(ctx, fmt.Sprintf("Task %s expression settlement quota saturated: %+v", task.TaskID, result.Clamp))
 		}
 		bc.TieredSnapshot.UsageFacts = usageFacts
 		bc.TieredSnapshot.EstimatedTier = result.MatchedTier
-		u.Recalculate(ctx, task, result.ActualQuotaAfterGroup, "任务用量表达式结算", nil, result.Clamp)
+		u.Recalculate(ctx, task, result.ActualQuotaAfterGroup, "Task usage expression settlement", nil, result.Clamp)
 		return true, nil
 	}
 	// Per-call success keeps its hold; the caller refunds eligible failures.
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
-		u.diagnostics.Info(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))
+		u.diagnostics.Info(ctx, fmt.Sprintf("Task %s uses per-call billing; skipping quota adjustment", task.TaskID))
 		return false, nil
 	}
 	// Provider completion adjustment has priority over token repricing.
 	if actualQuota := adjust(task, taskResult); actualQuota > 0 {
-		u.Recalculate(ctx, task, actualQuota, "adaptor计费调整", nil)
+		u.Recalculate(ctx, task, actualQuota, "Adaptor billing adjustment", nil)
 		return true, nil
 	}
 	// Fall back to observed token usage.

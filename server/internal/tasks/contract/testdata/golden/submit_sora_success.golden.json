@@ -48,7 +48,7 @@
         "channel_id": 71,
         "channel_name": null,
         "completion_tokens": 0,
-        "content": "操作 , 计算参数：seconds: 5.00",
+        "content": "Action , parameters: seconds: 5.00",
         "created_at": 946684800,
         "group": "default",
         "id": 1,

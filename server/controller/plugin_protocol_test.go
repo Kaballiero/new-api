@@ -310,7 +310,7 @@ func TestServeTaskPluginProtocolDisconnectDuringTerminalSettlementStopsOnlyObser
 		runtimetechnical.Codec{}, runtimetechnical.Diagnostics{}, poll_tasks.Limits{
 			TimeoutMinutes: func() int { return 0 }, QueryLimit: func() int { return 1000 },
 			MaxFailures: func() int { return constant.TaskPollMaxFailures },
-		}, time.Now, gopool.Go, taskcommon.BuildProxyURL,
+		}, time.Now, gopool.Go, taskcommon.BuildProxyURL, runtimetechnical.TaskText{},
 	)
 
 	deps := pluginProtocolTestDeps()

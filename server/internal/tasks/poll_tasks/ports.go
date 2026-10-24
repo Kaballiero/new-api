@@ -99,7 +99,13 @@ type Limits struct {
 	MaxFailures    func() int
 }
 
+type Texts interface {
+	Timeout(userID, minutes int) string
+	LegacyTimeout(userID int) string
+}
+
 type Usecase struct {
+	texts       Texts
 	store       Store
 	channels    ChannelReader
 	factory     Factory
@@ -114,7 +120,7 @@ type Usecase struct {
 }
 
 func NewUsecase(store Store, channels ChannelReader, factory Factory, completion Completion, reconciler Reconciler,
-	codec Codec, diagnostics Diagnostics, limits Limits, now func() time.Time, spawn func(func()), proxyURL func(string) string) *Usecase {
-	return &Usecase{store: store, channels: channels, factory: factory, completion: completion, reconciler: reconciler,
+	codec Codec, diagnostics Diagnostics, limits Limits, now func() time.Time, spawn func(func()), proxyURL func(string) string, texts Texts) *Usecase {
+	return &Usecase{texts: texts, store: store, channels: channels, factory: factory, completion: completion, reconciler: reconciler,
 		codec: codec, diagnostics: diagnostics, limits: limits, now: now, spawn: spawn, proxyURL: proxyURL}
 }

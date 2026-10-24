@@ -1349,7 +1349,7 @@ func runTaskCase(t *testing.T, tc taskCase, updating bool) {
 			for _, row := range state["logs"].([]map[string]any) {
 				content, ok := row["content"].(string)
 				require.True(t, ok)
-				canonical, err := tasklog.CanonicalContent(content, "操作 text_to_video, 计算参数：", tc.Params)
+				canonical, err := tasklog.CanonicalContent(content, "Action text_to_video, parameters: ", tc.Params)
 				require.NoError(t, err)
 				row["content"] = canonical
 			}
@@ -1420,7 +1420,7 @@ func runBillingContentContract(t *testing.T, f *httpFixture, tc taskCase, updati
 		for _, row := range rows {
 			content, ok := row["content"].(string)
 			require.True(t, ok)
-			row["content"], err = tasklog.CanonicalContent(content, "操作 text_to_video, 计算参数：", tc.Params)
+			row["content"], err = tasklog.CanonicalContent(content, "Action text_to_video, parameters: ", tc.Params)
 			require.NoError(t, err)
 		}
 		var user model.User

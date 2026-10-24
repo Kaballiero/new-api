@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 
+	tasktext "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
@@ -66,7 +68,7 @@ func (TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota i
 		}
 	} else if _, modern, err := domain.TaskBillingFXFactor(task.PrivateData.BillingContext, service.ModelCostFXSource); err == nil && modern {
 		switch {
-		case reason == "任务用量表达式结算":
+		case reason == "任务用量表达式结算" || reason == "Task usage expression settlement":
 			other.SetAdmin("billing_stage", "completion_tiered")
 			bc := t.PrivateData.BillingContext
 			if bc.TieredSnapshot != nil {
@@ -76,7 +78,7 @@ func (TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota i
 				}
 				other.SetAdmin("billing_applied_group", applied)
 			}
-		case reason == "adaptor计费调整":
+		case reason == "adaptor计费调整" || reason == "Adaptor billing adjustment":
 			other.SetAdmin("billing_stage", "adaptor_quota")
 		}
 	}
@@ -89,7 +91,7 @@ func (TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota i
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:    t.UserId,
 		LogType:   logType,
-		Content:   reason,
+		Content:   (tasktext.TaskText{}).Adjustment(t.UserId, reason),
 		ChannelId: t.ChannelId,
 		ModelName: domain.TaskModelName(task),
 		Quota:     logQuota,

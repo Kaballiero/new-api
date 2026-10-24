@@ -31,7 +31,7 @@ func (s taskDeltaStore) token(account billingdomain.Account, amount int, credit 
 	}
 	token, err := model.GetTokenById(account.TokenID)
 	if err != nil {
-		logger.LogWarn(s.ctx, fmt.Sprintf("获取令牌 key 失败 (tokenId=%d, task=%s): %s", account.TokenID, s.task.TaskID, err.Error()))
+		logger.LogWarn(s.ctx, fmt.Sprintf("Failed to load token key (tokenId=%d, task=%s): %s", account.TokenID, s.task.TaskID, err.Error()))
 		return fmt.Errorf("task token is unavailable")
 	}
 	if token.Key == "" {
@@ -43,7 +43,7 @@ func (s taskDeltaStore) token(account billingdomain.Account, amount int, credit 
 		err = model.DecreaseTokenQuota(account.TokenID, token.Key, amount)
 	}
 	if err != nil {
-		logger.LogWarn(s.ctx, fmt.Sprintf("调整令牌额度失败 (delta=%d, task=%s): %s", s.delta, s.task.TaskID, err.Error()))
+		logger.LogWarn(s.ctx, fmt.Sprintf("Failed to adjust token quota (delta=%d, task=%s): %s", s.delta, s.task.TaskID, err.Error()))
 	}
 	return err
 }
@@ -119,13 +119,13 @@ func (MidjourneyBilling) RefundToken(ctx context.Context, task *domain.Midjourne
 	}
 	token, err := model.GetTokenById(task.TokenId)
 	if err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("获取令牌 key 失败 (tokenId=%d, task=%s): %s", task.TokenId, task.MjId, err.Error()))
+		logger.LogWarn(ctx, fmt.Sprintf("Failed to load token key (tokenId=%d, task=%s): %s", task.TokenId, task.MjId, err.Error()))
 		return
 	}
 	if token.Key == "" {
 		return
 	}
 	if err := model.IncreaseTokenQuota(task.TokenId, token.Key, quota); err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 令牌额度失败 task %s: %s", task.MjId, err.Error()))
+		logger.LogWarn(ctx, fmt.Sprintf("Failed to refund Midjourney token quota for task %s: %s", task.MjId, err.Error()))
 	}
 }

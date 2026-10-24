@@ -65,7 +65,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (bool, error) {
 	outcome, billingErr := u.billing.Apply(ctx, task, -quota)
 	if !outcome.FundingApplied {
 		err := billingErr
-		u.diagnostics.Warn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, err.Error()))
+		u.diagnostics.Warn(ctx, fmt.Sprintf("Failed to refund funding for task %s: %s", task.TaskID, err.Error()))
 		return false, nil
 	}
 
@@ -96,7 +96,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (bool, error) {
 		return true, nil
 	}
 	if err := u.store.UpdateQuota(task); err != nil {
-		u.diagnostics.Error(ctx, fmt.Sprintf("退款成功但清除 task quota 失败 task %s: %s", task.TaskID, err.Error()))
+		u.diagnostics.Error(ctx, fmt.Sprintf("Refund succeeded but failed to clear quota for task %s: %s", task.TaskID, err.Error()))
 	}
 	return true, nil
 }

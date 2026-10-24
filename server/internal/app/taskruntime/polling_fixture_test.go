@@ -158,7 +158,7 @@ func fixtureUsecase(store poll_tasks.Store, channels poll_tasks.ChannelReader, f
 		completion = tasksapp.NewBilling()
 	}
 	return poll_tasks.NewUsecase(store, channels, factory, completion, tasksapp.NewReconciler(), effects.Codec{}, effects.Diagnostics{},
-		poll_tasks.Limits{TimeoutMinutes: timeout, QueryLimit: func() int { return constant.TaskQueryLimit }, MaxFailures: func() int { return constant.TaskPollMaxFailures }}, time.Now, gopool.Go, taskcommon.BuildProxyURL)
+		poll_tasks.Limits{TimeoutMinutes: timeout, QueryLimit: func() int { return constant.TaskQueryLimit }, MaxFailures: func() int { return constant.TaskPollMaxFailures }}, time.Now, gopool.Go, taskcommon.BuildProxyURL, effects.TaskText{})
 }
 
 func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) TaskPollSummary {

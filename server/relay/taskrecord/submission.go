@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/QuantumNous/new-api/i18n"
+	tasktext "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/common"
@@ -22,10 +25,11 @@ import (
 
 func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model.Task) error {
 	tokenName := c.GetString("token_name")
-	logContent := fmt.Sprintf("操作 %s", info.Action)
+	texts := tasktext.TaskText{}
+	logContent := texts.Phrase(info.UserId, i18n.MsgTasksAction, map[string]any{"Action": info.Action})
 	// Per-call tasks retain their existing submission content.
 	if common.StringsContains(constant.TaskPricePatches, info.OriginModelName) {
-		logContent = fmt.Sprintf("%s，按次计费", logContent)
+		logContent = texts.Phrase(info.UserId, i18n.MsgTasksPerCall, map[string]any{"Content": logContent})
 	} else {
 		var contents []string
 		if otherRatios := info.PriceData.OtherRatios(); len(otherRatios) > 0 {
@@ -41,7 +45,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 			}
 		}
 		if len(contents) > 0 {
-			logContent = fmt.Sprintf("%s, 计算参数：%s", logContent, strings.Join(contents, ", "))
+			logContent = texts.Phrase(info.UserId, i18n.MsgTasksParameters, map[string]any{"Content": logContent, "Parameters": strings.Join(contents, ", ")})
 		}
 	}
 	other := new(model.LogOther)

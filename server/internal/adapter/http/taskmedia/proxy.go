@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/gin-gonic/gin"
 	"golang.org/x/net/http/httpguts"
 
@@ -42,27 +44,27 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 	if descriptor == nil {
 		return &domain.MediaError{
 			Status: http.StatusInternalServerError, Code: "artifact_plugin_error",
-			Message: "Artifact content plugin returned no request",
+			MessageID: i18n.MsgTasksArtifactRequestMissing, Message: "Artifact content plugin returned no request",
 		}
 	}
 	rawURL := strings.TrimSpace(descriptor.URL)
 	if rawURL == "" {
 		return &domain.MediaError{
 			Status: http.StatusGone, Code: "artifact_gone",
-			Message: "Artifact content is no longer available",
+			MessageID: i18n.MsgTasksArtifactGone, Message: "Artifact content is no longer available",
 		}
 	}
 	if strings.HasPrefix(rawURL, "data:") {
 		if len(rawURL) > p.DataURLMaxEncodedBytes {
 			return &domain.MediaError{
 				Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-				Message: "Artifact request was rejected", Cause: errTaskMediaRequestRejected,
+				MessageID: i18n.MsgTasksArtifactRequestRejected, Message: "Artifact request was rejected", Cause: errTaskMediaRequestRejected,
 			}
 		}
 		if err := p.writeVideoDataURL(c, rawURL); err != nil {
 			return &domain.MediaError{
 				Status: http.StatusBadGateway, Code: "artifact_upstream_error",
-				Message: "Failed to decode artifact content", Cause: err,
+				MessageID: i18n.MsgTasksArtifactDecodeFailed, Message: "Failed to decode artifact content", Cause: err,
 			}
 		}
 		return nil
@@ -70,7 +72,7 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 	if len(rawURL) > 64<<10 {
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-			Message: "Artifact request was rejected", Cause: errTaskMediaRequestRejected,
+			MessageID: i18n.MsgTasksArtifactRequestRejected, Message: "Artifact request was rejected", Cause: errTaskMediaRequestRejected,
 		}
 	}
 
@@ -79,13 +81,13 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 		parsedURL.Host == "" || parsedURL.User != nil || parsedURL.Fragment != "" {
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-			Message: "Artifact request was rejected", Cause: errTaskMediaRequestRejected,
+			MessageID: i18n.MsgTasksArtifactRequestRejected, Message: "Artifact request was rejected", Cause: errTaskMediaRequestRejected,
 		}
 	}
 	if domain.IsMediaFallbackLoop(rawURL, task.TaskID) || isSelfTaskMediaURL(c, parsedURL) {
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-			Message: "Artifact proxy loop was rejected", Cause: errTaskMediaRequestRejected,
+			MessageID: i18n.MsgTasksArtifactLoopRejected, Message: "Artifact proxy loop was rejected", Cause: errTaskMediaRequestRejected,
 		}
 	}
 
@@ -98,13 +100,13 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 	default:
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-			Message: "Artifact request method was rejected", Cause: errTaskMediaRequestRejected,
+			MessageID: i18n.MsgTasksArtifactMethodRejected, Message: "Artifact request method was rejected", Cause: errTaskMediaRequestRejected,
 		}
 	}
 	if len(descriptor.Body) > 1<<20 {
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-			Message: "Artifact request body was rejected", Cause: errTaskMediaRequestRejected,
+			MessageID: i18n.MsgTasksArtifactBodyRejected, Message: "Artifact request body was rejected", Cause: errTaskMediaRequestRejected,
 		}
 	}
 	if descriptor.Credentialless &&
@@ -112,7 +114,7 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 			descriptor.Body != nil || len(descriptor.Headers) != 0) {
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-			Message: "Credentialless artifact request was rejected", Cause: errTaskMediaRequestRejected,
+			MessageID: i18n.MsgTasksArtifactPublicRequestRejected, Message: "Credentialless artifact request was rejected", Cause: errTaskMediaRequestRejected,
 		}
 	}
 
@@ -120,14 +122,14 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 	if err != nil {
 		return &domain.MediaError{
 			Status: http.StatusServiceUnavailable, Code: "artifact_plugin_unavailable",
-			Message: "Artifact channel is unavailable", Cause: err,
+			MessageID: i18n.MsgTasksArtifactChannelUnavailable, Message: "Artifact channel is unavailable", Cause: err,
 		}
 	}
 	proxy := strings.TrimSpace(channel.GetSetting().Proxy)
 	if err := validateTaskMediaURL(rawURL, proxy); err != nil {
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-			Message: "Artifact request was rejected", Cause: err,
+			MessageID: i18n.MsgTasksArtifactRequestRejected, Message: "Artifact request was rejected", Cause: err,
 		}
 	}
 
@@ -137,7 +139,7 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 		if err != nil {
 			return &domain.MediaError{
 				Status: http.StatusInternalServerError, Code: "artifact_internal_error",
-				Message: "Failed to create artifact proxy client", Cause: err,
+				MessageID: i18n.MsgTasksArtifactProxyClientFailed, Message: "Failed to create artifact proxy client", Cause: err,
 			}
 		}
 	}
@@ -149,13 +151,13 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 	if err != nil {
 		return &domain.MediaError{
 			Status: http.StatusInternalServerError, Code: "artifact_internal_error",
-			Message: "Failed to create artifact request", Cause: err,
+			MessageID: i18n.MsgTasksArtifactRequestFailed, Message: "Failed to create artifact request", Cause: err,
 		}
 	}
 	if err := applyTaskMediaRequestHeaders(req.Header, descriptor.Headers); err != nil {
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-			Message: "Artifact request headers were rejected", Cause: err,
+			MessageID: i18n.MsgTasksArtifactHeadersRejected, Message: "Artifact request headers were rejected", Cause: err,
 		}
 	}
 	clientHeaders := transport.MediaClientHeaders(c.Request.Header)
@@ -171,19 +173,19 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 		if errors.Is(err, errTaskMediaRequestRejected) {
 			return &domain.MediaError{
 				Status: http.StatusBadGateway, Code: "artifact_request_rejected",
-				Message: "Artifact redirect was rejected", Cause: err,
+				MessageID: i18n.MsgTasksArtifactRedirectRejected, Message: "Artifact redirect was rejected", Cause: err,
 			}
 		}
 		var netErr net.Error
 		if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &netErr) && netErr.Timeout() {
 			return &domain.MediaError{
 				Status: http.StatusGatewayTimeout, Code: "artifact_upstream_timeout",
-				Message: "Artifact upstream request timed out", Cause: err,
+				MessageID: i18n.MsgTasksArtifactTimeout, Message: "Artifact upstream request timed out", Cause: err,
 			}
 		}
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_upstream_error",
-			Message: "Failed to fetch artifact content", Cause: err,
+			MessageID: i18n.MsgTasksArtifactFetchFailed, Message: "Failed to fetch artifact content", Cause: err,
 		}
 	}
 	defer resp.Body.Close()
@@ -204,12 +206,12 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_upstream_auth_failed",
-			Message: "Artifact upstream authentication failed",
+			MessageID: i18n.MsgTasksArtifactAuthenticationFailed, Message: "Artifact upstream authentication failed",
 		}
 	case http.StatusNotFound, http.StatusGone:
 		return &domain.MediaError{
 			Status: http.StatusGone, Code: "artifact_gone",
-			Message: "Artifact content is no longer available",
+			MessageID: i18n.MsgTasksArtifactGone, Message: "Artifact content is no longer available",
 		}
 	case http.StatusTooManyRequests:
 		if retryAfter := strings.TrimSpace(resp.Header.Get("Retry-After")); retryAfter != "" &&
@@ -218,12 +220,12 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 		}
 		return &domain.MediaError{
 			Status: http.StatusServiceUnavailable, Code: "artifact_upstream_busy",
-			Message: "Artifact upstream is busy",
+			MessageID: i18n.MsgTasksArtifactBusy, Message: "Artifact upstream is busy",
 		}
 	default:
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_upstream_error",
-			Message: fmt.Sprintf("Artifact upstream returned status %d", resp.StatusCode),
+			MessageID: i18n.MsgTasksArtifactUpstreamStatus, MessageData: map[string]any{"Status": resp.StatusCode}, Message: fmt.Sprintf("Artifact upstream returned status %d", resp.StatusCode),
 		}
 	}
 }

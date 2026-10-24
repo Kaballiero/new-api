@@ -668,3 +668,53 @@ const (
 )
 
 const MsgSubscriptionsReadQuery = "subscriptions.read_query"
+
+// Async-task content endpoints.
+const (
+	MsgTasksQueryTaskFailed               = "tasks.query_task_failed"
+	MsgTasksTaskNotFound                  = "tasks.task_not_found"
+	MsgTasksArtifactNotFound              = "tasks.artifact_not_found"
+	MsgTasksArtifactPreviewUnavailable    = "tasks.artifact_preview_unavailable"
+	MsgTasksArtifactPreviewFailed         = "tasks.artifact_preview_failed"
+	MsgTasksArtifactFetchFailed           = "tasks.artifact_fetch_failed"
+	MsgTasksArtifactsNotReady             = "tasks.artifacts_not_ready"
+	MsgTasksArtifactStorageUnavailable    = "tasks.artifact_storage_unavailable"
+	MsgTasksArtifactURLFailed             = "tasks.artifact_url_failed"
+	MsgTasksArtifactContentUnavailable    = "tasks.artifact_content_unavailable"
+	MsgTasksArtifactContentFailed         = "tasks.artifact_content_failed"
+	MsgTasksArtifactGone                  = "tasks.artifact_gone"
+	MsgTasksArtifactRequestMissing        = "tasks.artifact_request_missing"
+	MsgTasksArtifactRequestRejected       = "tasks.artifact_request_rejected"
+	MsgTasksArtifactDecodeFailed          = "tasks.artifact_decode_failed"
+	MsgTasksArtifactLoopRejected          = "tasks.artifact_loop_rejected"
+	MsgTasksArtifactMethodRejected        = "tasks.artifact_method_rejected"
+	MsgTasksArtifactBodyRejected          = "tasks.artifact_body_rejected"
+	MsgTasksArtifactPublicRequestRejected = "tasks.artifact_public_request_rejected"
+	MsgTasksArtifactChannelUnavailable    = "tasks.artifact_channel_unavailable"
+	MsgTasksArtifactProxyClientFailed     = "tasks.artifact_proxy_client_failed"
+	MsgTasksArtifactRequestFailed         = "tasks.artifact_request_failed"
+	MsgTasksArtifactHeadersRejected       = "tasks.artifact_headers_rejected"
+	MsgTasksArtifactRedirectRejected      = "tasks.artifact_redirect_rejected"
+	MsgTasksArtifactTimeout               = "tasks.artifact_timeout"
+	MsgTasksArtifactAuthenticationFailed  = "tasks.artifact_authentication_failed"
+	MsgTasksArtifactBusy                  = "tasks.artifact_busy"
+	MsgTasksTaskIDRequired                = "tasks.task_id_required"
+	MsgTasksTaskNotCompleted              = "tasks.task_not_completed"
+	MsgTasksArtifactUpstreamStatus        = "tasks.artifact_upstream_status"
+)
+
+// Persisted async-task messages use the recipient language.
+const (
+	MsgTasksAction            = "tasks.log_action"
+	MsgTasksPerCall           = "tasks.log_per_call"
+	MsgTasksParameters        = "tasks.log_parameters"
+	MsgTasksMJPrice           = "tasks.mj_price"
+	MsgTasksMJPriceID         = "tasks.mj_price_id"
+	MsgTasksTieredSettlement  = "tasks.tiered_settlement"
+	MsgTasksAdaptorAdjustment = "tasks.adaptor_adjustment"
+	MsgTasksTokenSettlement   = "tasks.token_settlement"
+	MsgTasksTimeout           = "tasks.timeout"
+	MsgTasksLegacyTimeout     = "tasks.legacy_timeout"
+	MsgTasksMJTimeout         = "tasks.mj_timeout"
+	MsgTasksMJFailure         = "tasks.mj_failure"
+)

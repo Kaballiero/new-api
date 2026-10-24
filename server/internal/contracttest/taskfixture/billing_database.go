@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/glebarez/sqlite"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -45,6 +47,10 @@ func cleanupTaskBillingPostgresSchemas() {
 }
 
 func Main(m *testing.M) {
+	if err := i18n.Init(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	// A setup panic must not leave private PostgreSQL schemas behind.
 	defer cleanupTaskBillingPostgresSchemas()
 	previousCustomRate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate

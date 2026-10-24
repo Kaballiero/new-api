@@ -45,7 +45,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (bool, error) {
 	}
 
 	if err := u.billing.CreditWallet(task.UserId, quota); err != nil {
-		u.diagnostics.Warn(ctx, fmt.Sprintf("退还 Midjourney 用户额度失败 task %s: %s", task.MjId, err.Error()))
+		u.diagnostics.Warn(ctx, fmt.Sprintf("Failed to refund Midjourney user quota for task %s: %s", task.MjId, err.Error()))
 		return false, nil
 	}
 
@@ -58,7 +58,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (bool, error) {
 
 	task.Quota = 0
 	if err := u.store.UpdateMidjourneyBilling(task); err != nil {
-		u.diagnostics.Error(ctx, fmt.Sprintf("Midjourney 退款成功但清除 quota 失败 task %s: %s", task.MjId, err.Error()))
+		u.diagnostics.Error(ctx, fmt.Sprintf("Midjourney refund succeeded but failed to clear quota for task %s: %s", task.MjId, err.Error()))
 	}
 	return true, nil
 }

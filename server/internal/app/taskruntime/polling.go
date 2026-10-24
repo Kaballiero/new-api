@@ -38,9 +38,9 @@ func NewPolling() *Polling {
 			billing, tasksapp.NewReconciler(), codec, diagnostics, poll_tasks.Limits{
 				TimeoutMinutes: func() int { return constant.TaskTimeoutMinutes }, QueryLimit: func() int { return constant.TaskQueryLimit },
 				MaxFailures: func() int { return constant.TaskPollMaxFailures },
-			}, time.Now, gopool.Go, taskcommon.BuildProxyURL),
+			}, time.Now, gopool.Go, taskcommon.BuildProxyURL, effects.TaskText{}),
 		midjourney: poll_midjourney_tasks.NewUsecase(taskstore.MidjourneyPollingStore{Store: store}, effects.MidjourneyChannels{},
-			taskhttp.MidjourneyPollClient{}, codec, billing, diagnostics, time.Now),
+			taskhttp.MidjourneyPollClient{}, codec, billing, diagnostics, time.Now, effects.TaskText{}),
 	}
 }
 

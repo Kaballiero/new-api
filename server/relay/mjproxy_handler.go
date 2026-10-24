@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/i18n"
+	tasktext "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 
 	"github.com/gin-gonic/gin"
@@ -281,7 +284,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	if billingApplied {
 		billingChannelId := midjourneyTask.GetBillingChannelId()
 		tokenName := c.GetString("token_name")
-		logContent := fmt.Sprintf("模型固定价格 %.2f，分组倍率 %.2f，操作 %s", priceData.ModelPrice, priceData.GroupRatioInfo.GroupRatio, constant.MjActionSwapFace)
+		logContent := (tasktext.TaskText{}).Phrase(info.UserId, i18n.MsgTasksMJPrice, map[string]any{"Price": fmt.Sprintf("%.2f", priceData.ModelPrice), "Ratio": fmt.Sprintf("%.2f", priceData.GroupRatioInfo.GroupRatio), "Action": constant.MjActionSwapFace})
 		other := usagegateway.MidjourneyOther(info, priceData)
 		model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 			ChannelId: billingChannelId,
@@ -650,7 +653,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	if billingApplied {
 		billingChannelId := midjourneyTask.GetBillingChannelId()
 		tokenName := c.GetString("token_name")
-		logContent := fmt.Sprintf("模型固定价格 %.2f，分组倍率 %.2f，操作 %s，ID %s", priceData.ModelPrice, priceData.GroupRatioInfo.GroupRatio, midjRequest.Action, midjResponse.Result)
+		logContent := (tasktext.TaskText{}).Phrase(relayInfo.UserId, i18n.MsgTasksMJPriceID, map[string]any{"Price": fmt.Sprintf("%.2f", priceData.ModelPrice), "Ratio": fmt.Sprintf("%.2f", priceData.GroupRatioInfo.GroupRatio), "Action": midjRequest.Action, "ID": midjResponse.Result})
 		other := usagegateway.MidjourneyOther(relayInfo, priceData)
 		model.RecordConsumeLog(c, relayInfo.UserId, model.RecordConsumeLogParams{
 			ChannelId: billingChannelId,

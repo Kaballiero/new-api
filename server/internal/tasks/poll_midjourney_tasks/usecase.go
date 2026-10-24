@@ -32,7 +32,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 	}
 	summary.UnfinishedTasks = len(tasks)
 
-	u.diagnostics.Info(ctx, fmt.Sprintf("检测到未完成的任务数有: %v", len(tasks)))
+	u.diagnostics.Info(ctx, fmt.Sprintf("Detected unfinished tasks: %v", len(tasks)))
 	taskChannelM := make(map[int][]string)
 	taskM := make(map[string]*domain.Midjourney)
 	nullTaskIds := make([]int, 0)
@@ -72,7 +72,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 		}
 		processedChannels++
 		summary.ChannelsScanned++
-		u.diagnostics.Info(ctx, fmt.Sprintf("渠道 #%d 未完成的任务有: %d", channelId, len(taskIds)))
+		u.diagnostics.Info(ctx, fmt.Sprintf("Channel #%d unfinished tasks: %d", channelId, len(taskIds)))
 		if len(taskIds) == 0 {
 			continue
 		}
@@ -80,7 +80,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 		if err != nil {
 			u.diagnostics.Error(ctx, fmt.Sprintf("CacheGetChannel: %v", err))
 			err := u.store.BulkUpdateByTaskIDs(taskIds, map[string]any{
-				"fail_reason": fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId),
+				"fail_reason": fmt.Sprintf("Failed to get channel information; contact the administrator, channel ID: %d", channelId),
 				"status":      "FAILURE",
 				"progress":    "100%",
 			})
@@ -104,7 +104,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 			useTime := (u.now().UnixNano() / int64(time.Millisecond)) - task.SubmitTime
 			// A task older than one hour fails unless its saved progress is complete.
 			if useTime > 3600000 && task.Progress != "100%" {
-				responseItem.FailReason = "上游任务超时（超过1小时）"
+				responseItem.FailReason = u.texts.MidjourneyTimeout(task.UserId)
 				responseItem.Status = "FAILURE"
 			}
 			if !u.needsUpdate(task, responseItem) {
@@ -136,7 +136,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 			if responseItem.VideoUrls != nil && len(responseItem.VideoUrls) > 0 {
 				videoUrlsStr, err := u.codec.Marshal(responseItem.VideoUrls)
 				if err != nil {
-					u.diagnostics.Error(ctx, fmt.Sprintf("序列化 VideoUrls 失败: %v", err))
+					u.diagnostics.Error(ctx, fmt.Sprintf("Failed to serialize VideoUrls: %v", err))
 					task.VideoUrls = "[]" // Preserve the empty-array fallback on encoding failure.
 				} else {
 					task.VideoUrls = string(videoUrlsStr)
@@ -147,7 +147,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 
 			shouldReturnQuota := false
 			if (task.Progress != "100%" && responseItem.FailReason != "") || (task.Progress == "100%" && task.Status == "FAILURE") {
-				u.diagnostics.Info(ctx, task.MjId+" 构建失败，"+task.FailReason)
+				u.diagnostics.Info(ctx, task.MjId+" build failed: "+task.FailReason)
 				task.Progress = "100%"
 				if task.Quota != 0 {
 					shouldReturnQuota = true
@@ -157,7 +157,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 			if err != nil {
 				u.diagnostics.Error(ctx, "UpdateMidjourneyTask task error: "+err.Error())
 			} else if won && shouldReturnQuota {
-				u.refund.RefundMidjourney(ctx, task, "构图失败")
+				u.refund.RefundMidjourney(ctx, task, u.texts.MidjourneyFailure(task.UserId))
 			}
 		}
 	}

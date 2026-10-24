@@ -38,12 +38,11 @@ func (u *Usecase) sweepTimedOutTasks(ctx context.Context) {
 		return
 	}
 
-	reason := fmt.Sprintf("任务超时（%d分钟）", u.limits.TimeoutMinutes())
-	legacyReason := "任务超时（旧系统遗留任务，不进行退款，请联系管理员）"
 	now := u.now().Unix()
 	timedOutCount := 0
 
 	for _, task := range tasks {
+		reason := u.texts.Timeout(task.UserId, u.limits.TimeoutMinutes())
 		if task.PrivateData.OpenRouterSyncState() != nil {
 			continue
 		}
@@ -59,7 +58,7 @@ func (u *Usecase) sweepTimedOutTasks(ctx context.Context) {
 		task.Progress = "100%"
 		task.FinishTime = now
 		if isLegacy {
-			task.FailReason = legacyReason
+			task.FailReason = u.texts.LegacyTimeout(task.UserId)
 			// Legacy tasks are not refundable; clear the quota in the terminal claim
 			// so their billing marker cannot authorize another refund.
 			task.Quota = 0
@@ -102,7 +101,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 		ctx = context.Background()
 	}
 
-	u.diagnostics.SysLog("任务进度轮询开始")
+	u.diagnostics.SysLog("Task progress polling started")
 	u.sweepTimedOutTasks(ctx)
 	var allTasks []*domain.Task
 	var audioTasks []*domain.Task
@@ -225,7 +224,7 @@ func (u *Usecase) Execute(ctx context.Context, report func(processed, total int)
 	if report != nil && ctx.Err() == nil {
 		report(totalPlatforms, totalPlatforms)
 	}
-	u.diagnostics.SysLog("任务进度轮询完成")
+	u.diagnostics.SysLog("Task progress polling completed")
 	return summary, ctx.Err()
 }
 
@@ -257,14 +256,14 @@ func (u *Usecase) updateBatchChannels(ctx context.Context, adaptor BatchAdaptor,
 		}
 		err := u.updateBatchTasks(ctx, adaptor, channelId, taskIds, taskM)
 		if err != nil {
-			u.diagnostics.Error(ctx, fmt.Sprintf("渠道 #%d 更新异步任务失败: %s", channelId, err.Error()))
+			u.diagnostics.Error(ctx, fmt.Sprintf("Channel #%d failed to update async tasks: %s", channelId, err.Error()))
 		}
 	}
 	return nil
 }
 
 func (u *Usecase) updateBatchTasks(ctx context.Context, adaptor BatchAdaptor, channelId int, taskIds []string, taskM map[string]*domain.Task) error {
-	u.diagnostics.Info(ctx, fmt.Sprintf("渠道 #%d 未完成的任务有: %d", channelId, len(taskIds)))
+	u.diagnostics.Info(ctx, fmt.Sprintf("Channel #%d unfinished tasks: %d", channelId, len(taskIds)))
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -282,7 +281,7 @@ func (u *Usecase) updateBatchTasks(ctx context.Context, adaptor BatchAdaptor, ch
 			}
 		}
 		err = u.store.BulkUpdate(failedIDs, map[string]any{
-			"fail_reason": fmt.Sprintf("获取渠道信息失败，请联系管理员，渠道ID：%d", channelId),
+			"fail_reason": fmt.Sprintf("Failed to get channel information; contact the administrator, channel ID: %d", channelId),
 			"status":      "FAILURE",
 			"progress":    "100%",
 		})
@@ -376,7 +375,7 @@ func (u *Usecase) updateBatchTasks(ctx context.Context, adaptor BatchAdaptor, ch
 			task.Progress = responseItem.TaskInfo.Progress
 		}
 		if responseItem.TaskInfo.Reason != "" || task.Status == domain.TaskStatusFailure {
-			u.diagnostics.Info(ctx, task.TaskID+" 构建失败，"+task.FailReason)
+			u.diagnostics.Info(ctx, task.TaskID+" build failed: "+task.FailReason)
 			task.Status = domain.TaskStatusFailure
 			task.Progress = "100%"
 		}

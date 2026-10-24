@@ -2,8 +2,9 @@ package fetch_video_content
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/i18n"
 
 	"github.com/gin-gonic/gin"
 
@@ -37,13 +38,13 @@ func (h Handler) Handle(c *gin.Context) {
 		var incomplete *domain.TaskIncompleteError
 		switch {
 		case errors.Is(err, domain.ErrVideoTaskIDRequired):
-			transport.WriteVideoError(c, http.StatusBadRequest, "invalid_request_error", "task_id is required")
+			transport.WriteVideoError(c, http.StatusBadRequest, "invalid_request_error", i18n.T(c, i18n.MsgTasksTaskIDRequired))
 		case errors.Is(err, domain.ErrTaskQuery):
-			transport.WriteVideoError(c, http.StatusInternalServerError, "server_error", "Failed to query task")
+			transport.WriteVideoError(c, http.StatusInternalServerError, "server_error", i18n.T(c, i18n.MsgTasksQueryTaskFailed))
 		case errors.Is(err, domain.ErrTaskNotFound):
-			transport.WriteVideoError(c, http.StatusNotFound, "invalid_request_error", "Task not found")
+			transport.WriteVideoError(c, http.StatusNotFound, "invalid_request_error", i18n.T(c, i18n.MsgTasksTaskNotFound))
 		case errors.As(err, &incomplete):
-			message := fmt.Sprintf("Task is not completed yet, current status: %s", incomplete.Status)
+			message := i18n.T(c, i18n.MsgTasksTaskNotCompleted, map[string]any{"Status": incomplete.Status})
 			transport.WriteVideoError(c, http.StatusBadRequest, "invalid_request_error", message)
 		default:
 			transport.WriteTaskError(c, capability, err)

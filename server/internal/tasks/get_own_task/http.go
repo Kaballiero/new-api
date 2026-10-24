@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
@@ -17,9 +19,9 @@ func (h Handler) Handle(c *gin.Context) {
 	result, err := h.usecase.Execute(Input{UserID: c.GetInt("id"), TaskID: c.Param("key")})
 	if err != nil {
 		if errors.Is(err, domain.ErrTaskQuery) {
-			transport.WriteVideoError(c, http.StatusInternalServerError, "server_error", "Failed to query task")
+			transport.WriteVideoError(c, http.StatusInternalServerError, "server_error", i18n.T(c, i18n.MsgTasksQueryTaskFailed))
 		} else {
-			transport.WriteVideoError(c, http.StatusNotFound, "invalid_request_error", "Task not found")
+			transport.WriteVideoError(c, http.StatusNotFound, "invalid_request_error", i18n.T(c, i18n.MsgTasksTaskNotFound))
 		}
 		return
 	}

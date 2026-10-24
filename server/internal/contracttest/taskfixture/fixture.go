@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	sqliteclock "github.com/glebarez/go-sqlite"
 
 	"github.com/glebarez/sqlite"
@@ -79,6 +81,7 @@ func Configure() {
 // Open creates private SQLite main/log databases for package-local ticks and accounting.
 func Open(t *testing.T) *gorm.DB {
 	t.Helper()
+	require.NoError(t, i18n.Init())
 	InstallDBClock(t)
 	Configure()
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)

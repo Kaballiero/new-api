@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/common"
@@ -30,7 +32,7 @@ func WriteArtifactError(c *gin.Context, capability bool, status int, code, messa
 	if capability {
 		status = http.StatusNotFound
 		code = "artifact_not_found"
-		message = "Task or artifact not found"
+		message = i18n.T(c, i18n.MsgTasksArtifactNotFound)
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 		c.JSON(status, gin.H{"success": false, "code": code, "message": message})
@@ -40,10 +42,10 @@ func WriteArtifactError(c *gin.Context, capability bool, status int, code, messa
 }
 func WriteProjectionError(c *gin.Context, capability bool, err error) {
 	if errors.Is(err, domain.ErrArtifactPluginUnavailable) {
-		WriteArtifactError(c, capability, http.StatusServiceUnavailable, "artifact_plugin_unavailable", "Artifact preview plugin is unavailable")
+		WriteArtifactError(c, capability, http.StatusServiceUnavailable, "artifact_plugin_unavailable", i18n.T(c, i18n.MsgTasksArtifactPreviewUnavailable))
 		return
 	}
-	WriteArtifactError(c, capability, http.StatusInternalServerError, "artifact_plugin_error", "Artifact preview plugin failed")
+	WriteArtifactError(c, capability, http.StatusInternalServerError, "artifact_plugin_error", i18n.T(c, i18n.MsgTasksArtifactPreviewFailed))
 }
 func WriteMediaError(c *gin.Context, capability bool, err error, logError func(error)) {
 	if c.Writer.Written() {
@@ -55,12 +57,16 @@ func WriteMediaError(c *gin.Context, capability bool, err error, logError func(e
 		proxyErr = &domain.MediaError{
 			Status:  http.StatusBadGateway,
 			Code:    "artifact_upstream_error",
-			Message: "Failed to fetch artifact content",
-			Cause:   err,
+			Message: "Failed to fetch artifact content", MessageID: i18n.MsgTasksArtifactFetchFailed,
+			Cause: err,
 		}
 	}
 	c.Header("Cache-Control", "private, no-store")
-	WriteArtifactError(c, capability, proxyErr.Status, proxyErr.Code, proxyErr.Message)
+	message := proxyErr.Message
+	if proxyErr.MessageID != "" {
+		message = i18n.T(c, proxyErr.MessageID, proxyErr.MessageData)
+	}
+	WriteArtifactError(c, capability, proxyErr.Status, proxyErr.Code, message)
 }
 
 func ReadTaskAccess(c *gin.Context, capability bool) domain.TaskAccess {
@@ -72,37 +78,37 @@ func ReadTaskAccess(c *gin.Context, capability bool) domain.TaskAccess {
 	}
 }
 func WriteTaskError(c *gin.Context, capability bool, err error) {
-	status, code, message := http.StatusInternalServerError, "artifact_plugin_error", "Artifact preview plugin failed"
+	status, code, message := http.StatusInternalServerError, "artifact_plugin_error", i18n.T(c, i18n.MsgTasksArtifactPreviewFailed)
 	switch {
 	case errors.Is(err, domain.ErrTaskQuery):
 		code = "artifact_internal_error"
-		message = "Failed to query task"
+		message = i18n.T(c, i18n.MsgTasksQueryTaskFailed)
 	case errors.Is(err, domain.ErrArtifactNotFound):
 		status = http.StatusNotFound
 		code = "artifact_not_found"
-		message = "Task or artifact not found"
+		message = i18n.T(c, i18n.MsgTasksArtifactNotFound)
 	case errors.Is(err, domain.ErrArtifactsNotReady):
 		status = http.StatusConflict
 		code = "artifact_not_ready"
-		message = "Task artifacts are not ready"
+		message = i18n.T(c, i18n.MsgTasksArtifactsNotReady)
 	case errors.Is(err, domain.ErrArtifactStorageUnavailable):
 		status = http.StatusServiceUnavailable
 		code = "artifact_storage_unavailable"
-		message = "Task artifact storage is unavailable"
+		message = i18n.T(c, i18n.MsgTasksArtifactStorageUnavailable)
 	case errors.Is(err, domain.ErrArtifactURL):
 		code = "artifact_url_error"
-		message = "Failed to build artifact content URL"
+		message = i18n.T(c, i18n.MsgTasksArtifactURLFailed)
 	case errors.Is(err, domain.ErrArtifactContentUnavailable):
 		status = http.StatusServiceUnavailable
 		code = "artifact_plugin_unavailable"
-		message = "Artifact content plugin is unavailable"
+		message = i18n.T(c, i18n.MsgTasksArtifactContentUnavailable)
 	case errors.Is(err, domain.ErrArtifactContent):
 		code = "artifact_plugin_error"
-		message = "Artifact content plugin failed"
+		message = i18n.T(c, i18n.MsgTasksArtifactContentFailed)
 	case errors.Is(err, domain.ErrArtifactGone):
 		status = http.StatusGone
 		code = "artifact_gone"
-		message = "Artifact content is no longer available"
+		message = i18n.T(c, i18n.MsgTasksArtifactGone)
 	default:
 		WriteProjectionError(c, capability, err)
 		return

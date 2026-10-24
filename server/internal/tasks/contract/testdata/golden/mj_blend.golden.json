@@ -45,7 +45,7 @@
         "channel_id": 71,
         "channel_name": null,
         "completion_tokens": 0,
-        "content": "模型固定价格 0.00，分组倍率 1.00，操作 BLEND，ID mj_submitted",
+        "content": "Fixed model price 0.00, group ratio 1.00, action BLEND, ID mj_submitted",
         "created_at": 946684800,
         "group": "default",
         "id": 1,
