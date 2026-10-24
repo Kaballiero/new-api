@@ -31,7 +31,7 @@
 | 1 | Бизнес-модули панели: apikeys, accounts, catalog, authorization + PAT, identity, pricing, channels | ✅ (не слито в main) | — |
 | 2 | Граница шлюза: проверка ключа, billing, запись использования | ✅ (2a, 2b1, 2b2, 2c) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ✅ (3a, 3b) | средний |
-| 4 | Платежи, подписки, коды пополнения | 🔄 (4a коды ✅; 4b платежи ✅; 4c подписки) | высокий |
+| 4 | Платежи, подписки, коды пополнения | ✅ (4a коды, 4b платежи, 4c подписки) | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ⬜ | средний |
 | 6 | Настройки и система | ⬜ | низкий |
 | 7 | Доводка: остатки в `service`/`model`, алиасы, список исключений → 0 | ⬜ | средний |
@@ -105,11 +105,14 @@
 - [x] 3b host acceptance (commit f5e0d6daa): 758 goldens без -update, locales, WSS, full suite, relaykit/OpenAPI/U1000; PostgreSQL 15.19 full suite совпадает с origin/main, audit matrix (main + отдельная log schema, fresh/upgrade) и token audit matrix зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] Read queries к `LOG_DB` отделены, отдельная log DB сохранена; #36 закрыт plain request observation. Legacy writers/cleanup и общие RAM queues остаются до волн 5/7 (A2/A4), без нового locator.
 
-## Волна 4 — платежи, подписки, коды ⬜
+## Волна 4 — платежи, подписки, коды ✅
 
 - [x] `payments` implementation: 22 сценария, 23 регистрации, пять provider adapters, wallet owner, strict TopUp record alias; subscription workflow остаётся legacy до 4c (commits 1168444a1..20d2e7035).
 - [x] `subscriptions` implementation: plans/user subscriptions, balance/provider checkout, complete/expire, pure calendar и app maintenance; model alias-only и согласованные cache/delta/debit остатки. Contract1 d0e1e5e97:519 HTTP +13 ticks,132 locales; всего2237 immutable golden files.
-- [ ] 4c host/PostgreSQL acceptance текущего source manifest, Redis/WSS/full suite и отдельное применение content-only package; MySQL unchecked.
+- [x] 4c host acceptance (commits 3fb737451..4227b8903): 2237 goldens без -update, Redis/WSS/full suite, relaykit/OpenAPI/U1000;
+  PostgreSQL 15.19 full suite совпадает с 3b, изолированные subscriptions/billing/payments на PG зелёные. SQLite/MySQL полной матрицей не проверялись.
+- [x] Content-only (commit 3b814056e): ошибки подписок — English по умолчанию + ru, receipts и аудит сброса плана на языке получателя, zh без изменений; 86 строк в 67 goldens.
+- [x] Harness (commit 1bbbd1d51): Stripe `X-Stripe-Client-User-Agent` в goldens маскирует uname и версию Go хоста записи (37 goldens), контракты переносимы между машинами.
 - [x] `redemption`: девять сценариев, record/SQL adapter, atomic CAS + единый wallet credit, late composition и thin bridges.
 - [x] Baseline: commit 00c8bbd6e, 214 новых HTTP/state goldens, два стабильных origin повтора, candidate parity;
   прежние 758 неизменны, всего 972. Два locale baselines отделяют inherited ru переводы от новой ID delta.
