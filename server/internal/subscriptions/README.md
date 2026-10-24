@@ -69,13 +69,13 @@ app/subscriptions.StartSubscriptionQuotaResetTask сохраняет sync.Once, 
 map traversal/partial count до failed commit; reset re-lock проверяет прежние id/reset predicates.
 Отдельные expire_due/reset_due/cleanup_preconsume usecases принимают SQL capabilities; scheduling — app.
 
-Реальные // BRIDGE: остатки:
+Реальные остатки и удалённый task bridge:
 
 - model/subscription_plan_cache.go: фактический plan/info HybridCache + lookup/invalidation для billing,
   subscriptions adapters и immutable WSS. Удаление — общий технический cache owner и отдельное решение
   о перемещении immutable caller; новых forwarders нет.
-- model/subscription_quota.go: единственное PostConsumeUserSubscriptionDelta для billing и legacy task
-  settlement. Перенос вместе с durable task settlement (roadmap5); nested refund transaction #27 сохранён.
+- Standalone subscription delta перенесена единственным телом в adapter/gorm/billing; task settlement
+  использует отдельную owner-checked capability на том же tx. model/subscription_quota.go удалён, nested refund #27 сохранён.
 - model/user_cache.go: единственное CacheDecrUserQuota, механический export существующего guarded body.
   Удаление — общий quota-cache owner рядом с LockForUpdate/SyncCreditUserQuotaCache (roadmap7).
 - controller/subscription*.go: прежние router entrypoints → sync.OnceValue app handlers.

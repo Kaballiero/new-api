@@ -40,3 +40,6 @@ README каждого модуля появляется в коммите, ко�
 ## Ещё не перенесено
 
 Подписки, настройки и системные функции, деплойменты, batch, а также шлюз и асинхронные задачи (`relay/`, `controller/relay.go`, `task*`). Пока они живут в `controller/`, `service/` и `model/`.
+
+- `tasks` — durable async/Midjourney учёт, terminal billing, polling и media access; core сборка
+  `app/tasks`, gateway/runtime — `app/taskruntime`, records/SQL — `adapter/gorm/tasks`.

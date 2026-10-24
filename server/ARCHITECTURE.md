@@ -100,8 +100,8 @@ client
 |---|---|
 | reserve → settle → refund, wallet/subscription fallback и token quota | `internal/billing`, [README](internal/billing/README.md) |
 | RelayInfo, request-local mutex, NewAPIError, Gin Refund | `relay/billing` |
-| прежние cost/task consumers | `service/billing.go`: один временный BillingGateway bridge (включая Task/Batch metadata → usage), регистрация в `relay/billing.init`; root relay подключает gateway явно |
-| durable Task и legacy Midjourney после отправки | `service/task_billing.go`, `service/midjourney.go` |
+| прежние cost/task consumers | `service/billing.go`: один временный BillingGateway bridge (Batch metadata → usage; Task/MJ обращаются непосредственно к usage), регистрация в `relay/billing.init`; root relay подключает gateway явно |
+| durable Task и legacy Midjourney после отправки | `internal/tasks`, core `app/tasks`, outer `app/taskruntime` |
 | Batch holds и terminal settlement | `service/batch_billing.go`, `model/batch*`, `BatchHeldQuota` |
 | text/audio/realtime cost, tiered policy и FX | `internal/billing` cost-сценарии/domain; plain mapping в `relay/billing`, late settings и RAM FX в app/adapters |
 | consume log content/other и storage | `internal/usage`, mapping `relay/usage`, serializer/storage `internal/adapter/gorm/usage`; готовые quota/facts без расчёта стоимости |
@@ -230,3 +230,13 @@ cache/delta/guarded debit остатки с условиями удаления 
 Payments и subscriptions используют один adapter/admission registry из app/shared и shared protocol
 clients. Completion history projector получает тот же tx. Background task запускается из app/subscriptions.
 Schema/DDL/router/middleware не менялись; текущий sandbox proof не заменяет host/PostgreSQL acceptance.
+
+## Async tasks (5a)
+
+Task/Midjourney records/codecs и SQL принадлежат adapter/gorm/tasks, model сохраняет strict aliases.
+Domain/scenarios не зависят от gateway/ORM/common. Core app/tasks собирает billing/usage/storage/sync;
+app/taskruntime подключает provider polling и media. Leaf relay/taskregistry заменяет main-only locator.
+Scheduled system handlers сохраняют lease/interval15s/progress semantics. Same-tx subscription delta
+при durable task claim принадлежит gorm/billing; standalone body тоже один. Plugin routing/cache view
+model/task_model_alias остаётся до5c; Batch и plugin runtime не входят в перенос. Подробности —
+internal/tasks/README.md; host/database acceptance фиксируется отдельно от sandbox evidence.

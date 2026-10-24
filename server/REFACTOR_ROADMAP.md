@@ -131,16 +131,16 @@
 
 ## Волна 5 — асинхронные задачи и batch ⬜
 
-- [ ] Перенести единственное model.PostConsumeUserSubscriptionDelta вместе с durable task settlement; billing вызывает то же тело, nested refund #27 не исправлять в structural move.
+- [x] 5a implementation: standalone delta единственным телом в gorm/billing; same-tx task capability, nested refund #27 сохранён. Host acceptance отдельно.
 
 - [ ] Перевести persisted Task/Batch/Midjourney/violation log texts на English (translate persisted log texts to English); удалить metadata delegates единственного bridge после переноса consumers.
 
 Отправка задачи провайдеру — шлюз; учёт задач, их биллинг и опрос — бизнес.
 
-- [ ] `tasks`: `controller/task.go`, `midjourney.go`, `video_proxy.go`, `task_plugin*.go`, `service/task_polling.go`, `task_billing.go`, `midjourney.go`, `model/task*.go`, `model/midjourney.go`. Опрос использует `billing.settle`/`refund`.
+- [x] 5a implementation: Task/MJ records, accounting, polling, dashboard/media и OR durable sync — internal/tasks. Host/PostgreSQL acceptance pending; plugin routing/cache model/task_model_alias.go остаётся до5c.
 - [ ] `batch`: `controller/batch.go`, `service/batch_billing.go`, `model/batch*.go`.
 - [ ] Плагины задач: `controller/plugin_protocol*.go`, `SyncTaskPlugins`.
-- [ ] Связка `service.GetTaskAdaptorFunc` (разрыв цикла `service → relay`) заменяется узким интерфейсом с реализацией в `adapter/gateway`.
+- [x] 5a: polling consumer port → adapter/gateway/taskplugins → leaf relay/taskregistry; явная runtime assembly, main-only factory удалена.
 
 ## Волна 6 — настройки и система ⬜
 
