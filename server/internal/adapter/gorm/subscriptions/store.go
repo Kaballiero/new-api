@@ -87,3 +87,9 @@ func (s Store) UpdatePlan(plan domain.SubscriptionPlan) error {
 func (s Store) SetPlanEnabled(planID int, enabled bool) error {
 	return s.db().Model(&record.SubscriptionPlan{}).Where("id = ?", planID).Update("enabled", enabled).Error
 }
+
+func (s Store) CountPurchases(userID, planID int) (int64, error) {
+	var count int64
+	err := s.db().Model(&record.UserSubscription{}).Where("user_id = ? AND plan_id = ?", userID, planID).Count(&count).Error
+	return count, err
+}

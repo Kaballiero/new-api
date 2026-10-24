@@ -2,7 +2,9 @@ package controller
 
 import (
 	"fmt"
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
 	paymentsapp "github.com/QuantumNous/new-api/internal/app/payments"
+	"gorm.io/gorm"
 	"net/http"
 	"strings"
 	"time"
@@ -66,7 +68,7 @@ func SubscriptionRequestStripePay(c *gin.Context) {
 	}
 
 	if plan.MaxPurchasePerUser > 0 {
-		count, err := model.CountUserSubscriptionsByPlan(userId, plan.Id)
+		count, err := subscriptionstorage.NewStore(func() *gorm.DB { return model.DB }).CountPurchases(userId, plan.Id)
 		if err != nil {
 			common.ApiError(c, err)
 			return

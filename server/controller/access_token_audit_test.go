@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"errors"
+	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
+	subscriptionsdomain "github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -88,7 +90,7 @@ func TestAuditRoleSnapshotSurvivesActorChanges(t *testing.T) {
 	router.POST("/change-role", middleware.UserAuth(), func(c *gin.Context) {
 		recordLoginAudit(user, c)
 		recordUserSecurityAudit(c, user.Id, "user.security_verify", nil)
-		recordSubscriptionResetUserLogs(c, &model.SubscriptionResetResult{ResetCount: 1, PlanId: 1, PlanTitle: "Plan", AffectedUserIds: []int{999}}, audittransport.Operator(c))
+		subscriptionsapp.NewResetAudit().RecordUserLogs(c, &subscriptionsdomain.ResetResult{ResetCount: 1, PlanId: 1, PlanTitle: "Plan", AffectedUserIds: []int{999}}, audittransport.Operator(c))
 		require.NoError(t, model.DB.Model(user).Update("role", common.RoleAdminUser).Error)
 		c.Status(200)
 	})
@@ -122,7 +124,7 @@ func TestSecurityAndOperationEventsUseAuditTable(t *testing.T) {
 		recordUserSecurityAudit(c, user.Id, action, nil)
 	}
 	recordManageAudit(c, "option.update", map[string]any{"key": "safe"})
-	recordSubscriptionResetUserLogs(c, &model.SubscriptionResetResult{ResetCount: 1, PlanId: 1, PlanTitle: "Plan", AffectedUserIds: []int{user.Id}}, &auditdomain.Operator{ID: user.Id})
+	subscriptionsapp.NewResetAudit().RecordUserLogs(c, &subscriptionsdomain.ResetResult{ResetCount: 1, PlanId: 1, PlanTitle: "Plan", AffectedUserIds: []int{user.Id}}, &auditdomain.Operator{ID: user.Id})
 	for _, typ := range []int{model.LogTypeTopup, model.LogTypeConsume, model.LogTypeRefund, model.LogTypeSystem} {
 		model.RecordLog(user.Id, typ, "business entry")
 	}

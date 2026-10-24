@@ -9,6 +9,39 @@ import (
 )
 
 func WriteError(c *gin.Context, err error) {
+	if errors.Is(err, domain.ErrPurchaseLimit) {
+		common.ApiErrorI18n(c, i18n.MsgSubscriptionsPurchaseLimit)
+		return
+	}
+	if errors.Is(err, domain.ErrNoActivePlan) {
+		common.ApiErrorI18n(c, i18n.MsgSubscriptionsNoActivePlan)
+		return
+	}
+	if errors.Is(err, domain.ErrPlanDisabled) {
+		common.ApiErrorI18n(c, i18n.MsgSubscriptionsPlanDisabled)
+		return
+	}
+	if errors.Is(err, domain.ErrBalanceNegativePrice) {
+		common.ApiErrorI18n(c, i18n.MsgSubscriptionsBalanceNegativePrice)
+		return
+	}
+	if errors.Is(err, domain.ErrBalanceDisallowed) {
+		common.ApiErrorI18n(c, i18n.MsgSubscriptionsBalanceDisallowed)
+		return
+	}
+	if errors.Is(err, domain.ErrInsufficientBalance) {
+		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInsufficientBalance)
+		return
+	}
+	if errors.Is(err, domain.ErrInvalidQuotaUnit) {
+		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInvalidQuotaUnit)
+		return
+	}
+	if errors.Is(err, domain.ErrInvalidSubscriptionID) {
+		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInvalidSubscriptionID)
+		return
+	}
+
 	if errors.Is(err, domain.ErrInvalidID) {
 		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInvalidID)
 		return

@@ -31,17 +31,17 @@ func (Store) DebitToken(account domain.Account, amount int) error {
 func (Store) CreditToken(account domain.Account, amount int) error {
 	return model.IncreaseTokenQuota(account.TokenID, account.TokenKey, amount)
 }
-func (Store) HasSubscription(id int) (bool, error) { return model.HasActiveUserSubscription(id) }
+func (Store) HasSubscription(id int) (bool, error) { return hasActiveUserSubscription(id) }
 func (Store) AllowsWalletOverflow(id int) (bool, error) {
-	return model.UserActiveSubscriptionsAllowWalletOverflow(id)
+	return userActiveSubscriptionsAllowWalletOverflow(id)
 }
 func (Store) ReserveSubscription(requestID string, userID int, modelName string, amount int64) (domain.SubscriptionHold, error) {
-	result, err := model.PreConsumeUserSubscription(requestID, userID, modelName, 0, amount)
+	result, err := preConsumeUserSubscription(requestID, userID, modelName, 0, amount)
 	if err != nil {
 		return domain.SubscriptionHold{}, err
 	}
 	hold := domain.SubscriptionHold{ID: result.UserSubscriptionId, PreConsumed: result.PreConsumed, AmountTotal: result.AmountTotal, AmountUsedAfter: result.AmountUsedAfter}
-	if plan, err := model.GetSubscriptionPlanInfoByUserSubscriptionId(result.UserSubscriptionId); err == nil && plan != nil {
+	if plan, err := getSubscriptionPlanInfoByUserSubscriptionId(result.UserSubscriptionId); err == nil && plan != nil {
 		hold.PlanID, hold.PlanTitle = plan.PlanId, plan.PlanTitle
 	}
 	return hold, nil
@@ -50,5 +50,5 @@ func (Store) AdjustSubscription(id int, delta int64) error {
 	return model.PostConsumeUserSubscriptionDelta(id, delta)
 }
 func (Store) RefundSubscription(requestID string) error {
-	return model.RefundSubscriptionPreConsume(requestID)
+	return refundSubscriptionPreConsume(requestID)
 }

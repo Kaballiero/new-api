@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/internal/adapter/admission"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -1047,7 +1048,7 @@ func TestPaymentStripeFailureDiagnostics(t *testing.T) {
 			}
 			capture := &diagnosticCapture{}
 			client := stripeEventFixture{event: domain.StripeEvent{Type: tc.eventType, Reference: "diagnostic", Status: tc.status, PaymentStatus: "paid"}}
-			usecase := receive_stripe_webhook.NewUsecase(client, store, store, subscriptionFailureFixture{err: tc.subscriptionError}, domain.Completion{}, &OrderAdmission{}, capture)
+			usecase := receive_stripe_webhook.NewUsecase(client, store, store, subscriptionFailureFixture{err: tc.subscriptionError}, domain.Completion{}, &admission.OrderAdmission{}, capture)
 			require.NoError(t, usecase.Execute(context.Background(), receive_stripe_webhook.Input{CallerIP: "fixture"}))
 			assert.Contains(t, capture.entries, tc.expected)
 			assert.Equal(t, domain.StatusPending, store.Find("diagnostic").Status)

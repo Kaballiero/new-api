@@ -164,7 +164,7 @@ func cacheIncrUserQuota(userId int, delta int64) error {
 	return err
 }
 
-func cacheDecrUserQuota(userId int, delta int64) error {
+func CacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)
 }
 

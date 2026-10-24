@@ -2,6 +2,8 @@ package controller
 
 import (
 	"fmt"
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
+	"gorm.io/gorm"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -10,6 +12,8 @@ import (
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/QuantumNous/new-api/common"
 	paymentsapp "github.com/QuantumNous/new-api/internal/app/payments"
+	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
+	"github.com/QuantumNous/new-api/internal/subscriptions/complete_order"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -52,7 +56,7 @@ func SubscriptionRequestEpay(c *gin.Context) {
 
 	userId := c.GetInt("id")
 	if plan.MaxPurchasePerUser > 0 {
-		count, err := model.CountUserSubscriptionsByPlan(userId, plan.Id)
+		count, err := subscriptionstorage.NewStore(func() *gorm.DB { return model.DB }).CountPurchases(userId, plan.Id)
 		if err != nil {
 			common.ApiError(c, err)
 			return
@@ -108,7 +112,7 @@ func SubscriptionRequestEpay(c *gin.Context) {
 		ReturnUrl:      returnUrl,
 	})
 	if err != nil {
-		_ = model.ExpireSubscriptionOrder(tradeNo, model.PaymentProviderEpay)
+		_ = subscriptionsapp.NewOrders().Expire(tradeNo, model.PaymentProviderEpay)
 		common.ApiErrorMsg(c, "拉起支付失败")
 		return
 	}
@@ -160,7 +164,7 @@ func SubscriptionEpayNotify(c *gin.Context) {
 	LockOrder(verifyInfo.ServiceTradeNo)
 	defer UnlockOrder(verifyInfo.ServiceTradeNo)
 
-	if err := model.CompleteSubscriptionOrder(verifyInfo.ServiceTradeNo, common.GetJsonString(verifyInfo), model.PaymentProviderEpay, verifyInfo.Type); err != nil {
+	if err := subscriptionsapp.NewOrders().Complete(complete_order.Input{TradeNo: verifyInfo.ServiceTradeNo, ProviderPayload: common.GetJsonString(verifyInfo), ExpectedProvider: model.PaymentProviderEpay, ActualMethod: verifyInfo.Type}); err != nil {
 		_, _ = c.Writer.Write([]byte("fail"))
 		return
 	}
@@ -209,7 +213,7 @@ func SubscriptionEpayReturn(c *gin.Context) {
 	if verifyInfo.TradeStatus == epay.StatusTradeSuccess {
 		LockOrder(verifyInfo.ServiceTradeNo)
 		defer UnlockOrder(verifyInfo.ServiceTradeNo)
-		if err := model.CompleteSubscriptionOrder(verifyInfo.ServiceTradeNo, common.GetJsonString(verifyInfo), model.PaymentProviderEpay, verifyInfo.Type); err != nil {
+		if err := subscriptionsapp.NewOrders().Complete(complete_order.Input{TradeNo: verifyInfo.ServiceTradeNo, ProviderPayload: common.GetJsonString(verifyInfo), ExpectedProvider: model.PaymentProviderEpay, ActualMethod: verifyInfo.Type}); err != nil {
 			c.Redirect(http.StatusFound, paymentsapp.ReturnPath("/wallet?pay=fail"))
 			return
 		}

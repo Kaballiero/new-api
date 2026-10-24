@@ -2,10 +2,9 @@ package domain
 
 import "strings"
 
-// PlanRules reads late configuration and the single legacy calendar normalizer.
+// PlanRules reads the current configured groups.
 type PlanRules struct {
-	GroupExists          func(group string) bool
-	NormalizeResetPeriod func(period string) string
+	GroupExists func(group string) bool
 }
 
 func NormalizePlan(plan *SubscriptionPlan, creating bool, rules PlanRules) error {
@@ -45,7 +44,7 @@ func NormalizePlan(plan *SubscriptionPlan, creating bool, rules PlanRules) error
 	if plan.DowngradeGroup != "" && !rules.GroupExists(plan.DowngradeGroup) {
 		return ErrDowngradeGroupMissing
 	}
-	plan.QuotaResetPeriod = rules.NormalizeResetPeriod(plan.QuotaResetPeriod)
+	plan.QuotaResetPeriod = NormalizeResetPeriod(plan.QuotaResetPeriod)
 	if plan.QuotaResetPeriod == SubscriptionResetCustom && plan.QuotaResetCustomSeconds <= 0 {
 		return ErrInvalidResetSeconds
 	}

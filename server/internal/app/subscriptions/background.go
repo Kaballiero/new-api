@@ -1,4 +1,4 @@
-package service
+package subscriptions
 
 import (
 	"context"
@@ -8,8 +8,13 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
+	"github.com/QuantumNous/new-api/internal/subscriptions/cleanup_preconsume"
+	"github.com/QuantumNous/new-api/internal/subscriptions/expire_due"
+	"github.com/QuantumNous/new-api/internal/subscriptions/reset_due"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"gorm.io/gorm"
 
 	"github.com/bytedance/gopkg/util/gopool"
 )
@@ -45,6 +50,10 @@ func StartSubscriptionQuotaResetTask() {
 }
 
 func runSubscriptionQuotaResetOnce() {
+	store := storage.NewStore(func() *gorm.DB { return model.DB })
+	expiry := expire_due.NewUsecase(store, model.GetDBTimestamp, effects{}.RefreshGroup)
+	reset := reset_due.NewUsecase(store, model.GetDBTimestamp)
+	cleanup := cleanup_preconsume.NewUsecase(store, model.GetDBTimestamp)
 	if !subscriptionResetRunning.CompareAndSwap(false, true) {
 		return
 	}
@@ -54,7 +63,7 @@ func runSubscriptionQuotaResetOnce() {
 	totalReset := 0
 	totalExpired := 0
 	for {
-		n, err := model.ExpireDueSubscriptions(subscriptionResetBatchSize)
+		n, err := expiry.Execute(subscriptionResetBatchSize)
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("subscription expire task failed: %v", err))
 			return
@@ -68,7 +77,7 @@ func runSubscriptionQuotaResetOnce() {
 		}
 	}
 	for {
-		n, err := model.ResetDueSubscriptions(subscriptionResetBatchSize)
+		n, err := reset.Execute(subscriptionResetBatchSize)
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("subscription quota reset task failed: %v", err))
 			return
@@ -83,7 +92,7 @@ func runSubscriptionQuotaResetOnce() {
 	}
 	lastCleanup := time.Unix(subscriptionCleanupLast.Load(), 0)
 	if time.Since(lastCleanup) >= subscriptionCleanupInterval {
-		if _, err := model.CleanupSubscriptionPreConsumeRecords(7 * 24 * 3600); err == nil {
+		if _, err := cleanup.Execute(7 * 24 * 3600); err == nil {
 			subscriptionCleanupLast.Store(time.Now().Unix())
 		}
 	}

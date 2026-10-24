@@ -1,4 +1,4 @@
-package service
+package subscriptions
 
 import (
 	"crypto/sha256"
@@ -241,7 +241,7 @@ func TestSubscriptionMaintenanceContract(t *testing.T) {
 			fmt.Printf("SUBSCRIPTIONS_TICK_SNAPSHOT %s %s\n", name, data)
 			return
 		}
-		path := filepath.Join("testdata", "subscription-maintenance", name+".golden.json")
+		path := filepath.Join("..", "..", "..", "service", "testdata", "subscription-maintenance", name+".golden.json")
 		if *subscriptionTickUpdate {
 			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 			require.NoError(t, os.WriteFile(path, append(data, '\n'), 0o644))

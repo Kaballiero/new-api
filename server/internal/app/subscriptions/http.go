@@ -1,6 +1,15 @@
 package subscriptions
 
 import (
+	"fmt"
+	paymentsdomain "github.com/QuantumNous/new-api/internal/payments/domain"
+	"github.com/QuantumNous/new-api/internal/subscriptions/bind_subscription"
+	"github.com/QuantumNous/new-api/internal/subscriptions/delete_subscription"
+	"github.com/QuantumNous/new-api/internal/subscriptions/invalidate_subscription"
+	"github.com/QuantumNous/new-api/internal/subscriptions/purchase_with_balance"
+	"github.com/QuantumNous/new-api/internal/subscriptions/reset_subscriptions"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
 	"github.com/QuantumNous/new-api/internal/subscriptions/admin_list_plans"
@@ -19,6 +28,12 @@ import (
 )
 
 type HTTP struct {
+	Bind       bind_subscription.HTTP
+	Reset      reset_subscriptions.HTTP
+	Invalidate invalidate_subscription.HTTP
+	Delete     delete_subscription.HTTP
+	Balance    purchase_with_balance.HTTP
+
 	CreatePlan create_plan.HTTP
 	UpdatePlan update_plan.HTTP
 	PlanStatus update_plan_status.HTTP
@@ -32,8 +47,15 @@ type HTTP struct {
 
 func NewHTTP() HTTP {
 	store := storage.NewStore(func() *gorm.DB { return model.DB })
-	rules := domain.PlanRules{GroupExists: func(group string) bool { _, ok := ratio_setting.GetGroupRatioCopy()[group]; return ok }, NormalizeResetPeriod: model.NormalizeResetPeriod}
+	rules := domain.PlanRules{GroupExists: func(group string) bool { _, ok := ratio_setting.GetGroupRatioCopy()[group]; return ok }}
 	return HTTP{
+		Bind:       bind_subscription.NewHTTP(bind_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup), operation_setting.IsPaymentComplianceConfirmed),
+		Reset:      reset_subscriptions.NewHTTP(reset_subscriptions.NewUsecase(store, model.GetDBTimestamp), NewResetAudit()),
+		Invalidate: invalidate_subscription.NewHTTP(invalidate_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup)),
+		Delete:     delete_subscription.NewHTTP(delete_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup)),
+		Balance: purchase_with_balance.NewHTTP(purchase_with_balance.NewUsecase(store, effects{}, balanceQuota, common.GetTimestamp, func(userID int) string {
+			return fmt.Sprintf("SUBBALUSR%dNO%s%d", userID, common.GetRandomString(6), time.Now().UnixNano())
+		}, paymentsdomain.PaymentMethodBalance, paymentsdomain.PaymentProviderBalance, paymentsdomain.StatusSuccess), operation_setting.IsPaymentComplianceConfirmed),
 		CreatePlan:        create_plan.NewHTTP(create_plan.NewUsecase(store, rules, model.InvalidateSubscriptionPlanCache), operation_setting.IsPaymentComplianceConfirmed),
 		UpdatePlan:        update_plan.NewHTTP(update_plan.NewUsecase(store, rules, model.InvalidateSubscriptionPlanCache), operation_setting.IsPaymentComplianceConfirmed),
 		PlanStatus:        update_plan_status.NewHTTP(update_plan_status.NewUsecase(store, model.InvalidateSubscriptionPlanCache), operation_setting.IsPaymentComplianceConfirmed),

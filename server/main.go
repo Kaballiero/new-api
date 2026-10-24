@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -138,7 +139,7 @@ func main() {
 	service.StartCodexCredentialAutoRefreshTask()
 
 	// Subscription quota reset task (daily/weekly/monthly/custom)
-	service.StartSubscriptionQuotaResetTask()
+	subscriptionsapp.StartSubscriptionQuotaResetTask()
 
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.

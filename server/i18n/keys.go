@@ -622,3 +622,16 @@ const (
 	MsgSubscriptionsDowngradeGroupMissing = "subscriptions.downgrade_group_missing"
 	MsgSubscriptionsInvalidResetSeconds   = "subscriptions.invalid_reset_seconds"
 )
+
+const (
+MsgSubscriptionsPurchaseLimit = "subscriptions.purchase_limit"
+MsgSubscriptionsNoActivePlan = "subscriptions.no_active_plan"
+MsgSubscriptionsPlanDisabled = "subscriptions.plan_disabled"
+MsgSubscriptionsBalanceNegativePrice = "subscriptions.balance_negative_price"
+MsgSubscriptionsBalanceDisallowed = "subscriptions.balance_disallowed"
+MsgSubscriptionsInsufficientBalance = "subscriptions.insufficient_balance"
+MsgSubscriptionsInvalidQuotaUnit = "subscriptions.invalid_quota_unit"
+MsgSubscriptionsInvalidSubscriptionID = "subscriptions.invalid_subscription_id"
+MsgSubscriptionsGroupUpgrade = "subscriptions.group_upgrade"
+MsgSubscriptionsGroupDowngrade = "subscriptions.group_downgrade"
+)

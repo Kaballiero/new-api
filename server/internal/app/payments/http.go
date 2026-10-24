@@ -3,6 +3,8 @@ package payments
 import (
 	"context"
 	"fmt"
+	"github.com/QuantumNous/new-api/internal/app/shared"
+	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	"time"
 
 	"github.com/Calcium-Ion/go-epay/epay"
@@ -103,7 +105,7 @@ func NewHTTP() HTTP {
 		),
 
 		PancakeWebhook: receive_pancake_webhook.NewHTTP(
-			receive_pancake_webhook.NewUsecase(pancakeadapter.Client{}, store, subscriptions{}, completion, &orderAdmission, paymentDiagnostics{}),
+			receive_pancake_webhook.NewUsecase(pancakeadapter.Client{}, store, subscriptionDispatch{orders: subscriptionsapp.NewOrders()}, completion, &shared.Orders, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderWaffoPancake) },
 			func(c *gin.Context, payload []byte, signature string) {
 				observeWebhook(c, "Waffo Pancake", payload, signature)
@@ -137,7 +139,7 @@ func NewHTTP() HTTP {
 		),
 
 		WaffoWebhook: receive_waffo_webhook.NewHTTP(
-			receive_waffo_webhook.NewUsecase(waffoadapter.Factory{}, store, completion, &orderAdmission, waffoObservation{}, paymentDiagnostics{}),
+			receive_waffo_webhook.NewUsecase(waffoadapter.Factory{}, store, completion, &shared.Orders, waffoObservation{}, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderWaffo) },
 		),
 
@@ -156,7 +158,7 @@ func NewHTTP() HTTP {
 		),
 
 		CreemWebhook: receive_creem_webhook.NewHTTP(
-			receive_creem_webhook.NewUsecase(creemadapter.Client{}, store, subscriptions{}, completion, &orderAdmission, paymentDiagnostics{}),
+			receive_creem_webhook.NewUsecase(creemadapter.Client{}, store, subscriptionDispatch{orders: subscriptionsapp.NewOrders()}, completion, &shared.Orders, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderCreem) },
 			func(c *gin.Context, payload []byte, signature string) { observeWebhook(c, "Creem", payload, signature) },
 		),
@@ -177,7 +179,7 @@ func NewHTTP() HTTP {
 		),
 
 		StripeWebhook: receive_stripe_webhook.NewHTTP(
-			receive_stripe_webhook.NewUsecase(stripeadapter.Client{}, store, store, subscriptions{}, completion, &orderAdmission, paymentDiagnostics{}),
+			receive_stripe_webhook.NewUsecase(stripeadapter.Client{}, store, store, subscriptionDispatch{orders: subscriptionsapp.NewOrders()}, completion, &shared.Orders, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderStripe) },
 			func(c *gin.Context, payload []byte, signature string) {
 				observeWebhook(c, "Stripe", payload, signature)
@@ -201,7 +203,7 @@ func NewHTTP() HTTP {
 		),
 
 		EpayNotify: receive_epay_notify.NewHTTP(
-			receive_epay_notify.NewUsecase(epayadapter.Factory{}, completion, &orderAdmission, paymentDiagnostics{}),
+			receive_epay_notify.NewUsecase(epayadapter.Factory{}, completion, &shared.Orders, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderEpay) },
 			observeEpay,
 		),
@@ -210,20 +212,19 @@ func NewHTTP() HTTP {
 
 		ListAll: admin_list_topups.NewHTTP(admin_list_topups.NewUsecase(store)),
 
-		Complete: complete_topup.NewHTTP(complete_topup.NewUsecase(completion, &orderAdmission)),
+		Complete: complete_topup.NewHTTP(complete_topup.NewUsecase(completion, &shared.Orders)),
 
 		Info: get_topup_info.NewHTTP(get_topup_info.NewUsecase(settings.Settings{})),
 	}
 }
 
 // Payment and subscription callbacks share one admission registry.
-var orderAdmission OrderAdmission
 
 // BRIDGE: controller/topup LockOrder for subscription_payment_epay; remove after subscription admission is extracted.
-func LockOrder(tradeNo string) { orderAdmission.Lock(tradeNo) }
+func LockOrder(tradeNo string) { shared.Orders.Lock(tradeNo) }
 
 // BRIDGE: controller/topup UnlockOrder for subscription_payment_epay; remove after subscription admission is extracted.
-func UnlockOrder(tradeNo string) { orderAdmission.Unlock(tradeNo) }
+func UnlockOrder(tradeNo string) { shared.Orders.Unlock(tradeNo) }
 
 // BRIDGE: controller.GetEpayClient for subscription_payment_epay; remove after subscription Epay wiring is extracted.
 func EpayClient() *epay.Client { return epayadapter.NewClient() }
