@@ -524,3 +524,13 @@ payments.read_query: "read query error"
 
 subscriptions.invalid_user_id: "无效的用户ID"
 subscriptions.invalid_parameters: "参数错误"
+
+subscriptions.invalid_id: "无效的ID"
+subscriptions.title_required: "套餐标题不能为空"
+subscriptions.negative_price: "价格不能为负数"
+subscriptions.high_price: "价格不能超过9999"
+subscriptions.negative_purchase_limit: "购买上限不能为负数"
+subscriptions.negative_total: "总额度不能为负数"
+subscriptions.upgrade_group_missing: "升级分组不存在"
+subscriptions.downgrade_group_missing: "降级分组不存在"
+subscriptions.invalid_reset_seconds: "自定义重置周期需大于0秒"

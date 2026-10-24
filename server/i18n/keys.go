@@ -610,3 +610,15 @@ const (
 	MsgSubscriptionsInvalidUserID     = "subscriptions.invalid_user_id"
 	MsgSubscriptionsInvalidParameters = "subscriptions.invalid_parameters"
 )
+
+const (
+	MsgSubscriptionsInvalidID             = "subscriptions.invalid_id"
+	MsgSubscriptionsTitleRequired         = "subscriptions.title_required"
+	MsgSubscriptionsNegativePrice         = "subscriptions.negative_price"
+	MsgSubscriptionsHighPrice             = "subscriptions.high_price"
+	MsgSubscriptionsNegativePurchaseLimit = "subscriptions.negative_purchase_limit"
+	MsgSubscriptionsNegativeTotal         = "subscriptions.negative_total"
+	MsgSubscriptionsUpgradeGroupMissing   = "subscriptions.upgrade_group_missing"
+	MsgSubscriptionsDowngradeGroupMissing = "subscriptions.downgrade_group_missing"
+	MsgSubscriptionsInvalidResetSeconds   = "subscriptions.invalid_reset_seconds"
+)

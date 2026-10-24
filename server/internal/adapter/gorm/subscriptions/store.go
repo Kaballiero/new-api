@@ -2,6 +2,7 @@ package subscriptions
 
 import (
 	"errors"
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/model"
@@ -56,4 +57,33 @@ func (s Store) PutBillingPreference(userID int, preference string) error {
 	current := user.GetSetting()
 	current.BillingPreference = preference
 	return model.UpdateUserSetting(user.Id, current)
+}
+
+func (s Store) InsertPlan(plan *domain.SubscriptionPlan) error {
+	row := record.SubscriptionPlan(*plan)
+	err := s.db().Create(&row).Error
+	*plan = domain.SubscriptionPlan(row)
+	return err
+}
+func (s Store) UpdatePlan(plan domain.SubscriptionPlan) error {
+	return s.db().Transaction(func(tx *gorm.DB) error {
+		updates := map[string]any{
+			"title": plan.Title, "subtitle": plan.Subtitle, "price_amount": plan.PriceAmount, "currency": plan.Currency,
+			"duration_unit": plan.DurationUnit, "duration_value": plan.DurationValue, "custom_seconds": plan.CustomSeconds,
+			"enabled": plan.Enabled, "sort_order": plan.SortOrder, "stripe_price_id": plan.StripePriceId, "creem_product_id": plan.CreemProductId,
+			"waffo_pancake_product_id": plan.WaffoPancakeProductId, "max_purchase_per_user": plan.MaxPurchasePerUser, "total_amount": plan.TotalAmount,
+			"upgrade_group": plan.UpgradeGroup, "downgrade_group": plan.DowngradeGroup, "quota_reset_period": plan.QuotaResetPeriod,
+			"quota_reset_custom_seconds": plan.QuotaResetCustomSeconds, "updated_at": common.GetTimestamp(),
+		}
+		if plan.AllowBalancePay != nil {
+			updates["allow_balance_pay"] = *plan.AllowBalancePay
+		}
+		if plan.AllowWalletOverflow != nil {
+			updates["allow_wallet_overflow"] = *plan.AllowWalletOverflow
+		}
+		return tx.Model(&record.SubscriptionPlan{}).Where("id = ?", plan.Id).Updates(updates).Error
+	})
+}
+func (s Store) SetPlanEnabled(planID int, enabled bool) error {
+	return s.db().Model(&record.SubscriptionPlan{}).Where("id = ?", planID).Update("enabled", enabled).Error
 }
