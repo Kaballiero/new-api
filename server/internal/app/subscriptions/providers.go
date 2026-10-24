@@ -3,6 +3,11 @@ package subscriptions
 import (
 	"context"
 	"fmt"
+	"time"
+
+	"github.com/thanhpk/randstr"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
 	creem "github.com/QuantumNous/new-api/internal/adapter/http/payments/creem"
@@ -22,9 +27,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/thanhpk/randstr"
-	"gorm.io/gorm"
-	"time"
 )
 
 type diagnostics struct{}
@@ -65,28 +67,23 @@ func NewProviders() Providers {
 	d := diagnostics{}
 	now := func() int64 { return time.Now().Unix() }
 	return Providers{
-
 		Epay: create_epay_order.NewHTTP(create_epay_order.NewUsecase(store, config, epay.Factory{}, NewOrders(), now, func(id int) string {
 			return fmt.Sprintf("SUBUSR%dNO%s%d", id, common.GetRandomString(6), time.Now().Unix())
 		}, payments.StatusPending, payments.PaymentProviderEpay), compliance),
-
 		Stripe: create_stripe_order.NewHTTP(create_stripe_order.NewUsecase(store, config, stripe.Client{}, d, now, func(id int) string {
 			reference := fmt.Sprintf("sub-stripe-ref-%d-%d-%s", id, time.Now().UnixMilli(), randstr.String(4))
 			return "sub_ref_" + common.Sha1([]byte(reference))
 		}, payments.StatusPending, payments.PaymentMethodStripe, payments.PaymentProviderStripe), compliance),
-
 		Creem: create_creem_order.NewHTTP(create_creem_order.NewUsecase(store, config, creem.Client{}, d, now, func(username string) string {
 			reference := "sub-creem-ref-" + randstr.String(6)
 			return "sub_ref_" + common.Sha1([]byte(reference+time.Now().String()+username))
 		}, config.Currency, payments.StatusPending, payments.PaymentMethodCreem, payments.PaymentProviderCreem), compliance, d),
-
 		Pancake: create_pancake_order.NewHTTP(
 			create_pancake_order.NewUsecase(store, config, pancake.Client{}, d, now, func(id int) string {
 				return fmt.Sprintf("WAFFO_PANCAKE_SUB-%d-%d-%s", id, time.Now().UnixMilli(), randstr.String(6))
 			}, payments.StatusPending, payments.StatusFailed, payments.PaymentMethodWaffoPancake, payments.PaymentProviderWaffoPancake),
 			compliance,
 		),
-
 		EpayCallback: receive_epay_callback.NewHTTP(
 			receive_epay_callback.NewUsecase(
 				epay.Factory{},
@@ -96,7 +93,6 @@ func NewProviders() Providers {
 			),
 			config.ReturnPath,
 		),
-
 		CreateProduct: create_pancake_product.NewHTTP(create_pancake_product.NewUsecase(config, pancake.Factory{}, d)),
 		Products: list_pancake_products.NewHTTP(list_pancake_products.NewUsecase(
 			config,

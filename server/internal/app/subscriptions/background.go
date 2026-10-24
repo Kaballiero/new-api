@@ -7,6 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bytedance/gopkg/util/gopool"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
 	"github.com/QuantumNous/new-api/internal/subscriptions/cleanup_preconsume"
@@ -14,9 +17,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/subscriptions/reset_due"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"gorm.io/gorm"
-
-	"github.com/bytedance/gopkg/util/gopool"
 )
 
 const (

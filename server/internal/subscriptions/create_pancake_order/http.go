@@ -1,8 +1,9 @@
 package create_pancake_order
 
 import (
-	"github.com/QuantumNous/new-api/internal/subscriptions/transport"
 	"github.com/gin-gonic/gin"
+
+	"github.com/QuantumNous/new-api/internal/subscriptions/transport"
 )
 
 type SubscriptionWaffoPancakePayRequest struct {
@@ -23,7 +24,7 @@ func (h HTTP) Handle(c *gin.Context) {
 		transport.InvalidParameters(c)
 		return
 	}
-	result, err := h.usecase.Execute(c.Request.Context(), c.GetInt("id"), req.PlanID)
+	result, err := h.usecase.Execute(c.Request.Context(), Input{UserID: c.GetInt("id"), PlanID: req.PlanID})
 	if err != nil {
 		transport.CheckoutError(c, err)
 		return

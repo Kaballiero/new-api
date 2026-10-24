@@ -1,8 +1,9 @@
 package expire_due
 
 import (
-	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 )
 
 type Store interface {

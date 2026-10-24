@@ -2,11 +2,14 @@ package create_epay_order
 
 import (
 	"fmt"
-	payments "github.com/QuantumNous/new-api/internal/payments/domain"
-	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"net/url"
 	"strconv"
+
+	payments "github.com/QuantumNous/new-api/internal/payments/domain"
+	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 )
+
+type OrderExpiry interface{ Expire(string, string) error }
 
 type Store interface {
 	PlanByID(int) (*domain.SubscriptionPlan, error)
@@ -30,7 +33,7 @@ type Usecase struct {
 	store             Store
 	settings          Settings
 	factory           payments.EpayFactory
-	expiry            domain.OrderExpiry
+	expiry            OrderExpiry
 	now               func() int64
 	reference         func(int) string
 	pending, provider string
@@ -40,7 +43,7 @@ func NewUsecase(
 	store Store,
 	settings Settings,
 	factory payments.EpayFactory,
-	expiry domain.OrderExpiry,
+	expiry OrderExpiry,
 	now func() int64,
 	reference func(int) string,
 	pending, provider string,
@@ -98,15 +101,10 @@ func (u Usecase) Execute(in Input) (Result, error) {
 		return Result{}, domain.ErrCreateOrder
 	}
 	uri, params, err := client.Purchase(payments.EpayPurchase{
-		Method:  in.PaymentMethod,
-		TradeNo: ref,
-		Name:    fmt.Sprintf("SUB:%s", plan.Title),
-		Money: strconv.FormatFloat(
-			plan.PriceAmount,
-			'f',
-			2,
-			64,
-		),
+		Method:    in.PaymentMethod,
+		TradeNo:   ref,
+		Name:      fmt.Sprintf("SUB:%s", plan.Title),
+		Money:     strconv.FormatFloat(plan.PriceAmount, 'f', 2, 64),
 		NotifyURL: notify.String(),
 		ReturnURL: back.String(),
 	})

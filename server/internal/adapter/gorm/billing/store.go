@@ -5,8 +5,8 @@ import (
 	"github.com/QuantumNous/new-api/model"
 )
 
-// Store delegates to shared quota primitives. Their SQL, Redis Lua, batch
-// queue, hydration, fallback and compensation order remain owned by model.
+// Store owns subscription reservation/refund/plan-info SQL. Shared wallet/token/cache
+// primitives and the durable-task subscription delta remain in model.
 type Store struct{}
 
 func (Store) WalletBalance(id int) (int, error) { return model.GetUserQuota(id, false) }

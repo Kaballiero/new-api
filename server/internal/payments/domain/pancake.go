@@ -149,17 +149,8 @@ func CreatePancakeCheckout(ctx context.Context, client PancakeCheckout, params *
 
 func PancakeAmount(money float64) string { return decimal.NewFromFloat(money).StringFixed(2) }
 
-func LoadActivePancakeCatalog(ctx context.Context, factory PancakeFactory, creds PancakeCredentials, diagnostics Diagnostics) (*WaffoPancakeCatalog, error) {
-	client, err := factory.Management(creds)
-	if err != nil {
-		diagnostics.Error(ctx, "Waffo Pancake store and product catalog query failed error=%q", err)
-		return nil, ErrCatalog
-	}
-	catalog, err := client.Catalog(ctx)
-	if err != nil {
-		diagnostics.Error(ctx, "Waffo Pancake store and product catalog query failed error=%q", err)
-		return nil, ErrCatalog
-	}
+// FilterActivePancakeProducts preserves the catalog order and nil/empty slice shapes.
+func FilterActivePancakeProducts(catalog *WaffoPancakeCatalog) {
 	for i := range catalog.Stores {
 		active := catalog.Stores[i].OnetimeProducts[:0]
 		for _, product := range catalog.Stores[i].OnetimeProducts {
@@ -169,5 +160,4 @@ func LoadActivePancakeCatalog(ctx context.Context, factory PancakeFactory, creds
 		}
 		catalog.Stores[i].OnetimeProducts = active
 	}
-	return catalog, nil
 }

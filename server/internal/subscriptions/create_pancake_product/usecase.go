@@ -3,20 +3,31 @@ package create_pancake_product
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	payments "github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
-	"strings"
 )
+
+type CatalogSettings interface {
+	PancakeCredentials() payments.PancakeCredentials
+	PancakeStore() string
+	PancakeReturn() string
+}
+
+type Diagnostics interface {
+	Error(context.Context, string, ...any)
+}
 
 type Input struct{ Name, Amount string }
 type Result struct{ ProductID, ProductName, StoreID string }
 type Usecase struct {
-	settings    domain.CatalogSettings
+	settings    CatalogSettings
 	factory     payments.PancakeFactory
-	diagnostics domain.CheckoutDiagnostics
+	diagnostics Diagnostics
 }
 
-func NewUsecase(settings domain.CatalogSettings, factory payments.PancakeFactory, diagnostics domain.CheckoutDiagnostics) Usecase {
+func NewUsecase(settings CatalogSettings, factory payments.PancakeFactory, diagnostics Diagnostics) Usecase {
 	return Usecase{settings, factory, diagnostics}
 }
 func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {

@@ -2,8 +2,6 @@ package payments
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/app/shared"
-	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +16,8 @@ import (
 	stripeadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/stripe"
 	waffoadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/waffo"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
+	"github.com/QuantumNous/new-api/internal/app/shared"
+	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	"github.com/QuantumNous/new-api/internal/payments/admin_list_topups"
 	"github.com/QuantumNous/new-api/internal/payments/complete_topup"
 	"github.com/QuantumNous/new-api/internal/payments/confirm_compliance"
@@ -83,9 +83,7 @@ func NewHTTP() HTTP {
 	pricing := domain.Pricing{Settings: settings.Settings{}, Math: quotaMath{}, Wallet: storage.Wallet{}}
 	catalog := list_pancake_catalog.NewUsecase(pancakeadapter.Factory{}, settings.Settings{}, paymentDiagnostics{})
 	return HTTP{
-
 		QuotePancake: quote_pancake_topup.NewHTTP(quote_pancake_topup.NewUsecase(pricing, storage.Users{})),
-
 		CreatePancake: create_pancake_topup.NewHTTP(
 			create_pancake_topup.NewUsecase(
 				pricing,
@@ -99,7 +97,6 @@ func NewHTTP() HTTP {
 				paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().TopUp(domain.PaymentProviderWaffoPancake) },
 		),
-
 		PancakeWebhook: receive_pancake_webhook.NewHTTP(
 			receive_pancake_webhook.NewUsecase(pancakeadapter.Client{}, store, subscriptionDispatch{orders: subscriptionsapp.NewOrders()}, completion, &shared.Orders, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderWaffoPancake) },
@@ -107,17 +104,11 @@ func NewHTTP() HTTP {
 				observeWebhook(c, "Waffo Pancake", payload, signature)
 			},
 		),
-
-		Catalog: list_pancake_catalog.NewHTTP(catalog),
-
-		Pair: create_pancake_pair.NewHTTP(create_pancake_pair.NewUsecase(pancakeadapter.Factory{}, settings.Settings{}, paymentDiagnostics{})),
-
+		Catalog:     list_pancake_catalog.NewHTTP(catalog),
+		Pair:        create_pancake_pair.NewHTTP(create_pancake_pair.NewUsecase(pancakeadapter.Factory{}, settings.Settings{}, paymentDiagnostics{})),
 		SavePancake: save_pancake_config.NewHTTP(save_pancake_config.NewUsecase(storage.Options{}, settings.Settings{}), paymentDiagnostics{}),
-
-		Compliance: confirm_compliance.NewHTTP(confirm_compliance.NewUsecase(storage.Options{}, settings.Settings{}.Terms, common.GetTimestamp, paymentDiagnostics{})),
-
-		QuoteWaffo: quote_waffo_topup.NewHTTP(quote_waffo_topup.NewUsecase(pricing, storage.Users{})),
-
+		Compliance:  confirm_compliance.NewHTTP(confirm_compliance.NewUsecase(storage.Options{}, settings.Settings{}.Terms, common.GetTimestamp, paymentDiagnostics{})),
+		QuoteWaffo:  quote_waffo_topup.NewHTTP(quote_waffo_topup.NewUsecase(pricing, storage.Users{})),
 		CreateWaffo: create_waffo_topup.NewHTTP(
 			create_waffo_topup.NewUsecase(
 				pricing,
@@ -131,12 +122,10 @@ func NewHTTP() HTTP {
 				paymentDiagnostics{}),
 			settings.Settings{}.WaffoEnabled,
 		),
-
 		WaffoWebhook: receive_waffo_webhook.NewHTTP(
 			receive_waffo_webhook.NewUsecase(waffoadapter.Factory{}, store, completion, &shared.Orders, waffoObservation{}, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderWaffo) },
 		),
-
 		CreateCreem: create_creem_topup.NewHTTP(
 			create_creem_topup.NewUsecase(
 				pricing,
@@ -150,15 +139,12 @@ func NewHTTP() HTTP {
 				paymentDiagnostics{}),
 			observeCreemPay,
 		),
-
 		CreemWebhook: receive_creem_webhook.NewHTTP(
 			receive_creem_webhook.NewUsecase(creemadapter.Client{}, store, subscriptionDispatch{orders: subscriptionsapp.NewOrders()}, completion, &shared.Orders, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderCreem) },
 			func(c *gin.Context, payload []byte, signature string) { observeWebhook(c, "Creem", payload, signature) },
 		),
-
 		QuoteStripe: quote_stripe_topup.NewHTTP(quote_stripe_topup.NewUsecase(pricing, storage.Users{})),
-
 		CreateStripe: create_stripe_topup.NewHTTP(
 			create_stripe_topup.NewUsecase(
 				pricing,
@@ -171,7 +157,6 @@ func NewHTTP() HTTP {
 				}},
 				paymentDiagnostics{}),
 		),
-
 		StripeWebhook: receive_stripe_webhook.NewHTTP(
 			receive_stripe_webhook.NewUsecase(stripeadapter.Client{}, store, store, subscriptionDispatch{orders: subscriptionsapp.NewOrders()}, completion, &shared.Orders, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderStripe) },
@@ -179,9 +164,7 @@ func NewHTTP() HTTP {
 				observeWebhook(c, "Stripe", payload, signature)
 			},
 		),
-
 		QuoteEpay: quote_epay_topup.NewHTTP(quote_epay_topup.NewUsecase(pricing, storage.Users{})),
-
 		CreateEpay: create_epay_topup.NewHTTP(
 			create_epay_topup.NewUsecase(
 				pricing,
@@ -195,19 +178,14 @@ func NewHTTP() HTTP {
 				paymentDiagnostics{}),
 			observeEpayCheckout,
 		),
-
 		EpayNotify: receive_epay_notify.NewHTTP(
 			receive_epay_notify.NewUsecase(epayadapter.Factory{}, completion, &shared.Orders, paymentDiagnostics{}),
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderEpay) },
 			observeEpay,
 		),
-
-		ListOwn: list_own_topups.NewHTTP(list_own_topups.NewUsecase(store, common.GetTimestamp)),
-
-		ListAll: admin_list_topups.NewHTTP(admin_list_topups.NewUsecase(store)),
-
+		ListOwn:  list_own_topups.NewHTTP(list_own_topups.NewUsecase(store, common.GetTimestamp)),
+		ListAll:  admin_list_topups.NewHTTP(admin_list_topups.NewUsecase(store)),
 		Complete: complete_topup.NewHTTP(complete_topup.NewUsecase(completion, &shared.Orders)),
-
-		Info: get_topup_info.NewHTTP(get_topup_info.NewUsecase(settings.Settings{})),
+		Info:     get_topup_info.NewHTTP(get_topup_info.NewUsecase(settings.Settings{})),
 	}
 }

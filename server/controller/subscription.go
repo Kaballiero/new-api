@@ -1,9 +1,11 @@
 package controller
 
 import (
-	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
-	"github.com/gin-gonic/gin"
 	"sync"
+
+	"github.com/gin-gonic/gin"
+
+	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 )
 
 var subscriptionsHTTP = sync.OnceValue(subscriptionsapp.NewHTTP)

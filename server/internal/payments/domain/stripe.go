@@ -1,8 +1,6 @@
 package domain
 
 type StripeCheckout struct {
-	Subscription                                      bool
-	PriceID                                           string
 	Reference, Customer, Email, SuccessURL, CancelURL string
 	Amount                                            int64
 }

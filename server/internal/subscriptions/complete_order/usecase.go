@@ -2,8 +2,9 @@ package complete_order
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 )
 
 // Store retains the global cached plan lookup inside the active order transaction.

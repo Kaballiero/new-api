@@ -2,22 +2,32 @@ package list_pancake_products
 
 import (
 	"context"
+	"strings"
+
 	payments "github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
-	"strings"
 )
+
+type CatalogSettings interface {
+	PancakeCredentials() payments.PancakeCredentials
+	PancakeStore() string
+}
+
+type Diagnostics interface {
+	Error(context.Context, string, ...any)
+}
 
 type Result struct {
 	StoreID string
 	Catalog *payments.WaffoPancakeCatalog
 }
 type Usecase struct {
-	settings    domain.CatalogSettings
+	settings    CatalogSettings
 	factory     payments.PancakeFactory
-	diagnostics payments.Diagnostics
+	diagnostics Diagnostics
 }
 
-func NewUsecase(settings domain.CatalogSettings, factory payments.PancakeFactory, diagnostics payments.Diagnostics) Usecase {
+func NewUsecase(settings CatalogSettings, factory payments.PancakeFactory, diagnostics Diagnostics) Usecase {
 	return Usecase{settings, factory, diagnostics}
 }
 func (u Usecase) Execute(ctx context.Context) (Result, error) {
@@ -33,7 +43,17 @@ func (u Usecase) Execute(ctx context.Context) (Result, error) {
 	if creds.MerchantID == "" || creds.PrivateKey == "" {
 		err = payments.ErrCredentials
 	} else {
-		catalog, err = payments.LoadActivePancakeCatalog(ctx, u.factory, creds, u.diagnostics)
+		client, buildErr := u.factory.Management(creds)
+		err = buildErr
+		if err == nil {
+			catalog, err = client.Catalog(ctx)
+		}
+		if err != nil {
+			u.diagnostics.Error(ctx, "Waffo Pancake store and product catalog query failed error=%q", err)
+			err = payments.ErrCatalog
+		} else {
+			payments.FilterActivePancakeProducts(catalog)
+		}
 	}
 	if err != nil {
 		u.diagnostics.Error(ctx, "Waffo Pancake 拉取订阅产品列表失败 store_id=%q error=%q", storeID, err.Error())

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bytedance/gopkg/util/gopool"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	bindemail "github.com/QuantumNous/new-api/internal/accounts/bind_email"
 	"github.com/QuantumNous/new-api/internal/accounts/delete_account"
@@ -15,8 +18,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/password_login"
 	resetpassword "github.com/QuantumNous/new-api/internal/identity/reset_password"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/bytedance/gopkg/util/gopool"
-	"gorm.io/gorm"
 )
 
 const UserNameMaxLength = 20

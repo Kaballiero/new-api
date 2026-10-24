@@ -2,10 +2,17 @@ package create_stripe_order
 
 import (
 	"context"
+	"strings"
+
 	payments "github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
-	"strings"
 )
+
+type Diagnostics interface {
+	Error(context.Context, string, ...any)
+}
+
+type Input struct{ UserID, PlanID int }
 
 type Store interface {
 	PlanByID(int) (*domain.SubscriptionPlan, error)
@@ -22,7 +29,7 @@ type Usecase struct {
 	store                     Store
 	settings                  Settings
 	client                    Client
-	diagnostics               domain.CheckoutDiagnostics
+	diagnostics               Diagnostics
 	now                       func() int64
 	reference                 func(int) string
 	pending, method, provider string
@@ -32,14 +39,15 @@ func NewUsecase(
 	store Store,
 	settings Settings,
 	client Client,
-	diagnostics domain.CheckoutDiagnostics,
+	diagnostics Diagnostics,
 	now func() int64,
 	reference func(int) string,
 	pending, method, provider string,
 ) Usecase {
 	return Usecase{store, settings, client, diagnostics, now, reference, pending, method, provider}
 }
-func (u Usecase) Execute(ctx context.Context, userID, planID int) (string, error) {
+func (u Usecase) Execute(ctx context.Context, in Input) (string, error) {
+	userID, planID := in.UserID, in.PlanID
 	plan, err := u.store.PlanByID(planID)
 	if err != nil {
 		return "", err

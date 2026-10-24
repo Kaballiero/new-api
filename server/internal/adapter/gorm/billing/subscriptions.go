@@ -3,19 +3,20 @@ package billing
 import (
 	"errors"
 	"fmt"
+	"strings"
+
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	subscriptionrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	subscriptiondomain "github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/model"
-	"gorm.io/gorm"
-	"strings"
 )
 
 type subscriptionPreConsumeResult struct {
 	UserSubscriptionId int
 	PreConsumed        int64
 	AmountTotal        int64
-	AmountUsedBefore   int64
 	AmountUsedAfter    int64
 }
 
@@ -79,7 +80,6 @@ func preConsumeUserSubscription(requestId string, userId int, amount int64) (*su
 			returnValue.UserSubscriptionId = sub.Id
 			returnValue.PreConsumed = existing.PreConsumed
 			returnValue.AmountTotal = sub.AmountTotal
-			returnValue.AmountUsedBefore = sub.AmountUsed
 			returnValue.AmountUsedAfter = sub.AmountUsed
 			return nil
 		}
@@ -126,7 +126,6 @@ func preConsumeUserSubscription(requestId string, userId int, amount int64) (*su
 					returnValue.UserSubscriptionId = sub.Id
 					returnValue.PreConsumed = dup.PreConsumed
 					returnValue.AmountTotal = sub.AmountTotal
-					returnValue.AmountUsedBefore = sub.AmountUsed
 					returnValue.AmountUsedAfter = sub.AmountUsed
 					return nil
 				}
@@ -139,7 +138,6 @@ func preConsumeUserSubscription(requestId string, userId int, amount int64) (*su
 			returnValue.UserSubscriptionId = sub.Id
 			returnValue.PreConsumed = amount
 			returnValue.AmountTotal = sub.AmountTotal
-			returnValue.AmountUsedBefore = usedBefore
 			returnValue.AmountUsedAfter = sub.AmountUsed
 			return nil
 		}

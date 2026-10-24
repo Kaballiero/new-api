@@ -16,7 +16,6 @@ func NewUsecase(store Store, rules domain.PlanRules, invalidate func(planID int)
 	return Usecase{store: store, rules: rules, invalidate: invalidate}
 }
 func (u Usecase) Execute(plan domain.SubscriptionPlan) (domain.SubscriptionPlan, error) {
-
 	if err := domain.NormalizePlan(&plan, true, u.rules); err != nil {
 		return domain.SubscriptionPlan{}, err
 	}

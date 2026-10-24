@@ -3,9 +3,19 @@ package purchase_with_balance
 import (
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"strings"
+
+	"github.com/shopspring/decimal"
+
+	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 )
+
+type Input struct{ UserID, PlanID int }
+
+type QuotaMath interface {
+	QuotaPerUnit() float64
+	Strict(decimal.Decimal) (int, error)
+}
 
 type Store interface {
 	Balance(func(domain.BalanceTx) error) error
@@ -18,7 +28,7 @@ type Effects interface {
 type Usecase struct {
 	store                     Store
 	effects                   Effects
-	quota                     func(float64) (int, error)
+	quota                     QuotaMath
 	now                       func() int64
 	reference                 func(int) string
 	method, provider, success string
@@ -27,14 +37,15 @@ type Usecase struct {
 func NewUsecase(
 	store Store,
 	effects Effects,
-	quota func(float64) (int, error),
+	quota QuotaMath,
 	now func() int64,
 	reference func(int) string,
 	method, provider, success string,
 ) Usecase {
 	return Usecase{store, effects, quota, now, reference, method, provider, success}
 }
-func (u Usecase) Execute(userID, planID int) error {
+func (u Usecase) Execute(in Input) error {
+	userID, planID := in.UserID, in.PlanID
 	if userID <= 0 || planID <= 0 {
 		return errors.New("invalid userId or planId")
 	}
@@ -54,9 +65,15 @@ func (u Usecase) Execute(userID, planID int) error {
 		if plan.AllowBalancePay != nil && !*plan.AllowBalancePay {
 			return domain.ErrBalanceDisallowed
 		}
-		quota, err := u.quota(plan.PriceAmount)
-		if err != nil {
-			return err
+		quota := 0
+		if plan.PriceAmount != 0 {
+			if u.quota.QuotaPerUnit() <= 0 {
+				return domain.ErrInvalidQuotaUnit
+			}
+			quota, err = u.quota.Strict(decimal.NewFromFloat(plan.PriceAmount).Mul(decimal.NewFromFloat(u.quota.QuotaPerUnit())).Ceil())
+			if err != nil {
+				return err
+			}
 		}
 		balance, err := tx.WalletBalance(userID)
 		if err != nil {
@@ -85,10 +102,7 @@ func (u Usecase) Execute(userID, planID int) error {
 			Status:          u.success,
 			CreateTime:      now,
 			CompleteTime:    now,
-			ProviderPayload: fmt.Sprintf(
-				"charged_quota=%d",
-				quota,
-			),
+			ProviderPayload: fmt.Sprintf("charged_quota=%d", quota),
 		}
 		if err := tx.InsertOrder(&order); err != nil {
 			return err

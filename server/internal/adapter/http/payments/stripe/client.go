@@ -46,13 +46,26 @@ func (Client) Checkout(in domain.StripeCheckout) (string, error) {
 		AllowPromotionCodes: stripe.Bool(setting.StripePromotionCodesEnabled),
 	}
 
-	if in.Subscription {
-		params.LineItems[0].Price = stripe.String(in.PriceID)
-		params.LineItems[0].Quantity = stripe.Int64(1)
-		params.Mode = stripe.String(string(stripe.CheckoutSessionModeSubscription))
-		params.AllowPromotionCodes = nil
-	}
+	return createSession(params, customerId, email)
+}
 
+// SubscriptionCheckout uses the plan price with one recurring item and wallet redirects.
+func (Client) SubscriptionCheckout(reference, customer, email, priceID, returnURL string) (string, error) {
+	if !strings.HasPrefix(setting.StripeApiSecret, "sk_") && !strings.HasPrefix(setting.StripeApiSecret, "rk_") {
+		return "", fmt.Errorf("invalid Stripe API key")
+	}
+	stripe.Key = setting.StripeApiSecret
+	params := &stripe.CheckoutSessionParams{
+		ClientReferenceID: stripe.String(reference),
+		SuccessURL:        stripe.String(returnURL),
+		CancelURL:         stripe.String(returnURL),
+		LineItems:         []*stripe.CheckoutSessionLineItemParams{{Price: stripe.String(priceID), Quantity: stripe.Int64(1)}},
+		Mode:              stripe.String(string(stripe.CheckoutSessionModeSubscription)),
+	}
+	return createSession(params, customer, email)
+}
+
+func createSession(params *stripe.CheckoutSessionParams, customerId, email string) (string, error) {
 	if "" == customerId {
 		if "" != email {
 			params.CustomerEmail = stripe.String(email)

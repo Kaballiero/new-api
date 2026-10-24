@@ -2,16 +2,14 @@ package create_creem_order
 
 import (
 	"bytes"
-	"context"
+	"io"
+
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/subscriptions/transport"
-	"github.com/gin-gonic/gin"
-	"io"
 )
 
-type Diagnostics interface {
-	Error(context.Context, string, ...any)
-}
 type SubscriptionCreemPayRequest struct {
 	PlanID int `json:"plan_id"`
 }
@@ -40,7 +38,7 @@ func (h HTTP) Handle(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "error", "data": i18n.T(c, i18n.MsgSubscriptionsInvalidParameters)})
 		return
 	}
-	result, err := h.usecase.Execute(c.Request.Context(), c.GetInt("id"), req.PlanID)
+	result, err := h.usecase.Execute(c.Request.Context(), Input{UserID: c.GetInt("id"), PlanID: req.PlanID})
 	if err != nil {
 		transport.CheckoutError(c, err)
 		return

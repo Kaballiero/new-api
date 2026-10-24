@@ -2,11 +2,20 @@ package create_pancake_order
 
 import (
 	"context"
+	"strings"
+
+	"github.com/shopspring/decimal"
+
 	payments "github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
-	"github.com/shopspring/decimal"
-	"strings"
 )
+
+type Diagnostics interface {
+	Error(context.Context, string, ...any)
+	Info(context.Context, string, ...any)
+}
+
+type Input struct{ UserID, PlanID int }
 
 type Store interface {
 	PlanByID(int) (*domain.SubscriptionPlan, error)
@@ -26,7 +35,7 @@ type Usecase struct {
 	store                             Store
 	settings                          Settings
 	client                            payments.PancakeCheckout
-	diagnostics                       domain.CheckoutDiagnostics
+	diagnostics                       Diagnostics
 	now                               func() int64
 	reference                         func(int) string
 	pending, failed, method, provider string
@@ -36,14 +45,15 @@ func NewUsecase(
 	store Store,
 	settings Settings,
 	client payments.PancakeCheckout,
-	diagnostics domain.CheckoutDiagnostics,
+	diagnostics Diagnostics,
 	now func() int64,
 	reference func(int) string,
 	pending, failed, method, provider string,
 ) Usecase {
 	return Usecase{store, settings, client, diagnostics, now, reference, pending, failed, method, provider}
 }
-func (u Usecase) Execute(ctx context.Context, userID, planID int) (Result, error) {
+func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
+	userID, planID := in.UserID, in.PlanID
 	plan, err := u.store.PlanByID(planID)
 	if err != nil {
 		return Result{}, err

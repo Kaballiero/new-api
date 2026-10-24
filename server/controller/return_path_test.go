@@ -1,11 +1,12 @@
 package controller
 
 import (
-	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
 	"testing"
 
-	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/stretchr/testify/assert"
+
+	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 func TestPaymentReturnPathUsesDefaultDashboardRoutes(t *testing.T) {

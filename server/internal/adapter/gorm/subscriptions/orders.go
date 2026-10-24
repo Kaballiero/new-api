@@ -1,9 +1,10 @@
 package subscriptions
 
 import (
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
-	"gorm.io/gorm"
 )
 
 type OrderStore struct {

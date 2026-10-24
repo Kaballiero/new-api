@@ -28,5 +28,16 @@ func (u Usecase) Execute(ctx context.Context, in Input) (*domain.WaffoPancakeCat
 	if creds.MerchantID == "" || creds.PrivateKey == "" {
 		return nil, domain.ErrCredentials
 	}
-	return domain.LoadActivePancakeCatalog(ctx, u.factory, creds, u.diagnostics)
+	client, err := u.factory.Management(creds)
+	if err != nil {
+		u.diagnostics.Error(ctx, "Waffo Pancake store and product catalog query failed error=%q", err)
+		return nil, domain.ErrCatalog
+	}
+	catalog, err := client.Catalog(ctx)
+	if err != nil {
+		u.diagnostics.Error(ctx, "Waffo Pancake store and product catalog query failed error=%q", err)
+		return nil, domain.ErrCatalog
+	}
+	domain.FilterActivePancakeProducts(catalog)
+	return catalog, nil
 }

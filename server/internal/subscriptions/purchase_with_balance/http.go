@@ -1,9 +1,10 @@
 package purchase_with_balance
 
 import (
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/subscriptions/transport"
-	"github.com/gin-gonic/gin"
 )
 
 type SubscriptionBalancePayRequest struct {
@@ -24,7 +25,7 @@ func (h HTTP) Handle(c *gin.Context) {
 		transport.InvalidParameters(c)
 		return
 	}
-	if err := h.usecase.Execute(c.GetInt("id"), req.PlanID); err != nil {
+	if err := h.usecase.Execute(Input{UserID: c.GetInt("id"), PlanID: req.PlanID}); err != nil {
 		transport.WriteError(c, err)
 		return
 	}

@@ -10,7 +10,6 @@ type Usecase struct{ reader Reader }
 
 func NewUsecase(reader Reader) Usecase { return Usecase{reader: reader} }
 func (u Usecase) Execute() ([]domain.SubscriptionPlan, error) {
-
 	rows, err := u.reader.ListPlans(false)
 	if err != nil {
 		return nil, err

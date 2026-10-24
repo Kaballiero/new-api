@@ -54,7 +54,7 @@ redirects, без top-up promotion flag. Creem вставляет pending до p
 сохраняет pending. Pancake вставляет pending, делает authenticated checkout (два concurrent SDK calls),
 при ошибке сохраняет failed. Epay генерирует подписанную форму без HTTP; failure пытается expire.
 Root product создаёт и публикует product в существующем store; CreateStore/DB save отсутствуют.
-Active catalog filter единственный — payments/domain.LoadActivePancakeCatalog.
+Active catalog filter единственный — payments/domain.FilterActivePancakeProducts.
 
 Payments сохраняет signature/dispatch/ACK через собственный domain.Subscriptions port; app/payments
 реализует его реальным app/subscriptions.Orders. app/subscriptions не импортирует app/payments.

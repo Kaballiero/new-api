@@ -2,11 +2,13 @@ package subscriptions
 
 import (
 	"errors"
+
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/model"
-	"gorm.io/gorm"
 )
 
 type Store struct{ db func() *gorm.DB }
@@ -68,29 +70,23 @@ func (s Store) InsertPlan(plan *domain.SubscriptionPlan) error {
 func (s Store) UpdatePlan(plan domain.SubscriptionPlan) error {
 	return s.db().Transaction(func(tx *gorm.DB) error {
 		updates := map[string]any{
-
-			"title":        plan.Title,
-			"subtitle":     plan.Subtitle,
-			"price_amount": plan.PriceAmount,
-			"currency":     plan.Currency,
-
-			"duration_unit":  plan.DurationUnit,
-			"duration_value": plan.DurationValue,
-			"custom_seconds": plan.CustomSeconds,
-
-			"enabled":          plan.Enabled,
-			"sort_order":       plan.SortOrder,
-			"stripe_price_id":  plan.StripePriceId,
-			"creem_product_id": plan.CreemProductId,
-
-			"waffo_pancake_product_id": plan.WaffoPancakeProductId,
-			"max_purchase_per_user":    plan.MaxPurchasePerUser,
-			"total_amount":             plan.TotalAmount,
-
-			"upgrade_group":      plan.UpgradeGroup,
-			"downgrade_group":    plan.DowngradeGroup,
-			"quota_reset_period": plan.QuotaResetPeriod,
-
+			"title":                      plan.Title,
+			"subtitle":                   plan.Subtitle,
+			"price_amount":               plan.PriceAmount,
+			"currency":                   plan.Currency,
+			"duration_unit":              plan.DurationUnit,
+			"duration_value":             plan.DurationValue,
+			"custom_seconds":             plan.CustomSeconds,
+			"enabled":                    plan.Enabled,
+			"sort_order":                 plan.SortOrder,
+			"stripe_price_id":            plan.StripePriceId,
+			"creem_product_id":           plan.CreemProductId,
+			"waffo_pancake_product_id":   plan.WaffoPancakeProductId,
+			"max_purchase_per_user":      plan.MaxPurchasePerUser,
+			"total_amount":               plan.TotalAmount,
+			"upgrade_group":              plan.UpgradeGroup,
+			"downgrade_group":            plan.DowngradeGroup,
+			"quota_reset_period":         plan.QuotaResetPeriod,
 			"quota_reset_custom_seconds": plan.QuotaResetCustomSeconds,
 			"updated_at":                 common.GetTimestamp(),
 		}

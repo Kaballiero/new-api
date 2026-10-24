@@ -12,8 +12,7 @@ import (
 
 type Factory struct{}
 
-// NewClient is also used by legacy subscription checkout/notify/return.
-func NewClient() *epay.Client {
+func newClient() *epay.Client {
 	if operation_setting.PayAddress == "" || operation_setting.EpayId == "" || operation_setting.EpayKey == "" {
 		return nil
 	}
@@ -25,7 +24,7 @@ func NewClient() *epay.Client {
 }
 
 func (Factory) Client() domain.EpayClient {
-	client := NewClient()
+	client := newClient()
 	if client == nil {
 		return nil
 	}

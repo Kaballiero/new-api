@@ -2,9 +2,16 @@ package create_creem_order
 
 import (
 	"context"
+
 	payments "github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 )
+
+type Diagnostics interface {
+	Error(context.Context, string, ...any)
+}
+
+type Input struct{ UserID, PlanID int }
 
 type Store interface {
 	PlanByID(int) (*domain.SubscriptionPlan, error)
@@ -25,7 +32,7 @@ type Usecase struct {
 	store                     Store
 	settings                  Settings
 	client                    Client
-	diagnostics               domain.CheckoutDiagnostics
+	diagnostics               Diagnostics
 	now                       func() int64
 	reference                 func(string) string
 	currency                  func() string
@@ -36,7 +43,7 @@ func NewUsecase(
 	store Store,
 	settings Settings,
 	client Client,
-	diagnostics domain.CheckoutDiagnostics,
+	diagnostics Diagnostics,
 	now func() int64,
 	reference func(string) string,
 	currency func() string,
@@ -44,7 +51,8 @@ func NewUsecase(
 ) Usecase {
 	return Usecase{store, settings, client, diagnostics, now, reference, currency, pending, method, provider}
 }
-func (u Usecase) Execute(ctx context.Context, userID, planID int) (Result, error) {
+func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
+	userID, planID := in.UserID, in.PlanID
 	plan, err := u.store.PlanByID(planID)
 	if err != nil {
 		return Result{}, err

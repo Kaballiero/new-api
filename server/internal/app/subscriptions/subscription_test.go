@@ -5,6 +5,24 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	billingstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/billing"
@@ -17,22 +35,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/subscriptions/reset_subscriptions"
 	. "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/alicebob/miniredis/v2"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/go-redis/redis/v8"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"net"
-	"net/http/httptest"
-	"os"
-	"strings"
-	"testing"
-	"time"
 )
 
 func subscriptionFixture(t *testing.T) storage.Store {
@@ -380,13 +382,17 @@ func TestSubscriptionGroupCacheRefreshFailureDoesNotChangeCommittedResult(t *tes
 		common.RedisEnabled, common.RDB = oldRedisEnabled, oldRDB
 	})
 
-	result, err := bind_subscription.NewUsecase(storage.NewStore(func() *gorm.DB { return DB }), common.GetTimestamp, func(id int, operation string) {
-		if err := RefreshUserGroupCache(id); err != nil {
-			common.SysError(fmt.Sprintf("failed to refresh user group cache after %s for user %d: %v", operation, id, err))
-		}
-	}).Execute(bind_subscription.Input{UserID: user.Id, PlanID: plan.Id})
-	require.NoError(t, err)
-	assert.Equal(t, "pro", result.UpgradeGroup)
+	require.NoError(t, i18n.Init())
+	previousPayment := *operation_setting.GetPaymentSetting()
+	*operation_setting.GetPaymentSetting() = operation_setting.PaymentSetting{ComplianceConfirmed: true, ComplianceTermsVersion: operation_setting.CurrentComplianceTermsVersion}
+	t.Cleanup(func() { *operation_setting.GetPaymentSetting() = previousPayment })
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest("POST", "/api/subscription/admin/bind", strings.NewReader(fmt.Sprintf(`{"user_id":%d,"plan_id":%d}`, user.Id, plan.Id)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	subscriptionsapp.NewHTTP().Bind.Handle(c)
+	assert.Contains(t, response.Body.String(), `"success":true`)
+	assert.Contains(t, response.Body.String(), "pro")
 
 	var updated User
 	require.NoError(t, DB.First(&updated, user.Id).Error)

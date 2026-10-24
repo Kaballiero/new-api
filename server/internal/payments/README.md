@@ -76,8 +76,8 @@ sentinels через errors.Is. Stripe/Creem продолжают top-up тол�
 
 Обе композиции явно используют один app/shared.Orders; его техническое тело — adapter/admission.
 Shared protocol adapters остаются в adapter/http/payments; subscriptions добавляет только profile mapping.
-Stripe subscription profile сохраняет quantity1/plan price/mode/redirects; top-up profile не меняется.
-Active catalog filter общий в domain.LoadActivePancakeCatalog. Subscription history projector находится
+Stripe adapter имеет отдельный SubscriptionCheckout с quantity1/plan price/mode/redirects; top-up Checkout и payments domain не получают subscription flags.
+Active catalog filter общий в domain.FilterActivePancakeProducts. Subscription history projector находится
 в adapter/gorm/payments и получает исходный tx и typed факты без вызова top-up usecase.
 
 Прежний BRIDGE block app/payments/http.go, controller GetEpayClient/LockOrder/UnlockOrder,

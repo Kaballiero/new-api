@@ -2,13 +2,15 @@ package model
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/pkg/cachex"
-	"github.com/samber/hot"
-	"gorm.io/gorm"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/samber/hot"
+	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/cachex"
 )
 
 // BRIDGE: shared HybridCache and plan reader, used by subscriptions adapters, billing and immutable WSS.

@@ -2,11 +2,13 @@ package subscriptions
 
 import (
 	"fmt"
+
+	"github.com/shopspring/decimal"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/shopspring/decimal"
 )
 
 type effects struct{}
@@ -24,11 +26,8 @@ func (effects) Purchase(r domain.PurchaseReceipt) {
 			receiptLanguage(r.UserID),
 			i18n.MsgSubscriptionsReceiptPurchase,
 			map[string]any{
-				"Plan": r.PlanTitle,
-				"Money": fmt.Sprintf(
-					"%.2f",
-					r.Money,
-				),
+				"Plan":   r.PlanTitle,
+				"Money":  fmt.Sprintf("%.2f", r.Money),
 				"Method": r.PaymentMethod,
 			},
 		),
@@ -42,11 +41,8 @@ func (effects) BalancePurchase(r domain.BalanceReceipt) {
 			receiptLanguage(r.UserID),
 			i18n.MsgSubscriptionsReceiptBalance,
 			map[string]any{
-				"Plan": r.PlanTitle,
-				"Money": fmt.Sprintf(
-					"%.2f",
-					r.Money,
-				),
+				"Plan":  r.PlanTitle,
+				"Money": fmt.Sprintf("%.2f", r.Money),
 				"Quota": r.Quota,
 			},
 		),
@@ -57,14 +53,12 @@ func (effects) DebitCache(userID, quota int) {
 		common.SysLog("failed to decrease user quota cache after subscription balance purchase: " + err.Error())
 	}
 }
-func balanceQuota(price float64) (int, error) {
-	if price <= 0 {
-		return 0, nil
-	}
-	if common.QuotaPerUnit <= 0 {
-		return 0, domain.ErrInvalidQuotaUnit
-	}
-	return common.WalletQuotaFromDecimalStrict(decimal.NewFromFloat(price).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Ceil())
+
+type quotaMath struct{}
+
+func (quotaMath) QuotaPerUnit() float64 { return common.QuotaPerUnit }
+func (quotaMath) Strict(quota decimal.Decimal) (int, error) {
+	return common.WalletQuotaFromDecimalStrict(quota)
 }
 
 func receiptLanguage(userID int) string {

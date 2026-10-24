@@ -1,8 +1,9 @@
 package receive_epay_callback
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {
