@@ -60,7 +60,13 @@ func (h HTTP) handle(c *gin.Context, forUser bool) {
 		return
 	}
 	h.audit.RecordUserLogs(c, &result, h.audit.Operator(c))
-	params := map[string]any{"plan_id": result.PlanId, "plan_title": result.PlanTitle, "reset_count": result.ResetCount, "user_count": result.UserCount, "advance_reset_time": result.AdvanceResetTime}
+	params := map[string]any{
+		"plan_id":            result.PlanId,
+		"plan_title":         result.PlanTitle,
+		"reset_count":        result.ResetCount,
+		"user_count":         result.UserCount,
+		"advance_reset_time": result.AdvanceResetTime,
+	}
 	if forUser {
 		params["target_user_id"] = id
 		h.audit.Manage(c, id, "subscription.user_plan_reset", params)

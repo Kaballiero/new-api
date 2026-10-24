@@ -22,14 +22,35 @@ type Orders struct {
 func NewOrders() Orders {
 	store := storage.NewStore(func() *gorm.DB { return model.DB })
 	orderStore := storage.NewOrderStore(store, func(tx *gorm.DB, o domain.SubscriptionOrder) error {
-		err := history.UpsertSubscriptionHistory(tx, history.SubscriptionHistory{UserID: o.UserId, Money: o.Money, TradeNo: o.TradeNo, PaymentMethod: o.PaymentMethod, CreateTime: o.CreateTime})
+		err := history.UpsertSubscriptionHistory(
+			tx,
+			history.SubscriptionHistory{
+				UserID:        o.UserId,
+				Money:         o.Money,
+				TradeNo:       o.TradeNo,
+				PaymentMethod: o.PaymentMethod,
+				CreateTime:    o.CreateTime,
+			},
+		)
 		if errors.Is(err, paymentsdomain.ErrProviderMismatch) {
 			return domain.ErrProviderMismatch
 		}
 		return err
 	})
-	states := domain.OrderStates{Pending: paymentsdomain.StatusPending, Success: paymentsdomain.StatusSuccess, Expired: paymentsdomain.StatusExpired, Failed: paymentsdomain.StatusFailed}
-	return Orders{complete_order.NewUsecase(orderStore, effects{}, states, common.GetTimestamp), expire_order.NewUsecase(store, states, common.GetTimestamp), store}
+	states := domain.OrderStates{
+		Pending: paymentsdomain.StatusPending,
+		Success: paymentsdomain.StatusSuccess,
+		Expired: paymentsdomain.StatusExpired,
+	}
+	return Orders{
+		complete_order.NewUsecase(orderStore, effects{}, states, common.GetTimestamp),
+		expire_order.NewUsecase(
+			store,
+			states,
+			common.GetTimestamp,
+		),
+		store,
+	}
 }
 func (o Orders) Complete(in complete_order.Input) error { return o.complete.Execute(in) }
 func (o Orders) Expire(tradeNo, provider string) error {

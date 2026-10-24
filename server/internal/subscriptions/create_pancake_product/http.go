@@ -26,5 +26,15 @@ func (h HTTP) Handle(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "error", "data": transport.Message(c, err)})
 		return
 	}
-	c.JSON(200, gin.H{"message": "success", "data": gin.H{"product_id": result.ProductID, "product_name": result.ProductName, "store_id": result.StoreID}})
+	c.JSON(
+		200,
+		gin.H{
+			"message": "success",
+			"data": gin.H{
+				"product_id":   result.ProductID,
+				"product_name": result.ProductName,
+				"store_id":     result.StoreID,
+			},
+		},
+	)
 }

@@ -73,7 +73,6 @@ type OrderStates struct {
 	Pending string
 	Success string
 	Expired string
-	Failed  string
 }
 
 // PurchaseReceipt contains only the facts already recorded after a committed purchase.

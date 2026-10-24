@@ -9,6 +9,22 @@ import (
 )
 
 func Message(c *gin.Context, err error) string {
+	if errors.Is(err, domain.ErrProductName) {
+		return i18n.T(c, i18n.MsgSubscriptionsProductName)
+	}
+	if errors.Is(err, domain.ErrProductAmount) {
+		return i18n.T(c, i18n.MsgSubscriptionsProductAmount)
+	}
+	if errors.Is(err, domain.ErrPancakeBinding) {
+		return i18n.T(c, i18n.MsgSubscriptionsPancakeBinding)
+	}
+	if errors.Is(err, domain.ErrCreateProduct) {
+		return i18n.T(c, i18n.MsgSubscriptionsCreateProduct)
+	}
+	if errors.Is(err, domain.ErrProductCatalog) {
+		return i18n.T(c, i18n.MsgSubscriptionsProductCatalog)
+	}
+
 	if errors.Is(err, domain.ErrPurchaseLimit) {
 		return i18n.T(c, i18n.MsgSubscriptionsPurchaseLimit)
 	}

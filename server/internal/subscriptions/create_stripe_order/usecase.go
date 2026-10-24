@@ -28,7 +28,15 @@ type Usecase struct {
 	pending, method, provider string
 }
 
-func NewUsecase(store Store, settings Settings, client Client, diagnostics domain.CheckoutDiagnostics, now func() int64, reference func(int) string, pending, method, provider string) Usecase {
+func NewUsecase(
+	store Store,
+	settings Settings,
+	client Client,
+	diagnostics domain.CheckoutDiagnostics,
+	now func() int64,
+	reference func(int) string,
+	pending, method, provider string,
+) Usecase {
 	return Usecase{store, settings, client, diagnostics, now, reference, pending, method, provider}
 }
 func (u Usecase) Execute(ctx context.Context, userID, planID int) (string, error) {
@@ -71,7 +79,16 @@ func (u Usecase) Execute(ctx context.Context, userID, planID int) (string, error
 		u.diagnostics.Error(ctx, "Stripe 订阅支付链接创建失败 trade_no=%s plan_id=%d error=%q", ref, plan.Id, err.Error())
 		return "", domain.ErrCheckout
 	}
-	order := domain.SubscriptionOrder{UserId: userID, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: ref, PaymentMethod: u.method, PaymentProvider: u.provider, CreateTime: u.now(), Status: u.pending}
+	order := domain.SubscriptionOrder{
+		UserId:          userID,
+		PlanId:          plan.Id,
+		Money:           plan.PriceAmount,
+		TradeNo:         ref,
+		PaymentMethod:   u.method,
+		PaymentProvider: u.provider,
+		CreateTime:      u.now(),
+		Status:          u.pending,
+	}
 	if err := u.store.InsertOrder(&order); err != nil {
 		return "", domain.ErrCreateOrder
 	}

@@ -24,7 +24,14 @@ func (h HTTP) Handle(c *gin.Context) {
 		return
 	}
 	if group != "" {
-		common.ApiSuccess(c, gin.H{"message": i18n.Translate(i18n.GetLangFromContext(c), i18n.MsgSubscriptionsGroupDowngrade, map[string]any{"Group": group})})
+		common.ApiSuccess(
+			c,
+			gin.H{"message": i18n.Translate(
+				i18n.GetLangFromContext(c),
+				i18n.MsgSubscriptionsGroupDowngrade,
+				map[string]any{"Group": group},
+			)},
+		)
 		return
 	}
 	common.ApiSuccess(c, nil)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	billingstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/billing"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	"github.com/QuantumNous/new-api/internal/subscriptions/bind_subscription"
@@ -48,7 +49,7 @@ func subscriptionFixture(t *testing.T) storage.Store {
 	var err error
 	require.NoError(t, err)
 	DB, LOG_DB = db, db
-	require.NoError(t, db.AutoMigrate(&User{}, &UserSession{}, &SubscriptionPlan{}, &SubscriptionOrder{}, &UserSubscription{}, &TopUp{}, &Log{}))
+	require.NoError(t, db.AutoMigrate(&User{}, &UserSession{}, &SubscriptionPlan{}, &SubscriptionOrder{}, &UserSubscription{}, &SubscriptionPreConsumeRecord{}, &TopUp{}, &Log{}))
 	pool, err := db.DB()
 	require.NoError(t, err)
 	pool.SetMaxOpenConns(4)
@@ -188,7 +189,7 @@ func TestAdminResetUserSubscriptionsByPlanNoActiveMatchReturnsError(t *testing.T
 
 	require.Error(t, err)
 	assert.Zero(t, result.PlanId)
-	assert.True(t, strings.Contains(err.Error(), "该用户没有有效的此套餐订阅"))
+	assert.ErrorIs(t, err, domain.ErrNoActivePlan)
 }
 
 func TestAdminResetPlanSubscriptionsResetsAllActiveUsers(t *testing.T) {
@@ -590,6 +591,28 @@ func TestSubscriptionsPersistence(t *testing.T) {
 			var historyCount int64
 			require.NoError(t, DB.Model(&TopUp{}).Count(&historyCount).Error)
 			assert.EqualValues(t, 1, historyCount)
+			// The existing billing port exercises the moved SQL and shared lazy-reset rule.
+			var active UserSubscription
+			require.NoError(t, DB.Where("user_id = ? AND status = ?", user.Id, "active").First(&active).Error)
+			now := GetDBTimestamp()
+			require.NoError(t, DB.Model(&active).Updates(map[string]any{"amount_used": 90, "last_reset_time": now - 2*86400, "next_reset_time": now - 86400}).Error)
+			billing := billingstorage.Store{}
+			hold, err := billing.ReserveSubscription("matrix-reserve", user.Id, "unused-model", 20)
+			require.NoError(t, err)
+			assert.EqualValues(t, 20, hold.AmountUsedAfter)
+			assert.Equal(t, plan.Title, hold.PlanTitle)
+			repeated, err := billing.ReserveSubscription("matrix-reserve", user.Id, "unused-model", 20)
+			require.NoError(t, err)
+			assert.EqualValues(t, 20, repeated.AmountUsedAfter)
+			require.NoError(t, billing.AdjustSubscription(active.Id, -5))
+			require.NoError(t, DB.First(&active, active.Id).Error)
+			assert.EqualValues(t, 15, active.AmountUsed)
+			if kind == "postgres" {
+				require.NoError(t, billing.RefundSubscription("matrix-reserve"))
+				require.NoError(t, billing.RefundSubscription("matrix-reserve"))
+				require.NoError(t, DB.First(&active, active.Id).Error)
+				assert.Zero(t, active.AmountUsed)
+			}
 			// A conflicting existing history method rolls back grant and group changes together.
 			other := User{Username: "subscription-matrix-rollback", AffCode: "matrix-second", Password: "hash", Group: "default", Status: common.UserStatusEnabled}
 			require.NoError(t, DB.Create(&other).Error)

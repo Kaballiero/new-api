@@ -36,7 +36,15 @@ type Usecase struct {
 	pending, provider string
 }
 
-func NewUsecase(store Store, settings Settings, factory payments.EpayFactory, expiry domain.OrderExpiry, now func() int64, reference func(int) string, pending, provider string) Usecase {
+func NewUsecase(
+	store Store,
+	settings Settings,
+	factory payments.EpayFactory,
+	expiry domain.OrderExpiry,
+	now func() int64,
+	reference func(int) string,
+	pending, provider string,
+) Usecase {
 	return Usecase{store, settings, factory, expiry, now, reference, pending, provider}
 }
 func (u Usecase) Execute(in Input) (Result, error) {
@@ -76,11 +84,32 @@ func (u Usecase) Execute(in Input) (Result, error) {
 	if client == nil {
 		return Result{}, domain.ErrEpayConfig
 	}
-	order := domain.SubscriptionOrder{UserId: in.UserID, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: ref, PaymentMethod: in.PaymentMethod, PaymentProvider: u.provider, CreateTime: u.now(), Status: u.pending}
+	order := domain.SubscriptionOrder{
+		UserId:          in.UserID,
+		PlanId:          plan.Id,
+		Money:           plan.PriceAmount,
+		TradeNo:         ref,
+		PaymentMethod:   in.PaymentMethod,
+		PaymentProvider: u.provider,
+		CreateTime:      u.now(),
+		Status:          u.pending,
+	}
 	if err := u.store.InsertOrder(&order); err != nil {
 		return Result{}, domain.ErrCreateOrder
 	}
-	uri, params, err := client.Purchase(payments.EpayPurchase{Method: in.PaymentMethod, TradeNo: ref, Name: fmt.Sprintf("SUB:%s", plan.Title), Money: strconv.FormatFloat(plan.PriceAmount, 'f', 2, 64), NotifyURL: notify.String(), ReturnURL: back.String()})
+	uri, params, err := client.Purchase(payments.EpayPurchase{
+		Method:  in.PaymentMethod,
+		TradeNo: ref,
+		Name:    fmt.Sprintf("SUB:%s", plan.Title),
+		Money: strconv.FormatFloat(
+			plan.PriceAmount,
+			'f',
+			2,
+			64,
+		),
+		NotifyURL: notify.String(),
+		ReturnURL: back.String(),
+	})
 	if err != nil {
 		_ = u.expiry.Expire(ref, u.provider)
 		return Result{}, domain.ErrCheckout

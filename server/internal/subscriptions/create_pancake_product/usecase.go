@@ -34,7 +34,15 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	client, err := u.factory.Management(creds)
 	productID := ""
 	if err == nil {
-		productID, err = client.CreateProduct(ctx, payments.PancakeProduct{StoreID: storeID, Name: strings.TrimSpace(in.Name), Amount: strings.TrimSpace(in.Amount), ReturnURL: u.settings.PancakeReturn()})
+		productID, err = client.CreateProduct(
+			ctx,
+			payments.PancakeProduct{
+				StoreID:   storeID,
+				Name:      strings.TrimSpace(in.Name),
+				Amount:    strings.TrimSpace(in.Amount),
+				ReturnURL: u.settings.PancakeReturn(),
+			},
+		)
 		if err != nil {
 			err = fmt.Errorf("create Waffo Pancake plan product: %w", err)
 		} else if err = client.Publish(ctx, productID); err != nil {
@@ -42,7 +50,14 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 		}
 	}
 	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 创建套餐产品失败 store_id=%q name=%q amount=%q error=%q", storeID, in.Name, in.Amount, err.Error())
+		u.diagnostics.Error(
+			ctx,
+			"Waffo Pancake 创建套餐产品失败 store_id=%q name=%q amount=%q error=%q",
+			storeID,
+			in.Name,
+			in.Amount,
+			err.Error(),
+		)
 		return Result{}, domain.ErrCreateProduct
 	}
 	return Result{productID, in.Name, storeID}, nil

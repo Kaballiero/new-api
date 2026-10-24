@@ -17,10 +17,40 @@ func (effects) RefreshGroup(userID int, operation string) {
 	}
 }
 func (effects) Purchase(r domain.PurchaseReceipt) {
-	model.RecordLog(r.UserID, model.LogTypeTopup, i18n.Translate(receiptLanguage(r.UserID), i18n.MsgSubscriptionsReceiptPurchase, map[string]any{"Plan": r.PlanTitle, "Money": fmt.Sprintf("%.2f", r.Money), "Method": r.PaymentMethod}))
+	model.RecordLog(
+		r.UserID,
+		model.LogTypeTopup,
+		i18n.Translate(
+			receiptLanguage(r.UserID),
+			i18n.MsgSubscriptionsReceiptPurchase,
+			map[string]any{
+				"Plan": r.PlanTitle,
+				"Money": fmt.Sprintf(
+					"%.2f",
+					r.Money,
+				),
+				"Method": r.PaymentMethod,
+			},
+		),
+	)
 }
 func (effects) BalancePurchase(r domain.BalanceReceipt) {
-	model.RecordLog(r.UserID, model.LogTypeTopup, i18n.Translate(receiptLanguage(r.UserID), i18n.MsgSubscriptionsReceiptBalance, map[string]any{"Plan": r.PlanTitle, "Money": fmt.Sprintf("%.2f", r.Money), "Quota": r.Quota}))
+	model.RecordLog(
+		r.UserID,
+		model.LogTypeTopup,
+		i18n.Translate(
+			receiptLanguage(r.UserID),
+			i18n.MsgSubscriptionsReceiptBalance,
+			map[string]any{
+				"Plan": r.PlanTitle,
+				"Money": fmt.Sprintf(
+					"%.2f",
+					r.Money,
+				),
+				"Quota": r.Quota,
+			},
+		),
+	)
 }
 func (effects) DebitCache(userID, quota int) {
 	if err := model.CacheDecrUserQuota(userID, int64(quota)); err != nil {

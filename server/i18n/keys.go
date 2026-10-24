@@ -666,3 +666,5 @@ const (
 	MsgSubscriptionsReceiptBalance  = "subscriptions.receipt_balance"
 	MsgSubscriptionsResetAudit      = "subscriptions.reset_audit"
 )
+
+const MsgSubscriptionsReadQuery = "subscriptions.read_query"

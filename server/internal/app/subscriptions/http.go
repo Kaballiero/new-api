@@ -49,20 +49,48 @@ func NewHTTP() HTTP {
 	store := storage.NewStore(func() *gorm.DB { return model.DB })
 	rules := domain.PlanRules{GroupExists: func(group string) bool { _, ok := ratio_setting.GetGroupRatioCopy()[group]; return ok }}
 	return HTTP{
-		Bind:       bind_subscription.NewHTTP(bind_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup), operation_setting.IsPaymentComplianceConfirmed),
-		Reset:      reset_subscriptions.NewHTTP(reset_subscriptions.NewUsecase(store, model.GetDBTimestamp), NewResetAudit()),
+
+		Bind: bind_subscription.NewHTTP(
+			bind_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup),
+			operation_setting.IsPaymentComplianceConfirmed,
+		),
+
+		Reset: reset_subscriptions.NewHTTP(reset_subscriptions.NewUsecase(store, model.GetDBTimestamp), NewResetAudit()),
+
 		Invalidate: invalidate_subscription.NewHTTP(invalidate_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup)),
-		Delete:     delete_subscription.NewHTTP(delete_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup)),
-		Balance: purchase_with_balance.NewHTTP(purchase_with_balance.NewUsecase(store, effects{}, balanceQuota, common.GetTimestamp, func(userID int) string {
-			return fmt.Sprintf("SUBBALUSR%dNO%s%d", userID, common.GetRandomString(6), time.Now().UnixNano())
-		}, paymentsdomain.PaymentMethodBalance, paymentsdomain.PaymentProviderBalance, paymentsdomain.StatusSuccess), operation_setting.IsPaymentComplianceConfirmed),
-		CreatePlan:        create_plan.NewHTTP(create_plan.NewUsecase(store, rules, model.InvalidateSubscriptionPlanCache), operation_setting.IsPaymentComplianceConfirmed),
-		UpdatePlan:        update_plan.NewHTTP(update_plan.NewUsecase(store, rules, model.InvalidateSubscriptionPlanCache), operation_setting.IsPaymentComplianceConfirmed),
-		PlanStatus:        update_plan_status.NewHTTP(update_plan_status.NewUsecase(store, model.InvalidateSubscriptionPlanCache), operation_setting.IsPaymentComplianceConfirmed),
-		ListPlans:         list_plans.NewHTTP(list_plans.NewUsecase(store, operation_setting.IsPaymentComplianceConfirmed)),
-		ListAllPlans:      admin_list_plans.NewHTTP(admin_list_plans.NewUsecase(store)),
-		Own:               get_own_subscriptions.NewHTTP(get_own_subscriptions.NewUsecase(store, common.NormalizeBillingPreference, common.GetTimestamp)),
-		Preference:        update_billing_preference.NewHTTP(update_billing_preference.NewUsecase(store, common.NormalizeBillingPreference)),
+
+		Delete: delete_subscription.NewHTTP(delete_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup)),
+
+		Balance: purchase_with_balance.NewHTTP(
+			purchase_with_balance.NewUsecase(store, effects{}, balanceQuota, common.GetTimestamp, func(userID int) string {
+				return fmt.Sprintf("SUBBALUSR%dNO%s%d", userID, common.GetRandomString(6), time.Now().UnixNano())
+			}, paymentsdomain.PaymentMethodBalance, paymentsdomain.PaymentProviderBalance, paymentsdomain.StatusSuccess),
+			operation_setting.IsPaymentComplianceConfirmed,
+		),
+
+		CreatePlan: create_plan.NewHTTP(
+			create_plan.NewUsecase(store, rules, model.InvalidateSubscriptionPlanCache),
+			operation_setting.IsPaymentComplianceConfirmed,
+		),
+
+		UpdatePlan: update_plan.NewHTTP(
+			update_plan.NewUsecase(store, rules, model.InvalidateSubscriptionPlanCache),
+			operation_setting.IsPaymentComplianceConfirmed,
+		),
+
+		PlanStatus: update_plan_status.NewHTTP(
+			update_plan_status.NewUsecase(store, model.InvalidateSubscriptionPlanCache),
+			operation_setting.IsPaymentComplianceConfirmed,
+		),
+
+		ListPlans: list_plans.NewHTTP(list_plans.NewUsecase(store, operation_setting.IsPaymentComplianceConfirmed)),
+
+		ListAllPlans: admin_list_plans.NewHTTP(admin_list_plans.NewUsecase(store)),
+
+		Own: get_own_subscriptions.NewHTTP(get_own_subscriptions.NewUsecase(store, common.NormalizeBillingPreference, common.GetTimestamp)),
+
+		Preference: update_billing_preference.NewHTTP(update_billing_preference.NewUsecase(store, common.NormalizeBillingPreference)),
+
 		UserSubscriptions: admin_list_user_subscriptions.NewHTTP(admin_list_user_subscriptions.NewUsecase(store)),
 	}
 }

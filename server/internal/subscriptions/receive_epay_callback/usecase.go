@@ -36,6 +36,11 @@ func (u Usecase) Execute(params map[string]string) (bool, error) {
 	}
 	u.admission.Lock(event.TradeNo)
 	defer u.admission.Unlock(event.TradeNo)
-	err = u.orders.Complete(domain.CompletionInput{TradeNo: event.TradeNo, ProviderPayload: event.Verification, ExpectedProvider: u.provider, ActualMethod: event.Method})
+	err = u.orders.Complete(domain.CompletionInput{
+		TradeNo:          event.TradeNo,
+		ProviderPayload:  event.Verification,
+		ExpectedProvider: u.provider,
+		ActualMethod:     event.Method,
+	})
 	return true, err
 }

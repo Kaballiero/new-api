@@ -32,7 +32,15 @@ type Usecase struct {
 	pending, failed, method, provider string
 }
 
-func NewUsecase(store Store, settings Settings, client payments.PancakeCheckout, diagnostics domain.CheckoutDiagnostics, now func() int64, reference func(int) string, pending, failed, method, provider string) Usecase {
+func NewUsecase(
+	store Store,
+	settings Settings,
+	client payments.PancakeCheckout,
+	diagnostics domain.CheckoutDiagnostics,
+	now func() int64,
+	reference func(int) string,
+	pending, failed, method, provider string,
+) Usecase {
 	return Usecase{store, settings, client, diagnostics, now, reference, pending, failed, method, provider}
 }
 func (u Usecase) Execute(ctx context.Context, userID, planID int) (Result, error) {
@@ -67,19 +75,64 @@ func (u Usecase) Execute(ctx context.Context, userID, planID int) (Result, error
 		}
 	}
 	ref := u.reference(userID)
-	order := domain.SubscriptionOrder{UserId: userID, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: ref, PaymentMethod: u.method, PaymentProvider: u.provider, CreateTime: u.now(), Status: u.pending}
+	order := domain.SubscriptionOrder{
+		UserId:          userID,
+		PlanId:          plan.Id,
+		Money:           plan.PriceAmount,
+		TradeNo:         ref,
+		PaymentMethod:   u.method,
+		PaymentProvider: u.provider,
+		CreateTime:      u.now(),
+		Status:          u.pending,
+	}
 	if err := u.store.InsertOrder(&order); err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 订阅订单创建失败 user_id=%d plan_id=%d trade_no=%s error=%q", userID, plan.Id, ref, err.Error())
+		u.diagnostics.Error(
+			ctx,
+			"Waffo Pancake 订阅订单创建失败 user_id=%d plan_id=%d trade_no=%s error=%q",
+			userID,
+			plan.Id,
+			ref,
+			err.Error(),
+		)
 		return Result{}, domain.ErrCreateOrder
 	}
 	expiry := 45 * 60
-	session, err := payments.CreatePancakeCheckout(ctx, u.client, &payments.WaffoPancakeCreateSessionParams{ProductID: plan.WaffoPancakeProductId, BuyerIdentity: payments.PancakeBuyerIdentity(user.ID), PriceSnapshot: &payments.WaffoPancakePriceSnapshot{Amount: decimal.NewFromFloat(plan.PriceAmount).StringFixed(2), TaxCategory: "saas"}, BuyerEmail: payments.PancakeBuyerEmail(user.Email), ExpiresInSeconds: &expiry, OrderMerchantExternalID: ref})
+	session, err := payments.CreatePancakeCheckout(
+		ctx,
+		u.client,
+		&payments.WaffoPancakeCreateSessionParams{
+			ProductID:     plan.WaffoPancakeProductId,
+			BuyerIdentity: payments.PancakeBuyerIdentity(user.ID),
+			PriceSnapshot: &payments.WaffoPancakePriceSnapshot{
+				Amount:      decimal.NewFromFloat(plan.PriceAmount).StringFixed(2),
+				TaxCategory: "saas",
+			},
+			BuyerEmail:              payments.PancakeBuyerEmail(user.Email),
+			ExpiresInSeconds:        &expiry,
+			OrderMerchantExternalID: ref,
+		},
+	)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 订阅结账会话创建失败 user_id=%d plan_id=%d trade_no=%s error=%q", userID, plan.Id, ref, err.Error())
+		u.diagnostics.Error(
+			ctx,
+			"Waffo Pancake 订阅结账会话创建失败 user_id=%d plan_id=%d trade_no=%s error=%q",
+			userID,
+			plan.Id,
+			ref,
+			err.Error(),
+		)
 		order.Status = u.failed
 		_ = u.store.SaveOrder(&order)
 		return Result{}, domain.ErrCheckout
 	}
-	u.diagnostics.Info(ctx, "Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s money=%.2f", userID, plan.Id, ref, session.SessionID, plan.PriceAmount)
+	u.diagnostics.Info(
+		ctx,
+		"Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s money=%.2f",
+		userID,
+		plan.Id,
+		ref,
+		session.SessionID,
+		plan.PriceAmount,
+	)
 	return Result{Session: session, OrderID: ref}, nil
 }

@@ -32,7 +32,7 @@ func (h HTTP) Handle(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		h.diagnostics.Error(c.Request.Context(), "Creem 订阅支付请求读取失败 error=%q", err.Error())
-		c.JSON(200, gin.H{"message": "error", "data": "read query error"})
+		c.JSON(200, gin.H{"message": "error", "data": i18n.T(c, i18n.MsgSubscriptionsReadQuery)})
 		return
 	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))

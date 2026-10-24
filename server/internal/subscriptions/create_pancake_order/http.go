@@ -28,5 +28,18 @@ func (h HTTP) Handle(c *gin.Context) {
 		transport.CheckoutError(c, err)
 		return
 	}
-	c.JSON(200, gin.H{"message": "success", "data": gin.H{"checkout_url": result.Session.CheckoutURL, "session_id": result.Session.SessionID, "expires_at": result.Session.ExpiresAt, "order_id": result.OrderID, "token": result.Session.Token, "token_expires_at": result.Session.TokenExpiresAt}})
+	c.JSON(
+		200,
+		gin.H{
+			"message": "success",
+			"data": gin.H{
+				"checkout_url":     result.Session.CheckoutURL,
+				"session_id":       result.Session.SessionID,
+				"expires_at":       result.Session.ExpiresAt,
+				"order_id":         result.OrderID,
+				"token":            result.Session.Token,
+				"token_expires_at": result.Session.TokenExpiresAt,
+			},
+		},
+	)
 }

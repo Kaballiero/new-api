@@ -570,3 +570,5 @@ subscriptions.product_catalog: "拉取产品列表失败"
 subscriptions.receipt_purchase: "订阅购买成功，套餐: {{.Plan}}，支付金额: {{.Money}}，支付方式: {{.Method}}"
 subscriptions.receipt_balance: "使用余额购买订阅成功，套餐: {{.Plan}}，支付金额: {{.Money}}，扣除额度: {{.Quota}}"
 subscriptions.reset_audit: "管理员重置订阅套餐 {{.Plan}}（ID: {{.ID}}）额度"
+
+subscriptions.read_query: "read query error"

@@ -16,5 +16,12 @@ func (h HTTP) Handle(c *gin.Context) {
 		transport.WriteError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"billing_preference": result.Preference, "subscriptions": dto.Summaries(result.Active), "all_subscriptions": dto.Summaries(result.All)})
+	common.ApiSuccess(
+		c,
+		gin.H{
+			"billing_preference": result.Preference,
+			"subscriptions":      dto.Summaries(result.Active),
+			"all_subscriptions":  dto.Summaries(result.All),
+		},
+	)
 }

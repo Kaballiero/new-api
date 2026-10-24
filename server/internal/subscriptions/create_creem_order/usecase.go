@@ -32,7 +32,16 @@ type Usecase struct {
 	pending, method, provider string
 }
 
-func NewUsecase(store Store, settings Settings, client Client, diagnostics domain.CheckoutDiagnostics, now func() int64, reference func(string) string, currency func() string, pending, method, provider string) Usecase {
+func NewUsecase(
+	store Store,
+	settings Settings,
+	client Client,
+	diagnostics domain.CheckoutDiagnostics,
+	now func() int64,
+	reference func(string) string,
+	currency func() string,
+	pending, method, provider string,
+) Usecase {
 	return Usecase{store, settings, client, diagnostics, now, reference, currency, pending, method, provider}
 }
 func (u Usecase) Execute(ctx context.Context, userID, planID int) (Result, error) {
@@ -66,14 +75,29 @@ func (u Usecase) Execute(ctx context.Context, userID, planID int) (Result, error
 		}
 	}
 	ref := u.reference(user.Username)
-	order := domain.SubscriptionOrder{UserId: userID, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: ref, PaymentMethod: u.method, PaymentProvider: u.provider, CreateTime: u.now(), Status: u.pending}
+	order := domain.SubscriptionOrder{
+		UserId:          userID,
+		PlanId:          plan.Id,
+		Money:           plan.PriceAmount,
+		TradeNo:         ref,
+		PaymentMethod:   u.method,
+		PaymentProvider: u.provider,
+		CreateTime:      u.now(),
+		Status:          u.pending,
+	}
 	if err := u.store.InsertOrder(&order); err != nil {
 		return Result{}, domain.ErrCreateOrder
 	}
 	product := payments.CreemProduct{ProductId: plan.CreemProductId, Name: plan.Title, Price: plan.PriceAmount, Currency: u.currency(), Quota: 0}
 	link, err := u.client.Checkout(ctx, ref, product, user.Email, user.Username)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Creem 订阅支付链接创建失败 trade_no=%s product_id=%s error=%q", ref, product.ProductId, err.Error())
+		u.diagnostics.Error(
+			ctx,
+			"Creem 订阅支付链接创建失败 trade_no=%s product_id=%s error=%q",
+			ref,
+			product.ProductId,
+			err.Error(),
+		)
 		return Result{}, domain.ErrCheckout
 	}
 	return Result{link, ref}, nil

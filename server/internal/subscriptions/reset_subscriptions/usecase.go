@@ -53,7 +53,15 @@ func (u Usecase) Execute(in Input) (domain.ResetResult, error) {
 				users = append(users, row.UserId)
 			}
 		}
-		result = domain.ResetResult{PlanId: plan.Id, MatchedCount: len(rows), ResetCount: len(rows), UserCount: len(users), AdvanceResetTime: in.AdvanceResetTime, PlanTitle: plan.Title, AffectedUserIds: users}
+		result = domain.ResetResult{
+			PlanId:           plan.Id,
+			MatchedCount:     len(rows),
+			ResetCount:       len(rows),
+			UserCount:        len(users),
+			AdvanceResetTime: in.AdvanceResetTime,
+			PlanTitle:        plan.Title,
+			AffectedUserIds:  users,
+		}
 		return nil
 	})
 	if err != nil {

@@ -24,7 +24,14 @@ type Usecase struct {
 	method, provider, success string
 }
 
-func NewUsecase(store Store, effects Effects, quota func(float64) (int, error), now func() int64, reference func(int) string, method, provider, success string) Usecase {
+func NewUsecase(
+	store Store,
+	effects Effects,
+	quota func(float64) (int, error),
+	now func() int64,
+	reference func(int) string,
+	method, provider, success string,
+) Usecase {
 	return Usecase{store, effects, quota, now, reference, method, provider, success}
 }
 func (u Usecase) Execute(userID, planID int) error {
@@ -68,7 +75,21 @@ func (u Usecase) Execute(userID, planID int) error {
 			return err
 		}
 		now := u.now()
-		order := domain.SubscriptionOrder{UserId: userID, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: u.reference(userID), PaymentMethod: u.method, PaymentProvider: u.provider, Status: u.success, CreateTime: now, CompleteTime: now, ProviderPayload: fmt.Sprintf("charged_quota=%d", quota)}
+		order := domain.SubscriptionOrder{
+			UserId:          userID,
+			PlanId:          plan.Id,
+			Money:           plan.PriceAmount,
+			TradeNo:         u.reference(userID),
+			PaymentMethod:   u.method,
+			PaymentProvider: u.provider,
+			Status:          u.success,
+			CreateTime:      now,
+			CompleteTime:    now,
+			ProviderPayload: fmt.Sprintf(
+				"charged_quota=%d",
+				quota,
+			),
+		}
 		if err := tx.InsertOrder(&order); err != nil {
 			return err
 		}

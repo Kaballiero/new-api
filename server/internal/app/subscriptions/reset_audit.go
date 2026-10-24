@@ -20,9 +20,27 @@ func (a ResetAudit) RecordUserLogs(c *gin.Context, result *domain.ResetResult, o
 		return
 	}
 	for _, id := range result.AffectedUserIds {
-		a.Subscription(c, id, i18n.Translate(receiptLanguage(id), i18n.MsgSubscriptionsResetAudit, map[string]any{"Plan": result.PlanTitle, "ID": result.PlanId}), operator)
+		a.Subscription(
+			c,
+			id,
+			i18n.Translate(
+				receiptLanguage(id),
+				i18n.MsgSubscriptionsResetAudit,
+				map[string]any{
+					"Plan": result.PlanTitle,
+					"ID":   result.PlanId,
+				},
+			),
+			operator,
+		)
 	}
 }
 func (ResetAudit) PlanReset(result domain.ResetResult) {
-	common.SysLog(fmt.Sprintf("admin reset subscription plan %d quota: reset_count=%d user_count=%d advance_reset_time=%t", result.PlanId, result.ResetCount, result.UserCount, result.AdvanceResetTime))
+	common.SysLog(fmt.Sprintf(
+		"admin reset subscription plan %d quota: reset_count=%d user_count=%d advance_reset_time=%t",
+		result.PlanId,
+		result.ResetCount,
+		result.UserCount,
+		result.AdvanceResetTime,
+	))
 }
