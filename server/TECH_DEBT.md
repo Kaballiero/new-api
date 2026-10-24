@@ -41,6 +41,15 @@
 | 41 | system_task log cleanup | CountOldLog/DeleteOldLogBatch остаются technical model SQL: новый service→adapter import нарушил бы shrink-only boundary, main-registration/locator запрещены A4. Сохраняются прежние dialect LIMIT semantics | Перенос orchestration/cleanup port — системная волна; real-dialect удаление требует отдельной проверки |
 
 
+| 60 | Subscription provider availability | Checkout и callback требуют разные настройки: Pancake plan checkout допускает отсутствие gateway product; Creem test-mode checkout допускает пустой webhook secret | Оплата может быть принята при недоступном callback; нужна отдельная admission/config policy |
+| 61 | Subscription completion history | History upsert предшествует Epay actual-method update; новый history provider пуст, balance history отсутствует | Отчётность может отличаться от order/receipt; backfill и policy отдельно |
+| 62 | Cached subscription plan внутри tx | Global/tx lookup использует cache, может публиковать uncommitted facts; старый pending order использует изменённый plan | Snapshot/invalidation policy требует отдельного решения |
+| 63 | Duration/reset/catch-up | Custom seconds не ограничены, time.Duration может переполниться, catch-up линейный, maintenance может повторять full batch без прогресса | **Financial/resource candidate**: bounds/progress policy и deterministic regression отдельно |
+| 64 | Subscription preconsume ledger | request_id reuse не проверяет user/amount; duplicate-create fallback использует candidate facts; cleanup7d удаляет dedup history | Ownership/retention policy отдельно, без replay |
+| 65 | Subscription delta | Нет active/expiry проверки или overflow guard для used+delta; SQLite пропускает row lock | **Financial/resource candidate**: bounds/transaction/CAS policy отдельно |
+| 66 | Subscription silent errors | Downgrade/expiry probes трактуют SQL error как отсутствие competing subscription; plan writes не проверяют affected rows; self errors маскируются пустыми списками | Возможны неверные state/transition; error semantics сохранены |
+
+
 ## Оптимизации (без изменений схемы БД)
 
 | # | Где | Проблема |

@@ -108,7 +108,8 @@
 ## Волна 4 — платежи, подписки, коды ⬜
 
 - [x] `payments` implementation: 22 сценария, 23 регистрации, пять provider adapters, wallet owner, strict TopUp record alias; subscription workflow остаётся legacy до 4c (commits 1168444a1..20d2e7035).
-- [ ] `subscriptions`: `controller/subscription*.go`, `model/subscription.go`, задача сброса квоты подписок.
+- [x] `subscriptions` implementation: plans/user subscriptions, balance/provider checkout, complete/expire, pure calendar и app maintenance; model alias-only и согласованные cache/delta/debit остатки. Contract1 d0e1e5e97:519 HTTP +13 ticks,132 locales; всего2237 immutable golden files.
+- [ ] 4c host/PostgreSQL acceptance текущего source manifest, Redis/WSS/full suite и отдельное применение content-only package; MySQL unchecked.
 - [x] `redemption`: девять сценариев, record/SQL adapter, atomic CAS + единый wallet credit, late composition и thin bridges.
 - [x] Baseline: commit 00c8bbd6e, 214 новых HTTP/state goldens, два стабильных origin повтора, candidate parity;
   прежние 758 неизменны, всего 972. Два locale baselines отделяют inherited ru переводы от новой ID delta.
@@ -126,6 +127,8 @@
 - [x] Log redaction (commit ea1ab44b4): из платёжных логов убраны подписи, тела webhook, данные покупателя; goldens без изменений (#50).
 
 ## Волна 5 — асинхронные задачи и batch ⬜
+
+- [ ] Перенести единственное model.PostConsumeUserSubscriptionDelta вместе с durable task settlement; billing вызывает то же тело, nested refund #27 не исправлять в structural move.
 
 - [ ] Перевести persisted Task/Batch/Midjourney/violation log texts на English (translate persisted log texts to English); удалить metadata delegates единственного bridge после переноса consumers.
 
@@ -146,7 +149,7 @@
 
 ## Волна 7 — доводка ⬜
 
-- [ ] Перенести оставшиеся model.LockForUpdate и model.SyncCreditUserQuotaCache вместе с shared row-lock/quota-cache primitives; без копирования Lua/key/schema.
+- [ ] Перенести оставшиеся model.LockForUpdate, model.SyncCreditUserQuotaCache и model.CacheDecrUserQuota вместе с shared row-lock/quota-cache primitives; без копирования Lua/key/schema.
 - [ ] Общие quota cache/Lua/DB primitives из `model/quota_reserve.go`, user/token/task consumers → технические адаптеры с одним владельцем; 2b1 сохраняет primitives и SQL/Redis semantics без изменений.
 
 - [ ] identity: логика сессий и проверок из `service/auth_session.go`, `security_verification.go`, `login_verification.go`, `twofa.go`, `email_binding.go`, `service/passkey` → сценарии; `model/account_security.go`, `auth_flow.go` → адаптеры.

@@ -5,7 +5,7 @@
 Модуль владеет top-up orders: историей, расчётом суммы, созданием checkout, подтверждением через webhook,
 переходами pending/success/failed/expired и ручным завершением. Источник истины — top_ups в main DB.
 Он также владеет payment availability, подтверждением compliance и конфигурационным потоком Pancake.
-Подписки, их планы, completion и quota reset остаются у legacy subscription owner.
+Подписки, их планы, completion и quota reset принадлежат internal/subscriptions.
 
 ## Возможности
 
@@ -69,22 +69,21 @@ Manual repeat сохраняет zero/user0 receipt. Проверенный Stri
 
 ## Границы и мосты
 
-Webhook usecase выбирает subscription dispatch и fallback. Узкий app-owned subscriptions bridge вызывает
-model.CompleteSubscriptionOrder/ExpireSubscriptionOrder/GetSubscriptionOrderByTradeNo и преобразует
+Webhook usecase выбирает subscription dispatch и fallback через consumer-owned domain.Subscriptions.
+app/payments/subscription_dispatch.go вызывает реальный app/subscriptions.Orders и отображает typed
 sentinels через errors.Is. Stripe/Creem продолжают top-up только при subscription not-found; Pancake
-выбирает по WAFFO_PANCAKE_SUB- и проверяет provider/buyer identity до process-local lock.
+выбирает prefix и проверяет provider/buyer identity до process-local lock. Прежний legacy bridge удалён.
 
-Оставшиеся мосты:
+Обе композиции явно используют один app/shared.Orders; его техническое тело — adapter/admission.
+Shared protocol adapters остаются в adapter/http/payments; subscriptions добавляет только profile mapping.
+Stripe subscription profile сохраняет quantity1/plan price/mode/redirects; top-up profile не меняется.
+Active catalog filter общий в domain.LoadActivePancakeCatalog. Subscription history projector находится
+в adapter/gorm/payments и получает исходный tx и typed факты без вызова top-up usecase.
 
-- controller/topup*.go и payment_compliance.go: прежние router entrypoints; GetEpayClient и общий
-  LockOrder/UnlockOrder для legacy subscription callbacks;
-- subscription_payment_epay/stripe/creem вызывают app-owned address/checkout bridges напрямую, без private controller forwarders;
-- app/payments: один ref-counted order registry; Epay client builder, Creem checkout, Pancake checkout,
-  management SDK и filtered catalog для legacy subscription consumers;
-- controller/subscription_payment_waffo_pancake_config.go: прежний plan-owned workflow, не payments scenario;
-- model/topup.go: строгий record-only alias для миграций и legacy subscriptions;
-- common/constants.go: прямые status aliases для legacy/immutable consumers;
-- model.LockForUpdate/SyncCreditUserQuotaCache остаются единственными shared primitives до их отдельного переноса.
+Прежний BRIDGE block app/payments/http.go, controller GetEpayClient/LockOrder/UnlockOrder,
+CreemProduct и requirePaymentCompliance удалены вместе с реальными потребителями. Controller top-up
+entrypoints сохраняются; model/topup.go и common status constants — строгие aliases. Shared
+model.LockForUpdate/SyncCreditUserQuotaCache/CacheDecrUserQuota ждут отдельного quota-cache owner.
 
 Новых architecture exceptions нет. Schema, migrations, tags/indexes, money arithmetic, routes, ordering,
 query semantics и audit policy не менялись. Сохраняются известные #50–59 в TECH_DEBT; #52 и #55 —

@@ -21,6 +21,7 @@
 | `audit` | чтение событий и role projection; запись login/security/operation/PAT, metadata policy | 3 | [README](audit/README.md) |
 | `redemption` | выпуск и управление кодами пополнения, атомарное погашение с начислением квоты | 9 | [README](redemption/README.md) |
 
+| `subscriptions` | планы, user subscriptions, balance/provider checkout, Epay callbacks, order completion/expiry, reset maintenance | 25 registrations | [README](subscriptions/README.md) |
 | `payments` | top-up orders, checkout и provider webhooks, manual completion, payment availability/compliance и Pancake config | 22 | [README](payments/README.md) |
 
 README каждого модуля появляется в коммите, который чистит или переносит этот модуль.

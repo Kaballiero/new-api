@@ -139,7 +139,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 | периодические системные задачи: тест каналов, модели upstream, опрос Midjourney и асинхронных задач, сборка каталога цен | `controller.RegisterScheduledSystemTasks` + `service.StartSystemTaskRunner` | channels, tasks, pricing; запуск — system |
 | плагины задач | `controller.SyncTaskPlugins` | tasks |
 | обновление Codex-учётных данных | `service.StartCodexCredentialAutoRefreshTask` | channels |
-| сброс квоты подписок | `service.StartSubscriptionQuotaResetTask` | subscriptions |
+| сброс квоты подписок | `app/subscriptions.StartSubscriptionQuotaResetTask` | subscriptions |
 | курсы валют для цен | `service.StartModelCostFX` | pricing |
 | отчёт об инстансе | `service.StartSystemInstanceReporter` | system |
 | очистка артефактов входа | `service.StartAuthArtifactCleanup` | identity |
@@ -209,13 +209,24 @@ model.SyncCreditUserQuotaCache сохраняются до переноса shar
 ### Платёжные заказы и callbacks
 
 `internal/payments` владеет 22 сценариями/23 registrations, pricing/availability и completion policy.
-Webhook выбирает subscription-first или prefix dispatch; узкий app-owned legacy bridge вызывает
-существующий subscription owner. SQL/record/projection — adapter/gorm/payments, SDK/исходящие calls —
+Webhook выбирает subscription-first или prefix dispatch; consumer-owned port вызывает реальный
+app/subscriptions.Orders. SQL/record/projection — adapter/gorm/payments, SDK/исходящие calls —
 adapter/http/payments, late settings — adapter/settings/payments. model/topup.go — strict alias-only;
 common сохраняет прямые aliases статусов для legacy consumers. Schema/миграции не менялись.
 
 Общий adapter/wallet используется payments и redemption с тем же tx и единственным ceiling predicate.
-Process-local order admission один для payments и legacy subscriptions. Cache/receipt следуют после
+Process-local order admission один для payments и subscriptions. Cache/receipt следуют после
 commit. Provider ACK, provider-specific money formulas и legacy idempotency/status различия сохранены.
 Реальные мосты, неизменные 615 HTTP/state/outbound oracles и подставленный Waffo SDK transport описаны
 в internal/payments/README.md. Host/PostgreSQL acceptance после переноса выполняется отдельно.
+
+## Subscriptions (4c)
+
+internal/subscriptions владеет планами, пользовательскими подписками, checkout/orders и maintenance.
+Grant/group/calendar/reset rules — pure domain; HTTP/scenarios — feature local, SQL/records —
+adapter/gorm/subscriptions. Billing orchestration/Store interfaces прежние, consumption SQL перенесён
+в существующий adapter/gorm/billing, календарь общий. Model subscription файл alias-only; реальные
+cache/delta/guarded debit остатки с условиями удаления перечислены в internal/subscriptions/README.md.
+Payments и subscriptions используют один adapter/admission registry из app/shared и shared protocol
+clients. Completion history projector получает тот же tx. Background task запускается из app/subscriptions.
+Schema/DDL/router/middleware не менялись; текущий sandbox proof не заменяет host/PostgreSQL acceptance.
