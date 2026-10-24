@@ -521,3 +521,6 @@ payments.receipt_pancake: "Waffo Pancake充值成功，充值额度: {{.Quota}}�
 payments.receipt_manual: "管理员补单成功，充值金额: {{.Quota}}，支付金额：{{.Money}}"
 
 payments.read_query: "read query error"
+
+subscriptions.invalid_user_id: "无效的用户ID"
+subscriptions.invalid_parameters: "参数错误"

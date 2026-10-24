@@ -530,3 +530,6 @@ payments.read_query: "read query error"
 payments.quota_amount: "{{.Amount}} quota"
 
 payments.quota_tokens: "{{.Amount}} quota units"
+
+subscriptions.invalid_user_id: "无效的用户ID"
+subscriptions.invalid_parameters: "参数错误"

@@ -2,8 +2,10 @@ package controller
 
 import (
 	"fmt"
+	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -12,19 +14,10 @@ import (
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	audittransport "github.com/QuantumNous/new-api/internal/audit/transport"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 // ---- Shared types ----
-
-type SubscriptionPlanDTO struct {
-	Plan model.SubscriptionPlan `json:"plan"`
-}
-
-type BillingPreferenceRequest struct {
-	BillingPreference string `json:"billing_preference"`
-}
 
 type SubscriptionBalancePayRequest struct {
 	PlanId int `json:"plan_id"`
@@ -32,73 +25,11 @@ type SubscriptionBalancePayRequest struct {
 
 // ---- User APIs ----
 
-func GetSubscriptionPlans(c *gin.Context) {
-	if !operation_setting.IsPaymentComplianceConfirmed() {
-		common.ApiSuccess(c, []SubscriptionPlanDTO{})
-		return
-	}
+func GetSubscriptionPlans(c *gin.Context) { subscriptionsHTTP().ListPlans.Handle(c) }
 
-	var plans []model.SubscriptionPlan
-	if err := model.DB.Where("enabled = ?", true).Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	result := make([]SubscriptionPlanDTO, 0, len(plans))
-	for _, p := range plans {
-		p.NormalizeDefaults()
-		result = append(result, SubscriptionPlanDTO{
-			Plan: p,
-		})
-	}
-	common.ApiSuccess(c, result)
-}
+func GetSubscriptionSelf(c *gin.Context) { subscriptionsHTTP().Own.Handle(c) }
 
-func GetSubscriptionSelf(c *gin.Context) {
-	userId := c.GetInt("id")
-	settingMap, _ := model.GetUserSetting(userId, false)
-	pref := common.NormalizeBillingPreference(settingMap.BillingPreference)
-
-	// Get all subscriptions (including expired)
-	allSubscriptions, err := model.GetAllUserSubscriptions(userId)
-	if err != nil {
-		allSubscriptions = []model.SubscriptionSummary{}
-	}
-
-	// Get active subscriptions for backward compatibility
-	activeSubscriptions, err := model.GetAllActiveUserSubscriptions(userId)
-	if err != nil {
-		activeSubscriptions = []model.SubscriptionSummary{}
-	}
-
-	common.ApiSuccess(c, gin.H{
-		"billing_preference": pref,
-		"subscriptions":      activeSubscriptions, // all active subscriptions
-		"all_subscriptions":  allSubscriptions,    // all subscriptions including expired
-	})
-}
-
-func UpdateSubscriptionPreference(c *gin.Context) {
-	userId := c.GetInt("id")
-	var req BillingPreferenceRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiErrorMsg(c, "参数错误")
-		return
-	}
-	pref := common.NormalizeBillingPreference(req.BillingPreference)
-
-	user, err := model.GetUserById(userId, true)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	current := user.GetSetting()
-	current.BillingPreference = pref
-	if err := model.UpdateUserSetting(user.Id, current); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	common.ApiSuccess(c, gin.H{"billing_preference": pref})
-}
+func UpdateSubscriptionPreference(c *gin.Context) { subscriptionsHTTP().Preference.Handle(c) }
 
 func SubscriptionRequestBalancePay(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
@@ -121,21 +52,7 @@ func SubscriptionRequestBalancePay(c *gin.Context) {
 
 // ---- Admin APIs ----
 
-func AdminListSubscriptionPlans(c *gin.Context) {
-	var plans []model.SubscriptionPlan
-	if err := model.DB.Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	result := make([]SubscriptionPlanDTO, 0, len(plans))
-	for _, p := range plans {
-		p.NormalizeDefaults()
-		result = append(result, SubscriptionPlanDTO{
-			Plan: p,
-		})
-	}
-	common.ApiSuccess(c, result)
-}
+func AdminListSubscriptionPlans(c *gin.Context) { subscriptionsHTTP().ListAllPlans.Handle(c) }
 
 type AdminUpsertSubscriptionPlanRequest struct {
 	Plan model.SubscriptionPlan `json:"plan"`
@@ -380,19 +297,7 @@ func AdminBindSubscription(c *gin.Context) {
 
 // ---- Admin: user subscription management ----
 
-func AdminListUserSubscriptions(c *gin.Context) {
-	userId, _ := strconv.Atoi(c.Param("id"))
-	if userId <= 0 {
-		common.ApiErrorMsg(c, "无效的用户ID")
-		return
-	}
-	subs, err := model.GetAllUserSubscriptions(userId)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	common.ApiSuccess(c, subs)
-}
+func AdminListUserSubscriptions(c *gin.Context) { subscriptionsHTTP().UserSubscriptions.Handle(c) }
 
 type AdminCreateUserSubscriptionRequest struct {
 	PlanId int `json:"plan_id"`
@@ -548,3 +453,5 @@ func AdminDeleteUserSubscription(c *gin.Context) {
 	}
 	common.ApiSuccess(c, nil)
 }
+
+var subscriptionsHTTP = sync.OnceValue(subscriptionsapp.NewHTTP)

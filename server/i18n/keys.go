@@ -605,3 +605,8 @@ const (
 	MsgPaymentsQuotaAmount = "payments.quota_amount"
 	MsgPaymentsQuotaTokens = "payments.quota_tokens"
 )
+
+const (
+	MsgSubscriptionsInvalidUserID     = "subscriptions.invalid_user_id"
+	MsgSubscriptionsInvalidParameters = "subscriptions.invalid_parameters"
+)

@@ -145,10 +145,6 @@ func GetSubscriptionOrderByTradeNo(tradeNo string) *SubscriptionOrder {
 
 // User subscription instance
 
-type SubscriptionSummary struct {
-	Subscription *UserSubscription `json:"subscription"`
-}
-
 type SubscriptionResetResult struct {
 	PlanId           int    `json:"plan_id"`
 	MatchedCount     int    `json:"matched_count"`
@@ -697,22 +693,6 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 	return nil
 }
 
-// GetAllActiveUserSubscriptions returns all active subscriptions for a user.
-func GetAllActiveUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
-	if userId <= 0 {
-		return nil, errors.New("invalid userId")
-	}
-	now := common.GetTimestamp()
-	var subs []UserSubscription
-	err := DB.Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
-		Order("end_time desc, id desc").
-		Find(&subs).Error
-	if err != nil {
-		return nil, err
-	}
-	return buildSubscriptionSummaries(subs), nil
-}
-
 // HasActiveUserSubscription returns whether the user has any active subscription.
 // This is a lightweight existence check to avoid heavy pre-consume transactions.
 func HasActiveUserSubscription(userId int) (bool, error) {
@@ -745,35 +725,6 @@ func UserActiveSubscriptionsAllowWalletOverflow(userId int) (bool, error) {
 		return false, err
 	}
 	return strictCount == 0, nil
-}
-
-// GetAllUserSubscriptions returns all subscriptions (active and expired) for a user.
-func GetAllUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
-	if userId <= 0 {
-		return nil, errors.New("invalid userId")
-	}
-	var subs []UserSubscription
-	err := DB.Where("user_id = ?", userId).
-		Order("end_time desc, id desc").
-		Find(&subs).Error
-	if err != nil {
-		return nil, err
-	}
-	return buildSubscriptionSummaries(subs), nil
-}
-
-func buildSubscriptionSummaries(subs []UserSubscription) []SubscriptionSummary {
-	if len(subs) == 0 {
-		return []SubscriptionSummary{}
-	}
-	result := make([]SubscriptionSummary, 0, len(subs))
-	for _, sub := range subs {
-		subCopy := sub
-		result = append(result, SubscriptionSummary{
-			Subscription: &subCopy,
-		})
-	}
-	return result
 }
 
 // AdminInvalidateUserSubscription marks a user subscription as cancelled and ends it immediately.

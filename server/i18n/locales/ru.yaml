@@ -530,3 +530,6 @@ payments.read_query: "Не удалось прочитать тело запро
 payments.quota_amount: "{{.Amount}} квоты"
 
 payments.quota_tokens: "{{.Amount}} единиц квоты"
+
+subscriptions.invalid_user_id: "无效的用户ID"
+subscriptions.invalid_parameters: "参数错误"
