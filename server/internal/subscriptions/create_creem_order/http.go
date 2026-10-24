@@ -29,7 +29,7 @@ func (h HTTP) Handle(c *gin.Context) {
 	var req SubscriptionCreemPayRequest
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		h.diagnostics.Error(c.Request.Context(), "Creem 订阅支付请求读取失败 error=%q", err.Error())
+		h.diagnostics.Error(c.Request.Context(), "Creem subscription payment request read failed error=%q", err.Error())
 		c.JSON(200, gin.H{"message": "error", "data": i18n.T(c, i18n.MsgSubscriptionsReadQuery)})
 		return
 	}

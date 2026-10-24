@@ -101,7 +101,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	if err != nil {
 		u.diagnostics.Error(
 			ctx,
-			"Creem 订阅支付链接创建失败 trade_no=%s product_id=%s error=%q",
+			"Creem subscription checkout link creation failed trade_no=%s product_id=%s error=%q",
 			ref,
 			product.ProductId,
 			err.Error(),

@@ -56,7 +56,7 @@ func (u Usecase) Execute(ctx context.Context) (Result, error) {
 		}
 	}
 	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake 拉取订阅产品列表失败 store_id=%q error=%q", storeID, err.Error())
+		u.diagnostics.Error(ctx, "Waffo Pancake subscription product list query failed store_id=%q error=%q", storeID, err.Error())
 		return Result{}, domain.ErrProductCatalog
 	}
 	return Result{storeID, catalog}, nil

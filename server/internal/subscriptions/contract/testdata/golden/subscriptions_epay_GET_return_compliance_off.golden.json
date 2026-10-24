@@ -146,7 +146,7 @@
         "user_id": 1,
         "created_at": 1,
         "type": 1,
-        "content": "订阅购买成功，套餐: Contract plan，支付金额: 3.50，支付方式: alipay",
+        "content": "Subscription purchase succeeded, plan: Contract plan, paid: 3.50, payment method: alipay",
         "username": "contract-user",
         "token_name": "",
         "model_name": "",

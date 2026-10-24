@@ -84,7 +84,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (string, error) {
 	ref := u.reference(user.ID)
 	link, err := u.client.Checkout(ref, user.StripeCustomer, user.Email, plan.StripePriceId)
 	if err != nil {
-		u.diagnostics.Error(ctx, "Stripe 订阅支付链接创建失败 trade_no=%s plan_id=%d error=%q", ref, plan.Id, err.Error())
+		u.diagnostics.Error(ctx, "Stripe subscription checkout link creation failed trade_no=%s plan_id=%d error=%q", ref, plan.Id, err.Error())
 		return "", domain.ErrCheckout
 	}
 	order := domain.SubscriptionOrder{

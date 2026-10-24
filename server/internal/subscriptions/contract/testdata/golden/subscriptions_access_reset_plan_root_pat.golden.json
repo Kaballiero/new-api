@@ -170,7 +170,7 @@
         "status": 200,
         "success": true,
         "request_id": "\u003crequest-1\u003e",
-        "content": "管理员重置订阅套餐 Contract plan（ID: 77）额度",
+        "content": "Administrator reset quota for subscription plan Contract plan (ID: 77)",
         "other": {
           "admin_info": {
             "admin_id": 3,
@@ -198,7 +198,7 @@
         "status": 200,
         "success": true,
         "request_id": "\u003crequest-1\u003e",
-        "content": "管理员重置订阅套餐 Contract plan（ID: 77）额度",
+        "content": "Administrator reset quota for subscription plan Contract plan (ID: 77)",
         "other": {
           "admin_info": {
             "admin_id": 3,

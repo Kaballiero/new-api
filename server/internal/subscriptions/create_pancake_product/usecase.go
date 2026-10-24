@@ -63,7 +63,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	if err != nil {
 		u.diagnostics.Error(
 			ctx,
-			"Waffo Pancake 创建套餐产品失败 store_id=%q name=%q amount=%q error=%q",
+			"Waffo Pancake plan product creation failed store_id=%q name=%q amount=%q error=%q",
 			storeID,
 			in.Name,
 			in.Amount,

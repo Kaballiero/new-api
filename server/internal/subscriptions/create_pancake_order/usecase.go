@@ -98,7 +98,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	if err := u.store.InsertOrder(&order); err != nil {
 		u.diagnostics.Error(
 			ctx,
-			"Waffo Pancake 订阅订单创建失败 user_id=%d plan_id=%d trade_no=%s error=%q",
+			"Waffo Pancake subscription order creation failed user_id=%d plan_id=%d trade_no=%s error=%q",
 			userID,
 			plan.Id,
 			ref,
@@ -125,7 +125,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	if err != nil {
 		u.diagnostics.Error(
 			ctx,
-			"Waffo Pancake 订阅结账会话创建失败 user_id=%d plan_id=%d trade_no=%s error=%q",
+			"Waffo Pancake subscription checkout session creation failed user_id=%d plan_id=%d trade_no=%s error=%q",
 			userID,
 			plan.Id,
 			ref,
@@ -137,7 +137,7 @@ func (u Usecase) Execute(ctx context.Context, in Input) (Result, error) {
 	}
 	u.diagnostics.Info(
 		ctx,
-		"Waffo Pancake 订阅订单创建成功 user_id=%d plan_id=%d trade_no=%s session_id=%s money=%.2f",
+		"Waffo Pancake subscription order created user_id=%d plan_id=%d trade_no=%s session_id=%s money=%.2f",
 		userID,
 		plan.Id,
 		ref,

@@ -27,7 +27,7 @@
       "status": 200,
       "success": true,
       "request_id": "\u003crequest-id\u003e",
-      "content": "管理员重置订阅套餐 Audit Plan（ID: 11）额度",
+      "content": "Administrator reset quota for subscription plan Audit Plan (ID: 11)",
       "other": {
         "admin_info": {
           "admin_id": 3,

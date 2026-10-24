@@ -132,7 +132,7 @@
         "user_id": 1,
         "created_at": 1,
         "type": 1,
-        "content": "使用余额购买订阅成功，套餐: Contract plan，支付金额: 0.00，扣除额度: 0",
+        "content": "Subscription purchased with wallet balance, plan: Contract plan, paid: 0.00, quota deducted: 0",
         "username": "contract-user",
         "token_name": "",
         "model_name": "",
