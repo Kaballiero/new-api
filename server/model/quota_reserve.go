@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 type cacheQuotaResult int
@@ -99,7 +100,10 @@ func cacheTryReserveTokenQuota(id int, key string, amount int64) (cacheQuotaResu
 	return quotaResultFromLua(result, err)
 }
 
-func cacheApplyTokenQuotaDelta(id int, key string, delta int64) (cacheQuotaResult, error) {
+// CacheApplyTokenQuotaDelta applies a guarded additive token-cache change.
+// BRIDGE: task settlement and existing token quota primitives share this single body;
+// remove when shared quota-cache primitives receive their technical owner.
+func CacheApplyTokenQuotaDelta(id int, key string, delta int64) (cacheQuotaResult, error) {
 	result, err := common.RDB.Eval(context.Background(), tokenQuotaDeltaScript,
 		[]string{getTokenCacheKey(key)}, delta, id, common.GetTimestamp()).Int()
 	return quotaResultFromLua(result, err)
@@ -232,7 +236,7 @@ func TryReserveTokenQuota(id int, key string, quota int, unlimited bool) (bool, 
 		return false, nil
 	}
 	if err = persistTokenQuotaDelta(id, -quota); err != nil {
-		compensated, compensateErr := cacheApplyTokenQuotaDelta(id, key, int64(quota))
+		compensated, compensateErr := CacheApplyTokenQuotaDelta(id, key, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
 			common.SysError(fmt.Sprintf("failed to compensate reserved token quota: result=%d error=%v", compensated, compensateErr))
 		}

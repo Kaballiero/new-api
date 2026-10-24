@@ -16,18 +16,22 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/internal/adapter/http/taskmedia"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	"github.com/QuantumNous/new-api/internal/tasks/domain"
+	tasktransport "github.com/QuantumNous/new-api/internal/tasks/transport"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
-	"github.com/gin-gonic/gin"
 )
 
 var mjTickManifest = flag.Bool("tasks-mj-manifest", false, "list Midjourney tick cases")
@@ -393,7 +397,7 @@ func runTaskProxyContract(t *testing.T, name string, updating bool) {
 		require.NoError(t, db.Create(&model.Channel{Id: 71, Key: "fixture-key", BaseURL: &base, Status: 1}).Error)
 		task := &model.Task{ID: 81, TaskID: "task_proxy", ChannelId: 71, UserId: 1, Status: model.TaskStatusSuccess, Platform: "kling"}
 		require.NoError(t, db.Create(task).Error)
-		descriptor := &relaychannel.TaskContentRequest{URL: base + "/source", Headers: map[string]string{"Authorization": "Bearer fixture-key", "Range": "bytes=0-1"}}
+		descriptor := &domain.MediaRequest{URL: base + "/source", Headers: map[string]string{"Authorization": "Bearer fixture-key", "Range": "bytes=0-1"}}
 		expected, calls := 200, 1
 		switch variant {
 		case "post":
@@ -448,9 +452,9 @@ func runTaskProxyContract(t *testing.T, name string, updating bool) {
 		c.Request = httptest.NewRequest("GET", "http://gateway.test/v1/videos/task_proxy/content", nil)
 		c.Request.Header.Set("Range", "bytes=2-5")
 		c.Request.Header.Set("If-None-Match", "client-etag")
-		err := proxyTaskMedia(c, task, descriptor)
+		err := taskmedia.NewProxy().Serve(c, domain.MediaTask{TaskID: task.TaskID, ChannelID: task.ChannelId}, descriptor)
 		if err != nil {
-			writeTaskMediaProxyError(c, err)
+			tasktransport.WriteMediaError(c, middleware.IsTaskArtifactAccess(c), err, func(err error) { logger.LogError(c.Request.Context(), err.Error()) })
 		}
 		require.Equal(t, expected, recorder.Code)
 		require.Len(t, transport.calls, calls)

@@ -9,14 +9,16 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/provider"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
 )
 
 // transcriptionReservationPayload describes the outgoing multipart order without
@@ -91,8 +93,8 @@ func transcriptionReservationPayload(contentType string, body []byte) ([]byte, e
 // retains the durable Task reservation for metadata reconciliation.
 func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage *dto.Usage, apiErr *types.NewAPIError) {
 	defer func() {
-		if apiErr != nil && service.HasOpenRouterSyncTask(info) {
-			_ = service.FailOpenRouterSyncTask(info, "invalid_audio_result")
+		if apiErr != nil && relaycommon.HasOpenRouterSyncTask(info) {
+			_ = taskrecord.FailOpenRouterSyncTask(info, "invalid_audio_result")
 		}
 	}()
 	if resp == nil || resp.Body == nil {
@@ -187,7 +189,7 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 			return nil, CostError("OpenRouter speech response is not audio")
 		}
 	}
-	if err := service.CompleteOpenRouterSyncTask(c, info, body, mimeType); err != nil {
+	if err := taskrecord.CompleteOpenRouterSyncTask(c, info, body, mimeType); err != nil {
 		return nil, CostError(err.Error())
 	}
 	c.Header("X-Task-Id", state.TaskID)

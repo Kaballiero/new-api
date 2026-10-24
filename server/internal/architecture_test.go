@@ -65,7 +65,8 @@ func TestInternalArchitecture(t *testing.T) {
 		}
 		rel = filepath.ToSlash(rel)
 		parts := strings.Split(rel, "/")
-		if parts[0] != "internal" && parts[0] != "model" && parts[0] != "service" {
+		leaf := slices.Contains([]string{"constant", "common", "dto", "types", "relaykit"}, parts[0])
+		if !leaf && parts[0] != "internal" && parts[0] != "model" && parts[0] != "service" {
 			return nil
 		}
 		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
@@ -79,6 +80,15 @@ func TestInternalArchitecture(t *testing.T) {
 				return err
 			}
 			imports = append(imports, value)
+		}
+
+		if leaf {
+			for _, imported := range imports {
+				if strings.HasPrefix(imported, modulePath+"/internal/") {
+					addImport("leaf-imports-internal", rel, imported)
+				}
+			}
+			return nil
 		}
 
 		if parts[0] == "model" && isRecordAliasFile(file) {

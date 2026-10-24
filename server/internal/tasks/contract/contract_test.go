@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,6 +40,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	taskruntime "github.com/QuantumNous/new-api/internal/app/taskruntime"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/tasklog"
@@ -49,6 +52,8 @@ import (
 	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
+	"github.com/QuantumNous/new-api/relay/taskregistry"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -57,7 +62,6 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/types"
-	"github.com/gin-gonic/gin"
 )
 
 var tasksManifest = flag.Bool("tasks-manifest", false, "list task cases without fixtures")
@@ -860,7 +864,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 		channelType = constant.ChannelTypeMidjourney
 	}
 	if tc.Plugin != "" {
-		adaptor := relay.GetTaskAdaptor(constant.TaskPlatform(tc.Plugin))
+		adaptor := taskregistry.GetTaskAdaptor(constant.TaskPlatform(tc.Plugin))
 		require.NotNil(t, adaptor)
 		channelType = constant.ChannelTypeTaskPlugin
 	}
@@ -990,10 +994,10 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 		if tc.Variant == "data_url" {
 			url = "data:video/mp4;base64,dmlkZW8="
 		}
-		task, _, err := model.GetByTaskId(1, "task_own")
+		task, _, err := tasksapp.NewStore().GetByTaskId(1, "task_own")
 		require.NoError(t, err)
 		task.PrivateData.ResultURL = url
-		require.NoError(t, task.Update())
+		require.NoError(t, tasksapp.NewStore().UpdateTask(task))
 	}
 	if tc.Kind == "plugin_artifacts" {
 		items := []map[string]string{{"key": "video", "type": "video", "mimeType": "video/mp4"}}
@@ -1025,15 +1029,15 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 			_, err := pluginruntime.DefaultRegistry.Register(source, pluginruntime.Options{})
 			require.NoError(t, err)
 		}
-		task, exists, err := model.GetByTaskId(1, "task_own")
+		task, exists, err := tasksapp.NewStore().GetByTaskId(1, "task_own")
 		require.NoError(t, err)
 		require.True(t, exists)
 		task.Platform = "artifact-fixture"
 		task.PrivateData.Execution = &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{Key: "artifact-fixture"}}
-		require.NoError(t, task.Update())
+		require.NoError(t, tasksapp.NewStore().UpdateTask(task))
 	}
 	if strings.HasPrefix(tc.Variant, "provenance") || tc.Variant == "reconciliation" {
-		task, exists, err := model.GetByTaskId(1, "task_own")
+		task, exists, err := tasksapp.NewStore().GetByTaskId(1, "task_own")
 		require.NoError(t, err)
 		require.True(t, exists)
 		if strings.HasPrefix(tc.Variant, "provenance") {
@@ -1071,7 +1075,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 				Headers:        map[string][]string{"Authorization": {"Bearer private-fixture-key"}}}
 			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, Required: true}
 		}
-		require.NoError(t, task.Update())
+		require.NoError(t, tasksapp.NewStore().UpdateTask(task))
 		require.NoError(t, env.DB.Model(&model.Task{}).Where("id=81").UpdateColumn("updated_at", fixture.Epoch).Error)
 	}
 	if tc.Variant == "legacy_url" {
@@ -1090,7 +1094,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 			_ = os.Setenv(system_setting.TaskArtifactStoreModeEnv, system_setting.TaskArtifactStoreModeUpstream)
 			_ = service.InitTaskArtifactStore()
 		})
-		task, exists, err := model.GetByTaskId(1, "task_own")
+		task, exists, err := tasksapp.NewStore().GetByTaskId(1, "task_own")
 		require.NoError(t, err)
 		require.True(t, exists)
 		reference,
@@ -1123,7 +1127,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 			t.Setenv(system_setting.TaskArtifactStoreModeEnv, system_setting.TaskArtifactStoreModeUpstream)
 			require.NoError(t, service.InitTaskArtifactStore())
 		}
-		require.NoError(t, task.Update())
+		require.NoError(t, tasksapp.NewStore().UpdateTask(task))
 		require.NoError(t, env.DB.Model(&model.Task{}).Where("id=81").UpdateColumn("updated_at", fixture.Epoch).Error)
 	}
 	// Fixture writes happen outside the fake-clock bubble; fix input timestamps before exercising production.
@@ -1378,7 +1382,7 @@ func runTaskCase(t *testing.T, tc taskCase, updating bool) {
 }
 
 func runBillingContentContract(t *testing.T, f *httpFixture, tc taskCase, updating bool) {
-	task, exists, err := model.GetByTaskId(1, "task_own")
+	task, exists, err := tasksapp.NewStore().GetByTaskId(1, "task_own")
 	require.NoError(t, err)
 	require.True(t, exists)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -1409,7 +1413,7 @@ func runBillingContentContract(t *testing.T, f *httpFixture, tc taskCase, updati
 	}
 	events := []any{}
 	for step := range 2 {
-		require.NoError(t, service.LogTaskConsumption(c, info, task))
+		require.NoError(t, taskrecord.LogTaskConsumption(c, info, task))
 		state := fixture.State(t)
 		rows := state["logs"].([]map[string]any)
 		require.Len(t, rows, step+1)
@@ -1429,7 +1433,7 @@ func runBillingContentContract(t *testing.T, f *httpFixture, tc taskCase, updati
 }
 
 func runProviderPollContract(t *testing.T, f *httpFixture, tc taskCase, updating bool) {
-	task, found, err := model.GetByTaskId(1, "task_own")
+	task, found, err := tasksapp.NewStore().GetByTaskId(1, "task_own")
 	require.NoError(t, err)
 	require.True(t, found)
 	task.Platform = constant.TaskPlatform(tc.Plugin)
@@ -1449,16 +1453,14 @@ func runProviderPollContract(t *testing.T, f *httpFixture, tc taskCase, updating
 	if tc.Plugin == "vertex-ai" {
 		task.PrivateData.UpstreamTaskID = base64.RawURLEncoding.EncodeToString([]byte("projects/test-project/locations/us-central1/publishers/google/models/veo-3.0-generate-001/operations/upstream-fixture"))
 	}
-	require.NoError(t, task.Update())
+	require.NoError(t, tasksapp.NewStore().UpdateTask(task))
 	require.NoError(t, f.env.DB.Model(&model.User{}).Where("id=1").Updates(map[string]any{"quota": 999950, "used_quota": 50, "request_count": 1}).Error)
 	require.NoError(t, f.env.DB.Model(&model.Token{}).Where("id=101").Updates(map[string]any{"remain_quota": 999950, "used_quota": 50}).Error)
 	require.NoError(t, f.env.DB.Model(&model.Channel{}).Where("id=71").Update("used_quota", 50).Error)
-	previous := service.GetTaskAdaptorFunc
-	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor { return relay.GetTaskAdaptor(platform) }
-	defer func() { service.GetTaskAdaptorFunc = previous }()
+	polling := taskruntime.NewPolling()
 	events := []any{}
 	for range 2 {
-		summary := service.RunTaskPollingOnce(t.Context(), nil)
+		summary := polling.RunTasks(t.Context(), nil)
 		events = append(events, map[string]any{"state": fixture.State(t), "summary": summary, "outbound": append([]outgoing{}, f.provider.calls...)})
 	}
 	require.NoError(t, f.env.DB.First(task, 81).Error)

@@ -4,14 +4,14 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
+
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	hosttypes "github.com/QuantumNous/new-api/types"
-
-	"github.com/gin-gonic/gin"
 )
 
 type Adaptor interface {
@@ -132,4 +132,14 @@ type TaskValidatedBillingProvider interface {
 // TaskValidatedBillingProvider.
 type TaskValidatedUsageFactsProvider interface {
 	ExtractUsageFactsValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]any, error)
+}
+
+// BatchTaskResult is the gateway parser output for providers with grouped polling.
+type BatchTaskResult struct {
+	TaskInfo   relaycommon.TaskInfo
+	Action     string
+	SubmitTime int64
+	StartTime  int64
+	FinishTime int64
+	Data       any
 }

@@ -16,17 +16,19 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 )
 
 const contextKeyTaskPluginEndpointModel = "task_plugin_endpoint_model_request"
@@ -1070,7 +1072,9 @@ func applyOriginTaskIntent(c *gin.Context, intent map[string]any, meta pluginrun
 	tasks := make([]*model.Task, 0, len(ids))
 	channelID := 0
 	for _, id := range ids {
-		task, exist, err := model.GetByTaskId(userID, id)
+		// BRIDGE: applyOriginTaskIntent reads owned origin tasks for plugin channel selection.
+		// Remove when origin-task routing policy moves to the task plugin owner.
+		task, exist, err := tasksapp.NewStore().GetByTaskId(userID, id)
 		if err != nil {
 			return &originTaskIntentError{Code: "origin_task_not_found", Message: "origin task not found or not owned by you", StatusCode: http.StatusInternalServerError}
 		}
@@ -1141,7 +1145,9 @@ func renderTaskPluginQuery(
 	)
 	userID := common.GetContextKeyInt(c, constant.ContextKeyUserId)
 	platforms := taskPluginLegacyPlatforms(pinned.Plugin.Meta)
-	tasks, err := model.GetByTaskIdsForPlatforms(userID, platforms, taskIDs)
+	// BRIDGE: renderTaskPluginQuery reads platform-scoped owned tasks for plugin query routing.
+	// Remove when task plugin query selection is exposed by its owning scenario.
+	tasks, err := tasksapp.NewStore().GetByTaskIdsForPlatforms(userID, platforms, taskIDs)
 	if err != nil {
 		logger.LogDebug(
 			c,

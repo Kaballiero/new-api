@@ -13,9 +13,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
+	"github.com/QuantumNous/new-api/internal/app/taskruntime"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -30,11 +39,6 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 type nativeRouteBilling struct {
@@ -219,17 +223,10 @@ func TestKlingNativeRouteSubmitPollSettleAndQuery(t *testing.T) {
 	assert.Equal(t, "kling-private-1", persisted.PrivateData.UpstreamTaskID)
 	assert.Equal(t, model.TaskStatus(model.TaskStatusNotStart), persisted.Status)
 
-	previousAdaptorFactory := service.GetTaskAdaptorFunc
-	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
-		return relay.GetTaskAdaptor(platform)
-	}
-	t.Cleanup(func() { service.GetTaskAdaptorFunc = previousAdaptorFactory })
-	service.DispatchPlatformUpdate(
-		context.Background(),
-		persisted.Platform,
-		map[int][]string{channel.Id: {"kling-private-1"}},
-		map[string]*model.Task{"kling-private-1": &persisted},
-	)
+	previousQueryLimit := constant.TaskQueryLimit
+	constant.TaskQueryLimit = 1000
+	t.Cleanup(func() { constant.TaskQueryLimit = previousQueryLimit })
+	taskruntime.NewPolling().RunTasks(context.Background(), nil)
 
 	require.NoError(t, database.Where("task_id = ?", "task_kling_public").First(&persisted).Error)
 	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), persisted.Status)
@@ -558,7 +555,9 @@ func TestMidjourneyAndSwapFaceCaptureFXBeforeUpstreamAndKeepSavedRefund(t *testi
 	current, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
 	require.NoError(t, err)
 	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: current.Source, EffectiveAt: current.EffectiveAt + 1, FetchedAt: current.FetchedAt + 1, Rates: map[string]float64{"USD": 110}}, current.Version))
-	assert.True(t, service.RefundMidjourneyQuota(context.Background(), &task, "test failure"))
+	d := taskstore.MidjourneyToDomain(&task)
+	assert.True(t, tasksapp.NewBilling().RefundMidjourney(context.Background(), d, "test failure"))
+	task = *taskstore.MidjourneyFromDomain(d)
 	require.NoError(t, database.First(&user, 4452).Error)
 	assert.Equal(t, 4_000_000, user.Quota, "refund must use the saved 900000 quota, not current FX")
 	require.NoError(t, database.First(&task, task.Id).Error)
@@ -591,7 +590,7 @@ func TestMidjourneyAndSwapFaceCaptureFXBeforeUpstreamAndKeepSavedRefund(t *testi
 	swapAdmin := swapOther["admin_info"].(map[string]any)
 	assert.Equal(t, float64(90), swapAdmin["billing_fx"].(map[string]any)["rate"])
 	assert.Equal(t, float64(2), swapAdmin["billing_applied_group"].(map[string]any)["pure_ratio"])
-	require.True(t, service.RefundMidjourneyQuota(context.Background(), &swapTask, "test failure"))
+	require.True(t, tasksapp.NewBilling().RefundMidjourney(context.Background(), taskstore.MidjourneyToDomain(&swapTask), "test failure"))
 	require.NoError(t, database.First(&user, 4452).Error)
 	assert.Equal(t, 4_000_000, user.Quota)
 	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"mj_imagine":1,"swap_face":1e20,"mj_overflow":1e20}`))

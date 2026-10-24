@@ -6,12 +6,14 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/QuantumNous/new-api/constant"
-	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
-	jspluginadaptor "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/QuantumNous/new-api/constant"
+	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
+	jspluginadaptor "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
+	"github.com/QuantumNous/new-api/relay/taskregistry"
 )
 
 func TestGetTaskAdaptorMapsMigratedPlatformsToFactoryPlugins(t *testing.T) {
@@ -30,7 +32,7 @@ func TestGetTaskAdaptorMapsMigratedPlatformsToFactoryPlugins(t *testing.T) {
 		constant.TaskPlatform(strconv.Itoa(constant.ChannelTypeVertexAi)),
 	}
 	for _, platform := range platforms {
-		_, isJS := GetTaskAdaptor(platform).(*jspluginadaptor.TaskAdaptor)
+		_, isJS := taskregistry.GetTaskAdaptor(platform).(*jspluginadaptor.TaskAdaptor)
 		assert.True(t, isJS, "platform %s should use its factory plugin", platform)
 	}
 }
@@ -49,13 +51,13 @@ export function parseTaskResult(ctx, body) { return {taskId: body.id, status: "S
 	_, err := pluginruntime.DefaultRegistry.Register(source, pluginruntime.Options{})
 	require.NoError(t, err)
 
-	adaptor := GetTaskAdaptor(constant.TaskPlatform("registry-fallback"))
+	adaptor := taskregistry.GetTaskAdaptor(constant.TaskPlatform("registry-fallback"))
 	require.NotNil(t, adaptor)
 	assert.Equal(t, "Registry Fallback", adaptor.GetChannelName())
 }
 
 func TestGetTaskAdaptorReturnsNilForUnknownPlatform(t *testing.T) {
-	assert.Nil(t, GetTaskAdaptor(constant.TaskPlatform("missing-task-platform")))
+	assert.Nil(t, taskregistry.GetTaskAdaptor(constant.TaskPlatform("missing-task-platform")))
 }
 
 func TestGetTaskAdaptorForRequestUsesExactPinnedPlugin(t *testing.T) {

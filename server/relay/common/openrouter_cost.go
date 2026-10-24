@@ -2,8 +2,9 @@ package common
 
 import (
 	"encoding/json"
-	"github.com/QuantumNous/new-api/common"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 type OpenRouterCostBasis = common.OpenRouterCostBasis
@@ -154,4 +155,9 @@ func (s *OpenRouterCostState) ObserveGenerationID(id string) {
 		return
 	}
 	s.GenerationID = id
+}
+
+// HasOpenRouterSyncTask reports whether this request has a durable synchronous intent.
+func HasOpenRouterSyncTask(info *RelayInfo) bool {
+	return info != nil && info.OpenRouterCost != nil && info.OpenRouterCost.TaskID != ""
 }

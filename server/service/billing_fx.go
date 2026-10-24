@@ -7,14 +7,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
-// The frozen architecture allowlist forbids service -> internal imports.
-// Keep these legacy task/log constants until those consumers move in 2c / wave 5;
-// the new cost rules own their equivalents in billing/domain.
-const (
-	billingFXRateDenomination = 100.0
-	billingFXQuotaPerUnit     = 500_000.0
-)
-
 // BillingFXStatus is the read-only current model-cost FX basis exposed to the
 // admin UI. It is intentionally independent from legacy payment exchange-rate
 // settings.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -231,7 +232,7 @@ func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
 			assert.Equal(t, "declared-model", info.UpstreamModelName)
 			assert.True(t, info.IsModelMapped)
 
-			task := model.InitTask(constant.TaskPlatform("bill-fallback"), info)
+			task := taskrecord.InitTask(constant.TaskPlatform("bill-fallback"), info)
 			assert.Equal(t, "alias-model", task.Properties.OriginModelName)
 			assert.Equal(t, "declared-model", task.Properties.UpstreamModelName)
 

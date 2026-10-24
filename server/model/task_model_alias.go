@@ -2,16 +2,18 @@ package model
 
 import (
 	"fmt"
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 )
 
+// BRIDGE: gateway task routes, pricing and channel-cache consumers use this routing view.
+// Remove when task plugin routing moves out of model.
+//
 // TaskAliasTarget is one mapping-derived alias after cross-channel aggregation.
 // Declared is empty when the same plugin resolves the alias to more than one
 // declared tail (display-only; pin is disabled).

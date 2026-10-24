@@ -514,3 +514,22 @@ type storedCostBasis struct {
 	QuotaPerUnit        float64 `json:"quota_per_unit"`
 	EstimatedUSD        float64 `json:"estimated_usd"`
 }
+
+func (m Metadata) TaskIdentity(other *model.LogOther, identity domain.TaskIdentity) {
+	if other == nil {
+		return
+	}
+	if identity.TaskID != "" {
+		other.SetPublic("task_id", identity.TaskID)
+	}
+	m.Plugin(other, identity.Plugin)
+	if identity.UpstreamTaskID == "" && identity.NodeName == "" {
+		return
+	}
+	if identity.UpstreamTaskID != "" {
+		other.SetRoot("upstream_task_id", identity.UpstreamTaskID)
+	}
+	if identity.NodeName != "" {
+		other.SetRoot("node_name", identity.NodeName)
+	}
+}

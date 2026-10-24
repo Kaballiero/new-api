@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
@@ -18,10 +20,10 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/provider"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
 )
 
 // ReserveCost establishes the hold from a freshly prepared monetary estimate.
@@ -43,7 +45,7 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 	durable := info.NativeImage != nil && info.NativeImage.ReserveUSD > 0 || info.RelayMode == relayconstant.RelayModeRerank || info.OpenRouterCost.ChatImage || info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription
 	if durable {
 		info.PriceData.Quota = quota
-		if err := service.BeginOpenRouterSyncTask(c, info, quota); err != nil {
+		if err := taskrecord.BeginOpenRouterSyncTask(c, info, quota); err != nil {
 			return err
 		}
 	}
@@ -59,7 +61,7 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 	}
 	info.FinalPreConsumedQuota = info.Billing.GetPreConsumedQuota()
 	if durable {
-		return service.CommitOpenRouterSyncReservation(c, info)
+		return taskrecord.CommitOpenRouterSyncReservation(c, info)
 	}
 	return nil
 }
@@ -221,7 +223,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if err := ReserveCost(c, info, estimate); err != nil {
 		return nil, err
 	}
-	if service.HasOpenRouterSyncTask(info) {
+	if relaycommon.HasOpenRouterSyncTask(info) {
 		headers := http.Header{}
 		if err := adaptor.SetupRequestHeader(c, &headers, info); err != nil {
 			return nil, err
@@ -233,12 +235,12 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		for key, value := range overrides {
 			headers.Set(key, value)
 		}
-		if err := service.ConfigureOpenRouterSyncSubmission(info, strings.TrimRight(info.ChannelBaseUrl, "/")+"/v1/generation", headers); err != nil {
+		if err := taskrecord.ConfigureOpenRouterSyncSubmission(info, strings.TrimRight(info.ChannelBaseUrl, "/")+"/v1/generation", headers); err != nil {
 			return nil, err
 		}
 		if info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio {
 			info.OpenRouterCost.CaptureGeneration = func(id string) error {
-				return service.RecordOpenRouterSyncGeneration(info, id)
+				return taskrecord.RecordOpenRouterSyncGeneration(info, id)
 			}
 		}
 	}

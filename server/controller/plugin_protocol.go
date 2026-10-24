@@ -10,9 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	tasksdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -21,9 +25,9 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/taskregistry"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
 )
 
 type pluginProtocolBridgeDeps struct {
@@ -64,7 +68,7 @@ func defaultPluginProtocolBridgeDeps() pluginProtocolBridgeDeps {
 	}
 	return pluginProtocolBridgeDeps{
 		submit:             executeTaskSubmission,
-		loadTask:           model.GetTaskForProtocolObservation,
+		loadTask:           tasksapp.NewStore().GetTaskForProtocolObservation,
 		now:                time.Now,
 		admissions:         pluginProtocolObservationAdmissions,
 		protocolLimits:     relay.DefaultPluginProtocolLimits(),
@@ -76,7 +80,7 @@ func defaultPluginProtocolBridgeDeps() pluginProtocolBridgeDeps {
 		tickJitter:         jitter,
 		heartbeatInterval:  heartbeat,
 		admissionTimeout:   pluginruntime.DefaultCallTimeout,
-		getByTaskId:        model.GetByTaskId,
+		getByTaskId:        tasksapp.NewStore().GetByTaskId,
 		resolvePlugin:      resolveTaskPluginForProtocolRetrieve,
 	}
 }
@@ -133,7 +137,7 @@ func (d pluginProtocolBridgeDeps) withDefaults() pluginProtocolBridgeDeps {
 
 func resolveTaskPluginForProtocolRetrieve(platform constant.TaskPlatform) (*pluginruntime.LoadedPlugin, *pluginruntime.RoutingGeneration, bool) {
 	generation := pluginruntime.DefaultRegistry.Generation()
-	plugin, ok := relay.ResolveTaskPluginForPlatform(generation, platform)
+	plugin, ok := taskregistry.ResolveTaskPluginForPlatform(generation, platform)
 	return plugin, generation, ok
 }
 
@@ -1194,7 +1198,11 @@ func taskPluginProtocolRendererContext(
 	if err != nil {
 		return nil, fmt.Errorf("project task artifacts: %w", err)
 	}
-	artifacts, err = validateProjectedTaskArtifacts(artifacts)
+	projected := make([]tasksdomain.Artifact, len(artifacts))
+	for i, artifact := range artifacts {
+		projected[i] = tasksdomain.Artifact{Key: artifact.Key, Type: artifact.Type, MimeType: artifact.MimeType}
+	}
+	_, err = tasksdomain.ValidateArtifacts(projected)
 	if err != nil {
 		return nil, err
 	}

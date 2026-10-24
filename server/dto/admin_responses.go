@@ -1,10 +1,5 @@
 package dto
 
-import (
-	"github.com/QuantumNous/new-api/internal/authorization/domain"
-	"github.com/QuantumNous/new-api/internal/authorization/get_permission_catalog"
-)
-
 // Fork-owned response DTOs for admin endpoints whose handlers reply with
 // ad-hoc gin.H maps or with types living in packages the OpenAPI generator
 // does not parse (service/*, pkg/perf_metrics). Each struct mirrors the exact
@@ -32,11 +27,29 @@ type PaymentComplianceResponse struct {
 	ConfirmedBy  int    `json:"confirmed_by"`
 }
 
-// Public OpenAPI names retain the actual authorization metadata and HTTP DTO.
-type AuthzActionDefinition = domain.ActionDefinition
-type AuthzResourceDefinition = domain.ResourceDefinition
-type AuthzRoleDescriptor = domain.RoleDescriptor
-type AuthzCatalogResponse = get_permission_catalog.Output
+// OpenAPI wire mirrors of the authorization catalog; runtime metadata stays with its owner.
+type AuthzActionDefinition struct {
+	Action         string   `json:"action"`
+	LabelKey       string   `json:"label_key"`
+	DescriptionKey string   `json:"description_key"`
+	DefaultRoles   []string `json:"-"`
+}
+type AuthzResourceDefinition struct {
+	Resource string                  `json:"resource"`
+	LabelKey string                  `json:"label_key"`
+	Actions  []AuthzActionDefinition `json:"actions"`
+}
+type AuthzRoleDescriptor struct {
+	Key       string                     `json:"key"`
+	Name      string                     `json:"name"`
+	BuiltIn   bool                       `json:"built_in"`
+	Superuser bool                       `json:"superuser"`
+	Grants    map[string]map[string]bool `json:"grants"`
+}
+type AuthzCatalogResponse struct {
+	Resources []AuthzResourceDefinition `json:"resources"`
+	Roles     []AuthzRoleDescriptor     `json:"roles"`
+}
 
 // PerfMetricsModelSummary mirrors pkg/perf_metrics.ModelSummary.
 type PerfMetricsModelSummary struct {

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/i18n"
 	app "github.com/QuantumNous/new-api/internal/app/billing"
 	"github.com/QuantumNous/new-api/internal/billing/apply_quota_delta"
@@ -20,7 +22,6 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
 )
 
 type Gateway struct {
@@ -198,7 +199,7 @@ func (g *Gateway) Settle(c *gin.Context, info *relaycommon.RelayInfo, actual int
 	if err := info.Billing.Settle(actual); err != nil {
 		return err
 	}
-	return g.notify(info, actual-preConsumed, preConsumed, info.BillingSource == domain.Subscription)
+	return g.NotifyQuota(info, actual-preConsumed, preConsumed, info.BillingSource == domain.Subscription)
 }
 func (g *Gateway) SettleWss(c *gin.Context, info *relaycommon.RelayInfo, actual int) error {
 	if info.Billing != nil {
@@ -221,12 +222,12 @@ func (g *Gateway) ApplyDelta(info *relaycommon.RelayInfo, delta, preConsumed int
 	result, err := g.usecases.Apply.Execute(apply_quota_delta.Input{Account: account(info), Source: info.BillingSource, SubscriptionID: info.SubscriptionId, Delta: delta})
 	info.SubscriptionPostDelta += result.SubscriptionPostDelta
 	if err == nil && sendNotification {
-		err = g.notify(info, delta, preConsumed, false)
+		err = g.NotifyQuota(info, delta, preConsumed, false)
 	}
 	return result.FundingApplied, result.TokenApplied, err
 }
 
-func (g *Gateway) notify(info *relaycommon.RelayInfo, delta, preConsumed int, subscription bool) error {
+func (g *Gateway) NotifyQuota(info *relaycommon.RelayInfo, delta, preConsumed int, subscription bool) error {
 	return g.usecases.Notify.Execute(notify_quota.Input{Delta: delta, PreConsumed: preConsumed, Subscription: subscription, State: func() domain.NotificationState {
 		s := info.UserSetting
 		return domain.NotificationState{

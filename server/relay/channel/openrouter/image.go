@@ -19,17 +19,19 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gin-gonic/gin"
+	_ "golang.org/x/image/webp"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
-	_ "golang.org/x/image/webp"
 )
 
 // ImageAdaptor uses OpenRouter's dedicated /images protocol. Embedding the
@@ -856,8 +858,8 @@ func (a *ImageAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, _ 
 	if err := ReserveCost(c, info, info.NativeImage.EstimatedCostUSD); err != nil {
 		return nil, err
 	}
-	if service.HasOpenRouterSyncTask(info) {
-		if err := service.ConfigureOpenRouterSyncSubmission(info, "", nil); err != nil {
+	if relaycommon.HasOpenRouterSyncTask(info) {
+		if err := taskrecord.ConfigureOpenRouterSyncSubmission(info, "", nil); err != nil {
 			return nil, err
 		}
 	}
@@ -887,8 +889,8 @@ func captureImageRequestID(c *gin.Context, resp *http.Response, info *relaycommo
 
 func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usageResult any, apiErr *types.NewAPIError) {
 	defer func() {
-		if apiErr != nil && service.HasOpenRouterSyncTask(info) {
-			_ = service.FailOpenRouterSyncTask(info, "invalid_image_result")
+		if apiErr != nil && relaycommon.HasOpenRouterSyncTask(info) {
+			_ = taskrecord.FailOpenRouterSyncTask(info, "invalid_image_result")
 		}
 	}()
 	if resp == nil || resp.Body == nil {
@@ -901,7 +903,7 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 		info.NativeImage.OutcomeUnknown = true
 		return nil, imageResponseError("OpenRouter image response was interrupted or exceeded the response limit")
 	}
-	if service.HasOpenRouterSyncTask(info) {
+	if relaycommon.HasOpenRouterSyncTask(info) {
 		observeImageCost(info, responseBody)
 	}
 	var envelope struct {
@@ -926,8 +928,8 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 	if err != nil {
 		return nil, imageResponseError("OpenRouter image result encoding failed")
 	}
-	if service.HasOpenRouterSyncTask(info) {
-		if err := service.CompleteOpenRouterSyncTask(c, info, encoded, "application/json"); err != nil {
+	if relaycommon.HasOpenRouterSyncTask(info) {
+		if err := taskrecord.CompleteOpenRouterSyncTask(c, info, encoded, "application/json"); err != nil {
 			return nil, imageResponseError(err.Error())
 		}
 	}
@@ -1042,13 +1044,13 @@ func ParseImageResponse(body []byte) (*imageResponse, *dto.Usage, error) {
 func ImageError(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) *types.NewAPIError {
 	defer service.CloseResponseBodyGracefully(resp)
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (64<<10)+1))
-	info.NativeImage.OutcomeUnknown = readErr != nil || service.HasOpenRouterSyncTask(info)
-	if readErr == nil && len(body) <= 64<<10 && service.HasOpenRouterSyncTask(info) {
+	info.NativeImage.OutcomeUnknown = readErr != nil || relaycommon.HasOpenRouterSyncTask(info)
+	if readErr == nil && len(body) <= 64<<10 && relaycommon.HasOpenRouterSyncTask(info) {
 		observeImageCost(info, body)
 		info.NativeImage.OutcomeUnknown = !info.OpenRouterCost.Final
 	}
-	if service.HasOpenRouterSyncTask(info) {
-		_ = service.FailOpenRouterSyncTask(info, "image_upstream_error")
+	if relaycommon.HasOpenRouterSyncTask(info) {
+		_ = taskrecord.FailOpenRouterSyncTask(info, "image_upstream_error")
 	}
 	var envelope struct {
 		Error struct {

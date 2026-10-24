@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/stretchr/testify/assert"
@@ -69,6 +70,34 @@ func withModelCostFXServiceDialect(t *testing.T) {
 	t.Logf("FX_TEST_DIALECT=%s", dialect)
 }
 
+// truncateModelCostFXService only clears the tables migrated by the FX fixture.
+func truncateModelCostFXService(t *testing.T) {
+	t.Helper()
+	db := model.DB
+	t.Cleanup(func() {
+		for _, table := range []string{"system_task_locks", "system_tasks", "model_cost_fx"} {
+			require.NoError(t, db.Exec("DELETE FROM "+table).Error)
+		}
+	})
+}
+
+func TestModelCostFXFixtureKeepsTaskBillingDatabaseIsolated(t *testing.T) {
+	taskfixture.WithSQLite(t)
+	billingDB, billingLogDB := model.DB, model.LOG_DB
+	require.NoError(t, billingDB.Create(&model.Task{TaskID: "fx-fixture-foreign-task", Quota: 47}).Error)
+	t.Setenv("FX_TEST_DIALECT", "sqlite")
+	t.Run("fx_only", func(t *testing.T) {
+		withModelCostFXServiceDialect(t)
+		truncateModelCostFXService(t)
+		require.Same(t, billingDB, model.DB)
+	})
+	assert.Same(t, billingDB, model.DB)
+	assert.Same(t, billingLogDB, model.LOG_DB)
+	var task model.Task
+	require.NoError(t, billingDB.Where("task_id = ?", "fx-fixture-foreign-task").First(&task).Error)
+	assert.Equal(t, 47, task.Quota)
+}
+
 // withSystemTaskRegistry swaps the package registry for the given handlers for
 // the duration of a test and restores the original registry afterward.
 func withSystemTaskRegistry(t *testing.T, handlers ...SystemTaskHandler) {
@@ -110,7 +139,7 @@ func seedModelCostFXServiceTest(t *testing.T) model.ModelCostFXSnapshot {
 
 func TestModelCostFXRefreshNormalizesUSDNominal(t *testing.T) {
 	withModelCostFXServiceDialect(t)
-	truncate(t)
+	truncateModelCostFXService(t)
 	seed := seedModelCostFXServiceTest(t)
 	publicationDate := time.Unix(seed.EffectiveAt+1, 0).UTC().Format(time.RFC3339)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -137,7 +166,7 @@ func TestModelCostFXRefreshNormalizesUSDNominal(t *testing.T) {
 func TestModelCostFXRefreshFailureRetainsLastGood(t *testing.T) {
 	withModelCostFXServiceDialect(t)
 	require.NoError(t, model.DB.AutoMigrate(&model.ModelCostFXRow{}))
-	truncate(t)
+	truncateModelCostFXService(t)
 	baselineSnapshot := seedModelCostFXServiceTest(t)
 	baselineVersion := baselineSnapshot.Version
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -306,7 +335,7 @@ func TestModelCostFXTaskRunSuccessAndFailure(t *testing.T) {
 
 func TestModelCostFXTaskKeepsCommittedFXWhenFinishLosesLease(t *testing.T) {
 	withModelCostFXServiceDialect(t)
-	truncate(t)
+	truncateModelCostFXService(t)
 	_ = model.DB.Where("type = ?", modelCostFXTaskType).Delete(&model.SystemTask{})
 	_ = model.DB.Where("type = ?", modelCostFXTaskType).Delete(&model.SystemTaskLock{})
 	seed := seedModelCostFXServiceTest(t)

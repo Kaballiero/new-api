@@ -160,7 +160,7 @@ func IncreaseTokenQuota(tokenId int, key string, quota int) (err error) {
 		gopool.Go(func() {
 			// Guarded increment: a missing hash is skipped and hydrated from the
 			// database by the next read; a partial quota-only hash is never created.
-			if _, err := cacheApplyTokenQuotaDelta(tokenId, key, int64(quota)); err != nil {
+			if _, err := CacheApplyTokenQuotaDelta(tokenId, key, int64(quota)); err != nil {
 				common.SysLog("failed to increase token quota: " + err.Error())
 			}
 		})
@@ -189,7 +189,7 @@ func DecreaseTokenQuota(id int, key string, quota int) (err error) {
 	}
 	if common.RedisEnabled {
 		gopool.Go(func() {
-			if _, err := cacheApplyTokenQuotaDelta(id, key, int64(-quota)); err != nil {
+			if _, err := CacheApplyTokenQuotaDelta(id, key, int64(-quota)); err != nil {
 				common.SysLog("failed to decrease token quota: " + err.Error())
 			}
 		})

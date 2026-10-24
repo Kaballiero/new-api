@@ -11,21 +11,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/model"
-	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/QuantumNous/new-api/relay"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/service"
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
+	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	runtimetechnical "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	"github.com/QuantumNous/new-api/internal/tasks/domain"
+	"github.com/QuantumNous/new-api/internal/tasks/poll_tasks"
+	"github.com/QuantumNous/new-api/model"
+	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/relay"
+	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
+	"github.com/QuantumNous/new-api/service"
 )
 
 func TestServeTaskPluginProtocolWaitsForDurableSubmissionBeforeWriting(t *testing.T) {
@@ -294,11 +304,14 @@ func TestServeTaskPluginProtocolDisconnectDuringTerminalSettlementStopsOnlyObser
 		started: settlementStarted,
 		release: releaseSettlement,
 	}
-	previousAdaptorFactory := service.GetTaskAdaptorFunc
-	service.GetTaskAdaptorFunc = func(constant.TaskPlatform) service.TaskPollingAdaptor {
-		return adaptor
-	}
-	t.Cleanup(func() { service.GetTaskAdaptorFunc = previousAdaptorFactory })
+	polling := poll_tasks.NewUsecase(
+		taskstore.PollingStore{Store: tasksapp.NewStore()}, runtimetechnical.PollChannels{},
+		terminalSettlementPollingFactory{adaptor: adaptor}, tasksapp.NewBilling(), tasksapp.NewReconciler(),
+		runtimetechnical.Codec{}, runtimetechnical.Diagnostics{}, poll_tasks.Limits{
+			TimeoutMinutes: func() int { return 0 }, QueryLimit: func() int { return 1000 },
+			MaxFailures: func() int { return constant.TaskPollMaxFailures },
+		}, time.Now, gopool.Go, taskcommon.BuildProxyURL,
+	)
 
 	deps := pluginProtocolTestDeps()
 	deps.submit = func(_ *gin.Context, info *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
@@ -319,12 +332,7 @@ func TestServeTaskPluginProtocolDisconnectDuringTerminalSettlementStopsOnlyObser
 	go func() {
 		<-observationStarted
 		defer close(pollingDone)
-		service.DispatchPlatformUpdate(
-			context.Background(),
-			task.Platform,
-			map[int][]string{channel.Id: {"upstream-terminal"}},
-			map[string]*model.Task{"upstream-terminal": &task},
-		)
+		_, _ = polling.Execute(context.Background(), nil)
 	}()
 	go func() {
 		defer close(done)
@@ -366,23 +374,29 @@ type terminalSettlementPollingAdaptor struct {
 	completed bool
 }
 
-func (a *terminalSettlementPollingAdaptor) Init(*relaycommon.RelayInfo) {}
+type terminalSettlementPollingFactory struct {
+	adaptor *terminalSettlementPollingAdaptor
+}
 
-func (a *terminalSettlementPollingAdaptor) FetchTask(string, string, *model.Task, string) (*http.Response, error) {
-	return &http.Response{
+func (f terminalSettlementPollingFactory) Open(string) poll_tasks.Adaptor { return f.adaptor }
+
+func (a *terminalSettlementPollingAdaptor) Init(string, string) {}
+
+func (a *terminalSettlementPollingAdaptor) FetchTask(string, string, *domain.Task, string) (*poll_tasks.Response, error) {
+	return &poll_tasks.Response{
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(strings.NewReader(`{}`)),
 	}, nil
 }
 
-func (a *terminalSettlementPollingAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
-	return &relaycommon.TaskInfo{
+func (a *terminalSettlementPollingAdaptor) ParseTaskResult(*domain.Task, *poll_tasks.Response, []byte) (*domain.TaskInfo, error) {
+	return &domain.TaskInfo{
 		Status:   model.TaskStatusSuccess,
 		Progress: "100%",
 	}, nil
 }
 
-func (a *terminalSettlementPollingAdaptor) AdjustBillingOnComplete(task *model.Task, _ *relaycommon.TaskInfo) int {
+func (a *terminalSettlementPollingAdaptor) AdjustBillingOnComplete(task *domain.Task, _ *domain.TaskInfo) int {
 	close(a.started)
 	<-a.release
 	a.completed = true
@@ -1683,9 +1697,9 @@ func TestClientPrivacyTaskFetchDashboardAndLegacyOrigin(t *testing.T) {
 		require.Nil(t, relay.RelayTaskFetch(c, relayconstant.RelayModeVideoFetchByID))
 		assert.NotContains(t, recorder.Body.String(), "billing_usage")
 		assert.NotContains(t, recorder.Body.String(), "raw-private")
-		client := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)
-		admin := tasksToDto([]*model.Task{task}, false, common.RoleAdminUser)
-		root := tasksToDto([]*model.Task{task}, false, common.RoleRootUser)
+		client := []*domain.TaskView{domain.ProjectTaskView(tasksrecord.ToDomain(task), domain.Visibility{Admin: common.RoleCommonUser >= common.RoleAdminUser, Root: common.RoleCommonUser >= common.RoleRootUser}, runtimetechnical.ProjectClientTaskData)}
+		admin := []*domain.TaskView{domain.ProjectTaskView(tasksrecord.ToDomain(task), domain.Visibility{Admin: common.RoleAdminUser >= common.RoleAdminUser, Root: common.RoleAdminUser >= common.RoleRootUser}, runtimetechnical.ProjectClientTaskData)}
+		root := []*domain.TaskView{domain.ProjectTaskView(tasksrecord.ToDomain(task), domain.Visibility{Admin: common.RoleRootUser >= common.RoleAdminUser, Root: common.RoleRootUser >= common.RoleRootUser}, runtimetechnical.ProjectClientTaskData)}
 		require.Len(t, client, 1)
 		assert.Equal(t, string(raw), string(admin[0].Data))
 		assert.Equal(t, string(raw), string(root[0].Data))
@@ -1712,7 +1726,7 @@ func TestClientPrivacyTaskFetchDashboardAndLegacyOrigin(t *testing.T) {
 			expectedInternal = "fallback-private"
 		}
 		assert.Equal(t, expectedInternal, info.OriginModelName)
-		persisted := model.InitTask(constant.TaskPlatform("synthetic"), info)
+		persisted := taskrecord.InitTask(constant.TaskPlatform("synthetic"), info)
 		assert.Equal(t, origin, persisted.Properties.OriginModelName)
 		require.NoError(t, database.Create(persisted).Error)
 		var loaded model.Task

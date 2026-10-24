@@ -6,12 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	modelpkg "github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/system_setting"
-	"github.com/glebarez/sqlite"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 	"image"
 	"image/png"
 	"io"
@@ -23,20 +17,30 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	modelpkg "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 type errorStreamWriter struct {
@@ -1241,7 +1245,7 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, response.(*http.Response).Body.Close())
 				assert.Equal(t, transport.response, string(raw))
-				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 				require.NoError(t, err)
 				require.True(t, exists)
 				assert.Equal(t, tc.bodyID, task.PrivateData.UpstreamTaskID)
@@ -1269,7 +1273,7 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 			if tc.headerID != "" && tc.headerID != tc.bodyID {
 				require.NotNil(t, apiErr)
 				assert.Empty(t, recorder.Body.String(), "reject identity disagreement before delivering a successful result")
-				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 				require.NoError(t, err)
 				require.True(t, exists)
 				assert.True(t, task.PrivateData.OpenRouterSync.IdentityConflict)
@@ -1283,7 +1287,7 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 				assert.True(t, info.OpenRouterCost.Sent)
 				assert.False(t, info.OpenRouterCost.Final)
 				assert.Equal(t, 1, transport.posts, "unknown cost is never replayed")
-				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 				require.NoError(t, err)
 				require.True(t, exists)
 				assert.True(t, task.PrivateData.OpenRouterSync.ResultReady)
@@ -1605,7 +1609,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 				return
 			}
 			require.Nil(t, apiErr)
-			task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 			require.NoError(t, err)
 			require.True(t, exists)
 			require.NotNil(t, task.PrivateData.OpenRouterSyncState())
@@ -2121,14 +2125,14 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			adaptor := &Adaptor{}
 			if tc.crash == "intent" {
 				info.OpenRouterCost = &relaycommon.OpenRouterCostState{Basis: common.OpenRouterCostBasis{Version: "openrouter_cost_v1", EffectiveGroupRatio: 1.5, QuotaPerUnit: common.QuotaPerUnit, EstimatedUSD: .02}}
-				require.NoError(t, service.BeginOpenRouterSyncTask(c, info, 15000))
-				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				require.NoError(t, taskrecord.BeginOpenRouterSyncTask(c, info, 15000))
+				task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 				require.NoError(t, err)
 				require.True(t, exists)
 				task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
-				require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
-				service.RunTaskPollingOnce(t.Context(), nil)
-				task, exists, err = modelpkg.GetUniqueByOnlyTaskId(task.TaskID)
+				require.NoError(t, tasksapp.NewStore().UpdateOpenRouterSync(task, task.PrivateData.OpenRouterSyncState().Revision))
+				pollSyncMetadataForProvider(t)
+				task, exists, err = tasksapp.NewStore().GetUniqueByOnlyTaskId(task.TaskID)
 				require.NoError(t, err)
 				require.True(t, exists)
 				assert.Equal(t, modelpkg.TaskStatus(modelpkg.TaskStatusFailure), task.Status)
@@ -2175,12 +2179,12 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			if tc.crash == "dispatch" {
 				require.NoError(t, err)
 				require.NoError(t, response.(*http.Response).Body.Close())
-				task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+				task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 				require.NoError(t, err)
 				require.True(t, exists)
 				task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
-				require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
-				service.RunTaskPollingOnce(t.Context(), nil)
+				require.NoError(t, tasksapp.NewStore().UpdateOpenRouterSync(task, task.PrivateData.OpenRouterSyncState().Revision))
+				pollSyncMetadataForProvider(t)
 			} else if tc.timeout || tc.deadline {
 				require.Error(t, err)
 			} else {
@@ -2195,7 +2199,7 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 					assert.Contains(t, recorder.Body.String(), `"search_units":1`)
 				}
 			}
-			task, exists, err := modelpkg.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 			require.NoError(t, err)
 			require.True(t, exists)
 			assert.Equal(t, "rerank", task.Action)
@@ -2206,11 +2210,11 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 				assert.Equal(t, "application/json", task.PrivateData.OpenRouterSync.ResultMimeType)
 			}
 			info.TokenId++
-			require.ErrorContains(t, service.FailOpenRouterSyncTask(info, "foreign_owner"), "identity changed")
+			require.ErrorContains(t, taskrecord.FailOpenRouterSyncTask(info, "foreign_owner"), "identity changed")
 			info.TokenId--
 			stale := *task
 			stale.Platform = constant.TaskPlatformOpenRouterAudio
-			require.Error(t, stale.UpdateOpenRouterSync(stale.PrivateData.OpenRouterSyncState().Revision), "platform cannot be rewritten by a stale claimant")
+			require.Error(t, tasksapp.NewStore().UpdateOpenRouterSync(&stale, stale.PrivateData.OpenRouterSyncState().Revision), "platform cannot be rewritten by a stale claimant")
 			target := wantHold
 			if info.OpenRouterCost.Final {
 				target = common.QuotaRound(info.OpenRouterCost.CostUSD * common.QuotaPerUnit * 1.5)
@@ -2226,8 +2230,8 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			assert.Equal(t, 10000000-target, user.Quota)
 			assert.Equal(t, 10000000-target, token.RemainQuota)
 			if tc.metadata != "" {
-				service.RunTaskPollingOnce(t.Context(), nil)
-				saved, exists, err := modelpkg.GetUniqueByOnlyTaskId(task.TaskID)
+				pollSyncMetadataForProvider(t)
+				saved, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(task.TaskID)
 				require.NoError(t, err)
 				require.True(t, exists)
 				if tc.name == "metadata confirms cost" {
@@ -2240,5 +2244,15 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			}
 			assert.Equal(t, 1, posts, "no paid replay")
 		})
+	}
+}
+
+// pollSyncMetadataForProvider tests the durable metadata scenario directly.
+// Importing the outer task runtime here would cycle through this provider package.
+func pollSyncMetadataForProvider(t *testing.T) {
+	t.Helper()
+	reconciler := tasksapp.NewReconciler()
+	for _, task := range tasksapp.NewStore().GetUnfinishedSyncTaskPage(constant.TaskQueryLimit, 0) {
+		require.NoError(t, reconciler.Poll(t.Context(), tasksrecord.ToDomain(task)))
 	}
 }

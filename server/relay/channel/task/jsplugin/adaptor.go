@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
@@ -30,9 +32,9 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
 )
 
 type requestDescriptor struct {
@@ -685,7 +687,7 @@ func (a *TaskAdaptor) doFetchDescriptor(baseURL, proxy string, value any) (*http
 	return resp, nil
 }
 
-func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response, body []byte) (map[string]*service.BatchTaskResult, error) {
+func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response, body []byte) (map[string]*channel.BatchTaskResult, error) {
 	started := time.Now()
 	input := any(string(body))
 	var decoded any
@@ -727,7 +729,7 @@ func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response,
 		logger.LogDebug(context.Background(), "task_plugin subsystem=adaptor event=parse_batch_failed plugin=%q reason=invalid_result body_bytes=%d elapsed_ms=%d", a.plugin.Meta.Key, len(body), time.Since(started).Milliseconds())
 		return nil, err
 	}
-	results := make(map[string]*service.BatchTaskResult, len(parsed))
+	results := make(map[string]*channel.BatchTaskResult, len(parsed))
 	hasCompletionUsage := a.hasHook(context.Background(), "extractUsageOnComplete")
 	for _, item := range parsed {
 		if strings.TrimSpace(item.TaskID) == "" {
@@ -759,7 +761,7 @@ func (a *TaskAdaptor) ParseBatchResult(tasks []*model.Task, resp *http.Response,
 				a.applyCompletionUsageFacts(&info, facts)
 			}
 		}
-		results[item.TaskID] = &service.BatchTaskResult{TaskInfo: info, Action: item.Action, SubmitTime: item.SubmitTime, StartTime: item.StartTime, FinishTime: item.FinishTime, Data: item.Data}
+		results[item.TaskID] = &channel.BatchTaskResult{TaskInfo: info, Action: item.Action, SubmitTime: item.SubmitTime, StartTime: item.StartTime, FinishTime: item.FinishTime, Data: item.Data}
 	}
 	logger.LogDebug(
 		context.Background(),
@@ -901,7 +903,7 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	}
 	// Keep provider extensions intact while the host owns the public task's
 	// identity and lifecycle, including completion timestamps after settlement.
-	host := task.ToOpenAIVideo()
+	host := taskrecord.ToOpenAIVideo(task)
 	rendered["id"] = host.ID
 	rendered["object"] = host.Object
 	delete(rendered, "task_id")

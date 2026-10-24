@@ -18,19 +18,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
-	_ "github.com/QuantumNous/new-api/relay/billing" // This adaptor test binary does not link the root relay package.
-	"github.com/QuantumNous/new-api/relay/channel"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -38,6 +25,23 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
+	_ "github.com/QuantumNous/new-api/relay/billing" // This adaptor test binary does not link the root relay package.
+	"github.com/QuantumNous/new-api/relay/channel"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 // Initialize translations for this test binary, which does not run main.
@@ -1496,9 +1500,9 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 					assert.Empty(t, task.PrivateData.OpenRouterSyncState().Headers)
 					if tc.lateHeaders {
 						task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
-						require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
+						require.NoError(t, tasksapp.NewStore().UpdateOpenRouterSync(&task, task.PrivateData.OpenRouterSyncState().Revision))
 						if tc.swept {
-							service.RunTaskPollingOnce(t.Context(), nil)
+							pollSyncMetadataForProvider(t)
 						}
 					}
 				}
@@ -1573,12 +1577,12 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 				planned, clamp, basisErr := info.OpenRouterCost.Basis.Quota(tc.reserve)
 				require.NoError(t, basisErr)
 				require.Nil(t, clamp)
-				require.NoError(t, service.BeginOpenRouterSyncTask(c, info, planned))
+				require.NoError(t, taskrecord.BeginOpenRouterSyncTask(c, info, planned))
 				if tc.crash != "intent" {
 					require.Nil(t, service.PreConsumeBilling(c, planned, info))
 					if tc.crash == "dispatch" {
-						require.NoError(t, service.CommitOpenRouterSyncReservation(c, info))
-						require.NoError(t, service.ConfigureOpenRouterSyncSubmission(info, "", nil))
+						require.NoError(t, taskrecord.CommitOpenRouterSyncReservation(c, info))
+						require.NoError(t, taskrecord.ConfigureOpenRouterSyncSubmission(info, "", nil))
 					}
 				}
 			} else if err == nil {
@@ -1587,13 +1591,13 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 				if tc.wantError == "" && !tc.transportError {
 					require.NoError(t, err)
 					if tc.expired {
-						task, exists, loadErr := model.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+						task, exists, loadErr := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 						require.NoError(t, loadErr)
 						require.True(t, exists)
 						task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
-						require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
+						require.NoError(t, tasksapp.NewStore().UpdateOpenRouterSync(task, task.PrivateData.OpenRouterSyncState().Revision))
 						if tc.swept {
-							service.RunTaskPollingOnce(t.Context(), nil)
+							pollSyncMetadataForProvider(t)
 						}
 					}
 					if tc.partial {
@@ -1630,7 +1634,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			require.NotNil(t, info.OpenRouterCost)
 			if tc.noReserve {
 				assert.Empty(t, info.OpenRouterCost.TaskID)
-				assert.False(t, service.HasOpenRouterSyncTask(info))
+				assert.False(t, relaycommon.HasOpenRouterSyncTask(info))
 				var user model.User
 				require.NoError(t, db.First(&user, id).Error)
 				cost, costErr := common.ValidateOpenRouterCost([]byte(tc.cost))
@@ -1641,21 +1645,21 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			}
 			require.NotEmpty(t, info.OpenRouterCost.TaskID)
 			assert.Equal(t, info.OpenRouterCost.TaskID, recorder.Header().Get("X-Task-Id"))
-			task, exists, err := model.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 			require.NoError(t, err)
 			require.True(t, exists)
 			if tc.crash != "" {
 				task.PrivateData.OpenRouterSyncState().LeaseUntil = 1
-				require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSyncState().Revision))
+				require.NoError(t, tasksapp.NewStore().UpdateOpenRouterSync(task, task.PrivateData.OpenRouterSyncState().Revision))
 			}
 			if tc.partial {
 				assert.True(t, task.PrivateData.Reconciliation.SettlementPending)
 				require.NoError(t, db.Create(&model.Token{Id: id, UserId: id, Key: key, RemainQuota: quota - info.FinalPreConsumedQuota, Status: common.TokenStatusEnabled}).Error)
 			}
 			for range 2 {
-				service.RunTaskPollingOnce(t.Context(), nil)
+				pollSyncMetadataForProvider(t)
 			}
-			task, exists, err = model.GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			task, exists, err = tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
 			require.NoError(t, err)
 			require.True(t, exists)
 			wantCost := info.NativeImage.EstimatedCostUSD
@@ -1677,7 +1681,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 			} else {
 				assert.True(t, task.PrivateData.Reconciliation.Required)
 				assert.False(t, task.PrivateData.Reconciliation.Finalized)
-				assert.False(t, service.RefundTaskQuota(t.Context(), task, "unknown must remain held"))
+				assert.False(t, tasksapp.NewBilling().Refund(t.Context(), tasksrecord.ToDomain(task), "unknown must remain held"))
 			}
 			wantQuota := quota - common.QuotaRound(wantCost*common.QuotaPerUnit*1.5)
 			var user model.User
@@ -1697,7 +1701,7 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 				assert.Equal(t, wantID, task.PrivateData.OpenRouterSyncState().UpstreamRequestID)
 			}
 			if known && !tc.partial {
-				require.Error(t, service.FailOpenRouterSyncTask(info, "duplicate_cost"))
+				require.Error(t, taskrecord.FailOpenRouterSyncTask(info, "duplicate_cost"))
 			}
 			if tc.crash == "" && !tc.transportError && !tc.httpError && known && !tc.badImage && !tc.expired && !tc.lateHeaders {
 				assert.True(t, task.PrivateData.OpenRouterSyncState().ResultReady)
@@ -1967,5 +1971,15 @@ func TestBoundedVideoRejectsConflictingMetadata(t *testing.T) {
 			_, _, _, err := probeBoundedVideo(b)
 			require.Error(t, err)
 		})
+	}
+}
+
+// pollSyncMetadataForProvider tests the durable metadata scenario directly.
+// Importing the outer task runtime here would cycle through this provider package.
+func pollSyncMetadataForProvider(t *testing.T) {
+	t.Helper()
+	reconciler := tasksapp.NewReconciler()
+	for _, task := range tasksapp.NewStore().GetUnfinishedSyncTaskPage(constant.TaskQueryLimit, 0) {
+		require.NoError(t, reconciler.Poll(t.Context(), tasksrecord.ToDomain(task)))
 	}
 }

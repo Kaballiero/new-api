@@ -3,9 +3,11 @@ package relay
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/QuantumNous/new-api/constant"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/stretchr/testify/assert"
+	"github.com/QuantumNous/new-api/relay/taskregistry"
 )
 
 // TaskPlatformUnavailableError feeds the client-facing rejection when no
@@ -15,7 +17,7 @@ func TestTaskPlatformUnavailableError(t *testing.T) {
 	t.Run("master switch off", func(t *testing.T) {
 		pluginruntime.DefaultRegistry.SetEnabled(false)
 		t.Cleanup(func() { pluginruntime.DefaultRegistry.SetEnabled(true) })
-		code, message := TaskPlatformUnavailableError(constant.TaskPlatform("17"))
+		code, message := taskregistry.TaskPlatformUnavailableError(constant.TaskPlatform("17"))
 		assert.Equal(t, "task_plugin_system_disabled", code)
 		assert.Contains(t, message, "task plugin system is disabled")
 	})
@@ -23,13 +25,13 @@ func TestTaskPlatformUnavailableError(t *testing.T) {
 	t.Run("factory plugin disabled resolves legacy channel type to plugin key", func(t *testing.T) {
 		pluginruntime.DefaultRegistry.SetDisabledFactoryKeys([]string{"alibaba"})
 		t.Cleanup(func() { pluginruntime.DefaultRegistry.SetDisabledFactoryKeys(nil) })
-		code, message := TaskPlatformUnavailableError(constant.TaskPlatform("17"))
+		code, message := taskregistry.TaskPlatformUnavailableError(constant.TaskPlatform("17"))
 		assert.Equal(t, "task_plugin_disabled", code)
 		assert.Contains(t, message, `task plugin "alibaba" is disabled`)
 	})
 
 	t.Run("unknown platform keeps the legacy message", func(t *testing.T) {
-		code, message := TaskPlatformUnavailableError(constant.TaskPlatform("no-such-platform"))
+		code, message := taskregistry.TaskPlatformUnavailableError(constant.TaskPlatform("no-such-platform"))
 		assert.Equal(t, "invalid_api_platform", code)
 		assert.Contains(t, message, "invalid api platform: no-such-platform")
 	})

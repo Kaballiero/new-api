@@ -21,9 +21,13 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/lingyiwanwu"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	"github.com/QuantumNous/new-api/relay/provider"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	//"github.com/QuantumNous/new-api/relay/channel/minimax"
+	"github.com/gin-gonic/gin"
+	"github.com/samber/lo"
+
 	"github.com/QuantumNous/new-api/relay/channel/xinference"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/common_handler"
@@ -33,9 +37,6 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
-	"github.com/samber/lo"
-
-	"github.com/gin-gonic/gin"
 )
 
 type Adaptor struct {
@@ -845,11 +846,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 					err = openrouter.CostError("OpenRouter generation identity is unverified")
 				}
 				if err != nil {
-					_ = service.FailOpenRouterSyncTask(info, "invalid_chat_image_result")
+					_ = taskrecord.FailOpenRouterSyncTask(info, "invalid_chat_image_result")
 					return
 				}
-				if completeErr := service.CompleteOpenRouterSyncTask(c, info, nil, "application/json"); completeErr != nil {
-					_ = service.FailOpenRouterSyncTask(info, "chat_image_completion_unavailable")
+				if completeErr := taskrecord.CompleteOpenRouterSyncTask(c, info, nil, "application/json"); completeErr != nil {
+					_ = taskrecord.FailOpenRouterSyncTask(info, "chat_image_completion_unavailable")
 					err = openrouter.CostError("OpenRouter chat-image completion requires reconciliation")
 				}
 			}()

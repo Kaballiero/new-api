@@ -17,8 +17,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
-// BRIDGE: service/{task_billing,batch_billing}.go and relay/mjproxy_handler.go via the single BillingGateway until wave 5.
+// TaskMetadata exposes the single usage serializer to task gateway mapping.
+// BRIDGE: service/batch_billing.go keeps its projection bridge; remove when batch billing moves to its own module.
 type TaskMetadata interface {
+	TaskIdentity(*model.LogOther, domain.TaskIdentity)
 	BillingFX(*model.LogOther, domain.RequestFacts, domain.PriceFacts, string)
 	Clamp(*model.LogOther, *billingdomain.Clamp)
 	Tiered(*model.LogOther, *domain.Tiered)

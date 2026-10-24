@@ -8,22 +8,24 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/controller"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/QuantumNous/new-api/relay"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/controller"
+	taskruntime "github.com/QuantumNous/new-api/internal/app/taskruntime"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/taskregistry"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 const docParsePluginSource = `export const meta = {apiVersion:1,key:"doc-parse",name:"Document Parser",version:"1.0.0",author:{name:"Test"},models:["doc-parse-v1"],fetchMode:"batch"};
@@ -77,7 +79,7 @@ func TestDocumentPluginRunsGenericBatchArtifactChain(t *testing.T) {
 	channel.SetSetting(setting)
 	require.NoError(t, database.Create(&channel).Error)
 
-	adaptor := relay.GetTaskAdaptor("doc-parse")
+	adaptor := taskregistry.GetTaskAdaptor("doc-parse")
 	require.NotNil(t, adaptor)
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelType: channel.Type, ChannelBaseUrl: upstream.URL, ApiKey: channel.Key, ChannelSetting: setting, UpstreamModelName: "doc-parse-v1"}, OriginModelName: "doc-parse-v1", TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_doc_parse"}}
 	adaptor.Init(info)
@@ -112,10 +114,10 @@ func TestDocumentPluginRunsGenericBatchArtifactChain(t *testing.T) {
 	}
 	require.NoError(t, database.Create(&task).Error)
 
-	originalFactory := service.GetTaskAdaptorFunc
-	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor { return relay.GetTaskAdaptor(platform) }
-	t.Cleanup(func() { service.GetTaskAdaptorFunc = originalFactory })
-	service.DispatchPlatformUpdate(context.Background(), "doc-parse", map[int][]string{channel.Id: {parsed.UpstreamTaskID}}, map[string]*model.Task{parsed.UpstreamTaskID: &task})
+	originalTimeout, originalQueryLimit := constant.TaskTimeoutMinutes, constant.TaskQueryLimit
+	constant.TaskTimeoutMinutes, constant.TaskQueryLimit = 0, 1000
+	t.Cleanup(func() { constant.TaskTimeoutMinutes, constant.TaskQueryLimit = originalTimeout, originalQueryLimit })
+	taskruntime.NewPolling().RunTasks(context.Background(), nil)
 	require.NoError(t, database.First(&task, task.ID).Error)
 	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), task.Status)
 

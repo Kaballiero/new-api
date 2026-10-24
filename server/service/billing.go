@@ -1,6 +1,8 @@
 package service
 
 import (
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -8,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	hosttypes "github.com/QuantumNous/new-api/types"
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -30,15 +31,11 @@ type BillingGatewayPort interface {
 	CurrentFX() (BillingFXBasis, error)
 	CaptureFX(*relaycommon.RelayInfo) (float64, error)
 	ApplyFX(float64, float64) (float64, error)
-	AppendTaskBillingFX(*model.LogOther, *relaycommon.RelayInfo, hosttypes.PriceData, string)
-	AppendTaskQuotaSaturation(*gin.Context, *relaycommon.RelayInfo, *model.LogOther)
 	AppendTaskClamp(*model.LogOther, *common.QuotaClamp)
 	AppendTaskTiered(*model.LogOther, *relaycommon.RelayInfo, *billingexpr.TieredResult)
-	AppendTaskPlugin(*model.LogOther, *model.TaskPluginSnapshot)
-	MidjourneyOther(*relaycommon.RelayInfo, hosttypes.PriceData) *model.LogOther
 }
 
-// BRIDGE: service/{batch_billing,task_billing,midjourney,violation_fee,billing_fx,tiered_settle}.go until wave 5;
+// BRIDGE: service/{batch_billing,violation_fee,billing_fx,tiered_settle}.go; remove when batch billing, violation fees, FX and tiered settlement have their own owners;
 // immutable internal/billing/{contract,usage_contract}_test.go and controller/wss_characterization_test.go.
 var BillingGateway BillingGatewayPort
 
@@ -50,14 +47,7 @@ func SettleWssBilling(c *gin.Context, info *relaycommon.RelayInfo, actual int) e
 	return BillingGateway.SettleWss(c, info, actual)
 }
 
-type postConsumeQuotaResult struct{ FundingApplied, TokenApplied bool }
-
 func PostConsumeQuota(info *relaycommon.RelayInfo, delta, preConsumed int, notify bool) error {
-	_, err := postConsumeQuotaWithResult(info, delta, preConsumed, notify)
+	_, _, err := BillingGateway.ApplyDelta(info, delta, preConsumed, notify)
 	return err
-}
-
-func postConsumeQuotaWithResult(info *relaycommon.RelayInfo, delta, preConsumed int, notify bool) (postConsumeQuotaResult, error) {
-	funding, token, err := BillingGateway.ApplyDelta(info, delta, preConsumed, notify)
-	return postConsumeQuotaResult{funding, token}, err
 }

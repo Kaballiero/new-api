@@ -9,9 +9,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"github.com/samber/lo"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -23,16 +29,13 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
-	"github.com/samber/lo"
 )
 
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
@@ -191,13 +194,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Only return quota if downstream failed and quota was actually pre-consumed
 		if newAPIError != nil {
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
-			if relayInfo.OpenRouterCost != nil && relayInfo.OpenRouterCost.Sent && !relayInfo.OpenRouterCost.Final && !service.HasOpenRouterSyncTask(relayInfo) {
+			if relayInfo.OpenRouterCost != nil && relayInfo.OpenRouterCost.Sent && !relayInfo.OpenRouterCost.Final && !relaycommon.HasOpenRouterSyncTask(relayInfo) {
 				logger.LogWarn(c, fmt.Sprintf("OpenRouter financial outcome unknown; returning reservation without retry: channel=%d reserve=%d reason=%s", relayInfo.ChannelId, relayInfo.FinalPreConsumedQuota, relayInfo.OpenRouterCost.UnknownReason))
 			}
 			if relayInfo.NativeImage != nil && relayInfo.NativeImage.OutcomeUnknown {
 				logger.LogWarn(c, fmt.Sprintf("OpenRouter image financial outcome unknown; paid retry prohibited: channel=%d estimated_cost_usd=%g upstream_request_id=%s", relayInfo.NativeImage.ChannelID, relayInfo.NativeImage.EstimatedCostUSD, c.GetString(common.UpstreamRequestIdKey)))
 			}
-			if relayInfo.Billing != nil && !service.HasOpenRouterSyncTask(relayInfo) {
+			if relayInfo.Billing != nil && !relaycommon.HasOpenRouterSyncTask(relayInfo) {
 				relayInfo.Billing.Refund(c)
 			}
 			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
@@ -776,7 +779,7 @@ func executeTaskSubmissionWith(
 	}
 
 	stage = "insert"
-	task := service.InitTaskSubmission(c, result.Platform, relayInfo)
+	task := taskrecord.InitTaskSubmission(c, result.Platform, relayInfo)
 	task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
 	task.Quota = result.Quota
 	task.Data = result.TaskData
@@ -800,7 +803,7 @@ func executeTaskSubmissionWith(
 		}
 	}
 	diagnostics.insertStart(task)
-	if insertErr := task.InsertWithContext(c.Request.Context()); insertErr != nil {
+	if insertErr := taskPersistence.InsertTask(c.Request.Context(), task); insertErr != nil {
 		common.SysError("insert task error: " + insertErr.Error())
 		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to persist task"), "task_insert_failed", http.StatusInternalServerError)
 		diagnostics.failed("insert", "database_error", taskErr, false)
@@ -817,7 +820,7 @@ func executeTaskSubmissionWith(
 		diagnostics.failed("settle", "billing_error", taskErr, true)
 		return nil, taskErr
 	}
-	if logErr := service.LogTaskConsumption(c, relayInfo, task); logErr != nil {
+	if logErr := taskrecord.LogTaskConsumption(c, relayInfo, task); logErr != nil {
 		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to record task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
 		diagnostics.failed("settle", "billing_log_error", taskErr, true)
 		return nil, taskErr
@@ -825,7 +828,7 @@ func executeTaskSubmissionWith(
 	if state := task.PrivateData.Reconciliation; state != nil {
 		state.ReservationPending = false
 		state.Required = false
-		won, err := task.UpdateWithStatus(task.Status)
+		won, err := taskPersistence.UpdateTaskWithStatus(task, task.Status)
 		if err != nil || !won {
 			taskErr = service.TaskErrorWrapperLocal(errors.New("failed to confirm task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
 			diagnostics.failed("settle", "billing_state_error", taskErr, true)
@@ -875,7 +878,7 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 	if pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedEndpoint); exists {
 		if pinned, ok := pinnedValue.(pluginruntime.PinnedEndpoint); ok && pinned.Protocol == "openai_video" && pinned.Operation.Name == "create" {
 			diagnostics.present(outcome.Task, "openai_video_create")
-			if err := common.WriteClientJSON(c, http.StatusOK, outcome.Task.ToOpenAIVideo()); err != nil {
+			if err := common.WriteClientJSON(c, http.StatusOK, taskrecord.ToOpenAIVideo(outcome.Task)); err != nil {
 				c.AbortWithStatus(http.StatusBadGateway)
 				return
 			}
@@ -959,3 +962,7 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 	}
 	return true
 }
+
+// BRIDGE: executeTaskSubmissionWith inserts gateway submissions and confirms their reservation state.
+// Remove when durable submission insertion and its settlement marker are owned by submission scenarios.
+var taskPersistence = tasksapp.NewStore()

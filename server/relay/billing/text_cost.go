@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/billing/calculate_text_cost"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
@@ -12,7 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
 )
 
 func (g *Gateway) TextCost(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage) TextCostSummary {
@@ -125,7 +126,7 @@ func PostTextConsumeQuota(c *gin.Context, info *relaycommon.RelayInfo, usage *dt
 	defaultGateway.PostText(c, info, usage, extra)
 }
 func (g *Gateway) PostText(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage, extra []string) {
-	if service.HasOpenRouterSyncTask(info) {
+	if relaycommon.HasOpenRouterSyncTask(info) {
 		return
 	}
 	effective := service.EffectiveBillingUsage(usage)

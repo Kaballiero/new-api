@@ -6,7 +6,7 @@ import (
 )
 
 // Store owns subscription reservation/refund/plan-info SQL. Shared wallet/token/cache
-// primitives and the durable-task subscription delta remain in model.
+// primitives remain in model; subscription deltas are owned by this adapter.
 type Store struct{}
 
 func (Store) WalletBalance(id int) (int, error) { return model.GetUserQuota(id, false) }
@@ -47,7 +47,7 @@ func (Store) ReserveSubscription(requestID string, userID int, _ string, amount 
 	return hold, nil
 }
 func (Store) AdjustSubscription(id int, delta int64) error {
-	return model.PostConsumeUserSubscriptionDelta(id, delta)
+	return postConsumeUserSubscriptionDelta(id, delta)
 }
 func (Store) RefundSubscription(requestID string) error {
 	return refundSubscriptionPreConsume(requestID)

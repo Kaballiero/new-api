@@ -164,7 +164,8 @@ func cacheIncrUserQuota(userId int, delta int64) error {
 	return err
 }
 
-// BRIDGE: guarded cache debit shared by model.DecreaseUserQuota and subscription balance purchase.
+// BRIDGE: guarded cache debit shared by model.DecreaseUserQuota, subscription balance purchase,
+// and internal/adapter/gorm/tasks/task.go OpenRouter settlement cache sync.
 // Remove when shared quota-cache primitives receive their technical owner.
 func CacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)

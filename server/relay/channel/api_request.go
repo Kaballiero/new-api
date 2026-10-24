@@ -12,18 +12,20 @@ import (
 	"sync"
 	"time"
 
-	common2 "github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/relay/helper"
-	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
-
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+
+	common2 "github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/common"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 // ApplyUpstreamBodyMetadata restores metadata that net/http cannot infer from
@@ -517,7 +519,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 
 	var cancelAudio context.CancelFunc
-	if service.HasOpenRouterSyncTask(info) {
+	if relaycommon.HasOpenRouterSyncTask(info) {
 		var ctx context.Context
 		ctx, cancelAudio = context.WithTimeout(context.WithoutCancel(c.Request.Context()), 4*time.Minute)
 		// The request owns the deadline until a response body takes over.
@@ -532,7 +534,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
-	if info.IsStream && !service.HasOpenRouterSyncTask(info) {
+	if info.IsStream && !relaycommon.HasOpenRouterSyncTask(info) {
 		helper.SetEventStreamHeaders(c)
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
@@ -551,8 +553,8 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 
 	resp, err := relayClient.Do(req)
-	if service.HasOpenRouterSyncTask(info) {
-		if recordErr := service.RecordOpenRouterSyncSubmission(info, resp, err); recordErr != nil {
+	if relaycommon.HasOpenRouterSyncTask(info) {
+		if recordErr := taskrecord.RecordOpenRouterSyncSubmission(info, resp, err); recordErr != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
@@ -570,7 +572,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			if readErr == nil && len(body) <= 64<<10 {
 				info.OpenRouterCost.Observe(body, false)
 			}
-			if failErr := service.FailOpenRouterSyncTask(info, "chat_image_upstream_error"); failErr != nil {
+			if failErr := taskrecord.FailOpenRouterSyncTask(info, "chat_image_upstream_error"); failErr != nil {
 				_ = resp.Body.Close()
 				return nil, failErr
 			}

@@ -1,5 +1,7 @@
 package domain
 
+import "github.com/QuantumNous/new-api/constant"
+
 const (
 	PaymentMethodStripe         = "stripe"
 	PaymentMethodCreem          = "creem"
@@ -12,10 +14,10 @@ const (
 	PaymentProviderWaffo        = "waffo"
 	PaymentProviderWaffoPancake = "waffo_pancake"
 	PaymentProviderBalance      = "balance"
-	StatusPending               = "pending"
-	StatusSuccess               = "success"
-	StatusFailed                = "failed"
-	StatusExpired               = "expired"
+	StatusPending               = constant.TopUpStatusPending
+	StatusSuccess               = constant.TopUpStatusSuccess
+	StatusFailed                = constant.TopUpStatusFailed
+	StatusExpired               = constant.TopUpStatusExpired
 )
 
 type Order struct {

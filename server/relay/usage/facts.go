@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	app "github.com/QuantumNous/new-api/internal/app/usage"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
@@ -124,7 +125,7 @@ func Facts(c *gin.Context, info *relaycommon.RelayInfo) domain.RequestFacts {
 			OutcomeUnknown:   n.OutcomeUnknown,
 		}
 	}
-	out.HasSyncTask = service.HasOpenRouterSyncTask(info)
+	out.HasSyncTask = relaycommon.HasOpenRouterSyncTask(info)
 	out.FinalPreConsumedQuota = info.FinalPreConsumedQuota
 	out.BillingSource, out.BillingPreference = info.BillingSource, info.UserSetting.BillingPreference
 	out.SubscriptionId, out.SubscriptionPlanId = info.SubscriptionId, info.SubscriptionPlanId
@@ -250,21 +251,6 @@ func MidjourneyOther(info *relaycommon.RelayInfo, p hosttypes.PriceData) *model.
 	})
 }
 
-func Plugin(in *model.TaskPluginSnapshot) *domain.Plugin {
-	if in == nil {
-		return nil
-	}
-	out := &domain.Plugin{Key: in.Key, Name: in.Name, Version: in.Version, APIVersion: in.APIVersion, Generation: in.Generation}
-	if in.Author != nil {
-		out.AuthorName, out.AuthorURL = in.Author.Name, in.Author.URL
-	}
-	return out
-}
-
-func AppendTaskPlugin(other *model.LogOther, in *model.TaskPluginSnapshot) {
-	Recording().Metadata.Plugin(other, Plugin(in))
-}
-
 func RecordUpstreamFailure(c *gin.Context, channelID int, err *types.NewAPIError, info *relaycommon.RelayInfo) {
 	admission, gateErr := Recording().Failure.Execute(c, record_failure.Input{Step: record_failure.AdmitUpstream})
 	if gateErr != nil {
@@ -279,7 +265,7 @@ func RecordUpstreamFailure(c *gin.Context, channelID int, err *types.NewAPIError
 	execution := service.TaskExecutionSnapshotFromContext(c)
 	var plugin *domain.Plugin
 	if execution != nil {
-		plugin = Plugin(execution.TaskPlugin)
+		plugin = usageadapter.Plugin(execution.TaskPlugin)
 	}
 	start := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 	if start.IsZero() {

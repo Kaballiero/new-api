@@ -4,20 +4,21 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
-	"github.com/gin-gonic/gin"
 )
 
 // RerankResponse preserves the upstream result while the existing durable Task
 // owns cost settlement. Missing cost never authorizes a refund or another POST.
 func RerankResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage *dto.Usage, apiErr *types.NewAPIError) {
 	defer func() {
-		if apiErr != nil && service.HasOpenRouterSyncTask(info) {
-			_ = service.FailOpenRouterSyncTask(info, "invalid_rerank_result")
+		if apiErr != nil && relaycommon.HasOpenRouterSyncTask(info) {
+			_ = taskrecord.FailOpenRouterSyncTask(info, "invalid_rerank_result")
 		}
 	}()
 	if resp == nil || resp.Body == nil {
@@ -51,7 +52,7 @@ func RerankResponse(c *gin.Context, resp *http.Response, info *relaycommon.Relay
 	if err != nil {
 		return nil, CostError("OpenRouter rerank response projection failed")
 	}
-	if err := service.CompleteOpenRouterSyncTask(c, info, body, "application/json"); err != nil {
+	if err := taskrecord.CompleteOpenRouterSyncTask(c, info, body, "application/json"); err != nil {
 		return nil, CostError(err.Error())
 	}
 	c.Header("X-Task-Id", state.TaskID)

@@ -231,7 +231,7 @@ func TestTokenCacheInitPreservesLiveQuotaAndFenceBlocksStaleSnapshot(t *testing.
 	require.NoError(t, err)
 	stale := *loaded
 
-	result, err := cacheApplyTokenQuotaDelta(token.Id, token.Key, -70)
+	result, err := CacheApplyTokenQuotaDelta(token.Id, token.Key, -70)
 	require.NoError(t, err)
 	require.Equal(t, cacheQuotaOK, result)
 

@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	paymentdomain "github.com/QuantumNous/new-api/internal/payments/domain"
+	"github.com/QuantumNous/new-api/constant"
 )
 
 var StartTime = time.Now().Unix() // unit: second
@@ -255,8 +255,8 @@ const (
 )
 
 const (
-	TopUpStatusPending = paymentdomain.StatusPending
-	TopUpStatusSuccess = paymentdomain.StatusSuccess
-	TopUpStatusFailed  = paymentdomain.StatusFailed
-	TopUpStatusExpired = paymentdomain.StatusExpired
+	TopUpStatusPending = constant.TopUpStatusPending
+	TopUpStatusSuccess = constant.TopUpStatusSuccess
+	TopUpStatusFailed  = constant.TopUpStatusFailed
+	TopUpStatusExpired = constant.TopUpStatusExpired
 )
