@@ -10,6 +10,10 @@ import (
 	"strconv"
 )
 
+type AdminResetSubscriptionRequest struct {
+	PlanID  int   `json:"plan_id"`
+	Advance *bool `json:"advance_reset_time"`
+}
 type HTTP struct {
 	usecase Usecase
 	audit   ResetAudit
@@ -36,10 +40,7 @@ func (h HTTP) handle(c *gin.Context, forUser bool) {
 		}
 		return
 	}
-	var req struct {
-		PlanID  int   `json:"plan_id"`
-		Advance *bool `json:"advance_reset_time"`
-	}
+	var req AdminResetSubscriptionRequest
 	if c.ShouldBindJSON(&req) != nil || (forUser && req.PlanID <= 0) {
 		transport.InvalidParameters(c)
 		return
@@ -67,5 +68,5 @@ func (h HTTP) handle(c *gin.Context, forUser bool) {
 		h.audit.PlanReset(result)
 		h.audit.Manage(c, c.GetInt("id"), "subscription.plan_reset", params)
 	}
-	common.ApiSuccess(c, dto.ResetResult(result))
+	common.ApiSuccess(c, dto.SubscriptionResetResult(result))
 }

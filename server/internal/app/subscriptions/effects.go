@@ -3,6 +3,7 @@ package subscriptions
 import (
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/shopspring/decimal"
@@ -16,10 +17,10 @@ func (effects) RefreshGroup(userID int, operation string) {
 	}
 }
 func (effects) Purchase(r domain.PurchaseReceipt) {
-	model.RecordLog(r.UserID, model.LogTypeTopup, fmt.Sprintf("订阅购买成功，套餐: %s，支付金额: %.2f，支付方式: %s", r.PlanTitle, r.Money, r.PaymentMethod))
+	model.RecordLog(r.UserID, model.LogTypeTopup, i18n.Translate(receiptLanguage(r.UserID), i18n.MsgSubscriptionsReceiptPurchase, map[string]any{"Plan": r.PlanTitle, "Money": fmt.Sprintf("%.2f", r.Money), "Method": r.PaymentMethod}))
 }
 func (effects) BalancePurchase(r domain.BalanceReceipt) {
-	model.RecordLog(r.UserID, model.LogTypeTopup, fmt.Sprintf("使用余额购买订阅成功，套餐: %s，支付金额: %.2f，扣除额度: %d", r.PlanTitle, r.Money, r.Quota))
+	model.RecordLog(r.UserID, model.LogTypeTopup, i18n.Translate(receiptLanguage(r.UserID), i18n.MsgSubscriptionsReceiptBalance, map[string]any{"Plan": r.PlanTitle, "Money": fmt.Sprintf("%.2f", r.Money), "Quota": r.Quota}))
 }
 func (effects) DebitCache(userID, quota int) {
 	if err := model.CacheDecrUserQuota(userID, int64(quota)); err != nil {
@@ -34,4 +35,8 @@ func balanceQuota(price float64) (int, error) {
 		return 0, domain.ErrInvalidQuotaUnit
 	}
 	return common.WalletQuotaFromDecimalStrict(decimal.NewFromFloat(price).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Ceil())
+}
+
+func receiptLanguage(userID int) string {
+	return i18n.ParseAcceptLanguage(model.GetUserLanguage(userID))
 }

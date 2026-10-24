@@ -164,6 +164,8 @@ func cacheIncrUserQuota(userId int, delta int64) error {
 	return err
 }
 
+// BRIDGE: guarded cache debit shared by model.DecreaseUserQuota and subscription balance purchase.
+// Remove when shared quota-cache primitives receive their technical owner.
 func CacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)
 }

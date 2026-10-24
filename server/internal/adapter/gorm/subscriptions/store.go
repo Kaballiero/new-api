@@ -93,3 +93,23 @@ func (s Store) CountPurchases(userID, planID int) (int64, error) {
 	err := s.db().Model(&record.UserSubscription{}).Where("user_id = ? AND plan_id = ?", userID, planID).Count(&count).Error
 	return count, err
 }
+
+func (s Store) UserByID(userID int) (*domain.CheckoutUser, error) {
+	user, err := model.GetUserById(userID, false)
+	if err != nil || user == nil {
+		return nil, err
+	}
+	return &domain.CheckoutUser{ID: user.Id, Username: user.Username, Email: user.Email, StripeCustomer: user.StripeCustomer}, nil
+}
+func (s Store) InsertOrder(order *domain.SubscriptionOrder) error {
+	row := record.SubscriptionOrder(*order)
+	err := s.db().Create(&row).Error
+	*order = domain.SubscriptionOrder(row)
+	return err
+}
+func (s Store) SaveOrder(order *domain.SubscriptionOrder) error {
+	row := record.SubscriptionOrder(*order)
+	err := s.db().Save(&row).Error
+	*order = domain.SubscriptionOrder(row)
+	return err
+}

@@ -35,8 +35,8 @@ func (Store) HasSubscription(id int) (bool, error) { return hasActiveUserSubscri
 func (Store) AllowsWalletOverflow(id int) (bool, error) {
 	return userActiveSubscriptionsAllowWalletOverflow(id)
 }
-func (Store) ReserveSubscription(requestID string, userID int, modelName string, amount int64) (domain.SubscriptionHold, error) {
-	result, err := preConsumeUserSubscription(requestID, userID, modelName, 0, amount)
+func (Store) ReserveSubscription(requestID string, userID int, _ string, amount int64) (domain.SubscriptionHold, error) {
+	result, err := preConsumeUserSubscription(requestID, userID, amount)
 	if err != nil {
 		return domain.SubscriptionHold{}, err
 	}

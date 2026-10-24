@@ -17,7 +17,7 @@ type Effects interface {
 	RefreshGroup(userID int, operation string)
 	Purchase(receipt domain.PurchaseReceipt)
 }
-type Input struct{ TradeNo, ProviderPayload, ExpectedProvider, ActualMethod string }
+type Input = domain.CompletionInput
 type Usecase struct {
 	store   Store
 	effects Effects

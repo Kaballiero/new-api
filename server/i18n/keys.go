@@ -624,14 +624,45 @@ const (
 )
 
 const (
-MsgSubscriptionsPurchaseLimit = "subscriptions.purchase_limit"
-MsgSubscriptionsNoActivePlan = "subscriptions.no_active_plan"
-MsgSubscriptionsPlanDisabled = "subscriptions.plan_disabled"
-MsgSubscriptionsBalanceNegativePrice = "subscriptions.balance_negative_price"
-MsgSubscriptionsBalanceDisallowed = "subscriptions.balance_disallowed"
-MsgSubscriptionsInsufficientBalance = "subscriptions.insufficient_balance"
-MsgSubscriptionsInvalidQuotaUnit = "subscriptions.invalid_quota_unit"
-MsgSubscriptionsInvalidSubscriptionID = "subscriptions.invalid_subscription_id"
-MsgSubscriptionsGroupUpgrade = "subscriptions.group_upgrade"
-MsgSubscriptionsGroupDowngrade = "subscriptions.group_downgrade"
+	MsgSubscriptionsPurchaseLimit         = "subscriptions.purchase_limit"
+	MsgSubscriptionsNoActivePlan          = "subscriptions.no_active_plan"
+	MsgSubscriptionsPlanDisabled          = "subscriptions.plan_disabled"
+	MsgSubscriptionsBalanceNegativePrice  = "subscriptions.balance_negative_price"
+	MsgSubscriptionsBalanceDisallowed     = "subscriptions.balance_disallowed"
+	MsgSubscriptionsInsufficientBalance   = "subscriptions.insufficient_balance"
+	MsgSubscriptionsInvalidQuotaUnit      = "subscriptions.invalid_quota_unit"
+	MsgSubscriptionsInvalidSubscriptionID = "subscriptions.invalid_subscription_id"
+	MsgSubscriptionsGroupUpgrade          = "subscriptions.group_upgrade"
+	MsgSubscriptionsGroupDowngrade        = "subscriptions.group_downgrade"
+)
+
+const (
+	MsgSubscriptionsStripePriceMissing    = "subscriptions.stripe_price_missing"
+	MsgSubscriptionsStripeConfig          = "subscriptions.stripe_config"
+	MsgSubscriptionsStripeWebhook         = "subscriptions.stripe_webhook"
+	MsgSubscriptionsCreemProductMissing   = "subscriptions.creem_product_missing"
+	MsgSubscriptionsCreemWebhook          = "subscriptions.creem_webhook"
+	MsgSubscriptionsPancakeProductMissing = "subscriptions.pancake_product_missing"
+	MsgSubscriptionsPancakeConfig         = "subscriptions.pancake_config"
+	MsgSubscriptionsUserMissing           = "subscriptions.user_missing"
+	MsgSubscriptionsPriceLow              = "subscriptions.price_low"
+	MsgSubscriptionsPayMethod             = "subscriptions.pay_method"
+	MsgSubscriptionsCallbackConfig        = "subscriptions.callback_config"
+	MsgSubscriptionsEpayConfig            = "subscriptions.epay_config"
+	MsgSubscriptionsCreateOrder           = "subscriptions.create_order"
+	MsgSubscriptionsCheckout              = "subscriptions.checkout"
+)
+
+const (
+	MsgSubscriptionsProductName    = "subscriptions.product_name"
+	MsgSubscriptionsProductAmount  = "subscriptions.product_amount"
+	MsgSubscriptionsPancakeBinding = "subscriptions.pancake_binding"
+	MsgSubscriptionsCreateProduct  = "subscriptions.create_product"
+	MsgSubscriptionsProductCatalog = "subscriptions.product_catalog"
+)
+
+const (
+	MsgSubscriptionsReceiptPurchase = "subscriptions.receipt_purchase"
+	MsgSubscriptionsReceiptBalance  = "subscriptions.receipt_balance"
+	MsgSubscriptionsResetAudit      = "subscriptions.reset_audit"
 )

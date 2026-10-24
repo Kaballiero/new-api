@@ -2,7 +2,7 @@ package dto
 
 import "github.com/QuantumNous/new-api/internal/subscriptions/domain"
 
-type Plan struct {
+type SubscriptionPlan struct {
 	Id int `json:"id"`
 
 	Title    string `json:"title"`
@@ -79,7 +79,7 @@ type UserSubscription struct {
 }
 
 type PlanEnvelope struct {
-	Plan Plan `json:"plan"`
+	Plan SubscriptionPlan `json:"plan"`
 }
 type Summary struct {
 	Subscription *UserSubscription `json:"subscription"`
@@ -88,7 +88,7 @@ type Summary struct {
 func Plans(rows []domain.SubscriptionPlan) []PlanEnvelope {
 	result := make([]PlanEnvelope, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, PlanEnvelope{Plan: Plan(row)})
+		result = append(result, PlanEnvelope{Plan: SubscriptionPlan(row)})
 	}
 	return result
 }
@@ -101,7 +101,7 @@ func Summaries(rows []domain.UserSubscription) []Summary {
 	return result
 }
 
-type ResetResult struct {
+type SubscriptionResetResult struct {
 	PlanId           int    `json:"plan_id"`
 	MatchedCount     int    `json:"matched_count"`
 	ResetCount       int    `json:"reset_count"`
@@ -109,4 +109,8 @@ type ResetResult struct {
 	AdvanceResetTime bool   `json:"advance_reset_time"`
 	PlanTitle        string `json:"-"`
 	AffectedUserIds  []int  `json:"-"`
+}
+
+type AdminUpsertSubscriptionPlanRequest struct {
+	Plan SubscriptionPlan `json:"plan"`
 }

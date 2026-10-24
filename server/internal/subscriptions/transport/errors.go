@@ -8,82 +8,112 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WriteError(c *gin.Context, err error) {
+func Message(c *gin.Context, err error) string {
 	if errors.Is(err, domain.ErrPurchaseLimit) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsPurchaseLimit)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsPurchaseLimit)
 	}
 	if errors.Is(err, domain.ErrNoActivePlan) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsNoActivePlan)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsNoActivePlan)
 	}
 	if errors.Is(err, domain.ErrPlanDisabled) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsPlanDisabled)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsPlanDisabled)
 	}
 	if errors.Is(err, domain.ErrBalanceNegativePrice) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsBalanceNegativePrice)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsBalanceNegativePrice)
 	}
 	if errors.Is(err, domain.ErrBalanceDisallowed) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsBalanceDisallowed)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsBalanceDisallowed)
 	}
 	if errors.Is(err, domain.ErrInsufficientBalance) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInsufficientBalance)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsInsufficientBalance)
 	}
 	if errors.Is(err, domain.ErrInvalidQuotaUnit) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInvalidQuotaUnit)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsInvalidQuotaUnit)
 	}
 	if errors.Is(err, domain.ErrInvalidSubscriptionID) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInvalidSubscriptionID)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsInvalidSubscriptionID)
 	}
-
 	if errors.Is(err, domain.ErrInvalidID) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInvalidID)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsInvalidID)
 	}
 	if errors.Is(err, domain.ErrTitleRequired) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsTitleRequired)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsTitleRequired)
 	}
 	if errors.Is(err, domain.ErrNegativePrice) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsNegativePrice)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsNegativePrice)
 	}
 	if errors.Is(err, domain.ErrHighPrice) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsHighPrice)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsHighPrice)
 	}
 	if errors.Is(err, domain.ErrNegativePurchaseLimit) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsNegativePurchaseLimit)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsNegativePurchaseLimit)
 	}
 	if errors.Is(err, domain.ErrNegativeTotal) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsNegativeTotal)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsNegativeTotal)
 	}
 	if errors.Is(err, domain.ErrUpgradeGroupMissing) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsUpgradeGroupMissing)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsUpgradeGroupMissing)
 	}
 	if errors.Is(err, domain.ErrDowngradeGroupMissing) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsDowngradeGroupMissing)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsDowngradeGroupMissing)
 	}
 	if errors.Is(err, domain.ErrInvalidResetSeconds) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInvalidResetSeconds)
-		return
+		return i18n.T(c, i18n.MsgSubscriptionsInvalidResetSeconds)
 	}
-
 	if errors.Is(err, domain.ErrInvalidUserID) {
-		common.ApiErrorI18n(c, i18n.MsgSubscriptionsInvalidUserID)
+		return i18n.T(c, i18n.MsgSubscriptionsInvalidUserID)
+	}
+	if errors.Is(err, domain.ErrStripePriceMissing) {
+		return i18n.T(c, i18n.MsgSubscriptionsStripePriceMissing)
+	}
+	if errors.Is(err, domain.ErrStripeConfig) {
+		return i18n.T(c, i18n.MsgSubscriptionsStripeConfig)
+	}
+	if errors.Is(err, domain.ErrStripeWebhook) {
+		return i18n.T(c, i18n.MsgSubscriptionsStripeWebhook)
+	}
+	if errors.Is(err, domain.ErrCreemProductMissing) {
+		return i18n.T(c, i18n.MsgSubscriptionsCreemProductMissing)
+	}
+	if errors.Is(err, domain.ErrCreemWebhook) {
+		return i18n.T(c, i18n.MsgSubscriptionsCreemWebhook)
+	}
+	if errors.Is(err, domain.ErrPancakeProductMissing) {
+		return i18n.T(c, i18n.MsgSubscriptionsPancakeProductMissing)
+	}
+	if errors.Is(err, domain.ErrPancakeConfig) {
+		return i18n.T(c, i18n.MsgSubscriptionsPancakeConfig)
+	}
+	if errors.Is(err, domain.ErrUserMissing) {
+		return i18n.T(c, i18n.MsgSubscriptionsUserMissing)
+	}
+	if errors.Is(err, domain.ErrPriceLow) {
+		return i18n.T(c, i18n.MsgSubscriptionsPriceLow)
+	}
+	if errors.Is(err, domain.ErrPayMethod) {
+		return i18n.T(c, i18n.MsgSubscriptionsPayMethod)
+	}
+	if errors.Is(err, domain.ErrCallbackConfig) {
+		return i18n.T(c, i18n.MsgSubscriptionsCallbackConfig)
+	}
+	if errors.Is(err, domain.ErrEpayConfig) {
+		return i18n.T(c, i18n.MsgSubscriptionsEpayConfig)
+	}
+	if errors.Is(err, domain.ErrCreateOrder) {
+		return i18n.T(c, i18n.MsgSubscriptionsCreateOrder)
+	}
+	if errors.Is(err, domain.ErrCheckout) {
+		return i18n.T(c, i18n.MsgSubscriptionsCheckout)
+	}
+	return err.Error()
+}
+func WriteError(c *gin.Context, err error) { common.ApiErrorMsg(c, Message(c, err)) }
+func CheckoutError(c *gin.Context, err error) {
+	if errors.Is(err, domain.ErrCreateOrder) || errors.Is(err, domain.ErrCheckout) {
+		c.JSON(200, gin.H{"message": "error", "data": Message(c, err)})
 		return
 	}
-	common.ApiError(c, err)
+	WriteError(c, err)
 }
 
 func InvalidParameters(c *gin.Context) {

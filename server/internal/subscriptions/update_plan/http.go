@@ -9,9 +9,6 @@ import (
 	"strconv"
 )
 
-type Request struct {
-	Plan dto.Plan `json:"plan"`
-}
 type HTTP struct {
 	usecase    Usecase
 	compliance func() bool
@@ -29,7 +26,7 @@ func (h HTTP) Handle(c *gin.Context) {
 		transport.WriteError(c, domain.ErrInvalidID)
 		return
 	}
-	var req Request
+	var req dto.AdminUpsertSubscriptionPlanRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		transport.InvalidParameters(c)
 		return

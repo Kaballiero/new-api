@@ -1,13 +1,11 @@
 package payments
 
 import (
-	"context"
 	"fmt"
 	"github.com/QuantumNous/new-api/internal/app/shared"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	"time"
 
-	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/gin-gonic/gin"
 	"github.com/thanhpk/randstr"
 	"gorm.io/gorm"
@@ -30,7 +28,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/payments/create_stripe_topup"
 	"github.com/QuantumNous/new-api/internal/payments/create_waffo_topup"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
-	"github.com/QuantumNous/new-api/internal/payments/dto"
 	"github.com/QuantumNous/new-api/internal/payments/get_topup_info"
 	"github.com/QuantumNous/new-api/internal/payments/list_own_topups"
 	"github.com/QuantumNous/new-api/internal/payments/list_pancake_catalog"
@@ -55,7 +52,6 @@ type HTTP struct {
 	Pair           create_pancake_pair.HTTP
 	SavePancake    save_pancake_config.HTTP
 	Compliance     confirm_compliance.HTTP
-	catalog        list_pancake_catalog.Usecase
 
 	QuoteWaffo    quote_waffo_topup.HTTP
 	CreateWaffo   create_waffo_topup.HTTP
@@ -113,8 +109,6 @@ func NewHTTP() HTTP {
 		),
 
 		Catalog: list_pancake_catalog.NewHTTP(catalog),
-
-		catalog: catalog,
 
 		Pair: create_pancake_pair.NewHTTP(create_pancake_pair.NewUsecase(pancakeadapter.Factory{}, settings.Settings{}, paymentDiagnostics{})),
 
@@ -217,41 +211,3 @@ func NewHTTP() HTTP {
 		Info: get_topup_info.NewHTTP(get_topup_info.NewUsecase(settings.Settings{})),
 	}
 }
-
-// Payment and subscription callbacks share one admission registry.
-
-// BRIDGE: controller/topup LockOrder for subscription_payment_epay; remove after subscription admission is extracted.
-func LockOrder(tradeNo string) { shared.Orders.Lock(tradeNo) }
-
-// BRIDGE: controller/topup UnlockOrder for subscription_payment_epay; remove after subscription admission is extracted.
-func UnlockOrder(tradeNo string) { shared.Orders.Unlock(tradeNo) }
-
-// BRIDGE: controller.GetEpayClient for subscription_payment_epay; remove after subscription Epay wiring is extracted.
-func EpayClient() *epay.Client { return epayadapter.NewClient() }
-
-// BRIDGE: subscription_payment_creem checkout; remove when it injects the Creem port directly.
-func CreemLink(ctx context.Context, reference string, product domain.CreemProduct, email, username string) (string, error) {
-	return creemadapter.Client{}.Checkout(ctx, reference, product, email, username)
-}
-
-// BRIDGE: subscription_payment_waffo_pancake checkout; remove when it injects the Pancake checkout port directly.
-func PancakeCheckout(ctx context.Context, params *domain.WaffoPancakeCreateSessionParams) (*domain.WaffoPancakeCheckoutSession, error) {
-	return domain.CreatePancakeCheckout(ctx, pancakeadapter.Client{}, params)
-}
-
-// BRIDGE: subscription_payment_waffo_pancake_config plan creation; remove when it injects the management port directly.
-func PancakeManagement(creds domain.PancakeCredentials) (domain.PancakeManagement, error) {
-	return pancakeadapter.Factory{}.Management(creds)
-}
-
-// BRIDGE: subscription_payment_waffo_pancake_config product dropdown; remove when its catalog dependency is injected.
-func (h HTTP) PancakeCatalog(ctx context.Context, merchant, private string) (*dto.WaffoPancakeCatalog, error) {
-	catalog, err := h.catalog.Execute(ctx, list_pancake_catalog.Input{MerchantID: merchant, PrivateKey: private})
-	return dto.FromCatalog(catalog), err
-}
-
-// BRIDGE: subscription_payment_stripe/epay redirects; remove when subscription settings own their address dependency.
-func ReturnPath(suffix string) string { return settings.Settings{}.ReturnPath(suffix) }
-
-// BRIDGE: subscription_payment_epay checkout; remove when subscription settings own their callback dependency.
-func CallbackAddress() string { return settings.Settings{}.CallbackAddress() }

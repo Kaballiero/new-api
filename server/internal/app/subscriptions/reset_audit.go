@@ -3,6 +3,7 @@ package subscriptions
 import (
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	audittransport "github.com/QuantumNous/new-api/internal/audit/transport"
@@ -18,9 +19,8 @@ func (a ResetAudit) RecordUserLogs(c *gin.Context, result *domain.ResetResult, o
 	if result == nil || result.ResetCount == 0 {
 		return
 	}
-	content := fmt.Sprintf("管理员重置订阅套餐 %s（ID: %d）额度", result.PlanTitle, result.PlanId)
 	for _, id := range result.AffectedUserIds {
-		a.Subscription(c, id, content, operator)
+		a.Subscription(c, id, i18n.Translate(receiptLanguage(id), i18n.MsgSubscriptionsResetAudit, map[string]any{"Plan": result.PlanTitle, "ID": result.PlanId}), operator)
 	}
 }
 func (ResetAudit) PlanReset(result domain.ResetResult) {

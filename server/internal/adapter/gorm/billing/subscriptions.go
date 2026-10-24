@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-type SubscriptionPreConsumeResult struct {
+type subscriptionPreConsumeResult struct {
 	UserSubscriptionId int
 	PreConsumed        int64
 	AmountTotal        int64
@@ -48,7 +48,7 @@ func userActiveSubscriptionsAllowWalletOverflow(userId int) (bool, error) {
 	return strictCount == 0, nil
 }
 
-func preConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
+func preConsumeUserSubscription(requestId string, userId int, amount int64) (*subscriptionPreConsumeResult, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
 	}
@@ -60,7 +60,7 @@ func preConsumeUserSubscription(requestId string, userId int, modelName string, 
 	}
 	now := model.GetDBTimestamp()
 
-	returnValue := &SubscriptionPreConsumeResult{}
+	returnValue := &subscriptionPreConsumeResult{}
 
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
 		var existing subscriptionrecord.SubscriptionPreConsumeRecord

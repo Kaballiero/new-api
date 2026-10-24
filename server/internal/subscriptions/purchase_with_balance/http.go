@@ -6,6 +6,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type SubscriptionBalancePayRequest struct {
+	PlanID int `json:"plan_id"`
+}
 type HTTP struct {
 	usecase    Usecase
 	compliance func() bool
@@ -16,9 +19,7 @@ func (h HTTP) Handle(c *gin.Context) {
 	if !transport.CheckCompliance(c, h.compliance) {
 		return
 	}
-	var req struct {
-		PlanID int `json:"plan_id"`
-	}
+	var req SubscriptionBalancePayRequest
 	if c.ShouldBindJSON(&req) != nil || req.PlanID <= 0 {
 		transport.InvalidParameters(c)
 		return

@@ -7,7 +7,7 @@ import (
 )
 
 // BRIDGE: one delta body shared by billing and legacy task settlement.
-// Remove together with durable task settlement (roadmap wave 5).
+// Remove together with durable task settlement.
 func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error {
 	if userSubscriptionId <= 0 {
 		return errors.New("invalid userSubscriptionId")

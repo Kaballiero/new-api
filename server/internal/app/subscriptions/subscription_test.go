@@ -2,9 +2,11 @@ package subscriptions_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	"github.com/QuantumNous/new-api/internal/subscriptions/bind_subscription"
@@ -13,13 +15,20 @@ import (
 	"github.com/QuantumNous/new-api/internal/subscriptions/invalidate_subscription"
 	"github.com/QuantumNous/new-api/internal/subscriptions/reset_subscriptions"
 	. "github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/go-redis/redis/v8"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"net"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -470,4 +479,131 @@ func TestExpireSubscriptionOrder_RejectsMismatchedPaymentProvider(t *testing.T) 
 	order := subscriptionsapp.NewOrders().Find("sub-expire-guard")
 	require.NotNil(t, order)
 	assert.Equal(t, common.TopUpStatusPending, order.Status)
+}
+
+// Every PostgreSQL fixture owns its schema; startup parameters apply to every pooled connection.
+func subscriptionPostgres(t *testing.T) storage.Store {
+	t.Helper()
+	subscriptionFixture(t) // Initialize the existing legacy dialect-dependent cache columns.
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_POSTGRES_DSN is not configured")
+	}
+	cfg, err := pgx.ParseConfig(dsn)
+	require.NoError(t, err)
+	admin := stdlib.OpenDB(*cfg)
+	schema := "subscriptions_test_" + common.GetUUID()
+	quoted := pgx.Identifier{schema}.Sanitize()
+	_, err = admin.ExecContext(t.Context(), "CREATE SCHEMA "+quoted)
+	require.NoError(t, err)
+	cfg.RuntimeParams["search_path"] = schema
+	pool := stdlib.OpenDB(*cfg)
+	t.Cleanup(func() {
+		assert.NoError(t, pool.Close())
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := admin.ExecContext(ctx, "DROP SCHEMA "+quoted+" CASCADE")
+		assert.NoError(t, err)
+		assert.NoError(t, admin.Close())
+	})
+	first, err := pool.Conn(t.Context())
+	require.NoError(t, err)
+	defer first.Close()
+	second, err := pool.Conn(t.Context())
+	require.NoError(t, err)
+	defer second.Close()
+	for _, connection := range []*sql.Conn{first, second} {
+		var current string
+		require.NoError(t, connection.QueryRowContext(t.Context(), "SELECT current_schema()").Scan(&current))
+		require.Equal(t, schema, current)
+	}
+	db, err := gorm.Open(postgres.New(postgres.Config{Conn: pool}), &gorm.Config{})
+	require.NoError(t, err)
+	DB, LOG_DB = db, db
+	common.SetDatabaseTypes(common.DatabaseTypePostgreSQL, common.DatabaseTypePostgreSQL)
+	require.NoError(t, db.AutoMigrate(&User{}, &SubscriptionPlan{}, &SubscriptionOrder{}, &UserSubscription{}, &SubscriptionPreConsumeRecord{}, &TopUp{}, &Log{}))
+	var version string
+	require.NoError(t, db.Raw("SELECT version()").Scan(&version).Error)
+	t.Logf("database version: %s; isolated schema: %s", version, schema)
+	return storage.NewStore(func() *gorm.DB { return DB })
+}
+
+func TestSubscriptionsPersistence(t *testing.T) {
+	for _, kind := range []string{"sqlite", "postgres"} {
+		t.Run(kind, func(t *testing.T) {
+			var store storage.Store
+			if kind == "postgres" {
+				store = subscriptionPostgres(t)
+			} else {
+				store = subscriptionFixture(t)
+				var version string
+				require.NoError(t, DB.Raw("SELECT sqlite_version()").Scan(&version).Error)
+				t.Logf("database version: SQLite %s", version)
+			}
+			require.NoError(t, i18n.Init())
+			user := User{Username: "subscription-matrix", AffCode: "matrix-first", Password: "hash", Group: "default", Quota: 30, Status: common.UserStatusEnabled, AuthVersion: 1}
+			require.NoError(t, DB.Create(&user).Error)
+			plan := SubscriptionPlan{Title: "Matrix", PriceAmount: 2.01, Enabled: true, DurationUnit: SubscriptionDurationMonth, DurationValue: 1, TotalAmount: 100, QuotaResetPeriod: SubscriptionResetDaily, UpgradeGroup: "pro", MaxPurchasePerUser: 2}
+			require.NoError(t, DB.Create(&plan).Error)
+			InvalidateSubscriptionPlanCache(plan.Id)
+			order := SubscriptionOrder{UserId: user.Id, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: "matrix-order", PaymentMethod: "wechat", PaymentProvider: PaymentProviderEpay, Status: common.TopUpStatusPending, CreateTime: common.GetTimestamp()}
+			require.NoError(t, DB.Create(&order).Error)
+			orders := subscriptionsapp.NewOrders()
+			input := complete_order.Input{TradeNo: order.TradeNo, ExpectedProvider: PaymentProviderEpay, ActualMethod: "alipay"}
+			require.NoError(t, orders.Complete(input))
+			require.NoError(t, orders.Complete(input))
+			var subs []UserSubscription
+			require.NoError(t, DB.Where("user_id = ?", user.Id).Find(&subs).Error)
+			require.Len(t, subs, 1)
+			var history TopUp
+			require.NoError(t, DB.Where("trade_no = ?", order.TradeNo).First(&history).Error)
+			assert.Equal(t, "wechat", history.PaymentMethod)
+			assert.Empty(t, history.PaymentProvider)
+			assert.Equal(t, "alipay", orders.Find(order.TradeNo).PaymentMethod)
+			require.NoError(t, DB.First(&user, user.Id).Error)
+			assert.Equal(t, "pro", user.Group)
+			assert.EqualValues(t, 1, user.AuthVersion)
+			require.NoError(t, DB.Model(&subs[0]).Update("amount_used", 70).Error)
+			reset, err := reset_subscriptions.NewUsecase(store, GetDBTimestamp).Execute(reset_subscriptions.Input{UserID: user.Id, PlanID: plan.Id, AdvanceResetTime: true})
+			require.NoError(t, err)
+			assert.Equal(t, 1, reset.ResetCount)
+			require.NoError(t, DB.First(&subs[0], subs[0].Id).Error)
+			assert.Zero(t, subs[0].AmountUsed)
+			group, err := invalidate_subscription.NewUsecase(store, common.GetTimestamp, func(int, string) {}).Execute(subs[0].Id)
+			require.NoError(t, err)
+			assert.Equal(t, "default", group)
+			// Balance uses the production composition, decimal ceil, and no history projection.
+			oldQuota := common.QuotaPerUnit
+			oldPayment := *operation_setting.GetPaymentSetting()
+			common.QuotaPerUnit = 10
+			*operation_setting.GetPaymentSetting() = operation_setting.PaymentSetting{ComplianceConfirmed: true, ComplianceTermsVersion: operation_setting.CurrentComplianceTermsVersion}
+			t.Cleanup(func() { common.QuotaPerUnit = oldQuota; *operation_setting.GetPaymentSetting() = oldPayment })
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Set("id", user.Id)
+			c.Request = httptest.NewRequest("POST", "/api/subscription/balance/pay", strings.NewReader(fmt.Sprintf(`{"plan_id":%d}`, plan.Id)))
+			c.Request.Header.Set("Content-Type", "application/json")
+			subscriptionsapp.NewHTTP().Balance.Handle(c)
+			assert.Contains(t, recorder.Body.String(), `"success":true`)
+			require.NoError(t, DB.First(&user, user.Id).Error)
+			assert.Equal(t, 9, user.Quota)
+			var historyCount int64
+			require.NoError(t, DB.Model(&TopUp{}).Count(&historyCount).Error)
+			assert.EqualValues(t, 1, historyCount)
+			// A conflicting existing history method rolls back grant and group changes together.
+			other := User{Username: "subscription-matrix-rollback", AffCode: "matrix-second", Password: "hash", Group: "default", Status: common.UserStatusEnabled}
+			require.NoError(t, DB.Create(&other).Error)
+			failed := SubscriptionOrder{UserId: other.Id, PlanId: plan.Id, Money: 2.01, TradeNo: "matrix-conflict", PaymentMethod: "wechat", PaymentProvider: PaymentProviderEpay, Status: common.TopUpStatusPending}
+			require.NoError(t, DB.Create(&failed).Error)
+			conflict := TopUp{UserId: other.Id, TradeNo: failed.TradeNo, PaymentMethod: "stripe", Status: common.TopUpStatusPending}
+			require.NoError(t, DB.Create(&conflict).Error)
+			require.ErrorIs(t, orders.Complete(complete_order.Input{TradeNo: failed.TradeNo, ExpectedProvider: PaymentProviderEpay}), domain.ErrProviderMismatch)
+			var grants int64
+			require.NoError(t, DB.Model(&UserSubscription{}).Where("user_id = ?", other.Id).Count(&grants).Error)
+			assert.Zero(t, grants)
+			require.NoError(t, DB.First(&other, other.Id).Error)
+			assert.Equal(t, "default", other.Group)
+			assert.Equal(t, common.TopUpStatusPending, orders.Find(failed.TradeNo).Status)
+		})
+	}
 }

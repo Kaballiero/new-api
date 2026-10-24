@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-type Request struct {
+type AdminUpdateSubscriptionPlanStatusRequest struct {
 	Enabled *bool `json:"enabled"`
 }
 type HTTP struct {
@@ -28,7 +28,7 @@ func (h HTTP) Handle(c *gin.Context) {
 		transport.WriteError(c, domain.ErrInvalidID)
 		return
 	}
-	var req Request
+	var req AdminUpdateSubscriptionPlanStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
 		transport.InvalidParameters(c)
 		return

@@ -1,7 +1,7 @@
 package controller
 
 import (
-	paymentsapp "github.com/QuantumNous/new-api/internal/app/payments"
+	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
 	"testing"
 
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -16,11 +16,11 @@ func TestPaymentReturnPathUsesDefaultDashboardRoutes(t *testing.T) {
 	assert.Equal(
 		t,
 		"https://dashboard.example.com/wallet?pay=success",
-		paymentsapp.ReturnPath("/wallet?pay=success"),
+		settings.Settings{}.ReturnPath("/wallet?pay=success"),
 	)
 	assert.Equal(
 		t,
 		"https://dashboard.example.com/usage-logs",
-		paymentsapp.ReturnPath("/usage-logs"),
+		settings.Settings{}.ReturnPath("/usage-logs"),
 	)
 }

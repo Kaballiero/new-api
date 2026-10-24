@@ -2,7 +2,6 @@ package list_pancake_catalog
 
 import (
 	"context"
-	"strings"
 
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 )
@@ -29,24 +28,5 @@ func (u Usecase) Execute(ctx context.Context, in Input) (*domain.WaffoPancakeCat
 	if creds.MerchantID == "" || creds.PrivateKey == "" {
 		return nil, domain.ErrCredentials
 	}
-	client, err := u.factory.Management(creds)
-	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake store and product catalog query failed error=%q", err)
-		return nil, domain.ErrCatalog
-	}
-	catalog, err := client.Catalog(ctx)
-	if err != nil {
-		u.diagnostics.Error(ctx, "Waffo Pancake store and product catalog query failed error=%q", err)
-		return nil, domain.ErrCatalog
-	}
-	for i := range catalog.Stores {
-		active := catalog.Stores[i].OnetimeProducts[:0]
-		for _, product := range catalog.Stores[i].OnetimeProducts {
-			if strings.EqualFold(strings.TrimSpace(product.Status), "active") {
-				active = append(active, product)
-			}
-		}
-		catalog.Stores[i].OnetimeProducts = active
-	}
-	return catalog, nil
+	return domain.LoadActivePancakeCatalog(ctx, u.factory, creds, u.diagnostics)
 }

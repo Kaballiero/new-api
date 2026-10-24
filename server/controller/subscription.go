@@ -23,3 +23,5 @@ func AdminResetUserSubscriptionsByPlan(c *gin.Context) { subscriptionsHTTP().Res
 func AdminResetPlanSubscriptions(c *gin.Context)       { subscriptionsHTTP().Reset.ForPlan(c) }
 func AdminInvalidateUserSubscription(c *gin.Context)   { subscriptionsHTTP().Invalidate.Handle(c) }
 func AdminDeleteUserSubscription(c *gin.Context)       { subscriptionsHTTP().Delete.Handle(c) }
+
+var subscriptionProviders = sync.OnceValue(subscriptionsapp.NewProviders)

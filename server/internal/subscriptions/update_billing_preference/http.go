@@ -6,14 +6,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type Request struct {
+type BillingPreferenceRequest struct {
 	BillingPreference string `json:"billing_preference"`
 }
 type HTTP struct{ usecase Usecase }
 
 func NewHTTP(usecase Usecase) HTTP { return HTTP{usecase: usecase} }
 func (h HTTP) Handle(c *gin.Context) {
-	var req Request
+	var req BillingPreferenceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		transport.InvalidParameters(c)
 		return

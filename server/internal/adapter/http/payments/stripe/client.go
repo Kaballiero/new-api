@@ -46,6 +46,13 @@ func (Client) Checkout(in domain.StripeCheckout) (string, error) {
 		AllowPromotionCodes: stripe.Bool(setting.StripePromotionCodesEnabled),
 	}
 
+	if in.Subscription {
+		params.LineItems[0].Price = stripe.String(in.PriceID)
+		params.LineItems[0].Quantity = stripe.Int64(1)
+		params.Mode = stripe.String(string(stripe.CheckoutSessionModeSubscription))
+		params.AllowPromotionCodes = nil
+	}
+
 	if "" == customerId {
 		if "" != email {
 			params.CustomerEmail = stripe.String(email)

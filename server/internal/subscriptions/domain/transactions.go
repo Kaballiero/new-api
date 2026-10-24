@@ -91,3 +91,5 @@ type BalanceReceipt struct {
 	Money     float64
 	Quota     int
 }
+
+type CompletionInput struct{ TradeNo, ProviderPayload, ExpectedProvider, ActualMethod string }
