@@ -1,0 +1,234 @@
+[
+  {
+    "error": null,
+    "provider_port_calls": 0,
+    "state": {
+      "audit": [],
+      "channels": [
+        {
+          "id": 71,
+          "status": 1,
+          "type": 50,
+          "used_quota": 100
+        }
+      ],
+      "ledger": [],
+      "logs": [
+        {
+          "channel_id": 71,
+          "channel_name": null,
+          "completion_tokens": 0,
+          "content": "OpenRouter confirmed cost settlement",
+          "created_at": 946684800,
+          "group": "default",
+          "id": 1,
+          "ip": "",
+          "is_stream": 0,
+          "model_name": "task-policy-model",
+          "other": "{\"actual_quota\":100,\"admin_info\":{\"billing_fx\":{\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\",\"rate\":200,\"publication_version\":1,\"effective_at\":1,\"fetched_at\":1},\"billing_submit_group\":{\"pure_ratio\":2,\"has_special_ratio\":false},\"openrouter_cost_basis\":{\"version\":\"openrouter_cost_v2\",\"effective_group_ratio\":4,\"quota_per_unit\":500000,\"estimated_usd\":0.000025},\"openrouter_order_facts\":null,\"upstream_cost_usd\":0.00005},\"pre_consumed_quota\":50,\"root_info\":{\"node_name\":\"tasks-contract-node\",\"upstream_task_id\":\"upstream-policy\"},\"settlement_mode\":\"openrouter_cost_v2\",\"task_id\":\"task_policy\"}",
+          "prompt_tokens": 0,
+          "quota": 50,
+          "request_id": "\u003clogs-request_id-1\u003e",
+          "token_id": 11,
+          "token_name": "policy-key",
+          "type": 2,
+          "upstream_request_id": "",
+          "use_time": 0,
+          "user_id": 1,
+          "username": "tasks-user"
+        }
+      ],
+      "main_logs": [],
+      "midjourneys": [],
+      "sessions": [],
+      "subscription_orders": [],
+      "subscriptions": [
+        {
+          "allow_wallet_overflow": 0,
+          "amount_total": 1000,
+          "amount_used": 100,
+          "created_at": 946684800,
+          "downgrade_group": "",
+          "end_time": 946694800,
+          "id": 21,
+          "last_reset_time": 0,
+          "next_reset_time": 0,
+          "plan_id": 31,
+          "prev_user_group": "",
+          "source": "order",
+          "start_time": 946684790,
+          "status": "active",
+          "updated_at": 946684800,
+          "upgrade_group": "",
+          "user_id": 1
+        }
+      ],
+      "tasks": [
+        {
+          "action": "text_to_video",
+          "channel_id": 71,
+          "created_at": 946684800,
+          "data": "{\"keep\":true}",
+          "fail_reason": "",
+          "finish_time": 0,
+          "group": "default",
+          "id": 81,
+          "platform": "kling",
+          "private_data": "{\"upstream_task_id\":\"upstream-policy\",\"billing_source\":\"subscription\",\"subscription_id\":21,\"token_id\":11,\"node_name\":\"tasks-contract-node\",\"billing_context\":{\"settlement_mode\":\"openrouter_cost_v2\",\"openrouter_cost\":{\"version\":\"openrouter_cost_v2\",\"effective_group_ratio\":4,\"quota_per_unit\":500000,\"estimated_usd\":0.000025},\"group_ratio\":4,\"origin_model_name\":\"task-policy-model\",\"billing_fx\":{\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\",\"rate\":200,\"publication_version\":1,\"effective_at\":1,\"fetched_at\":1},\"submit_group\":{\"pure_ratio\":2,\"has_special_ratio\":false}},\"reconciliation\":{\"reserved_quota\":50,\"main_applied\":true,\"target_quota\":100,\"finalized\":true,\"has_upstream_cost\":true,\"upstream_cost_confirmed\":true,\"upstream_cost_usd\":0.00005}}",
+          "progress": "30%",
+          "properties": "{\"input\":\"\",\"origin_model_name\":\"task-policy-model\"}",
+          "quota": 100,
+          "start_time": 0,
+          "status": "SUCCESS",
+          "submit_time": 946684800,
+          "task_id": "task_policy",
+          "updated_at": 946684800,
+          "user_id": 1
+        }
+      ],
+      "tokens": [
+        {
+          "id": 11,
+          "remain_quota": 9900,
+          "status": 1,
+          "unlimited_quota": 0,
+          "used_quota": 100,
+          "user_id": 1
+        }
+      ],
+      "top_ups": [],
+      "users": [
+        {
+          "auth_version": 3,
+          "email": "",
+          "group": "default",
+          "id": 1,
+          "quota": 10000,
+          "request_count": 1,
+          "setting": "",
+          "status": 1,
+          "stripe_customer": "",
+          "used_quota": 100,
+          "username": "tasks-user"
+        }
+      ]
+    },
+    "summary": null
+  },
+  {
+    "error": null,
+    "provider_port_calls": 0,
+    "state": {
+      "audit": [],
+      "channels": [
+        {
+          "id": 71,
+          "status": 1,
+          "type": 50,
+          "used_quota": 100
+        }
+      ],
+      "ledger": [],
+      "logs": [
+        {
+          "channel_id": 71,
+          "channel_name": null,
+          "completion_tokens": 0,
+          "content": "OpenRouter confirmed cost settlement",
+          "created_at": 946684800,
+          "group": "default",
+          "id": 1,
+          "ip": "",
+          "is_stream": 0,
+          "model_name": "task-policy-model",
+          "other": "{\"actual_quota\":100,\"admin_info\":{\"billing_fx\":{\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\",\"rate\":200,\"publication_version\":1,\"effective_at\":1,\"fetched_at\":1},\"billing_submit_group\":{\"pure_ratio\":2,\"has_special_ratio\":false},\"openrouter_cost_basis\":{\"version\":\"openrouter_cost_v2\",\"effective_group_ratio\":4,\"quota_per_unit\":500000,\"estimated_usd\":0.000025},\"openrouter_order_facts\":null,\"upstream_cost_usd\":0.00005},\"pre_consumed_quota\":50,\"root_info\":{\"node_name\":\"tasks-contract-node\",\"upstream_task_id\":\"upstream-policy\"},\"settlement_mode\":\"openrouter_cost_v2\",\"task_id\":\"task_policy\"}",
+          "prompt_tokens": 0,
+          "quota": 50,
+          "request_id": "\u003clogs-request_id-1\u003e",
+          "token_id": 11,
+          "token_name": "policy-key",
+          "type": 2,
+          "upstream_request_id": "",
+          "use_time": 0,
+          "user_id": 1,
+          "username": "tasks-user"
+        }
+      ],
+      "main_logs": [],
+      "midjourneys": [],
+      "sessions": [],
+      "subscription_orders": [],
+      "subscriptions": [
+        {
+          "allow_wallet_overflow": 0,
+          "amount_total": 1000,
+          "amount_used": 100,
+          "created_at": 946684800,
+          "downgrade_group": "",
+          "end_time": 946694800,
+          "id": 21,
+          "last_reset_time": 0,
+          "next_reset_time": 0,
+          "plan_id": 31,
+          "prev_user_group": "",
+          "source": "order",
+          "start_time": 946684790,
+          "status": "active",
+          "updated_at": 946684800,
+          "upgrade_group": "",
+          "user_id": 1
+        }
+      ],
+      "tasks": [
+        {
+          "action": "text_to_video",
+          "channel_id": 71,
+          "created_at": 946684800,
+          "data": "{\"keep\":true}",
+          "fail_reason": "",
+          "finish_time": 0,
+          "group": "default",
+          "id": 81,
+          "platform": "kling",
+          "private_data": "{\"upstream_task_id\":\"upstream-policy\",\"billing_source\":\"subscription\",\"subscription_id\":21,\"token_id\":11,\"node_name\":\"tasks-contract-node\",\"billing_context\":{\"settlement_mode\":\"openrouter_cost_v2\",\"openrouter_cost\":{\"version\":\"openrouter_cost_v2\",\"effective_group_ratio\":4,\"quota_per_unit\":500000,\"estimated_usd\":0.000025},\"group_ratio\":4,\"origin_model_name\":\"task-policy-model\",\"billing_fx\":{\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\",\"rate\":200,\"publication_version\":1,\"effective_at\":1,\"fetched_at\":1},\"submit_group\":{\"pure_ratio\":2,\"has_special_ratio\":false}},\"reconciliation\":{\"reserved_quota\":50,\"main_applied\":true,\"target_quota\":100,\"finalized\":true,\"has_upstream_cost\":true,\"upstream_cost_confirmed\":true,\"upstream_cost_usd\":0.00005}}",
+          "progress": "30%",
+          "properties": "{\"input\":\"\",\"origin_model_name\":\"task-policy-model\"}",
+          "quota": 100,
+          "start_time": 0,
+          "status": "SUCCESS",
+          "submit_time": 946684800,
+          "task_id": "task_policy",
+          "updated_at": 946684800,
+          "user_id": 1
+        }
+      ],
+      "tokens": [
+        {
+          "id": 11,
+          "remain_quota": 9900,
+          "status": 1,
+          "unlimited_quota": 0,
+          "used_quota": 100,
+          "user_id": 1
+        }
+      ],
+      "top_ups": [],
+      "users": [
+        {
+          "auth_version": 3,
+          "email": "",
+          "group": "default",
+          "id": 1,
+          "quota": 10000,
+          "request_count": 1,
+          "setting": "",
+          "status": 1,
+          "stripe_customer": "",
+          "used_quota": 100,
+          "username": "tasks-user"
+        }
+      ]
+    },
+    "summary": null
+  }
+]

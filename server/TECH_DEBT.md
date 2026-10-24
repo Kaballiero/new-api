@@ -48,6 +48,8 @@
 | 64 | Subscription preconsume ledger | request_id reuse не проверяет user/amount; duplicate-create fallback использует candidate facts; cleanup7d удаляет dedup history | Ownership/retention policy отдельно, без replay |
 | 65 | Subscription delta | Нет active/expiry проверки или overflow guard для used+delta; SQLite пропускает row lock | **Financial/resource candidate**: bounds/transaction/CAS policy отдельно |
 | 66 | Subscription silent errors | Downgrade/expiry probes трактуют SQL error как отсутствие competing subscription; plan writes не проверяют affected rows; self errors маскируются пустыми списками | Возможны неверные state/transition; error semantics сохранены |
+| 67 | Task billing log parameter order | `service/task_billing.go:32–46` собирает `logs.content` обходом Go maps без сортировки; одинаковые billing facts дают разные bytes | Contract harness канонизирует только порядок параметров. Candidate fix: сортировать ключи; меняет видимый текст, нужно отдельное решение |
+| 68 | Sora legacy multipart field order | `common/gin.go:419–426`, `relay/channel/task/jsplugin/adaptor.go:311–325, 1327–1329` передают Go maps в JS; `plugins/tasks/sora/plugin.js:108–116` собирает parts через Object.keys и files, writer сохраняет их порядок | Одинаковые поля дают разный порядок multipart parts. Contract harness канонизирует только порядок parts; сортировка в production — отдельное решение |
 
 
 ## Оптимизации (без изменений схемы БД)

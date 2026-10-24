@@ -1,0 +1,217 @@
+{
+  "http": {
+    "body": "fixture-image",
+    "headers": {
+      "Content-Type": [
+        "video/mp4"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 200
+  },
+  "outbound": [
+    {
+      "Method": "GET",
+      "URL": "https://203.0.113.10/image",
+      "Body": "",
+      "Headers": {},
+      "Host": "203.0.113.10",
+      "ContentLength": 0,
+      "TransferEncoding": null
+    }
+  ],
+  "state": {
+    "audit": [],
+    "channels": [
+      {
+        "id": 71,
+        "status": 1,
+        "type": 2,
+        "used_quota": 0
+      }
+    ],
+    "ledger": [],
+    "logs": [],
+    "main_logs": [],
+    "midjourneys": [
+      {
+        "action": "",
+        "billing_channel_id": 0,
+        "buttons": "",
+        "channel_id": 71,
+        "code": 0,
+        "description": "",
+        "fail_reason": "",
+        "finish_time": 101,
+        "id": 91,
+        "image_url": "https://203.0.113.10/image",
+        "mj_id": "mj_own",
+        "progress": "100%",
+        "prompt": "",
+        "prompt_en": "",
+        "properties": "",
+        "quota": 0,
+        "start_time": 0,
+        "state": "",
+        "status": "SUCCESS",
+        "submit_time": 100,
+        "token_id": 0,
+        "user_id": 1,
+        "video_url": "",
+        "video_urls": ""
+      },
+      {
+        "action": "",
+        "billing_channel_id": 0,
+        "buttons": "",
+        "channel_id": 72,
+        "code": 0,
+        "description": "",
+        "fail_reason": "",
+        "finish_time": 0,
+        "id": 92,
+        "image_url": "",
+        "mj_id": "mj_foreign",
+        "progress": "100%",
+        "prompt": "",
+        "prompt_en": "",
+        "properties": "",
+        "quota": 0,
+        "start_time": 0,
+        "state": "",
+        "status": "FAILURE",
+        "submit_time": 101,
+        "token_id": 0,
+        "user_id": 2,
+        "video_url": "",
+        "video_urls": ""
+      }
+    ],
+    "sessions": [
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 1,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 2,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 3,
+        "version": 1
+      }
+    ],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "tasks": [
+      {
+        "action": "text_to_video",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": null,
+        "fail_reason": "",
+        "finish_time": 101,
+        "group": "",
+        "id": 81,
+        "platform": "kling",
+        "private_data": "{\"result_url\":\"https://203.0.113.10/video\"}",
+        "progress": "100%",
+        "properties": null,
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 100,
+        "task_id": "task_own",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 72,
+        "created_at": 946684800,
+        "data": null,
+        "fail_reason": "provider failure",
+        "finish_time": 0,
+        "group": "",
+        "id": 82,
+        "platform": "suno",
+        "private_data": null,
+        "progress": "100%",
+        "properties": null,
+        "quota": 0,
+        "start_time": 0,
+        "status": "FAILURE",
+        "submit_time": 101,
+        "task_id": "task_foreign",
+        "updated_at": 946684800,
+        "user_id": 2
+      }
+    ],
+    "tokens": [
+      {
+        "id": 101,
+        "remain_quota": 1000000,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 0,
+        "user_id": 1
+      }
+    ],
+    "top_ups": [],
+    "users": [
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 1,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "{\"billing_preference\":\"wallet_only\"}",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-user"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 2,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-admin"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 3,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-root"
+      }
+    ]
+  }
+}

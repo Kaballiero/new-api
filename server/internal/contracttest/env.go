@@ -63,6 +63,15 @@ func (env *Env) MountRelay() {
 	router.SetRelayRouter(env.engine)
 }
 
+// MountTasks adds the production task surfaces in their normal registration order.
+func (env *Env) MountTasks() {
+	env.MountRelay()
+	router.SetTaskPluginProtocolRouter(env.engine)
+	router.SetVideoRouter(env.engine)
+	router.SetTaskRouter(env.engine)
+	env.engine.NoRoute(router.SetPluginRouter(env.engine))
+}
+
 // Route mounts the production middleware under test without contacting upstreams.
 func (env *Env) Route(method, path string, handlers ...gin.HandlerFunc) {
 	stableRequestID := func(c *gin.Context) { c.Set(common.RequestIdKey, "gateway-contract-request"); c.Next() }

@@ -1,0 +1,238 @@
+[
+  {
+    "outbound": [
+      {
+        "body": "{\"ids\":[\"mj_policy\"]}",
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ],
+          "Mj-Api-Secret": [
+            "fixture-mj-key"
+          ]
+        },
+        "method": "POST",
+        "url": "https://203.0.113.10/mj/task/list-by-condition"
+      }
+    ],
+    "state": {
+      "audit": [],
+      "channels": [
+        {
+          "id": 71,
+          "status": 1,
+          "type": 2,
+          "used_quota": 0
+        }
+      ],
+      "ledger": [],
+      "logs": [
+        {
+          "channel_id": 71,
+          "channel_name": null,
+          "completion_tokens": 0,
+          "content": "",
+          "created_at": 946684800,
+          "group": "",
+          "id": 1,
+          "ip": "",
+          "is_stream": 0,
+          "model_name": "mj_imagine",
+          "other": "{\"reason\":\"构图失败\",\"task_id\":\"mj_policy\"}",
+          "prompt_tokens": 0,
+          "quota": 50,
+          "request_id": "\u003clogs-request_id-1\u003e",
+          "token_id": 0,
+          "token_name": "",
+          "type": 6,
+          "upstream_request_id": "",
+          "use_time": 0,
+          "user_id": 1,
+          "username": "mj-user"
+        }
+      ],
+      "main_logs": [],
+      "midjourneys": [
+        {
+          "action": "IMAGINE",
+          "billing_channel_id": 71,
+          "buttons": "[{\"label\":\"keep\"}]",
+          "channel_id": 71,
+          "code": 1,
+          "description": "",
+          "fail_reason": "fixture provider failure",
+          "finish_time": 0,
+          "id": 91,
+          "image_url": "",
+          "mj_id": "mj_policy",
+          "progress": "100%",
+          "prompt": "",
+          "prompt_en": "",
+          "properties": "{\"keep\":true}",
+          "quota": 0,
+          "start_time": 0,
+          "state": "",
+          "status": "FAILURE",
+          "submit_time": 946684800000,
+          "token_id": 0,
+          "user_id": 1,
+          "video_url": "",
+          "video_urls": "[{\"url\":\"https://203.0.113.10/old-video\"}]"
+        }
+      ],
+      "sessions": [],
+      "subscription_orders": [],
+      "subscriptions": [],
+      "tasks": [],
+      "tokens": [
+        {
+          "id": 11,
+          "remain_quota": 9950,
+          "status": 1,
+          "unlimited_quota": 0,
+          "used_quota": 50,
+          "user_id": 1
+        }
+      ],
+      "top_ups": [],
+      "users": [
+        {
+          "auth_version": 1,
+          "email": "",
+          "group": "default",
+          "id": 1,
+          "quota": 10000,
+          "request_count": 1,
+          "setting": "",
+          "status": 1,
+          "stripe_customer": "",
+          "used_quota": 0,
+          "username": "mj-user"
+        }
+      ]
+    },
+    "summary": {
+      "unfinished_tasks": 1,
+      "channels_scanned": 1,
+      "null_tasks_failed": 0
+    }
+  },
+  {
+    "outbound": [
+      {
+        "body": "{\"ids\":[\"mj_policy\"]}",
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ],
+          "Mj-Api-Secret": [
+            "fixture-mj-key"
+          ]
+        },
+        "method": "POST",
+        "url": "https://203.0.113.10/mj/task/list-by-condition"
+      }
+    ],
+    "state": {
+      "audit": [],
+      "channels": [
+        {
+          "id": 71,
+          "status": 1,
+          "type": 2,
+          "used_quota": 0
+        }
+      ],
+      "ledger": [],
+      "logs": [
+        {
+          "channel_id": 71,
+          "channel_name": null,
+          "completion_tokens": 0,
+          "content": "",
+          "created_at": 946684800,
+          "group": "",
+          "id": 1,
+          "ip": "",
+          "is_stream": 0,
+          "model_name": "mj_imagine",
+          "other": "{\"reason\":\"构图失败\",\"task_id\":\"mj_policy\"}",
+          "prompt_tokens": 0,
+          "quota": 50,
+          "request_id": "\u003clogs-request_id-1\u003e",
+          "token_id": 0,
+          "token_name": "",
+          "type": 6,
+          "upstream_request_id": "",
+          "use_time": 0,
+          "user_id": 1,
+          "username": "mj-user"
+        }
+      ],
+      "main_logs": [],
+      "midjourneys": [
+        {
+          "action": "IMAGINE",
+          "billing_channel_id": 71,
+          "buttons": "[{\"label\":\"keep\"}]",
+          "channel_id": 71,
+          "code": 1,
+          "description": "",
+          "fail_reason": "fixture provider failure",
+          "finish_time": 0,
+          "id": 91,
+          "image_url": "",
+          "mj_id": "mj_policy",
+          "progress": "100%",
+          "prompt": "",
+          "prompt_en": "",
+          "properties": "{\"keep\":true}",
+          "quota": 0,
+          "start_time": 0,
+          "state": "",
+          "status": "FAILURE",
+          "submit_time": 946684800000,
+          "token_id": 0,
+          "user_id": 1,
+          "video_url": "",
+          "video_urls": "[{\"url\":\"https://203.0.113.10/old-video\"}]"
+        }
+      ],
+      "sessions": [],
+      "subscription_orders": [],
+      "subscriptions": [],
+      "tasks": [],
+      "tokens": [
+        {
+          "id": 11,
+          "remain_quota": 9950,
+          "status": 1,
+          "unlimited_quota": 0,
+          "used_quota": 50,
+          "user_id": 1
+        }
+      ],
+      "top_ups": [],
+      "users": [
+        {
+          "auth_version": 1,
+          "email": "",
+          "group": "default",
+          "id": 1,
+          "quota": 10000,
+          "request_count": 1,
+          "setting": "",
+          "status": 1,
+          "stripe_customer": "",
+          "used_quota": 0,
+          "username": "mj-user"
+        }
+      ]
+    },
+    "summary": {
+      "unfinished_tasks": 0,
+      "channels_scanned": 0,
+      "null_tasks_failed": 0
+    }
+  }
+]

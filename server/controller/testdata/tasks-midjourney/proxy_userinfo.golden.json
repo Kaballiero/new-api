@@ -1,0 +1,57 @@
+{
+  "body": "{\"error\":{\"code\":\"artifact_request_rejected\",\"message\":\"Artifact request was rejected\",\"type\":\"artifact_request_rejected\"}}",
+  "headers": {
+    "Cache-Control": [
+      "private, no-store"
+    ],
+    "Content-Type": [
+      "application/json; charset=utf-8"
+    ]
+  },
+  "outbound": [],
+  "state": {
+    "audit": [],
+    "channels": [
+      {
+        "id": 71,
+        "status": 1,
+        "type": 0,
+        "used_quota": 0
+      }
+    ],
+    "ledger": [],
+    "logs": [],
+    "main_logs": [],
+    "midjourneys": [],
+    "sessions": [],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "tasks": [
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": null,
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 81,
+        "platform": "kling",
+        "private_data": null,
+        "progress": "",
+        "properties": null,
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_proxy",
+        "updated_at": 946684800,
+        "user_id": 1
+      }
+    ],
+    "tokens": [],
+    "top_ups": [],
+    "users": []
+  },
+  "status": 502
+}

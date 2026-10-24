@@ -1,0 +1,285 @@
+{
+  "http": {
+    "body": "{\"created_at\":1791898880,\"id\":\"task_\u003cgenerated\u003e\",\"model\":\"runway/gen-4.5\",\"status\":\"queued\",\"task_id\":\"task_\u003cgenerated\u003e\"}",
+    "headers": {
+      "Content-Type": [
+        "application/json; charset=utf-8"
+      ],
+      "X-Api-Other-Ratios": [
+        "{}"
+      ],
+      "X-Oneapi-Request-Id": [
+        "billing-contract-request"
+      ]
+    },
+    "status": 200
+  },
+  "outbound": [
+    {
+      "Method": "GET",
+      "URL": "https://203.0.113.10/v1/videos/models",
+      "Body": "",
+      "Headers": {
+        "Authorization": [
+          "Bearer sk-fixture-provider"
+        ]
+      },
+      "Host": "203.0.113.10",
+      "ContentLength": 0,
+      "TransferEncoding": null
+    },
+    {
+      "Method": "POST",
+      "URL": "https://203.0.113.10/v1/videos",
+      "Body": "{\"duration\":5,\"model\":\"runway/gen-4.5\",\"prompt\":\"fixture\"}",
+      "Headers": {
+        "Authorization": [
+          "Bearer sk-fixture-provider"
+        ],
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "Host": "203.0.113.10",
+      "ContentLength": 58,
+      "TransferEncoding": null
+    }
+  ],
+  "state": {
+    "audit": [],
+    "channels": [
+      {
+        "id": 71,
+        "status": 1,
+        "type": 61,
+        "used_quota": 250
+      }
+    ],
+    "ledger": [],
+    "logs": [
+      {
+        "channel_id": 71,
+        "channel_name": null,
+        "completion_tokens": 0,
+        "content": "操作 ",
+        "created_at": 1791898880,
+        "group": "default",
+        "id": 1,
+        "ip": "",
+        "is_stream": 0,
+        "model_name": "runway/gen-4.5",
+        "other": "{\"admin_info\":{\"billing_applied_group\":{\"effective_ratio\":1,\"pure_ratio\":1},\"billing_fx\":{\"effective_at\":946684800,\"fetched_at\":946684800,\"publication_version\":1,\"rate\":100,\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\"},\"billing_stage\":\"submit\",\"openrouter_cost_basis\":{\"version\":\"openrouter_cost_v2\",\"effective_group_ratio\":1,\"quota_per_unit\":500000,\"estimated_usd\":0.0005},\"openrouter_order_facts\":{\"aspect_ratio\":\"default\",\"audio\":\"default\",\"audios\":0,\"creativity\":\"default\",\"frame_images\":0,\"generation_mode\":\"text_to_video\",\"images\":0,\"jobs\":1,\"reference_images\":0,\"requested_seconds\":5,\"resolution\":\"default\",\"size\":\"default\",\"videos\":0},\"task_plugin\":{\"author\":{\"name\":\"GetAPI\"},\"key\":\"openrouter-video\",\"name\":\"OpenRouter Video\",\"version\":\"1.0.0\"}},\"group_ratio\":1,\"is_task\":true,\"model_price\":0,\"request_path\":\"/v1/tasks/openrouter-video\",\"reserved_quota\":250,\"root_info\":{\"node_name\":\"tasks-contract-node\",\"task_plugin\":{\"api_version\":1,\"generation\":12,\"key\":\"openrouter-video\",\"version\":\"1.0.0\"},\"upstream_task_id\":\"upstream-fixture\"},\"settlement_mode\":\"openrouter_cost_v2\",\"task_id\":\"task_\u003cgenerated\u003e\"}",
+        "prompt_tokens": 0,
+        "quota": 250,
+        "request_id": "\u003clogs-request_id-1\u003e",
+        "token_id": 101,
+        "token_name": "tasks-key",
+        "type": 2,
+        "upstream_request_id": "",
+        "use_time": 0,
+        "user_id": 1,
+        "username": "contract-user"
+      }
+    ],
+    "main_logs": [],
+    "midjourneys": [
+      {
+        "action": "",
+        "billing_channel_id": 0,
+        "buttons": "",
+        "channel_id": 71,
+        "code": 0,
+        "description": "",
+        "fail_reason": "",
+        "finish_time": 101,
+        "id": 91,
+        "image_url": "https://203.0.113.10/image",
+        "mj_id": "mj_own",
+        "progress": "100%",
+        "prompt": "",
+        "prompt_en": "",
+        "properties": "",
+        "quota": 0,
+        "start_time": 0,
+        "state": "",
+        "status": "SUCCESS",
+        "submit_time": 100,
+        "token_id": 0,
+        "user_id": 1,
+        "video_url": "",
+        "video_urls": ""
+      },
+      {
+        "action": "",
+        "billing_channel_id": 0,
+        "buttons": "",
+        "channel_id": 72,
+        "code": 0,
+        "description": "",
+        "fail_reason": "",
+        "finish_time": 0,
+        "id": 92,
+        "image_url": "",
+        "mj_id": "mj_foreign",
+        "progress": "100%",
+        "prompt": "",
+        "prompt_en": "",
+        "properties": "",
+        "quota": 0,
+        "start_time": 0,
+        "state": "",
+        "status": "FAILURE",
+        "submit_time": 101,
+        "token_id": 0,
+        "user_id": 2,
+        "video_url": "",
+        "video_urls": ""
+      }
+    ],
+    "sessions": [
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 1,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 2,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 3,
+        "version": 1
+      }
+    ],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "tasks": [
+      {
+        "action": "text_to_video",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": null,
+        "fail_reason": "",
+        "finish_time": 101,
+        "group": "",
+        "id": 81,
+        "platform": "kling",
+        "private_data": "{\"result_url\":\"https://203.0.113.10/video\"}",
+        "progress": "100%",
+        "properties": null,
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 100,
+        "task_id": "task_own",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 72,
+        "created_at": 946684800,
+        "data": null,
+        "fail_reason": "provider failure",
+        "finish_time": 0,
+        "group": "",
+        "id": 82,
+        "platform": "suno",
+        "private_data": null,
+        "progress": "100%",
+        "properties": null,
+        "quota": 0,
+        "start_time": 0,
+        "status": "FAILURE",
+        "submit_time": 101,
+        "task_id": "task_foreign",
+        "updated_at": 946684800,
+        "user_id": 2
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 1791898880,
+        "data": "{\"id\":\"upstream-fixture\",\"status\":\"pending\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "default",
+        "id": 83,
+        "platform": "openrouter-video",
+        "private_data": "{\"key\":\"sk-fixture-provider\",\"upstream_task_id\":\"upstream-fixture\",\"execution\":{\"request_id\":\"billing-contract-request\",\"request_path\":\"/v1/tasks/openrouter-video\",\"task_plugin\":{\"key\":\"openrouter-video\",\"name\":\"OpenRouter Video\",\"version\":\"1.0.0\",\"author\":{\"name\":\"GetAPI\"},\"api_version\":1,\"generation\":12}},\"billing_source\":\"wallet\",\"token_id\":101,\"node_name\":\"tasks-contract-node\",\"billing_context\":{\"settlement_mode\":\"openrouter_cost_v2\",\"openrouter_cost\":{\"version\":\"openrouter_cost_v2\",\"effective_group_ratio\":1,\"quota_per_unit\":500000,\"estimated_usd\":0.0005},\"openrouter_order_facts\":{\"aspect_ratio\":\"default\",\"audio\":\"default\",\"audios\":0,\"creativity\":\"default\",\"frame_images\":0,\"generation_mode\":\"text_to_video\",\"images\":0,\"jobs\":1,\"reference_images\":0,\"requested_seconds\":5,\"resolution\":\"default\",\"size\":\"default\",\"videos\":0},\"group_ratio\":1,\"origin_model_name\":\"runway/gen-4.5\",\"billing_fx\":{\"schema_version\":1,\"source\":\"cbr-xml-daily.ru\",\"rate\":100,\"publication_version\":1,\"effective_at\":946684800,\"fetched_at\":946684800},\"submit_group\":{\"pure_ratio\":1,\"has_special_ratio\":false}},\"plugin_state\":{\"catalogFetchedAt\":\"2026-10-13T13:41:19.105487+00:00\"},\"reconciliation\":{\"reserved_quota\":250}}",
+        "progress": "0%",
+        "properties": "{\"input\":\"\",\"upstream_model_name\":\"runway/gen-4.5\",\"origin_model_name\":\"runway/gen-4.5\"}",
+        "quota": 250,
+        "start_time": 0,
+        "status": "NOT_START",
+        "submit_time": 1791898880,
+        "task_id": "task_\u003cgenerated\u003e",
+        "updated_at": 1791898880,
+        "user_id": 1
+      }
+    ],
+    "tokens": [
+      {
+        "id": 101,
+        "remain_quota": 999750,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 250,
+        "user_id": 1
+      }
+    ],
+    "top_ups": [],
+    "users": [
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 1,
+        "quota": 999750,
+        "request_count": 1,
+        "setting": "{\"billing_preference\":\"wallet_only\"}",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 250,
+        "username": "contract-user"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 2,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-admin"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 3,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-root"
+      }
+    ]
+  }
+}

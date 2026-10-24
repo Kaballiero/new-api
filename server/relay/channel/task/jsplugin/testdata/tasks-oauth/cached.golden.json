@@ -1,0 +1,71 @@
+[
+  {
+    "acquired": 1,
+    "error": null,
+    "outbound": [
+      {
+        "body": "{\"operationName\":\"projects/test-project/locations/us-central1/publishers/google/models/veo-3.0-generate-001/operations/upstream-fixture\"}",
+        "headers": {
+          "Accept": [
+            "application/json"
+          ],
+          "Authorization": [
+            "Bearer fixture-token-1"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "X-Goog-User-Project": [
+            "test-project"
+          ]
+        },
+        "method": "POST",
+        "url": "https://203.0.113.10/v1/projects/test-project/locations/us-central1/publishers/google/models/veo-3.0-generate-001:fetchPredictOperation"
+      }
+    ]
+  },
+  {
+    "acquired": 1,
+    "error": null,
+    "outbound": [
+      {
+        "body": "{\"operationName\":\"projects/test-project/locations/us-central1/publishers/google/models/veo-3.0-generate-001/operations/upstream-fixture\"}",
+        "headers": {
+          "Accept": [
+            "application/json"
+          ],
+          "Authorization": [
+            "Bearer fixture-token-1"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "X-Goog-User-Project": [
+            "test-project"
+          ]
+        },
+        "method": "POST",
+        "url": "https://203.0.113.10/v1/projects/test-project/locations/us-central1/publishers/google/models/veo-3.0-generate-001:fetchPredictOperation"
+      },
+      {
+        "body": "{\"operationName\":\"projects/test-project/locations/us-central1/publishers/google/models/veo-3.0-generate-001/operations/upstream-fixture\"}",
+        "headers": {
+          "Accept": [
+            "application/json"
+          ],
+          "Authorization": [
+            "Bearer fixture-token-1"
+          ],
+          "Content-Type": [
+            "application/json"
+          ],
+          "X-Goog-User-Project": [
+            "test-project"
+          ]
+        },
+        "method": "POST",
+        "url": "https://203.0.113.10/v1/projects/test-project/locations/us-central1/publishers/google/models/veo-3.0-generate-001:fetchPredictOperation"
+      }
+    ]
+  }
+]
