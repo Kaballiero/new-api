@@ -5,6 +5,9 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/system/transport"
+
 	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/gin-gonic/gin"
 )
@@ -25,7 +28,7 @@ func (h Handler) Handle(c *gin.Context) {
 	if modelName == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "model is required",
+			"message": transport.Message(c, i18n.MsgSystemModelRequired),
 		})
 		return
 	}

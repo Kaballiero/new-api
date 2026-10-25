@@ -3,6 +3,9 @@ package complete_setup
 import (
 	"errors"
 
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/system/transport"
+
 	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/gin-gonic/gin"
 )
@@ -20,13 +23,13 @@ func NewHandler(usecase Setup, setup, root func() bool) Handler {
 }
 func (h Handler) Handle(c *gin.Context) {
 	if h.setup() {
-		c.JSON(200, gin.H{"success": false, "message": "系统已经初始化完成"})
+		c.JSON(200, gin.H{"success": false, "message": transport.Message(c, i18n.MsgSystemSetupComplete)})
 		return
 	}
 	rootExists := h.root()
 	var req SetupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(200, gin.H{"success": false, "message": "请求参数有误"})
+		c.JSON(200, gin.H{"success": false, "message": transport.Message(c, i18n.MsgSystemInvalidSetup)})
 		return
 	}
 	err := h.usecase.Execute(Input{
@@ -45,27 +48,27 @@ func (h Handler) Handle(c *gin.Context) {
 				cause = causes[1]
 			}
 		}
-		message := "系统错误: " + cause.Error()
+		message := transport.Message(c, i18n.MsgSystemSystemError, map[string]any{"Cause": cause.Error()})
 		switch {
 		case errors.Is(err, domain.ErrSetupUsername):
-			message = "用户名长度不能超过12个字符"
+			message = transport.Message(c, i18n.MsgSystemUsernameLength)
 		case errors.Is(err, domain.ErrSetupPasswordMismatch):
-			message = "两次输入的密码不一致"
+			message = transport.Message(c, i18n.MsgSystemPasswordMismatch)
 		case errors.Is(err, domain.ErrSetupPassword):
 			message = cause.Error()
 		case errors.Is(err, domain.ErrSetupHash):
-			message = "系统错误: " + cause.Error()
+			message = transport.Message(c, i18n.MsgSystemSystemError, map[string]any{"Cause": cause.Error()})
 		case errors.Is(err, domain.ErrSetupRoot):
-			message = "创建管理员账号失败: " + cause.Error()
+			message = transport.Message(c, i18n.MsgSystemCreateRoot, map[string]any{"Cause": cause.Error()})
 		case errors.Is(err, domain.ErrSetupSelfMode):
-			message = "保存自用模式设置失败: " + cause.Error()
+			message = transport.Message(c, i18n.MsgSystemSaveSelfMode, map[string]any{"Cause": cause.Error()})
 		case errors.Is(err, domain.ErrSetupDemoMode):
-			message = "保存演示站点模式设置失败: " + cause.Error()
+			message = transport.Message(c, i18n.MsgSystemSaveDemoMode, map[string]any{"Cause": cause.Error()})
 		case errors.Is(err, domain.ErrSetupPersist):
-			message = "系统初始化失败: " + cause.Error()
+			message = transport.Message(c, i18n.MsgSystemInitialize, map[string]any{"Cause": cause.Error()})
 		}
 		c.JSON(200, gin.H{"success": false, "message": message})
 		return
 	}
-	c.JSON(200, gin.H{"success": true, "message": "系统初始化成功"})
+	c.JSON(200, gin.H{"success": true, "message": transport.Message(c, i18n.MsgSystemInitialized)})
 }

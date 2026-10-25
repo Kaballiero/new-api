@@ -1,8 +1,6 @@
 package enqueue_log_cleanup
 
 import (
-	"errors"
-
 	"github.com/QuantumNous/new-api/internal/system/domain"
 )
 
@@ -18,7 +16,7 @@ type Usecase struct {
 func NewUsecase(store Store, notify func()) Usecase { return Usecase{store: store, notify: notify} }
 func (u Usecase) Execute(targetTimestamp int64) (*domain.SystemTask, error) {
 	if targetTimestamp <= 0 {
-		return nil, errors.New("target timestamp is required")
+		return nil, domain.ErrTargetTimestamp
 	}
 
 	activeTask, err := u.store.GetActiveSystemTask(domain.SystemTaskTypeLogCleanup)

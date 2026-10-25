@@ -1,9 +1,11 @@
 package delete_log_files
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
+
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/system/transport"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
@@ -21,16 +23,16 @@ func (h Handler) Handle(c *gin.Context) {
 	mode := c.Query("mode")
 	valueStr := c.Query("value")
 	if mode != "by_count" && mode != "by_days" {
-		common.ApiErrorMsg(c, "invalid mode, must be by_count or by_days")
+		common.ApiErrorMsg(c, transport.Message(c, i18n.MsgSystemInvalidMode))
 		return
 	}
 	value, err := strconv.Atoi(valueStr)
 	if err != nil || value < 1 {
-		common.ApiErrorMsg(c, "invalid value, must be a positive integer")
+		common.ApiErrorMsg(c, transport.Message(c, i18n.MsgSystemInvalidValue))
 		return
 	}
 	if h.directory() == "" {
-		common.ApiErrorMsg(c, "log directory not configured")
+		common.ApiErrorMsg(c, transport.Message(c, i18n.MsgSystemLogDirectoryMissing))
 		return
 	}
 
@@ -50,7 +52,7 @@ func (h Handler) Handle(c *gin.Context) {
 	if len(failedFiles) > 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": fmt.Sprintf("部分文件删除失败（%d/%d）", len(failedFiles), outcome.SelectedCount),
+			"message": transport.Message(c, i18n.MsgSystemPartialDelete, map[string]any{"Failed": len(failedFiles), "Total": outcome.SelectedCount}),
 			"data":    result,
 		})
 		return

@@ -3,6 +3,9 @@ package force_gc
 import (
 	"net/http"
 
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/system/transport"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -14,6 +17,6 @@ func (h Handler) Handle(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "GC 已执行",
+		"message": transport.Message(c, i18n.MsgSystemGCExecuted),
 	})
 }

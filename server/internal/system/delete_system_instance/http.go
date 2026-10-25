@@ -3,6 +3,9 @@ package delete_system_instance
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/system/transport"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
 )
@@ -19,7 +22,7 @@ func NewHandler(store Store, now func() int64) Handler { return Handler{store: s
 func (h Handler) Handle(c *gin.Context) {
 	nodeName := c.Param("node_name")
 	if strings.TrimSpace(nodeName) == "" {
-		common.ApiErrorMsg(c, "node name is required")
+		common.ApiErrorMsg(c, transport.Message(c, i18n.MsgSystemNodeRequired))
 		return
 	}
 
@@ -29,7 +32,7 @@ func (h Handler) Handle(c *gin.Context) {
 		return
 	}
 	if !deleted {
-		common.ApiErrorMsg(c, "instance is not stale or no longer exists")
+		common.ApiErrorMsg(c, transport.Message(c, i18n.MsgSystemInstanceNotStale))
 		return
 	}
 

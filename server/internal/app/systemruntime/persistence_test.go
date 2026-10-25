@@ -58,7 +58,7 @@ func TestSystemSetupPersistencePostgres(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	NewHTTP().CompleteSetup.Handle(c)
 	assert.Equal(t, 200, r.Code)
-	assert.JSONEq(t, `{"success":true,"message":"系统初始化成功"}`, r.Body.String())
+	assert.JSONEq(t, `{"success":true,"message":"System initialization succeeded"}`, r.Body.String())
 	var root model.User
 	require.NoError(t, db.Where("role = ?", common.RoleRootUser).First(&root).Error)
 	assert.Equal(t, 100000000, root.Quota)
@@ -83,7 +83,7 @@ func TestSystemSetupPersistencePostgres(t *testing.T) {
 	c, _ = gin.CreateTestContext(r)
 	c.Request = httptest.NewRequest("POST", "/api/setup", strings.NewReader("invalid"))
 	NewHTTP().CompleteSetup.Handle(c)
-	assert.JSONEq(t, `{"success":false,"message":"系统已经初始化完成"}`, r.Body.String())
+	assert.JSONEq(t, `{"success":false,"message":"The system has already been initialized"}`, r.Body.String())
 	var count int64
 	require.NoError(t, db.Model(&model.User{}).Count(&count).Error)
 	assert.Equal(t, int64(1), count)
@@ -200,6 +200,34 @@ func TestCompleteSetupErrorResponses(t *testing.T) {
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 			assert.False(t, body.Success)
 			assert.Equal(t, tc.message, body.Message)
+		})
+	}
+}
+
+func TestSystemMessagesKeepChineseBytes(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	old := constant.Setup
+	constant.Setup = true
+	t.Cleanup(func() { constant.Setup = old })
+	for _, tc := range []struct{ lang, want string }{
+		{"en", "The system has already been initialized"},
+		{"ru", "Система уже инициализирована"},
+		{"zh-CN", "系统已经初始化完成"},
+		{"zh-TW", "系统已经初始化完成"},
+	} {
+		t.Run(tc.lang, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(response)
+			c.Request = httptest.NewRequest("POST", "/api/setup", strings.NewReader("invalid"))
+			c.Request.Header.Set("Accept-Language", tc.lang)
+			NewHTTP().CompleteSetup.Handle(c)
+			var body struct {
+				Success bool   `json:"success"`
+				Message string `json:"message"`
+			}
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+			assert.False(t, body.Success)
+			assert.Equal(t, tc.want, body.Message)
 		})
 	}
 }

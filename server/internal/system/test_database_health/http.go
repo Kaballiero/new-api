@@ -3,6 +3,9 @@ package test_database_health
 import (
 	"net/http"
 
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/system/transport"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,7 +22,7 @@ func (h Handler) Handle(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"success": false,
-			"message": "数据库连接失败",
+			"message": transport.Message(c, i18n.MsgSystemDatabaseFailed),
 		})
 		return
 	}
@@ -27,7 +30,7 @@ func (h Handler) Handle(c *gin.Context) {
 	httpStats := h.stats()
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
-		"message":    "Server is running",
+		"message":    transport.Message(c, i18n.MsgSystemRunning),
 		"http_stats": httpStats,
 	})
 	return

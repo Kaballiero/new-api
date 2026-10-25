@@ -3,6 +3,9 @@ package get_current_system_task
 import (
 	"net/http"
 
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/system/transport"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/internal/system/dto"
@@ -25,7 +28,7 @@ func (h Handler) Handle(c *gin.Context) {
 	if taskType == "" {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "type is required",
+			"message": transport.Message(c, i18n.MsgSystemTypeRequired),
 		})
 		return
 	}

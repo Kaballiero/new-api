@@ -822,3 +822,33 @@ const (
 	MsgSettingsExpressionObject     = "settings.expression_object"
 	MsgSettingsModelExpression      = "settings.model_expression"
 )
+
+// System setup and maintenance messages.
+const (
+	MsgSystemSetupComplete       = "system.setup_complete"
+	MsgSystemInvalidSetup        = "system.invalid_setup"
+	MsgSystemUsernameLength      = "system.username_length"
+	MsgSystemPasswordMismatch    = "system.password_mismatch"
+	MsgSystemSystemError         = "system.system_error"
+	MsgSystemCreateRoot          = "system.create_root"
+	MsgSystemSaveSelfMode        = "system.save_self_mode"
+	MsgSystemSaveDemoMode        = "system.save_demo_mode"
+	MsgSystemInitialize          = "system.initialize"
+	MsgSystemInitialized         = "system.initialized"
+	MsgSystemDatabaseFailed      = "system.database_failed"
+	MsgSystemRunning             = "system.running"
+	MsgSystemTargetRequired      = "system.target_required"
+	MsgSystemTypeRequired        = "system.type_required"
+	MsgSystemTaskIDRequired      = "system.task_i_d_required"
+	MsgSystemTaskNotFound        = "system.task_not_found"
+	MsgSystemNodeRequired        = "system.node_required"
+	MsgSystemInstanceNotStale    = "system.instance_not_stale"
+	MsgSystemCacheCleared        = "system.cache_cleared"
+	MsgSystemStatsReset          = "system.stats_reset"
+	MsgSystemGCExecuted          = "system.g_c_executed"
+	MsgSystemInvalidMode         = "system.invalid_mode"
+	MsgSystemInvalidValue        = "system.invalid_value"
+	MsgSystemLogDirectoryMissing = "system.log_directory_missing"
+	MsgSystemPartialDelete       = "system.partial_delete"
+	MsgSystemModelRequired       = "system.model_required"
+)
