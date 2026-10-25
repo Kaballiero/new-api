@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -214,6 +215,9 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if info.OpenRouterCost.BufferedAudio {
 		info.OpenRouterCost.ChatImage = false
 	}
+	// Deferral relies on the OpenAI chat stream handler recording real delivery.
+	info.OpenRouterCost.ChatText = operation == "chat/completions" && info.RelayMode == relayconstant.RelayModeChatCompletions && info.RelayFormat == types.RelayFormatOpenAI &&
+		!info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio
 	if info.OpenRouterCost.ChatImage {
 		info.OpenRouterCost.RoutingHash = fmt.Sprintf("%x", sha256.Sum256(routing))
 	}
@@ -221,18 +225,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		return nil, err
 	}
 	if service.HasOpenRouterSyncTask(info) {
-		headers := http.Header{}
-		if err := adaptor.SetupRequestHeader(c, &headers, info); err != nil {
-			return nil, err
-		}
-		overrides, err := channel.ResolveHeaderOverride(info, c)
-		if err != nil {
-			return nil, err
-		}
-		for key, value := range overrides {
-			headers.Set(key, value)
-		}
-		if err := service.ConfigureOpenRouterSyncSubmission(info, strings.TrimRight(info.ChannelBaseUrl, "/")+"/v1/generation", headers); err != nil {
+		if err := configureGenerationLookup(c, info, adaptor); err != nil {
 			return nil, err
 		}
 		if info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio {
@@ -243,6 +236,106 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	}
 
 	return bytes.NewReader(originalBody), nil
+}
+
+// configureGenerationLookup binds the Task to this account's generation
+// metadata endpoint with the same headers the relayed request used.
+func configureGenerationLookup(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor) error {
+	headers := http.Header{}
+	if err := adaptor.SetupRequestHeader(c, &headers, info); err != nil {
+		return err
+	}
+	overrides, err := channel.ResolveHeaderOverride(info, c)
+	if err != nil {
+		return err
+	}
+	for key, value := range overrides {
+		headers.Set(key, value)
+	}
+	return service.ConfigureOpenRouterSyncSubmission(info, strings.TrimRight(info.ChannelBaseUrl, "/")+"/v1/generation", headers)
+}
+
+// DeferCostToGeneration hands a chat text hold whose response carries no
+// usable usage.cost to a durable Task that settles it from generation
+// metadata. Without a Task the caller still owns the hold and refunds it.
+// A stream that delivered output keeps the hold even without a usable
+// generation identity; the Task then requires manual reconciliation. A stream
+// that delivered nothing is never deferred.
+func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor) error {
+	state := info.OpenRouterCost
+	if state == nil || !state.ChatText || info.Billing == nil {
+		return errors.New("OpenRouter cost deferral requires a chat text reservation")
+	}
+	switch state.UnknownReason {
+	case "missing_cost", "missing_terminal_cost", "invalid_cost":
+	case "malformed_usage", "":
+		// A stream can end or break without a terminal usage chunk.
+		if !info.IsStream {
+			return errors.New("OpenRouter cost is not recoverable from generation metadata")
+		}
+	case "upstream_error":
+		// Only output forwarded before the error chunk reached the client.
+		if !info.IsStream {
+			return errors.New("OpenRouter upstream error delivered no output")
+		}
+	default:
+		return errors.New("OpenRouter cost is not recoverable from generation metadata")
+	}
+	identified := state.GenerationID != "" && !state.IdentityConflict
+	if info.IsStream && !state.ContentDelivered {
+		return errors.New("OpenRouter stream delivered no output")
+	}
+	if !identified && !info.IsStream {
+		return errors.New("OpenRouter generation identity is unavailable")
+	}
+	hold := info.Billing.GetPreConsumedQuota()
+	info.PriceData.Quota = hold
+	if err := service.BeginOpenRouterSyncTask(c, info, hold); err != nil {
+		return err
+	}
+	logger.LogWarn(c, "OpenRouter cost deferred to generation lookup: unknown_reason=%s task_id=%s channel=%d reserve=%d generation_id_present=%t",
+		state.UnknownReason, state.TaskID, info.ChannelId, hold, identified)
+	if identified {
+		// Correlation is durable before the hold moves, so an interrupted
+		// transfer still leaves the generation for reconciliation.
+		if err := service.RecordOpenRouterSyncGeneration(info, state.GenerationID); err != nil {
+			return err
+		}
+	}
+	if err := service.CommitOpenRouterSyncReservation(c, info); err != nil {
+		return err
+	}
+	return configureGenerationLookup(c, info, adaptor)
+}
+
+// upstreamError carries the upstream message/code of a successful-status
+// error envelope instead of reporting a missing cost.
+func upstreamError(state *relaycommon.OpenRouterCostState) *types.NewAPIError {
+	var raw any
+	if len(state.UpstreamError) > 0 && common.Unmarshal(state.UpstreamError, &raw) == nil {
+		if upstream := dto.GetOpenAIError(raw); upstream != nil && strings.TrimSpace(upstream.Message) != "" {
+			return types.WithOpenAIError(*upstream, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
+	}
+	return CostError("OpenRouter upstream reported an error")
+}
+
+// RejectUpstreamError reports a chat text upstream error envelope. Without a
+// Task the controller refunds the hold; a Task retains it for delivered output.
+// A nil apiErr is rebuilt from the observed envelope.
+func RejectUpstreamError(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types.NewAPIError) *types.NewAPIError {
+	if apiErr == nil {
+		apiErr = upstreamError(info.OpenRouterCost)
+	}
+	var metadata struct {
+		ProviderName string `json:"provider_name"`
+	}
+	if len(apiErr.Metadata) > 0 {
+		_ = common.Unmarshal(apiErr.Metadata, &metadata)
+	}
+	logger.LogWarn(c, "OpenRouter upstream error in successful response: channel=%d reserve=%d task_id=%q generation_id=%q provider=%q",
+		info.ChannelId, info.FinalPreConsumedQuota, info.OpenRouterCost.TaskID, info.OpenRouterCost.GenerationID, metadata.ProviderName)
+	return apiErr
 }
 
 func CostError(reason string) *types.NewAPIError {
@@ -262,6 +355,9 @@ func ValidateResponse(resp *http.Response, info *relaycommon.RelayInfo) *types.N
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	info.OpenRouterCost.Observe(body, true)
+	if info.OpenRouterCost.ChatText && info.OpenRouterCost.UnknownReason == "upstream_error" {
+		return upstreamError(info.OpenRouterCost)
+	}
 	if info.OpenRouterCost.ChatImage && info.OpenRouterCost.IdentityConflict {
 		return CostError("OpenRouter generation identity is unverified")
 	}
