@@ -165,6 +165,9 @@ func bootstrap() error {
 	if err := parseRedemptionHandlers(); err != nil {
 		return err
 	}
+	if err := parseTaskPluginHandlers(); err != nil {
+		return err
+	}
 	if err := parseSubscriptionsHandlers(); err != nil {
 		return err
 	}

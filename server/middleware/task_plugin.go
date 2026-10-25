@@ -11,24 +11,26 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
-	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	taskrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
+	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
+	"github.com/QuantumNous/new-api/internal/taskplugins/query_plugin_tasks"
+	"github.com/QuantumNous/new-api/internal/taskplugins/resolve_plugin_origins"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 const contextKeyTaskPluginEndpointModel = "task_plugin_endpoint_model_request"
@@ -281,7 +283,7 @@ func PrepareTaskPluginRoute() gin.HandlerFunc {
 				abortTaskPluginRouteErrorDetail(c, http.StatusBadRequest, taskPluginInvalidRouteResult)
 				return
 			}
-			taskIDs, valid := resolvedTaskPluginIDs(resolved["taskIds"])
+			taskIDs, valid := pluginsdomain.ResolvedIDs(resolved["taskIds"])
 			if !valid {
 				logger.LogWarn(
 					c,
@@ -985,11 +987,6 @@ func validateTaskPluginFields(fields url.Values) error {
 	return nil
 }
 
-const (
-	maxOriginTaskIDs   = 16
-	maxOriginTaskIDLen = 128
-)
-
 type originTaskIntentError struct {
 	Code       string
 	Message    string
@@ -1000,126 +997,37 @@ type originTaskIntentError struct {
 // key (plugin-era tasks) plus every numeric legacy channel type its driver
 // can drive (pre-plugin tasks, e.g. sora tasks submitted on OpenAI-type
 // channels stored Platform "1").
-func taskPluginLegacyPlatforms(meta pluginruntime.Meta) []constant.TaskPlatform {
-	platforms := []constant.TaskPlatform{constant.TaskPlatform(meta.Key)}
-	// The sunoapi plugin (adapter for the Suno-API proxy project) was renamed
-	// from "suno"; historical rows carry that named Platform value, which
-	// predates the numeric channel-type convention below.
-	if meta.Key == "sunoapi" {
-		platforms = append(platforms, constant.TaskPlatformSuno)
-	}
-	for _, channelType := range meta.ChannelTypes {
-		if channelType <= 0 || channelType == constant.ChannelTypeTaskPlugin {
-			continue
-		}
-		platform := constant.TaskPlatform(strconv.Itoa(channelType))
-		if slices.Contains(platforms, platform) {
-			continue
-		}
-		platforms = append(platforms, platform)
-	}
-	return platforms
-}
 
 func applyOriginTaskIntent(c *gin.Context, intent map[string]any, meta pluginruntime.Meta) *originTaskIntentError {
-	raw, present := intent["originTaskIds"]
-	if !present {
-		return nil
-	}
-	var values []any
-	switch typed := raw.(type) {
-	case []any:
-		values = typed
-	case []string:
-		values = make([]any, len(typed))
-		for i, id := range typed {
-			values[i] = id
+	value, present := intent["originTaskIds"]
+	result,
+		err := pluginsapp.Origins().Execute(c.Request.Context(),
+		resolve_plugin_origins.Input{UserID: common.GetContextKeyInt(c,
+			constant.ContextKeyUserId),
+			Identity: pluginsdomain.Identity{Key: meta.Key,
+				ChannelTypes: meta.ChannelTypes},
+			Value:   value,
+			Present: present})
+	if err != nil {
+		var origin *pluginsdomain.OriginError
+		if errors.As(err, &origin) {
+			return &originTaskIntentError{Code: origin.Code, Message: origin.Message, StatusCode: origin.StatusCode}
 		}
-	default:
 		return &originTaskIntentError{Code: "invalid_origin_task_ids", Message: "origin task ids are invalid", StatusCode: http.StatusBadRequest}
 	}
-	if len(values) > maxOriginTaskIDs {
-		return &originTaskIntentError{Code: "invalid_origin_task_ids", Message: "origin task ids are invalid", StatusCode: http.StatusBadRequest}
-	}
-	ids := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		id, ok := value.(string)
-		if !ok {
-			return &originTaskIntentError{Code: "invalid_origin_task_ids", Message: "origin task ids are invalid", StatusCode: http.StatusBadRequest}
-		}
-		id = strings.TrimSpace(id)
-		if id == "" || utf8.RuneCountInString(id) > maxOriginTaskIDLen {
-			return &originTaskIntentError{Code: "invalid_origin_task_ids", Message: "origin task ids are invalid", StatusCode: http.StatusBadRequest}
-		}
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-	if len(ids) == 0 {
+	if len(result.Tasks) == 0 {
 		return nil
 	}
-
-	userID := common.GetContextKeyInt(c, constant.ContextKeyUserId)
-	platforms := taskPluginLegacyPlatforms(meta)
-	allowedPlatform := make(map[constant.TaskPlatform]struct{}, len(platforms))
-	for _, platform := range platforms {
-		allowedPlatform[platform] = struct{}{}
-	}
-
-	tasks := make([]*model.Task, 0, len(ids))
-	channelID := 0
-	for _, id := range ids {
-		// BRIDGE: applyOriginTaskIntent reads owned origin tasks for plugin channel selection.
-		// Remove when origin-task routing policy moves to the task plugin owner.
-		task, exist, err := tasksapp.NewStore().GetByTaskId(userID, id)
-		if err != nil {
-			return &originTaskIntentError{Code: "origin_task_not_found", Message: "origin task not found or not owned by you", StatusCode: http.StatusInternalServerError}
-		}
-		if !exist || task == nil {
-			return &originTaskIntentError{Code: "origin_task_not_found", Message: "origin task not found or not owned by you", StatusCode: http.StatusBadRequest}
-		}
-		if _, allowed := allowedPlatform[task.Platform]; !allowed {
-			return &originTaskIntentError{Code: "origin_task_platform_mismatch", Message: "origin task does not belong to this plugin", StatusCode: http.StatusBadRequest}
-		}
-		if channelID == 0 {
-			channelID = task.ChannelId
-		} else if task.ChannelId != channelID {
-			return &originTaskIntentError{Code: "origin_task_channel_conflict", Message: "origin tasks must belong to the same channel", StatusCode: http.StatusBadRequest}
-		}
-		tasks = append(tasks, task)
-	}
-
-	channel, err := model.CacheGetChannel(channelID)
-	if err != nil || channel == nil || channel.Status != common.ChannelStatusEnabled {
-		return &originTaskIntentError{Code: "origin_task_channel_disabled", Message: "origin task channel is disabled", StatusCode: http.StatusBadRequest}
-	}
-	service.GetChannelConstraints(c).AddPin(dto.ChannelPin{
-		ChannelId: channel.Id,
+	service.GetChannelConstraints(c).AddPin(dto.ChannelPin{ChannelId: result.ChannelID,
 		Source:    dto.PinSourceOriginTask,
 		Rank:      dto.PinRankOriginTask,
-		RetryMode: dto.PinRetrySameChannel,
-	})
+		RetryMode: dto.PinRetrySameChannel})
+	tasks := make([]*model.Task, len(result.Tasks))
+	for i := range tasks {
+		tasks[i] = taskrecord.FromDomain(result.Tasks[i])
+	}
 	common.SetContextKey(c, constant.ContextKeyOriginTasks, tasks)
 	return nil
-}
-
-func resolvedTaskPluginIDs(value any) ([]string, bool) {
-	values, ok := value.([]any)
-	if !ok || len(values) > 100 {
-		return nil, false
-	}
-	taskIDs := make([]string, len(values))
-	for index, value := range values {
-		taskID, stringOK := value.(string)
-		if !stringOK || strings.TrimSpace(taskID) == "" {
-			return nil, false
-		}
-		taskIDs[index] = taskID
-	}
-	return taskIDs, true
 }
 
 func renderTaskPluginQuery(
@@ -1144,18 +1052,44 @@ func renderTaskPluginQuery(
 		multiple,
 	)
 	userID := common.GetContextKeyInt(c, constant.ContextKeyUserId)
-	platforms := taskPluginLegacyPlatforms(pinned.Plugin.Meta)
-	// BRIDGE: renderTaskPluginQuery reads platform-scoped owned tasks for plugin query routing.
-	// Remove when task plugin query selection is exposed by its owning scenario.
-	tasks, err := tasksapp.NewStore().GetByTaskIdsForPlatforms(userID, platforms, taskIDs)
+
+	selectionResult,
+		err := pluginsapp.Queries().Execute(c.Request.Context(),
+		query_plugin_tasks.Input{UserID: userID,
+			Identity: pluginsdomain.Identity{Key: pinned.Plugin.Meta.Key,
+				ChannelTypes: pinned.Plugin.Meta.ChannelTypes},
+			TaskIDs: taskIDs})
 	if err != nil {
-		logger.LogDebug(
-			c,
-			"task_plugin subsystem=query event=lookup_failed generation=%d plugin=%q reason=database_error requested=%d",
-			generation,
-			pinned.Plugin.Meta.Key,
-			len(taskIDs),
-		)
+		var selection *pluginsdomain.QueryError
+		if errors.As(err, &selection) {
+			if selection.Stage != "database_error" {
+				logger.LogDebug(c,
+					"task_plugin subsystem=query event=lookup_complete generation=%d plugin=%q requested=%d found=%d",
+					generation,
+					pinned.Plugin.Meta.Key,
+					len(taskIDs),
+					selection.Found)
+			}
+			switch selection.Stage {
+			case "database_error":
+				logger.LogDebug(c,
+					"task_plugin subsystem=query event=lookup_failed generation=%d plugin=%q "+
+						"reason=database_error requested=%d",
+					generation,
+					pinned.Plugin.Meta.Key,
+					len(taskIDs))
+			case "task_not_found":
+				logger.LogDebug(c,
+					"task_plugin subsystem=query event=lookup_failed generation=%d plugin=%q "+
+						"reason=task_not_found requested=%d found=%d",
+					generation,
+					pinned.Plugin.Meta.Key,
+					len(taskIDs),
+					selection.Found)
+				abortTaskPluginRouteError(c, http.StatusNotFound)
+				return
+			}
+		}
 		abortTaskPluginRouteError(c, http.StatusInternalServerError)
 		return
 	}
@@ -1165,44 +1099,8 @@ func renderTaskPluginQuery(
 		generation,
 		pinned.Plugin.Meta.Key,
 		len(taskIDs),
-		len(tasks),
-	)
-	tasksByID := make(map[string]*model.Task, len(tasks))
-	for _, task := range tasks {
-		tasksByID[task.TaskID] = task
-	}
-	views := make([]map[string]any, 0, len(taskIDs))
-	for _, taskID := range taskIDs {
-		task := tasksByID[taskID]
-		if task == nil {
-			logger.LogDebug(
-				c,
-				"task_plugin subsystem=query event=lookup_failed generation=%d plugin=%q reason=task_not_found requested=%d found=%d",
-				generation,
-				pinned.Plugin.Meta.Key,
-				len(taskIDs),
-				len(tasks),
-			)
-			abortTaskPluginRouteError(c, http.StatusNotFound)
-			return
-		}
-		view, viewErr := service.BuildTaskPluginView(task)
-		if viewErr != nil {
-			abortTaskPluginRouteError(c, http.StatusInternalServerError)
-			return
-		}
-		var viewValue map[string]any
-		encoded, marshalErr := common.Marshal(view)
-		if marshalErr != nil {
-			abortTaskPluginRouteError(c, http.StatusInternalServerError)
-			return
-		}
-		if unmarshalErr := common.Unmarshal(encoded, &viewValue); unmarshalErr != nil {
-			abortTaskPluginRouteError(c, http.StatusInternalServerError)
-			return
-		}
-		views = append(views, viewValue)
-	}
+		selectionResult.Found)
+	views := selectionResult.Views
 
 	var rendererInput any = views
 	if !multiple {
@@ -1411,13 +1309,8 @@ func PrepareTaskPluginSubmit() gin.HandlerFunc {
 			Generation: generation,
 			Plugin:     plugin,
 		})
-		logger.LogDebug(
-			c,
-			"task_plugin subsystem=route event=legacy_entry_pinned generation=%d plugin=%q version=%q",
-			generation.Number,
-			plugin.Meta.Key,
-			plugin.Meta.Version,
-		)
+		logger.LogDebug(c, "task_plugin subsystem=route event=legacy_entry_pinned generation=%d plugin=%q version=%q",
+			generation.Number, plugin.Meta.Key, plugin.Meta.Version)
 		var requestBody map[string]any
 		if err := common.UnmarshalBodyReusable(c, &requestBody); err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": err.Error(), "type": "invalid_request_error"}})

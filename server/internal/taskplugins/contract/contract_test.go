@@ -18,7 +18,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/controller"
+	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/pluginfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
@@ -326,7 +326,7 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 		fixture.Save(t, fixture.Key, "2.0.0", true)
 		icon := "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`))
 		require.NoError(t, env.DB.Model(first).Update("icon", icon).Error)
-		controller.SyncTaskPluginsOnce()
+		pluginsapp.SyncOnce()
 		baseURL := "https://plugins.invalid"
 		settings := `{"task_plugin_key":"contract-plugin"}`
 		channel := model.Channel{Id: 71, Type: constant.ChannelTypeTaskPlugin, Key: fixture.ProviderKey, Status: common.ChannelStatusEnabled,
@@ -389,7 +389,7 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 		switch tc.Variant {
 		case "empty_db":
 			require.NoError(t, env.DB.Where("1=1").Delete(&model.TaskPlugin{}).Error)
-			controller.SyncTaskPluginsOnce()
+			pluginsapp.SyncOnce()
 		case "missing":
 			path = strings.ReplaceAll(path, "contract-plugin", "absent")
 			path = strings.ReplaceAll(path, "resp_seed_one", "resp_absent")
@@ -414,17 +414,17 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 			if tc.Kind == "activate" {
 				body = `{"version":"1.0.0"}`
 			}
-			controller.SyncTaskPluginsOnce()
+			pluginsapp.SyncOnce()
 		case "disabled":
 			if tc.Kind != "upload_post" {
-				require.NoError(t, model.SetTaskPluginEnabled(fixture.Key, false))
-				controller.SyncTaskPluginsOnce()
+				require.NoError(t, pluginsapp.NewStore().SetTaskPluginEnabled(fixture.Key, false))
+				pluginsapp.SyncOnce()
 			}
 		case "factory", "factory_override", "enable_factory":
 			path = strings.ReplaceAll(path, "contract-plugin", "kling")
 			if tc.Variant == "factory_override" {
 				fixture.Save(t, "kling", "1.0.0", true)
-				controller.SyncTaskPluginsOnce()
+				pluginsapp.SyncOnce()
 			}
 			if tc.Variant == "enable_factory" {
 				body = `{"enabled":true}`

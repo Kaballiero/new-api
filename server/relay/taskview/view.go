@@ -1,4 +1,4 @@
-package service
+package taskview
 
 import (
 	"github.com/QuantumNous/new-api/common"

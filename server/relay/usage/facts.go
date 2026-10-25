@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
@@ -21,10 +19,12 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/taskview"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	hosttypes "github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 )
 
 // BRIDGE: relay/billing and remaining Task/MJ metadata consumers.
@@ -262,7 +262,7 @@ func RecordUpstreamFailure(c *gin.Context, channelID int, err *types.NewAPIError
 	}
 	// The caller gate is deliberately before metadata capture and elapsed time.
 	f := Facts(c, info)
-	execution := service.TaskExecutionSnapshotFromContext(c)
+	execution := taskview.TaskExecutionSnapshotFromContext(c)
 	var plugin *domain.Plugin
 	if execution != nil {
 		plugin = usageadapter.Plugin(execution.TaskPlugin)

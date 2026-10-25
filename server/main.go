@@ -16,15 +16,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/app"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
+	taskpluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	usageapp "github.com/QuantumNous/new-api/internal/app/usage"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
@@ -38,6 +35,9 @@ import (
 	"github.com/QuantumNous/new-api/service/authz"
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 //go:embed web/dist
@@ -117,7 +117,7 @@ func main() {
 
 	// Reload configuration.
 	go model.SyncOptions(common.SyncFrequency)
-	go controller.SyncTaskPlugins()
+	go taskpluginsapp.StartSync()
 
 	// Reload authorization policies periodically so permission changes reach every node and master.
 	go authz.StartPolicySync(common.SyncFrequency)

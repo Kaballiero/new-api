@@ -19,8 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
@@ -33,8 +31,10 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
+	"github.com/QuantumNous/new-api/relay/taskview"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 )
 
 type requestDescriptor struct {
@@ -885,7 +885,7 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
 	if !claimed {
 		return nil, fmt.Errorf("plugin does not claim openai_video")
 	}
-	view, err := service.BuildTaskPluginView(task)
+	view, err := taskview.BuildTaskPluginView(task)
 	if err != nil {
 		return nil, err
 	}

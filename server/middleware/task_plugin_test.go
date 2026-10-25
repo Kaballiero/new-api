@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	appI18n "github.com/QuantumNous/new-api/i18n"
+	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
@@ -1173,11 +1174,11 @@ func TestTaskPluginErrorFallbackIsSanitized(t *testing.T) {
 }
 
 func TestResolvedTaskPluginIDsEnforcesPublicQueryContract(t *testing.T) {
-	valid, ok := resolvedTaskPluginIDs([]any{"task-a", "task-b", "task-a"})
+	valid, ok := pluginsdomain.ResolvedIDs([]any{"task-a", "task-b", "task-a"})
 	require.True(t, ok)
 	assert.Equal(t, []string{"task-a", "task-b", "task-a"}, valid)
 
-	empty, ok := resolvedTaskPluginIDs([]any{})
+	empty, ok := pluginsdomain.ResolvedIDs([]any{})
 	require.True(t, ok)
 	assert.Empty(t, empty)
 
@@ -1192,7 +1193,7 @@ func TestResolvedTaskPluginIDsEnforcesPublicQueryContract(t *testing.T) {
 		tooMany,
 		"task-a",
 	} {
-		_, ok = resolvedTaskPluginIDs(invalid)
+		_, ok = pluginsdomain.ResolvedIDs(invalid)
 		assert.False(t, ok)
 	}
 }

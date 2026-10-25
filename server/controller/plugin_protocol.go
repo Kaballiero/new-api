@@ -4,18 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	taskrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	pluginsruntime "github.com/QuantumNous/new-api/internal/app/taskpluginsruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	"github.com/QuantumNous/new-api/internal/taskplugins/domain"
+	"github.com/QuantumNous/new-api/internal/taskplugins/observe_plugin_task"
+	"github.com/QuantumNous/new-api/internal/taskplugins/retrieve_plugin_response"
 	tasksdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -23,18 +24,18 @@ import (
 	"github.com/QuantumNous/new-api/relay"
 	taskjsplugin "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
-	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/relay/taskview"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 )
 
 type pluginProtocolBridgeDeps struct {
 	submit             func(*gin.Context, *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError)
 	loadTask           func(context.Context, int, constant.TaskPlatform, string) (*model.Task, bool, error)
 	now                func() time.Time
-	admissions         *pluginProtocolObservationLimiter
+	admissions         *domain.ObservationLimiter
 	protocolLimits     relay.PluginProtocolLimits
 	artifactContentURL func(taskID, artifactKey string) (string, error)
 	submissionTimeout  time.Duration
@@ -70,7 +71,7 @@ func defaultPluginProtocolBridgeDeps() pluginProtocolBridgeDeps {
 		submit:             executeTaskSubmission,
 		loadTask:           tasksapp.NewStore().GetTaskForProtocolObservation,
 		now:                time.Now,
-		admissions:         pluginProtocolObservationAdmissions,
+		admissions:         pluginsruntime.ObservationAdmissions(),
 		protocolLimits:     relay.DefaultPluginProtocolLimits(),
 		artifactContentURL: service.BuildTaskArtifactContentURL,
 		submissionTimeout:  timeout,
@@ -207,417 +208,30 @@ func serveTaskPluginProtocol(
 		protocolRequest.Stream,
 	)
 
-	release, admissionErr := deps.admissions.acquire(
-		pinned.Plugin.Meta.Key,
-		common.GetContextKeyInt(c, constant.ContextKeyUserId),
-		common.GetContextKeyInt(c, constant.ContextKeyTokenId),
-	)
-	if admissionErr != nil {
-		if errors.Is(admissionErr, errPluginProtocolObservationLimitExceeded) {
-			logger.LogDebug(c, "task_plugin subsystem=protocol event=admission_rejected generation=%d plugin=%q reason=observation_limit", generation, pluginKey)
-			respondPluginProtocolError(c, http.StatusTooManyRequests, "rate_limit_exceeded", "Too many active task observations")
-			return
-		}
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=admission_rejected generation=%d plugin=%q reason=invalid_identity", generation, pluginKey)
-		respondPluginProtocolError(c, http.StatusUnauthorized, "authentication_error", "Authentication failed")
-		return
-	}
-	defer release()
-	logger.LogDebug(c, "task_plugin subsystem=protocol event=admission_acquired generation=%d plugin=%q", generation, pluginKey)
-
-	clientRequest := c.Request
-	var relayInfo *relaycommon.RelayInfo
-	var outcome *taskSubmissionOutcome
-	var taskErr *dto.TaskError
-	var relayInfoErr error
-	submissionStage := "relay_info"
-	// A Responses client only observes an asynchronous task. Once admitted,
-	// disconnecting that observer must not cancel submission, persistence, or
-	// billing settlement; the submission keeps its own bounded lifetime.
-	func() {
-		submissionContext, cancelSubmission := context.WithTimeout(
-			context.WithoutCancel(clientRequest.Context()),
-			deps.submissionTimeout,
-		)
-		c.Request = clientRequest.Clone(submissionContext)
-		defer func() {
-			c.Request = clientRequest
-			cancelSubmission()
-		}()
-
-		relayInfo, relayInfoErr = relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
-		if relayInfoErr != nil {
-			return
-		}
-		relayInfo.RelayMode = relayconstant.RelayModeVideoSubmit
-		relayInfo.IsStream = false
-		relayInfo.OriginModelName = c.GetString("resolved_task_model")
-		relayInfo.ClientModelName = relayInfo.OriginModelName
-		common.BindClientResponseModel(c, relayInfo.ClientModelName)
-		if action := c.GetString("task_action"); action != "" {
-			relayInfo.Action = action
-		}
-		submissionStage = "origin_task"
-		if taskErr = relay.ResolveOriginTask(c, relayInfo); taskErr != nil {
-			return
-		}
-		if taskErr = relay.ApplyOriginTaskAffinity(c, relayInfo); taskErr != nil {
-			return
-		}
-
-		submissionStage = "submission"
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=submission_start generation=%d plugin=%q protocol=%q stream=%t", generation, pluginKey, protocolRequest.Protocol, protocolRequest.Stream)
-		outcome, taskErr = deps.submit(c, relayInfo)
-	}()
-
-	if clientRequest.Context().Err() != nil {
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=client_disconnected generation=%d plugin=%q stage=%s", generation, pluginKey, submissionStage)
-		return
-	}
-	if relayInfoErr != nil {
-		err := relayInfoErr
-		logger.LogError(c, "build task protocol relay info failed: "+err.Error())
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=bridge_failed generation=%d plugin=%q stage=relay_info reason=invalid_context", generation, pluginKey)
-		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
-		return
-	}
-	if submissionStage == "origin_task" && taskErr != nil {
-		logger.LogDebug(
-			c,
-			"task_plugin subsystem=protocol event=bridge_failed generation=%d plugin=%q stage=origin_task code=%q status=%d",
-			generation,
-			pluginKey,
-			taskErr.Code,
-			taskErr.StatusCode,
-		)
-		respondPluginProtocolSubmissionError(c, taskErr)
-		return
-	}
-
-	if taskErr != nil {
-		logger.LogDebug(
-			c,
-			"task_plugin subsystem=protocol event=submission_failed generation=%d plugin=%q code=%q status=%d local=%t",
-			generation,
-			pluginKey,
-			taskErr.Code,
-			taskErr.StatusCode,
-			taskErr.LocalError,
-		)
-		respondPluginProtocolSubmissionError(c, taskErr)
-		return
-	}
-	if outcome == nil || outcome.Task == nil || outcome.RelayInfo == nil ||
-		outcome.Task.UserId != relayInfo.UserId ||
-		outcome.Task.Platform != constant.TaskPlatform(pinned.Plugin.Meta.Key) {
-		logger.LogError(c, "task protocol submission returned an invalid durable outcome")
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=submission_failed generation=%d plugin=%q reason=invalid_durable_outcome", generation, pluginKey)
-		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
-		return
-	}
-	logger.LogDebug(
-		c,
-		"task_plugin subsystem=protocol event=submission_durable generation=%d plugin=%q public_task_id=%q status=%q stream=%t",
-		generation,
-		pluginKey,
-		outcome.Task.TaskID,
-		taskPluginDebugStatus(string(outcome.Task.Status)),
-		protocolRequest.Stream,
-	)
-
-	createdAt := outcome.Task.CreatedAt
-	if createdAt == 0 {
-		createdAt = outcome.Task.SubmitTime
-	}
-	if createdAt == 0 {
-		createdAt = deps.now().Unix()
-	}
-	machine := relay.NewPluginResponsesMachine(
-		outcome.Task.TaskID,
-		outcome.RelayInfo.OriginModelName,
-		createdAt,
-		deps.protocolLimits,
-	)
 	background := false
 	if body, ok := protocolRequest.Body.(map[string]any); ok && body["kind"] == string(pluginruntime.BodyJSON) {
 		if requestBody, ok := body["value"].(map[string]any); ok {
 			background, _ = requestBody["background"].(bool)
 		}
 	}
-	if background {
-		outcome.Task.PrivateData.ResponsesBackground = true
-		if outcome.Task.ID != 0 {
-			if err := model.DB.Model(outcome.Task).Update("private_data", outcome.Task.PrivateData).Error; err != nil {
-				logger.LogError(c, "persist task background flag failed: "+err.Error())
-			}
-		}
-		machine.SetBackground(true)
-		if !protocolRequest.Stream {
-			logger.LogDebug(
-				c,
-				"task_plugin subsystem=protocol event=background_return generation=%d plugin=%q public_task_id=%q status=%q",
-				generation,
-				pluginKey,
-				outcome.Task.TaskID,
-				taskPluginDebugStatus(string(outcome.Task.Status)),
-			)
-			if err := common.WriteClientJSON(c, http.StatusOK, machine.PendingResponse(string(outcome.Task.Status))); err != nil {
-				c.AbortWithStatus(http.StatusBadGateway)
-				return
-			}
-			return
-		}
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=background_stream generation=%d plugin=%q public_task_id=%q", generation, pluginKey, outcome.Task.TaskID)
-	}
-	if protocolRequest.Stream {
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_enter generation=%d plugin=%q mode=stream public_task_id=%q", generation, pluginKey, outcome.Task.TaskID)
-		streamTaskPluginProtocol(c, pinned, protocolRequest, outcome.Task.TaskID, machine, deps)
-		return
-	}
-	logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_enter generation=%d plugin=%q mode=nonstream public_task_id=%q", generation, pluginKey, outcome.Task.TaskID)
-	waitTaskPluginProtocol(c, pinned, protocolRequest, outcome.Task.TaskID, machine, deps)
-}
-
-func streamTaskPluginProtocol(
-	c *gin.Context,
-	pinned pluginruntime.PinnedEndpoint,
-	protocolRequest pluginruntime.ProtocolRequestContext,
-	taskID string,
-	machine *relay.PluginResponsesMachine,
-	deps pluginProtocolBridgeDeps,
-) {
-	generation := pinned.Generation.Number
-	pluginKey := pinned.Plugin.Meta.Key
-	logger.LogDebug(
-		c,
-		"task_plugin subsystem=protocol event=observation_start generation=%d plugin=%q mode=stream public_task_id=%q timeout_ms=%d tick_ms=%d heartbeat_ms=%d",
-		generation,
-		pluginKey,
-		taskID,
-		deps.observationTimeout.Milliseconds(),
-		deps.tickInterval.Milliseconds(),
-		deps.heartbeatInterval.Milliseconds(),
-	)
-	created, err := machine.CreatedEvent()
-	if err != nil {
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_failed generation=%d plugin=%q mode=stream stage=created_event reason=state_machine_error", generation, pluginKey)
-		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
-		return
-	}
-	helper.SetEventStreamHeaders(c)
-	if err = writeTaskPluginProtocolEvent(c, created); err != nil {
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=client_write_failed generation=%d plugin=%q mode=stream stage=created_event", generation, pluginKey)
-		return
-	}
-
-	observationContext, cancelObservation := context.WithTimeout(c.Request.Context(), deps.observationTimeout)
-	defer cancelObservation()
-	heartbeatTicker := time.NewTicker(deps.heartbeatInterval)
-	defer heartbeatTicker.Stop()
-
-	var previous relay.ProtocolState
-	tickNumber := uint64(0)
-	lastStatus := ""
-	for {
-		loadStarted := deps.now()
-		loadContext, cancelLoad := context.WithTimeout(observationContext, deps.loadTimeout)
-		task, exists, loadErr := deps.loadTask(
-			loadContext,
-			common.GetContextKeyInt(c, constant.ContextKeyUserId),
-			constant.TaskPlatform(pinned.Plugin.Meta.Key),
-			taskID,
-		)
-		loadContextErr := loadContext.Err()
-		cancelLoad()
-		loadElapsed := deps.now().Sub(loadStarted)
-		if errors.Is(loadContextErr, context.DeadlineExceeded) &&
-			observationContext.Err() == nil &&
-			c.Request.Context().Err() == nil {
-			logger.LogWarn(c, fmt.Sprintf(
-				"task protocol database observation overloaded; plugin=%s task=%s",
-				pinned.Plugin.Meta.Key,
-				taskID,
-			))
-			logger.LogDebug(
-				c,
-				"task_plugin subsystem=protocol event=observation_tick generation=%d plugin=%q mode=stream tick=%d load_ms=%d overloaded=true",
-				generation,
-				pluginKey,
-				tickNumber,
-				loadElapsed.Milliseconds(),
-			)
-			delay := pluginProtocolTickDelay(taskID, tickNumber, deps.tickInterval, deps.tickJitter) + deps.tickInterval
-			tickNumber++
-			if !waitForTaskPluginProtocolTick(c, observationContext, heartbeatTicker, delay) {
-				if errors.Is(observationContext.Err(), context.DeadlineExceeded) {
-					logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_timeout generation=%d plugin=%q mode=stream last_status=%q", generation, pluginKey, taskPluginDebugStatus(lastStatus))
-					writeTaskPluginProtocolTimeout(c, machine, lastStatus)
-				} else if c.Request.Context().Err() != nil {
-					logger.LogDebug(c, "task_plugin subsystem=protocol event=client_disconnected generation=%d plugin=%q mode=stream stage=backoff_wait", generation, pluginKey)
-				} else {
-					logger.LogDebug(c, "task_plugin subsystem=protocol event=client_write_failed generation=%d plugin=%q mode=stream stage=heartbeat", generation, pluginKey)
-				}
-				return
-			}
-			continue
-		}
-		if loadErr != nil || !exists || task == nil {
-			if errors.Is(observationContext.Err(), context.DeadlineExceeded) {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_timeout generation=%d plugin=%q mode=stream last_status=%q", generation, pluginKey, taskPluginDebugStatus(lastStatus))
-				writeTaskPluginProtocolTimeout(c, machine, lastStatus)
-				return
-			}
-			if loadErr != nil && !errors.Is(loadErr, context.Canceled) {
-				logger.LogError(c, "task protocol database observation failed")
-			}
-			if c.Request.Context().Err() == nil {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_failed generation=%d plugin=%q mode=stream stage=load reason=task_unavailable", generation, pluginKey)
-				writeTaskPluginProtocolFailure(c, machine, lastStatus)
-			} else {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=client_disconnected generation=%d plugin=%q mode=stream stage=load", generation, pluginKey)
-			}
-			return
-		}
-		previousStatus := lastStatus
-		lastStatus = string(task.Status)
-		if lastStatus != previousStatus {
-			logger.LogDebug(
-				c,
-				"task_plugin subsystem=protocol event=status_transition generation=%d plugin=%q mode=stream tick=%d previous=%q status=%q load_ms=%d",
-				generation,
-				pluginKey,
-				tickNumber,
-				taskPluginDebugStatus(previousStatus),
-				taskPluginDebugStatus(lastStatus),
-				loadElapsed.Milliseconds(),
-			)
-		}
-		view, viewErr := service.BuildTaskPluginView(task)
-		if viewErr != nil {
-			logger.LogError(c, "build task protocol view failed: "+viewErr.Error())
-			writeTaskPluginProtocolFailure(c, machine, lastStatus)
-			return
-		}
-		viewValue, viewErr := taskPluginProtocolJSONValue(view)
-		if viewErr != nil {
-			logger.LogError(c, "encode task protocol view failed: "+viewErr.Error())
-			writeTaskPluginProtocolFailure(c, machine, lastStatus)
-			return
-		}
-		hookStarted := deps.now()
-		rendererContext, contextErr := taskPluginProtocolRendererContext(protocolRequest, pinned, task, deps.artifactContentURL)
-		if contextErr != nil {
-			logger.LogError(c, "build task protocol renderer context failed")
-			writeTaskPluginProtocolFailure(c, machine, lastStatus)
-			return
-		}
-		args := []any{rendererContext, viewValue}
-		if previous.Present {
-			previousValue, stateErr := previous.PluginValue()
-			if stateErr != nil {
-				logger.LogError(c, "decode task protocol state failed: "+stateErr.Error())
-				writeTaskPluginProtocolFailure(c, machine, lastStatus)
-				return
-			}
-			args = append(args, previousValue)
-		}
-		value, callErr := pinned.Plugin.Engine.CallPathWithAdmissionTimeout(observationContext, deps.admissionTimeout, "protocols", []string{pinned.Protocol, "renderEvents"}, args...)
-		hookElapsed := deps.now().Sub(hookStarted)
-		overloaded := false
-		if callErr != nil {
-			if errors.Is(observationContext.Err(), context.DeadlineExceeded) {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_timeout generation=%d plugin=%q mode=stream stage=render_events last_status=%q", generation, pluginKey, taskPluginDebugStatus(lastStatus))
-				writeTaskPluginProtocolTimeout(c, machine, lastStatus)
-				return
-			}
-			if c.Request.Context().Err() != nil {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=client_disconnected generation=%d plugin=%q mode=stream stage=render_events", generation, pluginKey)
-				return
-			}
-			if errors.Is(callErr, pluginruntime.ErrCallAdmissionTimeout) {
-				overloaded = true
-				logger.LogWarn(c, fmt.Sprintf(
-					"task protocol render hook overloaded; plugin=%s task=%s",
-					pinned.Plugin.Meta.Key,
-					taskID,
-				))
-			} else {
-				logger.LogError(c, "task protocol render hook failed")
-				logger.LogDebug(
-					c,
-					"task_plugin subsystem=protocol event=observation_failed generation=%d plugin=%q mode=stream stage=render_events reason=hook_failed elapsed_ms=%d",
-					generation,
-					pluginKey,
-					hookElapsed.Milliseconds(),
-				)
-				writeTaskPluginProtocolFailure(c, machine, lastStatus)
-				return
-			}
-		}
-		if !overloaded {
-			result, decodeErr := relay.DecodePluginProtocolEventResult(value, deps.protocolLimits)
-			if decodeErr != nil {
-				logger.LogError(c, "task protocol render result invalid: "+decodeErr.Error())
-				writeTaskPluginProtocolFailure(c, machine, lastStatus)
-				return
-			}
-			events, applyErr := machine.ApplyTick(result, lastStatus)
-			if applyErr != nil {
-				logger.LogError(c, "task protocol state transition failed: "+applyErr.Error())
-				writeTaskPluginProtocolFailure(c, machine, lastStatus)
-				return
-			}
-			logger.LogDebug(
-				c,
-				"task_plugin subsystem=protocol event=render_events generation=%d plugin=%q mode=stream tick=%d status=%q semantic_events=%d wire_events=%d done=%t state_present=%t elapsed_ms=%d",
-				generation,
-				pluginKey,
-				tickNumber,
-				taskPluginDebugStatus(lastStatus),
-				len(result.Events),
-				len(events),
-				result.Done,
-				result.State.Present,
-				hookElapsed.Milliseconds(),
-			)
-			for _, event := range events {
-				if err = writeTaskPluginProtocolEvent(c, event); err != nil {
-					logger.LogDebug(c, "task_plugin subsystem=protocol event=client_write_failed generation=%d plugin=%q mode=stream stage=event event_type=%q sequence=%d", generation, pluginKey, event.Type, event.SequenceNumber)
-					return
-				}
-			}
-			if taskPluginProtocolEventsTerminal(events) {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_complete generation=%d plugin=%q mode=stream reason=terminal status=%q ticks=%d", generation, pluginKey, taskPluginDebugStatus(lastStatus), tickNumber+1)
-				return
-			}
-			previous = result.State
-		}
-
-		delay := pluginProtocolTickDelay(taskID, tickNumber, deps.tickInterval, deps.tickJitter)
-		tickNumber++
-		if overloaded {
-			delay += deps.tickInterval
-		} else if hookElapsed > deps.tickInterval {
-			delay += deps.tickInterval
-			logger.LogWarn(c, fmt.Sprintf(
-				"task protocol render hook slow; plugin=%s task=%s elapsed_ms=%d",
-				pinned.Plugin.Meta.Key,
-				taskID,
-				hookElapsed.Milliseconds(),
-			))
-		}
-		if !waitForTaskPluginProtocolTick(c, observationContext, heartbeatTicker, delay) {
-			if errors.Is(observationContext.Err(), context.DeadlineExceeded) {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_timeout generation=%d plugin=%q mode=stream last_status=%q", generation, pluginKey, taskPluginDebugStatus(lastStatus))
-				writeTaskPluginProtocolTimeout(c, machine, lastStatus)
-			} else if c.Request.Context().Err() != nil {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=client_disconnected generation=%d plugin=%q mode=stream stage=tick_wait", generation, pluginKey)
-			} else {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=client_write_failed generation=%d plugin=%q mode=stream stage=heartbeat", generation, pluginKey)
-			}
-			return
-		}
-	}
+	session := &taskPluginObservationSession{c: c, pinned: pinned, request: protocolRequest, deps: deps, generation: generation, pluginKey: pluginKey}
+	_ = pluginsruntime.Observer.Execute(c.Request.Context(), observe_plugin_task.Input{
+		Session:    session,
+		UserID:     common.GetContextKeyInt(c, constant.ContextKeyUserId),
+		TokenID:    common.GetContextKeyInt(c, constant.ContextKeyTokenId),
+		PluginKey:  pluginKey,
+		Generation: generation,
+		Stream:     protocolRequest.Stream,
+		Background: background,
+		Timing: domain.ObservationTiming{
+			Submission:  deps.submissionTimeout,
+			Observation: deps.observationTimeout,
+			Load:        deps.loadTimeout,
+			Tick:        deps.tickInterval,
+			Jitter:      deps.tickJitter,
+			Heartbeat:   deps.heartbeatInterval,
+		},
+	})
 }
 
 func waitForTaskPluginProtocolTick(
@@ -645,201 +259,6 @@ func waitForTaskPluginProtocolTick(
 	}
 }
 
-func waitTaskPluginProtocol(
-	c *gin.Context,
-	pinned pluginruntime.PinnedEndpoint,
-	protocolRequest pluginruntime.ProtocolRequestContext,
-	taskID string,
-	machine *relay.PluginResponsesMachine,
-	deps pluginProtocolBridgeDeps,
-) {
-	generation := pinned.Generation.Number
-	pluginKey := pinned.Plugin.Meta.Key
-	logger.LogDebug(
-		c,
-		"task_plugin subsystem=protocol event=observation_start generation=%d plugin=%q mode=nonstream public_task_id=%q timeout_ms=%d tick_ms=%d",
-		generation,
-		pluginKey,
-		taskID,
-		deps.observationTimeout.Milliseconds(),
-		deps.tickInterval.Milliseconds(),
-	)
-	observationContext, cancelObservation := context.WithTimeout(c.Request.Context(), deps.observationTimeout)
-	defer cancelObservation()
-	tickNumber := uint64(0)
-	lastStatus := ""
-	for {
-		loadStarted := deps.now()
-		loadContext, cancelLoad := context.WithTimeout(observationContext, deps.loadTimeout)
-		task, exists, err := deps.loadTask(
-			loadContext,
-			common.GetContextKeyInt(c, constant.ContextKeyUserId),
-			constant.TaskPlatform(pinned.Plugin.Meta.Key),
-			taskID,
-		)
-		loadContextErr := loadContext.Err()
-		cancelLoad()
-		loadElapsed := deps.now().Sub(loadStarted)
-		loadOverloaded := errors.Is(loadContextErr, context.DeadlineExceeded) &&
-			observationContext.Err() == nil &&
-			c.Request.Context().Err() == nil
-		if loadOverloaded {
-			logger.LogWarn(c, fmt.Sprintf(
-				"task protocol database observation overloaded; plugin=%s task=%s",
-				pinned.Plugin.Meta.Key,
-				taskID,
-			))
-			logger.LogDebug(
-				c,
-				"task_plugin subsystem=protocol event=observation_tick generation=%d plugin=%q mode=nonstream tick=%d load_ms=%d overloaded=true",
-				generation,
-				pluginKey,
-				tickNumber,
-				loadElapsed.Milliseconds(),
-			)
-		} else if err != nil || !exists || task == nil {
-			if errors.Is(observationContext.Err(), context.DeadlineExceeded) {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_timeout generation=%d plugin=%q mode=nonstream last_status=%q", generation, pluginKey, taskPluginDebugStatus(lastStatus))
-				writeTaskPluginProtocolTimeoutResponse(c, machine, lastStatus)
-				return
-			}
-			if err != nil && !errors.Is(err, context.Canceled) {
-				logger.LogError(c, "task protocol database observation failed")
-			}
-			if c.Request.Context().Err() == nil {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_failed generation=%d plugin=%q mode=nonstream stage=load reason=task_unavailable", generation, pluginKey)
-				writeTaskPluginProtocolFailureResponse(c, machine, lastStatus)
-			} else {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=client_disconnected generation=%d plugin=%q mode=nonstream stage=load", generation, pluginKey)
-			}
-			return
-		}
-		overloaded := loadOverloaded
-		if !loadOverloaded {
-			previousStatus := lastStatus
-			lastStatus = string(task.Status)
-			if lastStatus != previousStatus {
-				logger.LogDebug(
-					c,
-					"task_plugin subsystem=protocol event=status_transition generation=%d plugin=%q mode=nonstream tick=%d previous=%q status=%q load_ms=%d",
-					generation,
-					pluginKey,
-					tickNumber,
-					taskPluginDebugStatus(previousStatus),
-					taskPluginDebugStatus(lastStatus),
-					loadElapsed.Milliseconds(),
-				)
-			}
-			logger.LogDebug(
-				c,
-				"task_plugin subsystem=protocol event=observation_tick generation=%d plugin=%q mode=nonstream tick=%d status=%q load_ms=%d overloaded=false",
-				generation,
-				pluginKey,
-				tickNumber,
-				taskPluginDebugStatus(lastStatus),
-				loadElapsed.Milliseconds(),
-			)
-		}
-		if !loadOverloaded && (task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) {
-			if task.Status == model.TaskStatusFailure {
-				writeTaskPluginProtocolFailureResponse(c, machine, string(task.Status))
-				return
-			}
-			response, hookElapsed, callErr := renderTaskPluginProtocolFinalResponse(
-				observationContext,
-				pinned,
-				protocolRequest,
-				task,
-				machine,
-				deps,
-			)
-			if callErr != nil {
-				if errors.Is(observationContext.Err(), context.DeadlineExceeded) {
-					logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_timeout generation=%d plugin=%q mode=nonstream stage=render_final last_status=%q", generation, pluginKey, taskPluginDebugStatus(lastStatus))
-					writeTaskPluginProtocolTimeoutResponse(c, machine, lastStatus)
-					return
-				}
-				if c.Request.Context().Err() != nil {
-					logger.LogDebug(c, "task_plugin subsystem=protocol event=client_disconnected generation=%d plugin=%q mode=nonstream stage=render_final", generation, pluginKey)
-					return
-				}
-				if errors.Is(callErr, pluginruntime.ErrCallAdmissionTimeout) {
-					overloaded = true
-					logger.LogWarn(c, fmt.Sprintf(
-						"task protocol final hook overloaded; plugin=%s task=%s",
-						pinned.Plugin.Meta.Key,
-						taskID,
-					))
-				} else {
-					logger.LogError(c, "task protocol final hook failed")
-					logger.LogDebug(
-						c,
-						"task_plugin subsystem=protocol event=observation_failed generation=%d plugin=%q mode=nonstream stage=render_final reason=hook_failed elapsed_ms=%d",
-						generation,
-						pluginKey,
-						hookElapsed.Milliseconds(),
-					)
-					writeTaskPluginProtocolFailureResponse(c, machine, lastStatus)
-					return
-				}
-			} else {
-				logger.LogDebug(
-					c,
-					"task_plugin subsystem=protocol event=render_final generation=%d plugin=%q mode=nonstream status=%q elapsed_ms=%d",
-					generation,
-					pluginKey,
-					taskPluginDebugStatus(lastStatus),
-					hookElapsed.Milliseconds(),
-				)
-				if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
-					c.AbortWithStatus(http.StatusBadGateway)
-					return
-				}
-				logger.LogDebug(
-					c,
-					"task_plugin subsystem=protocol event=observation_complete generation=%d plugin=%q mode=nonstream reason=terminal status=%q ticks=%d",
-					generation,
-					pluginKey,
-					taskPluginDebugStatus(lastStatus),
-					tickNumber+1,
-				)
-				return
-			}
-		}
-
-		delay := pluginProtocolTickDelay(taskID, tickNumber, deps.tickInterval, deps.tickJitter)
-		tickNumber++
-		if overloaded {
-			delay += deps.tickInterval
-		}
-		tickTimer := time.NewTimer(delay)
-		select {
-		case <-c.Request.Context().Done():
-			if !tickTimer.Stop() {
-				select {
-				case <-tickTimer.C:
-				default:
-				}
-			}
-			logger.LogDebug(c, "task_plugin subsystem=protocol event=client_disconnected generation=%d plugin=%q mode=nonstream stage=tick_wait", generation, pluginKey)
-			return
-		case <-observationContext.Done():
-			if !tickTimer.Stop() {
-				select {
-				case <-tickTimer.C:
-				default:
-				}
-			}
-			if errors.Is(observationContext.Err(), context.DeadlineExceeded) {
-				logger.LogDebug(c, "task_plugin subsystem=protocol event=observation_timeout generation=%d plugin=%q mode=nonstream last_status=%q", generation, pluginKey, taskPluginDebugStatus(lastStatus))
-				writeTaskPluginProtocolTimeoutResponse(c, machine, lastStatus)
-			}
-			return
-		case <-tickTimer.C:
-		}
-	}
-}
-
 func renderTaskPluginProtocolFinalResponse(
 	ctx context.Context,
 	pinned pluginruntime.PinnedEndpoint,
@@ -848,7 +267,7 @@ func renderTaskPluginProtocolFinalResponse(
 	machine *relay.PluginResponsesMachine,
 	deps pluginProtocolBridgeDeps,
 ) (map[string]any, time.Duration, error) {
-	view, err := service.BuildTaskPluginView(task)
+	view, err := taskview.BuildTaskPluginView(task)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -893,7 +312,7 @@ func renderTaskPluginProtocolEventsResponse(
 	machine *relay.PluginResponsesMachine,
 	deps pluginProtocolBridgeDeps,
 ) (map[string]any, time.Duration, error) {
-	view, err := service.BuildTaskPluginView(task)
+	view, err := taskview.BuildTaskPluginView(task)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -949,34 +368,25 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 	userID := common.GetContextKeyInt(c, constant.ContextKeyUserId)
 	logger.LogDebug(c, "task_plugin subsystem=protocol event=retrieve_start response_id=%q public_task_id=%q", responseID, taskID)
 
-	task, exists, err := deps.getByTaskId(userID, taskID)
+	session := &taskPluginRetrieveSession{deps: deps}
+	selection, err := pluginsruntime.Retriever.Execute(c.Request.Context(), retrieve_plugin_response.Input{
+		Session: session,
+		UserID:  userID,
+		TaskID:  taskID,
+	})
 	if err != nil {
-		logger.LogError(c, "task protocol retrieve lookup failed")
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=retrieve_failed reason=lookup_error public_task_id=%q", taskID)
-		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
-		return
-	}
-	if !exists || task == nil {
-		writeTaskPluginResponseNotFound(c, responseID, "missing")
-		return
-	}
-
-	plugin, generation, ok := deps.resolvePlugin(task.Platform)
-	if !ok || plugin == nil {
-		writeTaskPluginResponseNotFound(c, responseID, "no_plugin")
-		return
-	}
-	claimsProtocol := false
-	for _, claim := range plugin.Meta.Protocols {
-		if claim.Name == "openai_responses" {
-			claimsProtocol = true
-			break
+		var failure *domain.RetrieveError
+		if !errors.As(err, &failure) || failure.Reason == "lookup_error" {
+			logger.LogError(c, "task protocol retrieve lookup failed")
+			logger.LogDebug(c, "task_plugin subsystem=protocol event=retrieve_failed reason=lookup_error public_task_id=%q", taskID)
+			respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+			return
 		}
-	}
-	if !claimsProtocol {
-		writeTaskPluginResponseNotFound(c, responseID, "no_claim")
+		writeTaskPluginResponseNotFound(c, responseID, failure.Reason)
 		return
 	}
+	task := taskrecord.FromDomain(selection.Task)
+	plugin, generation := session.plugin, session.generation
 
 	common.BindClientResponseModel(c, task.Properties.OriginModelName)
 
@@ -1017,13 +427,25 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 		Model:     task.Properties.OriginModelName,
 	}
 
-	if task.Status == model.TaskStatusFailure {
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=retrieve_final generation=%d plugin=%q public_task_id=%q status=%q", generationNumber, plugin.Meta.Key, task.TaskID, taskPluginDebugStatus(string(task.Status)))
+	if selection.Mode == "failure" {
+		logger.LogDebug(c,
+			"task_plugin subsystem=protocol event=retrieve_final generation=%d plugin=%q "+
+				"public_task_id=%q status=%q",
+			generationNumber,
+			plugin.Meta.Key,
+			task.TaskID,
+			domain.DebugTaskStatus(string(task.Status)))
 		writeTaskPluginProtocolFailureResponse(c, machine, string(task.Status))
 		return
 	}
-	if task.Status != model.TaskStatusSuccess {
-		logger.LogDebug(c, "task_plugin subsystem=protocol event=retrieve_pending generation=%d plugin=%q public_task_id=%q status=%q", generationNumber, plugin.Meta.Key, task.TaskID, taskPluginDebugStatus(string(task.Status)))
+	if selection.Mode == "pending" {
+		logger.LogDebug(c,
+			"task_plugin subsystem=protocol event=retrieve_pending generation=%d plugin=%q "+
+				"public_task_id=%q status=%q",
+			generationNumber,
+			plugin.Meta.Key,
+			task.TaskID,
+			domain.DebugTaskStatus(string(task.Status)))
 		if err := common.WriteClientJSON(c, http.StatusOK, machine.PendingResponse(string(task.Status))); err != nil {
 			c.AbortWithStatus(http.StatusBadGateway)
 			return
@@ -1036,7 +458,7 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 		hookElapsed time.Duration
 		renderErr   error
 	)
-	if plugin.Meta.ProtocolSupports("openai_responses", "sync") || plugin.Meta.ProtocolSupports("openai_responses", "background") {
+	if selection.Mode == "final" {
 		response, hookElapsed, renderErr = renderTaskPluginProtocolFinalResponse(
 			c.Request.Context(),
 			pinned,
@@ -1074,7 +496,7 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 		generationNumber,
 		plugin.Meta.Key,
 		task.TaskID,
-		taskPluginDebugStatus(string(task.Status)),
+		domain.DebugTaskStatus(string(task.Status)),
 		hookElapsed.Milliseconds(),
 	)
 	if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
@@ -1228,17 +650,6 @@ func taskPluginProtocolRendererContext(
 	}
 	rendererContext["artifacts"] = rendererArtifacts
 	return rendererContext, nil
-}
-
-func pluginProtocolTickDelay(taskID string, tick uint64, base, jitter time.Duration) time.Duration {
-	if jitter <= 0 {
-		return base
-	}
-	hash := fnv.New64a()
-	_, _ = hash.Write([]byte(taskID))
-	_, _ = hash.Write([]byte(":"))
-	_, _ = hash.Write([]byte(strconv.FormatUint(tick, 10)))
-	return base + time.Duration(hash.Sum64()%uint64(jitter+1))
 }
 
 func taskPluginProtocolEventsTerminal(events []dto.PluginResponsesStreamEvent) bool {

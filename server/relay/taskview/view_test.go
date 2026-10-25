@@ -1,13 +1,12 @@
-package service
+package taskview
 
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildTaskPluginViewRewritesOnlyStructuredTaskIDFields(t *testing.T) {

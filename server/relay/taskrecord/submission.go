@@ -6,21 +6,19 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/QuantumNous/new-api/i18n"
-	tasktext "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
-
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	tasktext "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/record_task_submission"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/taskview"
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
-	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 )
 
 func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model.Task) error {
@@ -137,7 +135,7 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 	}
 
 	input := record_task_submission.Input{
-		Task: record.ToDomain(task), Execution: record.ToDomainTaskExecutionSnapshot(service.TaskExecutionSnapshotFromContext(c)),
+		Task: record.ToDomain(task), Execution: record.ToDomainTaskExecutionSnapshot(taskview.TaskExecutionSnapshotFromContext(c)),
 		Source: relayInfo.BillingSource, SubscriptionID: relayInfo.SubscriptionId, TokenID: relayInfo.TokenId, NodeName: common.NodeName,
 		Billing: record.ToDomainTaskBillingContext(task.PrivateData.BillingContext), Quota: relayInfo.PriceData.Quota, Action: relayInfo.Action,
 	}

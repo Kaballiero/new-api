@@ -16,7 +16,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/stretchr/testify/require"
@@ -75,7 +77,7 @@ func Save(t *testing.T, key, version string, enabled bool) *model.TaskPlugin {
 	source := Source(key, version)
 	plugin := &model.TaskPlugin{Key: key, Version: version, APIVersion: 1, Source: source,
 		SourceHash: fmt.Sprintf("%x", sha256.Sum256([]byte(source))), Enabled: enabled, Remark: "fixture"}
-	require.NoError(t, model.SaveTaskPlugin(plugin))
+	require.NoError(t, pluginsapp.NewStore().SaveTaskPlugin((*pluginsdomain.Plugin)(plugin)))
 	return plugin
 }
 

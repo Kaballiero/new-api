@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,15 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
-	"github.com/samber/lo"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
+	taskpersistence "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
+	tasksdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -30,12 +29,17 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
+	"github.com/QuantumNous/new-api/relay/taskview"
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"github.com/samber/lo"
 )
 
 func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
@@ -341,7 +345,9 @@ func CountClaudeTokens(c *gin.Context) {
 }
 
 var upgrader = websocket.Upgrader{
-	Subprotocols: []string{"realtime"}, // WS 握手支持的协议，如果有使用 Sec-WebSocket-Protocol，则必须在此声明对应的 Protocol TODO add other protocol
+	// Declare supported protocols here for WebSocket handshakes using Sec-WebSocket-Protocol.
+	// TODO: add other protocols.
+	Subprotocols: []string{"realtime"},
 	CheckOrigin: func(r *http.Request) bool {
 		return true // 允许跨域
 	},
@@ -851,7 +857,7 @@ func presentTaskSubmission(c *gin.Context, outcome *taskSubmissionOutcome) {
 	}
 	if pinnedValue, exists := c.Get(pluginruntime.ContextKeyPinnedRoute); exists {
 		if pinned, ok := pinnedValue.(pluginruntime.PinnedRoute); ok && pinned.Plugin != nil && pinned.Route.Render != "" {
-			view, err := service.BuildTaskPluginView(outcome.Task)
+			view, err := taskview.BuildTaskPluginView(outcome.Task)
 			requestValue, _ := c.Get(pluginruntime.ContextKeyRouteRequest)
 			requestContext, _ := requestValue.(pluginruntime.RouteRequestContext)
 			if err == nil {
@@ -966,3 +972,58 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 // BRIDGE: executeTaskSubmissionWith inserts gateway submissions and confirms their reservation state.
 // Remove when durable submission insertion and its settlement marker are owned by submission scenarios.
 var taskPersistence = tasksapp.NewStore()
+
+// BRIDGE: plugin protocol observation uses the private durable submission path here.
+// Remove when the gateway submission result is shared by all relay consumers.
+func (s *taskPluginObservationSession) Submit(ctx context.Context) (*tasksdomain.ProtocolSubmission, error) {
+	c, deps := s.c, s.deps
+	generation, pluginKey, protocolRequest := s.generation, s.pluginKey, s.request
+
+	clientRequest := c.Request
+	c.Request = clientRequest.Clone(ctx)
+	defer func() { c.Request = clientRequest }()
+	var relayInfo *relaycommon.RelayInfo
+	var relayInfoErr error
+	var outcome *taskSubmissionOutcome
+	var taskErr *taskdto.TaskError
+	submissionStage := "relay_info"
+	func() {
+		relayInfo, relayInfoErr = relaycommon.GenRelayInfo(c, types.RelayFormatTask, nil, nil)
+		if relayInfoErr != nil {
+			return
+		}
+		relayInfo.RelayMode = relayconstant.RelayModeVideoSubmit
+		relayInfo.IsStream = false
+		relayInfo.OriginModelName = c.GetString("resolved_task_model")
+		relayInfo.ClientModelName = relayInfo.OriginModelName
+		common.BindClientResponseModel(c, relayInfo.ClientModelName)
+		if action := c.GetString("task_action"); action != "" {
+			relayInfo.Action = action
+		}
+		submissionStage = "origin_task"
+		if taskErr = relay.ResolveOriginTask(c, relayInfo); taskErr != nil {
+			return
+		}
+		if taskErr = relay.ApplyOriginTaskAffinity(c, relayInfo); taskErr != nil {
+			return
+		}
+
+		submissionStage = "submission"
+		logger.LogDebug(c,
+			"task_plugin subsystem=protocol event=submission_start generation=%d plugin=%q protocol=%q stream=%t",
+			generation, pluginKey, protocolRequest.Protocol, protocolRequest.Stream)
+		outcome, taskErr = deps.submit(c, relayInfo)
+	}()
+	s.relayInfo, s.relayInfoErr, s.outcome, s.taskErr, s.submissionStage = relayInfo, relayInfoErr, outcome, taskErr, submissionStage
+	if relayInfoErr != nil || taskErr != nil {
+		return nil, pluginsdomain.ErrProtocolSubmission
+	}
+	if outcome == nil || outcome.Task == nil || outcome.RelayInfo == nil {
+		return nil, nil
+	}
+	return &tasksdomain.ProtocolSubmission{
+		Task:    taskpersistence.ToDomain(outcome.Task),
+		OwnerID: relayInfo.UserId,
+		Model:   outcome.RelayInfo.OriginModelName,
+	}, nil
+}

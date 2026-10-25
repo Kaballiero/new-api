@@ -2,6 +2,7 @@ package controller
 
 import (
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -194,7 +195,7 @@ func (d taskPluginSubmitDiagnostics) durable(task *model.Task) {
 		d.generation,
 		d.pluginKey,
 		task.TaskID,
-		taskPluginDebugStatus(string(task.Status)),
+		domain.DebugTaskStatus(string(task.Status)),
 	)
 }
 
@@ -253,17 +254,4 @@ func (d taskPluginSubmitDiagnostics) presentError(taskErr *dto.TaskError) {
 		taskErr.StatusCode,
 		taskErr.LocalError,
 	)
-}
-
-func taskPluginDebugStatus(status string) string {
-	switch model.TaskStatus(status) {
-	case model.TaskStatusSubmitted,
-		model.TaskStatusQueued,
-		model.TaskStatusInProgress,
-		model.TaskStatusSuccess,
-		model.TaskStatusFailure:
-		return status
-	default:
-		return "unknown"
-	}
 }

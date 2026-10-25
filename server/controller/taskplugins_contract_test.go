@@ -13,8 +13,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/pluginfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -130,7 +132,7 @@ func pluginSyncContract(t *testing.T, variant string) any {
 		require.NoError(t, model.DB.Delete(first).Error)
 		run(false)
 	case "disabled", "revision_disabled":
-		require.NoError(t, model.SetTaskPluginEnabled(fixture.Key, false))
+		require.NoError(t, pluginsapp.NewStore().SetTaskPluginEnabled(fixture.Key, false))
 		run(false)
 	case "metadata_only":
 		require.NoError(t, model.DB.Model(first).Update("remark", "new remark").Error)
@@ -186,14 +188,14 @@ func pluginSyncObservation(t *testing.T, start uint64, err error) any {
 	}
 	taskPluginSyncState.Lock()
 	hashes := map[string]string{}
-	for key, value := range taskPluginSyncState.hashes {
+	for key, value := range taskPluginSyncState.Hashes {
 		hashes[key] = value
 	}
 	errorsByKey := map[string]string{}
-	for key, value := range taskPluginSyncState.errors {
+	for key, value := range taskPluginSyncState.Errors {
 		errorsByKey[key] = value
 	}
-	outcome := taskPluginSyncState.lastRebuild
+	outcome := taskPluginSyncState.LastRebuild
 	outcome.Generation -= start
 	taskPluginSyncState.Unlock()
 	effective := map[string]string{}
@@ -205,20 +207,20 @@ func pluginSyncObservation(t *testing.T, start uint64, err error) any {
 }
 
 func pluginLimiterContract(t *testing.T, variant string) any {
-	limits := pluginProtocolObservationLimits{global: 3, perPlugin: 3, perUser: 3, perToken: 3}
+	limits := pluginsdomain.ObservationLimits{Global: 3, PerPlugin: 3, PerUser: 3, PerToken: 3}
 	switch variant {
 	case "global":
-		limits.global = 1
+		limits.Global = 1
 	case "plugin":
-		limits.perPlugin = 1
+		limits.PerPlugin = 1
 	case "user":
-		limits.perUser = 1
+		limits.PerUser = 1
 	case "token":
-		limits.perToken = 1
+		limits.PerToken = 1
 	}
-	limiter := newPluginProtocolObservationLimiter(limits)
+	limiter := pluginsdomain.NewObservationLimiter(limits)
 	results := []any{}
-	held, err := limiter.acquire("fixture", 1, 1)
+	held, err := limiter.Acquire("fixture", 1, 1)
 	require.NoError(t, err)
 	key, user, token := "other", 2, 2
 	switch variant {
@@ -235,26 +237,23 @@ func pluginLimiterContract(t *testing.T, variant string) any {
 	case "invalid_token":
 		token = 0
 	}
-	release, err := limiter.acquire(key, user, token)
+	release, err := limiter.Acquire(key, user, token)
 	message := ""
 	if err != nil {
 		message = err.Error()
 	}
-	results = append(results, map[string]any{"admitted": release != nil, "error": message, "active": limiter.global})
+	results = append(results, map[string]any{"admitted": release != nil, "error": message, "active": observationCount(t, limiter, limits.Global)})
 	if release != nil {
 		release()
 		release()
 	}
 	held()
 	held()
-	assert.Zero(t, limiter.global)
-	assert.Empty(t, limiter.plugin)
-	assert.Empty(t, limiter.user)
-	assert.Empty(t, limiter.token)
-	reset, err := limiter.acquire("fixture", 1, 1)
+	assert.Zero(t, observationCount(t, limiter, limits.Global))
+	reset, err := limiter.Acquire("fixture", 1, 1)
 	require.NoError(t, err)
 	reset()
-	return map[string]any{"results": results, "after_release": limiter.global, "reset_admitted": true}
+	return map[string]any{"results": results, "after_release": observationCount(t, limiter, limits.Global), "reset_admitted": true}
 }
 
 func pluginObservationContract(t *testing.T, variant string) any {
@@ -365,7 +364,7 @@ renderEvents:function(){return {events:[],done:false};}}};`
 		defer model.DB.Callback().Update().Remove("background-fault")
 	}
 	if variant == "admission_denied" {
-		deps.admissions = newPluginProtocolObservationLimiter(pluginProtocolObservationLimits{})
+		deps.admissions = pluginsdomain.NewObservationLimiter(pluginsdomain.ObservationLimits{})
 	}
 	if variant == "invalid_identity" {
 		common.SetContextKey(c, constant.ContextKeyTokenId, 0)
@@ -376,10 +375,14 @@ renderEvents:function(){return {events:[],done:false};}}};`
 	if variant == "bad_context" {
 		c.Set(pluginruntime.ContextKeyProtocolRequest, "invalid")
 	}
+	observationGlobalLimit := pluginsdomain.DefaultObservationLimits.Global
+	if variant == "admission_denied" {
+		observationGlobalLimit = 0
+	}
 	serveTaskPluginProtocol(c, pinned, deps)
 	assert.NotContains(t, response.Body.String(), "private secret")
 	assert.NotContains(t, response.Body.String(), "private database credentials")
-	assert.Zero(t, deps.admissions.global, "every exit releases observation capacity")
+	assert.Zero(t, observationCount(t, deps.admissions, observationGlobalLimit), "every exit releases observation capacity")
 	var stored model.Task
 	require.NoError(t, model.DB.First(&stored, 1).Error)
 	return map[string]any{"status": response.Code, "headers": response.Header(), "body": response.Body.String(), "flushed": response.Flushed,

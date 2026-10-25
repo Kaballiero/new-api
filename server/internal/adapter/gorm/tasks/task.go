@@ -5,13 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/billing"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
+	"gorm.io/gorm"
 )
 
 // Store executes task queries and mutations against the current primary database.
@@ -562,4 +561,9 @@ func (s Store) FinalizeTaskCostSettlement(t *record.Task) error {
 		}
 	}
 	return err
+}
+
+// MarkResponsesBackground preserves the existing whole-private-data update for protocol submission.
+func (s Store) MarkResponsesBackground(task *record.Task) error {
+	return s.db().Model(task).Update("private_data", task.PrivateData).Error
 }

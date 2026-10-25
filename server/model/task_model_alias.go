@@ -11,8 +11,9 @@ import (
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 )
 
-// BRIDGE: gateway task routes, pricing and channel-cache consumers use this routing view.
-// Remove when task plugin routing moves out of model.
+// BRIDGE: model/pricing.go, model/model_pricing_config.go and InitChannelCache retain this alias view.
+// Gateway and taskplugins readers use the same executable view through their technical adapter.
+// Remove when pricing and channel cache lifecycles have their own owners.
 //
 // TaskAliasTarget is one mapping-derived alias after cross-channel aggregation.
 // Declared is empty when the same plugin resolves the alias to more than one

@@ -11,14 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
@@ -26,6 +18,7 @@ import (
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	runtimetechnical "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/poll_tasks"
 	"github.com/QuantumNous/new-api/model"
@@ -36,6 +29,13 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+	"gorm.io/gorm"
 )
 
 func TestServeTaskPluginProtocolWaitsForDurableSubmissionBeforeWriting(t *testing.T) {
@@ -971,11 +971,11 @@ func TestServeTaskPluginProtocolRejectsObservationAdmissionBeforeSubmission(t *t
 			c, recorder := newPluginProtocolTestContext(stream, stream)
 			submitted := false
 			deps := pluginProtocolTestDeps()
-			deps.admissions = newPluginProtocolObservationLimiter(pluginProtocolObservationLimits{
-				global:    0,
-				perPlugin: 1,
-				perUser:   1,
-				perToken:  1,
+			deps.admissions = pluginsdomain.NewObservationLimiter(pluginsdomain.ObservationLimits{
+				Global:    0,
+				PerPlugin: 1,
+				PerUser:   1,
+				PerToken:  1,
 			})
 			deps.submit = func(*gin.Context, *relaycommon.RelayInfo) (*taskSubmissionOutcome, *dto.TaskError) {
 				submitted = true
@@ -1501,7 +1501,7 @@ func newPluginProtocolTestContext(stream, requestBodyStream bool) (*gin.Context,
 func pluginProtocolTestDeps() pluginProtocolBridgeDeps {
 	return pluginProtocolBridgeDeps{
 		now:                func() time.Time { return time.Unix(1_710_000_000, 0) },
-		admissions:         newPluginProtocolObservationLimiter(defaultPluginProtocolObservationLimits),
+		admissions:         pluginsdomain.NewObservationLimiter(pluginsdomain.DefaultObservationLimits),
 		protocolLimits:     relay.DefaultPluginProtocolLimits(),
 		observationTimeout: time.Hour,
 		tickInterval:       time.Nanosecond,
