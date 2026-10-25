@@ -17,6 +17,7 @@
 | `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 25 | [README](pricing/README.md) |
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
 | `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 11 | [README](billing/README.md) |
+| `batch` | native Batch admission holds, execution, results, settlement/release, procurement и polling; provider wire остаётся в relay/batch | 10 | [README](batch/README.md) |
 | `usage` | запись consumption/error; чтение логов, quota_data, flow, агрегаты и рейтинги; role visibility и metadata | 3 | [README](usage/README.md) |
 | `audit` | чтение событий и role projection; запись login/security/operation/PAT, metadata policy | 3 | [README](audit/README.md) |
 | `redemption` | выпуск и управление кодами пополнения, атомарное погашение с начислением квоты | 9 | [README](redemption/README.md) |
@@ -39,7 +40,7 @@ README каждого модуля появляется в коммите, ко�
 
 ## Ещё не перенесено
 
-Подписки, настройки и системные функции, деплойменты, batch, а также шлюз и асинхронные задачи (`relay/`, `controller/relay.go`, `task*`). Пока они живут в `controller/`, `service/` и `model/`.
+Подписки, настройки и системные функции, деплойменты, а также шлюз и асинхронные задачи (`relay/`, `controller/relay.go`, `task*`). Пока они живут в `controller/`, `service/` и `model/`.
 
 - `tasks` — durable async/Midjourney учёт, terminal billing, polling и media access; core сборка
   `app/tasks`, gateway/runtime — `app/taskruntime`, records/SQL — `adapter/gorm/tasks`.

@@ -240,3 +240,19 @@ Scheduled system handlers сохраняют lease/interval15s/progress semantic
 при durable task claim принадлежит gorm/billing; standalone body тоже один. Plugin routing/cache view
 model/task_model_alias остаётся до5c; Batch и plugin runtime не входят в перенос. Подробности —
 internal/tasks/README.md; host/database acceptance фиксируется отдельно от sandbox evidence.
+
+## Native Batch API
+
+internal/batch владеет admission holds, execution/results, item/job settlement, hold release,
+procurement и одним polling pass. Wallet/token holds не заменены request-local Reservation и не
+становятся subscription-funded. Core app/batch не импортирует gateway; outer app/batchruntime
+подключает adapter/gateway/batch → relay/batch. Typed storage operations в adapter/gorm/batch
+сохраняют locks/transaction boundaries/outboxes; pure validation получает locked domain facts.
+Usage строит log payload внутри money transaction. Shared hash/static headers имеют одного
+leaf owner adapter/http/batchaccount для Batch и tasksync; shared cache hydration/key/fence owner
+остаётся model, Batch-only Lua — adapter/redis/batch.
+
+provider_batch_poll подключён через прежний controller.RegisterScheduledSystemTasks с UpdateTask
+и interval15s; import-time service registration удалена. Direct poll не зависит от main. Маршруты,
+middleware, permissions, native protocol requests и схема БД сохранены. Текстовый content package
+отделён от структурного переноса; фактический host/PG acceptance — отдельное доказательство.

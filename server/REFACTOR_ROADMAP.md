@@ -138,7 +138,8 @@
 Отправка задачи провайдеру — шлюз; учёт задач, их биллинг и опрос — бизнес.
 
 - [x] 5a implementation: Task/MJ records, accounting, polling, dashboard/media и OR durable sync — internal/tasks (commits df33308eb контракты, 1113bf66f перенос, 97de3dcf3 docs); plugin routing/cache model/task_model_alias.go остаётся до 5c.
-- [ ] `batch`: `controller/batch.go`, `service/batch_billing.go`, `model/batch*.go`.
+- [x] 5b production placement: internal/batch scenarios/domain, gorm/redis/gateway adapters, core/outer composition; contracts commit0caf7748d.
+- [ ] 5b acceptance: final self/independent review, immutable corpus, whole-package baseline comparison, reconstruction, host/PG и отдельный неприменённый content package (см. wave5b-report).
 - [ ] Плагины задач: `controller/plugin_protocol*.go`, `SyncTaskPlugins`.
 - [x] 5a: polling consumer port → adapter/gateway/taskplugins → leaf relay/taskregistry; явная runtime assembly, main-only factory удалена.
 - [x] 5a host acceptance: 586 новых + 2237 прежних goldens без -update, Redis/WSS/full suite, relaykit/OpenAPI/U1000;

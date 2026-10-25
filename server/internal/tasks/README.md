@@ -2,7 +2,7 @@
 
 Модуль владеет durable Task/Midjourney, статусами, учётом и последующим расчётом/возвратом,
 опросом провайдеров, dashboard lists/detail, выдачей артефактов и video content. Отправка upstream,
-выбор канала, provider wire DTO, retry и plugin runtime остаются в шлюзе. Batch — отдельная волна 5b,
+выбор канала, provider wire DTO, retry и plugin runtime остаются в шлюзе. Batch принадлежит отдельному internal/batch,
 управление task plugins и protocol observers — 5c.
 
 ## Сценарии и входы
@@ -71,7 +71,7 @@ Leaf-пакеты constant/common/dto/types/relaykit не импортируют
 
 model/task_model_alias.go остаётся executable routing/cache view для gateway/pricing/channel cache до5c;
 это не record. Shared model quota/cache/lock primitives — до7. BillingGateway остаётся только для реальных
-Batch/violation/immutable billing/WSS consumers; gateway task metadata обращается к usage непосредственно.
+violation/immutable billing/WSS consumers; gateway task metadata обращается к usage непосредственно.
 Filesystem artifact backend и plugin CRUD/protocol/runtime не перенесены.
 
 TECH_DEBT69–75 описывает сохранённые financial/security/resource риски. Контракты:319 HTTP/state/outbound,
@@ -84,3 +84,5 @@ CI/live provider или production acceptance. Фактические резул
 
 C1 content gap: общие bulk fail_reason получают English default, без выбора языка root или владельца.
 Один UPDATE и порядок SQL неизменны; per-owner локализация требует отдельного DB-изменения (#75).
+
+Общий frozen-account hash/static-header helper находится в adapter/http/batchaccount; tasksync и Batch используют одно тело. Batch-only metadata delegates BillingGateway удалены.
