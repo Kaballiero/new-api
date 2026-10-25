@@ -38,7 +38,7 @@
 | 38 | Batch counter RAM queue | Не durable, write errors логируются без requeue; scheduling/очерёдность прежние | Потеря counters при crash/ошибке записи; перенос единственной queue из model — волна 7 |
 | 39 | Log stats / own identity | Прежние stats принудительно считают consume независимо от type; rate window не ограничен запрошенным historical range; own stats/legacy quota используют username | Исторические/переименованные данные и rate window могут удивлять клиента; исправление меняет контракт |
 | 40 | Rankings | При равных totals порядок зависит от map traversal; labels зависят от local time, cache не объединяет concurrent misses | Нестабильный tie order и повторные запросы; политика не менялась в 3a |
-| 41 | system_task log cleanup | CountOldLog/DeleteOldLogBatch остаются technical model SQL: новый service→adapter import нарушил бы shrink-only boundary, main-registration/locator запрещены A4. Сохраняются прежние dialect LIMIT semantics | Перенос orchestration/cleanup port — системная волна; real-dialect удаление требует отдельной проверки |
+| 41 | system_task log cleanup | Ownership перенесён в internal/system + adapter/gorm/usage.Cleanup; SQL LOG_DB, ClickHouse branch и прежние dialect LIMIT semantics сохранены, main/log writes не atomic | Closure реального SQL behavior требует PostgreSQL/MySQL/ClickHouse evidence; SQLite contracts этого не доказывают |
 
 
 | 60 | Subscription provider availability | Checkout и callback требуют разные настройки: Pancake plan checkout допускает отсутствие gateway product; Creem test-mode checkout допускает пустой webhook secret | Оплата может быть принята при недоступном callback; нужна отдельная admission/config policy |
@@ -79,6 +79,11 @@
 
 | 86 | GET options/custom OAuth order | Editor и public custom providers обходят map без стабильного порядка. На двух layouts по пять repeats до переноса доказан order noise; settings harness канонизирует только array order, сохраняя key multiset, values, raw object bytes и CompletionRatioMeta last | Production sorting не добавлено; API ordering policy требует отдельного решения. Evidence: wave6a-preflight-results.json, SETTINGS_ORDER logs |
 | 87 | Raw/effective option divergence | Reflection parse errors и unknown fields могут сохранить DB/raw map со success при прежнем effective runtime; malformed legacy collections могут частично сбросить RAM. Закреплено settings contracts namespace/sync/failure cases | Отдельно определить validation/publication outcome и recovery policy; перенос сохраняет исходную последовательность, #58 не дублируется |
+
+| 88 | Setup bootstrap partial states | Guard/root probe/Create/options/flag/setup row не atomic; ошибки lookup считаются absence, failed setup INSERT оставляет RAM flag true | Риск concurrent bootstrap/partial initialization по коду; отдельный security fix с concurrency regression, assurance не заявляется |
+| 89 | Uptime Kuma outbound policy | Public endpoint читает root-configured URL через default client/redirects без destination guard/body cap; UI disabled не выключает fetch | SSRF/resource risk по коду, deployment exploit не проверялся; отдельная policy, перенос сохраняет wire behavior |
+| 90 | System order noise | Summary equal-request ties зависят от map order; независимые Uptime requests приходят в разном порядке (≥5 repeats на origin/current) | Только harness order canonicalization; payload bytes и redirect parent→child сохраняются, production sorting не добавлен |
+| 91 | Metrics consistency | RAM drain/upsert/query и удаление старого bucket не atomic; concurrent snapshots и removal могут расходиться, Redis writes Query не читает | Риск по коду без stress reproduction; A3=B technical owner остаётся pkg/perf_metrics до решения волны 7 |
 
 ## Оптимизации (без изменений схемы БД)
 

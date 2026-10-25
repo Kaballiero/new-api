@@ -59,7 +59,7 @@ provider factory, HTTP/media adapters и HTTP/poll handlers; controller bridges 
 Фабрика relay/taskregistry — единственный leaf owner platform→plugin resolution. main-only factory,
 service.GetTaskAdaptorFunc и новый global locator отсутствуют; tests/binaries получают ту же сборку.
 
-Scheduled system handlers остаются у system owner: прежние enabled predicates, DB lease, interval15s,
+Scheduled system handlers собраны в app/systemruntime, runner/registry — app/system: прежние enabled predicates, DB lease, interval15s,
 progress/history и cancellation. Main сохраняет прежний порядок регистрации и запуска. Task poll
 сначала timeout sweep, затем обычные platforms, затем до16 due sync tasks с4 workers; MJ отдельный tick.
 Media adapter сохраняет streaming ownership, redirect/SSRF/header/range/status rules и закрытие body.

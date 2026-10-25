@@ -166,12 +166,18 @@
   PostgreSQL 15 full suite совпадает с 3b, settings/group ratio/pricing publication/tasks/batch PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] Content-only (commit d7e8e42a7): ошибки редактора опций — i18n keys, English по умолчанию + ru, zh без изменений.
 - [ ] 6a A2=B ownership gap: `model/option.go` перенесён не полностью; single publisher/mutex и pricing/catalog option composition остаются до волны 7.
-- [ ] `system`: `setup.go`, `system_info.go`, `system_task*.go`, `performance.go`, `perf_metrics.go`, `uptime_kuma.go`, отчёт об инстансе.
+- [x] 6b implementation: internal/system — setup, system tasks/lease/history/cleanup, instances и runtime maintenance; app/system + app/systemruntime, explicit registration всех 8 handlers.
+- [ ] 6b acceptance: текущие host strict whole1/full, fresh HEAD whole2 и реальные PostgreSQL checks; scripts подготовлены отдельно, sandbox не заменяет host/PG.
+- [ ] 6b content-only: отдельный unapplied en/ru package, zh bytes прежние; применять только после matching host+PG verified.ok.
+- [ ] 6b gaps: FX refresh остаётся service BRIDGE (A2); pkg/perf_metrics остаётся collection/query/flush owner (A3=B).
 - [ ] `deployments`: `controller/deployment.go`.
 - [ ] Остатки каталога: `controller/model.go`, `vendor_meta.go`, `prefill_group.go`, `missing_models`.
 - [ ] Уведомления пользователям: `service/user_notify.go`.
 
 ## Волна 7 — доводка ⬜
+
+- [ ] FX refresh owner (pricing/FX): перенести service.RefreshModelCostFX и replica lifecycle вместе с реальными consumers; убрать system FX BRIDGE, не копируя экономику.
+- [ ] Decide metrics owner (A or C): перенести единственный pkg/perf_metrics state/Record/Query/Summary/flush/SQL/Redis в system либо отдельный performance_metrics; RelayInfo mapping оставить gateway-owned.
 
 - [ ] Settings A2=B cleanup: перенести единственные `model.PublishOption`, `groupRatioOptionMutex`, alias facts и pricing/catalog option composition
   (`model/model_pricing_config.go`, `model/pricing_catalog_option.go`, `model/catalog_persistence.go`) вместе с реальными consumers

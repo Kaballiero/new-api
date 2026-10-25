@@ -37,13 +37,14 @@ Cache-Control, Vary и ответ 304. GET редактора исключает
   остаются у прежнего владельца.
 - Taskplugins: `app/taskplugins` передаёт `Default().Write` в `Settings.WriteOption` для marketplace
   sources и disabled factory keys; registry update и RAM-before-persist принадлежат taskplugins.
-- Setup: `controller/setup.go` записывает SelfUseModeEnabled и DemoSiteEnabled через `Default().Write`.
+- Setup: `app/systemruntime` записывает SelfUseModeEnabled и DemoSiteEnabled через `Default().Write`.
 
 Порты Store сценариев реализует `adapter/gorm/settings`: Option record, чтение всех строк,
 legacy FirstOrCreate/Save и checked batch transaction. Single path игнорирует SQL errors
 (TECH_DEBT #58); batch публикует значения после commit. `model.Option` — alias технического record.
 Publisher/lock/aliases и pricing writer подключаются из model. `adapter/settings/settings` реализует
 defaults, codecs, validators, editor и late status readers; `adapter/gateway/settings` читает FX status.
+`adapter/runtime/system.Facts` даёт late version/start/setup для GetStatus без I/O.
 
 `Initialize` сбрасывает defaults из текущих globals и namespace exports, затем выполняет reload.
 `SyncOptions` на каждом узле сначала Sleep(frequency), затем log → reload → pricing observation;

@@ -136,12 +136,12 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 | синхронизация политики прав | `authz.StartPolicySync` | authorization |
 | агрегаты для дашборда | `internal/app/usage.StartQuotaData` | usage |
 | обновление баланса каналов | `controller.AutomaticallyUpdateChannels` (если задан `CHANNEL_UPDATE_FREQUENCY`) | channels |
-| периодические системные задачи: тест каналов, модели upstream, опрос Midjourney и асинхронных задач, сборка каталога цен | `controller.RegisterScheduledSystemTasks` + `service.StartSystemTaskRunner` | channels, tasks, pricing; запуск — system |
+| периодические системные задачи: тест каналов, модели upstream, опрос Midjourney и асинхронных задач, сборка каталога цен | `controller.RegisterScheduledSystemTasks` + `internal/app/system.StartSystemTaskRunner` | channels, tasks, pricing; запуск — system |
 | плагины задач | `internal/app/taskplugins.StartSync` (первый pass сразу, затем 30s, каждый узел) | taskplugins |
 | обновление Codex-учётных данных | `service.StartCodexCredentialAutoRefreshTask` | channels |
 | сброс квоты подписок | `app/subscriptions.StartSubscriptionQuotaResetTask` | subscriptions |
 | курсы валют для цен | `service.StartModelCostFX` | pricing |
-| отчёт об инстансе | `service.StartSystemInstanceReporter` | system |
+| отчёт об инстансе | `internal/app/systemruntime.StartSystemInstanceReporter` | system |
 | очистка артефактов входа | `service.StartAuthArtifactCleanup` | identity |
 | пакетная запись счётчиков | `internal/app.StartBatchUpdater` | shared counter composition |
 
@@ -178,7 +178,7 @@ visibility, identity scope, validation, grouping, count limits, ranking windows 
 Планирование quota export — internal/app/usage; общих user/token/channel counter flush — internal/app/background.go. До волны 7 единственные RAM
 cache/queue и технические producer primitives остаются в model (A2). Legacy Gin writers делегируют
 plain LogObservation writers; usage adapter Gin не импортирует (#36 закрыт). system_task cleanup
-остаётся technical service/model residue по A4; новый reverse import или locator не вводится.
+координирует internal/system через adapter/gorm/usage.Cleanup; SQL LOG_DB/LIMIT/ClickHouse и main/log non-atomicity сохранены.
 
 Usage domain errors сопоставляются в transport через errors.Is/errors.As и i18n.MsgUsage*;
 ranking period — typed error с полем Period. Storage-specific malformed/rejection правила
@@ -295,3 +295,20 @@ same-tx catalog deletion+pricing edits не меняется. Ownership gap и �
 Single-write ignored SQL errors (#58), postcommit publication и raw/effective divergence сохранены.
 749 новых contracts и прежние oracles неизменяемы; current host/PG acceptance и неприменённый
 content package отделены от sandbox evidence.
+
+## System (6b)
+
+`internal/system` владеет setup, системными задачами и runtime maintenance. `app/system` содержит
+одну registry/store и master-once runner; `app/systemruntime` явно подключает все восемь handlers,
+HTTP/setup/reporter и прежних channels/tasks/Batch/pricing владельцев. Service import-time FX
+registration удалена по A2; main и scheduler entrypoints используют явную сборку.
+
+Setup root row — accounts adapter, options — settings writer; guard/probe/bind/write/flag порядок
+и partial failures сохранены. System records — gorm/system/record, model — aliases для migrations.
+Cleanup SQL принадлежит gorm/usage и читает LOG_DB; task-state main DB не объединён с ним в transaction.
+Uptime outbound — adapter/http/system с прежним клиентом/redirects; common stats/cache/monitor остаются едиными.
+GetStatus получает late version/start/setup, сохраняя прежнюю aggregate projection.
+
+Открытые ownership gaps до волны 7: FX refresh в service через собственный BRIDGE и pkg/perf_metrics
+как единственный collection/query/flush/SQL/Redis owner (A3=B). RelayInfo mapping не переносился;
+нового metric state или model/service→internal executable imports нет.

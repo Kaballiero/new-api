@@ -62,7 +62,7 @@ adapter/redis/batch — единственные Batch Lua bodies; namespaces, m
 provider_batch_poll регистрируется явно из controller.RegisterScheduledSystemTasks. Root server
 и Electron достигают этого существующего entrypoint; тест регистрации вызывает его же. Голый импорт
 service больше не регистрирует Batch. UpdateTask, 15s interval, master/once, lease/heartbeat и history
-остаются у прежнего system-task runner. Direct poll собирается без main.
+принадлежат app/system runner; SystemHandler использует его finish/fail capability. Direct poll собирается без main.
 
 ## Мосты и долг
 

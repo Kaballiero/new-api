@@ -8,6 +8,7 @@
 
 | Модуль | Ответственность | Сценариев | README |
 |---|---|---|---|
+| `system` | setup, task registry/lease/history/cleanup, instances и runtime maintenance; FX/metrics gaps до волны 7 | 25 | [README](system/README.md) |
 | `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; publisher/pricing composition остаются model по A2=B | 11 | [README](settings/README.md) |
 | `accounts` | аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 24 | [README](accounts/README.md) |
 | `identity` | вход и доказательство личности: пароль, сессии и их отзыв, 2FA и резервные коды, passkey (WebAuthn), OAuth и WeChat, подтверждение email, восстановление пароля, повторная проверка для чувствительных действий | 66 | [README](identity/README.md) |
