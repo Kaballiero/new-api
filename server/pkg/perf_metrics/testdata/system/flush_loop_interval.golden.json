@@ -1,0 +1,31 @@
+{
+  "audit": [],
+  "enabled": true,
+  "extra": {
+    "elapsed_seconds": 60,
+    "writes": 1
+  },
+  "hot": [
+    {
+      "bucket": 946684800,
+      "generation": 0,
+      "group": "active",
+      "latency": 0,
+      "model": "fixture",
+      "output": 0,
+      "request": 0,
+      "success": 0,
+      "ttft": 0,
+      "ttft_count": 0
+    }
+  ],
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "redis_commands": null,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

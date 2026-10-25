@@ -1,0 +1,102 @@
+{
+  "audit": [],
+  "extra": {
+    "main_logs": [
+      {
+        "channel_id": 0,
+        "channel_name": null,
+        "completion_tokens": 0,
+        "content": "main database sentinel",
+        "created_at": 946684790,
+        "group": "",
+        "id": 900,
+        "ip": "",
+        "is_stream": 0,
+        "model_name": "",
+        "other": "",
+        "prompt_tokens": 0,
+        "quota": 0,
+        "request_id": "",
+        "token_id": 0,
+        "token_name": "",
+        "type": 2,
+        "upstream_request_id": "",
+        "use_time": 0,
+        "user_id": 0,
+        "username": ""
+      }
+    ]
+  },
+  "instances": [],
+  "locks": [],
+  "logs": [
+    {
+      "channel_id": 0,
+      "channel_name": null,
+      "completion_tokens": 0,
+      "content": "fixture",
+      "created_at": 946684800,
+      "group": "",
+      "id": 4,
+      "ip": "",
+      "is_stream": 0,
+      "model_name": "",
+      "other": "",
+      "prompt_tokens": 0,
+      "quota": 0,
+      "request_id": "",
+      "token_id": 0,
+      "token_name": "",
+      "type": 2,
+      "upstream_request_id": "",
+      "use_time": 0,
+      "user_id": 0,
+      "username": ""
+    },
+    {
+      "channel_id": 0,
+      "channel_name": null,
+      "completion_tokens": 0,
+      "content": "fixture",
+      "created_at": 946684801,
+      "group": "",
+      "id": 5,
+      "ip": "",
+      "is_stream": 0,
+      "model_name": "",
+      "other": "",
+      "prompt_tokens": 0,
+      "quota": 0,
+      "request_id": "",
+      "token_id": 0,
+      "token_name": "",
+      "type": 2,
+      "upstream_request_id": "",
+      "use_time": 0,
+      "user_id": 0,
+      "username": ""
+    }
+  ],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [
+    {
+      "active_key": null,
+      "created_at": 946684800,
+      "error": "",
+      "id": 1,
+      "locked_by": "fixture-runner",
+      "payload": "{\"target_timestamp\":946684800,\"batch_size\":2}",
+      "result": "{\"deleted_count\":3}",
+      "state": "{\"total\":3,\"processed\":3,\"progress\":100,\"remaining\":0}",
+      "status": "succeeded",
+      "task_id": "systask_\u003c1\u003e",
+      "type": "log_cleanup",
+      "updated_at": 946684800
+    }
+  ],
+  "users": []
+}

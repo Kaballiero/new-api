@@ -1,0 +1,41 @@
+{
+  "audit": [],
+  "extra": {
+    "enabled": true,
+    "interval_seconds": 3600,
+    "payload": null,
+    "update_task": true
+  },
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": [
+    {
+      "body": false,
+      "headers": {},
+      "method": "GET",
+      "url": "https://fx.fixture/daily_json.js"
+    }
+  ],
+  "outbound_calls": 1,
+  "setup": [],
+  "tasks": [
+    {
+      "active_key": null,
+      "created_at": 946684800,
+      "error": "",
+      "id": 1,
+      "locked_by": "fixture-runner",
+      "payload": "",
+      "result": "{\"source\":\"cbr-xml-daily.ru\",\"version\":1,\"effective_at\":946684800,\"fetched_at\":946684800}",
+      "state": "",
+      "status": "succeeded",
+      "task_id": "systask_\u003c1\u003e",
+      "type": "model_cost_fx",
+      "updated_at": 946684800
+    }
+  ],
+  "users": []
+}

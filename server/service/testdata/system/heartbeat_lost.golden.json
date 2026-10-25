@@ -1,0 +1,31 @@
+{
+  "audit": [],
+  "extra": {
+    "cancelled": true
+  },
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [
+    {
+      "active_key": "fixture",
+      "created_at": 946684800,
+      "error": "",
+      "id": 1,
+      "locked_by": "fixture-runner",
+      "payload": "",
+      "result": "",
+      "state": "",
+      "status": "running",
+      "task_id": "systask_\u003c1\u003e",
+      "type": "fixture",
+      "updated_at": 946684800
+    }
+  ],
+  "users": []
+}

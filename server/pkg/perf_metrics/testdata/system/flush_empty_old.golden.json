@@ -1,0 +1,29 @@
+{
+  "audit": [],
+  "enabled": true,
+  "extra": {},
+  "hot": [],
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [
+    {
+      "bucket_ts": 946684800,
+      "generation_ms": 200,
+      "group": "active",
+      "id": 1,
+      "model_name": "fixture",
+      "output_tokens": 30,
+      "request_count": 1,
+      "success_count": 1,
+      "total_latency_ms": 300,
+      "ttft_count": 1,
+      "ttft_sum_ms": 20
+    }
+  ],
+  "options": [],
+  "redis_commands": null,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

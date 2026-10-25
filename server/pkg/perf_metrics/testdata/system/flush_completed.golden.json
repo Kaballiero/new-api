@@ -1,0 +1,65 @@
+{
+  "audit": [],
+  "enabled": true,
+  "extra": {
+    "after_flush": {
+      "model_name": "fixture",
+      "series_schema": "dbcd0a3c01b55203",
+      "groups": [
+        {
+          "group": "active",
+          "avg_ttft_ms": 20,
+          "avg_latency_ms": 300,
+          "success_rate": 100,
+          "avg_tps": 150,
+          "series": [
+            {
+              "ts": 946684800,
+              "avg_ttft_ms": 20,
+              "avg_latency_ms": 300,
+              "success_rate": 100,
+              "avg_tps": 150
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "hot": [
+    {
+      "bucket": 946684800,
+      "generation": 0,
+      "group": "active",
+      "latency": 0,
+      "model": "fixture",
+      "output": 0,
+      "request": 0,
+      "success": 0,
+      "ttft": 0,
+      "ttft_count": 0
+    }
+  ],
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [
+    {
+      "bucket_ts": 946684800,
+      "generation_ms": 200,
+      "group": "active",
+      "id": 1,
+      "model_name": "fixture",
+      "output_tokens": 30,
+      "request_count": 1,
+      "success_count": 1,
+      "total_latency_ms": 300,
+      "ttft_count": 1,
+      "ttft_sum_ms": 20
+    }
+  ],
+  "options": [],
+  "redis_commands": null,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

@@ -1,0 +1,99 @@
+{
+  "audit": [
+    {
+      "action": "performance.clear_disk_cache",
+      "actor_role": 100,
+      "auth_method": "session",
+      "category": "operation",
+      "content": "DELETE /api/performance/disk_cache",
+      "created_at": 946684800,
+      "event_id": "\u003caudit_logs-event_id-1\u003e",
+      "id": 1,
+      "ip": "192.0.2.1",
+      "method": "DELETE",
+      "other": "{\"op\":{\"action\":\"performance.clear_disk_cache\"},\"admin_info\":{\"admin_id\":3,\"admin_username\":\"contract-root\",\"admin_role\":100,\"auth_method\":\"session\"},\"audit_info\":{\"method\":\"DELETE\",\"route\":\"/api/performance/disk_cache\",\"path\":\"/api/performance/disk_cache\",\"status\":200,\"success\":false}}",
+      "request_id": "\u003caudit_logs-request_id-1\u003e",
+      "route": "/api/performance/disk_cache",
+      "status": 200,
+      "success": 0,
+      "token_ref": "",
+      "user_agent": "",
+      "user_id": 3,
+      "username": "contract-root"
+    }
+  ],
+  "extra": {},
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "observations": [
+    {
+      "body": "{\"message\":\"open \u003cfixture-dir-0\u003e/new-api-body-cache: not a directory\",\"success\":false}",
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      "status": 200
+    }
+  ],
+  "options": [],
+  "outbound": [],
+  "runtime": {
+    "cache": {
+      "active_disk_files": 1,
+      "current_disk_usage_bytes": 3,
+      "active_memory_buffers": 0,
+      "current_memory_usage_bytes": 0,
+      "disk_cache_hits": 1,
+      "memory_cache_hits": 1,
+      "disk_cache_max_bytes": 2097152,
+      "disk_cache_threshold_bytes": 1048576
+    },
+    "demo": false,
+    "self": false,
+    "setup": true
+  },
+  "setup": [],
+  "tasks": [],
+  "users": [
+    {
+      "access_token": "contracttestpersonalaccesstoken1",
+      "auth_version": 1,
+      "display_name": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "access_token": "system-admin-pat",
+      "auth_version": 1,
+      "display_name": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "access_token": "system-root-pat",
+      "auth_version": 1,
+      "display_name": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ]
+}

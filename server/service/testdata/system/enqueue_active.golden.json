@@ -1,0 +1,33 @@
+{
+  "audit": [],
+  "extra": {
+    "created": true,
+    "error": "",
+    "second_created": false
+  },
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [
+    {
+      "active_key": "fixture",
+      "created_at": 946684800,
+      "error": "",
+      "id": 1,
+      "locked_by": "",
+      "payload": "{\"manual\":true}",
+      "result": "",
+      "state": "",
+      "status": "pending",
+      "task_id": "systask_\u003c1\u003e",
+      "type": "fixture",
+      "updated_at": 946684800
+    }
+  ],
+  "users": []
+}

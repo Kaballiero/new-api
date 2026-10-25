@@ -1,0 +1,57 @@
+{
+  "audit": [],
+  "extra": {},
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [
+    {
+      "active_key": null,
+      "created_at": 946684800,
+      "error": "",
+      "id": 1,
+      "locked_by": "fixture-runner",
+      "payload": "",
+      "result": "{\"done\":1}",
+      "state": "",
+      "status": "succeeded",
+      "task_id": "pending-0",
+      "type": "a",
+      "updated_at": 946684800
+    },
+    {
+      "active_key": null,
+      "created_at": 946684800,
+      "error": "",
+      "id": 2,
+      "locked_by": "",
+      "payload": "",
+      "result": "",
+      "state": "",
+      "status": "pending",
+      "task_id": "pending-1",
+      "type": "a",
+      "updated_at": 946684800
+    },
+    {
+      "active_key": null,
+      "created_at": 946684800,
+      "error": "",
+      "id": 3,
+      "locked_by": "fixture-runner",
+      "payload": "",
+      "result": "{\"done\":1}",
+      "state": "",
+      "status": "succeeded",
+      "task_id": "pending-2",
+      "type": "b",
+      "updated_at": 946684800
+    }
+  ],
+  "users": []
+}

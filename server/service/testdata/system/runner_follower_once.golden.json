@@ -1,0 +1,16 @@
+{
+  "audit": [],
+  "extra": {
+    "started_on_follower": true
+  },
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

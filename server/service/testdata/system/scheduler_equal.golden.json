@@ -1,0 +1,43 @@
+{
+  "audit": [],
+  "extra": {},
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [
+    {
+      "active_key": null,
+      "created_at": 946684740,
+      "error": "",
+      "id": 1,
+      "locked_by": "",
+      "payload": "",
+      "result": "",
+      "state": "",
+      "status": "succeeded",
+      "task_id": "prior-task",
+      "type": "fixture",
+      "updated_at": 946684740
+    },
+    {
+      "active_key": "fixture",
+      "created_at": 946684800,
+      "error": "",
+      "id": 2,
+      "locked_by": "",
+      "payload": "{\"scheduled\":true}",
+      "result": "",
+      "state": "",
+      "status": "pending",
+      "task_id": "systask_\u003c2\u003e",
+      "type": "fixture",
+      "updated_at": 946684800
+    }
+  ],
+  "users": []
+}

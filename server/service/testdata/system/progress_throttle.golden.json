@@ -1,0 +1,37 @@
+{
+  "audit": [],
+  "extra": {},
+  "instances": [],
+  "locks": [
+    {
+      "locked_by": "fixture-runner",
+      "locked_until": 946684860,
+      "task_id": "systask_\u003c1\u003e",
+      "type": "fixture",
+      "updated_at": 946684800
+    }
+  ],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [
+    {
+      "active_key": "fixture",
+      "created_at": 946684800,
+      "error": "",
+      "id": 1,
+      "locked_by": "fixture-runner",
+      "payload": "",
+      "result": "",
+      "state": "{\"total\":10,\"processed\":10,\"progress\":100}",
+      "status": "running",
+      "task_id": "systask_\u003c1\u003e",
+      "type": "fixture",
+      "updated_at": 946684802
+    }
+  ],
+  "users": []
+}

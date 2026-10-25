@@ -1,0 +1,21 @@
+{
+  "audit": [],
+  "enabled": true,
+  "extra": {
+    "query": {
+      "model_name": "fixture",
+      "series_schema": "dbcd0a3c01b55203",
+      "groups": []
+    }
+  },
+  "hot": [],
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "redis_commands": null,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

@@ -1,0 +1,34 @@
+{
+  "audit": [],
+  "enabled": true,
+  "extra": {
+    "query": {
+      "model_name": "fixture",
+      "series_schema": "dbcd0a3c01b55203",
+      "groups": []
+    }
+  },
+  "hot": [
+    {
+      "bucket": 946684800,
+      "generation": 200,
+      "group": "active",
+      "latency": 300,
+      "model": "fixture",
+      "output": 30,
+      "request": 1,
+      "success": 1,
+      "ttft": 20,
+      "ttft_count": 1
+    }
+  ],
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "redis_commands": null,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

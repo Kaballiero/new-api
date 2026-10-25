@@ -1,0 +1,25 @@
+{
+  "audit": [],
+  "extra": {
+    "types": [
+      "async_task_poll",
+      "channel_test",
+      "log_cleanup",
+      "midjourney_poll",
+      "model_cost_fx",
+      "model_update",
+      "pricing_catalog",
+      "provider_batch_poll"
+    ]
+  },
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

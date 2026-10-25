@@ -1,0 +1,63 @@
+{
+  "audit": [],
+  "enabled": true,
+  "extra": {
+    "query": {
+      "models": [
+        {
+          "model_name": "fixture",
+          "avg_latency_ms": 166,
+          "success_rate": 66.67,
+          "avg_tps": 41.67,
+          "recent_success_series": [
+            {
+              "ts": 946681200,
+              "success_rate": 50
+            },
+            {
+              "ts": 946684800,
+              "success_rate": 100
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "hot": [
+    {
+      "bucket": 946684800,
+      "generation": 200,
+      "group": "active",
+      "latency": 300,
+      "model": "fixture",
+      "output": 30,
+      "request": 1,
+      "success": 1,
+      "ttft": 20,
+      "ttft_count": 1
+    }
+  ],
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [
+    {
+      "bucket_ts": 946681200,
+      "generation_ms": 1000,
+      "group": "active",
+      "id": 1,
+      "model_name": "fixture",
+      "output_tokens": 20,
+      "request_count": 2,
+      "success_count": 1,
+      "total_latency_ms": 200,
+      "ttft_count": 1,
+      "ttft_sum_ms": 40
+    }
+  ],
+  "options": [],
+  "redis_commands": null,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

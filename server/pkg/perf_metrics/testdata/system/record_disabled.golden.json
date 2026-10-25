@@ -1,0 +1,15 @@
+{
+  "audit": [],
+  "enabled": false,
+  "extra": {},
+  "hot": [],
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "redis_commands": null,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

@@ -1,0 +1,42 @@
+{
+  "audit": [],
+  "enabled": true,
+  "extra": {},
+  "hot": [
+    {
+      "bucket": 946684800,
+      "generation": 200,
+      "group": "active",
+      "latency": 300,
+      "model": "fixture",
+      "output": 30,
+      "request": 1,
+      "success": 1,
+      "ttft": 20,
+      "ttft_count": 1
+    }
+  ],
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [
+    {
+      "bucket_ts": 946598399,
+      "generation_ms": 0,
+      "group": "default",
+      "id": 1,
+      "model_name": "old",
+      "output_tokens": 0,
+      "request_count": 1,
+      "success_count": 0,
+      "total_latency_ms": 0,
+      "ttft_count": 0,
+      "ttft_sum_ms": 0
+    }
+  ],
+  "options": [],
+  "redis_commands": null,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

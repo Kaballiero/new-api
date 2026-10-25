@@ -1,0 +1,17 @@
+{
+  "audit": [],
+  "extra": {
+    "created": false,
+    "error": "fixture task create failed"
+  },
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

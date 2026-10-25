@@ -1,0 +1,99 @@
+{
+  "audit": [
+    {
+      "action": "",
+      "actor_role": 100,
+      "auth_method": "access_token",
+      "category": "access_token",
+      "content": "",
+      "created_at": 946684800,
+      "event_id": "\u003caudit_logs-event_id-1\u003e",
+      "id": 1,
+      "ip": "192.0.2.1",
+      "method": "GET",
+      "other": "{}",
+      "request_id": "\u003caudit_logs-request_id-1\u003e",
+      "route": "/api/system-task/list",
+      "status": 200,
+      "success": 1,
+      "token_ref": "250439c3a6abf04a04e47b96bc18b76a4eafba77e9f021cbcefb9dd602c0d4f8",
+      "user_agent": "",
+      "user_id": 3,
+      "username": "contract-root"
+    }
+  ],
+  "extra": {},
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "observations": [
+    {
+      "body": "{\"data\":[],\"message\":\"\",\"success\":true}",
+      "headers": {
+        "Content-Type": "application/json; charset=utf-8"
+      },
+      "status": 200
+    }
+  ],
+  "options": [],
+  "outbound": [],
+  "runtime": {
+    "cache": {
+      "active_disk_files": 0,
+      "current_disk_usage_bytes": 0,
+      "active_memory_buffers": 0,
+      "current_memory_usage_bytes": 0,
+      "disk_cache_hits": 0,
+      "memory_cache_hits": 0,
+      "disk_cache_max_bytes": 2097152,
+      "disk_cache_threshold_bytes": 1048576
+    },
+    "demo": false,
+    "self": false,
+    "setup": true
+  },
+  "setup": [],
+  "tasks": [],
+  "users": [
+    {
+      "access_token": "contracttestpersonalaccesstoken1",
+      "auth_version": 1,
+      "display_name": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "access_token": "system-admin-pat",
+      "auth_version": 1,
+      "display_name": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "access_token": "system-root-pat",
+      "auth_version": 1,
+      "display_name": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ]
+}

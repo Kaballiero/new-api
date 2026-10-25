@@ -1,0 +1,19 @@
+{
+  "audit": [],
+  "extra": {
+    "enabled": false,
+    "interval_seconds": 15,
+    "payload": null,
+    "update_task": true
+  },
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [],
+  "users": []
+}

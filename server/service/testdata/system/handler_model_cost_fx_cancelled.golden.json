@@ -1,0 +1,34 @@
+{
+  "audit": [],
+  "extra": {
+    "enabled": true,
+    "interval_seconds": 3600,
+    "payload": null,
+    "update_task": true
+  },
+  "instances": [],
+  "locks": [],
+  "logs": [],
+  "metrics": [],
+  "options": [],
+  "outbound": null,
+  "outbound_calls": 0,
+  "setup": [],
+  "tasks": [
+    {
+      "active_key": null,
+      "created_at": 946684800,
+      "error": "context canceled",
+      "id": 1,
+      "locked_by": "fixture-runner",
+      "payload": "",
+      "result": "",
+      "state": "",
+      "status": "failed",
+      "task_id": "systask_\u003c1\u003e",
+      "type": "model_cost_fx",
+      "updated_at": 946684800
+    }
+  ],
+  "users": []
+}
