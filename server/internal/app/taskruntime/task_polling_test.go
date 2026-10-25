@@ -768,7 +768,7 @@ func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
 	assert.EqualValues(t, model.TaskStatusFailure, reloadedModern.Status)
 	assert.Zero(t, reloadedLegacy.Quota)
 	assert.Zero(t, reloadedModern.Quota)
-	assert.Contains(t, reloadedLegacy.FailReason, "旧系统遗留任务")
+	assert.Contains(t, reloadedLegacy.FailReason, "Task timed out (legacy task; no automatic refund, contact the administrator)")
 	assert.Contains(t, reloadedModern.FailReason, "Task timed out")
 	assert.Equal(t, initialQuota+modernTaskQuota, getUserQuota(t, userID))
 	assert.Equal(t, int64(1), countLogs(t))

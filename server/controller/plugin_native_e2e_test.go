@@ -541,7 +541,7 @@ func TestMidjourneyAndSwapFaceCaptureFXBeforeUpstreamAndKeepSavedRefund(t *testi
 	other, err := common.StrToMap(submitLog.Other)
 	require.NoError(t, err)
 	assert.Equal(t, float64(2), other["group_ratio"])
-	assert.Contains(t, submitLog.Content, "分组倍率 2.00")
+	assert.Contains(t, submitLog.Content, "group ratio 2.00")
 	admin := other["admin_info"].(map[string]any)
 	fx := admin["billing_fx"].(map[string]any)
 	assert.Equal(t, float64(1), fx["schema_version"])
