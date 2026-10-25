@@ -3,8 +3,6 @@ package service
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -31,11 +29,9 @@ type BillingGatewayPort interface {
 	CurrentFX() (BillingFXBasis, error)
 	CaptureFX(*relaycommon.RelayInfo) (float64, error)
 	ApplyFX(float64, float64) (float64, error)
-	AppendTaskClamp(*model.LogOther, *common.QuotaClamp)
-	AppendTaskTiered(*model.LogOther, *relaycommon.RelayInfo, *billingexpr.TieredResult)
 }
 
-// BRIDGE: service/{batch_billing,violation_fee,billing_fx,tiered_settle}.go; remove when batch billing, violation fees, FX and tiered settlement have their own owners;
+// BRIDGE: service/{violation_fee,billing_fx,tiered_settle}.go; remove when violation fees, FX and tiered settlement have their own owners;
 // immutable internal/billing/{contract,usage_contract}_test.go and controller/wss_characterization_test.go.
 var BillingGateway BillingGatewayPort
 

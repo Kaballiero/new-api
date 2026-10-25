@@ -56,7 +56,7 @@ func (modelCostFXTaskHandler) NewPayload() any         { return nil }
 func (modelCostFXTaskHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	result, err := refreshModelCostFX(ctx)
 	if err != nil {
-		failSystemTask(task, runnerID, err)
+		FailSystemTask(task, runnerID, err)
 		return
 	}
 	if err := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, result, ""); err != nil {

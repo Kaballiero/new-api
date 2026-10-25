@@ -27,7 +27,7 @@ import (
 	hosttypes "github.com/QuantumNous/new-api/types"
 )
 
-// BRIDGE: relay/billing and remaining Task/Batch/MJ metadata consumers.
+// BRIDGE: relay/billing and remaining Task/MJ metadata consumers.
 // Construction is lazy and shared by every binary linking these entrypoints.
 var recording = sync.OnceValue(app.New)
 

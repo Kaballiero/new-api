@@ -49,8 +49,9 @@ func (user *UserBase) GetSetting() dto.UserSetting {
 	return setting
 }
 
-// getUserCacheKey returns the key for user cache
-func getUserCacheKey(userId int) string {
+// GetUserCacheKey returns the key for user cache
+// Shared cache key for Batch outbox delivery; move with the quota-cache owner.
+func GetUserCacheKey(userId int) string {
 	return fmt.Sprintf("user:%d", userId)
 }
 
@@ -67,7 +68,7 @@ func invalidateUserCache(userId int) error {
 	if !common.RedisEnabled {
 		return nil
 	}
-	return common.RedisDelKey(getUserCacheKey(userId))
+	return common.RedisDelKey(GetUserCacheKey(userId))
 }
 
 func populateUserCache(user User) error {
@@ -90,7 +91,7 @@ func updateUserCache(user User) error {
 // GetUserCache gets complete user cache from hash
 func GetUserCache(userId int) (*UserBase, error) {
 	// Try getting from Redis first
-	userCache, err := cacheGetUserBase(userId)
+	userCache, err := CacheGetUserBase(userId)
 	if err == nil {
 		return userCache, nil
 	}
@@ -130,13 +131,14 @@ func GetUserCache(userId int) (*UserBase, error) {
 	return user.ToBaseUser(), nil
 }
 
-func cacheGetUserBase(userId int) (*UserBase, error) {
+// Raw cache reader for locked Batch dispatch checks; move with the quota-cache owner.
+func CacheGetUserBase(userId int) (*UserBase, error) {
 	if !common.RedisEnabled {
 		return nil, fmt.Errorf("redis is not enabled")
 	}
 	var userCache UserBase
 	// Try getting from Redis first
-	err := common.RedisHGetObj(getUserCacheKey(userId), &userCache)
+	err := common.RedisHGetObj(GetUserCacheKey(userId), &userCache)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +156,8 @@ func cacheGetUserBase(userId int) (*UserBase, error) {
 }
 
 // Add atomic quota operations using hash fields.
-// 通过守卫式 Lua 脚本执行：哈希不存在时直接跳过（下次读取会从数据库水合），
-// 不会像裸 HINCRBY 那样创建只含 Quota 字段的残缺哈希。
+// A guarded Lua script skips missing hashes, which the next read will hydrate from the database.
+// Unlike a bare HINCRBY, it never creates an incomplete hash containing only Quota.
 func cacheIncrUserQuota(userId int, delta int64) error {
 	if !common.RedisEnabled {
 		return nil
@@ -171,9 +173,9 @@ func CacheDecrUserQuota(userId int, delta int64) error {
 	return cacheIncrUserQuota(userId, -delta)
 }
 
-// SyncCreditUserQuotaCache 在授信事务（充值/兑换等）提交后同步把增量补进缓存
-// 余额。预扣以缓存值为准（存在期间），授信不能绕过它，否则新到账的额度在
-// 缓存过期前不可用；缓存未命中无需处理，下次读取会从已提交的数据库余额水合。
+// SyncCreditUserQuotaCache applies a credit delta to the cached balance after its transaction commits.
+// Pre-consumption uses the cached balance while it exists, so credits must update it too;
+// otherwise credits stay unavailable until expiry. Missing hashes hydrate the committed balance on the next read.
 // BRIDGE: adapter/wallet post-commit sync for payments and redemption;
 // remove when the shared quota-cache primitive has its own adapter owner.
 func SyncCreditUserQuotaCache(userId int, quota int, operation string) {

@@ -338,11 +338,11 @@ func runWithLeaseHeartbeat(task *model.SystemTask, runnerID string, fn func(ctx 
 func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID string) {
 	payload := LogCleanupPayload{}
 	if err := task.DecodePayload(&payload); err != nil {
-		failSystemTask(task, runnerID, err)
+		FailSystemTask(task, runnerID, err)
 		return
 	}
 	if payload.TargetTimestamp <= 0 {
-		failSystemTask(task, runnerID, errors.New("target timestamp is required"))
+		FailSystemTask(task, runnerID, errors.New("target timestamp is required"))
 		return
 	}
 	if payload.BatchSize <= 0 {
@@ -351,14 +351,14 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 
 	state := LogCleanupState{}
 	if err := task.DecodeState(&state); err != nil {
-		failSystemTask(task, runnerID, err)
+		FailSystemTask(task, runnerID, err)
 		return
 	}
 
 	for {
 		remaining, err := model.CountOldLog(ctx, payload.TargetTimestamp)
 		if err != nil {
-			failSystemTask(task, runnerID, err)
+			FailSystemTask(task, runnerID, err)
 			return
 		}
 		syncLogCleanupStateFromRemaining(&state, remaining)
@@ -378,7 +378,7 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 		for state.Remaining > 0 {
 			rowsAffected, err := model.DeleteOldLogBatch(ctx, payload.TargetTimestamp, payload.BatchSize)
 			if err != nil {
-				failSystemTask(task, runnerID, err)
+				FailSystemTask(task, runnerID, err)
 				return
 			}
 			if rowsAffected == 0 {
@@ -404,7 +404,7 @@ func runLogCleanupTask(ctx context.Context, task *model.SystemTask, runnerID str
 		}
 
 		if !progressed {
-			failSystemTask(task, runnerID, errors.New("no log rows were deleted"))
+			FailSystemTask(task, runnerID, errors.New("no log rows were deleted"))
 			return
 		}
 	}
@@ -508,7 +508,8 @@ func NewSystemTaskProgressReporter(task *model.SystemTask, runnerID string) func
 	}
 }
 
-func failSystemTask(task *model.SystemTask, runnerID string, err error) {
+// FailSystemTask records the failure of a running system task and logs persistence errors.
+func FailSystemTask(task *model.SystemTask, runnerID string, err error) {
 	logger.LogWarn(context.Background(), fmt.Sprintf("system task %s failed: %v", task.TaskID, err))
 	if finishErr := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusFailed, nil, err.Error()); finishErr != nil {
 		logger.LogWarn(context.Background(), fmt.Sprintf("system task %s failed to save failure state: %v", task.TaskID, finishErr))

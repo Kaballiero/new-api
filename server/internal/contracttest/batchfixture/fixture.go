@@ -20,6 +20,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -130,7 +131,7 @@ func Snapshot(t *testing.T, mode string) string {
 }
 
 // Reserve calls the real durable hold transaction, generating the private request identities there.
-func Reserve(t *testing.T, channel *model.Channel, configHash, endpoint, mode string, count int) *model.BatchJob {
+func Reserve(t *testing.T, reserve func(*domain.Job, []domain.Item) error, channel *model.Channel, configHash, endpoint, mode string, count int) *model.BatchJob {
 	t.Helper()
 	job := &model.BatchJob{PublicID: "batch_fixture", UserID: 1, TokenID: 11, IdempotencyKey: "fixture-once", RequestHash: "fixture-request",
 		ChannelID: channel.Id, ChannelType: channel.Type, CredentialHash: Hash(ProviderKey), ChannelConfigHash: configHash,
@@ -153,7 +154,7 @@ func Reserve(t *testing.T, channel *model.Channel, configHash, endpoint, mode st
 		items[i] = model.BatchItem{CustomID: fmt.Sprintf("client_%d", i), Ordinal: i, Body: body, UpstreamBody: body,
 			BillingStatus: "reserved", ReservedQuota: 100}
 	}
-	require.NoError(t, model.CreateBatchReservation(job, items))
+	require.NoError(t, reserve((*domain.Job)(job), domainItems(items)))
 	return job
 }
 
@@ -290,4 +291,12 @@ func (f *Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	}
 	return &http.Response{StatusCode: status, Header: http.Header{"X-Request-Id": {"req-123"}},
 		Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+}
+
+func domainItems(items []model.BatchItem) []domain.Item {
+	out := make([]domain.Item, len(items))
+	for i := range items {
+		out[i] = domain.Item(items[i])
+	}
+	return out
 }

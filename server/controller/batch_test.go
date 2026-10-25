@@ -3,6 +3,9 @@ package controller
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	batchmath "github.com/QuantumNous/new-api/internal/adapter/billing"
+	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
+	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/batch"
 	"github.com/QuantumNous/new-api/service"
@@ -100,7 +103,7 @@ func TestBatchAdmissionFreezesFinalEnvelopeProvider(t *testing.T) {
 			require.Equal(t, http.StatusAccepted, writer.Code, writer.Body.String())
 			var job model.BatchJob
 			require.NoError(t, db.Where("public_id = ?", c.GetString("batch_public_id")).First(&job).Error)
-			var snapshot service.BatchBillingSnapshot
+			var snapshot batchmath.BatchBillingSnapshot
 			require.NoError(t, common.UnmarshalJsonStr(job.BillingSnapshot, &snapshot))
 			if tc.wantProvider == "" {
 				assert.Empty(t, snapshot.Provider)
@@ -115,7 +118,7 @@ func TestBatchAdmissionFreezesFinalEnvelopeProvider(t *testing.T) {
 			assert.Equal(t, tc.wantQuota, item.ReservedQuota)
 			wire, err := (batch.OpenRouter{}).Create(batch.Submission{Model: job.UpstreamModel, Endpoint: job.Endpoint, Provider: snapshot.Provider, Items: []batch.Item{{CustomID: item.ProviderCustomID, Body: []byte(item.UpstreamBody)}}})
 			require.NoError(t, err)
-			var payload BatchCreateRequest
+			var payload domain.CreateRequest
 			require.NoError(t, common.Unmarshal(wire.Body, &payload))
 			assert.Equal(t, string(snapshot.Provider), string(payload.Provider), "admission snapshot must be the native envelope routing")
 			require.Len(t, payload.Requests, 1)
@@ -180,7 +183,7 @@ func TestBatchGoogleOutputBoundary(t *testing.T) {
 		{`{"generationConfig":{"maxOutputTokens":8,"candidate_count":999}}`, false},
 		{`{"generationConfig":{"maxOutputTokens":18446744073709551615}}`, false},
 	} {
-		output, err := validateBatchItem([]byte(tc.body), "gemini-test", "/v1beta/generateContent")
+		output, err := (gateway.Validation{}).Item([]byte(tc.body), "gemini-test", "/v1beta/generateContent")
 		if tc.valid {
 			require.NoError(t, err)
 			assert.Equal(t, 8, output)
@@ -202,7 +205,7 @@ func TestBatchOutputLimitUsesNativeEndpoint(t *testing.T) {
 		{"/v1/messages", `{"max_tokens":8}`, true},
 		{"/v1/messages", `{"max_completion_tokens":8}`, false},
 	} {
-		_, err := validateBatchItem([]byte(tc.body), "test", tc.endpoint)
+		_, err := (gateway.Validation{}).Item([]byte(tc.body), "test", tc.endpoint)
 		if tc.valid {
 			require.NoError(t, err)
 		} else {

@@ -1,4 +1,4 @@
-package service
+package batch
 
 import (
 	"bytes"
@@ -6,39 +6,30 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relay/batch"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	billing "github.com/QuantumNous/new-api/internal/adapter/billing"
+	"github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
+	"github.com/QuantumNous/new-api/internal/batch/domain"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/batch"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 )
 
-func ValidateBatchChannelHeaders(channel *model.Channel) error {
-	for name, value := range channel.GetHeaderOverride() {
-		lower := strings.ToLower(strings.TrimSpace(name))
-		if name == "*" || strings.HasPrefix(lower, "re:") || strings.HasPrefix(lower, "regex:") {
-			return errors.New("Batch requires explicit channel headers rather than request header passthrough")
-		}
-		text, ok := value.(string)
-		if !ok || strings.Contains(text, "{client_header:") {
-			return errors.New("Batch channel headers must be static or use {api_key}")
-		}
-	}
-	return nil
-}
-
-func doBatchRequest(ctx context.Context, job *model.BatchJob, request batch.Request, body io.Reader, contentType string) (*http.Response, error) {
+func doBatchRequest(ctx context.Context, job *domain.Job, request batch.Request, body io.Reader, contentType string) (*http.Response, error) {
 	channel, err := model.CacheGetChannel(job.ChannelID)
 	if err != nil {
 		return nil, err
 	}
-	hash, err := BatchChannelConfigHash(channel)
+	hash, err := batchaccount.BatchChannelConfigHash(channel)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +48,7 @@ func doBatchRequest(ctx context.Context, job *model.BatchJob, request batch.Requ
 		return nil, errors.New("batch credential changed; reconciliation required")
 	}
 	settings := channel.GetSetting()
-	client, err := GetHttpClientWithProxySettings(settings.Proxy, settings)
+	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +79,7 @@ func doBatchRequest(ctx context.Context, job *model.BatchJob, request batch.Requ
 	case constant.ChannelTypeAnthropic:
 		req.Header.Set("x-api-key", key)
 		req.Header.Set("anthropic-version", "2023-06-01")
-		var snapshot BatchBillingSnapshot
+		var snapshot billing.BatchBillingSnapshot
 		if err := common.UnmarshalJsonStr(job.BillingSnapshot, &snapshot); err != nil {
 			return nil, err
 		}
@@ -103,7 +94,7 @@ func doBatchRequest(ctx context.Context, job *model.BatchJob, request batch.Requ
 	if channel.OpenAIOrganization != nil && *channel.OpenAIOrganization != "" {
 		req.Header.Set("OpenAI-Organization", *channel.OpenAIOrganization)
 	}
-	if err := ValidateBatchChannelHeaders(channel); err != nil {
+	if err := batchaccount.ValidateBatchChannelHeaders(channel); err != nil {
 		return nil, err
 	}
 	for name, value := range channel.GetHeaderOverride() {
@@ -112,7 +103,7 @@ func doBatchRequest(ctx context.Context, job *model.BatchJob, request batch.Requ
 	return copy.Do(req)
 }
 
-func uploadOpenAIBatchInput(ctx context.Context, job *model.BatchJob, submission batch.Submission) (string, error) {
+func uploadOpenAIBatchInput(ctx context.Context, job *domain.Job, submission batch.Submission) (string, error) {
 	var buffer bytes.Buffer
 	form := multipart.NewWriter(&buffer)
 	if err := form.WriteField("purpose", "batch"); err != nil {
@@ -153,7 +144,7 @@ func uploadOpenAIBatchInput(ctx context.Context, job *model.BatchJob, submission
 
 var batchFileID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-func batchResultsRequest(job *model.BatchJob, fileID string) (batch.Request, error) {
+func batchResultsRequest(job *domain.Job, fileID string) (batch.Request, error) {
 	switch job.ChannelType {
 	case constant.ChannelTypeOpenAI:
 		if !batchFileID.MatchString(fileID) {

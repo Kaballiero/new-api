@@ -18,7 +18,7 @@ import (
 
 func (g *Gateway) TextCost(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage) TextCostSummary {
 	in := calculate_text_cost.Input{
-		Usage:               costUsage(usage),
+		Usage:               CostUsage(usage),
 		Prices:              costPrices(info.PriceData),
 		ModelName:           info.GetBillingModelName(),
 		Semantic:            usageSemanticFromUsage(info, usage),

@@ -9,11 +9,13 @@ import (
 	"github.com/QuantumNous/new-api/common"
 )
 
-func getTokenCacheKey(key string) string {
+// Shared token cache key for Batch cache delivery; move with the credential-cache owner.
+func GetTokenCacheKey(key string) string {
 	return fmt.Sprintf("token:%s", common.GenerateHMAC(key))
 }
 
-func getTokenCacheFenceKey(key string) string {
+// Shared mutation fence key for Batch token confirmation; move with the credential-cache owner.
+func GetTokenCacheFenceKey(key string) string {
 	return fmt.Sprintf("token:fence:%s", common.GenerateHMAC(key))
 }
 
@@ -40,11 +42,11 @@ func invalidateTokenCacheForMutation(key string) error {
 		return nil
 	}
 	ctx := context.Background()
-	err := common.RDB.Set(ctx, getTokenCacheFenceKey(key), 1, time.Duration(tokenCacheFenceSeconds)*time.Second).Err()
+	err := common.RDB.Set(ctx, GetTokenCacheFenceKey(key), 1, time.Duration(tokenCacheFenceSeconds)*time.Second).Err()
 	if err != nil {
 		return err
 	}
-	return common.RDB.Del(ctx, getTokenCacheKey(key)).Err()
+	return common.RDB.Del(ctx, GetTokenCacheKey(key)).Err()
 }
 
 // cacheInitToken publishes a database snapshot only when no mutation fence is
@@ -52,7 +54,7 @@ func invalidateTokenCacheForMutation(key string) error {
 // its RemainQuota may already be ahead of this snapshot because atomic
 // pre-consume decrements Redis first, so a snapshot must never overwrite any
 // field of a live hash.
-// 返回值：0=被 fence 拦截，1=完成初始化，2=哈希已存在，仅刷新 TTL。
+// Returns 0 when fenced, 1 when initialized, or 2 when an existing hash only refreshed its TTL.
 func cacheInitToken(token Token) (int, error) {
 	if !common.RedisEnabled {
 		return 0, nil
@@ -83,7 +85,7 @@ redis.call('EXPIRE', KEYS[1], ARGV[17])
 return 1`
 
 	return common.RDB.Eval(context.Background(), script, []string{
-		getTokenCacheKey(token.Key), getTokenCacheFenceKey(token.Key),
+		GetTokenCacheKey(token.Key), GetTokenCacheFenceKey(token.Key),
 	},
 		token.Id, token.UserId, token.Status, token.Name,
 		token.CreatedTime, token.AccessedTime, token.ExpiredTime,
@@ -95,13 +97,13 @@ return 1`
 	).Int()
 }
 
-// cacheGetTokenByKey 从缓存读取 token；不完整的哈希（如仅有配额字段）会被拒绝。
+// cacheGetTokenByKey reads a token from cache and rejects incomplete hashes, such as quota-only entries.
 func cacheGetTokenByKey(key string) (*Token, error) {
 	if !common.RedisEnabled {
 		return nil, fmt.Errorf("redis is not enabled")
 	}
 	var token Token
-	if err := common.RedisHGetObj(getTokenCacheKey(key), &token); err != nil {
+	if err := common.RedisHGetObj(GetTokenCacheKey(key), &token); err != nil {
 		return nil, err
 	}
 	if token.Id <= 0 || token.CacheSchema != 1 {
@@ -109,35 +111,4 @@ func cacheGetTokenByKey(key string) (*Token, error) {
 	}
 	token.Key = key
 	return &token, nil
-}
-
-// cacheConfirmBatchToken checks the mutation fence and live financial cache in
-// one Redis operation. Never use the DB balance in place of a live pre-consume.
-func cacheConfirmBatchToken(token Token) error {
-	const script = `
-if redis.call('HGET',KEYS[1],'CacheSchema') ~= '1' then return 0 end
-if redis.call('HGET',KEYS[1],'Id') ~= ARGV[1] or redis.call('HGET',KEYS[1],'UserId') ~= ARGV[2] then return -1 end
-if redis.call('HGET',KEYS[1],'BatchQuotaVersion') ~= ARGV[3] then return 0 end
-if redis.call('HGET',KEYS[1],'BatchHeldQuota') ~= ARGV[4] then return -1 end
-if redis.call('EXISTS',KEYS[2]) == 1 then return 0 end
-if redis.call('HGET',KEYS[1],'Status') ~= ARGV[5] or redis.call('HGET',KEYS[1],'ExpiredTime') ~= ARGV[6] or redis.call('HGET',KEYS[1],'UnlimitedQuota') ~= ARGV[7] then return 0 end
-local quota=tonumber(redis.call('HGET',KEYS[1],'RemainQuota'))
-if not quota then return 0 end
-if ARGV[7] ~= 'true' and quota < tonumber(ARGV[4]) then return -2 end
-return 1`
-	result, err := common.RDB.Eval(context.Background(), script, []string{getTokenCacheKey(token.Key), getTokenCacheFenceKey(token.Key)},
-		token.Id, token.UserId, token.BatchQuotaVersion, token.BatchHeldQuota, token.Status, token.ExpiredTime, strconv.FormatBool(token.UnlimitedQuota)).Int()
-	if err != nil {
-		return fmt.Errorf("%w: token cache read failed", ErrBatchReservationPending)
-	}
-	switch result {
-	case 1:
-		return nil
-	case -1:
-		return ErrBatchReservationUnsafe
-	case -2:
-		return ErrBatchInsufficientQuota
-	default:
-		return ErrBatchReservationPending
-	}
 }

@@ -18,7 +18,6 @@ import (
 )
 
 // TaskMetadata exposes the single usage serializer to task gateway mapping.
-// BRIDGE: service/batch_billing.go keeps its projection bridge; remove when batch billing moves to its own module.
 type TaskMetadata interface {
 	TaskIdentity(*model.LogOther, domain.TaskIdentity)
 	BillingFX(*model.LogOther, domain.RequestFacts, domain.PriceFacts, string)

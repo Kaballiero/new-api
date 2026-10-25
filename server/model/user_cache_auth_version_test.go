@@ -53,9 +53,9 @@ func TestUserAuthFenceRollbackExpiresAndRecovers(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, next)
 
-	_, err = cacheGetUserBase(user.Id)
+	_, err = CacheGetUserBase(user.Id)
 	assert.ErrorIs(t, err, ErrUserAuthCachePending)
-	cacheTTL, err := common.RDB.TTL(t.Context(), getUserCacheKey(user.Id)).Result()
+	cacheTTL, err := common.RDB.TTL(t.Context(), GetUserCacheKey(user.Id)).Result()
 	require.NoError(t, err)
 	fenceTTL, err := common.RDB.TTL(t.Context(), getUserAuthFenceKey(user.Id)).Result()
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestPendingUserAuthFenceRejectsStaleCacheWrite(t *testing.T) {
 	}, true)
 
 	assert.ErrorIs(t, err, ErrUserAuthCachePending)
-	assert.False(t, server.Exists(getUserCacheKey(userID)))
+	assert.False(t, server.Exists(GetUserCacheKey(userID)))
 }
 
 func TestUserAuthFieldUpdateRejectsVersionMismatch(t *testing.T) {
@@ -96,7 +96,7 @@ func TestUserAuthFieldUpdateRejectsVersionMismatch(t *testing.T) {
 	err := updateUserCacheFieldAtVersion(userID, "Group", "stale", 2)
 
 	assert.ErrorIs(t, err, ErrUserAuthCachePending)
-	group, err := common.RDB.HGet(t.Context(), getUserCacheKey(userID), "Group").Result()
+	group, err := common.RDB.HGet(t.Context(), GetUserCacheKey(userID), "Group").Result()
 	require.NoError(t, err)
 	assert.Equal(t, "current", group)
 }
@@ -138,14 +138,14 @@ func TestRefreshUserGroupCacheRepairsDelayedSameVersionWrite(t *testing.T) {
 
 	require.NoError(t, DB.Model(&User{}).Where("id = ?", user.Id).Update("group", "pro").Error)
 	require.NoError(t, RefreshUserGroupCache(user.Id))
-	cached, err := cacheGetUserBase(user.Id)
+	cached, err := CacheGetUserBase(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, "pro", cached.Group)
 	assert.EqualValues(t, 1, cached.AuthVersion)
 
 	close(releaseDelayedRefresh)
 	require.NoError(t, <-delayedResult)
-	cached, err = cacheGetUserBase(user.Id)
+	cached, err = CacheGetUserBase(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, "pro", cached.Group)
 	assert.EqualValues(t, 1, cached.AuthVersion)
@@ -178,7 +178,7 @@ func TestCommittedUserAuthVersionPermanentlyRejectsDelayedCacheFill(t *testing.T
 	assert.Equal(t, "2", committed)
 
 	server.FastForward(time.Duration(userAuthFenceTTLSeconds()+1) * time.Second)
-	require.NoError(t, common.RedisDelKey(getUserCacheKey(user.Id)))
+	require.NoError(t, common.RedisDelKey(GetUserCacheKey(user.Id)))
 	err = writeUserCache(&stale, true)
 	assert.True(t, errors.Is(err, ErrUserAuthCachePending))
 	committed, err = common.RDB.Get(t.Context(), getUserAuthVersionKey(user.Id)).Result()

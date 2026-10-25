@@ -17,6 +17,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/app/batchruntime"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
@@ -573,7 +574,7 @@ func runBatchHTTP(t *testing.T, tc batchCase, updating bool) {
 		}
 		if tc.Kind == "flow" {
 			for range 2 {
-				require.NoError(t, service.RunBatchPollingOnce(context.Background(), "contract-worker"))
+				require.NoError(t, batchruntime.New().Poll.Execute(context.Background(), "contract-worker"))
 				observations = append(observations, map[string]any{"state": fixture.State(t)})
 			}
 			require.Equal(t, 1, provider.PaidPosts)

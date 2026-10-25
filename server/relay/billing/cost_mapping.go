@@ -49,7 +49,7 @@ func costDetails(d dto.InputTokenDetails) domain.TokenDetails {
 	}
 	return domain.TokenDetails{TextTokens: d.TextTokens, AudioTokens: d.AudioTokens, ImageTokens: d.ImageTokens, CachedTokens: d.CachedTokens, CacheCreationTokens: d.CacheCreationTokensTotal(), CachedTokensDetails: cached}
 }
-func costUsage(u *dto.Usage) *domain.Usage {
+func CostUsage(u *dto.Usage) *domain.Usage {
 	if u == nil {
 		return nil
 	}

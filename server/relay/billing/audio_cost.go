@@ -10,7 +10,7 @@ import (
 )
 
 func (g *Gateway) AudioCost(info *relaycommon.RelayInfo, usage *dto.Usage) AudioCostResult {
-	u := costUsage(usage)
+	u := CostUsage(usage)
 	price := domain.AudioPrice{
 		InputDetails:  u.PromptTokensDetails,
 		OutputDetails: u.CompletionTokenDetails,

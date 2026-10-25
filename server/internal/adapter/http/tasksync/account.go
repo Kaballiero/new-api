@@ -10,10 +10,10 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	"github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
 )
 
 type Accounts struct{}
@@ -32,7 +32,7 @@ func (Accounts) Prepare(task *domain.Task, input domain.SyncSubmissionAccount) e
 	state.CredentialHash = fmt.Sprintf("%x", sha256.Sum256([]byte(input.APIKey)))
 	state.CredentialIndex = input.CredentialIndex
 	state.RoutingHash = input.RoutingHash
-	state.ConfigHash, err = service.BatchChannelConfigHash(channel)
+	state.ConfigHash, err = batchaccount.BatchChannelConfigHash(channel)
 	if err != nil {
 		return err
 	}
@@ -80,11 +80,11 @@ func chatAccount(task *domain.Task) (*model.Channel, string, error) {
 	if err != nil {
 		return nil, "", errors.New("chat-image account unavailable")
 	}
-	hash, err := service.BatchChannelConfigHash(channel)
+	hash, err := batchaccount.BatchChannelConfigHash(channel)
 	if err != nil || channel.Type != constant.ChannelTypeOpenRouter || hash != a.ConfigHash {
 		return nil, "", errors.New("chat-image account configuration changed")
 	}
-	if err := service.ValidateBatchChannelHeaders(channel); err != nil {
+	if err := batchaccount.ValidateBatchChannelHeaders(channel); err != nil {
 		return nil, "", errors.New("chat-image recovery requires static account headers")
 	}
 	key := channel.Key

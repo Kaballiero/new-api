@@ -15,26 +15,24 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/batch/domain"
 )
 
-const MaxResultBytes = 8 << 20
+// Native adapters retain the shared Batch state vocabulary.
+const MaxResultBytes = domain.MaxResultBytes
 
-type State string
+type State = domain.State
 
 const (
-	Validating State = "validating"
-	Running    State = "in_progress"
-	Finalizing State = "finalizing"
-	Cancelling State = "cancelling"
-	Completed  State = "completed"
-	Failed     State = "failed"
-	Expired    State = "expired"
-	Cancelled  State = "cancelled"
+	Validating = domain.Validating
+	Running    = domain.Running
+	Finalizing = domain.Finalizing
+	Cancelling = domain.Cancelling
+	Completed  = domain.Completed
+	Failed     = domain.Failed
+	Expired    = domain.Expired
+	Cancelled  = domain.Cancelled
 )
-
-func (s State) Terminal() bool {
-	return s == Completed || s == Failed || s == Expired || s == Cancelled
-}
 
 type Item struct {
 	CustomID string          `json:"custom_id"`

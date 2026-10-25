@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	batchdomain "github.com/QuantumNous/new-api/internal/batch/domain"
 	"net"
 	"sync"
 	"testing"
@@ -127,7 +128,7 @@ func TestHardDeleteUserPublishesTombstoneAndPurgesAuthenticationData(t *testing.
 	committed, err := common.RDB.Get(t.Context(), getUserAuthVersionKey(user.Id)).Result()
 	require.NoError(t, err)
 	assert.Equal(t, "2", committed)
-	assert.False(t, server.Exists(getUserCacheKey(user.Id)))
+	assert.False(t, server.Exists(GetUserCacheKey(user.Id)))
 }
 
 func TestIncrementFailedAttemptsCountsConcurrentFailures(t *testing.T) {
@@ -320,4 +321,16 @@ func assertUserAuthVersion(t *testing.T, userID int, expected int64) {
 	var version int64
 	require.NoError(t, DB.Model(&User{}).Where("id = ?", userID).Select("auth_version").Scan(&version).Error)
 	assert.Equal(t, expected, version)
+}
+
+func TestHardDeleteUserBatchConflictKeepsSentinelIdentity(t *testing.T) {
+	truncateTables(t)
+	user := User{Username: "hard-delete-batch-conflict", Password: "unused", Quota: 100}
+	require.NoError(t, DB.Create(&user).Error)
+	job := BatchJob{PublicID: "hard-delete-batch", UserID: user.Id, ReservedQuota: 1, BillingStatus: "reserved", PurchaseStatus: "pending"}
+	require.NoError(t, DB.Create(&job).Error)
+	t.Cleanup(func() { require.NoError(t, DB.Delete(&BatchJob{}, job.ID).Error) })
+	err := HardDeleteUserById(user.Id)
+	require.ErrorIs(t, err, ErrBatchConflict)
+	require.ErrorIs(t, err, batchdomain.ErrBatchConflict)
 }

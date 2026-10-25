@@ -115,14 +115,14 @@ func main() {
 	// endpoint inference can read cached route settings on first request.
 	model.GetPricing()
 
-	// 热更新配置
+	// Reload configuration.
 	go model.SyncOptions(common.SyncFrequency)
 	go controller.SyncTaskPlugins()
 
-	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
+	// Reload authorization policies periodically so permission changes reach every node and master.
 	go authz.StartPolicySync(common.SyncFrequency)
 
-	// 数据看板
+	// Dashboard data.
 	usageapp.StartQuotaData()
 
 	if os.Getenv("CHANNEL_UPDATE_FREQUENCY") != "" {
@@ -143,7 +143,7 @@ func main() {
 	// all currently alive nodes in multi-instance deployments.
 	service.StartSystemInstanceReporter()
 
-	// Register the periodic channel test, upstream model update, and async task
+	// Register the periodic channel test, upstream model update, provider_batch_poll, and async task
 	// polling (Midjourney / Suno / video) jobs as scheduled system tasks
 	// (DB-lease dedup across masters + run history), then start the runner that
 	// schedules and executes them. Master-only execution and the UpdateTask
@@ -195,7 +195,7 @@ func main() {
 	InjectUmamiAnalytics()
 	InjectGoogleAnalytics()
 
-	// 设置路由
+	// Configure routes.
 	router.SetRouter(server, router.WebAssets{
 		BuildFS:      buildFS,
 		IndexPage:    indexPage,
@@ -233,7 +233,7 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
 	}
-	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
+	// Persist in-memory dashboard data so a restart does not lose pending data (issue #5679).
 	if common.DataExportEnabled {
 		usageapp.FlushQuotaData()
 	}
@@ -293,7 +293,7 @@ func InitResources() error {
 		}
 	}
 
-	// 加载环境变量
+	// Load environment variables.
 	common.InitEnv()
 
 	logger.SetupLogger()
@@ -332,7 +332,7 @@ func InitResources() error {
 	}
 	model.InitOptionMap()
 
-	// 清理旧的磁盘缓存文件
+	// Clean up old disk cache files.
 	common.CleanupOldCacheFiles()
 
 	// Initialize SQL Database
@@ -349,7 +349,7 @@ func InitResources() error {
 
 	perfmetrics.Init()
 
-	// 启动系统监控
+	// Start system monitoring.
 	common.StartSystemMonitor()
 
 	// Initialize i18n

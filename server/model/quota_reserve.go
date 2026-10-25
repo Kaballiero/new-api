@@ -84,19 +84,19 @@ func quotaResultFromLua(result int, err error) (cacheQuotaResult, error) {
 
 func cacheTryReserveUserQuota(userID int, amount int64) (cacheQuotaResult, error) {
 	result, err := common.RDB.Eval(context.Background(), userQuotaReserveScript,
-		[]string{getUserCacheKey(userID)}, amount, userID, userCacheSchemaVersion).Int()
+		[]string{GetUserCacheKey(userID)}, amount, userID, userCacheSchemaVersion).Int()
 	return quotaResultFromLua(result, err)
 }
 
 func cacheApplyUserQuotaDelta(userID int, delta int64) (cacheQuotaResult, error) {
 	result, err := common.RDB.Eval(context.Background(), userQuotaDeltaScript,
-		[]string{getUserCacheKey(userID)}, delta, userID, userCacheSchemaVersion).Int()
+		[]string{GetUserCacheKey(userID)}, delta, userID, userCacheSchemaVersion).Int()
 	return quotaResultFromLua(result, err)
 }
 
 func cacheTryReserveTokenQuota(id int, key string, amount int64) (cacheQuotaResult, error) {
 	result, err := common.RDB.Eval(context.Background(), tokenQuotaReserveScript,
-		[]string{getTokenCacheKey(key)}, amount, id, common.GetTimestamp()).Int()
+		[]string{GetTokenCacheKey(key)}, amount, id, common.GetTimestamp()).Int()
 	return quotaResultFromLua(result, err)
 }
 
@@ -105,12 +105,12 @@ func cacheTryReserveTokenQuota(id int, key string, amount int64) (cacheQuotaResu
 // remove when shared quota-cache primitives receive their technical owner.
 func CacheApplyTokenQuotaDelta(id int, key string, delta int64) (cacheQuotaResult, error) {
 	result, err := common.RDB.Eval(context.Background(), tokenQuotaDeltaScript,
-		[]string{getTokenCacheKey(key)}, delta, id, common.GetTimestamp()).Int()
+		[]string{GetTokenCacheKey(key)}, delta, id, common.GetTimestamp()).Int()
 	return quotaResultFromLua(result, err)
 }
 
-// persistUserQuotaDelta 把已在缓存侧预扣成功的增量落库；批量模式下入队，
-// 直写模式下要求行存在（用户已删除时报错，交由调用方补偿缓存）。
+// persistUserQuotaDelta persists a delta already pre-consumed in cache; batch mode queues it.
+// Direct writes require an existing row; a deleted user returns an error for caller-side cache compensation.
 func persistUserQuotaDelta(id int, delta int) error {
 	if common.BatchUpdateEnabled {
 		addNewRecord(BatchUpdateTypeUserQuota, id, delta)
@@ -166,8 +166,8 @@ func reserveTokenQuotaDB(id int, quota int) (bool, error) {
 }
 
 // TryReserveUserQuota atomically checks and deducts a user's wallet quota.
-// 缓存命中时以缓存余额为准（避免批量模式下过期的数据库余额放大并发超扣）；
-// Redis 异常或水合失败时降级为数据库条件更新，保证服务可用。
+// A cache hit uses its balance so stale database balances cannot amplify concurrent overspending in batch mode.
+// Redis or hydration failures fall back to a conditional database update to preserve availability.
 func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if quota < 0 {
 		return false, errors.New("quota 不能为负数！")

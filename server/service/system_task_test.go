@@ -619,3 +619,11 @@ func TestEnqueueSystemTaskReportsCreatedAndExistingActive(t *testing.T) {
 	require.NotNil(t, second)
 	assert.NotEqual(t, first.TaskID, second.TaskID)
 }
+
+// BatchContractHandlers and scheduler entrypoints expose test-only seams to the
+// external Batch characterization; production has no new registration locator.
+func BatchContractHandlers() []SystemTaskHandler { return registeredSystemTaskHandlers() }
+func BatchContractSchedule()                     { runSystemTaskScheduler() }
+func BatchContractRegistry(t *testing.T, handler SystemTaskHandler) {
+	withSystemTaskRegistry(t, handler)
+}
