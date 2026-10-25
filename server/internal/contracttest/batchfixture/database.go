@@ -2,6 +2,7 @@ package batchfixture
 
 import (
 	"errors"
+	"github.com/QuantumNous/new-api/i18n"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ func ProbePool(t *testing.T, db *gorm.DB)         { pgfixture.ProbePool(t, db) }
 // OpenDialect preserves env-driven engine selection and initializes model's
 // existing technical column/cache owner through the production startup path.
 func OpenDialect(t *testing.T, dialect string) *gorm.DB {
+	require.NoError(t, i18n.Init())
 	t.Helper()
 	dsn := ""
 	switch dialect {

@@ -1,6 +1,7 @@
 package batchruntime_test
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"errors"
@@ -42,6 +43,7 @@ import (
 )
 
 func TestBatchWorkerLifecycle(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	general := operation_setting.GetGeneralSetting()
 	previousRate := general.CustomCurrencyExchangeRate
 	general.CustomCurrencyExchangeRate = 100

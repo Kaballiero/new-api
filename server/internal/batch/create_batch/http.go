@@ -1,6 +1,7 @@
 package create_batch
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/internal/batch/dto"
 	"github.com/QuantumNous/new-api/internal/batch/transport"
@@ -22,5 +23,5 @@ func (h Handler) Handle(c *gin.Context) {
 	if r.Duplicate {
 		status = 200
 	}
-	c.JSON(status, dto.Job(*r.Job))
+	c.JSON(status, dto.Job(*r.Job).WithLanguage(i18n.GetLangFromContext(c)))
 }

@@ -1,6 +1,7 @@
 package cancel_batch
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/batch/dto"
 	"github.com/QuantumNous/new-api/internal/batch/transport"
 	"github.com/gin-gonic/gin"
@@ -16,7 +17,7 @@ func (h Handler) Handle(c *gin.Context) {
 		return
 	}
 	if r.Terminal {
-		c.JSON(200, dto.Job(*r.Job))
+		c.JSON(200, dto.Job(*r.Job).WithLanguage(i18n.GetLangFromContext(c)))
 		return
 	}
 	c.JSON(202, gin.H{"id": r.Job.PublicID, "status": "cancelling"})

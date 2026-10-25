@@ -3,7 +3,6 @@ package create_batch
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/internal/batch/domain"
@@ -163,13 +162,13 @@ func (u Usecase) capture(model string, facts domain.AdmissionFacts) (domain.Bill
 		var ok bool
 		expression, ok = u.prices.Expression(model)
 		if !ok {
-			return snapshot, errors.New("an explicit batch billing_expr is required for this model")
+			return snapshot, &domain.RuleError{Kind: domain.BillingExpressionRequired}
 		}
 		if u.engine.UsedVars(expression)["header"] {
-			return snapshot, errors.New("Batch billing expressions using header() are not supported")
+			return snapshot, &domain.RuleError{Kind: domain.BillingExpressionHeadersUnsupported}
 		}
 		if err := u.prices.Validate(expression); err != nil {
-			return snapshot, fmt.Errorf("invalid batch billing_expr: %w", err)
+			return snapshot, &domain.RuleError{Kind: domain.BillingExpressionInvalid, Cause: err}
 		}
 	}
 	fx, err := u.fx()

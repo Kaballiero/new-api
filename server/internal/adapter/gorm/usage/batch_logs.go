@@ -3,6 +3,7 @@ package usage
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/QuantumNous/new-api/i18n"
 	"math"
 
 	"github.com/QuantumNous/new-api/common"
@@ -35,7 +36,7 @@ func (BatchLogs) Item(job batch.Job, account batch.LogAccount, customID string, 
 	log := model.Log{UserId: account.UserID, Username: account.Username, TokenName: account.TokenName,
 		TokenId: account.TokenID, ChannelId: job.ChannelID, ModelName: job.Model, Group: job.UsingGroup,
 		Quota: quota, Type: model.LogTypeConsume, CreatedAt: common.GetTimestamp(), RequestId: requestID,
-		Other: string(otherJSON), Content: "Batch request"}
+		Other: string(otherJSON), Content: i18n.Translate(i18n.ParseAcceptLanguage(account.Language), i18n.MsgBatchRequestLog)}
 	if facts.Usage != nil {
 		log.PromptTokens = facts.Usage.PromptTokens
 		log.CompletionTokens = facts.Usage.CompletionTokens
@@ -62,7 +63,7 @@ func (BatchLogs) Aggregate(job batch.Job, account batch.LogAccount, quota int, c
 	log := model.Log{UserId: account.UserID, Username: account.Username, TokenName: account.TokenName,
 		TokenId: account.TokenID, ChannelId: job.ChannelID, ModelName: job.Model, Group: job.UsingGroup,
 		Quota: quota, Type: model.LogTypeConsume, CreatedAt: common.GetTimestamp(), RequestId: requestID,
-		Other: string(otherJSON), Content: "Batch aggregate"}
+		Other: string(otherJSON), Content: i18n.Translate(i18n.ParseAcceptLanguage(account.Language), i18n.MsgBatchAggregateLog)}
 	var tokens struct {
 		Prompt     *int `json:"prompt_tokens"`
 		Completion *int `json:"completion_tokens"`

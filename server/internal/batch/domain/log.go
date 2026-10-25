@@ -4,4 +4,5 @@ package domain
 type LogAccount struct {
 	UserID, TokenID     int
 	Username, TokenName string
+	Language            string
 }

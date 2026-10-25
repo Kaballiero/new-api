@@ -1,6 +1,7 @@
 package poll_batches
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	diagnostics "github.com/QuantumNous/new-api/internal/adapter/batchruntime"
 	math "github.com/QuantumNous/new-api/internal/adapter/billing"
 	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
@@ -32,6 +33,7 @@ func TestBatchPricingClockIsFrozen(t *testing.T) {
 }
 
 func TestBatchCanonicalPurchaseUsage(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	oldDB, oldRedis, oldMemory := model.DB, common.RedisEnabled, common.MemoryCacheEnabled

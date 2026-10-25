@@ -2,6 +2,7 @@ package prepare_batch
 
 import (
 	"encoding/json"
+	"github.com/QuantumNous/new-api/i18n"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -34,7 +35,7 @@ func (h Handler) Handle(c *gin.Context) {
 		return
 	}
 	if prepared.Existing != nil {
-		c.AbortWithStatusJSON(200, dto.Job(*prepared.Existing))
+		c.AbortWithStatusJSON(200, dto.Job(*prepared.Existing).WithLanguage(i18n.GetLangFromContext(c)))
 		return
 	}
 	c.Set("batch_public_id", prepared.PublicID)

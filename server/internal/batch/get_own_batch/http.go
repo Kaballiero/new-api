@@ -1,6 +1,7 @@
 package get_own_batch
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/internal/batch/dto"
 	"github.com/QuantumNous/new-api/internal/batch/transport"
@@ -19,5 +20,5 @@ func (h Handler) Handle(c *gin.Context) {
 		transport.Error(c, &domain.RuleError{Kind: domain.NotFound})
 		return
 	}
-	c.JSON(200, dto.Job(*job))
+	c.JSON(200, dto.Job(*job).WithLanguage(i18n.GetLangFromContext(c)))
 }

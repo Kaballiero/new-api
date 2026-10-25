@@ -46,9 +46,11 @@ const (
 
 // RuleError describes a rejected business operation; HTTP mapping belongs to transport.
 type RuleError struct {
-	Kind   ErrorKind
-	ItemID string
-	Cause  error
+	Kind            ErrorKind
+	ItemID          string
+	Field, Endpoint string
+	Limit           int
+	Cause           error
 }
 
 func (e *RuleError) Error() string {
@@ -58,3 +60,24 @@ func (e *RuleError) Error() string {
 	return string(e.Kind)
 }
 func (e *RuleError) Unwrap() error { return e.Cause }
+
+// Nested validation/pricing failures carry data; transport owns their wording.
+const (
+	ItemBodyInvalid                     ErrorKind = "batch.ItemBodyInvalid"
+	ItemModelMismatch                   ErrorKind = "batch.ItemModelMismatch"
+	ItemStreamingUnsupported            ErrorKind = "batch.ItemStreamingUnsupported"
+	ItemCountInvalid                    ErrorKind = "batch.ItemCountInvalid"
+	OutputLimitUnsupported              ErrorKind = "batch.OutputLimitUnsupported"
+	OutputLimitOutOfRange               ErrorKind = "batch.OutputLimitOutOfRange"
+	UseGenerationConfig                 ErrorKind = "batch.UseGenerationConfig"
+	GenerationConfigInvalid             ErrorKind = "batch.GenerationConfigInvalid"
+	UseMaxOutputTokens                  ErrorKind = "batch.UseMaxOutputTokens"
+	UseCandidateCount                   ErrorKind = "batch.UseCandidateCount"
+	MaxOutputTokensInvalid              ErrorKind = "batch.MaxOutputTokensInvalid"
+	CandidateCountInvalid               ErrorKind = "batch.CandidateCountInvalid"
+	OutputLimitRequired                 ErrorKind = "batch.OutputLimitRequired"
+	BillingExpressionRequired           ErrorKind = "batch.BillingExpressionRequired"
+	BillingExpressionHeadersUnsupported ErrorKind = "batch.BillingExpressionHeadersUnsupported"
+	BillingExpressionInvalid            ErrorKind = "batch.BillingExpressionInvalid"
+	OpenRouterAdaptorUnsupported        ErrorKind = "batch.OpenRouterAdaptorUnsupported"
+)

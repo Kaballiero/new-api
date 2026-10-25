@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -138,7 +137,7 @@ func (s *admission) Estimate(body, provider []byte) (float64, error) {
 	}
 	adaptor := relay.GetAdaptor(s.info.ApiType)
 	if adaptor == nil {
-		return 0, errors.New("unsupported OpenRouter adaptor")
+		return 0, &domain.RuleError{Kind: domain.OpenRouterAdaptorUnsupported}
 	}
 	adaptor.Init(s.info)
 	for _, name := range models {

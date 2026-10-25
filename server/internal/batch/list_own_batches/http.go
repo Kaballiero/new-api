@@ -1,6 +1,7 @@
 package list_own_batches
 
 import (
+	"github.com/QuantumNous/new-api/i18n"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/internal/batch/domain"
@@ -23,12 +24,12 @@ func (h Handler) Handle(c *gin.Context) {
 		transport.Error(c, err)
 		return
 	}
-	var data []dto.Job
+	var data []dto.LocalizedJob
 	if result.Jobs != nil {
-		data = make([]dto.Job, len(result.Jobs))
+		data = make([]dto.LocalizedJob, len(result.Jobs))
 	}
 	for i := range result.Jobs {
-		data[i] = dto.Job(result.Jobs[i])
+		data[i] = dto.Job(result.Jobs[i]).WithLanguage(i18n.GetLangFromContext(c))
 	}
 	c.JSON(200, gin.H{"object": "list", "data": data, "has_more": result.HasMore})
 }

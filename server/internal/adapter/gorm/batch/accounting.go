@@ -99,7 +99,7 @@ func (s Store) SettleBatchItem(batchID int64, customID string, quota int, detail
 		}
 		if common.LogConsumeEnabled {
 			payload, err := s.logs.Item(domain.Job(job), domain.LogAccount{UserID: user.Id, Username: user.Username,
-				TokenID: token.Id, TokenName: token.Name}, item.CustomID, quota, details)
+				TokenID: token.Id, TokenName: token.Name, Language: user.GetSetting().Language}, item.CustomID, quota, details)
 			if err != nil {
 				return err
 			}
@@ -534,7 +534,7 @@ func (s Store) SettleBatchJobCost(batchID int64) error {
 			basis := billingdomain.ProviderBasis{Version: snapshot.Basis.Version, EffectiveGroupRatio: snapshot.Basis.EffectiveGroupRatio,
 				QuotaPerUnit: snapshot.Basis.QuotaPerUnit, EstimatedUSD: snapshot.Basis.EstimatedUSD}
 			payload, err := s.logs.Aggregate(domain.Job(job), domain.LogAccount{UserID: user.Id,
-				Username: user.Username, TokenID: token.Id, TokenName: token.Name}, quota, cost,
+				Username: user.Username, TokenID: token.Id, TokenName: token.Name, Language: user.GetSetting().Language}, quota, cost,
 				basis)
 			if err != nil {
 				return err
