@@ -32,7 +32,7 @@
 | 2 | Граница шлюза: проверка ключа, billing, запись использования | ✅ (2a, 2b1, 2b2, 2c) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ✅ (3a, 3b) | средний |
 | 4 | Платежи, подписки, коды пополнения | ✅ (4a коды, 4b платежи, 4c подписки) | высокий |
-| 5 | Асинхронные задачи и batch (бизнес-часть) | 🔄 (5a задачи ✅; 5b batch ✅; 5c плагины задач — structural move подготовлен; host/PG acceptance pending) | средний |
+| 5 | Асинхронные задачи и batch (бизнес-часть) | ✅ (5a задачи; 5b batch; 5c плагины задач) | средний |
 | 6 | Настройки и система | ⬜ | низкий |
 | 7 | Доводка: остатки в `service`/`model`, алиасы, список исключений → 0 | ⬜ | средний |
 | 8 | *(по желанию)* Раскладка внутри шлюза | ⬜ | средний |
@@ -129,7 +129,7 @@
   zh без изменений, ACK неизменны; 69 строк в 53 goldens.
 - [x] Log redaction (commit ea1ab44b4): из платёжных логов убраны подписи, тела webhook, данные покупателя; goldens без изменений (#50).
 
-## Волна 5 — асинхронные задачи и batch ⬜
+## Волна 5 — асинхронные задачи и batch ✅
 
 - [x] 5a implementation: standalone delta единственным телом в gorm/billing; same-tx task capability, nested refund #27 сохранён.
 
@@ -145,9 +145,10 @@
 - [x] Content-only (commit 9337cb7ab): ошибки и тексты логов batch — i18n keys, English по умолчанию + ru, zh без изменений; default goldens не менялись.
 - [x] 5c structural implementation: `internal/taskplugins`, management/sync/origin/query/observation/retrieve policy;
   core app/taskplugins + outer app/taskpluginsruntime; provider/wire остаются gateway, durable Task — tasks.
-  Контракты: 089e9ba5c (396 новых эталонов); production slices подготовлены без commit/push.
-- [ ] 5c acceptance: свежие host/full-suite/WSS/Redis и PostgreSQL readbacks после structural move;
-  MySQL недоступен. Content-only package подготовлен отдельно, не применён.
+  Commits: 089e9ba5c контракты (396 новых эталонов), cf4d4a7ad перенос, d96ff5df1 docs.
+- [x] 5c acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, все goldens без -update по два повтора;
+  PostgreSQL 15 full suite совпадает с 3b, taskplugins/tasks/batch PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
+- [x] Content-only (commit 3d03566a7): ошибки плагинов задач — i18n keys, English по умолчанию + ru, zh без изменений.
 - [ ] Волна 7 cleanup: единый executable `model/task_model_alias.go` для model/pricing.go,
   model/model_pricing_config.go и InitChannelCache. Удалить, когда у pricing и channel-cache lifecycle
   появятся собственные владельцы; без новых model→internal imports/exceptions. Alias ownership не полностью перенесено.
