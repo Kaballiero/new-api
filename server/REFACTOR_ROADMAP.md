@@ -161,8 +161,10 @@
 
 - [x] 6a implementation: `internal/settings` — generic write/read/reload, root editor, public status/legal/content;
   `app/settings` сохраняет defaults→reload и sleep→reload→pricing observation. Contracts: commit 7899e7233, 749 новых goldens.
-- [ ] 6a current-tree host/PostgreSQL acceptance; MySQL недоступен и не проверен, полная 3DB compatibility не заявлена.
-- [ ] 6a content-only: en/ru localization отдельно от structural move, zh-CN/zh-TW bytes неизменны.
+- [x] 6a commits: 215b6d917 перенос, 25890e094 docs.
+- [x] 6a acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, 4452 goldens и 16 locale baselines без -update;
+  PostgreSQL 15 full suite совпадает с 3b, settings/group ratio/pricing publication/tasks/batch PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
+- [x] Content-only (commit d7e8e42a7): ошибки редактора опций — i18n keys, English по умолчанию + ru, zh без изменений.
 - [ ] 6a A2=B ownership gap: `model/option.go` перенесён не полностью; single publisher/mutex и pricing/catalog option composition остаются до волны 7.
 - [ ] `system`: `setup.go`, `system_info.go`, `system_task*.go`, `performance.go`, `perf_metrics.go`, `uptime_kuma.go`, отчёт об инстансе.
 - [ ] `deployments`: `controller/deployment.go`.
