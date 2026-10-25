@@ -277,19 +277,13 @@ func rebuildPricingCatalogueLocked() {
 		vendorMap[vendors[i].Id] = &vendors[i]
 	}
 
+	// Stored model rows own their vendor; name heuristics are only a fallback below catalog authors.
+	storedMeta := make(map[string]bool, len(metaMap))
+	for name := range metaMap {
+		storedMeta[name] = true
+	}
 	// 初始化默认供应商映射
 	initDefaultVendorMapping(metaMap, vendorMap, enableAbilities)
-
-	// 构建对前端友好的供应商列表
-	nextVendors := make([]PricingVendor, 0, len(vendorMap))
-	for _, v := range vendorMap {
-		nextVendors = append(nextVendors, PricingVendor{
-			ID:          v.Id,
-			Name:        v.Name,
-			Description: v.Description,
-			Icon:        v.Icon,
-		})
-	}
 
 	modelGroupsMap := make(map[string]*types.Set[string])
 
@@ -647,6 +641,11 @@ func rebuildPricingCatalogueLocked() {
 			if pricing.Description == "" && upstream.Description != nil {
 				pricing.Description = *upstream.Description
 			}
+			if !storedMeta[model] || pricing.VendorID == 0 {
+				if vendorID := catalogAuthorVendor(upstream.Author, vendorMap); vendorID != 0 {
+					pricing.VendorID = vendorID
+				}
+			}
 		}
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		pricing.PriceConfigured = findPrice || ratio_setting.HasConfiguredModelRatio(model)
@@ -766,6 +765,17 @@ func rebuildPricingCatalogueLocked() {
 	// 防止大更新后数据不通用
 	if len(nextPricing) > 0 {
 		nextPricing[0].PricingVersion = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f"
+	}
+
+	// 构建对前端友好的供应商列表
+	nextVendors := make([]PricingVendor, 0, len(vendorMap))
+	for _, v := range vendorMap {
+		nextVendors = append(nextVendors, PricingVendor{
+			ID:          v.Id,
+			Name:        v.Name,
+			Description: v.Description,
+			Icon:        v.Icon,
+		})
 	}
 
 	revision, err := pricingCatalogueFingerprint(nextPricing, nextVendors)

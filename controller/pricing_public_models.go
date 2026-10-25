@@ -174,17 +174,28 @@ func buildPublicPricingModelsPage(context effectivePricingPageContext, query pub
 	// The public catalog always projects the default tariff, independently of the user's usable groups.
 	context.usableGroups = map[string]string{"default": "default"}
 	pricing := model.ConsumerPricingCatalogue(context.pricing, context.usableGroups)
-	candidates := make([]model.Pricing, 0, len(pricing))
+	type pricedModel struct {
+		item   model.Pricing
+		tariff publicModelTariff
+	}
+	candidates := make([]pricedModel, 0, len(pricing))
 	for _, item := range pricing {
 		if query.catalogTypeMissing && item.CatalogType != "" || query.catalogType != "" && item.CatalogType != query.catalogType {
 			continue
 		}
 		tags := pricingTags(item.Tags)
-		if !slices.ContainsFunc(query.tags, func(tag string) bool { return !slices.Contains(tags, tag) }) {
-			candidates = append(candidates, item)
+		if slices.ContainsFunc(query.tags, func(tag string) bool { return !slices.Contains(tags, tag) }) {
+			continue
+		}
+		// Models without a single confirmed price are not offered publicly; a zero price still counts.
+		tariff := buildPublicModelTariff(context, item)
+		if slices.ContainsFunc(tariff.Operations, func(operation publicPricingOperation) bool {
+			return confirmedConsumerPrices(operation.Prices, operation.Tiers)
+		}) {
+			candidates = append(candidates, pricedModel{item: item, tariff: tariff})
 		}
 	}
-	slices.SortFunc(candidates, func(a, b model.Pricing) int { return compareEffectivePricingNames(a.ModelName, b.ModelName) })
+	slices.SortFunc(candidates, func(a, b pricedModel) int { return compareEffectivePricingNames(a.item.ModelName, b.item.ModelName) })
 	response.TotalCount = len(candidates)
 	start := len(candidates)
 	if query.page-1 <= len(candidates)/query.pageSize {
@@ -197,8 +208,9 @@ func buildPublicPricingModelsPage(context effectivePricingPageContext, query pub
 			creators[vendor.ID] = &effectivePricingCreator{ID: vendor.ID, Name: name}
 		}
 	}
-	for _, item := range candidates[start:end] {
-		response.Data = append(response.Data, publicPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: pricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: creators[item.VendorID], Tariff: buildPublicModelTariff(context, item)})
+	for _, candidate := range candidates[start:end] {
+		item := candidate.item
+		response.Data = append(response.Data, publicPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: pricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: creators[item.VendorID], Tariff: candidate.tariff})
 	}
 	return response
 }
