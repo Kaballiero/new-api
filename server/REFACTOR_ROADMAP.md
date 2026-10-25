@@ -159,13 +159,22 @@
 
 ## Волна 6 — настройки и система ⬜
 
-- [ ] `settings`: `controller/option.go`, `model/option.go`, `SyncOptions`.
+- [x] 6a implementation: `internal/settings` — generic write/read/reload, root editor, public status/legal/content;
+  `app/settings` сохраняет defaults→reload и sleep→reload→pricing observation. Contracts: commit 7899e7233, 749 новых goldens.
+- [ ] 6a current-tree host/PostgreSQL acceptance; MySQL недоступен и не проверен, полная 3DB compatibility не заявлена.
+- [ ] 6a content-only: en/ru localization отдельно от structural move, zh-CN/zh-TW bytes неизменны.
+- [ ] 6a A2=B ownership gap: `model/option.go` перенесён не полностью; single publisher/mutex и pricing/catalog option composition остаются до волны 7.
 - [ ] `system`: `setup.go`, `system_info.go`, `system_task*.go`, `performance.go`, `perf_metrics.go`, `uptime_kuma.go`, отчёт об инстансе.
 - [ ] `deployments`: `controller/deployment.go`.
 - [ ] Остатки каталога: `controller/model.go`, `vendor_meta.go`, `prefill_group.go`, `missing_models`.
 - [ ] Уведомления пользователям: `service/user_notify.go`.
 
 ## Волна 7 — доводка ⬜
+
+- [ ] Settings A2=B cleanup: перенести единственные `model.PublishOption`, `groupRatioOptionMutex`, alias facts и pricing/catalog option composition
+  (`model/model_pricing_config.go`, `model/pricing_catalog_option.go`, `model/catalog_persistence.go`) вместе с реальными consumers
+  NewPricingOptionsPersistence/native catalog publication; сохранить same-tx catalog deletion+pricing edits и один lock/publisher.
+  До собственного владельца composition ownership gap открыт; новых model→internal imports/exceptions не вводить.
 
 - [ ] Перенести оставшиеся model.LockForUpdate, model.SyncCreditUserQuotaCache и model.CacheDecrUserQuota вместе с shared row-lock/quota-cache primitives; без копирования Lua/key/schema.
 - [ ] Общие quota cache/Lua/DB primitives из `model/quota_reserve.go`, user/token/task consumers → технические адаптеры с одним владельцем; 2b1 сохраняет primitives и SQL/Redis semantics без изменений.

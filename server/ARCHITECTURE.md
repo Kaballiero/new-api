@@ -132,7 +132,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 | Задача | Сейчас | Владелец |
 |---|---|---|
 | кэш каналов | `model.SyncChannelCache` | channels |
-| перечитывание настроек | `model.SyncOptions` | settings |
+| перечитывание настроек | `internal/app/settings.SyncOptions` (сначала sleep, затем reload и pricing observation, каждый узел) | settings |
 | синхронизация политики прав | `authz.StartPolicySync` | authorization |
 | агрегаты для дашборда | `internal/app/usage.StartQuotaData` | usage |
 | обновление баланса каналов | `controller.AutomaticallyUpdateChannels` (если задан `CHANNEL_UPDATE_FREQUENCY`) | channels |
@@ -272,7 +272,26 @@ Provider execution, pinned VM, renderer hooks, Responses wire machine, SSE и fr
 `adapter/gorm/taskplugins/record.TaskPlugin` сохраняет прежнее concrete имя, порядок полей и tags;
 `model/task_plugin.go` содержит только alias. Запросы/транзакции выполняет feature adapter, runtime
 адаптер использует единственную существующую registry. Durable Task и best-effort background write
-принадлежат tasks; общие option/settings остаются прежнему владельцу. Alias bridge A2 сохраняется
+принадлежат tasks; общие option writes подключены через app к settings; taskplugins сохраняет собственные guards и RAM-before-persist порядок. Alias bridge A2 сохраняется
 без новых model→internal imports и без исключений в allowlist; cleanup pricing/channel-cache — волна 7.
 Схема, router, middleware order, billing math и goldens не менялись. Sandbox evidence и host/PG acceptance
 фиксируются отдельно; MySQL не проверен. Content-only локализация подготовлена отдельно и не применена.
+
+
+## Settings (6a)
+
+`internal/settings` владеет general single/bulk/pricing dispatch, alias conflict/expansion,
+reload precedence, root editor и public configuration/status/legal/content. Usecases не зависят от
+Gin/GORM/common/model/relay. Сборка once — `app/settings`, storage/record — `adapter/gorm/settings`,
+технические defaults/validators/status facts — `adapter/settings/settings`, FX status — gateway adapter.
+Controller сохраняет однострочные delegates, router/middleware unchanged. Defaults читаются из текущих
+runtime globals; Init и бесконечный sleep-before-work loop не зависят от main-only injection.
+
+По принятому A2=B **model/option.go не полностью перенесён**. Единственные PublishOption,
+groupRatioOptionMutex и alias facts, а также pricing/catalog composition остаются model для
+NewPricingOptionsPersistence и native catalog publication. Settings получает их через technical port;
+same-tx catalog deletion+pricing edits не меняется. Ownership gap и перенос этого остатка явно
+запланированы в волне 7. `model.Option` — strict technical record alias, schema/migrations unchanged.
+Single-write ignored SQL errors (#58), postcommit publication и raw/effective divergence сохранены.
+749 новых contracts и прежние oracles неизменяемы; current host/PG acceptance и неприменённый
+content package отделены от sandbox evidence.

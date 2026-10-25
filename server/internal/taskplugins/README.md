@@ -19,7 +19,7 @@ master/follower gating не добавляется. SQL, транзакции и
 
 `model/task_model_alias.go` остаётся исполняемым bridge для pricing и InitChannelCache.
 Владение alias/cache перенесено не полностью. Provider execution и wire protocol принадлежат шлюзу;
-денежная политика и durable Task принадлежат billing/tasks. Настройки общего option subsystem не перенесены.
+денежная политика и durable Task принадлежат billing/tasks. Общие option writes подключены через app к settings; собственные taskplugins guards и RAM-before-persist порядок сохранены. Единственный legacy publisher остаётся model по settings A2=B до cleanup волны 7.
 
 Контрактные эталоны в `contract/testdata` записаны на origin до переноса; они неизменяемы.
 Результаты sandbox не заменяют текущую host/PG-проверку; MySQL недоступен и не проверен.

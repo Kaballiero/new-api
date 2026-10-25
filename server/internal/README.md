@@ -8,6 +8,7 @@
 
 | Модуль | Ответственность | Сценариев | README |
 |---|---|---|---|
+| `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; publisher/pricing composition остаются model по A2=B | 11 | [README](settings/README.md) |
 | `accounts` | аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 24 | [README](accounts/README.md) |
 | `identity` | вход и доказательство личности: пароль, сессии и их отзыв, 2FA и резервные коды, passkey (WebAuthn), OAuth и WeChat, подтверждение email, восстановление пароля, повторная проверка для чувствительных действий | 66 | [README](identity/README.md) |
 | `apikeys` | API-ключи пользователей для шлюза: создание, просмотр с маской, раскрытие, изменение, удаление, группы, статус, использование и gateway-аутентификация ключа | 16 | [README](apikeys/README.md) |
@@ -40,7 +41,7 @@ README каждого модуля появляется в коммите, ко�
 
 ## Ещё не перенесено
 
-Подписки, настройки и системные функции, деплойменты, а также шлюз и асинхронные задачи (`relay/`, `controller/relay.go`, `task*`). Пока они живут в `controller/`, `service/` и `model/`.
+Системные функции, деплойменты и оставшиеся catalog/user-notify workflows ещё живут в legacy слоях. Шлюз (`relay/`, `controller/relay.go`) остаётся снаружи internal. Settings перенесён с явным A2=B остатком: единственные publisher/mutex и pricing/catalog option composition остаются в model до cleanup волны 7.
 
 - `tasks` — durable async/Midjourney учёт, terminal billing, polling и media access; core сборка
   `app/tasks`, gateway/runtime — `app/taskruntime`, records/SQL — `adapter/gorm/tasks`.

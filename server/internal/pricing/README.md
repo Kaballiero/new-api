@@ -79,3 +79,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/pricing.go`) читает DTO
 - `model.ErrModelPricingConflict` и `model.ErrCatalogSourceChanged` — алиасы `domain.ErrModelPricingConflict` и `domain.ErrCatalogSourceChanged`.
 - Имена пресетов «官方倍率预设» / «models.dev 价格预设» в `list_syncable_channels` — идентификаторы, с которыми сравнивает клиент (`client/src/features/system-settings/models/constants.ts`); не локализуются.
 - `consumerContext` продублирован в пяти сценариях чтения (`get_personal_pricing`, `get_group_pricing`, `get_model_pricing`, `get_pricing_overview`, `get_public_models`).
+
+ResetModelRatios пишет через settings owner из app, сохраняя дополнительную PublishRatios после Persist.
+Pricing/catalog option composition и единственный legacy publisher/mutex остаются model по settings A2=B
+до cleanup волны 7; same-tx catalog deletion и pricing mutation не перенесены этой волной.

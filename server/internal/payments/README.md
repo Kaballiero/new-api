@@ -126,3 +126,6 @@ Raw bind/GORM/SDK errors сохраняют прежнюю raw форму. В ч
 
 Transport default err.Error() для трёх search-pattern ошибок — явно принятый inherited exception: English во всех локалях сохраняется.
 CreditProfile передаёт optional Stripe customer/email facts; имена SQL columns принадлежат GORM adapter.
+
+Общие option Set/Bulk подключены в app/payments к settings owner. Payment compliance сохраняет
+пять отдельных writes, Pancake config — одну checked bulk transaction; #58 не исправлялся.
