@@ -167,8 +167,10 @@
 - [x] Content-only (commit d7e8e42a7): ошибки редактора опций — i18n keys, English по умолчанию + ru, zh без изменений.
 - [ ] 6a A2=B ownership gap: `model/option.go` перенесён не полностью; single publisher/mutex и pricing/catalog option composition остаются до волны 7.
 - [x] 6b implementation: internal/system — setup, system tasks/lease/history/cleanup, instances и runtime maintenance; app/system + app/systemruntime, explicit registration всех 8 handlers.
-- [ ] 6b acceptance: текущие host strict whole1/full, fresh HEAD whole2 и реальные PostgreSQL checks; scripts подготовлены отдельно, sandbox не заменяет host/PG.
-- [ ] 6b content-only: отдельный unapplied en/ru package, zh bytes прежние; применять только после matching host+PG verified.ok.
+- [x] 6b commits: bc5fd76d2 контракты, 738eae5b9 перенос, 9ba1f994d docs.
+- [x] 6b acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, 4822 goldens и 18 locale baselines без -update;
+  PostgreSQL 15 full suite совпадает с 3b, system/setup/log cleanup и прежние PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
+- [x] Content-only (commit 097c976b7): system/setup/task сообщения — i18n keys, English по умолчанию + ru, zh без изменений.
 - [ ] 6b gaps: FX refresh остаётся service BRIDGE (A2); pkg/perf_metrics остаётся collection/query/flush owner (A3=B).
 - [ ] `deployments`: `controller/deployment.go`.
 - [ ] Остатки каталога: `controller/model.go`, `vendor_meta.go`, `prefill_group.go`, `missing_models`.
