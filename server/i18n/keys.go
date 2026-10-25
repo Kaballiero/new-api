@@ -775,3 +775,27 @@ const (
 	MsgBatchRequestLog                          = "batch.request_log"
 	MsgBatchAggregateLog                        = "batch.aggregate_log"
 )
+
+// Task-plugin management and protocol lookup messages.
+const (
+	MsgTaskPluginSourceTooLarge      = "taskplugins.source_too_large"
+	MsgTaskPluginSourceHash          = "taskplugins.source_hash"
+	MsgTaskPluginPluginNotFound      = "taskplugins.not_found"
+	MsgTaskPluginVersionNotFound     = "taskplugins.version_not_found"
+	MsgTaskPluginDeleteFactory       = "taskplugins.delete_factory"
+	MsgTaskPluginMarketplaceName     = "taskplugins.marketplace_name"
+	MsgTaskPluginMarketplaceURL      = "taskplugins.marketplace_url"
+	MsgTaskPluginSourceConflict      = "taskplugins.source_conflict"
+	MsgTaskPluginInUse               = "taskplugins.in_use"
+	MsgTaskPluginEnabledRequired     = "taskplugins.enabled_required"
+	MsgTaskPluginResponseNotFound    = "taskplugins.response_not_found"
+	MsgTaskPluginOriginInvalid       = "taskplugins.origin_invalid"
+	MsgTaskPluginOriginMissing       = "taskplugins.origin_missing"
+	MsgTaskPluginOriginPlatform      = "taskplugins.origin_platform"
+	MsgTaskPluginOriginChannel       = "taskplugins.origin_channel"
+	MsgTaskPluginOriginDisabled      = "taskplugins.origin_disabled"
+	MsgTaskPluginProtocolFailed      = "taskplugins.protocol_failed"
+	MsgTaskPluginProtocolUnavailable = "taskplugins.protocol_unavailable"
+	MsgTaskPluginObservationsLimit   = "taskplugins.observations_limit"
+	MsgTaskPluginAuthentication      = "taskplugins.authentication"
+)

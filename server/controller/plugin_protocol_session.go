@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/i18n"
+	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
 	"net/http"
 	"time"
 
@@ -101,7 +103,7 @@ func (s *taskPluginObservationSession) BeginStream() error {
 			"mode=stream stage=created_event reason=state_machine_error",
 			s.generation,
 			s.pluginKey)
-		respondPluginProtocolError(s.c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+		respondPluginProtocolError(s.c, http.StatusInternalServerError, "task_protocol_error", i18n.Translate(plugintransport.Language(s.c), i18n.MsgTaskPluginProtocolFailed))
 		return domain.ErrObservationHandled
 	}
 	helper.SetEventStreamHeaders(s.c)
@@ -297,12 +299,12 @@ func (s *taskPluginObservationSession) RespondError(err error) {
 	generation, pluginKey := s.generation, s.pluginKey
 	if errors.Is(err, domain.ErrObservationLimitExceeded) {
 		s.Debug("task_plugin subsystem=protocol event=admission_rejected generation=%d plugin=%q reason=observation_limit", generation, pluginKey)
-		respondPluginProtocolError(c, http.StatusTooManyRequests, "rate_limit_exceeded", "Too many active task observations")
+		respondPluginProtocolError(c, http.StatusTooManyRequests, "rate_limit_exceeded", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginObservationsLimit))
 		return
 	}
 	if errors.Is(err, domain.ErrInvalidObservationIdentity) {
 		s.Debug("task_plugin subsystem=protocol event=admission_rejected generation=%d plugin=%q reason=invalid_identity", generation, pluginKey)
-		respondPluginProtocolError(c, http.StatusUnauthorized, "authentication_error", "Authentication failed")
+		respondPluginProtocolError(c, http.StatusUnauthorized, "authentication_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginAuthentication))
 		return
 	}
 	relayInfoErr, taskErr, submissionStage, outcome, relayInfo := s.relayInfoErr, s.taskErr, s.submissionStage, s.outcome, s.relayInfo
@@ -314,7 +316,7 @@ func (s *taskPluginObservationSession) RespondError(err error) {
 				"stage=relay_info reason=invalid_context",
 			generation,
 			pluginKey)
-		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolFailed))
 		return
 	}
 	if submissionStage == "origin_task" && taskErr != nil {
@@ -352,7 +354,7 @@ func (s *taskPluginObservationSession) RespondError(err error) {
 				"reason=invalid_durable_outcome",
 			generation,
 			pluginKey)
-		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolFailed))
 		return
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/i18n"
+	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -257,7 +259,7 @@ func PrepareTaskPluginRoute() gin.HandlerFunc {
 					pinned.Plugin.Meta.Key,
 					intentErr.Code,
 				)
-				abortTaskPluginRouteErrorDetail(c, intentErr.StatusCode, intentErr.Message)
+				abortTaskPluginRouteErrorDetail(c, intentErr.StatusCode, taskPluginOriginMessage(c, intentErr))
 				return
 			}
 			_, bodyReplaced := resolved["requestBody"]
@@ -720,7 +722,7 @@ func PrepareTaskPluginEndpoint() gin.HandlerFunc {
 				pinned.Plugin.Meta.Key,
 				intentErr.Code,
 			)
-			abortWithOpenAiMessage(c, intentErr.StatusCode, intentErr.Message, types.ErrorCode(intentErr.Code))
+			abortWithOpenAiMessage(c, intentErr.StatusCode, taskPluginOriginMessage(c, intentErr), types.ErrorCode(intentErr.Code))
 			return
 		}
 		logger.LogDebug(
@@ -1356,4 +1358,24 @@ func PrepareTaskPluginSubmit() gin.HandlerFunc {
 		)
 		c.Next()
 	}
+}
+
+func taskPluginOriginMessage(c *gin.Context, err *originTaskIntentError) string {
+	key := ""
+	switch err.Code {
+	case "invalid_origin_task_ids":
+		key = i18n.MsgTaskPluginOriginInvalid
+	case "origin_task_not_found":
+		key = i18n.MsgTaskPluginOriginMissing
+	case "origin_task_platform_mismatch":
+		key = i18n.MsgTaskPluginOriginPlatform
+	case "origin_task_channel_conflict":
+		key = i18n.MsgTaskPluginOriginChannel
+	case "origin_task_channel_disabled":
+		key = i18n.MsgTaskPluginOriginDisabled
+	}
+	if key == "" {
+		return err.Message
+	}
+	return i18n.Translate(plugintransport.Language(c), key)
 }

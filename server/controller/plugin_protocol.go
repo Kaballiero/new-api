@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/i18n"
+	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
 	"net/http"
 	"strings"
 	"time"
@@ -166,14 +168,14 @@ func serveTaskPluginProtocol(
 	)
 	if !pluginruntime.SupportsHostProtocol(pinned.Protocol) {
 		logger.LogDebug(c, "task_plugin subsystem=protocol event=bridge_rejected generation=%d plugin=%q reason=unsupported_protocol", generation, pluginKey)
-		respondPluginProtocolError(c, http.StatusNotImplemented, "task_protocol_not_available", "Task protocol bridge is not available")
+		respondPluginProtocolError(c, http.StatusNotImplemented, "task_protocol_not_available", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolUnavailable))
 		return
 	}
 	requestValue, exists := c.Get(pluginruntime.ContextKeyProtocolRequest)
 	protocolRequest, ok := requestValue.(pluginruntime.ProtocolRequestContext)
 	if !exists || !ok || protocolRequest.Protocol != pinned.Protocol {
 		logger.LogDebug(c, "task_plugin subsystem=protocol event=bridge_rejected generation=%d plugin=%q reason=invalid_protocol_context", generation, pluginKey)
-		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolFailed))
 		return
 	}
 	if definition, known := pluginruntime.HostProtocol(pinned.Protocol); known && len(definition.DefinedModes()) > 0 && pinned.Plugin != nil {
@@ -195,7 +197,7 @@ func serveTaskPluginProtocol(
 		}
 		if missing {
 			logger.LogError(c, "pinned task plugin does not support the requested protocol form")
-			respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+			respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolFailed))
 			return
 		}
 	}
@@ -379,7 +381,7 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 		if !errors.As(err, &failure) || failure.Reason == "lookup_error" {
 			logger.LogError(c, "task protocol retrieve lookup failed")
 			logger.LogDebug(c, "task_plugin subsystem=protocol event=retrieve_failed reason=lookup_error public_task_id=%q", taskID)
-			respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+			respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolFailed))
 			return
 		}
 		writeTaskPluginResponseNotFound(c, responseID, failure.Reason)
@@ -507,7 +509,7 @@ func retrieveTaskPluginResponse(c *gin.Context, deps pluginProtocolBridgeDeps) {
 
 func writeTaskPluginResponseNotFound(c *gin.Context, responseID, reason string) {
 	logger.LogDebug(c, "task_plugin subsystem=protocol event=retrieve_not_found reason=%s response_id=%q", reason, responseID)
-	respondPluginProtocolError(c, http.StatusNotFound, "not_found", "No response found with id '"+responseID+"'.")
+	respondPluginProtocolError(c, http.StatusNotFound, "not_found", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginResponseNotFound, map[string]any{"ID": responseID}))
 }
 
 func writeTaskPluginProtocolHeartbeat(c *gin.Context) error {
@@ -552,7 +554,7 @@ func writeTaskPluginProtocolFailureResponse(
 		response, err := machine.FinalResponse(nil, taskStatus)
 		if err != nil {
 			logger.LogError(c, "task protocol terminal failure response failed: "+err.Error())
-			respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+			respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolFailed))
 			return
 		}
 		if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
@@ -564,7 +566,7 @@ func writeTaskPluginProtocolFailureResponse(
 	response, err := machine.FailureResponse(taskStatus)
 	if err != nil {
 		logger.LogError(c, "task protocol failure response failed: "+err.Error())
-		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolFailed))
 		return
 	}
 	if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
@@ -581,7 +583,7 @@ func writeTaskPluginProtocolTimeoutResponse(
 	response, err := machine.TimeoutResponse(lastStatus)
 	if err != nil {
 		logger.LogError(c, "task protocol timeout response failed: "+err.Error())
-		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", "Task protocol request failed")
+		respondPluginProtocolError(c, http.StatusInternalServerError, "task_protocol_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolFailed))
 		return
 	}
 	if err := common.WriteClientJSON(c, http.StatusOK, response); err != nil {
@@ -703,13 +705,13 @@ func respondPluginProtocolSubmissionError(c *gin.Context, taskErr *dto.TaskError
 		}
 		respondPluginProtocolError(c, status, "invalid_request_error", message)
 	case http.StatusUnauthorized:
-		respondPluginProtocolError(c, status, "authentication_error", "Authentication failed")
+		respondPluginProtocolError(c, status, "authentication_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginAuthentication))
 	case http.StatusForbidden:
 		respondPluginProtocolError(c, status, "permission_denied", "Task protocol request was denied")
 	case http.StatusTooManyRequests:
 		respondPluginProtocolError(c, status, "rate_limit_exceeded", "Too many requests")
 	default:
-		respondPluginProtocolError(c, status, "task_protocol_error", "Task protocol request failed")
+		respondPluginProtocolError(c, status, "task_protocol_error", i18n.Translate(plugintransport.Language(c), i18n.MsgTaskPluginProtocolFailed))
 	}
 }
 

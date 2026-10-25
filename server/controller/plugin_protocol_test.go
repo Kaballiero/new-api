@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"errors"
+	"github.com/QuantumNous/new-api/i18n"
+	settingsdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1365,6 +1367,7 @@ func TestRetrieveTaskPluginResponseNotFound(t *testing.T) {
 				}
 			}
 			c, recorder := newPluginProtocolRetrieveContext(testCase.responseID)
+			common.SetContextKey(c, constant.ContextKeyUserSetting, settingsdto.UserSetting{Language: "ru"})
 			common.SetContextKey(c, constant.ContextKeyUserId, testCase.userID)
 			deps := pluginProtocolRetrieveDeps(pinned, testCase.task, testCase.exists, nil)
 			if testCase.plugin == nil {
@@ -1377,7 +1380,7 @@ func TestRetrieveTaskPluginResponseNotFound(t *testing.T) {
 
 			assert.Equal(t, http.StatusNotFound, recorder.Code)
 			assert.Contains(t, recorder.Body.String(), `"code":"not_found"`)
-			assert.Contains(t, recorder.Body.String(), "No response found with id '"+testCase.responseID+"'.")
+			assert.Contains(t, recorder.Body.String(), i18n.Translate("ru", i18n.MsgTaskPluginResponseNotFound, map[string]any{"ID": testCase.responseID}))
 		})
 	}
 }
@@ -1470,8 +1473,13 @@ func compilePluginProtocolTestEndpointWithOptions(
 }
 
 func newPluginProtocolTestContext(stream, requestBodyStream bool) (*gin.Context, *httptest.ResponseRecorder) {
+	if err := i18n.Init(); err != nil {
+		panic(err)
+	}
+
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
+	common.SetContextKey(c, constant.ContextKeyUserSetting, settingsdto.UserSetting{Language: "en"})
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{}`))
 	common.SetContextKey(c, constant.ContextKeyUserId, 71)
 	common.SetContextKey(c, constant.ContextKeyTokenId, 81)
@@ -1567,8 +1575,13 @@ func logsAppender(logs *[]string) pluginruntime.Options {
 }
 
 func newPluginProtocolRetrieveContext(responseID string) (*gin.Context, *httptest.ResponseRecorder) {
+	if err := i18n.Init(); err != nil {
+		panic(err)
+	}
+
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
+	common.SetContextKey(c, constant.ContextKeyUserSetting, settingsdto.UserSetting{Language: "en"})
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses/"+responseID, nil)
 	c.Params = gin.Params{{Key: "response_id", Value: responseID}}
 	common.SetContextKey(c, constant.ContextKeyUserId, 71)

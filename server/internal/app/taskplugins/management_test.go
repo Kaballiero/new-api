@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/QuantumNous/new-api/i18n"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -29,6 +30,7 @@ import (
 )
 
 func setupTaskPluginControllerTest(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	t.Helper()
 	originalDB := model.DB
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -280,7 +282,7 @@ func TestDisableFactoryPluginRespectsInUseGuard(t *testing.T) {
 
 	recorder := postTaskPluginStatus(t, key, "", `{"enabled":false}`)
 	assert.Contains(t, recorder.Body.String(), `"success":false`)
-	assert.Contains(t, recorder.Body.String(), "task plugin is still in use")
+	assert.Contains(t, recorder.Body.String(), i18n.Translate(i18n.DefaultLang, i18n.MsgTaskPluginInUse))
 	assert.Empty(t, setting.GetTaskPluginDisabledFactoryKeys())
 	_, ok := jsplugin.DefaultRegistry.Get(key)
 	assert.True(t, ok)
@@ -1354,6 +1356,27 @@ func TestTaskPluginOptionsPreserveUsageSchemaBytes(t *testing.T) {
 				}
 			}
 			t.Fatal("registered plugin missing from options")
+		})
+	}
+}
+
+func TestTaskPluginsContentErrorsUseLocale(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	for _, tc := range []struct{ language, message string }{{"en", "enabled is required"}, {"ru", "Укажите enabled"}, {"zh-CN", "enabled is required"}, {"zh-TW", "enabled is required"}} {
+		t.Run(tc.language, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Set(string(constant.ContextKeyLanguage), tc.language)
+			SetTaskPluginStatus(c)
+			var response struct {
+				Message string `json:"message"`
+				Success bool   `json:"success"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			assert.False(t, response.Success)
+			assert.Equal(t, tc.message, response.Message)
 		})
 	}
 }

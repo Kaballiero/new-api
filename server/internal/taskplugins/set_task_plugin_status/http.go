@@ -2,6 +2,7 @@ package set_task_plugin_status
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/taskplugins/transport"
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +16,7 @@ func NewHandler(u Usecase) Handler { return Handler{usecase: u} }
 func (h Handler) ServeHTTP(c *gin.Context) {
 	var request taskPluginStatusRequest
 	if err := c.ShouldBindJSON(&request); err != nil || request.Enabled == nil {
-		common.ApiErrorMsg(c, "enabled is required")
+		common.ApiErrorMsg(c, i18n.Translate(transport.Language(c), i18n.MsgTaskPluginEnabledRequired))
 		return
 	}
 	input := Input{Enabled: request.Enabled}
