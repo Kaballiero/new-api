@@ -1,0 +1,499 @@
+{
+  "after": {
+    "abilities": [
+      {
+        "channel_id": 71,
+        "enabled": 1,
+        "group": "default",
+        "model": "contract-video",
+        "priority": 0,
+        "tag": null,
+        "weight": 0
+      }
+    ],
+    "audit": [],
+    "bindings": [
+      {
+        "id": 71,
+        "models": "contract-video",
+        "other_info": "",
+        "setting": "{\"task_plugin_key\":\"contract-plugin\"}",
+        "status": 1,
+        "type": 61
+      }
+    ],
+    "channels": [
+      {
+        "id": 71,
+        "status": 1,
+        "type": 61,
+        "used_quota": 0
+      }
+    ],
+    "ledger": [],
+    "logs": [],
+    "main_logs": [],
+    "midjourneys": [],
+    "options": [],
+    "plugins": [
+      {
+        "active": 1,
+        "api_version": 1,
+        "created_at": 946684800,
+        "enabled": 1,
+        "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=",
+        "id": 1,
+        "key": "contract-plugin",
+        "remark": "fixture",
+        "source": "\nexport const meta = {apiVersion:1,key:\"contract-plugin\",name:\"Contract plugin\",version:\"1.0.0\",author:{name:\"Test\"},\nmodels:[\"contract-video\"],baseUrl:\"https://plugins.invalid\",fetchMode:\"per_task\",sortPriority:100,\nroutes:[{method:\"POST\",path:\"/wave5c/submit\",type:\"submit\",decode:\"decode\",render:\"created\"},\n{method:\"GET\",path:\"/wave5c/query/:task_id\",type:\"query\",render:\"query\"},\n{method:\"POST\",path:\"/wave5c/query\",type:\"dynamic\",decode:\"batch\",render:\"queries\"}],\nprotocols:[{name:\"openai_responses\",supports:[\"stream\",\"sync\",\"background\"]},\"openai_video\"]};\nexport function buildSubmitRequest(ctx){return {url:ctx.baseUrl+\"/submit\",method:\"POST\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey,\"Content-Type\":\"application/json\"},body:ctx.requestBody};}\nexport function parseSubmitResponse(ctx,resp){return {taskId:resp.body.id,taskData:resp.body};}\nexport function buildQueryRequest(ctx){return {url:ctx.baseUrl+\"/poll/\"+ctx.taskId,method:\"GET\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey}};}\nexport function parseTaskResult(ctx,body){return {status:body.status||\"IN_PROGRESS\",progress:\"50%\"};}\nexport function listArtifacts(){return [];}\nexport function buildContentRequest(){throw new Error(\"artifact_not_found\");}\nexport const native={decode:function(ctx){let b=ctx.body.value;return {kind:\"submit\",model:b.model,\naction:\"text_to_video\",requestBody:b,originTaskIds:b.origins||[]};},\nbatch:function(ctx){return {kind:\"query\",taskIds:ctx.body.value.ids};},\ncreated:function(ctx,task){return {task:task};},query:function(ctx,task){return task;},\nqueries:function(ctx,tasks){return tasks;},error:function(ctx,error){return {error:error};}};\nexport const protocols={openai_responses:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,\nrequestBody:ctx.body.value,action:\"text_to_video\"};},renderFinal:function(){return {output:[]};},\nrenderEvents:function(ctx,task){return {events:[],done:task.status===\"SUCCESS\"};}},\nopenai_video:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,requestBody:ctx.body.value};},\nrender:function(ctx,task){return {id:task.task_id,object:\"video\",status:task.status};}}};\nexport function echo(value){return value;}\n",
+        "source_hash": "e9c13e5adcef27f3b5549c770202b285842c418d45f8dd5cb52d01715638db19",
+        "version": "1.0.0"
+      },
+      {
+        "active": 0,
+        "api_version": 1,
+        "created_at": 946684800,
+        "enabled": 1,
+        "icon": "",
+        "id": 2,
+        "key": "contract-plugin",
+        "remark": "fixture",
+        "source": "\nexport const meta = {apiVersion:1,key:\"contract-plugin\",name:\"Contract plugin\",version:\"2.0.0\",author:{name:\"Test\"},\nmodels:[\"contract-video\"],baseUrl:\"https://plugins.invalid\",fetchMode:\"per_task\",sortPriority:100,\nroutes:[{method:\"POST\",path:\"/wave5c/submit\",type:\"submit\",decode:\"decode\",render:\"created\"},\n{method:\"GET\",path:\"/wave5c/query/:task_id\",type:\"query\",render:\"query\"},\n{method:\"POST\",path:\"/wave5c/query\",type:\"dynamic\",decode:\"batch\",render:\"queries\"}],\nprotocols:[{name:\"openai_responses\",supports:[\"stream\",\"sync\",\"background\"]},\"openai_video\"]};\nexport function buildSubmitRequest(ctx){return {url:ctx.baseUrl+\"/submit\",method:\"POST\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey,\"Content-Type\":\"application/json\"},body:ctx.requestBody};}\nexport function parseSubmitResponse(ctx,resp){return {taskId:resp.body.id,taskData:resp.body};}\nexport function buildQueryRequest(ctx){return {url:ctx.baseUrl+\"/poll/\"+ctx.taskId,method:\"GET\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey}};}\nexport function parseTaskResult(ctx,body){return {status:body.status||\"IN_PROGRESS\",progress:\"50%\"};}\nexport function listArtifacts(){return [];}\nexport function buildContentRequest(){throw new Error(\"artifact_not_found\");}\nexport const native={decode:function(ctx){let b=ctx.body.value;return {kind:\"submit\",model:b.model,\naction:\"text_to_video\",requestBody:b,originTaskIds:b.origins||[]};},\nbatch:function(ctx){return {kind:\"query\",taskIds:ctx.body.value.ids};},\ncreated:function(ctx,task){return {task:task};},query:function(ctx,task){return task;},\nqueries:function(ctx,tasks){return tasks;},error:function(ctx,error){return {error:error};}};\nexport const protocols={openai_responses:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,\nrequestBody:ctx.body.value,action:\"text_to_video\"};},renderFinal:function(){return {output:[]};},\nrenderEvents:function(ctx,task){return {events:[],done:task.status===\"SUCCESS\"};}},\nopenai_video:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,requestBody:ctx.body.value};},\nrender:function(ctx,task){return {id:task.task_id,object:\"video\",status:task.status};}}};\nexport function echo(value){return value;}\n",
+        "source_hash": "c6bfaa9aae74781ffeafc85546621290acfe060a447ef53674d38bc0c32ea6ea",
+        "version": "2.0.0"
+      }
+    ],
+    "sessions": [
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 1,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 2,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 3,
+        "version": 1
+      }
+    ],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "tasks": [
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 300,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_one",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 301,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_two",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 302,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_foreign",
+        "updated_at": 946684800,
+        "user_id": 2
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 303,
+        "platform": "other",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_wrong",
+        "updated_at": 946684800,
+        "user_id": 1
+      }
+    ],
+    "tokens": [
+      {
+        "id": 101,
+        "remain_quota": 1000000,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 0,
+        "user_id": 1
+      },
+      {
+        "id": 102,
+        "remain_quota": 1000000,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 0,
+        "user_id": 2
+      }
+    ],
+    "top_ups": [],
+    "users": [
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 1,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "{\"billing_preference\":\"wallet_only\",\"language\":\"zh-CN\"}",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-user"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 2,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-admin"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 3,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-root"
+      }
+    ]
+  },
+  "before": {
+    "abilities": [
+      {
+        "channel_id": 71,
+        "enabled": 1,
+        "group": "default",
+        "model": "contract-video",
+        "priority": 0,
+        "tag": null,
+        "weight": 0
+      }
+    ],
+    "audit": [],
+    "bindings": [
+      {
+        "id": 71,
+        "models": "contract-video",
+        "other_info": "",
+        "setting": "{\"task_plugin_key\":\"contract-plugin\"}",
+        "status": 1,
+        "type": 61
+      }
+    ],
+    "channels": [
+      {
+        "id": 71,
+        "status": 1,
+        "type": 61,
+        "used_quota": 0
+      }
+    ],
+    "ledger": [],
+    "logs": [],
+    "main_logs": [],
+    "midjourneys": [],
+    "options": [],
+    "plugins": [
+      {
+        "active": 1,
+        "api_version": 1,
+        "created_at": 946684800,
+        "enabled": 1,
+        "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=",
+        "id": 1,
+        "key": "contract-plugin",
+        "remark": "fixture",
+        "source": "\nexport const meta = {apiVersion:1,key:\"contract-plugin\",name:\"Contract plugin\",version:\"1.0.0\",author:{name:\"Test\"},\nmodels:[\"contract-video\"],baseUrl:\"https://plugins.invalid\",fetchMode:\"per_task\",sortPriority:100,\nroutes:[{method:\"POST\",path:\"/wave5c/submit\",type:\"submit\",decode:\"decode\",render:\"created\"},\n{method:\"GET\",path:\"/wave5c/query/:task_id\",type:\"query\",render:\"query\"},\n{method:\"POST\",path:\"/wave5c/query\",type:\"dynamic\",decode:\"batch\",render:\"queries\"}],\nprotocols:[{name:\"openai_responses\",supports:[\"stream\",\"sync\",\"background\"]},\"openai_video\"]};\nexport function buildSubmitRequest(ctx){return {url:ctx.baseUrl+\"/submit\",method:\"POST\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey,\"Content-Type\":\"application/json\"},body:ctx.requestBody};}\nexport function parseSubmitResponse(ctx,resp){return {taskId:resp.body.id,taskData:resp.body};}\nexport function buildQueryRequest(ctx){return {url:ctx.baseUrl+\"/poll/\"+ctx.taskId,method:\"GET\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey}};}\nexport function parseTaskResult(ctx,body){return {status:body.status||\"IN_PROGRESS\",progress:\"50%\"};}\nexport function listArtifacts(){return [];}\nexport function buildContentRequest(){throw new Error(\"artifact_not_found\");}\nexport const native={decode:function(ctx){let b=ctx.body.value;return {kind:\"submit\",model:b.model,\naction:\"text_to_video\",requestBody:b,originTaskIds:b.origins||[]};},\nbatch:function(ctx){return {kind:\"query\",taskIds:ctx.body.value.ids};},\ncreated:function(ctx,task){return {task:task};},query:function(ctx,task){return task;},\nqueries:function(ctx,tasks){return tasks;},error:function(ctx,error){return {error:error};}};\nexport const protocols={openai_responses:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,\nrequestBody:ctx.body.value,action:\"text_to_video\"};},renderFinal:function(){return {output:[]};},\nrenderEvents:function(ctx,task){return {events:[],done:task.status===\"SUCCESS\"};}},\nopenai_video:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,requestBody:ctx.body.value};},\nrender:function(ctx,task){return {id:task.task_id,object:\"video\",status:task.status};}}};\nexport function echo(value){return value;}\n",
+        "source_hash": "e9c13e5adcef27f3b5549c770202b285842c418d45f8dd5cb52d01715638db19",
+        "version": "1.0.0"
+      },
+      {
+        "active": 0,
+        "api_version": 1,
+        "created_at": 946684800,
+        "enabled": 1,
+        "icon": "",
+        "id": 2,
+        "key": "contract-plugin",
+        "remark": "fixture",
+        "source": "\nexport const meta = {apiVersion:1,key:\"contract-plugin\",name:\"Contract plugin\",version:\"2.0.0\",author:{name:\"Test\"},\nmodels:[\"contract-video\"],baseUrl:\"https://plugins.invalid\",fetchMode:\"per_task\",sortPriority:100,\nroutes:[{method:\"POST\",path:\"/wave5c/submit\",type:\"submit\",decode:\"decode\",render:\"created\"},\n{method:\"GET\",path:\"/wave5c/query/:task_id\",type:\"query\",render:\"query\"},\n{method:\"POST\",path:\"/wave5c/query\",type:\"dynamic\",decode:\"batch\",render:\"queries\"}],\nprotocols:[{name:\"openai_responses\",supports:[\"stream\",\"sync\",\"background\"]},\"openai_video\"]};\nexport function buildSubmitRequest(ctx){return {url:ctx.baseUrl+\"/submit\",method:\"POST\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey,\"Content-Type\":\"application/json\"},body:ctx.requestBody};}\nexport function parseSubmitResponse(ctx,resp){return {taskId:resp.body.id,taskData:resp.body};}\nexport function buildQueryRequest(ctx){return {url:ctx.baseUrl+\"/poll/\"+ctx.taskId,method:\"GET\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey}};}\nexport function parseTaskResult(ctx,body){return {status:body.status||\"IN_PROGRESS\",progress:\"50%\"};}\nexport function listArtifacts(){return [];}\nexport function buildContentRequest(){throw new Error(\"artifact_not_found\");}\nexport const native={decode:function(ctx){let b=ctx.body.value;return {kind:\"submit\",model:b.model,\naction:\"text_to_video\",requestBody:b,originTaskIds:b.origins||[]};},\nbatch:function(ctx){return {kind:\"query\",taskIds:ctx.body.value.ids};},\ncreated:function(ctx,task){return {task:task};},query:function(ctx,task){return task;},\nqueries:function(ctx,tasks){return tasks;},error:function(ctx,error){return {error:error};}};\nexport const protocols={openai_responses:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,\nrequestBody:ctx.body.value,action:\"text_to_video\"};},renderFinal:function(){return {output:[]};},\nrenderEvents:function(ctx,task){return {events:[],done:task.status===\"SUCCESS\"};}},\nopenai_video:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,requestBody:ctx.body.value};},\nrender:function(ctx,task){return {id:task.task_id,object:\"video\",status:task.status};}}};\nexport function echo(value){return value;}\n",
+        "source_hash": "c6bfaa9aae74781ffeafc85546621290acfe060a447ef53674d38bc0c32ea6ea",
+        "version": "2.0.0"
+      }
+    ],
+    "sessions": [
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 1,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 2,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 3,
+        "version": 1
+      }
+    ],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "tasks": [
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 300,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_one",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 301,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_two",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 302,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_foreign",
+        "updated_at": 946684800,
+        "user_id": 2
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 303,
+        "platform": "other",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_wrong",
+        "updated_at": 946684800,
+        "user_id": 1
+      }
+    ],
+    "tokens": [
+      {
+        "id": 101,
+        "remain_quota": 1000000,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 0,
+        "user_id": 1
+      },
+      {
+        "id": 102,
+        "remain_quota": 1000000,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 0,
+        "user_id": 2
+      }
+    ],
+    "top_ups": [],
+    "users": [
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 1,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "{\"billing_preference\":\"wallet_only\",\"language\":\"zh-CN\"}",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-user"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 2,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-admin"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 3,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-root"
+      }
+    ]
+  },
+  "observations": [
+    {
+      "body": "{\"data\":[{\"baseUrl\":\"https://plugins.invalid\",\"hasIcon\":true,\"icon\":\"\",\"key\":\"contract-plugin\",\"models\":[\"contract-video\"],\"name\":\"Contract plugin\",\"sortPriority\":100,\"usageSchema\":null,\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"Bailian.Color\",\"key\":\"alibaba\",\"models\":[\"wan3.0-video\",\"wan3.0-video-prime\",\"wan2.7-t2v\",\"wan2.7-t2v-2026-04-25\",\"wan2.7-t2v-2026-06-12\",\"wan2.7-i2v\",\"wan2.7-i2v-2026-04-25\",\"wan2.6-t2v\",\"wan2.6-t2v-us\",\"wan2.6-i2v\",\"wan2.6-i2v-flash\",\"wan2.6-i2v-us\",\"wan2.5-t2v-preview\",\"wan2.5-i2v-preview\",\"wan2.2-t2v-plus\",\"wan2.2-i2v-flash\",\"wan2.2-i2v-plus\",\"wan2.2-kf2v-flash\",\"wan2.2-s2v\",\"wanx2.1-t2v-plus\",\"wanx2.1-t2v-turbo\",\"wanx2.1-i2v-plus\",\"wanx2.1-i2v-turbo\"],\"name\":\"Alibaba Bailian\",\"sortPriority\":0,\"usageSchema\":{\"resolution\":{\"enum\":[\"480P\",\"720P\",\"1080P\"],\"description\":{\"en\":\"Output video resolution\",\"zh\":\"输出视频分辨率\"},\"enumLabels\":{\"1080P\":{\"en\":\"1080P\",\"zh\":\"1080P\"},\"480P\":{\"en\":\"480P\",\"zh\":\"480P\"},\"720P\":{\"en\":\"720P\",\"zh\":\"720P\"}}},\"seconds\":{\"type\":\"number\",\"unit\":\"second\",\"description\":{\"en\":\"Video generation unit price\",\"zh\":\"视频生成单价\"}}},\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"Doubao.Color\",\"key\":\"doubao\",\"models\":[\"doubao-seedance-1-0-pro-250528\",\"doubao-seedance-1-0-lite-t2v\",\"doubao-seedance-1-0-lite-i2v\",\"doubao-seedance-1-5-pro-251215\",\"doubao-seedance-2-0-260128\",\"doubao-seedance-2-0-fast-260128\",\"doubao-seedance-2-0-mini-260615\",\"doubao-seedance-2-5-260628\"],\"name\":\"Doubao Video\",\"sortPriority\":0,\"usageSchema\":{\"resolution\":{\"enum\":[\"480p\",\"720p\",\"1080p\",\"4k\"],\"description\":{\"en\":\"Output video resolution\",\"zh\":\"输出视频分辨率\"},\"enumLabels\":{\"1080p\":{\"en\":\"1080p\",\"zh\":\"1080p\"},\"480p\":{\"en\":\"480p\",\"zh\":\"480p\"},\"4k\":{\"en\":\"4k\",\"zh\":\"4k\"},\"720p\":{\"en\":\"720p\",\"zh\":\"720p\"}}},\"tokens\":{\"type\":\"number\",\"unit\":\"token\",\"description\":{\"en\":\"Billing token unit price\",\"zh\":\"计费 Token 单价\"}},\"video_input\":{\"enum\":[\"none\",\"video\"],\"description\":{\"en\":\"Reference video input\",\"zh\":\"参考视频输入\"},\"enumLabels\":{\"none\":{\"en\":\"No reference video\",\"zh\":\"无参考视频\"},\"video\":{\"en\":\"With reference video\",\"zh\":\"有参考视频\"}}}},\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"Gemini.Color\",\"key\":\"google\",\"models\":[\"veo-3.0-generate-001\",\"veo-3.0-fast-generate-001\",\"veo-3.1-generate-preview\",\"veo-3.1-fast-generate-preview\"],\"name\":\"Google Veo (Gemini API)\",\"sortPriority\":0,\"usageSchema\":{\"resolution\":{\"enum\":[\"720p\",\"1080p\",\"4k\"],\"description\":{\"en\":\"Output video resolution\",\"zh\":\"输出视频分辨率\"},\"enumLabels\":{\"1080p\":{\"en\":\"1080p\",\"zh\":\"1080p\"},\"4k\":{\"en\":\"4k\",\"zh\":\"4k\"},\"720p\":{\"en\":\"720p\",\"zh\":\"720p\"}}},\"seconds\":{\"type\":\"number\",\"unit\":\"second\",\"description\":{\"en\":\"Video generation unit price\",\"zh\":\"视频生成单价\"}}},\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"Hailuo.Color\",\"key\":\"hailuo\",\"models\":[\"MiniMax-H3\",\"MiniMax-Hailuo-2.3\",\"MiniMax-Hailuo-2.3-Fast\",\"MiniMax-Hailuo-02\",\"T2V-01-Director\",\"T2V-01\",\"I2V-01-Director\",\"I2V-01-live\",\"I2V-01\",\"S2V-01\"],\"name\":\"Hailuo Video\",\"sortPriority\":0,\"usageSchema\":{\"input_images\":{\"type\":\"number\",\"unit\":\"count\",\"description\":{\"en\":\"Input image unit price\",\"zh\":\"输入图片单价\"}},\"input_video_seconds\":{\"type\":\"number\",\"unit\":\"second\",\"description\":{\"en\":\"Input video unit price\",\"zh\":\"输入视频单价\"}},\"resolution\":{\"enum\":[\"512P\",\"768P\",\"720P\",\"1080P\",\"2K\"],\"description\":{\"en\":\"Output video resolution\",\"zh\":\"输出视频分辨率\"},\"enumLabels\":{\"1080P\":{\"en\":\"1080P\",\"zh\":\"1080P\"},\"2K\":{\"en\":\"2K\",\"zh\":\"2K\"},\"512P\":{\"en\":\"512P\",\"zh\":\"512P\"},\"720P\":{\"en\":\"720P\",\"zh\":\"720P\"},\"768P\":{\"en\":\"768P\",\"zh\":\"768P\"}}},\"seconds\":{\"type\":\"number\",\"unit\":\"second\",\"description\":{\"en\":\"Video generation unit price\",\"zh\":\"视频生成单价\"}}},\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"Jimeng.Color\",\"key\":\"jimeng\",\"models\":[\"jimeng_vgfm_t2v_l20\"],\"name\":\"Jimeng\",\"sortPriority\":0,\"usageSchema\":{\"product\":{\"enum\":[\"s2_pro\",\"v30_720p\",\"v30_1080p\",\"v30_pro\"],\"description\":{\"en\":\"Product tier\",\"zh\":\"产品档位\"},\"enumLabels\":{\"s2_pro\":{\"en\":\"S2.0 Pro\",\"zh\":\"S2.0 Pro\"},\"v30_1080p\":{\"en\":\"3.0 1080p\",\"zh\":\"3.0 1080p\"},\"v30_720p\":{\"en\":\"3.0 720p\",\"zh\":\"3.0 720p\"},\"v30_pro\":{\"en\":\"3.0 Pro\",\"zh\":\"3.0 Pro\"}}},\"seconds\":{\"type\":\"number\",\"unit\":\"second\",\"description\":{\"en\":\"Video generation unit price\",\"zh\":\"视频生成单价\"}}},\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"Kling.Color\",\"key\":\"kling\",\"models\":[\"kling-v1\",\"kling-v1-6\",\"kling-v2-master\"],\"name\":\"Kling\",\"sortPriority\":0,\"usageSchema\":{\"units\":{\"type\":\"number\",\"unit\":\"credit\",\"description\":{\"en\":\"Kling credit unit price\",\"zh\":\"可灵资源包单位单价\"}}},\"website\":\"\"},{\"baseUrl\":\"https://openrouter.ai/api\",\"hasIcon\":false,\"icon\":\"OpenRouter\",\"key\":\"openrouter-video\",\"models\":[\"x-ai/grok-imagine-video-1.5-lite\",\"heygen/heygen-video-1\",\"black-forest-labs/flux-video-edit\",\"minimax/hailuo-3-max\",\"alibaba/wan-3.0-prime\",\"alibaba/wan-3.0\",\"heygen/avatar-iv\",\"black-forest-labs/flux-video-upscale\",\"bytedance/seedance-2.0-mini\",\"bytedance/seedance-2.5\",\"black-forest-labs/flux-3-video\",\"minimax/hailuo-3\",\"runway/aleph-2\",\"runway/gen-4.5\",\"x-ai/grok-imagine-video-1.5\",\"alibaba/happyhorse-1.1\",\"alibaba/happyhorse-1.0\",\"x-ai/grok-imagine-video\",\"kwaivgi/kling-v3.0-pro\",\"kwaivgi/kling-v3.0-std\",\"google/veo-3.1-fast\",\"google/veo-3.1-lite\",\"kwaivgi/kling-video-o1\",\"minimax/hailuo-2.3\",\"bytedance/seedance-2.0\",\"bytedance/seedance-2.0-fast\",\"alibaba/wan-2.7\",\"alibaba/wan-2.6\",\"bytedance/seedance-1-5-pro\",\"google/veo-3.1\"],\"name\":\"OpenRouter Video\",\"sortPriority\":0,\"usageSchema\":{\"aspect_ratio\":{\"enum\":[\"default\",\"16:9\",\"9:16\",\"1:1\",\"4:3\",\"3:4\",\"3:2\",\"2:3\",\"21:9\",\"9:21\"],\"description\":{\"en\":\"Requested output aspect ratio\",\"zh\":\"请求输出宽高比\"}},\"audio\":{\"enum\":[\"default\",\"enabled\",\"disabled\"],\"description\":{\"en\":\"Requested audio generation\",\"zh\":\"请求音频生成\"}},\"audios\":{\"type\":\"number\",\"unit\":\"count\",\"description\":{\"en\":\"Input audio unit price\",\"zh\":\"输入音频单价\"}},\"creativity\":{\"enum\":[\"default\",\"0\",\"1\"],\"description\":{\"en\":\"Requested upscaling creativity\",\"zh\":\"请求放大创造性\"}},\"frame_images\":{\"type\":\"number\",\"unit\":\"count\",\"description\":{\"en\":\"First/last frame image count\",\"zh\":\"首尾帧图像数量\"}},\"generation_mode\":{\"enum\":[\"text_to_video\",\"image_to_video\",\"reference_to_video\"],\"description\":{\"en\":\"Prepared generation mode\",\"zh\":\"准备的生成模式\"}},\"images\":{\"type\":\"number\",\"unit\":\"count\",\"description\":{\"en\":\"Input image unit price\",\"zh\":\"输入图像单价\"}},\"jobs\":{\"type\":\"number\",\"unit\":\"count\",\"description\":{\"en\":\"Video generation unit price\",\"zh\":\"视频生成单价\"}},\"reference_images\":{\"type\":\"number\",\"unit\":\"count\",\"description\":{\"en\":\"Reference image count\",\"zh\":\"参考图像数量\"}},\"requested_seconds\":{\"type\":\"number\",\"unit\":\"second\",\"description\":{\"en\":\"Requested video generation unit price\",\"zh\":\"请求视频生成单价\"}},\"resolution\":{\"enum\":[\"default\",\"360p\",\"480p\",\"720p\",\"768p\",\"1080p\",\"1K\",\"2K\",\"4K\"],\"description\":{\"en\":\"Requested output video resolution\",\"zh\":\"请求输出视频分辨率\"}},\"size\":{\"enum\":[\"default\",\"480x480\",\"480x640\",\"480x854\",\"640x480\",\"854x480\",\"1120x480\",\"720x720\",\"720x960\",\"720x1280\",\"720x1680\",\"960x720\",\"1280x720\",\"1680x720\",\"752x560\",\"640x640\",\"560x752\",\"992x432\",\"1112x834\",\"960x960\",\"834x1112\",\"1470x630\",\"1920x1080\",\"1080x1920\",\"1080x1080\",\"1440x1080\",\"1080x1440\",\"2520x1080\",\"1080x2520\",\"720x480\",\"1080x720\",\"480x720\",\"720x1080\",\"3840x2160\",\"2160x3840\",\"2160x2160\",\"2880x2160\",\"2160x2880\",\"5040x2160\",\"480x1120\"],\"description\":{\"en\":\"Requested output video dimensions\",\"zh\":\"请求输出视频尺寸\"}},\"upscale_factor\":{\"type\":\"number\",\"unit\":\"count\",\"description\":{\"en\":\"Requested upscale factor; zero means omitted\",\"zh\":\"请求放大倍数；零表示未指定\"}},\"videos\":{\"type\":\"number\",\"unit\":\"count\",\"description\":{\"en\":\"Input video unit price\",\"zh\":\"输入视频单价\"}}},\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"Sora.Color\",\"key\":\"sora\",\"models\":[\"sora-2\",\"sora-2-pro\"],\"name\":\"Sora\",\"sortPriority\":0,\"usageSchema\":{\"seconds\":{\"type\":\"number\",\"unit\":\"second\",\"description\":{\"en\":\"Video generation unit price\",\"zh\":\"视频生成单价\"}},\"size\":{\"enum\":[\"720x1280\",\"1280x720\",\"1792x1024\",\"1024x1792\"],\"description\":{\"en\":\"Output video dimensions\",\"zh\":\"输出视频尺寸\"},\"enumLabels\":{\"1024x1792\":{\"en\":\"1024x1792\",\"zh\":\"1024x1792\"},\"1280x720\":{\"en\":\"1280x720\",\"zh\":\"1280x720\"},\"1792x1024\":{\"en\":\"1792x1024\",\"zh\":\"1792x1024\"},\"720x1280\":{\"en\":\"720x1280\",\"zh\":\"720x1280\"}}}},\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"text\",\"key\":\"sunoapi\",\"models\":[\"suno_music\",\"suno_lyrics\"],\"name\":\"SunoAPI\",\"sortPriority\":0,\"usageSchema\":{\"action\":{\"enum\":[\"music\",\"lyrics\"],\"description\":{\"en\":\"Generate songs or lyrics\",\"zh\":\"生成歌曲或歌词\"},\"enumLabels\":{\"lyrics\":{\"en\":\"Generate lyrics\",\"zh\":\"生成歌词\"},\"music\":{\"en\":\"Generate songs\",\"zh\":\"生成歌曲\"}}},\"clips\":{\"type\":\"number\",\"unit\":\"count\",\"description\":{\"en\":\"Song or lyrics generation unit price\",\"zh\":\"生成歌曲或歌词单价\"}}},\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"VertexAI.Color\",\"key\":\"vertex-ai\",\"models\":[\"veo-3.0-generate-001\",\"veo-3.0-fast-generate-001\",\"veo-3.1-generate-preview\",\"veo-3.1-fast-generate-preview\"],\"name\":\"Google Veo (Vertex AI)\",\"sortPriority\":0,\"usageSchema\":{\"generate_audio\":{\"type\":\"boolean\",\"description\":{\"en\":\"Whether audio is generated\",\"zh\":\"是否生成音频\"}},\"resolution\":{\"enum\":[\"720p\",\"1080p\",\"4k\"],\"description\":{\"en\":\"Output video resolution\",\"zh\":\"输出视频分辨率\"},\"enumLabels\":{\"1080p\":{\"en\":\"1080p\",\"zh\":\"1080p\"},\"4k\":{\"en\":\"4k\",\"zh\":\"4k\"},\"720p\":{\"en\":\"720p\",\"zh\":\"720p\"}}},\"seconds\":{\"type\":\"number\",\"unit\":\"second\",\"description\":{\"en\":\"Video generation unit price\",\"zh\":\"视频生成单价\"}}},\"website\":\"\"},{\"baseUrl\":\"\",\"hasIcon\":false,\"icon\":\"Vidu.Color\",\"key\":\"vidu\",\"models\":[\"viduq2\",\"viduq1\",\"vidu2.0\",\"vidu1.5\"],\"name\":\"Vidu\",\"sortPriority\":0,\"usageSchema\":{\"credits\":{\"type\":\"number\",\"unit\":\"credit\",\"description\":{\"en\":\"Vidu credit unit price\",\"zh\":\"Vidu 积分单价\"}},\"duration\":{\"type\":\"number\",\"unit\":\"second\",\"description\":{\"en\":\"Video generation unit price\",\"zh\":\"视频生成单价\"}},\"resolution\":{\"enum\":[\"360p\",\"540p\",\"720p\",\"1080p\"],\"description\":{\"en\":\"Output video resolution\",\"zh\":\"输出视频分辨率\"},\"enumLabels\":{\"1080p\":{\"en\":\"1080p\",\"zh\":\"1080p\"},\"360p\":{\"en\":\"360p\",\"zh\":\"360p\"},\"540p\":{\"en\":\"540p\",\"zh\":\"540p\"},\"720p\":{\"en\":\"720p\",\"zh\":\"720p\"}}}},\"website\":\"\"}],\"message\":\"\",\"success\":true}",
+      "flushed": false,
+      "headers": {
+        "Auth-Version": [
+          "864b7076dbcd0a3c01b5520316720ebf"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "X-Oneapi-Request-Id": [
+          "\u003chttp-request-id\u003e"
+        ]
+      },
+      "status": 200
+    }
+  ],
+  "outgoing": []
+}

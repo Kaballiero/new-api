@@ -1,0 +1,41 @@
+{
+  "body": "{\"created_at\":946684800,\"error\":{\"code\":\"server_error\",\"message\":\"The task failed.\"},\"id\":\"resp_seed_observer\",\"incomplete_details\":null,\"instructions\":null,\"metadata\":{\"retrieval_path\":\"/v1/responses/resp_seed_observer\",\"task_id\":\"task_seed_observer\",\"task_status\":\"failed\"},\"model\":\"video-model\",\"object\":\"response\",\"output\":[],\"parallel_tool_calls\":true,\"status\":\"failed\",\"temperature\":1,\"tool_choice\":\"auto\",\"tools\":[],\"top_p\":1,\"usage\":null}",
+  "calls": [
+    "submit",
+    "load"
+  ],
+  "elapsed_ms": 0,
+  "flushed": false,
+  "headers": {
+    "Content-Type": [
+      "application/json; charset=utf-8"
+    ]
+  },
+  "loads": 1,
+  "status": 200,
+  "stored": {
+    "id": 1,
+    "created_at": 946684800,
+    "updated_at": 946684800,
+    "task_id": "task_seed_observer",
+    "platform": "contract-observer",
+    "user_id": 71,
+    "group": "",
+    "channel_id": 0,
+    "quota": 0,
+    "action": "",
+    "status": "SUCCESS",
+    "fail_reason": "",
+    "submit_time": 0,
+    "start_time": 0,
+    "finish_time": 0,
+    "progress": "",
+    "properties": {
+      "input": "",
+      "origin_model_name": "video-model"
+    },
+    "data": null
+  },
+  "stored_private": {},
+  "submits": 1
+}

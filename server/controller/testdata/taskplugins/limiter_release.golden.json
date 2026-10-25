@@ -1,0 +1,11 @@
+{
+  "after_release": 0,
+  "reset_admitted": true,
+  "results": [
+    {
+      "active": 2,
+      "admitted": true,
+      "error": ""
+    }
+  ]
+}

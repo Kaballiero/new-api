@@ -1,0 +1,11 @@
+[
+  {
+    "found": true,
+    "plugin": "contract-plugin",
+    "target": {
+      "Alias": "ALIAS",
+      "Declared": "",
+      "PluginKey": "contract-plugin"
+    }
+  }
+]

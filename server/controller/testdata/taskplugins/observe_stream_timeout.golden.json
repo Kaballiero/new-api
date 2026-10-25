@@ -1,0 +1,58 @@
+{
+  "body": "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_seed_observer\",\"object\":\"response\",\"created_at\":946684800,\"status\":\"in_progress\",\"error\":null,\"incomplete_details\":null,\"instructions\":null,\"model\":\"video-model\",\"output\":[],\"parallel_tool_calls\":true,\"temperature\":1,\"tool_choice\":\"auto\",\"tools\":[],\"top_p\":1,\"metadata\":{\"retrieval_path\":\"/v1/responses/resp_seed_observer\",\"task_id\":\"task_seed_observer\",\"task_status\":\"queued\"},\"usage\":null}}\n\nevent: response.incomplete\ndata: {\"type\":\"response.incomplete\",\"sequence_number\":1,\"response\":{\"id\":\"resp_seed_observer\",\"object\":\"response\",\"created_at\":946684800,\"status\":\"incomplete\",\"error\":null,\"incomplete_details\":null,\"instructions\":null,\"model\":\"video-model\",\"output\":[],\"parallel_tool_calls\":true,\"temperature\":1,\"tool_choice\":\"auto\",\"tools\":[],\"top_p\":1,\"metadata\":{\"retrieval_path\":\"/v1/responses/resp_seed_observer\",\"task_id\":\"task_seed_observer\",\"task_status\":\"in_progress\"},\"usage\":{\"input_tokens\":0,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":0,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":0}}}\n\n",
+  "calls": [
+    "submit",
+    "load",
+    "load",
+    "load",
+    "load",
+    "load",
+    "load"
+  ],
+  "elapsed_ms": 5500,
+  "flushed": true,
+  "headers": {
+    "Cache-Control": [
+      "no-cache"
+    ],
+    "Connection": [
+      "keep-alive"
+    ],
+    "Content-Type": [
+      "text/event-stream"
+    ],
+    "Transfer-Encoding": [
+      "chunked"
+    ],
+    "X-Accel-Buffering": [
+      "no"
+    ]
+  },
+  "loads": 6,
+  "status": 200,
+  "stored": {
+    "id": 1,
+    "created_at": 946684800,
+    "updated_at": 946684800,
+    "task_id": "task_seed_observer",
+    "platform": "contract-observer",
+    "user_id": 71,
+    "group": "",
+    "channel_id": 0,
+    "quota": 0,
+    "action": "",
+    "status": "SUCCESS",
+    "fail_reason": "",
+    "submit_time": 0,
+    "start_time": 0,
+    "finish_time": 0,
+    "progress": "",
+    "properties": {
+      "input": "",
+      "origin_model_name": "video-model"
+    },
+    "data": null
+  },
+  "stored_private": {},
+  "submits": 1
+}

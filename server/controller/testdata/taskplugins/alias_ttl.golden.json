@@ -1,0 +1,19 @@
+[
+  {
+    "found": true,
+    "plugin": "contract-plugin",
+    "target": {
+      "Alias": "alias",
+      "Declared": "contract-video",
+      "PluginKey": "contract-plugin"
+    }
+  },
+  {
+    "found": false,
+    "target": {
+      "Alias": "",
+      "Declared": "",
+      "PluginKey": ""
+    }
+  }
+]

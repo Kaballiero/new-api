@@ -1,0 +1,521 @@
+{
+  "after": {
+    "abilities": [
+      {
+        "channel_id": 71,
+        "enabled": 1,
+        "group": "default",
+        "model": "contract-video",
+        "priority": 0,
+        "tag": null,
+        "weight": 0
+      }
+    ],
+    "audit": [
+      {
+        "action": "generic",
+        "actor_role": 100,
+        "auth_method": "session",
+        "category": "operation",
+        "content": "PUT /api/plugin/task/marketplace/sources",
+        "created_at": 946684800,
+        "event_id": "\u003caudit_logs-event_id-1\u003e",
+        "id": 1,
+        "ip": "192.0.2.1",
+        "method": "PUT",
+        "other": "{\"op\":{\"action\":\"generic\",\"params\":{\"method\":\"PUT\",\"route\":\"/api/plugin/task/marketplace/sources\"}},\"admin_info\":{\"admin_id\":3,\"admin_username\":\"contract-root\",\"admin_role\":100,\"auth_method\":\"session\"},\"audit_info\":{\"method\":\"PUT\",\"route\":\"/api/plugin/task/marketplace/sources\",\"path\":\"/api/plugin/task/marketplace/sources\",\"status\":200,\"success\":false}}",
+        "request_id": "\u003caudit_logs-request_id-1\u003e",
+        "route": "/api/plugin/task/marketplace/sources",
+        "status": 200,
+        "success": 0,
+        "token_ref": "",
+        "user_agent": "",
+        "user_id": 3,
+        "username": "contract-root"
+      }
+    ],
+    "bindings": [
+      {
+        "id": 71,
+        "models": "contract-video",
+        "other_info": "",
+        "setting": "{\"task_plugin_key\":\"contract-plugin\"}",
+        "status": 1,
+        "type": 61
+      }
+    ],
+    "channels": [
+      {
+        "id": 71,
+        "status": 1,
+        "type": 61,
+        "used_quota": 0
+      }
+    ],
+    "ledger": [],
+    "logs": [],
+    "main_logs": [],
+    "midjourneys": [],
+    "options": [],
+    "plugins": [
+      {
+        "active": 1,
+        "api_version": 1,
+        "created_at": 946684800,
+        "enabled": 1,
+        "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=",
+        "id": 1,
+        "key": "contract-plugin",
+        "remark": "fixture",
+        "source": "\nexport const meta = {apiVersion:1,key:\"contract-plugin\",name:\"Contract plugin\",version:\"1.0.0\",author:{name:\"Test\"},\nmodels:[\"contract-video\"],baseUrl:\"https://plugins.invalid\",fetchMode:\"per_task\",sortPriority:100,\nroutes:[{method:\"POST\",path:\"/wave5c/submit\",type:\"submit\",decode:\"decode\",render:\"created\"},\n{method:\"GET\",path:\"/wave5c/query/:task_id\",type:\"query\",render:\"query\"},\n{method:\"POST\",path:\"/wave5c/query\",type:\"dynamic\",decode:\"batch\",render:\"queries\"}],\nprotocols:[{name:\"openai_responses\",supports:[\"stream\",\"sync\",\"background\"]},\"openai_video\"]};\nexport function buildSubmitRequest(ctx){return {url:ctx.baseUrl+\"/submit\",method:\"POST\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey,\"Content-Type\":\"application/json\"},body:ctx.requestBody};}\nexport function parseSubmitResponse(ctx,resp){return {taskId:resp.body.id,taskData:resp.body};}\nexport function buildQueryRequest(ctx){return {url:ctx.baseUrl+\"/poll/\"+ctx.taskId,method:\"GET\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey}};}\nexport function parseTaskResult(ctx,body){return {status:body.status||\"IN_PROGRESS\",progress:\"50%\"};}\nexport function listArtifacts(){return [];}\nexport function buildContentRequest(){throw new Error(\"artifact_not_found\");}\nexport const native={decode:function(ctx){let b=ctx.body.value;return {kind:\"submit\",model:b.model,\naction:\"text_to_video\",requestBody:b,originTaskIds:b.origins||[]};},\nbatch:function(ctx){return {kind:\"query\",taskIds:ctx.body.value.ids};},\ncreated:function(ctx,task){return {task:task};},query:function(ctx,task){return task;},\nqueries:function(ctx,tasks){return tasks;},error:function(ctx,error){return {error:error};}};\nexport const protocols={openai_responses:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,\nrequestBody:ctx.body.value,action:\"text_to_video\"};},renderFinal:function(){return {output:[]};},\nrenderEvents:function(ctx,task){return {events:[],done:task.status===\"SUCCESS\"};}},\nopenai_video:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,requestBody:ctx.body.value};},\nrender:function(ctx,task){return {id:task.task_id,object:\"video\",status:task.status};}}};\nexport function echo(value){return value;}\n",
+        "source_hash": "e9c13e5adcef27f3b5549c770202b285842c418d45f8dd5cb52d01715638db19",
+        "version": "1.0.0"
+      },
+      {
+        "active": 0,
+        "api_version": 1,
+        "created_at": 946684800,
+        "enabled": 1,
+        "icon": "",
+        "id": 2,
+        "key": "contract-plugin",
+        "remark": "fixture",
+        "source": "\nexport const meta = {apiVersion:1,key:\"contract-plugin\",name:\"Contract plugin\",version:\"2.0.0\",author:{name:\"Test\"},\nmodels:[\"contract-video\"],baseUrl:\"https://plugins.invalid\",fetchMode:\"per_task\",sortPriority:100,\nroutes:[{method:\"POST\",path:\"/wave5c/submit\",type:\"submit\",decode:\"decode\",render:\"created\"},\n{method:\"GET\",path:\"/wave5c/query/:task_id\",type:\"query\",render:\"query\"},\n{method:\"POST\",path:\"/wave5c/query\",type:\"dynamic\",decode:\"batch\",render:\"queries\"}],\nprotocols:[{name:\"openai_responses\",supports:[\"stream\",\"sync\",\"background\"]},\"openai_video\"]};\nexport function buildSubmitRequest(ctx){return {url:ctx.baseUrl+\"/submit\",method:\"POST\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey,\"Content-Type\":\"application/json\"},body:ctx.requestBody};}\nexport function parseSubmitResponse(ctx,resp){return {taskId:resp.body.id,taskData:resp.body};}\nexport function buildQueryRequest(ctx){return {url:ctx.baseUrl+\"/poll/\"+ctx.taskId,method:\"GET\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey}};}\nexport function parseTaskResult(ctx,body){return {status:body.status||\"IN_PROGRESS\",progress:\"50%\"};}\nexport function listArtifacts(){return [];}\nexport function buildContentRequest(){throw new Error(\"artifact_not_found\");}\nexport const native={decode:function(ctx){let b=ctx.body.value;return {kind:\"submit\",model:b.model,\naction:\"text_to_video\",requestBody:b,originTaskIds:b.origins||[]};},\nbatch:function(ctx){return {kind:\"query\",taskIds:ctx.body.value.ids};},\ncreated:function(ctx,task){return {task:task};},query:function(ctx,task){return task;},\nqueries:function(ctx,tasks){return tasks;},error:function(ctx,error){return {error:error};}};\nexport const protocols={openai_responses:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,\nrequestBody:ctx.body.value,action:\"text_to_video\"};},renderFinal:function(){return {output:[]};},\nrenderEvents:function(ctx,task){return {events:[],done:task.status===\"SUCCESS\"};}},\nopenai_video:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,requestBody:ctx.body.value};},\nrender:function(ctx,task){return {id:task.task_id,object:\"video\",status:task.status};}}};\nexport function echo(value){return value;}\n",
+        "source_hash": "c6bfaa9aae74781ffeafc85546621290acfe060a447ef53674d38bc0c32ea6ea",
+        "version": "2.0.0"
+      }
+    ],
+    "sessions": [
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 1,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 2,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 3,
+        "version": 1
+      }
+    ],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "tasks": [
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 300,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_one",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 301,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_two",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 302,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_foreign",
+        "updated_at": 946684800,
+        "user_id": 2
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 303,
+        "platform": "other",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_wrong",
+        "updated_at": 946684800,
+        "user_id": 1
+      }
+    ],
+    "tokens": [
+      {
+        "id": 101,
+        "remain_quota": 1000000,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 0,
+        "user_id": 1
+      },
+      {
+        "id": 102,
+        "remain_quota": 1000000,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 0,
+        "user_id": 2
+      }
+    ],
+    "top_ups": [],
+    "users": [
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 1,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "{\"billing_preference\":\"wallet_only\",\"language\":\"zh-CN\"}",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-user"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 2,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-admin"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 3,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-root"
+      }
+    ]
+  },
+  "before": {
+    "abilities": [
+      {
+        "channel_id": 71,
+        "enabled": 1,
+        "group": "default",
+        "model": "contract-video",
+        "priority": 0,
+        "tag": null,
+        "weight": 0
+      }
+    ],
+    "audit": [],
+    "bindings": [
+      {
+        "id": 71,
+        "models": "contract-video",
+        "other_info": "",
+        "setting": "{\"task_plugin_key\":\"contract-plugin\"}",
+        "status": 1,
+        "type": 61
+      }
+    ],
+    "channels": [
+      {
+        "id": 71,
+        "status": 1,
+        "type": 61,
+        "used_quota": 0
+      }
+    ],
+    "ledger": [],
+    "logs": [],
+    "main_logs": [],
+    "midjourneys": [],
+    "options": [],
+    "plugins": [
+      {
+        "active": 1,
+        "api_version": 1,
+        "created_at": 946684800,
+        "enabled": 1,
+        "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=",
+        "id": 1,
+        "key": "contract-plugin",
+        "remark": "fixture",
+        "source": "\nexport const meta = {apiVersion:1,key:\"contract-plugin\",name:\"Contract plugin\",version:\"1.0.0\",author:{name:\"Test\"},\nmodels:[\"contract-video\"],baseUrl:\"https://plugins.invalid\",fetchMode:\"per_task\",sortPriority:100,\nroutes:[{method:\"POST\",path:\"/wave5c/submit\",type:\"submit\",decode:\"decode\",render:\"created\"},\n{method:\"GET\",path:\"/wave5c/query/:task_id\",type:\"query\",render:\"query\"},\n{method:\"POST\",path:\"/wave5c/query\",type:\"dynamic\",decode:\"batch\",render:\"queries\"}],\nprotocols:[{name:\"openai_responses\",supports:[\"stream\",\"sync\",\"background\"]},\"openai_video\"]};\nexport function buildSubmitRequest(ctx){return {url:ctx.baseUrl+\"/submit\",method:\"POST\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey,\"Content-Type\":\"application/json\"},body:ctx.requestBody};}\nexport function parseSubmitResponse(ctx,resp){return {taskId:resp.body.id,taskData:resp.body};}\nexport function buildQueryRequest(ctx){return {url:ctx.baseUrl+\"/poll/\"+ctx.taskId,method:\"GET\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey}};}\nexport function parseTaskResult(ctx,body){return {status:body.status||\"IN_PROGRESS\",progress:\"50%\"};}\nexport function listArtifacts(){return [];}\nexport function buildContentRequest(){throw new Error(\"artifact_not_found\");}\nexport const native={decode:function(ctx){let b=ctx.body.value;return {kind:\"submit\",model:b.model,\naction:\"text_to_video\",requestBody:b,originTaskIds:b.origins||[]};},\nbatch:function(ctx){return {kind:\"query\",taskIds:ctx.body.value.ids};},\ncreated:function(ctx,task){return {task:task};},query:function(ctx,task){return task;},\nqueries:function(ctx,tasks){return tasks;},error:function(ctx,error){return {error:error};}};\nexport const protocols={openai_responses:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,\nrequestBody:ctx.body.value,action:\"text_to_video\"};},renderFinal:function(){return {output:[]};},\nrenderEvents:function(ctx,task){return {events:[],done:task.status===\"SUCCESS\"};}},\nopenai_video:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,requestBody:ctx.body.value};},\nrender:function(ctx,task){return {id:task.task_id,object:\"video\",status:task.status};}}};\nexport function echo(value){return value;}\n",
+        "source_hash": "e9c13e5adcef27f3b5549c770202b285842c418d45f8dd5cb52d01715638db19",
+        "version": "1.0.0"
+      },
+      {
+        "active": 0,
+        "api_version": 1,
+        "created_at": 946684800,
+        "enabled": 1,
+        "icon": "",
+        "id": 2,
+        "key": "contract-plugin",
+        "remark": "fixture",
+        "source": "\nexport const meta = {apiVersion:1,key:\"contract-plugin\",name:\"Contract plugin\",version:\"2.0.0\",author:{name:\"Test\"},\nmodels:[\"contract-video\"],baseUrl:\"https://plugins.invalid\",fetchMode:\"per_task\",sortPriority:100,\nroutes:[{method:\"POST\",path:\"/wave5c/submit\",type:\"submit\",decode:\"decode\",render:\"created\"},\n{method:\"GET\",path:\"/wave5c/query/:task_id\",type:\"query\",render:\"query\"},\n{method:\"POST\",path:\"/wave5c/query\",type:\"dynamic\",decode:\"batch\",render:\"queries\"}],\nprotocols:[{name:\"openai_responses\",supports:[\"stream\",\"sync\",\"background\"]},\"openai_video\"]};\nexport function buildSubmitRequest(ctx){return {url:ctx.baseUrl+\"/submit\",method:\"POST\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey,\"Content-Type\":\"application/json\"},body:ctx.requestBody};}\nexport function parseSubmitResponse(ctx,resp){return {taskId:resp.body.id,taskData:resp.body};}\nexport function buildQueryRequest(ctx){return {url:ctx.baseUrl+\"/poll/\"+ctx.taskId,method:\"GET\",\nheaders:{Authorization:\"Bearer \"+ctx.apiKey}};}\nexport function parseTaskResult(ctx,body){return {status:body.status||\"IN_PROGRESS\",progress:\"50%\"};}\nexport function listArtifacts(){return [];}\nexport function buildContentRequest(){throw new Error(\"artifact_not_found\");}\nexport const native={decode:function(ctx){let b=ctx.body.value;return {kind:\"submit\",model:b.model,\naction:\"text_to_video\",requestBody:b,originTaskIds:b.origins||[]};},\nbatch:function(ctx){return {kind:\"query\",taskIds:ctx.body.value.ids};},\ncreated:function(ctx,task){return {task:task};},query:function(ctx,task){return task;},\nqueries:function(ctx,tasks){return tasks;},error:function(ctx,error){return {error:error};}};\nexport const protocols={openai_responses:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,\nrequestBody:ctx.body.value,action:\"text_to_video\"};},renderFinal:function(){return {output:[]};},\nrenderEvents:function(ctx,task){return {events:[],done:task.status===\"SUCCESS\"};}},\nopenai_video:{decodeRequest:function(ctx){return {kind:\"submit\",model:ctx.model,requestBody:ctx.body.value};},\nrender:function(ctx,task){return {id:task.task_id,object:\"video\",status:task.status};}}};\nexport function echo(value){return value;}\n",
+        "source_hash": "c6bfaa9aae74781ffeafc85546621290acfe060a447ef53674d38bc0c32ea6ea",
+        "version": "2.0.0"
+      }
+    ],
+    "sessions": [
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 1,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 2,
+        "version": 1
+      },
+      {
+        "revoked_at": 0,
+        "revoked_reason": "",
+        "status": "active",
+        "user_auth_version": 1,
+        "user_id": 3,
+        "version": 1
+      }
+    ],
+    "subscription_orders": [],
+    "subscriptions": [],
+    "tasks": [
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 300,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_one",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 301,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_two",
+        "updated_at": 946684800,
+        "user_id": 1
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 302,
+        "platform": "contract-plugin",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_foreign",
+        "updated_at": 946684800,
+        "user_id": 2
+      },
+      {
+        "action": "",
+        "channel_id": 71,
+        "created_at": 946684800,
+        "data": "{\"id\":\"private-seed\",\"task_id\":\"private-seed\"}",
+        "fail_reason": "",
+        "finish_time": 0,
+        "group": "",
+        "id": 303,
+        "platform": "other",
+        "private_data": "{\"upstream_task_id\":\"private-seed\"}",
+        "progress": "",
+        "properties": "{\"input\":\"\",\"origin_model_name\":\"contract-video\"}",
+        "quota": 0,
+        "start_time": 0,
+        "status": "SUCCESS",
+        "submit_time": 0,
+        "task_id": "task_seed_wrong",
+        "updated_at": 946684800,
+        "user_id": 1
+      }
+    ],
+    "tokens": [
+      {
+        "id": 101,
+        "remain_quota": 1000000,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 0,
+        "user_id": 1
+      },
+      {
+        "id": 102,
+        "remain_quota": 1000000,
+        "status": 1,
+        "unlimited_quota": 0,
+        "used_quota": 0,
+        "user_id": 2
+      }
+    ],
+    "top_ups": [],
+    "users": [
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 1,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "{\"billing_preference\":\"wallet_only\",\"language\":\"zh-CN\"}",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-user"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 2,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-admin"
+      },
+      {
+        "auth_version": 1,
+        "email": "",
+        "group": "default",
+        "id": 3,
+        "quota": 1000000,
+        "request_count": 0,
+        "setting": "",
+        "status": 1,
+        "stripe_customer": "",
+        "used_quota": 0,
+        "username": "contract-root"
+      }
+    ]
+  },
+  "observations": [
+    {
+      "body": "{\"message\":\"unexpected EOF\",\"success\":false}",
+      "flushed": false,
+      "headers": {
+        "Auth-Version": [
+          "864b7076dbcd0a3c01b5520316720ebf"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ],
+        "X-Oneapi-Request-Id": [
+          "\u003caudit_logs-request_id-1\u003e"
+        ]
+      },
+      "status": 200
+    }
+  ],
+  "outgoing": []
+}
