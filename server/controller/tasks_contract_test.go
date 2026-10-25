@@ -24,7 +24,9 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/internal/adapter/http/taskmedia"
+	systemcore "github.com/QuantumNous/new-api/internal/app/system"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	systemdomain "github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	tasktransport "github.com/QuantumNous/new-api/internal/tasks/transport"
 	"github.com/QuantumNous/new-api/logger"
@@ -286,10 +288,17 @@ func runTaskScheduleContract(t *testing.T, name string, updating bool) {
 		db := fixture.Open(t)
 		parts := strings.Split(name, "_")
 		family, variant := parts[1], strings.Join(parts[2:], "_")
-		var handler service.ScheduledSystemTaskHandler = asyncTaskPollHandler{}
+		var handler systemdomain.ScheduledSystemTaskHandler
+		kind := "async_task_poll"
 		if family == "mj" {
-			handler = midjourneyPollHandler{}
+			kind = "midjourney_poll"
 		}
+		for _, h := range scheduledTaskHandlers() {
+			if h.Type() == kind {
+				handler = h.(systemdomain.ScheduledSystemTaskHandler)
+			}
+		}
+		require.NotNil(t, handler)
 		constant.UpdateTask = true
 		require.False(t, handler.Enabled())
 		require.Empty(t, fixture.Rows(t, db, "system_tasks", "*", "id"))
@@ -319,7 +328,9 @@ func runTaskScheduleContract(t *testing.T, name string, updating bool) {
 			cancel()
 			ctx = cancelled
 		}
-		handler.Run(ctx, task, task.LockedBy)
+		claimed, e := systemcore.Default().Store.GetSystemTaskByTaskID(task.TaskID)
+		require.NoError(t, e)
+		handler.Run(ctx, claimed, task.LockedBy)
 		var saved model.SystemTask
 		require.NoError(t, db.First(&saved, 1).Error)
 		expected := model.SystemTaskStatusSucceeded

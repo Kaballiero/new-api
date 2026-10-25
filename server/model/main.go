@@ -2,11 +2,9 @@ package model
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -16,7 +14,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 )
 
 var commonGroupCol string
@@ -68,33 +65,6 @@ func createRootAccountIfNeed() error {
 		DB.Create(&rootUser)
 	}
 	return nil
-}
-
-func CheckSetup() {
-	setup := GetSetup()
-	if setup == nil {
-		// No setup record exists, check if we have a root user
-		if RootUserExists() {
-			common.SysLog("system is not initialized, but root user exists")
-			// Create setup record
-			newSetup := Setup{
-				Version:       common.Version,
-				InitializedAt: time.Now().Unix(),
-			}
-			err := DB.Create(&newSetup).Error
-			if err != nil {
-				common.SysLog("failed to create setup record: " + err.Error())
-			}
-			constant.Setup = true
-		} else {
-			common.SysLog("system is not initialized and no root user exists")
-			constant.Setup = false
-		}
-	} else {
-		// Setup record exists, system is initialized
-		common.SysLog("system is already initialized at: " + time.Unix(setup.InitializedAt, 0).String())
-		constant.Setup = true
-	}
 }
 
 func isClickHouseDSN(dsn string) bool {
@@ -788,35 +758,5 @@ func checkMySQLChineseSupport(db *gorm.DB) error {
 			maxShow, shown, maxShow, shown,
 		)
 	}
-	return nil
-}
-
-var (
-	lastPingTime time.Time
-	pingMutex    sync.Mutex
-)
-
-func PingDB() error {
-	pingMutex.Lock()
-	defer pingMutex.Unlock()
-
-	if time.Since(lastPingTime) < time.Second*10 {
-		return nil
-	}
-
-	sqlDB, err := DB.DB()
-	if err != nil {
-		log.Printf("Error getting sql.DB from GORM: %v", err)
-		return err
-	}
-
-	err = sqlDB.Ping()
-	if err != nil {
-		log.Printf("Error pinging DB: %v", err)
-		return err
-	}
-
-	lastPingTime = time.Now()
-	common.SysLog("Database pinged successfully")
 	return nil
 }

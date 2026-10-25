@@ -2,11 +2,14 @@ package batchtickfixture
 
 import (
 	"github.com/QuantumNous/new-api/controller"
+	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
 	account "github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
 	core "github.com/QuantumNous/new-api/internal/app/batch"
 	runtime "github.com/QuantumNous/new-api/internal/app/batchruntime"
+	. "github.com/QuantumNous/new-api/internal/app/system"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
-	. "github.com/QuantumNous/new-api/service"
+	. "github.com/QuantumNous/new-api/internal/system/domain"
+	"github.com/QuantumNous/new-api/service"
 
 	"context"
 	"errors"
@@ -191,12 +194,12 @@ func (h harness) runBatchTickContract(t *testing.T, tc Case, updating bool) {
 	taskfixture.Open(t)
 	fixture.SplitLogs(t)
 	fixture.Migrate(t)
-	ginClient := GetHttpClient()
+	ginClient := service.GetHttpClient()
 	if ginClient == nil {
-		InitHttpClient()
+		service.InitHttpClient()
 	}
 	provider := fixture.NewProvider(t, tc.Family, tc.Variant)
-	client := GetHttpClient()
+	client := service.GetHttpClient()
 	previous := client.Transport
 	client.Transport = &provider.Transport
 	t.Cleanup(func() { client.Transport = previous })
@@ -604,9 +607,9 @@ func (h harness) runBatchDurable(t *testing.T, tc Case, job *model.BatchJob, sta
 		constant.UpdateTask = tc.Variant != "scheduler_off"
 		require.Equal(t, constant.UpdateTask, handler.Enabled())
 		if tc.Variant == "handler_history" || tc.Variant == "handler_cancelled" {
-			task, err := model.CreateSystemTask(handler.Type(), nil, nil)
+			task, err := systemStoreHarness.CreateSystemTask(handler.Type(), nil, nil)
 			require.NoError(t, err)
-			claimed, won, err := model.ClaimSystemTask(task.ID, handler.Type(), "contract-worker", taskfixture.Epoch+60)
+			claimed, won, err := systemStoreHarness.ClaimSystemTask(task.ID, handler.Type(), "contract-worker", taskfixture.Epoch+60)
 			require.NoError(t, err)
 			require.True(t, won)
 			ctx := context.Background()
@@ -648,3 +651,5 @@ func (h harness) runBatchDurable(t *testing.T, tc Case, job *model.BatchJob, sta
 }
 
 var _ http.RoundTripper = (*fixture.Transport)(nil)
+
+var systemStoreHarness = systemstorage.Store{DB: func() *gorm.DB { return model.DB }}

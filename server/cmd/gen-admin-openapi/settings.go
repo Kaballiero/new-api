@@ -48,6 +48,9 @@ func parseSettingsHandlers() error {
 		properties := schema["properties"].(map[string]any)
 		// This late gateway callback retains the previously inferred concrete return shape.
 		properties["billing_fx"] = refOrPrimitive("BillingFXStatus")
+		properties["version"] = map[string]any{"type": "string"}
+		properties["start_time"] = map[string]any{"type": "integer"}
+		properties["setup"] = map[string]any{"type": "boolean"}
 		handlers["GetStatus"] = &HandlerInfo{Name: "GetStatus", RespStatus: 200, RespSchema: map[string]any{
 			"type": "object", "properties": map[string]any{
 				"success": map[string]any{"type": "boolean"}, "message": map[string]any{"type": "string"}, "data": schema,

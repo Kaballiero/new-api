@@ -26,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/i18n"
+	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	appusage "github.com/QuantumNous/new-api/internal/app/usage"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
@@ -982,16 +983,16 @@ func runLogCleanup(t *testing.T) {
 	env := newReadEnvironment(t)
 	ctx := context.Background()
 	cutoff := readStart + 1
-	before, err := model.CountOldLog(ctx, cutoff)
+	before, err := (usagecleanup.Cleanup{DB: func() *gorm.DB { return model.LOG_DB }}).CountOldLog(ctx, cutoff)
 	require.NoError(t, err)
-	deleted, err := model.DeleteOldLogBatch(ctx, cutoff, 2)
+	deleted, err := (usagecleanup.Cleanup{DB: func() *gorm.DB { return model.LOG_DB }}).DeleteOldLogBatch(ctx, cutoff, 2)
 	require.NoError(t, err)
-	after, err := model.CountOldLog(ctx, cutoff)
+	after, err := (usagecleanup.Cleanup{DB: func() *gorm.DB { return model.LOG_DB }}).CountOldLog(ctx, cutoff)
 	require.NoError(t, err)
 	assert.Equal(t, before-deleted, after)
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
-	_, err = model.DeleteOldLogBatch(cancelled, cutoff, 2)
+	_, err = (usagecleanup.Cleanup{DB: func() *gorm.DB { return model.LOG_DB }}).DeleteOldLogBatch(cancelled, cutoff, 2)
 	require.ErrorIs(t, err, context.Canceled)
 	var mainCount int64
 	require.NoError(t, env.DB.Model(&model.Log{}).Count(&mainCount).Error)

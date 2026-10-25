@@ -8,13 +8,14 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	"github.com/QuantumNous/new-api/internal/app"
+	systemcore "github.com/QuantumNous/new-api/internal/app/system"
 	"github.com/QuantumNous/new-api/internal/channels/detect_all_upstream_model_updates"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/channels/list_channel_models"
 	"github.com/QuantumNous/new-api/internal/channels/test_channels"
+	"github.com/QuantumNous/new-api/internal/system/enqueue_system_task"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -23,13 +24,15 @@ var channelsHTTP = sync.OnceValue(func() app.ChannelsHTTP { return app.NewChanne
 
 func channelEffects() app.ChannelEffects {
 	return app.ChannelEffects{ModelUpdateThrottle: shouldSendUpstreamModelUpdateNotification, EnqueueModelUpdate: func() (detect_all_upstream_model_updates.Task, bool, error) {
-		task, created, err := service.EnqueueSystemTask(model.SystemTaskTypeModelUpdate, modelUpdateTaskPayload{Manual: true})
+		queued, err := systemcore.Default().Enqueue.Execute(enqueue_system_task.Input{Type: model.SystemTaskTypeModelUpdate, Payload: map[string]bool{"manual": true}})
+		task, created := queued.Task, queued.Created
 		if task == nil {
 			return detect_all_upstream_model_updates.Task{}, created, err
 		}
 		return detect_all_upstream_model_updates.Task{ID: task.TaskID, Status: string(task.Status), Type: task.Type}, created, err
 	}, FetchModels: func(channel *model.Channel) ([]string, error) { return fetchChannelUpstreamModelIDsFn(channel) }, RefreshRuntime: refreshChannelRuntimeCache, AutomaticStream: shouldUseStreamForAutomaticChannelTest, EnqueueTest: func() (test_channels.Task, bool, error) {
-		task, created, err := service.EnqueueSystemTask(model.SystemTaskTypeChannelTest, channelTestTaskPayload{Mode: operation_setting.ChannelTestModeScheduledAll, Notify: true})
+		queued, err := systemcore.Default().Enqueue.Execute(enqueue_system_task.Input{Type: model.SystemTaskTypeChannelTest, Payload: map[string]any{"mode": operation_setting.ChannelTestModeScheduledAll, "notify": true}})
+		task, created := queued.Task, queued.Created
 		if task == nil {
 			return test_channels.Task{}, created, err
 		}

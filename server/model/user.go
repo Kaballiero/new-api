@@ -800,15 +800,6 @@ func (user *User) FillUserByLinuxDOId() error {
 	return err
 }
 
-func RootUserExists() bool {
-	var user User
-	err := DB.Where("role = ?", common.RoleRootUser).First(&user).Error
-	if err != nil {
-		return false
-	}
-	return true
-}
-
 func GetUserRolesByIds(ids []int) (map[int]int, error) { return NewAccountGroupStore().RolesByIDs(ids) }
 func BatchUpdateUserGroup(ids []int, group string) (int64, error) {
 	return NewAccountGroupStore().UpdateGroup(ids, group)

@@ -21,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/controller"
 	auditstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/audit"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/audittest"
+	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
@@ -673,7 +674,7 @@ func TestIndependentAuditLogStores(t *testing.T) {
 				require.NotNil(t, status.LastUsedAt)
 				assert.Equal(t, "192.0.2.8", status.LastUsedIp)
 				model.RecordLog(1, model.LogTypeTopup, "independent business")
-				_, err = model.DeleteOldLogBatch(context.Background(), time.Now().Unix()+1, 100)
+				_, err = (usagecleanup.Cleanup{DB: func() *gorm.DB { return model.LOG_DB }}).DeleteOldLogBatch(context.Background(), time.Now().Unix()+1, 100)
 				require.NoError(t, err)
 				_, total, err = readAuditEvents(auditFilter{UserId: 1}, 0, 20, 1)
 				require.NoError(t, err)

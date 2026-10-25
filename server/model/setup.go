@@ -1,16 +1,6 @@
 package model
 
-type Setup struct {
-	ID            uint   `json:"id" gorm:"primaryKey"`
-	Version       string `json:"version" gorm:"type:varchar(50);not null"`
-	InitializedAt int64  `json:"initialized_at" gorm:"type:bigint;not null"`
-}
+import "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 
-func GetSetup() *Setup {
-	var setup Setup
-	err := DB.First(&setup).Error
-	if err != nil {
-		return nil
-	}
-	return &setup
-}
+// BRIDGE: model migrations and legacy record consumers; remove when they use the system record directly.
+type Setup = record.Setup

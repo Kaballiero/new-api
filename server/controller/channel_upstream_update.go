@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/app"
@@ -13,7 +12,6 @@ import (
 )
 
 const (
-	channelUpstreamModelUpdateTaskDefaultIntervalMinutes  = 30
 	channelUpstreamModelUpdateTaskBatchSize               = 100
 	channelUpstreamModelUpdateMinCheckIntervalSeconds     = 300
 	channelUpstreamModelUpdateNotifySuppressWindowSeconds = 86400
@@ -116,9 +114,6 @@ func shouldSendUpstreamModelUpdateNotification(now int64, changedChannels int, f
 func buildUpstreamModelUpdateTaskNotificationContent(lang string, checked, changed, added, removed, auto int, failed []int, summaries []upstreamModelUpdateChannelSummary, addSamples, removeSamples []string) string {
 	_, content := channeladapter.ModelUpdateNotification(lang, domain.ModelUpdateReport{CheckedChannels: checked, ChangedChannels: changed, DetectedAddModels: added, DetectedRemoveModels: removed, AutoAddedModels: auto, FailedChannelIDs: failed, Channels: summaries, AddModelSamples: addSamples, RemoveModelSamples: removeSamples})
 	return content
-}
-func runChannelUpstreamModelUpdateTaskOnce(ctx context.Context, force, auto bool, report func(int, int)) upstreamModelUpdateSummary {
-	return app.NewScanChannelModelsUsecase(channelEffects()).Execute(ctx, force, auto, report)
 }
 func ApplyChannelUpstreamModelUpdates(c *gin.Context) {
 	channelsHTTP().ApplyUpstreamModels.Handle(c)

@@ -2,15 +2,12 @@ package controller
 
 import (
 	"context"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	upstream "github.com/QuantumNous/new-api/internal/adapter/pricing/upstream"
 	"github.com/QuantumNous/new-api/internal/app"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
 	"github.com/QuantumNous/new-api/model"
-
-	"time"
 )
 
 const pricingCatalogWorkers = 5
@@ -23,28 +20,6 @@ func refreshChannelPricingCache() {
 }
 func enqueuePricingCatalogRefresh() { app.NewEnqueuePricingCatalogueRefresh().Execute() }
 
-func (pricingCatalogHandler) Type() string { return model.SystemTaskTypePricingCatalog }
-func (pricingCatalogHandler) Enabled() bool {
-	return common.GetEnvOrDefaultBool("PRICING_CATALOG_TASK_ENABLED", true)
-}
-func (pricingCatalogHandler) Interval() time.Duration {
-	minutes := common.GetEnvOrDefault("PRICING_CATALOG_TASK_INTERVAL_MINUTES", 30)
-	if minutes < 1 {
-		minutes = 30
-	}
-	return time.Duration(minutes) * time.Minute
-}
-func (pricingCatalogHandler) NewPayload() any { return nil }
-func (pricingCatalogHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
-	summary, err := refreshPricingCatalog(ctx)
-	status := model.SystemTaskStatusSucceeded
-	if err != nil {
-		status = model.SystemTaskStatusFailed
-	}
-	finishSystemTaskHandler(task, runnerID, status, summary, err)
-}
-
-type pricingCatalogHandler struct{}
 type pricingCatalogSource struct {
 	channel     *model.Channel
 	upstream    string
@@ -79,9 +54,6 @@ func pricingCatalogSources(ctx context.Context) ([]pricingCatalogSource, error) 
 		out[i] = pricingLegacySource(v)
 	}
 	return out, err
-}
-func refreshPricingCatalog(ctx context.Context) (pricingCatalogRefreshSummary, error) {
-	return app.NewRefreshPricingCatalogue().Execute(ctx)
 }
 func refreshPricingCatalogSources(ctx context.Context, sources []pricingCatalogSource, fetch func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error), publish func([]model.PricingCatalogEntry) (int, error)) (pricingCatalogRefreshSummary, error) {
 	var rows []refresh_catalogue.Source

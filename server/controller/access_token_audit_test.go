@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	auditstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/audit"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/audittest"
+	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
@@ -138,7 +139,7 @@ func TestSecurityAndOperationEventsUseAuditTable(t *testing.T) {
 	var logs []model.Log
 	require.NoError(t, model.LOG_DB.Find(&logs).Error)
 	assert.Len(t, logs, 4)
-	_, err := model.DeleteOldLogBatch(context.Background(), time.Now().Unix()+1, 100)
+	_, err := (usagecleanup.Cleanup{DB: func() *gorm.DB { return model.LOG_DB }}).DeleteOldLogBatch(context.Background(), time.Now().Unix()+1, 100)
 	require.NoError(t, err)
 	var count int64
 	require.NoError(t, model.LOG_DB.Model(&model.AuditLog{}).Count(&count).Error)

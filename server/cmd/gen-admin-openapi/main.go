@@ -183,6 +183,9 @@ func bootstrap() error {
 	if err := parseSettingsHandlers(); err != nil {
 		return err
 	}
+	if err := parseSystemHandlers(); err != nil {
+		return err
+	}
 	if err := parseRoutes("./router"); err != nil {
 		return fmt.Errorf("parse routes: %w", err)
 	}

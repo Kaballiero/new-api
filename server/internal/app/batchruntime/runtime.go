@@ -2,6 +2,7 @@ package batchruntime
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -10,6 +11,7 @@ import (
 	math "github.com/QuantumNous/new-api/internal/adapter/billing"
 	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
 	core "github.com/QuantumNous/new-api/internal/app/batch"
+	systemcore "github.com/QuantumNous/new-api/internal/app/system"
 	"github.com/QuantumNous/new-api/internal/batch/cancel_batch"
 	"github.com/QuantumNous/new-api/internal/batch/confirm_batch_purchase"
 	"github.com/QuantumNous/new-api/internal/batch/create_batch"
@@ -21,7 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/batch/poll_batches"
 	"github.com/QuantumNous/new-api/internal/batch/prepare_batch"
 	"github.com/QuantumNous/new-api/internal/batch/recover_batch_identity"
-	"github.com/QuantumNous/new-api/model"
+	systemdomain "github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
@@ -43,6 +45,8 @@ type Runtime struct {
 	Delete   delete_batch.Handler
 	Purchase confirm_batch_purchase.Handler
 }
+
+var Default = sync.OnceValue(New)
 
 func New() Runtime {
 	store := core.NewStore()
@@ -71,12 +75,12 @@ func (SystemHandler) Type() string                             { return "provide
 func (SystemHandler) Enabled() bool                            { return constant.UpdateTask }
 func (SystemHandler) Interval() time.Duration                  { return 15 * time.Second }
 func (SystemHandler) NewPayload() any                          { return nil }
-func (h SystemHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+func (h SystemHandler) Run(ctx context.Context, task *systemdomain.SystemTask, runnerID string) {
 	if err := h.poll.Execute(ctx, runnerID); err != nil {
-		service.FailSystemTask(task, runnerID, err)
+		systemcore.FailSystemTask(task, runnerID, err)
 		return
 	}
-	if err := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, nil, ""); err != nil {
+	if err := systemcore.Default().Store.FinishSystemTask(task.TaskID, runnerID, systemdomain.SystemTaskStatusSucceeded, nil, ""); err != nil {
 		common.SysError("failed to finish Batch poll: " + err.Error())
 	}
 }

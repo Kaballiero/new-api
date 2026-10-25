@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
 	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
@@ -454,7 +455,7 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
 
-	existing, err := model.CreateSystemTask(model.SystemTaskTypeChannelTest, nil, nil)
+	existing, err := systemStoreChannelTestInternalTest.CreateSystemTask(model.SystemTaskTypeChannelTest, nil, nil)
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
@@ -795,3 +796,5 @@ func TestChannelsStorageUpgradeCompatibility(t *testing.T) {
 		return err
 	}))
 }
+
+var systemStoreChannelTestInternalTest = systemstorage.Store{DB: func() *gorm.DB { return model.DB }}

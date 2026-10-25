@@ -7,4 +7,3 @@ import (
 )
 
 func TestMain(m *testing.M) { taskfixture.Main(m) }
-func truncate(t *testing.T) { taskfixture.Truncate(t) }

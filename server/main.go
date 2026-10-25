@@ -22,6 +22,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/app"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
+	systemcore "github.com/QuantumNous/new-api/internal/app/system"
+	systemruntime "github.com/QuantumNous/new-api/internal/app/systemruntime"
 	taskpluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	usageapp "github.com/QuantumNous/new-api/internal/app/usage"
 	"github.com/QuantumNous/new-api/logger"
@@ -142,7 +144,7 @@ func main() {
 
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.
-	service.StartSystemInstanceReporter()
+	systemruntime.StartSystemInstanceReporter()
 
 	// Register the periodic channel test, upstream model update, provider_batch_poll, and async task
 	// polling (Midjourney / Suno / video) jobs as scheduled system tasks
@@ -151,7 +153,7 @@ func main() {
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
 	service.StartModelCostFX()
-	service.StartSystemTaskRunner()
+	systemcore.StartSystemTaskRunner()
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
@@ -323,7 +325,7 @@ func InitResources() error {
 		}
 	}
 
-	model.CheckSetup()
+	systemruntime.CheckSetup()
 
 	// Initialize options, should after model.InitDB()
 	if common.IsMasterNode {

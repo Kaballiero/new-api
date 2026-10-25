@@ -1,5 +1,5 @@
-// Package contract characterizes system HTTP, storage and public runtime effects before migration.
-package contract
+// System HTTP contracts characterize storage and public runtime effects.
+package systemruntime_test
 
 import (
 	"encoding/base64"
@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	"github.com/QuantumNous/new-api/internal/app/systemruntime"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	sf "github.com/QuantumNous/new-api/internal/contracttest/systemfixture"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
@@ -137,7 +138,7 @@ func TestSystemHTTPContract(t *testing.T) {
 		names[i] = tc.Name
 		byName[tc.Name] = tc
 	}
-	sf.Run(t, "TestSystemHTTPContract", "http", "testdata/golden", names, func(t *testing.T, name string) any { return runSystem(t, byName[name]) })
+	sf.Run(t, "TestSystemHTTPContract", "http", "../../system/contract/testdata/golden", names, func(t *testing.T, name string) any { return runSystem(t, byName[name]) })
 }
 
 type uptimeTransport struct {
@@ -420,7 +421,7 @@ func setupCase(t *testing.T, tc systemCase, request func(string, string, string)
 		if tc.Variant == "startup_create_fault" {
 			createFault(t, "setups")
 		}
-		model.CheckSetup()
+		systemruntime.CheckSetup()
 		request("GET", "/api/setup", "")
 		return
 	}
@@ -622,10 +623,10 @@ func instancesCase(t *testing.T, tc systemCase, request func(string, string, str
 		if tc.Variant == "report_fallback" {
 			common.NodeName = ""
 		}
-		require.NoError(t, service.ReportCurrentSystemInstance())
+		require.NoError(t, systemruntime.SystemContractReportInstance())
 		if tc.Variant == "report_repeat" {
 			time.Sleep(time.Second)
-			require.NoError(t, service.ReportCurrentSystemInstance())
+			require.NoError(t, systemruntime.SystemContractReportInstance())
 		}
 		hostname, err := os.Hostname()
 		require.NoError(t, err)

@@ -3,11 +3,10 @@ package controller
 import (
 	"github.com/QuantumNous/new-api/internal/app/batchruntime"
 	"github.com/gin-gonic/gin"
-	"sync"
 )
 
 // BRIDGE: relay and management router registrations call these handlers; remove when routers compose Batch directly.
-var batchRuntime = sync.OnceValue(batchruntime.New)
+var batchRuntime = batchruntime.Default
 
 func PrepareBatchRequest(c *gin.Context)  { batchRuntime().Prepare.Handle(c) }
 func CreateBatch(c *gin.Context)          { batchRuntime().Create.Handle(c) }

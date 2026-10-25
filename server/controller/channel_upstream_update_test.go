@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
@@ -1727,7 +1728,7 @@ func TestDetectAllChannelUpstreamModelUpdatesRejectsExistingActiveTask(t *testin
 	db := setupChannelUpstreamUpdateTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
 
-	existing, err := model.CreateSystemTask(model.SystemTaskTypeModelUpdate, nil, nil)
+	existing, err := systemStoreChannelUpstreamUpdateTest.CreateSystemTask(model.SystemTaskTypeModelUpdate, nil, nil)
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
@@ -1768,3 +1769,5 @@ func TestApplyChannelUpstreamModelUpdatesRejectsChangedAdvancedCustomRoute(t *te
 	require.Len(t, abilities, 1)
 	assert.Equal(t, "gpt-4o", abilities[0].Model)
 }
+
+var systemStoreChannelUpstreamUpdateTest = systemstorage.Store{DB: func() *gorm.DB { return model.DB }}

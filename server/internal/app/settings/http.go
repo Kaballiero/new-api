@@ -2,6 +2,7 @@ package settings
 
 import (
 	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/settings"
+	systemruntime "github.com/QuantumNous/new-api/internal/adapter/runtime/system"
 	runtime "github.com/QuantumNous/new-api/internal/adapter/settings/settings"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	"github.com/QuantumNous/new-api/internal/settings/get_about"
@@ -29,7 +30,7 @@ type HTTP struct {
 func NewHTTP() HTTP {
 	core := Default()
 	audit := auditapp.NewRecording()
-	public := runtime.PublicConfiguration{BillingFX: gateway.BillingFX}
+	public := runtime.PublicConfiguration{BillingFX: gateway.BillingFX, Runtime: systemruntime.Facts{}}
 	return HTTP{
 		GetOptions: get_options.NewHandler(get_options.NewUsecase(runtime.Editor{})),
 		UpdateOption: update_option.NewHandler(update_option.NewUsecase(runtime.Validation{}, core.Write), func(c *gin.Context, key string) {

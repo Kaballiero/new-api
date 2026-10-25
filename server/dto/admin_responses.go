@@ -247,7 +247,7 @@ type ValidateModelsResponse struct {
 	Summary ValidateModelsSummary   `json:"summary"`
 }
 
-// UptimeMonitor mirrors controller.Monitor (GET /api/uptime/status).
+// UptimeMonitor mirrors system/domain.Monitor (GET /api/uptime/status).
 type UptimeMonitor struct {
 	Name   string  `json:"name"`
 	Uptime float64 `json:"uptime"`

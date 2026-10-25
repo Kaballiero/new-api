@@ -11,6 +11,7 @@ import (
 	pricingupstream "github.com/QuantumNous/new-api/internal/adapter/pricing/upstream"
 	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
+	systemcore "github.com/QuantumNous/new-api/internal/app/system"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/enqueue_catalogue_refresh"
@@ -29,6 +30,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/reset_model_ratios"
 	"github.com/QuantumNous/new-api/internal/pricing/sync_upstream_catalog"
 	"github.com/QuantumNous/new-api/internal/pricing/update_pricing_config"
+	"github.com/QuantumNous/new-api/internal/system/enqueue_system_task"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
@@ -177,7 +179,7 @@ func NewRefreshPricingCatalogue() refresh_catalogue.Usecase {
 
 func NewEnqueuePricingCatalogueRefresh() enqueue_catalogue_refresh.Usecase {
 	return enqueue_catalogue_refresh.NewUsecase(func() bool { return common.GetEnvOrDefaultBool("PRICING_CATALOG_TASK_ENABLED", true) }, func() error {
-		_, _, err := service.EnqueueSystemTask(model.SystemTaskTypePricingCatalog, nil)
+		_, err := systemcore.Default().Enqueue.Execute(enqueue_system_task.Input{Type: model.SystemTaskTypePricingCatalog})
 		return err
 	}, common.SysLog)
 }

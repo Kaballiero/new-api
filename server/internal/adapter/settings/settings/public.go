@@ -2,7 +2,6 @@ package settings
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/settings/domain"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/setting"
@@ -11,7 +10,15 @@ import (
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
-type PublicConfiguration struct{ BillingFX func() any }
+type RuntimeFacts interface {
+	Version() string
+	StartTime() int64
+	Setup() bool
+}
+type PublicConfiguration struct {
+	BillingFX func() any
+	Runtime   RuntimeFacts
+}
 
 func (p PublicConfiguration) ReadStatus() domain.PublicStatus {
 
@@ -21,8 +28,8 @@ func (p PublicConfiguration) ReadStatus() domain.PublicStatus {
 	legalSetting := system_setting.GetLegalSettings()
 
 	data := map[string]any{
-		"version":                     common.Version,
-		"start_time":                  common.StartTime,
+		"version":                     p.Runtime.Version(),
+		"start_time":                  p.Runtime.StartTime(),
 		"email_verification":          common.EmailVerificationEnabled,
 		"github_oauth":                common.GitHubOAuthEnabled,
 		"github_client_id":            common.GitHubClientId,
@@ -93,7 +100,7 @@ func (p PublicConfiguration) ReadStatus() domain.PublicStatus {
 		"passkey_allow_insecure":      passkeySetting.AllowInsecureOrigin,
 		"passkey_user_verification":   passkeySetting.UserVerification,
 		"passkey_attachment":          passkeySetting.AttachmentPreference,
-		"setup":                       constant.Setup,
+		"setup":                       p.Runtime.Setup(),
 		"user_agreement_enabled":      legalSetting.UserAgreement != "",
 		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "",
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
