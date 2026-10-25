@@ -799,3 +799,26 @@ const (
 	MsgTaskPluginObservationsLimit   = "taskplugins.observations_limit"
 	MsgTaskPluginAuthentication      = "taskplugins.authentication"
 )
+
+// General settings editor messages.
+const (
+	MsgSettingsInvalidParameters    = "settings.invalid_parameters"
+	MsgSettingsComplianceField      = "settings.compliance_field"
+	MsgSettingsRetiredTheme         = "settings.retired_theme"
+	MsgSettingsGitHub               = "settings.github"
+	MsgSettingsDiscord              = "settings.discord"
+	MsgSettingsOIDC                 = "settings.oidc"
+	MsgSettingsLinuxDO              = "settings.linuxdo"
+	MsgSettingsEmailDomain          = "settings.email_domain"
+	MsgSettingsWeChat               = "settings.wechat"
+	MsgSettingsTurnstile            = "settings.turnstile"
+	MsgSettingsTelegram             = "settings.telegram"
+	MsgSettingsImageRatio           = "settings.image_ratio"
+	MsgSettingsAudioRatio           = "settings.audio_ratio"
+	MsgSettingsAudioCompletionRatio = "settings.audio_completion_ratio"
+	MsgSettingsCreateCacheRatio     = "settings.create_cache_ratio"
+	MsgSettingsBatchObject          = "settings.batch_object"
+	MsgSettingsBatchExpression      = "settings.batch_expression"
+	MsgSettingsExpressionObject     = "settings.expression_object"
+	MsgSettingsModelExpression      = "settings.model_expression"
+)

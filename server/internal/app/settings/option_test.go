@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/settings/update_option"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -21,6 +22,7 @@ import (
 )
 
 func TestUpdateOptionRejectsNegativeClaudeDefaultMaxTokens(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
 	context.Request = httptest.NewRequest(
@@ -42,6 +44,7 @@ func TestUpdateOptionRejectsNegativeClaudeDefaultMaxTokens(t *testing.T) {
 }
 
 func TestUpdateOptionRejectsInvalidGeminiSafetyThreshold(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
 	context.Request = httptest.NewRequest(
@@ -63,6 +66,7 @@ func TestUpdateOptionRejectsInvalidGeminiSafetyThreshold(t *testing.T) {
 }
 
 func TestUpdateOptionRejectsInvalidTaskBillingExpressions(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	const pluginKey = "billing-save-probe"
 	const modelName = "billing-save-model"
 	source := `
@@ -121,6 +125,7 @@ export function parseTaskResult() { return {}; }
 }
 
 func TestUpdateOptionRejectsUsageExpressionWithoutTaskPlugin(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	const modelName = "billing-save-model-without-plugin"
 	expressions, err := common.Marshal(map[string]string{
 		modelName: `u("mode") == "std" ? 1 : 2`,
@@ -178,6 +183,7 @@ func setupBillingAliasOptionDB(t *testing.T) {
 }
 
 func TestUpdateOptionAliasBillingExprUsesPluginSchema(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	setupBillingAliasOptionDB(t)
 	const pluginKey = "billing-alias-probe"
 	source := `
@@ -249,6 +255,7 @@ export function parseTaskResult() { return {}; }
 }
 
 func TestUpdateOptionRejectsRetiredFrontendTheme(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
 	context.Request = httptest.NewRequest(
@@ -260,10 +267,11 @@ func TestUpdateOptionRejectsRetiredFrontendTheme(t *testing.T) {
 	NewHTTP().UpdateOption.Handle(context)
 
 	assert.Equal(t, http.StatusOK, response.Code)
-	assert.JSONEq(t, `{"success":false,"message":"Classic 前端已移除，主题只能设置为 default"}`, response.Body.String())
+	assert.JSONEq(t, `{"success":false,"message":"The Classic frontend has been removed; the theme must be default"}`, response.Body.String())
 }
 
 func TestGetStatusAdvertisesDefaultDashboard(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	previousMap := common.OptionMap
 	common.OptionMap = map[string]string{}
 	t.Cleanup(func() { common.OptionMap = previousMap })
@@ -312,5 +320,30 @@ func initModelListColumnNames(t *testing.T) {
 		if err == nil {
 			_ = sqlDB.Close()
 		}
+	}
+}
+
+func TestSettingsMessagesUseLanguageAndKeepChineseBytes(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	for _, tc := range []struct{ language, expected string }{
+		{"en", "The Classic frontend has been removed; the theme must be default"},
+		{"ru", "Интерфейс Classic удалён; допустима только тема default"},
+		{"zh-CN", "Classic 前端已移除，主题只能设置为 default"},
+		{"zh-TW", "Classic 前端已移除，主题只能设置为 default"},
+	} {
+		t.Run(tc.language, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(response)
+			c.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(`{"key":"theme.frontend","value":"classic"}`))
+			c.Request.Header.Set("Accept-Language", tc.language)
+			NewHTTP().UpdateOption.Handle(c)
+			var body struct {
+				Success bool   `json:"success"`
+				Message string `json:"message"`
+			}
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+			assert.False(t, body.Success)
+			assert.Equal(t, tc.expected, body.Message)
+		})
 	}
 }
