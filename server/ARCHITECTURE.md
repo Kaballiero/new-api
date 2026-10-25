@@ -137,7 +137,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 | агрегаты для дашборда | `internal/app/usage.StartQuotaData` | usage |
 | обновление баланса каналов | `controller.AutomaticallyUpdateChannels` (если задан `CHANNEL_UPDATE_FREQUENCY`) | channels |
 | периодические системные задачи: тест каналов, модели upstream, опрос Midjourney и асинхронных задач, сборка каталога цен | `controller.RegisterScheduledSystemTasks` + `service.StartSystemTaskRunner` | channels, tasks, pricing; запуск — system |
-| плагины задач | `controller.SyncTaskPlugins` | tasks |
+| плагины задач | `internal/app/taskplugins.StartSync` (первый pass сразу, затем 30s, каждый узел) | taskplugins |
 | обновление Codex-учётных данных | `service.StartCodexCredentialAutoRefreshTask` | channels |
 | сброс квоты подписок | `app/subscriptions.StartSubscriptionQuotaResetTask` | subscriptions |
 | курсы валют для цен | `service.StartModelCostFX` | pricing |
@@ -238,7 +238,8 @@ Domain/scenarios не зависят от gateway/ORM/common. Core app/tasks с�
 app/taskruntime подключает provider polling и media. Leaf relay/taskregistry заменяет main-only locator.
 Scheduled system handlers сохраняют lease/interval15s/progress semantics. Same-tx subscription delta
 при durable task claim принадлежит gorm/billing; standalone body тоже один. Plugin routing/cache view
-model/task_model_alias остаётся до5c; Batch и plugin runtime не входят в перенос. Подробности —
+model/task_model_alias остаётся единым executable bridge для pricing и InitChannelCache; alias ownership
+перенесено не полностью. Batch и plugin runtime не входят в перенос задач 5a. Подробности —
 internal/tasks/README.md; host/database acceptance фиксируется отдельно от sandbox evidence.
 
 ## Native Batch API
@@ -256,3 +257,22 @@ provider_batch_poll подключён через прежний controller.Regi
 и interval15s; import-time service registration удалена. Direct poll не зависит от main. Маршруты,
 middleware, permissions, native protocol requests и схема БД сохранены. Текстовый content package
 отделён от структурного переноса; фактический host/PG acceptance — отдельное доказательство.
+
+
+## Task plugins
+
+`internal/taskplugins` владеет management, sync pass, origin/query selection, observation admission,
+durable-result validation, reload/timeout/backoff и retrieve policy. Сборка management —
+`app/taskplugins`; stateless observer использует submit capability интерфейса Session; общий admission limiter собирается один раз в `app/taskpluginsruntime`.
+Request-specific Gin context хранится только в gateway session, которая передаётся на каждый вызов.
+`controller/relay.go` преобразует private submission outcome в plain `tasks/domain.ProtocolSubmission`.
+Provider execution, pinned VM, renderer hooks, Responses wire machine, SSE и framing остаются gateway.
+`relay/taskview` — общий публичный projector/provenance для всех прежних gateway consumers.
+
+`adapter/gorm/taskplugins/record.TaskPlugin` сохраняет прежнее concrete имя, порядок полей и tags;
+`model/task_plugin.go` содержит только alias. Запросы/транзакции выполняет feature adapter, runtime
+адаптер использует единственную существующую registry. Durable Task и best-effort background write
+принадлежат tasks; общие option/settings остаются прежнему владельцу. Alias bridge A2 сохраняется
+без новых model→internal imports и без исключений в allowlist; cleanup pricing/channel-cache — волна 7.
+Схема, router, middleware order, billing math и goldens не менялись. Sandbox evidence и host/PG acceptance
+фиксируются отдельно; MySQL не проверен. Content-only локализация подготовлена отдельно и не применена.

@@ -3,7 +3,7 @@
 Модуль владеет durable Task/Midjourney, статусами, учётом и последующим расчётом/возвратом,
 опросом провайдеров, dashboard lists/detail, выдачей артефактов и video content. Отправка upstream,
 выбор канала, provider wire DTO, retry и plugin runtime остаются в шлюзе. Batch принадлежит отдельному internal/batch,
-управление task plugins и protocol observers — 5c.
+управление task plugins, origin/query и protocol observation policy — `internal/taskplugins`.
 
 ## Сценарии и входы
 
@@ -69,7 +69,8 @@ Leaf-пакеты constant/common/dto/types/relaykit не импортируют
 
 ## Остатки и проверка
 
-model/task_model_alias.go остаётся executable routing/cache view для gateway/pricing/channel cache до5c;
+model/task_model_alias.go остаётся единым executable routing/cache bridge для pricing/channel cache;
+alias ownership перенесено не полностью, удаление после появления их lifecycle owners (cleanup волны 7);
 это не record. Shared model quota/cache/lock primitives — до7. BillingGateway остаётся только для реальных
 violation/immutable billing/WSS consumers; gateway task metadata обращается к usage непосредственно.
 Filesystem artifact backend и plugin CRUD/protocol/runtime не перенесены.
@@ -86,3 +87,10 @@ C1 content gap: общие bulk fail_reason получают English default, б
 Один UPDATE и порядок SQL неизменны; per-owner локализация требует отдельного DB-изменения (#75).
 
 Общий frozen-account hash/static-header helper находится в adapter/http/batchaccount; tasksync и Batch используют одно тело. Batch-only metadata delegates BillingGateway удалены.
+
+
+Task-plugin observation передаёт plain `domain.ProtocolSubmission`, а не private gateway outcome.
+`adapter/gorm/tasks.MarkResponsesBackground` сохраняет прежний best-effort whole-private-data UPDATE;
+его вызывает per-request gateway session после durable barrier. Это не CAS и не новая транзакция (#82).
+Ownership, platform-scoped reads, публичный task ID и порядок persisted/billing effects сохранены.
+Общий gateway projector/provenance перенесён из service в `relay/taskview`; финансовые сценарии не менялись.

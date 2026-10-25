@@ -44,3 +44,12 @@ README каждого модуля появляется в коммите, ко�
 
 - `tasks` — durable async/Midjourney учёт, terminal billing, polling и media access; core сборка
   `app/tasks`, gateway/runtime — `app/taskruntime`, records/SQL — `adapter/gorm/tasks`.
+
+
+`taskplugins` — управление версиями/слоями task-плагинов, sync pass, origin/query selection,
+observation admission/timeout/backoff и retrieve policy. Сборка `app/taskplugins`, outer
+`app/taskpluginsruntime`, storage `adapter/gorm/taskplugins`, compiler/settings
+`adapter/taskplugins`. Публичный task projection/provenance — gateway `relay/taskview`.
+Durable tasks и background writes остаются tasks; provider VM/wire machine остаются gateway.
+`model/task_model_alias.go` сохраняется для pricing и InitChannelCache: alias ownership не полностью
+перенесено; cleanup в волне 7. Подробнее — [taskplugins/README.md](taskplugins/README.md).

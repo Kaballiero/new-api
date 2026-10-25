@@ -64,3 +64,10 @@ Text cost/accounting и usage writer требуют ненулевой `*gin.Con
 Wave5a: task funding использует apply_quota_delta с task-scoped adapter и поздним token lookup.
 Standalone subscription delta принадлежит gorm/billing; owner-checked task capability получает тот же
 активный tx. Durable task status/claim/cache/log/finalize оркестрирует tasks, billing math неизменна.
+
+
+Task plugins: observer admission/timeout/reload принадлежат `internal/taskplugins`; gateway submit
+по-прежнему проходит обычные reserve → durable insert → settle и превращает результат в plain
+`tasks/domain.ProtocolSubmission` на границе controller/relay.go. Отключение клиента прекращает
+только observation; bounded detached submission сохраняется. Billing math, refunds, violation fees,
+FX и same-transaction subscription predicates не менялись. Provenance projector теперь `relay/taskview`.

@@ -32,7 +32,7 @@
 | 2 | Граница шлюза: проверка ключа, billing, запись использования | ✅ (2a, 2b1, 2b2, 2c) | высокий |
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ✅ (3a, 3b) | средний |
 | 4 | Платежи, подписки, коды пополнения | ✅ (4a коды, 4b платежи, 4c подписки) | высокий |
-| 5 | Асинхронные задачи и batch (бизнес-часть) | 🔄 (5a задачи ✅; 5b batch ✅; 5c плагины задач) | средний |
+| 5 | Асинхронные задачи и batch (бизнес-часть) | 🔄 (5a задачи ✅; 5b batch ✅; 5c плагины задач — structural move подготовлен; host/PG acceptance pending) | средний |
 | 6 | Настройки и система | ⬜ | низкий |
 | 7 | Доводка: остатки в `service`/`model`, алиасы, список исключений → 0 | ⬜ | средний |
 | 8 | *(по желанию)* Раскладка внутри шлюза | ⬜ | средний |
@@ -137,13 +137,20 @@
 
 Отправка задачи провайдеру — шлюз; учёт задач, их биллинг и опрос — бизнес.
 
-- [x] 5a implementation: Task/MJ records, accounting, polling, dashboard/media и OR durable sync — internal/tasks (commits df33308eb контракты, 1113bf66f перенос, 97de3dcf3 docs); plugin routing/cache model/task_model_alias.go остаётся до 5c.
+- [x] 5a implementation: Task/MJ records, accounting, polling, dashboard/media и OR durable sync — internal/tasks (commits df33308eb контракты, 1113bf66f перенос, 97de3dcf3 docs); plugin routing/cache model/task_model_alias.go сохраняется для pricing/channel-cache cleanup волны 7; alias ownership перенесено не полностью.
 - [x] 5b implementation: Batch API, worker, billing и storage — internal/batch (commits 0caf7748d контракты, ec10c079c перенос, 3e761c3dd docs); provider_batch_poll регистрируется явно из controller.RegisterScheduledSystemTasks.
 - [x] 5b host acceptance: 484 новых + все прежние goldens без -update по два повтора, full suite, relaykit/OpenAPI/U1000. -count=2 падает только на тех же roots, что и HEAD (#76, SQLITE_BUSY flake).
   PostgreSQL 15 full suite совпадает с 3b, целевые batch/tasks/billing на PG зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] 7f2be5459: два теста вне goldens переведены на English default тексты 5a.
 - [x] Content-only (commit 9337cb7ab): ошибки и тексты логов batch — i18n keys, English по умолчанию + ru, zh без изменений; default goldens не менялись.
-- [ ] Плагины задач: `controller/plugin_protocol*.go`, `SyncTaskPlugins`.
+- [x] 5c structural implementation: `internal/taskplugins`, management/sync/origin/query/observation/retrieve policy;
+  core app/taskplugins + outer app/taskpluginsruntime; provider/wire остаются gateway, durable Task — tasks.
+  Контракты: 089e9ba5c (396 новых эталонов); production slices подготовлены без commit/push.
+- [ ] 5c acceptance: свежие host/full-suite/WSS/Redis и PostgreSQL readbacks после structural move;
+  MySQL недоступен. Content-only package подготовлен отдельно, не применён.
+- [ ] Волна 7 cleanup: единый executable `model/task_model_alias.go` для model/pricing.go,
+  model/model_pricing_config.go и InitChannelCache. Удалить, когда у pricing и channel-cache lifecycle
+  появятся собственные владельцы; без новых model→internal imports/exceptions. Alias ownership не полностью перенесено.
 - [x] 5a: polling consumer port → adapter/gateway/taskplugins → leaf relay/taskregistry; явная runtime assembly, main-only factory удалена.
 - [x] 5a host acceptance: 586 новых + 2237 прежних goldens без -update, Redis/WSS/full suite, relaykit/OpenAPI/U1000;
   PostgreSQL 15.19 full suite совпадает с 3b, изолированные tasks/billing/subscriptions/payments на PG зелёные. SQLite/MySQL полной матрицей не проверялись.
