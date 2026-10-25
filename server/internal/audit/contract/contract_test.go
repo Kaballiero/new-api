@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -614,7 +615,7 @@ func configureAuditCase(t *testing.T, f auditFixture, tc auditCase) {
 		}
 	}
 	if tc.Group == "manual" && strings.HasPrefix(tc.Name, "manual_option") {
-		model.InitOptionMap()
+		settingsapp.Initialize()
 	}
 }
 

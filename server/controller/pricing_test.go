@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/internal/app"
+	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	pricinghttp "github.com/QuantumNous/new-api/internal/pricing/transport"
 	"io"
@@ -1931,7 +1932,7 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	common.OptionMap = make(map[string]string)
 	common.OptionMapRWMutex.Unlock()
 	t.Cleanup(func() {
-		require.NoError(t, model.UpdateOption(model.PricingCatalogOptionKey, previousCatalog))
+		require.NoError(t, settingsapp.Default().Write.Execute(model.PricingCatalogOptionKey, previousCatalog))
 		common.OptionMapRWMutex.Lock()
 		common.OptionMap = previousOptions
 		common.OptionMapRWMutex.Unlock()

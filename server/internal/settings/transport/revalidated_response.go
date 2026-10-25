@@ -1,4 +1,4 @@
-package controller
+package transport
 
 import (
 	"net/http"
@@ -8,7 +8,7 @@ import (
 )
 
 // etagVersionPublicContent namespaces the public-content ETag; bump it when
-// the JSON envelope served by serveRevalidatedJSON changes shape.
+// the JSON envelope served by ServeRevalidatedJSON changes shape.
 const etagVersionPublicContent = "public-content:v1"
 
 type publicContentResponse struct {
@@ -17,7 +17,7 @@ type publicContentResponse struct {
 	Data    string `json:"data"`
 }
 
-// serveRevalidatedJSON writes public content as JSON with a weak
+// ServeRevalidatedJSON writes public content as JSON with a weak
 // content-derived ETag and answers conditional requests with 304 Not
 // Modified. The ETag is a weak validator derived from the content, so it is
 // stable across replicas and JSON encodings, and a new one is issued when
@@ -25,7 +25,7 @@ type publicContentResponse struct {
 // reuse, so an admin edit takes effect on the next request; Vary:
 // Accept-Encoding keeps the gzip and identity encodings apart in shared
 // caches.
-func serveRevalidatedJSON(c *gin.Context, content string) {
+func ServeRevalidatedJSON(c *gin.Context, content string) {
 	body, err := common.Marshal(publicContentResponse{
 		Success: true,
 		Message: "",

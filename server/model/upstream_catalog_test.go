@@ -607,7 +607,7 @@ func TestPricingStorageUpgradeCompatibility(t *testing.T) {
 	var options []Option
 	require.NoError(t, db.Order(commonKeyCol).Find(&options).Error)
 	for _, option := range options {
-		require.NoError(t, updateOptionMap(option.Key, option.Value))
+		require.NoError(t, PublishOption(option.Key, option.Value))
 	}
 	pricing, e := GetModelPricingSnapshot([]string{name})
 	require.NoError(t, e)

@@ -18,6 +18,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/pluginfixture"
@@ -275,7 +276,7 @@ func TestTaskPluginsHTTPContract(t *testing.T) {
 func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 	taskfixture.InstallDBClock(t)
 	env := contracttest.New(t)
-	model.InitOptionMap()
+	settingsapp.Initialize()
 	taskfixture.Configure()
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"group_ratio_setting.group_ratio": `{"default":1}`,
 		"group_ratio_setting.group_group_ratio": `{}`, "channel_affinity_setting.enabled": "false", "billing_setting.billing_mode": `{}`,
@@ -482,7 +483,7 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 				if tc.Variant == "empty" {
 					value = "[]"
 				}
-				require.NoError(t, model.UpdateOption(setting.TaskPluginMarketplaceSourcesKey, value))
+				require.NoError(t, settingsapp.Default().Write.Execute(setting.TaskPluginMarketplaceSourcesKey, value))
 			}
 			if tc.Kind == "update_sources" {
 				body = "null"

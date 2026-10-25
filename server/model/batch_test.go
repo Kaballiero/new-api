@@ -42,10 +42,10 @@ func TestBatchModelPricing(t *testing.T) {
 			common.OptionMap = make(map[string]string)
 			t.Cleanup(func() {
 				for key, value := range previousConfigs {
-					require.NoError(t, updateOptionMap(key, value))
+					require.NoError(t, PublishOption(key, value))
 				}
 				for key, value := range previousRatios {
-					require.NoError(t, updateOptionMap(key, value))
+					require.NoError(t, PublishOption(key, value))
 				}
 				common.OptionMap = previousOptions
 				DB, commonKeyCol = previousDB, previousKeyCol

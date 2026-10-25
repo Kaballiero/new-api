@@ -64,10 +64,12 @@ func TestMigrateRetiredFrontendOptionsMigratesValidValuesIdempotently(t *testing
 		requireOptionMissing(t, db, key)
 	}
 
-	before, err := AllOption()
+	var before []*Option
+	err := db.Find(&before).Error
 	require.NoError(t, err)
 	require.NoError(t, MigrateRetiredFrontendOptions())
-	after, err := AllOption()
+	var after []*Option
+	err = db.Find(&after).Error
 	require.NoError(t, err)
 	assert.ElementsMatch(t, before, after)
 }
@@ -165,16 +167,4 @@ func TestMigrateRetiredFrontendOptionsKeepsEmptyAuthoritativeTargets(t *testing.
 	for _, key := range []string{"ApiInfo", "UptimeKumaUrl", "UptimeKumaSlug"} {
 		requireOptionMissing(t, db, key)
 	}
-}
-
-func TestRetiredThemeOptionIsPersistedButNotPublished(t *testing.T) {
-	db := useFrontendOptionMigrationDB(t)
-	previousMap := common.OptionMap
-	t.Cleanup(func() { common.OptionMap = previousMap })
-	common.OptionMap = map[string]string{}
-
-	require.NoError(t, UpdateOption(retiredThemeOptionKey, "default"))
-	assert.Equal(t, "default", requireOptionValue(t, db, retiredThemeOptionKey))
-	_, published := common.OptionMap[retiredThemeOptionKey]
-	assert.False(t, published)
 }

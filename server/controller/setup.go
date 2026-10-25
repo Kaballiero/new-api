@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -126,7 +127,7 @@ func PostSetup(c *gin.Context) {
 	operation_setting.DemoSiteEnabled = req.DemoSiteEnabled
 
 	// Save operation modes to database for persistence
-	err = model.UpdateOption("SelfUseModeEnabled", boolToString(req.SelfUseModeEnabled))
+	err = settingsapp.Default().Write.Execute("SelfUseModeEnabled", boolToString(req.SelfUseModeEnabled))
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,
@@ -135,7 +136,7 @@ func PostSetup(c *gin.Context) {
 		return
 	}
 
-	err = model.UpdateOption("DemoSiteEnabled", boolToString(req.DemoSiteEnabled))
+	err = settingsapp.Default().Write.Execute("DemoSiteEnabled", boolToString(req.DemoSiteEnabled))
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,

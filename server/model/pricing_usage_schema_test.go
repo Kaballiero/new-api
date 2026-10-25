@@ -797,7 +797,7 @@ func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
 			if field == "billing_mode" {
 				value = `{"snapshot-model":"ratio", "other":"tiered_expr"}`
 			}
-			require.NoError(t, updateOptionMap(key, value))
+			require.NoError(t, PublishOption(key, value))
 			InitChannelCache()
 			RefreshPricing()
 			rows, _, _, err := GetPricingCatalogueSnapshot()
@@ -806,7 +806,7 @@ func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
 			revision := GetPricingRevision()
 
 			// Database synchronization reapplies the same raw value.
-			require.NoError(t, updateOptionMap(key, value))
+			require.NoError(t, PublishOption(key, value))
 			_, _, _, err = GetPricingCatalogueSnapshot()
 			require.NoError(t, err)
 			assert.Equal(t, revision, GetPricingRevision(), "unchanged option must retain the published snapshot")
@@ -816,7 +816,7 @@ func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
 			if field == "billing_mode" {
 				reordered = `{"other":"tiered_expr","snapshot-model":"ratio"}`
 			}
-			require.NoError(t, updateOptionMap(key, reordered))
+			require.NoError(t, PublishOption(key, reordered))
 			_, _, _, err = GetPricingCatalogueSnapshot()
 			require.NoError(t, err)
 			assert.Equal(t, revision, GetPricingRevision(), "equivalent JSON must retain the published snapshot")
@@ -824,7 +824,7 @@ func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
 
 			// The same database value must still restore changed in-memory state.
 			require.NoError(t, config.UpdateConfigFromMap(cfg, map[string]string{field: `{}`}))
-			require.NoError(t, updateOptionMap(key, reordered))
+			require.NoError(t, PublishOption(key, reordered))
 			RefreshPricing()
 			current, err := config.ConfigToMap(cfg)
 			require.NoError(t, err)
@@ -835,7 +835,7 @@ func TestPricingBillingOptionsKeepSnapshotForEffectiveNoop(t *testing.T) {
 			revision = GetPricingRevision()
 
 			// Removing configured models is a real pricing change.
-			require.NoError(t, updateOptionMap(key, `{}`))
+			require.NoError(t, PublishOption(key, `{}`))
 			RefreshPricing()
 			_, _, _, err = GetPricingCatalogueSnapshot()
 			require.NoError(t, err)

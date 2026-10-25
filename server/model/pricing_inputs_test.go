@@ -48,7 +48,7 @@ func pricingInputFixture(t *testing.T) *gorm.DB {
 	}
 	t.Cleanup(func() {
 		for key, value := range originals {
-			require.NoError(t, updateOptionMap(key, value))
+			require.NoError(t, PublishOption(key, value))
 		}
 		common.MemoryCacheEnabled = previousMemory
 		jsplugin.DefaultRegistry = previousRegistry
@@ -61,7 +61,7 @@ func pricingInputFixture(t *testing.T) *gorm.DB {
 	require.NoError(t, db.Create(&Ability{ChannelId: channel.Id, Model: "cache-model", Group: "default", Enabled: true}).Error)
 	require.NoError(t, db.Create(&Vendor{Id: 1700, Name: "Initial creator", Status: 1}).Error)
 	require.NoError(t, db.Create(&Model{ModelName: "cache-model", Description: "initial", VendorID: 1700, Status: 1}).Error)
-	require.NoError(t, updateOptionMap("ModelPrice", `{"cache-model":1}`))
+	require.NoError(t, PublishOption("ModelPrice", `{"cache-model":1}`))
 	InitChannelCache()
 	RefreshPricing()
 	require.NotNil(t, publishedPricing.Load())
@@ -90,11 +90,11 @@ func TestPricingInputsAgeAndUnchangedPollDoNotRebuild(t *testing.T) {
 	assert.Zero(t, reads.Load(), "age alone performs no projection or database reads")
 	assert.Same(t, &aged, publishedPricing.Load())
 	generation := pricingInputsGeneration.Load()
-	syncPricingCatalogueInputs()
+	SyncPricingCatalogueInputs()
 	assert.Equal(t, generation, pricingInputsGeneration.Load(), "unchanged source poll does not dirty the projection")
 	require.NoError(t, db.Model(&Model{}).Where("model_name = ?", "cache-model").Update("updated_time", 123456).Error)
 	require.NoError(t, db.Model(&Channel{}).Where("id = ?", 970).Updates(map[string]any{"used_quota": 99, "test_time": 123, "priority": 9}).Error)
-	syncPricingCatalogueInputs()
+	SyncPricingCatalogueInputs()
 	InitChannelCache()
 	assert.Equal(t, generation, pricingInputsGeneration.Load(), "timestamps, quota and priority do not affect projection inputs")
 	channel, err := GetChannelById(970, true)
@@ -114,22 +114,22 @@ func TestPricingInputsPollObservesMetadataVendorsAndRoutes(t *testing.T) {
 	db := pricingInputFixture(t)
 	generation := pricingInputsGeneration.Load()
 	require.NoError(t, db.Model(&Model{}).Where("model_name = ?", "cache-model").Update("description", "changed on another node").Error)
-	syncPricingCatalogueInputs()
+	SyncPricingCatalogueInputs()
 	require.Greater(t, pricingInputsGeneration.Load(), generation)
 	generation = pricingInputsGeneration.Load()
-	syncPricingCatalogueInputs()
+	SyncPricingCatalogueInputs()
 	assert.Equal(t, generation, pricingInputsGeneration.Load())
 	rows := GetPricing()
 	require.Len(t, rows, 1)
 	assert.Equal(t, "changed on another node", rows[0].Description)
 	require.NoError(t, db.Model(&Vendor{}).Where("id = ?", 1700).Update("name", "New creator").Error)
-	syncPricingCatalogueInputs()
+	SyncPricingCatalogueInputs()
 	require.Greater(t, pricingInputsGeneration.Load(), generation)
 	GetPricing()
 	assert.Contains(t, GetVendors(), PricingVendor{ID: 1700, Name: "New creator"})
 	generation = pricingInputsGeneration.Load()
 	require.NoError(t, db.Model(&Channel{}).Where("id = ?", 970).Update("model_mapping", `{"cache-model":"gpt-image-1"}`).Error)
-	syncPricingCatalogueInputs()
+	SyncPricingCatalogueInputs()
 	require.Greater(t, pricingInputsGeneration.Load(), generation)
 	rows = GetPricing()
 	require.Len(t, rows, 1)
@@ -138,22 +138,22 @@ func TestPricingInputsPollObservesMetadataVendorsAndRoutes(t *testing.T) {
 	assert.Equal(t, "image_generation", offers[0].Operation)
 	// Disabled-channel enabled abilities still contribute inferred inventory.
 	require.NoError(t, db.Model(&Channel{}).Where("id = ?", 970).Update("status", common.ChannelStatusManuallyDisabled).Error)
-	syncPricingCatalogueInputs()
+	SyncPricingCatalogueInputs()
 	GetPricing()
 	generation = pricingInputsGeneration.Load()
 	require.NoError(t, db.Model(&Channel{}).Where("id = ?", 970).Update("type", constant.ChannelTypeAnthropic).Error)
-	syncPricingCatalogueInputs()
+	SyncPricingCatalogueInputs()
 	assert.Greater(t, pricingInputsGeneration.Load(), generation)
 }
 
 func TestPricingInputsLegacyOptionsAndAbilityStatusInvalidateOnlyChanges(t *testing.T) {
 	pricingInputFixture(t)
 	for _, key := range modelPricingOptionKeys[:8] {
-		require.NoError(t, updateOptionMap(key, `{"cache-model":2,"neighbor":1}`))
+		require.NoError(t, PublishOption(key, `{"cache-model":2,"neighbor":1}`))
 		generation := pricingInputsGeneration.Load()
-		require.NoError(t, updateOptionMap(key, `{ "neighbor": 1, "cache-model": 2 }`))
+		require.NoError(t, PublishOption(key, `{ "neighbor": 1, "cache-model": 2 }`))
 		assert.Equal(t, generation, pricingInputsGeneration.Load(), key+" equivalent JSON must be a no-op")
-		require.NoError(t, updateOptionMap(key, `{"cache-model":3,"neighbor":1}`))
+		require.NoError(t, PublishOption(key, `{"cache-model":3,"neighbor":1}`))
 		assert.Greater(t, pricingInputsGeneration.Load(), generation, key)
 	}
 	GetPricing()
@@ -172,7 +172,7 @@ func TestPricingInputsLegacyOptionsAndAbilityStatusInvalidateOnlyChanges(t *test
 	// Controller validation may apply the map before option persistence.
 	generation = pricingInputsGeneration.Load()
 	require.NoError(t, ratio_setting.UpdateImageRatioByJSONString(`{"cache-model":7}`))
-	require.NoError(t, updateOptionMap("ImageRatio", `{"cache-model":7}`))
+	require.NoError(t, PublishOption("ImageRatio", `{"cache-model":7}`))
 	assert.Greater(t, pricingInputsGeneration.Load(), generation)
 }
 
@@ -217,7 +217,7 @@ func TestPricingInputsFailedGenerationHasBoundedRetry(t *testing.T) {
 	}
 	assert.EqualValues(t, 1, attempts.Load())
 	require.NoError(t, db.Model(&Channel{}).Where("id = ?", 970).Update("setting", "{}").Error)
-	syncPricingCatalogueInputs()
+	SyncPricingCatalogueInputs()
 	GetPricing()
 	assert.NotSame(t, good, publishedPricing.Load())
 	assert.Equal(t, pricingInputsGeneration.Load(), publishedPricing.Load().generation)

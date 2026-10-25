@@ -1,6 +1,7 @@
 package payments
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	stripeadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/stripe"
 	waffoadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/waffo"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
+	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/internal/app/shared"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	"github.com/QuantumNous/new-api/internal/payments/admin_list_topups"
@@ -106,8 +108,8 @@ func NewHTTP() HTTP {
 		),
 		Catalog:     list_pancake_catalog.NewHTTP(catalog),
 		Pair:        create_pancake_pair.NewHTTP(create_pancake_pair.NewUsecase(pancakeadapter.Factory{}, settings.Settings{}, paymentDiagnostics{})),
-		SavePancake: save_pancake_config.NewHTTP(save_pancake_config.NewUsecase(storage.Options{}, settings.Settings{}), paymentDiagnostics{}),
-		Compliance:  confirm_compliance.NewHTTP(confirm_compliance.NewUsecase(storage.Options{}, settings.Settings{}.Terms, common.GetTimestamp, paymentDiagnostics{})),
+		SavePancake: save_pancake_config.NewHTTP(save_pancake_config.NewUsecase(options{}, settings.Settings{}), paymentDiagnostics{}),
+		Compliance:  confirm_compliance.NewHTTP(confirm_compliance.NewUsecase(options{}, settings.Settings{}.Terms, common.GetTimestamp, paymentDiagnostics{})),
 		QuoteWaffo:  quote_waffo_topup.NewHTTP(quote_waffo_topup.NewUsecase(pricing, storage.Users{})),
 		CreateWaffo: create_waffo_topup.NewHTTP(
 			create_waffo_topup.NewUsecase(
@@ -188,4 +190,12 @@ func NewHTTP() HTTP {
 		Complete: complete_topup.NewHTTP(complete_topup.NewUsecase(completion, &shared.Orders)),
 		Info:     get_topup_info.NewHTTP(get_topup_info.NewUsecase(settings.Settings{})),
 	}
+}
+
+// options connects payment workflows to the general settings owner.
+type options struct{}
+
+func (options) Set(key, value string) error { return settingsapp.Default().Write.Execute(key, value) }
+func (options) Bulk(values map[string]string) error {
+	return settingsapp.Default().Bulk.Execute(context.Background(), values)
 }

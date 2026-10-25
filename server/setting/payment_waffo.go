@@ -57,7 +57,7 @@ func copyDefaultWaffoPayMethods() []constant.WaffoPayMethod {
 	return cp
 }
 
-// WaffoPayMethods2JsonString 将默认 WaffoPayMethods 序列化为 JSON 字符串（供 InitOptionMap 使用）
+// WaffoPayMethods2JsonString 将默认 WaffoPayMethods 序列化为 JSON 字符串（供 ResetDefaults 使用）
 func WaffoPayMethods2JsonString() string {
 	jsonBytes, err := common.Marshal(constant.DefaultWaffoPayMethods)
 	if err != nil {

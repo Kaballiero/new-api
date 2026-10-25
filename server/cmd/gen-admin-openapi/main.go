@@ -180,6 +180,9 @@ func bootstrap() error {
 	if err := parseUsageHandlers(); err != nil {
 		return err
 	}
+	if err := parseSettingsHandlers(); err != nil {
+		return err
+	}
 	if err := parseRoutes("./router"); err != nil {
 		return fmt.Errorf("parse routes: %w", err)
 	}

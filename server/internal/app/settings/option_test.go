@@ -1,12 +1,15 @@
-package controller
+package settings
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/settings/update_option"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -16,6 +19,48 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestUpdateOptionRejectsNegativeClaudeDefaultMaxTokens(t *testing.T) {
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(
+		http.MethodPut,
+		"/api/option/",
+		strings.NewReader(`{"key":"claude.default_max_tokens","value":"{\"default\":-1}"}`),
+	)
+
+	NewHTTP().UpdateOption.Handle(context)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	var payload struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
+	assert.False(t, payload.Success)
+	assert.Contains(t, payload.Message, "-1")
+}
+
+func TestUpdateOptionRejectsInvalidGeminiSafetyThreshold(t *testing.T) {
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(
+		http.MethodPut,
+		"/api/option/",
+		strings.NewReader(`{"key":"gemini.safety_settings","value":"{\"default\":\"BLOCK_SOME\"}"}`),
+	)
+
+	NewHTTP().UpdateOption.Handle(context)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	var payload struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
+	assert.False(t, payload.Success)
+	assert.Contains(t, payload.Message, "BLOCK_SOME")
+}
 
 func TestUpdateOptionRejectsInvalidTaskBillingExpressions(t *testing.T) {
 	const pluginKey = "billing-save-probe"
@@ -56,7 +101,7 @@ export function parseTaskResult() { return {}; }
 		t.Run(testCase.name, func(t *testing.T) {
 			expressions, marshalErr := common.Marshal(map[string]string{modelName: testCase.expression})
 			require.NoError(t, marshalErr)
-			body, marshalErr := common.Marshal(OptionUpdateRequest{
+			body, marshalErr := common.Marshal(update_option.OptionUpdateRequest{
 				Key:   "billing_setting.billing_expr",
 				Value: string(expressions),
 			})
@@ -65,7 +110,7 @@ export function parseTaskResult() { return {}; }
 			context, _ := gin.CreateTestContext(recorder)
 			context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(string(body)))
 
-			UpdateOption(context)
+			NewHTTP().UpdateOption.Handle(context)
 
 			assert.Equal(t, http.StatusOK, recorder.Code)
 			assert.Contains(t, recorder.Body.String(), `"success":false`)
@@ -81,7 +126,7 @@ func TestUpdateOptionRejectsUsageExpressionWithoutTaskPlugin(t *testing.T) {
 		modelName: `u("mode") == "std" ? 1 : 2`,
 	})
 	require.NoError(t, err)
-	body, err := common.Marshal(OptionUpdateRequest{
+	body, err := common.Marshal(update_option.OptionUpdateRequest{
 		Key:   "billing_setting.billing_expr",
 		Value: string(expressions),
 	})
@@ -94,7 +139,7 @@ func TestUpdateOptionRejectsUsageExpressionWithoutTaskPlugin(t *testing.T) {
 		strings.NewReader(string(body)),
 	)
 
-	UpdateOption(context)
+	NewHTTP().UpdateOption.Handle(context)
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), `"success":false`)
@@ -176,7 +221,7 @@ export function parseTaskResult() { return {}; }
 		t.Helper()
 		expressions, marshalErr := common.Marshal(map[string]string{modelName: expression})
 		require.NoError(t, marshalErr)
-		body, marshalErr := common.Marshal(OptionUpdateRequest{
+		body, marshalErr := common.Marshal(update_option.OptionUpdateRequest{
 			Key:   "billing_setting.billing_expr",
 			Value: string(expressions),
 		})
@@ -184,7 +229,7 @@ export function parseTaskResult() { return {}; }
 		recorder := httptest.NewRecorder()
 		context, _ := gin.CreateTestContext(recorder)
 		context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(string(body)))
-		UpdateOption(context)
+		NewHTTP().UpdateOption.Handle(context)
 		return recorder
 	}
 
@@ -201,4 +246,71 @@ export function parseTaskResult() { return {}; }
 	assert.Equal(t, http.StatusOK, unresolvable.Code)
 	assert.Contains(t, unresolvable.Body.String(), `"success":false`)
 	assert.Contains(t, unresolvable.Body.String(), "no task plugin usage schema")
+}
+
+func TestUpdateOptionRejectsRetiredFrontendTheme(t *testing.T) {
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(
+		http.MethodPut,
+		"/api/option/",
+		strings.NewReader(`{"key":"theme.frontend","value":"classic"}`),
+	)
+
+	NewHTTP().UpdateOption.Handle(context)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.JSONEq(t, `{"success":false,"message":"Classic 前端已移除，主题只能设置为 default"}`, response.Body.String())
+}
+
+func TestGetStatusAdvertisesDefaultDashboard(t *testing.T) {
+	previousMap := common.OptionMap
+	common.OptionMap = map[string]string{}
+	t.Cleanup(func() { common.OptionMap = previousMap })
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/status", nil)
+
+	NewHTTP().GetStatus.Handle(context)
+
+	var payload struct {
+		Success bool           `json:"success"`
+		Data    map[string]any `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
+	assert.True(t, payload.Success)
+	assert.Equal(t, "default", payload.Data["theme"])
+}
+
+func initModelListColumnNames(t *testing.T) {
+	t.Helper()
+
+	originalIsMasterNode := common.IsMasterNode
+	originalSQLitePath := common.SQLitePath
+	originalMainDatabaseType := common.MainDatabaseType()
+	originalLogDatabaseType := common.LogDatabaseType()
+	originalSQLDSN, hadSQLDSN := os.LookupEnv("SQL_DSN")
+	defer func() {
+		common.IsMasterNode = originalIsMasterNode
+		common.SQLitePath = originalSQLitePath
+		common.SetDatabaseTypes(originalMainDatabaseType, originalLogDatabaseType)
+		if hadSQLDSN {
+			require.NoError(t, os.Setenv("SQL_DSN", originalSQLDSN))
+		} else {
+			require.NoError(t, os.Unsetenv("SQL_DSN"))
+		}
+	}()
+
+	common.IsMasterNode = false
+	common.SQLitePath = fmt.Sprintf("file:%s_init?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	require.NoError(t, os.Setenv("SQL_DSN", "local"))
+
+	require.NoError(t, model.InitDB())
+	if model.DB != nil {
+		sqlDB, err := model.DB.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	}
 }

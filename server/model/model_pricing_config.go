@@ -33,7 +33,7 @@ var modelPricingOptionKeys = []string{
 var modelPricingMutationMu sync.Mutex
 
 func NewPricingOptionsPersistence() store.Options {
-	return store.NewOptions(store.OptionsEnvironment{DB: func() *gorm.DB { return DB }, KeyColumn: func() string { return commonKeyCol }, LockRows: LockForUpdate, Lock: func() func() { modelPricingMutationMu.Lock(); return modelPricingMutationMu.Unlock }, Publish: updateOptionMap})
+	return store.NewOptions(store.OptionsEnvironment{DB: func() *gorm.DB { return DB }, KeyColumn: func() string { return commonKeyCol }, LockRows: LockForUpdate, Lock: func() func() { modelPricingMutationMu.Lock(); return modelPricingMutationMu.Unlock }, Publish: PublishOption})
 }
 func NewPricingConfiguration() *domain.Configuration {
 	return domain.NewConfiguration(domain.ConfigurationRuntime{Keys: func() []string { return modelPricingOptionKeys }, DefaultMaps: ratio_setting.GetDefaultPricingMaps, MatchingName: ratio_setting.FormatMatchingModelName, Builtin: billing_setting.GetBuiltinBillingExpr, Builtins: billing_setting.GetBuiltinBillingExprCopy, SelfUse: func() bool { return operation_setting.SelfUseModeEnabled }, Completion: func(name string) (float64, bool) {

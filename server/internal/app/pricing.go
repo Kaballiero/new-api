@@ -10,6 +10,7 @@ import (
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	pricingupstream "github.com/QuantumNous/new-api/internal/adapter/pricing/upstream"
 	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
+	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/enqueue_catalogue_refresh"
@@ -104,7 +105,7 @@ func NewPricingHTTP(effects PricingEffects) PricingHTTP {
 		GetRatioConfig: get_ratio_config.NewHTTP(get_ratio_config.NewUsecase(pricingadapter.RatioSettings{Expose: ratio_setting.IsExposeRatioEnabled, Data: func() map[string]any {
 			return billing_setting.GetPricingSyncData(map[string]any(ratio_setting.GetExposedData()))
 		}})),
-		ResetModelRatios: reset_model_ratios.NewHTTP(reset_model_ratios.NewUsecase(pricingadapter.RatioSettings{Defaults: ratio_setting.DefaultModelRatio2JSONString, Write: model.UpdateOption, Update: ratio_setting.UpdateModelRatioByJSONString})),
+		ResetModelRatios: reset_model_ratios.NewHTTP(reset_model_ratios.NewUsecase(pricingadapter.RatioSettings{Defaults: ratio_setting.DefaultModelRatio2JSONString, Write: settingsapp.Default().Write.Execute, Update: ratio_setting.UpdateModelRatioByJSONString})),
 		GetPricingConfig: get_pricing_config.NewHTTP(get_pricing_config.NewUsecase(model.NewPricingOptionsPersistence(), model.NewPricingConfiguration(), model.NewPricingUsageSchemas)),
 		UpdatePricingConfig: update_pricing_config.NewHTTP(model.NewPricingOptionsPersistence(), model.NewPricingConfiguration(), common.SysError, model.RefreshPricing, ratio_setting.InvalidateExposedDataCache, func(c *gin.Context, names []string) {
 			effects.Audit(c, "model.pricing.update", map[string]any{"models": names})

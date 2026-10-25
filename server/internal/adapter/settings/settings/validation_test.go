@@ -1,4 +1,4 @@
-package model
+package settings
 
 import (
 	"testing"
@@ -10,8 +10,8 @@ import (
 func TestValidateOptionValueRejectsInvalidMaxTokenAutoGroups(t *testing.T) {
 	for _, value := range []string{"", "0", "-1", "1.5", "invalid"} {
 		t.Run(value, func(t *testing.T) {
-			assert.Error(t, validateOptionValue("MaxTokenAutoGroups", value))
+			assert.Error(t, Validation{}.StoredValue("MaxTokenAutoGroups", value))
 		})
 	}
-	require.NoError(t, validateOptionValue("MaxTokenAutoGroups", "999999"))
+	require.NoError(t, Validation{}.StoredValue("MaxTokenAutoGroups", "999999"))
 }

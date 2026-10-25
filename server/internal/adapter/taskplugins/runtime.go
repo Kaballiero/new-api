@@ -153,7 +153,7 @@ func (Runtime) Call(p domain.Compiled, hook, member string, args []any) (any, er
 	return engine.CallMember(context.Background(), hook, member, args...)
 }
 
-type Settings struct{}
+type Settings struct{ WriteOption func(string, string) error }
 
 func (Settings) FactoryDisabled(key string) bool               { return setting.IsTaskPluginFactoryDisabled(key) }
 func (Settings) FactorySource(key string) (string, error)      { return plugins.Source(key) }
@@ -163,12 +163,12 @@ func (Settings) DisabledKeys() []string                        { return setting.
 func (Settings) SetDisabledKeys(keys []string) error {
 	return setting.SetTaskPluginDisabledFactoryKeysOption(keys)
 }
-func (Settings) SaveDisabledKeys() error {
+func (s Settings) SaveDisabledKeys() error {
 	raw, e := common.Marshal(setting.GetTaskPluginDisabledFactoryKeys())
 	if e != nil {
 		return e
 	}
-	return model.UpdateOption(setting.TaskPluginDisabledFactoryKeysKey, string(raw))
+	return s.WriteOption(setting.TaskPluginDisabledFactoryKeysKey, string(raw))
 }
 func (Settings) Sources() []domain.MarketplaceSource {
 	v := setting.GetTaskPluginMarketplaceSources()
@@ -178,12 +178,12 @@ func (Settings) Sources() []domain.MarketplaceSource {
 	}
 	return out
 }
-func (Settings) SaveSources(v []domain.MarketplaceSource) error {
+func (s Settings) SaveSources(v []domain.MarketplaceSource) error {
 	raw, e := common.Marshal(v)
 	if e != nil {
 		return e
 	}
-	return model.UpdateOption(setting.TaskPluginMarketplaceSourcesKey, string(raw))
+	return s.WriteOption(setting.TaskPluginMarketplaceSourcesKey, string(raw))
 }
 func (Settings) DisableChannel(id int) bool {
 	return model.UpdateChannelStatus(id, "", common.ChannelStatusManuallyDisabled, "task plugin disabled")

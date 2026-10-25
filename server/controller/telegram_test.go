@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/service"
@@ -361,14 +363,14 @@ func TestTelegramOAuthConfigurationAndLegacyEndpoints(t *testing.T) {
 	fixture := setupTelegramOAuthTest(t)
 	previousBotToken := common.TelegramBotToken
 	t.Cleanup(func() { common.TelegramBotToken = previousBotToken })
-	require.NoError(t, model.UpdateOptionsBulk(map[string]string{
+	require.NoError(t, settingsapp.Default().Bulk.Execute(context.Background(), map[string]string{
 		"telegram.client_id": "12345", "telegram.client_secret": "telegram-client-secret",
 		"TelegramBotToken": "stored-legacy-token", "TelegramOAuthEnabled": "true",
 	}))
 	for range 2 {
 		*system_setting.GetTelegramSettings() = system_setting.TelegramSettings{}
 		common.TelegramOAuthEnabled = false
-		model.InitOptionMap()
+		settingsapp.Initialize()
 		assert.True(t, common.TelegramOAuthEnabled)
 		assert.True(t, system_setting.GetTelegramSettings().IsConfigured())
 		assert.Equal(t, "telegram-client-secret", system_setting.GetTelegramSettings().ClientSecret)

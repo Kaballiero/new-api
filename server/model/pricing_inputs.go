@@ -31,7 +31,10 @@ func pricingPersistedInputFingerprint(metadata []Model, vendors []Vendor, channe
 	}
 	return domain.PersistedInputFingerprint(m, v, c, pricingBuildAbilities(abilities), revision)
 }
-func syncPricingCatalogueInputs() {
+
+// BRIDGE: app/settings.SyncOptions invokes the retained pricing catalogue observer after option reload.
+// Remove when pricing/catalog option composition has its own owner.
+func SyncPricingCatalogueInputs() {
 	observe_catalogue_inputs.NewUsecase(store.NewObservations(newPricingCatalogueStore()), pricingObservationState{}).Execute()
 }
 func pricingChannelInputIdentity(channel *Channel) (string, error) {

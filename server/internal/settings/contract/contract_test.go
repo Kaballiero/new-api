@@ -24,6 +24,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
@@ -298,7 +299,7 @@ func runOption(t *testing.T, tc optionCase, updating bool) {
 	fixture.Configure()
 	common.StartTime = fixture.Epoch
 	constant.Setup = true
-	model.InitOptionMap()
+	settingsapp.Initialize()
 	service.InitHttpClient()
 	transport := &noNetwork{}
 	service.GetHttpClient().Transport = transport
@@ -688,7 +689,7 @@ func contentContract(t *testing.T, env *contracttest.Env, tc optionCase, observa
 	if tc.Variant == "empty" {
 		content = ""
 	}
-	require.NoError(t, model.UpdateOption(tc.Key, content))
+	require.NoError(t, settingsapp.Default().Write.Execute(tc.Key, content))
 	first := env.Serve(httptest.NewRequest("GET", tc.Path, nil))
 	assert.Equal(t, 200, first.Code)
 	*observations = append(*observations, responseValue(t, tc.Path, first))
@@ -722,12 +723,12 @@ func projectionContract(t *testing.T, tc optionCase, request func(string, string
 	t.Helper()
 	switch tc.Variant {
 	case "changed":
-		require.NoError(t, model.UpdateOptionsBulk(map[string]string{"SystemName": "Fixture Ω", "Footer": "<b>Footer</b>",
+		require.NoError(t, settingsapp.Default().Bulk.Execute(context.Background(), map[string]string{"SystemName": "Fixture Ω", "Footer": "<b>Footer</b>",
 			"Logo": "https://logo.invalid/icon", "ServerAddress": "https://api.invalid", "RegisterEnabled": "false",
 			"HeaderNavModules": `{"pricing":{"enabled":false}}`, "SidebarModulesAdmin": `{"token":false}`,
 			"legal.user_agreement": "Terms", "general_setting.quota_display_type": "TOKENS"}))
 	case "console":
-		require.NoError(t, model.UpdateOptionsBulk(map[string]string{"console_setting.api_info_enabled": "false",
+		require.NoError(t, settingsapp.Default().Bulk.Execute(context.Background(), map[string]string{"console_setting.api_info_enabled": "false",
 			"console_setting.announcements_enabled": "true", "console_setting.faq_enabled": "true",
 			"console_setting.announcements": `[{"content":"Fixture","type":"success","publishDate":"2000-01-01T00:00:00Z"}]`,
 			"console_setting.faq":           `[{"question":"Question","answer":"Answer"}]`}))
@@ -736,15 +737,15 @@ func projectionContract(t *testing.T, tc optionCase, request func(string, string
 			FetchedAt: fixture.Epoch, Version: 1, RatesJSON: `{"USD":100}`}).Error)
 		require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
 	case "plugin_off":
-		require.NoError(t, model.UpdateOption("TaskPluginEnabled", "false"))
+		require.NoError(t, settingsapp.Default().Write.Execute("TaskPluginEnabled", "false"))
 	case "factory_off":
-		require.NoError(t, model.UpdateOption(setting.TaskPluginDisabledFactoryKeysKey, `["kling"]`))
+		require.NoError(t, settingsapp.Default().Write.Execute(setting.TaskPluginDisabledFactoryKeysKey, `["kling"]`))
 	case "sources":
-		require.NoError(t, model.UpdateOption(setting.TaskPluginMarketplaceSourcesKey, "null"))
+		require.NoError(t, settingsapp.Default().Write.Execute(setting.TaskPluginMarketplaceSourcesKey, "null"))
 	case "ratio":
-		require.NoError(t, model.UpdateOption("ExposeRatioEnabled", "true"))
+		require.NoError(t, settingsapp.Default().Write.Execute("ExposeRatioEnabled", "true"))
 		request("GET", "/api/ratio_config", "")
-		require.NoError(t, model.UpdateOption("ModelRatio", `{"settings-model":0.25}`))
+		require.NoError(t, settingsapp.Default().Write.Execute("ModelRatio", `{"settings-model":0.25}`))
 		request("GET", "/api/ratio_config", "")
 	case "pricing":
 		request("PUT", "/api/option/", optionBody(t, "ModelPrice", `{"settings-alias":0.25}`))
@@ -800,31 +801,31 @@ func failureContract(t *testing.T, tc optionCase) map[string]any {
 	}
 	switch tc.Variant {
 	case "single_create", "single_save":
-		operationError = model.UpdateOption("Footer", "after")
+		operationError = settingsapp.Default().Write.Execute("Footer", "after")
 		require.NoError(t, operationError, "legacy SQL errors must remain ignored")
 	case "single_publish":
-		operationError = model.UpdateOption("Chats", "{")
+		operationError = settingsapp.Default().Write.Execute("Chats", "{")
 		require.Error(t, operationError)
 	case "bulk_second":
-		operationError = model.UpdateOptionsBulk(map[string]string{"About": "after", "Notice": "after"})
+		operationError = settingsapp.Default().Bulk.Execute(context.Background(), map[string]string{"About": "after", "Notice": "after"})
 		require.Error(t, operationError)
 	case "bulk_publish":
-		operationError = model.UpdateOptionsBulk(map[string]string{"About": "after", "Chats": "{"})
+		operationError = settingsapp.Default().Bulk.Execute(context.Background(), map[string]string{"About": "after", "Chats": "{"})
 		require.Error(t, operationError)
 	case "bulk_alias_conflict":
-		operationError = model.UpdateOptionsBulk(map[string]string{"GroupRatio": `{"default":1}`, "group_ratio_setting.group_ratio": `{}`})
+		operationError = settingsapp.Default().Bulk.Execute(context.Background(), map[string]string{"GroupRatio": `{"default":1}`, "group_ratio_setting.group_ratio": `{}`})
 		require.Error(t, operationError)
 	case "bulk_empty":
-		operationError = model.UpdateOptionsBulk(nil)
+		operationError = settingsapp.Default().Bulk.Execute(context.Background(), nil)
 		require.NoError(t, operationError)
 	case "bulk_alias":
 		input := map[string]string{"group_ratio_setting.group_ratio": `{"default":1.5}`, "About": "after"}
 		before := maps.Clone(input)
-		operationError = model.UpdateOptionsBulk(input)
+		operationError = settingsapp.Default().Bulk.Execute(context.Background(), input)
 		require.NoError(t, operationError)
 		assert.Equal(t, before, input)
 	case "pricing_rollback":
-		operationError = model.UpdateOption("ModelRatio", `{"settings-model":2}`)
+		operationError = settingsapp.Default().Write.Execute("ModelRatio", `{"settings-model":2}`)
 		require.Error(t, operationError)
 	}
 	message := ""
@@ -885,7 +886,7 @@ func syncContract(t *testing.T, tc optionCase, request func(string, string, stri
 	done := make(chan any, 1)
 	go func() {
 		defer func() { done <- recover() }()
-		model.SyncOptions(1)
+		settingsapp.SyncOptions(1)
 	}()
 	synctest.Wait()
 	require.Empty(t, times, "sync must sleep before its first query")
@@ -941,8 +942,8 @@ func initializeContract(t *testing.T, tc optionCase) {
 		}))
 		defer func() { require.NoError(t, model.DB.Callback().Query().Remove("settings_init")) }()
 	}
-	model.InitOptionMap()
-	model.InitOptionMap()
+	settingsapp.Initialize()
+	settingsapp.Initialize()
 }
 
 func settingsLocales(t *testing.T, target string) {

@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/app"
+	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	taskpluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	usageapp "github.com/QuantumNous/new-api/internal/app/usage"
@@ -116,7 +117,7 @@ func main() {
 	model.GetPricing()
 
 	// Reload configuration.
-	go model.SyncOptions(common.SyncFrequency)
+	go settingsapp.SyncOptions(common.SyncFrequency)
 	go taskpluginsapp.StartSync()
 
 	// Reload authorization policies periodically so permission changes reach every node and master.
@@ -330,7 +331,7 @@ func InitResources() error {
 			common.SysError("failed to migrate retired frontend options: " + err.Error())
 		}
 	}
-	model.InitOptionMap()
+	settingsapp.Initialize()
 
 	// Clean up old disk cache files.
 	common.CleanupOldCacheFiles()

@@ -34,14 +34,14 @@ export function parseTaskResult() { return {}; }
 	_, ok := jsplugin.DefaultRegistry.Get(key)
 	require.True(t, ok)
 
-	require.NoError(t, updateOptionMap("TaskPluginEnabled", "false"))
+	require.NoError(t, PublishOption("TaskPluginEnabled", "false"))
 
 	assert.False(t, constant.TaskPluginEnabled)
 	assert.Equal(t, "false", common.OptionMap["TaskPluginEnabled"])
 	_, ok = jsplugin.DefaultRegistry.Get(key)
 	assert.False(t, ok)
 
-	require.NoError(t, updateOptionMap("TaskPluginEnabled", "true"))
+	require.NoError(t, PublishOption("TaskPluginEnabled", "true"))
 	_, ok = jsplugin.DefaultRegistry.Get(key)
 	assert.True(t, ok)
 }
@@ -67,7 +67,7 @@ export function parseTaskResult() { return {}; }
 	_, ok := jsplugin.DefaultRegistry.Get(key)
 	require.True(t, ok)
 
-	require.NoError(t, updateOptionMap(setting.TaskPluginDisabledFactoryKeysKey, `["option-factory-off"]`))
+	require.NoError(t, PublishOption(setting.TaskPluginDisabledFactoryKeysKey, `["option-factory-off"]`))
 
 	assert.Equal(t, `["option-factory-off"]`, common.OptionMap[setting.TaskPluginDisabledFactoryKeysKey])
 	_, ok = jsplugin.DefaultRegistry.Get(key)
