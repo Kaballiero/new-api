@@ -22,9 +22,9 @@ func WriteError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrRejected):
 		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", Message(c, errors.Unwrap(err)))
 	case errors.Is(err, domain.ErrModelFetchFailed):
-		common.ApiErrorI18nStatusCode(c, http.StatusBadGateway, "fetch_models_failed", i18n.MsgChannelFetchModelsFailed, map[string]any{"Error": Message(c, errors.Unwrap(err))})
+		common.ApiErrorI18nStatusCode(c, http.StatusBadGateway, "fetch_models_failed", i18n.MsgChannelModelFetchResponseFailed, map[string]any{"Error": Message(c, errors.Unwrap(err))})
 	case errors.Is(err, domain.ErrOllamaVersionFailed):
-		common.ApiErrorI18n(c, i18n.MsgChannelOllamaVersionFailed, map[string]any{"Error": err.Error()})
+		common.ApiErrorI18n(c, i18n.MsgChannelOllamaVersionResponseFailed, map[string]any{"Error": err.Error()})
 	case errors.Is(err, domain.ErrInternal):
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 	case errors.Is(err, domain.ErrChannelNotFound):
@@ -59,13 +59,13 @@ var messages = []struct {
 	{domain.ErrHeaderOverrideInvalid, i18n.MsgChannelHeaderOverrideInvalid},
 	{domain.ErrCopySourceUnavailable, i18n.MsgChannelCopySourceFailed},
 	{domain.ErrCopyFailed, i18n.MsgChannelCopyFailed},
-	{domain.ErrListTagsFailed, i18n.MsgChannelGetTagsFailed},
+	{domain.ErrListTagsFailed, i18n.MsgChannelTagsResponseFailed},
 	{domain.ErrCountTagsFailed, i18n.MsgChannelCountTagsFailed},
 	{domain.ErrListTagChannelsFailed, i18n.MsgChannelGetTagChannelsFailed},
 	{domain.ErrCountChannelsFailed, i18n.MsgChannelCountFailed},
-	{domain.ErrListChannelsFailed, i18n.MsgChannelGetListFailed},
+	{domain.ErrListChannelsFailed, i18n.MsgChannelListResponseFailed},
 	{domain.ErrCountTypesFailed, i18n.MsgChannelCountTypesFailed},
-	{domain.ErrMultiKeyChannelNotFound, i18n.MsgChannelNotExists},
+	{domain.ErrMultiKeyChannelNotFound, i18n.MsgChannelMultiKeyNotFound},
 	{domain.ErrNotMultiKey, i18n.MsgChannelNotMultiKey},
 	{domain.ErrDisableKeyIndexRequired, i18n.MsgChannelDisableKeyIndexRequired},
 	{domain.ErrEnableKeyIndexRequired, i18n.MsgChannelEnableKeyIndexRequired},

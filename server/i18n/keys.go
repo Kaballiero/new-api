@@ -852,3 +852,40 @@ const (
 	MsgSystemPartialDelete       = "system.partial_delete"
 	MsgSystemModelRequired       = "system.model_required"
 )
+
+// Literal response compatibility for migrated scenarios.
+const (
+	MsgCatalogModelNameEmpty              = "catalog.model_name_empty"
+	MsgCatalogModelNameExists             = "catalog.model_name_exists"
+	MsgCatalogVendorIDMissing             = "catalog.vendor_id_missing"
+	MsgCatalogVendorNameEmpty             = "catalog.vendor_name_empty"
+	MsgCatalogVendorNameExists            = "catalog.vendor_name_exists"
+	MsgAccountsCheckinDisabled            = "accounts.checkin_disabled"
+	MsgAccountsCheckinAlreadyToday        = "accounts.checkin_already_today"
+	MsgAccountsCheckinFailed              = "accounts.checkin_failed"
+	MsgAccountsCheckinQuotaFailed         = "accounts.checkin_quota_failed"
+	MsgAccountsInviteQuotaInsufficient    = "accounts.invite_quota_insufficient"
+	MsgPricingChannelQueryFailed          = "pricing.channel_query_failed"
+	MsgPricingNoValidUpstream             = "pricing.no_valid_upstream"
+	MsgChannelMultiKeyNotFound            = "channel.multi_key_not_found"
+	MsgIdentityWeChatAccountDeleted       = "identity.wechat_account_deleted"
+	MsgIdentityWeChatRegistrationDisabled = "identity.wechat_registration_disabled"
+	MsgIdentityWeChatAccountBanned        = "identity.wechat_account_banned"
+	MsgIdentityWeChatCodeMissing          = "identity.wechat_code_missing"
+	MsgIdentityWeChatCodeInvalid          = "identity.wechat_code_invalid"
+	MsgIdentityPasskeyCreateFailed        = "identity.passkey_create_failed"
+	MsgIdentityPasskeyLoginAbnormal       = "identity.passkey_login_abnormal"
+	MsgIdentityPasskeyAccountDisabled     = "identity.passkey_account_disabled"
+	MsgIdentityPasskeyUserIDInvalid       = "identity.passkey_user_id_invalid"
+	MsgIdentityTwoFANotEnabled            = "identity.twofa_not_enabled"
+)
+
+const MsgChannelModelFetchResponseFailed = "channel.model_fetch_response_failed"
+
+const MsgChannelOllamaVersionResponseFailed = "channel.ollama_version_response_failed"
+
+const MsgAccountsTransferQuotaMinimum = "accounts.transfer_quota_minimum"
+
+const MsgChannelTagsResponseFailed = "channel.tags_response_failed"
+
+const MsgChannelListResponseFailed = "channel.list_response_failed"

@@ -35,7 +35,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgIdentityTwoFAManageForbidden)
 		return
 	case errors.Is(err, domain.ErrTargetTwoFADisabled):
-		common.ApiErrorI18n(c, i18n.MsgTwoFANotEnabled)
+		common.ApiErrorI18n(c, i18n.MsgIdentityTwoFANotEnabled)
 		return
 	case err != nil:
 		h.writeError(c, err)

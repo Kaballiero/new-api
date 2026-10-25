@@ -37,15 +37,15 @@ func (h *HTTP) Handle(c *gin.Context) {
 		h.complete(op.AuthenticatedUser(), c)
 		return
 	case errors.Is(err, domain.ErrAccountDeleted):
-		message = i18n.T(c, i18n.MsgOAuthUserDeleted)
+		message = i18n.T(c, i18n.MsgIdentityWeChatAccountDeleted)
 	case errors.Is(err, domain.ErrRegistrationDisabled):
-		message = i18n.T(c, i18n.MsgUserRegisterDisabled)
+		message = i18n.T(c, i18n.MsgIdentityWeChatRegistrationDisabled)
 	case errors.Is(err, domain.ErrAccountBanned):
-		message = i18n.T(c, i18n.MsgOAuthUserBanned)
+		message = i18n.T(c, i18n.MsgIdentityWeChatAccountBanned)
 	case errors.Is(err, domain.ErrWeChatCodeMissing):
-		message = i18n.T(c, i18n.MsgInvalidParams)
+		message = i18n.T(c, i18n.MsgIdentityWeChatCodeMissing)
 	case errors.Is(err, domain.ErrWeChatCodeInvalid):
-		message = i18n.T(c, i18n.MsgUserVerificationCodeError)
+		message = i18n.T(c, i18n.MsgIdentityWeChatCodeInvalid)
 	default:
 		message = err.Error()
 	}

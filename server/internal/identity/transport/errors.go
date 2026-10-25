@@ -49,13 +49,13 @@ func (w Writer) WriteError(c *gin.Context, err error) {
 		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyNotBound)
 		return
 	case errors.Is(err, domain.ErrPasskeyRecordInvalid):
-		common.ApiErrorI18n(c, i18n.MsgPasskeyCreateFailed)
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyCreateFailed)
 		return
 	case errors.Is(err, domain.ErrPasskeyLoginInvalid):
-		common.ApiErrorI18n(c, i18n.MsgPasskeyLoginAbnormal)
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyLoginAbnormal)
 		return
 	case errors.Is(err, domain.ErrPasskeyAccountDisabled):
-		common.ApiErrorI18n(c, i18n.MsgUserDisabled)
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyAccountDisabled)
 		return
 	case errors.Is(err, domain.ErrEmailInvalid), errors.Is(err, domain.ErrEmailRestricted):
 		code, message = "EMAIL_ADDRESS_REJECTED", err.Error()

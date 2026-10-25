@@ -69,13 +69,13 @@ func WriteError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrBindingForbidden):
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
 	case errors.Is(err, domain.ErrCheckinDisabled):
-		common.ApiErrorI18n(c, i18n.MsgCheckinDisabled)
+		common.ApiErrorI18n(c, i18n.MsgAccountsCheckinDisabled)
 	case errors.Is(err, domain.ErrAlreadyCheckedIn):
-		common.ApiErrorI18n(c, i18n.MsgCheckinAlreadyToday)
+		common.ApiErrorI18n(c, i18n.MsgAccountsCheckinAlreadyToday)
 	case errors.Is(err, domain.ErrCheckinFailed):
-		common.ApiErrorI18n(c, i18n.MsgCheckinFailed)
+		common.ApiErrorI18n(c, i18n.MsgAccountsCheckinFailed)
 	case errors.Is(err, domain.ErrCheckinQuotaFailed):
-		common.ApiErrorI18n(c, i18n.MsgCheckinQuotaFailed)
+		common.ApiErrorI18n(c, i18n.MsgAccountsCheckinQuotaFailed)
 	case errors.Is(err, domain.ErrAffiliateTransferFailed):
 		common.ApiErrorI18n(c, i18n.MsgUserTransferFailed, map[string]any{"Error": transferReason(c, err)})
 	case errors.Is(err, domain.ErrSettingsSaveFailed):
@@ -123,9 +123,9 @@ func transferReason(c *gin.Context, err error) string {
 	var minimum *domain.AmountError
 	switch {
 	case errors.As(err, &minimum) && errors.Is(minimum.Err, domain.ErrTransferBelowMinimum):
-		return common.TranslateMessage(c, i18n.MsgUserTransferQuotaMinimum, map[string]any{"Min": minimum.Amount})
+		return common.TranslateMessage(c, i18n.MsgAccountsTransferQuotaMinimum, map[string]any{"Min": minimum.Amount})
 	case errors.Is(err, domain.ErrInviteQuotaInsufficient):
-		return common.TranslateMessage(c, i18n.MsgUserInviteQuotaInsufficient)
+		return common.TranslateMessage(c, i18n.MsgAccountsInviteQuotaInsufficient)
 	}
 	return err.Error()
 }

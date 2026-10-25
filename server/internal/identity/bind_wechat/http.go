@@ -70,9 +70,9 @@ func (h *HTTP) Handle(c *gin.Context) {
 		message := provider.Error()
 		switch {
 		case errors.Is(err, domain.ErrWeChatCodeMissing):
-			message = i18n.T(c, i18n.MsgInvalidParams)
+			message = i18n.T(c, i18n.MsgIdentityWeChatCodeMissing)
 		case errors.Is(err, domain.ErrWeChatCodeInvalid):
-			message = i18n.T(c, i18n.MsgUserVerificationCodeError)
+			message = i18n.T(c, i18n.MsgIdentityWeChatCodeInvalid)
 		}
 		c.JSON(http.StatusOK, gin.H{"message": message, "success": false})
 		return

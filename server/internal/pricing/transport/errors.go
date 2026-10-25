@@ -22,11 +22,11 @@ func WriteError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrUserGroupUnavailable):
 		writeFailure(c, http.StatusInternalServerError, err.Error())
 	case errors.Is(err, domain.ErrChannelQueryFailed):
-		writeFailure(c, http.StatusInternalServerError, common.TranslateMessage(c, i18n.MsgChannelQueryFailed))
+		writeFailure(c, http.StatusInternalServerError, common.TranslateMessage(c, i18n.MsgPricingChannelQueryFailed))
 	case errors.Is(err, domain.ErrModelPricingUnavailable):
 		writeFailure(c, http.StatusNotFound, err.Error())
 	case errors.Is(err, domain.ErrNoUpstreams):
-		writeFailure(c, http.StatusOK, common.TranslateMessage(c, i18n.MsgChannelNoValidUpstream))
+		writeFailure(c, http.StatusOK, common.TranslateMessage(c, i18n.MsgPricingNoValidUpstream))
 	default:
 		writeFailure(c, http.StatusServiceUnavailable, err.Error())
 	}

@@ -23,7 +23,7 @@ func NewHTTP(factory func(*gin.Context) Operation, audit func(*gin.Context, int,
 func (h *HTTP) Handle(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		common.ApiErrorI18n(c, i18n.MsgPasskeyInvalidUserId)
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyUserIDInvalid)
 		return
 	}
 	result, err := NewUsecase(h.factory(c)).Execute(id)

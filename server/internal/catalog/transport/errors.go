@@ -23,17 +23,17 @@ func WriteError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrModelIDMissing):
 		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "model_id_missing", i18n.MsgModelIdMissing)
 	case errors.Is(err, domain.ErrModelNameEmpty):
-		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "model_name_empty", i18n.MsgModelNameEmpty)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "model_name_empty", i18n.MsgCatalogModelNameEmpty)
 	case errors.Is(err, domain.ErrModelNameRequired):
-		common.ApiErrorI18n(c, i18n.MsgModelNameEmpty)
+		common.ApiErrorI18n(c, i18n.MsgCatalogModelNameEmpty)
 	case errors.Is(err, domain.ErrModelNameExists):
-		common.ApiErrorI18nStatusCode(c, http.StatusConflict, "model_name_exists", i18n.MsgModelNameExists)
+		common.ApiErrorI18nStatusCode(c, http.StatusConflict, "model_name_exists", i18n.MsgCatalogModelNameExists)
 	case errors.Is(err, domain.ErrVendorIDMissing):
-		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "vendor_id_missing", i18n.MsgVendorIdMissing)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "vendor_id_missing", i18n.MsgCatalogVendorIDMissing)
 	case errors.Is(err, domain.ErrVendorNameEmpty):
-		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "vendor_name_empty", i18n.MsgVendorNameEmpty)
+		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "vendor_name_empty", i18n.MsgCatalogVendorNameEmpty)
 	case errors.Is(err, domain.ErrVendorNameExists):
-		common.ApiErrorI18nStatusCode(c, http.StatusConflict, "vendor_name_exists", i18n.MsgVendorNameExists)
+		common.ApiErrorI18nStatusCode(c, http.StatusConflict, "vendor_name_exists", i18n.MsgCatalogVendorNameExists)
 	case errors.Is(err, domain.ErrInvalidSquareState):
 		common.ApiErrorMsgStatusCode(c, http.StatusBadRequest, "invalid_params", "Invalid model square state")
 	case errors.Is(err, domain.ErrInvalidPagination):
