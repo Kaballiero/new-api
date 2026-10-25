@@ -1,0 +1,75 @@
+{
+  "abilities": [],
+  "audit": [],
+  "channels": [],
+  "logs": [],
+  "models": [],
+  "observations": [
+    {
+      "body": "{\"data\":{\"items\":[{\"brand_name\":\"Brand\",\"completed_percent\":0,\"compute_minutes_remaining\":65,\"compute_minutes_served\":0,\"container_name\":\"Alpha\",\"created_at\":946684800,\"deployment_name\":\"Alpha\",\"description\":\"\",\"hardware_info\":\"Brand GPU x2\",\"hardware_name\":\"GPU\",\"hardware_quantity\":2,\"id\":\"dep-1\",\"instance_count\":2,\"model_name\":\"\",\"model_version\":\"\",\"provider\":\"io.net\",\"resource_config\":{\"cpu\":\"\",\"gpu\":\"2\",\"memory\":\"\"},\"status\":\" running \",\"time_remaining\":\"1 hour 5 minutes\",\"time_remaining_minutes\":65,\"type\":\"Container\",\"updated_at\":946684800},{\"brand_name\":\"\",\"completed_percent\":0,\"compute_minutes_remaining\":0,\"compute_minutes_served\":0,\"container_name\":\"beta\",\"created_at\":946771200,\"deployment_name\":\"beta\",\"description\":\"\",\"hardware_info\":\"  x0\",\"hardware_name\":\"\",\"hardware_quantity\":0,\"id\":\"dep-2\",\"instance_count\":0,\"model_name\":\"\",\"model_version\":\"\",\"provider\":\"io.net\",\"resource_config\":{\"cpu\":\"\",\"gpu\":\"0\",\"memory\":\"\"},\"status\":\"mystery\",\"time_remaining\":\"completed\",\"time_remaining_minutes\":0,\"type\":\"Container\",\"updated_at\":946771200}],\"page\":1,\"page_size\":10,\"status_counts\":{\"all\":9,\"completed\":0,\"deployment requested\":0,\"destroyed\":0,\"failed\":0,\"mystery\":1,\"running\":1,\"termination requested\":0},\"total\":9},\"message\":\"\",\"success\":true}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/deployments/?keyword=beta\u0026status=failed",
+      "status": 200
+    }
+  ],
+  "options": [],
+  "outbound": [
+    {
+      "method": "GET",
+      "url": "https://api.io.solutions/enterprise/v1/io-cloud/caas/deployments?page=1\u0026page_size=10\u0026sort_by=created_at\u0026sort_order=desc\u0026status=failed",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "X-Api-Key": [
+          "fixture-io-key"
+        ]
+      },
+      "body": ""
+    }
+  ],
+  "prefill": [],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ],
+  "vendors": []
+}

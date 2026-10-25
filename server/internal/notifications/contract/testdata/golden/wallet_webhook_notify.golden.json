@@ -1,0 +1,70 @@
+{
+  "abilities": [],
+  "audit": [],
+  "channels": [],
+  "logs": [],
+  "models": [],
+  "observations": [],
+  "options": [],
+  "outbound": [
+    {
+      "method": "POST",
+      "url": "https://notify.invalid/quota",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "body": "{\"type\":\"quota_exceed\",\"title\":\"您的额度即将用尽\",\"content\":\"{{value}}，当前剩余额度为 {{value}}，为了不影响您的使用，请及时充值。\\u003cbr/\\u003e充值链接：\\u003ca href='{{value}}'\\u003e{{value}}\\u003c/a\\u003e%!!(string=https://billing.fixture.invalid/wallet)!(string=https://billing.fixture.invalid/wallet)!(string=1000000)(EXTRA string=您的额度即将用尽)\",\"values\":[\"您的额度即将用尽\",\"1000000\",\"https://billing.fixture.invalid/wallet\",\"https://billing.fixture.invalid/wallet\"],\"timestamp\":946684800}"
+    }
+  ],
+  "prefill": [],
+  "subscription_source": "",
+  "subscriptions": [],
+  "tokens": [
+    {
+      "id": 101,
+      "remain_quota": 999999,
+      "used_quota": 1
+    }
+  ],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 999999,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ],
+  "vendors": []
+}

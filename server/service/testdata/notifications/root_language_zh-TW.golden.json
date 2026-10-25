@@ -1,0 +1,63 @@
+{
+  "channels": [],
+  "logs": "",
+  "memory": {
+    "3:channel_test:2000010100": {
+      "count": 1,
+      "timestamp": 946684800
+    }
+  },
+  "outbound": [
+    {
+      "method": "POST",
+      "url": "https://notify.invalid/hook",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "X-Webhook-Signature": [
+          "b9718c7881c82d9a343f2cb952dcbd4bb7b3ef3800a0719d6e4d7b5ab7bb901f"
+        ]
+      },
+      "body": "{\"type\":\"channel_test\",\"title\":\"already rendered title\",\"content\":\"already rendered content\",\"timestamp\":946684800}"
+    }
+  ],
+  "outcomes": [],
+  "users": [
+    {
+      "email": "user@example.invalid",
+      "id": 1,
+      "role": 1,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/user\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"upstream_model_update_notify_enabled\":true,\"language\":\"ru\"}",
+      "status": 1
+    },
+    {
+      "email": "admin@example.invalid",
+      "id": 2,
+      "role": 10,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/admin\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"upstream_model_update_notify_enabled\":true,\"language\":\"ru\"}",
+      "status": 1
+    },
+    {
+      "email": "root@example.invalid",
+      "id": 3,
+      "role": 100,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/hook\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"language\":\"zh-TW\"}",
+      "status": 1
+    },
+    {
+      "email": "disabled@example.invalid",
+      "id": 4,
+      "role": 10,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/disabled\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"upstream_model_update_notify_enabled\":true,\"language\":\"en\"}",
+      "status": 2
+    },
+    {
+      "email": "optout@example.invalid",
+      "id": 5,
+      "role": 10,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/optout\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"language\":\"en\"}",
+      "status": 1
+    }
+  ]
+}

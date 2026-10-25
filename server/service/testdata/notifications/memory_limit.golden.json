@@ -1,0 +1,22 @@
+{
+  "channels": [],
+  "logs": "",
+  "memory": {
+    "7:quota_exceed:2000010100": {
+      "count": 4,
+      "timestamp": 946684800
+    }
+  },
+  "outbound": [],
+  "outcomes": [
+    "",
+    true,
+    "",
+    true,
+    "",
+    false,
+    "",
+    false
+  ],
+  "users": []
+}

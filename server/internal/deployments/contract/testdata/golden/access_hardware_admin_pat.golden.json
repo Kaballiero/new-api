@@ -1,0 +1,97 @@
+{
+  "abilities": [],
+  "audit": [
+    {
+      "action": "",
+      "actor_role": 10,
+      "auth_method": "access_token",
+      "category": "access_token",
+      "content": "",
+      "created_at": 946684800,
+      "event_id": "\u003caudit_logs-event_id-1\u003e",
+      "id": 1,
+      "ip": "192.0.2.1",
+      "method": "GET",
+      "other": "{}",
+      "request_id": "\u003caudit_logs-request_id-1\u003e",
+      "route": "/api/deployments/hardware-types",
+      "status": 200,
+      "success": 1,
+      "token_ref": "2a286af128690ee2e4792be35235e13c9b1d324571e5e964d4496642c0171b2b",
+      "user_agent": "",
+      "user_id": 2,
+      "username": "contract-admin"
+    }
+  ],
+  "channels": [],
+  "logs": [],
+  "models": [],
+  "observations": [
+    {
+      "body": "{\"data\":{\"hardware_types\":[{\"id\":7,\"name\":\"GPU\",\"gpu_type\":\"\",\"gpu_memory\":0,\"max_gpus\":4,\"hourly_rate\":0,\"available\":true,\"brand_name\":\"Brand\",\"available_count\":2},{\"id\":8,\"name\":\"Hardware 8\",\"gpu_type\":\"\",\"gpu_memory\":0,\"max_gpus\":0,\"hourly_rate\":0,\"available\":false}],\"total\":2,\"total_available\":7},\"message\":\"\",\"success\":true}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/deployments/hardware-types",
+      "status": 200
+    }
+  ],
+  "options": [],
+  "outbound": [
+    {
+      "method": "GET",
+      "url": "https://api.io.solutions/enterprise/v1/io-cloud/caas/hardware/max-gpus-per-container",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "X-Api-Key": [
+          "fixture-io-key"
+        ]
+      },
+      "body": ""
+    }
+  ],
+  "prefill": [],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ],
+  "vendors": []
+}

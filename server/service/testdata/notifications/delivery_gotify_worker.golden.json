@@ -1,0 +1,26 @@
+{
+  "channels": [],
+  "logs": "",
+  "memory": {
+    "7:quota_exceed:2000010100": {
+      "count": 1,
+      "timestamp": 946684800
+    }
+  },
+  "outbound": [
+    {
+      "method": "POST",
+      "url": "https://worker.invalid/api/",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "body": "{\"url\":\"https://notify.invalid/message?token=fixture-gotify-token\",\"key\":\"fixture-worker-key\",\"method\":\"POST\",\"headers\":{\"Content-Type\":\"application/json; charset=utf-8\",\"User-Agent\":\"OneAPI-Gotify-Notify/1.0\"},\"body\":{\"title\":\"Fixture title + \\u0026\",\"message\":\"first A \\u0026 +, second B\",\"priority\":0}}"
+    }
+  ],
+  "outcomes": [
+    ""
+  ],
+  "users": []
+}

@@ -1,0 +1,26 @@
+{
+  "channels": [],
+  "logs": "",
+  "memory": {},
+  "outbound": [],
+  "outcomes": [
+    "fixture Redis SET failure",
+    true
+  ],
+  "redis_commands": [
+    [
+      "get",
+      "notify_limit:7:quota_exceed:2000010100"
+    ],
+    [
+      "set",
+      "notify_limit:7:quota_exceed:2000010100",
+      "1",
+      "ex",
+      "600"
+    ]
+  ],
+  "redis_ttl": {},
+  "redis_values": {},
+  "users": []
+}

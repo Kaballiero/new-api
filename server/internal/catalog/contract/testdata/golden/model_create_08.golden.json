@@ -1,0 +1,307 @@
+{
+  "abilities": [
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "alpha",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "beta",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 22,
+      "enabled": 0,
+      "group": "vip",
+      "model": "disabled-only",
+      "priority": 0,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "prefix-child",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "route-visible",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "unpriced",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    }
+  ],
+  "audit": [
+    {
+      "action": "model.create",
+      "actor_role": 100,
+      "auth_method": "session",
+      "category": "operation",
+      "content": "POST /api/models/",
+      "created_at": 946684800,
+      "event_id": "\u003caudit_logs-event_id-1\u003e",
+      "id": 1,
+      "ip": "192.0.2.1",
+      "method": "POST",
+      "other": "{\"op\":{\"action\":\"model.create\"},\"admin_info\":{\"admin_id\":3,\"admin_username\":\"contract-root\",\"admin_role\":100,\"auth_method\":\"session\"},\"audit_info\":{\"method\":\"POST\",\"route\":\"/api/models/\",\"path\":\"/api/models/\",\"status\":201,\"success\":true}}",
+      "request_id": "\u003caudit_logs-request_id-1\u003e",
+      "route": "/api/models/",
+      "status": 201,
+      "success": 1,
+      "token_ref": "",
+      "user_agent": "",
+      "user_id": 3,
+      "username": "contract-root"
+    }
+  ],
+  "channels": [
+    {
+      "group": "default",
+      "id": 21,
+      "model_mapping": null,
+      "models": "alpha,beta,prefix-child,route-visible,unpriced",
+      "priority": 1,
+      "setting": null,
+      "status": 1,
+      "type": 1,
+      "used_quota": 0,
+      "weight": 0
+    },
+    {
+      "group": "vip",
+      "id": 22,
+      "model_mapping": null,
+      "models": "disabled-only",
+      "priority": 0,
+      "setting": null,
+      "status": 2,
+      "type": 1,
+      "used_quota": 0,
+      "weight": 0
+    }
+  ],
+  "enabled_models": [
+    "alpha",
+    "beta",
+    "prefix-child",
+    "route-visible",
+    "unpriced"
+  ],
+  "logs": [],
+  "models": [
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "endpoints": "",
+      "icon": "",
+      "id": 1,
+      "model_name": "alpha",
+      "name_rule": 0,
+      "status": 1,
+      "sync_official": 1,
+      "tags": "",
+      "updated_time": 2,
+      "vendor_id": 1
+    },
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "endpoints": "",
+      "icon": "",
+      "id": 2,
+      "model_name": "beta",
+      "name_rule": 0,
+      "status": 0,
+      "sync_official": 1,
+      "tags": "",
+      "updated_time": 3,
+      "vendor_id": 0
+    },
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "endpoints": "",
+      "icon": "",
+      "id": 3,
+      "model_name": "prefix-",
+      "name_rule": 1,
+      "status": 1,
+      "sync_official": 1,
+      "tags": "",
+      "updated_time": 4,
+      "vendor_id": 0
+    },
+    {
+      "created_time": 946684800,
+      "deleted_at": null,
+      "description": "",
+      "endpoints": "[\"chat\"]",
+      "icon": "",
+      "id": 4,
+      "model_name": "x",
+      "name_rule": 0,
+      "status": 0,
+      "sync_official": 0,
+      "tags": "",
+      "updated_time": 946684800,
+      "vendor_id": 0
+    }
+  ],
+  "observations": [
+    {
+      "body": "{\"data\":{\"id\":4,\"model_name\":\"x\",\"endpoints\":\"[\\\"chat\\\"]\",\"status\":0,\"sync_official\":0,\"created_time\":946684800,\"updated_time\":946684800,\"name_rule\":0,\"has_metadata\":false,\"configured_channel_count\":0,\"square_state\":\"\"},\"message\":\"\",\"success\":true}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/models/",
+      "status": 201
+    },
+    {
+      "body": "{\"data\":{\"items\":[{\"id\":4,\"model_name\":\"x\",\"endpoints\":\"[\\\"chat\\\"]\",\"status\":0,\"sync_official\":0,\"created_time\":946684800,\"updated_time\":946684800,\"name_rule\":0,\"has_metadata\":true,\"configured_channel_count\":0,\"square_state\":\"hidden\"},{\"id\":3,\"model_name\":\"prefix-\",\"supported_endpoints\":[\"openai\"],\"status\":1,\"sync_official\":1,\"created_time\":1,\"updated_time\":4,\"bound_channels\":[{\"name\":\"enabled\",\"type\":1}],\"enable_groups\":[\"default\"],\"quota_types\":[0],\"name_rule\":1,\"matched_models\":[\"prefix-child\"],\"matched_count\":1,\"has_metadata\":true,\"configured_channel_count\":1,\"square_state\":\"visible\"},{\"id\":2,\"model_name\":\"beta\",\"supported_endpoints\":[\"openai\"],\"status\":0,\"sync_official\":1,\"created_time\":1,\"updated_time\":3,\"bound_channels\":[{\"name\":\"enabled\",\"type\":1}],\"enable_groups\":[\"default\"],\"name_rule\":0,\"has_metadata\":true,\"configured_channel_count\":1,\"square_state\":\"hidden\"},{\"id\":1,\"model_name\":\"alpha\",\"vendor_id\":1,\"supported_endpoints\":[\"openai\"],\"status\":1,\"sync_official\":1,\"created_time\":1,\"updated_time\":2,\"bound_channels\":[{\"name\":\"enabled\",\"type\":1}],\"enable_groups\":[\"default\"],\"quota_types\":[0],\"name_rule\":0,\"has_metadata\":true,\"configured_channel_count\":1,\"square_state\":\"visible\"}],\"total\":4,\"page\":1,\"page_size\":10,\"vendor_counts\":{\"0\":3,\"1\":1}},\"message\":\"\",\"success\":true}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/models/",
+      "status": 200
+    },
+    {
+      "body": "{\"data\":{\"page\":1,\"page_size\":10,\"total\":2,\"items\":[{\"model_count\":0,\"version\":\"66e469ca0f5f013ce13e4fb8f6a64b7e8a6dc0df283ce87163492bc524bca4cc\",\"id\":2,\"name\":\"Vendor two\",\"status\":1,\"created_time\":1,\"updated_time\":3},{\"model_count\":1,\"version\":\"0afd1d28d0658227cc3f8ac72ac3495f3b8816488ffc9d30aba7ff0ac28cde44\",\"id\":1,\"name\":\"Vendor one\",\"status\":1,\"created_time\":1,\"updated_time\":2}]},\"message\":\"\",\"success\":true}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/vendors/",
+      "status": 200
+    },
+    {
+      "body": "{\"data\":[{\"id\":2,\"name\":\"group-two\",\"type\":\"tag\",\"items\":[],\"created_time\":1,\"updated_time\":3},{\"id\":1,\"name\":\"group-one\",\"type\":\"model\",\"items\":[\"alpha\"],\"created_time\":1,\"updated_time\":2}],\"message\":\"\",\"success\":true}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/prefill_group/",
+      "status": 200
+    }
+  ],
+  "options": [
+    {
+      "key": "metadata_sync_lock",
+      "value": ""
+    }
+  ],
+  "prefill": [
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "id": 1,
+      "items": "[\"alpha\"]",
+      "name": "group-one",
+      "type": "model",
+      "updated_time": 2
+    },
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "id": 2,
+      "items": "[]",
+      "name": "group-two",
+      "type": "tag",
+      "updated_time": 3
+    }
+  ],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ],
+  "vendors": [
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "icon": "",
+      "id": 1,
+      "name": "Vendor one",
+      "status": 1,
+      "updated_time": 2
+    },
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "icon": "",
+      "id": 2,
+      "name": "Vendor two",
+      "status": 1,
+      "updated_time": 3
+    }
+  ]
+}

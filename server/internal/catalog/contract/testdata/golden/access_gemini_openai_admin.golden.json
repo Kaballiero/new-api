@@ -1,0 +1,235 @@
+{
+  "abilities": [
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "alpha",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "beta",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 22,
+      "enabled": 0,
+      "group": "vip",
+      "model": "disabled-only",
+      "priority": 0,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "prefix-child",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "route-visible",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    },
+    {
+      "channel_id": 21,
+      "enabled": 1,
+      "group": "default",
+      "model": "unpriced",
+      "priority": 1,
+      "tag": null,
+      "weight": 0
+    }
+  ],
+  "audit": [],
+  "channels": [
+    {
+      "group": "default",
+      "id": 21,
+      "model_mapping": null,
+      "models": "alpha,beta,prefix-child,route-visible,unpriced",
+      "priority": 1,
+      "setting": null,
+      "status": 1,
+      "type": 1,
+      "used_quota": 0,
+      "weight": 0
+    },
+    {
+      "group": "vip",
+      "id": 22,
+      "model_mapping": null,
+      "models": "disabled-only",
+      "priority": 0,
+      "setting": null,
+      "status": 2,
+      "type": 1,
+      "used_quota": 0,
+      "weight": 0
+    }
+  ],
+  "enabled_models": [
+    "alpha",
+    "beta",
+    "prefix-child",
+    "route-visible",
+    "unpriced"
+  ],
+  "logs": [],
+  "models": [
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "endpoints": "",
+      "icon": "",
+      "id": 1,
+      "model_name": "alpha",
+      "name_rule": 0,
+      "status": 1,
+      "sync_official": 1,
+      "tags": "",
+      "updated_time": 2,
+      "vendor_id": 1
+    },
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "endpoints": "",
+      "icon": "",
+      "id": 2,
+      "model_name": "beta",
+      "name_rule": 0,
+      "status": 0,
+      "sync_official": 1,
+      "tags": "",
+      "updated_time": 3,
+      "vendor_id": 0
+    },
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "endpoints": "",
+      "icon": "",
+      "id": 3,
+      "model_name": "prefix-",
+      "name_rule": 1,
+      "status": 1,
+      "sync_official": 1,
+      "tags": "",
+      "updated_time": 4,
+      "vendor_id": 0
+    }
+  ],
+  "observations": [
+    {
+      "body": "{\"error\":{\"code\":\"\",\"message\":\"无效的令牌 (request id: billing-contract-request)\",\"type\":\"new_api_error\"}}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/v1beta/openai/models",
+      "status": 401
+    }
+  ],
+  "options": [],
+  "prefill": [
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "id": 1,
+      "items": "[\"alpha\"]",
+      "name": "group-one",
+      "type": "model",
+      "updated_time": 2
+    },
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "id": 2,
+      "items": "[]",
+      "name": "group-two",
+      "type": "tag",
+      "updated_time": 3
+    }
+  ],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ],
+  "vendors": [
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "icon": "",
+      "id": 1,
+      "name": "Vendor one",
+      "status": 1,
+      "updated_time": 2
+    },
+    {
+      "created_time": 1,
+      "deleted_at": null,
+      "description": "",
+      "icon": "",
+      "id": 2,
+      "name": "Vendor two",
+      "status": 1,
+      "updated_time": 3
+    }
+  ]
+}

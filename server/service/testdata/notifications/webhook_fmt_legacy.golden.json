@@ -1,0 +1,29 @@
+{
+  "channels": [],
+  "logs": "",
+  "memory": {
+    "7:quota_exceed:2000010100": {
+      "count": 1,
+      "timestamp": 946684800
+    }
+  },
+  "outbound": [
+    {
+      "method": "POST",
+      "url": "https://notify.invalid/hook",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "X-Webhook-Signature": [
+          "7dde156695dbc93396a75ac2bdf93077263c7fad4edd0fd39de13dff0d67a1a5"
+        ]
+      },
+      "body": "{\"type\":\"quota_exceed\",\"title\":\"Fixture title + \\u0026\",\"content\":\"quota {{value}} {{value}}%!!(string=B)(EXTRA string=A \\u0026 +)\",\"values\":[\"A \\u0026 +\",\"B\"],\"timestamp\":946684800}"
+    }
+  ],
+  "outcomes": [
+    ""
+  ],
+  "users": []
+}

@@ -1,0 +1,70 @@
+{
+  "abilities": [],
+  "audit": [],
+  "channels": [],
+  "logs": [],
+  "models": [],
+  "observations": [],
+  "options": [],
+  "outbound": [
+    {
+      "method": "GET",
+      "url": "https://notify.invalid/%E6%82%A8%E7%9A%84%E9%A2%9D%E5%BA%A6%E5%8D%B3%E5%B0%86%E7%94%A8%E5%B0%BD/%E6%82%A8%E7%9A%84%E9%A2%9D%E5%BA%A6%E5%8D%B3%E5%B0%86%E7%94%A8%E5%B0%BD%EF%BC%8C%E5%89%A9%E4%BD%99%E9%A2%9D%E5%BA%A6%EF%BC%9A1000000%EF%BC%8C%E8%AF%B7%E5%8F%8A%E6%97%B6%E5%85%85%E5%80%BC",
+      "header": {
+        "User-Agent": [
+          "OneAPI-Bark-Notify/1.0"
+        ]
+      },
+      "body": ""
+    }
+  ],
+  "prefill": [],
+  "subscription_source": "",
+  "subscriptions": [],
+  "tokens": [
+    {
+      "id": 101,
+      "remain_quota": 999999,
+      "used_quota": 1
+    }
+  ],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 999999,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ],
+  "vendors": []
+}

@@ -1,0 +1,10 @@
+{
+  "after_hour": false,
+  "before_hour": true,
+  "channels": [],
+  "logs": "",
+  "memory": {},
+  "outbound": [],
+  "outcomes": [],
+  "users": []
+}

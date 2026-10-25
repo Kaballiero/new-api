@@ -1,0 +1,4 @@
+{
+  "root_channel_disabled": "[SYS] 2000/01/01 - 00:00:00 | channel \"fixture channel\" (#21) failed and will be disabled, reason: fixture reason \n",
+  "root_channel_autoban_off": "[SYS] 2000/01/01 - 00:00:00 | channel \"fixture channel\" (#21) failed and will be disabled, reason: fixture reason \n[SYS] 2000/01/01 - 00:00:00 | channel \"fixture channel\" (#21) has automatic disabling turned off, skipping \n"
+}

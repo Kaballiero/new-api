@@ -1,0 +1,69 @@
+{
+  "abilities": [],
+  "audit": [],
+  "channels": [],
+  "logs": [],
+  "models": [],
+  "observations": [],
+  "options": [],
+  "outbound": [],
+  "prefill": [],
+  "source_kind": "subscription",
+  "subscription_source": "subscription",
+  "subscriptions": [
+    {
+      "amount_total": 10,
+      "amount_used": 0,
+      "id": 1,
+      "plan_id": 1,
+      "status": "active",
+      "user_id": 1
+    }
+  ],
+  "tokens": [
+    {
+      "id": 101,
+      "remain_quota": 1000000,
+      "used_quota": 0
+    }
+  ],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ],
+  "vendors": []
+}

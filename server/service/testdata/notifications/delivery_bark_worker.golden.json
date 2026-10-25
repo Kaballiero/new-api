@@ -1,0 +1,26 @@
+{
+  "channels": [],
+  "logs": "",
+  "memory": {
+    "7:quota_exceed:2000010100": {
+      "count": 1,
+      "timestamp": 946684800
+    }
+  },
+  "outbound": [
+    {
+      "method": "POST",
+      "url": "https://worker.invalid/api/",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ]
+      },
+      "body": "{\"url\":\"https://notify.invalid/Fixture+title+%2B+%26/first+A+%26+%2B%2C+second+B\",\"key\":\"fixture-worker-key\",\"method\":\"GET\",\"headers\":{\"User-Agent\":\"OneAPI-Bark-Notify/1.0\"}}"
+    }
+  ],
+  "outcomes": [
+    ""
+  ],
+  "users": []
+}

@@ -1,0 +1,44 @@
+{
+  "channels": [],
+  "logs": "[SYS] 2000/01/01 - 00:00:00 | failed to query upstream update notification users: fixture recipient query failure \n",
+  "memory": {},
+  "outbound": [],
+  "outcomes": [],
+  "users": [
+    {
+      "email": "user@example.invalid",
+      "id": 1,
+      "role": 1,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/user\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"upstream_model_update_notify_enabled\":true,\"language\":\"ru\"}",
+      "status": 1
+    },
+    {
+      "email": "admin@example.invalid",
+      "id": 2,
+      "role": 10,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/admin\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"upstream_model_update_notify_enabled\":true,\"language\":\"ru\"}",
+      "status": 1
+    },
+    {
+      "email": "root@example.invalid",
+      "id": 3,
+      "role": 100,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/root\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"upstream_model_update_notify_enabled\":true,\"language\":\"zh-CN\"}",
+      "status": 1
+    },
+    {
+      "email": "disabled@example.invalid",
+      "id": 4,
+      "role": 10,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/disabled\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"upstream_model_update_notify_enabled\":true,\"language\":\"en\"}",
+      "status": 2
+    },
+    {
+      "email": "optout@example.invalid",
+      "id": 5,
+      "role": 10,
+      "setting": "{\"notify_type\":\"webhook\",\"webhook_url\":\"https://notify.invalid/optout\",\"webhook_secret\":\"fixture-signing-secret\",\"bark_url\":\"https://notify.invalid/{{title}}/{{content}}\",\"gotify_url\":\"https://notify.invalid/\",\"gotify_token\":\"fixture-gotify-token\",\"gotify_priority\":0,\"language\":\"en\"}",
+      "status": 1
+    }
+  ]
+}

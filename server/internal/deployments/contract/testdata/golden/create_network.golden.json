@@ -1,0 +1,97 @@
+{
+  "abilities": [],
+  "audit": [
+    {
+      "action": "deployment.create",
+      "actor_role": 100,
+      "auth_method": "session",
+      "category": "operation",
+      "content": "POST /api/deployments/",
+      "created_at": 946684800,
+      "event_id": "\u003caudit_logs-event_id-1\u003e",
+      "id": 1,
+      "ip": "192.0.2.1",
+      "method": "POST",
+      "other": "{\"op\":{\"action\":\"deployment.create\"},\"admin_info\":{\"admin_id\":3,\"admin_username\":\"contract-root\",\"admin_role\":100,\"auth_method\":\"session\"},\"audit_info\":{\"method\":\"POST\",\"route\":\"/api/deployments/\",\"path\":\"/api/deployments/\",\"status\":200,\"success\":false}}",
+      "request_id": "\u003caudit_logs-request_id-1\u003e",
+      "route": "/api/deployments/",
+      "status": 200,
+      "success": 0,
+      "token_ref": "",
+      "user_agent": "",
+      "user_id": 3,
+      "username": "contract-root"
+    }
+  ],
+  "channels": [],
+  "logs": [],
+  "models": [],
+  "observations": [
+    {
+      "body": "{\"message\":\"failed to deploy container: request failed: HTTP request failed: Post \\\"https://api.io.solutions/enterprise/v1/io-cloud/caas/deploy\\\": fixture network failure\",\"success\":false}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/deployments/",
+      "status": 200
+    }
+  ],
+  "options": [],
+  "outbound": [
+    {
+      "method": "POST",
+      "url": "https://api.io.solutions/enterprise/v1/io-cloud/caas/deploy",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "X-Api-Key": [
+          "fixture-io-key"
+        ]
+      },
+      "body": "{\"resource_private_name\":\"fixture\",\"duration_hours\":2,\"gpus_per_container\":1,\"hardware_id\":7,\"location_ids\":[2],\"container_config\":{\"replica_count\":1,\"env_variables\":{\"A\":\"B\"},\"secret_env_variables\":{\"SECRET\":\"fixture-only\"},\"entrypoint\":[\"run\"],\"traffic_port\":8080,\"args\":[\"--serve\"]},\"registry_config\":{\"image_url\":\"fixture/image:v1\",\"registry_username\":\"test\",\"registry_secret\":\"fixture-registry-secret\"}}"
+    }
+  ],
+  "prefill": [],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ],
+  "vendors": []
+}

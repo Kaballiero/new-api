@@ -1,0 +1,75 @@
+{
+  "abilities": [],
+  "audit": [],
+  "channels": [],
+  "logs": [],
+  "models": [],
+  "observations": [
+    {
+      "body": "{\"message\":\"failed to get available replicas: fixture denied\",\"success\":false}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/deployments/available-replicas?hardware_id=7",
+      "status": 200
+    }
+  ],
+  "options": [],
+  "outbound": [
+    {
+      "method": "GET",
+      "url": "https://api.io.solutions/enterprise/v1/io-cloud/caas/available-replicas?hardware_id=7\u0026hardware_qty=1",
+      "header": {
+        "Content-Type": [
+          "application/json"
+        ],
+        "X-Api-Key": [
+          "fixture-io-key"
+        ]
+      },
+      "body": ""
+    }
+  ],
+  "prefill": [],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    }
+  ],
+  "vendors": []
+}
