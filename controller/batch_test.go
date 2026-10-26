@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
@@ -209,4 +212,109 @@ func TestBatchOutputLimitUsesNativeEndpoint(t *testing.T) {
 			require.Error(t, err)
 		}
 	}
+}
+
+func TestReleaseUnsubmittedBatchEvidence(t *testing.T) {
+	db := openChannelControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}, &model.BatchLogEvent{}, &model.Log{}, &model.AuditLog{}))
+	channel := model.Channel{Type: constant.ChannelTypeOpenRouter, Key: "test-key"}
+	require.NoError(t, db.Create(&channel).Error)
+	root := model.User{Username: "root-operator", Password: "unused", AffCode: "root-aff", Role: common.RoleRootUser, AuthVersion: 1}
+	require.NoError(t, db.Create(&root).Error)
+	user := model.User{Username: "release-user", Password: "unused", AffCode: "user-aff", Quota: 1000, AuthVersion: 1}
+	require.NoError(t, db.Create(&user).Error)
+	token := model.Token{UserId: user.Id, Key: "release-token", RemainQuota: 1000}
+	require.NoError(t, db.Create(&token).Error)
+	job := model.BatchJob{PublicID: "batch_release", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, ChannelType: channel.Type, Model: "test-model", UpstreamModel: "test-model", Endpoint: "/v1/chat/completions", Status: "validating", BillingStatus: "reserved", SubmitState: "queued", BillingSnapshot: `{}`, RequestCount: 1, ReservedQuota: 100}
+	require.NoError(t, model.CreateBatchReservation(&job, []model.BatchItem{{CustomID: "client-id", Body: `{}`, UpstreamBody: `{}`, BillingStatus: "reserved", ReservedQuota: 100}}))
+	require.NoError(t, db.Model(&job).Updates(map[string]any{"submit_state": "submission_unknown", "billing_status": "reconciliation_required"}).Error)
+	router := gin.New()
+	router.POST("/api/batches/:id/release-unsubmitted", func(c *gin.Context) {
+		c.Set("id", root.Id)
+		c.Set("role", common.RoleRootUser)
+		c.Set("username", root.Username)
+	}, ReleaseUnsubmittedBatch)
+	release := func(body string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/batches/batch_release/release-unsubmitted", strings.NewReader(body)))
+		return recorder
+	}
+
+	for _, body := range []string{`{"evidence":"   "}`, `{}`, `{"evidence":"` + strings.Repeat("я", 4097) + `"}`} {
+		recorder := release(body)
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "invalid_request")
+	}
+	var audits int64
+	require.NoError(t, db.Model(&model.AuditLog{}).Count(&audits).Error)
+	assert.Zero(t, audits, "rejected input never reaches the Batch")
+
+	evidence := strings.Repeat("ж", 3000)
+	recorder := release(`{"evidence":"` + evidence + `"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.JSONEq(t, `{"success":true,"id":"batch_release","released_quota":100}`, recorder.Body.String())
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Zero(t, user.BatchHeldQuota)
+	require.NoError(t, db.First(&job, job.ID).Error)
+	assert.NotContains(t, job.LastError, "жжж", "evidence stays out of Batch columns")
+	assert.Empty(t, job.LeaseOwner, "the release lease is returned")
+
+	var entry model.AuditLog
+	require.NoError(t, db.Where("action = ?", "batch.release_unsubmitted").First(&entry).Error)
+	assert.Equal(t, root.Id, entry.UserId)
+	assert.Equal(t, model.AuditCategoryOperation, entry.Category)
+	assert.True(t, entry.Success)
+	assert.Equal(t, "Released the hold of unsubmitted Batch batch_release", entry.Content)
+	var stored string
+	require.NoError(t, common.Unmarshal(entry.Other.RootInfo["evidence"].(json.RawMessage), &stored))
+	assert.Equal(t, evidence, stored)
+	assert.Contains(t, string(entry.Other.RootInfo["released_quota"].(json.RawMessage)), "100")
+
+	recorder = release(`{"evidence":"repeat"}`)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.JSONEq(t, `{"success":true,"id":"batch_release","already_released":true}`, recorder.Body.String())
+
+	require.NoError(t, db.Model(&job).Updates(map[string]any{"submit_state": "submitted", "upstream_id": "native-1", "last_error": ""}).Error)
+	recorder = release(`{"evidence":"provider says absent"}`)
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "release_ineligible")
+	require.NoError(t, db.Model(&model.AuditLog{}).Where("action = ?", "batch.release_unsubmitted").Count(&audits).Error)
+	assert.EqualValues(t, 3, audits, "every attempt on an existing Batch is audited once")
+	var rejected model.AuditLog
+	require.NoError(t, db.Where("action = ? AND success = ?", "batch.release_unsubmitted", false).First(&rejected).Error)
+	assert.Equal(t, http.StatusConflict, rejected.Status)
+	require.NoError(t, common.Unmarshal(rejected.Other.RootInfo["evidence"].(json.RawMessage), &stored))
+	assert.Equal(t, "provider says absent", stored, "rejected attempts keep their evidence too")
+
+	const hook = "batch_test_claim_unavailable"
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register(hook, func(tx *gorm.DB) {
+		if values, ok := tx.Statement.Dest.(map[string]any); ok && strings.HasPrefix(fmt.Sprint(values["lease_owner"]), "batch-release-") {
+			tx.AddError(errors.New("database unavailable"))
+		}
+	}))
+	t.Cleanup(func() { _ = db.Callback().Update().Remove(hook) })
+	recorder = release(`{"evidence":"storage down"}`)
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code, "a storage failure is not a busy Batch")
+	assert.Contains(t, recorder.Body.String(), "storage_unavailable")
+	var unavailable model.AuditLog
+	require.NoError(t, db.Where("action = ? AND status = ?", "batch.release_unsubmitted", http.StatusServiceUnavailable).First(&unavailable).Error)
+	assert.False(t, unavailable.Success)
+
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/batches/batch_missing/release-unsubmitted", strings.NewReader(`{"evidence":"none"}`)))
+	assert.Equal(t, http.StatusNotFound, recorder.Code)
+	const lookupHook = "batch_test_lookup_unavailable"
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register(lookupHook, func(tx *gorm.DB) {
+		if tx.Statement.Table == "batch_jobs" {
+			tx.AddError(errors.New("database unavailable"))
+		}
+	}))
+	t.Cleanup(func() { _ = db.Callback().Query().Remove(lookupHook) })
+	recorder = release(`{"evidence":"lookup down"}`)
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code, "a lookup failure is not a missing Batch")
+	assert.Contains(t, recorder.Body.String(), "storage_unavailable")
+	require.NoError(t, db.Callback().Query().Remove(lookupHook))
+	var unavailableCount int64
+	require.NoError(t, db.Model(&model.AuditLog{}).Where("action = ? AND status = ?", "batch.release_unsubmitted", http.StatusServiceUnavailable).Count(&unavailableCount).Error)
+	assert.EqualValues(t, 2, unavailableCount, "lookup failures are audited; a missing Batch is not")
 }

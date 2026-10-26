@@ -19,6 +19,16 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // Batch reconciliation reasons (system-info panel).
+  'Creation outcome unknown',
+  'Creation outcome unknown for over 48 hours',
+  'Provider window exceeded',
+  'Finished without provider cost',
+  'Unsettled requests',
+  'Purchase cost unconfirmed',
+  // Batch hold release validation (system-info panel).
+  'Enter provider evidence',
+  'Evidence must be at most 4096 characters',
   // OpenRouter reserve policy validation.
   'Use exact model IDs and finite positive USD amounts',
   'Use exact model IDs with upstream or configured_price',
