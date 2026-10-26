@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	modelpkg "github.com/QuantumNous/new-api/model"
@@ -20,6 +21,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -2401,6 +2403,65 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 				}
 			}
 			assert.Equal(t, 1, posts, "no paid replay")
+		})
+	}
+}
+
+// The adaptor-injected usage control must not make require_parameters reject
+// every endpoint, while genuinely unsupported parameters still exclude one.
+func TestOpenRouterRequireParametersAdmitsAdaptorUsage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitTokenEncoders()
+	var endpoints []openrouter.PricedEndpoint
+	require.NoError(t, common.UnmarshalJsonStr(`[
+		{"tag":"openai","model_id":"openai/gpt-4o-mini","quantization":"unknown","context_length":128000,"max_completion_tokens":16384,"supported_parameters":["max_tokens","temperature","top_p","tools","response_format"],"pricing":{"prompt":"0.00000015","completion":"0.0000006"}},
+		{"tag":"azure","model_id":"openai/gpt-4o-mini","quantization":"unknown","context_length":128000,"max_completion_tokens":16384,"supported_parameters":["temperature","top_p","tools","response_format"],"pricing":{"prompt":"0.000001","completion":"0.000002"}}
+	]`, &endpoints))
+	var fp8 openrouter.PricedEndpoint
+	require.NoError(t, common.UnmarshalJsonStr(`{"tag":"deepinfra","model_id":"openai/gpt-4o-mini","quantization":"fp8","context_length":128000,"max_completion_tokens":16384,"supported_parameters":["max_tokens"],"pricing":{"prompt":"0.000001","completion":"0.000002"}}`, &fp8))
+	for _, tc := range []struct {
+		name, provider, wantError string
+		withFP8                   bool
+		want                      float64
+	}{
+		{"usage admitted and unsupported max_tokens excluded", `{"require_parameters":true}`, "", false, 0.00021},
+		{"only provider with require_parameters", `{"only":["openai"],"require_parameters":true}`, "", false, 0.00021},
+		{"really requested parameter names exclusion", `{"only":["azure"],"require_parameters":true}`, "OpenRouter request has no compatible priced endpoint: provider.require_parameters excluded endpoints that do not support: max_tokens", false, 0},
+		{"unmatched quantization names endpoint values", `{"quantizations":["fp16"]}`, "OpenRouter request has no compatible priced endpoint: no OpenRouter endpoint matches the requested quantizations; endpoints report: unknown", false, 0},
+		{"matching quantization excluded by another filter stays generic", `{"quantizations":["fp8"],"max_price":{"prompt":0.1}}`, "OpenRouter request has no compatible priced endpoint", true, 0},
+		{"supported endpoint excluded by another filter stays generic", `{"require_parameters":true,"max_price":{"prompt":0.1}}`, "OpenRouter request has no compatible priced endpoint", false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, _, info := newEmbeddedErrorTestRequest("", http.StatusOK)
+			info.ChannelType = constant.ChannelTypeOpenRouter
+			info.OriginModelName, info.UpstreamModelName = "openai/gpt-4o-mini", "openai/gpt-4o-mini"
+			info.SetEstimatePromptTokens(1000)
+			var request dto.GeneralOpenAIRequest
+			require.NoError(t, common.UnmarshalJsonStr(`{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}],"max_tokens":100}`, &request))
+			converted, err := (&Adaptor{}).ConvertOpenAIRequest(c, info, &request)
+			require.NoError(t, err)
+			convertedBody, err := common.Marshal(converted)
+			require.NoError(t, err)
+			// Provider preferences reach the final body through request overrides.
+			var final map[string]json.RawMessage
+			require.NoError(t, common.Unmarshal(convertedBody, &final))
+			require.JSONEq(t, `{"include":true}`, string(final["usage"]))
+			final["provider"] = json.RawMessage(tc.provider)
+			body, err := common.Marshal(final)
+			require.NoError(t, err)
+
+			estimator := openrouter.NewRequestEstimator()
+			estimator.Models["openai/gpt-4o-mini"] = endpoints
+			if tc.withFP8 {
+				estimator.Models["openai/gpt-4o-mini"] = append(slices.Clone(endpoints), fp8)
+			}
+			cost, err := estimator.Estimate(info, body, "chat/completions")
+			if tc.wantError != "" {
+				require.EqualError(t, err, tc.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
 		})
 	}
 }
