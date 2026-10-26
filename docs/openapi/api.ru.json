@@ -5005,6 +5005,12 @@
             "minimum": -9007199254740991,
             "type": "integer"
           },
+          "refund_quota": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
           "request_count": {
             "format": "int64",
             "maximum": 9007199254740991,
@@ -5014,6 +5020,7 @@
         },
         "required": [
           "quota",
+          "refund_quota",
           "request_count"
         ],
         "type": "object"
@@ -6917,6 +6924,9 @@
       "Stat": {
         "properties": {
           "quota": {
+            "type": "integer"
+          },
+          "refund_quota": {
             "type": "integer"
           },
           "rpm": {
@@ -20768,6 +20778,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Log types 1..7 (TOPUP..LOGIN); overrides type when present. Duplicates are collapsed; empty lists, 0 and unknown types return HTTP 400. Single comma-separated parameter, e.g. types=2,6; repeating the parameter is invalid.",
+            "in": "query",
+            "name": "types",
+            "required": false,
+            "schema": {
+              "pattern": "^[1-7](,[1-7])*$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -20785,12 +20805,25 @@
           "400": {
             "content": {
               "application/json": {
+                "examples": {
+                  "invalid_params": {
+                    "summary": "invalid_params",
+                    "value": {
+                      "code": "invalid_params",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
                 "schema": {
                   "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             },
-            "description": "Неверный запрос — invalid_params, провалена валидация или другая клиентская ошибка"
+            "description": "Неверный запрос — invalid_params, провалена валидация или другая клиентская ошибка",
+            "x-error-codes": [
+              "invalid_params"
+            ]
           },
           "401": {
             "content": {
@@ -20890,7 +20923,7 @@
     "/api/log/aggregate": {
       "post": {
         "deprecated": false,
-        "description": "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log totals include CONSUME only.",
+        "description": "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log quota and request_count include CONSUME only; refund_quota sums REFUND rows. Usage rows are net of refunds recorded after this capability: a refund adds negative quota with zero count and token_used, so buckets may be negative.",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -21280,6 +21313,16 @@
                     "maximum": 7,
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "types": {
+                    "description": "Log types 1..7 (TOPUP..LOGIN); overrides type when present. Duplicates are collapsed; empty lists, 0 and unknown types return HTTP 400. Null is invalid.",
+                    "items": {
+                      "maximum": 7,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "minItems": 1,
+                    "type": "array"
                   },
                   "user_ids": {
                     "description": "Required; duplicates are removed. The size limit applies before deduplication. Empty means no users.",
@@ -21693,6 +21736,16 @@
             "schema": {
               "minimum": 1,
               "type": "integer"
+            }
+          },
+          {
+            "description": "Log types 1..7 (TOPUP..LOGIN); overrides type when present. Duplicates are collapsed; empty lists, 0 and unknown types return HTTP 400. Single comma-separated parameter, e.g. types=2,6; repeating the parameter is invalid.",
+            "in": "query",
+            "name": "types",
+            "required": false,
+            "schema": {
+              "pattern": "^[1-7](,[1-7])*$",
+              "type": "string"
             }
           }
         ],
@@ -22534,6 +22587,16 @@
               "maximum": 100,
               "minimum": 1,
               "type": "integer"
+            }
+          },
+          {
+            "description": "Log types 1..7 (TOPUP..LOGIN); overrides type when present. Duplicates are collapsed; empty lists, 0 and unknown types return HTTP 400. Single comma-separated parameter, e.g. types=2,6; repeating the parameter is invalid.",
+            "in": "query",
+            "name": "types",
+            "required": false,
+            "schema": {
+              "pattern": "^[1-7](,[1-7])*$",
+              "type": "string"
             }
           }
         ],
@@ -33746,6 +33809,9 @@
                         "uptime_kuma_enabled": {
                           "type": "boolean"
                         },
+                        "usage_refund_accounting": {
+                          "type": "boolean"
+                        },
                         "usd_exchange_rate": {
                           "type": "number"
                         },
@@ -40018,7 +40084,7 @@
     "/api/usage/aggregate": {
       "post": {
         "deprecated": false,
-        "description": "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log totals include CONSUME only.",
+        "description": "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log quota and request_count include CONSUME only; refund_quota sums REFUND rows. Usage rows are net of refunds recorded after this capability: a refund adds negative quota with zero count and token_used, so buckets may be negative.",
         "parameters": [],
         "requestBody": {
           "content": {

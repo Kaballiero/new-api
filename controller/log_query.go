@@ -7,7 +7,9 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
@@ -25,11 +27,57 @@ const (
 type AdminLogQueryRequest struct {
 	UserIDs        []int  `json:"user_ids"`
 	Type           int    `json:"type"`
+	Types          []int  `json:"types,omitempty"`
 	StartTimestamp int64  `json:"start_timestamp"`
 	EndTimestamp   int64  `json:"end_timestamp"`
 	ModelName      string `json:"model_name"`
 	Page           int    `json:"p"`
 	PageSize       int    `json:"page_size"`
+}
+
+// legacyLogTypes maps the single type parameter to a log type filter; zero
+// keeps every type.
+func legacyLogTypes(logType int) []int {
+	if logType == model.LogTypeUnknown {
+		return nil
+	}
+	return []int{logType}
+}
+
+// parseLogTypesQuery reads the multi-type filter from a single comma-separated
+// GET parameter such as types=2,6. A repeated parameter is rejected.
+func parseLogTypesQuery(values []string) ([]int, bool) {
+	if len(values) != 1 {
+		return nil, false
+	}
+	var logTypes []int
+	for part := range strings.SplitSeq(values[0], ",") {
+		// Known types are single digits, so signs, padding and spaces are rejected.
+		logType, err := strconv.Atoi(part)
+		if err != nil || len(part) != 1 {
+			return nil, false
+		}
+		logTypes = append(logTypes, logType)
+	}
+	return normalizeLogTypes(logTypes)
+}
+
+// normalizeLogTypes validates a non-empty list of known log types (Topup to
+// Login) and collapses duplicates, preserving first occurrence order.
+func normalizeLogTypes(logTypes []int) ([]int, bool) {
+	if len(logTypes) == 0 {
+		return nil, false
+	}
+	normalized := make([]int, 0, len(logTypes))
+	for _, logType := range logTypes {
+		if logType < model.LogTypeTopup || logType > model.LogTypeLogin {
+			return nil, false
+		}
+		if !slices.Contains(normalized, logType) {
+			normalized = append(normalized, logType)
+		}
+	}
+	return normalized, true
 }
 
 func GetAdminUserLogs(c *gin.Context) {
@@ -69,6 +117,13 @@ func GetAdminUserLogs(c *gin.Context) {
 				return
 			}
 			*parameter.target = value
+		}
+	}
+	if values, supplied := query["types"]; supplied {
+		var valid bool
+		if request.Types, valid = parseLogTypesQuery(values); !valid {
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
+			return
 		}
 	}
 	request.ModelName = query.Get("model_name")
@@ -115,6 +170,14 @@ func readAdminUserLogs(c *gin.Context, request AdminLogQueryRequest) {
 		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
 		return
 	}
+	logTypes := legacyLogTypes(request.Type)
+	if request.Types != nil {
+		var valid bool
+		if logTypes, valid = normalizeLogTypes(request.Types); !valid {
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
+			return
+		}
+	}
 	userIDs := make([]int, 0, len(request.UserIDs))
 	seen := make(map[int]struct{}, len(request.UserIDs))
 	for _, userID := range request.UserIDs {
@@ -128,7 +191,7 @@ func readAdminUserLogs(c *gin.Context, request AdminLogQueryRequest) {
 		}
 	}
 	page := common.PageInfo{Page: request.Page, PageSize: request.PageSize}
-	logs, total, err := model.GetLogsByUserIDs(userIDs, request.Type, request.StartTimestamp, request.EndTimestamp, request.ModelName, page.GetStartIdx(), page.PageSize)
+	logs, total, err := model.GetLogsByUserIDs(userIDs, logTypes, request.StartTimestamp, request.EndTimestamp, request.ModelName, page.GetStartIdx(), page.PageSize)
 	if err != nil {
 		common.ApiErrorStatusCode(c, http.StatusInternalServerError, "internal_error", err)
 		return

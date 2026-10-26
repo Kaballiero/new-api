@@ -196,6 +196,53 @@ func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 	require.Equal(t, 25, rows[1].Quota)
 }
 
+func TestLogQuotaDataRefundsAreNetCorrectionsWithoutRequests(t *testing.T) {
+	consumedAt := unixUTC(2026, time.May, 6, 10, 15, 0)
+	laterRefundAt := unixUTC(2026, time.May, 6, 13, 5, 0)
+	runOnEveryQuotaDialect(t, func(t *testing.T) {
+		if !common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+			require.NoError(t, DB.Exec("CREATE TABLE users (id BIGINT PRIMARY KEY)").Error)
+			t.Cleanup(func() { DB.Exec("DROP TABLE users") })
+			require.NoError(t, DB.Table("users").Create(map[string]any{"id": 1}).Error)
+		} else {
+			require.NoError(t, DB.Create(&User{Id: 1, Username: "alice", AffCode: "refund-net"}).Error)
+		}
+		CacheQuotaDataLock.Lock()
+		CacheQuotaData = make(map[string]*QuotaData)
+		CacheQuotaDataLock.Unlock()
+		base := QuotaDataLogParams{UserID: 1, Username: "alice", ModelName: "video-a", UseGroup: "default", TokenID: 11, ChannelID: 1, NodeName: "node-a"}
+		consume, sameHourRefund, laterRefund := base, base, base
+		consume.CreatedAt, consume.Quota, consume.TokenUsed = consumedAt, 100, 40
+		sameHourRefund.CreatedAt, sameHourRefund.Quota, sameHourRefund.Correction = consumedAt+60, -30, true
+		laterRefund.CreatedAt, laterRefund.Quota, laterRefund.Correction = laterRefundAt, -20, true
+		for _, params := range []QuotaDataLogParams{consume, sameHourRefund, laterRefund} {
+			LogQuotaData(params)
+		}
+		SaveQuotaDataCache()
+
+		var rows []QuotaData
+		require.NoError(t, DB.Order("created_at").Find(&rows).Error)
+		require.Len(t, rows, 2)
+		assert.Equal(t, [4]int64{unixUTC(2026, time.May, 6, 10, 0, 0), 1, 70, 40}, [4]int64{rows[0].CreatedAt, int64(rows[0].Count), int64(rows[0].Quota), int64(rows[0].TokenUsed)})
+		assert.Equal(t, [4]int64{unixUTC(2026, time.May, 6, 13, 0, 0), 0, -20, 0}, [4]int64{rows[1].CreatedAt, int64(rows[1].Count), int64(rows[1].Quota), int64(rows[1].TokenUsed)})
+
+		daily, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: consumedAt - 3600, EndTime: laterRefundAt, Granularity: GranularityDay, Grouping: QuotaBucketByModel})
+		require.NoError(t, err)
+		assert.Equal(t, []*BucketedQuotaData{{ModelName: "video-a", CreatedAt: unixUTC(2026, time.May, 6, 0, 0, 0), Count: 1, Quota: 50, TokenUsed: 40}}, daily)
+		hourly, err := GetBucketedQuotaDates(BucketedQuotaQuery{StartTime: consumedAt - 3600, EndTime: laterRefundAt, Granularity: GranularityHour, Grouping: QuotaBucketByModel})
+		require.NoError(t, err)
+		require.Len(t, hourly, 2)
+		assert.EqualValues(t, -20, hourly[1].Quota)
+		assert.Zero(t, hourly[1].Count)
+
+		start, end := consumedAt-3600, laterRefundAt
+		aggregate, err := GetUsageAggregate(UsageAggregateQuery{AggregateScope: AggregateScope{UserIDs: []int{1}, StartTimestamp: &start, EndTimestamp: &end}, GroupBy: "user", Granularity: "day"})
+		require.NoError(t, err)
+		require.Len(t, aggregate, 1)
+		assert.Equal(t, [3]int64{50, 1, 40}, [3]int64{aggregate[0].Quota, aggregate[0].Count, aggregate[0].TokenUsed})
+	})
+}
+
 // GORM treats a field named CreatedAt as autoCreateTime and replaces a zero
 // value with the current time, so the bucket boundary at the epoch has to be
 // written back explicitly.

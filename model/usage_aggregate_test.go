@@ -169,7 +169,10 @@ func TestLogAggregateUsesSeparateLogDatabase(t *testing.T) {
 	}
 	result, err := GetLogAggregate(AggregateScope{UserIDs: []int{1, 1}, StartTimestamp: &start, EndTimestamp: &end})
 	require.NoError(t, err)
-	assert.Equal(t, LogAggregate{Quota: 2147483655, RequestCount: 3}, result)
+	assert.Equal(t, LogAggregate{Quota: 2147483655, RefundQuota: 99, RequestCount: 3}, result)
+	refundOnly, err := GetLogAggregate(AggregateScope{UserIDs: []int{1}, StartTimestamp: &end, EndTimestamp: &end})
+	require.NoError(t, err)
+	assert.Equal(t, LogAggregate{Quota: 7, RefundQuota: 99, RequestCount: 1}, refundOnly)
 	zeroTime := int64(150)
 	zero, err := GetLogAggregate(AggregateScope{UserIDs: []int{1}, StartTimestamp: &zeroTime, EndTimestamp: &zeroTime})
 	require.NoError(t, err)
@@ -180,6 +183,25 @@ func TestLogAggregateUsesSeparateLogDatabase(t *testing.T) {
 	assert.Equal(t, LogAggregate{}, empty)
 	_, err = GetLogAggregate(AggregateScope{StartTimestamp: &start, EndTimestamp: &end})
 	assert.ErrorIs(t, err, ErrInvalidAggregate)
+
+	// Stat keeps quota gross, reports refunds separately and counts rpm/tpm on consumption only.
+	now := time.Now().Unix()
+	for _, row := range []Log{
+		{UserId: 1, CreatedAt: now, Type: LogTypeConsume, Quota: 5, PromptTokens: 3, CompletionTokens: 4},
+		{UserId: 1, CreatedAt: now, Type: LogTypeRefund, Quota: 2, PromptTokens: 100, CompletionTokens: 100},
+		{UserId: 1, CreatedAt: now, Type: LogTypeError, Quota: 1000, PromptTokens: 100},
+	} {
+		require.NoError(t, logDB.Create(&row).Error)
+	}
+	stat, err := SumUsedQuota(LogTypeUnknown, 0, 0, "", "", "", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, Stat{Quota: 2147683658, RefundQuota: 101, Rpm: 1, Tpm: 7}, stat)
+	stat, err = SumUsedQuota(LogTypeUnknown, start, end, "", "", "", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, Stat{Quota: 2147583654, RefundQuota: 99, Rpm: 1, Tpm: 7}, stat)
+	require.NoError(t, logDB.Create(&Log{UserId: 1, CreatedAt: start, Type: LogTypeRefund, Quota: int(MaxAggregateInteger)}).Error)
+	_, err = GetLogAggregate(AggregateScope{UserIDs: []int{1}, StartTimestamp: &start, EndTimestamp: &end})
+	assert.ErrorIs(t, err, ErrAggregateOverflow)
 }
 
 func TestLogAggregateDatabaseMatrix(t *testing.T) {
@@ -208,9 +230,9 @@ func TestLogAggregateDatabaseMatrix(t *testing.T) {
 				common.SetDatabaseTypes(previousMainType, previousLogType)
 			})
 			require.NoError(t, LOG_DB.Exec("DROP TABLE IF EXISTS logs").Error)
-			ddl := "CREATE TABLE logs (user_id BIGINT, created_at BIGINT, type INTEGER, quota BIGINT)"
+			ddl := "CREATE TABLE logs (user_id BIGINT, created_at BIGINT, type INTEGER, quota BIGINT, prompt_tokens INTEGER, completion_tokens INTEGER)"
 			if databaseType == common.DatabaseTypeClickHouse {
-				ddl = "CREATE TABLE logs (user_id Int64, created_at Int64, type Int32, quota Int64) ENGINE=MergeTree ORDER BY tuple()"
+				ddl = "CREATE TABLE logs (user_id Int64, created_at Int64, type Int32, quota Int64, prompt_tokens Int32, completion_tokens Int32) ENGINE=MergeTree ORDER BY tuple()"
 			}
 			require.NoError(t, LOG_DB.Exec(ddl).Error)
 			require.NoError(t, DB.Create(&User{Id: 1, Username: "aggregate-log", AffCode: "agg-log"}).Error)
@@ -225,7 +247,13 @@ func TestLogAggregateDatabaseMatrix(t *testing.T) {
 			scope := AggregateScope{UserIDs: []int{1, 1}, StartTimestamp: &start, EndTimestamp: &end}
 			result, err := GetLogAggregate(scope)
 			require.NoError(t, err)
-			assert.Equal(t, LogAggregate{Quota: 2147483655, RequestCount: 3}, result)
+			assert.Equal(t, LogAggregate{Quota: 2147483655, RefundQuota: 99, RequestCount: 3}, result)
+			refundOnly, err := GetLogAggregate(AggregateScope{UserIDs: []int{1}, StartTimestamp: &end, EndTimestamp: &end})
+			require.NoError(t, err)
+			assert.Equal(t, LogAggregate{Quota: 7, RefundQuota: 99, RequestCount: 1}, refundOnly)
+			stat, err := SumUsedQuota(LogTypeUnknown, start, end, "", "", "", 0, "")
+			require.NoError(t, err)
+			assert.Equal(t, Stat{Quota: 2147583654, RefundQuota: 99}, stat)
 			zeroTime := int64(150)
 			zero, err := GetLogAggregate(AggregateScope{UserIDs: []int{1}, StartTimestamp: &zeroTime, EndTimestamp: &zeroTime})
 			require.NoError(t, err)

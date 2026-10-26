@@ -57,8 +57,11 @@ func (q AggregateScope) requireUsers() error {
 	return nil
 }
 
+// LogAggregate keeps quota as gross consumption and request_count as consume
+// rows only; refund_quota is the separately reported refunded amount.
 type LogAggregate struct {
 	Quota        int64 `json:"quota"`
+	RefundQuota  int64 `json:"refund_quota"`
 	RequestCount int64 `json:"request_count"`
 }
 
@@ -70,17 +73,21 @@ func GetLogAggregate(q AggregateScope) (LogAggregate, error) {
 	if err := q.requireUsers(); err != nil {
 		return result, err
 	}
-	sum := "COALESCE(SUM(quota), 0)"
+	selection := "COALESCE(SUM(CASE WHEN type = ? THEN quota ELSE 0 END), 0) AS quota, " +
+		"COALESCE(SUM(CASE WHEN type = ? THEN quota ELSE 0 END), 0) AS refund_quota, " +
+		"COALESCE(SUM(CASE WHEN type = ? THEN 1 ELSE 0 END), 0) AS request_count"
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
-		sum = "toString(SUM(toDecimal128(quota, 0)))"
+		selection = "toString(SUM(toDecimal128(if(type = ?, quota, 0), 0))) AS quota, " +
+			"toString(SUM(toDecimal128(if(type = ?, quota, 0), 0))) AS refund_quota, " +
+			"countIf(type = ?) AS request_count"
 	}
-	err := LOG_DB.Table("logs").Select(sum+" AS quota, COUNT(*) AS request_count").
-		Where("user_id IN ? AND type = ? AND created_at >= ? AND created_at <= ?", q.UserIDs, LogTypeConsume, *q.StartTimestamp, *q.EndTimestamp).
+	err := LOG_DB.Table("logs").Select(selection, LogTypeConsume, LogTypeRefund, LogTypeConsume).
+		Where("user_id IN ? AND type IN ? AND created_at >= ? AND created_at <= ?", q.UserIDs, []int{LogTypeConsume, LogTypeRefund}, *q.StartTimestamp, *q.EndTimestamp).
 		Scan(&result).Error
 	if err != nil {
 		return LogAggregate{}, err
 	}
-	if err := validateAggregateIntegers(result.Quota, result.RequestCount); err != nil {
+	if err := validateAggregateIntegers(result.Quota, result.RefundQuota, result.RequestCount); err != nil {
 		return LogAggregate{}, err
 	}
 	return result, nil

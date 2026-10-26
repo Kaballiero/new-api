@@ -36,6 +36,9 @@ type QuotaDataLogParams struct {
 	TokenID   int
 	ChannelID int
 	NodeName  string
+	// Correction marks a refund or settlement delta that changes quota
+	// without being a new request.
+	Correction bool
 }
 
 func UpdateQuotaData() {
@@ -78,6 +81,10 @@ func logQuotaDataCache(quotaData *QuotaData) {
 func LogQuotaData(params QuotaDataLogParams) {
 	// 只精确到小时
 	createdAt := params.CreatedAt - (params.CreatedAt % 3600)
+	count := 1
+	if params.Correction {
+		count = 0
+	}
 	quotaData := &QuotaData{
 		UserID:    params.UserID,
 		Username:  params.Username,
@@ -87,7 +94,7 @@ func LogQuotaData(params QuotaDataLogParams) {
 		TokenID:   params.TokenID,
 		ChannelID: params.ChannelID,
 		NodeName:  params.NodeName,
-		Count:     1,
+		Count:     count,
 		Quota:     params.Quota,
 		TokenUsed: params.TokenUsed,
 	}

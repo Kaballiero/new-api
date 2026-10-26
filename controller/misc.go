@@ -127,6 +127,8 @@ func GetStatus(c *gin.Context) {
 		"user_agreement_enabled":      legalSetting.UserAgreement != "",
 		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "",
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
+		// Logs expose refund rows via types, refund_quota in stats and net chart data.
+		"usage_refund_accounting": true,
 	}
 
 	// 根据启用状态注入可选内容
