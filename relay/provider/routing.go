@@ -39,7 +39,7 @@ func CompatibleChannelTypes(namespace, operation string) []int {
 }
 
 func Operation(path string) string {
-	if path == "/api/alpha/decisions" {
+	if path == "/v1/decisions" || path == "/v1/systemone" {
 		return "decisions"
 	}
 	path = strings.TrimPrefix(strings.TrimPrefix(path, "/v1/"), "/pg/")
