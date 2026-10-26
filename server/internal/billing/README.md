@@ -71,3 +71,5 @@ Task plugins: observer admission/timeout/reload принадлежат `internal
 `tasks/domain.ProtocolSubmission` на границе controller/relay.go. Отключение клиента прекращает
 только observation; bounded detached submission сохраняется. Billing math, refunds, violation fees,
 FX и same-transaction subscription predicates не менялись. Provenance projector теперь `relay/taskview`.
+
+Delivery capability `notifications.Send` передаётся billing renderer через `app/billing`; renderer сохраняет язык пользователя, templates и values. Delivery/limiter принадлежат notifications, общие SMTP/HTTP/worker primitives остаются техническими зависимостями.

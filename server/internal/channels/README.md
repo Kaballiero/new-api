@@ -67,7 +67,7 @@
 | `get_affinity_cache_stats`, `clear_affinity_cache` | статистика и очистка кэша привязки каналов | `GET`, `DELETE /api/option/channel_affinity_cache` — `RootAuth` |
 | `get_affinity_usage_stats` | использование кэша привязки по правилу и ключу | `GET /api/log/channel_affinity_usage_cache` — `AdminAuth` |
 | `change_channel_state` | смена статуса канала или ключа с учётом кэша | без HTTP, через `model.UpdateChannelStatus` |
-| `disable_channel`, `enable_channel` | отключение и включение по ошибкам шлюза с уведомлением root | без HTTP, через `service.DisableChannel` / `service.EnableChannel` |
+| `disable_channel`, `enable_channel` | отключение и включение по ошибкам шлюза с уведомлением root | без HTTP, через `app/channelruntime.Disable` / `app/channelruntime.Enable` |
 
 Ошибки сценариев — значения из `domain/errors.go`. Их переводит в HTTP общий `transport.WriteError`; `transport.Message` даёт текст ошибки на языке запроса:
 - `ErrChannelNotFound` → 404 `channel_not_found`;
@@ -90,14 +90,14 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/channels.go`) читает DT
 - Хранение: `internal/adapter/gorm/channels` (`Store`) поверх `internal/adapter/gorm/channels/record` (GORM-запись `channels`, abilities, теги, настройки шлюза в DTO relaykit).
 - Шлюз: `internal/adapter/channels` — проверка канала (`ProbeEngine`, `ProbeOutcome`, `TestFailures`), загрузка моделей, баланс, Ollama, Codex, кэш привязки, тексты уведомления об обновлении моделей; сама проверка — `controller/channel-test.go`.
 - Права: `service/authz` (`ChannelSensitiveWrite`, `TaskPluginBind`); аудит — `recordManageAudit`, `markAuditLogged` из `controller`.
-- Потребители: `controller/channel*.go`, `controller/codex_usage.go`, `controller/model.go` (HTTP), `model/channel.go`, `service/channel.go`, `service/codex_*` (шлюз и legacy-код).
+- Потребители: `controller/channel*.go`, `controller/codex_usage.go`, `controller/model.go` (HTTP), `model/channel.go`, `app/channelruntime`, `service/channel.go` (failure policy), `service/codex_*` (шлюз и legacy-код).
 
 ## Границы и долг
 
 - Модулю не принадлежат выбор канала при запросе (`middleware/distributor.go`), учёт использования канала (`used_quota`) и кэш каналов в памяти — это часть шлюза в `model`.
 - Удаление модели из каталога переписывает abilities каналов внутри `catalog` (через `model`), а цены строятся из записей каналов в `pricing` (`model/pricing_build.go`) — эти границы не меняли.
 - ⚠ Мосты:
-  - `service/channel.go` собирает `disable_channel` / `enable_channel` и формирует тексты уведомлений root (`rootChannelNotifier`) — его вызывает relay-цепочка, а `service` не может импортировать `internal/app`;
+  - `app/channelruntime` один раз собирает `disable_channel` / `enable_channel` и root notifier для relay и app/channels; доставка через независимый `app/notifications`, failure policy остаётся service;
   - `service/codex_*` собирают сценарии Codex для фоновой задачи и relay;
   - `model/channel.go` создаёт `change_channel_state`, `model/model_identity.go` использует `domain`;
   - тестовые обёртки в `controller/channel_upstream_update.go`, `controller/channel-test.go`, `controller/channel_authz.go` переводят `model.Channel` в `domain.Channel` для существующих тестов.

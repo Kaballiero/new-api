@@ -85,6 +85,13 @@
 | 90 | System order noise | Summary equal-request ties зависят от map order; независимые Uptime requests приходят в разном порядке (≥5 repeats на origin/current) | Только harness order canonicalization; payload bytes и redirect parent→child сохраняются, production sorting не добавлен |
 | 91 | Metrics consistency | RAM drain/upsert/query и удаление старого bucket не atomic; concurrent snapshots и removal могут расходиться, Redis writes Query не читает | Риск по коду без stress reproduction; A3=B technical owner остаётся pkg/perf_metrics до решения волны 7 |
 
+| 92 | Notifications: RAM/Redis event limiter и fan-out | RAM Load→increment→Store и Redis GET→SET/INCR неатомарны; RAM увеличивает rejected-вызовы, неизвестный канал и отсутствующее назначение расходуют лимит. Watchers считают nil skip успешной доставкой. Перенос сохраняет эти outcomes; отдельно определить admission/delivery policy и атомарность | Concurrent sends могут расходиться с лимитом; sent-count не подтверждает получение |
+| 93 | Deployments search/status projection | Search фильтрует только полученную страницу и считает её total; list считает status_counts по странице, all берёт provider-wide total. Zero CreatedAt заменяется текущим временем. Запросы не наследуют cancellation входящего HTTP и не имеют нового body cap | Неполный поиск/счётчики и потребление ресурсов — прежний API/SDK контракт; решение о глобальном поиске и resource policy отдельно |
+| 94 | Catalog prefill Save/uniqueness | Update сохраняет весь record через Save и может создать отсутствующий ID; duplicate precheck отделён от write, soft-deleted uniqueness зависит от исходного dialect/index. Stale payload может перезаписать поля | Сохранены schema, SQL и upsert outcomes. Отдельно определить concurrency/partial-update policy; не исправлять её в переносе |
+| 95 | Deployments quantity/error boundaries | duration/hardware arithmetic не ограничена, отрицательный hardware estimate принимается; provider failures/details возвращаются в прежнем HTTP200 envelope | Input/error/security policy требует отдельного решения; локального quota debit этот модуль не выполняет |
+| 96 | Catalog contract order noise | AWS presets data.33 обходится из Go map, два upstream metadata GET запускаются параллельно. Pre-move characterizations на обоих layouts подтвердили перестановки при равных остальных bytes; host recording и metadata x20 stable | Harness сортирует только доказанные permutations: один AWS array и GET pair внутри каждого metadata round. Production ordering не меняется, причинный порядок rename GET→PUT и порядок metadata rounds сохраняются; source/order evidence описаны в wave6c report |
+| 97 | Catalog ownership | `NewCatalogPersistence`, private metadata mutex/transaction и PricingMutation callback остаются model; domain root использует common. A3/A4 cleanup в волне 7: единый transaction/lock composer и чистый codec/hash boundary, затем объединение domain leaves | До cleanup ownership неполон; удалять lock/composer по частям нельзя |
+
 ## Оптимизации (без изменений схемы БД)
 
 | # | Где | Проблема |
@@ -98,7 +105,7 @@
 | 21 | `pricing/list_syncable_channels` | Читает все каналы со всеми полями, включая ключи (`GetAllChannels(0, 0, true, false)`), ради id, имени и `base_url` |
 | 22 | `channels/search_channels` | Загружает все совпадения (в режиме тегов — все каналы каждого тега), фильтрует по статусу и типу и пагинирует в памяти |
 | 23 | `channels/update_channels_balances`, `run_channel_tests` | Загружают все каналы с ключами одним запросом (`GetAllChannels(0, 0, true, false)`) |
-| 24 | `channels` уведомления без запроса | Язык root читается отдельным запросом `GetRootUser` перед каждым уведомлением; `NotifyRootUser` читает root ещё раз |
+| 24 | `channels` уведомления без запроса | Язык root читается отдельным запросом `GetRootUser` перед каждым уведомлением; `notifications.Root` читает root ещё раз |
 | 25 | `personal_access_tokens/validate_token`, dashboard `AccessTokenAudit` + auth | Один PAT проверяется отдельным SQL-чтением в общем аудите и ещё раз в auth; при отзыве между чтениями аудит и результат аутентификации могут относиться к разным моментам. Отдельно спроектировать переиспользование проверенного результата в запросе с явной гарантией отзыва; изменятся число/момент чтений, поэтому wave 2a сохраняет оба вызова |
 
 | 42 | `audit/record_event` и вызывающие операции | Business write и audit row не атомарны; ошибка audit только логируется, без retry, manual marker всё равно подавляет fallback. Сохранено при переносе | Можно потерять evidence; durable recording и repair требуют отдельного решения |
@@ -181,5 +188,6 @@
 
 - `controller/TestSecurityAccountDeletionConcurrentRequestsHaveOneWinner` — `SQLITE_BUSY`, ≈ 3 из 30 запусков; wave5b host `whole-2` (`-count=2`) снова воспроизвёл это падение (`wave5b-host-host.wj2_bsrr/whole-2.log`), при этом whole-1 PASS. По evidence оркестратора повтор `-count=30` на clean HEAD и candidate даёт ту же частоту. Это известный flake SQLite concurrent deletion, не новая регрессия Batch; тест/locking/retry не менялись. Для whole-2 разрешён только этот конкретный дополнительный root; whole-1 и full-suite строгие.
 - `controller/TestSecurityEnrollmentTelegramAndWeChatFirstFactor` — зависит от порядка, ≈ 1 из 4 полных прогонов;
+- `controller/TestSecurityEnrollmentRejectsChangedFirstFactorPolicy/telegram/setup` — fake Telegram-сервер получает посторонний запрос `/` (`unexpected Telegram endpoint: /`) под нагрузкой `whole-2`; воспроизведено дважды на чистом HEAD `8a12bf350`, отдельно 20 из 20 зелёные;
 - `relay/channel/task/jsplugin/TestTaskAdaptorReDecodesFinalCandidateAndRejectsModelDrift` — под нагрузкой полного прогона.
 - `controller/TestTelegramOAuthRejectsInvalidTokens` — упал 1 раз из 28 прогонов `controller` на ветке рефакторинга (на `main-baseline` 0 из 16, отдельно 40 из 40 зелёные); причина не найдена. В `oauth/telegram.go` рефакторинг менял только алиасы ошибок (тексты прежние) — наблюдать.

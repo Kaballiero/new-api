@@ -9,13 +9,15 @@
 | Модуль | Ответственность | Сценариев | README |
 |---|---|---|---|
 | `system` | setup, task registry/lease/history/cleanup, instances и runtime maintenance; FX/metrics gaps до волны 7 | 25 | [README](system/README.md) |
+| `deployments` | управление io.net deployments, настройки и технические provider reads | 18 | [README](deployments/README.md) |
+| `notifications` | доставка, event limiter, root и upstream model watchers | 3 | [README](notifications/README.md) |
 | `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; publisher/pricing composition остаются model по A2=B | 11 | [README](settings/README.md) |
 | `accounts` | аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 24 | [README](accounts/README.md) |
 | `identity` | вход и доказательство личности: пароль, сессии и их отзыв, 2FA и резервные коды, passkey (WebAuthn), OAuth и WeChat, подтверждение email, восстановление пароля, повторная проверка для чувствительных действий | 66 | [README](identity/README.md) |
 | `apikeys` | API-ключи пользователей для шлюза: создание, просмотр с маской, раскрытие, изменение, удаление, группы, статус, использование и gateway-аутентификация ключа | 16 | [README](apikeys/README.md) |
 | `personal_access_tokens` | персональные токены доступа к панели управления (PAT): выпуск, статус, отзыв и проверка | 4 | [README](personal_access_tokens/README.md) |
 | `authorization` | права администраторов (Casbin): каталог разрешений, проверка, переопределения для пользователя, загрузка политики | 11 | [README](authorization/README.md) |
-| `catalog` | каталог моделей и вендоров: CRUD, синхронизация метаданных, модели без настроек | 26 | [README](catalog/README.md) |
+| `catalog` | модели/вендоры, metadata sync, доступность моделей шлюза, presets и prefill groups | 25 | [README](catalog/README.md) |
 | `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 25 | [README](pricing/README.md) |
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
 | `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 11 | [README](billing/README.md) |
@@ -33,7 +35,7 @@ README каждого модуля появляется в коммите, ко�
 
 | Папка | Что внутри |
 |---|---|
-| `app/` | сборка зависимостей модулей и HTTP-обработчики для `controller/`; `app/authentication` — сборка проверок credentials без обратного импорта middleware; `app/billing` — сборка lifecycle/cost без gateway types |
+| `app/` | сборка зависимостей модулей и HTTP-обработчики для `controller/`; `app/authentication` — сборка проверок credentials без обратного импорта middleware; `app/billing` — сборка lifecycle/cost без gateway types; независимые `app/notifications` и `app/channelruntime` — доставка и канал/root integration |
 | `adapter/gorm/<module>` | хранение через GORM |
 | `adapter/settings/<module>` | чтение настроек |
 | `adapter/casbin`, `adapter/identity`, `adapter/channels`, `adapter/pricing`, `adapter/catalog` | технические реализации интерфейсов модулей |
@@ -42,7 +44,7 @@ README каждого модуля появляется в коммите, ко�
 
 ## Ещё не перенесено
 
-Системные функции, деплойменты и оставшиеся catalog/user-notify workflows ещё живут в legacy слоях. Шлюз (`relay/`, `controller/relay.go`) остаётся снаружи internal. Settings перенесён с явным A2=B остатком: единственные publisher/mutex и pricing/catalog option composition остаются в model до cleanup волны 7.
+Шлюз (`relay/`, `controller/relay.go`) остаётся снаружи internal; его static model snapshot и wire rendering принадлежат `relay/modelcatalog` и `relay/modelview`. Deployments, catalog HTTP и notifications перенесены. Settings publisher/mutex и pricing/catalog composition, включая `NewCatalogPersistence`, private metadata mutex/transaction и PricingMutation callback, остаются в model до волны 7. Корень `catalog/domain` пока импортирует common; волна 7 выделяет codec/version hash и объединяет чистые availability/prefill leaves обратно. System FX и perf_metrics сохраняют описанные в README границы.
 
 - `tasks` — durable async/Midjourney учёт, terminal billing, polling и media access; core сборка
   `app/tasks`, gateway/runtime — `app/taskruntime`, records/SQL — `adapter/gorm/tasks`.

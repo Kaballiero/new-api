@@ -312,3 +312,14 @@ GetStatus получает late version/start/setup, сохраняя прежн
 Открытые ownership gaps до волны 7: FX refresh в service через собственный BRIDGE и pkg/perf_metrics
 как единственный collection/query/flush/SQL/Redis owner (A3=B). RelayInfo mapping не переносился;
 нового metric state или model/service→internal executable imports нет.
+
+
+## Deployments, catalog и notifications (6c)
+
+`internal/deployments` владеет management HTTP и выбором/проверками deployment операций. Технический adapter явно отображает существующие io.net SDK types; app один раз собирает handlers, настройки и provider clients читаются поздно. Schema и маршруты прежние, controller — route bridge.
+
+Catalog объединяет metadata CRUD/sync с availability и prefill groups. Статический linking snapshot принадлежит шлюзу (`relay/modelcatalog`): first-wins slice и last-wins lookup различаются; dashboard presets применяются поздно. `relay/modelview` владеет OpenAI/Anthropic/Gemini представлением. Account preferences и owner/reserve SQL предоставляют plain facts через adapters; правила pricing и списания не копируются. Prefill record/JSON codec принадлежат gorm adapter, model сохраняет только технические aliases для миграций.
+
+`model.NewCatalogPersistence` вместе с прежними private metadata mutex, transaction anchor и PricingMutation callback остаётся composition gap до волны 7; исполняемые metadata/vendor фасады удалены. `catalog/domain` root всё ещё импортирует common. В волне 7 нужно выделить codec/version hash, затем собрать чистые availability/prefill domain leaves обратно; исключения не расширяются.
+
+Notifications владеет delivery/limiter/root/watchers, аккаунты — recipient records, billing — шаблонами и eligibility. `app/notifications` — независимая once-сборка; RAM state и lazy memory cleanup принадлежат `adapter/notifications`, app выбирает RAM/Redis counter; `app/channelruntime` собирает channel enable/disable/root notifier для relay и background consumers. Service сохраняет общие HTTP/worker/SSRF primitives и channel failure policy; runtime callbacks передаются из app. Нет main-only регистрации и обратных service→app notification мостов.

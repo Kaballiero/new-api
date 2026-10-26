@@ -172,11 +172,14 @@
   PostgreSQL 15 full suite совпадает с 3b, system/setup/log cleanup и прежние PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] Content-only (commit 097c976b7): system/setup/task сообщения — i18n keys, English по умолчанию + ru, zh без изменений.
 - [ ] 6b gaps: FX refresh остаётся service BRIDGE (A2); pkg/perf_metrics остаётся collection/query/flush owner (A3=B).
-- [ ] `deployments`: `controller/deployment.go`.
-- [ ] Остатки каталога: `controller/model.go`, `vendor_meta.go`, `prefill_group.go`, `missing_models`.
-- [ ] Уведомления пользователям: `service/user_notify.go`.
+- [x] 6c implementation: deployments, catalog availability/prefill и notifications; once app wiring, gateway static snapshot/model view, channelruntime integration. Контракты: 8a12bf350.
+- [ ] 6c acceptance: актуальный host full-suite/WSS/contracts и PostgreSQL после финального source pin; sandbox не заменяет эти проверки.
+- [ ] 6c content-only: en по умолчанию + ru, zh byte parity; пакет подготовлен отдельно и не применён.
 
 ## Волна 7 — доводка ⬜
+
+- [ ] Catalog A3: перенести `NewCatalogPersistence` вместе с private metadata mutex/transaction/anchor и PricingMutation callback; same-tx pricing deletion и lock ownership сохраняются до общего cleanup.
+- [ ] Catalog A4: выделить codec/version hash из domain root, убрать common, объединить availability/prefill leaves обратно без изменения wire bytes.
 
 - [ ] FX refresh owner (pricing/FX): перенести service.RefreshModelCostFX и replica lifecycle вместе с реальными consumers; убрать system FX BRIDGE, не копируя экономику.
 - [ ] Decide metrics owner (A or C): перенести единственный pkg/perf_metrics state/Record/Query/Summary/flush/SQL/Redis в system либо отдельный performance_metrics; RelayInfo mapping оставить gateway-owned.
