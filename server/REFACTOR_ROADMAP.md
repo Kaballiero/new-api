@@ -183,7 +183,8 @@
 - [x] 7a accounts purity: plain `domain.UserSetting`, codec профиля в адаптере, функциональные `QuotaMath` ports; 11 accounts-исключений удалены. Commits 21d7533f3 перенос, c108b36dc docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, accounts/quota PG-тесты зелёные. SQLite/MySQL не проверялись.
 
 - [ ] Catalog A3: перенести `NewCatalogPersistence` вместе с private metadata mutex/transaction/anchor и PricingMutation callback; same-tx pricing deletion и lock ownership сохраняются до общего cleanup.
-- [ ] 7b Catalog A4: codec/version hash вынесены в adapter/catalog, domain чистый; availability/prefill объединены с root domain без изменения wire bytes; private Fill*, consumer-owned mutation ports и P3 test-only остатки перенесены. Удалены 19 исключений. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
+- [x] 7b Catalog A4: codec/version hash вынесены в adapter/catalog, domain чистый; availability/prefill объединены с root domain без изменения wire bytes; private Fill*, consumer-owned mutation ports и P3 test-only остатки перенесены. Удалены 19 исключений. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
+  Commits c4474edfa перенос, 01f2da575 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, catalog PG-тесты зелёные. SQLite/MySQL не проверялись.
 
 - [ ] FX refresh owner (pricing/FX): перенести service.RefreshModelCostFX и replica lifecycle вместе с реальными consumers; убрать system FX BRIDGE, не копируя экономику.
 - [ ] Decide metrics owner (A or C): перенести единственный pkg/perf_metrics state/Record/Query/Summary/flush/SQL/Redis в system либо отдельный performance_metrics; RelayInfo mapping оставить gateway-owned.
