@@ -30,6 +30,7 @@ import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
 import { resolveTaskDetailAccess } from '../../lib/task-details'
 import type { TaskLog } from '../../types'
 import { PluginAuthorLink } from '../plugin-author-link'
+import { OpenRouterSyncReconciliation } from './openrouter-sync-reconciliation'
 
 function DetailRow(props: {
   label: React.ReactNode
@@ -221,6 +222,14 @@ export function TaskDetailsDialog(props: TaskDetailsDialogProps) {
               </>
             ) : null}
           </DetailSection>
+        ) : null}
+
+        {props.isAdmin && props.log.admin_info?.openrouter_sync ? (
+          <OpenRouterSyncReconciliation
+            taskId={props.log.task_id}
+            view={props.log.admin_info.openrouter_sync}
+            isRoot={props.isRoot}
+          />
         ) : null}
 
         {props.isRoot && props.log.root_info ? (

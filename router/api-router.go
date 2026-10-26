@@ -390,6 +390,7 @@ func SetApiRouter(router *gin.Engine) {
 			taskRoute.GET("", middleware.AdminAuth(), controller.GetAllTask)
 			taskRoute.GET("/:task_id/artifacts", middleware.UserAuth(), controller.GetDashboardTaskArtifacts)
 			taskRoute.POST("/:task_id/openrouter-sync/release", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ReleaseOpenRouterSyncHold)
+			taskRoute.POST("/:task_id/openrouter-sync/settle", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.SettleOpenRouterSyncCost)
 		}
 
 		vendorRoute := apiRouter.Group("/vendors")

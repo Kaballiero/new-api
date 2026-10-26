@@ -135,3 +135,40 @@ func TestTaskLogDTOKeepsFailureReasonAndDoesNotMarkPluginTaskLegacy(t *testing.T
 	assert.Empty(t, pluginView.ResultURL)
 	assert.Empty(t, pluginView.FailReason)
 }
+
+func TestTaskLogDTOShowsOpenRouterSyncReconciliationToAdminsOnly(t *testing.T) {
+	task := &model.Task{
+		TaskID:   "task_openrouter_sync",
+		Platform: constant.TaskPlatformOpenRouterChatImage,
+		Action:   "chat",
+		Status:   model.TaskStatusFailure,
+		PrivateData: model.TaskPrivateData{
+			UpstreamTaskID: "gen-private",
+			BillingContext: &model.TaskBillingContext{SettlementMode: model.TaskSettlementOpenRouterCostV2, OpenRouterCost: &common.OpenRouterCostBasis{Version: model.TaskSettlementOpenRouterCostV2}},
+			Reconciliation: &model.TaskReconciliation{Required: true, ReservedQuota: 50},
+			OpenRouterSync: &model.OpenRouterSyncTask{
+				CredentialHash: "credential-hash-canary", LastError: "cost_lookup_deadline_or_attempt_limit",
+				LastLookupClass: "temporary_http_error", LastHTTPStatus: 503, Attempts: 16, ResultReady: true,
+			},
+		},
+	}
+
+	userView := tasksToDto([]*model.Task{task}, false, common.RoleCommonUser)[0]
+	assert.Nil(t, userView.AdminInfo)
+
+	adminView := tasksToDto([]*model.Task{task}, false, common.RoleAdminUser)[0]
+	require.NotNil(t, adminView.AdminInfo)
+	view := adminView.AdminInfo.OpenRouterSync
+	require.NotNil(t, view)
+	assert.Equal(t, "manual_reconciliation", view["billing_state"])
+	assert.Equal(t, "cost_lookup_deadline_or_attempt_limit", view["reason_code"])
+	assert.Equal(t, "temporary_http_error", view["last_lookup_class"])
+	assert.Equal(t, 503, view["last_http_status"])
+	assert.Equal(t, 50, view["reserved_quota"])
+	assert.Equal(t, false, view["release_allowed"], "a delivered result is never released")
+	assert.Equal(t, true, view["settle_allowed"])
+	adminJSON, err := common.Marshal(adminView)
+	require.NoError(t, err)
+	assert.NotContains(t, string(adminJSON), "gen-private")
+	assert.NotContains(t, string(adminJSON), "credential-hash-canary")
+}

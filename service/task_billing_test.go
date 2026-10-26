@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -3315,21 +3316,51 @@ func TestOpenRouterAudioSubmissionRejectionReleasesHold(t *testing.T) {
 	}
 }
 
-func TestOpenRouterAudioOperatorReleaseRefundsUnknownSubmissionOnce(t *testing.T) {
+func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {
 	parkUnknown := func(t *testing.T) *relaycommon.RelayInfo {
 		_, info := newOpenRouterAudioReservation(t)
 		require.NoError(t, ConfigureOpenRouterSyncSubmission(info, "https://metadata.invalid/generation", nil))
 		require.NoError(t, RecordOpenRouterSyncSubmission(info, nil, fmt.Errorf("connection reset")))
 		task, err := openRouterSyncTask(info)
 		require.NoError(t, err)
-		require.True(t, task.OpenRouterSyncReleasable())
+		require.True(t, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorRelease))
 		require.Equal(t, 9950, getUserQuota(t, info.UserId))
 		return info
 	}
-	t.Run("releases once", func(t *testing.T) {
+	// parkDeliveredChatImage leaves a delivered chat-image result whose cost
+	// lookup budget ran out on temporary upstream errors.
+	parkDeliveredChatImage := func(t *testing.T) *relaycommon.RelayInfo {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		t.Cleanup(server.Close)
+		c, info := newOpenRouterChatImageReservation(t, server.URL)
+		info.OpenRouterCost.Observe([]byte(`{"id":"gen-delivered","choices":[{"message":{"content":"delivered"}}]}`), true)
+		require.NoError(t, CompleteOpenRouterSyncTask(c, info, []byte("delivered response"), "application/json"))
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		task.PrivateData.OpenRouterSync.Attempts = 15
+		require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSync.Revision))
+		require.NoError(t, pollOpenRouterSync(t.Context(), task))
+		return info
+	}
+	refunds := func(t *testing.T) []model.Log {
+		var logs []model.Log
+		require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeRefund).Find(&logs).Error)
+		return logs
+	}
+	t.Run("audio unknown submission releases once", func(t *testing.T) {
 		info := parkUnknown(t)
-		require.NoError(t, ReleaseOpenRouterSyncHold(info.OpenRouterCost.TaskID))
-		assert.Error(t, ReleaseOpenRouterSyncHold(info.OpenRouterCost.TaskID))
+		evidence := " " + strings.Repeat("д", 3000) + " "
+		result, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, model.OpenRouterSyncOperatorRelease, "", evidence, 1)
+		require.NoError(t, err)
+		assert.Equal(t, "settled", result.BillingState)
+		assert.Equal(t, 50, result.ReservedQuota)
+		assert.Zero(t, result.TargetQuota)
+		assert.False(t, result.AlreadyApplied)
+		repeat, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, model.OpenRouterSyncOperatorRelease, "0", "again", 1)
+		require.NoError(t, err)
+		assert.True(t, repeat.AlreadyApplied)
 		RunTaskPollingOnce(t.Context(), nil)
 
 		task, err := openRouterSyncTask(info)
@@ -3337,32 +3368,260 @@ func TestOpenRouterAudioOperatorReleaseRefundsUnknownSubmissionOnce(t *testing.T
 		assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), task.Status)
 		assert.True(t, task.PrivateData.Reconciliation.Finalized)
 		assert.Zero(t, task.Quota)
+		assert.Equal(t, strings.Repeat("д", 3000), task.PrivateData.OpenRouterAudio.OperatorDecision.Evidence, "4096 runes, not bytes, bound the trimmed evidence")
 		reconciliation := OpenRouterSyncReconciliation(task)
 		assert.Equal(t, "settled", reconciliation["billing_state"])
 		assert.Equal(t, "operator_released", reconciliation["reason_code"])
 		assert.Equal(t, 10000, getUserQuota(t, info.UserId))
 		assert.Equal(t, 10000, getTokenRemainQuota(t, info.TokenId))
-		var refunds []model.Log
-		require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeRefund).Find(&refunds).Error)
-		require.Len(t, refunds, 1)
-		assert.Equal(t, 50, refunds[0].Quota)
+		logs := refunds(t)
+		require.Len(t, logs, 1)
+		assert.Equal(t, 50, logs[0].Quota)
+		assert.Equal(t, "OpenRouter operator cost settlement", logs[0].Content)
+		var other map[string]any
+		require.NoError(t, common.UnmarshalJsonStr(logs[0].Other, &other))
+		adminInfo, ok := other["admin_info"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, map[string]any{"action": "release", "operator_id": float64(1), "cost_usd": "0"}, adminInfo["operator_reconciliation"])
 	})
-	t.Run("rejects a hold with generation identity", func(t *testing.T) {
-		_, info := newOpenRouterAudioReservation(t)
-		require.NoError(t, ConfigureOpenRouterSyncSubmission(info, "https://metadata.invalid/generation", nil))
-		require.NoError(t, RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: http.StatusBadGateway, Header: http.Header{"X-Generation-Id": []string{"gen-billed"}}}, nil))
-		assert.Error(t, ReleaseOpenRouterSyncHold(info.OpenRouterCost.TaskID))
+	// parkLeaseExpiredChatImage leaves a chat-image Task whose original request
+	// outlived its lease after recording a generation, then exhausted lookups.
+	parkLeaseExpiredChatImage := func(t *testing.T) *relaycommon.RelayInfo {
+		_, info := newOpenRouterChatImageReservation(t, "https://openrouter.invalid/api")
+		require.NoError(t, RecordOpenRouterSyncSubmission(info, &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Generation-Id": []string{"gen-lease"}}}, nil))
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		task.PrivateData.OpenRouterSync.LeaseUntil = time.Now().Add(-time.Minute).Unix()
+		task.PrivateData.OpenRouterSync.Attempts = 16
+		require.NoError(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterSync.Revision))
+		require.NoError(t, pollOpenRouterSync(t.Context(), task))
+		task, err = openRouterSyncTask(info)
+		require.NoError(t, err)
+		require.Equal(t, model.TaskStatus(model.TaskStatusFailure), task.Status)
+		require.Equal(t, "gen-lease", task.PrivateData.UpstreamTaskID)
+		require.False(t, task.PrivateData.OpenRouterSync.ResultReady)
+		return info
+	}
+	t.Run("new task whose lease expired after a possible delivery is never released", func(t *testing.T) {
+		info := parkLeaseExpiredChatImage(t)
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		assert.True(t, task.PrivateData.OpenRouterSync.ResultReasonTracked)
+		assert.Equal(t, "result_outcome_unknown", task.PrivateData.OpenRouterSync.ResultReason)
+		view := OpenRouterSyncAdminView(task)
+		assert.Equal(t, false, view["release_allowed"])
+		assert.Equal(t, true, view["settle_allowed"])
+		_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, model.OpenRouterSyncOperatorRelease, "", "evidence", 1)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
 		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
 	})
-	t.Run("guard rejects a non-zero release", func(t *testing.T) {
+	t.Run("legacy chat-image without a recorded reason releases once", func(t *testing.T) {
+		info := parkLeaseExpiredChatImage(t)
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		// Stored JSON written before ResultReason existed carries neither field.
+		task.PrivateData.OpenRouterSync.ResultReason, task.PrivateData.OpenRouterSync.ResultReasonTracked = "", false
+		require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Update("private_data", task.PrivateData).Error)
+		task, err = openRouterSyncTask(info)
+		require.NoError(t, err)
+		view := OpenRouterSyncAdminView(task)
+		assert.Equal(t, true, view["release_allowed"])
+		assert.Equal(t, true, view["settle_allowed"])
+
+		_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, model.OpenRouterSyncOperatorRelease, "", "provider activity has no charge", 1)
+		require.NoError(t, err)
+		repeat, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, model.OpenRouterSyncOperatorRelease, "", "provider activity has no charge", 1)
+		require.NoError(t, err)
+		assert.True(t, repeat.AlreadyApplied)
+		task, err = openRouterSyncTask(info)
+		require.NoError(t, err)
+		assert.True(t, task.PrivateData.Reconciliation.Finalized)
+		assert.Equal(t, 10000, getUserQuota(t, info.UserId))
+		assert.Equal(t, 10000, getTokenRemainQuota(t, info.TokenId))
+		require.Len(t, refunds(t), 1)
+	})
+	t.Run("untracked chat text task is never released as legacy", func(t *testing.T) {
+		info := parkLeaseExpiredChatImage(t)
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		// A chat text Task created by a build without ResultReason tracking may
+		// already have streamed its output before Complete ran.
+		task.Action = "chat"
+		task.PrivateData.OpenRouterSync.ResultReason, task.PrivateData.OpenRouterSync.ResultReasonTracked = "", false
+		assert.False(t, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorRelease))
+		assert.True(t, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorSettle))
+	})
+	t.Run("unverified generation identity is never released", func(t *testing.T) {
+		_, info := newOpenRouterChatImageReservation(t, "https://openrouter.invalid/api")
+		info.OpenRouterCost.IdentityConflict = true
+		require.NoError(t, HoldOpenRouterSyncTaskForReconciliation(info, "undelivered_chat_result"))
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		require.True(t, task.PrivateData.OpenRouterSync.IdentityConflict)
+		assert.False(t, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorRelease))
+		assert.True(t, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorSettle))
+		_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, model.OpenRouterSyncOperatorRelease, "", "evidence", 1)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
+		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+	})
+	t.Run("infeasible settlement is refused without recording a decision", func(t *testing.T) {
+		info := parkUnknown(t)
+		require.NoError(t, model.DB.Delete(&model.Token{}, info.TokenId).Error)
+		_, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, model.OpenRouterSyncOperatorRelease, "", "evidence", 1)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
+		assert.ErrorContains(t, err, "task token missing")
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		assert.Nil(t, task.PrivateData.OpenRouterAudio.OperatorDecision)
+		assert.False(t, task.PrivateData.Reconciliation.SettlementPending)
+		assert.True(t, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorRelease), "the hold stays resolvable")
+		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+	})
+	t.Run("delivered result settles at operator cost only", func(t *testing.T) {
+		info := parkDeliveredChatImage(t)
+		taskID := info.OpenRouterCost.TaskID
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		state := task.PrivateData.OpenRouterSync
+		assert.Equal(t, "cost_lookup_deadline_or_attempt_limit", state.LastError)
+		assert.Equal(t, "temporary_http_error", state.LastLookupClass, "manual reconciliation keeps the lookup class")
+		assert.Equal(t, http.StatusServiceUnavailable, state.LastHTTPStatus)
+		view := OpenRouterSyncAdminView(task)
+		assert.Equal(t, "temporary_http_error", view["last_lookup_class"])
+		assert.Equal(t, 16, view["lookup_attempts"])
+		assert.Equal(t, false, view["release_allowed"])
+		assert.Equal(t, true, view["settle_allowed"])
+
+		_, err = ApplyOpenRouterSyncOperatorDecision(taskID, model.OpenRouterSyncOperatorRelease, "", "evidence", 1)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
+		for _, invalid := range []struct{ cost, evidence string }{
+			{cost: "0", evidence: "evidence"},
+			{cost: "-0.01", evidence: "evidence"},
+			{cost: "0.0000000000001", evidence: "evidence"},
+			{cost: "50.01", evidence: "evidence"},
+			{cost: "0.04", evidence: "   "},
+			{cost: "0.04", evidence: strings.Repeat("e", 4097)},
+		} {
+			_, err = ApplyOpenRouterSyncOperatorDecision(taskID, model.OpenRouterSyncOperatorSettle, invalid.cost, invalid.evidence, 1)
+			assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorInvalid, invalid.cost)
+		}
+		task, err = openRouterSyncTask(info)
+		require.NoError(t, err)
+		assert.Nil(t, task.PrivateData.OpenRouterSync.OperatorDecision)
+		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+
+		result, err := ApplyOpenRouterSyncOperatorDecision(taskID, model.OpenRouterSyncOperatorSettle, "0.0800", "provider activity shows $0.08", 7)
+		require.NoError(t, err)
+		assert.Equal(t, "0.08", result.CostUSD)
+		assert.Equal(t, 80, result.TargetQuota)
+		assert.Equal(t, "settled", result.BillingState)
+		_, err = ApplyOpenRouterSyncOperatorDecision(taskID, model.OpenRouterSyncOperatorSettle, "0.09", "different", 7)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
+		_, err = ApplyOpenRouterSyncOperatorDecision(taskID, model.OpenRouterSyncOperatorRelease, "", "different", 7)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
+		repeat, err := ApplyOpenRouterSyncOperatorDecision(taskID, model.OpenRouterSyncOperatorSettle, "0.08", "same", 7)
+		require.NoError(t, err)
+		assert.True(t, repeat.AlreadyApplied)
+
+		task, err = openRouterSyncTask(info)
+		require.NoError(t, err)
+		assert.Equal(t, 80, task.Quota)
+		assert.Equal(t, "operator_settled", OpenRouterSyncReconciliation(task)["reason_code"])
+		assert.Equal(t, 9920, getUserQuota(t, info.UserId))
+		assert.Equal(t, 9920, getTokenRemainQuota(t, info.TokenId))
+		var consumes []model.Log
+		require.NoError(t, model.LOG_DB.Where("type = ? AND content = ?", model.LogTypeConsume, "OpenRouter operator cost settlement").Find(&consumes).Error)
+		require.Len(t, consumes, 1)
+		assert.Equal(t, 30, consumes[0].Quota)
+	})
+	t.Run("result reason decides whether output may have been delivered", func(t *testing.T) {
+		for _, tc := range []struct {
+			reason     string
+			hold       bool
+			releasable bool
+		}{
+			{reason: "undelivered_chat_result", hold: true, releasable: true},
+			{reason: "chat_image_upstream_error", releasable: true},
+			{reason: "invalid_chat_result"},
+			{reason: "chat_completion_unavailable"},
+		} {
+			t.Run(tc.reason, func(t *testing.T) {
+				_, info := newOpenRouterChatImageReservation(t, "https://openrouter.invalid/api")
+				if tc.hold {
+					require.NoError(t, HoldOpenRouterSyncTaskForReconciliation(info, tc.reason))
+				} else {
+					require.NoError(t, FailOpenRouterSyncTask(info, tc.reason))
+				}
+				task, err := openRouterSyncTask(info)
+				require.NoError(t, err)
+				assert.Equal(t, tc.reason, task.PrivateData.OpenRouterSync.ResultReason)
+				assert.Equal(t, tc.releasable, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorRelease))
+				assert.True(t, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorSettle))
+				_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, model.OpenRouterSyncOperatorRelease, "", "evidence", 1)
+				if !tc.releasable {
+					assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
+					assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, 10000, getUserQuota(t, info.UserId))
+			})
+		}
+	})
+	t.Run("saturated cost is refused without a write", func(t *testing.T) {
+		info := parkUnknown(t)
+		task, err := openRouterSyncTask(info)
+		require.NoError(t, err)
+		task.PrivateData.BillingContext.OpenRouterCost.EffectiveGroupRatio = 1e12
+		require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Update("private_data", task.PrivateData).Error)
+		_, err = ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, model.OpenRouterSyncOperatorSettle, "50", "evidence", 1)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorInvalid)
+		task, err = openRouterSyncTask(info)
+		require.NoError(t, err)
+		assert.Nil(t, task.PrivateData.OpenRouterAudio.OperatorDecision)
+		assert.False(t, task.PrivateData.Reconciliation.HasUpstreamCost)
+		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+	})
+	t.Run("eligible platform and action pairs", func(t *testing.T) {
+		for _, tc := range []struct {
+			platform constant.TaskPlatform
+			action   string
+			mode     string
+			eligible bool
+		}{
+			{platform: constant.TaskPlatformOpenRouterImage, action: "image", mode: model.TaskSettlementOpenRouterCostV2, eligible: true},
+			{platform: constant.TaskPlatformOpenRouterRerank, action: "rerank", mode: model.TaskSettlementOpenRouterCostV2, eligible: true},
+			{platform: constant.TaskPlatformOpenRouterChatImage, action: "chat", mode: model.TaskSettlementOpenRouterCostV2, eligible: true},
+			{platform: constant.TaskPlatformOpenRouterImage, action: "rerank", mode: model.TaskSettlementOpenRouterCostV2},
+			{platform: constant.TaskPlatformOpenRouterRerank, action: "rerank", mode: model.TaskSettlementOpenRouterCostV1},
+		} {
+			task := &model.Task{Platform: tc.platform, Action: tc.action, Status: model.TaskStatusFailure, PrivateData: model.TaskPrivateData{
+				BillingContext: &model.TaskBillingContext{SettlementMode: tc.mode, OpenRouterCost: &common.OpenRouterCostBasis{Version: model.TaskSettlementOpenRouterCostV2}},
+				Reconciliation: &model.TaskReconciliation{Required: true, ReservedQuota: 50},
+				OpenRouterSync: &model.OpenRouterSyncTask{ResultReasonTracked: true, ResultReason: "submission_outcome_unknown"},
+			}}
+			assert.Equal(t, tc.eligible, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorRelease), "%s/%s", tc.platform, tc.action)
+			assert.Equal(t, tc.eligible, task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorSettle), "%s/%s", tc.platform, tc.action)
+		}
+	})
+	t.Run("guard rejects a FAILURE settlement without a matching decision", func(t *testing.T) {
 		info := parkUnknown(t)
 		task, err := openRouterSyncTask(info)
 		require.NoError(t, err)
 		r := task.PrivateData.Reconciliation
-		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0.04
-		r.TargetQuota, r.SettlementPending = 40, true
-		assert.Error(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterAudio.Revision))
-		assert.Error(t, ReleaseOpenRouterSyncHold("task_missing"))
+		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
+		r.TargetQuota, r.SettlementPending = 0, true
+		assert.Error(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterAudio.Revision), "no decision")
+		r.UpstreamCostUSD, r.TargetQuota = 0.04, 40
+		task.PrivateData.OpenRouterAudio.OperatorDecision = &model.OpenRouterSyncOperatorDecision{Action: model.OpenRouterSyncOperatorRelease, CostUSD: "0"}
+		assert.Error(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterAudio.Revision), "release with a non-zero cost")
+		task.PrivateData.OpenRouterAudio.OperatorDecision = &model.OpenRouterSyncOperatorDecision{Action: model.OpenRouterSyncOperatorSettle, CostUSD: "0.04"}
+		r.TargetQuota = 45
+		assert.Error(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterAudio.Revision), "settle target not priced on the frozen basis")
+		task.PrivateData.OpenRouterAudio.OperatorDecision.CostUSD, r.TargetQuota = "0.05", 40
+		assert.Error(t, task.UpdateOpenRouterSync(task.PrivateData.OpenRouterAudio.Revision), "settle cost differs from the decision")
+		_, err = ApplyOpenRouterSyncOperatorDecision("task_missing", model.OpenRouterSyncOperatorRelease, "", "evidence", 1)
+		assert.ErrorIs(t, err, ErrOpenRouterSyncOperatorConflict)
 		assert.Equal(t, 9950, getUserQuota(t, info.UserId))
 	})
 }
