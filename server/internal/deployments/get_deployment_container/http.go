@@ -3,6 +3,8 @@ package get_deployment_container
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/deployments/domain"
 	"github.com/QuantumNous/new-api/internal/deployments/transport"
@@ -42,7 +44,7 @@ func (h HTTP) Handle(c *gin.Context) {
 		return
 	}
 	if details == nil {
-		common.ApiErrorMsg(c, "container details not found")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageContainerNotFound))
 		return
 	}
 

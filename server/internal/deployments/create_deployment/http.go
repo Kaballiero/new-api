@@ -2,6 +2,7 @@ package create_deployment
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/deployments/domain"
 	"github.com/QuantumNous/new-api/internal/deployments/transport"
 	"github.com/gin-gonic/gin"
@@ -39,7 +40,7 @@ func (h HTTP) Handle(c *gin.Context) {
 	data := gin.H{
 		"deployment_id": resp.DeploymentID,
 		"status":        resp.Status,
-		"message":       "Deployment created successfully",
+		"message":       i18n.T(c, i18n.MsgDeploymentManageCreated),
 	}
 	common.ApiSuccess(c, data)
 }

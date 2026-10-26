@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/deployments/domain"
 	"github.com/gin-gonic/gin"
@@ -32,7 +34,7 @@ func (h HTTP) Handle(c *gin.Context) {
 	}
 	if len(bytes.TrimSpace(rawBody)) > 0 {
 		if err := common.Unmarshal(rawBody, &req); err != nil {
-			common.ApiErrorMsg(c, "invalid request payload")
+			common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageInvalidPayload))
 			return
 		}
 	}
@@ -41,7 +43,7 @@ func (h HTTP) Handle(c *gin.Context) {
 	if apiKey == "" {
 		storedKey := strings.TrimSpace(h.settings().APIKey)
 		if storedKey == "" {
-			common.ApiErrorMsg(c, "api_key is required")
+			common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageAPIKeyRequired))
 			return
 		}
 		apiKey = storedKey
@@ -53,7 +55,7 @@ func (h HTTP) Handle(c *gin.Context) {
 		if apiErr, ok := err.(*domain.APIError); ok {
 			message := strings.TrimSpace(apiErr.Message)
 			if message == "" {
-				message = "failed to validate api key"
+				message = i18n.T(c, i18n.MsgDeploymentManageValidateKey)
 			}
 			common.ApiErrorMsg(c, message)
 			return

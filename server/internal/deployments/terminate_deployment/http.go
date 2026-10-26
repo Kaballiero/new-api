@@ -2,6 +2,7 @@ package terminate_deployment
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/deployments/domain"
 	"github.com/QuantumNous/new-api/internal/deployments/transport"
 	"github.com/gin-gonic/gin"
@@ -38,7 +39,7 @@ func (h HTTP) Handle(c *gin.Context) {
 	data := gin.H{
 		"status":        resp.Status,
 		"deployment_id": resp.DeploymentID,
-		"message":       "Deployment termination requested successfully",
+		"message":       i18n.T(c, i18n.MsgDeploymentManageTerminated),
 	}
 	common.ApiSuccess(c, data)
 }

@@ -889,3 +889,25 @@ const MsgAccountsTransferQuotaMinimum = "accounts.transfer_quota_minimum"
 const MsgChannelTagsResponseFailed = "channel.tags_response_failed"
 
 const MsgChannelListResponseFailed = "channel.list_response_failed"
+
+// Deployment and prefill management messages.
+const (
+	MsgDeploymentManageNotConfigured       = "deployment.management.not_configured"
+	MsgDeploymentManageNameEmpty           = "deployment.management.name_empty"
+	MsgDeploymentManageNameUnavailable     = "deployment.management.name_unavailable"
+	MsgDeploymentManageIDRequired          = "deployment.management.deployment_id_required"
+	MsgDeploymentManageContainerIDRequired = "deployment.management.container_id_required"
+	MsgDeploymentManageInvalidPayload      = "deployment.management.invalid_payload"
+	MsgDeploymentManageAPIKeyRequired      = "deployment.management.api_key_required"
+	MsgDeploymentManageValidateKey         = "deployment.management.validate_key"
+	MsgDeploymentManageTerminated          = "deployment.management.terminated"
+	MsgDeploymentManageCreated             = "deployment.management.created"
+	MsgDeploymentManageNameParameter       = "deployment.management.name_parameter"
+	MsgDeploymentManageContainerParameter  = "deployment.management.container_parameter"
+	MsgDeploymentManageHardwareParameter   = "deployment.management.hardware_parameter"
+	MsgDeploymentManageInvalidHardware     = "deployment.management.invalid_hardware"
+	MsgDeploymentManageContainerNotFound   = "deployment.management.container_not_found"
+	MsgPrefillNameType                     = "catalog.management.prefill_name_type"
+	MsgPrefillDuplicate                    = "catalog.management.prefill_duplicate"
+	MsgPrefillIDRequired                   = "catalog.management.prefill_id_required"
+)

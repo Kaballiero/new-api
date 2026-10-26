@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/deployments/domain"
 	"github.com/QuantumNous/new-api/internal/deployments/transport"
@@ -34,7 +36,7 @@ func (h HTTP) Handle(c *gin.Context) {
 
 	containerID := c.Query("container_id")
 	if containerID == "" {
-		common.ApiErrorMsg(c, "container_id parameter is required")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageContainerParameter))
 		return
 	}
 	level := c.Query("level")

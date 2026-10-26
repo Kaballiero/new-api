@@ -3,6 +3,8 @@ package transport
 import (
 	"errors"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/catalog/domain/prefill"
 	"github.com/gin-gonic/gin"
@@ -44,11 +46,11 @@ func PrefillResponse(v prefill.Group) PrefillGroup {
 func PrefillError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, prefill.ErrNameAndType):
-		common.ApiErrorMsg(c, "组名称和类型不能为空")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgPrefillNameType))
 	case errors.Is(err, prefill.ErrDuplicate):
-		common.ApiErrorMsg(c, "组名称已存在")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgPrefillDuplicate))
 	case errors.Is(err, prefill.ErrID):
-		common.ApiErrorMsg(c, "缺少组 ID")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgPrefillIDRequired))
 	default:
 		common.ApiError(c, err)
 	}

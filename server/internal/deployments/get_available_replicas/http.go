@@ -3,6 +3,8 @@ package get_available_replicas
 import (
 	"strconv"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/deployments/domain"
 	"github.com/QuantumNous/new-api/internal/deployments/transport"
@@ -30,13 +32,13 @@ func (h HTTP) Handle(c *gin.Context) {
 	gpuCountStr := c.Query("gpu_count")
 
 	if hardwareIDStr == "" {
-		common.ApiErrorMsg(c, "hardware_id parameter is required")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageHardwareParameter))
 		return
 	}
 
 	hardwareID, err := strconv.Atoi(hardwareIDStr)
 	if err != nil || hardwareID <= 0 {
-		common.ApiErrorMsg(c, "invalid hardware_id parameter")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageInvalidHardware))
 		return
 	}
 

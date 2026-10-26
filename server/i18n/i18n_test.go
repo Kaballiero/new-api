@@ -129,3 +129,34 @@ func TestFormerChineseTextsKeepZhCN(t *testing.T) {
 		})
 	}
 }
+
+func TestManagementMessagesKeepLocaleBytes(t *testing.T) {
+	require.NoError(t, Init())
+	for _, tc := range []struct{ key, zh, en, ru string }{
+		{MsgDeploymentManageNotConfigured, "io.net model deployment is not enabled or api key missing", "io.net model deployment is not enabled or api key missing", "Развёртывание моделей io.net отключено или отсутствует API-ключ"},
+		{MsgDeploymentManageNameEmpty, "deployment name cannot be empty", "deployment name cannot be empty", "Название развёртывания не может быть пустым"},
+		{MsgDeploymentManageNameUnavailable, "deployment name is not available, please choose a different name", "deployment name is not available, please choose a different name", "Название развёртывания недоступно, выберите другое"},
+		{MsgDeploymentManageIDRequired, "deployment ID is required", "deployment ID is required", "Необходимо указать ID развёртывания"},
+		{MsgDeploymentManageContainerIDRequired, "container ID is required", "container ID is required", "Необходимо указать ID контейнера"},
+		{MsgDeploymentManageInvalidPayload, "invalid request payload", "invalid request payload", "Недопустимое тело запроса"},
+		{MsgDeploymentManageAPIKeyRequired, "api_key is required", "api_key is required", "Необходимо указать api_key"},
+		{MsgDeploymentManageValidateKey, "failed to validate api key", "failed to validate api key", "Не удалось проверить API-ключ"},
+		{MsgDeploymentManageTerminated, "Deployment termination requested successfully", "Deployment termination requested successfully", "Запрос на завершение развёртывания отправлен"},
+		{MsgDeploymentManageCreated, "Deployment created successfully", "Deployment created successfully", "Развёртывание создано"},
+		{MsgDeploymentManageNameParameter, "name parameter is required", "name parameter is required", "Необходимо указать параметр name"},
+		{MsgDeploymentManageContainerParameter, "container_id parameter is required", "container_id parameter is required", "Необходимо указать параметр container_id"},
+		{MsgDeploymentManageHardwareParameter, "hardware_id parameter is required", "hardware_id parameter is required", "Необходимо указать параметр hardware_id"},
+		{MsgDeploymentManageInvalidHardware, "invalid hardware_id parameter", "invalid hardware_id parameter", "Недопустимый параметр hardware_id"},
+		{MsgDeploymentManageContainerNotFound, "container details not found", "container details not found", "Сведения о контейнере не найдены"},
+		{MsgPrefillNameType, "组名称和类型不能为空", "Group name and type are required", "Необходимо указать название и тип группы"},
+		{MsgPrefillDuplicate, "组名称已存在", "Group name already exists", "Группа с таким названием уже существует"},
+		{MsgPrefillIDRequired, "缺少组 ID", "Group ID is required", "Необходимо указать ID группы"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			assert.Equal(t, tc.en, T(nil, tc.key))
+			for _, item := range []struct{ lang, want string }{{"en", tc.en}, {"ru", tc.ru}, {"zh-CN", tc.zh}, {"zh-TW", tc.zh}} {
+				assert.Equal(t, item.want, Translate(item.lang, tc.key))
+			}
+		})
+	}
+}

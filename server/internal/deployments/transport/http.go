@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/deployments/domain"
 	"github.com/gin-gonic/gin"
@@ -12,7 +14,7 @@ import (
 func Key(c *gin.Context, settings func() domain.Settings) (string, bool) {
 	key, err := settings().Key()
 	if err != nil {
-		common.ApiErrorMsg(c, "io.net model deployment is not enabled or api key missing")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageNotConfigured))
 		return "", false
 	}
 	return key, true
@@ -28,9 +30,9 @@ func Provider[T any](c *gin.Context, settings func() domain.Settings, factory fu
 func Error(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNameEmpty):
-		common.ApiErrorMsg(c, "deployment name cannot be empty")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageNameEmpty))
 	case errors.Is(err, domain.ErrNameUnavailable):
-		common.ApiErrorMsg(c, "deployment name is not available, please choose a different name")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageNameUnavailable))
 	default:
 		common.ApiError(c, err)
 	}
@@ -38,7 +40,7 @@ func Error(c *gin.Context, err error) {
 func RequireDeploymentID(c *gin.Context) (string, bool) {
 	deploymentID := strings.TrimSpace(c.Param("id"))
 	if deploymentID == "" {
-		common.ApiErrorMsg(c, "deployment ID is required")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageIDRequired))
 		return "", false
 	}
 	return deploymentID, true
@@ -47,7 +49,7 @@ func RequireDeploymentID(c *gin.Context) (string, bool) {
 func RequireContainerID(c *gin.Context) (string, bool) {
 	containerID := strings.TrimSpace(c.Param("container_id"))
 	if containerID == "" {
-		common.ApiErrorMsg(c, "container ID is required")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageContainerIDRequired))
 		return "", false
 	}
 	return containerID, true

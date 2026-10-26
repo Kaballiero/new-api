@@ -3,6 +3,8 @@ package check_deployment_name
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/deployments/domain"
 	"github.com/QuantumNous/new-api/internal/deployments/transport"
@@ -28,7 +30,7 @@ func (h HTTP) Handle(c *gin.Context) {
 
 	clusterName := strings.TrimSpace(c.Query("name"))
 	if clusterName == "" {
-		common.ApiErrorMsg(c, "name parameter is required")
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgDeploymentManageNameParameter))
 		return
 	}
 
