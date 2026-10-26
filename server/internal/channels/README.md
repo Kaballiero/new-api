@@ -101,7 +101,8 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/channels.go`) читает DT
   - `service/codex_*` собирают сценарии Codex для фоновой задачи и relay;
   - `model/channel.go` создаёт `change_channel_state`, `model/model_identity.go` использует `domain`;
   - тестовые обёртки в `controller/channel_upstream_update.go`, `controller/channel-test.go`, `controller/channel_authz.go` переводят `model.Channel` в `domain.Channel` для существующих тестов.
-- `domain` импортирует `common` (JSON, `SysLog`, статусы каналов) — 1 запись `domain-transitive` и 35 записей `usecase-transitive`; ошибки `clear_affinity_cache` и `get_affinity_usage_stats` поэтому остаются в их пакетах.
+- `domain` и usecase транзитивно не зависят от Gin/GORM/Redis. JSON полей mapping, ключей и `OtherInfo` обслуживает `adapter/gorm/channels/record.Codec`; бизнес получает типизированные maps/ключи и узкие codec capabilities. Диагностика `OtherInfo` приходит явно через `Codec.Log`, маскирование и log preview — из app через прежние common-функции.
+- Статусы каналов объявлены в существующем leaf `constant`; прежние имена `common.ChannelStatus*` ссылаются на те же константы. Wire snapshot и patch остаются в `adapter/channels.ChannelPatchCodec`; domain сохраняет правила валидации, нормализации и смены статусов. Ошибки `clear_affinity_cache` и `get_affinity_usage_stats` остаются в их пакетах.
 - `ModelUpdateRules.Errors` и `ModelIdentity.Errors` получают ошибки маппинга моделей из `model` через функцию (`model.ErrModelMapping*`): ошибки объявлены в `model/errors.go`, а алиас на `domain` добавил бы новый импорт `internal` из `model`.
 - `detect_upstream_model_updates` и `scan_upstream_model_updates` (метод `Check`), `apply_upstream_model_updates` и `apply_all_upstream_model_updates` (метод `Apply`) содержат одинаковый код: сценарии не вызывают друг друга, а общий шаг зависит от хранилища.
 - Конструктор `run_channel_tests` и `scan_upstream_model_updates` принимает больше трёх функций без группировки.

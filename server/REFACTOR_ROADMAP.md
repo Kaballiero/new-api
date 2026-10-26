@@ -186,6 +186,8 @@
 - [x] 7b Catalog A4: codec/version hash вынесены в adapter/catalog, domain чистый; availability/prefill объединены с root domain без изменения wire bytes; private Fill*, consumer-owned mutation ports и P3 test-only остатки перенесены. Удалены 19 исключений. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
   Commits c4474edfa перенос, 01f2da575 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, catalog PG-тесты зелёные. SQLite/MySQL не проверялись.
 
+- [ ] 7c channels purity: typed mapping/key/OtherInfo facts, codec и diagnostics boundary; domain/usecase транзитивно чистые, 36 исключений удалены. Mapping sentinels и legacy composition остаются до 7g. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
+
 - [ ] FX refresh owner (pricing/FX): перенести service.RefreshModelCostFX и replica lifecycle вместе с реальными consumers; убрать system FX BRIDGE, не копируя экономику.
 - [ ] Decide metrics owner (A or C): перенести единственный pkg/perf_metrics state/Record/Query/Summary/flush/SQL/Redis в system либо отдельный performance_metrics; RelayInfo mapping оставить gateway-owned.
 

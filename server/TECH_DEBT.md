@@ -92,6 +92,8 @@
 | 96 | Catalog contract order noise | AWS presets data.33 обходится из Go map, два upstream metadata GET запускаются параллельно. Pre-move characterizations на обоих layouts подтвердили перестановки при равных остальных bytes; host recording и metadata x20 stable | Harness сортирует только доказанные permutations: один AWS array и GET pair внутри каждого metadata round. Production ordering не меняется, причинный порядок rename GET→PUT и порядок metadata rounds сохраняются; source/order evidence описаны в wave6c report |
 | 97 | Catalog ownership | `NewCatalogPersistence`, private metadata mutex/transaction и PricingMutation callback остаются model; domain root использует common. A3/A4 cleanup в волне 7: единый transaction/lock composer и чистый codec/hash boundary, затем объединение domain leaves | До cleanup ownership неполон; удалять lock/composer по частям нельзя |
 
+| 98 | Channels OtherInfo `null`: `record.Codec.ReadOtherInfo`, `change_channel_state`, `domain.ApplyMultiKeyState` | Persisted JSON `null` декодируется в nil map без ошибки; запись `status_reason`/`status_time` вызывает panic. Это прежнее поведение, подтверждённое source до переноса и codec parity read(null). Отдельно нормализовать nil metadata map перед status writes; это изменит прежний panic outcome и требует отдельного regression/behavior решения | Single-key смена падает до SaveState; multi-key cache branch может уже изменить RAM status/maps до panic, оставив durable/cache расхождение. В structural move не исправлено |
+
 ## Оптимизации (без изменений схемы БД)
 
 | # | Где | Проблема |
