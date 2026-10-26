@@ -249,6 +249,21 @@ export interface MissingModelsResponse {
   data?: string[]
 }
 
+export type UnbillableModelReason = 'no_billing_config' | 'no_catalog_price'
+
+export interface UnbillableModel {
+  model_name: string
+  catalog_type?: string
+  reason: UnbillableModelReason
+  suggested_reserve_usd?: number
+}
+
+export interface UnbillableModelsResponse {
+  success: boolean
+  message?: string
+  data?: UnbillableModel[]
+}
+
 /**
  * Prefill groups response
  */

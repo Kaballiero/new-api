@@ -16,7 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Plus, MoreHorizontal, List, AlertCircle } from 'lucide-react'
+import {
+  Plus,
+  MoreHorizontal,
+  List,
+  AlertCircle,
+  CircleDollarSign,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -30,12 +36,15 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useCanEditModelPricing } from '@/features/model-pricing/api'
 
+import { useUnbillableModels } from '../hooks/use-unbillable-models'
 import { useModels } from './models-provider'
 
 export function ModelsPrimaryButtons() {
   const { t } = useTranslation()
   const { setOpen, setCurrentRow } = useModels()
   const canPrice = useCanEditModelPricing()
+  const unbillable = useUnbillableModels()
+  const unbillableCount = unbillable.data?.length ?? 0
 
   const handleCreateModel = () => {
     setCurrentRow(null)
@@ -56,6 +65,16 @@ export function ModelsPrimaryButtons() {
 
   return (
     <div className='flex flex-wrap items-center gap-2'>
+      {unbillableCount > 0 && (
+        <Button
+          onClick={() => setOpen('unbillable-models')}
+          variant='destructive'
+          size='sm'
+        >
+          <CircleDollarSign className='h-4 w-4' />
+          {t('Without tariff: {{count}}', { count: unbillableCount })}
+        </Button>
+      )}
       <Button onClick={handleSync} variant='outline' size='sm'>
         {t('Sync metadata')}
       </Button>
@@ -88,6 +107,13 @@ export function ModelsPrimaryButtons() {
             {t('Missing Models')}
             <DropdownMenuShortcut>
               <AlertCircle className='h-4 w-4' />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem onClick={() => setOpen('unbillable-models')}>
+            {t('Models without tariff')}
+            <DropdownMenuShortcut>
+              <CircleDollarSign className='h-4 w-4' />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 

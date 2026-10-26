@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
@@ -111,6 +112,31 @@ func TestDefaultVendorRulesShareCatalogDisplayVendors(t *testing.T) {
 			if catalogID, ok := catalogIDs[name]; ok {
 				assert.Equal(t, catalogID, id)
 			}
+		})
+	}
+}
+
+func TestWithCatalogContextTagFormatsCatalogWindow(t *testing.T) {
+	for _, tc := range []struct {
+		name, tags, limits, want string
+	}{
+		{"thousands keep one decimal", "", `{"contextTokens":32768}`, "32.8K"},
+		{"whole thousands", "Vision", `{"contextTokens":400000}`, "Vision,400K"},
+		{"small window", "", `{"contextTokens":8192}`, "8.2K"},
+		{"millions keep two decimals", "top,text", `{"contextTokens":1048576}`, "top,text,1.05M"},
+		{"whole million", "", `{"contextTokens":1000000}`, "1M"},
+		{"rounding up to a million", "", `{"contextTokens":999999}`, "1M"},
+		{"stored context tag wins", "Reasoning,32.8K", `{"contextTokens":1048576}`, "Reasoning,32.8K"},
+		{"stored tag is case-insensitive", "128k", `{"contextTokens":200000}`, "128k"},
+		{"zero window", "top", `{"contextTokens":0}`, "top"},
+		{"window rounding to zero", "top", `{"contextTokens":49}`, "top"},
+		{"smallest shown window", "", `{"contextTokens":50}`, "0.1K"},
+		{"missing window", "top", `{"published":null}`, "top"},
+		{"null limits", "top", `null`, "top"},
+		{"invalid limits", "top", `{`, "top"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, withCatalogContextTag(tc.tags, json.RawMessage(tc.limits)))
 		})
 	}
 }

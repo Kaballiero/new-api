@@ -34,6 +34,12 @@ export const STATIC_I18N_KEYS = [
   // Batch hold release validation (system-info panel).
   'Enter provider evidence',
   'Evidence must be at most 4096 characters',
+  // Models without tariff: reason labels and hints chosen at runtime.
+  'No tariff or reserve',
+  'No catalog price',
+  'The catalog has no price for this model: disable it or check the provider.',
+  'Set a tiered billing expression for the batch model.',
+  'Set a price, ratio or tiered expression, or an OpenRouter reserve on the channel.',
   // OpenRouter reserve policy validation.
   'Use exact model IDs and finite positive USD amounts',
   'Use exact model IDs with upstream or configured_price',
