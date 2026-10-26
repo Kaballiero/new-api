@@ -19,6 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // OpenRouter synchronous task operator decision validation.
+  'Evidence is required',
+  'Enter a USD amount with at most 12 decimal places',
+  'Cost must be greater than 0',
+  'Cost must be at most 50 USD',
   // Batch reconciliation reasons (system-info panel).
   'Creation outcome unknown',
   'Creation outcome unknown for over 48 hours',

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -23,6 +24,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 func HasOpenRouterSyncTask(info *relaycommon.RelayInfo) bool {
@@ -75,6 +77,7 @@ func BeginOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, quota 
 	state := &model.OpenRouterSyncTask{
 		RequestID: info.RequestId, BillingPreference: common.NormalizeBillingPreference(info.UserSetting.BillingPreference),
 		PlannedQuota: quota, LeaseUntil: now.Add(5 * time.Minute).Unix(), Deadline: now.Add(24 * time.Hour).Unix(),
+		ResultReasonTracked: true,
 	}
 	if platform == constant.TaskPlatformOpenRouterChatImage {
 		// The existing channel owns the secret. Only its immutable binding is
@@ -358,6 +361,7 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 		r.SubmissionPending = false
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
 		a.ResultFailed, a.LastError = true, "upstream_rejected"
+		a.RecordResultReason("upstream_rejected")
 		finishOpenRouterSync(task)
 		task.FailReason = fmt.Sprintf("OpenRouter rejected the request with HTTP %d; reservation released", resp.StatusCode)
 		projectOpenRouterSyncState(task)
@@ -369,6 +373,7 @@ func RecordOpenRouterSyncSubmission(info *relaycommon.RelayInfo, resp *http.Resp
 	if requestErr != nil || resp == nil || resp.StatusCode != http.StatusOK && !image {
 		task.PrivateData.Reconciliation.SubmissionPending = false
 		a.ResultFailed, a.LastError = true, "submission_outcome_unknown"
+		a.RecordResultReason("submission_outcome_unknown")
 		a.NextPoll = time.Now().Unix()
 		if task.PrivateData.UpstreamTaskID == "" || task.Platform == constant.TaskPlatformOpenRouterImage {
 			manualOpenRouterSync(task, "submission_outcome_unknown")
@@ -445,6 +450,7 @@ func FailOpenRouterSyncTask(info *relaycommon.RelayInfo, reason string) error {
 		return errors.New("OpenRouter synchronous result lease expired")
 	}
 	a.ResultFailed, a.LastError = true, reason
+	a.RecordResultReason(reason)
 	task.PrivateData.Reconciliation.SubmissionPending = false
 	a.NextPoll = time.Now().Unix()
 	if state := info.OpenRouterCost; state.Final && state.Valid && !a.IdentityConflict && (task.Platform == constant.TaskPlatformOpenRouterImage || task.Platform == constant.TaskPlatformOpenRouterChatImage) {
@@ -479,6 +485,7 @@ func HoldOpenRouterSyncTaskForReconciliation(info *relaycommon.RelayInfo, reason
 	a.IdentityConflict = a.IdentityConflict || info.OpenRouterCost.IdentityConflict
 	r.SubmissionPending = false
 	a.ResultFailed = true
+	a.RecordResultReason(reason)
 	manualOpenRouterSync(task, reason)
 	projectOpenRouterSyncState(task)
 	return task.UpdateOpenRouterSync(a.Revision)
@@ -528,7 +535,7 @@ func OpenRouterSyncReconciliation(task *model.Task) map[string]any {
 		billing = "manual_reconciliation"
 	}
 	switch a.LastError {
-	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected", "operator_released":
+	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected", "operator_released", "operator_settled":
 		reason = a.LastError
 	default:
 		if billing == "manual_reconciliation" {
@@ -548,29 +555,158 @@ func OpenRouterSyncReconciliation(task *model.Task) map[string]any {
 		"result_ready": a.ResultReady, "result_failed": a.ResultFailed}
 }
 
-// ReleaseOpenRouterSyncHold refunds a releasable audio hold after an operator
-// verified that OpenRouter rejected the submission without billing it.
-func ReleaseOpenRouterSyncHold(taskID string) error {
-	task, exists, err := model.GetUniqueByOnlyTaskId(taskID)
-	if err != nil {
-		return err
-	}
-	if !exists || !task.OpenRouterSyncReleasable() {
-		return errors.New("task is not a releasable OpenRouter hold")
+// OpenRouterSyncAdminView extends the public projection with diagnostics an
+// administrator needs to resolve a manual hold. Provider identities, hashes,
+// headers and operator evidence remain private.
+func OpenRouterSyncAdminView(task *model.Task) map[string]any {
+	view := OpenRouterSyncReconciliation(task)
+	if view == nil {
+		return nil
 	}
 	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
-	r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
-	a.LastError = "operator_released"
-	prepareOpenRouterCostSettlement(task)
-	if !r.SettlementPending || r.TargetQuota != 0 {
-		return errors.New("OpenRouter hold settlement basis is unavailable")
+	var decision any
+	if d := a.OperatorDecision; d != nil {
+		decision = map[string]any{"action": d.Action, "cost_usd": d.CostUSD, "operator_id": d.OperatorID, "decided_at": d.DecidedAt}
 	}
-	task.FailReason = "OpenRouter rejected the submission; reservation released by operator"
+	view["reserved_quota"] = r.ReservedQuota
+	view["target_quota"] = r.TargetQuota
+	view["result_reason"] = a.ResultReason
+	view["last_lookup_class"] = a.LastLookupClass
+	view["last_http_status"] = a.LastHTTPStatus
+	view["lookup_attempts"] = a.Attempts
+	view["identity_conflict"] = a.IdentityConflict
+	view["operator_decision"] = decision
+	view["release_allowed"] = task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorRelease)
+	view["settle_allowed"] = task.OpenRouterSyncOperatorEligible(model.OpenRouterSyncOperatorSettle)
+	return view
+}
+
+// OpenRouterSyncOperatorMaxCostUSD bounds one operator cost settlement.
+const OpenRouterSyncOperatorMaxCostUSD = 50
+
+var (
+	// ErrOpenRouterSyncOperatorInvalid marks a malformed or out-of-bounds decision.
+	ErrOpenRouterSyncOperatorInvalid = errors.New("invalid OpenRouter operator decision")
+	// ErrOpenRouterSyncOperatorConflict marks a Task that cannot take the decision.
+	ErrOpenRouterSyncOperatorConflict = errors.New("OpenRouter operator decision conflict")
+)
+
+type OpenRouterSyncOperatorResult struct {
+	TaskID         string
+	Platform       constant.TaskPlatform
+	Action         string
+	CostUSD        string
+	BillingState   string
+	ReservedQuota  int
+	TargetQuota    int
+	AlreadyApplied bool
+}
+
+// ApplyOpenRouterSyncOperatorDecision resolves an eligible manual hold by a
+// root decision: release (confirmed zero cost) or settle (confirmed cost). The
+// decision is frozen in the revision-checked claim before any funds move, and
+// a repeated identical decision never settles twice.
+func ApplyOpenRouterSyncOperatorDecision(taskID, action, costUSD, evidence string, operatorID int) (OpenRouterSyncOperatorResult, error) {
+	result := OpenRouterSyncOperatorResult{TaskID: taskID, Action: action, CostUSD: costUSD}
+	evidence = strings.TrimSpace(evidence)
+	if evidence == "" || utf8.RuneCountInString(evidence) > 4096 {
+		return result, fmt.Errorf("%w: bounded evidence is required", ErrOpenRouterSyncOperatorInvalid)
+	}
+	if action != model.OpenRouterSyncOperatorRelease && action != model.OpenRouterSyncOperatorSettle {
+		return result, fmt.Errorf("%w: unknown action", ErrOpenRouterSyncOperatorInvalid)
+	}
+	if action == model.OpenRouterSyncOperatorRelease && costUSD == "" {
+		costUSD = "0"
+	}
+	if len(costUSD) > 128 {
+		return result, fmt.Errorf("%w: invalid cost_usd", ErrOpenRouterSyncOperatorInvalid)
+	}
+	cost, err := decimal.NewFromString(costUSD)
+	if err != nil || cost.IsNegative() || cost.Exponent() < -12 || cost.Exponent() > 12 || cost.Coefficient().BitLen() > 128 {
+		return result, fmt.Errorf("%w: invalid cost_usd", ErrOpenRouterSyncOperatorInvalid)
+	}
+	if action == model.OpenRouterSyncOperatorRelease && !cost.IsZero() {
+		return result, fmt.Errorf("%w: release requires a zero cost", ErrOpenRouterSyncOperatorInvalid)
+	}
+	if action == model.OpenRouterSyncOperatorSettle && (!cost.IsPositive() || cost.GreaterThan(decimal.NewFromInt(OpenRouterSyncOperatorMaxCostUSD))) {
+		return result, fmt.Errorf("%w: settle cost must be positive and at most %d USD", ErrOpenRouterSyncOperatorInvalid, OpenRouterSyncOperatorMaxCostUSD)
+	}
+	costValue := cost.InexactFloat64()
+	if math.IsNaN(costValue) || math.IsInf(costValue, 0) {
+		return result, fmt.Errorf("%w: invalid cost_usd", ErrOpenRouterSyncOperatorInvalid)
+	}
+	result.CostUSD = cost.String()
+
+	task, exists, err := model.GetUniqueByOnlyTaskId(taskID)
+	if err != nil {
+		return result, err
+	}
+	if !exists || task.PrivateData.OpenRouterSyncState() == nil || task.PrivateData.Reconciliation == nil {
+		return result, fmt.Errorf("%w: task is not an OpenRouter synchronous task", ErrOpenRouterSyncOperatorConflict)
+	}
+	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
+	result.Platform, result.ReservedQuota, result.TargetQuota = task.Platform, r.ReservedQuota, r.TargetQuota
+	if d := a.OperatorDecision; d != nil {
+		if d.Action != action || d.CostUSD != result.CostUSD {
+			return result, fmt.Errorf("%w: another operator decision is recorded", ErrOpenRouterSyncOperatorConflict)
+		}
+		switch {
+		case r.Finalized:
+			result.AlreadyApplied = true
+		case r.MainApplied:
+			return result, fmt.Errorf("%w: settlement_repair_required", ErrOpenRouterSyncOperatorConflict)
+		case r.SettlementPending:
+			if err := settleOpenRouterCost(task); err != nil {
+				return result, openRouterSyncOperatorSettlementError(task)
+			}
+		default:
+			return result, fmt.Errorf("%w: recorded decision has no pending settlement", ErrOpenRouterSyncOperatorConflict)
+		}
+		result.BillingState, _ = OpenRouterSyncReconciliation(task)["billing_state"].(string)
+		return result, nil
+	}
+	if !task.OpenRouterSyncOperatorEligible(action) {
+		return result, fmt.Errorf("%w: task is not eligible for %s", ErrOpenRouterSyncOperatorConflict, action)
+	}
+	r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, costValue
+	prepareOpenRouterCostSettlement(task)
+	if r.QuotaSaturation != "" {
+		return result, fmt.Errorf("%w: cost saturates the quota range", ErrOpenRouterSyncOperatorInvalid)
+	}
+	if !r.SettlementPending {
+		return result, fmt.Errorf("%w: settlement basis is unavailable", ErrOpenRouterSyncOperatorConflict)
+	}
+	// A recorded decision is irreversible, so refuse one that cannot settle.
+	if err := task.CheckTaskCostSettlementFeasible(); err != nil {
+		return result, fmt.Errorf("%w: settlement is not feasible: %v", ErrOpenRouterSyncOperatorConflict, err)
+	}
+	a.OperatorDecision = &model.OpenRouterSyncOperatorDecision{Action: action, CostUSD: result.CostUSD, OperatorID: operatorID, Evidence: evidence, DecidedAt: time.Now().Unix()}
+	if action == model.OpenRouterSyncOperatorRelease {
+		a.LastError = "operator_released"
+		task.FailReason = "OpenRouter reservation released by operator"
+	} else {
+		a.LastError = "operator_settled"
+		task.FailReason = "OpenRouter cost settled by operator"
+	}
+	result.TargetQuota = r.TargetQuota
 	projectOpenRouterSyncState(task)
 	if err := task.UpdateOpenRouterSync(a.Revision); err != nil {
-		return err
+		return result, fmt.Errorf("%w: task changed concurrently", ErrOpenRouterSyncOperatorConflict)
 	}
-	return settleOpenRouterCost(task)
+	if err := settleOpenRouterCost(task); err != nil {
+		return result, openRouterSyncOperatorSettlementError(task)
+	}
+	result.BillingState, _ = OpenRouterSyncReconciliation(task)["billing_state"].(string)
+	return result, nil
+}
+
+// openRouterSyncOperatorSettlementError separates a retryable settlement
+// from one whose balances already moved and needs repair, never a replay.
+func openRouterSyncOperatorSettlementError(task *model.Task) error {
+	if task.PrivateData.Reconciliation.MainApplied {
+		return fmt.Errorf("%w: settlement_repair_required", ErrOpenRouterSyncOperatorConflict)
+	}
+	return fmt.Errorf("%w: settlement incomplete; retry the same decision", ErrOpenRouterSyncOperatorConflict)
 }
 
 func manualOpenRouterSync(task *model.Task, reason string) {
@@ -610,6 +746,10 @@ func pollOpenRouterSync(ctx context.Context, task *model.Task) error {
 		if now.Unix() < a.LeaseUntil {
 			return nil
 		}
+		// The original request may still have delivered output after its lease.
+		if !r.ReservationPending {
+			a.RecordResultReason("result_outcome_unknown")
+		}
 		if r.ReservationPending || task.PrivateData.UpstreamTaskID == "" {
 			manualOpenRouterSync(task, "interrupted_reservation_or_submission")
 			projectOpenRouterSyncState(task)
@@ -643,7 +783,7 @@ func pollOpenRouterSync(ctx context.Context, task *model.Task) error {
 		}
 	}
 	cost, status, retryAfter, class := lookupOpenRouterSyncCost(ctx, task)
-	a.LastHTTPStatus, a.LastError = status, class
+	a.LastHTTPStatus, a.LastError, a.LastLookupClass = status, class, class
 	if class == "" {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, cost
 		finishOpenRouterSync(task)

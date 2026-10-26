@@ -310,6 +310,47 @@ export interface MidjourneyLog {
 // Task Logs Types
 // ============================================================================
 
+export type OpenRouterSyncOperatorAction = 'release' | 'settle'
+
+export interface OpenRouterSyncOperatorDecision {
+  action: OpenRouterSyncOperatorAction
+  cost_usd: string
+  operator_id: number
+  decided_at: number
+}
+
+/** Admin reconciliation view of a durable OpenRouter synchronous task. */
+export interface OpenRouterSyncAdminView {
+  submission_state: string
+  billing_state: string
+  reason_code: string
+  replay_allowed: boolean
+  identity_available: boolean
+  cost_confirmed: boolean
+  next_lookup_at?: number | null
+  result_ready: boolean
+  result_failed: boolean
+  reserved_quota: number
+  target_quota: number
+  result_reason?: string
+  last_lookup_class?: string
+  last_http_status?: number
+  lookup_attempts: number
+  identity_conflict: boolean
+  operator_decision?: OpenRouterSyncOperatorDecision | null
+  release_allowed: boolean
+  settle_allowed: boolean
+}
+
+export interface OpenRouterSyncOperatorResult {
+  task_id: string
+  action: OpenRouterSyncOperatorAction
+  billing_state: string
+  reserved_quota: number
+  target_quota: number
+  already_applied: boolean
+}
+
 export interface TaskLog {
   id: number
   user_id: number
@@ -338,6 +379,7 @@ export interface TaskLog {
     request_id?: string
     request_path?: string
     task_plugin?: TaskPluginInfo
+    openrouter_sync?: OpenRouterSyncAdminView
   }
   root_info?: {
     task_plugin?: TaskPluginRuntimeInfo

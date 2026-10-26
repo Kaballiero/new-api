@@ -6294,6 +6294,25 @@
     "No Batches need reconciliation.": "Нет Batch, требующих сверки.",
     "Showing the newest {{count}} Batches.": "Показаны последние {{count}} Batch.",
     "Enter provider evidence": "Укажите подтверждение от провайдера",
-    "Evidence must be at most 4096 characters": "Подтверждение должно быть не длиннее 4096 символов"
+    "Evidence must be at most 4096 characters": "Подтверждение должно быть не длиннее 4096 символов",
+    "OpenRouter Reconciliation": "Сверка OpenRouter",
+    "Billing state": "Статус биллинга",
+    "Result reason": "Причина результата",
+    "Last lookup": "Последний запрос",
+    "Lookup attempts": "Попыток запроса",
+    "Target quota": "Целевая квота",
+    "Operator decision": "Решение оператора",
+    "Settle with cost": "Списать по стоимости",
+    "Upstream cost (USD)": "Стоимость у провайдера (USD)",
+    "Evidence": "Подтверждение",
+    "This decision was already applied": "Это решение уже применено",
+    "Operator decision applied": "Решение оператора применено",
+    "Failed to apply the operator decision": "Не удалось применить решение оператора",
+    "Refund the full held quota. Use only when upstream evidence shows that OpenRouter did not charge this request.": "Вернуть всю удержанную квоту. Используйте, только если данные провайдера показывают, что OpenRouter не списал оплату за этот запрос.",
+    "Charge the verified OpenRouter cost at the frozen task price basis and refund or charge the difference to the held quota.": "Списать подтверждённую стоимость OpenRouter по зафиксированной ценовой базе задачи и вернуть или доплатить разницу с удержанной квотой.",
+    "Evidence is required": "Укажите подтверждение",
+    "Enter a USD amount with at most 12 decimal places": "Введите сумму в USD не более чем с 12 знаками после запятой",
+    "Cost must be greater than 0": "Стоимость должна быть больше 0",
+    "Cost must be at most 50 USD": "Стоимость должна быть не больше 50 USD"
   }
 }

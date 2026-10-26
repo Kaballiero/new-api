@@ -6294,6 +6294,25 @@
     "No Batches need reconciliation.": "Aucun Batch à rapprocher.",
     "Showing the newest {{count}} Batches.": "Affichage des {{count}} Batch les plus récents.",
     "Enter provider evidence": "Saisissez la preuve du fournisseur",
-    "Evidence must be at most 4096 characters": "La preuve ne doit pas dépasser 4096 caractères"
+    "Evidence must be at most 4096 characters": "La preuve ne doit pas dépasser 4096 caractères",
+    "OpenRouter Reconciliation": "Rapprochement OpenRouter",
+    "Billing state": "État de facturation",
+    "Result reason": "Raison du résultat",
+    "Last lookup": "Dernière consultation",
+    "Lookup attempts": "Tentatives de consultation",
+    "Target quota": "Quota cible",
+    "Operator decision": "Décision de l’opérateur",
+    "Settle with cost": "Régler avec le coût",
+    "Upstream cost (USD)": "Coût en amont (USD)",
+    "Evidence": "Justificatif",
+    "This decision was already applied": "Cette décision a déjà été appliquée",
+    "Operator decision applied": "Décision de l’opérateur appliquée",
+    "Failed to apply the operator decision": "Échec de l’application de la décision de l’opérateur",
+    "Refund the full held quota. Use only when upstream evidence shows that OpenRouter did not charge this request.": "Rembourser la totalité du quota réservé. À utiliser uniquement lorsque les preuves en amont montrent qu’OpenRouter n’a pas facturé cette requête.",
+    "Charge the verified OpenRouter cost at the frozen task price basis and refund or charge the difference to the held quota.": "Facturer le coût OpenRouter vérifié selon la base tarifaire figée de la tâche et rembourser ou facturer la différence par rapport au quota réservé.",
+    "Evidence is required": "Le justificatif est requis",
+    "Enter a USD amount with at most 12 decimal places": "Saisissez un montant en USD avec au plus 12 décimales",
+    "Cost must be greater than 0": "Le coût doit être supérieur à 0",
+    "Cost must be at most 50 USD": "Le coût doit être d’au plus 50 USD"
   }
 }

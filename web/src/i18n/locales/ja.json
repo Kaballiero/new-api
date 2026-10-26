@@ -6294,6 +6294,25 @@
     "No Batches need reconciliation.": "照合が必要な Batch はありません。",
     "Showing the newest {{count}} Batches.": "最新の {{count}} 件の Batch を表示しています。",
     "Enter provider evidence": "プロバイダーの根拠を入力してください",
-    "Evidence must be at most 4096 characters": "根拠は 4096 文字以内にしてください"
+    "Evidence must be at most 4096 characters": "根拠は 4096 文字以内にしてください",
+    "OpenRouter Reconciliation": "OpenRouter 照合",
+    "Billing state": "課金状態",
+    "Result reason": "結果の理由",
+    "Last lookup": "最終照会",
+    "Lookup attempts": "照会回数",
+    "Target quota": "目標クォータ",
+    "Operator decision": "オペレーターの判断",
+    "Settle with cost": "コストで精算",
+    "Upstream cost (USD)": "上流コスト（USD）",
+    "Evidence": "根拠",
+    "This decision was already applied": "この判断は既に適用されています",
+    "Operator decision applied": "オペレーターの判断を適用しました",
+    "Failed to apply the operator decision": "オペレーターの判断の適用に失敗しました",
+    "Refund the full held quota. Use only when upstream evidence shows that OpenRouter did not charge this request.": "保留中のクォータを全額返金します。OpenRouter がこのリクエストに課金していないことを上流の根拠が示す場合にのみ使用してください。",
+    "Charge the verified OpenRouter cost at the frozen task price basis and refund or charge the difference to the held quota.": "確認済みの OpenRouter コストをタスクの固定価格基準で請求し、保留クォータとの差額を返金または追加請求します。",
+    "Evidence is required": "根拠を入力してください",
+    "Enter a USD amount with at most 12 decimal places": "小数点以下 12 桁以内の USD 金額を入力してください",
+    "Cost must be greater than 0": "コストは 0 より大きくする必要があります",
+    "Cost must be at most 50 USD": "コストは 50 USD 以下にする必要があります"
   }
 }

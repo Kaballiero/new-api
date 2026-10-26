@@ -78,6 +78,8 @@ type TaskAdminInfo struct {
 	RequestID   string          `json:"request_id,omitempty"`
 	RequestPath string          `json:"request_path,omitempty"`
 	TaskPlugin  *TaskPluginInfo `json:"task_plugin,omitempty"`
+	// OpenRouterSync is the admin reconciliation view of a durable OpenRouter task.
+	OpenRouterSync map[string]any `json:"openrouter_sync,omitempty"`
 }
 
 type TaskRootInfo struct {

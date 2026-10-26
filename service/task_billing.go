@@ -729,6 +729,12 @@ func settleOpenRouterCost(task *model.Task) error {
 		} else if bc.TieredSnapshot != nil {
 			other.SetAdmin("effective_group_ratio", bc.TieredSnapshot.GroupRatio)
 		}
+		content := "OpenRouter confirmed cost settlement"
+		if state := task.PrivateData.OpenRouterSyncState(); state != nil && state.OperatorDecision != nil {
+			decision := state.OperatorDecision
+			other.SetAdmin("operator_reconciliation", map[string]any{"action": decision.Action, "operator_id": decision.OperatorID, "cost_usd": decision.CostUSD})
+			content = "OpenRouter operator cost settlement"
+		}
 		logType, quota := model.LogTypeConsume, delta
 		if delta < 0 {
 			logType, quota = model.LogTypeRefund, -delta
@@ -736,7 +742,7 @@ func settleOpenRouterCost(task *model.Task) error {
 		if err := model.RecordTaskBillingLogWithError(model.RecordTaskBillingLogParams{
 			UserId: task.UserId, ChannelId: task.ChannelId, ModelName: taskModelName(task), TokenId: task.PrivateData.TokenId,
 			LogType: logType, Quota: quota, Group: task.Group, Other: other, NodeName: task.PrivateData.NodeName,
-			Content: "OpenRouter confirmed cost settlement",
+			Content: content,
 		}); err != nil {
 			return err
 		}

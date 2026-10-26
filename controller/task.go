@@ -408,24 +408,73 @@ func taskArtifactClientHeaders(headers http.Header) map[string]string {
 	Artifact projection is confined to the explicit endpoints above.
 */
 
-// ReleaseOpenRouterSyncHold lets root refund an audio hold parked as an
-// unknown submission, once upstream evidence shows the request was not billed.
+// ReleaseOpenRouterSyncHold lets root refund a manual OpenRouter hold whose
+// output never reached the client, once upstream evidence shows no charge.
 func ReleaseOpenRouterSyncHold(c *gin.Context) {
+	applyOpenRouterSyncOperatorDecision(c, model.OpenRouterSyncOperatorRelease, "openrouter_sync.release")
+}
+
+// SettleOpenRouterSyncCost lets root settle a manual OpenRouter hold at the
+// upstream cost an operator verified outside the gateway.
+func SettleOpenRouterSyncCost(c *gin.Context) {
+	applyOpenRouterSyncOperatorDecision(c, model.OpenRouterSyncOperatorSettle, "openrouter_sync.settle_cost")
+}
+
+// applyOpenRouterSyncOperatorDecision audits every attempt, including
+// rejected ones; evidence is retained only in root audit details.
+func applyOpenRouterSyncOperatorDecision(c *gin.Context, action, auditAction string) {
 	var request struct {
+		CostUSD  string `json:"cost_usd"`
 		Evidence string `json:"evidence"`
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8192)
-	if err := common.DecodeJson(c.Request.Body, &request); err != nil || strings.TrimSpace(request.Evidence) == "" || len(request.Evidence) > 4096 {
-		common.ApiErrorMsgStatus(c, http.StatusBadRequest, "bounded upstream evidence is required")
-		return
-	}
 	taskID := c.Param("task_id")
-	if err := service.ReleaseOpenRouterSyncHold(taskID); err != nil {
-		common.ApiErrorMsgStatus(c, http.StatusConflict, "task is unavailable, not a releasable OpenRouter hold, or already settled")
-		return
+	result := service.OpenRouterSyncOperatorResult{TaskID: taskID, Action: action}
+	// 4096 evidence runes may expand to 12 bytes each as JSON surrogate escapes.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+	err := common.DecodeJson(c.Request.Body, &request)
+	if err != nil {
+		err = fmt.Errorf("%w: invalid request body", service.ErrOpenRouterSyncOperatorInvalid)
+	} else {
+		result, err = service.ApplyOpenRouterSyncOperatorDecision(taskID, action, request.CostUSD, request.Evidence, c.GetInt("id"))
 	}
-	common.SysLog(fmt.Sprintf("OpenRouter sync hold released: task_id=%s operator_id=%d evidence=%q", taskID, c.GetInt("id"), request.Evidence))
-	common.ApiSuccess(c, gin.H{"task_id": taskID})
+	switch {
+	case err == nil:
+		common.ApiSuccess(c, gin.H{
+			"task_id": result.TaskID, "action": result.Action, "billing_state": result.BillingState,
+			"reserved_quota": result.ReservedQuota, "target_quota": result.TargetQuota, "already_applied": result.AlreadyApplied,
+		})
+	case errors.Is(err, service.ErrOpenRouterSyncOperatorInvalid):
+		common.ApiErrorMsgStatus(c, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrOpenRouterSyncOperatorConflict):
+		common.ApiErrorMsgStatus(c, http.StatusConflict, err.Error())
+	default:
+		common.ApiErrorMsgStatus(c, http.StatusInternalServerError, "OpenRouter operator decision failed")
+	}
+	costUSD := result.CostUSD
+	if costUSD == "" {
+		costUSD = request.CostUSD
+	}
+	model.RecordAuditLog(c, model.AuditLog{
+		UserId: c.GetInt("id"), Username: c.GetString("username"), ActorRole: c.GetInt("role"),
+		Category: model.AuditCategoryOperation, Action: auditAction, Content: "OpenRouter synchronous task operator decision",
+		Success: err == nil,
+		Other: model.AuditOther{
+			Op:        &model.AuditOperation{Action: auditAction},
+			AdminInfo: auditOperatorInfo(c),
+			RootInfo: model.AuditFields{
+				"task_id": taskID, "platform": result.Platform, "action": action, "cost_usd": costUSD,
+				"reserved_quota": result.ReservedQuota, "target_quota": result.TargetQuota, "evidence": request.Evidence,
+			},
+		},
+	})
+	markAuditLogged(c)
+	outcome := "applied"
+	if err != nil {
+		outcome = err.Error()
+	} else if result.AlreadyApplied {
+		outcome = "already_applied"
+	}
+	common.SysLog(fmt.Sprintf("OpenRouter sync operator decision: task_id=%s action=%s cost_usd=%q operator_id=%d outcome=%q", taskID, action, costUSD, c.GetInt("id"), outcome))
 }
 
 func GetAllTask(c *gin.Context) {
@@ -509,7 +558,8 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskD
 					}
 				}
 			}
-			if adminInfo.RequestID != "" || adminInfo.RequestPath != "" || adminInfo.TaskPlugin != nil {
+			adminInfo.OpenRouterSync = service.OpenRouterSyncAdminView(task)
+			if adminInfo.RequestID != "" || adminInfo.RequestPath != "" || adminInfo.TaskPlugin != nil || adminInfo.OpenRouterSync != nil {
 				item.AdminInfo = adminInfo
 			}
 		}

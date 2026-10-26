@@ -6294,6 +6294,25 @@
     "No Batches need reconciliation.": "No Batches need reconciliation.",
     "Showing the newest {{count}} Batches.": "Showing the newest {{count}} Batches.",
     "Enter provider evidence": "Enter provider evidence",
-    "Evidence must be at most 4096 characters": "Evidence must be at most 4096 characters"
+    "Evidence must be at most 4096 characters": "Evidence must be at most 4096 characters",
+    "OpenRouter Reconciliation": "OpenRouter Reconciliation",
+    "Billing state": "Billing state",
+    "Result reason": "Result reason",
+    "Last lookup": "Last lookup",
+    "Lookup attempts": "Lookup attempts",
+    "Target quota": "Target quota",
+    "Operator decision": "Operator decision",
+    "Settle with cost": "Settle with cost",
+    "Upstream cost (USD)": "Upstream cost (USD)",
+    "Evidence": "Evidence",
+    "This decision was already applied": "This decision was already applied",
+    "Operator decision applied": "Operator decision applied",
+    "Failed to apply the operator decision": "Failed to apply the operator decision",
+    "Refund the full held quota. Use only when upstream evidence shows that OpenRouter did not charge this request.": "Refund the full held quota. Use only when upstream evidence shows that OpenRouter did not charge this request.",
+    "Charge the verified OpenRouter cost at the frozen task price basis and refund or charge the difference to the held quota.": "Charge the verified OpenRouter cost at the frozen task price basis and refund or charge the difference to the held quota.",
+    "Evidence is required": "Evidence is required",
+    "Enter a USD amount with at most 12 decimal places": "Enter a USD amount with at most 12 decimal places",
+    "Cost must be greater than 0": "Cost must be greater than 0",
+    "Cost must be at most 50 USD": "Cost must be at most 50 USD"
   }
 }

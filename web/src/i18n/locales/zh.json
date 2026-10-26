@@ -6294,6 +6294,25 @@
     "No Batches need reconciliation.": "没有需要对账的 Batch。",
     "Showing the newest {{count}} Batches.": "仅显示最新的 {{count}} 个 Batch。",
     "Enter provider evidence": "请输入供应商证据",
-    "Evidence must be at most 4096 characters": "证据不能超过 4096 个字符"
+    "Evidence must be at most 4096 characters": "证据不能超过 4096 个字符",
+    "OpenRouter Reconciliation": "OpenRouter 对账",
+    "Billing state": "计费状态",
+    "Result reason": "结果原因",
+    "Last lookup": "最近查询",
+    "Lookup attempts": "查询次数",
+    "Target quota": "目标额度",
+    "Operator decision": "操作员决定",
+    "Settle with cost": "按成本结算",
+    "Upstream cost (USD)": "上游成本（USD）",
+    "Evidence": "证据",
+    "This decision was already applied": "该决定已被应用",
+    "Operator decision applied": "操作员决定已应用",
+    "Failed to apply the operator decision": "应用操作员决定失败",
+    "Refund the full held quota. Use only when upstream evidence shows that OpenRouter did not charge this request.": "退还全部预扣额度。仅当上游证据表明 OpenRouter 未对此请求计费时使用。",
+    "Charge the verified OpenRouter cost at the frozen task price basis and refund or charge the difference to the held quota.": "按冻结的任务价格基准收取已核实的 OpenRouter 成本，并对预扣额度多退少补。",
+    "Evidence is required": "请填写证据",
+    "Enter a USD amount with at most 12 decimal places": "请输入最多 12 位小数的美元金额",
+    "Cost must be greater than 0": "成本必须大于 0",
+    "Cost must be at most 50 USD": "成本最多为 50 美元"
   }
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"gorm.io/gorm"
+	"slices"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -14,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/shopspring/decimal"
 )
 
 type TaskStatus string
@@ -170,6 +172,38 @@ type OpenRouterSyncTask struct {
 	ResultMimeType    string              `json:"result_mime_type,omitempty"`
 	ResultSize        int64               `json:"result_size,omitempty"`
 	ResultSHA256      string              `json:"result_sha256,omitempty"`
+	// ResultReason is the first reason recorded by the result path. Unlike
+	// LastError it is never overwritten by later lookup or manual outcomes.
+	ResultReason string `json:"result_reason,omitempty"`
+	// ResultReasonTracked marks Tasks created after ResultReason existed. Only
+	// untracked (legacy) Tasks may treat an empty reason as "nothing delivered".
+	ResultReasonTracked bool `json:"result_reason_tracked,omitempty"`
+	// LastLookupClass is the outcome class of the last cost lookup attempt.
+	LastLookupClass  string                          `json:"last_lookup_class,omitempty"`
+	OperatorDecision *OpenRouterSyncOperatorDecision `json:"operator_decision,omitempty"`
+}
+
+// RecordResultReason keeps the first result-path reason; later failures of
+// the same Task never rewrite what happened to the original delivery.
+func (a *OpenRouterSyncTask) RecordResultReason(reason string) {
+	if a.ResultReason == "" {
+		a.ResultReason = reason
+	}
+}
+
+const (
+	OpenRouterSyncOperatorRelease = "release"
+	OpenRouterSyncOperatorSettle  = "settle"
+)
+
+// OpenRouterSyncOperatorDecision records the root decision that resolved a
+// manual reconciliation hold. CostUSD is the canonical decimal string.
+type OpenRouterSyncOperatorDecision struct {
+	Action     string `json:"action"`
+	CostUSD    string `json:"cost_usd"`
+	OperatorID int    `json:"operator_id"`
+	Evidence   string `json:"evidence"`
+	DecidedAt  int64  `json:"decided_at"`
 }
 
 // OpenRouterAudioTask preserves the legacy audio snapshot type.
@@ -183,15 +217,43 @@ func (p *TaskPrivateData) OpenRouterSyncState() *OpenRouterSyncTask {
 	return p.OpenRouterAudio
 }
 
-// OpenRouterSyncReleasable reports an audio hold parked in manual
-// reconciliation only because the submission outcome was unknown: no
-// generation identity and no upstream cost were ever observed.
-func (t *Task) OpenRouterSyncReleasable() bool {
-	a, r := t.PrivateData.OpenRouterSyncState(), t.PrivateData.Reconciliation
-	return t.Platform == constant.TaskPlatformOpenRouterAudio && t.Status == TaskStatusFailure && a != nil && r != nil &&
-		a.LastError == "submission_outcome_unknown" && !a.IdentityConflict && t.PrivateData.UpstreamTaskID == "" &&
-		r.Required && r.ReservedQuota > 0 && !r.ReservationPending && !r.SubmissionPending && !r.HasUpstreamCost &&
-		!r.SettlementPending && !r.MainApplied && !r.Finalized
+// openRouterSyncUndeliveredReasons are result reasons recorded before any
+// output reached the client, so a zero-cost release cannot hide a delivery.
+var openRouterSyncUndeliveredReasons = []string{"submission_outcome_unknown", "undelivered_chat_result", "chat_image_upstream_error"}
+
+// OpenRouterSyncOperatorEligible reports a durable OpenRouter hold parked in
+// manual reconciliation without an upstream cost, which root may resolve by a
+// zero-cost release (nothing delivered) or an explicit cost settlement.
+func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
+	a, r, bc := t.PrivateData.OpenRouterSyncState(), t.PrivateData.Reconciliation, t.PrivateData.BillingContext
+	var operation bool
+	switch t.Platform {
+	case constant.TaskPlatformOpenRouterChatImage:
+		operation = t.Action == "chat-image" || t.Action == "chat"
+	case constant.TaskPlatformOpenRouterAudio:
+		operation = t.Action == "audio"
+	case constant.TaskPlatformOpenRouterImage:
+		operation = t.Action == "image"
+	case constant.TaskPlatformOpenRouterRerank:
+		operation = t.Action == "rerank"
+	}
+	if !operation || t.Status != TaskStatusFailure || a == nil || r == nil || bc == nil ||
+		bc.SettlementMode != TaskSettlementOpenRouterCostV2 || bc.OpenRouterCost == nil || bc.OpenRouterCost.Version != TaskSettlementOpenRouterCostV2 ||
+		!r.Required || r.ReservationPending || r.SubmissionPending || r.SettlementPending || r.MainApplied || r.Finalized ||
+		r.HasUpstreamCost || a.OperatorDecision != nil {
+		return false
+	}
+	switch action {
+	case OpenRouterSyncOperatorRelease:
+		// Legacy tasks predate ResultReason; an unready result is their evidence.
+		// Chat text tasks deliver before Complete and never predate tracking.
+		legacy := a.ResultReason == "" && !a.ResultReasonTracked && t.Action != "chat"
+		return r.ReservedQuota > 0 && !a.IdentityConflict && !a.ResultReady &&
+			(legacy || slices.Contains(openRouterSyncUndeliveredReasons, a.ResultReason))
+	case OpenRouterSyncOperatorSettle:
+		return r.ReservedQuota >= 0
+	}
+	return false
 }
 
 // UpdateOpenRouterSync guards same-status updates as well as terminal claims.
@@ -225,12 +287,29 @@ func (t *Task) UpdateOpenRouterSync(expectedRevision int) error {
 			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.SubmissionPending && !next.ReservationPending
 		lateImageReceipt := (saved.Platform == constant.TaskPlatformOpenRouterImage || saved.Platform == constant.TaskPlatformOpenRouterChatImage) && saved.Status == TaskStatusFailure && t.Status == TaskStatusFailure &&
 			prior != nil && next != nil && prior.Required && !prior.ReservationPending && !prior.HasUpstreamCost && !prior.SettlementPending && !prior.Finalized && !next.HasUpstreamCost
-		// An operator may release such a hold only as a confirmed zero cost.
-		operatorRelease := saved.OpenRouterSyncReleasable() && t.Status == TaskStatusFailure && next != nil && t.PrivateData.UpstreamTaskID == "" &&
-			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.UpstreamCostUSD == 0 && next.SettlementPending &&
-			next.TargetQuota == 0 && next.ReservedQuota == prior.ReservedQuota && !next.MainApplied && !next.Finalized
-		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID ||
-			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure && !lateImageCost && !lateImageReceipt && !operatorRelease ||
+		// A root decision may claim an eligible hold only as one confirmed cost
+		// settlement: zero for a release, a positive cost for a settle.
+		nextState := t.PrivateData.OpenRouterSyncState()
+		decision := nextState.OperatorDecision
+		// The claimed cost and target must be exactly the decision priced on the
+		// frozen basis, never an arbitrary target written next to a decision.
+		decisionPriced := false
+		if decision != nil && next != nil && saved.PrivateData.BillingContext != nil && saved.PrivateData.BillingContext.OpenRouterCost != nil {
+			cost, costErr := decimal.NewFromString(decision.CostUSD)
+			target, clamp, quotaErr := saved.PrivateData.BillingContext.OpenRouterCost.Quota(next.UpstreamCostUSD)
+			decisionPriced = costErr == nil && cost.InexactFloat64() == next.UpstreamCostUSD && quotaErr == nil && clamp == nil && target == next.TargetQuota
+		}
+		operatorDecision := state != nil && state.OperatorDecision == nil && decision != nil && decisionPriced && saved.OpenRouterSyncOperatorEligible(decision.Action) &&
+			t.Status == TaskStatusFailure && t.PrivateData.UpstreamTaskID == saved.PrivateData.UpstreamTaskID && next != nil &&
+			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.MainApplied && !next.Finalized && next.QuotaSaturation == "" &&
+			next.ReservedQuota == prior.ReservedQuota && t.Quota == saved.Quota &&
+			(decision.Action == OpenRouterSyncOperatorRelease && next.UpstreamCostUSD == 0 && next.TargetQuota == 0 ||
+				decision.Action == OpenRouterSyncOperatorSettle && next.UpstreamCostUSD > 0)
+		// No other writer may add, replace or drop a recorded decision.
+		decisionChanged := state != nil && (state.OperatorDecision == nil) != (decision == nil) ||
+			state != nil && state.OperatorDecision != nil && decision != nil && *state.OperatorDecision != *decision
+		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID || decisionChanged && !operatorDecision ||
+			saved.Status == TaskStatusSuccess || saved.Status == TaskStatusFailure && !lateImageCost && !lateImageReceipt && !operatorDecision ||
 			saved.Platform != t.Platform || saved.Action != t.Action || saved.UserId != t.UserId || saved.ChannelId != t.ChannelId || saved.PrivateData.TokenId != t.PrivateData.TokenId || saved.Properties.UpstreamModelName != t.Properties.UpstreamModelName {
 			return fmt.Errorf("OpenRouter synchronous task claim changed")
 		}
@@ -1074,6 +1153,50 @@ func (t *Task) ApplyTaskCostSettlement() (string, error) {
 		t.PrivateData.Reconciliation.MainApplied = true
 	}
 	return tokenKey, err
+}
+
+// CheckTaskCostSettlementFeasible reports, without moving funds, whether
+// ApplyTaskCostSettlement can apply the frozen target to the current funding
+// rows. A caller that must not leave an irreversible pending claim checks first.
+func (t *Task) CheckTaskCostSettlementFeasible() error {
+	r := t.PrivateData.Reconciliation
+	if r == nil {
+		return fmt.Errorf("missing task reconciliation")
+	}
+	source := t.PrivateData.BillingSource
+	if source != "wallet" && source != "subscription" {
+		return fmt.Errorf("unknown task funding source")
+	}
+	if source == "subscription" && t.PrivateData.SubscriptionId <= 0 {
+		return fmt.Errorf("missing task subscription")
+	}
+	delta := r.TargetQuota - r.ReservedQuota
+	if delta == 0 {
+		return nil
+	}
+	if source == "subscription" {
+		var sub UserSubscription
+		if err := DB.Where("id = ? AND user_id = ?", t.PrivateData.SubscriptionId, t.UserId).First(&sub).Error; err != nil {
+			return fmt.Errorf("task subscription unavailable")
+		}
+		if used := max(sub.AmountUsed+int64(delta), 0); sub.AmountTotal > 0 && used > sub.AmountTotal {
+			return fmt.Errorf("subscription used exceeds total")
+		}
+	}
+	var count int64
+	if err := DB.Model(&User{}).Where("id = ?", t.UserId).Count(&count).Error; err != nil || count != 1 {
+		return fmt.Errorf("task user missing")
+	}
+	if err := DB.Model(&Channel{}).Where("id = ?", t.ChannelId).Count(&count).Error; err != nil || count != 1 {
+		return fmt.Errorf("task channel missing")
+	}
+	if t.PrivateData.TokenId > 0 {
+		var token Token
+		if err := DB.Where("id = ? AND user_id = ?", t.PrivateData.TokenId, t.UserId).First(&token).Error; err != nil {
+			return fmt.Errorf("task token missing")
+		}
+	}
+	return nil
 }
 
 // SyncTaskCostSettlementCache applies only the committed additive delta, never
