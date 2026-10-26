@@ -3,12 +3,6 @@ package internal
 // Architecture debt that existed when the rules in AGENTS.md were introduced.
 // Remove an entry when it is fixed; never add new ones.
 var knownViolations = []string{
-	"business-imports-gateway: internal/accounts/dto/profile.go -> github.com/QuantumNous/new-api/relaykit/dto",
-	"business-imports-gateway: internal/accounts/update_notification_preferences/dto.go -> github.com/QuantumNous/new-api/relaykit/dto",
-	"business-imports-gateway: internal/accounts/update_notification_preferences/http.go -> github.com/QuantumNous/new-api/relaykit/dto",
-	"business-imports-gateway: internal/accounts/update_notification_preferences/usecase.go -> github.com/QuantumNous/new-api/relaykit/dto",
-	"business-imports-gateway: internal/accounts/update_profile/dto.go -> github.com/QuantumNous/new-api/relaykit/dto",
-	"business-imports-gateway: internal/accounts/update_profile/usecase.go -> github.com/QuantumNous/new-api/relaykit/dto",
 	"business-imports-gateway: internal/pricing/domain/catalogue.go -> github.com/QuantumNous/new-api/relaykit/dto",
 	"business-imports-gateway: internal/pricing/domain/catalogue.go -> github.com/QuantumNous/new-api/relaykit/types",
 	"business-imports-gateway: internal/pricing/domain/ratio_sync.go -> github.com/QuantumNous/new-api/relaykit/dto",
@@ -179,7 +173,6 @@ var knownViolations = []string{
 	"legacy-imports-internal: service/twofa.go -> github.com/QuantumNous/new-api/internal/identity/dto",
 	"legacy-imports-internal: service/twofa.go -> github.com/QuantumNous/new-api/internal/identity/finish_twofa_setup",
 	"legacy-imports-internal: service/twofa.go -> github.com/QuantumNous/new-api/internal/identity/start_twofa_setup",
-	"transport-imports: internal/accounts/update_notification_preferences/http.go -> github.com/QuantumNous/new-api/relaykit/dto",
 	"transport-imports: internal/identity/begin_passkey_registration/http.go -> github.com/QuantumNous/new-api/model",
 	"transport-imports: internal/identity/begin_passkey_verification/http.go -> github.com/QuantumNous/new-api/model",
 	"transport-imports: internal/identity/complete_oauth/http.go -> github.com/QuantumNous/new-api/model",
@@ -187,10 +180,6 @@ var knownViolations = []string{
 	"transport-imports: internal/identity/finish_passkey_registration/http.go -> github.com/QuantumNous/new-api/model",
 	"transport-imports: internal/identity/finish_passkey_verification/http.go -> github.com/QuantumNous/new-api/model",
 	"transport-imports: internal/identity/login_wechat/http.go -> github.com/QuantumNous/new-api/model",
-	"usecase-transitive: internal/accounts/adjust_quota/usecase.go",
-	"usecase-transitive: internal/accounts/get_profile/usecase.go",
-	"usecase-transitive: internal/accounts/transfer_affiliate_quota/usecase.go",
-	"usecase-transitive: internal/accounts/update_notification_preferences/usecase.go",
 	"usecase-transitive: internal/catalog/apply_metadata_sync/usecase.go",
 	"usecase-transitive: internal/catalog/apply_vendor_operation/usecase.go",
 	"usecase-transitive: internal/catalog/create_model/usecase.go",

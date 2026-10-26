@@ -3,15 +3,15 @@ package update_notification_preferences
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/accounts/transport"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ scenario Usecase }
 
-func NewHTTP(store NotificationPreferencesStore) *HTTP {
-	return &HTTP{scenario: NewUsecase(store)}
+func NewHTTP(scenario Usecase) *HTTP {
+	return &HTTP{scenario: scenario}
 }
 
 type notificationPreferencesUser struct{ context *gin.Context }
@@ -25,7 +25,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 		return
 	}
 
-	requested := dto.UserSetting{
+	requested := domain.UserSetting{
 		NotifyType:            req.QuotaWarningType,
 		QuotaWarningThreshold: req.QuotaWarningThreshold,
 		WebhookUrl:            req.WebhookUrl, WebhookSecret: req.WebhookSecret,

@@ -1,9 +1,9 @@
 package accountsadapter
 
 import (
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/accounts/update_profile"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 // SelfUpdateStore связывает изменение собственного профиля с прежними методами записи.
@@ -15,11 +15,11 @@ func (SelfUpdateStore) SelfPreferences(id int) (update_profile.SelfPreferencesAc
 		return update_profile.SelfPreferencesAccount{}, err
 	}
 	settings := user.GetSetting()
-	return update_profile.SelfPreferencesAccount{ID: user.Id, Settings: settings}, nil
+	return update_profile.SelfPreferencesAccount{ID: user.Id, Settings: settingsFromWire(settings)}, nil
 }
 
-func (SelfUpdateStore) SaveSelfPreferences(id int, settings dto.UserSetting) error {
-	return model.UpdateUserSetting(id, settings)
+func (SelfUpdateStore) SaveSelfPreferences(id int, settings domain.UserSetting) error {
+	return model.UpdateUserSetting(id, settingsToWire(settings))
 }
 
 func (SelfUpdateStore) UpdateSelfAccount(account update_profile.SelfUpdateAccount) error {

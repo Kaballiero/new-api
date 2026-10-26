@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/manage_account"
 	"github.com/QuantumNous/new-api/internal/accounts/transfer_affiliate_quota"
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
+	accountsadapter "github.com/QuantumNous/new-api/internal/adapter/accounts"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts"
 	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
@@ -65,7 +66,7 @@ func GetSelf(c *gin.Context) { accountsHTTP().GetProfile.Handle(c) }
 // login and refresh. It intentionally excludes password, management PAT and
 // administrator-only remarks.
 func buildSelfUserData(user *model.User) map[string]any {
-	return profiledto.BuildSelfUserData(repository.ProfileData(user), func(id, role int) any { return authz.Capabilities(id, role) }, domain.AdminRoles{Admin: common.RoleAdminUser, Root: common.RoleRootUser})
+	return profiledto.BuildSelfUserData(repository.ProfileData(user), accountsadapter.SidebarModules, func(id, role int) any { return authz.Capabilities(id, role) }, domain.AdminRoles{Admin: common.RoleAdminUser, Root: common.RoleRootUser})
 }
 
 // 根据用户角色生成默认的边栏配置

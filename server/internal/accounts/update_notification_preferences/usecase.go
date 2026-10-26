@@ -4,16 +4,14 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 // ValidateNotificationSettings returns the domain error of the first invalid
 // notification setting, or nil.
-func ValidateNotificationSettings(requested dto.UserSetting) error {
+func ValidateNotificationSettings(requested domain.UserSetting, types NotificationTypes) error {
 	// Check the warning type.
-	if requested.NotifyType != dto.NotifyTypeEmail && requested.NotifyType != dto.NotifyTypeWebhook && requested.NotifyType != dto.NotifyTypeBark && requested.NotifyType != dto.NotifyTypeGotify {
+	if requested.NotifyType != types.Email && requested.NotifyType != types.Webhook && requested.NotifyType != types.Bark && requested.NotifyType != types.Gotify {
 		return domain.ErrNotifyTypeInvalid
 	}
 
@@ -23,7 +21,7 @@ func ValidateNotificationSettings(requested dto.UserSetting) error {
 	}
 
 	// For webhooks check the receiver URL.
-	if requested.NotifyType == dto.NotifyTypeWebhook {
+	if requested.NotifyType == types.Webhook {
 		if requested.WebhookUrl == "" {
 			return domain.ErrWebhookURLEmpty
 		}
@@ -34,7 +32,7 @@ func ValidateNotificationSettings(requested dto.UserSetting) error {
 	}
 
 	// For email notifications check the email address.
-	if requested.NotifyType == dto.NotifyTypeEmail && requested.NotificationEmail != "" {
+	if requested.NotifyType == types.Email && requested.NotificationEmail != "" {
 		// Check the email address format.
 		if !strings.Contains(requested.NotificationEmail, "@") {
 			return domain.ErrNotificationEmailInvalid
@@ -42,7 +40,7 @@ func ValidateNotificationSettings(requested dto.UserSetting) error {
 	}
 
 	// For Bark check the URL.
-	if requested.NotifyType == dto.NotifyTypeBark {
+	if requested.NotifyType == types.Bark {
 		if requested.BarkUrl == "" {
 			return domain.ErrBarkURLEmpty
 		}
@@ -57,7 +55,7 @@ func ValidateNotificationSettings(requested dto.UserSetting) error {
 	}
 
 	// For Gotify check the URL and the token.
-	if requested.NotifyType == dto.NotifyTypeGotify {
+	if requested.NotifyType == types.Gotify {
 		if requested.GotifyUrl == "" {
 			return domain.ErrGotifyURLEmpty
 		}
@@ -77,14 +75,14 @@ func ValidateNotificationSettings(requested dto.UserSetting) error {
 	return nil
 }
 
-func NotificationSettings(requested, existingSettings dto.UserSetting, role int, upstreamRequested *bool) dto.UserSetting {
+func NotificationSettings(requested, existingSettings domain.UserSetting, role, adminRole int, upstreamRequested *bool, types NotificationTypes) domain.UserSetting {
 	upstreamModelUpdateNotifyEnabled := existingSettings.UpstreamModelUpdateNotifyEnabled
-	if role >= common.RoleAdminUser && upstreamRequested != nil {
+	if role >= adminRole && upstreamRequested != nil {
 		upstreamModelUpdateNotifyEnabled = *upstreamRequested
 	}
 
 	// Build the settings.
-	settings := dto.UserSetting{
+	settings := domain.UserSetting{
 		NotifyType:                       requested.NotifyType,
 		QuotaWarningThreshold:            requested.QuotaWarningThreshold,
 		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
@@ -93,7 +91,7 @@ func NotificationSettings(requested, existingSettings dto.UserSetting, role int,
 	}
 
 	// For webhooks add the webhook settings.
-	if requested.NotifyType == dto.NotifyTypeWebhook {
+	if requested.NotifyType == types.Webhook {
 		settings.WebhookUrl = requested.WebhookUrl
 		if requested.WebhookSecret != "" {
 			settings.WebhookSecret = requested.WebhookSecret
@@ -101,17 +99,17 @@ func NotificationSettings(requested, existingSettings dto.UserSetting, role int,
 	}
 
 	// Add the notification email when it is set.
-	if requested.NotifyType == dto.NotifyTypeEmail && requested.NotificationEmail != "" {
+	if requested.NotifyType == types.Email && requested.NotificationEmail != "" {
 		settings.NotificationEmail = requested.NotificationEmail
 	}
 
 	// For Bark add the URL.
-	if requested.NotifyType == dto.NotifyTypeBark {
+	if requested.NotifyType == types.Bark {
 		settings.BarkUrl = requested.BarkUrl
 	}
 
 	// For Gotify add its configuration.
-	if requested.NotifyType == dto.NotifyTypeGotify {
+	if requested.NotifyType == types.Gotify {
 		settings.GotifyUrl = requested.GotifyUrl
 		settings.GotifyToken = requested.GotifyToken
 		// The Gotify priority must be 0..10; out-of-range values fall back to 5.
@@ -128,31 +126,35 @@ func NotificationSettings(requested, existingSettings dto.UserSetting, role int,
 // NotificationPreferencesStore hides how the account is read and the settings are saved.
 type NotificationPreferencesStore interface {
 	NotificationPreferencesAccount(id int) (NotificationPreferencesAccount, error)
-	SaveNotificationPreferences(id int, settings dto.UserSetting) error
+	SaveNotificationPreferences(id int, settings domain.UserSetting) error
 }
 
 // NotificationPreferencesUser defers reading the ID until the settings are validated.
 type NotificationPreferencesUser interface{ UserID() int }
 
-type Usecase struct{ store NotificationPreferencesStore }
+type Usecase struct {
+	store     NotificationPreferencesStore
+	types     func() NotificationTypes
+	adminRole int
+}
 
 // Execute validates and saves the notification settings; a load failure is
 // returned unclassified.
-func (preferences Usecase) Execute(requested dto.UserSetting, upstreamRequested *bool, user NotificationPreferencesUser) error {
-	if err := ValidateNotificationSettings(requested); err != nil {
+func (preferences Usecase) Execute(requested domain.UserSetting, upstreamRequested *bool, user NotificationPreferencesUser) error {
+	if err := ValidateNotificationSettings(requested, preferences.types()); err != nil {
 		return err
 	}
 	account, err := preferences.store.NotificationPreferencesAccount(user.UserID())
 	if err != nil {
 		return err
 	}
-	settings := NotificationSettings(requested, account.Settings, account.Role, upstreamRequested)
+	settings := NotificationSettings(requested, account.Settings, account.Role, preferences.adminRole, upstreamRequested, preferences.types())
 	if err := preferences.store.SaveNotificationPreferences(account.ID, settings); err != nil {
 		return domain.SettingsSaveFailed(err)
 	}
 	return nil
 }
 
-func NewUsecase(store NotificationPreferencesStore) Usecase {
-	return Usecase{store: store}
+func NewUsecase(store NotificationPreferencesStore, types func() NotificationTypes, adminRole int) Usecase {
+	return Usecase{store: store, types: types, adminRole: adminRole}
 }

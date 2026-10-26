@@ -1,9 +1,9 @@
 package accountsadapter
 
 import (
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 // NotificationPreferencesStore связывает сценарий с прежними операциями аккаунта.
@@ -15,9 +15,9 @@ func (NotificationPreferencesStore) NotificationPreferencesAccount(id int) (upda
 		return update_notification_preferences.NotificationPreferencesAccount{}, err
 	}
 	settings := user.GetSetting()
-	return update_notification_preferences.NotificationPreferencesAccount{ID: user.Id, Role: user.Role, Settings: settings}, nil
+	return update_notification_preferences.NotificationPreferencesAccount{ID: user.Id, Role: user.Role, Settings: settingsFromWire(settings)}, nil
 }
 
-func (NotificationPreferencesStore) SaveNotificationPreferences(id int, settings dto.UserSetting) error {
-	return model.UpdateUserSetting(id, settings)
+func (NotificationPreferencesStore) SaveNotificationPreferences(id int, settings domain.UserSetting) error {
+	return model.UpdateUserSetting(id, settingsToWire(settings))
 }

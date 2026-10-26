@@ -14,10 +14,11 @@ type Usecase struct {
 	reader       ProfileReader
 	capabilities func(int, int) any
 	roles        domain.AdminRoles
+	sidebar      func(string) string
 }
 
-func NewUsecase(reader ProfileReader, capabilities func(int, int) any, roles domain.AdminRoles) Usecase {
-	return Usecase{reader: reader, capabilities: capabilities, roles: roles}
+func NewUsecase(reader ProfileReader, capabilities func(int, int) any, roles domain.AdminRoles, sidebar func(string) string) Usecase {
+	return Usecase{reader: reader, capabilities: capabilities, roles: roles, sidebar: sidebar}
 }
 
 func (queries Usecase) Execute(input Input) (map[string]any, error) {
@@ -26,7 +27,7 @@ func (queries Usecase) Execute(input Input) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	response := profiledto.BuildSelfUserData(profile, queries.capabilities, queries.roles)
+	response := profiledto.BuildSelfUserData(profile, queries.sidebar, queries.capabilities, queries.roles)
 	// Permissions are read again for the role of the authenticated request.
 	permissions := domain.DashboardPermissions(authenticatedRole, queries.roles)
 	permissions["admin_permissions"] = queries.capabilities(id, authenticatedRole)

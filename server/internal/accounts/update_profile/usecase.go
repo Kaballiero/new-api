@@ -2,13 +2,12 @@ package update_profile
 
 import (
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 // SelfUpdateStore keeps the previous writes of the account and its settings.
 type SelfUpdateStore interface {
 	SelfPreferences(id int) (SelfPreferencesAccount, error)
-	SaveSelfPreferences(id int, settings dto.UserSetting) error
+	SaveSelfPreferences(id int, settings domain.UserSetting) error
 	UpdateSelfAccount(account SelfUpdateAccount) error
 }
 

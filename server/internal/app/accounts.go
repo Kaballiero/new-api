@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/update_account"
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
 	"github.com/QuantumNous/new-api/internal/accounts/update_profile"
+	accountsadapter "github.com/QuantumNous/new-api/internal/adapter/accounts"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts"
 	identityadapter "github.com/QuantumNous/new-api/internal/adapter/identity/accounts"
 	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
@@ -78,7 +79,7 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		Invalidate:               model.InvalidateUserTokensCache,
 	}
 	quotaStore := model.NewQuotaAdjustmentStore()
-	adjustQuota := adjust_quota.NewHTTP(adjust_quota.NewUsecase(quotaStore, quotaStore, quotaStore, common.RoleRootUser), effects.QuotaAudit)
+	adjustQuota := adjust_quota.NewHTTP(adjust_quota.NewUsecase(quotaStore, quotaStore, quotaStore, common.RoleRootUser, common.MaxWalletQuota, common.WalletQuotaFromDecimalStrict), effects.QuotaAudit)
 	groups := accountssettings.UserGroups()
 	profiles := repository.ProfileQueriesStore{}
 	return AccountsHTTP{
@@ -115,14 +116,14 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		GetAccountsBatch: get_accounts_batch.NewHTTP(repository.AdminQueriesStore{}, common.RoleRootUser),
 		ChangeGroup:      change_group.NewHTTP(change_group.NewUsecase(model.NewAccountGroupStore(), ratio_setting.ContainsGroupRatio, common.RoleRootUser)),
 		GetGroups:        get_groups.NewHTTP(get_groups.NewUsecase(groups, accountGroups{})),
-		GetProfile:       get_profile.NewHTTP(get_profile.NewUsecase(profiles, func(id, role int) any { return authz.Capabilities(id, role) }, roles)),
+		GetProfile:       get_profile.NewHTTP(get_profile.NewUsecase(profiles, func(id, role int) any { return authz.Capabilities(id, role) }, roles, accountsadapter.SidebarModules)),
 		GetAffiliateCode: get_affiliate_code.NewHTTP(get_affiliate_code.NewUsecase(profiles, common.GetRandomString)),
 		GetAccountModels: get_account_models.NewHTTP(repository.AccountModelGroupReader{}, groups, service.GetGroupsEnabledModels),
 		UpdateProfile: update_profile.NewHTTP(repository.SelfUpdateStore{}, identityadapter.NewPasswordChange, func(c *gin.Context, succeeded, notificationFailed bool) {
 			effects.SecurityAudit(c, c.GetInt("id"), "user.password_change", map[string]any{"success": succeeded, "notification_failed": notificationFailed})
 		}, effects.SecurityError),
 		TransferAffiliateQuota:        transfer_affiliate_quota.NewHTTP(repository.AffiliateAccountLoader{}, effects.PaymentCompliance),
-		UpdateNotificationPreferences: update_notification_preferences.NewHTTP(repository.NotificationPreferencesStore{}),
+		UpdateNotificationPreferences: update_notification_preferences.NewHTTP(update_notification_preferences.NewUsecase(repository.NotificationPreferencesStore{}, accountsadapter.NotificationTypes, common.RoleAdminUser)),
 		ProvisionAccount:              provision_account.NewHTTP(provision_account.NewUsecase(model.NewProvisionOperation(), model.ProvisionCredentials{}, model.ProvisionErrors{}, ratio_setting.ContainsGroupRatio, effects.Sidebar, common.MaxQuota, common.RoleCommonUser, common.UserStatusEnabled), effects.GetAPIError, func() error { return model.ErrGetAPIInvalidRequest }),
 		CheckIn: check_in.NewHTTP(check_in.NewUsecase(model.NewCheckinStore(), checkinsettings.Current), checkinsettings.Current, func(id, quota int, lang string) {
 			model.RecordLog(id, model.LogTypeSystem, i18n.Translate(lang, i18n.MsgAccountCheckinLog, map[string]any{"Quota": logger.LogQuota(quota)}))

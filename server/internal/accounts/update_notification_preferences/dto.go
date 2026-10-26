@@ -1,7 +1,7 @@
 package update_notification_preferences
 
 import (
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 
 // NotificationPreferencesAccount holds the account data needed to change the
@@ -9,7 +9,7 @@ import (
 type NotificationPreferencesAccount struct {
 	ID       int
 	Role     int
-	Settings dto.UserSetting
+	Settings domain.UserSetting
 }
 
 type UpdateUserSettingRequest struct {
@@ -25,4 +25,9 @@ type UpdateUserSettingRequest struct {
 	UpstreamModelUpdateNotifyEnabled *bool   `json:"upstream_model_update_notify_enabled,omitempty"`
 	AcceptUnsetModelRatioModel       bool    `json:"accept_unset_model_ratio_model"`
 	RecordIpLog                      bool    `json:"record_ip_log"`
+}
+
+// NotificationTypes holds the supported wire names supplied by the codec boundary.
+type NotificationTypes struct {
+	Email, Webhook, Bark, Gotify string
 }

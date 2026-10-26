@@ -13,7 +13,7 @@ type UserQuotaAdjustment = adjust_quota.UserQuotaAdjustment
 
 func AdjustUserQuota(userID, operatorRole int, mode string, value int) (*UserQuotaAdjustment, error) {
 	store := NewQuotaAdjustmentStore()
-	scenario := adjust_quota.NewUsecase(store, store, store, common.RoleRootUser)
+	scenario := adjust_quota.NewUsecase(store, store, store, common.RoleRootUser, common.MaxWalletQuota, common.WalletQuotaFromDecimalStrict)
 	return scenario.Execute(userID, operatorRole, mode, value)
 }
 

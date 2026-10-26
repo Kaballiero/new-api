@@ -1,9 +1,7 @@
 package dto
 
 import (
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 // SelfUserData builds the safe profile response of the dashboard, login and session.
@@ -40,15 +38,9 @@ func SelfUserData(profile domain.SelfProfile, sidebarModules string, permissions
 
 // BuildSelfUserData builds the safe profile DTO and keeps the order of reading
 // settings and permissions.
-func BuildSelfUserData(profile domain.SelfProfile, capabilities func(int, int) any, roles domain.AdminRoles) map[string]any {
-	setting := dto.UserSetting{}
-	if profile.Setting != "" {
-		err := common.Unmarshal([]byte(profile.Setting), &setting)
-		if err != nil {
-			common.SysLog("failed to unmarshal setting: " + err.Error())
-		}
-	}
+func BuildSelfUserData(profile domain.SelfProfile, sidebar func(string) string, capabilities func(int, int) any, roles domain.AdminRoles) map[string]any {
+	sidebarModules := sidebar(profile.Setting)
 	permissions := domain.DashboardPermissions(profile.Role, roles)
 	permissions["admin_permissions"] = capabilities(profile.Id, profile.Role)
-	return SelfUserData(profile, setting.SidebarModules, permissions)
+	return SelfUserData(profile, sidebarModules, permissions)
 }

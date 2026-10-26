@@ -1,7 +1,6 @@
 package transfer_affiliate_quota
 
 import (
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 
@@ -31,11 +30,14 @@ type AffiliateQuotaDisplay interface {
 	FormatQuota(int) string
 }
 
+// QuotaMath converts the displayed minimum using the existing saturating policy.
+type QuotaMath func(float64) int
+
 // TransferAffiliateQuota owns the financial checks and the transaction order
 // of moving affiliate quota into the regular quota.
-func TransferAffiliateQuota(quota int, operation AffiliateTransfer, display AffiliateQuotaDisplay) error {
+func TransferAffiliateQuota(quota int, operation AffiliateTransfer, display AffiliateQuotaDisplay, math QuotaMath) error {
 	if float64(quota) < display.MinimumQuota() {
-		return &domain.AmountError{Err: domain.ErrTransferBelowMinimum, Amount: display.FormatQuota(common.QuotaFromFloat(display.MinimumQuota()))}
+		return &domain.AmountError{Err: domain.ErrTransferBelowMinimum, Amount: display.FormatQuota(math(display.MinimumQuota()))}
 	}
 	tx, err := operation.Begin()
 	if err != nil {

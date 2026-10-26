@@ -3,7 +3,6 @@ package adjust_quota
 import (
 	"errors"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/shopspring/decimal"
 )
@@ -22,11 +21,16 @@ type QuotaCache interface {
 }
 type QuotaCacheFailureLog interface{ AdjustmentCacheFailed(userID int, cause error) }
 
+// QuotaMath converts a wallet amount using the existing strict quota policy.
+type QuotaMath func(decimal.Decimal) (int, error)
+
 type Usecase struct {
-	store      QuotaAdjustmentStore
-	cache      QuotaCache
-	failureLog QuotaCacheFailureLog
-	rootRole   int
+	store          QuotaAdjustmentStore
+	cache          QuotaCache
+	failureLog     QuotaCacheFailureLog
+	rootRole       int
+	maxWalletQuota int
+	math           QuotaMath
 }
 
 func (scenario Usecase) Execute(userID, operatorRole int, mode string, value int) (*UserQuotaAdjustment, error) {
@@ -36,7 +40,7 @@ func (scenario Usecase) Execute(userID, operatorRole int, mode string, value int
 		}
 		return nil, domain.ErrQuotaAdjustmentInvalid
 	}
-	if value > common.MaxWalletQuota || value < -common.MaxWalletQuota {
+	if value > scenario.maxWalletQuota || value < -scenario.maxWalletQuota {
 		return nil, domain.ErrQuotaLimitExceeded
 	}
 
@@ -53,7 +57,7 @@ func (scenario Usecase) Execute(userID, operatorRole int, mode string, value int
 			rejection = domain.ErrManageForbidden
 			return rejection
 		}
-		if user.Quota > common.MaxWalletQuota || user.Quota < -common.MaxWalletQuota {
+		if user.Quota > scenario.maxWalletQuota || user.Quota < -scenario.maxWalletQuota {
 			rejection = domain.ErrQuotaLimitExceeded
 			return rejection
 		}
@@ -64,7 +68,7 @@ func (scenario Usecase) Execute(userID, operatorRole int, mode string, value int
 		case "subtract":
 			quota = decimal.NewFromInt(int64(user.Quota)).Sub(quota)
 		}
-		after, err := common.WalletQuotaFromDecimalStrict(quota)
+		after, err := scenario.math(quota)
 		if err != nil {
 			rejection = domain.ErrQuotaLimitExceeded
 			return rejection
@@ -99,6 +103,6 @@ func (scenario Usecase) Execute(userID, operatorRole int, mode string, value int
 	return &adjustment, nil
 }
 
-func NewUsecase(store QuotaAdjustmentStore, cache QuotaCache, failureLog QuotaCacheFailureLog, rootRole int) Usecase {
-	return Usecase{store: store, cache: cache, failureLog: failureLog, rootRole: rootRole}
+func NewUsecase(store QuotaAdjustmentStore, cache QuotaCache, failureLog QuotaCacheFailureLog, rootRole, maxWalletQuota int, math QuotaMath) Usecase {
+	return Usecase{store: store, cache: cache, failureLog: failureLog, rootRole: rootRole, maxWalletQuota: maxWalletQuota, math: math}
 }

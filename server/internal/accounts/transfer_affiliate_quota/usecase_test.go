@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +33,7 @@ func (display) FormatQuota(q int) string { return "$1.00" }
 func TestTransferAffiliateQuota(t *testing.T) {
 	t.Run("below minimum", func(t *testing.T) {
 		transfer := &fakeTransfer{}
-		err := TransferAffiliateQuota(499, transfer, display{})
+		err := TransferAffiliateQuota(499, transfer, display{}, common.QuotaFromFloat)
 		var amount *domain.AmountError
 		require.ErrorAs(t, err, &amount)
 		assert.ErrorIs(t, err, domain.ErrTransferBelowMinimum)
@@ -41,13 +42,13 @@ func TestTransferAffiliateQuota(t *testing.T) {
 	})
 	t.Run("insufficient affiliate quota", func(t *testing.T) {
 		transfer := &fakeTransfer{balances: AffiliateBalances{Quota: 10, AffiliateQuota: 499}}
-		require.ErrorIs(t, TransferAffiliateQuota(500, transfer, display{}), domain.ErrInviteQuotaInsufficient)
+		require.ErrorIs(t, TransferAffiliateQuota(500, transfer, display{}, common.QuotaFromFloat), domain.ErrInviteQuotaInsufficient)
 		assert.Nil(t, transfer.saved)
 		assert.True(t, transfer.rolled)
 	})
 	t.Run("moves the quota", func(t *testing.T) {
 		transfer := &fakeTransfer{balances: AffiliateBalances{Quota: 10, AffiliateQuota: 800}}
-		require.NoError(t, TransferAffiliateQuota(500, transfer, display{}))
+		require.NoError(t, TransferAffiliateQuota(500, transfer, display{}, common.QuotaFromFloat))
 		assert.Equal(t, &AffiliateBalances{Quota: 510, AffiliateQuota: 300}, transfer.saved)
 		assert.True(t, transfer.committed)
 	})

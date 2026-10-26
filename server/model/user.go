@@ -291,7 +291,7 @@ func inviteUser(inviterId int) error {
 }
 
 func (user *User) TransferAffQuotaToQuota(quota int) error {
-	return transfer_affiliate_quota.TransferAffiliateQuota(quota, record.NewAffiliateTransfer((*record.User)(user), func() *gorm.DB { return DB }, LockForUpdate), record.AffiliateQuotaDisplay{})
+	return transfer_affiliate_quota.TransferAffiliateQuota(quota, record.NewAffiliateTransfer((*record.User)(user), func() *gorm.DB { return DB }, LockForUpdate), record.AffiliateQuotaDisplay{}, common.QuotaFromFloat)
 }
 
 // BindEmailToUser atomically checks email availability and assigns it to the

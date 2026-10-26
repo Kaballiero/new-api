@@ -5,21 +5,20 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeStore struct {
 	loadErr, saveErr, updateErr error
-	saved                       *dto.UserSetting
+	saved                       *domain.UserSetting
 	updated                     *SelfUpdateAccount
 }
 
 func (s *fakeStore) SelfPreferences(id int) (SelfPreferencesAccount, error) {
-	return SelfPreferencesAccount{ID: id, Settings: dto.UserSetting{Language: "en"}}, s.loadErr
+	return SelfPreferencesAccount{ID: id, Settings: domain.UserSetting{Language: "en"}}, s.loadErr
 }
-func (s *fakeStore) SaveSelfPreferences(_ int, settings dto.UserSetting) error {
+func (s *fakeStore) SaveSelfPreferences(_ int, settings domain.UserSetting) error {
 	s.saved = &settings
 	return s.saveErr
 }
@@ -57,7 +56,7 @@ func TestUpdateProfilePreferences(t *testing.T) {
 		result, err := NewUsecase(store, fakeInput{}, &fakePasswords{}).Execute(map[string]any{"sidebar_modules": "{}", "language": "ru"}, user(7))
 		require.NoError(t, err)
 		assert.True(t, result.Preferences)
-		assert.Equal(t, &dto.UserSetting{Language: "en", SidebarModules: "{}"}, store.saved)
+		assert.Equal(t, &domain.UserSetting{Language: "en", SidebarModules: "{}"}, store.saved)
 	})
 	t.Run("load failure stays unclassified", func(t *testing.T) {
 		_, err := NewUsecase(&fakeStore{loadErr: storage}, fakeInput{}, &fakePasswords{}).Execute(map[string]any{"language": "ru"}, user(7))

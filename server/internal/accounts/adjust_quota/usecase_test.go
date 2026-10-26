@@ -62,7 +62,7 @@ func TestAdjustQuotaRejections(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			adjustment, err := NewUsecase(tc.store, tc.store, tc.store, 100).Execute(tc.userID, tc.role, tc.mode, tc.value)
+			adjustment, err := NewUsecase(tc.store, tc.store, tc.store, 100, common.MaxWalletQuota, common.WalletQuotaFromDecimalStrict).Execute(tc.userID, tc.role, tc.mode, tc.value)
 			require.ErrorIs(t, err, tc.err)
 			assert.Nil(t, adjustment)
 			assert.Empty(t, tc.store.increments)
@@ -89,7 +89,7 @@ func TestAdjustQuotaAppliesCommittedDifference(t *testing.T) {
 		if tc.cacheFailed {
 			store.cacheErr = errors.New("redis down")
 		}
-		adjustment, err := NewUsecase(store, store, store, 100).Execute(7, 10, tc.mode, tc.value)
+		adjustment, err := NewUsecase(store, store, store, 100, common.MaxWalletQuota, common.WalletQuotaFromDecimalStrict).Execute(7, 10, tc.mode, tc.value)
 		require.NoError(t, err)
 		assert.Equal(t, &UserQuotaAdjustment{UserID: 7, Username: "bob", Role: 1, Status: 1, Before: 100, After: tc.after}, adjustment)
 		assert.Equal(t, tc.written, store.written != nil)

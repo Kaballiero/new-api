@@ -1,6 +1,6 @@
 package update_profile
 
-import "github.com/QuantumNous/new-api/relaykit/dto"
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 // SelfUpdateAccount holds only the fields of an ordinary own profile update.
 type SelfUpdateAccount struct {
@@ -13,7 +13,7 @@ type SelfUpdateAccount struct {
 // SelfPreferencesAccount holds the current settings without the stored record.
 type SelfPreferencesAccount struct {
 	ID       int
-	Settings dto.UserSetting
+	Settings domain.UserSetting
 }
 
 // SelfUpdateResult reports what a successful self update changed.
