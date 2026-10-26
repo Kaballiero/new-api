@@ -2,7 +2,7 @@ package catalog
 
 import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
-	"github.com/QuantumNous/new-api/internal/catalog/domain/prefill"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"gorm.io/gorm"
 )
 
@@ -17,20 +17,20 @@ func (s PrefillStore) Duplicate(id int, name string) (bool, error) {
 	err := s.db().Model(&record.PrefillGroup{}).Where("name = ? AND id <> ?", name, id).Count(&count).Error
 	return count > 0, err
 }
-func (s PrefillStore) Insert(value *prefill.Group) error {
+func (s PrefillStore) Insert(value *domain.PrefillGroup) error {
 	r := prefillRecord(value)
 	err := s.db().Create(&r).Error
 	*value = prefillValue(&r)
 	return err
 }
-func (s PrefillStore) Save(value *prefill.Group) error {
+func (s PrefillStore) Save(value *domain.PrefillGroup) error {
 	r := prefillRecord(value)
 	err := s.db().Save(&r).Error
 	*value = prefillValue(&r)
 	return err
 }
 func (s PrefillStore) Delete(id int) error { return s.db().Delete(&record.PrefillGroup{}, id).Error }
-func (s PrefillStore) List(kind string) ([]prefill.Group, error) {
+func (s PrefillStore) List(kind string) ([]domain.PrefillGroup, error) {
 	var rows []*record.PrefillGroup
 	q := s.db().Model(&record.PrefillGroup{})
 	if kind != "" {
@@ -42,15 +42,15 @@ func (s PrefillStore) List(kind string) ([]prefill.Group, error) {
 	if rows == nil {
 		return nil, nil
 	}
-	out := make([]prefill.Group, len(rows))
+	out := make([]domain.PrefillGroup, len(rows))
 	for i, v := range rows {
 		out[i] = prefillValue(v)
 	}
 	return out, nil
 }
-func prefillRecord(v *prefill.Group) record.PrefillGroup {
+func prefillRecord(v *domain.PrefillGroup) record.PrefillGroup {
 	return record.PrefillGroup{Id: v.Id, Name: v.Name, Type: v.Type, Items: record.JSONValue(v.Items), Description: v.Description, CreatedTime: v.CreatedTime, UpdatedTime: v.UpdatedTime}
 }
-func prefillValue(v *record.PrefillGroup) prefill.Group {
-	return prefill.Group{Id: v.Id, Name: v.Name, Type: v.Type, Items: []byte(v.Items), Description: v.Description, CreatedTime: v.CreatedTime, UpdatedTime: v.UpdatedTime}
+func prefillValue(v *record.PrefillGroup) domain.PrefillGroup {
+	return domain.PrefillGroup{Id: v.Id, Name: v.Name, Type: v.Type, Items: []byte(v.Items), Description: v.Description, CreatedTime: v.CreatedTime, UpdatedTime: v.UpdatedTime}
 }

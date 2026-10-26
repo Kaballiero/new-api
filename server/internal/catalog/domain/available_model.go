@@ -1,8 +1,8 @@
-package availability
+package domain
 
 import "errors"
 
-type Model struct {
+type AvailableModel struct {
 	Id                     string
 	Object                 string
 	Created                int

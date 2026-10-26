@@ -5,13 +5,13 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/catalog/domain/availability"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 )
 
-func wire(v availability.Model) dto.OpenAIModels {
+func wire(v domain.AvailableModel) dto.OpenAIModels {
 	var endpoints []types.EndpointType
 	if v.SupportedEndpointTypes != nil {
 		endpoints = make([]types.EndpointType, len(v.SupportedEndpointTypes))
@@ -21,7 +21,7 @@ func wire(v availability.Model) dto.OpenAIModels {
 	}
 	return dto.OpenAIModels{Id: v.Id, Object: v.Object, Created: v.Created, OwnedBy: v.OwnedBy, SupportedEndpointTypes: endpoints}
 }
-func List(c *gin.Context, modelType int, models []availability.Model) {
+func List(c *gin.Context, modelType int, models []domain.AvailableModel) {
 	userOpenAiModels := make([]dto.OpenAIModels, 0, len(models))
 	for _, v := range models {
 		userOpenAiModels = append(userOpenAiModels, wire(v))
@@ -70,7 +70,7 @@ func List(c *gin.Context, modelType int, models []availability.Model) {
 	}
 
 }
-func Retrieve(c *gin.Context, modelType int, modelId string, value *availability.Model) {
+func Retrieve(c *gin.Context, modelType int, modelId string, value *domain.AvailableModel) {
 	if value != nil {
 		aiModel := wire(*value)
 		switch modelType {

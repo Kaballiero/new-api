@@ -8,9 +8,14 @@ type Store interface {
 	Vendor(int) (*domain.Vendor, error)
 	IsMissing(error) bool
 }
-type Usecase struct{ store Store }
+type Usecase struct {
+	store   Store
+	version func(*domain.Vendor) string
+}
 
-func NewUsecase(store Store) Usecase { return Usecase{store: store} }
+func NewUsecase(store Store, version func(*domain.Vendor) string) Usecase {
+	return Usecase{store: store, version: version}
+}
 func (u Usecase) Execute(input Input) (*Output, error) {
 	value, err := u.store.Vendor(input.ID)
 	if err != nil {
@@ -19,6 +24,6 @@ func (u Usecase) Execute(input Input) (*Output, error) {
 		}
 		return nil, domain.Internal(err)
 	}
-	value.Version = domain.VendorRecordVersion(value)
+	value.Version = u.version(value)
 	return value, nil
 }

@@ -12,19 +12,32 @@ import (
 type Source interface {
 	Fetch(context.Context, string) (domain.SyncUpstreamSource, map[string]domain.MetadataValues, map[string]domain.Vendor, error)
 }
+type MetadataMutation interface {
+	OtherVendors(int) ([]domain.Vendor, error)
+	State() (map[string]*domain.Model, map[string]*domain.Vendor, error)
+	InsertVendor(*domain.Vendor) error
+	InsertModel(map[string]any) error
+	UpdateModel(int, map[string]any) error
+}
+
+type Codec interface {
+	DecodeEndpoints(string) (domain.EndpointDocument, error)
+	MetadataRecordVersion(*domain.Model, *domain.Vendor, *domain.Vendor) string
+}
 type Store interface {
-	WithMetadataSync(func(domain.MetadataMutation) error) error
+	WithMetadataSync(func(MetadataMutation) error) error
 	SyncFields() []string
 }
 type Usecase struct {
 	store   Store
 	source  Source
 	now     func() int64
+	codec   Codec
 	refresh func()
 }
 
-func NewUsecase(store Store, source Source, now func() int64, refresh func()) Usecase {
-	return Usecase{store: store, source: source, now: now, refresh: refresh}
+func NewUsecase(store Store, source Source, now func() int64, refresh func(), codec Codec) Usecase {
+	return Usecase{store: store, source: source, now: now, refresh: refresh, codec: codec}
 }
 func (u Usecase) Execute(ctx context.Context, input Input) (*Output, error) {
 	source, upstream, vendors, err := u.source.Fetch(ctx, input.Locale)
@@ -53,7 +66,7 @@ func (u Usecase) applyRecords(updates []domain.MetadataSyncUpdate, vendorsUpstre
 		return nil, err
 	}
 	result := &domain.MetadataSyncResult{CreatedModels: []string{}, UpdatedModels: []domain.MetadataSyncSelection{}, CreatedVendors: []string{}}
-	err := u.store.WithMetadataSync(func(tx domain.MetadataMutation) error {
+	err := u.store.WithMetadataSync(func(tx MetadataMutation) error {
 		locals, vendors, err := tx.State()
 		if err != nil {
 			return err
@@ -72,7 +85,7 @@ func (u Usecase) applyRecords(updates []domain.MetadataSyncUpdate, vendorsUpstre
 			if local != nil {
 				localVendor = vendorByID[local.VendorID]
 			}
-			if domain.MetadataRecordVersion(local, localVendor, domain.FindMetadataVendor(vendors, update.Values.Vendor)) != update.RecordVersion {
+			if u.codec.MetadataRecordVersion(local, localVendor, domain.FindMetadataVendor(vendors, update.Values.Vendor)) != update.RecordVersion {
 				return fmt.Errorf("%w: %s", domain.ErrMetadataSyncConflict, update.ModelName)
 			}
 			if update.Create && local != nil || !update.Create && local == nil {
@@ -169,7 +182,7 @@ func (u Usecase) validateUpdates(updates []domain.MetadataSyncUpdate) error {
 		if update.RecordVersion == "" {
 			return domain.ErrMetadataSyncConflict
 		}
-		if err := domain.ValidateMetadataValues(update.Values); err != nil {
+		if err := domain.ValidateMetadataValues(update.Values, u.codec.DecodeEndpoints); err != nil {
 			return err
 		}
 		if !update.Create && len(update.Fields) == 0 {

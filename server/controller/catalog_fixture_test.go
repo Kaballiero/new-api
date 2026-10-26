@@ -3,7 +3,10 @@ package controller
 import (
 	"context"
 	"errors"
+	"github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
+	"net/http"
 
+	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"github.com/QuantumNous/new-api/internal/catalog/apply_metadata_sync"
 	"github.com/QuantumNous/new-api/internal/catalog/create_model"
 	"github.com/QuantumNous/new-api/internal/catalog/create_vendor"
@@ -30,7 +33,7 @@ func catalogFixtureStore() store.Store {
 	}})
 }
 func insertModelRecord(value *model.Model) error {
-	out, err := create_model.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing).Execute(create_model.Input{Value: *record.ToModel(value)})
+	out, err := create_model.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints).Execute(create_model.Input{Value: *record.ToModel(value)})
 	if err != nil {
 		return err
 	}
@@ -40,7 +43,7 @@ func insertModelRecord(value *model.Model) error {
 	return nil
 }
 func updateModelRecord(value *model.Model) error {
-	out, err := update_model.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing).Execute(update_model.Input{Value: *record.ToModel(value)})
+	out, err := update_model.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints).Execute(update_model.Input{Value: *record.ToModel(value)})
 	if err != nil {
 		return err
 	}
@@ -54,7 +57,7 @@ func deleteModelRecord(value *model.Model) error {
 	return err
 }
 func insertVendorRecord(value *model.Vendor) error {
-	out, err := create_vendor.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing).Execute(create_vendor.Input{Value: *record.ToVendor(value)})
+	out, err := create_vendor.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion).Execute(create_vendor.Input{Value: *record.ToVendor(value)})
 	if err != nil {
 		return err
 	}
@@ -62,7 +65,7 @@ func insertVendorRecord(value *model.Vendor) error {
 	return nil
 }
 func updateVendorRecord(value *model.Vendor) error {
-	out, err := update_vendor.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing).Execute(update_vendor.Input{Value: *record.ToVendor(value)})
+	out, err := update_vendor.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion).Execute(update_vendor.Input{Value: *record.ToVendor(value)})
 	if err != nil {
 		return err
 	}
@@ -86,23 +89,23 @@ func searchCatalogVendors(keyword string, offset, limit int, association ...stri
 	return values, n, err
 }
 func vendorRecordVersion(v *model.Vendor) string {
-	return domain.VendorRecordVersion(record.ToVendor(v))
+	return (catalogcodec.Codec{}).VendorRecordVersion(record.ToVendor(v))
 }
 func metadataRecordVersion(v *model.Model, local, upstream *model.Vendor) string {
-	return domain.MetadataRecordVersion(record.ToModel(v), record.ToVendor(local), record.ToVendor(upstream))
+	return (catalogcodec.Codec{}).MetadataRecordVersion(record.ToModel(v), record.ToVendor(local), record.ToVendor(upstream))
 }
 func previewVendorRecords(v domain.VendorOperation) (*domain.VendorOperationPreview, error) {
 	s := catalogFixtureStore()
-	return preview_vendor_operation.NewUsecase(store.NewVendorOperationStore(s)).Execute(v)
+	return preview_vendor_operation.NewUsecase(store.NewVendorOperationStore(s), catalogcodec.Codec{}).Execute(v)
 }
 func applyVendorRecords(v domain.VendorOperation) (*domain.VendorOperationResult, error) {
 	s := catalogFixtureStore()
-	return apply_vendor_operation.NewUsecase(store.NewVendorOperationStore(s), common.GetTimestamp, model.RefreshPricing).Execute(v)
+	return apply_vendor_operation.NewUsecase(store.NewVendorOperationStore(s), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}).Execute(v)
 }
 func deleteVendorRecords(ids []int) error {
 	result := &domain.VendorOperationResult{UpdatedModels: []int{}, DeletedVendors: []int{}}
 	err := catalogFixtureStore().WithVendorMutation(func(tx domain.VendorMutation) error {
-		return domain.ApplyVendorOperation(tx, domain.VendorOperation{Action: "delete", VendorIDs: ids}, result, common.GetTimestamp)
+		return domain.ApplyVendorOperation(tx, domain.VendorOperation{Action: "delete", VendorIDs: ids}, result, common.GetTimestamp, catalogcodec.Codec{})
 	})
 	if err == nil {
 		model.RefreshPricing()
@@ -122,7 +125,7 @@ func applyMetadataRecords(updates []domain.MetadataSyncUpdate, vendors map[strin
 	for name, v := range vendors {
 		source.vendors[name] = *record.ToVendor(&v)
 	}
-	return apply_metadata_sync.NewUsecase(catalogFixtureStore(), source, common.GetTimestamp, model.RefreshPricing).Execute(context.Background(), apply_metadata_sync.Input{Selections: selections})
+	return apply_metadata_sync.NewUsecase(catalogFixtureStore(), source, common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}).Execute(context.Background(), apply_metadata_sync.Input{Selections: selections})
 }
 
 type catalogFixtureMetadataSource struct {
@@ -154,3 +157,10 @@ func enrichModels(models []*model.Model) error {
 	// The usecase marks failures as internal; callers get the storage cause.
 	return errors.Unwrap(err)
 }
+
+type metadataSyncCandidate = domain.MetadataSyncCandidate
+type upstreamModel = upstream.Model
+type upstreamVendor = upstream.Vendor
+
+func normalizeLocale(locale string) (string, bool) { return domain.NormalizeLocale(locale) }
+func newHTTPClient() *http.Client                  { return upstream.NewHTTPClient() }

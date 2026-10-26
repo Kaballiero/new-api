@@ -1,6 +1,8 @@
 package record
 
 import (
+	"github.com/QuantumNous/new-api/internal/catalog/apply_metadata_sync"
+
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"gorm.io/gorm"
 )
@@ -11,7 +13,7 @@ type syncMutation struct {
 	db     *gorm.DB
 }
 
-func (store Store) WithMetadataSync(change func(domain.MetadataMutation) error) error {
+func (store Store) WithMetadataSync(change func(apply_metadata_sync.MetadataMutation) error) error {
 	return store.env.Transaction(func(tx *gorm.DB) error { return change(syncMutation{store: store, db: tx, locked: true}) })
 }
 func (store Store) SyncState() (map[string]*domain.Model, map[string]*domain.Vendor, error) {

@@ -1,6 +1,10 @@
 package catalog
 
 import (
+	"github.com/QuantumNous/new-api/internal/catalog/apply_metadata_sync"
+	"github.com/QuantumNous/new-api/internal/catalog/create_model"
+	"github.com/QuantumNous/new-api/internal/catalog/update_model"
+
 	"errors"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
@@ -68,7 +72,7 @@ func (store Store) WithDeletion(pricing bool, change func(domain.MetadataDeletio
 	return store.persistence.WithDeletion(pricing, change)
 }
 func (store Store) ModelExists(id int) error { return store.persistence.ModelExists(id) }
-func (store Store) WithMetadataSync(change func(domain.MetadataMutation) error) error {
+func (store Store) WithMetadataSync(change func(apply_metadata_sync.MetadataMutation) error) error {
 	return store.persistence.WithMetadataSync(change)
 }
 func (store Store) SyncState() (map[string]*domain.Model, map[string]*domain.Vendor, error) {
@@ -78,8 +82,11 @@ func (store Store) EnabledModels() []string { return store.runtime.EnabledModels
 func (store Store) ExistingNames(names []string) ([]string, error) {
 	return store.persistence.ExistingNames(names)
 }
-func (store Store) WithModelMutation(change func(domain.ModelMutation) error) error {
-	return store.persistence.WithModelMutation(change)
+func (store Store) WithModelCreation(change func(create_model.ModelMutation) error) error {
+	return store.persistence.WithModelCreation(change)
+}
+func (store Store) WithModelUpdate(change func(update_model.ModelMutation) error) error {
+	return store.persistence.WithModelUpdate(change)
 }
 func (store Store) WithVendorMetadata(change func(domain.VendorMetadataMutation) error) error {
 	return store.persistence.WithVendorMetadata(change)

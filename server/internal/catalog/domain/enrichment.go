@@ -4,7 +4,7 @@ import (
 	"sort"
 )
 
-func FillConfiguredCounts(models []*Model, configured map[string][]int) {
+func fillConfiguredCounts(models []*Model, configured map[string][]int) {
 	for _, metadata := range models {
 		if metadata == nil {
 			continue
@@ -21,7 +21,7 @@ func FillConfiguredCounts(models []*Model, configured map[string][]int) {
 		metadata.ConfiguredChannelCount = len(channelIDs)
 	}
 }
-func FillConnections(models []*Model, connections []ModelConnection, endpointsFor func(string) []string, quotasFor func(string) []int) {
+func fillConnections(models []*Model, connections []ModelConnection, endpointsFor func(string) []string, quotasFor func(string) []int) {
 	for _, metadata := range models {
 		if metadata == nil {
 			continue
@@ -98,7 +98,7 @@ func EnrichModels(items []*Model, store ModelFacts, log func(string)) error {
 			log("load configured model channels: " + err.Error())
 			return Internal(err)
 		}
-		FillConfiguredCounts(items, configured)
+		fillConfiguredCounts(items, configured)
 		connections, err := store.Connections()
 		if err != nil {
 			log("load model connections: " + err.Error())
@@ -113,7 +113,7 @@ func EnrichModels(items []*Model, store ModelFacts, log func(string)) error {
 			log("load model square states: " + err.Error())
 			return Internal(err)
 		}
-		FillConnections(items, connections, store.SupportEndpoints, store.QuotaTypes)
+		fillConnections(items, connections, store.SupportEndpoints, store.QuotaTypes)
 	}
 	return nil
 }

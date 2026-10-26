@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 
+	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"strings"
 	"sync"
 	"time"
@@ -267,7 +268,7 @@ func (client Client) Fetch(parent context.Context, locale string) (domain.SyncUp
 			}
 		}
 		values := domain.MetadataValues{Description: item.Description, Icon: item.Icon, Tags: item.Tags, Vendor: strings.TrimSpace(item.VendorName), Endpoints: endpoints, NameRule: item.NameRule, Status: item.Status}
-		if err := domain.ValidateMetadataValues(values); err != nil {
+		if err := domain.ValidateMetadataValues(values, catalogcodec.Codec{}.DecodeEndpoints); err != nil {
 			return source, nil, nil, fmt.Errorf("model %s: %w", item.ModelName, err)
 		}
 		if _, duplicate := models[item.ModelName]; duplicate {

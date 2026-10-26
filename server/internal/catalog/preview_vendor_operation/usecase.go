@@ -9,9 +9,14 @@ type Store interface {
 	Vendors() ([]domain.Vendor, error)
 	Models(string, []int) ([]domain.Model, error)
 }
-type Usecase struct{ store Store }
+type Usecase struct {
+	store    Store
+	versions domain.OperationVersions
+}
 
-func NewUsecase(store Store) Usecase { return Usecase{store: store} }
+func NewUsecase(store Store, versions domain.OperationVersions) Usecase {
+	return Usecase{store: store, versions: versions}
+}
 func (u Usecase) Execute(input Input) (*Output, error) {
 	operation := input
 	plan, err := domain.NewVendorOperationPlan(operation)
@@ -29,7 +34,7 @@ func (u Usecase) Execute(input Input) (*Output, error) {
 	if err != nil {
 		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}
-	preview, err := plan.Complete(models)
+	preview, err := plan.Complete(models, u.versions)
 	if err != nil {
 		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}

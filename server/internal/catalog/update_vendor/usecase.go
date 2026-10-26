@@ -15,11 +15,12 @@ type Usecase struct {
 	now     func() int64
 	refresh func()
 
-	store Store
+	store   Store
+	version func(*domain.Vendor) string
 }
 
-func NewUsecase(store Store, now func() int64, refresh func()) Usecase {
-	return Usecase{store: store, now: now, refresh: refresh}
+func NewUsecase(store Store, now func() int64, refresh func(), version func(*domain.Vendor) string) Usecase {
+	return Usecase{store: store, now: now, refresh: refresh, version: version}
 }
 func (u Usecase) Execute(input Input) (*Output, error) {
 	v := input.Value
@@ -47,7 +48,7 @@ func (u Usecase) persist(value *domain.Vendor) error {
 		if err != nil {
 			return err
 		}
-		if value.Version != "" && value.Version != domain.VendorRecordVersion(saved) {
+		if value.Version != "" && value.Version != u.version(saved) {
 			return domain.ErrVendorConflict
 		}
 		if err := domain.NormalizeVendor(value); err != nil {
@@ -64,7 +65,7 @@ func (u Usecase) persist(value *domain.Vendor) error {
 		return tx.UpdateVendor(value)
 	})
 	if err == nil {
-		value.Version = domain.VendorRecordVersion(value)
+		value.Version = u.version(value)
 		u.refresh()
 	}
 	return err

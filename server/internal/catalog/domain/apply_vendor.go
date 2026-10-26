@@ -1,6 +1,6 @@
 package domain
 
-func ApplyVendorOperation(tx VendorMutation, operation VendorOperation, result *VendorOperationResult, now func() int64) error {
+func ApplyVendorOperation(tx VendorMutation, operation VendorOperation, result *VendorOperationResult, now func() int64, versions OperationVersions) error {
 	plan, err := NewVendorOperationPlan(operation)
 	if err != nil {
 		return err
@@ -16,7 +16,7 @@ func ApplyVendorOperation(tx VendorMutation, operation VendorOperation, result *
 	if err != nil {
 		return err
 	}
-	preview, err := plan.Complete(models)
+	preview, err := plan.Complete(models, versions)
 	if err != nil {
 		return err
 	}

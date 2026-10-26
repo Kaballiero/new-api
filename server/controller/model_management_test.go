@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -800,7 +801,7 @@ func TestMetadataSyncLocaleAndEndpointValidation(t *testing.T) {
 	_, valid := normalizeLocale("invalid")
 	assert.False(t, valid)
 	for _, endpoint := range []string{`1`, `null`, `{"openai":false}`, `{"openai":{"path":"invalid"}}`} {
-		assert.Error(t, domain.ValidateModelEndpoints(endpoint))
+		assert.Error(t, domain.ValidateModelEndpoints(endpoint, catalogcodec.Codec{}.DecodeEndpoints))
 	}
 }
 

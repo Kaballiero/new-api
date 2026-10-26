@@ -1,8 +1,8 @@
-package prefill
+package domain
 
 import "errors"
 
-type Group struct {
+type PrefillGroup struct {
 	Id          int    `json:"id"`
 	Name        string `json:"name"`
 	Type        string `json:"type"`
@@ -12,6 +12,6 @@ type Group struct {
 	UpdatedTime int64  `json:"updated_time"`
 }
 
-var ErrNameAndType = errors.New("prefill name and type are required")
-var ErrDuplicate = errors.New("prefill name exists")
-var ErrID = errors.New("prefill id is required")
+var ErrPrefillNameAndType = errors.New("prefill name and type are required")
+var ErrPrefillDuplicate = errors.New("prefill name exists")
+var ErrPrefillID = errors.New("prefill id is required")

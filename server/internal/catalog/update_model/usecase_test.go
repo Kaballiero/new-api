@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,7 @@ type fakeStore struct {
 }
 
 func (s *fakeStore) ModelDuplicate(int, string) (bool, error) { return s.duplicate, nil }
-func (s *fakeStore) WithModelMutation(change func(domain.ModelMutation) error) error {
+func (s *fakeStore) WithModelUpdate(change func(ModelMutation) error) error {
 	return change(s)
 }
 func (s *fakeStore) SetModelStatus(id, status int) error {
@@ -54,7 +55,7 @@ func TestUpdateModel(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			refreshed := false
-			out, err := NewUsecase(tc.store, func() int64 { return 200 }, func() { refreshed = true }).Execute(tc.input)
+			out, err := NewUsecase(tc.store, func() int64 { return 200 }, func() { refreshed = true }, catalogcodec.Codec{}.DecodeEndpoints).Execute(tc.input)
 			assert.Equal(t, tc.refreshed, refreshed)
 			if tc.err != nil {
 				require.ErrorIs(t, err, tc.err)

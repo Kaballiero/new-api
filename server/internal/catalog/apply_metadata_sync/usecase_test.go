@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ type fakeStore struct {
 	inserted []map[string]any
 }
 
-func (s *fakeStore) WithMetadataSync(change func(domain.MetadataMutation) error) error {
+func (s *fakeStore) WithMetadataSync(change func(MetadataMutation) error) error {
 	return change(s)
 }
 func (s *fakeStore) SyncFields() []string                      { return []string{"description", "status"} }
@@ -42,7 +43,7 @@ func (s *fakeStore) UpdateModel(int, map[string]any) error { return errors.New("
 
 func TestApplyMetadataSync(t *testing.T) {
 	upstream := map[string]domain.MetadataValues{"gpt": {Description: "chat", Status: 1}}
-	createVersion := domain.MetadataRecordVersion(nil, nil, nil)
+	createVersion := (catalogcodec.Codec{}).MetadataRecordVersion(nil, nil, nil)
 	cases := []struct {
 		name    string
 		source  fakeSource
@@ -63,7 +64,7 @@ func TestApplyMetadataSync(t *testing.T) {
 			store := &fakeStore{locals: tc.locals}
 
 			refreshed := false
-			out, err := NewUsecase(store, tc.source, func() int64 { return 50 }, func() { refreshed = true }).Execute(context.Background(), tc.input)
+			out, err := NewUsecase(store, tc.source, func() int64 { return 50 }, func() { refreshed = true }, catalogcodec.Codec{}).Execute(context.Background(), tc.input)
 			if tc.err != nil || tc.errText != "" {
 				if tc.err != nil {
 					require.ErrorIs(t, err, tc.err)

@@ -10,7 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
-	"github.com/QuantumNous/new-api/internal/catalog/domain/prefill"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/glebarez/sqlite"
@@ -63,7 +63,7 @@ func TestCatalogPersistence(t *testing.T) {
 			items := [][]byte{nil, []byte("null"), []byte("[]"), []byte("{}"), []byte(`[0,false,"raw"]`), []byte("42")}
 			ids := make([]int, len(items))
 			for i, raw := range items {
-				value := prefill.Group{Name: fmt.Sprintf("roundtrip-%d", i), Type: "model", Items: raw, CreatedTime: 11, UpdatedTime: int64(20 + i)}
+				value := domain.PrefillGroup{Name: fmt.Sprintf("roundtrip-%d", i), Type: "model", Items: raw, CreatedTime: 11, UpdatedTime: int64(20 + i)}
 				require.NoError(t, groups.Insert(&value))
 				require.Positive(t, value.Id)
 				ids[i] = value.Id
@@ -83,14 +83,14 @@ func TestCatalogPersistence(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, duplicate)
 			// Whole-record Save keeps zero and empty input fields, and inserts a missing primary key.
-			value := prefill.Group{Id: ids[0]}
+			value := domain.PrefillGroup{Id: ids[0]}
 			require.NoError(t, groups.Save(&value))
 			var saved record.PrefillGroup
 			require.NoError(t, database.First(&saved, ids[0]).Error)
 			assert.Empty(t, saved.Name)
 			assert.Zero(t, saved.CreatedTime)
 			assert.Nil(t, saved.Items)
-			missing := prefill.Group{Id: 101, Name: "upsert", Type: "tag", Items: []byte("false")}
+			missing := domain.PrefillGroup{Id: 101, Name: "upsert", Type: "tag", Items: []byte("false")}
 			require.NoError(t, groups.Save(&missing))
 			saved = record.PrefillGroup{}
 			require.NoError(t, database.First(&saved, 101).Error)
@@ -99,7 +99,7 @@ func TestCatalogPersistence(t *testing.T) {
 			var deleted record.PrefillGroup
 			require.NoError(t, database.Unscoped().First(&deleted, ids[1]).Error)
 			assert.True(t, deleted.DeletedAt.Valid)
-			replacement := prefill.Group{Name: "roundtrip-1", Type: "model"}
+			replacement := domain.PrefillGroup{Name: "roundtrip-1", Type: "model"}
 			require.NoError(t, groups.Insert(&replacement))
 			// Owner/reserve reads retain group quoting, priority order and positive reserve selection.
 			settings := `{"openrouter_model_reserve_usd":{"wave6c-model":0.05}}`

@@ -1,10 +1,10 @@
 package create_prefill_group
 
-import "github.com/QuantumNous/new-api/internal/catalog/domain/prefill"
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 type Store interface {
 	Duplicate(int, string) (bool, error)
-	Insert(*prefill.Group) error
+	Insert(*domain.PrefillGroup) error
 }
 type Usecase struct {
 	store Store
@@ -12,14 +12,14 @@ type Usecase struct {
 }
 
 func NewUsecase(store Store, now func() int64) Usecase { return Usecase{store: store, now: now} }
-func (u Usecase) Execute(value prefill.Group) (prefill.Group, error) {
+func (u Usecase) Execute(value domain.PrefillGroup) (domain.PrefillGroup, error) {
 	if value.Name == "" || value.Type == "" {
-		return value, prefill.ErrNameAndType
+		return value, domain.ErrPrefillNameAndType
 	}
 	if duplicate, err := u.store.Duplicate(0, value.Name); err != nil {
 		return value, err
 	} else if duplicate {
-		return value, prefill.ErrDuplicate
+		return value, domain.ErrPrefillDuplicate
 	}
 	now := u.now()
 	value.UpdatedTime = now

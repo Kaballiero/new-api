@@ -2,13 +2,13 @@ package list_prefill_groups
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/catalog/domain/prefill"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/catalog/transport"
 	"github.com/gin-gonic/gin"
 )
 
 type Reader interface {
-	List(string) ([]prefill.Group, error)
+	List(string) ([]domain.PrefillGroup, error)
 }
 type HTTP struct{ reader Reader }
 

@@ -4,12 +4,6 @@ import (
 	"errors"
 )
 
-type ModelMutation interface {
-	VendorExists(int) (bool, error)
-	InsertModel(*Model) error
-	RestoreModelDefaults(int, int, int) error
-	UpdateModel(*Model) error
-}
 type VendorMetadataMutation interface {
 	SavedVendor(int) (*Vendor, error)
 	OtherVendors(int) ([]Vendor, error)

@@ -10,13 +10,14 @@ type Store interface {
 	Vendor(int) (*domain.Vendor, error)
 }
 type Usecase struct {
-	store   Store
-	now     func() int64
-	refresh func()
+	store    Store
+	versions domain.OperationVersions
+	now      func() int64
+	refresh  func()
 }
 
-func NewUsecase(store Store, now func() int64, refresh func()) Usecase {
-	return Usecase{store: store, now: now, refresh: refresh}
+func NewUsecase(store Store, now func() int64, refresh func(), versions domain.OperationVersions) Usecase {
+	return Usecase{store: store, now: now, refresh: refresh, versions: versions}
 }
 func (u Usecase) Execute(input Input) (*Output, error) {
 	if _, err := u.store.Vendor(input.ID); err != nil {
@@ -25,7 +26,7 @@ func (u Usecase) Execute(input Input) (*Output, error) {
 	operation := domain.VendorOperation{Action: "delete", VendorIDs: []int{input.ID}}
 	result := &domain.VendorOperationResult{UpdatedModels: []int{}, DeletedVendors: []int{}}
 	err := u.store.WithVendorMutation(func(tx domain.VendorMutation) error {
-		return domain.ApplyVendorOperation(tx, operation, result, u.now)
+		return domain.ApplyVendorOperation(tx, operation, result, u.now, u.versions)
 	})
 	if err != nil {
 		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))

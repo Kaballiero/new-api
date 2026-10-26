@@ -3,17 +3,17 @@ package list_available_models
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/catalog/domain/availability"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {
 	scenario   Usecase
 	autoGroups func(*gin.Context, string) []string
-	write      func(*gin.Context, int, []availability.Model)
+	write      func(*gin.Context, int, []domain.AvailableModel)
 }
 
-func NewHTTP(scenario Usecase, autoGroups func(*gin.Context, string) []string, write func(*gin.Context, int, []availability.Model)) HTTP {
+func NewHTTP(scenario Usecase, autoGroups func(*gin.Context, string) []string, write func(*gin.Context, int, []domain.AvailableModel)) HTTP {
 	return HTTP{scenario: scenario, autoGroups: autoGroups, write: write}
 }
 func (h HTTP) Handle(c *gin.Context, format int) {

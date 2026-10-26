@@ -2,13 +2,16 @@ package preview_metadata_sync
 
 import (
 	"context"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"sort"
 )
 
 type Source interface {
 	Fetch(context.Context, string) (domain.SyncUpstreamSource, map[string]domain.MetadataValues, map[string]domain.Vendor, error)
+}
+type Codec interface {
+	MetadataRecordVersion(*domain.Model, *domain.Vendor, *domain.Vendor) string
+	MetadataFields(domain.MetadataValues) map[string]any
 }
 type Store interface {
 	SyncState() (map[string]*domain.Model, map[string]*domain.Vendor, error)
@@ -19,9 +22,12 @@ type Store interface {
 type Usecase struct {
 	store  Store
 	source Source
+	codec  Codec
 }
 
-func NewUsecase(store Store, source Source) Usecase { return Usecase{store: store, source: source} }
+func NewUsecase(store Store, source Source, codec Codec) Usecase {
+	return Usecase{store: store, source: source, codec: codec}
+}
 func (u Usecase) Execute(ctx context.Context, input Input) (*Output, error) {
 	source, upstream, upstreamVendors, err := u.source.Fetch(ctx, input.Locale)
 	if err != nil {
@@ -81,7 +87,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (*Output, error) {
 		if local != nil {
 			localVendor = vendorByID[local.VendorID]
 		}
-		candidate.RecordVersion = domain.MetadataRecordVersion(local, localVendor, domain.FindMetadataVendor(vendors, up.Vendor))
+		candidate.RecordVersion = u.codec.MetadataRecordVersion(local, localVendor, domain.FindMetadataVendor(vendors, up.Vendor))
 		if local != nil && local.SyncOfficial == 0 {
 			candidate.Kind = "blocked"
 			candidates = append(candidates, candidate)
@@ -103,11 +109,8 @@ func (u Usecase) Execute(ctx context.Context, input Input) (*Output, error) {
 				localValues.Vendor = localVendor.Name
 			}
 		}
-		localRaw, _ := common.Marshal(localValues)
-		upRaw, _ := common.Marshal(up)
-		var localFields, upFields map[string]any
-		_ = common.Unmarshal(localRaw, &localFields)
-		_ = common.Unmarshal(upRaw, &upFields)
+		localFields := u.codec.MetadataFields(localValues)
+		upFields := u.codec.MetadataFields(up)
 		for _, field := range u.store.SyncFields() {
 			if local == nil || localFields[field] != upFields[field] {
 				candidate.Fields = append(candidate.Fields, domain.MetadataSyncField{Field: field, Local: localFields[field], Upstream: upFields[field]})

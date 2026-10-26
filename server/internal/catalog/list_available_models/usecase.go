@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/QuantumNous/new-api/internal/catalog/domain/availability"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 
 type Store interface {
@@ -16,7 +16,7 @@ type Accounts interface {
 	AcceptUnset(int) bool
 }
 type Models interface {
-	Profile(string) availability.Model
+	Profile(string) domain.AvailableModel
 	Owner(int) string
 	Configured(string) bool
 }
@@ -36,7 +36,7 @@ type Usecase struct {
 func NewUsecase(store Store, accounts Accounts, models Models, runtime Runtime) Usecase {
 	return Usecase{store: store, accounts: accounts, models: models, runtime: runtime}
 }
-func (u Usecase) Execute(input Input) ([]availability.Model, error) {
+func (u Usecase) Execute(input Input) ([]domain.AvailableModel, error) {
 	accept := u.runtime.SelfUse()
 	if !accept && input.UserID > 0 {
 		accept = u.accounts.AcceptUnset(input.UserID)
@@ -46,7 +46,7 @@ func (u Usecase) Execute(input Input) ([]availability.Model, error) {
 		var err error
 		userGroup, err = u.accounts.Group(input.UserID)
 		if err != nil {
-			return nil, availability.ErrUserGroup
+			return nil, domain.ErrUserGroup
 		}
 	}
 	groups := []string{userGroup}
@@ -97,7 +97,7 @@ func (u Usecase) Execute(input Input) ([]availability.Model, error) {
 			}
 		}
 	}
-	out := make([]availability.Model, 0, len(names))
+	out := make([]domain.AvailableModel, 0, len(names))
 	for _, name := range names {
 		v := u.models.Profile(name)
 		if owner := owners[name]; owner != "" {

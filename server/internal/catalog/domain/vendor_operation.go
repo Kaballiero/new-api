@@ -1,10 +1,8 @@
 package domain
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"slices"
 )
 
@@ -69,7 +67,7 @@ func (plan *VendorOperationPlan) SetVendors(vendors []Vendor) error {
 	plan.Vendors = byID
 	return nil
 }
-func (plan *VendorOperationPlan) Complete(models []Model) (*VendorOperationPreview, error) {
+func (plan *VendorOperationPlan) Complete(models []Model, versions OperationVersions) (*VendorOperationPreview, error) {
 	operation, ids, preview, byID := plan.Operation, plan.IDs, plan.Preview, plan.Vendors
 	if operation.Action == "assign" && len(models) != len(ids) {
 		return nil, fmt.Errorf("%w: a selected model no longer exists", ErrVendorConflict)
@@ -78,7 +76,7 @@ func (plan *VendorOperationPlan) Complete(models []Model) (*VendorOperationPrevi
 	modelVersions := make([]string, 0, len(models))
 	counts := make(map[int]int64)
 	for _, item := range models {
-		modelVersions = append(modelVersions, MetadataRecordVersion(&item, nil, nil))
+		modelVersions = append(modelVersions, versions.MetadataRecordVersion(&item, nil, nil))
 		row := VendorAssignmentModel{ID: item.Id, ModelName: item.ModelName, NameRule: item.NameRule, VendorID: item.VendorID, UpdatedTime: item.UpdatedTime}
 		if vendor := byID[item.VendorID]; vendor != nil {
 			row.VendorName = vendor.Name
@@ -94,11 +92,11 @@ func (plan *VendorOperationPlan) Complete(models []Model) (*VendorOperationPrevi
 		return nil, &VendorReferenceError{Counts: counts}
 	}
 	slices.SortFunc(preview.Sources, func(a, b Vendor) int { return a.Id - b.Id })
-	encoded, err := common.Marshal([]any{preview, modelVersions})
+	version, err := versions.VendorOperationVersion(preview, modelVersions)
 	if err != nil {
 		return nil, err
 	}
-	preview.Version = fmt.Sprintf("%x", sha256.Sum256(encoded))
+	preview.Version = version
 	return preview, nil
 }
 

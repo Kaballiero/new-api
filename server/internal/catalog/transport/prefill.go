@@ -6,7 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/catalog/domain/prefill"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,19 +37,19 @@ func (v *RawPrefillJSON) UnmarshalJSON(raw []byte) error {
 	*v = append((*v)[:0], raw...)
 	return nil
 }
-func (v PrefillGroup) Value() prefill.Group {
-	return prefill.Group{Id: v.Id, Name: v.Name, Type: v.Type, Items: []byte(v.Items), Description: v.Description, CreatedTime: v.CreatedTime, UpdatedTime: v.UpdatedTime}
+func (v PrefillGroup) Value() domain.PrefillGroup {
+	return domain.PrefillGroup{Id: v.Id, Name: v.Name, Type: v.Type, Items: []byte(v.Items), Description: v.Description, CreatedTime: v.CreatedTime, UpdatedTime: v.UpdatedTime}
 }
-func PrefillResponse(v prefill.Group) PrefillGroup {
+func PrefillResponse(v domain.PrefillGroup) PrefillGroup {
 	return PrefillGroup{Id: v.Id, Name: v.Name, Type: v.Type, Items: RawPrefillJSON(v.Items), Description: v.Description, CreatedTime: v.CreatedTime, UpdatedTime: v.UpdatedTime}
 }
 func PrefillError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, prefill.ErrNameAndType):
+	case errors.Is(err, domain.ErrPrefillNameAndType):
 		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgPrefillNameType))
-	case errors.Is(err, prefill.ErrDuplicate):
+	case errors.Is(err, domain.ErrPrefillDuplicate):
 		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgPrefillDuplicate))
-	case errors.Is(err, prefill.ErrID):
+	case errors.Is(err, domain.ErrPrefillID):
 		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgPrefillIDRequired))
 	default:
 		common.ApiError(c, err)

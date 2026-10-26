@@ -1,13 +1,19 @@
 package record
 
 import (
+	"github.com/QuantumNous/new-api/internal/catalog/create_model"
+	"github.com/QuantumNous/new-api/internal/catalog/update_model"
+
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"gorm.io/gorm"
 )
 
 type metadataWrite struct{ db *gorm.DB }
 
-func (store Store) WithModelMutation(change func(domain.ModelMutation) error) error {
+func (store Store) WithModelCreation(change func(create_model.ModelMutation) error) error {
+	return store.env.Transaction(func(tx *gorm.DB) error { return change(metadataWrite{db: tx}) })
+}
+func (store Store) WithModelUpdate(change func(update_model.ModelMutation) error) error {
 	return store.env.Transaction(func(tx *gorm.DB) error { return change(metadataWrite{db: tx}) })
 }
 func (store Store) WithVendorMetadata(change func(domain.VendorMetadataMutation) error) error {

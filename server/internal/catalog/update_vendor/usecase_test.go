@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,13 +53,13 @@ func TestUpdateVendor(t *testing.T) {
 		{name: "missing vendor", store: &fakeStore{}, value: domain.Vendor{Id: 2, Name: "OpenAI"}, err: domain.ErrVendorNotFound},
 		{name: "stale version", store: &fakeStore{saved: saved}, value: domain.Vendor{Id: 2, Name: "OpenAI", Version: "old"}, err: domain.ErrVendorConflict, errText: domain.ErrVendorConflict.Error()},
 		{name: "name taken case-insensitively", store: &fakeStore{saved: saved, others: []domain.Vendor{{Id: 5, Name: "openai"}}}, value: domain.Vendor{Id: 2, Name: "OpenAI"}, err: domain.ErrVendorRejected, errText: "vendor name already exists"},
-		{name: "update", store: &fakeStore{saved: saved}, value: domain.Vendor{Id: 2, Name: " OpenAI ", Version: domain.VendorRecordVersion(saved)}},
+		{name: "update", store: &fakeStore{saved: saved}, value: domain.Vendor{Id: 2, Name: " OpenAI ", Version: (catalogcodec.Codec{}).VendorRecordVersion(saved)}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 
 			refreshed := false
-			out, err := NewUsecase(tc.store, func() int64 { return 300 }, func() { refreshed = true }).Execute(Input{Value: tc.value})
+			out, err := NewUsecase(tc.store, func() int64 { return 300 }, func() { refreshed = true }, catalogcodec.Codec{}.VendorRecordVersion).Execute(Input{Value: tc.value})
 			if tc.err != nil {
 				require.ErrorIs(t, err, tc.err)
 				if tc.errText != "" {
@@ -73,7 +74,7 @@ func TestUpdateVendor(t *testing.T) {
 
 			// Creation time and status come from the saved record.
 			assert.Equal(t, domain.Vendor{Version: tc.value.Version, Id: 2, Name: "OpenAI", Status: 1, CreatedTime: 10, UpdatedTime: 300}, *tc.store.updated)
-			assert.Equal(t, domain.VendorRecordVersion(out), out.Version)
+			assert.Equal(t, (catalogcodec.Codec{}).VendorRecordVersion(out), out.Version)
 		})
 	}
 }

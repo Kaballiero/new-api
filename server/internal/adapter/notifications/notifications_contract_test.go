@@ -23,6 +23,7 @@ import (
 	"time"
 
 	notificationadapter "github.com/QuantumNous/new-api/internal/adapter/notifications"
+	redisnotification "github.com/QuantumNous/new-api/internal/adapter/redis/notifications"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
 	"github.com/QuantumNous/new-api/internal/app/notifications"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
@@ -167,7 +168,7 @@ func runNotification(t *testing.T, name string) any {
 			}})
 			client.AddHook(hook)
 			common.RDB, common.RedisEnabled = client, true
-			allowed, err := notificationadapter.CheckNotificationLimit(7, dto.NotifyTypeQuotaExceed)
+			allowed, err := (redisnotification.Counter{}).Check(7, dto.NotifyTypeQuotaExceed)
 			capture(err)
 			outcomes = append(outcomes, allowed)
 			common.RedisEnabled = false
@@ -176,7 +177,7 @@ func runNotification(t *testing.T, name string) any {
 		case strings.HasPrefix(name, "memory_"):
 			constant.NotifyLimitCount = 2
 			if name == "memory_cleanup_loop" {
-				allowed, err := notificationadapter.CheckNotificationLimit(7, dto.NotifyTypeQuotaExceed)
+				allowed, err := (notificationadapter.MemoryCounter{}).Check(7, dto.NotifyTypeQuotaExceed), error(nil)
 				require.NoError(t, err)
 				require.True(t, allowed)
 				synctest.Wait()
@@ -196,19 +197,19 @@ func runNotification(t *testing.T, name string) any {
 					if name == "memory_event_keys" && i > 1 {
 						event = dto.NotifyTypeChannelTest
 					}
-					allowed, err := notificationadapter.CheckNotificationLimit(7, event)
+					allowed, err := (notificationadapter.MemoryCounter{}).Check(7, event), error(nil)
 					capture(err)
 					outcomes = append(outcomes, allowed)
 				}
 				if name == "memory_expiry" {
 					time.Sleep(10 * time.Minute)
-					allowed, err := notificationadapter.CheckNotificationLimit(7, dto.NotifyTypeQuotaExceed)
+					allowed, err := (notificationadapter.MemoryCounter{}).Check(7, dto.NotifyTypeQuotaExceed), error(nil)
 					capture(err)
 					outcomes = append(outcomes, allowed)
 				}
 				if name == "memory_hours" {
 					time.Sleep(time.Hour)
-					allowed, err := notificationadapter.CheckNotificationLimit(7, dto.NotifyTypeQuotaExceed)
+					allowed, err := (notificationadapter.MemoryCounter{}).Check(7, dto.NotifyTypeQuotaExceed), error(nil)
 					capture(err)
 					outcomes = append(outcomes, allowed)
 				}
