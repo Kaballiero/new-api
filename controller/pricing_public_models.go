@@ -165,8 +165,15 @@ func GetPublicPricingModels(c *gin.Context) {
 	if !pricingRevisionMatches(c, query.expectedRevision, context.metadata.CatalogRevision) {
 		return
 	}
+	context.billable = billablePricingModels(context.pricing, "default", context.metadata.CatalogRevision)
 	response := buildPublicPricingModelsPage(context, query)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
+}
+
+func publicTariffConfirmed(tariff publicModelTariff) bool {
+	return slices.ContainsFunc(tariff.Operations, func(operation publicPricingOperation) bool {
+		return confirmedConsumerPrices(operation.Prices, operation.Tiers)
+	})
 }
 
 func buildPublicPricingModelsPage(context effectivePricingPageContext, query publicPricingModelsQuery) publicPricingModelsPage {
@@ -183,15 +190,16 @@ func buildPublicPricingModelsPage(context effectivePricingPageContext, query pub
 		if query.catalogTypeMissing && item.CatalogType != "" || query.catalogType != "" && item.CatalogType != query.catalogType {
 			continue
 		}
+		if context.billable != nil && !context.billable[item.ModelName] {
+			continue
+		}
 		tags := pricingTags(item.Tags)
 		if slices.ContainsFunc(query.tags, func(tag string) bool { return !slices.Contains(tags, tag) }) {
 			continue
 		}
 		// Models without a single confirmed price are not offered publicly; a zero price still counts.
 		tariff := buildPublicModelTariff(context, item)
-		if slices.ContainsFunc(tariff.Operations, func(operation publicPricingOperation) bool {
-			return confirmedConsumerPrices(operation.Prices, operation.Tiers)
-		}) {
+		if publicTariffConfirmed(tariff) {
 			candidates = append(candidates, pricedModel{item: item, tariff: tariff})
 		}
 	}

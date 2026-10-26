@@ -481,7 +481,21 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 }
 
 func GetOpenRouterReserveBilledModels(modelNames []string, groups []string) (map[string]bool, error) {
-	result := make(map[string]bool)
+	reserves, err := GetOpenRouterModelReserves(modelNames, groups)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]bool, len(reserves))
+	for model := range reserves {
+		result[model] = true
+	}
+	return result, nil
+}
+
+// GetOpenRouterModelReserves returns the positive OpenRouter reserve (USD) of
+// each model enabled on an OpenRouter channel in groups; the first one wins.
+func GetOpenRouterModelReserves(modelNames []string, groups []string) (map[string]float64, error) {
+	result := make(map[string]float64)
 	modelNames = normalizeLookupValues(modelNames)
 	groups = normalizeLookupValues(groups)
 	if len(modelNames) == 0 || len(groups) == 0 {
@@ -498,13 +512,14 @@ func GetOpenRouterReserveBilledModels(modelNames []string, groups []string) (map
 		Joins("JOIN channels ON abilities.channel_id = channels.id").
 		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ? AND channels.type = ?", modelNames, true, common.ChannelStatusEnabled, constant.ChannelTypeOpenRouter).
 		Where("abilities."+commonGroupCol+" IN ?", groups).
+		Order("channels.id").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
 
 	for _, row := range rows {
-		if result[row.Model] || row.Setting == nil || strings.TrimSpace(*row.Setting) == "" {
+		if _, seen := result[row.Model]; seen || row.Setting == nil || strings.TrimSpace(*row.Setting) == "" {
 			continue
 		}
 		var settings kitdto.ChannelSettings
@@ -516,7 +531,7 @@ func GetOpenRouterReserveBilledModels(modelNames []string, groups []string) (map
 			continue
 		}
 		if reserve := settings.OpenRouterReserveUSD(upstream); reserve != nil && *reserve > 0 {
-			result[row.Model] = true
+			result[row.Model] = *reserve
 		}
 	}
 	return result, nil

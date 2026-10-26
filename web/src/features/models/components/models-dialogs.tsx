@@ -21,6 +21,7 @@ import { MissingModelsDialog } from './dialogs/missing-models-dialog'
 import { PrefillGroupManagement } from './dialogs/prefill-group-management'
 import { PriceSyncDialog } from './dialogs/price-sync-dialog'
 import { SyncWizardDialog } from './dialogs/sync-wizard-dialog'
+import { UnbillableModelsDialog } from './dialogs/unbillable-models-dialog'
 import { VendorMutateDialog } from './dialogs/vendor-mutate-dialog'
 import { ModelMutateDrawer } from './drawers/model-mutate-drawer'
 import { useModels } from './models-provider'
@@ -64,6 +65,12 @@ export function ModelsDialogs() {
       {/* Missing Models Dialog */}
       <MissingModelsDialog
         open={open === 'missing-models'}
+        onOpenChange={(v) => !v && setOpen(null)}
+      />
+
+      {/* Models Without Tariff Dialog */}
+      <UnbillableModelsDialog
+        open={open === 'unbillable-models'}
         onOpenChange={(v) => !v && setOpen(null)}
       />
 

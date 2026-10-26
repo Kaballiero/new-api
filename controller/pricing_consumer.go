@@ -118,6 +118,14 @@ func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[s
 	return result
 }
 
+func hasConfirmedConsumerPrice(item consumerPricingModel) bool {
+	return slices.ContainsFunc(item.GroupPrices, func(group consumerGroupPricing) bool {
+		return slices.ContainsFunc(group.Operations, func(operation consumerPricingOperation) bool {
+			return confirmedConsumerPrices(operation.Prices, operation.Tiers)
+		})
+	})
+}
+
 func confirmedConsumerPrices(prices []consumerUnitPrice, tiers []publicPricingTier) bool {
 	for _, price := range prices {
 		if price.AmountRub != nil && *price.AmountRub >= 0 && !math.IsNaN(*price.AmountRub) && !math.IsInf(*price.AmountRub, 0) && price.Unit != "" && price.Unit != "unknown" {

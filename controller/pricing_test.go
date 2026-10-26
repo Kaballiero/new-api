@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -695,10 +696,11 @@ func TestEffectivePricingPagePublicVisibilityAndSimpleWire(t *testing.T) {
 	query, err := parseEffectivePricingPageQuery(url.Values{}, false)
 	require.NoError(t, err)
 	page := buildEffectivePricingPage(context, query, context.project)
-	require.Len(t, page.Data, 3)
+	require.Len(t, page.Data, 2)
 	for _, row := range page.Data {
 		require.Len(t, row.GroupPrices, 1)
 		assert.Equal(t, "default", row.GroupPrices[0].UsingGroup)
+		assert.NotEqual(t, "vendor/gpt-image-1", row.ModelName, "public page must hide models without a confirmed price")
 	}
 	encoded, err := common.Marshal(page)
 	require.NoError(t, err)
@@ -706,6 +708,50 @@ func TestEffectivePricingPagePublicVisibilityAndSimpleWire(t *testing.T) {
 	for _, removed := range []string{"formula", "tiers", "operation_tariffs", "accounting", "billing_sources", "effective_billing_ratio"} {
 		assert.NotContains(t, string(encoded), removed)
 	}
+}
+
+func TestEffectivePricingPagePublicHidesModelsWithoutConfirmedPrice(t *testing.T) {
+	context := pricingPageFixture()
+	context.usingGroup = "default"
+	context.usableGroups = map[string]string{"default": "Default"}
+	free := context.pricing[2]
+	free.ModelName = "free-text"
+	free.CatalogOffersByGroup = map[string][]model.CatalogOffer{"default": {{ID: "free", Operation: "text", Mode: "sync", MainComponent: "output", Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: float(0)}, {Component: "output", Unit: "million_tokens", AmountUSD: float(0)}}}}}
+	context.pricing = append(context.pricing, free)
+	names := func(page effectivePricingPageData) []string {
+		result := []string{}
+		for _, item := range page.Data {
+			result = append(result, item.ModelName)
+		}
+		return result
+	}
+
+	public, err := parseEffectivePricingPageQuery(url.Values{}, false)
+	require.NoError(t, err)
+	page := buildEffectivePricingPage(context, public, context.project)
+	assert.Equal(t, []string{"a-text", "free-text", "z-text"}, names(page))
+	assert.Equal(t, 3, page.TotalCount)
+	assert.Equal(t, []effectivePricingCreator{{ID: 2, Name: "Anthropic"}}, page.Creators, "creators of hidden models are not offered as filters")
+	for _, orderBy := range []string{"NAME", "INPUT_PRICE"} {
+		query, err := parseEffectivePricingPageQuery(url.Values{}, false)
+		require.NoError(t, err)
+		query.orderBy = orderBy
+		calls := 0
+		page = buildEffectivePricingPage(context, query, func(item model.Pricing) consumerPricingModel { calls++; return context.project(item) })
+		assert.Len(t, page.Data, 3)
+		assert.Equal(t, 4, calls, "each visible-group model is projected once and reused for sorting and rows")
+	}
+	public.modality = "IMAGE"
+	assert.Empty(t, buildEffectivePricingPage(context, public, context.project).Data)
+	public.modality = ""
+	context.billable = map[string]bool{"a-text": true, "vendor/gpt-image-1": true}
+	assert.Equal(t, []string{"a-text"}, names(buildEffectivePricingPage(context, public, context.project)), "unbillable models are hidden even with a price")
+
+	personal, err := parseEffectivePricingPageQuery(url.Values{}, true)
+	require.NoError(t, err)
+	personalNames := names(buildEffectivePricingPage(context, personal, context.project))
+	assert.Contains(t, personalNames, "vendor/gpt-image-1")
+	assert.Contains(t, personalNames, "z-text", "personal pages keep their existing visibility")
 }
 
 func TestEffectivePricingPagePersonalPricesAndUnit(t *testing.T) {
@@ -1891,6 +1937,13 @@ func TestPublicPricingModelsTagsPagingAndSafeTariffs(t *testing.T) {
 	assert.Empty(t, buildPublicPricingModelsPage(ctx, query).Data)
 	query.tags = []string{"unknown"}
 	assert.Zero(t, buildPublicPricingModelsPage(ctx, query).TotalCount)
+	query.tags, query.page = []string{"top", "text"}, 1
+	billableCtx := ctx
+	billableCtx.billable = map[string]bool{"z-text": true}
+	page = buildPublicPricingModelsPage(billableCtx, query)
+	assert.Equal(t, 1, page.TotalCount, "models the relay cannot bill are not offered publicly")
+	require.Len(t, page.Data, 1)
+	assert.Equal(t, "z-text", page.Data[0].ModelName)
 	after, err := common.Marshal(ctx.pricing)
 	require.NoError(t, err)
 	assert.Equal(t, string(before), string(after))
@@ -2043,6 +2096,8 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	})
 	now := time.Now().Unix()
 	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	// Tiered expressions make the models billable, so public pricing offers them (as /v1/models lists them).
+	withTieredBillingConfig(t, map[string]string{"provider/model": "tiered_expr", "google/gemini-image": "tiered_expr"}, map[string]string{"provider/model": `tier("base", p * 1 + c * 2)`, "google/gemini-image": `tier("base", p * 1 + c * 2)`})
 	channel := &model.Channel{Id: 990, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "secret-fixture", Models: "provider/model", Group: "default"}
 	require.NoError(t, db.Create(channel).Error)
 	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "provider/model", ChannelId: channel.Id, Enabled: true}).Error)
@@ -2169,17 +2224,26 @@ func TestEffectivePricingOverviewMatchesNativePagesFromCapturedContext(t *testin
 			context.pricing = append(context.pricing, model.Pricing{ModelName: modality + "/" + name, VendorID: 7, EnableGroup: []string{"default"}, CatalogOffersByGroup: map[string][]model.CatalogOffer{"default": {{ID: name, Operation: operation, Mode: "sync", MainComponent: "input", Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: amount}}}}}})
 		}
 	}
+	// Public pages hide models without a confirmed price, the overview still lists them.
+	priced := context
+	priced.pricing = slices.DeleteFunc(slices.Clone(context.pricing), func(item model.Pricing) bool { return strings.HasSuffix(item.ModelName, "/unknown") })
 	for _, search := range []string{"", "/a", "unknown"} {
 		query := effectivePricingPageQuery{limit: 2, search: search, orderBy: "NAME", direction: "asc"}
 		overview := buildEffectivePricingOverview(context, query)
+		pricedOverview := buildEffectivePricingOverview(priced, query)
 		require.Len(t, overview.Sections, 6)
 		assert.Equal(t, "captured-A", overview.CatalogRevision)
-		for _, section := range overview.Sections {
+		for index, section := range pricedOverview.Sections {
 			query.modality = section.Modality
 			page := buildEffectivePricingPage(context, query, context.project)
 			assert.Equal(t, page.TotalCount, section.TotalCount)
 			assert.Equal(t, page.Data, section.Data)
 			assert.LessOrEqual(t, len(section.Data), 2)
+			if search == "unknown" {
+				assert.Empty(t, page.Data)
+				require.Len(t, overview.Sections[index].Data, 1)
+				assert.Equal(t, section.Modality+"/unknown", overview.Sections[index].Data[0].ModelName)
+			}
 		}
 	}
 	// A new captured context cannot affect a previously constructed overview.

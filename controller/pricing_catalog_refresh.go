@@ -60,20 +60,26 @@ func (pricingCatalogHandler) Run(ctx context.Context, task *model.SystemTask, ru
 	status := model.SystemTaskStatusSucceeded
 	if err != nil {
 		status = model.SystemTaskStatusFailed
+	} else {
+		logUnbillableModels(&summary)
 	}
 	finishSystemTaskHandler(task, runnerID, status, summary, err)
 }
 
 type pricingCatalogRefreshSummary struct {
-	NewDocuments      int                     `json:"new_documents,omitempty"`
-	ReusedDocuments   int                     `json:"reused_documents,omitempty"`
-	Revision          string                  `json:"revision,omitempty"`
-	MissingModels     []string                `json:"missing_models,omitempty"`
-	Sources           int                     `json:"sources"`
-	Published         int                     `json:"published"`
-	Failed            int                     `json:"failed"`
-	FailedSources     []pricingCatalogFailure `json:"failed_sources,omitempty"`
-	FailuresTruncated bool                    `json:"failures_truncated,omitempty"`
+	NewDocuments    int      `json:"new_documents,omitempty"`
+	ReusedDocuments int      `json:"reused_documents,omitempty"`
+	Revision        string   `json:"revision,omitempty"`
+	MissingModels   []string `json:"missing_models,omitempty"`
+	// HiddenPublicModels lists the first enabled models public pricing hides, with the reason.
+	HiddenPublicModels      []string                `json:"hidden_public_models,omitempty"`
+	HiddenPublicModelsCount int                     `json:"hidden_public_models_count"`
+	HiddenPublicModelsError string                  `json:"hidden_public_models_error,omitempty"`
+	Sources                 int                     `json:"sources"`
+	Published               int                     `json:"published"`
+	Failed                  int                     `json:"failed"`
+	FailedSources           []pricingCatalogFailure `json:"failed_sources,omitempty"`
+	FailuresTruncated       bool                    `json:"failures_truncated,omitempty"`
 }
 type pricingCatalogFailure struct {
 	ChannelID     int                   `json:"channel_id"`
