@@ -94,21 +94,21 @@ func TestGetUserLogsByTokenIdFiltersBeforeCountAndPagination(t *testing.T) {
 			db := setupSelfLogTokenFilterTest(t, database)
 			seedSelfLogTokenFilterData(t, db)
 
-			firstPage, total, err := model.GetUserLogsByTokenId(1, 11, model.LogTypeUnknown, 150, 450, "alpha", "", 0, 1, "", "", "")
+			firstPage, total, err := model.GetUserLogsByTokenId(1, 11, nil, 150, 450, "alpha", "", 0, 1, "", "", "")
 			require.NoError(t, err)
 			require.Equal(t, int64(2), total)
 			require.Len(t, firstPage, 1)
 			assert.Equal(t, 11, firstPage[0].TokenId)
 			assert.Equal(t, int64(400), firstPage[0].CreatedAt)
 
-			secondPage, total, err := model.GetUserLogsByTokenId(1, 11, model.LogTypeUnknown, 150, 450, "alpha", "", 1, 1, "", "", "")
+			secondPage, total, err := model.GetUserLogsByTokenId(1, 11, nil, 150, 450, "alpha", "", 1, 1, "", "", "")
 			require.NoError(t, err)
 			require.Equal(t, int64(2), total)
 			require.Len(t, secondPage, 1)
 			assert.Equal(t, 11, secondPage[0].TokenId)
 			assert.Equal(t, int64(300), secondPage[0].CreatedAt)
 
-			renamedTokenLogs, total, err := model.GetUserLogsByTokenId(1, 13, model.LogTypeUnknown, 0, 0, "", "", 0, 20, "", "", "")
+			renamedTokenLogs, total, err := model.GetUserLogsByTokenId(1, 13, nil, 0, 0, "", "", 0, 20, "", "", "")
 			require.NoError(t, err)
 			require.Equal(t, int64(1), total)
 			require.Len(t, renamedTokenLogs, 1)
@@ -369,6 +369,59 @@ func TestAdminLogUserQueryContract(t *testing.T) {
 				assert.Equal(t, 150, oldInfo.Total)
 				_, selfInfo, _ := requestPage("GET", "/api/log/self?type=2&page_size=50", "", "")
 				assert.Equal(t, 75, selfInfo.Total)
+			})
+			t.Run("multi-type-filter", func(t *testing.T) {
+				// Later subtests filter on type 2, so these rows do not need cleanup.
+				for _, row := range []map[string]any{
+					{"user_id": 1, "created_at": int64(2500), "type": model.LogTypeRefund, "request_id": "refund-1"},
+					{"user_id": 2, "created_at": int64(2501), "type": model.LogTypeRefund, "request_id": "refund-2"},
+					{"user_id": 1, "created_at": int64(2502), "type": model.LogTypeTopup, "request_id": "topup-1"},
+				} {
+					row["username"], row["model_name"], row["token_name"], row["channel_id"], row["other"] = "historical-name", "alpha_one", "", 0, "{}"
+					require.NoError(t, logDB.Table("logs").Create(row).Error)
+				}
+				status, info, logs := requestPage("POST", "/api/log/query", `{"user_ids":[1,2],"types":[2,6],"page_size":2}`, "")
+				assert.Equal(t, http.StatusOK, status)
+				assert.Equal(t, 152, info.Total)
+				require.Len(t, logs, 2)
+				assert.Equal(t, []string{"refund-2", "refund-1"}, []string{logs[0].RequestId, logs[1].RequestId})
+				_, info, logs = requestPage("POST", "/api/log/query", `{"user_ids":[1,2],"types":[6,2,6],"p":2,"page_size":2}`, "")
+				assert.Equal(t, 152, info.Total)
+				require.Len(t, logs, 2)
+				assert.Equal(t, []string{"request-150", "request-149"}, []string{logs[0].RequestId, logs[1].RequestId})
+				_, info, _ = requestPage("POST", "/api/log/query", `{"user_ids":[1,2],"type":2,"types":[6]}`, "")
+				assert.Equal(t, 2, info.Total)
+				for _, tc := range []struct {
+					path  string
+					total int
+					first string
+				}{
+					{"/api/log/user/1?types=2,6&type=5", 76, "refund-1"},
+					{"/api/log/?types=6,1&type=2", 3, "topup-1"},
+					{"/api/log/?types=6", 2, "refund-2"},
+					{"/api/log/self?types=2,6&type=1", 76, "refund-1"},
+					{"/api/log/self?types=7", 0, ""},
+				} {
+					status, info, logs := requestPage("GET", tc.path, "", "")
+					assert.Equal(t, http.StatusOK, status, tc.path)
+					assert.Equal(t, tc.total, info.Total, tc.path)
+					if tc.total == 0 {
+						assert.Empty(t, logs, tc.path)
+						continue
+					}
+					require.NotEmpty(t, logs, tc.path)
+					assert.Equal(t, tc.first, logs[0].RequestId, tc.path)
+				}
+				for _, query := range []string{"types=", "types=0", "types=8", "types=abc", "types=2,", "types=2,,6", "types=%202", "types=-1", "types=%2B2", "types=02", "types=2&types=6"} {
+					for _, path := range []string{"/api/log/?", "/api/log/self?", "/api/log/user/1?"} {
+						status, _, _ := requestPage("GET", path+query, "", "")
+						assert.Equal(t, http.StatusBadRequest, status, path+query)
+					}
+				}
+				for _, types := range []string{`[]`, `null`, `[0]`, `[8]`, `[2,8]`, `["2"]`, `[1.5]`, `"2,6"`, `[null]`} {
+					status, _, _ := requestPage("POST", "/api/log/query", `{"user_ids":[1],"types":`+types+`}`, "")
+					assert.Equal(t, http.StatusBadRequest, status, types)
+				}
 			})
 			t.Run("equal-clickhouse-sort-keys-have-no-identity-guarantee", func(t *testing.T) {
 				for _, userID := range []int{1, 2} {

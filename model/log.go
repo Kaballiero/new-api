@@ -418,13 +418,19 @@ type RecordTaskBillingLogParams struct {
 	Group     string
 	Other     *LogOther
 	NodeName  string // 任务发起节点；为空时回退当前节点
+	// Adjustment marks a settlement delta of an already counted request; its
+	// chart data changes quota without adding a request.
+	Adjustment bool
 }
 
+// RecordTaskBillingLog is the non-strict path whose submit consume went through
+// RecordConsumeLog. When consume logging is disabled that consume never reached
+// the chart data, so refunds are not exported either to avoid unpaired negative rows.
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	if params.LogType == LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
-	if err := RecordTaskBillingLogWithError(params); err != nil {
+	if err := recordTaskBillingLog(params, common.LogConsumeEnabled); err != nil {
 		common.SysLog("failed to record task billing log: " + err.Error())
 	}
 }
@@ -432,6 +438,10 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 // RecordTaskBillingLogWithError persists required financial evidence even when
 // ordinary consume logging is disabled.
 func RecordTaskBillingLogWithError(params RecordTaskBillingLogParams) error {
+	return recordTaskBillingLog(params, true)
+}
+
+func recordTaskBillingLog(params RecordTaskBillingLogParams, exportQuotaData bool) error {
 	var user User
 	_ = DB.Select("username").Where("id = ?", params.UserId).First(&user).Error
 	username := user.Username
@@ -460,33 +470,48 @@ func RecordTaskBillingLogWithError(params RecordTaskBillingLogParams) error {
 	if err != nil {
 		return err
 	}
-	if params.LogType == LogTypeConsume && common.DataExportEnabled {
+	if (params.LogType == LogTypeConsume || params.LogType == LogTypeRefund) && common.DataExportEnabled && exportQuotaData {
 		nodeName := params.NodeName
 		if nodeName == "" {
 			nodeName = common.NodeName
 		}
+		// Refunds enter the chart data as negative quota so dashboard totals are
+		// net; refunds and settlement deltas do not count as new requests.
+		quota := params.Quota
+		if params.LogType == LogTypeRefund {
+			quota = -quota
+		}
 		LogQuotaData(QuotaDataLogParams{
-			UserID:    params.UserId,
-			Username:  username,
-			ModelName: params.ModelName,
-			Quota:     params.Quota,
-			CreatedAt: createdAt,
-			UseGroup:  params.Group,
-			TokenID:   params.TokenId,
-			ChannelID: params.ChannelId,
-			NodeName:  nodeName,
+			UserID:     params.UserId,
+			Username:   username,
+			ModelName:  params.ModelName,
+			Quota:      quota,
+			CreatedAt:  createdAt,
+			UseGroup:   params.Group,
+			TokenID:    params.TokenId,
+			ChannelID:  params.ChannelId,
+			NodeName:   nodeName,
+			Correction: params.LogType == LogTypeRefund || params.Adjustment,
 		})
 	}
 	return nil
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
-	var tx *gorm.DB
-	if logType == LogTypeUnknown {
-		tx = LOG_DB
-	} else {
-		tx = LOG_DB.Where("logs.type = ?", logType)
+// whereLogTypes restricts a log query to the given types; an empty list keeps
+// every type. Count and page queries share the condition so totals match pages.
+func whereLogTypes(tx *gorm.DB, logTypes []int) *gorm.DB {
+	switch len(logTypes) {
+	case 0:
+		return tx
+	case 1:
+		return tx.Where("logs.type = ?", logTypes[0])
+	default:
+		return tx.Where("logs.type IN ?", logTypes)
 	}
+}
+
+func GetAllLogs(logTypes []int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+	tx := whereLogTypes(LOG_DB, logTypes)
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
@@ -518,14 +543,11 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	return readAdminLogs(tx, startIdx, num)
 }
 
-func GetLogsByUserIDs(userIDs []int, logType int, startTimestamp, endTimestamp int64, modelName string, startIdx, num int) ([]*Log, int64, error) {
+func GetLogsByUserIDs(userIDs []int, logTypes []int, startTimestamp, endTimestamp int64, modelName string, startIdx, num int) ([]*Log, int64, error) {
 	if len(userIDs) == 0 {
 		return []*Log{}, 0, nil
 	}
-	tx := LOG_DB.Where("logs.user_id IN ?", userIDs)
-	if logType != LogTypeUnknown {
-		tx = tx.Where("logs.type = ?", logType)
-	}
+	tx := whereLogTypes(LOG_DB.Where("logs.user_id IN ?", userIDs), logTypes)
 	var err error
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
@@ -601,17 +623,12 @@ func readAdminLogs(tx *gorm.DB, startIdx, num int) (logs []*Log, total int64, er
 
 const logSearchCountLimit = 10000
 
-func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
-	return GetUserLogsByTokenId(userId, 0, logType, startTimestamp, endTimestamp, modelName, tokenName, startIdx, num, group, requestId, upstreamRequestId)
+func GetUserLogs(userId int, logTypes []int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+	return GetUserLogsByTokenId(userId, 0, logTypes, startTimestamp, endTimestamp, modelName, tokenName, startIdx, num, group, requestId, upstreamRequestId)
 }
 
-func GetUserLogsByTokenId(userId int, tokenId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
-	var tx *gorm.DB
-	if logType == LogTypeUnknown {
-		tx = LOG_DB.Where("logs.user_id = ?", userId)
-	} else {
-		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
-	}
+func GetUserLogsByTokenId(userId int, tokenId int, logTypes []int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string, upstreamRequestId string) (logs []*Log, total int64, err error) {
+	tx := whereLogTypes(LOG_DB.Where("logs.user_id = ?", userId), logTypes)
 
 	if tokenId > 0 && modelName != "" {
 		condition := "LOWER(logs.model_name) LIKE ? ESCAPE '!'"
@@ -665,14 +682,17 @@ func GetUserLogsByTokenId(userId int, tokenId int, logType int, startTimestamp i
 	return logs, total, err
 }
 
+// Stat keeps quota as the gross consumed amount; refund_quota is reported
+// separately so callers can derive net usage. Rpm and tpm count consumption only.
 type Stat struct {
-	Quota int `json:"quota"`
-	Rpm   int `json:"rpm"`
-	Tpm   int `json:"tpm"`
+	Quota       int `json:"quota"`
+	RefundQuota int `json:"refund_quota"`
+	Rpm         int `json:"rpm"`
+	Tpm         int `json:"tpm"`
 }
 
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
-	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
+	tx := LOG_DB.Table("logs").Select("COALESCE(SUM(CASE WHEN type = ? THEN quota ELSE 0 END), 0) AS quota, COALESCE(SUM(CASE WHEN type = ? THEN quota ELSE 0 END), 0) AS refund_quota", LogTypeConsume, LogTypeRefund)
 
 	// 为rpm和tpm创建单独的查询
 	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
@@ -708,7 +728,7 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
 	}
 
-	tx = tx.Where("type = ?", LogTypeConsume)
+	tx = tx.Where("type IN ?", []int{LogTypeConsume, LogTypeRefund})
 	rpmTpmQuery = rpmTpmQuery.Where("type = ?", LogTypeConsume)
 
 	// 只统计最近60秒的rpm和tpm

@@ -370,6 +370,7 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool 
 		TokenId:   task.PrivateData.TokenId,
 		Group:     task.Group,
 		Other:     other,
+		NodeName:  task.PrivateData.NodeName,
 	})
 
 	// 5. 资金退款完成后再清除持久化标记。
@@ -488,16 +489,17 @@ func recalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		attachQuotaSaturationToOther(other, clamp)
 	}
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-		UserId:    task.UserId,
-		LogType:   logType,
-		Content:   reason,
-		ChannelId: task.ChannelId,
-		ModelName: taskModelName(task),
-		Quota:     logQuota,
-		TokenId:   task.PrivateData.TokenId,
-		Group:     task.Group,
-		Other:     other,
-		NodeName:  task.PrivateData.NodeName,
+		UserId:     task.UserId,
+		LogType:    logType,
+		Content:    reason,
+		ChannelId:  task.ChannelId,
+		ModelName:  taskModelName(task),
+		Quota:      logQuota,
+		TokenId:    task.PrivateData.TokenId,
+		Group:      task.Group,
+		Other:      other,
+		NodeName:   task.PrivateData.NodeName,
+		Adjustment: true,
 	})
 }
 
@@ -742,7 +744,7 @@ func settleOpenRouterCost(task *model.Task) error {
 		if err := model.RecordTaskBillingLogWithError(model.RecordTaskBillingLogParams{
 			UserId: task.UserId, ChannelId: task.ChannelId, ModelName: taskModelName(task), TokenId: task.PrivateData.TokenId,
 			LogType: logType, Quota: quota, Group: task.Group, Other: other, NodeName: task.PrivateData.NodeName,
-			Content: content,
+			Content: content, Adjustment: true,
 		}); err != nil {
 			return err
 		}

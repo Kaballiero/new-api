@@ -232,7 +232,7 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 			assert.Equal(t, ManageUserResponse{Action: "add_quota", UserId: user.Id, Role: user.Role, Status: user.Status, Quota: tc.wantQuota}, response.Data)
 
-			logs, total, err := model.GetAllLogs(model.LogTypeTopup, 0, 0, "", "", "", 0, 20, 0, "", "", "")
+			logs, total, err := model.GetAllLogs([]int{model.LogTypeTopup}, 0, 0, "", "", "", 0, 20, 0, "", "", "")
 			require.NoError(t, err)
 			assert.EqualValues(t, 1, total)
 			require.Len(t, logs, 1)
@@ -244,7 +244,7 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 			require.NoError(t, common.UnmarshalJsonStr(logs[0].Other, &other))
 			assert.Equal(t, &model.AuditAdminInfo{AdminID: 9999, AdminUsername: "root-operator", AdminRole: common.RoleRootUser, AuthMethod: "session"}, other.AdminInfo)
 
-			logs, total, err = model.GetUserLogs(user.Id, model.LogTypeTopup, 0, 0, "", "", 0, 20, "", "", "")
+			logs, total, err = model.GetUserLogs(user.Id, []int{model.LogTypeTopup}, 0, 0, "", "", 0, 20, "", "", "")
 			require.NoError(t, err)
 			assert.EqualValues(t, 1, total)
 			require.Len(t, logs, 1)
@@ -265,7 +265,7 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 			assert.Equal(t, "quota-test-request", logs[0].RequestId)
 			assert.Empty(t, logs[0].Ip, "recipient logs must not disclose the administrator IP")
 
-			logs, total, err = model.GetUserLogs(9999, model.LogTypeTopup, 0, 0, "", "", 0, 20, "", "", "")
+			logs, total, err = model.GetUserLogs(9999, []int{model.LogTypeTopup}, 0, 0, "", "", 0, 20, "", "", "")
 			require.NoError(t, err)
 			assert.Zero(t, total)
 			assert.Empty(t, logs)

@@ -109,10 +109,14 @@ func declareGranularityParameter(op map[string]interface{}, projection string) {
 	op["parameters"] = parameters
 }
 
+const logTypesDescription = "Log types 1..7 (TOPUP..LOGIN); overrides type when present. Duplicates are collapsed; empty lists, 0 and unknown types return HTTP 400."
+
 // AST discovery cannot infer validation expressed in ordinary control flow.
 // Keep the native sync preconditions explicit rather than documenting a legacy
 // no-body apply operation that the server deliberately rejects.
 func enrichExplicitContracts(paths map[string]interface{}) {
+	logTypesQuery := map[string]any{"name": "types", "in": "query", "required": false, "description": logTypesDescription + " Single comma-separated parameter, e.g. types=2,6; repeating the parameter is invalid.",
+		"schema": map[string]any{"type": "string", "pattern": "^[1-7](,[1-7])*$"}}
 	for _, route := range routes {
 		path, _ := paths[route.Path].(map[string]interface{})
 		op, _ := path[strings.ToLower(route.Method)].(map[string]interface{})
@@ -123,6 +127,7 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 		if route.HandlerName == "GetAdminUserLogs" || route.HandlerName == "QueryAdminLogs" {
 			properties := map[string]any{
 				"type":            map[string]any{"type": "integer", "minimum": 0, "maximum": 7, "default": 0},
+				"types":           map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "integer", "minimum": 1, "maximum": 7}, "description": logTypesDescription + " Null is invalid."},
 				"start_timestamp": map[string]any{"type": "integer", "format": "int64", "minimum": 0, "default": 0},
 				"end_timestamp":   map[string]any{"type": "integer", "format": "int64", "minimum": 0, "default": 0},
 				"model_name":      map[string]any{"type": "string", "description": "At most 16384 UTF-8 bytes. Existing percent wildcard semantics apply."},
@@ -136,6 +141,7 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				for _, name := range []string{"type", "start_timestamp", "end_timestamp", "model_name", "p", "page_size"} {
 					parameters = append(parameters, map[string]any{"name": name, "in": "query", "required": false, "schema": properties[name]})
 				}
+				parameters = append(parameters, logTypesQuery)
 				op["parameters"] = parameters
 			} else {
 				properties["user_ids"] = map[string]any{"type": "array", "maxItems": 16384, "items": idSchema, "description": "Required; duplicates are removed. The size limit applies before deduplication. Empty means no users."}
@@ -155,7 +161,7 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 		}
 		if route.Path == "/api/log/aggregate" || route.Path == "/api/usage/aggregate" {
 			op["requestBody"].(map[string]any)["required"] = true
-			op["description"] = "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log totals include CONSUME only."
+			op["description"] = "Admin-only aggregate scoped to 1..100 explicit positive user IDs. IDs are deduplicated; unknown IDs reject the entire request. Inclusive nonnegative Unix-second range is filtered before SQL aggregation. Empty ID lists are rejected. Request body is limited to 16 KiB; response to 10000 rows and 4 MiB. No pagination, truncation or per-batch top-N. Usage grouping is time, model, time_model or user; granularity is required in all modes, but model/user fold the entire range. UTC weeks start Monday; month spans are limited to 120 months. Model identifiers are byte-exact. Counters and quota are int64 restricted to exact JSON integers. Log quota and request_count include CONSUME only; refund_quota sums REFUND rows. Usage rows are net of refunds recorded after this capability: a refund adds negative quota with zero count and token_used, so buckets may be negative."
 			responses := op["responses"].(map[string]any)
 			for status, code := range map[string]string{"400": "invalid_params", "404": "aggregate_user_not_found", "413": "aggregate_request_too_large", "422": "aggregate_response_too_large", "500": "aggregate_overflow"} {
 				responses[status] = map[string]any{"description": code, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/ApiResponse"}}}}
@@ -222,6 +228,15 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 		}
 		if route.HandlerName == "InitializeGetAPIPAT" {
 			enrichGetAPIInitializeContract(op)
+		}
+		if route.HandlerName == "GetAllLogs" || route.HandlerName == "GetUserLogs" {
+			parameters, _ := op["parameters"].([]any)
+			parameters = slices.DeleteFunc(slices.Clone(parameters), func(parameter any) bool {
+				entry, _ := parameter.(map[string]any)
+				return entry["name"] == "types" && entry["in"] == "query"
+			})
+			op["parameters"] = append(parameters, logTypesQuery)
+			declareErrorCodes(op, "400", "invalid_params")
 		}
 		if route.HandlerName == "GetUserLogs" || route.HandlerName == "GetUserQuotaDates" {
 			parameters, _ := op["parameters"].([]interface{})
@@ -634,12 +649,12 @@ func normalizeAggregateSchemas(schemas map[string]any) {
 	for _, name := range []string{"LogAggregate", "UsageAggregateRow"} {
 		schema := schemas[name].(map[string]any)
 		if name == "LogAggregate" {
-			schema["required"] = []string{"quota", "request_count"}
+			schema["required"] = []string{"quota", "refund_quota", "request_count"}
 		} else {
 			schema["required"] = []string{"quota", "count", "token_used"}
 		}
 		properties := schema["properties"].(map[string]any)
-		for _, field := range []string{"quota", "count", "token_used", "request_count"} {
+		for _, field := range []string{"quota", "refund_quota", "count", "token_used", "request_count"} {
 			if _, exists := properties[field]; exists {
 				properties[field] = map[string]any{"type": "integer", "format": "int64", "minimum": -9007199254740991, "maximum": 9007199254740991}
 			}

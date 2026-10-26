@@ -73,4 +73,5 @@ func TestGetStatusMarksBillingFXUnavailableWithoutRAMSnapshot(t *testing.T) {
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
 	require.True(t, payload.Success)
 	assert.Equal(t, map[string]any{"available": false}, payload.Data["billing_fx"])
+	assert.Equal(t, true, payload.Data["usage_refund_accounting"])
 }

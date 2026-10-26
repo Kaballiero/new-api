@@ -933,6 +933,125 @@ func TestRefundMidjourneyQuotaUsesLegacyChannelFallbackWithoutTokenAdjustment(t 
 	assert.Zero(t, log.TokenId)
 }
 
+func TestTaskBillingCorrectionsWriteNetQuotaData(t *testing.T) {
+	ctx := context.Background()
+	previousDataExport, previousConsumeLog := common.DataExportEnabled, common.LogConsumeEnabled
+	resetQuotaData := func() {
+		model.CacheQuotaDataLock.Lock()
+		model.CacheQuotaData = make(map[string]*model.QuotaData)
+		model.CacheQuotaDataLock.Unlock()
+	}
+	t.Cleanup(func() {
+		common.DataExportEnabled, common.LogConsumeEnabled = previousDataExport, previousConsumeLog
+		resetQuotaData()
+	})
+	common.DataExportEnabled = true
+	type exported struct {
+		group, node        string
+		count, quota, used int
+	}
+	collect := func() map[string]exported {
+		model.CacheQuotaDataLock.Lock()
+		defer model.CacheQuotaDataLock.Unlock()
+		// Sum per model so a correction that lands in a later hour bucket still pairs.
+		rows := map[string]exported{}
+		for _, row := range model.CacheQuotaData {
+			total, seen := rows[row.ModelName]
+			if seen {
+				assert.Equal(t, [2]string{total.group, total.node}, [2]string{row.UseGroup, row.NodeName})
+			}
+			rows[row.ModelName] = exported{row.UseGroup, row.NodeName, total.count + row.Count, total.quota + row.Quota, total.used + row.TokenUsed}
+		}
+		return rows
+	}
+	const userID, tokenID, channelID = 56, 56, 56
+	refundBoth := func(t *testing.T) {
+		truncate(t)
+		resetQuotaData()
+		seedUser(t, userID, 1000)
+		seedToken(t, tokenID, userID, "sk-refund-chart", 1000)
+		seedChannel(t, channelID)
+		seedChargedAccounting(t, userID, channelID, tokenID, 3500, 2)
+		task := makeTask(userID, channelID, 3000, tokenID, BillingSourceWallet, 0)
+		task.Group = "vip"
+		task.PrivateData.NodeName = "submit-node"
+		require.NoError(t, model.DB.Create(task).Error)
+		require.True(t, RefundTaskQuota(ctx, task, "task failed"))
+		mjTask := &model.Midjourney{UserId: userID, MjId: "mj-refund-chart", Action: "IMAGINE", ChannelId: channelID, Quota: 500, Progress: "0%"}
+		require.NoError(t, mjTask.Insert())
+		require.True(t, RefundMidjourneyQuota(ctx, mjTask, "failed"))
+	}
+
+	t.Run("refunds are negative corrections on the consume dimensions", func(t *testing.T) {
+		common.LogConsumeEnabled = true
+		refundBoth(t)
+		// Midjourney tasks do not persist the submit group, so the refund row has an empty group.
+		assert.Equal(t, map[string]exported{
+			"test-model":                          {group: "vip", node: "submit-node", quota: -3000},
+			CovertMjpActionToModelName("IMAGINE"): {node: common.NodeName, quota: -500},
+		}, collect())
+	})
+	t.Run("disabled consume logging exports no unpaired refunds", func(t *testing.T) {
+		common.LogConsumeEnabled = false
+		refundBoth(t)
+		assert.Empty(t, collect())
+		assert.Equal(t, int64(2), countLogs(t))
+		require.NoError(t, model.RecordTaskBillingLogWithError(model.RecordTaskBillingLogParams{UserId: userID, LogType: model.LogTypeRefund, ModelName: "strict-model", Quota: 7, Group: "vip", NodeName: "submit-node"}))
+		assert.Equal(t, map[string]exported{"strict-model": {group: "vip", node: "submit-node", quota: -7}}, collect())
+	})
+	t.Run("positive settlement delta adds quota without a request", func(t *testing.T) {
+		common.LogConsumeEnabled = true
+		truncate(t)
+		resetQuotaData()
+		seedUser(t, userID, 10000)
+		seedToken(t, tokenID, userID, "sk-delta-chart", 5000)
+		seedChannel(t, channelID)
+		seedChargedAccounting(t, userID, channelID, tokenID, 2000, 1)
+		task := makeTask(userID, channelID, 2000, tokenID, BillingSourceWallet, 0)
+		task.PrivateData.NodeName = "submit-node"
+		RecalculateTaskQuota(ctx, task, 3000, "adaptor adjustment")
+		assert.Equal(t, map[string]exported{"test-model": {group: "default", node: "submit-node", quota: 1000}}, collect())
+	})
+	t.Run("openrouter refunds stay paired with the strict submit export", func(t *testing.T) {
+		common.LogConsumeEnabled = false
+		truncate(t)
+		resetQuotaData()
+		seedUser(t, userID, 9950)
+		seedToken(t, tokenID, userID, "sk-openrouter-chart", 9950)
+		seedChannel(t, channelID)
+		seedChargedAccounting(t, userID, channelID, tokenID, 50, 1)
+		task := makeTask(userID, channelID, 50, tokenID, BillingSourceWallet, 0)
+		task.Group = "vip"
+		task.PrivateData.NodeName = "submit-node"
+		bc := task.PrivateData.BillingContext
+		bc.SettlementMode = model.TaskSettlementOpenRouterCostV1
+		bc.GroupRatio = 4
+		bc.BillingFX = testTaskBillingFX(200)
+		bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+		bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000, ExprString: "tier(\"reserve\", 0.000025)"}
+		task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, HasUpstreamCost: true, UpstreamCostConfirmed: true, UpstreamCostUSD: 0.00002}
+		callLogTaskConsumption(t, &relaycommon.RelayInfo{
+			UserId: userID, TokenId: tokenID, OriginModelName: "test-model", UsingGroup: "vip",
+			ChannelMeta: &relaycommon.ChannelMeta{ChannelId: channelID}, TaskRelayInfo: &relaycommon.TaskRelayInfo{Action: "GENERATE"},
+			PriceData: types.PriceData{ModelPrice: 0.02, Quota: 50, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
+		}, task)
+		assert.Equal(t, map[string]exported{"test-model": {group: "vip", node: "submit-node", count: 1, quota: 50}}, collect())
+
+		// The non-strict refund path rejects settlement-mode tasks, so no unpaired correction is possible there.
+		require.NoError(t, model.DB.Create(task).Error)
+		assert.False(t, RefundTaskQuota(ctx, task, "task failed"))
+		task.Status = model.TaskStatusSuccess
+		prepareOpenRouterCostSettlement(task)
+		won, err := task.UpdateWithStatus(model.TaskStatusInProgress)
+		require.NoError(t, err)
+		require.True(t, won)
+		settled, err := settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{})
+		require.NoError(t, err)
+		require.True(t, settled)
+		assert.Equal(t, map[string]exported{"test-model": {group: "vip", node: "submit-node", count: 1, quota: 40}}, collect())
+	})
+}
+
 // ===========================================================================
 // RefundTaskQuota tests
 // ===========================================================================
@@ -2237,7 +2356,7 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 			"original": clampCase.original, "op": clampCase.op,
 			"kind": string(clampCase.kind), "clamped": float64(clampCase.quota),
 		}, admin["quota_saturation"], clampCase.requestID)
-		userLogs, total, err := model.GetUserLogs(userID, model.LogTypeConsume, 0, 0, "", "", 0, 10, "", clampCase.requestID, "")
+		userLogs, total, err := model.GetUserLogs(userID, []int{model.LogTypeConsume}, 0, 0, "", "", 0, 10, "", clampCase.requestID, "")
 		require.NoError(t, err)
 		require.Equal(t, int64(1), total)
 		require.Len(t, userLogs, 1)
