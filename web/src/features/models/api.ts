@@ -30,6 +30,7 @@ import type {
   SyncUpstreamResponse,
   PreviewUpstreamDiffResponse,
   MissingModelsResponse,
+  UnbillableModelsResponse,
   PrefillGroupsResponse,
   SyncLocale,
   SyncSource,
@@ -237,6 +238,14 @@ export async function previewUpstreamDiff(params?: {
  */
 export async function getMissingModels(): Promise<MissingModelsResponse> {
   const res = await api.get('/api/models/missing')
+  return res.data
+}
+
+/**
+ * Get models hidden from public pricing (no tariff or no catalog price)
+ */
+export async function getUnbillableModels(): Promise<UnbillableModelsResponse> {
+  const res = await api.get('/api/models/unbillable')
   return res.data
 }
 

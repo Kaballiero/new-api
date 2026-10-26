@@ -40,6 +40,12 @@ export const STATIC_I18N_KEYS = [
   'Use letters, digits, _ and - only, optionally prefixed with batches/',
   'Provider ownership could not be verified; the Batch is unchanged.',
   'This Batch can no longer be recovered by ID; the Batch is unchanged.',
+  // Models without tariff: reason labels and hints chosen at runtime.
+  'No tariff or reserve',
+  'No catalog price',
+  'The catalog has no price for this model: disable it or check the provider.',
+  'Set a tiered billing expression for the batch model.',
+  'Set a price, ratio or tiered expression, or an OpenRouter reserve on the channel.',
   // OpenRouter reserve policy validation.
   'Use exact model IDs and finite positive USD amounts',
   'Use exact model IDs with upstream or configured_price',

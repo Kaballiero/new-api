@@ -8,12 +8,15 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 	"unicode/utf16"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/text/cases"
@@ -68,6 +71,8 @@ type effectivePricingPageContext struct {
 	usableGroups map[string]string
 	groupRatios  map[string]float64
 	usingGroup   string
+	// billable, when set, limits public pages to models the relay can bill (as /v1/models lists them).
+	billable map[string]bool
 }
 
 var pricingPageInteger = regexp.MustCompile(`^-?[0-9]+$`)
@@ -240,9 +245,52 @@ func serveEffectivePricingPage(c *gin.Context, userGroup, usingGroup string, que
 	}
 	if query.personal {
 		context.userID = c.GetInt("id")
+	} else {
+		context.billable = billablePricingModels(context.pricing, context.usingGroup, context.metadata.CatalogRevision)
 	}
 	response := buildEffectivePricingPage(context, query, context.project)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
+}
+
+type billablePricingCacheEntry struct {
+	revision string
+	builtAt  time.Time
+	billable map[string]bool
+}
+
+// billablePricingCache keeps anonymous public pricing requests off the database;
+// the TTL bounds staleness after channel reserve or billing setting changes.
+var billablePricingCache = struct {
+	sync.Mutex
+	entries map[string]billablePricingCacheEntry
+}{entries: make(map[string]billablePricingCacheEntry)}
+
+const billablePricingCacheTTL = time.Minute
+
+func billablePricingModels(pricing []model.Pricing, group, revision string) map[string]bool {
+	if operation_setting.SelfUseModeEnabled {
+		return nil
+	}
+	billablePricingCache.Lock()
+	cached, ok := billablePricingCache.entries[group]
+	billablePricingCache.Unlock()
+	if ok && revision != "" && cached.revision == revision && time.Since(cached.builtAt) < billablePricingCacheTTL {
+		return cached.billable
+	}
+	names := make([]string, 0, len(pricing))
+	for _, item := range pricing {
+		names = append(names, item.ModelName)
+	}
+	billable := make(map[string]bool, len(names))
+	for _, name := range billableModelNames(names, []string{group}) {
+		billable[name] = true
+	}
+	if revision != "" {
+		billablePricingCache.Lock()
+		billablePricingCache.entries[group] = billablePricingCacheEntry{revision: revision, builtAt: time.Now(), billable: billable}
+		billablePricingCache.Unlock()
+	}
+	return billable
 }
 
 func (context effectivePricingPageContext) project(item model.Pricing) consumerPricingModel {
@@ -254,6 +302,15 @@ type effectivePricingPageCandidate struct {
 	modality string
 	creator  *effectivePricingCreator
 	price    *float64
+	// projected caches the tariff once a public filter or sort key needed it.
+	projected *consumerPricingModel
+}
+
+func (candidate effectivePricingPageCandidate) tariff(pricing []model.Pricing, project func(model.Pricing) consumerPricingModel) consumerPricingModel {
+	if candidate.projected != nil {
+		return *candidate.projected
+	}
+	return project(pricing[candidate.index])
 }
 
 func buildEffectivePricingPage(context effectivePricingPageContext, query effectivePricingPageQuery, project func(model.Pricing) consumerPricingModel) effectivePricingPageData {
@@ -280,6 +337,18 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 		if query.catalogTypeMissing && item.CatalogType != "" || query.catalogType != "" && item.CatalogType != query.catalogType {
 			continue
 		}
+		var projected *consumerPricingModel
+		// Public pages offer only models the relay can bill and that have a confirmed price; a zero price still counts.
+		if !query.personal && !query.overview {
+			if context.billable != nil && !context.billable[item.ModelName] {
+				continue
+			}
+			value := project(item)
+			if !hasConfirmedConsumerPrice(value) {
+				continue
+			}
+			projected = &value
+		}
 		creator := creators[item.VendorID]
 		if item.VendorID == 0 {
 			creator = nil
@@ -298,10 +367,13 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 		if query.creatorID != nil && (creator == nil || creator.ID != *query.creatorID) {
 			continue
 		}
-		candidate := effectivePricingPageCandidate{index: index, creator: creator, modality: modality}
+		candidate := effectivePricingPageCandidate{index: index, creator: creator, modality: modality, projected: projected}
 		if query.pricingUnit != "" || query.orderBy != "NAME" {
-			projected := project(item)
-			unit, price := effectivePricingPageKeys(projected, query.orderBy)
+			if candidate.projected == nil {
+				value := project(item)
+				candidate.projected = &value
+			}
+			unit, price := effectivePricingPageKeys(*candidate.projected, query.orderBy)
 			if query.pricingUnit != "" && unit != query.pricingUnit {
 				continue
 			}
@@ -347,7 +419,7 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 		for _, candidate := range candidates {
 			response.sectionCounts[candidate.modality]++
 			if response.sectionCounts[candidate.modality] <= query.limit {
-				response.Data = append(response.Data, effectivePricingPageItem{consumerPricingModel: project(context.pricing[candidate.index]), Modality: candidate.modality, Creator: candidate.creator})
+				response.Data = append(response.Data, effectivePricingPageItem{consumerPricingModel: candidate.tariff(context.pricing, project), Modality: candidate.modality, Creator: candidate.creator})
 			}
 		}
 		return response
@@ -355,7 +427,7 @@ func buildEffectivePricingPage(context effectivePricingPageContext, query effect
 	start := min(query.offset, len(candidates))
 	end := start + min(query.limit, len(candidates)-start)
 	for _, candidate := range candidates[start:end] {
-		response.Data = append(response.Data, effectivePricingPageItem{consumerPricingModel: project(context.pricing[candidate.index]), Modality: candidate.modality, Creator: candidate.creator})
+		response.Data = append(response.Data, effectivePricingPageItem{consumerPricingModel: candidate.tariff(context.pricing, project), Modality: candidate.modality, Creator: candidate.creator})
 	}
 	return response
 }

@@ -216,6 +216,29 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 	}, nil
 }
 
+// billableModelNames keeps the models a relay request in groups can bill: a
+// configured price, ratio or tiered expression, or an OpenRouter reserve.
+func billableModelNames(modelNames []string, groups []string) []string {
+	unpriced := make(map[string]bool)
+	var unpricedModels []string
+	for _, modelName := range modelNames {
+		if !helper.HasModelBillingConfig(modelName) {
+			unpricedModels = append(unpricedModels, modelName)
+			unpriced[modelName] = true
+		}
+	}
+	if len(unpricedModels) == 0 {
+		return modelNames
+	}
+	reserveBilled, err := model.GetOpenRouterReserveBilledModels(unpricedModels, groups)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("GetOpenRouterReserveBilledModels error: %v", err))
+	}
+	return slices.DeleteFunc(modelNames, func(modelName string) bool {
+		return unpriced[modelName] && !reserveBilled[modelName]
+	})
+}
+
 func ListModels(c *gin.Context, modelType int) {
 	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
 	if !acceptUnsetRatioModel {
@@ -250,8 +273,6 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	}
 	models := service.GetGroupsEnabledModels(ownerGroups)
-	var unpricedModels []string
-	unpriced := make(map[string]bool)
 	for _, modelName := range models {
 		if modelLimitEnable {
 			matchingName := ratio_setting.RoutingMatchModelName(modelName)
@@ -259,20 +280,10 @@ func ListModels(c *gin.Context, modelType int) {
 				continue
 			}
 		}
-		if !acceptUnsetRatioModel && !helper.HasModelBillingConfig(modelName) {
-			unpricedModels = append(unpricedModels, modelName)
-			unpriced[modelName] = true
-		}
 		userModelNames = append(userModelNames, modelName)
 	}
-	if len(unpricedModels) > 0 {
-		reserveBilled, err := model.GetOpenRouterReserveBilledModels(unpricedModels, ownerGroups)
-		if err != nil {
-			common.SysLog(fmt.Sprintf("GetOpenRouterReserveBilledModels error: %v", err))
-		}
-		userModelNames = slices.DeleteFunc(userModelNames, func(modelName string) bool {
-			return unpriced[modelName] && !reserveBilled[modelName]
-		})
+	if !acceptUnsetRatioModel {
+		userModelNames = billableModelNames(userModelNames, ownerGroups)
 	}
 
 	ownerByModel := map[string]string{}

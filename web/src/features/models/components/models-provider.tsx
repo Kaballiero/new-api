@@ -40,6 +40,7 @@ type DialogType =
   | 'price-sync'
   | 'update-vendor'
   | 'missing-models'
+  | 'unbillable-models'
   | 'sync-wizard'
   | 'prefill-groups'
   | 'description'

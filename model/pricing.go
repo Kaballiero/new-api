@@ -646,6 +646,7 @@ func rebuildPricingCatalogueLocked() {
 					pricing.VendorID = vendorID
 				}
 			}
+			pricing.Tags = withCatalogContextTag(pricing.Tags, upstream.Limits)
 		}
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		pricing.PriceConfigured = findPrice || ratio_setting.HasConfiguredModelRatio(model)

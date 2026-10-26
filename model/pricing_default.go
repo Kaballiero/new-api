@@ -1,7 +1,10 @@
 package model
 
 import (
+	"encoding/json"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
@@ -311,6 +314,37 @@ func catalogAuthorVendor(author *catalogsync.Author, vendorMap map[int]*Vendor) 
 		return 0
 	}
 	return getDisplayVendor(vendorName, vendorMap)
+}
+
+var contextTagPattern = regexp.MustCompile(`(?i)^\d+(\.\d+)?[KM]$`)
+
+// withCatalogContextTag appends the catalog context window as a display tag
+// ("32.8K", "1.05M") unless the stored tags already carry one.
+func withCatalogContextTag(tags string, limits json.RawMessage) string {
+	for tag := range strings.SplitSeq(tags, ",") {
+		if contextTagPattern.MatchString(strings.TrimSpace(tag)) {
+			return tags
+		}
+	}
+	var parsed struct {
+		ContextTokens int64 `json:"contextTokens"`
+	}
+	if json.Unmarshal(limits, &parsed) != nil || parsed.ContextTokens <= 0 {
+		return tags
+	}
+	tag, suffix := strconv.FormatFloat(float64(parsed.ContextTokens)/1e3, 'f', 1, 64), "K"
+	if parsed.ContextTokens >= 999_950 {
+		tag, suffix = strconv.FormatFloat(float64(parsed.ContextTokens)/1e6, 'f', 2, 64), "M"
+	}
+	tag = strings.TrimSuffix(strings.TrimRight(tag, "0"), ".")
+	if tag == "" || tag == "0" {
+		return tags
+	}
+	tag += suffix
+	if strings.TrimSpace(tags) == "" {
+		return tag
+	}
+	return tags + "," + tag
 }
 
 // 获取供应商默认图标

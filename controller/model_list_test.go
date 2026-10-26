@@ -806,6 +806,17 @@ func TestListModelsIncludesOpenRouterReserveBilledModels(t *testing.T) {
 		_, listed := ids[tc.model]
 		assert.Equal(t, tc.listed, listed, tc.model)
 	}
+
+	// Public pricing pages apply the same billing rule for the default group.
+	pricing := []model.Pricing{}
+	for _, name := range []string{"zz-or-priced", "zz-up/reserved", "zz-or-alias", "zz-or-sonar", "zz-up/unreserved", "zz-up/zero", "zz-or-alias-key", "zz-up/disabled", "zz-up/openai", "zz-up/vip"} {
+		pricing = append(pricing, model.Pricing{ModelName: name})
+	}
+	billable := billablePricingModels(pricing, "default", "")
+	for _, item := range pricing {
+		_, listed := ids[item.ModelName]
+		assert.Equal(t, listed, billable[item.ModelName], item.ModelName)
+	}
 }
 
 func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {
@@ -843,4 +854,94 @@ func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {
 	var stored model.User
 	require.NoError(t, db.First(&stored, user.Id).Error)
 	assert.Equal(t, hashedPassword, stored.Password)
+}
+
+func TestUnbillableModelsListsWhatPublicPricingHides(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredBillingConfig(t, map[string]string{"zz-billable-no-catalog": "tiered_expr"}, map[string]string{"zz-billable-no-catalog": `tier("base", p * 1 + c * 2)`})
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.ModelCostFXRow{}))
+	previousQuota, previousExchange := common.QuotaPerUnit, operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	common.QuotaPerUnit = 500000
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQuota
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousExchange
+		model.InvalidatePricingCache()
+	})
+	now := time.Now().Unix()
+	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	reserveSetting := `{"openrouter_model_reserve_usd":{"zz-up/reserved":0.05}}`
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 811, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Key: "k", Group: "default", Models: "zz-billable-no-catalog,zz-unpriced,zz-unpriced:batch"},
+		{Id: 812, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "k", Group: "default", Models: "zz-up/reserved", Setting: &reserveSetting},
+		{Id: 813, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Key: "k", Group: "vip", Models: "zz-vip-only"},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "zz-billable-no-catalog", ChannelId: 811, Enabled: true},
+		{Group: "default", Model: "zz-unpriced", ChannelId: 811, Enabled: true},
+		{Group: "default", Model: "zz-unpriced:batch", ChannelId: 811, Enabled: true},
+		{Group: "default", Model: "zz-up/reserved", ChannelId: 812, Enabled: true},
+		{Group: "vip", Model: "zz-vip-only", ChannelId: 813, Enabled: true},
+	}).Error)
+	model.InitChannelCache()
+	model.RefreshPricing()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/models/unbillable", nil)
+	GetUnbillableModels(ctx)
+	var response struct {
+		Success bool              `json:"success"`
+		Data    []unbillableModel `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success, recorder.Body.String())
+	reasons := map[string]string{}
+	for _, item := range response.Data {
+		reasons[item.ModelName] = item.Reason
+	}
+	assert.Equal(t, unbillableReasonNoBillingConfig, reasons["zz-unpriced"])
+	assert.Equal(t, unbillableReasonNoBillingConfig, reasons["zz-unpriced:batch"])
+	assert.NotContains(t, reasons, "zz-billable-no-catalog", "a tiered expression is a public price of its own")
+	assert.Equal(t, unbillableReasonNoCatalogPrice, reasons["zz-up/reserved"], "a reserve makes the model billable, the missing catalog price is still reported")
+	assert.NotContains(t, reasons, "zz-vip-only", "models outside the public group are not public pricing gaps")
+	assert.Len(t, response.Data, 3)
+	for _, item := range response.Data {
+		assert.Nil(t, item.SuggestedReserveUSD, "reserves are only suggested for OpenRouter-billed models: %s", item.ModelName)
+	}
+
+	operation_setting.SelfUseModeEnabled = true
+	selfUse, err := listUnbillableModels()
+	operation_setting.SelfUseModeEnabled = false
+	require.NoError(t, err)
+	for _, item := range selfUse {
+		assert.Equal(t, unbillableReasonNoCatalogPrice, item.Reason, "self-use mode lists every model, so only catalog gaps remain: %s", item.ModelName)
+	}
+
+	summary := pricingCatalogRefreshSummary{}
+	logUnbillableModels(&summary)
+	assert.Equal(t, 3, summary.HiddenPublicModelsCount)
+	assert.Len(t, summary.HiddenPublicModels, 3)
+	assert.Empty(t, summary.HiddenPublicModelsError)
+}
+
+func TestBillablePricingModelsCacheFollowsRevision(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withTieredBillingConfig(t, map[string]string{"zz-cache-billable": "tiered_expr"}, map[string]string{"zz-cache-billable": `tier("base", p * 1)`})
+	setupModelListControllerTestDB(t)
+	pricing := []model.Pricing{{ModelName: "zz-cache-billable"}, {ModelName: "zz-cache-unbillable"}}
+	first := billablePricingModels(pricing, "zz-cache-group", "rev-1")
+	assert.Equal(t, map[string]bool{"zz-cache-billable": true}, first)
+	pricing = append(pricing, model.Pricing{ModelName: "zz-cache-added"})
+	assert.Equal(t, first, billablePricingModels(pricing, "zz-cache-group", "rev-1"), "the same revision reuses the cached set")
+	withTieredBillingConfig(t, map[string]string{"zz-cache-added": "tiered_expr"}, map[string]string{"zz-cache-added": `tier("base", p * 1)`})
+	assert.True(t, billablePricingModels(pricing, "zz-cache-group", "rev-2")["zz-cache-added"], "a new revision rebuilds the set")
+	assert.True(t, billablePricingModels(pricing, "zz-cache-group", "")["zz-cache-added"], "an unknown revision is never cached")
+}
+
+func TestCommonReservesByCatalogTypePicksTheConvention(t *testing.T) {
+	reserves := map[string]float64{"a": 0.1, "b": 0.1, "c": 0.2, "d": 0.05, "e": 0.25, "f": 0.5, "untyped": 9}
+	types := map[string]string{"a": "speech", "b": "speech", "c": "speech", "d": "text", "e": "image", "f": "image"}
+	assert.Equal(t, map[string]float64{"speech": 0.1, "text": 0.05, "image": 0.25}, commonReservesByCatalogType(reserves, types), "ties prefer the smaller reserve")
 }
