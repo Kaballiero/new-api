@@ -11,6 +11,7 @@ import (
 )
 
 type Configuration interface {
+	DecodeCodexKey(string) (*domain.CodexOAuthKey, error)
 	Proxy(*domain.Channel) string
 }
 type Session interface {
@@ -51,7 +52,7 @@ func (usecase Usecase) Execute(channel *domain.Channel) ([]string, error) {
 	return usecase.Fetch(ctx, channel, base, session, version)
 }
 func (usecase Usecase) Fetch(ctx context.Context, channel *domain.Channel, base string, session Session, version string) ([]string, error) {
-	key, err := domain.ParseCodexOAuthKey(strings.TrimSpace(channel.Key))
+	key, err := domain.ParseCodexOAuthKey(strings.TrimSpace(channel.Key), usecase.configuration.DecodeCodexKey)
 	if err != nil {
 		return nil, err
 	}

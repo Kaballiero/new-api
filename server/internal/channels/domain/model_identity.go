@@ -2,13 +2,15 @@ package domain
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"strings"
 )
 
 type ModelIdentityErrors struct{ ErrCanonicalModelCollision, ErrModelAliasCycle, ErrModelMappingConflict, ErrModelMappingCycle, ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty, ErrModelNameEmpty error }
-type ModelIdentity struct{ Errors func() ModelIdentityErrors }
+type ModelIdentity struct {
+	Errors func() ModelIdentityErrors
+	Codec  ModelMappingCodec
+}
 
 const anyChannelType = -1
 
@@ -286,7 +288,9 @@ func (identity ModelIdentity) Canonicalize(channel *Channel) error {
 	existingMapping := make(map[string]string)
 	mappingJSON := strings.TrimSpace(channel.GetModelMapping())
 	if mappingJSON != "" {
-		if err := common.UnmarshalJsonStr(mappingJSON, &existingMapping); err != nil {
+		var err error
+		existingMapping, err = identity.Codec.DecodeModelMapping(mappingJSON)
+		if err != nil {
 			return fmt.Errorf("invalid model mapping: %w", err)
 		}
 	}
@@ -296,12 +300,11 @@ func (identity ModelIdentity) Canonicalize(channel *Channel) error {
 		return err
 	}
 
-	mappingBytes, err := common.Marshal(mapping)
+	mappingJSON, err = identity.Codec.EncodeModelMapping(mapping)
 	if err != nil {
 		return fmt.Errorf("marshal model mapping: %w", err)
 	}
 
-	mappingJSON = string(mappingBytes)
 	channel.Models = strings.Join(models, ",")
 	channel.ModelMapping = &mappingJSON
 	return nil

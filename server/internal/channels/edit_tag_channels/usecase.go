@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
@@ -37,14 +36,14 @@ func (usecase Usecase) Execute(channelTag ChannelTag) error {
 		if trimmed != "" && !json.Valid([]byte(trimmed)) {
 			return domain.ErrParamOverrideInvalid
 		}
-		channelTag.ParamOverride = common.GetPointer[string](trimmed)
+		channelTag.ParamOverride = &trimmed
 	}
 	if channelTag.HeaderOverride != nil {
 		trimmed := strings.TrimSpace(*channelTag.HeaderOverride)
 		if trimmed != "" && !json.Valid([]byte(trimmed)) {
 			return domain.ErrHeaderOverrideInvalid
 		}
-		channelTag.HeaderOverride = common.GetPointer[string](trimmed)
+		channelTag.HeaderOverride = &trimmed
 	}
 	err := usecase.store.EditTag(channelTag.Tag, channelTag.NewTag, channelTag.ModelMapping, channelTag.Models, channelTag.Groups, channelTag.Priority, channelTag.Weight, channelTag.ParamOverride, channelTag.HeaderOverride)
 	if err != nil {

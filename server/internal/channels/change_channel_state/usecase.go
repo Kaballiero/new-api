@@ -2,11 +2,12 @@ package change_channel_state
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 type Store interface {
+	domain.OtherInfoCodec
 	LockStatus() func()
 	LockPolling(int) func()
 	CachedState(int) (*domain.Channel, error)
@@ -47,7 +48,7 @@ func (usecase Usecase) Execute(channelId int, usingKey string, status int, reaso
 		if channelCache.ChannelInfo.IsMultiKey {
 			beforeStatus := channelCache.Status
 			// In multi-key mode update the cached key status.
-			domain.ApplyMultiKeyState(channelCache, usecase.store.StateKeys(channelCache), usingKey, status, reason, usecase.now, usecase.log)
+			domain.ApplyMultiKeyState(channelCache, usecase.store.StateKeys(channelCache), usingKey, status, reason, usecase.now, usecase.store, usecase.log)
 			usecase.store.CommitState(channelCache)
 			if beforeStatus != channelCache.Status {
 				usecase.store.SetCacheStatus(channelId, channelCache.Status)
@@ -66,7 +67,7 @@ func (usecase Usecase) Execute(channelId int, usingKey string, status int, reaso
 	shouldUpdateAbilities := false
 	defer func() {
 		if shouldUpdateAbilities {
-			err := usecase.store.SetAbilityStatus(channelId, status == common.ChannelStatusEnabled)
+			err := usecase.store.SetAbilityStatus(channelId, status == constant.ChannelStatusEnabled)
 			if err != nil {
 				usecase.log(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
 			}
@@ -82,15 +83,15 @@ func (usecase Usecase) Execute(channelId int, usingKey string, status int, reaso
 
 		if channel.ChannelInfo.IsMultiKey {
 			beforeStatus := channel.Status
-			domain.ApplyMultiKeyState(channel, usecase.store.StateKeys(channel), usingKey, status, reason, usecase.now, usecase.log)
+			domain.ApplyMultiKeyState(channel, usecase.store.StateKeys(channel), usingKey, status, reason, usecase.now, usecase.store, usecase.log)
 			if beforeStatus != channel.Status {
 				shouldUpdateAbilities = true
 			}
 		} else {
-			info := channel.GetOtherInfo()
+			info := usecase.store.ReadOtherInfo(channel)
 			info["status_reason"] = reason
 			info["status_time"] = usecase.now()
-			channel.SetOtherInfo(info)
+			usecase.store.WriteOtherInfo(channel, info)
 			channel.Status = status
 			shouldUpdateAbilities = true
 		}

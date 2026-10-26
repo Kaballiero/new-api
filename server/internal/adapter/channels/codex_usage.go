@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/service"
 	"net/http"
@@ -29,4 +30,10 @@ func (provider CodexUsage) Refresh(ctx context.Context, token, proxy string) (*d
 		return nil, err
 	}
 	return &domain.CodexTokenResult{AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, ExpiresAt: result.ExpiresAt}, err
+}
+
+func (CodexUsage) DecodeUsage(body []byte) (any, error) {
+	var payload any
+	err := common.Unmarshal(body, &payload)
+	return payload, err
 }

@@ -130,12 +130,12 @@ func (channel *Channel) GetModels() []string { return ((*record.Channel)(channel
 func (channel *Channel) GetGroups() []string { return ((*record.Channel)(channel)).GetGroups() }
 
 func (channel *Channel) GetOtherInfo() map[string]any {
-	return record.ToDomain((*record.Channel)(channel)).GetOtherInfo()
+	return (record.Codec{Log: common.SysLog}).ReadOtherInfo(record.ToDomain((*record.Channel)(channel)))
 }
 
 func (channel *Channel) SetOtherInfo(info map[string]any) {
 	value := record.ToDomain((*record.Channel)(channel))
-	value.SetOtherInfo(info)
+	(record.Codec{Log: common.SysLog}).WriteOtherInfo(value, info)
 	channel.OtherInfo = value.OtherInfo
 }
 

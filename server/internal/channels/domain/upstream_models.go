@@ -2,7 +2,6 @@ package domain
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/samber/lo"
 	"regexp"
 	"strings"
@@ -11,6 +10,7 @@ import (
 type ModelMappingErrors struct{ ErrModelNameEmpty, ErrModelMappingCycle, ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty, ErrModelMappingConflict error }
 type ModelUpdateRules struct {
 	Errors       func() ModelMappingErrors
+	Codec        ModelMappingCodec
 	Canonicalize func(*Channel) error
 	Now          func() int64
 }
@@ -96,8 +96,8 @@ func (rules ModelUpdateRules) NormalizeChannelModelMapping(channel *Channel) (ma
 	if trimmedMapping == "" || trimmedMapping == "{}" {
 		return nil, nil
 	}
-	parsed := make(map[string]string)
-	if err := common.UnmarshalJsonStr(rawMapping, &parsed); err != nil {
+	parsed, err := rules.Codec.DecodeModelMapping(rawMapping)
+	if err != nil {
 		return nil, fmt.Errorf("invalid model mapping: %w", err)
 	}
 	if err := rules.ValidateResolvableChannelModelMapping(parsed); err != nil {

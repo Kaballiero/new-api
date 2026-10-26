@@ -1,10 +1,8 @@
 package update_channel
 
 import (
-	"encoding/json"
 	"errors"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"strings"
@@ -12,6 +10,7 @@ import (
 
 type Store interface {
 	domain.Configuration
+	DecodeVertexKeys(string) ([]string, error)
 	IsMissing(error) bool
 	WithLocked(int, func(*domain.Channel, func(*domain.Channel) error) error) error
 	Canonicalize(*domain.Channel) error
@@ -20,7 +19,13 @@ type Store interface {
 	VertexJSONKeys(*domain.Channel) bool
 	Proxy(*domain.Channel) string
 }
+type Codec interface {
+	Snapshot(*domain.Channel) (domain.Channel, error)
+	DecodePatch([]byte, *PatchChannel) error
+	KeyArray(string) ([]string, error)
+}
 type Usecase struct {
+	codec                            Codec
 	store                            Store
 	canBindPlugin, canWriteSensitive func() bool
 	normalizeProxy                   func(string) (string, error)
@@ -29,8 +34,8 @@ type Usecase struct {
 	audit                            func(map[string]any)
 }
 
-func NewUsecase(store Store, canBindPlugin, canWriteSensitive func() bool, normalizeProxy func(string) (string, error), refresh func(), invalidate func(string), audit func(map[string]any)) Usecase {
-	return Usecase{store: store, canBindPlugin: canBindPlugin, canWriteSensitive: canWriteSensitive, normalizeProxy: normalizeProxy, refresh: refresh, invalidate: invalidate, audit: audit}
+func NewUsecase(store Store, codec Codec, canBindPlugin, canWriteSensitive func() bool, normalizeProxy func(string) (string, error), refresh func(), invalidate func(string), audit func(map[string]any)) Usecase {
+	return Usecase{codec: codec, store: store, canBindPlugin: canBindPlugin, canWriteSensitive: canWriteSensitive, normalizeProxy: normalizeProxy, refresh: refresh, invalidate: invalidate, audit: audit}
 }
 func (usecase Usecase) Execute(input Input) (PatchChannel, error) {
 	requestChannel, requestData, rawBody := input.Request, input.Fields, input.Raw
@@ -47,16 +52,14 @@ func (usecase Usecase) Execute(input Input) (PatchChannel, error) {
 	err := usecase.store.WithLocked(requestChannel.Id, func(lockedChannel *domain.Channel, persist func(*domain.Channel) error) error {
 		originChannel = lockedChannel
 
-		lockedChannelData, err := common.Marshal(lockedChannel)
+		var err error
+		channel.Channel, err = usecase.codec.Snapshot(lockedChannel)
 		if err != nil {
-			return err
-		}
-		if err := common.Unmarshal(lockedChannelData, &channel.Channel); err != nil {
 			return err
 		}
 		storedChannelInfo := channel.ChannelInfo
 		channel.ChannelInfo = domain.ChannelInfo{}
-		if err := common.Unmarshal(rawBody, &channel); err != nil {
+		if err := usecase.codec.DecodePatch(rawBody, &channel); err != nil {
 			return err
 		}
 		channel.ChannelInfo = storedChannelInfo
@@ -100,12 +103,8 @@ func (usecase Usecase) Execute(input Input) (PatchChannel, error) {
 					var existingKeys []string
 
 					if strings.HasPrefix(strings.TrimSpace(lockedChannel.Key), "[") {
-						var arr []json.RawMessage
-						if err := common.Unmarshal([]byte(strings.TrimSpace(lockedChannel.Key)), &arr); err == nil {
-							existingKeys = make([]string, len(arr))
-							for i, v := range arr {
-								existingKeys[i] = string(v)
-							}
+						if array, err := usecase.codec.KeyArray(strings.TrimSpace(lockedChannel.Key)); err == nil {
+							existingKeys = array
 						}
 					} else {
 						existingKeys = strings.Split(strings.Trim(lockedChannel.Key, "\n"), "\n")
@@ -113,7 +112,7 @@ func (usecase Usecase) Execute(input Input) (PatchChannel, error) {
 
 					if channel.Type == constant.ChannelTypeVertexAi && usecase.store.VertexJSONKeys(&channel.Channel) {
 						if strings.HasPrefix(strings.TrimSpace(channel.Key), "[") {
-							array, err := domain.VertexArrayKeys(channel.Key)
+							array, err := domain.VertexArrayKeys(channel.Key, usecase.store.DecodeVertexKeys)
 							if err != nil {
 								validationErr = &domain.DetailError{Err: domain.ErrAppendKeysInvalid, Cause: err}
 								return validationErr

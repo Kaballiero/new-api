@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 )
 
 // Configuration reads the gateway-owned parts of a channel configuration.
 type Configuration interface {
+	DecodeVertexRegions(string) (map[string]any, error)
+	DecodeCodexFields(string) (map[string]any, error)
 	// ValidateSettings checks the gateway settings stored in the channel.
 	ValidateSettings(*Channel) error
 	// TaskPluginKey returns the task plugin bound by the channel settings.
@@ -86,7 +87,7 @@ func ValidateChannel(channel *Channel, isAdd bool, config Configuration) error {
 			return ErrVertexRegionRequired
 		}
 
-		regionMap, err := common.StrToMap(channel.Other)
+		regionMap, err := config.DecodeVertexRegions(channel.Other)
 		if err != nil {
 			return ErrVertexRegionInvalid
 		}
@@ -103,8 +104,8 @@ func ValidateChannel(channel *Channel, isAdd bool, config Configuration) error {
 			if !strings.HasPrefix(trimmedKey, "{") {
 				return ErrCodexKeyInvalid
 			}
-			var keyMap map[string]any
-			if err := common.Unmarshal([]byte(trimmedKey), &keyMap); err != nil {
+			keyMap, err := config.DecodeCodexFields(trimmedKey)
+			if err != nil {
 				return ErrCodexKeyInvalid
 			}
 			if v, ok := keyMap["access_token"]; !ok || v == nil || strings.TrimSpace(fmt.Sprintf("%v", v)) == "" {

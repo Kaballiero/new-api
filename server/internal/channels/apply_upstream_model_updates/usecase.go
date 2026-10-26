@@ -1,7 +1,7 @@
 package apply_upstream_model_updates
 
 import (
-	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"reflect"
 )
@@ -53,7 +53,7 @@ func (usecase Usecase) Apply(
 		if !reflect.DeepEqual(fetchFingerprint, freshFingerprint) {
 			return domain.ErrFetchConfigChanged
 		}
-		if requireCheckEnabled && freshChannel.Status != common.ChannelStatusEnabled {
+		if requireCheckEnabled && freshChannel.Status != constant.ChannelStatusEnabled {
 			return nil
 		}
 

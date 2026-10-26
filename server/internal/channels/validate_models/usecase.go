@@ -3,7 +3,6 @@ package validate_models
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/bytedance/gopkg/util/gopool"
@@ -28,10 +27,11 @@ type Usecase struct {
 	probe    domain.Probe
 	user     func() (int, error)
 	classify func(localErr, upstreamErr error) (domain.ModelLiveness, int)
+	mask     func(string) string
 }
 
-func NewUsecase(store Store, probe domain.Probe, user func() (int, error), classify func(localErr, upstreamErr error) (domain.ModelLiveness, int)) Usecase {
-	return Usecase{store: store, probe: probe, user: user, classify: classify}
+func NewUsecase(store Store, probe domain.Probe, user func() (int, error), classify func(localErr, upstreamErr error) (domain.ModelLiveness, int), mask func(string) string) Usecase {
+	return Usecase{store: store, probe: probe, user: user, classify: classify, mask: mask}
 }
 func (usecase Usecase) Execute(req ValidateModelsRequest) (ValidateModelsResponse, error) {
 	channel, err := usecase.Resolve(&req)
@@ -131,9 +131,9 @@ func (usecase Usecase) ValidateOne(channel *domain.Channel, testUserID int, mode
 		out.UpstreamCode = code
 		if failure := res.UpstreamError(); failure != nil {
 			out.ErrorCode = res.ErrorCode()
-			out.Message = common.MaskSensitiveInfo(failure.Error())
+			out.Message = usecase.mask(failure.Error())
 		} else if res.LocalError() != nil {
-			out.Message = common.MaskSensitiveInfo(res.LocalError().Error())
+			out.Message = usecase.mask(res.LocalError().Error())
 		}
 	case <-time.After(validateModelsPerModelTimeout):
 		out.LatencyMs = time.Since(start).Milliseconds()

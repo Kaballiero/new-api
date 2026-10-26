@@ -2,7 +2,6 @@ package refresh_codex_credential
 
 import (
 	"context"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"strings"
@@ -10,6 +9,7 @@ import (
 )
 
 type Store interface {
+	domain.CodexKeyCodec
 	Get(int, bool) (*domain.Channel, error)
 	Proxy(*domain.Channel) string
 	SetKey(int, string) error
@@ -37,7 +37,7 @@ func (usecase Usecase) Execute(ctx context.Context, input Input) (*domain.CodexO
 		return nil, nil, domain.ErrNotCodexChannel
 	}
 
-	oauthKey, err := domain.ParseCodexOAuthKey(strings.TrimSpace(ch.Key))
+	oauthKey, err := domain.ParseCodexOAuthKey(strings.TrimSpace(ch.Key), usecase.store.DecodeCodexKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -72,12 +72,12 @@ func (usecase Usecase) Execute(ctx context.Context, input Input) (*domain.CodexO
 		}
 	}
 
-	encoded, err := common.Marshal(oauthKey)
+	encoded, err := usecase.store.EncodeCodexKey(oauthKey)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if err := usecase.store.SetKey(ch.Id, string(encoded)); err != nil {
+	if err := usecase.store.SetKey(ch.Id, encoded); err != nil {
 		return nil, nil, err
 	}
 

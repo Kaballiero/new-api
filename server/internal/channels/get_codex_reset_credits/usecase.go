@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"net/http"
@@ -13,12 +12,14 @@ import (
 )
 
 type Store interface {
+	domain.CodexKeyCodec
 	Get(int, bool) (*domain.Channel, error)
 	Proxy(*domain.Channel) string
 	SetKey(int, string) error
 	InitCache()
 }
 type Remote interface {
+	DecodeUsage([]byte) (any, error)
 	Open(string) (domain.CodexUsageFetch, error)
 	Refresh(context.Context, string, string) (*domain.CodexTokenResult, error)
 }
@@ -50,7 +51,7 @@ func (usecase Usecase) Execute(parent context.Context, input Input) (Output, err
 		return Output{}, domain.ErrCodexMultiKey
 	}
 
-	oauthKey, err := domain.ParseCodexOAuthKey(strings.TrimSpace(ch.Key))
+	oauthKey, err := domain.ParseCodexOAuthKey(strings.TrimSpace(ch.Key), usecase.store.DecodeCodexKey)
 	if err != nil {
 		usecase.log("failed to parse oauth key: " + err.Error())
 		return Output{}, domain.ErrCodexCredentialInvalid
@@ -92,9 +93,9 @@ func (usecase Usecase) Execute(parent context.Context, input Input) (Output, err
 				oauthKey.Type = "codex"
 			}
 
-			encoded, encErr := common.Marshal(oauthKey)
+			encoded, encErr := usecase.store.EncodeCodexKey(oauthKey)
 			if encErr == nil {
-				_ = usecase.store.SetKey(ch.Id, string(encoded))
+				_ = usecase.store.SetKey(ch.Id, encoded)
 				usecase.store.InitCache()
 			}
 
@@ -108,8 +109,8 @@ func (usecase Usecase) Execute(parent context.Context, input Input) (Output, err
 		}
 	}
 
-	var payload any
-	if common.Unmarshal(body, &payload) != nil {
+	payload, decodeErr := usecase.remote.DecodeUsage(body)
+	if decodeErr != nil {
 		payload = string(body)
 	}
 

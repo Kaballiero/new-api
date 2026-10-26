@@ -15,7 +15,7 @@ import (
 )
 
 var disable = sync.OnceValue(func() disable_channel.Usecase {
-	return disable_channel.NewUsecase(model.UpdateChannelStatus, rootChannelNotifier{}, common.SysLog)
+	return disable_channel.NewUsecase(model.UpdateChannelStatus, rootChannelNotifier{}, common.SysLog, common.LocalLogPreview)
 })
 var enable = sync.OnceValue(func() enable_channel.Usecase {
 	return enable_channel.NewUsecase(model.UpdateChannelStatus, rootChannelNotifier{})

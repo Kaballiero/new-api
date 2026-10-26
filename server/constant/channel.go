@@ -226,3 +226,10 @@ var ChannelSpecialBases = map[string]ChannelSpecialBase{
 		OpenAIBaseURL: "https://ark.cn-beijing.volces.com/api/coding/v3",
 	},
 }
+
+// Channel statuses are shared by channel policy and gateway consumers.
+const (
+	ChannelStatusEnabled          = 1 // Zero is the unset value.
+	ChannelStatusManuallyDisabled = 2
+	ChannelStatusAutoDisabled     = 3
+)

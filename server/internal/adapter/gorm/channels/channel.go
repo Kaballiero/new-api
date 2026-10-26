@@ -18,10 +18,13 @@ func FromDomain(channel *domain.Channel) *model.Channel {
 }
 
 type Store struct {
+	record.Codec
 	records map[*domain.Channel]*model.Channel
 }
 
-func NewStore() Store { return Store{records: make(map[*domain.Channel]*model.Channel)} }
+func NewStore() Store {
+	return Store{Codec: record.Codec{Log: common.SysLog}, records: make(map[*domain.Channel]*model.Channel)}
+}
 func (store Store) Get(id int, withKey bool) (*domain.Channel, error) {
 	ch, err := model.GetChannelById(id, withKey)
 	return store.track(ch), err

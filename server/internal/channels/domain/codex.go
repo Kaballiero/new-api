@@ -3,7 +3,6 @@ package domain
 import (
 	"context"
 	"errors"
-	"github.com/QuantumNous/new-api/common"
 	"strings"
 	"time"
 )
@@ -27,14 +26,14 @@ type CodexTokenResult struct {
 
 type CodexUsageFetch func(context.Context, string, string, string) (int, []byte, error)
 
-func ParseCodexOAuthKey(raw string) (*CodexOAuthKey, error) {
+func ParseCodexOAuthKey(raw string, decode func(string) (*CodexOAuthKey, error)) (*CodexOAuthKey, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, errors.New("codex channel: empty oauth key")
 	}
-	var key CodexOAuthKey
-	if err := common.Unmarshal([]byte(raw), &key); err != nil {
+	key, err := decode(raw)
+	if err != nil {
 		return nil, errors.New("codex channel: invalid oauth key json")
 	}
-	return &key, nil
+	return key, nil
 }
 func ShouldRefreshCodexStatus(status int) bool { return status == 1 || status == 3 }

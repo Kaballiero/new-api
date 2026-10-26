@@ -1,9 +1,8 @@
 package domain
 
 import (
+	"github.com/QuantumNous/new-api/constant"
 	"strings"
-
-	"github.com/QuantumNous/new-api/common"
 )
 
 // ChannelFailure describes a failed channel request in gateway-neutral terms.
@@ -55,7 +54,7 @@ func (policy FailurePolicy) ShouldEnable(failed bool, status int) bool {
 	if failed {
 		return false
 	}
-	if status != common.ChannelStatusAutoDisabled {
+	if status != constant.ChannelStatusAutoDisabled {
 		return false
 	}
 	return true

@@ -227,7 +227,7 @@ func NewChannelsHTTP(effects ChannelEffects) ChannelsHTTP {
 			return copy_channel.NewUsecase(repository.NewStore(), canChannel(c, authz.TaskPluginBind), common.GetTimestamp, common.SysError, effects.Refresh, audit(c, "channel.copy"))
 		}),
 		UpdateChannel: update_channel.NewHTTP(func(c *gin.Context) update_channel.Usecase {
-			return update_channel.NewUsecase(repository.NewStore(), canChannel(c, authz.TaskPluginBind), canChannel(c, authz.ChannelSensitiveWrite), service.NormalizeProxyURL, effects.Refresh, service.InvalidateProxyClient, audit(c, "channel.update"))
+			return update_channel.NewUsecase(repository.NewStore(), channeladapter.ChannelPatchCodec{}, canChannel(c, authz.TaskPluginBind), canChannel(c, authz.ChannelSensitiveWrite), service.NormalizeProxyURL, effects.Refresh, service.InvalidateProxyClient, audit(c, "channel.update"))
 		}),
 		PullOllamaModel: pull_ollama_model.NewHTTP(func(*gin.Context) pull_ollama_model.Usecase {
 			return pull_ollama_model.NewUsecase(repository.NewStore(), channeladapter.NewOllama())
@@ -275,7 +275,7 @@ func NewChannelsHTTP(effects ChannelEffects) ChannelsHTTP {
 			store := repository.NewStore()
 			return validate_models.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(c) }, func(localErr, upstreamErr error) (channeldomain.ModelLiveness, int) {
 				return service.ClassifyModelValidation(localErr, channeladapter.GatewayError(upstreamErr))
-			})
+			}, common.MaskSensitiveInfo)
 		}),
 		ListChannelModels:        list_channel_models.NewHTTP(list_channel_models.NewUsecase(effects.ChannelListModels)),
 		ListEnabledChannelModels: list_enabled_channel_models.NewHTTP(list_enabled_channel_models.NewUsecase(model.GetEnabledModels)),
@@ -325,7 +325,7 @@ func NewChannelTestTaskUsecase(effects ChannelEffects) run_channel_tests.Usecase
 }
 
 func NewChannelModelUpdateRules(store repository.Store) channeldomain.ModelUpdateRules {
-	return channeldomain.ModelUpdateRules{Errors: func() channeldomain.ModelMappingErrors {
+	return channeldomain.ModelUpdateRules{Codec: store, Errors: func() channeldomain.ModelMappingErrors {
 		return channeldomain.ModelMappingErrors{ErrModelNameEmpty: model.ErrModelNameEmpty, ErrModelMappingCycle: model.ErrModelMappingCycle, ErrModelMappingSourceEmpty: model.ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty: model.ErrModelMappingTargetEmpty, ErrModelMappingConflict: model.ErrModelMappingConflict}
 	}, Canonicalize: store.Canonicalize, Now: common.GetTimestamp}
 }

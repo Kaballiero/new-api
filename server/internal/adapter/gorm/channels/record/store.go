@@ -28,12 +28,13 @@ type Environment struct {
 	UpdateAbilityByTag            func(string, *string, *int64, *uint) error
 }
 type Store struct {
+	Codec
 	environment Environment
 	states      map[*domain.Channel]*Channel
 }
 
 func NewStore(environment Environment) Store {
-	return Store{environment: environment, states: make(map[*domain.Channel]*Channel)}
+	return Store{Codec: Codec{Log: common.SysLog}, environment: environment, states: make(map[*domain.Channel]*Channel)}
 }
 func (store Store) GetAllChannels(startIdx int, num int, selectAll bool, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
 	var channels []*Channel
@@ -418,7 +419,9 @@ func (store Store) Update(channel *Channel) error {
 }
 func (store Store) UpdateWithTx(channel *Channel, tx *gorm.DB) error {
 	value := ToDomain(channel)
-	domain.ReconcileMultiKeyInfo(value)
+	if value.ChannelInfo.IsMultiKey {
+		domain.ReconcileMultiKeyInfo(value, store.ReconciledKeys(value.Key))
+	}
 	channel.ChannelInfo = FromDomain(value).ChannelInfo
 	if err := tx.Model(channel).Updates(channel).Error; err != nil {
 		return err

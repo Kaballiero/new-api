@@ -2,7 +2,7 @@ package run_channel_tests
 
 import (
 	"context"
-	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"strings"
 	"sync"
@@ -64,7 +64,7 @@ func (usecase Usecase) Execute(ctx context.Context, mode string, notify bool, re
 }
 func (usecase Usecase) HealthCheck(ctx context.Context, channel *domain.Channel, testUserID int, allowDisable bool, disableThreshold int64) domain.HealthSummary {
 	summary := domain.HealthSummary{}
-	isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+	isChannelEnabled := channel.Status == constant.ChannelStatusEnabled
 	tik := time.Now()
 	result := usecase.probe.Test(ctx, channel, testUserID, "", "", usecase.stream(channel))
 	milliseconds := time.Since(tik).Milliseconds()
@@ -146,7 +146,7 @@ func (usecase Usecase) Workers(
 					}
 
 					result := domain.HealthSummary{}
-					if channel != nil && channel.Status != common.ChannelStatusManuallyDisabled {
+					if channel != nil && channel.Status != constant.ChannelStatusManuallyDisabled {
 						result = run(ctx, channel)
 					}
 
@@ -216,13 +216,13 @@ func (usecase Usecase) Perform(ctx context.Context, channels []*domain.Channel, 
 func SelectChannels(channels []*domain.Channel, mode string) []*domain.Channel {
 	selected := make([]*domain.Channel, 0, len(channels))
 	for _, channel := range channels {
-		if channel.Status == common.ChannelStatusManuallyDisabled {
+		if channel.Status == constant.ChannelStatusManuallyDisabled {
 			continue
 		}
 		if mode == "auto_ban_only" && !channel.GetAutoBan() {
 			continue
 		}
-		if mode == "passive_recovery" && channel.Status != common.ChannelStatusAutoDisabled {
+		if mode == "passive_recovery" && channel.Status != constant.ChannelStatusAutoDisabled {
 			continue
 		}
 		selected = append(selected, channel)

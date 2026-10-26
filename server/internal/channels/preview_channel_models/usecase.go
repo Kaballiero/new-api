@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 type Store interface {
 	domain.Configuration
+	DecodeHeaderOverride(string) (map[string]any, error)
 	Get(int, bool) (*domain.Channel, error)
 	// EditAdvancedCustom reads the gateway settings of the channel and returns
 	// the function that stores them back, with the advanced routes replaced by
@@ -107,8 +107,7 @@ func (usecase Usecase) Preview(req FetchModelsRequest) (*domain.Channel, error) 
 	if req.HeaderOverride != nil {
 		rawHeaderOverride := strings.TrimSpace(*req.HeaderOverride)
 		if rawHeaderOverride != "" {
-			var headerOverride map[string]any
-			if err := common.UnmarshalJsonStr(rawHeaderOverride, &headerOverride); err != nil {
+			if _, err := usecase.store.DecodeHeaderOverride(rawHeaderOverride); err != nil {
 				return nil, fmt.Errorf("header_override must be a JSON object: %w", err)
 			}
 		}

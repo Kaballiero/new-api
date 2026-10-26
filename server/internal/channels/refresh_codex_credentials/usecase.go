@@ -9,6 +9,7 @@ import (
 )
 
 type Store interface {
+	DecodeCodexKey(string) (*domain.CodexOAuthKey, error)
 	RefreshCandidates(int) ([]*domain.Channel, int, error)
 }
 type Usecase struct {
@@ -57,7 +58,7 @@ func (usecase Usecase) Execute() {
 				continue
 			}
 
-			oauthKey, err := domain.ParseCodexOAuthKey(rawKey)
+			oauthKey, err := domain.ParseCodexOAuthKey(rawKey, usecase.store.DecodeCodexKey)
 			if err != nil {
 				continue
 			}

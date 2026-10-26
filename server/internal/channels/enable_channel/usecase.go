@@ -1,7 +1,7 @@
 package enable_channel
 
 import (
-	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 )
 
 // Notifier tells the administrators about a re-enabled channel.
@@ -18,7 +18,7 @@ func NewUsecase(update func(int, string, int, string) bool, notifier Notifier) U
 	return Usecase{update: update, notifier: notifier}
 }
 func (usecase Usecase) Execute(channelId int, usingKey string, channelName string) {
-	success := usecase.update(channelId, usingKey, common.ChannelStatusEnabled, "")
+	success := usecase.update(channelId, usingKey, constant.ChannelStatusEnabled, "")
 	if success {
 		usecase.notifier.ChannelEnabled(channelId, channelName)
 	}

@@ -6,7 +6,7 @@ import (
 )
 
 func channelModelIdentity() domain.ModelIdentity {
-	return domain.ModelIdentity{Errors: func() domain.ModelIdentityErrors {
+	return domain.ModelIdentity{Codec: record.Codec{}, Errors: func() domain.ModelIdentityErrors {
 		return domain.ModelIdentityErrors{ErrCanonicalModelCollision: ErrCanonicalModelCollision, ErrModelAliasCycle: ErrModelAliasCycle, ErrModelMappingConflict: ErrModelMappingConflict, ErrModelMappingCycle: ErrModelMappingCycle, ErrModelMappingSourceEmpty: ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty: ErrModelMappingTargetEmpty, ErrModelNameEmpty: ErrModelNameEmpty}
 	}}
 }

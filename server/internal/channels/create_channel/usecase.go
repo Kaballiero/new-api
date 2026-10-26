@@ -10,6 +10,7 @@ import (
 
 type Store interface {
 	domain.Configuration
+	DecodeVertexKeys(string) ([]string, error)
 	// VertexJSONKeys reports whether a Vertex AI channel takes service account
 	// JSON keys rather than API keys.
 	VertexJSONKeys(*domain.Channel) bool
@@ -44,7 +45,7 @@ func (usecase Usecase) Execute(addChannelRequest AddChannelRequest) error {
 		addChannelRequest.Channel.ChannelInfo.IsMultiKey = true
 		addChannelRequest.Channel.ChannelInfo.MultiKeyMode = addChannelRequest.MultiKeyMode
 		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && usecase.store.VertexJSONKeys(addChannelRequest.Channel) {
-			array, err := domain.VertexArrayKeys(addChannelRequest.Channel.Key)
+			array, err := domain.VertexArrayKeys(addChannelRequest.Channel.Key, usecase.store.DecodeVertexKeys)
 			if err != nil {
 				return domain.Invalid(err)
 			}
@@ -67,7 +68,7 @@ func (usecase Usecase) Execute(addChannelRequest AddChannelRequest) error {
 		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && usecase.store.VertexJSONKeys(addChannelRequest.Channel) {
 			// multi json
 			var verr error
-			keys, verr = domain.VertexArrayKeys(addChannelRequest.Channel.Key)
+			keys, verr = domain.VertexArrayKeys(addChannelRequest.Channel.Key, usecase.store.DecodeVertexKeys)
 			if verr != nil {
 				return domain.Invalid(verr)
 			}
