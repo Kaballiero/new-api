@@ -976,6 +976,8 @@ func TestBatchReleaseUnsubmitted(t *testing.T) {
 			require.Len(t, entries, 1)
 			// A foreign lease only blocks this attempt; the Batch itself is releasable.
 			assert.Equal(t, tc.eligible || tc.foreign, entries[0].CanRelease, "the operator queue uses the release predicate")
+			// Recovery only needs an unknown creation without identity; results do not block it.
+			assert.Equal(t, !tc.submitted && !tc.interrupted && !tc.halfApplied, entries[0].CanRecover, "the operator queue uses the recovery predicate")
 			require.NotNil(t, entries[0].Diagnostic)
 			if tc.interrupted || tc.halfApplied {
 				assert.Equal(t, batchOperatorReleasedCode, entries[0].Diagnostic.Code)

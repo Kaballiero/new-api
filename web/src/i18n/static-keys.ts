@@ -34,6 +34,12 @@ export const STATIC_I18N_KEYS = [
   // Batch hold release validation (system-info panel).
   'Enter provider evidence',
   'Evidence must be at most 4096 characters',
+  // Batch recovery by provider ID (system-info panel).
+  'Enter the provider Batch ID',
+  'Batch ID must be at most 191 characters',
+  'Use letters, digits, _ and - only, optionally prefixed with batches/',
+  'Provider ownership could not be verified; the Batch is unchanged.',
+  'This Batch can no longer be recovered by ID; the Batch is unchanged.',
   // OpenRouter reserve policy validation.
   'Use exact model IDs and finite positive USD amounts',
   'Use exact model IDs with upstream or configured_price',

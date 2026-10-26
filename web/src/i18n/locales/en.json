@@ -6313,6 +6313,21 @@
     "Evidence is required": "Evidence is required",
     "Enter a USD amount with at most 12 decimal places": "Enter a USD amount with at most 12 decimal places",
     "Cost must be greater than 0": "Cost must be greater than 0",
-    "Cost must be at most 50 USD": "Cost must be at most 50 USD"
+    "Cost must be at most 50 USD": "Cost must be at most 50 USD",
+    "Recover by ID": "Recover by ID",
+    "Recover Batch by ID": "Recover Batch by ID",
+    "Bind Batch {{id}} to the provider Batch you found. The hold is then settled by actual cost.": "Bind Batch {{id}} to the provider Batch you found. The hold is then settled by actual cost.",
+    "Recover": "Recover",
+    "Use only a Batch that exists in the provider dashboard. Ownership is verified against the requests of this Batch; if it cannot be verified, nothing changes.": "Use only a Batch that exists in the provider dashboard. Ownership is verified against the requests of this Batch; if it cannot be verified, nothing changes.",
+    "Provider Batch ID": "Provider Batch ID",
+    "For example batch_abc123, msgbatch_abc123 or batches/abc123.": "For example batch_abc123, msgbatch_abc123 or batches/abc123.",
+    "Recovery failed": "Recovery failed",
+    "Batch recovered; polling resumes with actual cost": "Batch recovered; polling resumes with actual cost",
+    "Enter the provider Batch ID": "Enter the provider Batch ID",
+    "Batch ID must be at most 191 characters": "Batch ID must be at most 191 characters",
+    "Use letters, digits, _ and - only, optionally prefixed with batches/": "Use letters, digits, _ and - only, optionally prefixed with batches/",
+    "Provider ownership could not be verified; the Batch is unchanged.": "Provider ownership could not be verified; the Batch is unchanged.",
+    "This Batch can no longer be recovered by ID; the Batch is unchanged.": "This Batch can no longer be recovered by ID; the Batch is unchanged.",
+    "For Gemini use the full name, e.g. batches/abc123": "For Gemini use the full name, e.g. batches/abc123"
   }
 }

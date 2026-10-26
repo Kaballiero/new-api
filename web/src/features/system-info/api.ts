@@ -20,6 +20,7 @@ import { api } from '@/lib/api'
 
 import type {
   BatchReconciliationListResponse,
+  BatchRecoverResponse,
   BatchReleaseResponse,
   SystemInstanceDeleteResponse,
   SystemInstanceListResponse,
@@ -61,4 +62,13 @@ export async function releaseUnsubmittedBatch(id: string, evidence: string) {
     { evidence }
   )
   return { status: res.status, data: res.data }
+}
+
+/** The server verifies provider ownership before binding the identity. */
+export async function recoverBatch(id: string, upstreamId: string) {
+  const res = await api.post<BatchRecoverResponse>(
+    `/api/batches/${encodeURIComponent(id)}/recover`,
+    { upstream_id: upstreamId }
+  )
+  return res.data
 }

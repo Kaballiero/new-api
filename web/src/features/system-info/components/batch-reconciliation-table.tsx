@@ -65,6 +65,7 @@ type BatchReconciliationTableProps = {
   jobs: BatchReconciliationJob[]
   releasingId: string | null
   onRelease: (job: BatchReconciliationJob) => void
+  onRecover: (job: BatchReconciliationJob) => void
 }
 
 export function BatchReconciliationTable(props: BatchReconciliationTableProps) {
@@ -130,7 +131,16 @@ export function BatchReconciliationTable(props: BatchReconciliationTableProps) {
                   toIntlLocale(i18n.language)
                 )}
               </TableCell>
-              <TableCell className='py-3 pr-4 text-right align-middle'>
+              <TableCell className='space-x-2 py-3 pr-4 text-right align-middle whitespace-nowrap'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  disabled={!job.can_recover}
+                  onClick={() => props.onRecover(job)}
+                >
+                  {t('Recover by ID')}
+                </Button>
                 <Button
                   type='button'
                   variant='outline'

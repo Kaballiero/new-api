@@ -6313,6 +6313,21 @@
     "Evidence is required": "请填写证据",
     "Enter a USD amount with at most 12 decimal places": "请输入最多 12 位小数的美元金额",
     "Cost must be greater than 0": "成本必须大于 0",
-    "Cost must be at most 50 USD": "成本最多为 50 美元"
+    "Cost must be at most 50 USD": "成本最多为 50 美元",
+    "Recover by ID": "按 ID 恢复",
+    "Recover Batch by ID": "按 ID 恢复 Batch",
+    "Bind Batch {{id}} to the provider Batch you found. The hold is then settled by actual cost.": "将 Batch {{id}} 绑定到您找到的供应商 Batch，之后按实际费用结算预留额度。",
+    "Recover": "恢复",
+    "Use only a Batch that exists in the provider dashboard. Ownership is verified against the requests of this Batch; if it cannot be verified, nothing changes.": "仅使用供应商控制台中确实存在的 Batch。系统会根据此 Batch 的请求校验归属；无法校验时不做任何更改。",
+    "Provider Batch ID": "供应商 Batch ID",
+    "For example batch_abc123, msgbatch_abc123 or batches/abc123.": "例如 batch_abc123、msgbatch_abc123 或 batches/abc123。",
+    "Recovery failed": "恢复失败",
+    "Batch recovered; polling resumes with actual cost": "Batch 已恢复，将继续轮询并按实际费用结算",
+    "Enter the provider Batch ID": "请输入供应商 Batch ID",
+    "Batch ID must be at most 191 characters": "Batch ID 最多 191 个字符",
+    "Use letters, digits, _ and - only, optionally prefixed with batches/": "仅可使用字母、数字、_ 和 -，可带 batches/ 前缀",
+    "Provider ownership could not be verified; the Batch is unchanged.": "无法校验供应商归属；Batch 未更改。",
+    "This Batch can no longer be recovered by ID; the Batch is unchanged.": "此 Batch 已无法按 ID 恢复；Batch 未更改。",
+    "For Gemini use the full name, e.g. batches/abc123": "Gemini 请填写完整名称，例如 batches/abc123"
   }
 }

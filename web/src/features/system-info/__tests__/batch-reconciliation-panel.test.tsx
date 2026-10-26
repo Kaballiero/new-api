@@ -67,15 +67,21 @@ function job(
     diagnostic: { code: 'transport_error', message: 'm' },
     reason: 'submission_unknown',
     can_release: true,
+    can_recover: true,
     ...overrides,
   }
 }
 
 type ReleaseReply = { status: number; data: unknown }
 
-function serve(lists: BatchReconciliationJob[][], release?: ReleaseReply) {
+function serve(
+  lists: BatchReconciliationJob[][],
+  release?: ReleaseReply,
+  recover?: ReleaseReply
+) {
   let listCalls = 0
   const releases: unknown[] = []
+  const recoveries: unknown[] = []
   const reply = (
     config: InternalAxiosRequestConfig,
     status: number,
@@ -110,6 +116,14 @@ function serve(lists: BatchReconciliationJob[][], release?: ReleaseReply) {
       releases.push(JSON.parse(String(config.data)))
       return reply(config, release.status, release.data)
     }
+    if (
+      config.method === 'post' &&
+      config.url === '/api/batches/batch_unknown/recover' &&
+      recover
+    ) {
+      recoveries.push(JSON.parse(String(config.data)))
+      return reply(config, recover.status, recover.data)
+    }
     throw new Error(`Unexpected request: ${config.method} ${config.url}`)
   }
   api.defaults.adapter = adapter
@@ -119,7 +133,7 @@ function serve(lists: BatchReconciliationJob[][], release?: ReleaseReply) {
       <BatchReconciliationPanel />
     </QueryClientProvider>
   )
-  return { releases, listCalls: () => listCalls }
+  return { releases, recoveries, listCalls: () => listCalls }
 }
 
 it('disables the release action when the Batch cannot be released', async () => {
@@ -199,6 +213,97 @@ it('shows the server conflict once and keeps the dialog open when release is ine
 
   await waitFor(() =>
     expect(notify.mock.calls.map(([text]) => text)).toEqual([message])
+  )
+  await waitFor(() => expect(server.listCalls()).toBe(2))
+  expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+})
+
+it('disables recovery when the Batch cannot be recovered by ID', async () => {
+  serve([[job({ id: 'batch_submitted', can_recover: false })]])
+
+  const row = (await screen.findByText('batch_submitted')).closest('tr')
+  expect(row).not.toBeNull()
+  expect(
+    within(row as HTMLElement).getByRole('button', { name: 'Recover by ID' })
+  ).toBeDisabled()
+})
+
+it('keeps recovery confirmation disabled for an empty or malformed Batch ID', async () => {
+  const user = userEvent.setup()
+  const server = serve([[job({})]], undefined, {
+    status: 200,
+    data: { success: true },
+  })
+
+  await user.click(await screen.findByRole('button', { name: 'Recover by ID' }))
+  const dialog = await screen.findByRole('alertdialog')
+  const confirm = within(dialog).getByRole('button', { name: 'Recover' })
+  const input = within(dialog).getByLabelText('Provider Batch ID')
+  expect(confirm).toBeDisabled()
+  await user.type(input, '   ')
+  expect(confirm).toBeDisabled()
+  await user.type(input, 'batch/../../files')
+  await waitFor(() => expect(input).toHaveAttribute('aria-invalid', 'true'))
+  expect(confirm).toBeDisabled()
+  expect(server.recoveries).toEqual([])
+})
+
+it('sends the trimmed Batch ID and refetches the queue after recovery', async () => {
+  const user = userEvent.setup()
+  const notify = vi.spyOn(toast, 'success').mockReturnValue('recovered')
+  const server = serve([[job({})], []], undefined, {
+    status: 200,
+    data: { success: true, id: 'batch_unknown' },
+  })
+
+  await user.click(await screen.findByRole('button', { name: 'Recover by ID' }))
+  const dialog = await screen.findByRole('alertdialog')
+  await user.type(
+    within(dialog).getByLabelText('Provider Batch ID'),
+    '  batches/abc-123_x  '
+  )
+  const confirm = within(dialog).getByRole('button', { name: 'Recover' })
+  await waitFor(() => expect(confirm).toBeEnabled())
+  await user.click(confirm)
+
+  await waitFor(() => expect(server.listCalls()).toBe(2))
+  expect(server.recoveries).toEqual([{ upstream_id: 'batches/abc-123_x' }])
+  expect(notify).toHaveBeenCalledTimes(1)
+  expect(
+    await screen.findByText('No Batches need reconciliation.')
+  ).toBeInTheDocument()
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+})
+
+it('explains an unverified ownership once and keeps the dialog open', async () => {
+  const user = userEvent.setup()
+  const notify = vi.spyOn(toast, 'error').mockReturnValue('unverified')
+  const server = serve([[job({})]], undefined, {
+    status: 409,
+    data: {
+      error: {
+        type: 'batch_error',
+        code: 'recovery_unverified',
+        message:
+          'provider ownership could not be verified; Batch remains unchanged',
+      },
+    },
+  })
+
+  await user.click(await screen.findByRole('button', { name: 'Recover by ID' }))
+  const dialog = await screen.findByRole('alertdialog')
+  await user.type(
+    within(dialog).getByLabelText('Provider Batch ID'),
+    'batch_foreign'
+  )
+  const confirm = within(dialog).getByRole('button', { name: 'Recover' })
+  await waitFor(() => expect(confirm).toBeEnabled())
+  await user.click(confirm)
+
+  await waitFor(() =>
+    expect(notify.mock.calls.map(([text]) => text)).toEqual([
+      'Provider ownership could not be verified; the Batch is unchanged.',
+    ])
   )
   await waitFor(() => expect(server.listCalls()).toBe(2))
   expect(screen.getByRole('alertdialog')).toBeInTheDocument()
