@@ -35,6 +35,7 @@ Metadata и prefill используют разные status/error envelopes; т
   `catalog_prefill.go` — prefill handlers. Все используют once assembly и поздние runtime readers.
 - `adapter/gorm/catalog/record` владеет models/vendors/prefill records, SQL codecs и persistence.
   `adapter/gorm/catalog` даёт consumer ports и owner/reserve queries с прежней фильтрацией/порядком.
+- `adapter/catalog.Codec` декодирует endpoints в типизированные факты и формирует версии тем же JSON encoder и SHA256; metadata preview получает через него прежнее JSON-представление полей.
 - `adapter/catalog/upstream` — HTTP/ETag/body cache, concurrent model/vendor fetch и source versions.
 - `adapter/gorm/accounts` сохраняет account cache/DB preference/group reads. Цена и alias matching
   приходят через capabilities прежних владельцев; алгоритмы pricing не копируются.
@@ -42,8 +43,10 @@ Metadata и prefill используют разные status/error envelopes; т
   отдельные live dashboard overrides. `relay/modelview` владеет OpenAI/Anthropic/Gemini wire formats.
   Бизнес использует plain facts через `adapter/gateway/catalog`, без relaykit imports.
 
-Domain содержит metadata rules, общие mutation/enrichment rules и business errors. Новые
-availability/prefill facts находятся в чистых leaf packages `domain/availability`, `domain/prefill`.
+Domain содержит чистые metadata/enrichment rules, business errors и общие availability/prefill facts
+(`AvailableModel`, `PrefillGroup`). JSON codecs и version hashing приходят через явные capabilities.
+MetadataMutation принадлежит apply_metadata_sync; create_model и update_model объявляют собственные
+узкие ModelMutation для своих транзакций.
 Сериализация SQL JSON и HTTP raw JSON принадлежат соответствующим codecs; поля копируются явно.
 
 ## Мосты и остатки
@@ -54,7 +57,5 @@ assembly. `model.Model`, `Vendor`, `PrefillGroup` и сопутствующие 
 
 `model.NewCatalogPersistence` сохраняет composition с единственными metadata mutex/transaction,
 option-row anchor и private PricingMutation callback. Это общая граница с pricing/options до
-появления их владельца; вся catalog/model cleanup не завершена. Root `catalog/domain` пока
-импортирует common для codecs/version hashes: при cleanup нужно вынести зависимость и объединить
-чистые leaf packages обратно, сохранив версии и байты. Новые availability/prefill usecases root
-с этой зависимостью не импортируют.
+появления их владельца; вся catalog/model cleanup не завершена. Domain и usecases не зависят
+транзитивно от common, транспорта, ORM или Redis.
