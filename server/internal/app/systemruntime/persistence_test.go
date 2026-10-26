@@ -51,6 +51,7 @@ func TestSystemSetupPersistencePostgres(t *testing.T) {
 	constant.Setup = false
 	t.Cleanup(func() { constant.Setup = oldSetup })
 	settings.Initialize()
+	require.NoError(t, i18n.Init())
 	body := `{"username":"bootstrap","password":"fixture-password-8","confirmPassword":"fixture-password-8","SelfUseModeEnabled":true,"DemoSiteEnabled":false}`
 	r := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(r)
