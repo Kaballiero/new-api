@@ -248,11 +248,13 @@ func TestOaiStreamHandlerSurfacesEmbeddedErrors(t *testing.T) {
 		tests := []struct {
 			name        string
 			relayFormat types.RelayFormat
+			channelType int
 			contains    []string
 		}{
 			{name: "OpenAI", relayFormat: types.RelayFormatOpenAI, contains: []string{`data: {"error":`, `"upstream_error"`}},
 			{name: "Claude", relayFormat: types.RelayFormatClaude, contains: []string{"event: error", `data: {"type":"error","error":`}},
-			{name: "Gemini", relayFormat: types.RelayFormatGemini, contains: []string{`data: {"error":`}},
+			{name: "Gemini", relayFormat: types.RelayFormatGemini, contains: []string{`data: {"error":`, `"upstream_error"`}},
+			{name: "Gemini OpenRouter", relayFormat: types.RelayFormatGemini, channelType: constant.ChannelTypeOpenRouter, contains: []string{`data: {"error":{"code":`, `"message":"upstream unavailable"`, `"status":"`}},
 		}
 
 		for _, tt := range tests {
@@ -260,6 +262,7 @@ func TestOaiStreamHandlerSurfacesEmbeddedErrors(t *testing.T) {
 				c, recorder, resp, info := newEmbeddedErrorTestRequest("data: {\"error\":{\"message\":\"upstream unavailable\",\"code\":\"provider_unavailable\"}}\n", http.StatusOK)
 				info.RelayMode = relayconstant.RelayModeChatCompletions
 				info.RelayFormat = tt.relayFormat
+				info.ChannelType = tt.channelType
 				info.ChannelSetting.ForceFormat = true
 				info.ChannelSetting.ThinkingToContent = true
 				resp.Header.Set("Content-Type", "text/event-stream")
@@ -1829,6 +1832,7 @@ func TestOpenRouterSyncProviderFinalPayload(t *testing.T) {
 	}{
 		{"chat", "/v1/chat/completions", `{"model":"vendor/provider-test","messages":[{"role":"user","content":"OK"}],"max_tokens":8}`, relayconstant.RelayModeChatCompletions, types.RelayFormatOpenAI},
 		{"messages converted to Chat", "/v1/messages", `{"model":"vendor/provider-test","messages":[{"role":"user","content":"OK"}],"max_tokens":8}`, relayconstant.RelayModeUnknown, types.RelayFormatClaude},
+		{"generateContent converted to Chat", "/v1beta/models/vendor/provider-test:generateContent", `{"model":"vendor/provider-test","messages":[{"role":"user","content":"OK"}],"max_tokens":8}`, relayconstant.RelayModeGemini, types.RelayFormatGemini},
 		{"embeddings", "/v1/embeddings", `{"model":"vendor/provider-test","input":"OK"}`, relayconstant.RelayModeEmbeddings, types.RelayFormatEmbedding},
 		{"responses", "/v1/responses", `{"model":"vendor/provider-test","input":"OK","max_output_tokens":8}`, relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses},
 	} {
@@ -1866,6 +1870,9 @@ func TestOpenRouterSyncProviderFinalPayload(t *testing.T) {
 				}
 				info.ChannelBaseUrl, info.RequestURLPath = "https://openrouter.test/api", operation.path
 				info.RelayMode, info.RelayFormat = operation.mode, operation.format
+				if operation.format == types.RelayFormatGemini {
+					info.Request = &dto.GeminiChatRequest{}
+				}
 				info.UpstreamModelName, info.OriginModelName = "vendor/provider-test", "vendor/provider-test"
 				info.ParamOverride = variant.override
 				info.PriceData.BillingGroupRatio = 1
@@ -1919,6 +1926,162 @@ func TestOpenRouterSyncProviderFinalPayload(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestOpenRouterGeminiNativeAdmission(t *testing.T) {
+	const model = "vendor/provider-test"
+	const metadata = `{"data":{"id":"vendor/provider-test","endpoints":[{"tag":"openai","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`
+	chatBody := `{"model":"vendor/provider-test","messages":[{"role":"user","content":"OK"}],"max_tokens":8}`
+	t.Run("only generateContent actions reach the priced Chat contract", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, path  string
+			passThrough bool
+			request     dto.Request
+			want        string
+		}{
+			{name: "embedding body under a generateContent path", path: "/v1beta/models/vendor/embed-chat:generateContent", request: &dto.GeminiEmbeddingRequest{}, want: "OpenRouter operation lacks a validated cost reservation contract"},
+			{name: "embedContent", path: "/v1beta/models/vendor/provider-test:embedContent", want: "OpenRouter operation lacks a validated cost reservation contract"},
+			{name: "batchEmbedContents", path: "/v1beta/models/vendor/provider-test:batchEmbedContents", want: "OpenRouter operation lacks a validated cost reservation contract"},
+			{name: "countTokens", path: "/v1beta/models/vendor/provider-test:countTokens", want: "OpenRouter operation lacks a validated cost reservation contract"},
+			{name: "pass-through body", path: "/v1beta/models/vendor/provider-test:streamGenerateContent", passThrough: true, want: "OpenRouter Gemini requests require conversion; request pass-through is not supported"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				transport := &sonarAdmissionTransport{metadata: metadata}
+				client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+				require.NoError(t, err)
+				previous := client.Transport
+				client.Transport = transport
+				t.Cleanup(func() { client.Transport = previous })
+				c, _, _, info := newEmbeddedErrorTestRequest("", http.StatusOK)
+				c.Request = httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(chatBody))
+				info.ChannelType, info.RelayMode, info.RelayFormat = constant.ChannelTypeOpenRouter, relayconstant.RelayModeGemini, types.RelayFormatGemini
+				info.ChannelBaseUrl, info.RequestURLPath = "https://openrouter.test/api", tc.path
+				info.UpstreamModelName, info.OriginModelName = model, model
+				info.ChannelSetting.PassThroughBodyEnabled = tc.passThrough
+				info.Request = tc.request
+				if tc.request == nil {
+					info.Request = &dto.GeminiChatRequest{}
+				}
+				billing := &sonarAdmissionBilling{}
+				info.Billing = billing
+
+				response, err := (&Adaptor{}).DoRequest(c, info, strings.NewReader(chatBody))
+
+				require.Nil(t, response)
+				var apiErr *types.NewAPIError
+				require.ErrorAs(t, err, &apiErr)
+				assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+				assert.Equal(t, tc.want, apiErr.Error())
+				assert.Zero(t, transport.posts)
+				assert.Zero(t, transport.gets)
+				assert.Zero(t, billing.reserveCalls)
+			})
+		}
+	})
+
+	t.Run("unconvertible Gemini features are rejected before conversion", func(t *testing.T) {
+		for _, tc := range []struct{ name, body, want string }{
+			{"candidateCount above image bound", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"candidateCount":129}}`, "candidateCount must be between 1 and 128"},
+			{"candidateCount zero", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"candidateCount":0}}`, "candidateCount must be between 1 and 128"},
+			{"audio inlineData", `{"contents":[{"role":"user","parts":[{"inlineData":{"mimeType":"audio/wav","data":"AAAA"}}]}]}`, `inlineData mimeType "audio/wav" is not supported for OpenRouter channels; only image/* inputs are supported`},
+			{"pdf fileData", `{"contents":[{"role":"user","parts":[{"fileData":{"mimeType":"application/pdf","fileUri":"https://example.test/a.pdf"}}]}]}`, `fileData mimeType "application/pdf" is not supported for OpenRouter channels; only image/* inputs are supported`},
+			{"video inlineData", `{"contents":[{"role":"user","parts":[{"inline_data":{"mime_type":"video/mp4","data":"AAAA"}}]}]}`, `inlineData mimeType "video/mp4" is not supported for OpenRouter channels; only image/* inputs are supported`},
+			{"image in system instruction would be dropped", `{"systemInstruction":{"parts":[{"text":"be brief"},{"inlineData":{"mimeType":"image/png","data":"AAAA"}}]},"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, "systemInstruction non-text parts are not supported for OpenRouter channels; only text parts are supported"},
+			{"snake_case function declarations are not converted", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"function_declarations":[{"name":"lookup"}]}]}`, `tool "function_declarations" is not supported for OpenRouter channels; only functionDeclarations are supported`},
+			{"googleSearch tool", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"googleSearch":{}}]}`, `tool "googleSearch" is not supported for OpenRouter channels; only functionDeclarations are supported`},
+			{"googleSearchRetrieval tool", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":{"googleSearchRetrieval":{}}}`, `tool "googleSearchRetrieval" is not supported for OpenRouter channels; only functionDeclarations are supported`},
+			{"codeExecution tool", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[]},{"codeExecution":{}}]}`, `tool "codeExecution" is not supported for OpenRouter channels; only functionDeclarations are supported`},
+			{"urlContext tool", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"urlContext":{}}]}`, `tool "urlContext" is not supported for OpenRouter channels; only functionDeclarations are supported`},
+			{"cachedContent", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"cachedContent":"cachedContents/abc"}`, "cachedContent is not supported for OpenRouter channels"},
+			{"responseMimeType JSON", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"responseMimeType":"application/json"}}`, `generationConfig responseMimeType "application/json" is not supported for OpenRouter channels; only text/plain is supported`},
+			{"responseSchema", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"responseSchema":{"type":"OBJECT"}}}`, "generationConfig responseSchema is not supported for OpenRouter channels"},
+			{"snake_case response_json_schema", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"response_json_schema":{"type":"object"}}}`, "generationConfig responseJsonSchema is not supported for OpenRouter channels"},
+			{"toolConfig function calling mode", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"toolConfig":{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["lookup"]}}}`, "toolConfig is not supported for OpenRouter channels"},
+			{"presencePenalty", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"presencePenalty":0}}`, "generationConfig presencePenalty is not supported for OpenRouter channels"},
+			{"frequencyPenalty", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"frequency_penalty":0.5}}`, "generationConfig frequencyPenalty is not supported for OpenRouter channels"},
+			{"seed", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"seed":7}}`, "generationConfig seed is not supported for OpenRouter channels"},
+			{"responseLogprobs", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"responseLogprobs":true}}`, "generationConfig responseLogprobs is not supported for OpenRouter channels"},
+			{"logprobs", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"logprobs":3}}`, "generationConfig logprobs is not supported for OpenRouter channels"},
+			{"five stopSequences", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"stopSequences":["a","b","c","d","e"]}}`, "generationConfig stopSequences supports at most 4 entries for OpenRouter channels"},
+			{"speechConfig", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"speechConfig":{"voiceConfig":{}}}}`, "generationConfig speechConfig is not supported for OpenRouter channels"},
+			{"imageConfig", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"imageConfig":{"aspectRatio":"1:1"}}}`, "generationConfig imageConfig is not supported for OpenRouter channels"},
+			{"mediaResolution", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"mediaResolution":"MEDIA_RESOLUTION_LOW"}}`, "generationConfig mediaResolution is not supported for OpenRouter channels"},
+			{"part mediaResolution", `{"contents":[{"role":"user","parts":[{"inlineData":{"mimeType":"image/png","data":"AAAA"},"mediaResolution":{"level":"MEDIA_RESOLUTION_HIGH"}}]}]}`, "part mediaResolution is not supported for OpenRouter channels"},
+			{"functionCall mixed with text", `{"contents":[{"role":"user","parts":[{"text":"hi"}]},{"role":"model","parts":[{"text":"calling"},{"functionCall":{"name":"lookup","args":{}}}]}]}`, "functionCall parts mixed with text or media in one content are not supported for OpenRouter channels"},
+			{"functionResponse parts", `{"contents":[{"role":"user","parts":[{"functionResponse":{"name":"lookup","response":{"ok":true},"parts":[{"inlineData":{"mimeType":"image/png","data":"AAAA"}}]}}]}]}`, "functionResponse parts are not supported for OpenRouter channels"},
+			{"enableEnhancedCivicAnswers", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"enableEnhancedCivicAnswers":true}}`, "generationConfig enableEnhancedCivicAnswers is not supported for OpenRouter channels"},
+			{"executableCode part", `{"contents":[{"role":"model","parts":[{"executableCode":{"language":"PYTHON","code":"print(1)"}}]}]}`, "executableCode and codeExecutionResult parts are not supported for OpenRouter channels"},
+			{"codeExecutionResult part", `{"contents":[{"role":"user","parts":[{"codeExecutionResult":{"outcome":"OUTCOME_OK","output":"1"}}]}]}`, "executableCode and codeExecutionResult parts are not supported for OpenRouter channels"},
+			{"videoMetadata part", `{"contents":[{"role":"user","parts":[{"text":"hi","videoMetadata":{"startOffset":"1s"}}]}]}`, "part videoMetadata is not supported for OpenRouter channels"},
+			{"text and inlineData in one part", `{"contents":[{"role":"user","parts":[{"text":"describe","inlineData":{"mimeType":"image/png","data":"AAAA"}}]}]}`, "a part carrying both text and inlineData or fileData is not supported for OpenRouter channels; send them as separate parts"},
+			{"text and fileData in one part", `{"contents":[{"role":"user","parts":[{"text":"describe","fileData":{"mimeType":"image/png","fileUri":"https://example.test/a.png"}}]}]}`, "a part carrying both text and inlineData or fileData is not supported for OpenRouter channels; send them as separate parts"},
+			{"executableCode in system instruction", `{"systemInstruction":{"parts":[{"executableCode":{"code":"x"}}]},"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, "systemInstruction non-text parts are not supported for OpenRouter channels; only text parts are supported"},
+			{"snake_case generation_config", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generation_config":{"seed":7}}`, "generation_config is not supported for OpenRouter channels; use generationConfig"},
+			{"snake_case tool_config", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tool_config":{"function_calling_config":{"mode":"ANY"}}}`, "tool_config is not supported for OpenRouter channels; use toolConfig"},
+			{"snake_case cached_content", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"cached_content":"cachedContents/abc"}`, "cached_content is not supported for OpenRouter channels; use cachedContent"},
+			{"parametersJsonSchema declaration", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"name":"lookup","parametersJsonSchema":{"type":"object"}}]}]}`, `function declaration field "parametersJsonSchema" is not supported for OpenRouter channels; only name, description and parameters are supported`},
+			{"declaration response schema", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"name":"lookup","response":{"type":"OBJECT"}}]}]}`, `function declaration field "response" is not supported for OpenRouter channels; only name, description and parameters are supported`},
+			{"declaration responseJsonSchema", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"name":"lookup","responseJsonSchema":{"type":"object"}}]}]}`, `function declaration field "responseJsonSchema" is not supported for OpenRouter channels; only name, description and parameters are supported`},
+			{"declaration behavior", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"name":"lookup","behavior":"NON_BLOCKING"}]}]}`, `function declaration field "behavior" is not supported for OpenRouter channels; only name, description and parameters are supported`},
+			{"snake_case parameters_json_schema", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"name":"lookup","parameters_json_schema":{"type":"object"}}]}]}`, `function declaration field "parameters_json_schema" is not supported for OpenRouter channels; only name, description and parameters are supported`},
+			{"functionDeclarations object instead of array", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":{"name":"lookup"}}]}`, "functionDeclarations must be an array of function declaration objects"},
+			{"non-object function declaration", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":["lookup"]}]}`, "functionDeclarations must be an array of function declaration objects"},
+			{"function declaration without name", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"description":"no name"}]}]}`, "each function declaration requires a non-empty string name"},
+			{"media-only systemInstruction dropped before conversion", `{"systemInstruction":{"parts":[{"inlineData":{"mimeType":"image/png","data":"AAAA"}}]},"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, "systemInstruction non-text parts are not supported for OpenRouter channels; only text parts are supported"},
+			{"snake_case media-only system_instruction", `{"system_instruction":{"parts":[{"inline_data":{"mime_type":"image/png","data":"AAAA"}}]},"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, "systemInstruction non-text parts are not supported for OpenRouter channels; only text parts are supported"},
+			{"image output modality", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"responseModalities":["TEXT","IMAGE"]}}`, `responseModalities "IMAGE" is not supported for OpenRouter channels`},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				var request dto.GeminiChatRequest
+				require.NoError(t, common.UnmarshalJsonStr(tc.body, &request))
+				c, _, _, info := newEmbeddedErrorTestRequest("", http.StatusOK)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/vendor/provider-test:generateContent", strings.NewReader(tc.body))
+				c.Request.Header.Set("Content-Type", "application/json")
+				t.Cleanup(func() { common.CleanupBodyStorage(c) })
+				info.ChannelType, info.RelayMode, info.RelayFormat = constant.ChannelTypeOpenRouter, relayconstant.RelayModeGemini, types.RelayFormatGemini
+				info.UpstreamModelName, info.OriginModelName = model, model
+
+				converted, err := (&Adaptor{}).ConvertGeminiRequest(c, info, &request)
+
+				require.Nil(t, converted)
+				var apiErr *types.NewAPIError
+				require.ErrorAs(t, err, &apiErr)
+				assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+				assert.Equal(t, tc.want, apiErr.Error())
+				assert.Equal(t, types.GeminiError{Code: http.StatusBadRequest, Message: tc.want, Status: "INVALID_ARGUMENT"}, apiErr.ToGeminiError())
+			})
+		}
+	})
+
+	t.Run("supported request converts to Chat and other channels keep legacy conversion", func(t *testing.T) {
+		const body = `{"contents":[{"role":"user","parts":[{"text":"hi"},{"inlineData":{"mimeType":"image/png","data":"AAAA"}}]},{"role":"model","parts":[{"thought":true,"text":"plan"},{"functionCall":{"name":"lookup","args":{}}}]},{"role":"user","parts":[{"functionResponse":{"name":"lookup","response":{"ok":true}}}]}],"safetySettings":[{"category":"HARM_CATEGORY_HARASSMENT","threshold":"BLOCK_NONE"}],"safety_settings":[{"category":"HARM_CATEGORY_HATE_SPEECH","threshold":"BLOCK_NONE"}],"systemInstruction":{"parts":[{"text":"be brief"}]},"tools":[{"functionDeclarations":[{"name":"lookup","description":"find","parameters":{"type":"object"}}]}],"generationConfig":{"candidateCount":2,"maxOutputTokens":16,"responseModalities":["text"],"responseMimeType":"text/plain","stopSequences":["a","b","c","d"]}}`
+		var request dto.GeminiChatRequest
+		require.NoError(t, common.UnmarshalJsonStr(body, &request))
+		c, _, _, info := newEmbeddedErrorTestRequest("", http.StatusOK)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/vendor/provider-test:generateContent", strings.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		t.Cleanup(func() { common.CleanupBodyStorage(c) })
+		info.ChannelType, info.RelayMode, info.RelayFormat = constant.ChannelTypeOpenRouter, relayconstant.RelayModeGemini, types.RelayFormatGemini
+		info.UpstreamModelName, info.OriginModelName = model, model
+		converted, err := (&Adaptor{}).ConvertGeminiRequest(c, info, &request)
+		require.NoError(t, err)
+		chat, ok := converted.(*dto.GeneralOpenAIRequest)
+		require.True(t, ok)
+		assert.Equal(t, 2, *chat.N)
+		assert.Equal(t, uint(16), *chat.MaxTokens)
+		require.Len(t, chat.Tools, 1)
+		assert.Equal(t, "lookup", chat.Tools[0].Function.Name)
+		assert.JSONEq(t, `{"include":true}`, string(chat.Usage))
+		assert.Len(t, chat.Stop, 4)
+		assert.Len(t, chat.Messages, 4, "system, user, assistant tool call, tool result; safetySettings and safety_settings are ignored")
+
+		// A non-OpenRouter channel keeps the historical lossy conversion.
+		var hosted dto.GeminiChatRequest
+		require.NoError(t, common.UnmarshalJsonStr(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"googleSearch":{}}],"cachedContent":"cachedContents/abc","toolConfig":{"functionCallingConfig":{"mode":"ANY"}},"generationConfig":{"seed":7,"responseMimeType":"application/json"}}`, &hosted))
+		info.ChannelType = constant.ChannelTypeOpenAI
+		_, err = (&Adaptor{}).ConvertGeminiRequest(c, info, &hosted)
+		assert.NoError(t, err)
+	})
 }
 
 func TestOpenRouterRerankProviderRequiresReservationContract(t *testing.T) {

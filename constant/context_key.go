@@ -79,4 +79,8 @@ const (
 	ContextKeyTokenAuditParams ContextKey = "token_audit_params"
 	// ContextKeyTokenAuditSucceeded disambiguates token responses that exceed the audit buffer.
 	ContextKeyTokenAuditSucceeded ContextKey = "token_audit_succeeded"
+
+	// ContextKeyStreamErrorFrameWritten marks that a relay stream already ended
+	// with an in-stream error frame, so no second error frame is appended.
+	ContextKeyStreamErrorFrameWritten ContextKey = "stream_error_frame_written"
 )

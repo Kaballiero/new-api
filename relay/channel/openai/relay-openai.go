@@ -281,15 +281,22 @@ func writeEmbeddedOpenAIStreamError(c *gin.Context, info *relaycommon.RelayInfo,
 		return helper.FlushWriter(c)
 	}
 
-	payload, err := common.Marshal(struct {
+	var envelope any = struct {
 		Error types.OpenAIError `json:"error"`
-	}{Error: relayError.ToOpenAIError()})
+	}{Error: relayError.ToOpenAIError()}
+	if info.RelayFormat == types.RelayFormatGemini && info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeOpenRouter {
+		envelope = struct {
+			Error types.GeminiError `json:"error"`
+		}{Error: relayError.ToGeminiError()}
+	}
+	payload, err := common.Marshal(envelope)
 	if err != nil {
 		return err
 	}
 	if _, err := c.Writer.WriteString("data: " + string(payload) + "\n\n"); err != nil {
 		return err
 	}
+	common.SetContextKey(c, constant.ContextKeyStreamErrorFrameWritten, true)
 	return helper.FlushWriter(c)
 }
 

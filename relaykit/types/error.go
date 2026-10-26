@@ -23,6 +23,14 @@ type ClaudeError struct {
 	Message string `json:"message,omitempty"`
 }
 
+// GeminiError is the body of the native Gemini API error envelope
+// {"error":{"code":...,"message":...,"status":...}}.
+type GeminiError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Status  string `json:"status"`
+}
+
 type ErrorType string
 
 const (
@@ -237,6 +245,47 @@ func (e *NewAPIError) ToClaudeError() ClaudeError {
 		result.Message = string(e.errorType)
 	}
 	return result
+}
+
+// ToGeminiError renders the error with the HTTP status and the matching
+// google.rpc canonical status name used by the Gemini API.
+func (e *NewAPIError) ToGeminiError() GeminiError {
+	code := e.StatusCode
+	if code == 0 {
+		code = http.StatusInternalServerError
+	}
+	status := "INTERNAL"
+	switch code {
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge:
+		status = "INVALID_ARGUMENT"
+	case http.StatusUnauthorized:
+		status = "UNAUTHENTICATED"
+	case http.StatusPaymentRequired, http.StatusTooManyRequests:
+		status = "RESOURCE_EXHAUSTED"
+	case http.StatusForbidden:
+		status = "PERMISSION_DENIED"
+	case http.StatusNotFound:
+		status = "NOT_FOUND"
+	case http.StatusConflict:
+		status = "ABORTED"
+	case 499:
+		status = "CANCELLED"
+	case http.StatusNotImplemented:
+		status = "UNIMPLEMENTED"
+	case http.StatusBadGateway, http.StatusServiceUnavailable:
+		status = "UNAVAILABLE"
+	case http.StatusGatewayTimeout:
+		status = "DEADLINE_EXCEEDED"
+	default:
+		if code >= 400 && code < 500 {
+			status = "FAILED_PRECONDITION"
+		}
+	}
+	message := e.MaskSensitiveError()
+	if message == "" {
+		message = string(e.errorType)
+	}
+	return GeminiError{Code: code, Message: message, Status: status}
 }
 
 type NewAPIErrorOptions func(*NewAPIError)
