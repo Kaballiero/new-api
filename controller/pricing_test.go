@@ -76,11 +76,24 @@ func TestDecisionCatalogConsumerPrices(t *testing.T) {
 	mappingJSON, err := common.Marshal(mapping)
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&model.Channel{Id: 43, Type: constant.ChannelTypeOpenRouter, Key: "unused-fixture", Status: common.ChannelStatusEnabled, ModelMapping: common.GetPointer(string(mappingJSON))}).Error)
+	require.NoError(t, db.Create(&model.Vendor{Id: 4300, Name: "CLOUDFLARE"}).Error)
+	require.NoError(t, db.Create(&model.Vendor{Id: 4301, Name: "Explicit creator"}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "clef-omni", VendorID: 4301, Status: 1}).Error)
 	model.RefreshPricing()
 	items, _, revision, err := model.GetPricingCatalogueSnapshot()
 	require.NoError(t, err)
 	require.NotEmpty(t, revision)
 	require.Len(t, items, 4)
+	// Catalog authors fill only missing creators and never persist display vendors.
+	creators := map[string]int{}
+	for _, item := range items {
+		creators[item.ModelName] = item.VendorID
+	}
+	assert.Equal(t, map[string]int{"clef": 4300, "clef-flash": 4300, "clef-omni": 4301, "classify-1": -1073}, creators)
+	assert.Contains(t, model.GetVendors(), model.PricingVendor{ID: -1073, Name: "ScaleDown"})
+	var storedVendors int64
+	require.NoError(t, db.Model(&model.Vendor{}).Count(&storedVendors).Error)
+	assert.Equal(t, int64(2), storedVendors)
 	for _, item := range items {
 		t.Run(item.ModelName, func(t *testing.T) {
 			assert.Equal(t, "decision", item.CatalogType)
@@ -209,6 +222,56 @@ func TestDecisionCatalogConsumerPrices(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestCatalogAuthorCreatorPrecedence(t *testing.T) {
+	previousDB, previousLogDB, previousMemory := model.DB, model.LOG_DB, common.MemoryCacheEnabled
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB, common.MemoryCacheEnabled = previousDB, previousLogDB, previousMemory
+		model.InvalidatePricingCache()
+	})
+	db := setupModelListControllerTestDB(t)
+	common.MemoryCacheEnabled = false
+	require.NoError(t, db.AutoMigrate(&model.Option{}, &model.CatalogSource{}, &model.CatalogRevision{}, &model.CatalogDocument{}))
+	t.Setenv(model.CatalogAPIURLEnv, "https://catalog.fixture")
+	source, enabled, err := model.ConfiguredCatalogSource()
+	require.NoError(t, err)
+	require.True(t, enabled)
+	head, err := model.EnsureCatalogSource(context.Background(), source)
+	require.NoError(t, err)
+	fixture, err := os.ReadFile("../model/testdata/upstream_catalog/scaledown__classify-1.json")
+	require.NoError(t, err)
+	var doc catalogsync.Document
+	require.NoError(t, common.Unmarshal(fixture, &doc))
+	doc.Author = &catalogsync.Author{Namespace: "nvidia"}
+	raw, err := common.Marshal(doc)
+	require.NoError(t, err)
+	selection := model.CatalogSelection{SchemaVersion: 1, NormalizationVersion: "2", Models: []model.CatalogModelReference{{ID: doc.ID, Hash: catalogsync.Hash(raw)}}}
+	_, err = model.PublishCatalogSelection(context.Background(), head, selection, catalogsync.Hash([]byte("creator-precedence")), "2026-10-20T00:00:00Z", []model.CatalogDocument{{SourceID: source.ID, ModelID: doc.ID, Hash: catalogsync.Hash(raw), Payload: string(raw)}})
+	require.NoError(t, err)
+	mapping, err := common.Marshal(map[string]string{"llama-3.1-nemotron-70b": doc.ID, "doubao-stored": doc.ID})
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&model.Channel{Id: 44, Type: constant.ChannelTypeOpenRouter, Key: "unused-fixture", Status: common.ChannelStatusEnabled, ModelMapping: common.GetPointer(string(mapping))}).Error)
+	for _, name := range []string{"llama-3.1-nemotron-70b", "doubao-stored", "llama-local"} {
+		require.NoError(t, db.Create(&model.Ability{Model: name, Group: "default", ChannelId: 44, Enabled: true}).Error)
+	}
+	require.NoError(t, db.Create(&model.Vendor{Id: 4401, Name: "Stored creator"}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "doubao-stored", VendorID: 4401, Status: 1}).Error)
+	model.RefreshPricing()
+	items, _, _, err := model.GetPricingCatalogueSnapshot()
+	require.NoError(t, err)
+	creators := map[string]int{}
+	for _, item := range items {
+		creators[item.ModelName] = item.VendorID
+	}
+	vendorNames := map[int]string{}
+	for _, vendor := range model.GetVendors() {
+		vendorNames[vendor.ID] = vendor.Name
+	}
+	// Stored row > catalog author > model-name heuristic.
+	assert.Equal(t, "NVIDIA", vendorNames[creators["llama-3.1-nemotron-70b"]])
+	assert.Equal(t, 4401, creators["doubao-stored"])
+	assert.Equal(t, "Meta", vendorNames[creators["llama-local"]])
 }
 
 func TestConsumerCatalogBatchPricesStaySeparate(t *testing.T) {
@@ -1841,12 +1904,47 @@ func TestPublicPricingModelsTagsPagingAndSafeTariffs(t *testing.T) {
 	assert.Equal(t, 10, query.pageSize)
 	assert.Equal(t, 1, query.page)
 	ctx.pricing = nil
-	for i := range 12 {
-		ctx.pricing = append(ctx.pricing, model.Pricing{ModelName: fmt.Sprintf("model-%02d", i), Tags: "top", EnableGroup: []string{"default"}})
+	pricedOffer := func(price model.CatalogPrice) map[string][]model.CatalogOffer {
+		return map[string][]model.CatalogOffer{"default": {{ID: "fixture", Operation: "text", Mode: "sync", MainComponent: "input", Prices: []model.CatalogPrice{price}}}}
 	}
+	for i := range 12 {
+		ctx.pricing = append(ctx.pricing, model.Pricing{ModelName: fmt.Sprintf("model-%02d", i), Tags: "top", EnableGroup: []string{"default"}, CatalogOffersByGroup: pricedOffer(model.CatalogPrice{Component: "input", Unit: "million_tokens", AmountUSD: float(1)})})
+	}
+	ctx.pricing[11].CatalogOffersByGroup = pricedOffer(model.CatalogPrice{Component: "input", Unit: "million_tokens", AmountUSD: float(0)})
+	unpriced := map[string]map[string][]model.CatalogOffer{
+		"unpriced-no-offers":    nil,
+		"unpriced-empty-prices": {"default": {{ID: "fixture", Operation: "text", Mode: "sync", MainComponent: "input", Prices: []model.CatalogPrice{}}}},
+		"unpriced-nil-amount":   pricedOffer(model.CatalogPrice{Component: "input", Unit: "million_tokens"}),
+		"unpriced-unknown-unit": pricedOffer(model.CatalogPrice{Component: "input", Unit: "unknown", AmountUSD: float(1)}),
+	}
+	for name, offers := range unpriced {
+		ctx.pricing = append(ctx.pricing, model.Pricing{ModelName: name, Tags: "top", EnableGroup: []string{"default"}, CatalogOffersByGroup: offers})
+	}
+	// Mixed main-component units leave no selected headline price; only the tiers are priced.
+	tiered := []model.CatalogOffer{
+		{ID: "tiered:a", Operation: "text", Mode: "sync", MainComponent: "input", PublicConditional: true, PublicConditions: []billingexpr.TierCondition{{Var: "len", Op: "<=", Value: 100}}, Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: float(1)}}},
+		{ID: "tiered:b", Operation: "text", Mode: "sync", MainComponent: "input", PublicConditional: true, PublicConditions: []billingexpr.TierCondition{{Var: "len", Op: "<=", Value: 100, Negated: true}}, Prices: []model.CatalogPrice{{Component: "input", Unit: "million_characters", AmountUSD: float(2)}}},
+	}
+	ctx.pricing = append(ctx.pricing, model.Pricing{ModelName: "tiered-only", Tags: "top", EnableGroup: []string{"default"}, PublicCatalogOffersByGroup: map[string][]model.CatalogOffer{"default": tiered}})
+	before, err = common.Marshal(ctx.pricing)
+	require.NoError(t, err)
 	page = buildPublicPricingModelsPage(ctx, query)
 	assert.Len(t, page.Data, 10)
-	assert.Equal(t, 12, page.TotalCount)
+	assert.Equal(t, 13, page.TotalCount)
+	query.page = 2
+	page = buildPublicPricingModelsPage(ctx, query)
+	require.Len(t, page.Data, 3)
+	assert.Equal(t, "model-11", page.Data[1].ModelName, "a zero price is a confirmed free price")
+	assert.Equal(t, "tiered-only", page.Data[2].ModelName, "a price confirmed only by a tier is kept")
+	require.Len(t, page.Data[2].Tariff.Operations, 1)
+	assert.Empty(t, page.Data[2].Tariff.Operations[0].Prices)
+	assert.NotEmpty(t, page.Data[2].Tariff.Operations[0].Tiers)
+	for _, item := range page.Data {
+		assert.NotContains(t, item.ModelName, "unpriced")
+	}
+	after, err = common.Marshal(ctx.pricing)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after))
 }
 
 func TestPublicPricingModelsInvalidQuery(t *testing.T) {
@@ -3431,7 +3529,8 @@ func TestCatalogConsumerAuditCandidate534(t *testing.T) {
 func TestCatalogTypeConsumerWireAndFiltering(t *testing.T) {
 	items := []model.Pricing{}
 	for i, kind := range []string{"text", "speech", "speech", "transcription", "audio", "decision", "other", ""} {
-		items = append(items, model.Pricing{ModelName: fmt.Sprintf("model-%d", i), CatalogType: kind, CatalogModality: "OTHER", EnableGroup: []string{"default"}, Tags: "catalog"})
+		offers := map[string][]model.CatalogOffer{"default": {{ID: "fixture", Operation: "text", Mode: "sync", MainComponent: "input", Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: float(1)}}}}}
+		items = append(items, model.Pricing{ModelName: fmt.Sprintf("model-%d", i), CatalogType: kind, CatalogModality: "OTHER", EnableGroup: []string{"default"}, Tags: "catalog", CatalogOffersByGroup: offers})
 	}
 	context := effectivePricingPageContext{pricing: items, usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1}, fxFactor: 1}
 	for _, personal := range []bool{false, true} {
@@ -3495,7 +3594,8 @@ func TestCatalogTypeConsumerWireAndFiltering(t *testing.T) {
 func TestCatalogMissingTypeConsumerFiltering(t *testing.T) {
 	items := []model.Pricing{}
 	for i, kind := range []string{"text", "", "other", "", "speech", ""} {
-		items = append(items, model.Pricing{ModelName: fmt.Sprintf("model-%d", i), CatalogType: kind, CatalogModality: "OTHER", EnableGroup: []string{"default"}, Tags: "catalog"})
+		offers := map[string][]model.CatalogOffer{"default": {{ID: "fixture", Operation: "text", Mode: "sync", MainComponent: "input", Prices: []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: float(1)}}}}}
+		items = append(items, model.Pricing{ModelName: fmt.Sprintf("model-%d", i), CatalogType: kind, CatalogModality: "OTHER", EnableGroup: []string{"default"}, Tags: "catalog", CatalogOffersByGroup: offers})
 	}
 	context := effectivePricingPageContext{pricing: items, usableGroups: map[string]string{"default": "Default"}, groupRatios: map[string]float64{"default": 1}, fxFactor: 1}
 	for _, personal := range []bool{false, true} {

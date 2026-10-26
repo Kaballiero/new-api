@@ -21,10 +21,19 @@ For commercial licensing, please contact support@quantumnous.com
 export const STATIC_I18N_KEYS = [
   // OpenRouter synchronous task operator decision validation.
   'Evidence is required',
-  'Evidence must be at most 4096 characters',
   'Enter a USD amount with at most 12 decimal places',
   'Cost must be greater than 0',
   'Cost must be at most 50 USD',
+  // Batch reconciliation reasons (system-info panel).
+  'Creation outcome unknown',
+  'Creation outcome unknown for over 48 hours',
+  'Provider window exceeded',
+  'Finished without provider cost',
+  'Unsettled requests',
+  'Purchase cost unconfirmed',
+  // Batch hold release validation (system-info panel).
+  'Enter provider evidence',
+  'Evidence must be at most 4096 characters',
   // OpenRouter reserve policy validation.
   'Use exact model IDs and finite positive USD amounts',
   'Use exact model IDs with upstream or configured_price',

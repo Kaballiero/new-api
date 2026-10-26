@@ -66,6 +66,8 @@ type BatchFailure struct {
 	Message    string `json:"message"`
 	HTTPStatus int    `json:"http_status,omitempty"`
 	RequestID  string `json:"request_id,omitempty"`
+	// AlertedAt records the one operator alert for an overdue unknown creation.
+	AlertedAt int64 `json:"alerted_at,omitempty"`
 }
 
 func (job BatchJob) MarshalJSON() ([]byte, error) {
@@ -135,6 +137,18 @@ func GetBatchJob(userID int, publicID string) (*BatchJob, error) {
 func ListBatchJobs(userID int, before int64, limit int) ([]BatchJob, error) {
 	var jobs []BatchJob
 	query := DB.Where("user_id = ? AND deleted_at = 0", userID)
+	if before > 0 {
+		query = query.Where("id < ?", before)
+	}
+	err := query.Order("id desc").Limit(min(max(limit, 1), 101)).Find(&jobs).Error
+	return jobs, err
+}
+
+// ListBatchReconciliationJobs returns jobs an operator may need to reconcile,
+// newest first, using the internal id as a keyset cursor.
+func ListBatchReconciliationJobs(before int64, limit int) ([]BatchJob, error) {
+	var jobs []BatchJob
+	query := DB.Where("deleted_at = 0 AND (billing_status = ? OR purchase_status = ? OR submit_state = ?)", "reconciliation_required", "reconciliation_required", "submission_unknown")
 	if before > 0 {
 		query = query.Where("id < ?", before)
 	}

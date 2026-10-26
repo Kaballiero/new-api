@@ -1,6 +1,12 @@
 package plugins_test
 
 import (
+	"encoding/base64"
+	"io"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -9,6 +15,12 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
+	"github.com/QuantumNous/new-api/relay/channel/openrouter"
+	taskplugin "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -320,6 +332,154 @@ func TestOpenRouterSourceMediaDescriptor(t *testing.T) {
 			request["provider"] = map[string]any{"options": map[string]any{"provider": map[string]any{"keyframes": []any{}}}}
 			_, err = plugin.Engine.Call(t.Context(), "buildSubmitRequest", ctx)
 			require.ErrorContains(t, err, "Provider options are unsupported")
+		})
+	}
+}
+
+// Upscale creativity is numeric in the client and plugin contract but a
+// stringified enum usage fact; host validation must accept both forms of the
+// same value and the prepared order must select the matching tariff SKU.
+func TestOpenRouterVideoUpscaleCreativityThroughHostValidation(t *testing.T) {
+	service.InitHttpClient()
+	plugin, _ := openRouterVideoFixture(t)
+	const upscale = "black-forest-labs/flux-video-upscale"
+	data, err := os.ReadFile("../relay/channel/openrouter/testdata/source-640x480-2s.mp4")
+	require.NoError(t, err)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v1/videos/models", r.URL.Path)
+		_, err := io.WriteString(w, `{"data":[{"id":"`+upscale+`","pricing_skus":{"cents_per_megapixel_second_precise":"3.5","cents_per_megapixel_second_creative":"5"}}]}`)
+		assert.NoError(t, err)
+	}))
+	defer server.Close()
+	megapixelSeconds := float64(640*480) * 1.5 * 1.5 * 2 / 1048576
+	for _, test := range []struct {
+		name       string
+		model      string
+		fields     map[string]any
+		wantCode   string
+		wantError  string
+		wantFact   string
+		wantDollar float64
+	}{
+		{name: "precise creativity 0", fields: map[string]any{"creativity": 0}, wantFact: "0", wantDollar: megapixelSeconds * .035},
+		{name: "creative creativity 1", fields: map[string]any{"creativity": 1}, wantFact: "1", wantDollar: megapixelSeconds * .05},
+		{name: "creativity outside enum", fields: map[string]any{"creativity": 2}, wantCode: "plugin_usage_invalid", wantError: "plugin usage enum is not an allowed value"},
+		{name: "non-numeric creativity", fields: map[string]any{"creativity": "x"}, wantCode: "plugin_usage_invalid", wantError: "plugin usage enum is not an allowed value"},
+		{name: "string enum key still checked", fields: map[string]any{"creativity": 0, "metadata": map[string]any{"resolution": "8K"}}, wantCode: "plugin_usage_invalid", wantError: "plugin usage enum is not an allowed value"},
+		{name: "source-derived resolution without JS stack", fields: map[string]any{"creativity": 0, "resolution": "720p"}, wantCode: "plugin_request_invalid", wantError: "Unsupported resolution for " + upscale + ": output resolution is derived from the source video; omit resolution"},
+		{name: "source-derived edit resolution", model: "runway/aleph-2", fields: map[string]any{"resolution": "720p"}, wantCode: "plugin_request_invalid", wantError: "Unsupported resolution for runway/aleph-2: output resolution is derived from the source video; omit resolution"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.model == "" {
+				test.model = upscale
+			}
+			request := map[string]any{
+				"model":            test.model,
+				"input_references": []any{map[string]any{"type": "video_url", "video_url": map[string]any{"url": "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(data)}}},
+			}
+			if test.model == upscale {
+				request["upscale_factor"] = 1.5
+			}
+			maps.Copy(request, test.fields)
+			info := &relaycommon.RelayInfo{
+				ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: server.URL, UpstreamModelName: test.model,
+					ChannelSetting: dto.ChannelSettings{OpenRouterModelReserveUSD: map[string]float64{test.model: 1e-9}}},
+				OriginModelName: test.model,
+				TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+			}
+			adaptor := taskplugin.New(plugin)
+			adaptor.Init(info)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+			c.Set("task_request", request)
+			taskErr := adaptor.ValidateRequestAndSetAction(c, info)
+			if test.wantCode != "" {
+				require.NotNil(t, taskErr)
+				assert.Equal(t, test.wantCode, taskErr.Code)
+				assert.Equal(t, test.wantError, taskErr.Message)
+				return
+			}
+			require.Nil(t, taskErr)
+			reader, err := adaptor.BuildRequestBody(c, info)
+			require.NoError(t, err)
+			body, err := io.ReadAll(reader)
+			require.NoError(t, err)
+			var order openrouter.VideoPriceOrder
+			require.NoError(t, common.Unmarshal(body, &order))
+			assert.Equal(t, test.wantFact, order.UsageFacts()["creativity"])
+			cost, err := openrouter.EstimateVideo(c, info, body)
+			require.NoError(t, err)
+			assert.InDelta(t, test.wantDollar, cost, 1e-12)
+		})
+	}
+}
+
+// frame_images and images are count usage facts, but in the client request
+// they are media collections; the host pre-check must leave collections to the
+// plugin and still bound scalar values and the extracted counts. Collections
+// under non-count facts such as requested_seconds stay rejected. The plugin
+// caps every count it extracts at or below MaxImageN, so the host post-bound
+// is covered by TestTaskAdaptorBoundsNativeUsageBeforeQuotaCalculation.
+func TestOpenRouterVideoFrameImagesThroughHostValidation(t *testing.T) {
+	plugin, _ := openRouterVideoFixture(t)
+	const pngURI = "data:image/png;base64,iVBORw0KGgo="
+	frame := func(frameType string) any {
+		return map[string]any{"type": "image_url", "image_url": map[string]any{"url": pngURI}, "frame_type": frameType}
+	}
+	tooManyFrames := make([]any, dto.MaxImageN+1)
+	for i := range tooManyFrames {
+		tooManyFrames[i] = frame("first_frame")
+	}
+	for _, test := range []struct {
+		name       string
+		fields     map[string]any
+		wantCode   string
+		wantError  string
+		wantFrames int
+	}{
+		{name: "first and last frames", fields: map[string]any{"frame_images": []any{frame("first_frame"), frame("last_frame")}}, wantFrames: 2},
+		{name: "images collection", fields: map[string]any{"images": []any{pngURI}}, wantFrames: 1},
+		{name: "frames in metadata", fields: map[string]any{"metadata": map[string]any{"frame_images": []any{frame("first_frame")}}}, wantFrames: 1},
+		{name: "too many frames", fields: map[string]any{"frame_images": tooManyFrames}, wantCode: "plugin_request_invalid", wantError: "Too many input references"},
+		{name: "scalar count over host bound", fields: map[string]any{"images": dto.MaxImageN + 1}, wantCode: "plugin_usage_invalid", wantError: "plugin usage value exceeds the host limit"},
+		{name: "scalar non-number count", fields: map[string]any{"frame_images": "first_frame"}, wantCode: "plugin_usage_invalid", wantError: "plugin usage value must be a number"},
+		{name: "collection under seconds fact", fields: map[string]any{"requested_seconds": []any{}}, wantCode: "plugin_usage_invalid", wantError: "plugin usage value must be a number"},
+		{name: "object under seconds fact in metadata", fields: map[string]any{"metadata": map[string]any{"requested_seconds": map[string]any{}}}, wantCode: "plugin_usage_invalid", wantError: "plugin usage value must be a number"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const model = "google/veo-3.1-lite"
+			request := map[string]any{"model": model, "prompt": "waves"}
+			maps.Copy(request, test.fields)
+			info := &relaycommon.RelayInfo{
+				ChannelMeta:     &relaycommon.ChannelMeta{ChannelBaseUrl: "https://openrouter.ai/api", UpstreamModelName: model},
+				OriginModelName: model,
+				TaskRelayInfo:   &relaycommon.TaskRelayInfo{},
+			}
+			adaptor := taskplugin.New(plugin)
+			adaptor.Init(info)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+			c.Set("task_request", request)
+			taskErr := adaptor.ValidateRequestAndSetAction(c, info)
+			if test.wantCode != "" {
+				require.NotNil(t, taskErr)
+				assert.Equal(t, test.wantCode, taskErr.Code)
+				assert.Equal(t, test.wantError, taskErr.Message)
+				return
+			}
+			require.Nil(t, taskErr)
+			reader, err := adaptor.BuildRequestBody(c, info)
+			require.NoError(t, err)
+			body, err := io.ReadAll(reader)
+			require.NoError(t, err)
+			var order openrouter.VideoPriceOrder
+			require.NoError(t, common.Unmarshal(body, &order))
+			facts := order.UsageFacts()
+			assert.Equal(t, test.wantFrames, facts["frame_images"])
+			assert.Equal(t, "image_to_video", facts["generation_mode"])
+			ratios, err := adaptor.EstimateBillingValidated(c, info)
+			require.NoError(t, err)
+			assert.Equal(t, float64(test.wantFrames), ratios["frame_images"], "extracted count passes the host bound")
 		})
 	}
 }

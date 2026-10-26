@@ -1782,6 +1782,9 @@ function videoOrder(ctx) {
   }
   for (const pair of [["resolution", "supported_resolutions"], ["aspect_ratio", "supported_aspect_ratios"], ["size", "supported_sizes"]]) {
     if (parameters[pair[0]] === undefined) continue;
+    // Edit/upscale models publish no resolutions: the source video sets them.
+    if (pair[0] === "resolution" && !capability.supported_resolutions && (capability.input_modalities || []).includes("video"))
+      throw new Error("Unsupported resolution for " + model + ": output resolution is derived from the source video; omit resolution");
     if (typeof parameters[pair[0]] !== "string" || !(capability[pair[1]] || []).includes(parameters[pair[0]]))
       throw new Error("Unsupported " + pair[0] + " for " + model);
     body[pair[0]] = parameters[pair[0]];
