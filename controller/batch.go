@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -572,6 +573,117 @@ func RecoverBatch(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"success": true, "id": job.PublicID})
+}
+
+const maxBatchReleaseEvidenceRunes = 4096
+
+// ReleaseUnsubmittedBatch returns the hold of an ambiguous creation after the
+// operator states why no provider Batch exists. Evidence is kept only in the
+// root-only audit record, never in Batch columns or system logs.
+func ReleaseUnsubmittedBatch(c *gin.Context) {
+	var request struct {
+		Evidence string `json:"evidence"`
+	}
+	// 4096 runes of up to four bytes each, with room for JSON escaping.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10)
+	err := common.DecodeJson(c.Request.Body, &request)
+	evidence := strings.TrimSpace(request.Evidence)
+	if err != nil || evidence == "" || utf8.RuneCountInString(evidence) > maxBatchReleaseEvidenceRunes {
+		batchError(c, 400, "invalid_request", "non-empty evidence of at most 4096 characters is required")
+		return
+	}
+	var job model.BatchJob
+	var result service.BatchReleaseResult
+	status, code := 200, "released"
+	defer func() {
+		// An unknown Batch is left to the generic route audit.
+		if status == 404 {
+			return
+		}
+		success := status == 200 || status == 202
+		content := auditContentEN("batch.release_unsubmitted", map[string]any{"id": c.Param("id")})
+		if !success {
+			content = "Failed Batch hold release"
+		}
+		route := c.FullPath()
+		model.RecordAuditLog(c, model.AuditLog{
+			UserId: c.GetInt("id"), Username: c.GetString("username"), ActorRole: c.GetInt("role"),
+			Category: model.AuditCategoryOperation, Action: "batch.release_unsubmitted", Content: content, Status: status, Success: success,
+			Other: model.AuditOther{
+				Op:        &model.AuditOperation{Action: "batch.release_unsubmitted", Params: model.AuditFields{"id": c.Param("id"), "outcome": code}},
+				AdminInfo: auditOperatorInfo(c),
+				AuditInfo: &model.AuditRequestInfo{Method: c.Request.Method, Route: route, Path: route, Status: status, Success: success},
+				RootInfo:  model.AuditFields{"evidence": evidence, "released_quota": result.ReleasedQuota, "user_id": job.UserID, "token_id": job.TokenID, "channel_id": job.ChannelID, "previous_last_error": result.PreviousLastError},
+			},
+		})
+		markAuditLogged(c)
+	}()
+	if err := model.DB.Where("public_id = ? AND deleted_at = 0", c.Param("id")).First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status, code = 404, "not_found"
+			batchError(c, status, code, "batch not found")
+			return
+		}
+		status, code = 503, "storage_unavailable"
+		common.SysLog(fmt.Sprintf("Batch %s: root user %d unsubmitted hold release failed: cannot load Batch", c.Param("id"), c.GetInt("id")))
+		batchError(c, status, code, "cannot release Batch hold")
+		return
+	}
+	runnerID := "batch-release-" + common.GetRandomString(20)
+	claimed, err := model.ClaimBatchJob(job.ID, runnerID)
+	if err != nil {
+		status, code = 503, "storage_unavailable"
+		common.SysLog(fmt.Sprintf("Batch %s: root user %d unsubmitted hold release failed: cannot claim lease", job.PublicID, c.GetInt("id")))
+		batchError(c, status, code, "cannot release Batch hold")
+		return
+	}
+	if !claimed {
+		status, code = 409, "batch_busy"
+		common.SysLog(fmt.Sprintf("Batch %s: root user %d unsubmitted hold release rejected: batch busy", job.PublicID, c.GetInt("id")))
+		batchError(c, status, code, "batch reconciliation is already in progress")
+		return
+	}
+	defer model.DB.Model(&model.BatchJob{}).Where("id = ? AND lease_owner = ?", job.ID, runnerID).Updates(map[string]any{"lease_until": 0, "lease_owner": ""})
+	result, err = service.ReleaseUnsubmittedBatch(&job, runnerID, c.GetInt("id"))
+	switch {
+	case errors.Is(err, service.ErrBatchReleaseIneligible):
+		status, code = 409, "release_ineligible"
+		batchError(c, status, code, "only an unknown creation without provider identity, results or charges can be released")
+	case errors.Is(err, model.ErrBatchConflict):
+		status, code = 409, "batch_conflict"
+		batchError(c, status, code, "Batch state changed during release; reload and retry")
+	case err != nil:
+		status, code = 503, "storage_unavailable"
+		batchError(c, status, code, "cannot release Batch hold")
+	case result.Pending:
+		status, code = 202, "release_pending"
+		c.JSON(status, gin.H{"success": true, "id": job.PublicID, "status": code})
+	case result.AlreadyReleased:
+		code = "already_released"
+		c.JSON(status, gin.H{"success": true, "id": job.PublicID, "already_released": true})
+	default:
+		c.JSON(status, gin.H{"success": true, "id": job.PublicID, "released_quota": result.ReleasedQuota})
+	}
+}
+
+// ListBatchReconciliation is the root operator queue of Batches whose money
+// or provider identity needs attention. It never exposes request content.
+func ListBatchReconciliation(c *gin.Context) {
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if err != nil || limit < 1 || limit > 100 {
+		batchError(c, 400, "invalid_limit", "limit must be in 1..100")
+		return
+	}
+	entries, hasMore, err := service.ListBatchReconciliation(c.Query("before"), limit)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		batchError(c, 400, "invalid_cursor", "unknown batch cursor")
+		return
+	}
+	if err != nil {
+		batchError(c, 503, "storage_unavailable", "batch storage unavailable")
+		return
+	}
+	c.JSON(200, gin.H{"success": true, "data": entries, "has_more": hasMore})
 }
 
 func ConfirmBatchPurchase(c *gin.Context) {

@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
 
+import { BatchReconciliationPanel } from './components/batch-reconciliation-panel'
 import { SystemInstancesPanel } from './components/system-instances-panel'
 import { SystemTasksPanel } from './components/system-tasks-panel'
 
@@ -41,6 +42,7 @@ export function SystemInfo() {
         <div className='space-y-4'>
           <SystemInstancesPanel />
           <SystemTasksPanel />
+          <BatchReconciliationPanel />
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>

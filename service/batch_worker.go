@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/batch"
+	"gorm.io/gorm"
 	"io"
 	"os"
 	"regexp"
@@ -67,7 +68,9 @@ func RunBatchPollingOnce(ctx context.Context, runnerID string) error {
 			common.SysError(fmt.Sprintf("batch %s: %v", job.PublicID, err))
 		}
 		updates := map[string]any{"lease_until": 0, "lease_owner": "", "updated_at": time.Now().Unix()}
-		if job.Status != "failed" || (err != nil && job.LastError == "") {
+		// An unknown creation keeps its first normalized cause for the operator;
+		// a rejected one keeps its reason, including an operator release marker.
+		if job.SubmitState != "submission_unknown" && job.SubmitState != "rejected" && (job.Status != "failed" || (err != nil && job.LastError == "")) {
 			updates["last_error"] = message
 		}
 		if err := model.DB.Model(&model.BatchJob{}).Where("id = ? AND lease_owner = ?", job.ID, runnerID).Updates(updates).Error; err != nil {
@@ -103,7 +106,41 @@ func processBatchJob(ctx context.Context, job *model.BatchJob, runnerID string) 
 		}
 	}
 	if job.SubmitState == "submission_unknown" {
-		return model.DB.Model(job).Update("billing_status", "reconciliation_required").Error
+		if err := model.DB.Model(job).Update("billing_status", "reconciliation_required").Error; err != nil {
+			return err
+		}
+		job.BillingStatus = "reconciliation_required"
+		if !batchSubmissionOverdue(job, time.Now()) {
+			return nil
+		}
+		// Alert once; the hold stays until an operator recovers or releases it.
+		var failure model.BatchFailure
+		if common.UnmarshalJsonStr(job.LastError, &failure) != nil || failure.Version != 1 {
+			failure = model.BatchFailure{Version: 1, Phase: "create", Code: "submission_unknown", Category: "ambiguous", Message: "The provider Batch creation outcome is unknown."}
+		}
+		if failure.AlertedAt != 0 {
+			return nil
+		}
+		failure.AlertedAt = time.Now().Unix()
+		encoded, err := common.Marshal(failure)
+		if err != nil {
+			return err
+		}
+		query := model.DB.Model(&model.BatchJob{}).Where("id = ? AND lease_owner = ?", job.ID, runnerID)
+		if job.LastError == "" {
+			query = query.Where("(last_error = '' OR last_error IS NULL)")
+		} else {
+			query = query.Where("last_error = ?", job.LastError)
+		}
+		changed := query.Update("last_error", string(encoded))
+		if changed.Error != nil {
+			return changed.Error
+		}
+		if changed.RowsAffected == 1 {
+			job.LastError = string(encoded)
+			common.SysError(fmt.Sprintf("Batch %s: creation outcome unknown >48h; hold %d kept; verify provider, then recover or release", job.PublicID, job.ReservedQuota))
+		}
+		return nil
 	}
 	if job.SubmitState == "rejected" {
 		reason := job.LastError
@@ -138,6 +175,18 @@ func processBatchJob(ctx context.Context, job *model.BatchJob, runnerID string) 
 	}
 	if err := SettleBatchResults(job); err != nil {
 		return err
+	}
+	// The provider window is not a refund signal: the paid work may still
+	// finish, so the hold stays and only the operator is asked to look.
+	if batchProviderWindowExceeded(job, time.Now()) {
+		changed := model.DB.Model(&model.BatchJob{}).Where("id = ? AND billing_status = ?", job.ID, "reserved").Update("billing_status", "reconciliation_required")
+		if changed.Error != nil {
+			return changed.Error
+		}
+		if changed.RowsAffected == 1 {
+			job.BillingStatus = "reconciliation_required"
+			common.SysError(fmt.Sprintf("Batch %s: provider window of 24h plus 2h grace exceeded while %s; hold %d kept for reconciliation", job.PublicID, job.Status, job.ReservedQuota))
+		}
 	}
 	if err := model.SyncBatchQuotaEvents(1000); err != nil {
 		common.SysError("Batch outbox: " + err.Error())
@@ -214,6 +263,7 @@ func submitBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter
 	job.SubmitState = "submission_unknown"
 	response, err := doBatchRequest(ctx, job, request, nil, "")
 	if err != nil {
+		recordAmbiguousBatchCreation(job, runnerID, "transport_error", 0, "", nil)
 		return err
 	}
 	defer response.Body.Close()
@@ -229,11 +279,16 @@ func submitBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapter
 			common.SysError(fmt.Sprintf("Batch %s creation rejected: %s", job.PublicID, diagnostic))
 			return rejectUnsubmittedBatch(job, diagnostic)
 		}
+		body, _ := io.ReadAll(io.LimitReader(response.Body, (16<<10)+1))
+		recordAmbiguousBatchCreation(job, runnerID, "", response.StatusCode, response.Header.Get("X-Request-Id"), body)
 		return fmt.Errorf("ambiguous batch creation HTTP %d", response.StatusCode)
 	}
 	snapshot, decodeErr := adapter.ReadStatus(response.Body, func(result batch.Result) error { return storeBatchResult(job, result) })
-	if snapshot.ID != "" {
+	if snapshot.ID == "" {
+		recordAmbiguousBatchCreation(job, runnerID, "missing_batch_id", response.StatusCode, response.Header.Get("X-Request-Id"), nil)
+	} else {
 		if _, err := adapter.Poll(snapshot.ID); err != nil {
+			recordAmbiguousBatchCreation(job, runnerID, "invalid_batch_id", response.StatusCode, response.Header.Get("X-Request-Id"), nil)
 			return err
 		}
 		state := snapshot.State
@@ -418,7 +473,15 @@ func rejectUnsubmittedBatch(job *model.BatchJob, reason string) error {
 		return changed.Error
 	}
 	if changed.RowsAffected != 1 {
-		return model.ErrBatchConflict
+		// MySQL without clientFoundRows reports 0 for an unchanged row, so a
+		// retry after an interrupted refund must accept its own final state.
+		var current model.BatchJob
+		if err := model.DB.Select("submit_state", "status", "upstream_id", "last_error", "lease_owner").First(&current, job.ID).Error; err != nil {
+			return err
+		}
+		if current.SubmitState != "rejected" || current.Status != "failed" || current.UpstreamID != "" || current.LastError != reason || current.LeaseOwner != job.LeaseOwner {
+			return model.ErrBatchConflict
+		}
 	}
 	job.Status, job.LastError = "failed", reason
 	var items []model.BatchItem
@@ -554,6 +617,242 @@ func RecoverBatchIdentity(ctx context.Context, job *model.BatchJob, upstreamID, 
 		return model.ErrBatchConflict
 	}
 	return nil
+}
+
+const (
+	batchProviderWindow    = 24 * time.Hour
+	batchProviderGrace     = 2 * time.Hour
+	batchUnknownAlertAfter = 48 * time.Hour
+)
+
+// batchSubmissionOverdue reports an unknown creation old enough that the
+// provider would have finished it; only an operator may recover or release it.
+func batchSubmissionOverdue(job *model.BatchJob, now time.Time) bool {
+	return job.SubmitState == "submission_unknown" && now.Unix()-job.CreatedAt >= int64(batchUnknownAlertAfter/time.Second)
+}
+
+// batchProviderWindowExceeded reports a submitted Batch still not terminal
+// after the provider completion window plus a grace period. Only adapters that
+// request completion_window "24h" have that window. The clock starts at
+// CreatedAt: no recovery timestamp is stored, so a Batch recovered late is
+// flagged on its first tick after recovery.
+func batchProviderWindowExceeded(job *model.BatchJob, now time.Time) bool {
+	if job.ChannelType != constant.ChannelTypeOpenAI && job.ChannelType != constant.ChannelTypeOpenRouter {
+		return false
+	}
+	return job.UpstreamID != "" && !batch.State(job.Status).Terminal() && now.Unix() >= job.CreatedAt+int64((batchProviderWindow+batchProviderGrace)/time.Second)
+}
+
+var ambiguousBatchCreationMessages = map[string]string{
+	"transport_error":  "The Batch creation request ended without a provider response.",
+	"missing_batch_id": "The provider accepted Batch creation without a Batch identity.",
+	"invalid_batch_id": "The provider returned an invalid Batch identity.",
+}
+
+// recordAmbiguousBatchCreation keeps the first normalized cause of an unknown
+// creation outcome. An empty code classifies the provider response body.
+func recordAmbiguousBatchCreation(job *model.BatchJob, runnerID, code string, status int, requestID string, body []byte) {
+	diagnostic := normalizedBatchFailure("create", status, requestID, body)
+	if message, ok := ambiguousBatchCreationMessages[code]; ok {
+		failure := model.BatchFailure{Version: 1, Phase: "create", Code: code, Category: "ambiguous", Message: message, HTTPStatus: status}
+		if batchProviderRequestID.MatchString(requestID) {
+			failure.RequestID = requestID
+		}
+		encoded, err := common.Marshal(failure)
+		if err != nil {
+			common.SysError(fmt.Sprintf("Batch %s: cannot encode creation diagnostic: %v", job.PublicID, err))
+			return
+		}
+		diagnostic = string(encoded)
+	}
+	changed := model.DB.Model(&model.BatchJob{}).Where("id = ? AND submit_state = ? AND lease_owner = ? AND (last_error = '' OR last_error IS NULL)", job.ID, "submission_unknown", runnerID).Update("last_error", diagnostic)
+	if changed.Error != nil {
+		common.SysError(fmt.Sprintf("Batch %s: cannot store creation diagnostic: %v", job.PublicID, changed.Error))
+		return
+	}
+	if changed.RowsAffected == 1 {
+		job.LastError = diagnostic
+	}
+}
+
+// BatchReconciliationReason classifies why a Batch needs an operator. The
+// worker alerts on the same predicates.
+func BatchReconciliationReason(job *model.BatchJob, now time.Time) string {
+	if job.SubmitState == "submission_unknown" {
+		if batchSubmissionOverdue(job, now) {
+			return "submission_unknown_overdue"
+		}
+		return "submission_unknown"
+	}
+	if job.BillingStatus != "settled" {
+		if batchProviderWindowExceeded(job, now) {
+			return "provider_window_exceeded"
+		}
+		var snapshot struct {
+			Mode string `json:"settlement_mode"`
+		}
+		if batch.State(job.Status).Terminal() && job.FinancialDetails == "" && common.UnmarshalJsonStr(job.BillingSnapshot, &snapshot) == nil && snapshot.Mode == BatchSettlementOpenRouterJobCostV2 {
+			return "terminal_without_cost"
+		}
+		return "unsettled_items"
+	}
+	return "purchase_unconfirmed"
+}
+
+// BatchReleaseEligible is true only when no provider Batch identity, result or
+// charge exists, so returning the hold cannot forgive delivered work.
+func BatchReleaseEligible(job *model.BatchJob) (bool, error) {
+	if job.SubmitState != "submission_unknown" || job.UpstreamID != "" || job.DeletedAt != 0 || batch.State(job.Status).Terminal() || job.ResultCount != 0 || job.SettledCount != 0 || job.ChargedQuota != 0 || job.FinancialDetails != "" || job.PurchaseStatus == "settled" {
+		return false, nil
+	}
+	var touched int64
+	if err := model.DB.Model(&model.BatchItem{}).Where("batch_id = ? AND (result_hash <> '' OR billing_status IN ?)", job.ID, []string{"settled", "settled_at_batch"}).Count(&touched).Error; err != nil {
+		return false, err
+	}
+	return touched == 0, nil
+}
+
+var ErrBatchReleaseIneligible = errors.New("batch is not eligible for operator release")
+
+type BatchReleaseResult struct {
+	AlreadyReleased   bool
+	Pending           bool
+	ReleasedQuota     int64
+	PreviousLastError string
+}
+
+const batchOperatorReleasedCode = "operator_released_unsubmitted"
+
+// ReleaseUnsubmittedBatch returns the hold of an ambiguous creation after an
+// operator confirms that the provider has no Batch for it. The caller must
+// hold the job lease as runnerID; job is reloaded in place. Money moves only
+// through the existing unsubmitted-rejection path.
+func ReleaseUnsubmittedBatch(job *model.BatchJob, runnerID string, operatorID int) (result BatchReleaseResult, err error) {
+	defer func() {
+		outcome := "released"
+		switch {
+		case err != nil:
+			outcome = "rejected: " + err.Error()
+		case result.Pending:
+			outcome = "release pending cache confirmation"
+		case result.AlreadyReleased:
+			outcome = "already released"
+		}
+		common.SysLog(fmt.Sprintf("Batch %s: root user %d unsubmitted hold release %s; released quota %d", job.PublicID, operatorID, outcome, result.ReleasedQuota))
+	}()
+	if err = model.DB.Where("id = ? AND lease_owner = ?", job.ID, runnerID).First(job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = model.ErrBatchConflict
+		}
+		return result, err
+	}
+	result.PreviousLastError = job.LastError
+	var previous model.BatchFailure
+	if job.SubmitState == "rejected" && job.UpstreamID == "" && common.UnmarshalJsonStr(job.LastError, &previous) == nil && previous.Code == batchOperatorReleasedCode {
+		result.AlreadyReleased = true
+		if job.BillingStatus != "settled" {
+			if err = rejectUnsubmittedBatch(job, job.LastError); err != nil {
+				return result, err
+			}
+			if err = model.DB.First(job, job.ID).Error; err != nil {
+				return result, err
+			}
+			result.Pending = job.BillingStatus != "settled" || job.ReservedQuota != 0
+		}
+		return result, nil
+	}
+	eligible, err := BatchReleaseEligible(job)
+	if err != nil {
+		return result, err
+	}
+	if !eligible {
+		return result, ErrBatchReleaseIneligible
+	}
+	held := job.ReservedQuota
+	encoded, err := common.Marshal(model.BatchFailure{Version: 1, Phase: "reconciliation", Code: batchOperatorReleasedCode, Message: "Operator confirmed no provider Batch exists; hold released."})
+	if err != nil {
+		return result, err
+	}
+	changed := model.DB.Model(&model.BatchJob{}).Where("id = ? AND submit_state = ? AND upstream_id = '' AND result_count = 0 AND lease_owner = ?", job.ID, "submission_unknown", runnerID).Updates(map[string]any{"submit_state": "rejected", "last_error": string(encoded)})
+	if changed.Error != nil {
+		return result, changed.Error
+	}
+	if changed.RowsAffected != 1 {
+		return result, model.ErrBatchConflict
+	}
+	job.SubmitState, job.LastError = "rejected", string(encoded)
+	if err = rejectUnsubmittedBatch(job, job.LastError); err != nil {
+		return result, err
+	}
+	if err = model.DB.First(job, job.ID).Error; err != nil {
+		return result, err
+	}
+	if job.BillingStatus != "settled" || job.ReservedQuota != 0 {
+		result.Pending = true
+		return result, nil
+	}
+	result.ReleasedQuota = held
+	return result, nil
+}
+
+type BatchReconciliationEntry struct {
+	ID             string              `json:"id"`
+	UserID         int                 `json:"user_id"`
+	TokenID        int                 `json:"token_id"`
+	ChannelID      int                 `json:"channel_id"`
+	Model          string              `json:"model"`
+	UpstreamModel  string              `json:"upstream_model"`
+	Status         string              `json:"status"`
+	SubmitState    string              `json:"submit_state"`
+	BillingStatus  string              `json:"billing_status"`
+	PurchaseStatus string              `json:"purchase_status"`
+	UpstreamID     string              `json:"upstream_id"`
+	RequestCount   int                 `json:"request_count"`
+	ResultCount    int                 `json:"result_count"`
+	SettledCount   int                 `json:"settled_count"`
+	ReservedQuota  int64               `json:"reserved_quota"`
+	ChargedQuota   int64               `json:"charged_quota"`
+	CreatedAt      int64               `json:"created_at"`
+	UpdatedAt      int64               `json:"updated_at"`
+	Diagnostic     *model.BatchFailure `json:"diagnostic,omitempty"`
+	Reason         string              `json:"reason"`
+	CanRelease     bool                `json:"can_release"`
+}
+
+// ListBatchReconciliation returns the operator view after the Batch with
+// public id before, newest first.
+func ListBatchReconciliation(before string, limit int) ([]BatchReconciliationEntry, bool, error) {
+	var cursor int64
+	if before != "" {
+		var job model.BatchJob
+		if err := model.DB.Select("id").Where("public_id = ? AND deleted_at = 0", before).First(&job).Error; err != nil {
+			return nil, false, err
+		}
+		cursor = job.ID
+	}
+	jobs, err := model.ListBatchReconciliationJobs(cursor, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	hasMore := len(jobs) > limit
+	if hasMore {
+		jobs = jobs[:limit]
+	}
+	now := time.Now()
+	entries := make([]BatchReconciliationEntry, len(jobs))
+	for i := range jobs {
+		job := &jobs[i]
+		canRelease, err := BatchReleaseEligible(job)
+		if err != nil {
+			return nil, false, err
+		}
+		entries[i] = BatchReconciliationEntry{ID: job.PublicID, UserID: job.UserID, TokenID: job.TokenID, ChannelID: job.ChannelID, Model: job.Model, UpstreamModel: job.UpstreamModel, Status: job.Status, SubmitState: job.SubmitState, BillingStatus: job.BillingStatus, PurchaseStatus: job.PurchaseStatus, UpstreamID: job.UpstreamID, RequestCount: job.RequestCount, ResultCount: job.ResultCount, SettledCount: job.SettledCount, ReservedQuota: job.ReservedQuota, ChargedQuota: job.ChargedQuota, CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt, Reason: BatchReconciliationReason(job, now), CanRelease: canRelease}
+		var diagnostic model.BatchFailure
+		if len(job.LastError) <= 4096 && common.UnmarshalJsonStr(job.LastError, &diagnostic) == nil && diagnostic.Version == 1 {
+			entries[i].Diagnostic = &diagnostic
+		}
+	}
+	return entries, hasMore, nil
 }
 
 var batchProviderRequestID = regexp.MustCompile(`^(req[-_][0-9a-fA-F-]{1,120}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`)
