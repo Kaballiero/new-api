@@ -180,7 +180,7 @@
 
 ## Волна 7 — доводка ⬜
 
-- [ ] 7a accounts purity: plain `domain.UserSetting`, codec профиля в адаптере, функциональные `QuotaMath` ports; 11 accounts-исключений удалены. Реализация готова; свежие host/PostgreSQL acceptance остаются обязательными.
+- [x] 7a accounts purity: plain `domain.UserSetting`, codec профиля в адаптере, функциональные `QuotaMath` ports; 11 accounts-исключений удалены. Commits 21d7533f3 перенос, c108b36dc docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, accounts/quota PG-тесты зелёные. SQLite/MySQL не проверялись.
 
 - [ ] Catalog A3: перенести `NewCatalogPersistence` вместе с private metadata mutex/transaction/anchor и PricingMutation callback; same-tx pricing deletion и lock ownership сохраняются до общего cleanup.
 - [ ] Catalog A4: выделить codec/version hash из domain root, убрать common, объединить availability/prefill leaves обратно без изменения wire bytes.
