@@ -173,8 +173,10 @@
 - [x] Content-only (commit 097c976b7): system/setup/task сообщения — i18n keys, English по умолчанию + ru, zh без изменений.
 - [ ] 6b gaps: FX refresh остаётся service BRIDGE (A2); pkg/perf_metrics остаётся collection/query/flush owner (A3=B).
 - [x] 6c implementation: deployments, catalog availability/prefill и notifications; once app wiring, gateway static snapshot/model view, channelruntime integration. Контракты: 8a12bf350.
-- [ ] 6c acceptance: актуальный host full-suite/WSS/contracts и PostgreSQL после финального source pin; sandbox не заменяет эти проверки.
-- [ ] 6c content-only: en по умолчанию + ru, zh byte parity; пакет подготовлен отдельно и не применён.
+- [x] 6c commits: 078dce766 перенос, c651b5995 docs, e03272e52 test-fix PostgreSQL-теста setup из 6b (не хватало i18n.Init).
+- [x] 6c acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, 5717 goldens и 22 locale/log baselines без -update;
+  PostgreSQL 15 full suite без новых падений относительно 6b, deployments/catalog/notifications/system/settings/tasks PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
+- [x] Content-only (commit 820f02271): сообщения deployments и prefill groups — i18n keys, English по умолчанию + ru, zh без изменений.
 
 ## Волна 7 — доводка ⬜
 
