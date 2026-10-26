@@ -15,7 +15,7 @@
 
 Понятия и бизнес-ошибки описаны в `domain/`:
 - административная проекция аккаунта (`User`, `UserBatchRow`, `AdminTarget`, `AdminRoles`), права на управление (`CanManageTargetRole`, `UpdateAdminPermissions`);
-- профиль (`SelfProfile`) и разделы панели по роли (`DashboardPermissions`, `DashboardSidebarConfig`);
+- настройки аккаунта (`UserSetting`), профиль (`SelfProfile`) и разделы панели по роли (`DashboardPermissions`, `DashboardSidebarConfig`);
 - группы пользователя (`Groups`);
 - отметки (`Checkin`, `CheckinPolicy`), удаление (`DeletionSession`), регистрация (`InitialAccount`);
 - ошибки (`errors.go`).
@@ -82,6 +82,8 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/accounts.go`) берёт ст
 - Модулю не принадлежат вход, сессии, 2FA, passkey и OAuth (`identity`), права администраторов (`authorization`), API-ключи (`apikeys`), пополнение баланса и списание квоты шлюзом.
 - ⚠ `model` всё ещё импортирует `internal` по аккаунтам (записи `legacy-imports-internal` для `model/user.go`, `accounts_*.go`, `checkin.go`): GORM-запись `User` живёт в адаптере, а `model` создаёт usecase регистрации, сохранения, удаления, отметки, перевода реферальной квоты, корректировки квоты и выдачи GetAPI-аккаунта.
 - `provision_account` получает ошибки через интерфейс `Errors` (`model.ProvisionErrors`) и фабрику `invalid func() error`: это контракт интеграции GetAPI (`model.ErrGetAPI*`, `writeGetAPIError`), общий с другими её маршрутами; тест `TestAccountsPersistenceCompatibility` фиксирует позднее чтение этих ошибок.
-- `adjust_quota`, `transfer_affiliate_quota` импортируют `common` (лимит и преобразование квоты), `update_notification_preferences`, `update_profile`, `dto` — `relaykit/dto` (`UserSetting`): записи `usecase-transitive` и `business-imports-gateway` остаются.
+- Сценарии и DTO accounts не зависят от `common` и `relaykit`: `domain.UserSetting` содержит plain facts. Адаптер `internal/adapter/gorm/accounts/settings.go` явно преобразует все поля в прежний wire DTO и обратно; запись сохраняет прежние JSON tags, порядок полей и encoder. Raw `SelfProfile.Setting` передаётся без изменений.
+- `internal/adapter/accounts` декодирует sidebar перед чтением прав, сохраняя частично прочитанное значение и прежнюю диагностику при ошибке JSON. Он же предоставляет позднее чтение имён типов уведомлений; административный порог передаёт `app`.
+- `adjust_quota.QuotaMath` и `transfer_affiliate_quota.QuotaMath` — узкие функциональные порты к существующим `common.WalletQuotaFromDecimalStrict` и `common.QuotaFromFloat`; `app` и оставшиеся legacy callers передают функции напрямую. Лимит `MaxWalletQuota` — явный параметр сценария. Формулы, округление и saturation имеют прежнего единственного владельца.
 - Метки групп («用户分组» — описание собственной группы, «自动» — коэффициент группы `auto`) переводятся на язык запроса только в ответе `get_groups`; остальные потребители `accountssettings.UserGroups()` (service, pricing, relay) получают прежние zh-CN значения. Записи лога пользователя (регистрация, приглашение, отметка) пишутся на языке запроса того, кто выполняет действие.
 - Ответы ошибок `check_in` и `get_checkin_status` раньше писались структурой (`success`, `message`), теперь `common.ApiErrorI18n` / `ApiError` (`gin.H`): тот же JSON, другой порядок ключей в теле.

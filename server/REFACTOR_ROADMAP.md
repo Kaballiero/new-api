@@ -180,6 +180,8 @@
 
 ## Волна 7 — доводка ⬜
 
+- [ ] 7a accounts purity: plain `domain.UserSetting`, codec профиля в адаптере, функциональные `QuotaMath` ports; 11 accounts-исключений удалены. Реализация готова; свежие host/PostgreSQL acceptance остаются обязательными.
+
 - [ ] Catalog A3: перенести `NewCatalogPersistence` вместе с private metadata mutex/transaction/anchor и PricingMutation callback; same-tx pricing deletion и lock ownership сохраняются до общего cleanup.
 - [ ] Catalog A4: выделить codec/version hash из domain root, убрать common, объединить availability/prefill leaves обратно без изменения wire bytes.
 
