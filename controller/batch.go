@@ -545,8 +545,9 @@ func DeleteBatch(c *gin.Context) {
 	c.JSON(200, gin.H{"id": job.PublicID, "deleted": true})
 }
 
-// RecoverBatch verifies an operator-supplied upstream identity. RootAuth and
-// its normal management audit apply at the route; request identities stay private.
+// RecoverBatch verifies an operator-supplied upstream identity. Every attempt
+// on an existing Batch is recorded in the root-only audit; provider request
+// identities never leave the Batch items.
 func RecoverBatch(c *gin.Context) {
 	var request struct {
 		UpstreamID string `json:"upstream_id"`
@@ -557,22 +558,85 @@ func RecoverBatch(c *gin.Context) {
 		return
 	}
 	var job model.BatchJob
+	var previous model.BatchJob
+	status, code := 200, "recovered"
+	defer func() {
+		// An unknown Batch is left to the generic route audit.
+		if status == 404 {
+			return
+		}
+		success := status == 200
+		content := auditContentEN("batch.recover", map[string]any{"id": c.Param("id")})
+		if !success {
+			content = "Failed Batch recovery"
+		}
+		route := c.FullPath()
+		model.RecordAuditLog(c, model.AuditLog{
+			UserId: c.GetInt("id"), Username: c.GetString("username"), ActorRole: c.GetInt("role"),
+			Category: model.AuditCategoryOperation, Action: "batch.recover", Content: content, Status: status, Success: success,
+			Other: model.AuditOther{
+				Op:        &model.AuditOperation{Action: "batch.recover", Params: model.AuditFields{"id": c.Param("id"), "outcome": code}},
+				AdminInfo: auditOperatorInfo(c),
+				AuditInfo: &model.AuditRequestInfo{Method: c.Request.Method, Route: route, Path: route, Status: status, Success: success},
+				RootInfo:  model.AuditFields{"upstream_id": request.UpstreamID, "user_id": previous.UserID, "token_id": previous.TokenID, "channel_id": previous.ChannelID, "previous_submit_state": previous.SubmitState, "previous_status": previous.Status, "previous_billing_status": previous.BillingStatus},
+			},
+		})
+		markAuditLogged(c)
+	}()
 	if err := model.DB.Where("public_id = ? AND deleted_at = 0", c.Param("id")).First(&job).Error; err != nil {
-		batchError(c, 404, "not_found", "batch not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status, code = 404, "not_found"
+			batchError(c, status, code, "batch not found")
+			return
+		}
+		status, code = 503, "storage_unavailable"
+		batchError(c, status, code, "cannot recover Batch")
 		return
 	}
+	previous = job
 	runnerID := "batch-recovery-" + common.GetRandomString(20)
 	claimed, err := model.ClaimBatchJob(job.ID, runnerID)
-	if err != nil || !claimed {
-		batchError(c, 409, "batch_busy", "batch reconciliation is already in progress")
+	if err != nil {
+		status, code = 503, "storage_unavailable"
+		batchError(c, status, code, "cannot recover Batch")
+		return
+	}
+	if !claimed {
+		status, code = 409, "batch_busy"
+		batchError(c, status, code, "batch reconciliation is already in progress")
 		return
 	}
 	defer model.DB.Model(&model.BatchJob{}).Where("id = ? AND lease_owner = ?", job.ID, runnerID).Updates(map[string]any{"lease_until": 0, "lease_owner": ""})
-	if err := service.RecoverBatchIdentity(c.Request.Context(), &job, request.UpstreamID, runnerID); err != nil {
-		batchError(c, 409, "recovery_unverified", "provider ownership could not be verified; Batch remains unchanged")
+	// Eligibility and the audited previous state come from the leased row,
+	// not from the snapshot read before the claim.
+	if err := model.DB.Where("id = ? AND lease_owner = ?", job.ID, runnerID).First(&job).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status, code = 409, "batch_conflict"
+			batchError(c, status, code, "Batch state changed during recovery; reload and retry")
+			return
+		}
+		status, code = 503, "storage_unavailable"
+		batchError(c, status, code, "cannot recover Batch")
 		return
 	}
-	c.JSON(200, gin.H{"success": true, "id": job.PublicID})
+	previous = job
+	err = service.RecoverBatchIdentity(c.Request.Context(), &job, request.UpstreamID, runnerID)
+	switch {
+	case errors.Is(err, service.ErrBatchRecoverIneligible):
+		status, code = 409, "recovery_ineligible"
+		batchError(c, status, code, "only an unknown creation without provider identity can be recovered")
+	case errors.Is(err, model.ErrBatchConflict):
+		status, code = 409, "batch_conflict"
+		batchError(c, status, code, "Batch state changed during recovery; reload and retry")
+	case errors.Is(err, service.ErrBatchRecoveryStorage):
+		status, code = 503, "storage_unavailable"
+		batchError(c, status, code, "cannot recover Batch")
+	case err != nil:
+		status, code = 409, "recovery_unverified"
+		batchError(c, status, code, "provider ownership could not be verified; Batch remains unchanged")
+	default:
+		c.JSON(status, gin.H{"success": true, "id": job.PublicID})
+	}
 }
 
 const maxBatchReleaseEvidenceRunes = 4096

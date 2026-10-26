@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils'
 import { listBatchReconciliation, releaseUnsubmittedBatch } from '../api'
 import type { BatchReconciliationJob } from '../types'
 import { BatchReconciliationTable } from './batch-reconciliation-table'
+import { BatchRecoverDialog } from './batch-recover-dialog'
 import { BatchReleaseDialog } from './batch-release-dialog'
 
 const RECONCILIATION_LIMIT = 50
@@ -43,6 +44,8 @@ export function BatchReconciliationPanel() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [target, setTarget] = useState<BatchReconciliationJob | null>(null)
+  const [recoverTarget, setRecoverTarget] =
+    useState<BatchReconciliationJob | null>(null)
   const jobsQuery = useQuery({
     queryKey: QUERY_KEY,
     queryFn: async () => {
@@ -167,6 +170,7 @@ export function BatchReconciliationPanel() {
                   : null
               }
               onRelease={setTarget}
+              onRecover={setRecoverTarget}
             />
             {jobsQuery.data?.hasMore && (
               <p className='text-muted-foreground text-xs'>
@@ -189,6 +193,12 @@ export function BatchReconciliationPanel() {
         onConfirm={(evidence) => {
           if (target) releaseMutation.mutate({ id: target.id, evidence })
         }}
+      />
+      <BatchRecoverDialog
+        key={`recover-${recoverTarget?.id ?? 'closed'}`}
+        job={recoverTarget}
+        onClose={() => setRecoverTarget(null)}
+        onSettled={invalidate}
       />
     </section>
   )

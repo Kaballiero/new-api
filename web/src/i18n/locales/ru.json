@@ -6323,6 +6323,21 @@
     "Evidence is required": "Укажите подтверждение",
     "Enter a USD amount with at most 12 decimal places": "Введите сумму в USD не более чем с 12 знаками после запятой",
     "Cost must be greater than 0": "Стоимость должна быть больше 0",
-    "Cost must be at most 50 USD": "Стоимость должна быть не больше 50 USD"
+    "Cost must be at most 50 USD": "Стоимость должна быть не больше 50 USD",
+    "Recover by ID": "Восстановить по ID",
+    "Recover Batch by ID": "Восстановить Batch по ID",
+    "Bind Batch {{id}} to the provider Batch you found. The hold is then settled by actual cost.": "Привязать Batch {{id}} к найденному Batch провайдера. Резерв затем будет рассчитан по фактической стоимости.",
+    "Recover": "Восстановить",
+    "Use only a Batch that exists in the provider dashboard. Ownership is verified against the requests of this Batch; if it cannot be verified, nothing changes.": "Используйте только Batch, который есть в панели провайдера. Принадлежность проверяется по запросам этого Batch; если её не удастся подтвердить, ничего не изменится.",
+    "Provider Batch ID": "ID Batch у провайдера",
+    "For example batch_abc123, msgbatch_abc123 or batches/abc123.": "Например, batch_abc123, msgbatch_abc123 или batches/abc123.",
+    "Recovery failed": "Не удалось восстановить",
+    "Batch recovered; polling resumes with actual cost": "Batch восстановлен; опрос возобновлён с расчётом по фактической стоимости",
+    "Enter the provider Batch ID": "Укажите ID Batch у провайдера",
+    "Batch ID must be at most 191 characters": "ID Batch должен быть не длиннее 191 символа",
+    "Use letters, digits, _ and - only, optionally prefixed with batches/": "Используйте только буквы, цифры, _ и -, с необязательным префиксом batches/",
+    "Provider ownership could not be verified; the Batch is unchanged.": "Не удалось подтвердить принадлежность у провайдера; Batch не изменён.",
+    "This Batch can no longer be recovered by ID; the Batch is unchanged.": "Этот Batch больше нельзя восстановить по ID; Batch не изменён.",
+    "For Gemini use the full name, e.g. batches/abc123": "Для Gemini укажите полное имя, например batches/abc123"
   }
 }

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -317,4 +318,93 @@ func TestReleaseUnsubmittedBatchEvidence(t *testing.T) {
 	var unavailableCount int64
 	require.NoError(t, db.Model(&model.AuditLog{}).Where("action = ? AND status = ?", "batch.release_unsubmitted", http.StatusServiceUnavailable).Count(&unavailableCount).Error)
 	assert.EqualValues(t, 2, unavailableCount, "lookup failures are audited; a missing Batch is not")
+}
+
+func TestRecoverBatchAudit(t *testing.T) {
+	db := openChannelControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}, &model.BatchLogEvent{}, &model.Log{}, &model.AuditLog{}))
+	var nativeCustomID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v1/batches/")
+		customID := nativeCustomID
+		if id == "foreign-1" {
+			customID = "someone-else"
+		}
+		_, _ = fmt.Fprintf(w, `{"id":%q,"status":"in_progress","results":[{"custom_id":%q,"response":{"status_code":200,"body":{}}}]}`, id, customID)
+	}))
+	t.Cleanup(server.Close)
+	base := server.URL + "/api"
+	channel := model.Channel{Type: constant.ChannelTypeOpenRouter, Key: "test-key", BaseURL: &base}
+	require.NoError(t, db.Create(&channel).Error)
+	configHash, err := service.BatchChannelConfigHash(&channel)
+	require.NoError(t, err)
+	root := model.User{Username: "root-operator", Password: "unused", AffCode: "root-aff", Role: common.RoleRootUser, AuthVersion: 1}
+	require.NoError(t, db.Create(&root).Error)
+	user := model.User{Username: "recover-user", Password: "unused", AffCode: "user-aff", Quota: 1000, AuthVersion: 1}
+	require.NoError(t, db.Create(&user).Error)
+	token := model.Token{UserId: user.Id, Key: "recover-token", RemainQuota: 1000}
+	require.NoError(t, db.Create(&token).Error)
+	job := model.BatchJob{PublicID: "batch_recover", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, ChannelType: channel.Type, CredentialHash: fmt.Sprintf("%x", sha256.Sum256([]byte(channel.Key))), ChannelConfigHash: configHash, Model: "test-model", UpstreamModel: "test-model", Endpoint: "/v1/chat/completions", Status: "validating", BillingStatus: "reserved", SubmitState: "queued", BillingSnapshot: `{}`, RequestCount: 1, ReservedQuota: 100}
+	require.NoError(t, model.CreateBatchReservation(&job, []model.BatchItem{{CustomID: "client-id", Body: `{}`, UpstreamBody: `{}`, BillingStatus: "reserved", ReservedQuota: 100}}))
+	var item model.BatchItem
+	require.NoError(t, db.Where("batch_id = ?", job.ID).First(&item).Error)
+	nativeCustomID = item.ProviderCustomID
+	require.NoError(t, db.Model(&job).Updates(map[string]any{"submit_state": "submission_unknown", "billing_status": "reconciliation_required"}).Error)
+	router := gin.New()
+	router.POST("/api/batches/:id/recover", func(c *gin.Context) {
+		c.Set("id", root.Id)
+		c.Set("role", common.RoleRootUser)
+		c.Set("username", root.Username)
+	}, RecoverBatch)
+	submit := func(body string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/batches/batch_recover/recover", strings.NewReader(body)))
+		return recorder
+	}
+	rootInfo := func(entry model.AuditLog, key string) string {
+		var value string
+		require.NoError(t, common.Unmarshal(entry.Other.RootInfo[key].(json.RawMessage), &value))
+		return value
+	}
+
+	recorder := submit(`{"upstream_id":""}`)
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	var audits int64
+	require.NoError(t, db.Model(&model.AuditLog{}).Count(&audits).Error)
+	assert.Zero(t, audits, "rejected input never reaches the Batch")
+
+	recorder = submit(`{"upstream_id":"foreign-1"}`)
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "recovery_unverified")
+	require.NoError(t, db.First(&job, job.ID).Error)
+	assert.Equal(t, "submission_unknown", job.SubmitState, "an unverified identity leaves the Batch unchanged")
+	assert.Empty(t, job.UpstreamID)
+	var rejected model.AuditLog
+	require.NoError(t, db.Where("action = ?", "batch.recover").First(&rejected).Error)
+	assert.False(t, rejected.Success)
+	assert.Equal(t, http.StatusConflict, rejected.Status)
+	assert.Equal(t, root.Id, rejected.UserId)
+	assert.Equal(t, "foreign-1", rootInfo(rejected, "upstream_id"))
+
+	recorder = submit(`{"upstream_id":"native-1"}`)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	assert.JSONEq(t, `{"success":true,"id":"batch_recover"}`, recorder.Body.String())
+	require.NoError(t, db.First(&job, job.ID).Error)
+	assert.Equal(t, "submitted", job.SubmitState)
+	assert.Equal(t, "native-1", job.UpstreamID)
+	assert.Equal(t, "reserved", job.BillingStatus, "the hold now settles by actual cost")
+	assert.Empty(t, job.LeaseOwner, "the recovery lease is returned")
+	var recovered model.AuditLog
+	require.NoError(t, db.Where("action = ? AND success = ?", "batch.recover", true).First(&recovered).Error)
+	assert.Equal(t, model.AuditCategoryOperation, recovered.Category)
+	assert.Equal(t, "Recovered Batch batch_recover by its provider identity", recovered.Content)
+	assert.Equal(t, "native-1", rootInfo(recovered, "upstream_id"))
+	assert.Equal(t, "submission_unknown", rootInfo(recovered, "previous_submit_state"))
+	assert.Equal(t, "reconciliation_required", rootInfo(recovered, "previous_billing_status"))
+
+	recorder = submit(`{"upstream_id":"native-2"}`)
+	assert.Equal(t, http.StatusConflict, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "recovery_ineligible", "a bound identity is never replaced")
+	require.NoError(t, db.Model(&model.AuditLog{}).Where("action = ?", "batch.recover").Count(&audits).Error)
+	assert.EqualValues(t, 3, audits, "every attempt on an existing Batch is audited once")
 }

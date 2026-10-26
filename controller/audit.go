@@ -65,6 +65,7 @@ var auditContentTemplates = map[string]string{
 	"subscription.user_plan_reset": "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
 
 	"batch.release_unsubmitted": "Released the hold of unsubmitted Batch ${id}",
+	"batch.recover":             "Recovered Batch ${id} by its provider identity",
 }
 
 // auditContentEN 按 action 模板渲染英文兜底文本；未登记的 action 退回 action 本身。

@@ -528,9 +528,10 @@ func cleanupBatch(ctx context.Context, job *model.BatchJob, adapter batch.Adapte
 // RecoverBatchIdentity binds an ambiguous submission only after the provider
 // returns private request identities generated for this particular local job.
 // The administrator supplies an identity to verify, never authority to resend.
+// The caller must hold the job lease as runnerID.
 func RecoverBatchIdentity(ctx context.Context, job *model.BatchJob, upstreamID, runnerID string) error {
-	if job.SubmitState != "submission_unknown" || job.UpstreamID != "" {
-		return model.ErrBatchConflict
+	if !BatchRecoverEligible(job) {
+		return ErrBatchRecoverIneligible
 	}
 	adapter, err := batch.ForChannel(job.ChannelType)
 	if err != nil {
@@ -551,9 +552,13 @@ func RecoverBatchIdentity(ctx context.Context, job *model.BatchJob, upstreamID, 
 		return fmt.Errorf("recovery retrieval HTTP %d", response.StatusCode)
 	}
 	verified := 0
+	// Adapters may not wrap callback errors, so a storage failure is kept
+	// aside to stay distinguishable from an unverified provider identity.
+	var storageErr error
 	verify := func(result batch.Result) error {
 		var count int64
 		if err := model.DB.Model(&model.BatchItem{}).Where("batch_id = ? AND provider_custom_id = ?", job.ID, result.CustomID).Count(&count).Error; err != nil {
+			storageErr = err
 			return err
 		}
 		if count != 1 {
@@ -563,6 +568,9 @@ func RecoverBatchIdentity(ctx context.Context, job *model.BatchJob, upstreamID, 
 		return nil
 	}
 	snapshot, err := adapter.ReadStatus(response.Body, verify)
+	if storageErr != nil {
+		return fmt.Errorf("%w: %v", ErrBatchRecoveryStorage, storageErr)
+	}
 	if err != nil {
 		return err
 	}
@@ -601,6 +609,9 @@ func RecoverBatchIdentity(ctx context.Context, job *model.BatchJob, upstreamID, 
 			}
 			err = adapter.ReadResults(response.Body, verify)
 			response.Body.Close()
+			if storageErr != nil {
+				return fmt.Errorf("%w: %v", ErrBatchRecoveryStorage, storageErr)
+			}
 			if err != nil {
 				return err
 			}
@@ -611,12 +622,28 @@ func RecoverBatchIdentity(ctx context.Context, job *model.BatchJob, upstreamID, 
 	}
 	changed := model.DB.Model(job).Where("submit_state = ? AND upstream_id = '' AND lease_owner = ?", "submission_unknown", runnerID).Updates(map[string]any{"upstream_id": upstreamID, "submit_state": "submitted", "status": string(snapshot.State), "billing_status": "reserved", "last_error": ""})
 	if changed.Error != nil {
-		return changed.Error
+		return fmt.Errorf("%w: %v", ErrBatchRecoveryStorage, changed.Error)
 	}
 	if changed.RowsAffected != 1 {
 		return model.ErrBatchConflict
 	}
 	return nil
+}
+
+var (
+	ErrBatchRecoverIneligible = errors.New("batch is not eligible for identity recovery")
+	ErrBatchRecoveryStorage   = errors.New("batch storage unavailable during identity recovery")
+)
+
+// BatchRecoverEligible is true when an operator may bind a provider Batch
+// identity: the creation outcome is unknown, no identity is bound yet and the
+// channel has a Batch adapter to verify ownership with.
+func BatchRecoverEligible(job *model.BatchJob) bool {
+	if job.SubmitState != "submission_unknown" || job.UpstreamID != "" || job.DeletedAt != 0 {
+		return false
+	}
+	_, err := batch.ForChannel(job.ChannelType)
+	return err == nil
 }
 
 const (
@@ -817,6 +844,7 @@ type BatchReconciliationEntry struct {
 	Diagnostic     *model.BatchFailure `json:"diagnostic,omitempty"`
 	Reason         string              `json:"reason"`
 	CanRelease     bool                `json:"can_release"`
+	CanRecover     bool                `json:"can_recover"`
 }
 
 // ListBatchReconciliation returns the operator view after the Batch with
@@ -846,7 +874,7 @@ func ListBatchReconciliation(before string, limit int) ([]BatchReconciliationEnt
 		if err != nil {
 			return nil, false, err
 		}
-		entries[i] = BatchReconciliationEntry{ID: job.PublicID, UserID: job.UserID, TokenID: job.TokenID, ChannelID: job.ChannelID, Model: job.Model, UpstreamModel: job.UpstreamModel, Status: job.Status, SubmitState: job.SubmitState, BillingStatus: job.BillingStatus, PurchaseStatus: job.PurchaseStatus, UpstreamID: job.UpstreamID, RequestCount: job.RequestCount, ResultCount: job.ResultCount, SettledCount: job.SettledCount, ReservedQuota: job.ReservedQuota, ChargedQuota: job.ChargedQuota, CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt, Reason: BatchReconciliationReason(job, now), CanRelease: canRelease}
+		entries[i] = BatchReconciliationEntry{ID: job.PublicID, UserID: job.UserID, TokenID: job.TokenID, ChannelID: job.ChannelID, Model: job.Model, UpstreamModel: job.UpstreamModel, Status: job.Status, SubmitState: job.SubmitState, BillingStatus: job.BillingStatus, PurchaseStatus: job.PurchaseStatus, UpstreamID: job.UpstreamID, RequestCount: job.RequestCount, ResultCount: job.ResultCount, SettledCount: job.SettledCount, ReservedQuota: job.ReservedQuota, ChargedQuota: job.ChargedQuota, CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt, Reason: BatchReconciliationReason(job, now), CanRelease: canRelease, CanRecover: BatchRecoverEligible(job)}
 		var diagnostic model.BatchFailure
 		if len(job.LastError) <= 4096 && common.UnmarshalJsonStr(job.LastError, &diagnostic) == nil && diagnostic.Version == 1 {
 			entries[i].Diagnostic = &diagnostic

@@ -6323,6 +6323,21 @@
     "Evidence is required": "Le justificatif est requis",
     "Enter a USD amount with at most 12 decimal places": "Saisissez un montant en USD avec au plus 12 décimales",
     "Cost must be greater than 0": "Le coût doit être supérieur à 0",
-    "Cost must be at most 50 USD": "Le coût doit être d’au plus 50 USD"
+    "Cost must be at most 50 USD": "Le coût doit être d’au plus 50 USD",
+    "Recover by ID": "Récupérer par ID",
+    "Recover Batch by ID": "Récupérer le Batch par ID",
+    "Bind Batch {{id}} to the provider Batch you found. The hold is then settled by actual cost.": "Associer le Batch {{id}} au Batch du fournisseur que vous avez trouvé. La réserve est ensuite réglée au coût réel.",
+    "Recover": "Récupérer",
+    "Use only a Batch that exists in the provider dashboard. Ownership is verified against the requests of this Batch; if it cannot be verified, nothing changes.": "Utilisez uniquement un Batch présent dans le tableau de bord du fournisseur. L’appartenance est vérifiée à partir des requêtes de ce Batch ; si elle ne peut pas être vérifiée, rien ne change.",
+    "Provider Batch ID": "ID du Batch chez le fournisseur",
+    "For example batch_abc123, msgbatch_abc123 or batches/abc123.": "Par exemple batch_abc123, msgbatch_abc123 ou batches/abc123.",
+    "Recovery failed": "Échec de la récupération",
+    "Batch recovered; polling resumes with actual cost": "Batch récupéré ; le suivi reprend avec le coût réel",
+    "Enter the provider Batch ID": "Saisissez l’ID du Batch chez le fournisseur",
+    "Batch ID must be at most 191 characters": "L’ID du Batch doit comporter au plus 191 caractères",
+    "Use letters, digits, _ and - only, optionally prefixed with batches/": "Utilisez uniquement des lettres, chiffres, _ et -, avec le préfixe batches/ facultatif",
+    "Provider ownership could not be verified; the Batch is unchanged.": "L’appartenance chez le fournisseur n’a pas pu être vérifiée ; le Batch est inchangé.",
+    "This Batch can no longer be recovered by ID; the Batch is unchanged.": "Ce Batch ne peut plus être récupéré par ID ; le Batch est inchangé.",
+    "For Gemini use the full name, e.g. batches/abc123": "Pour Gemini, utilisez le nom complet, par ex. batches/abc123"
   }
 }

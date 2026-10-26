@@ -126,6 +126,7 @@ export type BatchReconciliationJob = {
   diagnostic?: BatchReconciliationDiagnostic
   reason: BatchReconciliationReason
   can_release: boolean
+  can_recover: boolean
 }
 
 export type BatchReconciliationListResponse = {
@@ -141,4 +142,9 @@ export type BatchReleaseResponse = {
   released_quota?: number
   already_released?: boolean
   status?: 'release_pending'
+}
+
+export type BatchRecoverResponse = {
+  success?: boolean
+  id?: string
 }
