@@ -1,13 +1,12 @@
 package model
 
 import (
-	"errors"
-
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"gorm.io/gorm"
 )
 
+// BRIDGE: NewCatalogPersistence shares the metadata transaction and private pricing mutation with app/catalog; remove after pricing composition has its owner.
 func NewCatalogPersistence() record.Store {
 	return record.NewStore(record.Environment{
 		LockMetadata: func() func() { metadataMutationMu.Lock(); return metadataMutationMu.Unlock }, LockRows: LockForUpdate, PricingMutation: mutateModelPricingOptions, LockMetadataRow: lockMetadataMutation,
@@ -27,54 +26,5 @@ func NewCatalogPersistence() record.Store {
 			}
 			return channel.UpdateAbilities(tx)
 		},
-		DB: func() *gorm.DB { return DB }, Transaction: metadataTransaction})
-}
-
-type catalogVendorOperationBridge struct{}
-
-func (catalogVendorOperationBridge) IsMissing(err error) bool {
-	return errors.Is(err, gorm.ErrRecordNotFound)
-}
-func (catalogVendorOperationBridge) Vendors() ([]domain.Vendor, error) {
-	return NewCatalogPersistence().OperationVendors()
-}
-func (catalogVendorOperationBridge) Models(action string, ids []int) ([]domain.Model, error) {
-	return NewCatalogPersistence().OperationModels(action, ids)
-}
-func (catalogVendorOperationBridge) WithVendorMutation(change func(domain.VendorMutation) error) error {
-	return NewCatalogPersistence().WithVendorMutation(change)
-}
-
-type catalogMetadataSyncBridge struct{}
-
-func (catalogMetadataSyncBridge) SyncFields() []string { return MetadataSyncFields }
-func (catalogMetadataSyncBridge) WithMetadataSync(change func(domain.MetadataMutation) error) error {
-	return NewCatalogPersistence().WithMetadataSync(change)
-}
-
-type catalogReadBridge struct{}
-
-func (catalogReadBridge) Models(keyword, vendor, status, sync string, offset, limit int) ([]*domain.Model, int64, error) {
-	rows, n, err := NewCatalogPersistence().SearchModels(keyword, vendor, status, sync, offset, limit)
-	return record.ModelsToDomain(rows), n, err
-}
-func (catalogReadBridge) ConfiguredChannels() (map[string][]int, error) {
-	return NewCatalogPersistence().ConfiguredChannels()
-}
-func (catalogReadBridge) ExactNames() ([]string, error) { return NewCatalogPersistence().ExactNames() }
-func (catalogReadBridge) EnabledModels() []string       { return GetEnabledModels() }
-func (catalogReadBridge) ExistingNames(names []string) ([]string, error) {
-	return NewCatalogPersistence().ExistingNames(names)
-}
-func catalogConnectionValue(v ModelConnection) domain.ModelConnection {
-	return domain.ModelConnection{Group: v.Group, Model: v.Model, ChannelId: v.ChannelId, Enabled: v.Enabled, Priority: v.Priority, Weight: v.Weight, Tag: v.Tag, ChannelType: v.ChannelType, ChannelName: v.ChannelName}
-}
-
-type catalogMetadataWriteBridge struct{}
-
-func (catalogMetadataWriteBridge) WithModelMutation(change func(domain.ModelMutation) error) error {
-	return NewCatalogPersistence().WithModelMutation(change)
-}
-func (catalogMetadataWriteBridge) WithVendorMetadata(change func(domain.VendorMetadataMutation) error) error {
-	return NewCatalogPersistence().WithVendorMetadata(change)
+		GroupColumn: func() string { return commonGroupCol }, DB: func() *gorm.DB { return DB }, Transaction: metadataTransaction})
 }

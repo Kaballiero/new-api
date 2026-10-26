@@ -2,8 +2,9 @@ package update_model
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 
 type Store interface {

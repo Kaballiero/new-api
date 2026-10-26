@@ -1,81 +1,60 @@
-# catalog — каталог моделей и вендоров
+# Каталог моделей
 
-## Ответственность
+Модуль владеет model/vendor metadata, административными списками, синхронизацией выбранных
+метаданных, prefill groups и политикой доступности моделей. Pricing владеет ценами, channels —
+маршрутизацией; billing и relay execution находятся вне модуля.
 
-Модуль владеет метаданными моделей (`models`) и вендоров (`vendors`), которые видят администраторы и клиенты на странице моделей: имя и правило сопоставления имени (exact / prefix / suffix), описание, иконка, теги, эндпоинты, видимость в каталоге, флаг официальной синхронизации, привязка к вендору.
+## Сценарии
 
-Модуль отвечает за инварианты каталога:
-- имя модели не пустое и уникально; имя вендора не пустое, уникально без учёта регистра, имя и иконка не длиннее 128 символов;
-- видимость — только `0` или `1`, правило имени — одно из известных, эндпоинты — корректный JSON (путь начинается с `/`, метод HTTP из списка);
-- изменение вендора и операции над вендорами (`assign` / `merge` / `delete`) применяются только к той версии, которую показал предпросмотр (`version`, `expected_version`); иначе — конфликт;
-- вендор, на которого ссылаются модели, нельзя удалить;
-- синхронизация метаданных из upstream применяется только к выбранным в предпросмотре моделям и только к неизменённым с тех пор записям; модели с `sync_official = 0` не синхронизируются;
-- удалять цены модели вместе с моделью может только root.
+| Группа | Сценарии и вход |
+|---|---|
+| Model metadata | list_models, search_models, get_model, create_model, update_model, delete_model, delete_models_batch: `/api/models/`, `/search`, `/:id`, `/delete`, AdminAuth |
+| Vendor metadata | list_vendors, search_vendors, get_vendor, create_vendor, update_vendor, delete_vendor, preview_vendor_operation, apply_vendor_operation: `/api/vendors`, AdminAuth |
+| Metadata sync | preview_metadata_sync / apply_metadata_sync: `/api/models/sync_upstream/preview` и `/sync_upstream`, AdminAuth |
+| Missing metadata | list_missing_models: `/api/models/missing`, AdminAuth; literal names, прежнее различие `[]` и `null` |
+| Availability | list_available_models: существующие gateway model-list routes; group/auto-group selection, token limit, configured-price/reserve eligibility и preferred owner |
+| Static lookup | get_registered_model: gateway retrieve без availability filtering; существующий unknown-model HTTP200 error |
+| Presets | list_model_presets: GET `/api/models`, UserAuth; live plugin overwrite поверх linking-time snapshot |
+| Prefill | list_prefill_groups, create_prefill_group, update_prefill_group, delete_prefill_group: `/api/prefill_group`, AdminAuth |
 
-Понятия и бизнес-ошибки описаны в `domain/`:
-- `Model`, `Vendor`, состояния в каталоге (`ModelSquareState`) и их расчёт по каналам;
-- план операции над вендорами (`VendorOperationPlan`) и ошибка ссылок (`VendorReferenceError`);
-- значения и версии синхронизации метаданных (`MetadataValues`, `MetadataRecordVersion`, `VendorRecordVersion`);
-- ошибки (`errors.go`).
+Metadata scenarios сохраняют проверки имени/видимости/name-rule/endpoints, версии vendor/sync,
+запрет удаления referenced vendor и root-only removal of pricing. Модельные удаления сохраняют
+locked exact selections, routing/abilities writes в том же transaction и refresh после commit.
+Vendor operations поддерживают assign/merge/delete; sync проверяет всю selection до первой записи.
 
-## Возможности
+Prefill сохраняет exact type filter, updated_time DESC, global name uniqueness check вне записи,
+whole-record Save с upsert и пустыми/нулевыми полями, soft-delete и raw JSON Items.
+Metadata и prefill используют разные status/error envelopes; транспорт сопоставляет domain errors.
 
-Все маршруты идут через `AdminAuth` (сессия панели или PAT администратора). Сценарии с аудитом (см. таблицу) пишут его через `recordManageAudit` из `controller/audit.go`; создание и изменение моделей аудит не пишут.
+## Владельцы и сборка
 
-| Сценарий | Что делает | Маршрут |
-|---|---|---|
-| `list_models` | список моделей с состоянием в каталоге, каналами и счётчиками по вендорам; фильтры `status`, `sync_official`, `square_state`, `include_channel_models` | `GET /api/models/` |
-| `search_models` | то же с поиском по `keyword` и `vendor` | `GET /api/models/search` |
-| `get_model` | одна модель с каналами и состоянием в каталоге | `GET /api/models/:id` |
-| `create_model` | создание модели, ответ 201 | `POST /api/models/` |
-| `update_model` | изменение модели или только видимости (`?status_only=true`) | `PUT /api/models/` |
-| `delete_model` | удаление модели; `remove_from_channels` убирает exact-модель из каналов, `remove_pricing` (только root) — её цены; аудит `model.delete` | `DELETE /api/models/:id` |
-| `delete_models_batch` | пакетное удаление (до 1000 id) с теми же флагами; аудит `model.delete_batch` | `POST /api/models/delete` |
-| `list_missing_models` | включённые в каналах модели без записи в каталоге | `GET /api/models/missing` |
-| `preview_metadata_sync` | предпросмотр синхронизации метаданных из upstream (`?locale=`): кандидаты, поля, версии | `GET /api/models/sync_upstream/preview` |
-| `apply_metadata_sync` | применение выбранных изменений; создаёт недостающих вендоров; аудит `model.metadata.sync` | `POST /api/models/sync_upstream` |
-| `list_vendors` | список вендоров с версией | `GET /api/vendors/` |
-| `search_vendors` | поиск вендоров (`keyword`, `association`) | `GET /api/vendors/search` |
-| `get_vendor` | один вендор с версией | `GET /api/vendors/:id` |
-| `create_vendor` | создание вендора, ответ 201; аудит `vendor.metadata.save` | `POST /api/vendors/` |
-| `update_vendor` | изменение вендора с проверкой версии; аудит `vendor.metadata.save` | `PUT /api/vendors/` |
-| `delete_vendor` | удаление вендора без ссылок; аудит `vendor.metadata.delete` | `DELETE /api/vendors/:id` |
-| `preview_vendor_operation` | предпросмотр `assign` / `merge` / `delete` над вендорами и его версия | `POST /api/vendors/operations/preview` |
-| `apply_vendor_operation` | применение операции по версии предпросмотра; аудит `vendor.<action>` | `POST /api/vendors/operations` |
-| `enrich_models` | дополняет модели каналами, группами и состоянием в каталоге | без HTTP, `app.NewEnrichModelsUsecase` |
-| `list_configured_models` | модели каталога вместе с моделями каналов без записи | без HTTP, через `model.SearchModelsWithChannels` |
-| `insert_model_record`, `update_model_record` | запись модели с проверкой вендора | без HTTP, через `model.Model.Insert` / `Update` |
-| `insert_vendor_record`, `update_vendor_record` | запись вендора с проверкой имени и версии | без HTTP, через `model.Vendor.Insert` / `Update` |
-| `remove_vendors` | удаление вендоров по id | без HTTP, через `model.DeleteVendors` и `model.Vendor.Delete` |
-| `apply_metadata_records` | применение обновлений метаданных | без HTTP, через `model.ApplyMetadataSync` |
+- `internal/app/catalog.go` собирает metadata handlers и единый upstream runtime. Request audit
+  выполняется HTTP handler по Output после успешного Execute; usecase не получает audit
+  callback или Gin context. Порядок refresh → audit → response сохраняется.
+- `internal/app/catalog_availability.go` собирает availability reader/policy и gateway writers;
+  `catalog_prefill.go` — prefill handlers. Все используют once assembly и поздние runtime readers.
+- `adapter/gorm/catalog/record` владеет models/vendors/prefill records, SQL codecs и persistence.
+  `adapter/gorm/catalog` даёт consumer ports и owner/reserve queries с прежней фильтрацией/порядком.
+- `adapter/catalog/upstream` — HTTP/ETag/body cache, concurrent model/vendor fetch и source versions.
+- `adapter/gorm/accounts` сохраняет account cache/DB preference/group reads. Цена и alias matching
+  приходят через capabilities прежних владельцев; алгоритмы pricing не копируются.
+- `relay/modelcatalog` владеет единственным linking-time snapshot: first-wins list, last-wins lookup,
+  отдельные live dashboard overrides. `relay/modelview` владеет OpenAI/Anthropic/Gemini wire formats.
+  Бизнес использует plain facts через `adapter/gateway/catalog`, без relaykit imports.
 
-Ошибки сценариев — значения из `domain/errors.go`. Их переводит в HTTP общий `transport.WriteError`:
-- `ErrModelNotFound` / `ErrVendorNotFound` → 404 `model_not_found` / `vendor_not_found`, текст `model not found` / `vendor not found`;
-- `ErrModelIDMissing`, `ErrModelNameEmpty`, `ErrVendorIDMissing`, `ErrVendorNameEmpty` → 400 со своим кодом; `ErrModelNameExists`, `ErrVendorNameExists` → 409 со своим кодом; текст из i18n (`model.*`, `vendor.*`; раньше был захардкожен на китайском);
-- `ErrModelNameRequired` (пустое имя при изменении) → 200 `{success:false}` с i18n-текстом `model.name_empty`;
-- `ErrInvalidSquareState`, `ErrInvalidPagination` → 400 `invalid_params`;
-- `ErrPricingRootOnly` → 403 без кода;
-- `ErrSyncSourceChanged`, `ErrSyncModelUnavailable` → 409 без кода; `domain.RejectSync(err)` → 409 при `ErrMetadataSyncConflict` в цепочке, иначе 400, текст причины;
-- `domain.RejectVendorChange(err, missing)` → 404 `vendor_not_found` для отсутствующей записи; 409 `VENDOR_REFERENCED` с `reference_counts`; 409 `VENDOR_CONFLICT` при `ErrVendorConflict` в цепочке; иначе 400 без кода; текст причины;
-- `domain.Internal(err)` → 500 `internal_error` с текстом причины;
-- ошибка без доменного смысла (проверки значений, ошибки upstream) → 200 `{success:false}` с её текстом.
+Domain содержит metadata rules, общие mutation/enrichment rules и business errors. Новые
+availability/prefill facts находятся в чистых leaf packages `domain/availability`, `domain/prefill`.
+Сериализация SQL JSON и HTTP raw JSON принадлежат соответствующим codecs; поля копируются явно.
 
-OpenAPI-генератор (`cmd/gen-admin-openapi/catalog.go`) берёт DTO и `http.go` сценариев, а коды ошибок — из своей таблицы `catalogHandlerSources`.
+## Мосты и остатки
 
-## Зависимости
+Controller delegates обслуживают существующие router registrations; удалить при прямой router
+assembly. `model.Model`, `Vendor`, `PrefillGroup` и сопутствующие constants/codecs — record aliases
+для migrations и pricing readers, без исполнительных metadata фасадов.
 
-- Чужие `domain` модуль не импортирует.
-- Сборка — `internal/app/catalog.go` (`NewCatalogHTTP`), один раз через `sync.OnceValue` в `controller/catalog_scenarios.go`.
-- Хранение: `internal/adapter/gorm/catalog` (`Store`, `VendorOperationStore`) поверх `internal/adapter/gorm/catalog/record` (GORM-записи `models`, `vendors`, транзакции и блокировки метаданных из `model`).
-- Upstream-метаданные: `internal/adapter/catalog/upstream` (HTTP-клиент с ETag-кэшем; общий `upstream.Runtime` в `app`).
-- Побочные эффекты: `model.RefreshPricing`, `model.InitChannelCache`, `model.GetEnabledModels`, `model.GetModelQuotaTypes`, `model.GetModelSupportEndpointTypes`.
-- Потребители: `controller/model_meta.go`, `vendor_meta.go`, `model_sync.go`, `missing_models.go` (HTTP); `model/*` (legacy-код: кроме сценариев без HTTP, `model.DeleteModelMetadata` вызывает `delete_models_batch`, `model.PreviewVendorOperation` / `ApplyVendorOperation` — сценарии операций над вендорами, `model.GetMissingModels` — `list_missing_models`); модуль `pricing` читает `catalog/domain` (`Model`, `Vendor`, `ResolveModelMetadata`).
-
-## Границы и долг
-
-- Модулю не принадлежат цены моделей (модуль `pricing`) и каналы (модуль `channels`).
-- ⚠ `delete_model` / `delete_models_batch` сами переписывают список моделей каналов (`domain.ChannelRouting`, `model.Channel.UpdateAbilities`) и удаляют цены (`RemovePrices`) в своей транзакции, а не через модули-владельцы.
-- ⚠ `adapter/gorm/pricing` использует `adapter/gorm/catalog/record` напрямую.
-- ⚠ `model/*` всё ещё импортирует `internal` (записи `legacy-imports-internal` для `model/catalog_persistence.go`, `missing_models.go`, `model_meta.go`, `model_metadata_sync.go`, `pricing_build.go`, `pricing_default.go`, `pricing_inputs.go`, `vendor_management.go`, `vendor_meta.go`): GORM-записи `model.Model` / `model.Vendor` живут в адаптере, а `model` создаёт сценарии каталога внутри себя.
-- ⚠ `domain` импортирует `common` (JSON для версий и проверки эндпоинтов), поэтому `domain-transitive: internal/catalog/domain` и все `usecase-transitive: internal/catalog/*` остаются в списке исключений.
-- `model.ErrVendorConflict` и `model.ErrMetadataSyncConflict` — алиасы `domain.ErrVendorConflict` и `domain.ErrMetadataSyncConflict`.
+`model.NewCatalogPersistence` сохраняет composition с единственными metadata mutex/transaction,
+option-row anchor и private PricingMutation callback. Это общая граница с pricing/options до
+появления их владельца; вся catalog/model cleanup не завершена. Root `catalog/domain` пока
+импортирует common для codecs/version hashes: при cleanup нужно вынести зависимость и объединить
+чистые leaf packages обратно, сохранив версии и байты. Новые availability/prefill usecases root
+с этой зависимостью не импортируют.

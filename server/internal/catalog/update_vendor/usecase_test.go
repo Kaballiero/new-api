@@ -56,21 +56,21 @@ func TestUpdateVendor(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var audited []any
+
 			refreshed := false
-			out, err := NewUsecase(tc.store, func() int64 { return 300 }, func() { refreshed = true }, func(id int, name string) { audited = []any{id, name} }).Execute(Input{Value: tc.value})
+			out, err := NewUsecase(tc.store, func() int64 { return 300 }, func() { refreshed = true }).Execute(Input{Value: tc.value})
 			if tc.err != nil {
 				require.ErrorIs(t, err, tc.err)
 				if tc.errText != "" {
 					assert.EqualError(t, err, tc.errText)
 				}
 				assert.False(t, refreshed)
-				assert.Nil(t, audited)
+
 				return
 			}
 			require.NoError(t, err)
 			assert.True(t, refreshed)
-			assert.Equal(t, []any{2, "OpenAI"}, audited)
+
 			// Creation time and status come from the saved record.
 			assert.Equal(t, domain.Vendor{Version: tc.value.Version, Id: 2, Name: "OpenAI", Status: 1, CreatedTime: 10, UpdatedTime: 300}, *tc.store.updated)
 			assert.Equal(t, domain.VendorRecordVersion(out), out.Version)

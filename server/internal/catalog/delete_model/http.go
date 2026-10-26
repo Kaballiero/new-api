@@ -1,21 +1,21 @@
 package delete_model
 
 import (
+	"net/http"
+	"strconv"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/catalog/transport"
 	"github.com/gin-gonic/gin"
-	"net/http"
-	"strconv"
 )
 
 type HTTP struct {
-	store                           Store
-	refreshChannels, refreshPricing func()
-	audit                           func(*gin.Context, Input, Output)
+	scenario Usecase
+	audit    func(*gin.Context, Input, Output)
 }
 
-func NewHTTP(store Store, refreshChannels, refreshPricing func(), audit func(*gin.Context, Input, Output)) HTTP {
-	return HTTP{store: store, refreshChannels: refreshChannels, refreshPricing: refreshPricing, audit: audit}
+func NewHTTP(scenario Usecase, audit func(*gin.Context, Input, Output)) HTTP {
+	return HTTP{scenario: scenario, audit: audit}
 }
 func (h HTTP) Handle(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
@@ -35,11 +35,11 @@ func (h HTTP) Handle(c *gin.Context) {
 	}
 	input := Input{ModelIDs: []int{id}, RemoveFromChannels: removeFromChannels, RemovePricing: removePricing}
 	input.AllowRemovePricing = c.GetInt("role") == common.RoleRootUser
-	audit := func(input Input, result Output) { h.audit(c, input, result) }
-	out, err := NewUsecase(h.store, h.refreshChannels, h.refreshPricing, audit).Execute(input)
+	out, err := h.scenario.Execute(input)
 	if err != nil {
 		transport.WriteError(c, err)
 		return
 	}
+	h.audit(c, input, out)
 	common.ApiSuccess(c, out)
 }

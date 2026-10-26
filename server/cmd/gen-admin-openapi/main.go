@@ -156,6 +156,9 @@ func bootstrap() error {
 	if err := parseChannelHandlers(); err != nil {
 		return err
 	}
+	if err := parseDeploymentHandlers(); err != nil {
+		return err
+	}
 	if err := parseCatalogHandlers(); err != nil {
 		return err
 	}

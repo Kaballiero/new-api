@@ -82,3 +82,38 @@ func FillConnections(models []*Model, connections []ModelConnection, endpointsFo
 		}
 	}
 }
+
+type ModelFacts interface {
+	ConfiguredChannels() (map[string][]int, error)
+	Connections() ([]ModelConnection, error)
+	AllModels() ([]Model, error)
+	SupportEndpoints(string) []string
+	QuotaTypes(string) []int
+}
+
+func EnrichModels(items []*Model, store ModelFacts, log func(string)) error {
+	if len(items) > 0 {
+		configured, err := store.ConfiguredChannels()
+		if err != nil {
+			log("load configured model channels: " + err.Error())
+			return Internal(err)
+		}
+		FillConfiguredCounts(items, configured)
+		connections, err := store.Connections()
+		if err != nil {
+			log("load model connections: " + err.Error())
+			return Internal(err)
+		}
+		metadata, err := store.AllModels()
+		if err != nil {
+			log("load model square states: " + err.Error())
+			return Internal(err)
+		}
+		if err := FillModelSquareStates(items, configured, connections, metadata); err != nil {
+			log("load model square states: " + err.Error())
+			return Internal(err)
+		}
+		FillConnections(items, connections, store.SupportEndpoints, store.QuotaTypes)
+	}
+	return nil
+}

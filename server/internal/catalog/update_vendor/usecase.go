@@ -1,8 +1,9 @@
 package update_vendor
 
 import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 
 type Store interface {
@@ -15,11 +16,10 @@ type Usecase struct {
 	refresh func()
 
 	store Store
-	audit func(int, string)
 }
 
-func NewUsecase(store Store, now func() int64, refresh func(), audit func(int, string)) Usecase {
-	return Usecase{store: store, now: now, refresh: refresh, audit: audit}
+func NewUsecase(store Store, now func() int64, refresh func()) Usecase {
+	return Usecase{store: store, now: now, refresh: refresh}
 }
 func (u Usecase) Execute(input Input) (*Output, error) {
 	v := input.Value
@@ -38,7 +38,6 @@ func (u Usecase) Execute(input Input) (*Output, error) {
 	if err := u.persist(&v); err != nil {
 		return nil, domain.RejectVendorChange(err, u.store.IsMissing(err))
 	}
-	u.audit(v.Id, v.Name)
 	return &v, nil
 }
 

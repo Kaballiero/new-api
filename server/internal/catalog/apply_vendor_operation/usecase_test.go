@@ -46,31 +46,31 @@ func version(t *testing.T, store *fakeStore, operation Input) string {
 func TestApplyVendorOperation(t *testing.T) {
 	vendors := []domain.Vendor{{Id: 1, Name: "A"}, {Id: 2, Name: "B"}}
 	t.Run("missing preview version is a conflict", func(t *testing.T) {
-		_, err := NewUsecase(&fakeStore{}, nil, nil, nil).Execute(Input{Action: "delete", VendorIDs: []int{1}})
+		_, err := NewUsecase(&fakeStore{}, nil, nil).Execute(Input{Action: "delete", VendorIDs: []int{1}})
 		require.ErrorIs(t, err, domain.ErrVendorRejected)
 		require.ErrorIs(t, err, domain.ErrVendorConflict)
 	})
 	t.Run("referenced vendor cannot be deleted", func(t *testing.T) {
-		_, err := NewUsecase(&fakeStore{vendors: vendors, models: []domain.Model{{Id: 9, VendorID: 1}}}, nil, nil, nil).Execute(Input{Action: "delete", VendorIDs: []int{1}, ExpectedVersion: "any"})
+		_, err := NewUsecase(&fakeStore{vendors: vendors, models: []domain.Model{{Id: 9, VendorID: 1}}}, nil, nil).Execute(Input{Action: "delete", VendorIDs: []int{1}, ExpectedVersion: "any"})
 		require.ErrorIs(t, err, domain.ErrVendorRejected)
 		var references *domain.VendorReferenceError
 		require.ErrorAs(t, err, &references)
 		assert.Equal(t, map[int]int64{1: 1}, references.Counts)
 	})
 	t.Run("stale preview is a conflict", func(t *testing.T) {
-		_, err := NewUsecase(&fakeStore{vendors: vendors}, nil, nil, nil).Execute(Input{Action: "merge", VendorIDs: []int{1}, TargetVendorID: 2, ExpectedVersion: "old"})
+		_, err := NewUsecase(&fakeStore{vendors: vendors}, nil, nil).Execute(Input{Action: "merge", VendorIDs: []int{1}, TargetVendorID: 2, ExpectedVersion: "old"})
 		require.ErrorIs(t, err, domain.ErrVendorConflict)
 	})
 	t.Run("merge", func(t *testing.T) {
 		store := &fakeStore{vendors: vendors, models: []domain.Model{{Id: 9, VendorID: 1}, {Id: 10, VendorID: 2}}}
 		operation := Input{Action: "merge", VendorIDs: []int{1}, TargetVendorID: 2}
 		operation.ExpectedVersion = version(t, store, operation)
-		var audited *Output
+
 		refreshed := false
-		out, err := NewUsecase(store, func() int64 { return 1 }, func() { refreshed = true }, func(_ Input, result Output) { audited = &result }).Execute(operation)
+		out, err := NewUsecase(store, func() int64 { return 1 }, func() { refreshed = true }).Execute(operation)
 		require.NoError(t, err)
 		assert.Equal(t, &Output{UpdatedModels: []int{9}, DeletedVendors: []int{1}}, out)
-		assert.Equal(t, out, audited)
+
 		assert.Equal(t, []int{9}, store.assigned)
 		assert.Equal(t, []int{1}, store.deleted)
 		assert.True(t, refreshed)

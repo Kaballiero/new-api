@@ -9,6 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// CatalogGroupColumn exposes the existing SQL quoting seam to external adapter tests.
+var CatalogGroupColumn = &commonGroupCol
+
 var PricingCatalogState = &pricingCatalogState
 var PricingCatalogFingerprint = pricingCatalogFingerprint
 var GroupRatioOptionMutex = &groupRatioOptionMutex

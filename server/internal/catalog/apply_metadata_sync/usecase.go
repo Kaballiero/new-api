@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 
 type Source interface {
@@ -20,11 +21,10 @@ type Usecase struct {
 	source  Source
 	now     func() int64
 	refresh func()
-	audit   func(Output)
 }
 
-func NewUsecase(store Store, source Source, now func() int64, refresh func(), audit func(Output)) Usecase {
-	return Usecase{store: store, source: source, now: now, refresh: refresh, audit: audit}
+func NewUsecase(store Store, source Source, now func() int64, refresh func()) Usecase {
+	return Usecase{store: store, source: source, now: now, refresh: refresh}
 }
 func (u Usecase) Execute(ctx context.Context, input Input) (*Output, error) {
 	source, upstream, vendors, err := u.source.Fetch(ctx, input.Locale)
@@ -46,37 +46,11 @@ func (u Usecase) Execute(ctx context.Context, input Input) (*Output, error) {
 	if err != nil {
 		return nil, domain.RejectSync(err)
 	}
-	u.audit(*result)
 	return result, nil
 }
-func (u Usecase) applyRecords(updates []domain.MetadataSyncUpdate, upstreamVendors map[string]domain.Vendor) (*Output, error) {
-	if len(updates) == 0 {
-		return nil, errors.New("select metadata changes before applying")
-	}
-	seen := make(map[string]bool)
-	for _, update := range updates {
-		if seen[update.ModelName] || strings.TrimSpace(update.ModelName) == "" {
-			return nil, errors.New("invalid or duplicate model selection")
-		}
-		seen[update.ModelName] = true
-		if update.RecordVersion == "" {
-			return nil, domain.ErrMetadataSyncConflict
-		}
-		if err := domain.ValidateMetadataValues(update.Values); err != nil {
-			return nil, err
-		}
-		if !update.Create && len(update.Fields) == 0 {
-			return nil, errors.New("select fields to update")
-		}
-		allowed := make(map[string]bool)
-		for _, field := range u.store.SyncFields() {
-			allowed[field] = true
-		}
-		for _, field := range update.Fields {
-			if !allowed[field] {
-				return nil, fmt.Errorf("unsupported metadata field: %s", field)
-			}
-		}
+func (u Usecase) applyRecords(updates []domain.MetadataSyncUpdate, vendorsUpstream map[string]domain.Vendor) (*Output, error) {
+	if err := u.validateUpdates(updates); err != nil {
+		return nil, err
 	}
 	result := &domain.MetadataSyncResult{CreatedModels: []string{}, UpdatedModels: []domain.MetadataSyncSelection{}, CreatedVendors: []string{}}
 	err := u.store.WithMetadataSync(func(tx domain.MetadataMutation) error {
@@ -131,7 +105,7 @@ func (u Usecase) applyRecords(updates []domain.MetadataSyncUpdate, upstreamVendo
 					if name != "" {
 						vendor := domain.FindMetadataVendor(vendors, name)
 						if vendor == nil {
-							up, ok := upstreamVendors[name]
+							up, ok := vendorsUpstream[name]
 							if !ok {
 								return fmt.Errorf("upstream vendor not found: %s", name)
 							}
@@ -180,4 +154,36 @@ func (u Usecase) applyRecords(updates []domain.MetadataSyncUpdate, upstreamVendo
 	}
 	u.refresh()
 	return result, nil
+}
+
+func (u Usecase) validateUpdates(updates []domain.MetadataSyncUpdate) error {
+	if len(updates) == 0 {
+		return errors.New("select metadata changes before applying")
+	}
+	seen := make(map[string]bool)
+	for _, update := range updates {
+		if seen[update.ModelName] || strings.TrimSpace(update.ModelName) == "" {
+			return errors.New("invalid or duplicate model selection")
+		}
+		seen[update.ModelName] = true
+		if update.RecordVersion == "" {
+			return domain.ErrMetadataSyncConflict
+		}
+		if err := domain.ValidateMetadataValues(update.Values); err != nil {
+			return err
+		}
+		if !update.Create && len(update.Fields) == 0 {
+			return errors.New("select fields to update")
+		}
+		allowed := make(map[string]bool)
+		for _, field := range u.store.SyncFields() {
+			allowed[field] = true
+		}
+		for _, field := range update.Fields {
+			if !allowed[field] {
+				return fmt.Errorf("unsupported metadata field: %s", field)
+			}
+		}
+	}
+	return nil
 }

@@ -61,9 +61,9 @@ func TestApplyMetadataSync(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &fakeStore{locals: tc.locals}
-			var audited *Output
+
 			refreshed := false
-			out, err := NewUsecase(store, tc.source, func() int64 { return 50 }, func() { refreshed = true }, func(result Output) { audited = &result }).Execute(context.Background(), tc.input)
+			out, err := NewUsecase(store, tc.source, func() int64 { return 50 }, func() { refreshed = true }).Execute(context.Background(), tc.input)
 			if tc.err != nil || tc.errText != "" {
 				if tc.err != nil {
 					require.ErrorIs(t, err, tc.err)
@@ -71,14 +71,14 @@ func TestApplyMetadataSync(t *testing.T) {
 				if tc.errText != "" {
 					require.EqualError(t, err, tc.errText)
 				}
-				assert.Nil(t, audited)
+
 				assert.False(t, refreshed)
 				assert.Empty(t, store.inserted)
 				return
 			}
 			require.NoError(t, err)
 			assert.Equal(t, []string{"gpt"}, out.CreatedModels)
-			assert.Equal(t, out, audited)
+
 			assert.True(t, refreshed)
 			assert.Equal(t, []map[string]any{{"description": "chat", "status": 1, "model_name": "gpt", "sync_official": 1, "created_time": int64(50), "updated_time": int64(50)}}, store.inserted)
 		})

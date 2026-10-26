@@ -7,112 +7,69 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
-func TestChannelOwnerNameUsesAdaptorChannelName(t *testing.T) {
-	tests := []struct {
-		name        string
-		channelType int
-		expected    string
-	}{
-		{
-			name:        "openai",
-			channelType: constant.ChannelTypeOpenAI,
-			expected:    "openai",
-		},
-		{
-			name:        "codex",
-			channelType: constant.ChannelTypeCodex,
-			expected:    "codex",
-		},
-		{
-			name:        "openrouter",
-			channelType: constant.ChannelTypeOpenRouter,
-			expected:    "openrouter",
-		},
-		{
-			name:        "azure fallback",
-			channelType: constant.ChannelTypeAzure,
-			expected:    "azure",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.expected, channelOwnerName(tt.channelType))
-		})
-	}
-}
-
-func TestBuildOpenAIModelOverridesOwnedBy(t *testing.T) {
-	modelItem := buildOpenAIModel("gpt-5.4", map[string]string{"gpt-5.4": "openai"})
-	require.Equal(t, "gpt-5.4", modelItem.Id)
-	require.Equal(t, "openai", modelItem.OwnedBy)
-}
-
-func TestBuildOpenAIModelFallsBackToCustomForUnknownModels(t *testing.T) {
-	modelItem := buildOpenAIModel("custom-test-model", nil)
-	require.Equal(t, "custom-test-model", modelItem.Id)
-	require.Equal(t, "custom", modelItem.OwnedBy)
-}
-
-func TestGetModelListGroupsUsesUserGroupWhenTokenGroupIsEmpty(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
-
-	groups, err := getModelListGroups(ctx)
-	require.NoError(t, err)
-
-	require.Equal(t, "default", groups.userGroup)
-	require.Empty(t, groups.tokenGroup)
-	require.Equal(t, []string{"default"}, groups.ownerGroups)
-}
-
-func TestGetModelListGroupsUsesExplicitTokenGroup(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
-	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "vip")
-
-	groups, err := getModelListGroups(ctx)
-	require.NoError(t, err)
-
-	require.Equal(t, "default", groups.userGroup)
-	require.Equal(t, "vip", groups.tokenGroup)
-	require.Equal(t, []string{"vip"}, groups.ownerGroups)
-}
-
-func TestGetModelListGroupsUsesFilteredTokenAutoGroupsSnapshot(t *testing.T) {
-	originalMax := setting.GetMaxTokenAutoGroups()
-	originalUsableGroups := setting.UserUsableGroups2JSONString()
-	originalRatios := ratio_setting.GroupRatio2JSONString()
+func TestModelGroupSelectionAndPreferredOwner(t *testing.T) {
+	previousMax := setting.GetMaxTokenAutoGroups()
+	previousUsable := setting.UserUsableGroups2JSONString()
+	previousRatios := ratio_setting.GroupRatio2JSONString()
+	previousSelfUse, previousMemory := operation_setting.SelfUseModeEnabled, common.MemoryCacheEnabled
 	require.NoError(t, setting.UpdateMaxTokenAutoGroups("1"))
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1}`))
+	operation_setting.SelfUseModeEnabled = true
+	common.MemoryCacheEnabled = false
 	t.Cleanup(func() {
-		require.NoError(t, setting.UpdateMaxTokenAutoGroups(fmt.Sprintf("%d", originalMax)))
-		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
-		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+		require.NoError(t, setting.UpdateMaxTokenAutoGroups(fmt.Sprint(previousMax)))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousUsable))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousRatios))
+		operation_setting.SelfUseModeEnabled = previousSelfUse
+		common.MemoryCacheEnabled = previousMemory
 	})
-
-	gin.SetMode(gin.TestMode)
-	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
-	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "auto")
-	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"vip", "default"})
-
-	groups, err := getModelListGroups(ctx)
-	require.NoError(t, err)
-	require.Equal(t, []string{"vip"}, groups.ownerGroups)
-
-	common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"vip"})
-	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
-	groups, err = getModelListGroups(ctx)
-	require.NoError(t, err)
-	require.Empty(t, groups.ownerGroups)
+	for _, tc := range []struct {
+		name, token string
+		auto        []string
+		restrict    bool
+		want        []string
+	}{
+		{name: "user group", want: []string{"owned-default"}},
+		{name: "explicit token group", token: "vip", want: []string{"owned-vip"}},
+		{name: "auto snapshot limit", token: "auto", auto: []string{"vip", "default"}, want: []string{"owned-vip"}},
+		{name: "auto snapshot loses permission", token: "auto", auto: []string{"vip"}, restrict: true, want: []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setupModelListControllerTestDB(t)
+			for i, group := range []string{"default", "vip"} {
+				channel := model.Channel{Id: i + 1, Name: group, Type: constant.ChannelTypeOpenAI, Key: "fixture", Status: common.ChannelStatusEnabled, Group: group, Models: "owned-" + group}
+				require.NoError(t, channel.Insert())
+			}
+			require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
+			if tc.restrict {
+				require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+			}
+			response := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(response)
+			common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+			common.SetContextKey(ctx, constant.ContextKeyTokenGroup, tc.token)
+			if tc.auto != nil {
+				common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, tc.auto)
+			}
+			ListModels(ctx, constant.ChannelTypeOpenAI)
+			var result listModelsResponse
+			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+			require.True(t, result.Success)
+			names := []string{}
+			for _, v := range result.Data {
+				names = append(names, v.Id)
+				require.Equal(t, "openai", v.OwnedBy)
+			}
+			require.Equal(t, tc.want, names)
+		})
+	}
 }

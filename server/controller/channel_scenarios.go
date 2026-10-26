@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/channels/test_channels"
 	"github.com/QuantumNous/new-api/internal/system/enqueue_system_task"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/modelcatalog"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -52,6 +53,7 @@ func channelEffects() app.ChannelEffects {
 	},
 		Audit: func(c *gin.Context, action string, params map[string]any) { recordManageAudit(c, action, params) }, ReadAudit: markAuditLogged, SecurityError: writeSecurityOperationError, Refresh: refreshChannelPricingCache,
 		ChannelListModels: func() list_channel_models.Output {
+			openAIModels := modelcatalog.Models()
 			if openAIModels == nil {
 				return nil
 			}

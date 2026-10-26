@@ -48,3 +48,14 @@ type Vendor struct {
 }
 
 func (m *Model) MatchesName(name string) bool { return ToModel(m).MatchesName(name) }
+
+const (
+	NameRuleExact          = domain.NameRuleExact
+	NameRulePrefix         = domain.NameRulePrefix
+	NameRuleContains       = domain.NameRuleContains
+	NameRuleSuffix         = domain.NameRuleSuffix
+	ModelSquareVisible     = domain.ModelSquareVisible
+	ModelSquareUnavailable = domain.ModelSquareUnavailable
+	ModelSquareHidden      = domain.ModelSquareHidden
+	ModelSquarePartial     = domain.ModelSquarePartial
+)

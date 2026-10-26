@@ -4,6 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/QuantumNous/new-api/internal/app/channelruntime"
+	"github.com/QuantumNous/new-api/internal/app/notifications"
+	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
@@ -57,7 +61,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/channels/validate_models"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -308,16 +311,16 @@ func NewChannelBalancesUsecase() update_channels_balances.Usecase {
 	store := repository.NewStore()
 	return update_channels_balances.NewUsecase(store, channeladapter.NewBalanceReader(store.Record), func(channel *channeldomain.Channel) {
 		record := store.Record(channel)
-		reason := i18n.Translate(service.RootUserLanguage(), i18n.MsgChannelBalanceExhausted)
-		service.DisableChannel(*types.NewChannelError(record.Id, record.Type, record.Name, record.ChannelInfo.IsMultiKey, "", record.GetAutoBan()), reason)
+		reason := i18n.Translate(channelruntime.RootUserLanguage(), i18n.MsgChannelBalanceExhausted)
+		channelruntime.Disable(disable_channel.Input{ChannelID: record.Id, ChannelName: record.Name, UsingKey: "", AutoBan: record.GetAutoBan()}, reason)
 	}, func() { time.Sleep(common.RequestInterval) })
 }
 
 func NewChannelTestTaskUsecase(effects ChannelEffects) run_channel_tests.Usecase {
 	store := repository.NewStore()
-	return run_channel_tests.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(nil) }, func(channel *channeldomain.Channel) bool { return effects.AutomaticStream(store.Record(channel)) }, channeladapter.TestFailures{}, func() bool { return common.AutomaticDisableChannelEnabled }, service.EnableChannel, func() float64 { return common.ChannelDisableThreshold }, operation_setting.NormalizeChannelTestConcurrency, func() time.Duration { return common.RequestInterval }, func() string { return operation_setting.GetMonitorSetting().ChannelTestMode }, func() int { return operation_setting.GetMonitorSetting().ChannelTestConcurrency }, func() {
-		lang := service.RootUserLanguage()
-		service.NotifyRootUser(dto.NotifyTypeChannelTest, i18n.Translate(lang, i18n.MsgChannelTestDoneSubject), i18n.Translate(lang, i18n.MsgChannelTestDoneContent))
+	return run_channel_tests.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(nil) }, func(channel *channeldomain.Channel) bool { return effects.AutomaticStream(store.Record(channel)) }, channeladapter.TestFailures{}, func() bool { return common.AutomaticDisableChannelEnabled }, channelruntime.Enable, func() float64 { return common.ChannelDisableThreshold }, operation_setting.NormalizeChannelTestConcurrency, func() time.Duration { return common.RequestInterval }, func() string { return operation_setting.GetMonitorSetting().ChannelTestMode }, func() int { return operation_setting.GetMonitorSetting().ChannelTestConcurrency }, func() {
+		lang := channelruntime.RootUserLanguage()
+		notifications.Root(dto.NotifyTypeChannelTest, i18n.Translate(lang, i18n.MsgChannelTestDoneSubject), i18n.Translate(lang, i18n.MsgChannelTestDoneContent))
 	})
 }
 
@@ -361,8 +364,8 @@ func NewDetectChannelModelsUsecase(effects ChannelEffects) detect_upstream_model
 func NewScanChannelModelsUsecase(effects ChannelEffects) scan_upstream_model_updates.Usecase {
 	store := repository.NewStore()
 	return scan_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), channelModelFetcher(store, effects), effects.RefreshRuntime, common.GetTimestamp, ChannelModelCheckInterval, func() time.Duration { return common.RequestInterval }, func() bool { return common.DebugEnabled }, common.SysLog, effects.ModelUpdateThrottle, func(report channeldomain.ModelUpdateReport) {
-		subject, content := channeladapter.ModelUpdateNotification(service.RootUserLanguage(), report)
-		service.NotifyUpstreamModelUpdateWatchers(subject, content)
+		subject, content := channeladapter.ModelUpdateNotification(channelruntime.RootUserLanguage(), report)
+		notifications.ModelUpdateWatchers(subject, content)
 	})
 }
 

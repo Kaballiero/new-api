@@ -133,7 +133,7 @@ func Compare(t *testing.T, directory, name string, value any) {
 	data, err := common.Marshal(value)
 	require.NoError(t, err)
 	updating := flag.Lookup("update").Value.String() == "true"
-	if !*preflight && !updating && directory == "testdata/notifications" &&
+	if !*preflight && !updating && (directory == "testdata/notifications" || directory == "../../../service/testdata/notifications") &&
 		(name == "root_channel_disabled" || name == "root_channel_autoban_off") {
 		compareNotificationLogs(t, directory, name, data)
 	} else {

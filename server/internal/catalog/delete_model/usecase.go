@@ -2,9 +2,10 @@ package delete_model
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"sort"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 
 type Store interface {
@@ -16,11 +17,10 @@ type Store interface {
 type Usecase struct {
 	store                           Store
 	refreshChannels, refreshPricing func()
-	audit                           func(Input, Output)
 }
 
-func NewUsecase(store Store, refreshChannels, refreshPricing func(), audit func(Input, Output)) Usecase {
-	return Usecase{store: store, refreshChannels: refreshChannels, refreshPricing: refreshPricing, audit: audit}
+func NewUsecase(store Store, refreshChannels, refreshPricing func()) Usecase {
+	return Usecase{store: store, refreshChannels: refreshChannels, refreshPricing: refreshPricing}
 }
 func (u Usecase) Execute(input Input) (Output, error) {
 	ids, removeFromChannels, removePricing := input.ModelIDs, input.RemoveFromChannels, input.RemovePricing
@@ -117,6 +117,5 @@ func (u Usecase) Execute(input Input) (Output, error) {
 		u.refreshChannels()
 	}
 	u.refreshPricing()
-	u.audit(input, result)
 	return result, nil
 }

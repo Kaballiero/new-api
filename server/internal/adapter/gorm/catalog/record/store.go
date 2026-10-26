@@ -1,9 +1,10 @@
 package record
 
 import (
+	"strconv"
+
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"gorm.io/gorm"
-	"strconv"
 )
 
 type Environment struct {
@@ -14,12 +15,14 @@ type Environment struct {
 	ReadRouting     func(*gorm.DB) ([]domain.ChannelRouting, error)
 	SaveRouting     func(*gorm.DB, domain.ChannelRouting) error
 
+	GroupColumn func() string
 	DB          func() *gorm.DB
 	Transaction func(func(*gorm.DB) error) error
 }
 type Store struct{ env Environment }
 
-func NewStore(env Environment) Store { return Store{env: env} }
+func NewStore(env Environment) Store    { return Store{env: env} }
+func (store Store) GroupColumn() string { return store.env.GroupColumn() }
 func (store Store) IsModelNameDuplicated(id int, name string) (bool, error) {
 	if name == "" {
 		return false, nil

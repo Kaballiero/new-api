@@ -1,9 +1,10 @@
 package list_models
 
 import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"sort"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 
 type Store interface {
@@ -85,28 +86,8 @@ func (u Usecase) Execute(input Input) (Output, error) {
 			items = items[offset:end]
 		}
 	}
-	if len(items) > 0 {
-		configured, err := u.store.ConfiguredChannels()
-		if err != nil {
-			u.log("load configured model channels: " + err.Error())
-			return Output{}, domain.Internal(err)
-		}
-		domain.FillConfiguredCounts(items, configured)
-		connections, err := u.store.Connections()
-		if err != nil {
-			u.log("load model connections: " + err.Error())
-			return Output{}, domain.Internal(err)
-		}
-		metadata, err := u.store.AllModels()
-		if err != nil {
-			u.log("load model square states: " + err.Error())
-			return Output{}, domain.Internal(err)
-		}
-		if err := domain.FillModelSquareStates(items, configured, connections, metadata); err != nil {
-			u.log("load model square states: " + err.Error())
-			return Output{}, domain.Internal(err)
-		}
-		domain.FillConnections(items, connections, u.store.SupportEndpoints, u.store.QuotaTypes)
+	if err := domain.EnrichModels(items, u.store, u.log); err != nil {
+		return Output{}, err
 	}
 	if squareState != "" {
 		filtered := make([]*domain.Model, 0, len(items))

@@ -9,6 +9,9 @@ import (
 	"testing"
 	"testing/synctest"
 
+	notification "github.com/QuantumNous/new-api/internal/adapter/notifications"
+	"github.com/QuantumNous/new-api/internal/app/notifications"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	f "github.com/QuantumNous/new-api/internal/contracttest/managementfixture"
@@ -44,7 +47,7 @@ func runTrigger(t *testing.T, name string) any {
 	common.RedisEnabled = false
 	constant.NotifyLimitCount = 20
 	// Start the existing lazy janitor outside virtual time; no destination is used by this fixture event.
-	require.NoError(t, service.NotifyUser(999999, "", dto.UserSetting{NotifyType: "fixture-unused"}, dto.NewNotify("fixture-janitor", "", "", nil)))
+	require.NoError(t, notifications.Send(999999, "", notification.Preferences(dto.UserSetting{NotifyType: "fixture-unused"}), notification.Notice(dto.NewNotify("fixture-janitor", "", "", nil))))
 	transport := &f.Transport{Requests: []f.Request{}, Reply: func(*http.Request, int) (int, string, error) { return 204, "", nil }}
 	transport.EnableServer(t)
 	return h.Run(t, false, func(t *testing.T, env *h.Fixture) any {

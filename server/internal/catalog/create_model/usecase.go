@@ -2,6 +2,7 @@ package create_model
 
 import (
 	"errors"
+
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 

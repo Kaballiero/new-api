@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/internal/app/channelruntime"
+	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
@@ -472,7 +475,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	if service.ShouldDisableChannel(err) && channelError.AutoBan {
 		gopool.Go(func() {
-			service.DisableChannel(channelError, err.ErrorWithStatusCode())
+			channelruntime.Disable(disable_channel.Input{ChannelID: channelError.ChannelId, ChannelName: channelError.ChannelName, UsingKey: channelError.UsingKey, AutoBan: channelError.AutoBan}, err.ErrorWithStatusCode())
 		})
 	}
 

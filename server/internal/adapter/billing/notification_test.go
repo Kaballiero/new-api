@@ -1,10 +1,14 @@
-package billing
+package billing_test
 
 import (
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+
+	billingadapter "github.com/QuantumNous/new-api/internal/adapter/billing"
+	notification "github.com/QuantumNous/new-api/internal/adapter/notifications"
+	"github.com/QuantumNous/new-api/internal/app/notifications"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -62,13 +66,13 @@ func TestQuotaWebhookKeepsLegacyPayload(t *testing.T) {
 	values := []any{title, "123", "https://billing.example/wallet", "https://billing.example/wallet"}
 	// Compare against the unchanged production renderer fed with the exact
 	// legacy zh-CN template/values, without opening an HTTP listener or socket.
-	require.NoError(t, service.NotifyUser(901231, "", settings, dto.NewNotify(dto.NotifyTypeQuotaExceed, title, content, values)))
-	require.NoError(t, (Notification{}).Deliver(domain.Notice{Recipient: domain.Recipient{UserID: 901231, Language: "zh-CN", NotifyType: "webhook", WebhookURL: settings.WebhookUrl}, Remaining: 123}))
+	require.NoError(t, notifications.Send(901231, "", notification.Preferences(settings), notification.Notice(dto.NewNotify(dto.NotifyTypeQuotaExceed, title, content, values))))
+	require.NoError(t, (billingadapter.Notification{Send: notifications.Send}).Deliver(domain.Notice{Recipient: domain.Recipient{UserID: 901231, Language: "zh-CN", NotifyType: "webhook", WebhookURL: settings.WebhookUrl}, Remaining: 123}))
 	require.Len(t, payloads, 2)
 	assert.Equal(t, payloads[0], payloads[1])
 	assert.Equal(t, []any{title, "123", "https://billing.example/wallet", "https://billing.example/wallet"}, payloads[1]["values"])
 	for _, language := range []string{"en", "ru", ""} {
-		require.NoError(t, (Notification{}).Deliver(domain.Notice{Recipient: domain.Recipient{UserID: 901231, Language: language, NotifyType: "webhook", WebhookURL: settings.WebhookUrl}, Remaining: 123}))
+		require.NoError(t, (billingadapter.Notification{Send: notifications.Send}).Deliver(domain.Notice{Recipient: domain.Recipient{UserID: 901231, Language: language, NotifyType: "webhook", WebhookURL: settings.WebhookUrl}, Remaining: 123}))
 		payload := payloads[len(payloads)-1]
 		if language == "" {
 			language = "en"

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -177,7 +178,7 @@ export function parseTaskResult() { return {}; }
 				}
 				ids := make([]int, 0, len(records))
 				for i := range records {
-					require.NoError(t, records[i].Insert())
+					require.NoError(t, insertModelRecord(&(records[i])))
 					ids = append(ids, records[i].Id)
 				}
 				active := model.Channel{Name: "Square active", Type: 1, Key: "fixture", Group: "default", Status: common.ChannelStatusEnabled,
@@ -334,7 +335,7 @@ export function parseTaskResult() { return {}; }
 				catalog := model.Model{ModelName: "listing-catalog", Status: 1}
 				rule := model.Model{ModelName: "listing-rule-", NameRule: model.NameRulePrefix, Status: 1}
 				for _, item := range []*model.Model{&exact, &catalog, &rule} {
-					require.NoError(t, item.Insert())
+					require.NoError(t, insertModelRecord(item))
 				}
 				active := model.Channel{Name: "Listing active", Type: 1, Key: "fixture", Models: "listing-exact, listing-new,listing-rule-child,listing-new, ,", Group: "default", Status: common.ChannelStatusEnabled}
 				inactive := model.Channel{Name: "Listing inactive", Type: 1, Key: "fixture", Models: "listing-new,listing-disabled", Group: "default", Status: common.ChannelStatusManuallyDisabled}
@@ -419,12 +420,12 @@ export function parseTaskResult() { return {}; }
 					assert.NotEqual(t, catalog.ModelName, price.ModelName)
 				}
 				created := model.Model{ModelName: "listing-new", Status: 1}
-				require.NoError(t, created.Insert())
+				require.NoError(t, insertModelRecord(&(created)))
 				var after listingResponse
 				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-new", nil, &after)
 				require.Len(t, after.Data.Items, 1)
 				assert.Equal(t, created.Id, after.Data.Items[0].Id)
-				require.NoError(t, created.Delete())
+				require.NoError(t, deleteModelRecord(&(created)))
 				after = listingResponse{}
 				modelManagementRequest(t, SearchModelsMeta, "GET", "/api/models/search?include_channel_models=true&keyword=listing-new", nil, &after)
 				require.Len(t, after.Data.Items, 1)
@@ -467,8 +468,8 @@ export function parseTaskResult() { return {}; }
 				}
 
 				metadata := &model.Model{ModelName: "enrichment-handler-error", Status: 1}
-				require.NoError(t, metadata.Insert())
-				t.Cleanup(func() { require.NoError(t, metadata.Delete()) })
+				require.NoError(t, insertModelRecord(metadata))
+				t.Cleanup(func() { require.NoError(t, deleteModelRecord(metadata)) })
 				t.Run("listing", func(t *testing.T) {
 					failModelManagementQuery(t, db, "fail_enrichment_listing", "channels", "listing enrichment unavailable")
 					var response struct {
@@ -606,12 +607,12 @@ export function parseTaskResult() { return {}; }
 				}
 			})
 			t.Run("concurrent_import_creates_one_record", func(t *testing.T) {
-				update := model.MetadataSyncUpdate{MetadataSyncSelection: model.MetadataSyncSelection{ModelName: "matrix-concurrent-import", RecordVersion: model.MetadataRecordVersion(nil, nil, nil), Create: true}, Values: model.MetadataValues{Description: "Imported", Status: 1}}
+				update := domain.MetadataSyncUpdate{MetadataSyncSelection: domain.MetadataSyncSelection{ModelName: "matrix-concurrent-import", RecordVersion: metadataRecordVersion(nil, nil, nil), Create: true}, Values: domain.MetadataValues{Description: "Imported", Status: 1}}
 				var wg sync.WaitGroup
 				results := make(chan error, 2)
 				for range 2 {
 					wg.Go(func() {
-						_, err := model.ApplyMetadataSync([]model.MetadataSyncUpdate{update}, nil)
+						_, err := applyMetadataRecords([]domain.MetadataSyncUpdate{update}, nil)
 						results <- err
 					})
 				}
@@ -621,7 +622,7 @@ export function parseTaskResult() { return {}; }
 				for err := range results {
 					if err == nil {
 						successes++
-					} else if errors.Is(err, model.ErrMetadataSyncConflict) {
+					} else if errors.Is(err, domain.ErrMetadataSyncConflict) {
 						conflicts++
 					} else {
 						require.NoError(t, err)
@@ -644,7 +645,7 @@ export function parseTaskResult() { return {}; }
 					{Model: "matrix-hidden-unpriced", Group: "inactive", ChannelId: active.Id, Enabled: false},
 				}).Error)
 				exact := &model.Model{ModelName: "matrix-hidden-unpriced", Status: 0, SyncOfficial: 0}
-				require.NoError(t, exact.Insert())
+				require.NoError(t, insertModelRecord(exact))
 				rule := &model.Model{ModelName: "matrix-hidden-", NameRule: model.NameRulePrefix}
 				require.NoError(t, enrichModels([]*model.Model{exact, rule}))
 				assert.Equal(t, []string{"available"}, exact.EnableGroups)
@@ -667,7 +668,7 @@ export function parseTaskResult() { return {}; }
 				require.NoError(t, err)
 				assert.Equal(t, float64(0), prices.Entries[0].Configured["ModelPrice"])
 				assert.Empty(t, prices.Entries[1].Configured)
-				require.NoError(t, reloaded.Delete())
+				require.NoError(t, deleteModelRecord(&(reloaded)))
 				require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: "matrix-hidden-unpriced", ExpectedVersion: prices.Entries[0].Version, Reset: true}}))
 				prices, err = model.GetModelPricingSnapshot([]string{"matrix-hidden-unpriced"})
 				require.NoError(t, err)
@@ -677,9 +678,9 @@ export function parseTaskResult() { return {}; }
 			})
 			t.Run("metadata_preview_selection_versions_and_transaction", func(t *testing.T) {
 				local := &model.Model{ModelName: "matrix-existing", Description: "Local description", Tags: "keep", Status: 1, SyncOfficial: 1}
-				require.NoError(t, local.Insert())
+				require.NoError(t, insertModelRecord(local))
 				blocked := &model.Model{ModelName: "matrix-blocked", Status: 1, SyncOfficial: 0}
-				require.NoError(t, blocked.Insert())
+				require.NoError(t, insertModelRecord(blocked))
 				require.NoError(t, db.Create(&model.Ability{Model: "matrix-new", Group: "default", ChannelId: 1, Enabled: true}).Error)
 				var revision atomic.Int32
 				var failVendors atomic.Bool
@@ -727,7 +728,7 @@ export function parseTaskResult() { return {}; }
 				var count int64
 				require.NoError(t, db.Model(&model.Vendor{}).Count(&count).Error)
 				assert.Zero(t, count)
-				body := map[string]any{"locale": "zh", "source_version": preview.Data.Source.Version, "selections": []model.MetadataSyncSelection{
+				body := map[string]any{"locale": "zh", "source_version": preview.Data.Source.Version, "selections": []domain.MetadataSyncSelection{
 					{ModelName: "matrix-existing", RecordVersion: byName["matrix-existing"].RecordVersion, Fields: []string{"description", "endpoints"}},
 					{ModelName: "matrix-new", RecordVersion: byName["matrix-new"].RecordVersion, Create: true},
 				}}
@@ -750,7 +751,7 @@ export function parseTaskResult() { return {}; }
 				assert.Zero(t, count)
 				var result struct {
 					Success bool
-					Data    model.MetadataSyncResult
+					Data    domain.MetadataSyncResult
 				}
 				response = modelManagementRequest(t, SyncUpstreamModels, "POST", "/api/models/sync_upstream", body, &result)
 				require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -774,7 +775,7 @@ export function parseTaskResult() { return {}; }
 				assert.Equal(t, http.StatusConflict, response.Code)
 				response = modelManagementRequest(t, SyncUpstreamModels, "POST", "/api/models/sync_upstream", map[string]any{}, nil)
 				assert.Equal(t, http.StatusBadRequest, response.Code)
-				body["selections"] = []model.MetadataSyncSelection{{ModelName: "matrix-blocked", RecordVersion: byName["matrix-blocked"].RecordVersion, Fields: []string{"description"}}}
+				body["selections"] = []domain.MetadataSyncSelection{{ModelName: "matrix-blocked", RecordVersion: byName["matrix-blocked"].RecordVersion, Fields: []string{"description"}}}
 				response = modelManagementRequest(t, SyncUpstreamModels, "POST", "/api/models/sync_upstream", body, nil)
 				assert.Equal(t, http.StatusBadRequest, response.Code)
 				revision.Add(1)
@@ -799,7 +800,7 @@ func TestMetadataSyncLocaleAndEndpointValidation(t *testing.T) {
 	_, valid := normalizeLocale("invalid")
 	assert.False(t, valid)
 	for _, endpoint := range []string{`1`, `null`, `{"openai":false}`, `{"openai":{"path":"invalid"}}`} {
-		assert.Error(t, model.ValidateModelEndpoints(endpoint))
+		assert.Error(t, domain.ValidateModelEndpoints(endpoint))
 	}
 }
 
@@ -826,9 +827,9 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 				require.NoError(t, db.Model(&model.Vendor{}).Count(&count).Error)
 				assert.Zero(t, count)
 				saved := model.Vendor{Name: "Google", Icon: "Gemini.Color"}
-				require.NoError(t, saved.Insert())
+				require.NoError(t, insertVendorRecord(&(saved)))
 				assert.Equal(t, saved.Id, model.GetVendors()[0].ID)
-				require.NoError(t, saved.Delete())
+				require.NoError(t, deleteVendorRecord(&(saved)))
 				assert.Equal(t, vendors[0].ID, model.GetVendors()[0].ID)
 				require.NoError(t, db.Model(&model.Vendor{}).Count(&count).Error)
 				assert.Zero(t, count, "refresh must not recreate a deleted vendor")
@@ -836,28 +837,28 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 			t.Run("metadata_ownership_preview_merge_delete_and_rollback", func(t *testing.T) {
 				source := model.Vendor{Name: "  Vendor Source  ", Icon: "Gemini.Color"}
 				target := model.Vendor{Name: "Vendor Target", Description: "Keep target", Icon: "OpenAI"}
-				require.NoError(t, source.Insert())
-				require.NoError(t, target.Insert())
+				require.NoError(t, insertVendorRecord(&(source)))
+				require.NoError(t, insertVendorRecord(&(target)))
 				assert.Equal(t, "Vendor Source", source.Name)
-				assert.Error(t, (&model.Vendor{Name: "vendor source"}).Insert())
-				assert.Error(t, (&model.Vendor{Name: " "}).Insert())
+				assert.Error(t, insertVendorRecord((&model.Vendor{Name: "vendor source"})))
+				assert.Error(t, insertVendorRecord((&model.Vendor{Name: " "})))
 				require.NoError(t, db.Model(&model.Vendor{}).Where("id = ?", source.Id).Update("status", 0).Error)
-				loaded, err := model.GetVendorByID(source.Id)
+				loaded, err := catalogVendorByID(source.Id)
 				require.NoError(t, err)
 				staleVersion := loaded.Version
 				edit := model.Vendor{Id: source.Id, Name: source.Name, Description: "Updated source", Icon: source.Icon, Version: loaded.Version}
-				require.NoError(t, edit.Update())
-				updated, err := model.GetVendorByID(source.Id)
+				require.NoError(t, updateVendorRecord(&(edit)))
+				updated, err := catalogVendorByID(source.Id)
 				require.NoError(t, err)
 				assert.Equal(t, loaded.CreatedTime, updated.CreatedTime)
 				assert.Zero(t, updated.Status)
 				edit.Version = staleVersion
-				assert.ErrorIs(t, edit.Update(), model.ErrVendorConflict)
+				assert.ErrorIs(t, updateVendorRecord(&(edit)), domain.ErrVendorConflict)
 
 				one := model.Model{ModelName: "vendor-model-one", VendorID: source.Id, Icon: "Custom", Description: "Preserve description", Status: 0, SyncOfficial: 0}
 				rule := model.Model{ModelName: "vendor-rule-", VendorID: source.Id, NameRule: model.NameRulePrefix, Status: 1, SyncOfficial: 1}
-				require.NoError(t, one.Insert())
-				require.NoError(t, rule.Insert())
+				require.NoError(t, insertModelRecord(&(one)))
+				require.NoError(t, insertModelRecord(&(rule)))
 				priceBefore, err := model.GetModelPricingSnapshot([]string{one.ModelName})
 				require.NoError(t, err)
 				require.NoError(t, model.UpdateModelPricing([]model.ModelPricingChange{{ModelName: one.ModelName, ExpectedVersion: priceBefore.Entries[0].Version, Pricing: model.PricingValues{"ModelPrice": float64(0.25)}}}))
@@ -867,61 +868,61 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 				require.NoError(t, db.Create(&channel).Error)
 				ability := model.Ability{Model: one.ModelName, Group: "default", ChannelId: channel.Id, Enabled: true}
 				require.NoError(t, db.Create(&ability).Error)
-				linked, total, err := model.SearchVendors("", 0, 20, "linked")
+				linked, total, err := searchCatalogVendors("", 0, 20, "linked")
 				require.NoError(t, err)
 				require.Len(t, linked, 1)
 				assert.EqualValues(t, 1, total)
 				assert.EqualValues(t, 2, linked[0].ModelCount)
-				unlinked, _, err := model.SearchVendors("Vendor Target", 0, 20, "unlinked")
+				unlinked, _, err := searchCatalogVendors("Vendor Target", 0, 20, "unlinked")
 				require.NoError(t, err)
 				require.Len(t, unlinked, 1)
-				var references *model.VendorReferenceError
-				err = model.DeleteVendors([]int{source.Id, target.Id})
+				var references *domain.VendorReferenceError
+				err = deleteVendorRecords([]int{source.Id, target.Id})
 				require.ErrorAs(t, err, &references)
 				assert.EqualValues(t, 2, references.Counts[source.Id])
-				_, err = model.GetVendorByID(target.Id)
+				_, err = catalogVendorByID(target.Id)
 				require.NoError(t, err, "bulk delete must not partially delete unreferenced vendors")
 				var response struct {
 					Success         bool
 					Code            string
 					ReferenceCounts map[int]int64 `json:"reference_counts"`
 				}
-				recorder := modelManagementRequest(t, PreviewVendorOperation, http.MethodPost, "/api/vendors/operations/preview", model.VendorOperation{Action: "delete", VendorIDs: []int{source.Id}}, &response)
+				recorder := modelManagementRequest(t, PreviewVendorOperation, http.MethodPost, "/api/vendors/operations/preview", domain.VendorOperation{Action: "delete", VendorIDs: []int{source.Id}}, &response)
 				assert.Equal(t, http.StatusConflict, recorder.Code)
 				assert.Equal(t, "VENDOR_REFERENCED", response.Code)
 				assert.EqualValues(t, 2, response.ReferenceCounts[source.Id])
 
 				disappearing := model.Vendor{Name: "Preview target"}
-				require.NoError(t, disappearing.Insert())
-				staleAssignment := model.VendorOperation{Action: "assign", ModelIDs: []int{one.Id}, TargetVendorID: disappearing.Id}
-				stalePreview, err := model.PreviewVendorOperation(staleAssignment)
+				require.NoError(t, insertVendorRecord(&(disappearing)))
+				staleAssignment := domain.VendorOperation{Action: "assign", ModelIDs: []int{one.Id}, TargetVendorID: disappearing.Id}
+				stalePreview, err := previewVendorRecords(staleAssignment)
 				require.NoError(t, err)
 				staleAssignment.ExpectedVersion = stalePreview.Version
-				require.NoError(t, disappearing.Delete())
+				require.NoError(t, deleteVendorRecord(&(disappearing)))
 				recorder = modelManagementRequest(t, ApplyVendorOperation, http.MethodPost, "/api/vendors/operations", staleAssignment, &response)
 				assert.Equal(t, http.StatusConflict, recorder.Code)
 				assert.Equal(t, "VENDOR_CONFLICT", response.Code)
 
-				assign := model.VendorOperation{Action: "assign", ModelIDs: []int{one.Id}, TargetVendorID: target.Id}
-				preview, err := model.PreviewVendorOperation(assign)
+				assign := domain.VendorOperation{Action: "assign", ModelIDs: []int{one.Id}, TargetVendorID: target.Id}
+				preview, err := previewVendorRecords(assign)
 				require.NoError(t, err)
 				require.Len(t, preview.Models, 1)
 				assign.ExpectedVersion = preview.Version
 				one.Description = "Updated in the same timestamp"
 				require.NoError(t, db.Model(&model.Model{}).Where("id = ?", one.Id).Update("description", one.Description).Error)
-				_, err = model.ApplyVendorOperation(assign)
-				assert.ErrorIs(t, err, model.ErrVendorConflict)
-				preview, err = model.PreviewVendorOperation(assign)
+				_, err = applyVendorRecords(assign)
+				assert.ErrorIs(t, err, domain.ErrVendorConflict)
+				preview, err = previewVendorRecords(assign)
 				require.NoError(t, err)
 				assign.ExpectedVersion = preview.Version
 				target.Description = "New target description"
-				require.NoError(t, target.Update())
-				_, err = model.ApplyVendorOperation(assign)
-				assert.ErrorIs(t, err, model.ErrVendorConflict)
-				preview, err = model.PreviewVendorOperation(assign)
+				require.NoError(t, updateVendorRecord(&(target)))
+				_, err = applyVendorRecords(assign)
+				assert.ErrorIs(t, err, domain.ErrVendorConflict)
+				preview, err = previewVendorRecords(assign)
 				require.NoError(t, err)
 				assign.ExpectedVersion = preview.Version
-				result, err := model.ApplyVendorOperation(assign)
+				result, err := applyVendorRecords(assign)
 				require.NoError(t, err)
 				assert.Equal(t, []int{one.Id}, result.UpdatedModels)
 				var after model.Model
@@ -935,19 +936,19 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 				require.NoError(t, db.First(&after, rule.Id).Error)
 				assert.Equal(t, source.Id, after.VendorID)
 				assign.TargetVendorID = 0
-				preview, err = model.PreviewVendorOperation(assign)
+				preview, err = previewVendorRecords(assign)
 				require.NoError(t, err)
 				assign.ExpectedVersion = preview.Version
-				_, err = model.ApplyVendorOperation(assign)
+				_, err = applyVendorRecords(assign)
 				require.NoError(t, err)
 				after = model.Model{}
 				require.NoError(t, db.First(&after, one.Id).Error)
 				assert.Zero(t, after.VendorID)
 				after.VendorID = -1001
-				assert.Error(t, after.Update(), "display-only vendors cannot become stored references")
+				assert.Error(t, updateModelRecord(&(after)), "display-only vendors cannot become stored references")
 
-				merge := model.VendorOperation{Action: "merge", VendorIDs: []int{source.Id}, TargetVendorID: target.Id}
-				preview, err = model.PreviewVendorOperation(merge)
+				merge := domain.VendorOperation{Action: "merge", VendorIDs: []int{source.Id}, TargetVendorID: target.Id}
+				preview, err = previewVendorRecords(merge)
 				require.NoError(t, err)
 				merge.ExpectedVersion = preview.Version
 				require.NoError(t, db.Callback().Delete().Before("gorm:delete").Register("vendor_delete_failure", func(tx *gorm.DB) {
@@ -955,26 +956,26 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 						tx.AddError(errors.New("injected vendor delete failure"))
 					}
 				}))
-				_, err = model.ApplyVendorOperation(merge)
+				_, err = applyVendorRecords(merge)
 				require.Error(t, err)
 				require.NoError(t, db.Callback().Delete().Remove("vendor_delete_failure"))
 				after = model.Model{}
 				require.NoError(t, db.First(&after, rule.Id).Error)
 				assert.Equal(t, source.Id, after.VendorID, "ownership updates roll back when deletion fails")
-				_, err = model.GetVendorByID(source.Id)
+				_, err = catalogVendorByID(source.Id)
 				require.NoError(t, err)
-				_, err = model.ApplyVendorOperation(merge)
+				_, err = applyVendorRecords(merge)
 				require.NoError(t, err)
-				_, err = model.GetVendorByID(source.Id)
+				_, err = catalogVendorByID(source.Id)
 				assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
-				retained, err := model.GetVendorByID(target.Id)
+				retained, err := catalogVendorByID(target.Id)
 				require.NoError(t, err)
 				assert.Equal(t, target.Description, retained.Description)
 				assert.Equal(t, "OpenAI", retained.Icon)
 				assert.EqualValues(t, 1, retained.ModelCount)
 				after = one
 				after.VendorID = source.Id
-				assert.Error(t, after.Update(), "deleted vendors cannot acquire new references")
+				assert.Error(t, updateModelRecord(&(after)), "deleted vendors cannot acquire new references")
 				priceAfter, err := model.GetModelPricingSnapshot([]string{one.ModelName})
 				require.NoError(t, err)
 				assert.Equal(t, priceBefore.Entries[0], priceAfter.Entries[0], "assignment and merge preserve model pricing")
@@ -989,15 +990,15 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 			})
 			t.Run("concurrent_create_and_delete_never_orphan_model", func(t *testing.T) {
 				vendor := model.Vendor{Name: "Concurrent owner"}
-				require.NoError(t, vendor.Insert())
+				require.NoError(t, insertVendorRecord(&(vendor)))
 				var createErr, deleteErr error
 				var wg sync.WaitGroup
 				wg.Add(2)
 				go func() {
 					defer wg.Done()
-					createErr = (&model.Model{ModelName: "concurrent-owned-model", VendorID: vendor.Id}).Insert()
+					createErr = insertModelRecord((&model.Model{ModelName: "concurrent-owned-model", VendorID: vendor.Id}))
 				}()
-				go func() { defer wg.Done(); deleteErr = vendor.Delete() }()
+				go func() { defer wg.Done(); deleteErr = deleteVendorRecord(&(vendor)) }()
 				wg.Wait()
 				if createErr == nil {
 					require.Error(t, deleteErr)
@@ -1007,7 +1008,7 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 				var models []model.Model
 				require.NoError(t, db.Where("model_name = ?", "concurrent-owned-model").Find(&models).Error)
 				if len(models) != 0 {
-					_, err := model.GetVendorByID(models[0].VendorID)
+					_, err := catalogVendorByID(models[0].VendorID)
 					require.NoError(t, err)
 				}
 			})
@@ -1025,7 +1026,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 
 			t.Run("single_delete_keeps_transaction_not_found_contract", func(t *testing.T) {
 				metadata := model.Model{ModelName: "transaction-not-found", Status: 1}
-				require.NoError(t, metadata.Insert())
+				require.NoError(t, insertModelRecord(&(metadata)))
 				callback := "catalog_delete_not_found"
 				require.NoError(t, db.Callback().Query().Before("gorm:query").Register(callback, func(tx *gorm.DB) {
 					if tx.Statement.Schema != nil && tx.Statement.Schema.Table == "models" && len(tx.Statement.Selects) == 0 {
@@ -1051,10 +1052,10 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 
 			var response struct {
 				Success bool
-				Data    model.ModelDeleteResult
+				Data    domain.ModelDeleteResult
 			}
 			metadataOnly := model.Model{ModelName: "metadata-only", Status: 1}
-			require.NoError(t, metadataOnly.Insert())
+			require.NoError(t, insertModelRecord(&(metadataOnly)))
 			channel := model.Channel{Name: "Retained channel", Type: 1, Key: "fixture-key", Models: metadataOnly.ModelName, Group: "default", Status: common.ChannelStatusEnabled}
 			require.NoError(t, db.Create(&channel).Error)
 			require.NoError(t, channel.UpdateAbilities(db))
@@ -1063,7 +1064,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 				DeleteModelMeta(c)
 			}, http.MethodDelete, "/api/models/"+strconv.Itoa(metadataOnly.Id), nil, &response)
 			require.True(t, response.Success, recorder.Body.String())
-			assert.Equal(t, model.ModelDeleteResult{DeletedCount: 1}, response.Data)
+			assert.Equal(t, domain.ModelDeleteResult{DeletedCount: 1}, response.Data)
 			var retained model.Channel
 			require.NoError(t, db.First(&retained, channel.Id).Error)
 			assert.Equal(t, channel.Models, retained.Models)
@@ -1076,8 +1077,8 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					name := fmt.Sprintf("delete-rule-%d", rule)
 					first := model.Model{ModelName: name, NameRule: rule, Status: 1}
 					second := model.Model{ModelName: name + "-second", Status: 1}
-					require.NoError(t, first.Insert())
-					require.NoError(t, second.Insert())
+					require.NoError(t, insertModelRecord(&(first)))
+					require.NoError(t, insertModelRecord(&(second)))
 					mapping := `{"` + name + `":"upstream-name"}`
 					priority, weight := int64(7), uint(9)
 					channels := []model.Channel{
@@ -1101,7 +1102,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					pricingBefore, err := model.GetModelPricingSnapshot([]string{name, second.ModelName})
 					require.NoError(t, err)
 					if rule != model.NameRuleExact {
-						_, err := model.DeleteModelMetadata([]int{first.Id, second.Id}, true, true)
+						_, err := deleteCatalogModels([]int{first.Id, second.Id}, true, true)
 						require.EqualError(t, err, "only exact-match models can be removed from channels")
 						after, err := model.GetModelPricingSnapshot([]string{name, second.ModelName})
 						require.NoError(t, err)
@@ -1123,7 +1124,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 							tx.AddError(errors.New("injected model deletion failure"))
 						}
 					}))
-					result, err := model.DeleteModelMetadata([]int{first.Id, second.Id}, true, false)
+					result, err := deleteCatalogModels([]int{first.Id, second.Id}, true, false)
 					require.Error(t, err)
 					assert.Zero(t, result)
 					require.NoError(t, db.Callback().Delete().Remove("fail_model_deletion"))
@@ -1137,7 +1138,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					require.NotNil(t, cached)
 					recorder := modelManagementRequest(t, BatchDeleteModelMeta, http.MethodPost, "/api/models/delete", body, &response)
 					require.True(t, response.Success, recorder.Body.String())
-					assert.Equal(t, model.ModelDeleteResult{DeletedCount: 2, UpdatedChannels: 3}, response.Data)
+					assert.Equal(t, domain.ModelDeleteResult{DeletedCount: 2, UpdatedChannels: 3}, response.Data)
 					for i, original := range channels {
 						var after model.Channel
 						require.NoError(t, db.First(&after, original.Id).Error)
@@ -1172,7 +1173,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					assert.Equal(t, pricingBefore, pricingAfter)
 					require.NoError(t, db.Model(&model.Model{}).Where("id IN ?", []int{first.Id, second.Id}).Count(&count).Error)
 					assert.Zero(t, count)
-					_, err = model.DeleteModelMetadata([]int{first.Id}, true, false)
+					_, err = deleteCatalogModels([]int{first.Id}, true, false)
 					assert.Error(t, err, "stale selections cannot delete newly created records")
 				})
 			}
@@ -1180,7 +1181,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 				t.Run(fmt.Sprintf("pricing_removal_channels_%t", removeChannels), func(t *testing.T) {
 					name := fmt.Sprintf("remove-pricing-%t", removeChannels)
 					metadata := model.Model{ModelName: name, NameRule: model.NameRuleExact, Status: 1}
-					require.NoError(t, metadata.Insert())
+					require.NoError(t, insertModelRecord(&(metadata)))
 					keep := name + "-keep"
 					channel := model.Channel{Name: "Independent pricing removal", Type: 1, Models: name + "," + keep, Group: "pricing-removal", Status: common.ChannelStatusEnabled}
 					require.NoError(t, db.Create(&channel).Error)
@@ -1217,7 +1218,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 							}
 						}
 					}))
-					_, err = model.DeleteModelMetadata([]int{metadata.Id}, removeChannels, true)
+					_, err = deleteCatalogModels([]int{metadata.Id}, removeChannels, true)
 					require.Error(t, err)
 					require.NoError(t, db.Callback().Update().Remove("fail_deleted_pricing"))
 					after, err := model.GetModelPricingSnapshot([]string{name, keep})
@@ -1229,7 +1230,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					var channelAfter model.Channel
 					require.NoError(t, db.First(&channelAfter, channel.Id).Error)
 					assert.Equal(t, channel.Models, channelAfter.Models)
-					_, err = model.DeleteModelMetadata([]int{metadata.Id, 999999}, removeChannels, true)
+					_, err = deleteCatalogModels([]int{metadata.Id, 999999}, removeChannels, true)
 					assert.Error(t, err, "a missing model aborts the whole batch")
 					recorder := modelManagementRequest(t, BatchDeleteModelMeta, http.MethodPost, "/api/models/delete", body, &response)
 					require.True(t, response.Success, recorder.Body.String())
@@ -1251,7 +1252,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 				})
 			}
 			for _, ids := range [][]int{nil, {0}, {-1}, make([]int, 1001)} {
-				_, err := model.DeleteModelMetadata(ids, true, false)
+				_, err := deleteCatalogModels(ids, true, false)
 				assert.Error(t, err)
 			}
 		})
@@ -1272,16 +1273,16 @@ func TestCatalogStorageUpgradeCompatibility(t *testing.T) {
 	}
 	if phase == "baseline" {
 		vendor := model.Vendor{Name: "Persisted catalog vendor", Description: "Описание", Icon: "icon", Status: 0}
-		require.NoError(t, vendor.Insert())
+		require.NoError(t, insertVendorRecord(&(vendor)))
 		metadata := model.Model{ModelName: "persisted-catalog-", Description: "metadata", VendorID: vendor.Id, Endpoints: `["openai","anthropic"]`, Status: 0, SyncOfficial: 0, NameRule: model.NameRulePrefix, Tags: "tag"}
-		require.NoError(t, metadata.Insert())
+		require.NoError(t, insertModelRecord(&(metadata)))
 		retired := model.Model{ModelName: "persisted-retired", Status: 1}
-		require.NoError(t, retired.Insert())
+		require.NoError(t, insertModelRecord(&(retired)))
 		require.NoError(t, db.Delete(&retired).Error)
 	}
 	var metadata model.Model
 	require.NoError(t, db.Where("model_name = ?", "persisted-catalog-").First(&metadata).Error)
-	vendor, err := model.GetVendorByID(metadata.VendorID)
+	vendor, err := catalogVendorByID(metadata.VendorID)
 	require.NoError(t, err)
 	assert.Equal(t, 0, metadata.Status)
 	assert.Equal(t, 0, metadata.SyncOfficial)
@@ -1301,7 +1302,7 @@ func TestCatalogStorageUpgradeCompatibility(t *testing.T) {
 		Model                       model.Model
 		Vendor                      *model.Vendor
 		ModelVersion, VendorVersion string
-	}{metadata, vendor, model.MetadataRecordVersion(&metadata, vendor, vendor), model.VendorRecordVersion(vendor)})
+	}{metadata, vendor, metadataRecordVersion(&metadata, vendor, vendor), vendorRecordVersion(vendor)})
 	require.NoError(t, err)
 	path := os.Getenv("TEST_CATALOG_UPGRADE_SNAPSHOT")
 	require.NotEmpty(t, path)
