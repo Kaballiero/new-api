@@ -44,6 +44,11 @@ type Adaptor struct {
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
+	if info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeOpenRouter {
+		if err := openrouter.ValidateGeminiRequest(c, request); err != nil {
+			return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+	}
 	result, err := service.ConvertRequest(c, info, types.RelayFormatOpenAI, request)
 	if err != nil {
 		return nil, err
@@ -802,6 +807,18 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		case relayconstant.RelayModeUnknown:
 			if info.RelayFormat != types.RelayFormatClaude {
 				return nil, types.NewErrorWithStatusCode(fmt.Errorf("OpenRouter operation lacks a validated cost reservation contract"), types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
+		case relayconstant.RelayModeGemini:
+			// Only a GeminiHelper generateContent/streamGenerateContent request is
+			// converted to a priced Chat body; embeddings, countTokens and raw
+			// pass-through bodies are not.
+			_, chatRequest := info.Request.(*dto.GeminiChatRequest)
+			path := c.Request.URL.Path
+			if info.RelayFormat != types.RelayFormatGemini || !chatRequest || !strings.HasSuffix(path, ":generateContent") && !strings.HasSuffix(path, ":streamGenerateContent") {
+				return nil, types.NewErrorWithStatusCode(fmt.Errorf("OpenRouter operation lacks a validated cost reservation contract"), types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
+			if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+				return nil, types.NewErrorWithStatusCode(fmt.Errorf("OpenRouter Gemini requests require conversion; request pass-through is not supported"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
 		case relayconstant.RelayModeAudioSpeech:
 			operation = "audio/speech"
