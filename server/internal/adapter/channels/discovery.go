@@ -3,30 +3,30 @@ package channels
 import (
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
-
 	"github.com/samber/lo"
 )
 
@@ -208,7 +208,7 @@ func GetFetchModelsResponseBody(method string, requestURL string, channel *model
 			request.Host = headers.Get(name)
 		}
 	}
-	client, err := httpclient.NewProxyHttpClient(channel.GetSetting().Proxy)
+	client, err := httpclient.NewProxyHttpClient(repository.NewChannelPersistence().GetSetting(channel).Proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -222,11 +222,11 @@ func GetFetchModelsResponseBody(method string, requestURL string, channel *model
 	}
 	return io.ReadAll(response.Body)
 }
-func FetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
+func FetchChannelUpstreamModelIDs(channel *model.Channel, codexModels func(*model.Channel) ([]string, error)) ([]string, error) {
 	if channel.Type == constant.ChannelTypeTaskPlugin {
-		plugin, ok := jsplugin.DefaultRegistry.Get(channel.GetSetting().TaskPluginKey)
+		plugin, ok := jsplugin.DefaultRegistry.Get(repository.NewChannelPersistence().GetSetting(channel).TaskPluginKey)
 		if !ok {
-			return nil, fmt.Errorf("task plugin %q is not registered", channel.GetSetting().TaskPluginKey)
+			return nil, fmt.Errorf("task plugin %q is not registered", repository.NewChannelPersistence().GetSetting(channel).TaskPluginKey)
 		}
 		return normalizeModelNames(plugin.Meta.Models), nil
 	}
@@ -252,7 +252,7 @@ func FetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			return nil, &domain.DetailError{Err: domain.ErrChannelKeyUnavailable, Cause: keyErr}
 		}
 		key = strings.TrimSpace(key)
-		models, err := gemini.FetchGeminiModels(baseURL, key, channel.GetSetting().Proxy)
+		models, err := gemini.FetchGeminiModels(baseURL, key, repository.NewChannelPersistence().GetSetting(channel).Proxy)
 		if err != nil {
 			return nil, err
 		}
@@ -264,7 +264,7 @@ func FetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	}
 
 	if channel.Type == constant.ChannelTypeCodex {
-		return service.FetchCodexChannelModels(channel)
+		return codexModels(channel)
 	}
 
 	var url string
@@ -340,7 +340,7 @@ func FetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string)
 			ChannelType:          constant.ChannelTypeAdvancedCustom,
 			ChannelBaseUrl:       baseURL,
 			ApiKey:               key,
-			ChannelOtherSettings: channel.GetOtherSettings(),
+			ChannelOtherSettings: repository.NewChannelPersistence().GetOtherSettings(channel),
 		},
 	}
 
@@ -360,12 +360,16 @@ func FetchAdvancedCustomUpstreamModelIDs(channel *model.Channel, baseURL string)
 	return ParseOpenAIModelIDs(body)
 }
 
-type ModelDiscovery struct{}
+type ModelDiscovery struct {
+	codexModels func(*model.Channel) ([]string, error)
+}
 
-func NewModelDiscovery() ModelDiscovery { return ModelDiscovery{} }
-func (ModelDiscovery) Fetch(channel *domain.Channel) ([]string, error) {
+func NewModelDiscovery(codexModels func(*model.Channel) ([]string, error)) ModelDiscovery {
+	return ModelDiscovery{codexModels: codexModels}
+}
+func (discovery ModelDiscovery) Fetch(channel *domain.Channel) ([]string, error) {
 	record := repository.FromDomain(channel)
-	models, err := FetchChannelUpstreamModelIDs(record)
+	models, err := FetchChannelUpstreamModelIDs(record, discovery.codexModels)
 	*channel = *repository.ToDomain(record)
 	return models, err
 }

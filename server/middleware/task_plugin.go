@@ -5,9 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/i18n"
-	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
+
 	"io"
 	"mime"
 	"mime/multipart"
@@ -21,17 +24,22 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
+
 	taskrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
+
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/internal/taskplugins/query_plugin_tasks"
 	"github.com/QuantumNous/new-api/internal/taskplugins/resolve_plugin_origins"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
+
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/types"
-
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -355,7 +363,7 @@ func PinTaskPluginEndpoint() gin.HandlerFunc {
 			if claimedModel != declared {
 				rewriteTo = declared
 			}
-		} else if target, ok := model.ResolveTaskModelAlias(generation, claimedModel); ok {
+		} else if target, ok := channelstore.TaskAliases.ResolveTaskModelAlias(generation, claimedModel); ok {
 			if target.Declared == "" {
 				c.Set(contextKeyTaskPluginEndpointModel, *modelRequest)
 				c.Next()
@@ -1326,14 +1334,14 @@ func PrepareTaskPluginSubmit() gin.HandlerFunc {
 		}
 		exactOwned := slices.Contains(plugin.Meta.Models, modelName)
 		exactAlias := false
-		if target, resolved := model.ResolveTaskModelAlias(generation, modelName); resolved && target.Alias == modelName && target.PluginKey == plugin.Meta.Key {
+		if target, resolved := channelstore.TaskAliases.ResolveTaskModelAlias(generation, modelName); resolved && target.Alias == modelName && target.PluginKey == plugin.Meta.Key {
 			exactAlias = true
 		}
 		if !exactOwned && !exactAlias {
 			folded := ""
 			if declared, ok := generation.CanonicalModel(modelName); ok && slices.Contains(plugin.Meta.Models, declared) && declared != modelName {
 				folded = declared
-			} else if target, resolved := model.ResolveTaskModelAlias(generation, modelName); resolved && target.PluginKey == plugin.Meta.Key && target.Alias != "" && target.Alias != modelName {
+			} else if target, resolved := channelstore.TaskAliases.ResolveTaskModelAlias(generation, modelName); resolved && target.PluginKey == plugin.Meta.Key && target.Alias != "" && target.Alias != modelName {
 				folded = target.Alias
 			}
 			if folded != "" {

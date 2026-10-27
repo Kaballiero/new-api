@@ -16,18 +16,16 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/i18n"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
-	"github.com/gin-gonic/gin"
-	"golang.org/x/net/http/httpguts"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/transport"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
-
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/gin-gonic/gin"
+	"golang.org/x/net/http/httpguts"
 )
 
 var errTaskMediaRequestRejected = errors.New("task media request rejected")
@@ -119,14 +117,14 @@ func (p *Proxy) Serve(c *gin.Context, task domain.MediaTask, descriptor *domain.
 		}
 	}
 
-	channel, err := model.CacheGetChannel(task.ChannelID)
+	channel, err := channelstore.CacheGetChannel(task.ChannelID)
 	if err != nil {
 		return &domain.MediaError{
 			Status: http.StatusServiceUnavailable, Code: "artifact_plugin_unavailable",
 			MessageID: i18n.MsgTasksArtifactChannelUnavailable, Message: "Artifact channel is unavailable", Cause: err,
 		}
 	}
-	proxy := strings.TrimSpace(channel.GetSetting().Proxy)
+	proxy := strings.TrimSpace(channelstore.NewChannelPersistence().GetSetting(channel).Proxy)
 	if err := validateTaskMediaURL(rawURL, proxy); err != nil {
 		return &domain.MediaError{
 			Status: http.StatusBadGateway, Code: "artifact_request_rejected",

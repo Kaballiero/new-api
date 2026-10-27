@@ -11,9 +11,14 @@ import (
 	"testing"
 	"time"
 
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+
 	sqlmysql "github.com/go-sql-driver/mysql"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	pgx "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/assert"
@@ -23,8 +28,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/model"
 )
@@ -128,7 +131,7 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 	gin.SetMode(gin.TestMode)
 	require.NoError(t, i18n.Init())
 	db, _ := newAuditTestDatabase(t, "sqlite", "")
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &channelrecord.Ability{}, &model.Model{}, &model.Vendor{}))
 	previousDB, previousLog := model.DB, model.LOG_DB
 	previousMain, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	previousRedis, previousMemory := common.RedisEnabled, common.MemoryCacheEnabled

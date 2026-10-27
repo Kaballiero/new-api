@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
@@ -21,7 +22,7 @@ func BatchChannelConfigHash(channel *model.Channel) (string, error) {
 		Organization *string
 		Headers      *string
 		Settings     dto.ChannelSettings
-	}{channel.Type, channel.GetBaseURL(), channel.OpenAIOrganization, channel.HeaderOverride, channel.GetSetting()})
+	}{channel.Type, channel.GetBaseURL(), channel.OpenAIOrganization, channel.HeaderOverride, channelstore.NewChannelPersistence().GetSetting(channel)})
 	return fmt.Sprintf("%x", sha256.Sum256(data)), err
 }
 

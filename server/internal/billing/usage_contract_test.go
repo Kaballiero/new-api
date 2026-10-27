@@ -16,15 +16,21 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/model"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
@@ -173,8 +179,8 @@ func runUsageHTTPContract(t *testing.T, tc usageHTTPCase) {
 	t.Cleanup(upstream.Close)
 	channel := model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Key: "contract-upstream-key", Status: common.ChannelStatusEnabled, Name: "usage-contract", BaseURL: &upstream.URL, Models: billingModel, Group: "default", AutoBan: common.GetPointer(0)}
 	require.NoError(t, env.DB.Create(&channel).Error)
-	require.NoError(t, channel.AddAbilities(nil))
-	model.InitChannelCache()
+	require.NoError(t, channelstore.AddAbilities(&(channel), nil))
+	channelstore.InitChannelCache()
 	env.MountRelay()
 
 	path, method, bearer := "/v1/chat/completions", http.MethodPost, "sk-"+billingKey

@@ -8,6 +8,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+
+	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
+
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -18,26 +24,38 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
+
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/app"
+
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
+
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
+
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
+
 	systemcore "github.com/QuantumNous/new-api/internal/app/system"
+
 	systemruntime "github.com/QuantumNous/new-api/internal/app/systemruntime"
+
 	taskpluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
+
 	usageapp "github.com/QuantumNous/new-api/internal/app/usage"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/service"
+
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/bytedance/gopkg/util/gopool"
@@ -104,21 +122,21 @@ func main() {
 				if r := recover(); r != nil {
 					common.SysLog(fmt.Sprintf("InitChannelCache panic: %v, retrying once", r))
 					// Retry once
-					_, _, fixErr := model.FixAbility()
+					_, _, fixErr := channelstore.FixAbility()
 					if fixErr != nil {
 						common.FatalLog(fmt.Sprintf("InitChannelCache failed: %s", fixErr.Error()))
 					}
 				}
 			}()
-			model.InitChannelCache()
+			channelstore.InitChannelCache()
 		}()
 
-		go model.SyncChannelCache(common.SyncFrequency)
+		go channelcore.SyncChannelCache(common.SyncFrequency)
 	}
 
 	// Warm pricing after channel cache initialization so Advanced Custom
 	// endpoint inference can read cached route settings on first request.
-	model.GetPricing()
+	pricingruntime.GetPricing()
 
 	// Reload configuration.
 	go settingsapp.SyncOptions(common.SyncFrequency)
@@ -139,7 +157,7 @@ func main() {
 	}
 
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
-	service.StartCodexCredentialAutoRefreshTask()
+	channelcore.StartCodexCredentialAutoRefreshTask()
 
 	// Subscription quota reset task (daily/weekly/monthly/custom)
 	subscriptionsapp.StartSubscriptionQuotaResetTask()

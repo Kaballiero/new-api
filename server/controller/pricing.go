@@ -2,12 +2,9 @@ package controller
 
 import (
 	"github.com/QuantumNous/new-api/internal/app"
+
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	"github.com/QuantumNous/new-api/model"
-
 	"github.com/QuantumNous/new-api/service"
-
 	"github.com/gin-gonic/gin"
 )
 
@@ -27,12 +24,12 @@ func GetEffectivePricing(c *gin.Context) { pricingHTTP().GetPersonalPricing.Hand
 // endpoint for a configured group without requiring a user in that group.
 func GetEffectivePricingByGroup(c *gin.Context) { pricingHTTP().GetGroupPricing.Handle(c) }
 
-func buildEffectivePricingResponse(userGroup string, basis service.BillingFXBasis, pricing []model.Pricing) effectivePricingResponse {
+func buildEffectivePricingResponse(userGroup string, basis service.BillingFXBasis, pricing []pricingdomain.Pricing) effectivePricingResponse {
 	return app.NewPricingProjection().BuildEffectivePricingResponse(userGroup, pricingdomain.
 		BillingFXBasis(basis), pricing)
 }
 
-func buildEffectiveGroupPricing(item model.Pricing, group string, pureRatio, effectiveRatio float64) effectiveGroupPricing {
+func buildEffectiveGroupPricing(item pricingdomain.Pricing, group string, pureRatio, effectiveRatio float64) effectiveGroupPricing {
 	return app.
 		NewPricingProjection().BuildEffectiveGroupPricing(item, group, pureRatio, effectiveRatio)
 }

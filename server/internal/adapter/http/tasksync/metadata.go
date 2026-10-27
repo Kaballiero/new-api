@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 )
 
@@ -73,7 +75,7 @@ func fetchMetadata(ctx context.Context, task *domain.Task, endpoint string) ([]b
 		if err != nil {
 			return nil, 0, 0, "account_binding_changed"
 		}
-		settings = channel.GetSetting()
+		settings = channelstore.NewChannelPersistence().GetSetting(channel)
 		headers = http.Header{"Authorization": []string{"Bearer " + key}}
 		for name, value := range channel.GetHeaderOverride() {
 			headers.Set(name, strings.ReplaceAll(value.(string), "{api_key}", key))

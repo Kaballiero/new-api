@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
+	record "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -14,11 +16,11 @@ type Immutable struct{ db func() *gorm.DB }
 
 func NewImmutable(db func() *gorm.DB) Immutable { return Immutable{db: db} }
 func (s Immutable) EnsureSource(ctx context.Context, source domain.CatalogSource) (domain.CatalogSource, error) {
-	initial := CatalogSource{ID: source.ID, Kind: source.Kind, BaseURL: source.BaseURL}
+	initial := record.CatalogSource{ID: source.ID, Kind: source.Kind, BaseURL: source.BaseURL}
 	if err := s.db().WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&initial).Error; err != nil {
 		return domain.CatalogSource{}, err
 	}
-	var current CatalogSource
+	var current record.CatalogSource
 	if err := s.db().WithContext(ctx).Where("id = ?", source.ID).Take(&current).Error; err != nil {
 		return domain.CatalogSource{}, err
 	}
@@ -27,7 +29,7 @@ func (s Immutable) EnsureSource(ctx context.Context, source domain.CatalogSource
 func (s Immutable) Documents(ctx context.Context, sourceID string, hashes []string) (map[string]domain.CatalogDocument, error) {
 	result := make(map[string]domain.CatalogDocument, len(hashes))
 	for start := 0; start < len(hashes); start += 400 {
-		var rows []CatalogDocument
+		var rows []record.CatalogDocument
 		if err := s.db().WithContext(ctx).Where("source_id = ? AND hash IN ?", sourceID, hashes[start:min(start+400, len(hashes))]).Find(&rows).Error; err != nil {
 			return nil, err
 		}
@@ -41,7 +43,7 @@ func (s Immutable) Documents(ctx context.Context, sourceID string, hashes []stri
 	return result, nil
 }
 func (s Immutable) ReadSelection(ctx context.Context, sourceID, revision string) (domain.CatalogSelection, error) {
-	var row CatalogRevision
+	var row record.CatalogRevision
 	if err := s.db().WithContext(ctx).Where("source_id = ? AND hash = ?", sourceID, revision).Take(&row).Error; err != nil {
 		return domain.CatalogSelection{}, err
 	}
@@ -61,13 +63,13 @@ func (s Immutable) Transaction(ctx context.Context, work func(domain.CatalogTran
 type immutableTransaction struct{ tx *gorm.DB }
 
 func (t immutableTransaction) UpdateHead(expected domain.CatalogSource, revision, remote, fetched string, now int64) (bool, error) {
-	update := t.tx.Model(&CatalogSource{}).Where("id = ? AND generation = ? AND revision = ?", expected.ID, expected.Generation, expected.Revision).Updates(map[string]any{"revision": revision, "remote_revision": remote, "generation": gorm.Expr("generation + ?", 1), "checked_at": now, "fetched_at": fetched})
+	update := t.tx.Model(&record.CatalogSource{}).Where("id = ? AND generation = ? AND revision = ?", expected.ID, expected.Generation, expected.Revision).Updates(map[string]any{"revision": revision, "remote_revision": remote, "generation": gorm.Expr("generation + ?", 1), "checked_at": now, "fetched_at": fetched})
 	return update.RowsAffected == 1, update.Error
 }
 func (t immutableTransaction) VisitDocumentIdentities(sourceID string, hashes []string, visit func(string, string) error) error {
 	for start := 0; start < len(hashes); start += 400 {
 		var rows []struct{ Hash, ModelID string }
-		if err := t.tx.Model(&CatalogDocument{}).Select("hash", "model_id").Where("source_id = ? AND hash IN ?", sourceID, hashes[start:min(start+400, len(hashes))]).Find(&rows).Error; err != nil {
+		if err := t.tx.Model(&record.CatalogDocument{}).Select("hash", "model_id").Where("source_id = ? AND hash IN ?", sourceID, hashes[start:min(start+400, len(hashes))]).Find(&rows).Error; err != nil {
 			return err
 		}
 		for _, row := range rows {
@@ -79,16 +81,16 @@ func (t immutableTransaction) VisitDocumentIdentities(sourceID string, hashes []
 	return nil
 }
 func (t immutableTransaction) CreateDocument(value domain.CatalogDocument) error {
-	row := CatalogDocument(value)
+	row := record.CatalogDocument(value)
 	return t.tx.Create(&row).Error
 }
 func (t immutableTransaction) CreateRevision(value domain.CatalogRevision) error {
-	row := CatalogRevision(value)
+	row := record.CatalogRevision(value)
 	return t.tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error
 }
 
 func (s Immutable) Head(ctx context.Context, id string) (domain.CatalogSource, error) {
-	var row CatalogSource
+	var row record.CatalogSource
 	err := s.db().WithContext(ctx).Where("id = ?", id).Take(&row).Error
 	return domain.CatalogSource(row), err
 }

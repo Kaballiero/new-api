@@ -2,12 +2,12 @@ package channels
 
 import (
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/model"
+	legacy "github.com/QuantumNous/new-api/model"
 	"gorm.io/gorm"
 )
 
 func listQuery(filter domain.Filter) *gorm.DB {
-	query := model.ApplyChannelGroupFilter(model.DB.Model(&model.Channel{}), filter.Group)
+	query := ApplyChannelGroupFilter(legacy.DB.Model(&legacy.Channel{}), filter.Group)
 	if filter.Status == 1 {
 		query = query.Where("status = ?", 1)
 	} else if filter.Status == 0 {
@@ -18,7 +18,7 @@ func listQuery(filter domain.Filter) *gorm.DB {
 	}
 	return query
 }
-func convertList(channels []*model.Channel) []*domain.Channel {
+func convertList(channels []*legacy.Channel) []*domain.Channel {
 	if channels == nil {
 		return nil
 	}
@@ -29,10 +29,10 @@ func convertList(channels []*model.Channel) []*domain.Channel {
 	return result
 }
 func (Store) ListTags(filter domain.Filter, start, size int) ([]*string, error) {
-	return model.GetPaginatedChannelTags(listQuery(filter), start, size)
+	return GetPaginatedChannelTags(listQuery(filter), start, size)
 }
 func (Store) CountTags(filter domain.Filter) (int64, error) {
-	return model.CountChannelTags(listQuery(filter))
+	return CountChannelTags(listQuery(filter))
 }
 func (Store) Count(filter domain.Filter) (int64, error) {
 	var total int64
@@ -40,14 +40,14 @@ func (Store) Count(filter domain.Filter) (int64, error) {
 	return total, err
 }
 func (Store) List(filter domain.Filter, sort domain.Sort, start, size int) ([]*domain.Channel, error) {
-	var channels []*model.Channel
-	options := model.NewChannelSortOptions(sort.By, sort.Order, sort.ID)
+	var channels []*legacy.Channel
+	options := NewChannelSortOptions(sort.By, sort.Order, sort.ID)
 	err := options.Apply(listQuery(filter)).Limit(size).Offset(start).Omit("key").Find(&channels).Error
 	return convertList(channels), err
 }
 func (Store) ListTag(filter domain.Filter, sort domain.Sort, tag string) ([]*domain.Channel, error) {
-	var channels []*model.Channel
-	options := model.NewChannelSortOptions(sort.By, sort.Order, sort.ID)
+	var channels []*legacy.Channel
+	options := NewChannelSortOptions(sort.By, sort.Order, sort.ID)
 	err := options.Apply(listQuery(filter).Where("tag = ?", tag)).Omit("key").Find(&channels).Error
 	return convertList(channels), err
 }
@@ -67,10 +67,10 @@ func (Store) TypeCounts(filter domain.Filter) (map[int64]int64, error) {
 	return counts, nil
 }
 func (Store) SearchTags(keyword, group, modelKeyword string, idSort bool) ([]*string, error) {
-	return model.SearchTags(keyword, group, modelKeyword, idSort)
+	return SearchTags(keyword, group, modelKeyword, idSort)
 }
 func (Store) Search(keyword, group, modelKeyword string, sort domain.Sort) ([]*domain.Channel, error) {
-	options := model.NewChannelSortOptions(sort.By, sort.Order, sort.ID)
-	channels, err := model.SearchChannels(keyword, group, modelKeyword, sort.ID, options)
+	options := NewChannelSortOptions(sort.By, sort.Order, sort.ID)
+	channels, err := SearchChannels(keyword, group, modelKeyword, sort.ID, options)
 	return convertList(channels), err
 }

@@ -5,19 +5,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"gorm.io/gorm"
+
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
+
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
 	"github.com/QuantumNous/new-api/model"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 
 	"io"
 	"net/http"
 	"time"
+
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 )
 
 type NativeChannel struct{ channel *model.Channel }
@@ -40,7 +47,7 @@ func (c NativeChannel) Metadata(ctx context.Context, endpoint string) ([]byte, e
 		return nil, err
 	}
 	request.Header = headers
-	settings := c.channel.GetSetting()
+	settings := channelstore.NewChannelPersistence().GetSetting(c.channel)
 	client, err := httpclient.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return nil, errors.New("pricing discovery transport unavailable")
@@ -64,19 +71,19 @@ func (c NativeChannel) Metadata(ctx context.Context, endpoint string) ([]byte, e
 }
 func (c NativeChannel) Native() *model.Channel { return c.channel }
 
-type NativeStore struct{}
+type NativeStore struct{ ReadPricing func() []domain.Pricing }
 
 func (NativeStore) Abilities() ([]domain.BuildAbility, error) {
-	rows, err := model.GetAllEnableAbilityWithChannels()
+	rows, err := channelrecord.NewStore(channelrecord.Environment{DB: func() *gorm.DB { return model.DB }}).GetAllEnableAbilityWithChannels()
 	out := make([]domain.BuildAbility, len(rows))
 	for i, v := range rows {
 		out[i] = domain.BuildAbility{Model: v.Model, Group: v.Group, ChannelId: v.ChannelId, ChannelType: v.ChannelType}
 	}
 	return out, err
 }
-func (NativeStore) Pricing() []domain.Pricing { return model.GetPricing() }
+func (store NativeStore) Pricing() []domain.Pricing { return store.ReadPricing() }
 func (NativeStore) Channel(id int) (refresh_catalogue.Channel, error) {
-	row, err := model.GetChannelById(id, true)
+	row, err := channelstore.GetChannelById(id, true)
 	if err != nil {
 		return nil, err
 	}

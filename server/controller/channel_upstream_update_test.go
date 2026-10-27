@@ -1,6 +1,9 @@
 package controller
 
 import (
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
+
 	"bytes"
 	"context"
 	"errors"
@@ -14,6 +17,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
 	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -75,7 +80,7 @@ func setupChannelUpstreamUpdateTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	model.DB = db
 	model.LOG_DB = db
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}))
 
 	t.Cleanup(func() {
 		model.DB = originalDB
@@ -120,16 +125,16 @@ func createChannelUpstreamUpdateTestChannel(
 		OtherSettings: string(settingsBytes),
 	}
 	require.NoError(t, db.Create(channel).Error)
-	require.NoError(t, channel.UpdateAbilities(nil))
+	require.NoError(t, channelstore.UpdateAbilities(channel, nil))
 	return channel
 }
 
-func loadChannelUpstreamUpdateTestState(t *testing.T, db *gorm.DB, channelID int) (*model.Channel, []model.Ability) {
+func loadChannelUpstreamUpdateTestState(t *testing.T, db *gorm.DB, channelID int) (*model.Channel, []channelrecord.Ability) {
 	t.Helper()
 
 	var channel model.Channel
 	require.NoError(t, db.First(&channel, channelID).Error)
-	var abilities []model.Ability
+	var abilities []channelrecord.Ability
 	require.NoError(t, db.Where("channel_id = ?", channelID).Order("model asc").Find(&abilities).Error)
 	return &channel, abilities
 }
@@ -234,7 +239,7 @@ func TestFetchAdvancedCustomModelsUsesEnabledSavedMultiKey(t *testing.T) {
 	defer server.Close()
 
 	channel := newAdvancedCustomModelListChannel(server.URL, "disabled-key\nenabled-key", "/v1/models", nil)
-	channel.ChannelInfo = model.ChannelInfo{
+	channel.ChannelInfo = channelrecord.ChannelInfo{
 		IsMultiKey: true,
 		MultiKeyStatusList: map[int]int{
 			0: common.ChannelStatusManuallyDisabled,
@@ -370,7 +375,7 @@ func TestFetchModelsAdvancedCustomEditPreviewUsesSavedKeyAndExplicitClears(t *te
 	savedChannel := newAdvancedCustomModelListChannel("http://127.0.0.1:1", "disabled-saved-key\nenabled-saved-key", "/saved/models", nil)
 	savedChannel.Name = "saved advanced channel"
 	savedChannel.Models = "old-model"
-	savedChannel.ChannelInfo = model.ChannelInfo{
+	savedChannel.ChannelInfo = channelrecord.ChannelInfo{
 		IsMultiKey: true,
 		MultiKeyStatusList: map[int]int{
 			0: common.ChannelStatusManuallyDisabled,
@@ -386,7 +391,7 @@ func TestFetchModelsAdvancedCustomEditPreviewUsesSavedKeyAndExplicitClears(t *te
 	require.NoError(t, err)
 	require.Equal(t, "http://127.0.0.1:1", preserved.GetBaseURL())
 	require.Equal(t, savedHeaderOverride, *preserved.HeaderOverride)
-	require.Equal(t, "http://127.0.0.1:1", preserved.GetSetting().Proxy)
+	require.Equal(t, "http://127.0.0.1:1", channelstore.NewChannelPersistence().GetSetting(preserved).Proxy)
 
 	previewConfig := dto.AdvancedCustomConfig{Routes: []dto.AdvancedCustomRoute{{
 		IncomingPath: dto.AdvancedCustomModelListPath,
@@ -419,7 +424,7 @@ func TestFetchModelsAdvancedCustomEditPreviewUsesSavedKeyAndExplicitClears(t *te
 	require.Empty(t, *cleared.BaseURL)
 	require.NotNil(t, cleared.HeaderOverride)
 	require.Empty(t, *cleared.HeaderOverride)
-	require.Empty(t, cleared.GetSetting().Proxy)
+	require.Empty(t, channelstore.NewChannelPersistence().GetSetting(cleared).Proxy)
 
 	body, err := common.Marshal(req)
 	require.NoError(t, err)
@@ -456,7 +461,7 @@ func TestFailedAdvancedCustomDetectionDoesNotStageFullRemoval(t *testing.T) {
 	channel := newAdvancedCustomModelListChannel(server.URL, "secret-key", "/v1/models", nil)
 	channel.Name = "empty discovery response"
 	channel.Models = "gpt-4.1,o3"
-	settings := channel.GetOtherSettings()
+	settings := channelstore.NewChannelPersistence().GetOtherSettings(channel)
 	settings.UpstreamModelUpdateCheckEnabled = true
 	settings.UpstreamModelUpdateAutoSyncEnabled = true
 	channel.SetOtherSettings(settings)
@@ -469,9 +474,9 @@ func TestFailedAdvancedCustomDetectionDoesNotStageFullRemoval(t *testing.T) {
 	require.Empty(t, settings.UpstreamModelUpdateLastDetectedModels)
 	require.Empty(t, settings.UpstreamModelUpdateLastRemovedModels)
 
-	reloaded, err := model.GetChannelById(channel.Id, true)
+	reloaded, err := channelstore.GetChannelById(channel.Id, true)
 	require.NoError(t, err)
-	persistedSettings := reloaded.GetOtherSettings()
+	persistedSettings := channelstore.NewChannelPersistence().GetOtherSettings(reloaded)
 	require.Empty(t, persistedSettings.UpstreamModelUpdateLastDetectedModels)
 	require.Empty(t, persistedSettings.UpstreamModelUpdateLastRemovedModels)
 	require.Equal(t, "gpt-4.1,o3", reloaded.Models)
@@ -636,9 +641,9 @@ func TestNormalizeChannelModelMappingRejectsInvalidEntry(t *testing.T) {
 		mapping     string
 		expectedErr error
 	}{
-		{name: "empty target", mapping: `{"alias-model":""}`, expectedErr: model.ErrModelMappingTargetEmpty},
-		{name: "whitespace target", mapping: `{"alias-model":"   "}`, expectedErr: model.ErrModelMappingTargetEmpty},
-		{name: "whitespace source", mapping: `{"   ":"upstream-model"}`, expectedErr: model.ErrModelMappingSourceEmpty},
+		{name: "empty target", mapping: `{"alias-model":""}`, expectedErr: channeldomain.ErrModelMappingTargetEmpty},
+		{name: "whitespace target", mapping: `{"alias-model":"   "}`, expectedErr: channeldomain.ErrModelMappingTargetEmpty},
+		{name: "whitespace source", mapping: `{"   ":"upstream-model"}`, expectedErr: channeldomain.ErrModelMappingSourceEmpty},
 	}
 
 	for _, tt := range tests {
@@ -748,7 +753,7 @@ func TestCollectPendingUpstreamModelChangesFromModels_Canonical(t *testing.T) {
 				"model-a": "model-b",
 				"model-b": "model-a",
 			},
-			wantErr: model.ErrModelMappingCycle,
+			wantErr: channeldomain.ErrModelMappingCycle,
 		},
 	}
 
@@ -775,7 +780,7 @@ func TestBuildChannelUpstreamModelFetchFingerprintExcludesPollingIndex(t *testin
 	channel := &model.Channel{
 		Type: constant.ChannelTypeOpenRouter,
 		Key:  "key-a\nkey-b",
-		ChannelInfo: model.ChannelInfo{
+		ChannelInfo: channelrecord.ChannelInfo{
 			IsMultiKey:             true,
 			MultiKeySize:           2,
 			MultiKeyStatusList:     map[int]int{0: common.ChannelStatusEnabled, 1: common.ChannelStatusEnabled},
@@ -837,8 +842,8 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalAddAndRemove(t *testing.T) {
 	require.NoError(t, common.UnmarshalJsonStr(persisted.GetModelMapping(), &persistedMapping))
 	require.Equal(t, "anthropic/claude-fable-5", persistedMapping["claude-fable-5"])
 	require.Equal(t, "manual-target", persistedMapping["manual-alias"])
-	require.Empty(t, persisted.GetOtherSettings().UpstreamModelUpdateLastDetectedModels)
-	require.Empty(t, persisted.GetOtherSettings().UpstreamModelUpdateLastRemovedModels)
+	require.Empty(t, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastDetectedModels)
+	require.Empty(t, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
 }
 
 func TestApplyChannelUpstreamModelUpdates_CanonicalPersistsMappingOnlyTransition(t *testing.T) {
@@ -878,8 +883,8 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalPersistsMappingOnlyTransition
 	require.Equal(t, map[string]string{"foo": "anthropic/foo"}, persistedMapping)
 	require.Len(t, abilities, 1)
 	require.Equal(t, "foo", abilities[0].Model)
-	require.Empty(t, persisted.GetOtherSettings().UpstreamModelUpdateLastDetectedModels)
-	require.Empty(t, persisted.GetOtherSettings().UpstreamModelUpdateLastRemovedModels)
+	require.Empty(t, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastDetectedModels)
+	require.Empty(t, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
 }
 
 func TestApplyChannelUpstreamModelUpdates_CanonicalFetchesAndRecomputesPending(t *testing.T) {
@@ -1024,7 +1029,7 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalConflictDoesNotWrite(t *testi
 		nil,
 		nil,
 	)
-	require.ErrorIs(t, err, model.ErrModelMappingConflict)
+	require.ErrorIs(t, err, channeldomain.ErrModelMappingConflict)
 
 	persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
 	require.Equal(t, "gpt-4o", persisted.Models)
@@ -1059,7 +1064,7 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalSameNameReplacementConflictsA
 		nil,
 		[]string{"foo"},
 	)
-	require.ErrorIs(t, err, model.ErrModelMappingConflict)
+	require.ErrorIs(t, err, channeldomain.ErrModelMappingConflict)
 
 	persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
 	require.Equal(t, "foo", persisted.Models)
@@ -1162,7 +1167,7 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalRecomputesFromFreshState(t *t
 		}).Error)
 		var concurrentChannel model.Channel
 		require.NoError(t, db.First(&concurrentChannel, channel.Id).Error)
-		require.NoError(t, concurrentChannel.UpdateAbilities(nil))
+		require.NoError(t, channelstore.UpdateAbilities(&(concurrentChannel), nil))
 		return []string{
 			"gpt-4o",
 			"fresh-upstream-model",
@@ -1186,7 +1191,7 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalRecomputesFromFreshState(t *t
 	require.NoError(t, common.UnmarshalJsonStr(persisted.GetModelMapping(), &persistedMapping))
 	require.Equal(t, "fresh-upstream-model", persistedMapping["fresh-model"])
 	require.Equal(t, "manual-target", persistedMapping["manual-alias"])
-	persistedSettings := persisted.GetOtherSettings()
+	persistedSettings := channelstore.NewChannelPersistence().GetOtherSettings(persisted)
 	require.True(t, persistedSettings.AllowSpeed)
 	require.Equal(t, []string{"anthropic/ignored-model"}, persistedSettings.UpstreamModelUpdateIgnoredModels)
 	require.Equal(t, []string{"anthropic/claude-fable-5"}, persistedSettings.UpstreamModelUpdateLastDetectedModels)
@@ -1231,7 +1236,7 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledAutoSyncIsAddOnly(t 
 	persistedMapping := map[string]string{}
 	require.NoError(t, common.UnmarshalJsonStr(persisted.GetModelMapping(), &persistedMapping))
 	require.Equal(t, "anthropic/claude-fable-5", persistedMapping["claude-fable-5"])
-	require.Equal(t, []string{"removed-upstream-model"}, persisted.GetOtherSettings().UpstreamModelUpdateLastRemovedModels)
+	require.Equal(t, []string{"removed-upstream-model"}, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
 }
 
 func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledRechecksFreshEnablement(t *testing.T) {
@@ -1259,7 +1264,7 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledRechecksFreshEnablem
 	require.Zero(t, autoAdded)
 	persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
 	require.Equal(t, "gpt-4o", persisted.Models)
-	persistedSettings := persisted.GetOtherSettings()
+	persistedSettings := channelstore.NewChannelPersistence().GetOtherSettings(persisted)
 	require.False(t, persistedSettings.UpstreamModelUpdateCheckEnabled)
 	require.True(t, persistedSettings.UpstreamModelUpdateAutoSyncEnabled)
 	require.True(t, persistedSettings.AllowSpeed)
@@ -1349,7 +1354,7 @@ func TestDetectChannelUpstreamModelUpdatesInspectsDisabledChannel(t *testing.T) 
 	persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
 	require.Equal(t, common.ChannelStatusManuallyDisabled, persisted.Status)
 	require.Equal(t, "gpt-4o", persisted.Models)
-	require.Equal(t, []string{"anthropic/fresh-model"}, persisted.GetOtherSettings().UpstreamModelUpdateLastDetectedModels)
+	require.Equal(t, []string{"anthropic/fresh-model"}, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastDetectedModels)
 	require.Len(t, abilities, 1)
 	require.Equal(t, "gpt-4o", abilities[0].Model)
 }
@@ -1430,7 +1435,7 @@ func TestFetchChannelUpstreamModelIDsDoesNotPersistPollingSelection(t *testing.T
 	channel := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{})
 	channel.Key = "key-a\nkey-b"
 	channel.BaseURL = common.GetPointer("http://127.0.0.1:1")
-	channel.ChannelInfo = model.ChannelInfo{
+	channel.ChannelInfo = channelrecord.ChannelInfo{
 		IsMultiKey:             true,
 		MultiKeySize:           2,
 		MultiKeyStatusList:     map[int]int{0: common.ChannelStatusEnabled, 1: common.ChannelStatusEnabled},
@@ -1700,7 +1705,7 @@ func TestApplyChannelUpstreamModelUpdatesReturnsFreshIgnoredModels(t *testing.T)
 	require.Equal(t, []string{"fresh-ignore-model"}, response.Data.IgnoredModels)
 	require.Empty(t, response.Data.RemainingModels)
 	persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
-	require.Equal(t, []string{"fresh-ignore-model"}, persisted.GetOtherSettings().UpstreamModelUpdateIgnoredModels)
+	require.Equal(t, []string{"fresh-ignore-model"}, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateIgnoredModels)
 }
 
 func TestShouldSendUpstreamModelUpdateNotification(t *testing.T) {
@@ -1753,7 +1758,7 @@ func TestApplyChannelUpstreamModelUpdatesRejectsChangedAdvancedCustomRoute(t *te
 	require.NoError(t, db.Model(channel).Update("type", channel.Type).Error)
 	var newSettings string
 	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
-		fresh := channel.GetOtherSettings()
+		fresh := channelstore.NewChannelPersistence().GetOtherSettings(channel)
 		fresh.AdvancedCustom.Routes[0].UpstreamPath = "/new/models"
 		data, err := common.Marshal(fresh)
 		require.NoError(t, err)

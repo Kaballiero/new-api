@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/QuantumNous/new-api/i18n"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -16,7 +15,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
+
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -35,7 +39,7 @@ func setupTaskPluginControllerTest(t *testing.T) {
 	originalDB := model.DB
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, database.AutoMigrate(&model.TaskPlugin{}, &model.Channel{}, &model.Ability{}, &model.Task{}, &model.Option{}))
+	require.NoError(t, database.AutoMigrate(&model.TaskPlugin{}, &model.Channel{}, &channelrecord.Ability{}, &model.Task{}, &model.Option{}))
 	model.DB = database
 	t.Cleanup(func() { model.DB = originalDB })
 }
@@ -100,7 +104,7 @@ func TestDeleteThirdPartyPluginReportsAssociatedChannelsAndInFlightTasks(t *test
 		Group:   "default",
 		BaseURL: &baseURL,
 		Setting: &setting}
-	require.NoError(t, channel.Insert())
+	require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
 	require.NoError(t, model.DB.Create(&model.Task{Platform: "lifecycle-only", Status: model.TaskStatusInProgress}).Error)
 
 	recorder := httptest.NewRecorder()
@@ -134,7 +138,7 @@ func TestDisableThirdPartyPluginSupportsCascadeAndForce(t *testing.T) {
 		Group:   "default",
 		BaseURL: &baseURL,
 		Setting: &setting}
-	require.NoError(t, channel.Insert())
+	require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
 	require.NoError(t, model.DB.Create(&model.Task{Platform: "lifecycle-only", Status: model.TaskStatusSubmitted}).Error)
 
 	recorder := httptest.NewRecorder()
@@ -147,7 +151,7 @@ func TestDisableThirdPartyPluginSupportsCascadeAndForce(t *testing.T) {
 	SetTaskPluginStatus(context)
 
 	assert.Contains(t, recorder.Body.String(), `"success":true`)
-	updated, err := model.GetChannelById(channel.Id, true)
+	updated, err := channelstore.GetChannelById(channel.Id, true)
 	require.NoError(t, err)
 	assert.Equal(t, common.ChannelStatusManuallyDisabled, updated.Status)
 }
@@ -278,7 +282,7 @@ func TestDisableFactoryPluginRespectsInUseGuard(t *testing.T) {
 		Group:   "default",
 		BaseURL: &baseURL,
 		Setting: &channelSetting}
-	require.NoError(t, channel.Insert())
+	require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
 
 	recorder := postTaskPluginStatus(t, key, "", `{"enabled":false}`)
 	assert.Contains(t, recorder.Body.String(), `"success":false`)

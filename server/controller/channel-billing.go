@@ -2,12 +2,15 @@ package controller
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
+	"net/http"
+	"time"
+
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	"github.com/QuantumNous/new-api/internal/app"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
-	"net/http"
-	"time"
 )
 
 type OpenAISubscriptionResponse = channeladapter.OpenAISubscriptionResponse
@@ -33,14 +36,14 @@ func deepSeekBalanceUSD(response DeepSeekUsageResponse) (float64, error) {
 func updateChannelCloseAIBalance(channel *model.Channel) (float64, error) {
 	balance, err := channeladapter.UpdateChannelCloseAIBalance(channel)
 	if err == nil {
-		channel.UpdateBalance(balance)
+		channelstore.NewChannelPersistence().UpdateBalance(channel, balance)
 	}
 	return balance, err
 }
 func updateChannelOpenAISBBalance(channel *model.Channel) (float64, error) {
 	balance, err := channeladapter.UpdateChannelOpenAISBBalance(channel)
 	if err == nil {
-		channel.UpdateBalance(balance)
+		channelstore.NewChannelPersistence().UpdateBalance(channel, balance)
 	}
 	return balance, err
 }

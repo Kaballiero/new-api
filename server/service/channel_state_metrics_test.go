@@ -7,16 +7,15 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestChannelStateMetricsExportsOneCurrentSamplePerChannel(t *testing.T) {
 	queryCalls := 0
-	handler := newChannelStateMetricsHandler(func() ([]model.ChannelStateSnapshot, error) {
+	handler := NewChannelStateMetricsHandler(func() ([]ChannelStateSnapshot, error) {
 		queryCalls++
-		return []model.ChannelStateSnapshot{
+		return []ChannelStateSnapshot{
 			{ID: 1, Type: 1, Status: common.ChannelStatusEnabled},
 			{ID: 2, Type: 14, Status: common.ChannelStatusManuallyDisabled},
 			{ID: 3, Type: 18, Status: common.ChannelStatusAutoDisabled},
@@ -38,7 +37,7 @@ new_api_channel_state{channel_id="4",channel_type="0",state="unknown"} 1
 }
 
 func TestChannelStateMetricsReturnsRedacted500OnQueryError(t *testing.T) {
-	handler := newChannelStateMetricsHandler(func() ([]model.ChannelStateSnapshot, error) {
+	handler := NewChannelStateMetricsHandler(func() ([]ChannelStateSnapshot, error) {
 		return nil, errors.New("postgres://user:secret@db/channel_state")
 	})
 	recorder := httptest.NewRecorder()
@@ -52,10 +51,10 @@ func TestChannelStateMetricsReturnsRedacted500OnQueryError(t *testing.T) {
 }
 
 func TestChannelStateMetricsHandlersUseIsolatedRegistries(t *testing.T) {
-	query := func() ([]model.ChannelStateSnapshot, error) { return nil, nil }
+	query := func() ([]ChannelStateSnapshot, error) { return nil, nil }
 	require.NotPanics(t, func() {
-		first := newChannelStateMetricsHandler(query)
-		second := newChannelStateMetricsHandler(query)
+		first := NewChannelStateMetricsHandler(query)
+		second := NewChannelStateMetricsHandler(query)
 		for _, handler := range []http.Handler{first, second} {
 			recorder := httptest.NewRecorder()
 			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))

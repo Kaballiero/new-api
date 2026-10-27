@@ -9,10 +9,12 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/model"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
@@ -20,11 +22,11 @@ type Accounts struct{}
 
 func (Accounts) Prepare(task *domain.Task, input domain.SyncSubmissionAccount) error {
 	task.PrivateData.Key = ""
-	channel, err := model.GetChannelById(task.ChannelId, true)
+	channel, err := channelstore.GetChannelById(task.ChannelId, true)
 	if err != nil {
 		return err
 	}
-	if channel.Type != input.ChannelType || !reflect.DeepEqual(channel.GetSetting(), record.FromDomainTransport(input.Transport)) ||
+	if channel.Type != input.ChannelType || !reflect.DeepEqual(channelstore.NewChannelPersistence().GetSetting(channel), record.FromDomainTransport(input.Transport)) ||
 		(len(input.Headers) > 0 || len(channel.GetHeaderOverride()) > 0) && !reflect.DeepEqual(input.Headers, channel.GetHeaderOverride()) {
 		return errors.New("OpenRouter chat-image channel configuration changed")
 	}
@@ -76,7 +78,7 @@ func (Accounts) ValidateMetadata(task *domain.Task, metadataURL string, headers 
 // transport. Rotation/config drift blocks lookup instead of switching accounts.
 func chatAccount(task *domain.Task) (*model.Channel, string, error) {
 	a := task.PrivateData.OpenRouterSyncState()
-	channel, err := model.GetChannelById(task.ChannelId, true)
+	channel, err := channelstore.GetChannelById(task.ChannelId, true)
 	if err != nil {
 		return nil, "", errors.New("chat-image account unavailable")
 	}

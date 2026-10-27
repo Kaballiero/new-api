@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	"github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/setting"
@@ -153,7 +153,10 @@ func (Runtime) Call(p domain.Compiled, hook, member string, args []any) (any, er
 	return engine.CallMember(context.Background(), hook, member, args...)
 }
 
-type Settings struct{ WriteOption func(string, string) error }
+type Settings struct {
+	WriteOption  func(string, string) error
+	ChangeStatus func(int, string, int, string) bool
+}
 
 func (Settings) FactoryDisabled(key string) bool               { return setting.IsTaskPluginFactoryDisabled(key) }
 func (Settings) FactorySource(key string) (string, error)      { return plugins.Source(key) }
@@ -185,10 +188,10 @@ func (s Settings) SaveSources(v []domain.MarketplaceSource) error {
 	}
 	return s.WriteOption(setting.TaskPluginMarketplaceSourcesKey, string(raw))
 }
-func (Settings) DisableChannel(id int) bool {
-	return model.UpdateChannelStatus(id, "", common.ChannelStatusManuallyDisabled, "task plugin disabled")
+func (settings Settings) DisableChannel(id int) bool {
+	return settings.ChangeStatus(id, "", common.ChannelStatusManuallyDisabled, "task plugin disabled")
 }
-func (Settings) InvalidatePricing() { model.InvalidatePricingCache() }
+func (Settings) InvalidatePricing() { pricingstate.InvalidatePricingCache() }
 
 type Diagnostics struct{}
 

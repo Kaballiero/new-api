@@ -10,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 )
 
 type ProbeEngine struct {
@@ -53,10 +52,10 @@ func (result ProbeOutcome) Disable(failure error) {
 type TestFailures struct{}
 
 func (TestFailures) ShouldDisable(failure error) bool {
-	return service.ShouldDisableChannel(GatewayError(failure))
+	return ShouldDisableChannel(GatewayError(failure))
 }
 func (TestFailures) ShouldEnable(failure error, status int) bool {
-	return service.ShouldEnableChannel(GatewayError(failure), status)
+	return ShouldEnableChannel(GatewayError(failure), status)
 }
 
 // ResponseTimeExceeded phrases the failure in the language of the testing

@@ -6,16 +6,20 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+
 	catalogstore "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
-	"github.com/QuantumNous/new-api/model"
+
+	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
 func clearPreferredOwnerTables(t *testing.T) {
 	t.Helper()
-	require.NoError(t, model.DB.Exec("DELETE FROM abilities").Error)
-	require.NoError(t, model.DB.Exec("DELETE FROM channels").Error)
+	require.NoError(t, legacy.DB.Exec("DELETE FROM abilities").Error)
+	require.NoError(t, legacy.DB.Exec("DELETE FROM channels").Error)
 }
 
 func insertPreferredOwnerCandidate(
@@ -30,14 +34,14 @@ func insertPreferredOwnerCandidate(
 	abilityEnabled bool,
 ) {
 	t.Helper()
-	require.NoError(t, model.DB.Create(&model.Channel{
+	require.NoError(t, legacy.DB.Create(&legacy.Channel{
 		Id:     channelID,
 		Type:   channelType,
 		Key:    fmt.Sprintf("key-%d", channelID),
 		Status: channelStatus,
 		Name:   fmt.Sprintf("channel-%d", channelID),
 	}).Error)
-	require.NoError(t, model.DB.Create(&model.Ability{
+	require.NoError(t, legacy.DB.Create(&channelrecord.Ability{
 		Group:     group,
 		Model:     modelName,
 		ChannelId: channelID,
@@ -144,24 +148,24 @@ func TestGetPreferredModelOwnerChannelTypes(t *testing.T) {
 }
 
 func preferredModelOwnerChannelTypes(names, groups []string) (map[string]int, error) {
-	return catalogstore.NewAvailabilityStore(func() *gorm.DB { return model.DB }, model.NewCatalogPersistence().GroupColumn).PreferredOwners(names, groups)
+	return catalogstore.NewAvailabilityStore(func() *gorm.DB { return legacy.DB }, pricingruntime.NewCatalogPersistence().GroupColumn).PreferredOwners(names, groups)
 }
 
 func TestCatalogAvailabilityUsesLateGroupColumn(t *testing.T) {
 	clearPreferredOwnerTables(t)
 	insertPreferredOwnerCandidate(t, 1, "column-fixture", "default", constant.ChannelTypeOpenRouter, 1, 1, common.ChannelStatusEnabled, true)
-	store := catalogstore.NewAvailabilityStore(func() *gorm.DB { return model.DB }, model.NewCatalogPersistence().GroupColumn)
-	before := *model.CatalogGroupColumn
-	t.Cleanup(func() { *model.CatalogGroupColumn = before })
+	store := catalogstore.NewAvailabilityStore(func() *gorm.DB { return legacy.DB }, pricingruntime.NewCatalogPersistence().GroupColumn)
+	before := *legacy.CatalogGroupColumn
+	t.Cleanup(func() { *legacy.CatalogGroupColumn = before })
 	owners, err := store.PreferredOwners([]string{"column-fixture"}, []string{"default"})
 	require.NoError(t, err)
 	require.Equal(t, constant.ChannelTypeOpenRouter, owners["column-fixture"])
-	*model.CatalogGroupColumn = `"missing_fixture_group"`
+	*legacy.CatalogGroupColumn = `"missing_fixture_group"`
 	_, err = store.PreferredOwners([]string{"column-fixture"}, []string{"default"})
 	require.Error(t, err)
 	_, err = store.ReserveBilled([]string{"column-fixture"}, []string{"default"})
 	require.Error(t, err)
-	*model.CatalogGroupColumn = before
+	*legacy.CatalogGroupColumn = before
 	_, err = store.ReserveBilled([]string{"column-fixture"}, []string{"default"})
 	require.NoError(t, err)
 }

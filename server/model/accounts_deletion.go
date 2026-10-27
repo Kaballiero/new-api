@@ -20,7 +20,7 @@ func newHardDeletionOperation(user *User) *record.HardDeletionOperation {
 		DB: func() *gorm.DB { return DB }, Lock: LockForUpdate, Publish: publishCommittedUserAuthVersion, Invalidate: invalidateUserCache, Advance: IncrementUserAuthVersionWithTx,
 		InvalidateCredentials: func() error { return invalidateTokensCache(tokens) },
 		SnapshotCredentials: func(tx *gorm.DB) error {
-			return tx.Unscoped().Select("id", commonKeyCol).Where("user_id = ?", user.Id).Find(&tokens).Error
+			return tx.Unscoped().Select("id", KeyColumn).Where("user_id = ?", user.Id).Find(&tokens).Error
 		},
 		Conflict: func() error { return ErrBatchConflict }, FinancialDecision: accountDeletionFinancialDecision, ReleaseIdentities: releaseAllExternalIdentitiesWithTx, RemoveFactors: removeAccountAuthenticationFactors,
 		RemoveCredentials: func(tx *gorm.DB, id int) error { return tx.Unscoped().Where("user_id = ?", id).Delete(&Token{}).Error }, RemoveBindings: deleteUserOAuthBindingsByUserId,

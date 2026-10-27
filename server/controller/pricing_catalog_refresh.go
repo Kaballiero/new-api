@@ -2,7 +2,10 @@ package controller
 
 import (
 	"context"
+
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	upstream "github.com/QuantumNous/new-api/internal/adapter/pricing/upstream"
 	"github.com/QuantumNous/new-api/internal/app"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -15,7 +18,7 @@ const pricingCatalogBodyLimit = 2 << 20
 const pricingCatalogFailureLimit = 20
 
 func refreshChannelPricingCache() {
-	model.InitChannelCache()
+	channelstore.InitChannelCache()
 	enqueuePricingCatalogRefresh()
 }
 func enqueuePricingCatalogRefresh() { app.NewEnqueuePricingCatalogueRefresh().Execute() }
@@ -55,24 +58,24 @@ func pricingCatalogSources(ctx context.Context) ([]pricingCatalogSource, error) 
 	}
 	return out, err
 }
-func refreshPricingCatalogSources(ctx context.Context, sources []pricingCatalogSource, fetch func(context.Context, pricingCatalogSource) (model.PricingCatalogEntry, error), publish func([]model.PricingCatalogEntry) (int, error)) (pricingCatalogRefreshSummary, error) {
+func refreshPricingCatalogSources(ctx context.Context, sources []pricingCatalogSource, fetch func(context.Context, pricingCatalogSource) (domain.PricingCatalogEntry, error), publish func([]domain.PricingCatalogEntry) (int, error)) (pricingCatalogRefreshSummary, error) {
 	var rows []refresh_catalogue.Source
 	for _, v := range sources {
 		rows = append(rows, pricingNativeSource(v))
 	}
-	return app.NewRefreshPricingCatalogue().RefreshSources(ctx, rows, func(ctx context.Context, v refresh_catalogue.Source) (model.PricingCatalogEntry, error) {
+	return app.NewRefreshPricingCatalogue().RefreshSources(ctx, rows, func(ctx context.Context, v refresh_catalogue.Source) (domain.PricingCatalogEntry, error) {
 		return fetch(ctx, pricingLegacySource(v))
 	}, publish)
 }
-func fetchPricingCatalogSource(ctx context.Context, source pricingCatalogSource) (model.PricingCatalogEntry, error) {
+func fetchPricingCatalogSource(ctx context.Context, source pricingCatalogSource) (domain.PricingCatalogEntry, error) {
 	return app.NewRefreshPricingCatalogue().FetchSource(ctx, pricingNativeSource(source))
 }
-func selectPricingCatalogOffers(offers []model.CatalogOffer) []model.CatalogOffer {
+func selectPricingCatalogOffers(offers []domain.CatalogOffer) []domain.CatalogOffer {
 	return domain.SelectPricingCatalogOffers(offers)
 }
-func normalizeEndpointPricing(upstream, operation, main string, body []byte) ([]model.CatalogOffer, error) {
+func normalizeEndpointPricing(upstream, operation, main string, body []byte) ([]domain.CatalogOffer, error) {
 	return app.NewPricingNativeNormalizer().NormalizeEndpointPricing(upstream, operation, main, body)
 }
-func normalizeImagePricing(upstream string, body []byte) ([]model.CatalogOffer, error) {
+func normalizeImagePricing(upstream string, body []byte) ([]domain.CatalogOffer, error) {
 	return app.NewPricingNativeNormalizer().NormalizeImagePricing(upstream, body)
 }

@@ -4,15 +4,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"github.com/QuantumNous/new-api/internal/channels/domain"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"io"
 	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/QuantumNous/new-api/internal/channels/domain"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -157,7 +158,7 @@ func GetResponseBody(method, url string, channel *model.Channel, headers http.He
 	for k := range headers {
 		req.Header.Add(k, headers.Get(k))
 	}
-	client, err := httpclient.GetHttpClientWithProxy(channel.GetSetting().Proxy)
+	client, err := httpclient.GetHttpClientWithProxy(repository.NewChannelPersistence().GetSetting(channel).Proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +370,7 @@ func FetchAdvancedCustomBalance(channel *model.Channel) (BalanceResult, error) {
 			ChannelType:          constant.ChannelTypeAdvancedCustom,
 			ChannelBaseUrl:       channel.GetBaseURL(),
 			ApiKey:               key,
-			ChannelOtherSettings: channel.GetOtherSettings(),
+			ChannelOtherSettings: repository.NewChannelPersistence().GetOtherSettings(channel),
 		},
 	}
 	requestURL, headers, err := (&advancedcustom.Adaptor{}).BuildBalanceRequest(info)
@@ -392,7 +393,7 @@ func FetchAdvancedCustomBalance(channel *model.Channel) (BalanceResult, error) {
 			request.Host = headers.Get(name)
 		}
 	}
-	client, err := httpclient.GetHttpClientWithProxy(channel.GetSetting().Proxy)
+	client, err := httpclient.GetHttpClientWithProxy(repository.NewChannelPersistence().GetSetting(channel).Proxy)
 	if err != nil {
 		return BalanceResult{}, SanitizeFetchModelsError(err, key)
 	}

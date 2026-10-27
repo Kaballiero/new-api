@@ -31,6 +31,9 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -38,21 +41,25 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
+
 	taskruntime "github.com/QuantumNous/new-api/internal/app/taskruntime"
+
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/contracttest"
+
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/tasklog"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskmultipart"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
@@ -898,7 +905,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 	}
 	require.NoError(t, env.DB.Create(&channel).Error)
 	if tc.Model != "" {
-		require.NoError(t, channel.AddAbilities(nil))
+		require.NoError(t, channelstore.AddAbilities(&(channel), nil))
 		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(fmt.Sprintf(`{%q:0.001}`, tc.Model)))
 	}
 	require.NoError(t,

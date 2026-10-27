@@ -3,9 +3,8 @@ package controller
 import (
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/app"
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 
-	"github.com/QuantumNous/new-api/model"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 )
 
@@ -29,7 +28,7 @@ func catalogComponentName(rate catalogsync.Component) string {
 // Moving a client's legacy provider object into its canonical field
 // does not introduce a server-side provider constraint.
 
-func upstreamProviderOffers(item model.Pricing, group string, ratio float64, validRatio bool, user pricingUserContext) []consumerProviderOffer {
+func upstreamProviderOffers(item pricingdomain.Pricing, group string, ratio float64, validRatio bool, user pricingUserContext) []consumerProviderOffer {
 	return app.NewPricingProjection().UpstreamProviderOffers(item, group, ratio, validRatio,
 		user)
 }

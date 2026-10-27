@@ -10,6 +10,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/QuantumNous/new-api/internal/settings/update_option"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -164,7 +166,7 @@ func setupBillingAliasOptionDB(t *testing.T) {
 	initModelListColumnNames(t)
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, database.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Option{}, &model.Log{}, &model.AuditLog{}, &model.User{}))
+	require.NoError(t, database.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}, &model.Option{}, &model.Log{}, &model.AuditLog{}, &model.User{}))
 	model.DB = database
 	model.LOG_DB = database
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
@@ -178,7 +180,7 @@ func setupBillingAliasOptionDB(t *testing.T) {
 		common.MemoryCacheEnabled = previousCache
 		common.OptionMap = previousMap
 		common.RedisEnabled = previousRedis
-		model.InitChannelCache()
+		channelstore.InitChannelCache()
 	})
 }
 
@@ -212,7 +214,7 @@ export function parseTaskResult() { return {}; }
 		Models:       "alias-model,declared-model",
 		ModelMapping: &mapping,
 	}).Error)
-	model.InitChannelCache()
+	channelstore.InitChannelCache()
 
 	saved := map[string]string{}
 	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {

@@ -9,6 +9,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -67,7 +70,7 @@ func TestEffectivePricingPreviewRequiresRoot(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AuditLog{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.ModelCostFXRow{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.AuditLog{}, &model.Channel{}, &channelrecord.Ability{}, &model.Model{}, &model.Vendor{}, &model.ModelCostFXRow{}))
 	model.DB, model.LOG_DB = db, db
 	common.RedisEnabled = false
 	common.GlobalApiRateLimitEnable = false
@@ -81,7 +84,7 @@ func TestEffectivePricingPreviewRequiresRoot(t *testing.T) {
 	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
 		Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90},
 	}, 0))
-	model.InvalidatePricingCache()
+	pricingstate.InvalidatePricingCache()
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = oldDB, oldLogDB
 		common.RedisEnabled = oldRedis
@@ -89,7 +92,7 @@ func TestEffectivePricingPreviewRequiresRoot(t *testing.T) {
 		common.QuotaPerUnit = oldQuotaPerUnit
 		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = oldExchangeRate
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroupRatio))
-		model.InvalidatePricingCache()
+		pricingstate.InvalidatePricingCache()
 		require.NoError(t, sqlDB.Close())
 	})
 	gin.SetMode(gin.TestMode)

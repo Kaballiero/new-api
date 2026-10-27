@@ -18,13 +18,18 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
 	relaykittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -364,7 +369,7 @@ func TestWssCharacterization(t *testing.T) {
 	t.Run("controller_Relay_terminal_error_reconciles_without_retry_or_refund", func(t *testing.T) {
 		resetWssTables(t, db, logDB, 10_000_000_000, 3, false)
 		priority := int64(0)
-		require.NoError(t, db.Create(&model.Ability{Group: "wss-char", Model: "wss-char-model", ChannelId: 1, Enabled: true, Priority: &priority}).Error)
+		require.NoError(t, db.Create(&channelrecord.Ability{Group: "wss-char", Model: "wss-char-model", ChannelId: 1, Enabled: true, Priority: &priority}).Error)
 		oldPreConsumed, oldRetries, oldErrorLogEnabled := common.PreConsumedQuota, common.RetryTimes, constant.ErrorLogEnabled
 		common.PreConsumedQuota, common.RetryTimes, constant.ErrorLogEnabled = 1, 2, true
 		t.Cleanup(func() {

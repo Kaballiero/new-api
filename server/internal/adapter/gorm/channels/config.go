@@ -3,7 +3,7 @@ package channels
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/model"
+	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"gorm.io/gorm"
@@ -17,19 +17,19 @@ func (store Store) ValidateSettings(channel *domain.Channel) error {
 }
 func (store Store) TaskPluginKey(channel *domain.Channel) string {
 	record := store.MutableRecord(channel)
-	key := record.GetSetting().TaskPluginKey
+	key := NewChannelPersistence().GetSetting(record).TaskPluginKey
 	*channel = *ToDomain(record)
 	return key
 }
 func (store Store) VertexJSONKeys(channel *domain.Channel) bool {
 	record := store.MutableRecord(channel)
-	jsonKeys := record.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey
+	jsonKeys := NewChannelPersistence().GetOtherSettings(record).VertexKeyType != dto.VertexKeyTypeAPIKey
 	*channel = *ToDomain(record)
 	return jsonKeys
 }
 func (store Store) SetProxy(channel *domain.Channel, proxy string) {
 	record := store.MutableRecord(channel)
-	settings := record.GetSetting()
+	settings := NewChannelPersistence().GetSetting(record)
 	*channel = *ToDomain(record)
 	settings.Proxy = proxy
 	record = store.MutableRecord(channel)
@@ -38,7 +38,7 @@ func (store Store) SetProxy(channel *domain.Channel, proxy string) {
 }
 func (store Store) EditAdvancedCustom(channel *domain.Channel) func(*string) error {
 	record := store.MutableRecord(channel)
-	settings := record.GetOtherSettings()
+	settings := NewChannelPersistence().GetOtherSettings(record)
 	*channel = *ToDomain(record)
 	return func(raw *string) error {
 		if raw != nil {
@@ -63,37 +63,37 @@ func (store Store) PluginBaseURL(key string) (string, bool) {
 }
 func (store Store) Canonicalize(channel *domain.Channel) error {
 	record := store.MutableRecord(channel)
-	err := record.CanonicalizeModelConfig()
+	err := CanonicalizeModelConfig(record)
 	*channel = *ToDomain(record)
 	return err
 }
 func (store Store) Insert(channel *domain.Channel) error {
 	record := store.MutableRecord(channel)
-	err := record.Insert()
+	err := NewChannelPersistence().Insert(record)
 	*channel = *ToDomain(record)
 	return err
 }
 func (store Store) InsertBatch(channels []domain.Channel) error {
-	records := make([]model.Channel, len(channels))
+	records := make([]legacy.Channel, len(channels))
 	for i := range channels {
 		records[i] = *FromDomain(&channels[i])
 	}
-	return model.BatchInsertChannels(records)
+	return BatchInsertChannels(records)
 }
 
 func (store Store) EditTag(tag string, newTag, modelMapping, models, groups *string, priority *int64, weight *uint, paramOverride, headerOverride *string) error {
-	return model.EditChannelByTag(tag, newTag, modelMapping, models, groups, priority, weight, paramOverride, headerOverride)
+	return EditChannelByTag(tag, newTag, modelMapping, models, groups, priority, weight, paramOverride, headerOverride)
 }
 
 func (store Store) WithLocked(id int, apply func(*domain.Channel, func(*domain.Channel) error) error) error {
-	return model.DB.Transaction(func(tx *gorm.DB) error {
-		locked, err := model.GetChannelByIdForUpdate(tx, id)
+	return legacy.DB.Transaction(func(tx *gorm.DB) error {
+		locked, err := GetChannelByIdForUpdate(tx, id)
 		if err != nil {
 			return err
 		}
 		return apply(store.track(locked), func(channel *domain.Channel) error {
 			record := store.MutableRecord(channel)
-			err := record.UpdateWithTx(tx)
+			err := NewChannelPersistence().UpdateWithTx(record, tx)
 			*channel = *ToDomain(record)
 			return err
 		})
@@ -101,6 +101,6 @@ func (store Store) WithLocked(id int, apply func(*domain.Channel, func(*domain.C
 }
 
 func (store Store) SetKey(id int, key string) error {
-	return model.DB.Model(&model.Channel{}).Where("id = ?", id).Update("key", key).Error
+	return legacy.DB.Model(&legacy.Channel{}).Where("id = ?", id).Update("key", key).Error
 }
-func (store Store) InitCache() { model.InitChannelCache() }
+func (store Store) InitCache() { InitChannelCache() }

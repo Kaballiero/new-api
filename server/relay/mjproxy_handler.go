@@ -11,25 +11,33 @@ import (
 	"strings"
 	"time"
 
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
+
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/i18n"
+
 	tasktext "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
-	usagegateway "github.com/QuantumNous/new-api/relay/usage"
-
-	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	usagegateway "github.com/QuantumNous/new-api/relay/usage"
+	"github.com/gin-gonic/gin"
+
 	taskdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+
 	mjgateway "github.com/QuantumNous/new-api/relay/midjourney"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/service"
@@ -48,8 +56,8 @@ func RelayMidjourneyImage(c *gin.Context) {
 	}
 	var httpClient *http.Client
 	var proxy string
-	if channel, err := model.CacheGetChannel(midjourneyTask.ChannelId); err == nil {
-		proxy = channel.GetSetting().Proxy
+	if channel, err := channelstore.CacheGetChannel(midjourneyTask.ChannelId); err == nil {
+		proxy = channelstore.NewChannelPersistence().GetSetting(channel).Proxy
 		if proxy != "" {
 			if httpClient, err = httpclient.GetHttpClientWithProxy(proxy); err != nil {
 				c.JSON(400, gin.H{
@@ -320,7 +328,7 @@ func RelayMidjourneyTaskImageSeed(c *gin.Context) *dto.MidjourneyResponse {
 	if originTask == nil {
 		return mapping.MidjourneyErrorWrapper(constant.MjRequestError, "task_no_found")
 	}
-	channel, err := model.GetChannelById(originTask.ChannelId, true)
+	channel, err := channelstore.GetChannelById(originTask.ChannelId, true)
 	if err != nil {
 		return mapping.MidjourneyErrorWrapper(constant.MjRequestError, "get_channel_info_failed")
 	}
@@ -494,7 +502,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 					return mapping.MidjourneyErrorWrapper(constant.MjRequestError, "task_status_not_success")
 				}
 			}
-			channel, err := model.GetChannelById(originTask.ChannelId, true)
+			channel, err := channelstore.GetChannelById(originTask.ChannelId, true)
 			if err != nil {
 				return mapping.MidjourneyErrorWrapper(constant.MjRequestError, "get_channel_info_failed")
 			}
@@ -591,12 +599,12 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	}
 	if midjResponse.Code == 3 {
 		//无实例账号自动禁用渠道（No available account instance）
-		channel, err := model.GetChannelById(midjourneyTask.ChannelId, true)
+		channel, err := channelstore.GetChannelById(midjourneyTask.ChannelId, true)
 		if err != nil {
 			common.SysLog("get_channel_null: " + err.Error())
 		}
 		if channel.GetAutoBan() && common.AutomaticDisableChannelEnabled {
-			model.UpdateChannelStatus(midjourneyTask.ChannelId, "", 2, "No available account instance")
+			channelcore.UpdateChannelStatus(midjourneyTask.ChannelId, "", 2, "No available account instance")
 		}
 	}
 	if midjResponse.Code != 1 && midjResponse.Code != 21 && midjResponse.Code != 22 {

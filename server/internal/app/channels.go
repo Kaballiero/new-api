@@ -4,16 +4,24 @@ import (
 	"context"
 	"time"
 
+	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
+
+	codex "github.com/QuantumNous/new-api/internal/adapter/channels/codex"
+
 	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
 	"github.com/QuantumNous/new-api/internal/app/notifications"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
+
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/internal/channels/apply_all_upstream_model_updates"
 	"github.com/QuantumNous/new-api/internal/channels/apply_upstream_model_updates"
@@ -27,6 +35,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/channels/detect_all_upstream_model_updates"
 	"github.com/QuantumNous/new-api/internal/channels/detect_upstream_model_updates"
 	"github.com/QuantumNous/new-api/internal/channels/disable_tag_channels"
+
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/channels/edit_tag_channels"
 	"github.com/QuantumNous/new-api/internal/channels/enable_tag_channels"
@@ -64,7 +73,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/channels/validate_models"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -192,12 +200,12 @@ func NewChannelsHTTP(effects ChannelEffects) ChannelsHTTP {
 			})
 		}),
 		UpdateChannelStatus: update_channel_status.NewHTTP(func(c *gin.Context) update_channel_status.Usecase {
-			return update_channel_status.NewUsecase(repository.NewStore(), effects.Refresh, func(input update_channel_status.Input, changed bool) {
+			return update_channel_status.NewUsecase(channelcore.StateWriter{}, effects.Refresh, func(input update_channel_status.Input, changed bool) {
 				effects.Audit(c, "channel.status_update", map[string]any{"id": input.ID, "status": input.Status, "changed": changed})
 			})
 		}),
 		UpdateChannelStatusBatch: update_channel_status_batch.NewHTTP(func(c *gin.Context) update_channel_status_batch.Usecase {
-			return update_channel_status_batch.NewUsecase(repository.NewStore(), effects.Refresh, func(input update_channel_status_batch.Input, count int) {
+			return update_channel_status_batch.NewUsecase(channelcore.StateWriter{}, effects.Refresh, func(input update_channel_status_batch.Input, count int) {
 				effects.Audit(c, "channel.status_update_batch", map[string]any{"count": count, "total": len(input.Ids), "status": input.Status})
 			})
 		}),
@@ -243,24 +251,24 @@ func NewChannelsHTTP(effects ChannelEffects) ChannelsHTTP {
 		StreamOllamaModelPull: stream_ollama_model_pull.NewHTTP(func() stream_ollama_model_pull.Store { return repository.NewStore() }, channeladapter.NewOllama()),
 		RefreshCodexCredential: refresh_codex_credential.NewHTTP(func(*gin.Context) refresh_codex_credential.Usecase {
 			return refresh_codex_credential.NewUsecase(repository.NewStore(), func(ctx context.Context, token, proxy string) (*channeldomain.CodexTokenResult, error) {
-				result, err := service.RefreshCodexOAuthTokenWithProxy(ctx, token, proxy)
+				result, err := codex.RefreshCodexOAuthTokenWithProxy(ctx, token, proxy)
 				if result == nil {
 					return nil, err
 				}
 				return &channeldomain.CodexTokenResult{AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, ExpiresAt: result.ExpiresAt}, err
-			}, service.ExtractCodexAccountIDFromJWT, service.ExtractEmailFromJWT, time.Now)
+			}, codex.ExtractCodexAccountIDFromJWT, codex.ExtractEmailFromJWT, time.Now)
 		}),
 		GetCodexUsage: get_codex_usage.NewHTTP(func(*gin.Context) get_codex_usage.Usecase {
-			return get_codex_usage.NewUsecase(repository.NewStore(), channeladapter.NewCodexUsage(service.FetchCodexWhamUsage), common.SysError, time.Now)
+			return get_codex_usage.NewUsecase(repository.NewStore(), channeladapter.NewCodexUsage(codex.FetchCodexWhamUsage), common.SysError, time.Now)
 		}),
 		GetCodexResetCredits: get_codex_reset_credits.NewHTTP(func(*gin.Context) get_codex_reset_credits.Usecase {
-			return get_codex_reset_credits.NewUsecase(repository.NewStore(), channeladapter.NewCodexUsage(service.FetchCodexWhamRateLimitResetCredits), common.SysError, time.Now)
+			return get_codex_reset_credits.NewUsecase(repository.NewStore(), channeladapter.NewCodexUsage(codex.FetchCodexWhamRateLimitResetCredits), common.SysError, time.Now)
 		}),
 		ResetCodexUsage: reset_codex_usage.NewHTTP(func(*gin.Context) reset_codex_usage.Usecase {
-			return reset_codex_usage.NewUsecase(repository.NewStore(), channeladapter.NewCodexUsage(service.ConsumeCodexWhamRateLimitResetCredit), common.SysError, time.Now)
+			return reset_codex_usage.NewUsecase(repository.NewStore(), channeladapter.NewCodexUsage(codex.ConsumeCodexWhamRateLimitResetCredit), common.SysError, time.Now)
 		}),
 		FetchUpstreamModels: fetch_upstream_models.NewHTTP(func(*gin.Context) fetch_upstream_models.Usecase {
-			return fetch_upstream_models.NewUsecase(repository.NewStore(), channeladapter.NewModelDiscovery())
+			return fetch_upstream_models.NewUsecase(repository.NewStore(), channeladapter.NewModelDiscovery(channelcore.FetchCodexChannelModels))
 		}),
 		PreviewChannelModels: preview_channel_models.NewHTTP(func(*gin.Context) preview_channel_models.Usecase { return NewPreviewChannelModelsUsecase() }),
 		UpdateChannelBalance: update_channel_balance.NewHTTP(func(*gin.Context) update_channel_balance.Usecase {
@@ -276,11 +284,11 @@ func NewChannelsHTTP(effects ChannelEffects) ChannelsHTTP {
 		ValidateModels: validate_models.NewHTTP(func(c *gin.Context) validate_models.Usecase {
 			store := repository.NewStore()
 			return validate_models.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(c) }, func(localErr, upstreamErr error) (channeldomain.ModelLiveness, int) {
-				return service.ClassifyModelValidation(localErr, channeladapter.GatewayError(upstreamErr))
+				return channeladapter.ClassifyModelValidation(localErr, channeladapter.GatewayError(upstreamErr))
 			}, common.MaskSensitiveInfo)
 		}),
 		ListChannelModels:        list_channel_models.NewHTTP(list_channel_models.NewUsecase(effects.ChannelListModels)),
-		ListEnabledChannelModels: list_enabled_channel_models.NewHTTP(list_enabled_channel_models.NewUsecase(model.GetEnabledModels)),
+		ListEnabledChannelModels: list_enabled_channel_models.NewHTTP(list_enabled_channel_models.NewUsecase(channelstore.GetEnabledModels)),
 		GetAffinityCacheStats: get_affinity_cache_stats.NewHTTP(get_affinity_cache_stats.NewUsecase(func() get_affinity_cache_stats.Output {
 			return get_affinity_cache_stats.Output(routing.GetChannelAffinityCacheStats())
 		})),
@@ -328,7 +336,7 @@ func NewChannelTestTaskUsecase(effects ChannelEffects) run_channel_tests.Usecase
 
 func NewChannelModelUpdateRules(store repository.Store) channeldomain.ModelUpdateRules {
 	return channeldomain.ModelUpdateRules{Codec: store, Errors: func() channeldomain.ModelMappingErrors {
-		return channeldomain.ModelMappingErrors{ErrModelNameEmpty: model.ErrModelNameEmpty, ErrModelMappingCycle: model.ErrModelMappingCycle, ErrModelMappingSourceEmpty: model.ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty: model.ErrModelMappingTargetEmpty, ErrModelMappingConflict: model.ErrModelMappingConflict}
+		return channeldomain.ModelMappingErrors{ErrModelNameEmpty: channeldomain.ErrModelNameEmpty, ErrModelMappingCycle: channeldomain.ErrModelMappingCycle, ErrModelMappingSourceEmpty: channeldomain.ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty: channeldomain.ErrModelMappingTargetEmpty, ErrModelMappingConflict: channeldomain.ErrModelMappingConflict}
 	}, Canonicalize: store.Canonicalize, Now: common.GetTimestamp}
 }
 
@@ -372,10 +380,10 @@ func NewScanChannelModelsUsecase(effects ChannelEffects) scan_upstream_model_upd
 }
 
 func RefreshChannelRuntimeCache(pricing func()) {
-	channeladapter.NewRuntimeCache(func() bool { return common.MemoryCacheEnabled }, model.InitChannelCache, pricing, common.SysLog).Refresh()
+	channeladapter.NewRuntimeCache(func() bool { return common.MemoryCacheEnabled }, channelstore.InitChannelCache, pricing, common.SysLog).Refresh()
 }
 
 func NewPreviewChannelModelsUsecase() preview_channel_models.Usecase {
 	store := repository.NewStore()
-	return preview_channel_models.NewUsecase(store, channeladapter.NewModelDiscovery())
+	return preview_channel_models.NewUsecase(store, channeladapter.NewModelDiscovery(channelcore.FetchCodexChannelModels))
 }

@@ -7,35 +7,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
 )
 
-var commonGroupCol string
+var GroupColumn string
 
-var commonKeyCol string
-
-var commonTrueVal string
-
-var commonFalseVal string
+var KeyColumn string
 
 func initCol() {
 	// init common column names
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		commonGroupCol = `"group"`
-		commonKeyCol = `"key"`
-		commonTrueVal = "true"
-		commonFalseVal = "false"
+		GroupColumn = `"group"`
+		KeyColumn = `"key"`
 	} else {
-		commonGroupCol = "`group`"
-		commonKeyCol = "`key`"
-		commonTrueVal = "1"
-		commonFalseVal = "0"
+		GroupColumn = "`group`"
+		KeyColumn = "`key`"
 	}
 
 }

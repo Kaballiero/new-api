@@ -1,6 +1,10 @@
 package model_test
 
 import (
+	"os"
+	"path/filepath"
+	"testing"
+
 	core "github.com/QuantumNous/new-api/internal/app/batch"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
 	. "github.com/QuantumNous/new-api/model"
@@ -8,9 +12,6 @@ import (
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"os"
-	"path/filepath"
-	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"

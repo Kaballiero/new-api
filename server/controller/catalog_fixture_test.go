@@ -1,11 +1,17 @@
 package controller
 
 import (
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+
 	"context"
 	"errors"
-	"github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+
+	"github.com/QuantumNous/new-api/common"
 	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"github.com/QuantumNous/new-api/internal/catalog/apply_metadata_sync"
 	"github.com/QuantumNous/new-api/internal/catalog/create_model"
@@ -13,7 +19,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/catalog/update_model"
 	"github.com/QuantumNous/new-api/internal/catalog/update_vendor"
 
-	"github.com/QuantumNous/new-api/common"
 	store "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"github.com/QuantumNous/new-api/internal/catalog/apply_vendor_operation"
@@ -24,16 +29,16 @@ import (
 )
 
 func catalogFixtureStore() store.Store {
-	return store.NewStore(model.NewCatalogPersistence(), store.Runtime{SyncFields: func() []string { return domain.MetadataSyncFields }, EnabledModels: model.GetEnabledModels, QuotaTypes: model.GetModelQuotaTypes, SupportEndpoints: func(name string) []string {
+	return store.NewStore(pricingruntime.NewCatalogPersistence(), store.Runtime{SyncFields: func() []string { return domain.MetadataSyncFields }, EnabledModels: channelstore.GetEnabledModels, QuotaTypes: pricingruntime.GetModelQuotaTypes, SupportEndpoints: func(name string) []string {
 		var out []string
-		for _, v := range model.GetModelSupportEndpointTypes(name) {
+		for _, v := range pricingstate.GetModelSupportEndpointTypes(name) {
 			out = append(out, string(v))
 		}
 		return out
 	}})
 }
 func insertModelRecord(value *model.Model) error {
-	out, err := create_model.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints).Execute(create_model.Input{Value: *record.ToModel(value)})
+	out, err := create_model.NewUsecase(catalogFixtureStore(), common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints).Execute(create_model.Input{Value: *record.ToModel(value)})
 	if err != nil {
 		return err
 	}
@@ -43,7 +48,7 @@ func insertModelRecord(value *model.Model) error {
 	return nil
 }
 func updateModelRecord(value *model.Model) error {
-	out, err := update_model.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints).Execute(update_model.Input{Value: *record.ToModel(value)})
+	out, err := update_model.NewUsecase(catalogFixtureStore(), common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints).Execute(update_model.Input{Value: *record.ToModel(value)})
 	if err != nil {
 		return err
 	}
@@ -57,7 +62,7 @@ func deleteModelRecord(value *model.Model) error {
 	return err
 }
 func insertVendorRecord(value *model.Vendor) error {
-	out, err := create_vendor.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion).Execute(create_vendor.Input{Value: *record.ToVendor(value)})
+	out, err := create_vendor.NewUsecase(catalogFixtureStore(), common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion).Execute(create_vendor.Input{Value: *record.ToVendor(value)})
 	if err != nil {
 		return err
 	}
@@ -65,7 +70,7 @@ func insertVendorRecord(value *model.Vendor) error {
 	return nil
 }
 func updateVendorRecord(value *model.Vendor) error {
-	out, err := update_vendor.NewUsecase(catalogFixtureStore(), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion).Execute(update_vendor.Input{Value: *record.ToVendor(value)})
+	out, err := update_vendor.NewUsecase(catalogFixtureStore(), common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion).Execute(update_vendor.Input{Value: *record.ToVendor(value)})
 	if err != nil {
 		return err
 	}
@@ -74,7 +79,7 @@ func updateVendorRecord(value *model.Vendor) error {
 }
 func deleteVendorRecord(value *model.Vendor) error { return deleteVendorRecords([]int{value.Id}) }
 func catalogVendorByID(id int) (*model.Vendor, error) {
-	v, err := model.NewCatalogPersistence().GetVendorByID(id)
+	v, err := pricingruntime.NewCatalogPersistence().GetVendorByID(id)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +87,7 @@ func catalogVendorByID(id int) (*model.Vendor, error) {
 	return v, nil
 }
 func searchCatalogVendors(keyword string, offset, limit int, association ...string) ([]*model.Vendor, int64, error) {
-	values, n, err := model.NewCatalogPersistence().SearchVendors(keyword, offset, limit, association...)
+	values, n, err := pricingruntime.NewCatalogPersistence().SearchVendors(keyword, offset, limit, association...)
 	for _, v := range values {
 		v.Version = vendorRecordVersion(v)
 	}
@@ -100,7 +105,7 @@ func previewVendorRecords(v domain.VendorOperation) (*domain.VendorOperationPrev
 }
 func applyVendorRecords(v domain.VendorOperation) (*domain.VendorOperationResult, error) {
 	s := catalogFixtureStore()
-	return apply_vendor_operation.NewUsecase(store.NewVendorOperationStore(s), common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}).Execute(v)
+	return apply_vendor_operation.NewUsecase(store.NewVendorOperationStore(s), common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}).Execute(v)
 }
 func deleteVendorRecords(ids []int) error {
 	result := &domain.VendorOperationResult{UpdatedModels: []int{}, DeletedVendors: []int{}}
@@ -108,12 +113,12 @@ func deleteVendorRecords(ids []int) error {
 		return domain.ApplyVendorOperation(tx, domain.VendorOperation{Action: "delete", VendorIDs: ids}, result, common.GetTimestamp, catalogcodec.Codec{})
 	})
 	if err == nil {
-		model.RefreshPricing()
+		pricingruntime.RefreshPricing()
 	}
 	return err
 }
 func deleteCatalogModels(ids []int, channels, pricing bool) (domain.ModelDeleteResult, error) {
-	return delete_models_batch.NewUsecase(model.NewCatalogPersistence(), model.InitChannelCache, model.RefreshPricing).Execute(delete_models_batch.Input{ModelIDs: ids, RemoveFromChannels: channels, RemovePricing: pricing, AllowRemovePricing: true})
+	return delete_models_batch.NewUsecase(pricingruntime.NewCatalogPersistence(), channelstore.InitChannelCache, pricingruntime.RefreshPricing).Execute(delete_models_batch.Input{ModelIDs: ids, RemoveFromChannels: channels, RemovePricing: pricing, AllowRemovePricing: true})
 }
 func applyMetadataRecords(updates []domain.MetadataSyncUpdate, vendors map[string]model.Vendor) (*domain.MetadataSyncResult, error) {
 	source := catalogFixtureMetadataSource{values: map[string]domain.MetadataValues{}, vendors: map[string]domain.Vendor{}}
@@ -125,7 +130,7 @@ func applyMetadataRecords(updates []domain.MetadataSyncUpdate, vendors map[strin
 	for name, v := range vendors {
 		source.vendors[name] = *record.ToVendor(&v)
 	}
-	return apply_metadata_sync.NewUsecase(catalogFixtureStore(), source, common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}).Execute(context.Background(), apply_metadata_sync.Input{Selections: selections})
+	return apply_metadata_sync.NewUsecase(catalogFixtureStore(), source, common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}).Execute(context.Background(), apply_metadata_sync.Input{Selections: selections})
 }
 
 type catalogFixtureMetadataSource struct {

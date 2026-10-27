@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/go-redis/redis/v8"
 	"net"
 	"net/http"
 	"net/textproto"
@@ -23,24 +22,30 @@ import (
 	"testing/synctest"
 	"time"
 
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/go-redis/redis/v8"
+
 	routing "github.com/QuantumNous/new-api/gateway/routing"
+
 	notificationadapter "github.com/QuantumNous/new-api/internal/adapter/notifications"
+
 	redisnotification "github.com/QuantumNous/new-api/internal/adapter/redis/notifications"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
 	"github.com/QuantumNous/new-api/internal/app/notifications"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	f "github.com/QuantumNous/new-api/internal/contracttest/managementfixture"
+
 	tf "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -255,7 +260,7 @@ func runNotification(t *testing.T, name string) any {
 				if name == "root_channel_enabled" {
 					channel.Status = common.ChannelStatusAutoDisabled
 				}
-				require.NoError(t, channel.Insert())
+				require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
 				if name == "root_channel_enabled" {
 					channelruntime.Enable(21, "", "fixture channel")
 				} else {

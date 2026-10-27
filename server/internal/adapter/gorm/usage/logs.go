@@ -4,10 +4,11 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"gorm.io/gorm"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	keydomain "github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/internal/usage/dto"
@@ -181,7 +182,7 @@ func readAdminLogs(tx *gorm.DB, startIdx, num int) (logs []*record.Log, total in
 		if common.MemoryCacheEnabled {
 			// Cache get channel
 			for _, channelId := range channelIds.Items() {
-				if cacheChannel, err := model.CacheGetChannel(channelId); err == nil {
+				if cacheChannel, err := channelstore.CacheGetChannel(channelId); err == nil {
 					channels = append(channels, struct {
 						Id   int    `gorm:"column:id"`
 						Name string `gorm:"column:name"`

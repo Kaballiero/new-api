@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -118,7 +119,7 @@ func TestGroupRatioOptionsRejectInvalidWrites(t *testing.T) {
 	for _, value := range []string{`{"default":-1}`, `{"default":`, `null`, `{"default":1e999}`} {
 		for _, key := range []string{"GroupRatio", "group_ratio_setting.group_ratio"} {
 			require.Error(t, Default().Write.Execute(key, value))
-			require.Error(t, model.PublishOption(key, value))
+			require.Error(t, publication.PublishOption(key, value))
 			assert.Equal(t, 1.45, ratio_setting.GetGroupRatio("default"))
 			assert.JSONEq(t, `{"default":1.45}`, common.OptionMap[key])
 			assert.JSONEq(t, `{"default":1.45}`, requireOptionValue(t, db, key))

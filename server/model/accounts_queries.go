@@ -6,7 +6,7 @@ import (
 )
 
 func accountQueries() record.Queries {
-	return record.NewQueries(func() *gorm.DB { return DB }, func() string { return commonGroupCol })
+	return record.NewQueries(func() *gorm.DB { return DB }, func() string { return GroupColumn })
 }
 func accountQueryUsers(rows []*record.User) []*User {
 	if rows == nil {

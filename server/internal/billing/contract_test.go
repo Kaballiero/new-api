@@ -5,8 +5,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/alicebob/miniredis/v2"
-	"github.com/go-redis/redis/v8"
 	"io"
 	"math"
 	"mime/multipart"
@@ -22,25 +20,31 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/go-redis/redis/v8"
+
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	hosttypes "github.com/QuantumNous/new-api/types"
 
+	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -184,8 +188,8 @@ func runBillingHTTPContract(t *testing.T, tc billingCase, useRedis bool, golden 
 	t.Cleanup(upstream.Close)
 	channel := model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Key: "contract-upstream-key", Status: common.ChannelStatusEnabled, Name: "billing-contract", BaseURL: &upstream.URL, Models: billingModel, Group: "default", AutoBan: common.GetPointer(0)}
 	require.NoError(t, env.DB.Create(&channel).Error)
-	require.NoError(t, channel.AddAbilities(nil))
-	model.InitChannelCache()
+	require.NoError(t, channelstore.AddAbilities(&(channel), nil))
+	channelstore.InitChannelCache()
 	env.MountRelay()
 
 	path, bearer := "/v1/chat/completions", "sk-"+billingKey
@@ -798,8 +802,8 @@ func runBillingCostRelayContract(t *testing.T, tc billingCostCase) {
 		channel.Setting = common.GetPointer(`{"openrouter_reservation_source":{"fixture/cost-model":"configured_price"}}`)
 	}
 	require.NoError(t, env.DB.Create(&channel).Error)
-	require.NoError(t, channel.AddAbilities(nil))
-	model.InitChannelCache()
+	require.NoError(t, channelstore.AddAbilities(&(channel), nil))
+	channelstore.InitChannelCache()
 	env.MountRelay()
 	path, bearer := tc.path, "sk-"+billingKey
 	if tc.playground {

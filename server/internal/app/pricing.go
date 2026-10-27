@@ -1,17 +1,30 @@
 package app
 
 import (
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+
 	"context"
 	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+
+	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
+
 	metadataupstream "github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
+
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
+
 	pricingupstream "github.com/QuantumNous/new-api/internal/adapter/pricing/upstream"
+
 	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
+
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
+
 	systemcore "github.com/QuantumNous/new-api/internal/app/system"
+
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/enqueue_catalogue_refresh"
@@ -34,8 +47,8 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -43,8 +56,8 @@ import (
 
 func NewPricingProjection() *domain.Projection {
 	return domain.NewProjection(domain.ProjectionRuntime{Capabilities: pricingadapter.Capabilities(),
-		UsableGroups: service.GetUserUsableGroups, GroupRatio: service.GetUserGroupRatio,
-		AutoGroups: service.GetUserAutoGroup, ApplyFX: billingdomain.ApplyBillingFX,
+		UsableGroups: accountssettings.GetUserUsableGroups, GroupRatio: accountssettings.GroupRatio,
+		AutoGroups: accountssettings.GetUserAutoGroup, ApplyFX: billingdomain.ApplyBillingFX,
 		QuotaUnit:     func() float64 { return common.QuotaPerUnit },
 		ApplyOverride: pricingupstream.ApplyOverride,
 	})
@@ -53,11 +66,11 @@ func NewPricingProjection() *domain.Projection {
 var pricingConsumerCache pricingadapter.ConsumerCache
 
 func newPricingReader() pricingadapter.Reader {
-	return pricingadapter.Reader{SnapshotEndpointsRead: model.GetPricingCatalogueSnapshotWithEndpoints, GroupRatiosRead: ratio_setting.GetGroupRatioCopy, GroupGroupRatioRead: ratio_setting.GetGroupGroupRatio,
-		SnapshotRead: model.GetPricingCatalogueSnapshot, FXRead: func() (domain.BillingFXBasis, error) {
+	return pricingadapter.Reader{SnapshotEndpointsRead: pricingruntime.GetPricingCatalogueSnapshotWithEndpoints, GroupRatiosRead: ratio_setting.GetGroupRatioCopy, GroupGroupRatioRead: ratio_setting.GetGroupGroupRatio,
+		SnapshotRead: pricingruntime.GetPricingCatalogueSnapshot, FXRead: func() (domain.BillingFXBasis, error) {
 			v, err := billingapp.NewCosts().FX.Execute(billingdomain.FXBasis{})
 			return domain.BillingFXBasis(v), err
-		}, AutoGroupsRead: service.GetUserAutoGroup, UsableGroupsRead: service.GetUserUsableGroups, GroupRatioRead: service.GetUserGroupRatio, UserGroupRead: func(id int) (string, error) {
+		}, AutoGroupsRead: accountssettings.GetUserAutoGroup, UsableGroupsRead: accountssettings.GetUserUsableGroups, GroupRatioRead: accountssettings.GroupRatio, UserGroupRead: func(id int) (string, error) {
 			u, err := model.GetUserCache(id)
 			if err != nil {
 				return "", err
@@ -108,8 +121,8 @@ func NewPricingHTTP(effects PricingEffects) PricingHTTP {
 			return billing_setting.GetPricingSyncData(map[string]any(ratio_setting.GetExposedData()))
 		}})),
 		ResetModelRatios: reset_model_ratios.NewHTTP(reset_model_ratios.NewUsecase(pricingadapter.RatioSettings{Defaults: ratio_setting.DefaultModelRatio2JSONString, Write: settingsapp.Default().Write.Execute, Update: ratio_setting.UpdateModelRatioByJSONString})),
-		GetPricingConfig: get_pricing_config.NewHTTP(get_pricing_config.NewUsecase(pricingadapter.Capabilities(), model.NewPricingOptionsPersistence(), model.NewPricingConfiguration(), model.NewPricingUsageSchemas)),
-		UpdatePricingConfig: update_pricing_config.NewHTTP(pricingadapter.Capabilities(), model.NewPricingOptionsPersistence(), model.NewPricingConfiguration(), common.SysError, model.RefreshPricing, ratio_setting.InvalidateExposedDataCache, func(c *gin.Context, names []string) {
+		GetPricingConfig: get_pricing_config.NewHTTP(pricingruntime.ModelPricingReader()),
+		UpdatePricingConfig: update_pricing_config.NewHTTP(pricingadapter.Capabilities(), pricingruntime.NewPricingOptionsPersistence(), pricingruntime.NewPricingConfiguration(), common.SysError, pricingruntime.RefreshPricing, ratio_setting.InvalidateExposedDataCache, func(c *gin.Context, names []string) {
 			effects.Audit(c, "model.pricing.update", map[string]any{"models": names})
 		}),
 		FetchUpstreamRatios:  newFetchUpstreamRatiosHTTP(channels),
@@ -119,7 +132,7 @@ func NewPricingHTTP(effects PricingEffects) PricingHTTP {
 
 func newPricingRatioChannels() pricingadapter.RatioChannels {
 	return pricingadapter.RatioChannels{ReadIDs: func(ids []int) ([]fetch_upstream_ratios.Channel, error) {
-		rows, err := model.GetChannelsByIds(ids)
+		rows, err := channelstore.GetChannelsByIds(ids)
 		if err != nil {
 			return nil, err
 		}
@@ -129,7 +142,7 @@ func newPricingRatioChannels() pricingadapter.RatioChannels {
 		}
 		return out, nil
 	}, ReadAll: func() ([]list_syncable_channels.SyncableChannel, error) {
-		rows, err := model.GetAllChannels(0, 0, true, false)
+		rows, err := channelstore.GetAllChannels(0, 0, true, false)
 		if err != nil {
 			return nil, err
 		}
@@ -142,11 +155,11 @@ func newPricingRatioChannels() pricingadapter.RatioChannels {
 }
 func newFetchUpstreamRatiosHTTP(channels pricingadapter.RatioChannels) fetch_upstream_ratios.HTTP {
 	return fetch_upstream_ratios.NewHTTP(fetch_upstream_ratios.NewUsecase(pricingadapter.Capabilities(), channels, pricingupstream.RatioClients{HTTP: metadataupstream.NewHTTPClient, Warn: logger.LogWarn, Key: func(id int) (string, error) {
-		ch, err := model.GetChannelById(id, true)
+		ch, err := channelstore.GetChannelById(id, true)
 		if err != nil {
 			return "", fmt.Errorf("failed to get channel key: %w", err)
 		}
-		key, _, apiErr := ch.GetNextEnabledKey()
+		key, _, apiErr := channelstore.GetNextEnabledKey(ch)
 		if apiErr != nil {
 			return "", fmt.Errorf("failed to get enabled channel key: %s", apiErr.Error())
 		}
@@ -164,17 +177,17 @@ func NewPricingNativeNormalizer() *domain.NativeNormalizer {
 	return pricingupstream.NewNativeNormalizer()
 }
 func NewRefreshPricingCatalogue() refresh_catalogue.Usecase {
-	return refresh_catalogue.NewUsecase(pricingadapter.Capabilities(), pricingupstream.NativeStore{}, func() (domain.CatalogSource, bool, error) {
-		v, on, err := model.ConfiguredCatalogSource()
+	return refresh_catalogue.NewUsecase(pricingadapter.Capabilities(), pricingupstream.NativeStore{ReadPricing: pricingruntime.GetPricing}, func() (domain.CatalogSource, bool, error) {
+		v, on, err := pricingstate.ConfiguredCatalogSource()
 		return domain.CatalogSource(v), on, err
 	}, func(ctx context.Context, source domain.CatalogSource, requested map[string]bool) (domain.CatalogSyncSummary, error) {
 		client, err := catalogsync.NewClient(source.BaseURL, httpclient.GetHttpClient())
 		if err != nil {
 			return domain.CatalogSyncSummary{}, err
 		}
-		v, err := sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), model.NewImmutableCatalogPersistence(), time.Now, model.InvalidatePricingCache).Execute(ctx, source, requested, pricingadapter.CatalogClient{Client: client})
+		v, err := sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), pricingstate.NewImmutableCatalogPersistence(), time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, source, requested, pricingadapter.CatalogClient{Client: client})
 		return domain.CatalogSyncSummary(v), err
-	}, model.PublishPricingCatalogContext, NewPricingNativeNormalizer(), billing_setting.GetBatchBillingExpr, time.Now)
+	}, pricingruntime.PublishPricingCatalogContext, NewPricingNativeNormalizer(), billing_setting.GetBatchBillingExpr, time.Now)
 }
 
 func NewEnqueuePricingCatalogueRefresh() enqueue_catalogue_refresh.Usecase {

@@ -109,7 +109,7 @@ func GetTokenByKey(key string, fromDB bool) (*Token, error) {
 		},
 		Initialize: func(token record.Token) (int, error) { return cacheInitToken(Token(token)) },
 	}
-	token, err := record.NewKeyReader(func() *gorm.DB { return DB }, func() string { return commonKeyCol }, LockForUpdate, cache, common.SysLog).Read(key, fromDB)
+	token, err := record.NewKeyReader(func() *gorm.DB { return DB }, func() string { return KeyColumn }, LockForUpdate, cache, common.SysLog).Read(key, fromDB)
 	return (*Token)(token), err
 }
 
@@ -247,7 +247,7 @@ func InvalidateUserTokensCache(userId int) error {
 	}
 	var tokens []Token
 	if err := DB.Unscoped().
-		Select("id", commonKeyCol).
+		Select("id", KeyColumn).
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {
 		return err
@@ -273,7 +273,7 @@ func invalidateTokensCache(tokens []Token) error {
 
 // BRIDGE: API key adapters and legacy token mutations share cache fence hooks.
 func NewTokenPersistence() record.Store {
-	return record.NewStore(func() *gorm.DB { return DB }, func() string { return commonKeyCol }, invalidateTokenCacheForMutation, func(tokens []record.Token) error {
+	return record.NewStore(func() *gorm.DB { return DB }, func() string { return KeyColumn }, invalidateTokenCacheForMutation, func(tokens []record.Token) error {
 		values := make([]Token, len(tokens))
 		for i, t := range tokens {
 			values[i] = Token(t)

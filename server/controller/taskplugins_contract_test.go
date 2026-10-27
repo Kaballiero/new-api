@@ -1,6 +1,8 @@
 package controller
 
 import (
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	"context"
 	"errors"
 	"flag"
@@ -13,12 +15,18 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
+
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/pluginfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
+
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -83,7 +91,7 @@ func TestTaskPluginsPrivateContract(t *testing.T) {
 				continue
 			}
 			taskfixture.Open(t)
-			require.NoError(t, model.DB.AutoMigrate(&model.TaskPlugin{}, &model.Option{}, &model.Ability{}))
+			require.NoError(t, model.DB.AutoMigrate(&model.TaskPlugin{}, &model.Option{}, &channelrecord.Ability{}))
 			synctest.Test(t, func(t *testing.T) {
 				taskfixture.AssertDBClock(t)
 				var result any
@@ -425,7 +433,7 @@ func pluginAliasContract(t *testing.T, variant string) any {
 		name = "ALIAS"
 	}
 	generation := pluginruntime.DefaultRegistry.Generation()
-	target, ok := model.ResolveTaskModelAlias(generation, name)
+	target, ok := channelstore.TaskAliases.ResolveTaskModelAlias(generation, name)
 	result := []any{map[string]any{"target": target, "found": ok, "plugin": first.Meta.Key}}
 	if variant == "ttl" || variant == "generation" {
 		require.NoError(t, model.DB.Model(channel).Update("models", "hidden").Error)
@@ -435,7 +443,7 @@ func pluginAliasContract(t *testing.T, variant string) any {
 			fixture.Register(t, fixture.Key, "2.0.0")
 			generation = pluginruntime.DefaultRegistry.Generation()
 		}
-		next, found := model.ResolveTaskModelAlias(generation, name)
+		next, found := channelstore.TaskAliases.ResolveTaskModelAlias(generation, name)
 		result = append(result, map[string]any{"target": next, "found": found})
 	}
 	return result

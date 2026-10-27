@@ -25,15 +25,21 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/update_account"
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
 	"github.com/QuantumNous/new-api/internal/accounts/update_profile"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	accountsadapter "github.com/QuantumNous/new-api/internal/adapter/accounts"
+
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts"
+
 	identityadapter "github.com/QuantumNous/new-api/internal/adapter/identity/accounts"
+
 	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
+
 	checkinsettings "github.com/QuantumNous/new-api/internal/adapter/settings/checkin"
+
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -118,7 +124,7 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		GetGroups:        get_groups.NewHTTP(get_groups.NewUsecase(groups, accountGroups{})),
 		GetProfile:       get_profile.NewHTTP(get_profile.NewUsecase(profiles, func(id, role int) any { return authz.Capabilities(id, role) }, roles, accountsadapter.SidebarModules)),
 		GetAffiliateCode: get_affiliate_code.NewHTTP(get_affiliate_code.NewUsecase(profiles, common.GetRandomString)),
-		GetAccountModels: get_account_models.NewHTTP(repository.AccountModelGroupReader{}, groups, service.GetGroupsEnabledModels),
+		GetAccountModels: get_account_models.NewHTTP(repository.AccountModelGroupReader{}, groups, channelstore.GetGroupsEnabledModels),
 		UpdateProfile: update_profile.NewHTTP(repository.SelfUpdateStore{}, identityadapter.NewPasswordChange, func(c *gin.Context, succeeded, notificationFailed bool) {
 			effects.SecurityAudit(c, c.GetInt("id"), "user.password_change", map[string]any{"success": succeeded, "notification_failed": notificationFailed})
 		}, effects.SecurityError),

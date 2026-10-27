@@ -18,12 +18,17 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
+
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	"github.com/QuantumNous/new-api/internal/contracttest"
+
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/pluginfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
@@ -334,7 +339,7 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 		channel := model.Channel{Id: 71, Type: constant.ChannelTypeTaskPlugin, Key: fixture.ProviderKey, Status: common.ChannelStatusEnabled,
 			Name: "plugin channel", BaseURL: &baseURL, Models: fixture.Model, Group: "default", Setting: &settings, AutoBan: common.GetPointer(0)}
 		require.NoError(t, env.DB.Create(&channel).Error)
-		require.NoError(t, channel.AddAbilities(nil))
+		require.NoError(t, channelstore.AddAbilities(&(channel), nil))
 		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"contract-video":0.001}`))
 		for i, name := range []string{"one", "two", "foreign", "wrong"} {
 			user := 1

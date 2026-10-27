@@ -4,11 +4,11 @@ import (
 	"sort"
 
 	"github.com/QuantumNous/new-api/common"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	"github.com/QuantumNous/new-api/internal/settings/domain"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
@@ -99,7 +99,7 @@ func (Validation) Check(key, value string) error {
 			expression := expressions[name]
 			if plugin, ok := generation.GetByModel(name); ok {
 				err = billing_setting.SmokeTestTaskExpr(expression, plugin.Meta.UsageSchema)
-			} else if target, resolved := model.ResolveTaskModelAlias(generation, name); resolved {
+			} else if target, resolved := channelstore.TaskAliases.ResolveTaskModelAlias(generation, name); resolved {
 				if plugin, ok := generation.Get(target.PluginKey); ok {
 					err = billing_setting.SmokeTestTaskExpr(expression, plugin.Meta.UsageSchema)
 				} else {

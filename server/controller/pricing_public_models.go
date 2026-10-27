@@ -3,13 +3,12 @@ package controller
 import (
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/app"
+
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
-
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
-
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/gin-gonic/gin"
 )
 
@@ -41,12 +40,12 @@ func publicPricingGuard(guard billingexpr.TierCondition, units ...map[string]str
 	return pricingdomain.PublicPricingGuard(pricingadapter.ToExpressionCondition(guard), units...)
 }
 
-func buildPublicModelTariff(context effectivePricingPageContext, item model.Pricing) publicModelTariff {
+func buildPublicModelTariff(context effectivePricingPageContext, item pricingdomain.Pricing) publicModelTariff {
 	context.Policy = app.NewPricingProjection()
 	return app.NewPricingProjection().BuildPublicModelTariff(pricingdomain.EffectivePricingPageContext(context), item)
 }
 
-func buildCatalogModelTariff(context effectivePricingPageContext, item model.Pricing, group string) publicModelTariff {
+func buildCatalogModelTariff(context effectivePricingPageContext, item pricingdomain.Pricing, group string) publicModelTariff {
 	context.Policy = app.NewPricingProjection()
 	return app.NewPricingProjection().BuildCatalogModelTariff(pricingdomain.EffectivePricingPageContext(context), item, group)
 }

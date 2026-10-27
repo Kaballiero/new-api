@@ -1,14 +1,18 @@
 package controller
 
 import (
+	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
+
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
+
+	"sync"
+
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/app"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
-	"sync"
 )
 
 const (
@@ -72,7 +76,7 @@ func sanitizeAdvancedCustomRequestError(err error, key, requestURL string) error
 	return channeladapter.SanitizeAdvancedCustomRequestError(err, key, requestURL)
 }
 func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
-	return channeladapter.FetchChannelUpstreamModelIDs(channel)
+	return channeladapter.FetchChannelUpstreamModelIDs(channel, channelcore.FetchCodexChannelModels)
 }
 func buildChannelUpstreamModelFetchFingerprint(channel *model.Channel) (channelUpstreamModelFetchFingerprint, error) {
 	return repository.NewStore().FetchFingerprint(repository.ToDomain(channel))

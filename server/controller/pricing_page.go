@@ -2,14 +2,13 @@ package controller
 
 import (
 	"github.com/QuantumNous/new-api/internal/app"
+
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
 
 	"net/url"
 
-	"github.com/QuantumNous/new-api/model"
-
+	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/gin-gonic/gin"
 )
 
@@ -27,7 +26,7 @@ func parseEffectivePricingPageQuery(values url.Values, personal bool) (effective
 	return pricingquery.ParseEffectivePricingPageQuery(catalogsync.ModelTypes(), values, personal)
 }
 
-func buildEffectivePricingPage(context effectivePricingPageContext, query effectivePricingPageQuery, project func(model.Pricing) consumerPricingModel) effectivePricingPageData {
+func buildEffectivePricingPage(context effectivePricingPageContext, query effectivePricingPageQuery, project func(pricingdomain.Pricing) consumerPricingModel) effectivePricingPageData {
 	context.Policy = app.NewPricingProjection()
 	return app.NewPricingProjection().BuildEffectivePricingPage(pricingdomain.EffectivePricingPageContext(context), query, project)
 }
@@ -36,7 +35,7 @@ func compareEffectivePricingNames(left, right string) int {
 	return pricingdomain.CompareEffectivePricingNames(left, right)
 }
 
-func effectivePricingModality(item model.Pricing) string {
+func effectivePricingModality(item pricingdomain.Pricing) string {
 	return pricingdomain.EffectivePricingModality(item)
 }
 
@@ -58,7 +57,7 @@ func buildEffectivePricingOverview(context effectivePricingPageContext, query ef
 	return app.NewPricingProjection().BuildEffectivePricingOverview(pricingdomain.EffectivePricingPageContext(context), query)
 }
 
-func (context effectivePricingPageContext) project(item model.Pricing) consumerPricingModel {
+func (context effectivePricingPageContext) project(item pricingdomain.Pricing) consumerPricingModel {
 	context.Policy = app.NewPricingProjection()
 	return pricingdomain.EffectivePricingPageContext(context).Project(item)
 }

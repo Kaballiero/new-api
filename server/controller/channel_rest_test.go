@@ -8,6 +8,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -38,7 +40,7 @@ func openChannelControllerTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Channel{}, &model.Ability{}); err != nil {
+	if err := db.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}); err != nil {
 		t.Fatalf("migrate channel: %v", err)
 	}
 	model.DB = db
@@ -268,7 +270,7 @@ func TestAddChannel_CanonicalizesModels(t *testing.T) {
 		"claude-fable-5": "anthropic/claude-fable-5",
 	}, mapping)
 
-	var abilities []model.Ability
+	var abilities []channelrecord.Ability
 	require.NoError(t, db.Where("channel_id = ?", channel.Id).Find(&abilities).Error)
 	require.Len(t, abilities, 1)
 	assert.Equal(t, "claude-fable-5", abilities[0].Model)
@@ -297,7 +299,7 @@ func TestAddChannel_RejectsCanonicalCollision(t *testing.T) {
 	require.NoError(t, db.Model(&model.Channel{}).Count(&channelCount).Error)
 	assert.Zero(t, channelCount)
 	var abilityCount int64
-	require.NoError(t, db.Model(&model.Ability{}).Count(&abilityCount).Error)
+	require.NoError(t, db.Model(&channelrecord.Ability{}).Count(&abilityCount).Error)
 	assert.Zero(t, abilityCount)
 }
 
@@ -314,7 +316,7 @@ func seedChannelForUpdate(t *testing.T, db *gorm.DB) model.Channel {
 		Status:       common.ChannelStatusEnabled,
 	}
 	require.NoError(t, db.Create(&channel).Error)
-	require.NoError(t, channel.AddAbilities(db))
+	require.NoError(t, channelstore.AddAbilities(&(channel), db))
 	return channel
 }
 
@@ -376,7 +378,7 @@ func TestUpdateChannel_PreservesStoredChannelInfo(t *testing.T) {
 	db := openChannelControllerTestDB(t)
 	channel := seedChannelForUpdate(t, db)
 	channel.Key = "sk-first\nsk-second"
-	channel.ChannelInfo = model.ChannelInfo{
+	channel.ChannelInfo = channelrecord.ChannelInfo{
 		IsMultiKey:             true,
 		MultiKeySize:           2,
 		MultiKeyStatusList:     map[int]int{0: common.ChannelStatusEnabled, 1: common.ChannelStatusAutoDisabled},
@@ -436,7 +438,7 @@ func assertStoredChannelModelConfig(
 
 func assertStoredChannelAbilities(t *testing.T, db *gorm.DB, channelID int, wantModels ...string) {
 	t.Helper()
-	var abilities []model.Ability
+	var abilities []channelrecord.Ability
 	require.NoError(t, db.Where("channel_id = ?", channelID).Order("model").Find(&abilities).Error)
 	require.Len(t, abilities, len(wantModels))
 	models := make([]string, 0, len(abilities))

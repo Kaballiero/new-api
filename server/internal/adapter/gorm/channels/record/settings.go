@@ -11,7 +11,7 @@ import (
 // ValidateSettings checks the gateway settings stored in the channel: proxy,
 // OpenRouter reserves, HTTP transport, tool loss policy and advanced custom
 // routes.
-func ValidateSettings(channel *Channel) error {
+func (channel *Channel) ValidateSettings() error {
 	channelParams := &dto.ChannelSettings{}
 	if channel.Setting != nil && *channel.Setting != "" {
 		err := common.Unmarshal([]byte(*channel.Setting), channelParams)

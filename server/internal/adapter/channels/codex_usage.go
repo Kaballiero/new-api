@@ -2,11 +2,14 @@ package channels
 
 import (
 	"context"
+
 	"github.com/QuantumNous/new-api/common"
+	codex "github.com/QuantumNous/new-api/internal/adapter/channels/codex"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-	"github.com/QuantumNous/new-api/service"
+
 	"net/http"
+
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 )
 
 type CodexUsage struct {
@@ -26,7 +29,7 @@ func (provider CodexUsage) Open(proxy string) (domain.CodexUsageFetch, error) {
 	}, nil
 }
 func (provider CodexUsage) Refresh(ctx context.Context, token, proxy string) (*domain.CodexTokenResult, error) {
-	result, err := service.RefreshCodexOAuthTokenWithProxy(ctx, token, proxy)
+	result, err := codex.RefreshCodexOAuthTokenWithProxy(ctx, token, proxy)
 	if result == nil {
 		return nil, err
 	}

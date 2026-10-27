@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 )
 
 type Store struct {
+	RankingCatalog                func() ([]pricingdomain.PricingVendor, []pricingdomain.Pricing)
 	ConsumeEnabled, ExportEnabled func() bool
 }
 

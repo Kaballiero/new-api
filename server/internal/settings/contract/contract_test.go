@@ -24,12 +24,17 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+
 	routing "github.com/QuantumNous/new-api/gateway/routing"
+
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/internal/contracttest"
+
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
@@ -520,7 +525,7 @@ func prepareOption(t *testing.T, tc *optionCase) {
 func prepareEditor(t *testing.T, variant string) {
 	t.Helper()
 	if variant == "effective" {
-		require.NoError(t, model.UpdateModelPricingOptions(map[string]string{
+		require.NoError(t, pricingruntime.UpdateModelPricingOptions(map[string]string{
 			"billing_setting.billing_mode": `{"settings-model":"tiered_expr"}`,
 			"billing_setting.billing_expr": `{"settings-model":"tier(\"base\",p*2)"}`,
 		}))

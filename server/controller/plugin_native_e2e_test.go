@@ -13,29 +13,37 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	routing "github.com/QuantumNous/new-api/gateway/routing"
+
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	"github.com/QuantumNous/new-api/internal/app/taskruntime"
+
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
-	billinggateway "github.com/QuantumNous/new-api/relay/billing"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 
+	billinggateway "github.com/QuantumNous/new-api/relay/billing"
+
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -311,8 +319,8 @@ func TestGetChannelRecomposesRetainedFXForSelectedTieredGroupTransitions(t *test
 			priority := int64(0)
 			weight := uint(100)
 			require.NoError(t, database.Create(&model.Channel{Id: 4450, Type: constant.ChannelTypeOpenAI, Name: "selected", Key: "sk-test", Status: common.ChannelStatusEnabled, Weight: &weight, Models: "routing-fx-model", Group: testCase.selectedGroup, Priority: &priority}).Error)
-			require.NoError(t, database.Create(&model.Ability{Group: testCase.selectedGroup, Model: "routing-fx-model", ChannelId: 4450, Enabled: true, Priority: &priority, Weight: weight}).Error)
-			model.InitChannelCache()
+			require.NoError(t, database.Create(&channelrecord.Ability{Group: testCase.selectedGroup, Model: "routing-fx-model", ChannelId: 4450, Enabled: true, Priority: &priority, Weight: weight}).Error)
+			channelstore.InitChannelCache()
 
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -455,7 +463,7 @@ func setupRoutingRetryTestDatabase(t *testing.T, selectedGroup string, selectedR
 	previousFXDenomination := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, database.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.ModelCostFXRow{}))
+	require.NoError(t, database.AutoMigrate(&model.User{}, &model.Channel{}, &channelrecord.Ability{}, &model.ModelCostFXRow{}))
 	model.DB = database
 	common.MemoryCacheEnabled = true
 	common.RedisEnabled = false

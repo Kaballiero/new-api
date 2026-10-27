@@ -2,6 +2,9 @@
 package contract
 
 import (
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +15,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
 	f "github.com/QuantumNous/new-api/internal/contracttest/managementfixture"
+
 	h "github.com/QuantumNous/new-api/internal/contracttest/managementhttp"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
@@ -220,9 +226,9 @@ func seedCatalog(t *testing.T) {
 		Status: 1, Group: "default", Models: "alpha,beta,prefix-child,route-visible,unpriced",
 		Priority: &priority}, {Id: 22, Name: "disabled", Type: 1, Key: "fixture", Status: 2,
 		Group: "vip", Models: "disabled-only"}} {
-		require.NoError(t, channel.Insert())
+		require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
 	}
-	model.RefreshPricing()
+	pricingruntime.RefreshPricing()
 }
 func runCatalog(t *testing.T, tc catalogCase) any {
 	var provider *metadataProvider
@@ -256,7 +262,7 @@ func runCatalog(t *testing.T, tc catalogCase) any {
 		}
 		if tc.Kind == "missing" {
 			if tc.Variant == "empty" {
-				require.NoError(t, model.DB.Where("1=1").Delete(&model.Ability{}).Error)
+				require.NoError(t, model.DB.Where("1=1").Delete(&channelrecord.Ability{}).Error)
 			}
 			if tc.Variant == "all_configured" {
 				for _, name := range []string{"prefix-child", "route-visible", "unpriced"} {
@@ -264,7 +270,7 @@ func runCatalog(t *testing.T, tc catalogCase) any {
 				}
 			}
 			if tc.Variant == "prefix_only" {
-				require.NoError(t, model.DB.Where("model <> ?", "prefix-child").Delete(&model.Ability{}).Error)
+				require.NoError(t, model.DB.Where("model <> ?", "prefix-child").Delete(&channelrecord.Ability{}).Error)
 			}
 		}
 		if tc.Variant == "admin" {
@@ -313,7 +319,7 @@ func runCatalog(t *testing.T, tc catalogCase) any {
 			env.Do(t, "root", "GET", "/api/vendors/", "")
 			env.Do(t, "root", "GET", "/api/prefill_group/", "")
 		}
-		extra["enabled_models"] = sortedStrings(model.GetEnabledModels())
+		extra["enabled_models"] = sortedStrings(channelstore.GetEnabledModels())
 		return env.Snapshot(t, extra)
 	})
 }
@@ -349,16 +355,16 @@ func availabilityCase(t *testing.T, env *h.Fixture, tc catalogCase) {
 		reserveSettings := `{"openrouter_model_reserve_usd":{"unpriced":0.1}}`
 		channel := model.Channel{Id: 23, Name: "reserve", Type: constant.ChannelTypeOpenRouter,
 			Key: "fixture", Status: 1, Group: "default", Models: "unpriced", Setting: &reserveSettings}
-		require.NoError(t, channel.Insert())
+		require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
 	}
 	if tc.Variant == "no_enabled" {
-		require.NoError(t, model.DB.Where("1=1").Delete(&model.Ability{}).Error)
+		require.NoError(t, model.DB.Where("1=1").Delete(&channelrecord.Ability{}).Error)
 	}
 	if tc.Variant == "owner_priority" {
 		priority := int64(9)
 		channel := model.Channel{Id: 23, Name: "owner", Type: constant.ChannelTypeOpenRouter,
 			Key: "fixture", Status: 1, Group: "default", Models: "alpha", Priority: &priority}
-		require.NoError(t, channel.Insert())
+		require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
 	}
 	if tc.Variant == "db_error" {
 		require.NoError(t, model.DB.Callback().Query().Before("gorm:query").Register("availability-fault", func(tx *gorm.DB) {

@@ -6,8 +6,12 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
+
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/taskplugins"
+
 	technical "github.com/QuantumNous/new-api/internal/adapter/taskplugins"
+
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/internal/taskplugins/activate_task_plugin"
 	"github.com/QuantumNous/new-api/internal/taskplugins/delete_task_plugin_version"
@@ -93,5 +97,5 @@ func StartSync() {
 }
 
 func settings() technical.Settings {
-	return technical.Settings{WriteOption: settingsapp.Default().Write.Execute}
+	return technical.Settings{WriteOption: settingsapp.Default().Write.Execute, ChangeStatus: channelcore.UpdateChannelStatus}
 }

@@ -20,6 +20,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
@@ -78,7 +80,7 @@ func SplitLogs(t *testing.T) {
 func Migrate(t *testing.T) {
 	t.Helper()
 	require.NoError(t, model.DB.AutoMigrate(&model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{},
-		&model.BatchLogEvent{}, &model.BatchLogReceipt{}, &model.ModelCostFXRow{}, &model.QuotaData{}, &model.Ability{}))
+		&model.BatchLogEvent{}, &model.BatchLogReceipt{}, &model.ModelCostFXRow{}, &model.QuotaData{}, &channelrecord.Ability{}))
 }
 
 func Seed(t *testing.T, family int) *model.Channel {
@@ -98,7 +100,7 @@ func Seed(t *testing.T, family int) *model.Channel {
 	channel := &model.Channel{Id: 71, Type: family, Key: ProviderKey, BaseURL: &base, Name: "batch-channel",
 		Status: common.ChannelStatusEnabled, Models: Model, Group: "default"}
 	require.NoError(t, model.DB.Create(channel).Error)
-	require.NoError(t, channel.AddAbilities(model.DB))
+	require.NoError(t, channelstore.AddAbilities(channel, model.DB))
 	return channel
 }
 

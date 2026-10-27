@@ -2,22 +2,23 @@ package batch
 
 import (
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
+	"github.com/QuantumNous/new-api/model"
 
 	math "github.com/QuantumNous/new-api/internal/adapter/billing"
 
 	"fmt"
+	"strings"
+	"testing"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	batchdto "github.com/QuantumNous/new-api/internal/batch/dto"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/batch"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
-	"strings"
-	"testing"
 )
 
 func TestBatchProviderSnapshotDatabases(t *testing.T) {

@@ -9,13 +9,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+
 	providerrouting "github.com/QuantumNous/new-api/relay/provider"
 	"github.com/gin-gonic/gin"
 )
@@ -33,7 +36,7 @@ type admission struct {
 
 func (AdmissionGateway) Open(ctx context.Context) (domain.Admission, error) {
 	c := ctx.(*gin.Context)
-	channel, err := model.CacheGetChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelId))
+	channel, err := channelstore.CacheGetChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelId))
 	if err != nil {
 		return nil, err
 	}

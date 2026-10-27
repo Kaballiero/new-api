@@ -1,8 +1,9 @@
 package mutate_pricing_options
 
 import (
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 type Store interface {
@@ -12,21 +13,20 @@ type Store interface {
 }
 type Usecase struct {
 	deps                domain.Capabilities
-	store               Store
 	policy              *domain.Configuration
 	log                 func(string)
 	refresh, invalidate func()
 }
 
-func NewUsecase(deps domain.Capabilities, store Store, policy *domain.Configuration, log func(string), refresh, invalidate func()) Usecase {
-	return Usecase{deps: deps, store: store, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
+func NewUsecase(deps domain.Capabilities, policy *domain.Configuration, log func(string), refresh, invalidate func()) Usecase {
+	return Usecase{deps: deps, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
 }
 
-func (u Usecase) Execute() error {
-	unlock := u.store.Lock()
+func (u Usecase) Execute(store Store) error {
+	unlock := store.Lock()
 	defer unlock()
 	var committed map[string]map[string]any
-	err := u.store.Transaction(func(tx domain.OptionTransaction) error {
+	err := store.Transaction(func(tx domain.OptionTransaction) error {
 		rows, err := tx.ReadRows(u.policy.Keys())
 		if err != nil {
 			return err
@@ -71,7 +71,7 @@ func (u Usecase) Execute() error {
 	}
 	for _, key := range u.policy.Keys() {
 		encoded, _ := u.deps.Codec.Marshal(committed[key])
-		if err := u.store.Publish(key, string(encoded)); err != nil {
+		if err := store.Publish(key, string(encoded)); err != nil {
 			return err
 		}
 	}

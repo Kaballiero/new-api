@@ -10,33 +10,48 @@ import (
 	"strings"
 	"time"
 
+	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
+
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+
 	routing "github.com/QuantumNous/new-api/gateway/routing"
+
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
-	textfilter "github.com/QuantumNous/new-api/pkg/textfilter"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	textfilter "github.com/QuantumNous/new-api/pkg/textfilter"
+
 	taskdto "github.com/QuantumNous/new-api/dto"
+
 	taskpersistence "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
+
 	tasksdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
+
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
+
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relay/taskview"
+
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -477,7 +492,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+	if channeladapter.ShouldDisableChannel(err) && channelError.AutoBan {
 		gopool.Go(func() {
 			channelruntime.Disable(disable_channel.Input{ChannelID: channelError.ChannelId, ChannelName: channelError.ChannelName, UsingKey: channelError.UsingKey, AutoBan: channelError.AutoBan}, err.ErrorWithStatusCode())
 		})

@@ -8,20 +8,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 
-	"github.com/QuantumNous/new-api/constant"
 	taskplugins "github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
+
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+
 	effects "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/poll_tasks"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
@@ -150,7 +155,7 @@ func (c fixtureChannels) Get(id int) (poll_tasks.Channel, error) {
 		return (effects.PollChannels{}).Get(id)
 	}
 	ch := c.override
-	return poll_tasks.Channel{Id: ch.Id, BaseURL: ch.GetBaseURL(), FallbackBaseURL: constant.GetChannelBaseURL(ch.Type), Key: ch.Key, Proxy: ch.GetSetting().Proxy, DisablePollingSleep: ch.GetOtherSettings().DisableTaskPollingSleep}, nil
+	return poll_tasks.Channel{Id: ch.Id, BaseURL: ch.GetBaseURL(), FallbackBaseURL: constant.GetChannelBaseURL(ch.Type), Key: ch.Key, Proxy: channelstore.NewChannelPersistence().GetSetting(ch).Proxy, DisablePollingSleep: channelstore.NewChannelPersistence().GetOtherSettings(ch).DisableTaskPollingSleep}, nil
 }
 
 func fixtureUsecase(store poll_tasks.Store, channels poll_tasks.ChannelReader, factory poll_tasks.Factory, timeout func() int, completion poll_tasks.Completion) *poll_tasks.Usecase {

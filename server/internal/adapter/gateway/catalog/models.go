@@ -1,8 +1,8 @@
 package catalog
 
 import (
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/modelcatalog"
 )
@@ -27,7 +27,7 @@ func (Models) Owner(channel int) string    { return modelcatalog.OwnerName(chann
 func (Models) Configured(name string) bool { return helper.HasModelBillingConfig(name) }
 func (Models) Presets() map[int][]string   { return modelcatalog.Presets() }
 func endpoints(name string) []string {
-	values := model.GetModelSupportEndpointTypes(name)
+	values := pricingstate.GetModelSupportEndpointTypes(name)
 	if values == nil {
 		return nil
 	}

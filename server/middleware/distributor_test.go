@@ -8,19 +8,21 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
 	taskdto "github.com/QuantumNous/new-api/dto"
-	routing "github.com/QuantumNous/new-api/gateway/routing"
-	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/QuantumNous/new-api/constant"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -215,15 +217,15 @@ func TestDistributeProviderRoutingConstraints(t *testing.T) {
 	originalDB := model.DB
 	originalMemory := common.MemoryCacheEnabled
 	t.Cleanup(func() {
-		if originalMemory && originalDB != nil && originalDB.Migrator().HasTable(&model.Channel{}) && originalDB.Migrator().HasTable(&model.Ability{}) {
-			model.InitChannelCache()
+		if originalMemory && originalDB != nil && originalDB.Migrator().HasTable(&model.Channel{}) && originalDB.Migrator().HasTable(&channelrecord.Ability{}) {
+			channelstore.InitChannelCache()
 		}
 	})
 	setupOriginTaskDB(t)
 	sqlDB, err := model.DB.DB()
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
-	require.NoError(t, model.DB.AutoMigrate(&model.Ability{}))
+	require.NoError(t, model.DB.AutoMigrate(&channelrecord.Ability{}))
 	previousMemory, previousRedis := common.MemoryCacheEnabled, common.RedisEnabled
 	common.MemoryCacheEnabled, common.RedisEnabled = true, false
 	t.Cleanup(func() { common.MemoryCacheEnabled, common.RedisEnabled = previousMemory, previousRedis })
@@ -249,15 +251,15 @@ func TestDistributeProviderRoutingConstraints(t *testing.T) {
 		{Id: 920002, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "fixture-key", Name: "compatible", Group: "vip", Models: "routing-model", Priority: common.GetPointer(int64(10))},
 	} {
 		require.NoError(t, model.DB.Create(&channel).Error)
-		require.NoError(t, model.DB.Create(&model.Ability{Group: channel.Group, Model: channel.Models, ChannelId: channel.Id, Enabled: true, Priority: channel.Priority, Weight: 100}).Error)
+		require.NoError(t, model.DB.Create(&channelrecord.Ability{Group: channel.Group, Model: channel.Models, ChannelId: channel.Id, Enabled: true, Priority: channel.Priority, Weight: 100}).Error)
 	}
 	// The same model is also offered by OR in default, behind the incompatible
 	// channel's higher priority. Auto's first group deliberately has no OR.
-	require.NoError(t, model.DB.Create(&model.Ability{Group: "default", Model: "routing-model", ChannelId: 920002, Enabled: true, Priority: common.GetPointer(int64(10)), Weight: 100}).Error)
-	require.NoError(t, model.DB.Create(&model.Ability{Group: "incompatible-only", Model: "routing-model", ChannelId: 920001, Enabled: true, Priority: common.GetPointer(int64(100)), Weight: 100}).Error)
+	require.NoError(t, model.DB.Create(&channelrecord.Ability{Group: "default", Model: "routing-model", ChannelId: 920002, Enabled: true, Priority: common.GetPointer(int64(10)), Weight: 100}).Error)
+	require.NoError(t, model.DB.Create(&channelrecord.Ability{Group: "incompatible-only", Model: "routing-model", ChannelId: 920001, Enabled: true, Priority: common.GetPointer(int64(100)), Weight: 100}).Error)
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", 920001).Update("group", "default,incompatible-only").Error)
 	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", 920002).Update("group", "default,vip").Error)
-	model.InitChannelCache()
+	channelstore.InitChannelCache()
 	for _, tc := range []struct {
 		name, body, path, group, contentType string
 		pin, affinityID, wantChannel         int
@@ -302,7 +304,7 @@ func TestDistributeProviderRoutingConstraints(t *testing.T) {
 			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
 			if group == "auto" {
 				common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, []string{"incompatible-only", "vip"})
-				require.Equal(t, []string{"incompatible-only", "vip"}, service.GetRequestAutoGroups(c, "default"))
+				require.Equal(t, []string{"incompatible-only", "vip"}, routing.GetRequestAutoGroups(c, "default"))
 			}
 			if tc.pin != 0 {
 				routing.GetChannelConstraints(c).AddPin(taskdto.ChannelPin{ChannelId: tc.pin, Source: taskdto.PinSourceToken, Rank: taskdto.PinRankToken})

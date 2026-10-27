@@ -5,10 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-	"gorm.io/gorm"
+
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,10 +24,13 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+	"gorm.io/gorm"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -474,7 +480,7 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 
 func TestChannelProbePreservesUnsupportedResponses(t *testing.T) {
 	user, _ := setupSecurityEnrollmentTest(t)
-	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}))
 	previousMemory := common.MemoryCacheEnabled
 	common.MemoryCacheEnabled = false
 	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemory })
@@ -524,18 +530,18 @@ func TestChannelProbePreservesUnsupportedResponses(t *testing.T) {
 
 func TestChannelProbeTimingPreservesRelayOwnedCacheMutations(t *testing.T) {
 	setupSecurityEnrollmentTest(t)
-	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}, &model.Model{}, &model.Vendor{}))
 	previousMemory := common.MemoryCacheEnabled
 	common.MemoryCacheEnabled = true
-	channel := &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "polling-probe", Key: "first\nsecond", Models: "gpt-4o", Group: "default", Status: common.ChannelStatusEnabled, ChannelInfo: model.ChannelInfo{IsMultiKey: true, MultiKeySize: 2, MultiKeyMode: constant.MultiKeyModePolling}}
-	require.NoError(t, channel.Insert())
-	model.InitChannelCache()
+	channel := &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "polling-probe", Key: "first\nsecond", Models: "gpt-4o", Group: "default", Status: common.ChannelStatusEnabled, ChannelInfo: channelrecord.ChannelInfo{IsMultiKey: true, MultiKeySize: 2, MultiKeyMode: constant.MultiKeyModePolling}}
+	require.NoError(t, channelstore.NewChannelPersistence().Insert(channel))
+	channelstore.InitChannelCache()
 	t.Cleanup(func() {
 		require.NoError(t, model.DB.Delete(channel).Error)
-		model.InitChannelCache()
+		channelstore.InitChannelCache()
 		common.MemoryCacheEnabled = previousMemory
 	})
-	native, err := model.CacheGetChannel(channel.Id)
+	native, err := channelstore.CacheGetChannel(channel.Id)
 	require.NoError(t, err)
 	native.ChannelInfo.MultiKeyPollingIndex = 0
 	native.Setting = common.GetPointer("{")
@@ -543,20 +549,20 @@ func TestChannelProbeTimingPreservesRelayOwnedCacheMutations(t *testing.T) {
 	store := channelstore.NewStore()
 	snapshot, err := store.Cached(channel.Id)
 	require.NoError(t, err)
-	key, index, apiErr := native.GetNextEnabledKey()
+	key, index, apiErr := channelstore.GetNextEnabledKey(native)
 	require.Nil(t, apiErr)
 	assert.Equal(t, "first", key)
 	assert.Zero(t, index)
-	native.GetSetting()
-	native.GetOtherSettings()
+	channelstore.NewChannelPersistence().GetSetting(native)
+	channelstore.NewChannelPersistence().GetOtherSettings(native)
 	store.SaveResponseTime(snapshot, 123)
-	cached, err := model.CacheGetChannel(channel.Id)
+	cached, err := channelstore.CacheGetChannel(channel.Id)
 	require.NoError(t, err)
 	assert.Same(t, native, cached)
 	assert.Equal(t, 1, cached.ChannelInfo.MultiKeyPollingIndex)
 	assert.Nil(t, cached.Setting)
 	assert.Equal(t, "{}", cached.OtherSettings)
-	key, index, apiErr = cached.GetNextEnabledKey()
+	key, index, apiErr = channelstore.GetNextEnabledKey(cached)
 	require.Nil(t, apiErr)
 	assert.Equal(t, "second", key)
 	assert.Equal(t, 1, index)
@@ -616,7 +622,7 @@ func channelMatrixDatabase(t *testing.T) *gorm.DB {
 	require.NoError(t, db.Raw(query).Scan(&version).Error)
 	t.Logf("channels database: %s %s", dialect, version)
 	for range 2 {
-		require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Log{}, &model.AuditLog{}, &model.SystemTask{}, &model.SystemTaskLock{}))
+		require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &channelrecord.Ability{}, &model.Log{}, &model.AuditLog{}, &model.SystemTask{}, &model.SystemTaskLock{}))
 	}
 	return db
 }
@@ -664,7 +670,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 	require.True(t, result.Success, response.Body.String())
 	assert.Empty(t, result.Data.Key)
-	current, err := model.GetChannelById(id, true)
+	current, err := channelstore.GetChannelById(id, true)
 	require.NoError(t, err)
 	assert.Equal(t, "one", current.Key)
 	assert.EqualValues(t, 123, current.UsedQuota)
@@ -694,7 +700,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	response = channelMatrixRequest(t, user.Id, http.MethodPost, fmt.Sprintf("/api/channel/status?channel_id=%d", id), ChannelStatusRequest{Status: common.ChannelStatusManuallyDisabled}, UpdateChannelStatus)
 	require.Equal(t, http.StatusOK, response.Code)
 	assert.Contains(t, response.Body.String(), `"data":true`)
-	var ability model.Ability
+	var ability channelrecord.Ability
 	require.NoError(t, db.Where("channel_id = ?", id).First(&ability).Error)
 	assert.False(t, ability.Enabled)
 	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/status/batch", ChannelStatusBatchRequest{Ids: []int{id}, Status: common.ChannelStatusEnabled}, BatchUpdateChannelStatus)
@@ -704,7 +710,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	assert.True(t, ability.Enabled)
 	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/batch/tag", ChannelBatch{Ids: []int{id}, Tag: nil}, BatchSetChannelTag)
 	require.Equal(t, http.StatusOK, response.Code)
-	current, err = model.GetChannelById(id, true)
+	current, err = channelstore.GetChannelById(id, true)
 	require.NoError(t, err)
 	assert.Nil(t, current.Tag)
 	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel", AddChannelRequest{Mode: "multi_to_single", MultiKeyMode: constant.MultiKeyModePolling, Channel: &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "multi", Key: "first\nsecond", Models: "gpt-4o", Group: "default"}}, AddChannel)
@@ -714,7 +720,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	index := 0
 	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/multi_key/manage", MultiKeyManageRequest{ChannelId: multi.Id, Action: "disable_key", KeyIndex: &index}, ManageMultiKeys)
 	require.Equal(t, http.StatusOK, response.Code)
-	current, err = model.GetChannelById(multi.Id, true)
+	current, err = channelstore.GetChannelById(multi.Id, true)
 	require.NoError(t, err)
 	assert.True(t, current.ChannelInfo.IsMultiKey)
 	assert.Equal(t, 2, current.ChannelInfo.MultiKeySize)
@@ -724,7 +730,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 		require.Equal(t, http.StatusOK, response.Code)
 		assert.Contains(t, response.Body.String(), `"success":false`)
 	}
-	beforeCount, err := model.CountAllChannels()
+	beforeCount, err := channelstore.NewChannelPersistence().CountAllChannels()
 	require.NoError(t, err)
 	require.NoError(t, db.Callback().Create().Before("gorm:create").Register("channels_matrix_ability_failure", func(tx *gorm.DB) {
 		if tx.Statement.Schema != nil && tx.Statement.Schema.Table == "abilities" {
@@ -734,18 +740,18 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	t.Cleanup(func() { db.Callback().Create().Remove("channels_matrix_ability_failure") })
 	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel", AddChannelRequest{Mode: "single", Channel: &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "rollback", Key: "key", Models: "gpt-4o", Group: "default"}}, AddChannel)
 	require.Equal(t, http.StatusInternalServerError, response.Code)
-	afterCount, err := model.CountAllChannels()
+	afterCount, err := channelstore.NewChannelPersistence().CountAllChannels()
 	require.NoError(t, err)
 	assert.Equal(t, beforeCount, afterCount)
 	db.Callback().Create().Remove("channels_matrix_ability_failure")
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}))
 	assert.True(t, db.Migrator().HasIndex(&model.Channel{}, "Name"))
 	assert.True(t, db.Migrator().HasIndex(&model.Channel{}, "Tag"))
 	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/batch", ChannelBatch{Ids: []int{id, 999999}}, DeleteChannelBatch)
 	require.Equal(t, http.StatusOK, response.Code)
 	assert.Contains(t, response.Body.String(), `"data":1`)
 	var remaining int64
-	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", id).Count(&remaining).Error)
+	require.NoError(t, db.Model(&channelrecord.Ability{}).Where("channel_id = ?", id).Count(&remaining).Error)
 	assert.Zero(t, remaining)
 }
 
@@ -760,8 +766,8 @@ func TestChannelsStorageUpgradeCompatibility(t *testing.T) {
 		tag := "upgrade-tag"
 		zero := int64(0)
 		weight := uint(0)
-		channel := &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "persisted-channel", Key: "persisted-first\npersisted-second", Models: "gpt-4o,gpt-4o-mini", Group: "default,team_1", Tag: &tag, Priority: &zero, Weight: &weight, Balance: 12.5, UsedQuota: 17, CreatedTime: 1700000000, OtherInfo: `{"status_reason":"legacy","status_time":123}`, ChannelInfo: model.ChannelInfo{IsMultiKey: true, MultiKeySize: 2, MultiKeyMode: constant.MultiKeyModePolling, MultiKeyStatusList: map[int]int{0: 2}, MultiKeyDisabledReason: map[int]string{0: "legacy reason"}, MultiKeyDisabledTime: map[int]int64{0: 1699999999}}}
-		require.NoError(t, channel.Insert())
+		channel := &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "persisted-channel", Key: "persisted-first\npersisted-second", Models: "gpt-4o,gpt-4o-mini", Group: "default,team_1", Tag: &tag, Priority: &zero, Weight: &weight, Balance: 12.5, UsedQuota: 17, CreatedTime: 1700000000, OtherInfo: `{"status_reason":"legacy","status_time":123}`, ChannelInfo: channelrecord.ChannelInfo{IsMultiKey: true, MultiKeySize: 2, MultiKeyMode: constant.MultiKeyModePolling, MultiKeyStatusList: map[int]int{0: 2}, MultiKeyDisabledReason: map[int]string{0: "legacy reason"}, MultiKeyDisabledTime: map[int]int64{0: 1699999999}}}
+		require.NoError(t, channelstore.NewChannelPersistence().Insert(channel))
 	}
 	var channel model.Channel
 	require.NoError(t, db.Where("name = ?", "persisted-channel").First(&channel).Error)
@@ -779,18 +785,18 @@ func TestChannelsStorageUpgradeCompatibility(t *testing.T) {
 	assert.Equal(t, "legacy reason", channel.ChannelInfo.MultiKeyDisabledReason[0])
 	assert.EqualValues(t, 1699999999, channel.ChannelInfo.MultiKeyDisabledTime[0])
 	for range 2 {
-		require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+		require.NoError(t, db.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}))
 	}
 	assert.True(t, db.Migrator().HasIndex(&model.Channel{}, "Name"))
 	assert.True(t, db.Migrator().HasIndex(&model.Channel{}, "Tag"))
 	var count int64
-	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", channel.Id).Count(&count).Error)
+	require.NoError(t, db.Model(&channelrecord.Ability{}).Where("channel_id = ?", channel.Id).Count(&count).Error)
 	assert.EqualValues(t, 4, count)
-	var ability model.Ability
+	var ability channelrecord.Ability
 	require.NoError(t, db.Where("channel_id = ?", channel.Id).First(&ability).Error)
 	require.Error(t, db.Create(&ability).Error)
 	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
-		locked, err := model.GetChannelByIdForUpdate(tx, channel.Id)
+		locked, err := channelstore.GetChannelByIdForUpdate(tx, channel.Id)
 		if err == nil {
 			assert.Equal(t, channel.Key, locked.Key)
 		}

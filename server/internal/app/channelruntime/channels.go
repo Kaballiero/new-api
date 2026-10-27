@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
 	"github.com/QuantumNous/new-api/internal/app/notifications"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
 	"github.com/QuantumNous/new-api/internal/channels/enable_channel"
@@ -15,10 +16,10 @@ import (
 )
 
 var disable = sync.OnceValue(func() disable_channel.Usecase {
-	return disable_channel.NewUsecase(model.UpdateChannelStatus, rootChannelNotifier{}, common.SysLog, common.LocalLogPreview)
+	return disable_channel.NewUsecase(channelcore.UpdateChannelStatus, rootChannelNotifier{}, common.SysLog, common.LocalLogPreview)
 })
 var enable = sync.OnceValue(func() enable_channel.Usecase {
-	return enable_channel.NewUsecase(model.UpdateChannelStatus, rootChannelNotifier{})
+	return enable_channel.NewUsecase(channelcore.UpdateChannelStatus, rootChannelNotifier{})
 })
 
 func Disable(input disable_channel.Input, reason string) { disable().Execute(input, reason) }

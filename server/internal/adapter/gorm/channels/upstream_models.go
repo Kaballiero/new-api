@@ -8,7 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/model"
+	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"gorm.io/gorm"
 )
@@ -111,7 +111,7 @@ func (store Store) FetchFingerprint(channel *domain.Channel) (domain.ModelFetchF
 		MultiKeyMode:       channel.ChannelInfo.MultiKeyMode,
 	}
 	record := store.MutableRecord(channel)
-	fingerprint.AdvancedCustom = record.GetOtherSettings().AdvancedCustom
+	fingerprint.AdvancedCustom = NewChannelPersistence().GetOtherSettings(record).AdvancedCustom
 	*channel = *ToDomain(record)
 	return fingerprint, nil
 }
@@ -119,8 +119,8 @@ func (store Store) FetchFingerprint(channel *domain.Channel) (domain.ModelFetchF
 // WithLockedModelState applies the upstream model update state over the
 // other settings of the locked channel.
 func (store Store) WithLockedModelState(id int, apply func(*domain.Channel, func(domain.ModelUpdateState, bool) error) error) error {
-	return model.DB.Transaction(func(tx *gorm.DB) error {
-		locked, err := model.GetChannelByIdForUpdate(tx, id)
+	return legacy.DB.Transaction(func(tx *gorm.DB) error {
+		locked, err := GetChannelByIdForUpdate(tx, id)
 		if err != nil {
 			return err
 		}
@@ -144,19 +144,19 @@ func (store Store) WithLockedModelState(id int, apply func(*domain.Channel, func
 				updates["models"] = record.Models
 				updates["model_mapping"] = record.ModelMapping
 			}
-			if err := tx.Model(&model.Channel{}).Where("id = ?", record.Id).Updates(updates).Error; err != nil {
+			if err := tx.Model(&legacy.Channel{}).Where("id = ?", record.Id).Updates(updates).Error; err != nil {
 				return err
 			}
 			if changed {
-				return record.UpdateAbilities(tx)
+				return UpdateAbilities(record, tx)
 			}
 			return nil
 		})
 	})
 }
 func (store Store) EnabledAfter(lastID, batchSize int) ([]*domain.Channel, error) {
-	var records []*model.Channel
-	query := model.DB.Select(channelUpstreamModelUpdateSelectFields).Where("status = ?", 1).Order("id asc").Limit(batchSize)
+	var records []*legacy.Channel
+	query := legacy.DB.Select(channelUpstreamModelUpdateSelectFields).Where("status = ?", 1).Order("id asc").Limit(batchSize)
 	if lastID > 0 {
 		query = query.Where("id > ?", lastID)
 	}
@@ -172,7 +172,7 @@ func (store Store) EnabledAfter(lastID, batchSize int) ([]*domain.Channel, error
 }
 func (Store) CountEnabled() (int64, error) {
 	var count int64
-	err := model.DB.Model(&model.Channel{}).Where("status = ?", 1).Count(&count).Error
+	err := legacy.DB.Model(&legacy.Channel{}).Where("status = ?", 1).Count(&count).Error
 	return count, err
 }
 
@@ -186,8 +186,8 @@ func (store Store) NextEnabled(after int) ([]*domain.Channel, int, bool, error) 
 }
 
 func (store Store) RefreshCandidates(cursor int) ([]*domain.Channel, int, error) {
-	var records []*model.Channel
-	err := model.DB.Select("id", "name", "key", "status", "channel_info").Where("type = ? AND (status = ? OR status = ?)", constant.ChannelTypeCodex, 1, 3).Order("id asc").Limit(200).Offset(cursor).Find(&records).Error
+	var records []*legacy.Channel
+	err := legacy.DB.Select("id", "name", "key", "status", "channel_info").Where("type = ? AND (status = ? OR status = ?)", constant.ChannelTypeCodex, 1, 3).Order("id asc").Limit(200).Offset(cursor).Find(&records).Error
 	var channels []*domain.Channel
 	if records != nil {
 		channels = make([]*domain.Channel, len(records))

@@ -4,10 +4,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
 )
 
 func TestMain(m *testing.M) {
@@ -44,7 +44,7 @@ func TestMain(m *testing.M) {
 		&Log{},
 		&Channel{},
 		&QuotaData{},
-		&Ability{},
+		&channelrecord.Ability{},
 		&TopUp{},
 		&SubscriptionPlan{},
 		&SubscriptionOrder{},

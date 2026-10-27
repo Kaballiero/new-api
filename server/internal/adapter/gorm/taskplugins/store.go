@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/taskplugins/record"
 	"github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
@@ -216,7 +217,7 @@ func (s Store) GetTaskPluginUsage(key string) ([]domain.ChannelRef, int64, error
 	}
 	refs := make([]domain.ChannelRef, 0)
 	for _, channel := range channels {
-		if channel.GetSetting().TaskPluginKey == key {
+		if channelstore.NewChannelPersistence().GetSetting(&(channel)).TaskPluginKey == key {
 			refs = append(refs, domain.ChannelRef{Id: channel.Id, Name: channel.Name})
 		}
 	}

@@ -5,8 +5,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
-	"github.com/QuantumNous/new-api/model"
+	legacy "github.com/QuantumNous/new-api/model"
+
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"gorm.io/gorm"
 )
@@ -89,7 +91,7 @@ func (s AvailabilityStore) ReserveBilled(modelNames []string, groups []string) (
 		if common.UnmarshalJsonStr(*row.Setting, &settings) != nil {
 			continue
 		}
-		upstream, ok := model.ResolvePricingUpstreamModel(&model.Channel{ModelMapping: row.ModelMapping}, row.Model)
+		upstream, ok := pricingstate.ResolvePricingUpstreamModel(&legacy.Channel{ModelMapping: row.ModelMapping}, row.Model)
 		if !ok {
 			continue
 		}

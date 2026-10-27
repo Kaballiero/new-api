@@ -15,17 +15,20 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	billing "github.com/QuantumNous/new-api/internal/adapter/billing"
 	"github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
-	"github.com/QuantumNous/new-api/model"
+
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/batch"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
 func doBatchRequest(ctx context.Context, job *domain.Job, request batch.Request, body io.Reader, contentType string) (*http.Response, error) {
-	channel, err := model.CacheGetChannel(job.ChannelID)
+	channel, err := channelstore.CacheGetChannel(job.ChannelID)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +50,7 @@ func doBatchRequest(ctx context.Context, job *domain.Job, request batch.Request,
 	if fmt.Sprintf("%x", sha256.Sum256([]byte(key))) != job.CredentialHash {
 		return nil, errors.New("batch credential changed; reconciliation required")
 	}
-	settings := channel.GetSetting()
+	settings := channelstore.NewChannelPersistence().GetSetting(channel)
 	client, err := httpclient.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return nil, err

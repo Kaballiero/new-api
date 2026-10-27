@@ -1,12 +1,12 @@
 package usage
 
 import (
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/internal/usage/dto"
 	"github.com/QuantumNous/new-api/model"
+	"gorm.io/gorm"
 )
 
 func flowQuotaBaseQuery(startTime int64, endTime int64) *gorm.DB {
@@ -124,7 +124,7 @@ func (Store) ResolveFlowChannels(rows []*dto.FlowQuotaData) error {
 	channelNameByID := make(map[int]string, len(channelIDs))
 	if common.MemoryCacheEnabled {
 		for _, channelID := range channelIDs {
-			if channel, err := model.CacheGetChannel(channelID); err == nil {
+			if channel, err := channelstore.CacheGetChannel(channelID); err == nil {
 				channelNameByID[channelID] = channel.Name
 			}
 		}

@@ -3,11 +3,10 @@ package usage
 import (
 	"fmt"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/model"
+	"gorm.io/gorm"
 )
 
 func (Store) GetRankingQuotaTotals(startTime int64, endTime int64) ([]domain.RankingQuotaTotal, error) {
@@ -54,9 +53,8 @@ func applyRankingQuotaTimeRange(query *gorm.DB, startTime int64, endTime int64) 
 	return query
 }
 
-func (Store) RankingMetadata() ([]domain.RankingVendor, []domain.RankingPrice) {
-	vendors := model.GetVendors()
-	prices := model.GetPricing()
+func (store Store) RankingMetadata() ([]domain.RankingVendor, []domain.RankingPrice) {
+	vendors, prices := store.RankingCatalog()
 	outVendors := make([]domain.RankingVendor, len(vendors))
 	for i, item := range vendors {
 		outVendors[i] = domain.RankingVendor{ID: item.ID, Name: item.Name, Icon: item.Icon}

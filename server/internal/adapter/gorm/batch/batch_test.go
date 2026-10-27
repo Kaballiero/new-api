@@ -6,18 +6,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/batch"
-	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-	rediscache "github.com/QuantumNous/new-api/internal/adapter/redis/batch"
-	"github.com/QuantumNous/new-api/internal/batch/domain"
-	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
-	. "github.com/QuantumNous/new-api/model"
-	model "github.com/QuantumNous/new-api/model"
 	"math"
 	"os"
 	"sync"
 	"testing"
 	"time"
+
+	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/batch"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	rediscache "github.com/QuantumNous/new-api/internal/adapter/redis/batch"
+	"github.com/QuantumNous/new-api/internal/batch/domain"
+	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
+	model "github.com/QuantumNous/new-api/model"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/alicebob/miniredis/v2"
@@ -33,20 +33,20 @@ func TestBatchDurableAccounting(t *testing.T) {
 		t.Run(dialect, func(t *testing.T) {
 			db := fixture.OpenDialect(t, dialect)
 			db.Config.NamingStrategy = schema.NamingStrategy{TablePrefix: "batch_contract_"}
-			previousDB, previousRedis, previousRDB, previousBatch := DB, common.RedisEnabled, common.RDB, common.BatchUpdateEnabled
-			DB = db
-			previousLogDB := LOG_DB
-			LOG_DB = db
-			t.Cleanup(func() { LOG_DB = previousLogDB })
+			previousDB, previousRedis, previousRDB, previousBatch := model.DB, common.RedisEnabled, common.RDB, common.BatchUpdateEnabled
+			model.DB = db
+			previousLogDB := model.LOG_DB
+			model.LOG_DB = db
+			t.Cleanup(func() { model.LOG_DB = previousLogDB })
 			common.RedisEnabled = false
 			common.BatchUpdateEnabled = false
 			t.Cleanup(func() {
-				DB = previousDB
+				model.DB = previousDB
 				common.RedisEnabled = previousRedis
 				common.RDB = previousRDB
 				common.BatchUpdateEnabled = previousBatch
 			})
-			models := []any{&User{}, &Token{}, &Channel{}, &BatchJob{}, &BatchItem{}, &BatchQuotaEvent{}, &BatchLogEvent{}, &BatchLogReceipt{}, &Log{}}
+			models := []any{&model.User{}, &model.Token{}, &model.Channel{}, &model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}, &model.BatchLogEvent{}, &model.BatchLogReceipt{}, &model.Log{}}
 			require.NoError(t, db.AutoMigrate(models...))
 			t.Cleanup(func() {
 				for i := len(models) - 1; i >= 0; i-- {
@@ -57,24 +57,24 @@ func TestBatchDurableAccounting(t *testing.T) {
 			token := createReserveTestToken(t, 1000)
 			token.UserId = user.Id
 			require.NoError(t, db.Model(&token).Update("user_id", user.Id).Error)
-			channel := Channel{Type: 1, Key: "unused"}
+			channel := model.Channel{Type: 1, Key: "unused"}
 			require.NoError(t, db.Create(&channel).Error)
-			job := BatchJob{PublicID: "batch-test", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: "once", RequestHash: "hash", Status: "in_progress", BillingStatus: "reserved", SubmitState: "submitted", RequestCount: 2, ReservedQuota: 600}
-			items := []BatchItem{{CustomID: "paid", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 300}, {CustomID: "failed", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 300}}
+			job := model.BatchJob{PublicID: "batch-test", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: "once", RequestHash: "hash", Status: "in_progress", BillingStatus: "reserved", SubmitState: "submitted", RequestCount: 2, ReservedQuota: 600}
+			items := []model.BatchItem{{CustomID: "paid", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 300}, {CustomID: "failed", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 300}}
 			require.NoError(t, reserve(&job, items))
 			require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)))
 			_, err := testStore().GetBatchJob(user.Id+1, job.PublicID)
 			assert.Error(t, err)
-			ok, err := TryReserveUserQuota(user.Id, 401)
+			ok, err := model.TryReserveUserQuota(user.Id, 401)
 			require.NoError(t, err)
 			assert.False(t, ok, "synchronous requests must respect batch holds")
-			ok, err = TryReserveTokenQuota(token.Id, token.Key, 401, false)
+			ok, err = model.TryReserveTokenQuota(token.Id, token.Key, 401, false)
 			require.NoError(t, err)
 			assert.False(t, ok)
-			ok, err = TryReserveUserQuota(user.Id, 400)
+			ok, err = model.TryReserveUserQuota(user.Id, 400)
 			require.NoError(t, err)
 			require.True(t, ok)
-			ok, err = TryReserveTokenQuota(token.Id, token.Key, 400, false)
+			ok, err = model.TryReserveTokenQuota(token.Id, token.Key, 400, false)
 			require.NoError(t, err)
 			require.True(t, ok)
 			require.NoError(t, testStore().StoreBatchResult(job.ID, "paid", `{"custom_id":"paid","body":{"usage":{"prompt_tokens":5}}}`, "result-hash"))
@@ -122,12 +122,12 @@ func TestBatchDurableAccounting(t *testing.T) {
 			assert.Equal(t, "settled", job.BillingStatus)
 			assert.Equal(t, "reconciliation_required", job.PurchaseStatus, "client settlement must not conceal unknown purchase cost")
 			require.NoError(t, testStore().SyncBatchConsumeLogs(100))
-			require.NoError(t, db.Model(&BatchLogEvent{}).Where("1 = 1").Update("state", "pending").Error)
+			require.NoError(t, db.Model(&model.BatchLogEvent{}).Where("1 = 1").Update("state", "pending").Error)
 			require.NoError(t, testStore().SyncBatchConsumeLogs(100))
 			var consumeCount int64
-			require.NoError(t, db.Model(&Log{}).Where("type = ?", LogTypeConsume).Count(&consumeCount).Error)
+			require.NoError(t, db.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume).Count(&consumeCount).Error)
 			assert.EqualValues(t, 2, consumeCount, "outbox replay must not duplicate expense history")
-			var paidLog Log
+			var paidLog model.Log
 			require.NoError(t, db.Where("quota = ?", 200).First(&paidLog).Error)
 			assert.Contains(t, paidLog.Other, "quota_saturation", "financial audit must survive receipt-to-log delivery")
 
@@ -136,7 +136,7 @@ func TestBatchDurableAccounting(t *testing.T) {
 			for range 2 {
 				require.NoError(t, db.AutoMigrate(models...))
 			}
-			duplicate := BatchJob{PublicID: "other", UserID: user.Id, TokenID: token.Id, IdempotencyKey: "once"}
+			duplicate := model.BatchJob{PublicID: "other", UserID: user.Id, TokenID: token.Id, IdempotencyKey: "once"}
 			assert.Error(t, db.Create(&duplicate).Error)
 			require.NoError(t, db.First(&job, job.ID).Error)
 			assert.EqualValues(t, 200, job.ChargedQuota)
@@ -146,27 +146,27 @@ func TestBatchDurableAccounting(t *testing.T) {
 			common.RedisEnabled = true
 			common.RDB = redis.NewClient(&redis.Options{Addr: r.Addr()})
 			t.Cleanup(func() { _ = common.RDB.Close() })
-			job2 := BatchJob{PublicID: "batch-cache", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: "cache", RequestHash: "hash", RequestCount: 1, ReservedQuota: 100}
-			require.NoError(t, reserve(&job2, []BatchItem{{CustomID: "one", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 100}}))
+			job2 := model.BatchJob{PublicID: "batch-cache", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: "cache", RequestHash: "hash", RequestCount: 1, ReservedQuota: 100}
+			require.NoError(t, reserve(&job2, []model.BatchItem{{CustomID: "one", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 100}}))
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
 			require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job2)))
 			require.NoError(t, testStore().SettleBatchItem(job2.ID, "one", 50, `{"client_quota":50}`))
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
-			require.NoError(t, db.Model(&BatchQuotaEvent{}).Where("batch_id = ? AND debit_quota > 0", job2.ID).Update("applied", false).Error)
+			require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Where("batch_id = ? AND debit_quota > 0", job2.ID).Update("applied", false).Error)
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
-			cached, err := GetUserCache(user.Id)
+			cached, err := model.GetUserCache(user.Id)
 			require.NoError(t, err)
 			assert.Equal(t, 350, cached.Quota)
 			require.NoError(t, testStore().ReleaseSettledBatchHolds(job2.ID))
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
 			r.FlushAll()
-			cached, err = GetUserCache(user.Id)
+			cached, err = model.GetUserCache(user.Id)
 			require.NoError(t, err)
 			assert.Equal(t, 350, cached.Quota)
 			assert.EqualValues(t, 0, cached.BatchHeldQuota)
 			// Token revocation cannot strand a submitted batch's wallet hold or debit.
-			job3 := BatchJob{PublicID: "batch-revoked", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: "revoked", RequestCount: 1, ReservedQuota: 90}
-			require.NoError(t, reserve(&job3, []BatchItem{{CustomID: "revoked", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 90}}))
+			job3 := model.BatchJob{PublicID: "batch-revoked", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: "revoked", RequestCount: 1, ReservedQuota: 90}
+			require.NoError(t, reserve(&job3, []model.BatchItem{{CustomID: "revoked", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 90}}))
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
 			require.ErrorIs(t, user.HardDelete(), model.ErrBatchConflict)
 			require.NoError(t, token.Delete())
@@ -182,14 +182,14 @@ func TestBatchDurableAccounting(t *testing.T) {
 			require.NoError(t, db.Unscoped().First(&user, user.Id).Error)
 			assert.Equal(t, 290, user.Quota)
 			assert.Zero(t, user.BatchHeldQuota)
-			_, err = GetTokenByKey(token.Key, false)
+			_, err = model.GetTokenByKey(token.Key, false)
 			assert.Error(t, err, "financial recovery must not restore token authentication")
 			// Actual usage can overrun both the original hold and remaining funds.
 			debtUser := createReserveTestUser(t, 100)
 			debtToken := createReserveTestToken(t, 100)
 			require.NoError(t, db.Model(&debtToken).Update("user_id", debtUser.Id).Error)
-			debtJob := BatchJob{PublicID: "batch-debt", UserID: debtUser.Id, TokenID: debtToken.Id, ChannelID: channel.Id, IdempotencyKey: "debt", RequestCount: 3, ReservedQuota: 90}
-			require.NoError(t, reserve(&debtJob, []BatchItem{
+			debtJob := model.BatchJob{PublicID: "batch-debt", UserID: debtUser.Id, TokenID: debtToken.Id, ChannelID: channel.Id, IdempotencyKey: "debt", RequestCount: 3, ReservedQuota: 90}
+			require.NoError(t, reserve(&debtJob, []model.BatchItem{
 				{CustomID: "overrun", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 30},
 				{CustomID: "next", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 30},
 				{CustomID: "pending", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 30},
@@ -204,18 +204,18 @@ func TestBatchDurableAccounting(t *testing.T) {
 			assert.EqualValues(t, 90, debtUser.BatchHeldQuota, "hold survives until cache acknowledgement")
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
 			// Simulate crash after cache application but before durable acknowledgement.
-			require.NoError(t, db.Model(&BatchQuotaEvent{}).Where("batch_id = ? AND debit_quota > 0", debtJob.ID).Update("applied", false).Error)
+			require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Where("batch_id = ? AND debit_quota > 0", debtJob.ID).Update("applied", false).Error)
 			require.NoError(t, testStore().SettleBatchItem(debtJob.ID, "overrun", 150, receipt))
 			assert.ErrorIs(t, testStore().SettleBatchItem(debtJob.ID, "overrun", 151, receipt), domain.ErrBatchConflict)
 			assert.ErrorIs(t, testStore().SettleBatchItem(debtJob.ID, "overrun", 150, `{}`), domain.ErrBatchConflict)
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
 			require.NoError(t, testStore().ReleaseSettledBatchHolds(debtJob.ID))
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
-			cachedDebt, err := GetUserCache(debtUser.Id)
+			cachedDebt, err := model.GetUserCache(debtUser.Id)
 			require.NoError(t, err)
 			assert.Equal(t, -50, cachedDebt.Quota)
 			assert.EqualValues(t, 60, cachedDebt.BatchHeldQuota, "other item holds remain")
-			cachedDebtToken, err := GetTokenByKey(debtToken.Key, false)
+			cachedDebtToken, err := model.GetTokenByKey(debtToken.Key, false)
 			require.NoError(t, err)
 			assert.Equal(t, -50, cachedDebtToken.RemainQuota)
 			require.NoError(t, testStore().SettleBatchItem(debtJob.ID, "next", 20, `{"client_quota":20}`))
@@ -226,7 +226,7 @@ func TestBatchDurableAccounting(t *testing.T) {
 			assert.Equal(t, -70, debtUser.Quota)
 			assert.EqualValues(t, 30, debtUser.BatchHeldQuota)
 			var debtEvents int64
-			require.NoError(t, db.Model(&BatchLogEvent{}).Where("item_id IN (?)", db.Model(&BatchItem{}).Select("id").Where("batch_id = ?", debtJob.ID)).Count(&debtEvents).Error)
+			require.NoError(t, db.Model(&model.BatchLogEvent{}).Where("item_id IN (?)", db.Model(&model.BatchItem{}).Select("id").Where("batch_id = ?", debtJob.ID)).Count(&debtEvents).Error)
 			assert.EqualValues(t, 2, debtEvents, "one log event per settled item")
 			// Reject signed SQL-field and counter overflow before any mutation.
 			common.RedisEnabled = false
@@ -250,19 +250,19 @@ func TestBatchDurableAccounting(t *testing.T) {
 					require.NoError(t, db.Model(&channel).Update("used_quota", 0).Error)
 					require.NoError(t, db.Model(&debtJob).Updates(map[string]any{"charged_quota": 170, "settled_count": 2}).Error)
 					require.NoError(t, db.Model(boundary.owner).Updates(boundary.updates).Error)
-					var beforeUser User
-					var beforeToken Token
-					var beforeJob BatchJob
-					var beforeChannel Channel
+					var beforeUser model.User
+					var beforeToken model.Token
+					var beforeJob model.BatchJob
+					var beforeChannel model.Channel
 					require.NoError(t, db.First(&beforeUser, debtUser.Id).Error)
 					require.NoError(t, db.First(&beforeToken, debtToken.Id).Error)
 					require.NoError(t, db.First(&beforeJob, debtJob.ID).Error)
 					require.NoError(t, db.First(&beforeChannel, channel.Id).Error)
 					require.Error(t, testStore().SettleBatchItem(debtJob.ID, "pending", 1, `{"client_quota":1}`))
-					var afterUser User
-					var afterToken Token
-					var afterJob BatchJob
-					var afterChannel Channel
+					var afterUser model.User
+					var afterToken model.Token
+					var afterJob model.BatchJob
+					var afterChannel model.Channel
 					require.NoError(t, db.First(&afterUser, debtUser.Id).Error)
 					require.NoError(t, db.First(&afterToken, debtToken.Id).Error)
 					require.NoError(t, db.First(&afterJob, debtJob.ID).Error)
@@ -271,7 +271,7 @@ func TestBatchDurableAccounting(t *testing.T) {
 					assert.Equal(t, beforeToken, afterToken)
 					assert.Equal(t, beforeJob, afterJob)
 					assert.Equal(t, beforeChannel, afterChannel)
-					var pending BatchItem
+					var pending model.BatchItem
 					require.NoError(t, db.Where("batch_id = ? AND custom_id = ?", debtJob.ID, "pending").First(&pending).Error)
 					assert.Equal(t, "reserved", pending.BillingStatus)
 				})
@@ -296,8 +296,8 @@ func TestBatchDurableAccounting(t *testing.T) {
 				// SELECT * plans for the deliberately replaced released schema.
 				upgradeReads = fixture.ReopenPostgres(t, db)
 			}
-			var upgradedUser User
-			var upgradedToken Token
+			var upgradedUser model.User
+			var upgradedToken model.Token
 			require.NoError(t, upgradeReads.First(&upgradedUser, legacyUser.Id).Error)
 			require.NoError(t, upgradeReads.First(&upgradedToken, legacyToken.Id).Error)
 			assert.Equal(t, 567, upgradedUser.Quota)
@@ -309,7 +309,7 @@ func TestBatchDurableAccounting(t *testing.T) {
 			assert.Equal(t, 78, upgradedToken.UsedQuota)
 			assert.Zero(t, upgradedToken.BatchHeldQuota)
 			assert.Zero(t, upgradedToken.BatchQuotaVersion)
-			assert.Error(t, upgradeReads.Create(&Token{UserId: legacyUser.Id, Key: legacyToken.Key}).Error, "token uniqueness survives upgrade")
+			assert.Error(t, upgradeReads.Create(&model.Token{UserId: legacyUser.Id, Key: legacyToken.Key}).Error, "token uniqueness survives upgrade")
 
 		})
 	}
@@ -390,12 +390,12 @@ func TestBatchAggregateCostAccounting(t *testing.T) {
 				sqlDB.SetMaxOpenConns(1)
 			}
 			db.Config.NamingStrategy = schema.NamingStrategy{TablePrefix: "batch_aggregate_"}
-			previousDB, previousLogDB, previousRedis, previousConsume := DB, LOG_DB, common.RedisEnabled, common.LogConsumeEnabled
-			DB, LOG_DB, common.RedisEnabled, common.LogConsumeEnabled = db, db, false, true
+			previousDB, previousLogDB, previousRedis, previousConsume := model.DB, model.LOG_DB, common.RedisEnabled, common.LogConsumeEnabled
+			model.DB, model.LOG_DB, common.RedisEnabled, common.LogConsumeEnabled = db, db, false, true
 			t.Cleanup(func() {
-				DB, LOG_DB, common.RedisEnabled, common.LogConsumeEnabled = previousDB, previousLogDB, previousRedis, previousConsume
+				model.DB, model.LOG_DB, common.RedisEnabled, common.LogConsumeEnabled = previousDB, previousLogDB, previousRedis, previousConsume
 			})
-			models := []any{&User{}, &Token{}, &Channel{}, &BatchJob{}, &BatchItem{}, &BatchQuotaEvent{}, &BatchLogEvent{}, &BatchLogReceipt{}, &Log{}}
+			models := []any{&model.User{}, &model.Token{}, &model.Channel{}, &model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}, &model.BatchLogEvent{}, &model.BatchLogReceipt{}, &model.Log{}}
 			require.NoError(t, db.AutoMigrate(models...))
 			t.Cleanup(func() {
 				for i := len(models) - 1; i >= 0; i-- {
@@ -404,7 +404,7 @@ func TestBatchAggregateCostAccounting(t *testing.T) {
 			})
 			user := createReserveTestUser(t, 1000)
 			token := createReserveTestToken(t, 1000)
-			channel := Channel{Type: 20, Key: "unused"}
+			channel := model.Channel{Type: 20, Key: "unused"}
 			require.NoError(t, db.Create(&channel).Error)
 			basis := common.OpenRouterCostBasis{Version: domain.BatchSettlementOpenRouterJobCostV2, EffectiveGroupRatio: 1.45, QuotaPerUnit: 500000}
 			encoded, err := common.Marshal(map[string]any{"settlement_mode": domain.BatchSettlementOpenRouterJobCostV2, "openrouter_cost": basis})
@@ -425,9 +425,9 @@ func TestBatchAggregateCostAccounting(t *testing.T) {
 				{"nonterminal", "in_progress", `{"cost":0.000003}`, 0, false},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					job := BatchJob{PublicID: fmt.Sprintf("aggregate-%d", i), UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: fmt.Sprint(i), RequestHash: "hash", Status: tc.status, SubmitState: "submitted", UpstreamID: fmt.Sprintf("native-%d", i), BillingSnapshot: string(encoded), UpstreamUsage: tc.usage, BillingStatus: "reserved", RequestCount: 2, ReservedQuota: 10}
-					require.NoError(t, reserve(&job, []BatchItem{{CustomID: "one", Body: `{}`, ReservedQuota: 5, BillingStatus: "reserved"}, {CustomID: "two", Body: `{}`, ReservedQuota: 5, BillingStatus: "reserved"}}))
-					var before User
+					job := model.BatchJob{PublicID: fmt.Sprintf("aggregate-%d", i), UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: fmt.Sprint(i), RequestHash: "hash", Status: tc.status, SubmitState: "submitted", UpstreamID: fmt.Sprintf("native-%d", i), BillingSnapshot: string(encoded), UpstreamUsage: tc.usage, BillingStatus: "reserved", RequestCount: 2, ReservedQuota: 10}
+					require.NoError(t, reserve(&job, []model.BatchItem{{CustomID: "one", Body: `{}`, ReservedQuota: 5, BillingStatus: "reserved"}, {CustomID: "two", Body: `{}`, ReservedQuota: 5, BillingStatus: "reserved"}}))
+					var before model.User
 					require.NoError(t, db.First(&before, user.Id).Error)
 					var err error
 					if tc.name == "aggregate only" {
@@ -447,7 +447,7 @@ func TestBatchAggregateCostAccounting(t *testing.T) {
 					} else {
 						require.NoError(t, err)
 					}
-					var after User
+					var after model.User
 					require.NoError(t, db.First(&after, user.Id).Error)
 					if tc.invalid || tc.status == "in_progress" {
 						assert.Equal(t, before.Quota, after.Quota)
@@ -476,7 +476,7 @@ func TestBatchAggregateCostAccounting(t *testing.T) {
 					require.ErrorIs(t, testStore().SettleBatchItem(job.ID, "one", 1, `{"purchase_status":"calculated"}`), domain.ErrBatchConflict)
 					assert.Equal(t, before.Quota-tc.want, after.Quota)
 					assert.Equal(t, before.RequestCount+2, after.RequestCount)
-					var items []BatchItem
+					var items []model.BatchItem
 					require.NoError(t, db.Where("batch_id = ?", job.ID).Find(&items).Error)
 					for _, item := range items {
 						assert.Zero(t, item.ChargedQuota)
@@ -484,10 +484,10 @@ func TestBatchAggregateCostAccounting(t *testing.T) {
 						assert.Equal(t, "settled_at_batch", item.BillingStatus)
 					}
 					var events int64
-					require.NoError(t, db.Model(&BatchLogEvent{}).Where("batch_id = ? AND item_id IS NULL", job.ID).Count(&events).Error)
+					require.NoError(t, db.Model(&model.BatchLogEvent{}).Where("batch_id = ? AND item_id IS NULL", job.ID).Count(&events).Error)
 					assert.EqualValues(t, 1, events)
 					// Pending durable cache effects must keep the reservation.
-					require.NoError(t, db.Model(&BatchQuotaEvent{}).Where("batch_id = ?", job.ID).Update("applied", false).Error)
+					require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Where("batch_id = ?", job.ID).Update("applied", false).Error)
 					require.NoError(t, testStore().ReleaseSettledBatchHolds(job.ID))
 					require.NoError(t, db.First(&job, job.ID).Error)
 					assert.EqualValues(t, 10, job.ReservedQuota)
@@ -504,7 +504,7 @@ func TestBatchAggregateCostAccounting(t *testing.T) {
 					require.NoError(t, testStore().SyncBatchConsumeLogs(1000))
 					require.NoError(t, db.First(&job, job.ID).Error)
 					if tc.name == "aggregate only" {
-						var aggregateLog Log
+						var aggregateLog model.Log
 						require.NoError(t, db.Where("content = ?", "Batch aggregate").Order("id asc").First(&aggregateLog).Error)
 						assert.Equal(t, 3, aggregateLog.PromptTokens)
 						assert.Equal(t, 1, aggregateLog.CompletionTokens)
@@ -517,7 +517,7 @@ func TestBatchAggregateCostAccounting(t *testing.T) {
 					require.NoError(t, db.First(&job, job.ID).Error)
 					assert.Equal(t, "reconciliation_required", job.BillingStatus)
 
-					var final User
+					var final model.User
 					require.NoError(t, db.First(&final, user.Id).Error)
 					assert.Equal(t, after.Quota, final.Quota)
 				})
@@ -531,8 +531,8 @@ func TestBatchDispatchReservation(t *testing.T) {
 		t.Run(dialect, func(t *testing.T) {
 			db := fixture.OpenDialect(t, dialect)
 			db.Config.NamingStrategy = schema.NamingStrategy{TablePrefix: "batch_dispatch_"}
-			oldDB, oldRedis, oldRDB := DB, common.RedisEnabled, common.RDB
-			DB, common.RedisEnabled = db, true
+			oldDB, oldRedis, oldRDB := model.DB, common.RedisEnabled, common.RDB
+			model.DB, common.RedisEnabled = db, true
 			r := miniredis.RunT(t)
 			addr := r.Addr()
 			if configured := os.Getenv("TEST_BATCH_REDIS_ADDR"); configured != "" {
@@ -540,8 +540,8 @@ func TestBatchDispatchReservation(t *testing.T) {
 			}
 			client := redis.NewClient(&redis.Options{Addr: addr})
 			common.RDB = client
-			t.Cleanup(func() { _ = client.Close(); DB, common.RedisEnabled, common.RDB = oldDB, oldRedis, oldRDB })
-			models := []any{&User{}, &Token{}, &BatchJob{}, &BatchItem{}, &BatchQuotaEvent{}}
+			t.Cleanup(func() { _ = client.Close(); model.DB, common.RedisEnabled, common.RDB = oldDB, oldRedis, oldRDB })
+			models := []any{&model.User{}, &model.Token{}, &model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}}
 			for range 2 {
 				require.NoError(t, db.AutoMigrate(models...))
 			}
@@ -555,17 +555,17 @@ func TestBatchDispatchReservation(t *testing.T) {
 					user := createReserveTestUser(t, 1000)
 					token := createReserveTestToken(t, 1000)
 					require.NoError(t, db.Model(&token).Update("user_id", user.Id).Error)
-					job := BatchJob{PublicID: "dispatch-" + mode, UserID: user.Id, TokenID: token.Id, IdempotencyKey: mode, RequestCount: 1, ReservedQuota: 100, SubmitState: "preparing", LeaseOwner: "worker", LeaseUntil: common.GetTimestamp() + 120}
-					require.NoError(t, reserve(&job, []BatchItem{{CustomID: "one", Body: `{}`, ReservedQuota: 100}}))
+					job := model.BatchJob{PublicID: "dispatch-" + mode, UserID: user.Id, TokenID: token.Id, IdempotencyKey: mode, RequestCount: 1, ReservedQuota: 100, SubmitState: "preparing", LeaseOwner: "worker", LeaseUntil: common.GetTimestamp() + 120}
+					require.NoError(t, reserve(&job, []model.BatchItem{{CustomID: "one", Body: `{}`, ReservedQuota: 100}}))
 					require.NoError(t, testStore().SyncBatchQuotaEvents(1000))
 					require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)))
 					var expected error
 					switch mode {
 					case "cold":
-						require.NoError(t, client.Del(context.Background(), GetTokenCacheKey(token.Key)).Err())
+						require.NoError(t, client.Del(context.Background(), model.GetTokenCacheKey(token.Key)).Err())
 						require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)))
 					case "ttl_expired":
-						require.NoError(t, client.Expire(context.Background(), GetTokenCacheKey(token.Key), time.Second).Err())
+						require.NoError(t, client.Expire(context.Background(), model.GetTokenCacheKey(token.Key), time.Second).Err())
 						if addr == r.Addr() {
 							r.FastForward(2 * time.Second)
 						} else {
@@ -573,7 +573,7 @@ func TestBatchDispatchReservation(t *testing.T) {
 						}
 						require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)))
 					case "evicted_after_confirmation":
-						require.NoError(t, client.Del(context.Background(), GetTokenCacheKey(token.Key)).Err())
+						require.NoError(t, client.Del(context.Background(), model.GetTokenCacheKey(token.Key)).Err())
 						require.ErrorIs(t, testStore().MarkBatchSubmissionUnknown((*domain.Job)(&job), "worker"), domain.ErrBatchReservationPending)
 						require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)))
 					case "fence":
@@ -583,7 +583,7 @@ func TestBatchDispatchReservation(t *testing.T) {
 						if addr == r.Addr() {
 							r.FastForward(11 * time.Second)
 						} else {
-							require.NoError(t, client.Del(context.Background(), GetTokenCacheFenceKey(token.Key)).Err())
+							require.NoError(t, client.Del(context.Background(), model.GetTokenCacheFenceKey(token.Key)).Err())
 						}
 						require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)), "a new pass hydrates after fence expiry")
 					case "disabled":
@@ -603,28 +603,28 @@ func TestBatchDispatchReservation(t *testing.T) {
 						require.NoError(t, db.Model(&token).Update("batch_held_quota", 0).Error)
 						expected = domain.ErrBatchReservationUnsafe
 					case "cache_hold":
-						require.NoError(t, client.HSet(context.Background(), GetTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
+						require.NoError(t, client.HSet(context.Background(), model.GetTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
 						expected = domain.ErrBatchReservationUnsafe
 					case "revoked_missing_hold", "revoked_cache_hold":
 						require.NoError(t, db.Model(&token).Update("status", common.TokenStatusDisabled).Error)
 						if mode == "revoked_missing_hold" {
 							require.NoError(t, db.Model(&token).Update("batch_held_quota", 50).Error)
 						} else {
-							require.NoError(t, client.HSet(context.Background(), GetTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
+							require.NoError(t, client.HSet(context.Background(), model.GetTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
 						}
 						require.ErrorIs(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)), domain.ErrBatchReservationUnsafe)
 						expected = domain.ErrBatchReservationUnsafe
 					case "cache_version":
-						require.NoError(t, client.HSet(context.Background(), GetTokenCacheKey(token.Key), "BatchQuotaVersion", 0).Err())
+						require.NoError(t, client.HSet(context.Background(), model.GetTokenCacheKey(token.Key), "BatchQuotaVersion", 0).Err())
 						expected = domain.ErrBatchReservationPending
 					case "other_batch_pending":
-						other := BatchJob{PublicID: "dispatch-other", UserID: user.Id, TokenID: token.Id, IdempotencyKey: "other", RequestCount: 1, ReservedQuota: 50}
-						require.NoError(t, reserve(&other, []BatchItem{{CustomID: "two", Body: `{}`, ReservedQuota: 50}}))
+						other := model.BatchJob{PublicID: "dispatch-other", UserID: user.Id, TokenID: token.Id, IdempotencyKey: "other", RequestCount: 1, ReservedQuota: 50}
+						require.NoError(t, reserve(&other, []model.BatchItem{{CustomID: "two", Body: `{}`, ReservedQuota: 50}}))
 						expected = domain.ErrBatchReservationPending
 					case "live_quota":
-						require.NoError(t, client.HSet(context.Background(), GetTokenCacheKey(token.Key), "RemainQuota", 99).Err())
+						require.NoError(t, client.HSet(context.Background(), model.GetTokenCacheKey(token.Key), "RemainQuota", 99).Err())
 						require.ErrorIs(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)), domain.ErrBatchInsufficientQuota)
-						remain, err := client.HGet(context.Background(), GetTokenCacheKey(token.Key), "RemainQuota").Int()
+						remain, err := client.HGet(context.Background(), model.GetTokenCacheKey(token.Key), "RemainQuota").Int()
 						require.NoError(t, err)
 						assert.Equal(t, 99, remain, "hydration must not replace live quota with DB1000")
 						expected = domain.ErrBatchInsufficientQuota
@@ -655,7 +655,7 @@ func TestBatchDispatchReservation(t *testing.T) {
 					} else {
 						require.ErrorIs(t, err, expected)
 					}
-					var stored BatchJob
+					var stored model.BatchJob
 					require.NoError(t, db.First(&stored, job.ID).Error)
 					if expected == nil || mode == "concurrent_markers" {
 						assert.Equal(t, "submission_unknown", stored.SubmitState)
@@ -669,9 +669,9 @@ func TestBatchDispatchReservation(t *testing.T) {
 		})
 	}
 }
-func createReserveTestUser(t *testing.T, quota int) User {
+func createReserveTestUser(t *testing.T, quota int) model.User {
 	t.Helper()
-	user := User{
+	user := model.User{
 		Username:    "reserve-user-" + common.GetRandomString(6),
 		Password:    "unused-password-hash",
 		Role:        common.RoleCommonUser,
@@ -681,13 +681,13 @@ func createReserveTestUser(t *testing.T, quota int) User {
 		Quota:       quota,
 		AffCode:     "reserve-aff-" + common.GetRandomString(8),
 	}
-	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, model.DB.Create(&user).Error)
 	return user
 }
 
-func createReserveTestToken(t *testing.T, remainQuota int) Token {
+func createReserveTestToken(t *testing.T, remainQuota int) model.Token {
 	t.Helper()
-	token := Token{
+	token := model.Token{
 		UserId:      1,
 		Key:         "reserve-token-" + common.GetRandomString(8),
 		Name:        "reserve-test",

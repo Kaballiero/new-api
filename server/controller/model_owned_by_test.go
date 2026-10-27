@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -47,7 +48,7 @@ func TestModelGroupSelectionAndPreferredOwner(t *testing.T) {
 			setupModelListControllerTestDB(t)
 			for i, group := range []string{"default", "vip"} {
 				channel := model.Channel{Id: i + 1, Name: group, Type: constant.ChannelTypeOpenAI, Key: "fixture", Status: common.ChannelStatusEnabled, Group: group, Models: "owned-" + group}
-				require.NoError(t, channel.Insert())
+				require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
 			}
 			require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
 			if tc.restrict {

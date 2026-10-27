@@ -17,16 +17,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/controller"
+	"github.com/QuantumNous/new-api/i18n"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/controller"
-	"github.com/QuantumNous/new-api/i18n"
 	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+
 	appusage "github.com/QuantumNous/new-api/internal/app/usage"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
@@ -712,7 +715,7 @@ func configureReadGroup(t *testing.T, env *contracttest.Env, group string) {
 	}
 	if group == "channel_cache" {
 		common.MemoryCacheEnabled = true
-		model.InitChannelCache()
+		channelstore.InitChannelCache()
 	}
 	if group == "stats" {
 		row := model.Log{Id: 301, UserId: 1, Username: "contract-user", ModelName: "Model", TokenName: "read-token",
@@ -845,7 +848,7 @@ func seedRankingContract(t *testing.T, db *gorm.DB, period string) {
 				Icon: fmt.Sprintf("Icon-%d", i), Status: 1}).Error)
 		}
 		require.NoError(t, db.Create(&model.Model{ModelName: name, VendorID: vendorID, Status: 1}).Error)
-		require.NoError(t, db.Create(&model.Ability{Group: "default", Model: name, ChannelId: 11, Enabled: true}).Error)
+		require.NoError(t, db.Create(&channelrecord.Ability{Group: "default", Model: name, ChannelId: 11, Enabled: true}).Error)
 		for _, row := range []model.QuotaData{
 			{UserID: 1, ModelName: name, CreatedAt: now.Add(-2 * time.Hour).Unix(), TokenUsed: 3000 - i*50},
 			{UserID: 1, ModelName: name, CreatedAt: now.Add(-duration - 2*time.Hour).Unix(), TokenUsed: 1000 + i*25},

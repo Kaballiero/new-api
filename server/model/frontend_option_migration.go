@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const retiredThemeOptionKey = "theme.frontend"
+const RetiredThemeOptionKey = "theme.frontend"
 
 type legacyOptionTransform func(string) (string, error)
 
@@ -24,7 +24,7 @@ func MigrateRetiredFrontendOptions() error {
 
 	var migrationErrors []error
 	if err := normalizeRetiredThemeOption(); err != nil {
-		migrationErrors = append(migrationErrors, fmt.Errorf("normalize %s: %w", retiredThemeOptionKey, err))
+		migrationErrors = append(migrationErrors, fmt.Errorf("normalize %s: %w", RetiredThemeOptionKey, err))
 	}
 
 	migrations := []struct {
@@ -50,9 +50,9 @@ func MigrateRetiredFrontendOptions() error {
 func normalizeRetiredThemeOption() error {
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var option Option
-		err := tx.Where(&Option{Key: retiredThemeOptionKey}).First(&option).Error
+		err := tx.Where(&Option{Key: RetiredThemeOptionKey}).First(&option).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(&Option{Key: retiredThemeOptionKey, Value: "default"}).Error
+			return tx.Create(&Option{Key: RetiredThemeOptionKey, Value: "default"}).Error
 		}
 		if err != nil {
 			return err

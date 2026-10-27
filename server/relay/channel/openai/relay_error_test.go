@@ -31,7 +31,7 @@ import (
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
-	modelpkg "github.com/QuantumNous/new-api/model"
+	. "github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -1000,7 +1000,7 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 }
 
 func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
-	previousDB, previousLogDB := modelpkg.DB, modelpkg.LOG_DB
+	previousDB, previousLogDB := DB, LOG_DB
 	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	previousRedis, previousBatch, previousLog := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -1008,13 +1008,13 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&modelpkg.Task{}, &modelpkg.User{}, &modelpkg.Token{}, &modelpkg.Channel{}, &modelpkg.Log{}))
-	modelpkg.DB, modelpkg.LOG_DB = db, db
+	require.NoError(t, db.AutoMigrate(&Task{}, &User{}, &Token{}, &Channel{}, &Log{}))
+	DB, LOG_DB = db, db
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
-	require.NoError(t, db.Create(&modelpkg.User{Id: 1, Username: "chat-image-transport", Quota: 1000000000}).Error)
+	require.NoError(t, db.Create(&User{Id: 1, Username: "chat-image-transport", Quota: 1000000000}).Error)
 	t.Cleanup(func() {
-		modelpkg.DB, modelpkg.LOG_DB = previousDB, previousLogDB
+		DB, LOG_DB = previousDB, previousLogDB
 		common.SetDatabaseTypes(previousType, previousLogType)
 		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousRedis, previousBatch, previousLog
 		require.NoError(t, sqlDB.Close())
@@ -1217,7 +1217,7 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 			}
 			info.UserId, info.ChannelId, info.BillingSource = 1, 1, "wallet"
 			info.ApiKey, info.RequestId = "chat-image-account", t.Name()
-			channel := &modelpkg.Channel{Id: 1, Type: constant.ChannelTypeOpenRouter, Key: info.ApiKey, BaseURL: &info.ChannelBaseUrl}
+			channel := &Channel{Id: 1, Type: constant.ChannelTypeOpenRouter, Key: info.ApiKey, BaseURL: &info.ChannelBaseUrl}
 			channel.SetSetting(info.ChannelSetting)
 			require.NoError(t, db.Save(channel).Error)
 			billing := &sonarAdmissionBilling{}
@@ -1339,7 +1339,7 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 }
 
 func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
-	previousDB, previousLogDB := modelpkg.DB, modelpkg.LOG_DB
+	previousDB, previousLogDB := DB, LOG_DB
 	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	previousRedis, previousBatch, previousLog := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -1347,14 +1347,14 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&modelpkg.Task{}, &modelpkg.User{}, &modelpkg.Token{}, &modelpkg.Channel{}, &modelpkg.Log{}))
-	modelpkg.DB, modelpkg.LOG_DB = db, db
+	require.NoError(t, db.AutoMigrate(&Task{}, &User{}, &Token{}, &Channel{}, &Log{}))
+	DB, LOG_DB = db, db
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
-	require.NoError(t, db.Create(&modelpkg.User{Id: 1, Username: "audio-transport", Quota: 10000000}).Error)
-	require.NoError(t, db.Create(&modelpkg.Channel{Id: 1}).Error)
+	require.NoError(t, db.Create(&User{Id: 1, Username: "audio-transport", Quota: 10000000}).Error)
+	require.NoError(t, db.Create(&Channel{Id: 1}).Error)
 	t.Cleanup(func() {
-		modelpkg.DB, modelpkg.LOG_DB = previousDB, previousLogDB
+		DB, LOG_DB = previousDB, previousLogDB
 		common.SetDatabaseTypes(previousType, previousLogType)
 		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousRedis, previousBatch, previousLog
 		_ = sqlDB.Close()
@@ -1915,7 +1915,7 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 	previousLimit := constant.TaskQueryLimit
 	constant.TaskQueryLimit = 100
 	t.Cleanup(func() { constant.TaskQueryLimit = previousLimit })
-	previousDB, previousLogDB := modelpkg.DB, modelpkg.LOG_DB
+	previousDB, previousLogDB := DB, LOG_DB
 	previousType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
 	previousRedis, previousBatch, previousLog := common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled
 	dialect := os.Getenv("FX_TASK_DB_DIALECT")
@@ -1961,14 +1961,14 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 	require.NoError(t, db.Raw(query).Scan(&version).Error)
 	t.Logf("real %s database version: %s", databaseType, version)
 	for range 2 {
-		require.NoError(t, db.AutoMigrate(&modelpkg.Task{}, &modelpkg.User{}, &modelpkg.Token{}, &modelpkg.Channel{}))
-		require.NoError(t, logDB.AutoMigrate(&modelpkg.Log{}))
+		require.NoError(t, db.AutoMigrate(&Task{}, &User{}, &Token{}, &Channel{}))
+		require.NoError(t, logDB.AutoMigrate(&Log{}))
 	}
-	modelpkg.DB, modelpkg.LOG_DB = db, logDB
+	DB, LOG_DB = db, logDB
 	common.SetDatabaseTypes(databaseType, databaseType)
 	common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = false, false, true
 	t.Cleanup(func() {
-		modelpkg.DB, modelpkg.LOG_DB = previousDB, previousLogDB
+		DB, LOG_DB = previousDB, previousLogDB
 		common.SetDatabaseTypes(previousType, previousLogType)
 		common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousRedis, previousBatch, previousLog
 	})
@@ -2035,10 +2035,10 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 				require.NoError(t, artifacts.InitTaskArtifactStore())
 			}
 			id := i + 1
-			require.NoError(t, db.Create(&modelpkg.User{Id: id, Username: fmt.Sprintf("rerank-%d", id), AffCode: fmt.Sprint(id), Quota: 10000000}).Error)
+			require.NoError(t, db.Create(&User{Id: id, Username: fmt.Sprintf("rerank-%d", id), AffCode: fmt.Sprint(id), Quota: 10000000}).Error)
 			key := fmt.Sprintf("rerank-key-%d", id)
-			require.NoError(t, db.Create(&modelpkg.Token{Id: id, UserId: id, Key: key, RemainQuota: 10000000, Status: common.TokenStatusEnabled}).Error)
-			require.NoError(t, db.Create(&modelpkg.Channel{Id: id}).Error)
+			require.NoError(t, db.Create(&Token{Id: id, UserId: id, Key: key, RemainQuota: 10000000, Status: common.TokenStatusEnabled}).Error)
+			require.NoError(t, db.Create(&Channel{Id: id}).Error)
 			const model = "vendor/reranker"
 			prices := `{}`
 			if tc.configured && !tc.missingPrice {
@@ -2138,10 +2138,10 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 				task, exists, err = tasksapp.NewStore().GetUniqueByOnlyTaskId(task.TaskID)
 				require.NoError(t, err)
 				require.True(t, exists)
-				assert.Equal(t, modelpkg.TaskStatus(modelpkg.TaskStatusFailure), task.Status)
+				assert.Equal(t, TaskStatus(TaskStatusFailure), task.Status)
 				assert.True(t, task.PrivateData.Reconciliation.Required)
 				assert.Zero(t, posts)
-				var user modelpkg.User
+				var user User
 				require.NoError(t, db.First(&user, id).Error)
 				assert.Equal(t, 10000000, user.Quota)
 				return
@@ -2226,8 +2226,8 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 				assert.False(t, task.PrivateData.Reconciliation.Finalized)
 			}
 			assert.Equal(t, target, task.Quota)
-			var user modelpkg.User
-			var token modelpkg.Token
+			var user User
+			var token Token
 			require.NoError(t, db.First(&user, id).Error)
 			require.NoError(t, db.First(&token, id).Error)
 			assert.Equal(t, 10000000-target, user.Quota)

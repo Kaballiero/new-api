@@ -3,10 +3,12 @@ package taskplugins
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+
 	taskstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
+
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
-	"github.com/QuantumNous/new-api/model"
 )
 
 type TaskReader struct{ Store taskstorage.Store }
@@ -16,7 +18,7 @@ func (r TaskReader) GetOwn(user int, id string) (*domain.Task, bool, error) {
 	return record.ToDomain(p), ok, e
 }
 func (r TaskReader) ChannelEnabled(id int) (bool, error) {
-	p, e := model.CacheGetChannel(id)
+	p, e := channelstore.CacheGetChannel(id)
 	return p != nil && p.Status == common.ChannelStatusEnabled, e
 }
 func (r TaskReader) ByPlatforms(user int, platforms, ids []string) ([]*domain.Task, error) {

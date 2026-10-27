@@ -1,9 +1,15 @@
 package app
 
 import (
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+
 	"github.com/QuantumNous/new-api/common"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+
 	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
+
 	store "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
 	"github.com/QuantumNous/new-api/internal/catalog/apply_metadata_sync"
 	"github.com/QuantumNous/new-api/internal/catalog/apply_vendor_operation"
@@ -24,7 +30,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/catalog/search_vendors"
 	"github.com/QuantumNous/new-api/internal/catalog/update_model"
 	"github.com/QuantumNous/new-api/internal/catalog/update_vendor"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -64,42 +69,42 @@ func NewCatalogHTTP(effects CatalogEffects) CatalogHTTP {
 		ListModels:   list_models.NewHTTP(list_models.NewUsecase(catalog, common.SysError)),
 		SearchModels: search_models.NewHTTP(search_models.NewUsecase(catalog, common.SysError)),
 		GetModel:     get_model.NewHTTP(get_model.NewUsecase(catalog, common.SysError)),
-		CreateModel:  create_model.NewHTTP(create_model.NewUsecase(catalog, common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints)),
-		UpdateModel:  update_model.NewHTTP(update_model.NewUsecase(catalog, common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints)),
-		DeleteModel: delete_model.NewHTTP(delete_model.NewUsecase(catalog, model.InitChannelCache, model.RefreshPricing), func(c *gin.Context, input delete_model.Input, result delete_model.Output) {
+		CreateModel:  create_model.NewHTTP(create_model.NewUsecase(catalog, common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints)),
+		UpdateModel:  update_model.NewHTTP(update_model.NewUsecase(catalog, common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}.DecodeEndpoints)),
+		DeleteModel: delete_model.NewHTTP(delete_model.NewUsecase(catalog, channelstore.InitChannelCache, pricingruntime.RefreshPricing), func(c *gin.Context, input delete_model.Input, result delete_model.Output) {
 			effects.Audit(c, "model.delete", map[string]any{"model_ids": input.ModelIDs, "remove_from_channels": input.RemoveFromChannels, "remove_pricing": input.RemovePricing, "updated_channels": result.UpdatedChannels})
 		}),
-		DeleteModelsBatch: delete_models_batch.NewHTTP(delete_models_batch.NewUsecase(catalog, model.InitChannelCache, model.RefreshPricing), func(c *gin.Context, input delete_models_batch.Input, result delete_models_batch.Output) {
+		DeleteModelsBatch: delete_models_batch.NewHTTP(delete_models_batch.NewUsecase(catalog, channelstore.InitChannelCache, pricingruntime.RefreshPricing), func(c *gin.Context, input delete_models_batch.Input, result delete_models_batch.Output) {
 			effects.Audit(c, "model.delete_batch", map[string]any{"model_ids": input.ModelIDs, "remove_from_channels": input.RemoveFromChannels, "remove_pricing": input.RemovePricing, "updated_channels": result.UpdatedChannels})
 		}),
 		ListVendors:   list_vendors.NewHTTP(list_vendors.NewUsecase(catalog, catalogcodec.Codec{}.VendorRecordVersion)),
 		SearchVendors: search_vendors.NewHTTP(search_vendors.NewUsecase(catalog, catalogcodec.Codec{}.VendorRecordVersion)),
 		GetVendor:     get_vendor.NewHTTP(get_vendor.NewUsecase(catalog, catalogcodec.Codec{}.VendorRecordVersion)),
-		CreateVendor: create_vendor.NewHTTP(create_vendor.NewUsecase(catalog, common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion), func(c *gin.Context, id int, name string) {
+		CreateVendor: create_vendor.NewHTTP(create_vendor.NewUsecase(catalog, common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion), func(c *gin.Context, id int, name string) {
 			effects.Audit(c, "vendor.metadata.save", map[string]any{"vendor_id": id, "name": name})
 		}),
-		UpdateVendor: update_vendor.NewHTTP(update_vendor.NewUsecase(catalog, common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion), func(c *gin.Context, id int, name string) {
+		UpdateVendor: update_vendor.NewHTTP(update_vendor.NewUsecase(catalog, common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}.VendorRecordVersion), func(c *gin.Context, id int, name string) {
 			effects.Audit(c, "vendor.metadata.save", map[string]any{"vendor_id": id, "name": name})
 		}),
-		DeleteVendor: delete_vendor.NewHTTP(delete_vendor.NewUsecase(catalog, common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}), func(c *gin.Context, input delete_vendor.Input, result delete_vendor.Output) {
+		DeleteVendor: delete_vendor.NewHTTP(delete_vendor.NewUsecase(catalog, common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}), func(c *gin.Context, input delete_vendor.Input, result delete_vendor.Output) {
 			effects.Audit(c, "vendor.metadata.delete", map[string]any{"vendor_id": input.ID})
 		}),
 		PreviewVendorOperation: preview_vendor_operation.NewHTTP(preview_vendor_operation.NewUsecase(store.NewVendorOperationStore(catalog), catalogcodec.Codec{})),
-		ApplyVendorOperation: apply_vendor_operation.NewHTTP(apply_vendor_operation.NewUsecase(catalog, common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}), func(c *gin.Context, input apply_vendor_operation.Input, result apply_vendor_operation.Output) {
+		ApplyVendorOperation: apply_vendor_operation.NewHTTP(apply_vendor_operation.NewUsecase(catalog, common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}), func(c *gin.Context, input apply_vendor_operation.Input, result apply_vendor_operation.Output) {
 			effects.Audit(c, "vendor."+input.Action, map[string]any{"source_vendor_ids": input.VendorIDs, "target_vendor_id": input.TargetVendorID, "updated_model_ids": result.UpdatedModels, "deleted_vendor_ids": result.DeletedVendors})
 		}),
 		ListMissingModels:   list_missing_models.NewHTTP(list_missing_models.NewUsecase(catalog)),
 		PreviewMetadataSync: preview_metadata_sync.NewHTTP(preview_metadata_sync.NewUsecase(catalog, source, catalogcodec.Codec{})),
-		ApplyMetadataSync: apply_metadata_sync.NewHTTP(apply_metadata_sync.NewUsecase(catalog, source, common.GetTimestamp, model.RefreshPricing, catalogcodec.Codec{}), func(c *gin.Context, result apply_metadata_sync.Output) {
+		ApplyMetadataSync: apply_metadata_sync.NewHTTP(apply_metadata_sync.NewUsecase(catalog, source, common.GetTimestamp, pricingruntime.RefreshPricing, catalogcodec.Codec{}), func(c *gin.Context, result apply_metadata_sync.Output) {
 			effects.Audit(c, "model.metadata.sync", map[string]any{"created_models": result.CreatedModels, "updated_models": result.UpdatedModels, "created_vendors": result.CreatedVendors})
 		}),
 	}
 }
 
 func newCatalogStore() store.Store {
-	return store.NewStore(model.NewCatalogPersistence(), store.Runtime{SyncFields: func() []string { return domain.MetadataSyncFields }, EnabledModels: model.GetEnabledModels, QuotaTypes: model.GetModelQuotaTypes, SupportEndpoints: func(name string) []string {
+	return store.NewStore(pricingruntime.NewCatalogPersistence(), store.Runtime{SyncFields: func() []string { return domain.MetadataSyncFields }, EnabledModels: channelstore.GetEnabledModels, QuotaTypes: pricingruntime.GetModelQuotaTypes, SupportEndpoints: func(name string) []string {
 		var out []string
-		for _, v := range model.GetModelSupportEndpointTypes(name) {
+		for _, v := range pricingstate.GetModelSupportEndpointTypes(name) {
 			out = append(out, string(v))
 		}
 		return out

@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -16,10 +15,10 @@ const channelStateMetricName = "new_api_channel_state"
 
 type channelStateCollector struct {
 	desc  *prometheus.Desc
-	query func() ([]model.ChannelStateSnapshot, error)
+	query func() ([]ChannelStateSnapshot, error)
 }
 
-func newChannelStateCollector(query func() ([]model.ChannelStateSnapshot, error)) *channelStateCollector {
+func newChannelStateCollector(query func() ([]ChannelStateSnapshot, error)) *channelStateCollector {
 	return &channelStateCollector{
 		desc: prometheus.NewDesc(
 			channelStateMetricName,
@@ -67,14 +66,16 @@ func channelStateLabel(status int) string {
 	}
 }
 
-func NewChannelStateMetricsHandler() http.Handler {
-	return newChannelStateMetricsHandler(model.ListChannelStateSnapshots)
-}
-
-func newChannelStateMetricsHandler(query func() ([]model.ChannelStateSnapshot, error)) http.Handler {
+func NewChannelStateMetricsHandler(query func() ([]ChannelStateSnapshot, error)) http.Handler {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(newChannelStateCollector(query))
 	return promhttp.HandlerFor(registry, promhttp.HandlerOpts{
 		ErrorHandling: promhttp.HTTPErrorOnError,
 	})
+}
+
+type ChannelStateSnapshot struct {
+	ID     int
+	Type   int
+	Status int
 }

@@ -4,14 +4,7 @@ import "errors"
 
 // Common errors
 var (
-	ErrDatabase                = errors.New("database error")
-	ErrModelNameEmpty          = errors.New("model name is empty")
-	ErrModelAliasCycle         = errors.New("model alias cycle detected")
-	ErrModelMappingCycle       = errors.New("model mapping cycle detected")
-	ErrModelMappingSourceEmpty = errors.New("model mapping source is empty")
-	ErrModelMappingTargetEmpty = errors.New("model mapping target is empty")
-	ErrCanonicalModelCollision = errors.New("canonical model collision")
-	ErrModelMappingConflict    = errors.New("model mapping conflict")
+	ErrDatabase = errors.New("database error")
 )
 
 // User auth errors

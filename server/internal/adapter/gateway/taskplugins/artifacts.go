@@ -4,10 +4,12 @@ import (
 	"fmt"
 
 	"github.com/QuantumNous/new-api/constant"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
-	"github.com/QuantumNous/new-api/model"
+
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
 )
@@ -38,7 +40,7 @@ func (Artifacts) BuildContentRequest(task *domain.Task, key string, client domai
 	if task == nil || !domain.HasPluginExecution(task) {
 		return nil, false, domain.ErrArtifactPluginUnavailable
 	}
-	channelModel, err := model.CacheGetChannel(task.ChannelId)
+	channelModel, err := channelstore.CacheGetChannel(task.ChannelId)
 	if err != nil {
 		return nil, false, fmt.Errorf("%w: channel unavailable", domain.ErrArtifactPluginUnavailable)
 	}
@@ -54,7 +56,7 @@ func (Artifacts) BuildContentRequest(task *domain.Task, key string, client domai
 	if baseURL == "" {
 		baseURL = constant.GetChannelBaseURL(channelModel.Type)
 	}
-	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelType: channelModel.Type, ChannelBaseUrl: baseURL, ApiKey: pluginKey, ChannelSetting: channelModel.GetSetting()}})
+	adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelType: channelModel.Type, ChannelBaseUrl: baseURL, ApiKey: pluginKey, ChannelSetting: channelstore.NewChannelPersistence().GetSetting(channelModel)}})
 	provider, ok := adaptor.(relaychannel.TaskContentRequestProvider)
 	if !ok {
 		return nil, false, nil

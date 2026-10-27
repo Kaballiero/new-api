@@ -10,9 +10,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
-	"github.com/QuantumNous/new-api/model"
+	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ func TestCatalogPersistence(t *testing.T) {
 			}
 			database := open()
 			for range 2 {
-				require.NoError(t, database.AutoMigrate(&record.PrefillGroup{}, &model.Channel{}, &model.Ability{}))
+				require.NoError(t, database.AutoMigrate(&record.PrefillGroup{}, &legacy.Channel{}, &channelrecord.Ability{}))
 			}
 			var version string
 			query := "SELECT sqlite_version()"
@@ -104,8 +105,8 @@ func TestCatalogPersistence(t *testing.T) {
 			// Owner/reserve reads retain group quoting, priority order and positive reserve selection.
 			settings := `{"openrouter_model_reserve_usd":{"wave6c-model":0.05}}`
 			priority := int64(2)
-			require.NoError(t, database.Create(&model.Channel{Id: 31, Type: constant.ChannelTypeOpenRouter, Key: "fixture", Status: common.ChannelStatusEnabled, Setting: &settings}).Error)
-			require.NoError(t, database.Create(&model.Ability{Group: "default", Model: "wave6c-model", ChannelId: 31, Enabled: true, Priority: &priority}).Error)
+			require.NoError(t, database.Create(&legacy.Channel{Id: 31, Type: constant.ChannelTypeOpenRouter, Key: "fixture", Status: common.ChannelStatusEnabled, Setting: &settings}).Error)
+			require.NoError(t, database.Create(&channelrecord.Ability{Group: "default", Model: "wave6c-model", ChannelId: 31, Enabled: true, Priority: &priority}).Error)
 			groupColumn := "`group`"
 			if engine == "postgres" {
 				groupColumn = `"group"`
