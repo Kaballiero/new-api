@@ -74,7 +74,9 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/pricing.go`) читает DTO
 - Модулю не принадлежат каналы (модуль `channels`) и метаданные моделей (модуль `catalog`).
 - ⚠ Каналы для ratio sync читаются прямо из `model` в `app/pricing.go` (`GetChannelsByIds`, `GetAllChannels`, `GetChannelById` + `GetNextEnabledKey` для ключа OpenRouter), а не через сценарии `channels`.
 - ⚠ `adapter/gorm/pricing` и `adapter/pricing/upstream` используют записи `adapter/gorm/catalog/record` и `adapter/gorm/channels/record` напрямую.
-- ⚠ `domain` импортирует `common` и `relaykit` (`dto`, `types`), сценарии `fetch_upstream_ratios`, `list_syncable_channels`, `rebuild_catalogue` — `relaykit/dto`: записи `business-imports-gateway`, `domain-transitive: internal/pricing/domain` и все `usecase-transitive: internal/pricing/*`.
+- `domain` и сценарии транзитивно не зависят от `common`, `billingexpr`, `jsplugin` и `catalogsync` и не импортируют gateway DTO. Единственный разрешённый gateway leaf — прежняя цепочка `constant → relaykit/types → relaykit/relayconvert/kitutil` для EndpointType/FinishReason. Правило `pricing-constant-alias-leaf` проверяет точные пакеты и рёбра; direct business imports gateway и любые другие gateway paths запрещены. Выделение constant leaf относится к необязательной волне 9. Offer/document/schema/tier/display facts принадлежат pricing; `Capabilities` явно передаёт codecs, expression/catalog readers и endpoint rules. Арифметика и expression engine остаются в прежних пакетах.
+- `adapter/pricing` преобразует native facts по полям с сохранением wire-представления. Enum labels кодируются прежним `jsplugin.LocalizedText.MarshalJSON` в raw display facts, поэтому nil label остаётся `{}`; description сохраняет map и прежний `omitempty`. Typed persisted catalog decoder сохраняет прежние SDK wire-типы и исходные UnmarshalTypeError Type/Struct/Field/Offset facts для domain containers, включая точные тексты ошибок. Alias resolver собирается один раз на snapshot и вызывает прежний `catalogsync.ResolveAlias`.
+- Ratio request/result DTO принадлежат своим сценариям; общий `RatioDifference` — domain. HTTP передаёт прежний Gin binder codec-адаптеру: тот использует исходный wire request и validation, затем отображает его в plain Request. Поэтому названия типов в диагностике binding остаются прежними. `AdvancedEndpoints` и `ChannelCodec` оставляют relay DTO и их parsing в адаптере.
 - ⚠ `model/*` и `service/catalog_sync.go` создают сценарии модуля сами (`legacy-imports-internal`).
 - `model.ErrModelPricingConflict` и `model.ErrCatalogSourceChanged` — алиасы `domain.ErrModelPricingConflict` и `domain.ErrCatalogSourceChanged`.
 - Имена пресетов «官方倍率预设» / «models.dev 价格预设» в `list_syncable_channels` — идентификаторы, с которыми сравнивает клиент (`client/src/features/system-settings/models/constants.ts`); не локализуются.
@@ -82,4 +84,4 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/pricing.go`) читает DTO
 
 ResetModelRatios пишет через settings owner из app, сохраняя дополнительную PublishRatios после Persist.
 Pricing/catalog option composition и единственный legacy publisher/mutex остаются model по settings A2=B
-до cleanup волны 7; same-tx catalog deletion и pricing mutation не перенесены этой волной.
+до 7g по выбранному A3; same-tx catalog deletion и pricing mutation сохраняют прежнего владельца.
