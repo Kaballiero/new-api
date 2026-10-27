@@ -213,7 +213,8 @@
 - [ ] Перенести оставшиеся model.LockForUpdate, model.SyncCreditUserQuotaCache и model.CacheDecrUserQuota вместе с shared row-lock/quota-cache primitives; без копирования Lua/key/schema.
 - [ ] Общие quota cache/Lua/DB primitives из `model/quota_reserve.go`, user/token/task consumers → технические адаптеры с одним владельцем; 2b1 сохраняет primitives и SQL/Redis semantics без изменений.
 
-- [ ] 7i identity orchestration + transport: leaf `app/identitycore`, token/session/email/WebAuthn adapters, cleanup owner и custom OAuth management/discovery; service facades и 56 исключений удалены, семь HTTP model-imports заменены plain facts/bound factories. Записаны 144 immutable custom OAuth contracts. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
+- [x] 7i identity orchestration + transport: leaf `app/identitycore`, token/session/email/WebAuthn adapters, cleanup owner и custom OAuth management/discovery; service facades и 56 исключений удалены, семь HTTP model-imports заменены plain facts/bound factories. Записаны 144 immutable custom OAuth contracts. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
+  Commits bcc76e3d4 контракты (144 новых эталона), 04fae5d87 перенос, a1efd6376 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и все goldens без -update, PostgreSQL 15 full suite без новых падений, identity PG-тесты зелёные. SQLite/MySQL не проверялись.
 - [ ] 7j identity SQL: `model/account_security.go`, `auth_flow.go`, sessions/factors и shared account/key/cache state → технические адаптеры с прежними транзакциями и блокировками.
 - [ ] Убрать алиасы ошибок в `model`, `service`, `oauth`, когда у них не останется потребителей.
 - [x] 7i: `*model.User` и `*model.AuthFlowAuthorization` убраны из transport identity; SQL records остаются внутри adapters/composition.
