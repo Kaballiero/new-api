@@ -1,6 +1,7 @@
 package model
 
 import (
+	"github.com/QuantumNous/new-api/internal/contracttest/fxfixture"
 	"os"
 
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
@@ -55,7 +56,7 @@ type batchItemLogEventBeforeAggregate struct {
 func openBatchModelDB(t *testing.T, dialect string) *gorm.DB {
 	t.Helper()
 	if dialect != "postgres" {
-		return openModelCostFXTestDB(t, dialect)
+		return fxfixture.Open(t, dialect)
 	}
 	dsn := os.Getenv("TEST_POSTGRES_DSN")
 	if dsn == "" {

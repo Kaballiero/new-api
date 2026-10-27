@@ -1,6 +1,8 @@
 package taskruntime
 
 import (
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"context"
 	"testing"
 
@@ -21,7 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
@@ -57,7 +59,7 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actual int, rea
 	}
 	store := storage.BillingStore{Store: fixtureStore}
 	settlement := settle_task.NewUsecase(store, effects.TaskDelta{}, usageadapter.TaskBilling{}, effects.TaskPrices{},
-		effects.TaskMath{}, billingadapter.Expression{}, effects.Diagnostics{}, store, service.ModelCostFXSource, common.RequestIdKey)
+		effects.TaskMath{}, billingadapter.Expression{}, effects.Diagnostics{}, store, pricingdomainfx.ModelCostFXSource, common.RequestIdKey)
 	settlement.Recalculate(ctx, d, actual, reason, nil, out...)
 	*task = *record.FromDomain(d)
 }

@@ -1,6 +1,9 @@
 package controller
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
@@ -222,7 +225,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":2}`))
 	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"vip":1.5}}`))
 	now := time.Now().Unix()
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
 		Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90},
 	}, 0))
 

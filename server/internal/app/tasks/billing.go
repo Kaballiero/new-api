@@ -1,6 +1,8 @@
 package tasks
 
 import (
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"context"
 
 	"github.com/QuantumNous/new-api/common"
@@ -13,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/tasks/refund_midjourney_task"
 	"github.com/QuantumNous/new-api/internal/tasks/refund_task"
 	"github.com/QuantumNous/new-api/internal/tasks/settle_task"
-	"github.com/QuantumNous/new-api/service"
 )
 
 type Billing struct {
@@ -29,7 +30,7 @@ func NewBilling() *Billing {
 	metadata := usage.TaskBilling{}
 	diagnostics := runtime.Diagnostics{}
 	return &Billing{
-		completion: settle_task.NewUsecase(store, delta, metadata, runtime.TaskPrices{}, runtime.TaskMath{}, billingmath.Expression{}, diagnostics, store, service.ModelCostFXSource, common.RequestIdKey),
+		completion: settle_task.NewUsecase(store, delta, metadata, runtime.TaskPrices{}, runtime.TaskMath{}, billingmath.Expression{}, diagnostics, store, pricingdomainfx.ModelCostFXSource, common.RequestIdKey),
 		refund:     refund_task.NewUsecase(store, delta, metadata, diagnostics),
 		mjrefund:   refund_midjourney_task.NewUsecase(runtime.MidjourneyBilling{}, store, metadata, diagnostics),
 		mjsubmit:   record_midjourney_submission.NewUsecase(store, runtime.MidjourneyBilling{}),

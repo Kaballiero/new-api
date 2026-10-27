@@ -1,6 +1,10 @@
 package controller
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"bytes"
 	"context"
 	"errors"
@@ -277,7 +281,7 @@ func seedNativeRouteFX(t *testing.T, db *gorm.DB) {
 	require.True(t, err == nil || errors.Is(err, gorm.ErrRecordNotFound))
 	effectiveAt, fetchedAt := row.EffectiveAt, row.FetchedAt
 	currentVersion := int64(0)
-	if current, currentErr := model.CurrentModelCostFX("cbr-xml-daily.ru"); currentErr == nil {
+	if current, currentErr := fxstate.CurrentModelCostFX("cbr-xml-daily.ru"); currentErr == nil {
 		currentVersion = current.Version
 		if current.EffectiveAt > effectiveAt {
 			effectiveAt = current.EffectiveAt
@@ -289,13 +293,13 @@ func seedNativeRouteFX(t *testing.T, db *gorm.DB) {
 	for first := true; first || row.Version <= currentVersion; first = false {
 		effectiveAt++
 		fetchedAt++
-		require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+		require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
 			Source: "cbr-xml-daily.ru", EffectiveAt: effectiveAt, FetchedAt: fetchedAt,
 			Rates: map[string]float64{"USD": 100},
 		}, row.Version))
 		require.NoError(t, db.Where("source = ?", "cbr-xml-daily.ru").First(&row).Error)
 	}
-	require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
+	require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
 }
 
 func TestGetChannelRecomposesRetainedFXForSelectedTieredGroupTransitions(t *testing.T) {
@@ -506,9 +510,9 @@ func TestMidjourneyAndSwapFaceCaptureFXBeforeUpstreamAndKeepSavedRefund(t *testi
 	t.Cleanup(func() { model.LOG_DB = previousLogDB })
 	require.NoError(t, database.AutoMigrate(&model.Midjourney{}, &model.Log{}, &model.Token{}))
 	seedNativeRouteFX(t, database)
-	currentFX, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	currentFX, err := fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 	require.NoError(t, err)
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
 		Source: "cbr-xml-daily.ru", EffectiveAt: currentFX.EffectiveAt + 1, FetchedAt: currentFX.FetchedAt + 1,
 		Rates: map[string]float64{"USD": 90},
 	}, currentFX.Version))
@@ -562,9 +566,9 @@ func TestMidjourneyAndSwapFaceCaptureFXBeforeUpstreamAndKeepSavedRefund(t *testi
 	assert.Contains(t, fx, "fetched_at")
 	assert.Equal(t, float64(2), admin["billing_applied_group"].(map[string]any)["pure_ratio"])
 
-	current, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	current, err := fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 	require.NoError(t, err)
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: current.Source, EffectiveAt: current.EffectiveAt + 1, FetchedAt: current.FetchedAt + 1, Rates: map[string]float64{"USD": 110}}, current.Version))
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: current.Source, EffectiveAt: current.EffectiveAt + 1, FetchedAt: current.FetchedAt + 1, Rates: map[string]float64{"USD": 110}}, current.Version))
 	d := taskstore.MidjourneyToDomain(&task)
 	assert.True(t, tasksapp.NewBilling().RefundMidjourney(context.Background(), d, "test failure"))
 	task = *taskstore.MidjourneyFromDomain(d)
@@ -573,9 +577,9 @@ func TestMidjourneyAndSwapFaceCaptureFXBeforeUpstreamAndKeepSavedRefund(t *testi
 	require.NoError(t, database.First(&task, task.Id).Error)
 	assert.Zero(t, task.Quota)
 
-	currentFX, err = model.CurrentModelCostFX("cbr-xml-daily.ru")
+	currentFX, err = fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 	require.NoError(t, err)
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
 		Source: "cbr-xml-daily.ru", EffectiveAt: currentFX.EffectiveAt + 1, FetchedAt: currentFX.FetchedAt + 1,
 		Rates: map[string]float64{"USD": 90},
 	}, currentFX.Version))

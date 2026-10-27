@@ -2,6 +2,8 @@
 package contract
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -298,7 +300,7 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
 	require.NoError(t, env.DB.Create(&model.ModelCostFXRow{Source: "cbr-xml-daily.ru", EffectiveAt: taskfixture.Epoch,
 		FetchedAt: taskfixture.Epoch, Version: 1, RatesJSON: `{"USD":100}`}).Error)
-	require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
+	require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
 	identities := map[string]identitydomain.AuthIdentity{}
 	for actor, bearer := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {
 		identity, err := authtoken.ParseAccessToken(bearer)

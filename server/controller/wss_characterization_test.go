@@ -1,6 +1,11 @@
 package controller
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+	billinggatewayfx "github.com/QuantumNous/new-api/relay/billing"
+
 	"bytes"
 	"context"
 	"errors"
@@ -662,7 +667,7 @@ func TestWssCharacterization(t *testing.T) {
 		t.Cleanup(func() { publishWssFX(t, db, 100) })
 		resetWssTables(t, db, logDB, 10_000_000_000, 10_000_000_000, false)
 		c, info := newDirectWssFixture(t, db, logDB, 10_000_000_000, 10_000_000_000).ctx, testRelayInfo(false)
-		factor, err := service.CaptureBillingFX(info)
+		factor, err := billinggatewayfx.CaptureBillingFX(info)
 		require.NoError(t, err)
 		assert.Equal(t, 2.0, factor)
 		assert.Equal(t, 2.0, info.BillingFXFactor)
@@ -716,7 +721,7 @@ func TestWssCharacterization(t *testing.T) {
 		assert.Equal(t, 1e308, ratio_setting.GetGroupRatio("wss-char"))
 		modelRatio, _, _ := ratio_setting.GetModelRatio("wss-char-model")
 		assert.Equal(t, 1e-308, modelRatio)
-		factor, err := service.CaptureBillingFX(info)
+		factor, err := billinggatewayfx.CaptureBillingFX(info)
 		require.NoError(t, err)
 		assert.Equal(t, 2.0, factor)
 		require.Nil(t, service.PreConsumeBilling(c, 2, info))
@@ -1213,7 +1218,7 @@ func newWssRunEventsConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token i
 		if configure != nil {
 			configure(info)
 		}
-		if _, err := service.CaptureBillingFX(info); err != nil {
+		if _, err := billinggatewayfx.CaptureBillingFX(info); err != nil {
 			r.recordPeerErr(err)
 			return
 		}
@@ -1427,7 +1432,7 @@ func publishWssFX(t *testing.T, db *gorm.DB, usd float64) {
 	err := db.Where("source = ?", "cbr-xml-daily.ru").First(&row).Error
 	require.True(t, err == nil || errors.Is(err, gorm.ErrRecordNotFound))
 	effectiveAt, fetchedAt, currentVersion := row.EffectiveAt, row.FetchedAt, int64(0)
-	if current, err := model.CurrentModelCostFX("cbr-xml-daily.ru"); err == nil {
+	if current, err := fxstate.CurrentModelCostFX("cbr-xml-daily.ru"); err == nil {
 		currentVersion = current.Version
 		if current.EffectiveAt > effectiveAt {
 			effectiveAt = current.EffectiveAt
@@ -1439,7 +1444,7 @@ func publishWssFX(t *testing.T, db *gorm.DB, usd float64) {
 	for first := true; first || row.Version <= currentVersion; first = false {
 		effectiveAt++
 		fetchedAt++
-		require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+		require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
 			Source:      "cbr-xml-daily.ru",
 			EffectiveAt: effectiveAt,
 			FetchedAt:   fetchedAt,
@@ -1447,7 +1452,7 @@ func publishWssFX(t *testing.T, db *gorm.DB, usd float64) {
 		}, row.Version))
 		require.NoError(t, db.Where("source = ?", "cbr-xml-daily.ru").First(&row).Error)
 	}
-	published, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	published, err := fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 	require.NoError(t, err)
 	require.Equal(t, usd, published.Rates["USD"])
 }

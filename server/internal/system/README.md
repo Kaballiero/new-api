@@ -64,11 +64,15 @@ Domain/usecases не зависят от Gin, GORM, common, model, service ил�
   `RegisterScheduledSystemTasks` остаётся мостом для main/scheduler entrypoints до прямой передачи ChannelEffects startup owner.
 - `model/setup.go`, `system_task.go`, `system_instance.go`: aliases нужны migrations и legacy record consumers;
   удалить после их перехода на system record. Исполняемых model/service → internal мостов нет.
-- `service.RefreshModelCostFX` и `service.ModelCostFXTaskResult` — BRIDGE для app system FX handler;
-  удалить, когда FX refresh получает собственного владельца pricing/FX. Replica reload и экономика принадлежат service.
-- **pkg/perf_metrics остаётся единственным техническим владельцем collection state, Record/Query/Summary,
-  flush, SQL и Redis**. System HTTP использует injected reader/active-group policy; RelayInfo mapper принадлежит шлюзу.
-  Адаптер system использует этот owner; зависимость убирается при переносе collection/query/flush к другому владельцу.
+- `app/systemmetrics` содержит единственный core чтения/записи и sleep-first flush loop. Aggregation
+  counters/state реализованы `adapter/runtime/systemmetrics`, SQL — `adapter/gorm/systemmetrics`,
+  Redis write-only projection — `adapter/redis/systemmetrics`. Init запускает цикл при каждом вызове;
+  interval/enabled/retention читаются поздно, без нового once/master gate. Redis не участвует в Query.
+  Ошибка SQL flush восстанавливает drained counters; прежние окна согласованности сохраняются.
+- `gateway/metrics` преобразует RelayInfo в plain system Sample. Prometheus channel collector
+  находится в `adapter/runtime/system`, его isolated registry собирает leaf `app/systemmetrics`.
+- FX refresh принадлежит `pricing/refresh_cost_fx`, replica reload — `app/pricingfx` на каждом узле.
+  System task вызывает собранный scenario; master gating остаётся прежним runner policy.
 - Deployments, catalog leftovers и user notifications находятся вне модуля. Common disk/cache/monitor singleton
   остаётся техническим владельцем; второго state/cache/counter нет.
 - Известные setup partial states, Uptime destination/body policy, metrics concurrency и order noise — TECH_DEBT #88–91.

@@ -1,6 +1,8 @@
 package billing
 
 import (
+	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
+
 	"errors"
 	"math"
 	"net/http/httptest"
@@ -17,7 +19,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -264,7 +266,7 @@ func TestSelectedGroupInvalidFXRetainsUnavailableStatus(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Equal(t, 503, err.StatusCode)
 		assert.Equal(t, types.ErrorCodeModelPriceError, err.GetErrorCode())
-		assert.True(t, service.IsBillingFXError(err.Err))
+		assert.True(t, mappingfx.IsBillingFXError(err.Err))
 		assert.Equal(t, 1.0, snap.GroupRatio)
 		assert.Equal(t, 100, snap.EstimatedQuotaAfterGroup)
 	}
@@ -279,5 +281,5 @@ func TestCostMappingWithoutGinRequest(t *testing.T) {
 	assert.Same(t, prior, info.QuotaClamp)
 	_, err := New().CaptureFX(nil)
 	require.Error(t, err)
-	assert.True(t, service.IsBillingFXError(err))
+	assert.True(t, mappingfx.IsBillingFXError(err))
 }

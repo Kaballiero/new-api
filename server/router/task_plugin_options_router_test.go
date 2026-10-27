@@ -1,6 +1,9 @@
 package router
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -81,7 +84,7 @@ func TestEffectivePricingPreviewRequiresRoot(t *testing.T) {
 	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1}`))
 	now := time.Now().Unix()
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
 		Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90},
 	}, 0))
 	pricingstate.InvalidatePricingCache()

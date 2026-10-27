@@ -1,9 +1,9 @@
-package service
+package pricingfx
 
 import (
-	"testing"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 
-	"github.com/QuantumNous/new-api/model"
+	"testing"
 )
 
 func SystemContractFXEndpoint(t *testing.T, endpoint string) {
@@ -13,6 +13,6 @@ func SystemContractFXEndpoint(t *testing.T, endpoint string) {
 }
 func ModelCostFXTestDialect(t *testing.T)  { withModelCostFXServiceDialect(t) }
 func ModelCostFXTestTruncate(t *testing.T) { truncateModelCostFXService(t) }
-func ModelCostFXTestSeed(t *testing.T) model.ModelCostFXSnapshot {
+func ModelCostFXTestSeed(t *testing.T) pricingdomainfx.ModelCostFXSnapshot {
 	return seedModelCostFXServiceTest(t)
 }

@@ -8,12 +8,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
-	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
-
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -24,45 +18,36 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
-
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/i18n"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/app"
-
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
-
+	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	pricingfx "github.com/QuantumNous/new-api/internal/app/pricingfx"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
-
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
-
 	systemcore "github.com/QuantumNous/new-api/internal/app/system"
-
+	perfmetrics "github.com/QuantumNous/new-api/internal/app/systemmetrics"
 	systemruntime "github.com/QuantumNous/new-api/internal/app/systemruntime"
-
 	taskpluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
-
 	usageapp "github.com/QuantumNous/new-api/internal/app/usage"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-
-	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
-
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/router"
-	"github.com/QuantumNous/new-api/service"
-
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-
-	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
 )
 
 //go:embed web/dist
@@ -174,7 +159,7 @@ func main() {
 	// schedules and executes them. Master-only execution and the UpdateTask
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
-	service.StartModelCostFX()
+	pricingfx.StartModelCostFX()
 	systemcore.StartSystemTaskRunner()
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {

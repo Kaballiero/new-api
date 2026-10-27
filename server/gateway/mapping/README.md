@@ -7,3 +7,5 @@
 Gateway helpers не импортируют корневой relay или gateway/transport. Error texts и conversion diagnostics сохранены. HTTP response headers/body/status и закрытие response body принадлежат pkg/httpclient. Финансовые сценарии и durable task lifecycle принадлежат internal; legacy BillingGateway и violation fee остаются в service до собственного переноса.
 
 Недостижимые legacy host helpers и чистые codec wrappers удалены; reachable conversion APIs и MediaResolver callbacks сохранены.
+
+FX admission error/status wire facts принадлежат gateway mapping; relay/billing вызывает прежние billing FX scenarios напрямую. Service FX facades и FX methods в BillingGatewayPort удалены. Экономика и frozen-basis policy остаются в billing.

@@ -1,6 +1,12 @@
 package controller
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	billingappfx "github.com/QuantumNous/new-api/internal/app/billing"
+	billingdomainfx "github.com/QuantumNous/new-api/internal/billing/domain"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 
@@ -57,7 +63,7 @@ import (
 
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -1737,7 +1743,7 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 	common.MemoryCacheEnabled = true
 	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemory; pricingstate.InvalidatePricingCache() })
 	now := time.Now().Unix()
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
 	require.NoError(t, db.Create(&model.User{Id: 2198, Username: "audio-pricing-user", Password: "fixture", Group: "default", Status: common.UserStatusEnabled}).Error)
 	require.NoError(t, db.Create(&model.Channel{Id: 998, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: "gpt-realtime-mini,gpt-4o-transcribe-diarize,gpt-4o-mini-tts,gpt-transcribe"}).Error)
 	for _, name := range []string{"gpt-realtime-mini", "gpt-4o-transcribe-diarize", "gpt-4o-mini-tts", "gpt-transcribe"} {
@@ -1985,7 +1991,7 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousExchange
 	})
 	now := time.Now().Unix()
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
 	channel := &model.Channel{Id: 990, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "secret-fixture", Models: "provider/model", Group: "default"}
 	require.NoError(t, db.Create(channel).Error)
 	require.NoError(t, db.Create(&channelrecord.Ability{Group: "default", Model: "provider/model", ChannelId: channel.Id, Enabled: true}).Error)
@@ -2146,7 +2152,7 @@ func TestEffectivePricingOverviewUsesOneRevisionDuringControlledRebuild(t *testi
 	})
 
 	now := time.Now().Unix()
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
 	previousMemory := common.MemoryCacheEnabled
 	common.MemoryCacheEnabled = true
 	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemory; pricingstate.InvalidatePricingCache() })
@@ -3254,10 +3260,10 @@ func TestCatalogConsumerAuditCandidate534(t *testing.T) {
 	// Reuse the existing cache-aware test seed: a new DB starts at version1,
 	// while the process may already hold a newer publication from another test.
 	seedNativeRouteFX(t, db)
-	seededFX, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	seededFX, err := fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 	require.NoError(t, err)
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: seededFX.EffectiveAt + 1, FetchedAt: seededFX.FetchedAt + 1, Rates: map[string]float64{"USD": fixture.FXRateUSDRUB}}, seededFX.Version))
-	actualFX, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: seededFX.EffectiveAt + 1, FetchedAt: seededFX.FetchedAt + 1, Rates: map[string]float64{"USD": fixture.FXRateUSDRUB}}, seededFX.Version))
+	actualFX, err := fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 	require.NoError(t, err)
 	require.Equal(t, fixture.FXRateUSDRUB, actualFX.Rates["USD"])
 	require.Greater(t, actualFX.Version, seededFX.Version)
@@ -3636,7 +3642,7 @@ func TestCatalogMissingTypeConsumerFiltering(t *testing.T) {
 
 // Legacy fixture builders capture inputs for projection assertions; HTTP tests use the real scenarios.
 func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, error) {
-	basis, err := service.CurrentBillingFXBasis()
+	basis, err := billingappfx.NewCosts().FX.Execute(billingdomainfx.FXBasis{})
 	if err != nil {
 		return effectivePricingResponse{}, err
 	}
@@ -3644,7 +3650,7 @@ func getEffectivePricingResponse(userGroup string) (effectivePricingResponse, er
 	if err != nil {
 		return effectivePricingResponse{}, err
 	}
-	return buildEffectivePricingResponse(userGroup, basis, pricing), nil
+	return buildEffectivePricingResponse(userGroup, domain.BillingFXBasis(basis), pricing), nil
 }
 func loadConsumerPricingContext(userGroup, usingGroup string) (effectivePricingPageContext, error) {
 	context := effectivePricingPageContext{Policy: app.NewPricingProjection(),
@@ -3656,7 +3662,7 @@ func loadConsumerPricingContext(userGroup, usingGroup string) (effectivePricingP
 			return context, domain.ErrPricingUsingGroup
 		}
 	}
-	basis, err := service.CurrentBillingFXBasis()
+	basis, err := billingappfx.NewCosts().FX.Execute(billingdomainfx.FXBasis{})
 	if err != nil {
 		return context, err
 	}

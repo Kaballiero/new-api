@@ -1,6 +1,8 @@
 package relay
 
 import (
+	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
+
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -40,7 +42,6 @@ import (
 
 	mjgateway "github.com/QuantumNous/new-api/relay/midjourney"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
@@ -224,7 +225,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 
 	priceData, err := helper.ModelPriceHelperPerCall(c, info)
 	if err != nil {
-		if service.IsQuotaClamp(err) {
+		if mappingfx.IsQuotaClamp(err) {
 			billinggateway.BillingAdmissionError(c, info, err)
 			return &dto.MidjourneyResponse{Code: 4, Description: "quota_not_enough"}
 		}
@@ -541,7 +542,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 
 	priceData, err := helper.ModelPriceHelperPerCall(c, relayInfo)
 	if err != nil {
-		if service.IsQuotaClamp(err) {
+		if mappingfx.IsQuotaClamp(err) {
 			billinggateway.BillingAdmissionError(c, relayInfo, err)
 			return &dto.MidjourneyResponse{Code: 4, Description: "quota_not_enough"}
 		}

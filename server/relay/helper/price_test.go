@@ -1,6 +1,9 @@
 package helper
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+
 	"bytes"
 	"context"
 	"errors"
@@ -68,7 +71,7 @@ func publishModelCostFXForPriceTest(rates map[string]float64) error {
 		return err
 	}
 	version := row.Version + 1
-	if current, err := model.CurrentModelCostFX(modelCostFXTestSource); err == nil && current.Version >= version {
+	if current, err := fxstate.CurrentModelCostFX(modelCostFXTestSource); err == nil && current.Version >= version {
 		version = current.Version + 1
 	}
 	encoded, err := common.Marshal(rates)
@@ -89,7 +92,7 @@ func publishModelCostFXForPriceTest(rates map[string]float64) error {
 	}).Error; err != nil {
 		return err
 	}
-	return model.LoadModelCostFX(context.Background(), modelCostFXTestSource)
+	return fxstorage.LoadModelCostFX(context.Background(), modelCostFXTestSource)
 }
 
 func TestModelPriceHelperRejectsMissingFXForFreePricing(t *testing.T) {
@@ -164,7 +167,7 @@ func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 
 	savedGroups := ratio_setting.GroupRatio2JSONString()
 	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(savedGroups)) })
-	previousFX, err := model.CurrentModelCostFX(modelCostFXTestSource)
+	previousFX, err := fxstate.CurrentModelCostFX(modelCostFXTestSource)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, publishModelCostFXForPriceTest(previousFX.Rates)) })
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"tiered-fx":1.45}`))

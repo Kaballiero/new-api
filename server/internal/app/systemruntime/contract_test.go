@@ -2,6 +2,9 @@
 package systemruntime_test
 
 import (
+	metricsstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics"
+	metricsdomain "github.com/QuantumNous/new-api/internal/system/domain"
+
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -22,13 +25,13 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	perfmetrics "github.com/QuantumNous/new-api/internal/app/systemmetrics"
 	"github.com/QuantumNous/new-api/internal/app/systemruntime"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	sf "github.com/QuantumNous/new-api/internal/contracttest/systemfixture"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -789,14 +792,14 @@ func metricsCase(t *testing.T, tc systemCase, request func(string, string, strin
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"active":2}`))
 	if !slices.Contains([]string{"missing_model", "empty", "nav_auth", "nav_disabled"}, tc.Variant) {
 		for i, group := range []string{"default", "active", "inactive", "auto"} {
-			require.NoError(t, model.UpsertPerfMetric(&model.PerfMetric{ModelName: "fixture",
+			require.NoError(t, metricsstorage.UpsertPerfMetric(&model.PerfMetric{ModelName: "fixture",
 				Group: group, BucketTs: fixture.Epoch - 3600, RequestCount: 2, SuccessCount: 1,
 				TotalLatencyMs: int64(200 + i), TtftSumMs: 40, TtftCount: 1, OutputTokens: 20,
 				GenerationMs: 1000}))
 		}
 	}
 	if tc.Variant == "hot" || tc.Variant == "mixed" {
-		perfmetrics.Record(perfmetrics.Sample{Model: "fixture", Group: "active", LatencyMs: 300,
+		perfmetrics.Record(metricsdomain.Sample{Model: "fixture", Group: "active", LatencyMs: 300,
 			TtftMs: 20, HasTtft: true, Success: true, OutputTokens: 30, GenerationMs: 200})
 	}
 	path := "/api/perf-metrics?model=fixture"
@@ -822,7 +825,7 @@ func metricsCase(t *testing.T, tc systemCase, request func(string, string, strin
 	case "summary", "summary_ties":
 		path = "/api/perf-metrics/summary"
 		if tc.Variant == "summary_ties" {
-			require.NoError(t, model.UpsertPerfMetric(&model.PerfMetric{ModelName: "second",
+			require.NoError(t, metricsstorage.UpsertPerfMetric(&model.PerfMetric{ModelName: "second",
 				Group: "default", BucketTs: fixture.Epoch - 3600, RequestCount: 6, SuccessCount: 4,
 				TotalLatencyMs: 500, GenerationMs: 2000, OutputTokens: 17}))
 		}

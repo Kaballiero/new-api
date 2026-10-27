@@ -1,6 +1,8 @@
 package billing_test
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+
 	"bytes"
 	"context"
 	"flag"
@@ -412,7 +414,7 @@ func newBillingEnv(t *testing.T, tc billingCase, useRedis bool) *contracttest.En
 	// Loading a fixed publication directly also keeps its version/timestamps
 	// independent from how many earlier cases ran in this test process.
 	require.NoError(t, env.DB.Create(&model.ModelCostFXRow{Source: "cbr-xml-daily.ru", EffectiveAt: 1700000000, FetchedAt: 1700000000, Version: 1, RatesJSON: `{"USD":100}`}).Error)
-	require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
+	require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
 	if useRedis {
 		server := miniredis.RunT(t)
 		client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: -1})
@@ -738,7 +740,7 @@ func publishBillingCostFX(db *gorm.DB, rates string, version int64) error {
 	}).Error; err != nil {
 		return err
 	}
-	return model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru")
+	return fxstorage.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru")
 }
 
 func runBillingCostRelayContract(t *testing.T, tc billingCostCase) {

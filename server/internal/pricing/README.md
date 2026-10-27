@@ -86,3 +86,19 @@ ResetModelRatios пишет через settings owner из app, сохраняя
 Pricing/catalog composition принадлежит leaf app; технические records/cache/publication state находятся
 в adapters. Одноразовая request-specific SQL mutation capability передаётся shared mutation usecase
 при Execute, без отдельного postcommit вызова и без общего изменяемого request state.
+
+## Курсы валют для стоимости
+
+`refresh_cost_fx` загружает last-good baseline, получает provider facts, проверяет московскую
+календарную дату и USD nominal, сохраняет новую публикацию через CAS либо возвращает прежнюю
+версию при тех же дате/курсе. Version conflict не повторяется. Record `ModelCostFXRow` находится
+в `adapter/gorm/pricing/record`, SQL и transaction — в `adapter/gorm/pricing/fx`, единственный RAM
+cache и monotonic publication — в `adapter/pricing/fx`. Normalize/ошибки/публикация — pricing/domain.
+`model.ModelCostFXRow` остаётся только table alias для bootstrap/migrations.
+
+`app/pricingfx` собирает refresh один раз и запускает replica reload once на каждом узле:
+немедленное чтение DB, затем minute ticker; scheduled refresh остаётся master-gated system task.
+HTTP adapter `adapter/http/pricing/fx` сохраняет 10s timeout, запрет redirects, 1MiB limit и прежний
+JSON wire type namespace `service`, чтобы диагностические error bytes не менялись. Package path
+принадлежит adapter; прежних service FX bodies/facades нет. Billing читает только опубликованную RAM;
+экономика, frozen basis, source/version и quota conversion остаются существующему billing owner.

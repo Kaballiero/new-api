@@ -1,6 +1,10 @@
 package controller
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -254,13 +258,13 @@ func TestRelayPricingAdmissionPresentersAreSafeAndLocal(t *testing.T) {
 		assert.NotEqual(t, http.StatusServiceUnavailable, baselineRecorder.Code, "valid USD basis must pass pricing before the expected no-channel rejection")
 		assert.Empty(t, baseline.GetStringSlice("use_channel"))
 
-		current, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+		current, err := fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 		require.NoError(t, err)
-		require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+		require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
 			Source: current.Source, EffectiveAt: current.EffectiveAt + 1, FetchedAt: current.FetchedAt + 1,
 			Rates: map[string]float64{"EUR": 1},
 		}, current.Version))
-		require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
+		require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
 		t.Cleanup(func() { seedNativeRouteFX(t, database) })
 
 		unavailable, unavailableRecorder := newContext()

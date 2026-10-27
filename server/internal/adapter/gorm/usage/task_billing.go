@@ -1,6 +1,8 @@
 package usage
 
 import (
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"encoding/base64"
 	"encoding/json"
 
@@ -12,7 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -58,7 +60,7 @@ func (TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota i
 		if projection.HasSpecialRatio {
 			other.SetPublic("user_group_ratio", projection.SpecialRatio)
 		}
-		if _, modern, err := domain.TaskBillingFXFactor(task.PrivateData.BillingContext, service.ModelCostFXSource); err == nil && modern {
+		if _, modern, err := domain.TaskBillingFXFactor(task.PrivateData.BillingContext, pricingdomainfx.ModelCostFXSource); err == nil && modern {
 			other.SetAdmin("billing_stage", "completion_tokens")
 			applied := map[string]any{"pure_ratio": projection.GroupRatio, "effective_ratio": projection.GroupRatio * (t.PrivateData.BillingContext.BillingFX.Rate / billingdomain.FXRateDenomination)}
 			if projection.HasSpecialRatio {
@@ -66,7 +68,7 @@ func (TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota i
 			}
 			other.SetAdmin("billing_applied_group", applied)
 		}
-	} else if _, modern, err := domain.TaskBillingFXFactor(task.PrivateData.BillingContext, service.ModelCostFXSource); err == nil && modern {
+	} else if _, modern, err := domain.TaskBillingFXFactor(task.PrivateData.BillingContext, pricingdomainfx.ModelCostFXSource); err == nil && modern {
 		switch {
 		case reason == "任务用量表达式结算" || reason == "Task usage expression settlement":
 			other.SetAdmin("billing_stage", "completion_tiered")
@@ -112,7 +114,7 @@ func taskBillingOtherWithProjection(task *model.Task, projection *domain.Billing
 		if bc.ModelRatio > 0 {
 			other.SetPublic("model_ratio", bc.ModelRatio)
 		}
-		if _, modern, err := domain.TaskBillingFXFactor(record.ToDomainTaskBillingContext(bc), service.ModelCostFXSource); err == nil && modern {
+		if _, modern, err := domain.TaskBillingFXFactor(record.ToDomainTaskBillingContext(bc), pricingdomainfx.ModelCostFXSource); err == nil && modern {
 			if projection == nil {
 				other.SetPublic("group_ratio", bc.SubmitGroup.PureRatio)
 				if bc.SubmitGroup.HasSpecialRatio {

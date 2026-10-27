@@ -26,12 +26,9 @@ type BillingGatewayPort interface {
 	PreWss(*gin.Context, *relaycommon.RelayInfo, *dto.RealtimeUsage) error
 	TokenParams(*dto.Usage, bool, map[string]bool) billingexpr.TokenParams
 	CacheCreateTokens(dto.Usage, hosttypes.PriceData) int
-	CurrentFX() (BillingFXBasis, error)
-	CaptureFX(*relaycommon.RelayInfo) (float64, error)
-	ApplyFX(float64, float64) (float64, error)
 }
 
-// BRIDGE: service/{violation_fee,billing_fx,tiered_settle}.go; remove when violation fees, FX and tiered settlement have their own owners;
+// BRIDGE: service/{violation_fee,tiered_settle}.go; remove when violation fees and tiered settlement have their own owners;
 // immutable internal/billing/{contract,usage_contract}_test.go and controller/wss_characterization_test.go.
 var BillingGateway BillingGatewayPort
 

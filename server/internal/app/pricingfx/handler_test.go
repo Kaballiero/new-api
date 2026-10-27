@@ -1,6 +1,9 @@
-package service_test
+package pricingfx_test
 
 import (
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"context"
 	"fmt"
 	"net/http"
@@ -12,10 +15,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
 	"github.com/QuantumNous/new-api/internal/app"
+	pricingfx "github.com/QuantumNous/new-api/internal/app/pricingfx"
 	"github.com/QuantumNous/new-api/internal/app/systemruntime"
 	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -31,7 +34,7 @@ func fxTaskHandler(t *testing.T) domain.SystemTaskHandler {
 	return nil
 }
 func TestModelCostFXTaskRunSuccessAndFailure(t *testing.T) {
-	service.ModelCostFXTestDialect(t)
+	pricingfx.ModelCostFXTestDialect(t)
 	for _, tc := range []struct {
 		name   string
 		status int
@@ -42,7 +45,7 @@ func TestModelCostFXTaskRunSuccessAndFailure(t *testing.T) {
 		{"failure", http.StatusBadGateway, `{}`, model.SystemTaskStatusFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			seed := service.ModelCostFXTestSeed(t)
+			seed := pricingfx.ModelCostFXTestSeed(t)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tc.status)
 				body := tc.body
@@ -52,7 +55,7 @@ func TestModelCostFXTaskRunSuccessAndFailure(t *testing.T) {
 				_, _ = w.Write([]byte(body))
 			}))
 			defer server.Close()
-			service.SystemContractFXEndpoint(t, server.URL)
+			pricingfx.SystemContractFXEndpoint(t, server.URL)
 			task, err := systemStoreSystemTaskTest.CreateSystemTask(domain.SystemTaskTypeModelCostFX, nil, nil)
 			require.NoError(t, err)
 			claimed, ok, err := systemStoreSystemTaskTest.ClaimSystemTask(task.ID, domain.SystemTaskTypeModelCostFX, "fx-test", common.GetTimestamp()+60)
@@ -62,7 +65,7 @@ func TestModelCostFXTaskRunSuccessAndFailure(t *testing.T) {
 			latest, err := latestTask(domain.SystemTaskTypeModelCostFX)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, latest.Status)
-			current, err := model.CurrentModelCostFX(service.ModelCostFXSource)
+			current, err := fxstate.CurrentModelCostFX(pricingdomainfx.ModelCostFXSource)
 			require.NoError(t, err)
 			wantRate := 90.0
 			if tc.want == model.SystemTaskStatusSucceeded {
@@ -74,11 +77,11 @@ func TestModelCostFXTaskRunSuccessAndFailure(t *testing.T) {
 }
 
 func TestModelCostFXTaskKeepsCommittedFXWhenFinishLosesLease(t *testing.T) {
-	service.ModelCostFXTestDialect(t)
-	service.ModelCostFXTestTruncate(t)
+	pricingfx.ModelCostFXTestDialect(t)
+	pricingfx.ModelCostFXTestTruncate(t)
 	_ = model.DB.Where("type = ?", domain.SystemTaskTypeModelCostFX).Delete(&model.SystemTask{})
 	_ = model.DB.Where("type = ?", domain.SystemTaskTypeModelCostFX).Delete(&model.SystemTaskLock{})
-	seed := service.ModelCostFXTestSeed(t)
+	seed := pricingfx.ModelCostFXTestSeed(t)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -94,7 +97,7 @@ func TestModelCostFXTaskKeepsCommittedFXWhenFinishLosesLease(t *testing.T) {
 			close(release)
 		}
 	}()
-	service.SystemContractFXEndpoint(t, server.URL)
+	pricingfx.SystemContractFXEndpoint(t, server.URL)
 	task, err := systemStoreSystemTaskTest.CreateSystemTask(domain.SystemTaskTypeModelCostFX, nil, nil)
 	require.NoError(t, err)
 	claimed, ok, err := systemStoreSystemTaskTest.ClaimSystemTask(task.ID, domain.SystemTaskTypeModelCostFX, "fx-test", common.GetTimestamp()+60)
@@ -116,7 +119,7 @@ func TestModelCostFXTaskKeepsCommittedFXWhenFinishLosesLease(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("handler did not finish")
 	}
-	current, err := model.CurrentModelCostFX(service.ModelCostFXSource)
+	current, err := fxstate.CurrentModelCostFX(pricingdomainfx.ModelCostFXSource)
 	require.NoError(t, err)
 	assert.Equal(t, 93.0, current.Rates["USD"])
 	var latest model.SystemTask

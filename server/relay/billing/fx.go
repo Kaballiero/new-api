@@ -6,29 +6,25 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	app "github.com/QuantumNous/new-api/internal/app/billing"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
 func fxError(err error) error {
 	var failure *domain.FXError
 	if errors.As(err, &failure) {
-		return service.NewBillingFXError(failure.Error())
+		return mapping.NewBillingFXError(failure.Error())
 	}
 	return err
 }
-func (g *Gateway) CurrentFX() (service.BillingFXBasis, error) {
-	basis, err := g.costs.FX.Execute(domain.FXBasis{})
-	return service.BillingFXBasis(basis), fxError(err)
-}
 func (g *Gateway) CaptureFX(info *relaycommon.RelayInfo) (float64, error) {
 	if info == nil {
-		return 0, service.NewBillingFXError("model cost FX basis is invalid")
+		return 0, mapping.NewBillingFXError("model cost FX basis is invalid")
 	}
 	basis, err := g.costs.FX.Execute(domain.FXBasis{USDRate: info.BillingFXRate, Factor: info.BillingFXFactor, Source: info.BillingFXSource, PublicationVersion: info.BillingFXPublicationVersion, EffectiveAt: info.BillingFXEffectiveAt, FetchedAt: info.BillingFXFetchedAt})
 	if err != nil {
@@ -54,16 +50,16 @@ func CaptureBillingFX(info *relaycommon.RelayInfo) (float64, error) {
 func ApplyBillingFX(pure, factor float64) (float64, error) {
 	return defaultGateway.ApplyFX(pure, factor)
 }
-func CurrentBillingFXStatus() service.BillingFXStatus {
+func CurrentBillingFXStatus() mapping.BillingFXStatus {
 	s, err := app.CostFXSettings().Read()
 	if err != nil {
-		return service.BillingFXStatus{}
+		return mapping.BillingFXStatus{}
 	}
 	rate, err := domain.PublishedUSD(s)
 	if err != nil {
-		return service.BillingFXStatus{}
+		return mapping.BillingFXStatus{}
 	}
-	return service.BillingFXStatus{Available: true, USDRate: &rate}
+	return mapping.BillingFXStatus{Available: true, USDRate: &rate}
 }
 
 // billingAdmissionError keeps the diagnostic cause available to internal
@@ -85,7 +81,7 @@ func BillingAdmissionError(c *gin.Context, info *relaycommon.RelayInfo, err erro
 		}
 		return types.NewErrorWithStatusCode(&billingAdmissionError{cause: err}, types.ErrorCodeInsufficientUserQuota, 403, types.ErrOptionWithSkipRetry())
 	}
-	if service.IsBillingFXError(err) {
+	if mapping.IsBillingFXError(err) {
 		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, 503, types.ErrOptionWithSkipRetry())
 	}
 	return nil

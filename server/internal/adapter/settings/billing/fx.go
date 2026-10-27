@@ -1,13 +1,14 @@
 package billing
 
 import (
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"github.com/QuantumNous/new-api/internal/billing/domain"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 )
 
 func ReadFX() (domain.FXPublication, error) {
-	s, err := model.CurrentModelCostFX(service.ModelCostFXSource)
+	s, err := fxstate.CurrentModelCostFX(pricingdomainfx.ModelCostFXSource)
 	if err != nil {
 		return domain.FXPublication{}, err
 	}

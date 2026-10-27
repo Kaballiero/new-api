@@ -2,6 +2,8 @@
 package contract
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+
 	"bytes"
 	"context"
 	"crypto"
@@ -836,7 +838,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 			FetchedAt:   fixture.Epoch,
 			Version:     1,
 			RatesJSON:   `{"USD":100}`}).Error)
-	require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
+	require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
 	logDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "logs.db")+"?_pragma=synchronous(OFF)"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, logDB.AutoMigrate(&model.Log{}, &model.AuditLog{}))

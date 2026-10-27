@@ -1,6 +1,8 @@
 package controller
 
 import (
+	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
+
 	"context"
 	"errors"
 	"fmt"
@@ -39,7 +41,7 @@ import (
 
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 
-	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	perfmetrics "github.com/QuantumNous/new-api/gateway/metrics"
 	"github.com/QuantumNous/new-api/relay"
 
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
@@ -125,7 +127,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
-			if !service.IsQuotaClamp(newAPIError) {
+			if !mappingfx.IsQuotaClamp(newAPIError) {
 				newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			}
 			switch relayFormat {

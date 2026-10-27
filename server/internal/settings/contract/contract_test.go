@@ -2,6 +2,8 @@
 package contract
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -744,7 +746,7 @@ func projectionContract(t *testing.T, tc optionCase, request func(string, string
 	case "fx":
 		require.NoError(t, model.DB.Create(&model.ModelCostFXRow{Source: "cbr-xml-daily.ru", EffectiveAt: fixture.Epoch,
 			FetchedAt: fixture.Epoch, Version: 1, RatesJSON: `{"USD":100}`}).Error)
-		require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
+		require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
 	case "plugin_off":
 		require.NoError(t, settingsapp.Default().Write.Execute("TaskPluginEnabled", "false"))
 	case "factory_off":

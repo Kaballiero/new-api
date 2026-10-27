@@ -46,3 +46,30 @@ type ModelSummary struct {
 type SummaryAllResult struct {
 	Models []ModelSummary `json:"models"`
 }
+
+type Sample struct {
+	Model        string
+	Group        string
+	LatencyMs    int64
+	TtftMs       int64
+	HasTtft      bool
+	Success      bool
+	OutputTokens int64
+	GenerationMs int64
+}
+
+type MetricBucketKey struct {
+	Model    string
+	Group    string
+	BucketTs int64
+}
+
+type MetricCounters struct {
+	RequestCount   int64
+	SuccessCount   int64
+	TotalLatencyMs int64
+	TtftSumMs      int64
+	TtftCount      int64
+	OutputTokens   int64
+	GenerationMs   int64
+}

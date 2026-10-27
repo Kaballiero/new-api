@@ -140,7 +140,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 | плагины задач | `internal/app/taskplugins.StartSync` (первый pass сразу, затем 30s, каждый узел) | taskplugins |
 | обновление Codex-учётных данных | `service.StartCodexCredentialAutoRefreshTask` | channels |
 | сброс квоты подписок | `app/subscriptions.StartSubscriptionQuotaResetTask` | subscriptions |
-| курсы валют для цен | `service.StartModelCostFX` | pricing |
+| курсы валют для цен | `pricingfx.StartModelCostFX` | pricing |
 | отчёт об инстансе | `internal/app/systemruntime.StartSystemInstanceReporter` | system |
 | очистка артефактов входа | `service.StartAuthArtifactCleanup` | identity |
 | пакетная запись счётчиков | `internal/app.StartBatchUpdater` | shared counter composition |
@@ -309,9 +309,12 @@ Cleanup SQL принадлежит gorm/usage и читает LOG_DB; task-state
 Uptime outbound — adapter/http/system с прежним клиентом/redirects; common stats/cache/monitor остаются едиными.
 GetStatus получает late version/start/setup, сохраняя прежнюю aggregate projection.
 
-Открытые ownership gaps до волны 7: FX refresh в service через собственный BRIDGE и pkg/perf_metrics
-как единственный collection/query/flush/SQL/Redis owner (A3=B). RelayInfo mapping не переносился;
-нового metric state или model/service→internal executable imports нет.
+FX refresh принадлежит pricing/refresh_cost_fx, SQL/RAM/HTTP находятся у pricing adapters,
+replica reload once/immediate/minute на каждом узле — app/pricingfx. System task использует этот
+scenario без прежнего service BRIDGE. System metrics core/loop — leaf app/systemmetrics,
+aggregation counters — runtime adapter, SQL/Redis — отдельные adapters. Init сохраняет повторяемость,
+sleep-first interval/enabled/retention читаются поздно. Query читает DB+local state; Redis write-only.
+RelayInfo projection — gateway/metrics. Model содержит только соответствующие table aliases.
 
 
 ## Deployments, catalog и notifications (6c)

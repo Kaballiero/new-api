@@ -1,11 +1,11 @@
-package service_test
+package pricingfx_test
 
 import (
 	"strings"
 	"testing"
 
+	pricingfx "github.com/QuantumNous/new-api/internal/app/pricingfx"
 	f "github.com/QuantumNous/new-api/internal/contracttest/systemruntimefixture"
-	"github.com/QuantumNous/new-api/service"
 )
 
 func TestSystemRuntimeContract(t *testing.T) {
@@ -15,5 +15,5 @@ func TestSystemRuntimeContract(t *testing.T) {
 			names = append(names, n)
 		}
 	}
-	f.Run(t, "testdata/system", names, f.Hooks{Handlers: scheduledTaskHandlers, FXEndpoint: service.SystemContractFXEndpoint})
+	f.Run(t, "../../../service/testdata/system", names, f.Hooks{Handlers: scheduledTaskHandlers, FXEndpoint: pricingfx.SystemContractFXEndpoint})
 }

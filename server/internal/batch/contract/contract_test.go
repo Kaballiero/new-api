@@ -2,6 +2,8 @@
 package contract
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -408,7 +410,7 @@ func runBatchHTTP(t *testing.T, tc batchCase, updating bool) {
 			Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 1000000, Group: "default"}).Error)
 		require.NoError(t, env.DB.Create(&model.ModelCostFXRow{Source: "cbr-xml-daily.ru", EffectiveAt: taskfixture.Epoch,
 			FetchedAt: taskfixture.Epoch, Version: 1, RatesJSON: `{"USD":100}`}).Error)
-		require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
+		require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
 		for i, id := range []string{"own", "second", "third", "foreign", "deleted"} {
 			user := 1
 			if id == "foreign" {

@@ -1,10 +1,8 @@
-package service
+package mapping
 
 import (
 	"errors"
-
 	"github.com/QuantumNous/new-api/common"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
 // BillingFXStatus is the read-only current model-cost FX basis exposed to the
@@ -15,25 +13,6 @@ type BillingFXStatus struct {
 	USDRate   *float64 `json:"usd_rate,omitempty"`
 }
 
-// BillingFXBasis is the validated read-only FX basis used by both consumption
-// admission and effective pricing display.
-type BillingFXBasis struct {
-	USDRate            float64 `json:"usd_rate"`
-	Factor             float64 `json:"factor"`
-	Source             string  `json:"source"`
-	PublicationVersion int64   `json:"publication_version"`
-	EffectiveAt        int64   `json:"effective_at"`
-	FetchedAt          int64   `json:"fetched_at"`
-}
-
-// CurrentBillingFXBasis is the shared frozen-basis reader for Batch.
-func CurrentBillingFXBasis() (BillingFXBasis, error) { return BillingGateway.CurrentFX() }
-func CaptureBillingFX(info *relaycommon.RelayInfo) (float64, error) {
-	return BillingGateway.CaptureFX(info)
-}
-func ApplyBillingFX(pure, factor float64) (float64, error) {
-	return BillingGateway.ApplyFX(pure, factor)
-}
 func NewBillingFXError(message string) error { return &BillingFXError{message: message} }
 
 // BillingFXError is a trusted host accounting admission failure. Its message

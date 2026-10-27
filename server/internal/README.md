@@ -8,7 +8,7 @@
 
 | Модуль | Ответственность | Сценариев | README |
 |---|---|---|---|
-| `system` | setup, task registry/lease/history/cleanup, instances и runtime maintenance; FX/metrics gaps до волны 7 | 25 | [README](system/README.md) |
+| `system` | setup, task registry/lease/history/cleanup, instances и runtime maintenance и performance metrics | 25 | [README](system/README.md) |
 | `deployments` | управление io.net deployments, настройки и технические provider reads | 18 | [README](deployments/README.md) |
 | `notifications` | доставка, event limiter, root и upstream model watchers | 3 | [README](notifications/README.md) |
 | `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; общий publication adapter и leaf pricing runtime | 11 | [README](settings/README.md) |
@@ -18,7 +18,7 @@
 | `personal_access_tokens` | персональные токены доступа к панели управления (PAT): выпуск, статус, отзыв и проверка | 4 | [README](personal_access_tokens/README.md) |
 | `authorization` | права администраторов (Casbin): каталог разрешений, проверка, переопределения для пользователя, загрузка политики | 11 | [README](authorization/README.md) |
 | `catalog` | модели/вендоры, metadata sync, доступность моделей шлюза, presets и prefill groups | 25 | [README](catalog/README.md) |
-| `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 25 | [README](pricing/README.md) |
+| `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 26 | [README](pricing/README.md) |
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
 | `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 11 | [README](billing/README.md) |
 | `batch` | native Batch admission holds, execution, results, settlement/release, procurement и polling; provider wire остаётся в relay/batch | 10 | [README](batch/README.md) |
@@ -47,7 +47,7 @@ README каждого модуля появляется в коммите, ко�
 Шлюз (`relay/`, `controller/relay.go`) остаётся снаружи internal; его static model snapshot и wire rendering принадлежат `relay/modelcatalog` и `relay/modelview`. Deployments, catalog HTTP и notifications перенесены. Settings publisher/mutex принадлежат `adapter/settings/publication`, pricing state — `adapter/pricing/state`,
 общая сборка — leaf `app/pricingruntime`. Metadata mutex/anchor/transaction находятся в catalog adapter;
 same-tx pricing edits передаются явной capability. Catalog domain чистый; codecs/version hashing — adapters.
-System FX и perf_metrics сохраняют описанные в README границы.
+System metrics core/loop собирается в leaf app/systemmetrics; aggregation/SQL/Redis находятся в adapters. Pricing FX refresh/replica lifecycle собирается в leaf app/pricingfx; RelayInfo mapping принадлежит gateway/metrics.
 
 - `tasks` — durable async/Midjourney учёт, terminal billing, polling и media access; core сборка
   `app/tasks`, gateway/runtime — `app/taskruntime`, records/SQL — `adapter/gorm/tasks`.

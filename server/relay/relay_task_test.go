@@ -1,6 +1,10 @@
 package relay
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"bytes"
 	"context"
 	"errors"
@@ -269,7 +273,7 @@ func seedRelayTaskTestFX(t *testing.T) {
 	err = db.Where("source = ?", "cbr-xml-daily.ru").First(&row).Error
 	require.True(t, err == nil || errors.Is(err, gorm.ErrRecordNotFound))
 	effectiveAt, fetchedAt, currentVersion := row.EffectiveAt, row.FetchedAt, int64(0)
-	if current, currentErr := model.CurrentModelCostFX("cbr-xml-daily.ru"); currentErr == nil {
+	if current, currentErr := fxstate.CurrentModelCostFX("cbr-xml-daily.ru"); currentErr == nil {
 		currentVersion = current.Version
 		if current.EffectiveAt > effectiveAt {
 			effectiveAt = current.EffectiveAt
@@ -281,13 +285,13 @@ func seedRelayTaskTestFX(t *testing.T) {
 	for first := true; first || row.Version <= currentVersion; first = false {
 		effectiveAt++
 		fetchedAt++
-		require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+		require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
 			Source: "cbr-xml-daily.ru", EffectiveAt: effectiveAt, FetchedAt: fetchedAt,
 			Rates: map[string]float64{"USD": 100},
 		}, row.Version))
 		require.NoError(t, db.Where("source = ?", "cbr-xml-daily.ru").First(&row).Error)
 	}
-	require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
+	require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
 }
 
 func TestRelayTaskSubmitClampEmitsOneCorrelatedWarning(t *testing.T) {
@@ -494,13 +498,13 @@ func TestRelayTaskExpressionFXRateMatrix(t *testing.T) {
 		{90, 1.305, 1_305_000}, {100, 1.45, 1_450_000}, {110, 1.595, 1_595_000},
 	} {
 		t.Run(fmt.Sprintf("rate_%g", tc.rate), func(t *testing.T) {
-			current, err := model.CurrentModelCostFX("cbr-xml-daily.ru")
+			current, err := fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 			require.NoError(t, err)
-			require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
+			require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
 				Source: current.Source, EffectiveAt: current.EffectiveAt + 1, FetchedAt: current.FetchedAt + 1,
 				Rates: map[string]float64{"USD": tc.rate},
 			}, current.Version))
-			require.NoError(t, model.LoadModelCostFX(context.Background(), current.Source))
+			require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), current.Source))
 			userID := 4460 + i
 			require.NoError(t, model.DB.Create(&model.User{Id: userID, Username: fmt.Sprintf("task-matrix-%d", i), AffCode: fmt.Sprintf("mx%d", i), Quota: 5_000_000, Group: "default"}).Error)
 			c, info := newTaskSubmitContext(t, "declared-model", "")

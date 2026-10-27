@@ -1,6 +1,8 @@
 package systemruntime
 
 import (
+	"github.com/QuantumNous/new-api/internal/app/systemmetrics"
+
 	"runtime"
 	"time"
 
@@ -92,8 +94,8 @@ func NewHTTP() HTTP {
 		GC:              force_gc.NewHandler(runtime.GC),
 		LogFiles:        list_log_files.NewHandler(files),
 		CleanupFiles:    delete_log_files.NewHandler(delete_log_files.NewUsecase(files, time.Now), files.Directory),
-		Metrics:         get_perf_metrics.NewHandler(technical.Metrics{}, activeGroups),
-		MetricsSummary:  get_perf_metrics_summary.NewHandler(technical.Metrics{}, activeGroups),
+		Metrics:         get_perf_metrics.NewHandler(technical.Metrics{QueryMetrics: systemmetrics.Query, QuerySummary: systemmetrics.QuerySummaryAll}, activeGroups),
+		MetricsSummary:  get_perf_metrics_summary.NewHandler(technical.Metrics{QueryMetrics: systemmetrics.Query, QuerySummary: systemmetrics.QuerySummaryAll}, activeGroups),
 		Uptime:          get_uptime_status.NewHandler(get_uptime_status.NewUsecase(func() get_uptime_status.Client { return outbound.NewUptimeClient() }), console_setting.GetUptimeKumaGroups),
 	}
 }

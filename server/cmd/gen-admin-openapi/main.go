@@ -132,6 +132,7 @@ func bootstrap() error {
 		"./constant",
 		"./service",
 		"./relay/billing",
+		"./gateway/mapping",
 	} {
 		scanPackageVars(dir)
 	}

@@ -1,6 +1,8 @@
 package systemruntime
 
 import (
+	pricingfx "github.com/QuantumNous/new-api/internal/app/pricingfx"
+
 	"context"
 	"fmt"
 	"sync"
@@ -14,7 +16,7 @@ import (
 	taskruntime "github.com/QuantumNous/new-api/internal/app/taskruntime"
 	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
@@ -207,7 +209,7 @@ func (modelCostFXTaskHandler) Interval() time.Duration { return time.Hour }
 func (modelCostFXTaskHandler) NewPayload() any         { return nil }
 
 func (modelCostFXTaskHandler) Run(ctx context.Context, task *domain.SystemTask, runnerID string) {
-	result, err := service.RefreshModelCostFX(ctx)
+	result, err := pricingfx.Refresh().Execute(ctx)
 	if err != nil {
 		core.FailSystemTask(task, runnerID, err)
 		return

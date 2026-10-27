@@ -1,6 +1,9 @@
 package controller
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+
 	"context"
 	"errors"
 	"fmt"
@@ -574,10 +577,10 @@ func TestExecuteOpenRouterSubmissionAccepts202BeforePersistingTask(t *testing.T)
 		model.LOG_DB, common.RedisEnabled, common.BatchUpdateEnabled, common.LogConsumeEnabled = previousLogDB, previousRedis, previousBatch, previousLogEnabled
 		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousRate
 	})
-	current, _ := model.CurrentModelCostFX("cbr-xml-daily.ru")
+	current, _ := fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 	version := max(current.Version+1, 1)
 	require.NoError(t, database.Create(&model.ModelCostFXRow{Source: "cbr-xml-daily.ru", Version: version, EffectiveAt: time.Now().Unix(), FetchedAt: time.Now().Unix(), RatesJSON: `{"USD":100}`}).Error)
-	require.NoError(t, model.LoadModelCostFX(t.Context(), "cbr-xml-daily.ru"))
+	require.NoError(t, fxstorage.LoadModelCostFX(t.Context(), "cbr-xml-daily.ru"))
 	savedConfig := map[string]string{}
 	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { savedConfig[key] = value; return nil }))
 	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig)) })

@@ -630,6 +630,15 @@ func TestGeneratedChannelTaskContracts(t *testing.T) {
 		})
 	}
 
+	t.Run("billing FX status retains its published schema", func(t *testing.T) {
+		status := responseSchema("/api/status", "200")
+		data := status["properties"].(map[string]any)["data"].(map[string]any)
+		assert.Equal(t, map[string]any{"$ref": "#/components/schemas/BillingFXStatus"}, data["properties"].(map[string]any)["billing_fx"])
+		assert.Equal(t, map[string]any{"type": "object", "properties": map[string]any{
+			"available": map[string]any{"type": "boolean"}, "usd_rate": map[string]any{"type": "number"},
+		}}, schemas["BillingFXStatus"])
+	})
+
 	t.Run("unaffected contracts", func(t *testing.T) {
 		assert.Equal(t, map[string]any{"$ref": "#/components/schemas/ApiResponseOfChannelTestResponse"}, responseSchema("/api/channel/test/{id}", "200"))
 		assert.Equal(t, structToSchema(modelTypes["ChannelTestResponse"]), schemas["ChannelTestResponse"])

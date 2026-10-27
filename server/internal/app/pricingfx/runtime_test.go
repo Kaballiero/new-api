@@ -1,6 +1,10 @@
-package service
+package pricingfx
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"context"
 	"errors"
 	"fmt"
@@ -97,12 +101,12 @@ func TestModelCostFXFixtureKeepsTaskBillingDatabaseIsolated(t *testing.T) {
 	assert.Equal(t, 47, task.Quota)
 }
 
-func seedModelCostFXServiceTest(t *testing.T) model.ModelCostFXSnapshot {
+func seedModelCostFXServiceTest(t *testing.T) pricingdomainfx.ModelCostFXSnapshot {
 	t.Helper()
 	require.NoError(t, model.DB.AutoMigrate(&model.ModelCostFXRow{}))
 	// Synchronize the process cache with the dialect-specific row left by an
 	// earlier count iteration before deriving the next optimistic-lock version.
-	_ = model.LoadModelCostFX(context.Background(), modelCostFXSource)
+	_ = fxstorage.LoadModelCostFX(context.Background(), modelCostFXSource)
 	var row model.ModelCostFXRow
 	err := model.DB.Where("source = ?", modelCostFXSource).First(&row).Error
 	require.True(t, err == nil || errors.Is(err, gorm.ErrRecordNotFound))
@@ -111,9 +115,9 @@ func seedModelCostFXServiceTest(t *testing.T) model.ModelCostFXSnapshot {
 		effective = 100
 	}
 	fetched := time.Now().Unix() - 60
-	snapshot := model.ModelCostFXSnapshot{Source: modelCostFXSource, EffectiveAt: effective, FetchedAt: fetched, Rates: map[string]float64{"USD": 90}}
-	require.NoError(t, model.SaveModelCostFX(context.Background(), snapshot, row.Version))
-	loaded, err := model.CurrentModelCostFX(modelCostFXSource)
+	snapshot := pricingdomainfx.ModelCostFXSnapshot{Source: modelCostFXSource, EffectiveAt: effective, FetchedAt: fetched, Rates: map[string]float64{"USD": 90}}
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), snapshot, row.Version))
+	loaded, err := fxstate.CurrentModelCostFX(modelCostFXSource)
 	require.NoError(t, err)
 	return loaded
 }
@@ -132,13 +136,13 @@ func TestModelCostFXRefreshNormalizesUSDNominal(t *testing.T) {
 	modelCostFXEndpoint = server.URL
 	t.Cleanup(func() { modelCostFXEndpoint = previousEndpoint })
 
-	result, err := RefreshModelCostFX(context.Background())
+	result, err := Refresh().Execute(context.Background())
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, result.Version, int64(1))
-	snapshot, err := model.CurrentModelCostFX(modelCostFXSource)
+	snapshot, err := fxstate.CurrentModelCostFX(modelCostFXSource)
 	require.NoError(t, err)
 	assert.Equal(t, 90.0, snapshot.Rates["USD"])
-	second, err := RefreshModelCostFX(context.Background())
+	second, err := Refresh().Execute(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, result.Version, second.Version)
 	assert.Equal(t, result.FetchedAt, second.FetchedAt)
@@ -159,9 +163,9 @@ func TestModelCostFXRefreshFailureRetainsLastGood(t *testing.T) {
 	modelCostFXEndpoint = server.URL
 	t.Cleanup(func() { modelCostFXEndpoint = previousEndpoint })
 
-	_, err := RefreshModelCostFX(context.Background())
+	_, err := Refresh().Execute(context.Background())
 	require.Error(t, err)
-	snapshot, err := model.CurrentModelCostFX(modelCostFXSource)
+	snapshot, err := fxstate.CurrentModelCostFX(modelCostFXSource)
 	require.NoError(t, err)
 	assert.Equal(t, baselineVersion, snapshot.Version)
 	assert.Equal(t, baselineSnapshot.Rates["USD"], snapshot.Rates["USD"])
@@ -173,13 +177,25 @@ func TestModelCostFXRefreshRejectsInvalidProviderResponses(t *testing.T) {
 		name   string
 		status int
 		body   string
+		want   string
 	}{
-		{"non200", http.StatusBadGateway, `{}`},
-		{"missing usd", http.StatusOK, `{"Date":"2026-09-08T11:30:00+03:00","Valute":{}}`},
-		{"zero nominal", http.StatusOK, `{"Date":"2026-09-08T11:30:00+03:00","Valute":{"USD":{"CharCode":"USD","Value":90,"Nominal":0}}}`},
-		{"zero value", http.StatusOK, `{"Date":"2026-09-08T11:30:00+03:00","Valute":{"USD":{"CharCode":"USD","Value":0,"Nominal":1}}}`},
-		{"invalid json", http.StatusOK, `{"Date":`},
+		{"non200", http.StatusBadGateway, `{}`, ""},
+		{"missing usd", http.StatusOK, `{"Date":"2026-09-08T11:30:00+03:00","Valute":{}}`, ""},
+		{"zero nominal", http.StatusOK, `{"Date":"2026-09-08T11:30:00+03:00","Valute":{"USD":{"CharCode":"USD","Value":90,"Nominal":0}}}`, ""},
+		{"zero value", http.StatusOK, `{"Date":"2026-09-08T11:30:00+03:00","Valute":{"USD":{"CharCode":"USD","Value":0,"Nominal":1}}}`, ""},
+		{"invalid json", http.StatusOK, `{"Date":`, ""},
 	}
+	for _, value := range []struct{ name, body, kind string }{
+		{"root number", "123", "number"}, {"root array", "[]", "array"}, {"root string", `"x"`, "string"}, {"root bool", "true", "bool"},
+	} {
+		cases = append(cases, struct {
+			name   string
+			status int
+			body   string
+			want   string
+		}{value.name, http.StatusOK, value.body, "decode model cost FX provider response: json: cannot unmarshal " + value.kind + " into Go value of type service.modelCostFXProviderResponse"})
+	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			baseline := seedModelCostFXServiceTest(t)
@@ -192,9 +208,12 @@ func TestModelCostFXRefreshRejectsInvalidProviderResponses(t *testing.T) {
 			previousEndpoint := modelCostFXEndpoint
 			modelCostFXEndpoint = server.URL
 			t.Cleanup(func() { modelCostFXEndpoint = previousEndpoint })
-			_, err := RefreshModelCostFX(context.Background())
+			_, err := Refresh().Execute(context.Background())
 			require.Error(t, err)
-			current, currentErr := model.CurrentModelCostFX(modelCostFXSource)
+			if tc.want != "" {
+				assert.EqualError(t, err, tc.want)
+			}
+			current, currentErr := fxstate.CurrentModelCostFX(modelCostFXSource)
 			require.NoError(t, currentErr)
 			assert.Equal(t, baselineVersion, current.Version)
 		})
@@ -206,7 +225,7 @@ func TestModelCostFXRefreshCancellationFailsBeforeFetch(t *testing.T) {
 	require.NoError(t, model.DB.AutoMigrate(&model.ModelCostFXRow{}))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := RefreshModelCostFX(ctx)
+	_, err := Refresh().Execute(ctx)
 	require.ErrorIs(t, err, context.Canceled)
 }
 
@@ -215,10 +234,10 @@ func TestModelCostFXRefreshRejectsConcurrentWinnerWithoutRetry(t *testing.T) {
 	require.NoError(t, model.DB.AutoMigrate(&model.ModelCostFXRow{}))
 	var existing model.ModelCostFXRow
 	if err := model.DB.Where("source = ?", modelCostFXSource).First(&existing).Error; err != nil {
-		require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: modelCostFXSource, EffectiveAt: 100, FetchedAt: 200, Rates: map[string]float64{"USD": 90}}, 0))
+		require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: modelCostFXSource, EffectiveAt: 100, FetchedAt: 200, Rates: map[string]float64{"USD": 90}}, 0))
 	}
-	require.NoError(t, model.LoadModelCostFX(context.Background(), modelCostFXSource))
-	baseline, err := model.CurrentModelCostFX(modelCostFXSource)
+	require.NoError(t, fxstorage.LoadModelCostFX(context.Background(), modelCostFXSource))
+	baseline, err := fxstate.CurrentModelCostFX(modelCostFXSource)
 	require.NoError(t, err)
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -243,7 +262,7 @@ func TestModelCostFXRefreshRejectsConcurrentWinnerWithoutRetry(t *testing.T) {
 
 	resultCh := make(chan error, 1)
 	go func() {
-		_, err := RefreshModelCostFX(context.Background())
+		_, err := Refresh().Execute(context.Background())
 		resultCh <- err
 	}()
 	select {
@@ -251,11 +270,11 @@ func TestModelCostFXRefreshRejectsConcurrentWinnerWithoutRetry(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("refresh did not start HTTP")
 	}
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{Source: modelCostFXSource, EffectiveAt: baseline.EffectiveAt + 100, FetchedAt: baseline.FetchedAt + 100, Rates: map[string]float64{"USD": 91}}, baseline.Version))
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: modelCostFXSource, EffectiveAt: baseline.EffectiveAt + 100, FetchedAt: baseline.FetchedAt + 100, Rates: map[string]float64{"USD": 91}}, baseline.Version))
 	close(release)
 	select {
 	case result := <-resultCh:
-		require.ErrorIs(t, result, model.ErrModelCostFXVersionConflict)
+		require.ErrorIs(t, result, pricingdomainfx.ErrModelCostFXVersionConflict)
 	case <-time.After(time.Second):
 		t.Fatal("refresh did not finish")
 	}
@@ -263,7 +282,7 @@ func TestModelCostFXRefreshRejectsConcurrentWinnerWithoutRetry(t *testing.T) {
 	row := model.ModelCostFXRow{}
 	require.NoError(t, model.DB.Where("source = ?", modelCostFXSource).First(&row).Error)
 	assert.Equal(t, baseline.Version+1, row.Version)
-	snapshot, err := model.CurrentModelCostFX(modelCostFXSource)
+	snapshot, err := fxstate.CurrentModelCostFX(modelCostFXSource)
 	require.NoError(t, err)
 	assert.Equal(t, baseline.Version+1, snapshot.Version)
 	assert.Equal(t, 91.0, snapshot.Rates["USD"])
@@ -285,7 +304,7 @@ func TestModelCostFXReplicaReloadKeepsAndRefreshesLastGood(t *testing.T) {
 		"effective_at": seed.EffectiveAt + 1, "fetched_at": seed.FetchedAt + 1, "version": seed.Version + 1, "rates_json": nextRates,
 	}).Error)
 	loadModelCostFXFromDatabase()
-	current, err := model.CurrentModelCostFX(modelCostFXSource)
+	current, err := fxstate.CurrentModelCostFX(modelCostFXSource)
 	require.NoError(t, err)
 	assert.Equal(t, seed.Version+1, current.Version)
 	assert.Equal(t, 91.0, current.Rates["USD"])
@@ -294,7 +313,7 @@ func TestModelCostFXReplicaReloadKeepsAndRefreshesLastGood(t *testing.T) {
 	require.NoError(t, model.DB.Where("source = ?", modelCostFXSource).First(&valid).Error)
 	require.NoError(t, model.DB.Model(&model.ModelCostFXRow{}).Where("source = ?", modelCostFXSource).Update("rates_json", "{bad").Error)
 	loadModelCostFXFromDatabase()
-	retained, err := model.CurrentModelCostFX(modelCostFXSource)
+	retained, err := fxstate.CurrentModelCostFX(modelCostFXSource)
 	require.NoError(t, err)
 	assert.Equal(t, current.Version, retained.Version)
 	assert.Equal(t, 91.0, retained.Rates["USD"])

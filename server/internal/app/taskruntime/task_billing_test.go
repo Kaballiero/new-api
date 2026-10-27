@@ -1,6 +1,11 @@
 package taskruntime
 
 import (
+	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+	billinggatewayfx "github.com/QuantumNous/new-api/relay/billing"
+
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -1739,8 +1744,8 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 	taskfixture.SeedChargedAccounting(t, userID, channelID, 0, preConsumed, 1)
 
 	now := time.Now().Unix()
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
-		Source: service.ModelCostFXSource, EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 100},
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
+		Source: pricingdomainfx.ModelCostFXSource, EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 100},
 	}, 0))
 	specialRatio := 2.0
 	modern := taskfixture.MakeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0)
@@ -1758,11 +1763,11 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, won)
 
-	require.NoError(t, model.SaveModelCostFX(context.Background(), model.ModelCostFXSnapshot{
-		Source: service.ModelCostFXSource, EffectiveAt: now + 1, FetchedAt: now + 1, Rates: map[string]float64{"USD": 300},
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{
+		Source: pricingdomainfx.ModelCostFXSource, EffectiveAt: now + 1, FetchedAt: now + 1, Rates: map[string]float64{"USD": 300},
 	}, 1))
 	var changed model.ModelCostFXRow
-	require.NoError(t, model.DB.Where("source = ?", service.ModelCostFXSource).First(&changed).Error)
+	require.NoError(t, model.DB.Where("source = ?", pricingdomainfx.ModelCostFXSource).First(&changed).Error)
 	assert.Contains(t, changed.RatesJSON, "300")
 
 	taskfixture.WithOtherNode(t, func() {
@@ -1817,7 +1822,7 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 		},
 		BillingGroupRatio: 4,
 	}
-	logInfo := &relaycommon.RelayInfo{BillingFXRate: 200, BillingFXFactor: 2, BillingFXSource: service.ModelCostFXSource, BillingFXPublicationVersion: 1, BillingFXEffectiveAt: now, BillingFXFetchedAt: now, PriceData: priceData}
+	logInfo := &relaycommon.RelayInfo{BillingFXRate: 200, BillingFXFactor: 2, BillingFXSource: pricingdomainfx.ModelCostFXSource, BillingFXPublicationVersion: 1, BillingFXEffectiveAt: now, BillingFXFetchedAt: now, PriceData: priceData}
 	taskfixture.SeedToken(t, 191, userID, "fx-real-3db-token", 10_000)
 	for _, clampCase := range []struct {
 		requestID string
@@ -1889,7 +1894,7 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, float64(200), fx["rate"])
 	assert.Equal(t, float64(1), fx["schema_version"])
-	assert.Equal(t, service.ModelCostFXSource, fx["source"])
+	assert.Equal(t, pricingdomainfx.ModelCostFXSource, fx["source"])
 	assert.Equal(t, float64(1), fx["publication_version"])
 	assert.Equal(t, float64(now), fx["effective_at"])
 	assert.Equal(t, float64(now), fx["fetched_at"])
@@ -1958,7 +1963,7 @@ func TestTaskBillingFXHistoryRejectsPresentNullAndMissingMembers(t *testing.T) {
 	} {
 		var privateData model.TaskPrivateData
 		require.NoError(t, privateData.Scan(raw))
-		_, modern, err := taskdomain.TaskBillingFXFactor(record.ToDomainTaskBillingContext(privateData.BillingContext), service.ModelCostFXSource)
+		_, modern, err := taskdomain.TaskBillingFXFactor(record.ToDomainTaskBillingContext(privateData.BillingContext), pricingdomainfx.ModelCostFXSource)
 		assert.True(t, modern)
 		assert.Error(t, err)
 	}
@@ -2153,9 +2158,9 @@ func TestCaptureBillingFXRejectsCustomDenominationDrift(t *testing.T) {
 	settings.CustomCurrencyExchangeRate = 1
 	t.Cleanup(func() { settings.CustomCurrencyExchangeRate = previous })
 
-	_, err := service.CaptureBillingFX(&relaycommon.RelayInfo{BillingFXRate: 100, BillingFXFactor: 1})
+	_, err := billinggatewayfx.CaptureBillingFX(&relaycommon.RelayInfo{BillingFXRate: 100, BillingFXFactor: 1})
 	require.Error(t, err)
-	assert.True(t, service.IsBillingFXError(err))
+	assert.True(t, mappingfx.IsBillingFXError(err))
 }
 
 func TestApplyBillingFXUsesPureGroupRatioAndPublishedFactor(t *testing.T) {
@@ -2171,7 +2176,7 @@ func TestApplyBillingFXUsesPureGroupRatioAndPublishedFactor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := service.ApplyBillingFX(tt.pure, tt.factor)
+			got, err := billinggatewayfx.ApplyBillingFX(tt.pure, tt.factor)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})

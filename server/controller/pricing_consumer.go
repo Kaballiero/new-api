@@ -4,7 +4,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/app"
 
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/QuantumNous/new-api/service"
 )
 
 type consumerPricingResponse = pricingdomain.ConsumerPricingResponse
@@ -17,8 +16,8 @@ type consumerPricingOperation = pricingdomain.ConsumerPricingOperation
 
 type consumerUnitPrice = pricingdomain.ConsumerUnitPrice
 
-func buildConsumerPricingResponse(userGroup string, basis service.BillingFXBasis, pricing []pricingdomain.Pricing) consumerPricingResponse {
-	return app.NewPricingProjection().BuildConsumerPricingResponse(userGroup, pricingdomain.BillingFXBasis(basis), pricing)
+func buildConsumerPricingResponse(userGroup string, basis pricingdomain.BillingFXBasis, pricing []pricingdomain.Pricing) consumerPricingResponse {
+	return app.NewPricingProjection().BuildConsumerPricingResponse(userGroup, basis, pricing)
 }
 
 func buildConsumerPricingModel(usableGroups map[string]string, groupRatios map[string]float64, fxFactor float64, item pricingdomain.Pricing, details bool, users ...pricingUserContext) consumerPricingModel {

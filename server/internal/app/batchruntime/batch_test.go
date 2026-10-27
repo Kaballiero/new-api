@@ -1,6 +1,10 @@
 package batchruntime_test
 
 import (
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -16,7 +20,6 @@ import (
 	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
 	"github.com/QuantumNous/new-api/internal/batch/recover_batch_identity"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
-	"github.com/QuantumNous/new-api/service"
 
 	"context"
 	"crypto/sha256"
@@ -435,23 +438,23 @@ func openRouterSnapshot() (math.BatchBillingSnapshot, error) {
 	effective, err := billingdomain.ApplyBillingFX(group, fx.Factor)
 	return math.BatchBillingSnapshot{EvaluatedAt: time.Now().UTC(), SettlementMode: domain.BatchSettlementOpenRouterJobCostV2, OpenRouterCost: &common.OpenRouterCostBasis{Version: domain.BatchSettlementOpenRouterJobCostV2, EffectiveGroupRatio: effective, QuotaPerUnit: common.QuotaPerUnit}, FX: math.StoredFX(fx), PureGroupRatio: group}, err
 }
-func seedFX(t *testing.T) model.ModelCostFXSnapshot {
+func seedFX(t *testing.T) pricingdomainfx.ModelCostFXSnapshot {
 	t.Helper()
 	require.NoError(t, model.DB.AutoMigrate(&model.ModelCostFXRow{}))
 	// Synchronize the process cache with the dialect-specific row left by an
 	// earlier count iteration before deriving the next optimistic-lock version.
-	_ = model.LoadModelCostFX(context.Background(), service.ModelCostFXSource)
+	_ = fxstorage.LoadModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSource)
 	var row model.ModelCostFXRow
-	err := model.DB.Where("source = ?", service.ModelCostFXSource).First(&row).Error
+	err := model.DB.Where("source = ?", pricingdomainfx.ModelCostFXSource).First(&row).Error
 	require.True(t, err == nil || errors.Is(err, gorm.ErrRecordNotFound))
 	effective := row.EffectiveAt + 1
 	if effective <= 1 {
 		effective = 100
 	}
 	fetched := time.Now().Unix() - 60
-	snapshot := model.ModelCostFXSnapshot{Source: service.ModelCostFXSource, EffectiveAt: effective, FetchedAt: fetched, Rates: map[string]float64{"USD": 90}}
-	require.NoError(t, model.SaveModelCostFX(context.Background(), snapshot, row.Version))
-	loaded, err := model.CurrentModelCostFX(service.ModelCostFXSource)
+	snapshot := pricingdomainfx.ModelCostFXSnapshot{Source: pricingdomainfx.ModelCostFXSource, EffectiveAt: effective, FetchedAt: fetched, Rates: map[string]float64{"USD": 90}}
+	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), snapshot, row.Version))
+	loaded, err := fxstate.CurrentModelCostFX(pricingdomainfx.ModelCostFXSource)
 	require.NoError(t, err)
 	return loaded
 }
