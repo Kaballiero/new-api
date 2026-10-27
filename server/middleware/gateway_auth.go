@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
+
 	"errors"
 	"net/http"
 	"sync"
@@ -12,7 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
@@ -30,7 +31,7 @@ func writeGatewayCaller(c *gin.Context, caller domain.Caller) {
 	}
 	if caller.Owner != nil {
 		owner := caller.Owner
-		(&model.UserBase{Id: owner.ID, Group: owner.Group, Email: owner.Email, Username: owner.Username, Setting: owner.Setting, Quota: owner.Quota, Status: owner.Status}).WriteContext(c)
+		(&accountcache.UserBase{Id: owner.ID, Group: owner.Group, Email: owner.Email, Username: owner.Username, Setting: owner.Setting, Quota: owner.Quota, Status: owner.Status}).WriteContext(c)
 	}
 	if caller.UsingGroup != nil {
 		common.SetContextKey(c, constant.ContextKeyUsingGroup, *caller.UsingGroup)

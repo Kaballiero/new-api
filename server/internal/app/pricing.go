@@ -1,6 +1,8 @@
 package app
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
 
@@ -71,7 +73,7 @@ func newPricingReader() pricingadapter.Reader {
 			v, err := billingapp.NewCosts().FX.Execute(billingdomain.FXBasis{})
 			return domain.BillingFXBasis(v), err
 		}, AutoGroupsRead: accountssettings.GetUserAutoGroup, UsableGroupsRead: accountssettings.GetUserUsableGroups, GroupRatioRead: accountssettings.GroupRatio, UserGroupRead: func(id int) (string, error) {
-			u, err := model.GetUserCache(id)
+			u, err := accountstorage.Cache().GetUserCache(id)
 			if err != nil {
 				return "", err
 			}

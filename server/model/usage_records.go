@@ -8,8 +8,6 @@ type LogOther = record.LogOther
 
 type QuotaData = record.QuotaData
 
-type QuotaDataLogParams = record.QuotaDataLogParams
-
 const (
 	LogTypeUnknown = record.LogTypeUnknown
 	LogTypeTopup   = record.LogTypeTopup

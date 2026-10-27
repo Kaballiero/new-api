@@ -7,14 +7,16 @@ import (
 	"sort"
 	"time"
 
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/taskplugins/record"
 	"github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type TaskPlugin = record.TaskPlugin
@@ -179,7 +181,7 @@ func (s Store) DeleteTaskPluginVersion(key, version string) (domain.DeleteResult
 	result := domain.DeleteResult{}
 	err := s.db().Transaction(func(tx *gorm.DB) error {
 		var plugin TaskPlugin
-		if err := model.LockForUpdate(tx).Where(&TaskPlugin{Key: key, Version: version}).First(&plugin).Error; err != nil {
+		if err := locking.LockForUpdate(tx).Where(&TaskPlugin{Key: key, Version: version}).First(&plugin).Error; err != nil {
 			return err
 		}
 		result.DeletedActive = plugin.Active
@@ -191,7 +193,7 @@ func (s Store) DeleteTaskPluginVersion(key, version string) (domain.DeleteResult
 		}
 
 		var promoted TaskPlugin
-		err := model.LockForUpdate(tx).
+		err := locking.LockForUpdate(tx).
 			Where(&TaskPlugin{Key: key}).
 			Order("created_at DESC, id DESC").
 			First(&promoted).Error

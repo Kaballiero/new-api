@@ -1,6 +1,12 @@
 package billing_test
 
 import (
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
+
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 
 	"bytes"
@@ -159,7 +165,7 @@ func runBillingHTTPContract(t *testing.T, tc billingCase, useRedis bool, golden 
 			err = fmt.Errorf("unexpected upstream method, path or authorization")
 		}
 		if err == nil && tc.drainToken != 0 {
-			err = model.DecreaseTokenQuota(1, billingKey, tc.drainToken)
+			err = apikeystorage.Quota().DecreaseTokenQuota(1, billingKey, tc.drainToken)
 		}
 		observed <- struct {
 			ledger billingLedger
@@ -409,7 +415,7 @@ func newBillingEnv(t *testing.T, tc billingCase, useRedis bool) *contracttest.En
 		require.NoError(t, env.DB.Create(&plan).Error)
 		subscription := model.UserSubscription{Id: 1, UserId: env.UserID, PlanId: plan.Id, AmountTotal: tc.subscriptionTotal, StartTime: 1700000000, EndTime: 4102444800, Status: "active", AllowWalletOverflow: tc.overflow}
 		require.NoError(t, env.DB.Create(&subscription).Error)
-		model.InvalidateSubscriptionPlanCache(plan.Id)
+		subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(plan.Id)
 	}
 	// Loading a fixed publication directly also keeps its version/timestamps
 	// independent from how many earlier cases ran in this test process.
@@ -420,9 +426,9 @@ func newBillingEnv(t *testing.T, tc billingCase, useRedis bool) *contracttest.En
 		client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: -1})
 		t.Cleanup(func() { require.NoError(t, client.Close()) })
 		common.RDB, common.RedisEnabled = client, true
-		_, err := model.GetUserCache(env.UserID)
+		_, err := accountstorage.Cache().GetUserCache(env.UserID)
 		require.NoError(t, err)
-		_, err = model.GetTokenByKey(billingKey, false)
+		_, err = apikeystorage.Reader().Read(billingKey, false)
 		require.NoError(t, err)
 	}
 	// This cleanup runs before the Redis client and database cleanups, even if

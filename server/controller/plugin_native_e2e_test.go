@@ -1,6 +1,8 @@
 package controller
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -71,7 +73,7 @@ func (b *nativeRouteBilling) Settle(int) error {
 func (b *nativeRouteBilling) Refund(*gin.Context) {
 	b.events = append(b.events, "refund")
 	if !b.settled && b.preConsumed > 0 {
-		_ = model.IncreaseUserQuota(b.userID, b.preConsumed, true)
+		_ = accountstorage.SQL().IncreaseUserQuota(b.userID, b.preConsumed, true)
 		b.preConsumed = 0
 	}
 }
@@ -90,7 +92,7 @@ func (b *nativeRouteBilling) Reserve(quota int) error {
 		b.preConsumed = quota
 		return nil
 	}
-	if err := model.DecreaseUserQuota(b.userID, quota, true); err != nil {
+	if err := accountstorage.SQL().DecreaseUserQuota(b.userID, quota, true); err != nil {
 		return err
 	}
 	b.preConsumed = quota

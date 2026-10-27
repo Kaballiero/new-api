@@ -1,6 +1,16 @@
 package audit_test
 
 import (
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
+
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
+
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"context"
 	"errors"
 	"fmt"
@@ -45,7 +55,7 @@ func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
 	previousRedis := common.RedisEnabled
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Log{}, &model.AuditLog{}, &model.CasbinRule{}, &model.AuthzRole{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &identityrecord.UserSession{}, &model.Log{}, &model.AuditLog{}, &model.CasbinRule{}, &model.AuthzRole{}))
 	model.DB, model.LOG_DB = db, db
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
@@ -67,13 +77,13 @@ func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
 // userAccessTokenStatus reads the PAT status the way GET /api/user/token/status does.
 func userAccessTokenStatus(id int) (*get_status.Output, error) {
 	roles := patdomain.AuditRoles{Root: common.RoleRootUser, Common: common.RoleCommonUser, Admin: common.RoleAdminUser}
-	return get_status.NewUsecase(model.NewPersonalAccessTokenPersistence(), patdomain.Fingerprint, roles).Execute(get_status.Input{UserID: id})
+	return get_status.NewUsecase(patstorage.Persistence(), patdomain.Fingerprint, roles).Execute(get_status.Input{UserID: id})
 }
 
 // revokeUserAccessToken revokes the PAT without an HTTP audit context and
 // returns the revoked generation reference.
 func revokeUserAccessToken(id int) (string, error) {
-	output, err := revoke_token.NewUsecase(model.NewPersonalAccessTokenPersistence(), patdomain.Fingerprint, nil).Execute(revoke_token.Input{UserID: id})
+	output, err := revoke_token.NewUsecase(patstorage.Persistence(), patdomain.Fingerprint, nil).Execute(revoke_token.Input{UserID: id})
 	return output.TokenRef, err
 }
 
@@ -97,7 +107,7 @@ func TestAccessTokenLifecycleAndLateRequests(t *testing.T) {
 	router.DELETE("/api/user/token", middleware.UserAuth(), controller.RevokeAccessToken)
 	// Rotate during the handler, after authentication has captured the old PAT.
 	router.POST("/rotate-in-flight", middleware.UserAuth(), func(c *gin.Context) {
-		require.NoError(t, model.UpdateUserAccessToken(user.Id, "new-token"))
+		require.NoError(t, patstorage.Persistence().Update(user.Id, "new-token"))
 		c.JSON(200, gin.H{"success": true})
 	})
 	status, err := userAccessTokenStatus(user.Id)
@@ -117,7 +127,7 @@ func TestAccessTokenLifecycleAndLateRequests(t *testing.T) {
 		response := auditRequest(router, method, "/api/user/token", "new-token")
 		assert.Equal(t, http.StatusForbidden, response.Code)
 		assert.Contains(t, response.Body.String(), `"code":"SECURITY_PROOF_INVALID"`)
-		stored, err := model.GetUserById(user.Id, true)
+		stored, err := accountstorage.SQL().GetUserById(user.Id, true)
 		require.NoError(t, err)
 		assert.Equal(t, "new-token", stored.GetAccessToken(), "a PAT cannot manage itself without a dashboard verification")
 	}
@@ -176,8 +186,8 @@ func TestAccessTokenAuditsResultsAndExcludesBrowserSessions(t *testing.T) {
 	require.NoError(t, model.LOG_DB.Model(&model.AuditLog{}).Where("category = ?", model.AuditCategoryOperation).Count(&operationCount).Error)
 	assert.EqualValues(t, 2, operationCount, "manual operation must not be duplicated by fallback")
 	now := time.Now().Unix()
-	session := &model.UserSession{SID: "audit-session", UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: "refresh-placeholder", LoginMethod: "password", LastActiveAt: now, ExpiresAt: now + 3600}
-	require.NoError(t, model.CreateUserSession(session))
+	session := &identityrecord.UserSession{SID: "audit-session", UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: identityrecord.UserSessionStatusActive, RefreshHash: "refresh-placeholder", LoginMethod: "password", LastActiveAt: now, ExpiresAt: now + 3600}
+	require.NoError(t, identitystorage.SQL().CreateUserSession(session))
 	jwt, _, err := authtoken.IssueAccessToken(identitydomain.AuthIdentity{UserID: user.Id, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1})
 	require.NoError(t, err)
 	assert.Equal(t, 200, auditRequest(router, "GET", "/read/123", jwt).Code)
@@ -247,7 +257,7 @@ func TestAuditIsolationVisibilityAndFailureContracts(t *testing.T) {
 	require.Error(t, err, "audit query failure must not look like never used")
 	model.LOG_DB.Callback().Query().Remove("audit:fail")
 	require.NoError(t, model.DB.Callback().Update().Before("gorm:update").Register("audit:write-fail", func(tx *gorm.DB) { tx.AddError(errors.New("write unavailable")) }))
-	require.Error(t, model.UpdateUserAccessToken(user.Id, "replacement"))
+	require.Error(t, patstorage.Persistence().Update(user.Id, "replacement"))
 	_, err = revokeUserAccessToken(user.Id)
 	require.Error(t, err)
 	model.DB.Callback().Update().Remove("audit:write-fail")
@@ -274,8 +284,8 @@ func TestAuditRoleVisibilityAndPermissions(t *testing.T) {
 	router.GET("/api/audit", middleware.AdminAuth(), middleware.RequirePermission(authz.AuditRead), controller.GetAuditLogs)
 	router.GET("/api/audit/self", middleware.UserAuth(), controller.GetAuditLogs)
 	now := time.Now().Unix()
-	session := &model.UserSession{SID: "audit-permissions-session", UserID: admin.Id, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: "placeholder", LoginMethod: "password", LastActiveAt: now, ExpiresAt: now + 3600}
-	require.NoError(t, model.CreateUserSession(session))
+	session := &identityrecord.UserSession{SID: "audit-permissions-session", UserID: admin.Id, Version: 1, UserAuthVersion: 1, Status: identityrecord.UserSessionStatusActive, RefreshHash: "placeholder", LoginMethod: "password", LastActiveAt: now, ExpiresAt: now + 3600}
+	require.NoError(t, identitystorage.SQL().CreateUserSession(session))
 	jwt, _, err := authtoken.IssueAccessToken(identitydomain.AuthIdentity{UserID: admin.Id, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1})
 	require.NoError(t, err)
 	for _, credential := range []string{pat, jwt} {
@@ -580,7 +590,7 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 						require.NoError(t, db.First(&old).Error)
 						assert.Equal(t, "historical login", old.Content)
 					}
-					require.NoError(t, model.UpdateUserAccessToken(1, "matrix-token"))
+					require.NoError(t, patstorage.Persistence().Update(1, "matrix-token"))
 					require.Error(t, db.Create(&model.User{Username: "duplicate", Password: "placeholder", AffCode: "duplicate-aff", AccessToken: common.GetPointer("matrix-token")}).Error, "PAT uniqueness must survive upgrade")
 					for _, timestamp := range []int64{101, 102, 103} {
 						audittest.Seed(t, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "owner", CreatedAt: timestamp, Category: model.AuditCategoryAccessToken, TokenRef: patdomain.Fingerprint("matrix-token"), Ip: "192.0.2.1", Success: timestamp != 102})
@@ -665,7 +675,7 @@ func TestIndependentAuditLogStores(t *testing.T) {
 					require.NoError(t, model.LOG_DB.Where("request_id = ?", "legacy-split-request").Take(&old).Error)
 					assert.Equal(t, "retained historical login", old.Content)
 				}
-				require.NoError(t, model.UpdateUserAccessToken(1, "independent-pat"))
+				require.NoError(t, patstorage.Persistence().Update(1, "independent-pat"))
 				audittest.Seed(t, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "independent", Category: model.AuditCategoryAccessToken, TokenRef: patdomain.Fingerprint("independent-pat"), Ip: "192.0.2.8", Success: false, Status: 403})
 				entries, total, err := readAuditEvents(auditFilter{UserId: 1}, 0, 20, common.RoleAdminUser)
 				require.NoError(t, err)
@@ -676,7 +686,7 @@ func TestIndependentAuditLogStores(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, status.LastUsedAt)
 				assert.Equal(t, "192.0.2.8", status.LastUsedIp)
-				model.RecordLog(1, model.LogTypeTopup, "independent business")
+				usagestorage.Writer().RecordLog(1, model.LogTypeTopup, "independent business")
 				_, err = (usagecleanup.Cleanup{DB: func() *gorm.DB { return model.LOG_DB }}).DeleteOldLogBatch(context.Background(), time.Now().Unix()+1, 100)
 				require.NoError(t, err)
 				_, total, err = readAuditEvents(auditFilter{UserId: 1}, 0, 20, 1)

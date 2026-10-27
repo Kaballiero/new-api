@@ -1,17 +1,17 @@
 package payments
 
 import (
+	accountsql "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	"github.com/QuantumNous/new-api/internal/adapter/wallet"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
-	"github.com/QuantumNous/new-api/model"
 )
 
-type Users struct{}
+type Users struct{ Accounts accountsql.Store }
 
-func (Users) Group(userID int) (string, error) { return model.GetUserGroup(userID, true) }
+func (u Users) Group(userID int) (string, error) { return u.Accounts.GetUserGroup(userID, true) }
 
-func (Users) Find(userID int) (*domain.User, error) {
-	user, err := model.GetUserById(userID, false)
+func (u Users) Find(userID int) (*domain.User, error) {
+	user, err := u.Accounts.GetUserById(userID, false)
 	if user == nil {
 		return nil, err
 	}

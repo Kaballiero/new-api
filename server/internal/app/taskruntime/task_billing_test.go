@@ -1,11 +1,6 @@
 package taskruntime
 
 import (
-	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-	billinggatewayfx "github.com/QuantumNous/new-api/relay/billing"
-
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -26,16 +21,22 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	taskdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
 	usagedto "github.com/QuantumNous/new-api/internal/usage/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	billinggatewayfx "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
@@ -1850,7 +1851,7 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 		ctx.Set(common.RequestIdKey, clampCase.requestID)
 		other := usagegateway.MidjourneyOther(logInfo, priceData)
 		usagegateway.AppendTaskClamp(other, clamp)
-		model.RecordConsumeLog(ctx, userID, model.RecordConsumeLogParams{
+		usagestorage.Writer().RecordConsumeLog(ctx, userID, usageadapter.RecordConsumeLogParams{
 			ChannelId: channelID, TokenId: 191, TokenName: "fx-real-3db-token", ModelName: "test-model", Quota: 60, Group: "default", Other: other,
 		})
 		var persistedClamp model.Log
@@ -2488,7 +2489,7 @@ func TestOpenRouterCostSettlementCacheAndSubscription(t *testing.T) {
 			})
 			userKey, tokenKey := fmt.Sprintf("user:%d", id), "token:"+common.GenerateHMAC("cost-cache-token")
 			if tc.hot {
-				_, err := model.GetUserCache(id)
+				_, err := accountstorage.Cache().GetUserCache(id)
 				require.NoError(t, err)
 				require.NoError(t, client.HSet(context.Background(), tokenKey, "Id", id, "RemainQuota", 9950, "UsedQuota", 50).Err())
 				// Another initial reservation has updated Redis while its DB delta is queued.

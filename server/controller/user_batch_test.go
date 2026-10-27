@@ -1,6 +1,8 @@
 package controller
 
 import (
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -41,7 +43,7 @@ func setupUserBatchTestDB(t *testing.T) *gorm.DB {
 		common.SetDatabaseTypes(previousMain, previousLog)
 		common.RedisEnabled = previousRedis
 	})
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}, &model.Log{}, &model.AuditLog{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &identityrecord.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}, &model.Log{}, &model.AuditLog{}))
 	versionQuery := "SELECT version()"
 	if dialect == "sqlite" {
 		versionQuery = "SELECT sqlite_version()"

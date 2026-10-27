@@ -1,6 +1,10 @@
 package middleware
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
+
 	"errors"
 	"net/http"
 	"strings"
@@ -140,7 +144,7 @@ func GetSessionAuthIdentity(c *gin.Context) (identitydomain.AuthIdentity, bool) 
 	return identity, true
 }
 
-func authenticateDashboardRequest(c *gin.Context) (*model.UserBase, identitydomain.AuthIdentity, bool, error) {
+func authenticateDashboardRequest(c *gin.Context) (*accountcache.UserBase, identitydomain.AuthIdentity, bool, error) {
 	user, identity, credentialKind, err := classifyDashboardCredential(c)
 	if err != nil {
 		return nil, identitydomain.AuthIdentity{}, credentialKind == dashboardCredentialPAT, err
@@ -151,7 +155,7 @@ func authenticateDashboardRequest(c *gin.Context) (*model.UserBase, identitydoma
 	return user, identity, credentialKind == dashboardCredentialPAT, nil
 }
 
-func classifyDashboardCredential(c *gin.Context) (*model.UserBase, identitydomain.AuthIdentity, dashboardCredentialKind, error) {
+func classifyDashboardCredential(c *gin.Context) (*accountcache.UserBase, identitydomain.AuthIdentity, dashboardCredentialKind, error) {
 	raw, ok := authorizationToken(c.GetHeader("Authorization"))
 	if !ok {
 		return nil, identitydomain.AuthIdentity{}, dashboardCredentialUnmatched, nil
@@ -175,7 +179,7 @@ func classifyDashboardCredential(c *gin.Context) (*model.UserBase, identitydomai
 		return nil, identitydomain.AuthIdentity{}, dashboardCredentialUnmatched, nil
 	}
 	beginAccessTokenAudit(c, patUser)
-	user, err := model.GetUserCache(patUser.Id)
+	user, err := accountstorage.Cache().GetUserCache(patUser.Id)
 	if err != nil {
 		return nil, identitydomain.AuthIdentity{}, dashboardCredentialPAT, err
 	}
@@ -196,7 +200,7 @@ func authorizationToken(header string) (string, bool) {
 	return header, header != ""
 }
 
-func setDashboardAuthContext(c *gin.Context, user *model.UserBase, identity identitydomain.AuthIdentity, useAccessToken bool) {
+func setDashboardAuthContext(c *gin.Context, user *accountcache.UserBase, identity identitydomain.AuthIdentity, useAccessToken bool) {
 	c.Header("Auth-Version", "864b7076dbcd0a3c01b5520316720ebf")
 	c.Set("username", user.Username)
 	c.Set("role", user.Role)

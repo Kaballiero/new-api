@@ -17,6 +17,7 @@ import (
 	stripeadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/stripe"
 	waffoadapter "github.com/QuantumNous/new-api/internal/adapter/http/payments/waffo"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/internal/app/shared"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
@@ -85,11 +86,11 @@ func NewHTTP() HTTP {
 	pricing := domain.Pricing{Settings: settings.Settings{}, Math: quotaMath{}, Wallet: storage.Wallet{}}
 	catalog := list_pancake_catalog.NewUsecase(pancakeadapter.Factory{}, settings.Settings{}, paymentDiagnostics{})
 	return HTTP{
-		QuotePancake: quote_pancake_topup.NewHTTP(quote_pancake_topup.NewUsecase(pricing, storage.Users{})),
+		QuotePancake: quote_pancake_topup.NewHTTP(quote_pancake_topup.NewUsecase(pricing, storage.Users{Accounts: accountstorage.SQL()})),
 		CreatePancake: create_pancake_topup.NewHTTP(
 			create_pancake_topup.NewUsecase(
 				pricing,
-				storage.Users{},
+				storage.Users{Accounts: accountstorage.SQL()},
 				store,
 				pancakeadapter.Client{},
 				settings.Settings{},
@@ -110,11 +111,11 @@ func NewHTTP() HTTP {
 		Pair:        create_pancake_pair.NewHTTP(create_pancake_pair.NewUsecase(pancakeadapter.Factory{}, settings.Settings{}, paymentDiagnostics{})),
 		SavePancake: save_pancake_config.NewHTTP(save_pancake_config.NewUsecase(options{}, settings.Settings{}), paymentDiagnostics{}),
 		Compliance:  confirm_compliance.NewHTTP(confirm_compliance.NewUsecase(options{}, settings.Settings{}.Terms, common.GetTimestamp, paymentDiagnostics{})),
-		QuoteWaffo:  quote_waffo_topup.NewHTTP(quote_waffo_topup.NewUsecase(pricing, storage.Users{})),
+		QuoteWaffo:  quote_waffo_topup.NewHTTP(quote_waffo_topup.NewUsecase(pricing, storage.Users{Accounts: accountstorage.SQL()})),
 		CreateWaffo: create_waffo_topup.NewHTTP(
 			create_waffo_topup.NewUsecase(
 				pricing,
-				storage.Users{},
+				storage.Users{Accounts: accountstorage.SQL()},
 				store,
 				waffoadapter.Factory{},
 				settings.Settings{},
@@ -131,7 +132,7 @@ func NewHTTP() HTTP {
 		CreateCreem: create_creem_topup.NewHTTP(
 			create_creem_topup.NewUsecase(
 				pricing,
-				storage.Users{},
+				storage.Users{Accounts: accountstorage.SQL()},
 				store,
 				creemadapter.Client{},
 				settings.Settings{},
@@ -146,11 +147,11 @@ func NewHTTP() HTTP {
 			func() bool { return settings.Settings{}.Availability().Webhook(domain.PaymentProviderCreem) },
 			func(c *gin.Context, payload []byte, signature string) { observeWebhook(c, "Creem", payload, signature) },
 		),
-		QuoteStripe: quote_stripe_topup.NewHTTP(quote_stripe_topup.NewUsecase(pricing, storage.Users{})),
+		QuoteStripe: quote_stripe_topup.NewHTTP(quote_stripe_topup.NewUsecase(pricing, storage.Users{Accounts: accountstorage.SQL()})),
 		CreateStripe: create_stripe_topup.NewHTTP(
 			create_stripe_topup.NewUsecase(
 				pricing,
-				storage.Users{},
+				storage.Users{Accounts: accountstorage.SQL()},
 				store,
 				stripeadapter.Client{},
 				common.ValidateRedirectURL,
@@ -166,11 +167,11 @@ func NewHTTP() HTTP {
 				observeWebhook(c, "Stripe", payload, signature)
 			},
 		),
-		QuoteEpay: quote_epay_topup.NewHTTP(quote_epay_topup.NewUsecase(pricing, storage.Users{})),
+		QuoteEpay: quote_epay_topup.NewHTTP(quote_epay_topup.NewUsecase(pricing, storage.Users{Accounts: accountstorage.SQL()})),
 		CreateEpay: create_epay_topup.NewHTTP(
 			create_epay_topup.NewUsecase(
 				pricing,
-				storage.Users{},
+				storage.Users{Accounts: accountstorage.SQL()},
 				store,
 				settings.Settings{},
 				epayadapter.Factory{},

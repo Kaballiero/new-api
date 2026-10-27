@@ -1,6 +1,7 @@
 package identitycore
 
 import (
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"time"
 
 	"github.com/QuantumNous/new-api/internal/adapter/identity/passkeyflow"
@@ -11,7 +12,7 @@ import (
 const passkeyFlowTTL = 5 * time.Minute
 
 func CreateSessionDataFlow(purpose string, security domain.PasskeyFlowSecurity, data *webauthn.SessionData) (string, int64, error) {
-	op := &passkeyflow.Creation{Purpose: purpose, Security: security, Data: data}
+	op := &passkeyflow.Creation{SQL: identitystorage.SQL(), Purpose: purpose, Security: security, Data: data}
 	expires, err := identityRuntime().CreatePasskeyFlow.Execute(op, purpose, security, data != nil, passkeyFlowTTL)
 	if err != nil {
 		return "", 0, err
@@ -19,7 +20,7 @@ func CreateSessionDataFlow(purpose string, security domain.PasskeyFlowSecurity, 
 	return op.Token, expires.Unix(), nil
 }
 func PopSessionDataFlow(token, purpose string, identity domain.AuthIdentity) (*webauthn.SessionData, *domain.PasskeyFlowSecurity, error) {
-	op := &passkeyflow.Consumption{Token: token, Purpose: purpose, Identity: identity}
+	op := &passkeyflow.Consumption{SQL: identitystorage.SQL(), Token: token, Purpose: purpose, Identity: identity}
 	if err := identityRuntime().ConsumePasskeyFlow.Execute(op, purpose, identity); err != nil {
 		return nil, nil, err
 	}

@@ -1,11 +1,13 @@
 package accountsadapter
 
-import "github.com/QuantumNous/new-api/model"
+import (
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
+)
 
-type AccountModelGroupReader struct{}
+type AccountModelGroupReader struct{ Cache accountcache.Store }
 
-func (AccountModelGroupReader) AccountGroup(userID int) (string, error) {
-	user, err := model.GetUserCache(userID)
+func (store AccountModelGroupReader) AccountGroup(userID int) (string, error) {
+	user, err := store.Cache.GetUserCache(userID)
 	if err != nil {
 		return "", err
 	}

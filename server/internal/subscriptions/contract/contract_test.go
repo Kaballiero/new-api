@@ -2,6 +2,12 @@
 package contract
 
 import (
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
+
+	dbclock "github.com/QuantumNous/new-api/internal/app/dbclock"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"context"
 	"crypto"
 	"crypto/hmac"
@@ -536,7 +542,7 @@ const dbEpoch int64 = 1893456000
 
 func configureCase(t *testing.T, f *fixture, tc contractCase) {
 	t.Helper()
-	require.Equal(t, dbEpoch, model.GetDBTimestamp())
+	require.Equal(t, dbEpoch, dbclock.Now())
 	require.NoError(t, f.env.DB.Model(&model.User{}).Where("id IN ?", []int{1, 2, 3}).Update("quota", 5000000).Error)
 	plan := model.SubscriptionPlan{Id: 77, Title: "Contract plan", Subtitle: "Subscription fixture", PriceAmount: 3.5, Currency: "USD", DurationUnit: "month", DurationValue: 1, Enabled: true, TotalAmount: 1000, StripePriceId: "price_subscription", CreemProductId: "prod_subscription", WaffoPancakeProductId: productID, QuotaResetPeriod: "custom", QuotaResetCustomSeconds: 3600}
 	require.NoError(t, f.env.DB.Create(&plan).Error)
@@ -645,7 +651,7 @@ func configureCase(t *testing.T, f *fixture, tc contractCase) {
 			require.NoError(t, f.env.DB.Create(&model.TopUp{Id: 31, UserId: 1, TradeNo: f.trade, PaymentMethod: "foreign", Status: "pending"}).Error)
 		}
 	}
-	model.InvalidateSubscriptionPlanCache(77)
+	subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(77)
 	if tc.Setup == "query_failure" || tc.Setup == "all_error" || tc.Setup == "active_error" || tc.Setup == "setting_error" {
 		require.NoError(t, f.env.DB.Callback().Query().Before("gorm:query").Register("subscriptions_query_failure", func(tx *gorm.DB) {
 			reject := tc.Setup == "query_failure" && tx.Statement.Table == "subscription_plans" || tc.Setup == "all_error" && tx.Statement.Table == "user_subscriptions" || tc.Setup == "active_error" && tx.Statement.Table == "user_subscriptions" && strings.Contains(fmt.Sprint(tx.Statement.Clauses["WHERE"]), "status") || tc.Setup == "setting_error" && tx.Statement.Table == "users" && slices.Contains(tx.Statement.Selects, "setting")
@@ -1252,7 +1258,7 @@ func newFixture(t *testing.T, tc contractCase) *fixture {
 	}
 	require.NoError(t, env.DB.Create(&model.Token{Id: 101, UserId: 1, Key: "subscriptions-gateway-key", Status: 1, ExpiredTime: -1, UnlimitedQuota: true, Name: "gateway-key", Group: "default"}).Error)
 	require.NoError(t, env.DB.Model(&model.User{}).Where("id IN ?", []int{1, 2, 3}).Updates(map[string]any{"email": "", "stripe_customer": "", "setting": `{}`}).Error)
-	i18n.SetUserLangLoader(model.GetUserLanguage)
+	i18n.SetUserLangLoader(accountstorage.Cache().GetUserLanguage)
 	f.fake = &providerTransport{t: t, tc: tc, key: key, calls: []outbound{}, checkoutReady: make(chan struct{})}
 	previousTransport, previousClient := http.DefaultTransport, http.DefaultClient
 	http.DefaultTransport = f.fake

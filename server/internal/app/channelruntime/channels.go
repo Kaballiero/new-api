@@ -2,6 +2,8 @@
 package channelruntime
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"fmt"
 	"sync"
 
@@ -11,7 +13,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/app/notifications"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
 	"github.com/QuantumNous/new-api/internal/channels/enable_channel"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
@@ -29,7 +30,7 @@ func Enable(id int, key, name string)                    { enable().Execute(id, 
 // channel texts produced without a request: the root user's language, or the
 // default language when it is not set.
 func RootUserLanguage() string {
-	root := model.GetRootUser()
+	root := accountstorage.SQL().GetRootUser()
 	if root == nil {
 		return i18n.DefaultLang
 	}

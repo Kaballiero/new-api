@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,7 +13,7 @@ import (
 
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -158,15 +160,15 @@ func (p *OIDCProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*OAu
 }
 
 func (p *OIDCProvider) IsUserIDTaken(providerUserID string) bool {
-	return model.IsOidcIdAlreadyTaken(providerUserID)
+	return accountstorage.SQL().IsOidcIdAlreadyTaken(providerUserID)
 }
 
-func (p *OIDCProvider) FillUserByProviderID(user *model.User, providerUserID string) error {
+func (p *OIDCProvider) FillUserByProviderID(user *accountrecord.User, providerUserID string) error {
 	user.OidcId = providerUserID
-	return user.FillUserByOidcId()
+	return accountstorage.SQL().FillUserByOidcId(user)
 }
 
-func (p *OIDCProvider) SetProviderUserID(user *model.User, providerUserID string) {
+func (p *OIDCProvider) SetProviderUserID(user *accountrecord.User, providerUserID string) {
 	user.OidcId = providerUserID
 }
 

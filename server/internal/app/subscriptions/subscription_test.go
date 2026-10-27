@@ -25,9 +25,14 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	billingstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/billing"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
+	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
+	"github.com/QuantumNous/new-api/internal/app/dbclock"
+	"github.com/QuantumNous/new-api/internal/app/identitystorage"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
+	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 	"github.com/QuantumNous/new-api/internal/subscriptions/bind_subscription"
 	"github.com/QuantumNous/new-api/internal/subscriptions/complete_order"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
@@ -64,7 +69,7 @@ func subscriptionFixture(t *testing.T) storage.Store {
 		common.RedisEnabled, common.RDB = oldRedis, oldRDB
 		_ = pool.Close()
 	})
-	return storage.NewStore(func() *gorm.DB { return model.DB })
+	return subscriptionstorage.SQL()
 }
 func seedSubscriptionResetPlan(t *testing.T, plan *model.SubscriptionPlan) {
 	t.Helper()
@@ -86,7 +91,7 @@ func getSubscriptionResetSub(t *testing.T, id int) model.UserSubscription {
 func TestAdminResetUserSubscriptionsByPlanResetsAllActiveMatchesAndAdvancesTime(t *testing.T) {
 	store := subscriptionFixture(t)
 
-	now := model.GetDBTimestamp()
+	now := dbclock.Now()
 	plan := &model.SubscriptionPlan{
 		Id:               9101,
 		Title:            "Pro",
@@ -117,9 +122,9 @@ func TestAdminResetUserSubscriptionsByPlanResetsAllActiveMatchesAndAdvancesTime(
 	seedSubscriptionResetSub(t, &model.UserSubscription{Id: 9205, UserId: 102, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 800, StartTime: now - 3600, EndTime: activeEnd, Status: "active", LastResetTime: now - 3600, NextResetTime: now + 120})
 	seedSubscriptionResetSub(t, &model.UserSubscription{Id: 9206, UserId: 101, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 900, StartTime: now - 3600, EndTime: activeEnd, Status: "cancelled", LastResetTime: now - 3600, NextResetTime: now + 120})
 
-	beforeReset := model.GetDBTimestamp()
-	result, err := reset_subscriptions.NewUsecase(store, model.GetDBTimestamp).Execute(reset_subscriptions.Input{UserID: 101, PlanID: plan.Id, AdvanceResetTime: true})
-	afterReset := model.GetDBTimestamp()
+	beforeReset := dbclock.Now()
+	result, err := reset_subscriptions.NewUsecase(store, dbclock.Now).Execute(reset_subscriptions.Input{UserID: 101, PlanID: plan.Id, AdvanceResetTime: true})
+	afterReset := dbclock.Now()
 
 	require.NoError(t, err)
 	require.NotZero(t, result.PlanId)
@@ -146,7 +151,7 @@ func TestAdminResetUserSubscriptionsByPlanResetsAllActiveMatchesAndAdvancesTime(
 func TestAdminResetUserSubscriptionsByPlanKeepsResetTimes(t *testing.T) {
 	store := subscriptionFixture(t)
 
-	now := model.GetDBTimestamp()
+	now := dbclock.Now()
 	plan := &model.SubscriptionPlan{
 		Id:               9301,
 		Title:            "Team",
@@ -162,7 +167,7 @@ func TestAdminResetUserSubscriptionsByPlanKeepsResetTimes(t *testing.T) {
 	nextReset := now + 86400
 	seedSubscriptionResetSub(t, &model.UserSubscription{Id: 9302, UserId: 201, PlanId: plan.Id, AmountTotal: 2000, AmountUsed: 1200, StartTime: now - 172800, EndTime: now + 30*24*3600, Status: "active", LastResetTime: lastReset, NextResetTime: nextReset})
 
-	result, err := reset_subscriptions.NewUsecase(store, model.GetDBTimestamp).Execute(reset_subscriptions.Input{UserID: 201, PlanID: plan.Id, AdvanceResetTime: false})
+	result, err := reset_subscriptions.NewUsecase(store, dbclock.Now).Execute(reset_subscriptions.Input{UserID: 201, PlanID: plan.Id, AdvanceResetTime: false})
 
 	require.NoError(t, err)
 	assert.False(t, result.AdvanceResetTime)
@@ -175,7 +180,7 @@ func TestAdminResetUserSubscriptionsByPlanKeepsResetTimes(t *testing.T) {
 func TestAdminResetUserSubscriptionsByPlanNoActiveMatchReturnsError(t *testing.T) {
 	store := subscriptionFixture(t)
 
-	now := model.GetDBTimestamp()
+	now := dbclock.Now()
 	plan := &model.SubscriptionPlan{
 		Id:            9401,
 		Title:         "Expired",
@@ -187,7 +192,7 @@ func TestAdminResetUserSubscriptionsByPlanNoActiveMatchReturnsError(t *testing.T
 	seedSubscriptionResetPlan(t, plan)
 	seedSubscriptionResetSub(t, &model.UserSubscription{Id: 9402, UserId: 301, PlanId: plan.Id, AmountTotal: 1000, AmountUsed: 500, StartTime: now - 7200, EndTime: now - 1, Status: "active"})
 
-	result, err := reset_subscriptions.NewUsecase(store, model.GetDBTimestamp).Execute(reset_subscriptions.Input{UserID: 301, PlanID: plan.Id, AdvanceResetTime: true})
+	result, err := reset_subscriptions.NewUsecase(store, dbclock.Now).Execute(reset_subscriptions.Input{UserID: 301, PlanID: plan.Id, AdvanceResetTime: true})
 
 	require.Error(t, err)
 	assert.Zero(t, result.PlanId)
@@ -197,7 +202,7 @@ func TestAdminResetUserSubscriptionsByPlanNoActiveMatchReturnsError(t *testing.T
 func TestAdminResetPlanSubscriptionsResetsAllActiveUsers(t *testing.T) {
 	store := subscriptionFixture(t)
 
-	now := model.GetDBTimestamp()
+	now := dbclock.Now()
 	plan := &model.SubscriptionPlan{
 		Id:               9501,
 		Title:            "Business",
@@ -216,7 +221,7 @@ func TestAdminResetPlanSubscriptionsResetsAllActiveUsers(t *testing.T) {
 	seedSubscriptionResetSub(t, &model.UserSubscription{Id: 9505, UserId: 403, PlanId: plan.Id, AmountTotal: 3000, AmountUsed: 1300, StartTime: now - 7200, EndTime: now - 1, Status: "active", LastResetTime: now - 3600, NextResetTime: now - 10})
 	seedSubscriptionResetSub(t, &model.UserSubscription{Id: 9506, UserId: 404, PlanId: plan.Id, AmountTotal: 3000, AmountUsed: 1400, StartTime: now - 3600, EndTime: activeEnd, Status: "cancelled", LastResetTime: now - 3600, NextResetTime: now + 10})
 
-	result, err := reset_subscriptions.NewUsecase(store, model.GetDBTimestamp).Execute(reset_subscriptions.Input{PlanID: plan.Id, AdvanceResetTime: true})
+	result, err := reset_subscriptions.NewUsecase(store, dbclock.Now).Execute(reset_subscriptions.Input{PlanID: plan.Id, AdvanceResetTime: true})
 
 	require.NoError(t, err)
 	require.NotZero(t, result.PlanId)
@@ -247,7 +252,7 @@ func TestAdminResetPlanSubscriptionsNoMatchSucceeds(t *testing.T) {
 	}
 	seedSubscriptionResetPlan(t, plan)
 
-	result, err := reset_subscriptions.NewUsecase(store, model.GetDBTimestamp).Execute(reset_subscriptions.Input{PlanID: plan.Id, AdvanceResetTime: true})
+	result, err := reset_subscriptions.NewUsecase(store, dbclock.Now).Execute(reset_subscriptions.Input{PlanID: plan.Id, AdvanceResetTime: true})
 
 	require.NoError(t, err)
 	require.NotZero(t, result.PlanId)
@@ -274,18 +279,18 @@ func TestSubscriptionGroupTransitionsPreserveAuthVersionAndSessions(t *testing.T
 		AuthVersion: 1,
 	}
 	require.NoError(t, model.DB.Create(&user).Error)
-	require.NoError(t, model.CreateUserSession(&model.UserSession{
+	require.NoError(t, identitystorage.SQL().CreateUserSession(&model.UserSession{
 		SID:             "subscription-auth-session",
 		UserID:          user.Id,
 		Version:         1,
 		UserAuthVersion: 1,
-		Status:          model.UserSessionStatusActive,
+		Status:          identityrecord.UserSessionStatusActive,
 		RefreshHash:     "refresh-hash",
 		LoginMethod:     "password",
 		LastActiveAt:    now,
 		ExpiresAt:       now + 3600,
 	}))
-	_, err := model.GetUserCache(user.Id)
+	_, err := accountstorage.Cache().GetUserCache(user.Id)
 	require.NoError(t, err)
 	plan := &model.SubscriptionPlan{
 		Title:         "Upgraded",
@@ -297,12 +302,12 @@ func TestSubscriptionGroupTransitionsPreserveAuthVersionAndSessions(t *testing.T
 	}
 	require.NoError(t, model.DB.Create(plan).Error)
 
-	_, err = bind_subscription.NewUsecase(store, common.GetTimestamp, func(id int, _ string) { require.NoError(t, model.RefreshUserGroupCache(id)) }).Execute(bind_subscription.Input{UserID: user.Id, PlanID: plan.Id})
+	_, err = bind_subscription.NewUsecase(store, common.GetTimestamp, func(id int, _ string) { require.NoError(t, accountstorage.Cache().RefreshUserGroupCache(id)) }).Execute(bind_subscription.Input{UserID: user.Id, PlanID: plan.Id})
 	var subscription model.UserSubscription
 	require.NoError(t, model.DB.Where("user_id = ?", user.Id).First(&subscription).Error)
 	require.NoError(t, err)
 	require.Equal(t, "default", subscription.PrevUserGroup)
-	require.NoError(t, model.RefreshUserGroupCache(user.Id))
+	require.NoError(t, accountstorage.Cache().RefreshUserGroupCache(user.Id))
 
 	var updated model.User
 	require.NoError(t, model.DB.First(&updated, user.Id).Error)
@@ -310,22 +315,22 @@ func TestSubscriptionGroupTransitionsPreserveAuthVersionAndSessions(t *testing.T
 	assert.EqualValues(t, 1, updated.AuthVersion)
 	var session model.UserSession
 	require.NoError(t, model.DB.First(&session, "sid = ?", "subscription-auth-session").Error)
-	assert.Equal(t, model.UserSessionStatusActive, session.Status)
-	cached, err := model.GetUserCache(user.Id)
+	assert.Equal(t, identityrecord.UserSessionStatusActive, session.Status)
+	cached, err := accountstorage.Cache().GetUserCache(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, "pro", cached.Group)
 	assert.EqualValues(t, 1, cached.AuthVersion)
 
-	target, err := invalidate_subscription.NewUsecase(store, common.GetTimestamp, func(id int, _ string) { require.NoError(t, model.RefreshUserGroupCache(id)) }).Execute(subscription.Id)
+	target, err := invalidate_subscription.NewUsecase(store, common.GetTimestamp, func(id int, _ string) { require.NoError(t, accountstorage.Cache().RefreshUserGroupCache(id)) }).Execute(subscription.Id)
 	require.NoError(t, err)
 	assert.Equal(t, "default", target)
-	require.NoError(t, model.RefreshUserGroupCache(user.Id))
+	require.NoError(t, accountstorage.Cache().RefreshUserGroupCache(user.Id))
 	require.NoError(t, model.DB.First(&updated, user.Id).Error)
 	assert.Equal(t, "default", updated.Group)
 	assert.EqualValues(t, 1, updated.AuthVersion)
 	require.NoError(t, model.DB.First(&session, "sid = ?", "subscription-auth-session").Error)
-	assert.Equal(t, model.UserSessionStatusActive, session.Status)
-	cached, err = model.GetUserCache(user.Id)
+	assert.Equal(t, identityrecord.UserSessionStatusActive, session.Status)
+	cached, err = accountstorage.Cache().GetUserCache(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, "default", cached.Group)
 }
@@ -367,7 +372,7 @@ func TestSubscriptionGroupCacheRefreshFailureDoesNotChangeCommittedResult(t *tes
 		Enabled:       true,
 	}
 	require.NoError(t, model.DB.Create(plan).Error)
-	model.InvalidateSubscriptionPlanCache(plan.Id)
+	subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(plan.Id)
 
 	oldRedisEnabled, oldRDB := common.RedisEnabled, common.RDB
 	common.RedisEnabled = true
@@ -532,7 +537,7 @@ func subscriptionPostgres(t *testing.T) storage.Store {
 	var version string
 	require.NoError(t, db.Raw("SELECT version()").Scan(&version).Error)
 	t.Logf("database version: %s; isolated schema: %s", version, schema)
-	return storage.NewStore(func() *gorm.DB { return model.DB })
+	return subscriptionstorage.SQL()
 }
 
 func TestSubscriptionsPersistence(t *testing.T) {
@@ -552,7 +557,7 @@ func TestSubscriptionsPersistence(t *testing.T) {
 			require.NoError(t, model.DB.Create(&user).Error)
 			plan := model.SubscriptionPlan{Title: "Matrix", PriceAmount: 2.01, Enabled: true, DurationUnit: model.SubscriptionDurationMonth, DurationValue: 1, TotalAmount: 100, QuotaResetPeriod: model.SubscriptionResetDaily, UpgradeGroup: "pro", MaxPurchasePerUser: 2}
 			require.NoError(t, model.DB.Create(&plan).Error)
-			model.InvalidateSubscriptionPlanCache(plan.Id)
+			subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(plan.Id)
 			order := model.SubscriptionOrder{UserId: user.Id, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: "matrix-order", PaymentMethod: "wechat", PaymentProvider: model.PaymentProviderEpay, Status: common.TopUpStatusPending, CreateTime: common.GetTimestamp()}
 			require.NoError(t, model.DB.Create(&order).Error)
 			orders := subscriptionsapp.NewOrders()
@@ -571,7 +576,7 @@ func TestSubscriptionsPersistence(t *testing.T) {
 			assert.Equal(t, "pro", user.Group)
 			assert.EqualValues(t, 1, user.AuthVersion)
 			require.NoError(t, model.DB.Model(&subs[0]).Update("amount_used", 70).Error)
-			reset, err := reset_subscriptions.NewUsecase(store, model.GetDBTimestamp).Execute(reset_subscriptions.Input{UserID: user.Id, PlanID: plan.Id, AdvanceResetTime: true})
+			reset, err := reset_subscriptions.NewUsecase(store, dbclock.Now).Execute(reset_subscriptions.Input{UserID: user.Id, PlanID: plan.Id, AdvanceResetTime: true})
 			require.NoError(t, err)
 			assert.Equal(t, 1, reset.ResetCount)
 			require.NoError(t, model.DB.First(&subs[0], subs[0].Id).Error)
@@ -600,9 +605,9 @@ func TestSubscriptionsPersistence(t *testing.T) {
 			// The existing billing port exercises the moved SQL and shared lazy-reset rule.
 			var active model.UserSubscription
 			require.NoError(t, model.DB.Where("user_id = ? AND status = ?", user.Id, "active").First(&active).Error)
-			now := model.GetDBTimestamp()
+			now := dbclock.Now()
 			require.NoError(t, model.DB.Model(&active).Updates(map[string]any{"amount_used": 90, "last_reset_time": now - 2*86400, "next_reset_time": now - 86400}).Error)
-			billing := billingstorage.Store{}
+			billing := billingapp.NewStore()
 			hold, err := billing.ReserveSubscription("matrix-reserve", user.Id, "unused-model", 20)
 			require.NoError(t, err)
 			assert.EqualValues(t, 20, hold.AmountUsedAfter)

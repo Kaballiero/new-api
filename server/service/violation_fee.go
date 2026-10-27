@@ -3,14 +3,12 @@ package service
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/model_setting"
@@ -126,38 +124,7 @@ func ChargeViolationFeeIfNeeded(ctx *gin.Context, relayInfo *relaycommon.RelayIn
 		return false
 	}
 
-	model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, feeQuota)
-	model.UpdateChannelUsedQuota(relayInfo.ChannelId, feeQuota)
-
-	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
-	tokenName := ctx.GetString("token_name")
-	oai := apiErr.ToOpenAIError()
-
-	other := new(model.LogOther)
-	other.MergePublic(map[string]any{
-		"violation_fee":        true,
-		"violation_fee_code":   string(types.ErrorCodeViolationFeeGrokCSAM),
-		"fee_quota":            feeQuota,
-		"base_amount":          settings.ViolationDeductionAmount,
-		"group_ratio":          groupRatio,
-		"status_code":          apiErr.StatusCode,
-		"upstream_error_type":  oai.Type,
-		"upstream_error_code":  fmt.Sprintf("%v", oai.Code),
-		"violation_fee_marker": CSAMViolationMarker,
-	})
-
-	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
-		ChannelId:      relayInfo.ChannelId,
-		ModelName:      relayInfo.OriginModelName,
-		TokenName:      tokenName,
-		Quota:          feeQuota,
-		Content:        "Violation fee charged",
-		TokenId:        relayInfo.TokenId,
-		UseTimeSeconds: int(useTimeSeconds),
-		IsStream:       relayInfo.IsStream,
-		Group:          relayInfo.UsingGroup,
-		Other:          other,
-	})
+	BillingGateway.RecordViolationFee(ctx, relayInfo, feeQuota, apiErr, settings.ViolationDeductionAmount, groupRatio)
 
 	return true
 }

@@ -3,9 +3,9 @@ package tasks
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
-	"github.com/QuantumNous/new-api/model"
 )
 
 // Reader projects rows without changing the query order or suppressed errors.
@@ -24,7 +24,7 @@ func (r Reader) GetUnique(taskID string) (*domain.Task, bool, error) {
 	return record.ToDomain(task), exists, err
 }
 func (r Reader) OwnerEnabled(userID int) (bool, error) {
-	owner, err := model.GetUserCache(userID)
+	owner, err := r.Store.accounts.GetUserCache(userID)
 	return owner != nil && owner.Status == common.UserStatusEnabled, err
 }
 func (r Reader) ListOwn(userID, offset, limit int, query domain.TaskQuery) []*domain.Task {
@@ -54,9 +54,9 @@ func (r Reader) FillUsernames(tasks []*domain.Task) {
 	for _, task := range tasks {
 		userIDs[task.UserId] = struct{}{}
 	}
-	users := make(map[int]*model.UserBase, len(userIDs))
+	users := make(map[int]*accountcache.UserBase, len(userIDs))
 	for userID := range userIDs {
-		if user, err := model.GetUserCache(userID); err == nil {
+		if user, err := r.Store.accounts.GetUserCache(userID); err == nil {
 			users[userID] = user
 		}
 	}

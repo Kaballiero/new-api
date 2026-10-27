@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	keyrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/logger"
@@ -12,18 +13,22 @@ import (
 )
 
 type Store struct {
+	ReadToken                     func(int, int) (*keyrecord.Token, error)
 	RankingCatalog                func() ([]pricingdomain.PricingVendor, []pricingdomain.Pricing)
 	ConsumeEnabled, ExportEnabled func() bool
+	Writer                        Writer
+	UserConsumption               func(int, int)
+	ChannelConsumption            func(int, int)
 }
 
 var errGatewayContext = errors.New("usage recording requires a non-nil gateway Gin context")
 
-func (Store) AddUserConsumption(id, quota int) {
-	model.UpdateUserUsedQuotaAndRequestCount(id, quota)
+func (s Store) AddUserConsumption(id, quota int) {
+	s.UserConsumption(id, quota)
 }
 
-func (Store) AddChannelConsumption(id, quota int) {
-	model.UpdateChannelUsedQuota(id, quota)
+func (s Store) AddChannelConsumption(id, quota int) {
+	s.ChannelConsumption(id, quota)
 }
 
 // Missing request observations return a technical error before any side effect.
@@ -43,7 +48,7 @@ func (s Store) WriteConsumption(ctx context.Context, in domain.Consumption) erro
 		logger.LogWarn(observation.Context, in.Request.ClampWarning)
 	}
 	id := in.Record
-	model.WriteConsumeLog(observation, id.UserID, model.RecordConsumeLogParams{
+	s.Writer.WriteConsumeLog(observation, id.UserID, RecordConsumeLogParams{
 		ChannelId:        id.ChannelID,
 		PromptTokens:     id.PromptTokens,
 		CompletionTokens: id.CompletionTokens,
@@ -60,7 +65,7 @@ func (s Store) WriteConsumption(ctx context.Context, in domain.Consumption) erro
 	return nil
 }
 
-func (Store) WriteFailure(ctx context.Context, in domain.Failure) error {
+func (s Store) WriteFailure(ctx context.Context, in domain.Failure) error {
 	observation, metadata, err := recordingObservation(ctx)
 	if err != nil {
 		return err
@@ -80,7 +85,7 @@ func (Store) WriteFailure(ctx context.Context, in domain.Failure) error {
 		appendPlugin(other, in.Plugin)
 	}
 	id := in.Record
-	model.WriteErrorLog(
+	s.Writer.WriteErrorLog(
 		observation, id.UserID, id.ChannelID, id.ModelName, id.TokenName, in.Content,
 		id.TokenID, id.UseTimeSeconds, id.IsStream, id.Group, other,
 	)

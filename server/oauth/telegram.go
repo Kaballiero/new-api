@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"io"
 	"net/http"
 	"net/url"
@@ -13,7 +16,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gin-gonic/gin"
@@ -180,10 +183,12 @@ func (p *TelegramProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (
 	}, nil
 }
 
-func (p *TelegramProvider) IsUserIDTaken(id string) bool { return model.IsTelegramIdAlreadyTaken(id) }
+func (p *TelegramProvider) IsUserIDTaken(id string) bool {
+	return accountstorage.SQL().IsTelegramIdAlreadyTaken(id)
+}
 
-func (p *TelegramProvider) FillUserByProviderID(user *model.User, id string) error {
-	stored, err := model.GetUserByTelegramID(id)
+func (p *TelegramProvider) FillUserByProviderID(user *accountrecord.User, id string) error {
+	stored, err := identitystorage.SQL().GetUserByTelegramID(id)
 	if err != nil {
 		return err
 	}
@@ -191,7 +196,9 @@ func (p *TelegramProvider) FillUserByProviderID(user *model.User, id string) err
 	return nil
 }
 
-func (p *TelegramProvider) SetProviderUserID(user *model.User, id string) { user.TelegramId = id }
+func (p *TelegramProvider) SetProviderUserID(user *accountrecord.User, id string) {
+	user.TelegramId = id
+}
 
 func (p *TelegramProvider) GetProviderPrefix() string { return "telegram_" }
 

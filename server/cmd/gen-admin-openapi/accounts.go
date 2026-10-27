@@ -49,6 +49,33 @@ var accountHandlerErrors = map[string][]string{
 }
 
 func parseAccountHandlers() error {
+	// GetAPI PAT DTOs moved with their owning scenario; retain published schema names.
+	dto, err := parser.ParseFile(token.NewFileSet(), "internal/accounts/initialize_pat/dto.go", nil, parser.SkipObjectResolution)
+	if err != nil {
+		return fmt.Errorf("initialize PAT DTO: %w", err)
+	}
+	for _, decl := range dto.Decls {
+		group, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range group.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			name := map[string]string{"Input": "GetAPIInitializePATRequest", "Result": "GetAPIInitializePATResult"}[typeSpec.Name.Name]
+			if name == "" {
+				continue
+			}
+			fields, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				return fmt.Errorf("initialize PAT DTO %s is not a struct", typeSpec.Name.Name)
+			}
+			modelTypes[name] = fields
+			recordStructFields(name, fields)
+		}
+	}
 	failures, err := transportFailureCodes("internal/accounts/transport/errors.go")
 	if err != nil {
 		return fmt.Errorf("account transport: %w", err)

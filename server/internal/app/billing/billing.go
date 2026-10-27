@@ -2,6 +2,12 @@
 package billing
 
 import (
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/apikeystorage"
+	"github.com/QuantumNous/new-api/internal/app/dbclock"
+	"github.com/QuantumNous/new-api/internal/app/quotaruntime"
+	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/internal/app/notifications"
@@ -27,8 +33,20 @@ type Usecases struct {
 	Notify   notify_quota.Usecase
 }
 
+var sharedStore = sync.OnceValue(func() storage.Store {
+	accounts := accountstorage.SQL()
+	return storage.Store{Wallet: storage.WalletCapabilities{
+		Balance: func(id int) (int, error) { return accounts.GetUserQuota(id, false) },
+		Debit:   func(id, amount int) error { return accounts.DecreaseUserQuota(id, amount, false) },
+		Credit:  func(id, amount int) error { return accounts.IncreaseUserQuota(id, amount, false) },
+	}, Reserves: quotaruntime.Reserves(), Keys: apikeystorage.Reader(), KeyQuotas: apikeystorage.Quota(),
+		SubscriptionPlans: subscriptionstorage.Cache(), DatabaseTime: dbclock.Now}
+})
+
+func NewStore() storage.Store { return sharedStore() }
+
 func New() Usecases {
-	store := storage.Store{}
+	store := NewStore()
 	return Usecases{
 		Create:   create_reservation.NewUsecase(store, common.GetTrustQuota, common.SysLog),
 		Increase: increase_reservation.NewUsecase(store, common.SysLog),

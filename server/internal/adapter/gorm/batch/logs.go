@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
+	"github.com/QuantumNous/new-api/model"
 )
 
 func (s Store) SyncBatchConsumeLogs(limit int) error {
@@ -60,7 +62,7 @@ func (s Store) deliverBatchConsumeLog(event BatchLogEvent) error {
 				return created.Error
 			}
 			var stored BatchLogReceipt
-			if err := model.LockForUpdate(tx).Where("request_id = ?", receipt.RequestID).First(&stored).Error; err != nil {
+			if err := locking.LockForUpdate(tx).Where("request_id = ?", receipt.RequestID).First(&stored).Error; err != nil {
 				return err
 			}
 			if stored.LogID != 0 {

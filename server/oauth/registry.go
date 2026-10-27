@@ -2,11 +2,12 @@ package oauth
 
 import (
 	"fmt"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"maps"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 )
 
 var (
@@ -109,7 +110,7 @@ func LoadCustomProviders() error {
 	mu.Unlock()
 
 	// Load all custom providers from database
-	customProviders, err := model.GetAllCustomOAuthProviders()
+	customProviders, err := identitystorage.SQL().GetAllCustomOAuthProviders()
 	if err != nil {
 		common.SysError("Failed to load custom OAuth providers: " + err.Error())
 		return err
@@ -137,7 +138,7 @@ func ReloadCustomProviders() error {
 }
 
 // RegisterOrUpdateCustomProvider registers or updates a single custom provider
-func RegisterOrUpdateCustomProvider(config *model.CustomOAuthProvider) {
+func RegisterOrUpdateCustomProvider(config *identityrecord.CustomOAuthProvider) {
 	provider := NewGenericOAuthProvider(config)
 	if err := RegisterCustom(config.Slug, provider); err != nil {
 		common.SysError(err.Error())

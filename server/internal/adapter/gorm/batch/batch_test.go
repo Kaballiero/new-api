@@ -1,8 +1,6 @@
 package batch_test
 
 import (
-	billingmath "github.com/QuantumNous/new-api/internal/adapter/billing"
-
 	"context"
 	"errors"
 	"fmt"
@@ -12,20 +10,27 @@ import (
 	"testing"
 	"time"
 
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/batch"
-	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-	rediscache "github.com/QuantumNous/new-api/internal/adapter/redis/batch"
-	"github.com/QuantumNous/new-api/internal/batch/domain"
-	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
-	model "github.com/QuantumNous/new-api/model"
-
-	"github.com/QuantumNous/new-api/common"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
+
+	"github.com/QuantumNous/new-api/common"
+	billingmath "github.com/QuantumNous/new-api/internal/adapter/billing"
+	keycache "github.com/QuantumNous/new-api/internal/adapter/cache/apikeys"
+	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/batch"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	rediscache "github.com/QuantumNous/new-api/internal/adapter/redis/batch"
+	"github.com/QuantumNous/new-api/internal/app/accountscore"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
+	quotaruntime "github.com/QuantumNous/new-api/internal/app/quotaruntime"
+	"github.com/QuantumNous/new-api/internal/batch/domain"
+	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
+	model "github.com/QuantumNous/new-api/model"
+	batchstate "github.com/QuantumNous/new-api/pkg/batchstate"
 )
 
 func TestBatchDurableAccounting(t *testing.T) {
@@ -65,16 +70,16 @@ func TestBatchDurableAccounting(t *testing.T) {
 			require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)))
 			_, err := testStore().GetBatchJob(user.Id+1, job.PublicID)
 			assert.Error(t, err)
-			ok, err := model.TryReserveUserQuota(user.Id, 401)
+			ok, err := quotaruntime.Reserves().TryReserveUserQuota(user.Id, 401)
 			require.NoError(t, err)
 			assert.False(t, ok, "synchronous requests must respect batch holds")
-			ok, err = model.TryReserveTokenQuota(token.Id, token.Key, 401, false)
+			ok, err = quotaruntime.Reserves().TryReserveTokenQuota(token.Id, token.Key, 401, false)
 			require.NoError(t, err)
 			assert.False(t, ok)
-			ok, err = model.TryReserveUserQuota(user.Id, 400)
+			ok, err = quotaruntime.Reserves().TryReserveUserQuota(user.Id, 400)
 			require.NoError(t, err)
 			require.True(t, ok)
-			ok, err = model.TryReserveTokenQuota(token.Id, token.Key, 400, false)
+			ok, err = quotaruntime.Reserves().TryReserveTokenQuota(token.Id, token.Key, 400, false)
 			require.NoError(t, err)
 			require.True(t, ok)
 			require.NoError(t, testStore().StoreBatchResult(job.ID, "paid", `{"custom_id":"paid","body":{"usage":{"prompt_tokens":5}}}`, "result-hash"))
@@ -154,13 +159,13 @@ func TestBatchDurableAccounting(t *testing.T) {
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
 			require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Where("batch_id = ? AND debit_quota > 0", job2.ID).Update("applied", false).Error)
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
-			cached, err := model.GetUserCache(user.Id)
+			cached, err := accountstorage.Cache().GetUserCache(user.Id)
 			require.NoError(t, err)
 			assert.Equal(t, 350, cached.Quota)
 			require.NoError(t, testStore().ReleaseSettledBatchHolds(job2.ID))
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
 			r.FlushAll()
-			cached, err = model.GetUserCache(user.Id)
+			cached, err = accountstorage.Cache().GetUserCache(user.Id)
 			require.NoError(t, err)
 			assert.Equal(t, 350, cached.Quota)
 			assert.EqualValues(t, 0, cached.BatchHeldQuota)
@@ -168,8 +173,8 @@ func TestBatchDurableAccounting(t *testing.T) {
 			job3 := model.BatchJob{PublicID: "batch-revoked", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, IdempotencyKey: "revoked", RequestCount: 1, ReservedQuota: 90}
 			require.NoError(t, reserve(&job3, []model.BatchItem{{CustomID: "revoked", Body: `{}`, BillingStatus: "reserved", ReservedQuota: 90}}))
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
-			require.ErrorIs(t, user.HardDelete(), model.ErrBatchConflict)
-			require.NoError(t, token.Delete())
+			require.ErrorIs(t, accountscore.HardDelete(&user), batchstate.ErrConflict)
+			require.NoError(t, apikeystorage.Persistence().Delete(&token))
 			require.NoError(t, db.Delete(&user).Error)
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
 			require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job3)))
@@ -182,7 +187,7 @@ func TestBatchDurableAccounting(t *testing.T) {
 			require.NoError(t, db.Unscoped().First(&user, user.Id).Error)
 			assert.Equal(t, 290, user.Quota)
 			assert.Zero(t, user.BatchHeldQuota)
-			_, err = model.GetTokenByKey(token.Key, false)
+			_, err = apikeystorage.Reader().Read(token.Key, false)
 			assert.Error(t, err, "financial recovery must not restore token authentication")
 			// Actual usage can overrun both the original hold and remaining funds.
 			debtUser := createReserveTestUser(t, 100)
@@ -211,11 +216,11 @@ func TestBatchDurableAccounting(t *testing.T) {
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
 			require.NoError(t, testStore().ReleaseSettledBatchHolds(debtJob.ID))
 			require.NoError(t, testStore().SyncBatchQuotaEvents(100))
-			cachedDebt, err := model.GetUserCache(debtUser.Id)
+			cachedDebt, err := accountstorage.Cache().GetUserCache(debtUser.Id)
 			require.NoError(t, err)
 			assert.Equal(t, -50, cachedDebt.Quota)
 			assert.EqualValues(t, 60, cachedDebt.BatchHeldQuota, "other item holds remain")
-			cachedDebtToken, err := model.GetTokenByKey(debtToken.Key, false)
+			cachedDebtToken, err := apikeystorage.Reader().Read(debtToken.Key, false)
 			require.NoError(t, err)
 			assert.Equal(t, -50, cachedDebtToken.RemainQuota)
 			require.NoError(t, testStore().SettleBatchItem(debtJob.ID, "next", 20, `{"client_quota":20}`))
@@ -562,10 +567,10 @@ func TestBatchDispatchReservation(t *testing.T) {
 					var expected error
 					switch mode {
 					case "cold":
-						require.NoError(t, client.Del(context.Background(), model.GetTokenCacheKey(token.Key)).Err())
+						require.NoError(t, client.Del(context.Background(), keycache.GetTokenCacheKey(token.Key)).Err())
 						require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)))
 					case "ttl_expired":
-						require.NoError(t, client.Expire(context.Background(), model.GetTokenCacheKey(token.Key), time.Second).Err())
+						require.NoError(t, client.Expire(context.Background(), keycache.GetTokenCacheKey(token.Key), time.Second).Err())
 						if addr == r.Addr() {
 							r.FastForward(2 * time.Second)
 						} else {
@@ -573,17 +578,17 @@ func TestBatchDispatchReservation(t *testing.T) {
 						}
 						require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)))
 					case "evicted_after_confirmation":
-						require.NoError(t, client.Del(context.Background(), model.GetTokenCacheKey(token.Key)).Err())
+						require.NoError(t, client.Del(context.Background(), keycache.GetTokenCacheKey(token.Key)).Err())
 						require.ErrorIs(t, testStore().MarkBatchSubmissionUnknown((*domain.Job)(&job), "worker"), domain.ErrBatchReservationPending)
 						require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)))
 					case "fence":
-						require.NoError(t, token.Update())
+						require.NoError(t, apikeystorage.Persistence().Update(&token))
 						require.ErrorIs(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)), domain.ErrBatchReservationPending, "DB fallback under a fence is not permission")
 						require.ErrorIs(t, testStore().MarkBatchSubmissionUnknown((*domain.Job)(&job), "worker"), domain.ErrBatchReservationPending)
 						if addr == r.Addr() {
 							r.FastForward(11 * time.Second)
 						} else {
-							require.NoError(t, client.Del(context.Background(), model.GetTokenCacheFenceKey(token.Key)).Err())
+							require.NoError(t, client.Del(context.Background(), keycache.GetTokenCacheFenceKey(token.Key)).Err())
 						}
 						require.NoError(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)), "a new pass hydrates after fence expiry")
 					case "disabled":
@@ -603,28 +608,28 @@ func TestBatchDispatchReservation(t *testing.T) {
 						require.NoError(t, db.Model(&token).Update("batch_held_quota", 0).Error)
 						expected = domain.ErrBatchReservationUnsafe
 					case "cache_hold":
-						require.NoError(t, client.HSet(context.Background(), model.GetTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
+						require.NoError(t, client.HSet(context.Background(), keycache.GetTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
 						expected = domain.ErrBatchReservationUnsafe
 					case "revoked_missing_hold", "revoked_cache_hold":
 						require.NoError(t, db.Model(&token).Update("status", common.TokenStatusDisabled).Error)
 						if mode == "revoked_missing_hold" {
 							require.NoError(t, db.Model(&token).Update("batch_held_quota", 50).Error)
 						} else {
-							require.NoError(t, client.HSet(context.Background(), model.GetTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
+							require.NoError(t, client.HSet(context.Background(), keycache.GetTokenCacheKey(token.Key), "BatchHeldQuota", 0).Err())
 						}
 						require.ErrorIs(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)), domain.ErrBatchReservationUnsafe)
 						expected = domain.ErrBatchReservationUnsafe
 					case "cache_version":
-						require.NoError(t, client.HSet(context.Background(), model.GetTokenCacheKey(token.Key), "BatchQuotaVersion", 0).Err())
+						require.NoError(t, client.HSet(context.Background(), keycache.GetTokenCacheKey(token.Key), "BatchQuotaVersion", 0).Err())
 						expected = domain.ErrBatchReservationPending
 					case "other_batch_pending":
 						other := model.BatchJob{PublicID: "dispatch-other", UserID: user.Id, TokenID: token.Id, IdempotencyKey: "other", RequestCount: 1, ReservedQuota: 50}
 						require.NoError(t, reserve(&other, []model.BatchItem{{CustomID: "two", Body: `{}`, ReservedQuota: 50}}))
 						expected = domain.ErrBatchReservationPending
 					case "live_quota":
-						require.NoError(t, client.HSet(context.Background(), model.GetTokenCacheKey(token.Key), "RemainQuota", 99).Err())
+						require.NoError(t, client.HSet(context.Background(), keycache.GetTokenCacheKey(token.Key), "RemainQuota", 99).Err())
 						require.ErrorIs(t, testStore().ConfirmBatchReservation((*domain.Job)(&job)), domain.ErrBatchInsufficientQuota)
-						remain, err := client.HGet(context.Background(), model.GetTokenCacheKey(token.Key), "RemainQuota").Int()
+						remain, err := client.HGet(context.Background(), keycache.GetTokenCacheKey(token.Key), "RemainQuota").Int()
 						require.NoError(t, err)
 						assert.Equal(t, 99, remain, "hydration must not replace live quota with DB1000")
 						expected = domain.ErrBatchInsufficientQuota
@@ -695,12 +700,12 @@ func createReserveTestToken(t *testing.T, remainQuota int) model.Token {
 		ExpiredTime: -1,
 		RemainQuota: remainQuota,
 	}
-	require.NoError(t, token.Insert())
+	require.NoError(t, apikeystorage.Persistence().Insert(&token))
 	return token
 }
 
 func testStore() storage.Store {
-	return storage.NewStore(func() *gorm.DB { return model.DB }, func() *gorm.DB { return model.LOG_DB }, usageadapter.BatchLogs{}, billingmath.BatchMath{}, rediscache.Cache{})
+	return storage.NewStore(func() *gorm.DB { return model.DB }, func() *gorm.DB { return model.LOG_DB }, usageadapter.BatchLogs{}, billingmath.BatchMath{}, rediscache.Cache{}, storage.ReadCapabilities{Accounts: accountstorage.Cache(), Tokens: apikeystorage.Reader()})
 }
 func reserve(job *model.BatchJob, items []model.BatchItem) error {
 	values := make([]domain.Item, len(items))

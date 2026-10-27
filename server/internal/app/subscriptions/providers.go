@@ -6,16 +6,15 @@ import (
 	"time"
 
 	"github.com/thanhpk/randstr"
-	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
 	creem "github.com/QuantumNous/new-api/internal/adapter/http/payments/creem"
 	epay "github.com/QuantumNous/new-api/internal/adapter/http/payments/epay"
 	pancake "github.com/QuantumNous/new-api/internal/adapter/http/payments/pancake"
 	stripe "github.com/QuantumNous/new-api/internal/adapter/http/subscriptions/stripe"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/subscriptions"
 	"github.com/QuantumNous/new-api/internal/app/shared"
+	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 	payments "github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/create_creem_order"
 	"github.com/QuantumNous/new-api/internal/subscriptions/create_epay_order"
@@ -25,7 +24,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/subscriptions/list_pancake_products"
 	"github.com/QuantumNous/new-api/internal/subscriptions/receive_epay_callback"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
@@ -61,7 +59,7 @@ type Providers struct {
 }
 
 func NewProviders() Providers {
-	store := storage.NewStore(func() *gorm.DB { return model.DB })
+	store := subscriptionstorage.SQL()
 	config := settings.Settings{}
 	compliance := operation_setting.IsPaymentComplianceConfirmed
 	d := diagnostics{}

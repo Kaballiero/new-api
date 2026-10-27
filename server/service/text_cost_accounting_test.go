@@ -1,6 +1,8 @@
 package service_test
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"context"
 	"errors"
 	"fmt"
@@ -328,7 +330,7 @@ func runFixedPriceAccountingCases(t *testing.T, db *gorm.DB) {
 				assert.Equal(t, types.ErrorCodeInsufficientUserQuota, apiErr.GetErrorCode())
 			} else {
 				require.Nil(t, apiErr)
-				held, err := model.GetUserQuota(user.Id, true)
+				held, err := accountstorage.SQL().GetUserQuota(user.Id, true)
 				require.NoError(t, err)
 				assert.Equal(t, startingQuota-reservation, held)
 				if tc.refund {

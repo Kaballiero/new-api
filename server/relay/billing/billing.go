@@ -5,8 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/usagestorage"
+	"github.com/QuantumNous/new-api/model"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -278,4 +284,40 @@ func PreConsumeBilling(c *gin.Context, quota int, info *relaycommon.RelayInfo) *
 }
 func SettleBilling(c *gin.Context, info *relaycommon.RelayInfo, quota int) error {
 	return defaultGateway.Settle(c, info, quota)
+}
+
+func (g *Gateway) RecordViolationFee(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, feeQuota int, apiErr *types.NewAPIError, baseAmount, groupRatio float64) {
+	accountstorage.SQL().UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, feeQuota)
+	counters.UpdateChannelUsedQuota(model.DB, relayInfo.ChannelId, feeQuota)
+
+	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
+	tokenName := ctx.GetString("token_name")
+	oai := apiErr.ToOpenAIError()
+
+	other := new(model.LogOther)
+	other.MergePublic(map[string]any{
+		"violation_fee":        true,
+		"violation_fee_code":   string(types.ErrorCodeViolationFeeGrokCSAM),
+		"fee_quota":            feeQuota,
+		"base_amount":          baseAmount,
+		"group_ratio":          groupRatio,
+		"status_code":          apiErr.StatusCode,
+		"upstream_error_type":  oai.Type,
+		"upstream_error_code":  fmt.Sprintf("%v", oai.Code),
+		"violation_fee_marker": service.CSAMViolationMarker,
+	})
+
+	usagestorage.Writer().RecordConsumeLog(ctx, relayInfo.UserId, usageadapter.RecordConsumeLogParams{
+		ChannelId:      relayInfo.ChannelId,
+		ModelName:      relayInfo.OriginModelName,
+		TokenName:      tokenName,
+		Quota:          feeQuota,
+		Content:        "Violation fee charged",
+		TokenId:        relayInfo.TokenId,
+		UseTimeSeconds: int(useTimeSeconds),
+		IsStream:       relayInfo.IsStream,
+		Group:          relayInfo.UsingGroup,
+		Other:          other,
+	})
+
 }

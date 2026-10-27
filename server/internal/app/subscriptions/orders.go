@@ -8,11 +8,11 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	history "github.com/QuantumNous/new-api/internal/adapter/gorm/payments"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
+	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 	paymentsdomain "github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/complete_order"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/expire_order"
-	"github.com/QuantumNous/new-api/model"
 )
 
 type Orders struct {
@@ -22,7 +22,7 @@ type Orders struct {
 }
 
 func NewOrders() Orders {
-	store := storage.NewStore(func() *gorm.DB { return model.DB })
+	store := subscriptionstorage.SQL()
 	orderStore := storage.NewOrderStore(store, func(tx *gorm.DB, o domain.SubscriptionOrder) error {
 		err := history.UpsertSubscriptionHistory(
 			tx,

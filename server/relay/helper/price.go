@@ -1,6 +1,8 @@
 package helper
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"fmt"
 	"math"
 	"slices"
@@ -9,7 +11,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -26,7 +27,7 @@ import (
 )
 
 func modelPriceNotConfiguredError(modelName string, userId int) error {
-	if model.IsAdmin(userId) {
+	if accountstorage.SQL().IsAdmin(userId) {
 		return fmt.Errorf(
 			"Model %s price not configured. Go to System Settings → Operation Settings to enable self-use mode, or configure the model price in System Settings → Group & Model Pricing.",
 			modelName,

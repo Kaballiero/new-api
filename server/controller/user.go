@@ -1,6 +1,8 @@
 package controller
 
 import (
+	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/common"
@@ -71,7 +73,7 @@ func buildSelfUserData(user *model.User) map[string]any {
 
 // 根据用户角色生成默认的边栏配置
 func generateDefaultSidebarConfig(userRole int) string {
-	return model.GenerateDefaultSidebarConfigForRole(userRole)
+	return accountscore.GenerateDefaultSidebarConfigForRole(userRole)
 }
 
 func GetUserModels(c *gin.Context) { accountsHTTP().GetAccountModels.Handle(c) }

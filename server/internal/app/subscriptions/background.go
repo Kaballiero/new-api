@@ -8,15 +8,14 @@ import (
 	"time"
 
 	"github.com/bytedance/gopkg/util/gopool"
-	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
+	"github.com/QuantumNous/new-api/internal/app/dbclock"
+	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 	"github.com/QuantumNous/new-api/internal/subscriptions/cleanup_preconsume"
 	"github.com/QuantumNous/new-api/internal/subscriptions/expire_due"
 	"github.com/QuantumNous/new-api/internal/subscriptions/reset_due"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 )
 
 const (
@@ -50,10 +49,10 @@ func StartSubscriptionQuotaResetTask() {
 }
 
 func runSubscriptionQuotaResetOnce() {
-	store := storage.NewStore(func() *gorm.DB { return model.DB })
-	expiry := expire_due.NewUsecase(store, model.GetDBTimestamp, effects{}.RefreshGroup)
-	reset := reset_due.NewUsecase(store, model.GetDBTimestamp)
-	cleanup := cleanup_preconsume.NewUsecase(store, model.GetDBTimestamp)
+	store := subscriptionstorage.SQL()
+	expiry := expire_due.NewUsecase(store, dbclock.Now, effects{}.RefreshGroup)
+	reset := reset_due.NewUsecase(store, dbclock.Now)
+	cleanup := cleanup_preconsume.NewUsecase(store, dbclock.Now)
 	if !subscriptionResetRunning.CompareAndSwap(false, true) {
 		return
 	}

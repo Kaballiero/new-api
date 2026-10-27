@@ -5,18 +5,28 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
+	keycache "github.com/QuantumNous/new-api/internal/adapter/cache/apikeys"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/billing"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/recordutil"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
-	"gorm.io/gorm"
 )
 
 // Store executes task queries and mutations against the current primary database.
-type Store struct{ db func() *gorm.DB }
+type Store struct {
+	db       func() *gorm.DB
+	accounts accountcache.Store
+}
 
-func NewStore(db func() *gorm.DB) Store { return Store{db: db} }
+func NewStore(db func() *gorm.DB, accounts accountcache.Store) Store {
+	return Store{db: db, accounts: accounts}
+}
 
 // UpdateOpenRouterSync guards same-status updates as well as terminal claims.
 // SQLite's read/write transaction conflicts reject a stale writer; other
@@ -27,7 +37,7 @@ func (s Store) UpdateOpenRouterSync(t *record.Task, expectedRevision int) error 
 	}
 	err := s.db().Transaction(func(tx *gorm.DB) error {
 		var saved record.Task
-		if err := model.LockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
 			return err
 		}
 		state := saved.PrivateData.OpenRouterSyncState()
@@ -211,7 +221,7 @@ func (s Store) GetByOnlyTaskId(taskId string) (*record.Task, bool, error) {
 	var task *record.Task
 	var err error
 	err = s.db().Where("task_id = ?", taskId).First(&task).Error
-	exist, err := model.RecordExist(err)
+	exist, err := recordutil.RecordExist(err)
 	if err != nil {
 		return nil, false, err
 	}
@@ -244,7 +254,7 @@ func (s Store) GetByTaskId(userId int, taskId string) (*record.Task, bool, error
 	var err error
 	err = s.db().Where("user_id = ? and task_id = ?", userId, taskId).
 		First(&task).Error
-	exist, err := model.RecordExist(err)
+	exist, err := recordutil.RecordExist(err)
 	if err != nil {
 		return nil, false, err
 	}
@@ -276,7 +286,7 @@ func (s Store) GetTaskForProtocolObservation(ctx context.Context, userID int, pl
 	err := s.db().WithContext(ctx).
 		Where("user_id = ? AND platform = ? AND task_id = ?", userID, platform, taskID).
 		First(&task).Error
-	exists, err := model.RecordExist(err)
+	exists, err := recordutil.RecordExist(err)
 	if err != nil || !exists {
 		return nil, exists, err
 	}
@@ -416,7 +426,7 @@ func (s Store) ApplyTaskCostSettlement(t *record.Task) (string, error) {
 	tokenKey := ""
 	err := s.db().Transaction(func(tx *gorm.DB) error {
 		var saved record.Task
-		if err := model.LockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
 			return err
 		}
 		expected, state := t.PrivateData.Reconciliation, saved.PrivateData.Reconciliation
@@ -502,12 +512,12 @@ func (s Store) SyncTaskCostSettlementCache(t *record.Task, tokenKey string) erro
 		return nil
 	}
 	if t.PrivateData.BillingSource != "subscription" {
-		if err := model.CacheDecrUserQuota(t.UserId, int64(delta)); err != nil {
+		if err := s.accounts.CacheDecrUserQuota(t.UserId, int64(delta)); err != nil {
 			return err
 		}
 	}
 	if t.PrivateData.TokenId > 0 {
-		_, err := model.CacheApplyTokenQuotaDelta(t.PrivateData.TokenId, tokenKey, -int64(delta))
+		_, err := keycache.CacheApplyTokenQuotaDelta(t.PrivateData.TokenId, tokenKey, -int64(delta))
 		return err
 	}
 	return nil
@@ -519,7 +529,7 @@ func (s Store) FinalizeTaskCostSettlement(t *record.Task) error {
 	var committedData json.RawMessage
 	err := s.db().Transaction(func(tx *gorm.DB) error {
 		var saved record.Task
-		if err := model.LockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&saved, t.ID).Error; err != nil {
 			return err
 		}
 		state, expected := saved.PrivateData.Reconciliation, t.PrivateData.Reconciliation

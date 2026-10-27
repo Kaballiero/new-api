@@ -1,6 +1,18 @@
 package controller
 
 import (
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
+
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
+	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
+
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -53,7 +65,7 @@ func TestSecurityAccountDeletionRequiresScopedProof(t *testing.T) {
 			}
 			switch scenario {
 			case "expired":
-				require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
+				require.NoError(t, model.DB.Model(&identityrecord.AuthFlow{}).Where("purpose = ?", identitydomain.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
 			case "consumed":
 				_, err := identitycore.ConsumeOperationProof(proof, identity, operation)
 				require.NoError(t, err)
@@ -73,11 +85,11 @@ func TestSecurityAccountDeletionRequiresScopedProof(t *testing.T) {
 				common.PasswordLoginEnabled = false
 				t.Cleanup(func() { common.PasswordLoginEnabled = previous })
 			case "factor added":
-				require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
 			}
 			response := securityEnrollmentRequest("DELETE", "/api/user/self", "", proof, identity, DeleteSelf)
 			assert.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
-			stored, err := model.GetUserById(user.Id, false)
+			stored, err := accountstorage.SQL().GetUserById(user.Id, false)
 			require.NoError(t, err)
 			assert.Equal(t, identity.UserAuthVersion, stored.AuthVersion)
 			_, _, err = identitycore.ValidateLoginSession(originalIdentity)
@@ -105,7 +117,7 @@ func TestSecurityAccountDeletionAcceptsEitherFactorAndRevokesSessions(t *testing
 			}
 			if method == "2fa" || method == "passkey" {
 				newSecurityLoginPasskey(t, user.Id)
-				factor := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
+				factor := &identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
 				if method == "passkey" {
 					locked := time.Now().Add(time.Minute)
 					factor.LockedUntil = &locked
@@ -136,7 +148,7 @@ func TestSecurityAccountDeletionAcceptsEitherFactorAndRevokesSessions(t *testing
 			}
 			otherSession, err := identitycore.CreateLoginSession(user.Id, "password", "127.0.0.1", "second-session")
 			require.NoError(t, err)
-			require.NoError(t, model.UpdateUserAccessToken(user.Id, "account-delete-access-token"))
+			require.NoError(t, patstorage.Persistence().Update(user.Id, "account-delete-access-token"))
 			response := securityEnrollmentRequest("DELETE", "/api/user/self", "", proof, identity, DeleteSelf)
 			var result securityEnrollmentResponse
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
@@ -155,7 +167,7 @@ func TestSecurityAccountDeletionAcceptsEitherFactorAndRevokesSessions(t *testing
 			assert.Error(t, err)
 			_, _, err = identitycore.RefreshLoginSession(otherSession.RefreshToken, otherIdentity.SessionID, "127.0.0.1", "second-session")
 			assert.Error(t, err)
-			count, err := model.CountActiveUserSessions(user.Id, time.Now().Unix())
+			count, err := identitystorage.SQL().CountActiveUserSessions(user.Id, time.Now().Unix())
 			require.NoError(t, err)
 			assert.Zero(t, count)
 			tokenUser, err := authentication.NewPATAuth().Execute("account-delete-access-token")
@@ -180,7 +192,7 @@ func TestSecurityAccountDeletionRechecksTransactionAndConsumesFailedProof(t *tes
 			}
 			switch scenario {
 			case "revoked session":
-				_, err := model.RevokeAllUserSessions(user.Id, "test")
+				_, err := identitystorage.SQL().RevokeAllUserSessions(user.Id, "test")
 				require.NoError(t, err)
 			case "auth version":
 				require.NoError(t, model.DB.Model(user).Update("auth_version", user.AuthVersion+1).Error)
@@ -201,9 +213,9 @@ func TestSecurityAccountDeletionRechecksTransactionAndConsumesFailedProof(t *tes
 				assert.Contains(t, response.Body.String(), "SECURITY_PROOF_CONSUMED")
 			}
 			if scenario != "write failure" {
-				assert.Error(t, model.DeleteUserForSession(identity))
+				assert.Error(t, accountscore.DeleteUserForSession(identity))
 			}
-			_, err := model.GetUserById(user.Id, false)
+			_, err := accountstorage.SQL().GetUserById(user.Id, false)
 			require.NoError(t, err)
 			if scenario == "write failure" {
 				_, _, err = identitycore.ValidateLoginSession(identity)
@@ -365,11 +377,11 @@ func TestSecurityAccountRequiresProofBeforeMutation(t *testing.T) {
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 			assert.Equal(t, http.StatusForbidden, response.Code)
 			assert.Equal(t, "SECURITY_PROOF_REQUIRED", result.Code)
-			stored, err := model.GetUserById(user.Id, true)
+			stored, err := accountstorage.SQL().GetUserById(user.Id, true)
 			require.NoError(t, err)
 			assert.True(t, common.ValidatePasswordAndHash("enrollment-password", stored.Password))
 			var flows int64
-			require.NoError(t, model.DB.Model(&model.AuthFlow{}).Count(&flows).Error)
+			require.NoError(t, model.DB.Model(&identityrecord.AuthFlow{}).Count(&flows).Error)
 			assert.Zero(t, flows)
 		})
 	}
@@ -393,7 +405,7 @@ func TestSecurityAccountPasswordRequiresCurrentPassword(t *testing.T) {
 			var result securityEnrollmentResponse
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 			assert.Equal(t, test.success, result.Success, response.Body.String())
-			stored, err := model.GetUserById(user.Id, true)
+			stored, err := accountstorage.SQL().GetUserById(user.Id, true)
 			require.NoError(t, err)
 			if test.success {
 				assert.True(t, common.ValidatePasswordAndHash("password123", stored.Password))
@@ -426,7 +438,7 @@ func TestSecurityAccountProfileReadsPasswordStatusInOneQuery(t *testing.T) {
 			require.NoError(t, model.DB.Callback().Query().Before("gorm:query").Register("profile_query_count", func(tx *gorm.DB) {
 				queries++
 			}))
-			profile, err := model.GetSelfUserById(user.Id)
+			profile, err := accountstorage.SQL().GetSelfUserById(user.Id)
 			require.NoError(t, err)
 			assert.Equal(t, 1, queries)
 			assert.Equal(t, hasPassword, profile.HasPassword)
@@ -466,7 +478,7 @@ func TestSecurityAccountProfileUpdateDoesNotRequireProof(t *testing.T) {
 	var result securityEnrollmentResponse
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 	require.True(t, result.Success, response.Body.String())
-	stored, err := model.GetUserById(user.Id, true)
+	stored, err := accountstorage.SQL().GetUserById(user.Id, true)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", stored.DisplayName)
 	assert.Equal(t, user.Password, stored.Password)
@@ -500,7 +512,7 @@ func TestSecurityAccountLongUnicodePasswordAndSessionRotation(t *testing.T) {
 	_, _, err = identitycore.ValidateLoginSession(otherIdentity)
 	require.Error(t, err)
 	login := model.User{Username: user.Username, Password: password}
-	require.NoError(t, login.ValidateAndFill())
+	require.NoError(t, accountscore.ValidateAndFill(&login))
 	assert.False(t, common.ValidatePasswordAndHash(strings.TrimSpace(password), login.Password))
 	assert.False(t, common.ValidatePasswordAndHash("enrollment-password", login.Password))
 }
@@ -602,22 +614,22 @@ func TestSecurityAccountEmailConfirmationAndAudit(t *testing.T) {
 				require.NoError(t, model.DB.Model(user).Update("email", previous).Error)
 			}
 			if scenario == "replace with mfa" {
-				require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
 				method = identitydomain.VerificationMethodTwoFA
 			}
 			flow := startSecurityEmailBinding(t, identity, "New@Example.com", method)
 			assert.Equal(t, "new@example.com", flow.Email)
 			assert.Equal(t, scenario == "replace without mfa", flow.OldEmailRequired)
 			newCode, oldCode := mailbox.code(t, flow.Email), ""
-			_, state, err := model.GetEmailBinding(identity, flow.FlowToken)
+			_, state, err := identitystorage.SQL().GetEmailBinding(identity, flow.FlowToken)
 			require.NoError(t, err)
 			assert.NotEqual(t, newCode, state.NewCodeHash)
 			assert.True(t, common.ValidatePasswordAndHash(newCode, state.NewCodeHash))
 			if flow.OldEmailRequired {
 				oldCode = mailbox.code(t, previous)
 				_, err := identitycore.FinishEmailBinding(identity, flow.FlowToken, newCode, "")
-				assert.ErrorIs(t, err, model.ErrEmailBindingCodeInvalid)
-				stored, err := model.GetUserById(user.Id, false)
+				assert.ErrorIs(t, err, identitydomain.ErrEmailBindingCodeInvalid)
+				stored, err := accountstorage.SQL().GetUserById(user.Id, false)
 				require.NoError(t, err)
 				assert.Equal(t, previous, stored.Email)
 			}
@@ -627,11 +639,11 @@ func TestSecurityAccountEmailConfirmationAndAudit(t *testing.T) {
 			var result securityEnrollmentResponse
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 			require.True(t, result.Success, response.Body.String())
-			stored, err := model.GetUserById(user.Id, false)
+			stored, err := accountstorage.SQL().GetUserById(user.Id, false)
 			require.NoError(t, err)
 			assert.Equal(t, flow.Email, stored.Email)
 			_, err = identitycore.FinishEmailBinding(identity, flow.FlowToken, newCode, oldCode)
-			assert.ErrorIs(t, err, model.ErrAuthFlowConsumed)
+			assert.ErrorIs(t, err, identitydomain.ErrAuthFlowConsumed)
 			legacy := securityEnrollmentRequest("POST", "/api/oauth/email/bind", `{"email":"other@example.com","code":"123456"}`, "", identity, EmailBind)
 			assert.Contains(t, legacy.Body.String(), `"success":false`)
 			var audits []model.AuditLog
@@ -652,10 +664,10 @@ func TestSecurityAccountEmailResendAndAttemptLimit(t *testing.T) {
 	mailbox := newSecurityMailbox(t)
 	flow := startSecurityEmailBinding(t, identity, "new@example.com", identitydomain.VerificationMethodPassword)
 	_, err := identitycore.ResendAccountEmailBinding(identity, flow.FlowToken)
-	assert.ErrorIs(t, err, model.ErrEmailBindingResendWait)
+	assert.ErrorIs(t, err, identitydomain.ErrEmailBindingResendWait)
 	_, err = identitycore.FinishEmailBinding(identity, flow.FlowToken, "invalid", "")
-	assert.ErrorIs(t, err, model.ErrEmailBindingCodeInvalid)
-	stored, state, err := model.GetEmailBinding(identity, flow.FlowToken)
+	assert.ErrorIs(t, err, identitydomain.ErrEmailBindingCodeInvalid)
+	stored, state, err := identitystorage.SQL().GetEmailBinding(identity, flow.FlowToken)
 	require.NoError(t, err)
 	oldHash := state.NewCodeHash
 	state.ResendAt = time.Now().Add(-time.Second).Unix()
@@ -665,21 +677,21 @@ func TestSecurityAccountEmailResendAndAttemptLimit(t *testing.T) {
 	replacement, err := identitycore.ResendAccountEmailBinding(identity, flow.FlowToken)
 	require.NoError(t, err)
 	assert.Equal(t, flow.ExpiresAt, replacement.ExpiresAt)
-	_, state, err = model.GetEmailBinding(identity, flow.FlowToken)
+	_, state, err = identitystorage.SQL().GetEmailBinding(identity, flow.FlowToken)
 	require.NoError(t, err)
 	assert.Equal(t, 1, state.FailedAttempts)
 	assert.NotEqual(t, oldHash, state.NewCodeHash)
 	assert.True(t, common.ValidatePasswordAndHash(mailbox.code(t, flow.Email), state.NewCodeHash))
-	for attempt := 2; attempt <= model.EmailBindingMaxAttempts; attempt++ {
+	for attempt := 2; attempt <= identitystore.EmailBindingMaxAttempts; attempt++ {
 		_, err = identitycore.FinishEmailBinding(identity, flow.FlowToken, "invalid", "")
-		if attempt < model.EmailBindingMaxAttempts {
-			assert.ErrorIs(t, err, model.ErrEmailBindingCodeInvalid)
+		if attempt < identitystore.EmailBindingMaxAttempts {
+			assert.ErrorIs(t, err, identitydomain.ErrEmailBindingCodeInvalid)
 		} else {
-			assert.ErrorIs(t, err, model.ErrEmailBindingLocked)
+			assert.ErrorIs(t, err, identitydomain.ErrEmailBindingLocked)
 		}
 	}
 	_, err = identitycore.FinishEmailBinding(identity, flow.FlowToken, mailbox.code(t, flow.Email), "")
-	assert.ErrorIs(t, err, model.ErrEmailBindingLocked)
+	assert.ErrorIs(t, err, identitydomain.ErrEmailBindingLocked)
 }
 
 func TestSecurityAccountEmailConcurrentClaimsHaveOneOwner(t *testing.T) {
@@ -687,7 +699,7 @@ func TestSecurityAccountEmailConcurrentClaimsHaveOneOwner(t *testing.T) {
 	mailbox := newSecurityMailbox(t)
 	other := &model.User{Username: "other-user", AffCode: "other-account", Group: "default", Password: user.Password, Status: common.UserStatusEnabled, Role: common.RoleCommonUser, AuthVersion: 1}
 	require.NoError(t, model.DB.Create(other).Error)
-	require.NoError(t, model.PublishUserAuthCache(other.Id))
+	require.NoError(t, accountstorage.Cache().PublishUserAuthCache(other.Id))
 	bundle, err := identitycore.CreateLoginSession(other.Id, "password", "127.0.0.1", "other-user")
 	require.NoError(t, err)
 	secondIdentity, err := authtoken.ParseAccessToken(bundle.AccessToken)
@@ -717,7 +729,7 @@ func TestSecurityAccountEmailRejectsChangedAuthorization(t *testing.T) {
 			mailbox := newSecurityMailbox(t)
 			flow := startSecurityEmailBinding(t, identity, "new@example.com", identitydomain.VerificationMethodPassword)
 			code := mailbox.code(t, flow.Email)
-			stored, _, err := model.GetEmailBinding(identity, flow.FlowToken)
+			stored, _, err := identitystorage.SQL().GetEmailBinding(identity, flow.FlowToken)
 			require.NoError(t, err)
 			switch scenario {
 			case "other session":
@@ -727,7 +739,7 @@ func TestSecurityAccountEmailRejectsChangedAuthorization(t *testing.T) {
 			case "email changed":
 				require.NoError(t, model.DB.Model(user).Update("email", "changed@example.com").Error)
 			case "mfa enabled":
-				require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
 			case "notification failure":
 				common.SMTPServer = ""
 			}
@@ -740,7 +752,7 @@ func TestSecurityAccountEmailRejectsChangedAuthorization(t *testing.T) {
 			if scenario == "notification failure" {
 				assert.Contains(t, string(result.Data), `"notification_warning":true`)
 			}
-			current, err := model.GetUserById(user.Id, false)
+			current, err := accountstorage.SQL().GetUserById(user.Id, false)
 			require.NoError(t, err)
 			assert.Equal(t, scenario == "notification failure", current.Email == flow.Email)
 		})
@@ -764,7 +776,7 @@ func TestSecurityAccountOAuthBindingRejectsInvalidFlow(t *testing.T) {
 				FlowToken string `json:"flow_token"`
 			}
 			require.NoError(t, common.Unmarshal(result.Data, &started))
-			flow, err := model.GetAuthFlow(started.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeOAuth})
+			flow, err := identitystorage.SQL().GetAuthFlow(started.FlowToken, identitystore.AuthFlowMatch{Purpose: identitydomain.AuthFlowPurposeOAuth})
 			require.NoError(t, err)
 			provider := "account-oauth"
 			switch scenario {
@@ -777,14 +789,14 @@ func TestSecurityAccountOAuthBindingRejectsInvalidFlow(t *testing.T) {
 			case "old flow":
 				require.NoError(t, model.DB.Model(flow).Update("payload", "{}").Error)
 			case "mfa enabled":
-				require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
 			}
 			handler := func(c *gin.Context) { c.Params = gin.Params{{Key: "provider", Value: provider}}; HandleOAuth(c) }
 			path := "/api/oauth/" + provider + "?state=" + started.FlowToken + "&code=provider-code"
 			response = securityEnrollmentRequest("GET", path, "", "", identity, handler)
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 			assert.Equal(t, scenario == "success and replay", result.Success, response.Body.String())
-			current, err := model.GetUserById(user.Id, false)
+			current, err := accountstorage.SQL().GetUserById(user.Id, false)
 			require.NoError(t, err)
 			assert.Equal(t, scenario == "success and replay", current.GitHubId == "new-binding")
 			if result.Success {
@@ -798,7 +810,7 @@ func TestSecurityAccountOAuthBindingRejectsInvalidFlow(t *testing.T) {
 func TestSecurityAccountFirstPasswordRace(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
 	require.NoError(t, model.DB.Model(user).Update("password", "").Error)
-	require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: "existing-key", PublicKey: "public-key"}).Error)
+	require.NoError(t, model.DB.Create(&identityrecord.PasskeyCredential{UserID: user.Id, CredentialID: "existing-key", PublicKey: "public-key"}).Error)
 	proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopePasswordSet}, identitydomain.VerificationMethodPasskey)
 	request := `{"password":"initial-account-password!42"}`
 	response := securityEnrollmentRequest("PUT", "/api/user/self", request, proof, identity, UpdateSelf)
@@ -811,13 +823,13 @@ func TestSecurityAccountFirstPasswordRace(t *testing.T) {
 	for _, password := range []string{"first-password!42", "second-password!42"} {
 		go func(password string) {
 			<-start
-			results <- model.ChangeUserPassword(identity, &model.User{Id: user.Id, Password: password}, true)
+			results <- identitycore.ChangeUserPassword(identity, &model.User{Id: user.Id, Password: password}, true)
 		}(password)
 	}
 	close(start)
 	first, second := <-results, <-results
 	assert.NotEqual(t, first == nil, second == nil, "only one concurrent first password may succeed: %v / %v", first, second)
-	stored, err := model.GetUserById(user.Id, true)
+	stored, err := accountstorage.SQL().GetUserById(user.Id, true)
 	require.NoError(t, err)
 	assert.True(t, common.ValidatePasswordAndHash("first-password!42", stored.Password) || common.ValidatePasswordAndHash("second-password!42", stored.Password))
 }
@@ -829,23 +841,23 @@ func TestSecurityAccountUnbindPreservesUsableLoginMethod(t *testing.T) {
 			previousPasswordEnabled := common.PasswordLoginEnabled
 			t.Cleanup(func() { common.PasswordLoginEnabled = previousPasswordEnabled })
 			common.PasswordLoginEnabled = scenario != "disabled password"
-			require.NoError(t, model.DB.Create(&model.UserOAuthBinding{UserId: user.Id, ProviderId: 31, ProviderUserId: "linked-subject"}).Error)
+			require.NoError(t, model.DB.Create(&identityrecord.UserOAuthBinding{UserId: user.Id, ProviderId: 31, ProviderUserId: "linked-subject"}).Error)
 			if scenario != "password" && scenario != "disabled password" {
 				require.NoError(t, model.DB.Model(user).Updates(map[string]any{"password": "", "email": "verified@example.com"}).Error)
 			}
 			if scenario == "passkey" || scenario == "disabled passkey" {
-				require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: "existing-key", PublicKey: "public-key"}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.PasskeyCredential{UserID: user.Id, CredentialID: "existing-key", PublicKey: "public-key"}).Error)
 				system_setting.GetPasskeySettings().Enabled = scenario == "passkey"
 			}
 			if scenario == "twofa only" {
-				require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}).Error)
 			}
 			err := identitycore.UnbindAccountOAuth(identity, 31)
 			if scenario == "password" || scenario == "passkey" {
 				require.NoError(t, err)
 			} else {
-				assert.ErrorIs(t, err, model.ErrLastLoginMethod)
-				var binding model.UserOAuthBinding
+				assert.ErrorIs(t, err, identitydomain.ErrLastLoginMethod)
+				var binding identityrecord.UserOAuthBinding
 				require.NoError(t, model.DB.Where("user_id = ? AND provider_id = ?", user.Id, 31).First(&binding).Error)
 			}
 		})

@@ -2,9 +2,9 @@ package factors
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/model"
 )
 
 type Enable struct {
@@ -24,12 +24,14 @@ func (op *Enable) AdvanceSession() error {
 func (op *Enable) Bundle() *dto.AuthBundle { return op.Result }
 
 type Disable struct {
+	SQL identitystore.Store
+
 	Identity domain.AuthIdentity
 	Advance  func(domain.AuthIdentity, string) (*dto.AuthBundle, error)
 	Result   *dto.AuthBundle
 }
 
-func (op *Disable) DisableFactor() error { return model.DisableTwoFAForSession(op.Identity) }
+func (op *Disable) DisableFactor() error { return op.SQL.DisableTwoFAForSession(op.Identity) }
 func (op *Disable) AdvanceSession() error {
 	var err error
 	op.Result, err = op.Advance(op.Identity, "twofa_disabled")
@@ -38,6 +40,8 @@ func (op *Disable) AdvanceSession() error {
 func (op *Disable) Bundle() *dto.AuthBundle { return op.Result }
 
 type BackupCodes struct {
+	SQL identitystore.Store
+
 	Identity domain.AuthIdentity
 	Advance  func(domain.AuthIdentity, string) (*dto.AuthBundle, error)
 	Result   *dto.AuthBundle
@@ -50,7 +54,7 @@ func (op *BackupCodes) GenerateBackupCodes() error {
 	return err
 }
 func (op *BackupCodes) ReplaceBackupCodes() error {
-	return model.ReplaceBackupCodesForSession(op.Identity, op.Codes)
+	return op.SQL.ReplaceBackupCodesForSession(op.Identity, op.Codes)
 }
 func (op *BackupCodes) AdvanceSession() error {
 	var err error

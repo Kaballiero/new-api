@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
+	"github.com/QuantumNous/new-api/internal/app/dbclock"
+	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 	paymentsdomain "github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/admin_list_plans"
 	"github.com/QuantumNous/new-api/internal/subscriptions/admin_list_user_subscriptions"
@@ -23,7 +22,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/subscriptions/update_billing_preference"
 	"github.com/QuantumNous/new-api/internal/subscriptions/update_plan"
 	"github.com/QuantumNous/new-api/internal/subscriptions/update_plan_status"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -47,14 +45,14 @@ type HTTP struct {
 }
 
 func NewHTTP() HTTP {
-	store := storage.NewStore(func() *gorm.DB { return model.DB })
+	store := subscriptionstorage.SQL()
 	rules := domain.PlanRules{GroupExists: func(group string) bool { _, ok := ratio_setting.GetGroupRatioCopy()[group]; return ok }}
 	return HTTP{
 		Bind: bind_subscription.NewHTTP(
 			bind_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup),
 			operation_setting.IsPaymentComplianceConfirmed,
 		),
-		Reset:      reset_subscriptions.NewHTTP(reset_subscriptions.NewUsecase(store, model.GetDBTimestamp), NewResetAudit()),
+		Reset:      reset_subscriptions.NewHTTP(reset_subscriptions.NewUsecase(store, dbclock.Now), NewResetAudit()),
 		Invalidate: invalidate_subscription.NewHTTP(invalidate_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup)),
 		Delete:     delete_subscription.NewHTTP(delete_subscription.NewUsecase(store, common.GetTimestamp, effects{}.RefreshGroup)),
 		Balance: purchase_with_balance.NewHTTP(
@@ -64,15 +62,15 @@ func NewHTTP() HTTP {
 			operation_setting.IsPaymentComplianceConfirmed,
 		),
 		CreatePlan: create_plan.NewHTTP(
-			create_plan.NewUsecase(store, rules, model.InvalidateSubscriptionPlanCache),
+			create_plan.NewUsecase(store, rules, subscriptionstorage.Cache().InvalidateSubscriptionPlanCache),
 			operation_setting.IsPaymentComplianceConfirmed,
 		),
 		UpdatePlan: update_plan.NewHTTP(
-			update_plan.NewUsecase(store, rules, model.InvalidateSubscriptionPlanCache),
+			update_plan.NewUsecase(store, rules, subscriptionstorage.Cache().InvalidateSubscriptionPlanCache),
 			operation_setting.IsPaymentComplianceConfirmed,
 		),
 		PlanStatus: update_plan_status.NewHTTP(
-			update_plan_status.NewUsecase(store, model.InvalidateSubscriptionPlanCache),
+			update_plan_status.NewUsecase(store, subscriptionstorage.Cache().InvalidateSubscriptionPlanCache),
 			operation_setting.IsPaymentComplianceConfirmed,
 		),
 		ListPlans:         list_plans.NewHTTP(list_plans.NewUsecase(store, operation_setting.IsPaymentComplianceConfirmed)),

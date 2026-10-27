@@ -7,6 +7,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/model"
 )
@@ -14,12 +16,12 @@ import (
 type effects struct{}
 
 func (effects) RefreshGroup(userID int, operation string) {
-	if err := model.RefreshUserGroupCache(userID); err != nil {
+	if err := accountstorage.Cache().RefreshUserGroupCache(userID); err != nil {
 		common.SysError(fmt.Sprintf("failed to refresh user group cache after %s for user %d: %v", operation, userID, err))
 	}
 }
 func (effects) Purchase(r domain.PurchaseReceipt) {
-	model.RecordLog(
+	usagestorage.Writer().RecordLog(
 		r.UserID,
 		model.LogTypeTopup,
 		i18n.Translate(
@@ -34,7 +36,7 @@ func (effects) Purchase(r domain.PurchaseReceipt) {
 	)
 }
 func (effects) BalancePurchase(r domain.BalanceReceipt) {
-	model.RecordLog(
+	usagestorage.Writer().RecordLog(
 		r.UserID,
 		model.LogTypeTopup,
 		i18n.Translate(
@@ -49,7 +51,7 @@ func (effects) BalancePurchase(r domain.BalanceReceipt) {
 	)
 }
 func (effects) DebitCache(userID, quota int) {
-	if err := model.CacheDecrUserQuota(userID, int64(quota)); err != nil {
+	if err := accountstorage.Cache().CacheDecrUserQuota(userID, int64(quota)); err != nil {
 		common.SysLog("failed to decrease user quota cache after subscription balance purchase: " + err.Error())
 	}
 }
@@ -62,5 +64,5 @@ func (quotaMath) Strict(quota decimal.Decimal) (int, error) {
 }
 
 func receiptLanguage(userID int) string {
-	return i18n.ParseAcceptLanguage(model.GetUserLanguage(userID))
+	return i18n.ParseAcceptLanguage(accountstorage.Cache().GetUserLanguage(userID))
 }

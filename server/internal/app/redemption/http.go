@@ -9,8 +9,10 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	locking "github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/redemption"
 	"github.com/QuantumNous/new-api/internal/adapter/wallet"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	"github.com/QuantumNous/new-api/internal/redemption/create_codes"
 	"github.com/QuantumNous/new-api/internal/redemption/delete_code"
@@ -48,14 +50,14 @@ func walletQuota(quota int) error {
 
 // Redeemer wires the single credit transaction and the post-commit cache and receipt ports.
 func Redeemer() redeem_code.Usecase {
-	store := storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, wallet.Credit)
-	return redeem_code.NewUsecase(store, receipts{}, func(user, quota int) { wallet.Sync(user, quota, "redemption") },
+	store := storage.NewStore(func() *gorm.DB { return model.DB }, locking.LockForUpdate, wallet.Credit)
+	return redeem_code.NewUsecase(store, receipts{}, func(user, quota int) { accountstorage.Cache().SyncCreditUserQuotaCache(user, quota, "redemption") },
 		func(err error) { common.SysError("redemption failed: " + err.Error()) }, redeem_code.Timing{Now: common.GetTimestamp, Wait: common.RandomSleep})
 }
 
 // NewHTTP wires admission, independent management operations and audit callbacks outside their writes.
 func NewHTTP() HTTP {
-	store := storage.NewStore(func() *gorm.DB { return model.DB }, model.LockForUpdate, wallet.Credit)
+	store := storage.NewStore(func() *gorm.DB { return model.DB }, locking.LockForUpdate, wallet.Credit)
 	recording := auditapp.NewRecording()
 	return HTTP{
 		List:   list_codes.NewHTTP(list_codes.NewUsecase(store)),

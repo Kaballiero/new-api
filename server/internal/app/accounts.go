@@ -1,6 +1,15 @@
 package app
 
 import (
+	"github.com/QuantumNous/new-api/internal/app/identitycore"
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
+
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
@@ -17,15 +26,19 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/get_checkin_status"
 	"github.com/QuantumNous/new-api/internal/accounts/get_groups"
 	"github.com/QuantumNous/new-api/internal/accounts/get_profile"
+	"github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
 	"github.com/QuantumNous/new-api/internal/accounts/list_accounts"
 	"github.com/QuantumNous/new-api/internal/accounts/manage_account"
 	"github.com/QuantumNous/new-api/internal/accounts/provision_account"
 	"github.com/QuantumNous/new-api/internal/accounts/search_accounts"
 	"github.com/QuantumNous/new-api/internal/accounts/transfer_affiliate_quota"
+	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/QuantumNous/new-api/internal/accounts/update_account"
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
 	"github.com/QuantumNous/new-api/internal/accounts/update_profile"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/QuantumNous/new-api/internal/app/accountscore"
+	"github.com/QuantumNous/new-api/internal/app/patstorage"
 
 	accountsadapter "github.com/QuantumNous/new-api/internal/adapter/accounts"
 
@@ -65,6 +78,7 @@ type AccountsHTTP struct {
 	TransferAffiliateQuota        *transfer_affiliate_quota.HTTP
 	UpdateNotificationPreferences *update_notification_preferences.HTTP
 	ProvisionAccount              *provision_account.HTTP
+	InitializePAT                 *initialize_pat.HTTP
 	CheckIn                       check_in.HTTP
 	GetCheckinStatus              get_checkin_status.HTTP
 }
@@ -75,22 +89,27 @@ type AccountsHTTP struct {
 func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 	roles := domain.AdminRoles{Guest: common.RoleGuestUser, Common: common.RoleCommonUser, Admin: common.RoleAdminUser, Root: common.RoleRootUser, Enabled: common.UserStatusEnabled, Disabled: common.UserStatusDisabled}
 	hooks := repository.AdminHooks{
+		DB:  func() *gorm.DB { return model.DB },
+		SQL: accountstorage.SQL(), InsertWithTx: accountscore.InsertWithTx, FinishInsert: accountscore.FinishInsert, EditWithTx: accountscore.EditWithTx, UpdateWithTx: accountscore.UpdateWithTx, Update: accountscore.Update, Delete: accountscore.Delete,
 		SetPermissionsWithTx: func(tx *gorm.DB, id int, permissions map[string]map[string]bool) error {
 			return authz.SetUserPermissionsInTx(tx, id, authz.PermissionsMap(permissions))
 		},
 		ClearAuthorizationWithTx: authz.ClearUserAuthorizationInTx,
 		Reload:                   authz.ReloadPolicy,
-		Revoke:                   func(id int, reason string) error { _, err := model.RevokeAllUserSessions(id, reason); return err },
-		Publish:                  model.PublishUserAuthCache,
-		Invalidate:               model.InvalidateUserTokensCache,
+		Revoke: func(id int, reason string) error {
+			_, err := identitystorage.SQL().RevokeAllUserSessions(id, reason)
+			return err
+		},
+		Publish:    accountstorage.Cache().PublishUserAuthCache,
+		Invalidate: apikeystorage.Quota().InvalidateUserTokensCache,
 	}
-	quotaStore := model.NewQuotaAdjustmentStore()
+	quotaStore := accountscore.NewQuotaAdjustmentStore()
 	adjustQuota := adjust_quota.NewHTTP(adjust_quota.NewUsecase(quotaStore, quotaStore, quotaStore, common.RoleRootUser, common.MaxWalletQuota, common.WalletQuotaFromDecimalStrict), effects.QuotaAudit)
 	groups := accountssettings.UserGroups()
-	profiles := repository.ProfileQueriesStore{}
+	profiles := repository.ProfileQueriesStore{SQL: accountstorage.SQL(), Update: accountscore.Update}
 	return AccountsHTTP{
 		ClearBinding: clear_binding.NewHTTP(func(c *gin.Context) clear_binding.AdminOperation {
-			return &repository.ClearBindingOperation{Role: func() int { return c.GetInt("role") }, Audit: func(id int, username, bindingType string) {
+			return &repository.ClearBindingOperation{SQL: accountstorage.SQL(), ClearBinding: accountscore.ClearBinding, Role: func() int { return c.GetInt("role") }, Audit: func(id int, username, bindingType string) {
 				effects.ManageAudit(c, id, "user.binding_clear", map[string]any{"bindingType": bindingType, "username": username})
 			}}
 		}),
@@ -111,37 +130,40 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		}, roles, func(c *gin.Context, request manage_account.ManageRequest) {
 			adjustQuota.Handle(c, adjust_quota.Request{Id: request.Id, Action: request.Action, Value: request.Value, Mode: request.Mode})
 		}),
-		GetAccount: get_account.NewHTTP(func() get_account.ResponseOperation { return &repository.AdminReadOperation{} }, func(id, role int) map[string]map[string]bool { return authz.Capabilities(id, role) }, common.RoleRootUser),
+		GetAccount: get_account.NewHTTP(func() get_account.ResponseOperation { return &repository.AdminReadOperation{SQL: accountstorage.SQL()} }, func(id, role int) map[string]map[string]bool { return authz.Capabilities(id, role) }, common.RoleRootUser),
 		DeleteAccount: delete_account.NewHTTP(func(c *gin.Context) delete_account.Operation {
-			return &repository.AdminReadOperation{Delete: model.HardDeleteUserById, Audit: func(target domain.AdminTarget) {
+			return &repository.AdminReadOperation{SQL: accountstorage.SQL(), Delete: accountscore.HardDeleteUserById, Audit: func(target domain.AdminTarget) {
 				effects.ManageAudit(c, target.ID, "user.delete", map[string]any{"username": target.Username, "id": target.ID})
 			}}
 		}),
-		ListAccounts:     list_accounts.NewHTTP(repository.AdminQueriesStore{}),
-		SearchAccounts:   search_accounts.NewHTTP(repository.AdminQueriesStore{}),
-		GetAccountsBatch: get_accounts_batch.NewHTTP(repository.AdminQueriesStore{}, common.RoleRootUser),
-		ChangeGroup:      change_group.NewHTTP(change_group.NewUsecase(model.NewAccountGroupStore(), ratio_setting.ContainsGroupRatio, common.RoleRootUser)),
+		ListAccounts:     list_accounts.NewHTTP(repository.AdminQueriesStore{SQL: accountstorage.SQL()}),
+		SearchAccounts:   search_accounts.NewHTTP(repository.AdminQueriesStore{SQL: accountstorage.SQL()}),
+		GetAccountsBatch: get_accounts_batch.NewHTTP(repository.AdminQueriesStore{SQL: accountstorage.SQL()}, common.RoleRootUser),
+		ChangeGroup:      change_group.NewHTTP(change_group.NewUsecase(accountscore.NewAccountGroupStore(), ratio_setting.ContainsGroupRatio, common.RoleRootUser)),
 		GetGroups:        get_groups.NewHTTP(get_groups.NewUsecase(groups, accountGroups{})),
 		GetProfile:       get_profile.NewHTTP(get_profile.NewUsecase(profiles, func(id, role int) any { return authz.Capabilities(id, role) }, roles, accountsadapter.SidebarModules)),
 		GetAffiliateCode: get_affiliate_code.NewHTTP(get_affiliate_code.NewUsecase(profiles, common.GetRandomString)),
-		GetAccountModels: get_account_models.NewHTTP(repository.AccountModelGroupReader{}, groups, channelstore.GetGroupsEnabledModels),
-		UpdateProfile: update_profile.NewHTTP(repository.SelfUpdateStore{}, identityadapter.NewPasswordChange, func(c *gin.Context, succeeded, notificationFailed bool) {
+		GetAccountModels: get_account_models.NewHTTP(repository.AccountModelGroupReader{Cache: accountstorage.Cache()}, groups, channelstore.GetGroupsEnabledModels),
+		UpdateProfile: update_profile.NewHTTP(repository.SelfUpdateStore{SQL: accountstorage.SQL(), Update: accountscore.Update}, func(c *gin.Context, succeeded *bool) update_profile.PasswordChanger {
+			return identityadapter.NewPasswordChange(c, succeeded, accountstorage.SQL(), accountstorage.Cache(), identityadapter.PasswordCapabilities{ChangePassword: identitycore.ChangeUserPassword, AdvanceSession: identitycore.AdvanceCurrentSessionToUserVersion})
+		}, func(c *gin.Context, succeeded, notificationFailed bool) {
 			effects.SecurityAudit(c, c.GetInt("id"), "user.password_change", map[string]any{"success": succeeded, "notification_failed": notificationFailed})
 		}, effects.SecurityError),
-		TransferAffiliateQuota:        transfer_affiliate_quota.NewHTTP(repository.AffiliateAccountLoader{}, effects.PaymentCompliance),
-		UpdateNotificationPreferences: update_notification_preferences.NewHTTP(update_notification_preferences.NewUsecase(repository.NotificationPreferencesStore{}, accountsadapter.NotificationTypes, common.RoleAdminUser)),
-		ProvisionAccount:              provision_account.NewHTTP(provision_account.NewUsecase(model.NewProvisionOperation(), model.ProvisionCredentials{}, model.ProvisionErrors{}, ratio_setting.ContainsGroupRatio, effects.Sidebar, common.MaxQuota, common.RoleCommonUser, common.UserStatusEnabled), effects.GetAPIError, func() error { return model.ErrGetAPIInvalidRequest }),
-		CheckIn: check_in.NewHTTP(check_in.NewUsecase(model.NewCheckinStore(), checkinsettings.Current), checkinsettings.Current, func(id, quota int, lang string) {
-			model.RecordLog(id, model.LogTypeSystem, i18n.Translate(lang, i18n.MsgAccountCheckinLog, map[string]any{"Quota": logger.LogQuota(quota)}))
+		TransferAffiliateQuota:        transfer_affiliate_quota.NewHTTP(repository.AffiliateAccountLoader{SQL: accountstorage.SQL(), Transfer: accountscore.TransferAffQuotaToQuota}, effects.PaymentCompliance),
+		UpdateNotificationPreferences: update_notification_preferences.NewHTTP(update_notification_preferences.NewUsecase(repository.NotificationPreferencesStore{SQL: accountstorage.SQL()}, accountsadapter.NotificationTypes, common.RoleAdminUser)),
+		ProvisionAccount:              provision_account.NewHTTP(accountscore.NewProvision(effects.Sidebar), effects.GetAPIError),
+		InitializePAT:                 initialize_pat.NewHTTP(accountscore.InitializePAT(), effects.GetAPIError),
+		CheckIn: check_in.NewHTTP(check_in.NewUsecase(accountscore.NewCheckinStore(), checkinsettings.Current), checkinsettings.Current, func(id, quota int, lang string) {
+			usagestorage.Writer().RecordLog(id, model.LogTypeSystem, i18n.Translate(lang, i18n.MsgAccountCheckinLog, map[string]any{"Quota": logger.LogQuota(quota)}))
 		}),
-		GetCheckinStatus: get_checkin_status.NewHTTP(get_checkin_status.NewUsecase(model.NewCheckinStore()), checkinsettings.Current),
+		GetCheckinStatus: get_checkin_status.NewHTTP(get_checkin_status.NewUsecase(accountscore.NewCheckinStore()), checkinsettings.Current),
 	}
 }
 
 type accountGroups struct{}
 
 func (accountGroups) UserGroup(id int, cache bool) (string, error) {
-	return model.GetUserGroup(id, cache)
+	return accountstorage.SQL().GetUserGroup(id, cache)
 }
 
 type AccountsEffects struct {
@@ -153,3 +175,5 @@ type AccountsEffects struct {
 	QuotaAudit        func(*gin.Context) adjust_quota.Audit
 	Sidebar           func(int) string
 }
+
+func GetAPIErrors() transport.GetAPIErrors { return patstorage.GetAPIErrors() }

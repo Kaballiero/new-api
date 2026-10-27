@@ -1,4 +1,4 @@
-package billing
+package billing_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
 	"github.com/QuantumNous/new-api/internal/billing/create_reservation"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/billing/settle_reservation"
@@ -74,7 +75,7 @@ func TestBillingAdapterPostgres(t *testing.T) {
 	require.NoError(t, db.Create(&user).Error)
 	token := model.Token{UserId: user.Id, Key: "wave2b1-postgres", RemainQuota: 1000, Status: common.TokenStatusEnabled, ExpiredTime: -1}
 	require.NoError(t, db.Create(&token).Error)
-	store := Store{}
+	store := billingapp.NewStore()
 	input := create_reservation.Input{Account: domain.Account{UserID: 1, TokenID: 1, TokenKey: "fixture"}, RequestID: "request", Quota: 100, Preference: "wallet_only"}
 	input.Account = domain.Account{UserID: user.Id, TokenID: token.Id, TokenKey: token.Key}
 	r, err := create_reservation.NewUsecase(store, func() int { return 0 }, func(string) {}).Execute(input)

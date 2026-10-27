@@ -17,6 +17,11 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
+	accountsql "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/model"
@@ -79,12 +84,12 @@ func TestUsageAdapterPostgres(t *testing.T) {
 	c, _ := gin.CreateTestContext(nil)
 	c.Set("username", user.Username)
 	c.Set(common.RequestIdKey, "usage-pg-request")
-	ctx := WithRequestObservation(c, model.LogObservation{Context: c, Identity: func() (string, string, string) {
+	ctx := WithRequestObservation(c, LogObservation{Context: c, Identity: func() (string, string, string) {
 		return c.GetString("username"), c.GetString(common.RequestIdKey), c.GetString(common.UpstreamRequestIdKey)
 	}, ClientIP: c.ClientIP})
 	enabled := true
 	gateReads := 0
-	store := Store{ConsumeEnabled: func() bool { gateReads++; return enabled }, ExportEnabled: func() bool { return false }}
+	store := recordingFixtureStore(func() bool { gateReads++; return enabled }, func() bool { return false })
 	in := domain.Consumption{Record: domain.UsageRecord{UserID: user.Id, ChannelID: channel.Id, ModelName: "usage-model", Quota: 7, PromptTokens: 3, CompletionTokens: 4, Group: "default"}, RenderedContent: "usage fixture", Request: domain.RequestFacts{ContextPresent: true, FirstResponseMilliseconds: -1000}}
 	store.AddUserConsumption(user.Id, 7)
 	store.AddChannelConsumption(channel.Id, 7)
@@ -278,13 +283,13 @@ func TestPlainObservationKeepsLateRecordingAndIPSettings(t *testing.T) {
 	user := model.User{Username: "plain-observation", Setting: `{"record_ip_log":false}`}
 	require.NoError(t, mainDB.Create(&user).Error)
 	identityReads, ipReads := 0, 0
-	observation := model.LogObservation{Context: context.Background(), Identity: func() (string, string, string) {
+	observation := LogObservation{Context: context.Background(), Identity: func() (string, string, string) {
 		identityReads++
 		return "plain-observation", "plain-request", "plain-upstream"
 	}, ClientIP: func() string { ipReads++; return "192.0.2.10" }}
 	ctx := WithRequestObservation(context.Background(), observation)
 	enabled := false
-	store := Store{ConsumeEnabled: func() bool { return enabled }, ExportEnabled: func() bool { return false }}
+	store := recordingFixtureStore(func() bool { return enabled }, func() bool { return false })
 	in := domain.Consumption{Record: domain.UsageRecord{UserID: user.Id, Quota: 7}, RenderedContent: "plain"}
 	require.NoError(t, store.WriteConsumption(ctx, in))
 	assert.Zero(t, identityReads)
@@ -309,4 +314,30 @@ func TestPlainObservationKeepsLateRecordingAndIPSettings(t *testing.T) {
 	var mainRows int64
 	require.NoError(t, mainDB.Table("logs").Count(&mainRows).Error)
 	assert.Zero(t, mainRows)
+}
+
+func TestEnsureLogRequestId(t *testing.T) {
+	empty := &model.Log{}
+	ensureLogRequestId(empty)
+	assert.NotEmpty(t, empty.RequestId, "empty request id should be backfilled")
+
+	existing := &model.Log{RequestId: "fixed-request-id"}
+	ensureLogRequestId(existing)
+	assert.Equal(t, "fixed-request-id", existing.RequestId, "existing request id must be preserved")
+
+	assert.NotPanics(t, func() { ensureLogRequestId(nil) })
+}
+
+// recordingFixtureStore assembles the same technical owners against each test's explicit DB handles.
+func recordingFixtureStore(consume, export func() bool) Store {
+	db := func() *gorm.DB { return model.DB }
+	group := func() string { return model.GroupColumn }
+	queries := accountsrecord.NewQueries(db, group)
+	cache := accountcache.NewStore(accountcache.Environment{DB: db, GroupColumn: group, GetUserByID: queries.GetUserById, LockForUpdate: locking.LockForUpdate})
+	accounts := accountsql.NewStore(accountsql.Environment{DB: db, GroupColumn: group, Cache: cache})
+	writer := NewWriter(WriterEnvironment{DB: db, LogDB: func() *gorm.DB { return model.LOG_DB },
+		GetUsernameById: accounts.GetUsernameById, GetUserSetting: accounts.GetUserSetting})
+	return Store{ConsumeEnabled: consume, ExportEnabled: export, Writer: writer,
+		UserConsumption:    accounts.UpdateUserUsedQuotaAndRequestCount,
+		ChannelConsumption: func(id, quota int) { counters.UpdateChannelUsedQuota(model.DB, id, quota) }}
 }

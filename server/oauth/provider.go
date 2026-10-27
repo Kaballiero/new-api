@@ -2,8 +2,8 @@ package oauth
 
 import (
 	"context"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -26,10 +26,10 @@ type Provider interface {
 	IsUserIDTaken(providerUserID string) bool
 
 	// FillUserByProviderID fills the user model by provider user ID
-	FillUserByProviderID(user *model.User, providerUserID string) error
+	FillUserByProviderID(user *accountrecord.User, providerUserID string) error
 
 	// SetProviderUserID sets the provider user ID on the user model
-	SetProviderUserID(user *model.User, providerUserID string)
+	SetProviderUserID(user *accountrecord.User, providerUserID string)
 
 	// GetProviderPrefix returns the prefix for auto-generated usernames (e.g., "github_")
 	GetProviderPrefix() string

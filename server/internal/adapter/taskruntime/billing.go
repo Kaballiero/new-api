@@ -8,28 +8,39 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	billingmath "github.com/QuantumNous/new-api/internal/adapter/billing"
+	accountsql "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	keyrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	billingstore "github.com/QuantumNous/new-api/internal/adapter/gorm/billing"
 	"github.com/QuantumNous/new-api/internal/billing/apply_quota_delta"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 )
 
+type TokenReader interface {
+	GetByID(int) (*keyrecord.Token, error)
+}
+type TokenQuota interface {
+	IncreaseTokenQuota(int, string, int) error
+	DecreaseTokenQuota(int, string, int) error
+}
+
 type taskDeltaStore struct {
 	billingstore.Store
-	ctx   context.Context
-	task  *domain.Task
-	delta int
+	Tokens TokenReader
+	Quotas TokenQuota
+	ctx    context.Context
+	task   *domain.Task
+	delta  int
 }
 
 func (s taskDeltaStore) token(account billingdomain.Account, amount int, credit bool) error {
 	if account.TokenID <= 0 || s.delta == 0 {
 		return nil
 	}
-	token, err := model.GetTokenById(account.TokenID)
+	token, err := s.Tokens.GetByID(account.TokenID)
 	if err != nil {
 		logger.LogWarn(s.ctx, fmt.Sprintf("Failed to load token key (tokenId=%d, task=%s): %s", account.TokenID, s.task.TaskID, err.Error()))
 		return fmt.Errorf("task token is unavailable")
@@ -38,9 +49,9 @@ func (s taskDeltaStore) token(account billingdomain.Account, amount int, credit 
 		return fmt.Errorf("task token is unavailable")
 	}
 	if credit {
-		err = model.IncreaseTokenQuota(account.TokenID, token.Key, amount)
+		err = s.Quotas.IncreaseTokenQuota(account.TokenID, token.Key, amount)
 	} else {
-		err = model.DecreaseTokenQuota(account.TokenID, token.Key, amount)
+		err = s.Quotas.DecreaseTokenQuota(account.TokenID, token.Key, amount)
 	}
 	if err != nil {
 		logger.LogWarn(s.ctx, fmt.Sprintf("Failed to adjust token quota (delta=%d, task=%s): %s", s.delta, s.task.TaskID, err.Error()))
@@ -50,14 +61,18 @@ func (s taskDeltaStore) token(account billingdomain.Account, amount int, credit 
 func (s taskDeltaStore) DebitToken(a billingdomain.Account, n int) error  { return s.token(a, n, false) }
 func (s taskDeltaStore) CreditToken(a billingdomain.Account, n int) error { return s.token(a, n, true) }
 
-type TaskDelta struct{}
+type TaskDelta struct {
+	Store  billingstore.Store
+	Tokens TokenReader
+	Quotas TokenQuota
+}
 
-func (TaskDelta) Apply(ctx context.Context, task *domain.Task, delta int) (domain.DeltaResult, error) {
+func (d TaskDelta) Apply(ctx context.Context, task *domain.Task, delta int) (domain.DeltaResult, error) {
 	source := billingdomain.Wallet
 	if task.PrivateData.BillingSource == billingdomain.Subscription && task.PrivateData.SubscriptionId > 0 {
 		source = billingdomain.Subscription
 	}
-	store := taskDeltaStore{ctx: ctx, task: task, delta: delta}
+	store := taskDeltaStore{Store: d.Store, Tokens: d.Tokens, Quotas: d.Quotas, ctx: ctx, task: task, delta: delta}
 	out, err := apply_quota_delta.NewUsecase(store).Execute(apply_quota_delta.Input{Account: billingdomain.Account{UserID: task.UserId, TokenID: task.PrivateData.TokenId}, Source: source, SubscriptionID: task.PrivateData.SubscriptionId, Delta: delta})
 	return domain.DeltaResult{FundingApplied: out.FundingApplied, TokenApplied: out.TokenApplied}, err
 }
@@ -88,7 +103,7 @@ func (TaskMath) Saturation(clamp *billingdomain.Clamp) (string, error) {
 	return string(b), err
 }
 
-type TaskPrices struct{}
+type TaskPrices struct{ Accounts accountsql.Store }
 
 func (TaskPrices) ModelRatio(name string) (float64, bool, string) {
 	return ratio_setting.GetModelRatio(name)
@@ -97,8 +112,8 @@ func (TaskPrices) GroupRatio(group string) float64 { return ratio_setting.GetGro
 func (TaskPrices) SpecialRatio(a, b string) (float64, bool) {
 	return ratio_setting.GetGroupGroupRatio(a, b)
 }
-func (TaskPrices) UserGroup(id int) (string, error) {
-	u, err := model.GetUserById(id, false)
+func (p TaskPrices) UserGroup(id int) (string, error) {
+	u, err := p.Accounts.GetUserById(id, false)
 	if err != nil {
 		return "", err
 	}
@@ -107,17 +122,21 @@ func (TaskPrices) UserGroup(id int) (string, error) {
 func (Diagnostics) Quota(quota int) string { return logger.LogQuota(quota) }
 
 // MidjourneyBilling keeps the existing post-persistence debit and token order.
-type MidjourneyBilling struct{ billingstore.Store }
+type MidjourneyBilling struct {
+	billingstore.Store
+	Tokens TokenReader
+	Quotas TokenQuota
+}
 
-func (MidjourneyBilling) Apply(ctx context.Context, account billingdomain.Account, source string, subscriptionID, quota int) (domain.DeltaResult, error) {
-	out, err := apply_quota_delta.NewUsecase(billingstore.Store{}).Execute(apply_quota_delta.Input{Account: account, Source: source, SubscriptionID: subscriptionID, Delta: quota})
+func (b MidjourneyBilling) Apply(ctx context.Context, account billingdomain.Account, source string, subscriptionID, quota int) (domain.DeltaResult, error) {
+	out, err := apply_quota_delta.NewUsecase(b.Store).Execute(apply_quota_delta.Input{Account: account, Source: source, SubscriptionID: subscriptionID, Delta: quota})
 	return domain.DeltaResult{FundingApplied: out.FundingApplied, TokenApplied: out.TokenApplied}, err
 }
-func (MidjourneyBilling) RefundToken(ctx context.Context, task *domain.Midjourney, quota int) {
+func (b MidjourneyBilling) RefundToken(ctx context.Context, task *domain.Midjourney, quota int) {
 	if task.TokenId <= 0 {
 		return
 	}
-	token, err := model.GetTokenById(task.TokenId)
+	token, err := b.Tokens.GetByID(task.TokenId)
 	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("Failed to load token key (tokenId=%d, task=%s): %s", task.TokenId, task.MjId, err.Error()))
 		return
@@ -125,7 +144,7 @@ func (MidjourneyBilling) RefundToken(ctx context.Context, task *domain.Midjourne
 	if token.Key == "" {
 		return
 	}
-	if err := model.IncreaseTokenQuota(task.TokenId, token.Key, quota); err != nil {
+	if err := b.Quotas.IncreaseTokenQuota(task.TokenId, token.Key, quota); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("Failed to refund Midjourney token quota for task %s: %s", task.MjId, err.Error()))
 	}
 }

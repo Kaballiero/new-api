@@ -2,6 +2,7 @@ package identitycore
 
 import (
 	"errors"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func TestAccessTokenRoundTripAndPurposeIsolation(t *testing.T) {
 
 	binding, err := BindVerificationOperation(identitydomain.VerificationOperation{Scope: "channel.key.read", Context: []byte(`{"channel_id":123}`)})
 	require.NoError(t, err)
-	proof, _, err := authtoken.IssueSecurityProof(identity, "2fa", binding)
+	proof, _, err := authtoken.IssueSecurityProof(identitystorage.SQL(), identity, "2fa", binding)
 	require.NoError(t, err)
 	_, err = authtoken.ParseAccessToken(proof)
 	assert.ErrorIs(t, err, identitydomain.ErrAuthTokenInvalid)
@@ -95,7 +96,7 @@ func TestDashboardAccessTokenClassification(t *testing.T) {
 
 	binding, err := BindVerificationOperation(identitydomain.VerificationOperation{Scope: "channel.key.read", Context: []byte(`{"channel_id":123}`)})
 	require.NoError(t, err)
-	proof, _, err := authtoken.IssueSecurityProof(identitydomain.AuthIdentity{
+	proof, _, err := authtoken.IssueSecurityProof(identitystorage.SQL(), identitydomain.AuthIdentity{
 		UserID: 42, SessionID: "session-1", UserAuthVersion: 1, SessionVersion: 1,
 	}, "2fa", binding)
 	require.NoError(t, err)
@@ -132,7 +133,7 @@ func TestSecurityProofBindsIdentityAndOperation(t *testing.T) {
 	operation := identitydomain.VerificationOperation{Scope: "channel.key.read", Context: []byte(`{"channel_id":123}`)}
 	binding, err := BindVerificationOperation(operation)
 	require.NoError(t, err)
-	proof, _, err := authtoken.IssueSecurityProof(identity, "2fa", binding)
+	proof, _, err := authtoken.IssueSecurityProof(identitystorage.SQL(), identity, "2fa", binding)
 	require.NoError(t, err)
 
 	claims, err := authtoken.VerifySecurityProof(proof, identity, binding)

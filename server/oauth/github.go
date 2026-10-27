@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"io"
 	"net/http"
 	"strconv"
@@ -13,7 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -159,15 +161,15 @@ func (p *GitHubProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*O
 }
 
 func (p *GitHubProvider) IsUserIDTaken(providerUserID string) bool {
-	return model.IsGitHubIdAlreadyTaken(providerUserID)
+	return accountstorage.SQL().IsGitHubIdAlreadyTaken(providerUserID)
 }
 
-func (p *GitHubProvider) FillUserByProviderID(user *model.User, providerUserID string) error {
+func (p *GitHubProvider) FillUserByProviderID(user *accountrecord.User, providerUserID string) error {
 	user.GitHubId = providerUserID
-	return user.FillUserByGitHubId()
+	return accountstorage.SQL().FillUserByGitHubId(user)
 }
 
-func (p *GitHubProvider) SetProviderUserID(user *model.User, providerUserID string) {
+func (p *GitHubProvider) SetProviderUserID(user *accountrecord.User, providerUserID string) {
 	user.GitHubId = providerUserID
 }
 

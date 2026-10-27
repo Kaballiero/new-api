@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -493,7 +494,7 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 		}
 		if tc.Variant == "pending_cursor" {
 			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservationPending: true, ReservedQuota: 50}
-			require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }).UpdateTask(task))
+			require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache()).UpdateTask(task))
 			later := *task
 			later.ID = 82
 			later.TaskID = "task_later"
@@ -509,12 +510,12 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 				adaptor.result.UpstreamCostUSD = &zero
 				adaptor.result.UpstreamCostConfirmed = true
 			}
-			require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }).UpdateTask(task))
+			require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache()).UpdateTask(task))
 		}
 		if tc.Kind == "cost" {
 			task.Status = model.TaskStatusSuccess
 			prepareOpenRouterCostSettlement(task)
-			won, err := taskstore.NewStore(func() *gorm.DB { return model.DB }).UpdateTaskWithStatus(task, model.TaskStatusInProgress)
+			won, err := taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache()).UpdateTaskWithStatus(task, model.TaskStatusInProgress)
 			require.NoError(t, err)
 			require.True(t, won)
 		}
@@ -563,7 +564,7 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 		}
 		if tc.HTTP == 429 {
 			task.PrivateData.PollFailures = 2
-			require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }).UpdateTask(task))
+			require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache()).UpdateTask(task))
 		}
 		if strings.HasPrefix(tc.Variant, "timeout_") {
 			constant.TaskTimeoutMinutes = 30
@@ -767,7 +768,7 @@ func runSyncMetadataContract(t *testing.T, tc taskTickCase, updating bool) {
 		case "key_rotation":
 			require.NoError(t, db.Model(&model.Channel{}).Where("id=71").Update("key", "rotated-account").Error)
 		}
-		require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }).UpdateOpenRouterSync(task, state.Revision))
+		require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache()).UpdateOpenRouterSync(task, state.Revision))
 		transport := &syncContractTransport{tc: tc, t: t, calls: []map[string]any{}}
 		httpclient.GetHttpClient().Transport = transport
 		constant.TaskQueryLimit, constant.TaskTimeoutMinutes = 100, 0

@@ -2,6 +2,10 @@
 package taskfixture
 
 import (
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	dbclock "github.com/QuantumNous/new-api/internal/app/dbclock"
+
 	"crypto/sha256"
 	"database/sql/driver"
 	"encoding/json"
@@ -94,7 +98,7 @@ func Open(t *testing.T) *gorm.DB {
 	model.DB, model.LOG_DB = open("main.db"), open("logs.db")
 	require.NoError(t, model.DB.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Task{}, &model.Midjourney{},
 		&model.UserSubscription{}, &model.SubscriptionPlan{}, &model.SubscriptionPreConsumeRecord{}, &model.TopUp{}, &model.SubscriptionOrder{},
-		&model.SystemTask{}, &model.SystemTaskLock{}, &model.UserSession{}, &model.Log{}, &model.AuditLog{}))
+		&model.SystemTask{}, &model.SystemTaskLock{}, &identityrecord.UserSession{}, &model.Log{}, &model.AuditLog{}))
 	require.NoError(t, model.LOG_DB.AutoMigrate(&model.Log{}, &model.AuditLog{}))
 	return model.DB
 }
@@ -280,5 +284,5 @@ func AssertDBClock(t *testing.T) {
 	require.NoError(t, model.DB.Raw("SELECT strftime('%s','now')").Scan(&actual).Error)
 	require.Equal(t, time.Now().Unix(), actual)
 	require.Greater(t, clockCalls.Load(), before)
-	require.Equal(t, time.Now().Unix(), model.GetDBTimestamp())
+	require.Equal(t, time.Now().Unix(), dbclock.Now())
 }

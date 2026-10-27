@@ -6,14 +6,34 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	plans "github.com/QuantumNous/new-api/internal/adapter/cache/subscriptions"
+	accountsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
-	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
-type Store struct{ db func() *gorm.DB }
+type AccountStore interface {
+	GetUserById(int, bool) (*accountsrecord.User, error)
+	GetUserSetting(int, bool) (dto.UserSetting, error)
+	UpdateUserSetting(int, dto.UserSetting) error
+}
+type Environment struct {
+	DB           func() *gorm.DB
+	Plans        *plans.Store
+	DatabaseTime func() int64
+	Accounts     AccountStore
+}
+type Store struct {
+	db       func() *gorm.DB
+	plans    *plans.Store
+	clock    func() int64
+	accounts AccountStore
+}
 
-func NewStore(db func() *gorm.DB) Store { return Store{db: db} }
+func NewStore(env Environment) Store {
+	return Store{db: env.DB, plans: env.Plans, clock: env.DatabaseTime, accounts: env.Accounts}
+}
 func (s Store) ListPlans(enabledOnly bool) ([]domain.SubscriptionPlan, error) {
 	var rows []record.SubscriptionPlan
 	query := s.db()
@@ -48,17 +68,17 @@ func (s Store) ListSubscriptions(userID int, activeOnly bool, now int64) ([]doma
 	return result, nil
 }
 func (s Store) BillingPreference(userID int) (string, error) {
-	settings, err := model.GetUserSetting(userID, false)
+	settings, err := s.accounts.GetUserSetting(userID, false)
 	return settings.BillingPreference, err
 }
 func (s Store) PutBillingPreference(userID int, preference string) error {
-	user, err := model.GetUserById(userID, true)
+	user, err := s.accounts.GetUserById(userID, true)
 	if err != nil {
 		return err
 	}
 	current := user.GetSetting()
 	current.BillingPreference = preference
-	return model.UpdateUserSetting(user.Id, current)
+	return s.accounts.UpdateUserSetting(user.Id, current)
 }
 
 func (s Store) InsertPlan(plan *domain.SubscriptionPlan) error {
@@ -110,7 +130,7 @@ func (s Store) CountPurchases(userID, planID int) (int64, error) {
 }
 
 func (s Store) UserByID(userID int) (*domain.CheckoutUser, error) {
-	user, err := model.GetUserById(userID, false)
+	user, err := s.accounts.GetUserById(userID, false)
 	if err != nil || user == nil {
 		return nil, err
 	}

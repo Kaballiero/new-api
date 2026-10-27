@@ -1,6 +1,10 @@
 package middleware
 
 import (
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
 	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
@@ -34,7 +38,7 @@ func setupDashboardAuthMiddlewareTest(t *testing.T) {
 	previousSecret := common.SessionSecret
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.AuditLog{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &identityrecord.UserSession{}, &model.AuditLog{}))
 	model.DB = db
 	model.LOG_DB = db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
@@ -140,18 +144,18 @@ func TestTryUserAuthCredentialClassification(t *testing.T) {
 	patUser := createMiddlewarePATUser(t, "optional-pat-user", "optional.pat.with-dots")
 	internalUser := createMiddlewarePATUser(t, "optional-session-user", "unrelated-pat")
 	now := time.Now().Unix()
-	session := &model.UserSession{
+	session := &identityrecord.UserSession{
 		SID:             "optional-auth-session",
 		UserID:          internalUser.Id,
 		Version:         1,
 		UserAuthVersion: internalUser.AuthVersion,
-		Status:          model.UserSessionStatusActive,
+		Status:          identityrecord.UserSessionStatusActive,
 		RefreshHash:     "refresh-hash",
 		LoginMethod:     "password",
 		LastActiveAt:    now,
 		ExpiresAt:       now + 3600,
 	}
-	require.NoError(t, model.CreateUserSession(session))
+	require.NoError(t, identitystorage.SQL().CreateUserSession(session))
 	identity := identitydomain.AuthIdentity{
 		UserID:          internalUser.Id,
 		SessionID:       session.SID,
@@ -160,10 +164,10 @@ func TestTryUserAuthCredentialClassification(t *testing.T) {
 	}
 	accessToken, _, err := authtoken.IssueAccessToken(identity)
 	require.NoError(t, err)
-	require.NoError(t, model.DB.AutoMigrate(&model.AuthFlow{}))
+	require.NoError(t, model.DB.AutoMigrate(&identityrecord.AuthFlow{}))
 	binding, err := identitycore.BindVerificationOperation(identitydomain.VerificationOperation{Scope: "channel.key.read", Context: []byte(`{"channel_id":123}`)})
 	require.NoError(t, err)
-	securityProof, _, err := authtoken.IssueSecurityProof(identity, "2fa", binding)
+	securityProof, _, err := authtoken.IssueSecurityProof(identitystorage.SQL(), identity, "2fa", binding)
 	require.NoError(t, err)
 	externalToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"iss": "external-issuer",

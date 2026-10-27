@@ -1,13 +1,14 @@
 package app
 
 import (
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/generate_token"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/get_status"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/revoke_token"
 	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
@@ -20,7 +21,7 @@ type PersonalAccessTokensHTTP struct {
 }
 
 func NewPersonalAccessTokensHTTP(audit func(*gin.Context, int, string, map[string]any)) PersonalAccessTokensHTTP {
-	store := model.NewPersonalAccessTokenPersistence()
+	store := patstorage.Persistence()
 	securityError := NewIdentityErrors().WriteError
 	roles := domain.AuditRoles{Root: common.RoleRootUser, Common: common.RoleCommonUser, Admin: common.RoleAdminUser}
 	return PersonalAccessTokensHTTP{

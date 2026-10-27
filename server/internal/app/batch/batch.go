@@ -3,6 +3,8 @@ package batch
 import (
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	diagnostics "github.com/QuantumNous/new-api/internal/adapter/batchruntime"
@@ -11,17 +13,18 @@ import (
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	rediscache "github.com/QuantumNous/new-api/internal/adapter/redis/batch"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/batch"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
 	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
 	"github.com/QuantumNous/new-api/internal/batch/create_batch"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/internal/batch/poll_batches"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/model"
-	"gorm.io/gorm"
 )
 
 func NewStore() storage.Store {
-	return storage.NewStore(func() *gorm.DB { return model.DB }, func() *gorm.DB { return model.LOG_DB }, usageadapter.BatchLogs{}, math.BatchMath{}, rediscache.Cache{})
+	return storage.NewStore(func() *gorm.DB { return model.DB }, func() *gorm.DB { return model.LOG_DB }, usageadapter.BatchLogs{}, math.BatchMath{}, rediscache.Cache{}, storage.ReadCapabilities{Accounts: accountstorage.Cache(), Tokens: apikeystorage.Reader()})
 }
 func NewPolling(g poll_batches.Gateway, kinds domain.ChannelKinds) poll_batches.Usecase {
 	return poll_batches.NewUsecase(NewStore(), g, math.BatchCodec{}, math.BatchMath{}, usageadapter.BatchMetadata{}, diagnostics.Diagnostics{}, time.Now, kinds)

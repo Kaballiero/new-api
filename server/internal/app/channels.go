@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"time"
 
 	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
@@ -328,7 +329,7 @@ func NewChannelBalancesUsecase() update_channels_balances.Usecase {
 
 func NewChannelTestTaskUsecase(effects ChannelEffects) run_channel_tests.Usecase {
 	store := repository.NewStore()
-	return run_channel_tests.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(nil) }, func(channel *channeldomain.Channel) bool { return effects.AutomaticStream(store.Record(channel)) }, channeladapter.TestFailures{}, func() bool { return common.AutomaticDisableChannelEnabled }, channelruntime.Enable, func() float64 { return common.ChannelDisableThreshold }, operation_setting.NormalizeChannelTestConcurrency, func() time.Duration { return common.RequestInterval }, func() string { return operation_setting.GetMonitorSetting().ChannelTestMode }, func() int { return operation_setting.GetMonitorSetting().ChannelTestConcurrency }, func() {
+	return run_channel_tests.NewUsecase(store, effects.Probe(store.Record), func() (int, error) { return effects.ProbeUser(nil) }, func(channel *channeldomain.Channel) bool { return effects.AutomaticStream(store.Record(channel)) }, channeladapter.TestFailures{Language: accountstorage.Cache().GetUserLanguage}, func() bool { return common.AutomaticDisableChannelEnabled }, channelruntime.Enable, func() float64 { return common.ChannelDisableThreshold }, operation_setting.NormalizeChannelTestConcurrency, func() time.Duration { return common.RequestInterval }, func() string { return operation_setting.GetMonitorSetting().ChannelTestMode }, func() int { return operation_setting.GetMonitorSetting().ChannelTestConcurrency }, func() {
 		lang := channelruntime.RootUserLanguage()
 		notifications.Root(dto.NotifyTypeChannelTest, i18n.Translate(lang, i18n.MsgChannelTestDoneSubject), i18n.Translate(lang, i18n.MsgChannelTestDoneContent))
 	})

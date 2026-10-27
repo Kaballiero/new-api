@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"sync"
 
 	"gorm.io/gorm"
@@ -29,5 +30,5 @@ func LockMetadataMutation(tx *gorm.DB) error {
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&anchor).Error; err != nil {
 		return err
 	}
-	return legacy.LockForUpdate(tx).Where(legacy.KeyColumn+" = ?", anchor.Key).First(&anchor).Error
+	return locking.LockForUpdate(tx).Where(legacy.KeyColumn+" = ?", anchor.Key).First(&anchor).Error
 }

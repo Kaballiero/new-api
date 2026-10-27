@@ -1,18 +1,20 @@
 package customoauth
 
 import (
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/oauth"
 )
 
-type Store struct{}
+type Store struct{ SQL identitystore.Store }
 
-func (Store) List() ([]domain.CustomOAuthProvider, error) {
-	providers, err := model.GetAllCustomOAuthProviders()
+func (op Store) List() ([]domain.CustomOAuthProvider, error) {
+	providers, err := op.SQL.GetAllCustomOAuthProviders()
 	if err != nil {
 		return nil, err
 	}
@@ -22,29 +24,31 @@ func (Store) List() ([]domain.CustomOAuthProvider, error) {
 	}
 	return result, nil
 }
-func (Store) Get(id int) (domain.CustomOAuthProvider, error) {
-	provider, err := model.GetCustomOAuthProviderById(id)
+func (op Store) Get(id int) (domain.CustomOAuthProvider, error) {
+	provider, err := op.SQL.GetCustomOAuthProviderById(id)
 	if err != nil {
 		return domain.CustomOAuthProvider{}, err
 	}
 	return providerFromRecord(provider), nil
 }
-func (Store) SlugTaken(slug string, excludeID int) bool { return model.IsSlugTaken(slug, excludeID) }
-func (Store) Create(provider *domain.CustomOAuthProvider) error {
+func (op Store) SlugTaken(slug string, excludeID int) bool {
+	return op.SQL.IsSlugTaken(slug, excludeID)
+}
+func (op Store) Create(provider *domain.CustomOAuthProvider) error {
 	record := providerToRecord(*provider)
-	err := model.CreateCustomOAuthProvider(record)
+	err := op.SQL.CreateCustomOAuthProvider(record)
 	*provider = providerFromRecord(record)
 	return err
 }
-func (Store) Update(provider *domain.CustomOAuthProvider) error {
+func (op Store) Update(provider *domain.CustomOAuthProvider) error {
 	record := providerToRecord(*provider)
-	err := model.UpdateCustomOAuthProvider(record)
+	err := op.SQL.UpdateCustomOAuthProvider(record)
 	*provider = providerFromRecord(record)
 	return err
 }
-func (Store) Delete(id int) error { return model.DeleteCustomOAuthProvider(id) }
-func (Store) BindingCount(id int) (int64, error) {
-	count, err := model.GetBindingCountByProviderId(id)
+func (op Store) Delete(id int) error { return op.SQL.DeleteCustomOAuthProvider(id) }
+func (op Store) BindingCount(id int) (int64, error) {
+	count, err := op.SQL.GetBindingCountByProviderId(id)
 	if err != nil {
 		common.SysError("Failed to get binding count for provider " + strconv.Itoa(id) + ": " + err.Error())
 	}
@@ -60,7 +64,7 @@ func (Registry) Publish(provider domain.CustomOAuthProvider) {
 }
 func (Registry) Unregister(slug string) { oauth.UnregisterCustomProvider(slug) }
 
-func providerFromRecord(provider *model.CustomOAuthProvider) domain.CustomOAuthProvider {
+func providerFromRecord(provider *identityrecord.CustomOAuthProvider) domain.CustomOAuthProvider {
 	return domain.CustomOAuthProvider{
 		Id:                    provider.Id,
 		Name:                  provider.Name,
@@ -85,8 +89,8 @@ func providerFromRecord(provider *model.CustomOAuthProvider) domain.CustomOAuthP
 		UpdatedAt:             provider.UpdatedAt,
 	}
 }
-func providerToRecord(provider domain.CustomOAuthProvider) *model.CustomOAuthProvider {
-	return &model.CustomOAuthProvider{
+func providerToRecord(provider domain.CustomOAuthProvider) *identityrecord.CustomOAuthProvider {
+	return &identityrecord.CustomOAuthProvider{
 		Id:                    provider.Id,
 		Name:                  provider.Name,
 		Slug:                  provider.Slug,

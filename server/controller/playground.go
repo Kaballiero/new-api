@@ -1,6 +1,8 @@
 package controller
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"errors"
 	"fmt"
 
@@ -38,7 +40,7 @@ func Playground(c *gin.Context) {
 	userId := c.GetInt("id")
 
 	// Write user context to ensure acceptUnsetRatio is available
-	userCache, err := model.GetUserCache(userId)
+	userCache, err := accountstorage.Cache().GetUserCache(userId)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		return

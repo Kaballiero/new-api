@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/usage/admin_get_usage_flow"
 	"github.com/QuantumNous/new-api/internal/usage/admin_list_usage_data"
 	"github.com/QuantumNous/new-api/internal/usage/admin_list_user_usage_data"
@@ -154,11 +155,11 @@ func TestGetFlowQuotaDataUsesQuotaDataRoleSpecificDimensions(t *testing.T) {
 
 func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 	truncateTables(t)
-	model.CacheQuotaDataLock.Lock()
-	model.CacheQuotaData = make(map[string]*model.QuotaData)
-	model.CacheQuotaDataLock.Unlock()
+	CacheQuotaDataLock.Lock()
+	CacheQuotaData = make(map[string]*model.QuotaData)
+	CacheQuotaDataLock.Unlock()
 
-	model.LogQuotaData(model.QuotaDataLogParams{
+	LogQuotaData(record.QuotaDataLogParams{
 		UserID:    1,
 		Username:  "alice",
 		ModelName: "gpt-a",
@@ -170,7 +171,7 @@ func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 		Quota:     100,
 		TokenUsed: 40,
 	})
-	model.LogQuotaData(model.QuotaDataLogParams{
+	LogQuotaData(record.QuotaDataLogParams{
 		UserID:    1,
 		Username:  "alice",
 		ModelName: "gpt-a",
@@ -182,7 +183,7 @@ func TestLogQuotaDataSplitsRowsByUseGroupTokenChannelAndNode(t *testing.T) {
 		Quota:     50,
 		TokenUsed: 20,
 	})
-	model.LogQuotaData(model.QuotaDataLogParams{
+	LogQuotaData(record.QuotaDataLogParams{
 		UserID:    1,
 		Username:  "alice",
 		ModelName: "gpt-a",

@@ -4,9 +4,9 @@ package usage
 import (
 	"context"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	"github.com/QuantumNous/new-api/internal/app/usagestorage"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/count_consumption"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
@@ -35,10 +35,7 @@ type Usecases struct {
 }
 
 func New() Usecases {
-	store := storage.Store{
-		ConsumeEnabled: func() bool { return common.LogConsumeEnabled },
-		ExportEnabled:  func() bool { return common.DataExportEnabled },
-	}
+	store := usagestorage.Store()
 	renderer := storage.Content{Quota: logger.LogQuotaEnglish}
 	errorsEnabled := func() bool { return constant.ErrorLogEnabled }
 	return Usecases{
@@ -59,7 +56,7 @@ func WithLogMetadata(ctx context.Context, details []byte, affinity map[string]an
 }
 
 // RequestObservation is plain technical data captured at the gateway boundary.
-type RequestObservation = model.LogObservation
+type RequestObservation = storage.LogObservation
 
 func WithRequestObservation(ctx context.Context, observation RequestObservation) context.Context {
 	return storage.WithRequestObservation(ctx, observation)

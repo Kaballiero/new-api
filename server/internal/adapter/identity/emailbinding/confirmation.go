@@ -1,16 +1,19 @@
 package emailbinding
 
 import (
+	cacheaccounts "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
-	"github.com/QuantumNous/new-api/model"
 )
 
 type Confirmation struct {
+	Cache cacheaccounts.Store
+
 	Identity                domain.AuthIdentity
 	Token, NewCode, OldCode string
-	Finish                  func(domain.AuthIdentity, string, string, string) (*model.EmailBindingState, error)
+	Finish                  func(domain.AuthIdentity, string, string, string) (*identitystore.EmailBindingState, error)
 	Notify                  func(string, string) error
-	state                   *model.EmailBindingState
+	state                   *identitystore.EmailBindingState
 	succeeded, warning      bool
 }
 
@@ -27,6 +30,8 @@ func (op *Confirmation) NotifyConfirmed() error {
 	return op.Notify(op.state.Email, "Email address confirmed")
 }
 func (op *Confirmation) SetNotificationWarning(warning bool) { op.warning = warning }
-func (op *Confirmation) PublishCache() error                 { return model.PublishUserAuthCache(op.Identity.UserID) }
-func (op *Confirmation) Succeeded() bool                     { return op.succeeded }
-func (op *Confirmation) NotificationWarning() bool           { return op.warning }
+func (op *Confirmation) PublishCache() error {
+	return op.Cache.PublishUserAuthCache(op.Identity.UserID)
+}
+func (op *Confirmation) Succeeded() bool           { return op.succeeded }
+func (op *Confirmation) NotificationWarning() bool { return op.warning }

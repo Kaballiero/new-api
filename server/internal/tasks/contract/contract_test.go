@@ -2,6 +2,10 @@
 package contract
 
 import (
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 
 	"bytes"
@@ -986,7 +990,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 	}
 	if tc.Variant == "disabled_owner" {
 		require.NoError(t, env.DB.Model(&model.User{}).Where("id = ?", 1).Update("status", common.UserStatusDisabled).Error)
-		require.NoError(t, model.PublishUserAuthCache(1))
+		require.NoError(t, accountstorage.Cache().PublishUserAuthCache(1))
 	}
 	if tc.Variant == "duplicate" {
 		require.NoError(t,
@@ -1146,7 +1150,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 	// Fixture writes happen outside the fake-clock bubble; fix input timestamps before exercising production.
 	require.NoError(t, env.DB.Model(&model.Task{}).Where("id > 0").UpdateColumn("updated_at", fixture.Epoch).Error)
 	// Subscription HybridCache janitors must be initialized outside the synctest bubble.
-	model.InvalidateSubscriptionPlanCache(31)
+	subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(31)
 	if tc.Variant == "subscription" {
 		require.NoError(t,
 			env.DB.Model(&model.UserSubscription{}).Where("id=21").UpdateColumns(map[string]any{"created_at": fixture.Epoch,

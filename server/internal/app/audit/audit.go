@@ -2,6 +2,8 @@
 package audit
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"context"
 	"fmt"
 
@@ -26,7 +28,7 @@ func (diagnostics) InvalidRole(ctx context.Context, requestID string, role int) 
 
 func store() storage.Store {
 	return storage.NewStore(func() *gorm.DB { return model.LOG_DB }, func(id int) string {
-		username, _ := model.GetUsernameById(id, false)
+		username, _ := accountstorage.SQL().GetUsernameById(id, false)
 		return username
 	})
 }

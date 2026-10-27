@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -20,7 +21,7 @@ func postConsumeUserSubscriptionDelta(userSubscriptionID int, delta int64) error
 	}
 	return model.DB.Transaction(func(tx *gorm.DB) error {
 		var sub model.UserSubscription
-		if err := model.LockForUpdate(tx).Where("id = ?", userSubscriptionID).First(&sub).Error; err != nil {
+		if err := locking.LockForUpdate(tx).Where("id = ?", userSubscriptionID).First(&sub).Error; err != nil {
 			return err
 		}
 		newUsed := max(sub.AmountUsed+delta, 0)
@@ -36,7 +37,7 @@ func postConsumeUserSubscriptionDelta(userSubscriptionID int, delta int64) error
 // The caller owns commit/rollback and must pass the same transaction as the task claim.
 func AdjustTaskSubscription(tx *gorm.DB, subscriptionID, userID int, delta int64) error {
 	var sub model.UserSubscription
-	if err := model.LockForUpdate(tx).Where("id = ? AND user_id = ?", subscriptionID, userID).First(&sub).Error; err != nil {
+	if err := locking.LockForUpdate(tx).Where("id = ? AND user_id = ?", subscriptionID, userID).First(&sub).Error; err != nil {
 		return err
 	}
 	used := max(sub.AmountUsed+delta, 0)

@@ -8,6 +8,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	plancache "github.com/QuantumNous/new-api/internal/adapter/cache/subscriptions"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	subscriptionrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	subscriptiondomain "github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/model"
@@ -49,7 +51,7 @@ func userActiveSubscriptionsAllowWalletOverflow(userId int) (bool, error) {
 	return strictCount == 0, nil
 }
 
-func preConsumeUserSubscription(requestId string, userId int, amount int64) (*subscriptionPreConsumeResult, error) {
+func (s Store) preConsumeUserSubscription(requestId string, userId int, amount int64) (*subscriptionPreConsumeResult, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
 	}
@@ -59,7 +61,7 @@ func preConsumeUserSubscription(requestId string, userId int, amount int64) (*su
 	if amount <= 0 {
 		return nil, errors.New("amount must be > 0")
 	}
-	now := model.GetDBTimestamp()
+	now := s.DatabaseTime()
 
 	returnValue := &subscriptionPreConsumeResult{}
 
@@ -85,7 +87,7 @@ func preConsumeUserSubscription(requestId string, userId int, amount int64) (*su
 		}
 
 		var subs []subscriptionrecord.UserSubscription
-		if err := model.LockForUpdate(tx).
+		if err := locking.LockForUpdate(tx).
 			Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
 			Order("end_time asc, id asc").
 			Find(&subs).Error; err != nil {
@@ -96,7 +98,7 @@ func preConsumeUserSubscription(requestId string, userId int, amount int64) (*su
 		}
 		for _, candidate := range subs {
 			sub := candidate
-			plan, err := model.GetSubscriptionPlanByIdTx(tx, sub.PlanId)
+			plan, err := s.SubscriptionPlans.GetSubscriptionPlanByIdTx(tx, sub.PlanId)
 			if err != nil {
 				return err
 			}
@@ -155,7 +157,7 @@ func refundSubscriptionPreConsume(requestId string) error {
 	}
 	return model.DB.Transaction(func(tx *gorm.DB) error {
 		var record subscriptionrecord.SubscriptionPreConsumeRecord
-		if err := model.LockForUpdate(tx).
+		if err := locking.LockForUpdate(tx).
 			Where("request_id = ?", requestId).First(&record).Error; err != nil {
 			return err
 		}
@@ -174,27 +176,27 @@ func refundSubscriptionPreConsume(requestId string) error {
 	})
 }
 
-func getSubscriptionPlanInfoByUserSubscriptionId(userSubscriptionId int) (*model.SubscriptionPlanInfo, error) {
+func (s Store) getSubscriptionPlanInfoByUserSubscriptionId(userSubscriptionId int) (*plancache.SubscriptionPlanInfo, error) {
 	if userSubscriptionId <= 0 {
 		return nil, errors.New("invalid userSubscriptionId")
 	}
 	cacheKey := fmt.Sprintf("sub:%d", userSubscriptionId)
-	if cached, found, err := model.SubscriptionPlanInfoCache().Get(cacheKey); err == nil && found {
+	if cached, found, err := s.SubscriptionPlans.SubscriptionPlanInfoCache().Get(cacheKey); err == nil && found {
 		return &cached, nil
 	}
 	var sub subscriptionrecord.UserSubscription
 	if err := model.DB.Where("id = ?", userSubscriptionId).First(&sub).Error; err != nil {
 		return nil, err
 	}
-	plan, err := model.GetSubscriptionPlanByIdTx(nil, sub.PlanId)
+	plan, err := s.SubscriptionPlans.GetSubscriptionPlanByIdTx(nil, sub.PlanId)
 	if err != nil {
 		return nil, err
 	}
-	info := &model.SubscriptionPlanInfo{
+	info := &plancache.SubscriptionPlanInfo{
 		PlanId:    sub.PlanId,
 		PlanTitle: plan.Title,
 	}
-	_ = model.SubscriptionPlanInfoCache().SetWithTTL(cacheKey, *info, model.SubscriptionPlanInfoCacheTTL())
+	_ = s.SubscriptionPlans.SubscriptionPlanInfoCache().SetWithTTL(cacheKey, *info, s.SubscriptionPlans.SubscriptionPlanInfoCacheTTL())
 	return info, nil
 }
 func resetProgress(tx *gorm.DB, sub *subscriptionrecord.UserSubscription, plan *subscriptionrecord.SubscriptionPlan, now int64) error {

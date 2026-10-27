@@ -8,7 +8,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 
 	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
@@ -39,7 +38,7 @@ func SecureVerificationRequired() gin.HandlerFunc {
 
 // RequireSecurityProof validates a proof against the authenticated dashboard
 // session and writes the shared proof error contract on failure.
-func RequireSecurityProof(c *gin.Context, operation identitydomain.VerificationOperation) *model.AuthFlowAuthorization {
+func RequireSecurityProof(c *gin.Context, operation identitydomain.VerificationOperation) *identitydomain.FlowAuthorization {
 	identity, ok := GetSessionAuthIdentity(c)
 	if !ok {
 		securityProofError(c, "SECURITY_PROOF_INVALID", common.TranslateMessage(c, i18n.MsgSecurityProofInvalid))
@@ -67,7 +66,7 @@ func RequireSecurityProof(c *gin.Context, operation identitydomain.VerificationO
 			securityProofError(c, "SECURITY_PROOF_CONTEXT_MISMATCH", "Verification does not match this action's details. Please verify again.")
 		case errors.Is(err, identitydomain.ErrVerificationForbidden):
 			securityProofError(c, "SECURITY_ACTION_FORBIDDEN", identitydomain.ErrVerificationForbidden.Error())
-		case errors.Is(err, identitydomain.ErrAuthTokenInvalid), errors.Is(err, identitydomain.ErrLoginSessionInvalid), errors.Is(err, identitydomain.ErrLoginSessionRevoked), errors.Is(err, model.ErrUserSessionInactive):
+		case errors.Is(err, identitydomain.ErrAuthTokenInvalid), errors.Is(err, identitydomain.ErrLoginSessionInvalid), errors.Is(err, identitydomain.ErrLoginSessionRevoked), errors.Is(err, identitydomain.ErrSessionInactive):
 			securityProofError(c, "SECURITY_PROOF_INVALID", common.TranslateMessage(c, i18n.MsgSecurityProofInvalid))
 		default:
 			_ = c.Error(err)

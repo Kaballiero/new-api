@@ -2,6 +2,8 @@
 package contract
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -457,7 +459,7 @@ func newFixture(t *testing.T) fixture {
 	general.CustomCurrencySymbol = "C"
 	general.CustomCurrencyExchangeRate = 2
 	operation_setting.USDExchangeRate = 7
-	i18n.SetUserLangLoader(model.GetUserLanguage)
+	i18n.SetUserLangLoader(accountstorage.Cache().GetUserLanguage)
 	t.Cleanup(func() {
 		common.MemoryCacheEnabled, common.BatchUpdateEnabled = previousMemory, previousBatch
 		common.ItemsPerPage, common.QuotaPerUnit = previousItems, previousUnit
@@ -479,7 +481,7 @@ func newFixture(t *testing.T) fixture {
 		"user_pat": env.UserPAT, "admin_pat": "redemption-admin-pat", "root_pat": "redemption-root-pat", "api_key": "sk-redemption-api-key"}}
 	for id, pat := range map[int]string{2: f.bearers["admin_pat"], 3: f.bearers["root_pat"]} {
 		require.NoError(t, env.DB.Model(&model.User{}).Where("id = ?", id).Update("access_token", pat).Error)
-		require.NoError(t, model.PublishUserAuthCache(id))
+		require.NoError(t, accountstorage.Cache().PublishUserAuthCache(id))
 	}
 	require.NoError(t, env.DB.Create(&model.Token{Id: 101, UserId: 1, Key: "redemption-api-key", Status: 1, ExpiredTime: -1,
 		UnlimitedQuota: true, Name: "gateway-key", Group: "default"}).Error)

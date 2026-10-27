@@ -2,6 +2,8 @@
 package managementhttp
 
 import (
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
+
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -37,7 +39,7 @@ func Run(t *testing.T, relay bool, execute func(*testing.T, *Fixture) any) any {
 	common.OptionMap = map[string]string{}
 	httpclient.InitHttpClient()
 	routing.GetChannelAffinityCacheStats()
-	model.InvalidateSubscriptionPlanCache(1)
+	subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(1)
 	identities := map[string]identitydomain.AuthIdentity{}
 	for actor, token := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {
 		identity, err := authtoken.ParseAccessToken(token)

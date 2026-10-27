@@ -2,15 +2,15 @@ package oauthadapter
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/identity/start_oauth_flow"
 	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/gin-gonic/gin"
 	"time"
 
 	"github.com/QuantumNous/new-api/internal/adapter/identity/verification"
-	"github.com/QuantumNous/new-api/internal/app/identitycore"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
@@ -22,6 +22,10 @@ type FlowPayload struct {
 	Authorization   *domain.FlowAuthorization           `json:"authorization,omitempty"`
 }
 type Start struct {
+	ValidateIdentity  func(domain.AuthIdentity) error
+	BeginVerification func(domain.AuthIdentity, domain.VerificationOperation, string) (*verification.OAuthVerificationFlow, error)
+	SQL               identitystore.Store
+
 	state                    string
 	expiresAt                int64
 	Context                  *gin.Context
@@ -60,12 +64,11 @@ func (op *Start) RequireBindingProof() (bool, error) {
 }
 func (op *Start) HasTelegram() bool { return op.payload.Telegram != nil }
 func (op *Start) ValidateSession() error {
-	_, _, err := identitycore.ValidateLoginSession(op.identity)
-	return err
+	return op.ValidateIdentity(op.identity)
 }
 func (op *Start) CaptureSession() { identity := op.identity; op.payload.SessionIdentity = &identity }
 func (op *Start) StartVerification() error {
-	verification, err := identitycore.StartOAuthVerification(op.identity, domain.VerificationOperation{Scope: op.Input.Scope, Context: op.Input.Context}, op.Input.Provider)
+	verification, err := op.BeginVerification(op.identity, domain.VerificationOperation{Scope: op.Input.Scope, Context: op.Input.Context}, op.Input.Provider)
 	op.payload.Verification = verification
 	return err
 }
@@ -75,7 +78,7 @@ func (op *Start) CreateFlow() error {
 		return err
 	}
 	expires := time.Now().Add(10 * time.Minute)
-	state, _, err := model.CreateAuthFlow(model.AuthFlowCreate{Purpose: model.AuthFlowPurposeOAuth, Provider: op.Input.Provider, Intent: op.Input.Intent, UserId: op.userID, SessionId: op.sessionID, Payload: string(payload), ExpiresAt: expires})
+	state, _, err := op.SQL.CreateAuthFlow(identitystore.AuthFlowCreate{Purpose: domain.AuthFlowPurposeOAuth, Provider: op.Input.Provider, Intent: op.Input.Intent, UserId: op.userID, SessionId: op.sessionID, Payload: string(payload), ExpiresAt: expires})
 	if err != nil {
 		return err
 	}
@@ -83,7 +86,7 @@ func (op *Start) CreateFlow() error {
 	return nil
 }
 func (op *Start) MarkSucceeded() {
-	op.Succeeded = op.Input.Intent == model.AuthFlowIntentBind
+	op.Succeeded = op.Input.Intent == domain.AuthFlowIntentBind
 	op.Data = map[string]any{"flow_token": op.state, "expires_at": op.expiresAt}
 	if op.payload.Telegram != nil {
 		op.Data["authorization_url"] = op.payload.Telegram.AuthorizationURL(op.state)

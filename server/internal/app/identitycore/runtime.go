@@ -1,6 +1,7 @@
 package identitycore
 
 import (
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -78,7 +79,7 @@ func identityRuntime() *runtime {
 			LoginDependencies:           loginDependencies(),
 			EmailDependencies:           emailBindingDependencies(),
 			VerificationDependencies:    verificationDependencies(),
-			Cleanup:                     cleanup_auth_artifacts.NewUsecase(sessionadapter.ArtifactCleanup{}, func() int { return common.UserSessionHourlyAlertThreshold }, common.SysError),
+			Cleanup:                     cleanup_auth_artifacts.NewUsecase(sessionadapter.ArtifactCleanup{SQL: identitystorage.SQL()}, func() int { return common.UserSessionHourlyAlertThreshold }, common.SysError),
 			CreateSession:               create_session.NewUsecase(sessionPolicy()),
 			ValidateSession:             validate_session.NewUsecase(sessionPolicy()),
 			RefreshSession:              refresh_session.NewUsecase(sessionPolicy(), refresh_session.RefreshCodec{Split: sessionadapter.SplitRefreshToken, DeriveNext: sessionadapter.DeriveNextRefreshSecret}),

@@ -3,17 +3,18 @@ package payments
 import (
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"strings"
 
 	"github.com/shopspring/decimal"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/adapter/wallet"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 type quotaMath struct{}
@@ -27,7 +28,7 @@ func (quotaMath) Maximum() int { return common.MaxWalletQuota }
 type completionEffects struct{}
 
 func (completionEffects) Sync(userID, quota int, operation string) {
-	wallet.Sync(userID, quota, operation)
+	accountstorage.Cache().SyncCreditUserQuotaCache(userID, quota, operation)
 }
 
 func (completionEffects) Failed(operation string, err error) {
@@ -59,10 +60,10 @@ func (completionEffects) Receipt(order domain.Order, quota int, ip, provider str
 	}
 	content := i18n.Translate(lang, key, params)
 	if provider == domain.PaymentProviderWaffoPancake {
-		model.RecordLog(order.UserID, model.LogTypeTopup, content)
+		usagestorage.Writer().RecordLog(order.UserID, model.LogTypeTopup, content)
 		return
 	}
-	model.RecordTopupLog(order.UserID, content, ip, order.PaymentMethod, provider)
+	usagestorage.Writer().RecordTopupLog(order.UserID, content, ip, order.PaymentMethod, provider)
 }
 
 // paymentLogError preserves the former model error text without matching strings.
@@ -83,7 +84,7 @@ func paymentLogError(err error) string {
 
 // Receipt language belongs to the beneficiary; both Chinese variants retain the legacy bytes.
 func paymentReceiptLanguage(userID int) string {
-	lang := i18n.ParseAcceptLanguage(model.GetUserLanguage(userID))
+	lang := i18n.ParseAcceptLanguage(accountstorage.Cache().GetUserLanguage(userID))
 	switch lang {
 	case i18n.LangZhCN, i18n.LangZhTW:
 		return i18n.LangZhCN

@@ -1,6 +1,8 @@
 package fx
 
 import (
+	locking "github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
+
 	"context"
 	"errors"
 	"fmt"
@@ -69,7 +71,7 @@ func SaveModelCostFX(ctx context.Context, snapshot domain.ModelCostFXSnapshot, e
 	}
 	err = model.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row record.ModelCostFXRow
-		query := model.LockForUpdate(tx).Where("source = ?", validated.Source).First(&row)
+		query := locking.LockForUpdate(tx).Where("source = ?", validated.Source).First(&row)
 		if errors.Is(query.Error, gorm.ErrRecordNotFound) {
 			if expectedVersion != 0 {
 				return domain.ErrModelCostFXVersionConflict

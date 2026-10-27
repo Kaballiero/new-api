@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/payments/record"
 	"github.com/QuantumNous/new-api/internal/adapter/wallet"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
@@ -81,7 +82,7 @@ func (t orderTx) FindLocked(tradeNo string) (domain.Order, error) {
 		column = `"trade_no"`
 	}
 	var row record.TopUp
-	err := model.LockForUpdate(t.db).Where(column+" = ?", tradeNo).First(&row).Error
+	err := locking.LockForUpdate(t.db).Where(column+" = ?", tradeNo).First(&row).Error
 	return toOrder(row), err
 }
 

@@ -1,6 +1,7 @@
 package pricingruntime
 
 import (
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"sync"
 
 	"gorm.io/gorm"
@@ -26,7 +27,7 @@ func NewPricingOptionsPersistence() store.Options {
 	return store.NewOptions(store.OptionsEnvironment{
 		DB:        func() *gorm.DB { return legacy.DB },
 		KeyColumn: func() string { return legacy.KeyColumn },
-		LockRows:  legacy.LockForUpdate,
+		LockRows:  locking.LockForUpdate,
 		Lock: func() func() {
 			pricingstate.ModelPricingMutationMu.Lock()
 			return pricingstate.ModelPricingMutationMu.Unlock

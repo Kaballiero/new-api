@@ -2,6 +2,8 @@
 package contract
 
 import (
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 
 	"context"
@@ -769,7 +771,7 @@ func projectionContract(t *testing.T, tc optionCase, request func(string, string
 			count = 3
 		}
 		for i := range count {
-			oauth.RegisterOrUpdateCustomProvider(&model.CustomOAuthProvider{Id: 100 + i, Name: "Fixture " + strconv.Itoa(i),
+			oauth.RegisterOrUpdateCustomProvider(&identityrecord.CustomOAuthProvider{Id: 100 + i, Name: "Fixture " + strconv.Itoa(i),
 				Slug: "settings-provider-" + strconv.Itoa(i), Icon: "fixture", Enabled: tc.Variant != "oauth_disabled",
 				ClientId: "fixture-client", ClientSecret: "test-only-provider-secret", Scopes: "openid profile",
 				AuthorizationEndpoint: "https://oauth.invalid/authorize", TokenEndpoint: "https://oauth.invalid/token"})

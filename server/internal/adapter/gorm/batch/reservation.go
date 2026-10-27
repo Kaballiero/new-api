@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/batch/record"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/model"
-	"gorm.io/gorm"
 )
 
 func (s Store) GetBatchJob(userID int, publicID string) (*domain.Job, error) {
@@ -60,11 +62,11 @@ func (s Store) createReservation(job *BatchJob, items []BatchItem) error {
 	}
 	return s.db().Transaction(func(tx *gorm.DB) error {
 		var user model.User
-		if err := model.LockForUpdate(tx).First(&user, job.UserID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token model.Token
-		if err := model.LockForUpdate(tx).Where("id = ? AND user_id = ?", job.TokenID, job.UserID).First(&token).Error; err != nil {
+		if err := locking.LockForUpdate(tx).Where("id = ? AND user_id = ?", job.TokenID, job.UserID).First(&token).Error; err != nil {
 			return err
 		}
 		quotas := make([]int64, len(items))
@@ -134,11 +136,11 @@ func (s Store) StoreBatchResult(batchID int64, customID, result, hash string) er
 	}
 	return s.db().Transaction(func(tx *gorm.DB) error {
 		var job BatchJob
-		if err := model.LockForUpdate(tx).First(&job, batchID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
 		}
 		var item BatchItem
-		if err := model.LockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID,
+		if err := locking.LockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID,
 			fmt.Sprintf("%x", sha256.Sum256([]byte(customID)))).First(&item).Error; err != nil {
 			return err
 		}

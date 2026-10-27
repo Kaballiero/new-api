@@ -1,6 +1,14 @@
 package relay
 
 import (
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
+
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+
+	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
 
 	"bytes"
@@ -19,7 +27,7 @@ import (
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/i18n"
 
-	tasktext "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
 
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 
@@ -235,7 +243,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 		}
 	}
 
-	userQuota, err := model.GetUserQuota(info.UserId, false)
+	userQuota, err := accountstorage.SQL().GetUserQuota(info.UserId, false)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
@@ -295,9 +303,9 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	if billingApplied {
 		billingChannelId := midjourneyTask.GetBillingChannelId()
 		tokenName := c.GetString("token_name")
-		logContent := (tasktext.TaskText{}).Phrase(info.UserId, i18n.MsgTasksMJPrice, map[string]any{"Price": fmt.Sprintf("%.2f", priceData.ModelPrice), "Ratio": fmt.Sprintf("%.2f", priceData.GroupRatioInfo.GroupRatio), "Action": constant.MjActionSwapFace})
+		logContent := taskbillingruntime.Text().Phrase(info.UserId, i18n.MsgTasksMJPrice, map[string]any{"Price": fmt.Sprintf("%.2f", priceData.ModelPrice), "Ratio": fmt.Sprintf("%.2f", priceData.GroupRatioInfo.GroupRatio), "Action": constant.MjActionSwapFace})
 		other := usagegateway.MidjourneyOther(info, priceData)
-		model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
+		usagestorage.Writer().RecordConsumeLog(c, info.UserId, usageadapter.RecordConsumeLogParams{
 			ChannelId: billingChannelId,
 			ModelName: modelName,
 			TokenName: tokenName,
@@ -307,8 +315,8 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 			Group:     info.UsingGroup,
 			Other:     other,
 		})
-		model.UpdateUserUsedQuotaAndRequestCount(info.UserId, midjourneyTask.Quota)
-		model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
+		accountstorage.SQL().UpdateUserUsedQuotaAndRequestCount(info.UserId, midjourneyTask.Quota)
+		counters.UpdateChannelUsedQuota(model.DB, billingChannelId, midjourneyTask.Quota)
 	}
 	c.Writer.WriteHeader(mjResp.StatusCode)
 	respBody, err := json.Marshal(midjResponse)
@@ -552,7 +560,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		}
 	}
 
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	userQuota, err := accountstorage.SQL().GetUserQuota(relayInfo.UserId, false)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
@@ -664,9 +672,9 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	if billingApplied {
 		billingChannelId := midjourneyTask.GetBillingChannelId()
 		tokenName := c.GetString("token_name")
-		logContent := (tasktext.TaskText{}).Phrase(relayInfo.UserId, i18n.MsgTasksMJPriceID, map[string]any{"Price": fmt.Sprintf("%.2f", priceData.ModelPrice), "Ratio": fmt.Sprintf("%.2f", priceData.GroupRatioInfo.GroupRatio), "Action": midjRequest.Action, "ID": midjResponse.Result})
+		logContent := taskbillingruntime.Text().Phrase(relayInfo.UserId, i18n.MsgTasksMJPriceID, map[string]any{"Price": fmt.Sprintf("%.2f", priceData.ModelPrice), "Ratio": fmt.Sprintf("%.2f", priceData.GroupRatioInfo.GroupRatio), "Action": midjRequest.Action, "ID": midjResponse.Result})
 		other := usagegateway.MidjourneyOther(relayInfo, priceData)
-		model.RecordConsumeLog(c, relayInfo.UserId, model.RecordConsumeLogParams{
+		usagestorage.Writer().RecordConsumeLog(c, relayInfo.UserId, usageadapter.RecordConsumeLogParams{
 			ChannelId: billingChannelId,
 			ModelName: modelName,
 			TokenName: tokenName,
@@ -676,8 +684,8 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			Group:     relayInfo.UsingGroup,
 			Other:     other,
 		})
-		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, midjourneyTask.Quota)
-		model.UpdateChannelUsedQuota(billingChannelId, midjourneyTask.Quota)
+		accountstorage.SQL().UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, midjourneyTask.Quota)
+		counters.UpdateChannelUsedQuota(model.DB, billingChannelId, midjourneyTask.Quota)
 	}
 
 	if midjResponse.Code == 22 { //22-排队中，说明任务已存在

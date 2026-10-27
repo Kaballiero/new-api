@@ -1,6 +1,8 @@
 package controller
 
 import (
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
+
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -1409,7 +1411,7 @@ func seedWssSubscription(t *testing.T, db *gorm.DB, userID int, amountTotal int6
 		AllowWalletOverflow: common.GetPointer(false),
 	}
 	require.NoError(t, db.Create(&plan).Error)
-	model.InvalidateSubscriptionPlanCache(plan.Id)
+	subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(plan.Id)
 	subscription := &model.UserSubscription{
 		UserId:              userID,
 		PlanId:              plan.Id,
@@ -1422,7 +1424,7 @@ func seedWssSubscription(t *testing.T, db *gorm.DB, userID int, amountTotal int6
 		AllowWalletOverflow: false,
 	}
 	require.NoError(t, db.Create(subscription).Error)
-	t.Cleanup(func() { model.InvalidateSubscriptionPlanCache(plan.Id) })
+	t.Cleanup(func() { subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(plan.Id) })
 	return subscription
 }
 

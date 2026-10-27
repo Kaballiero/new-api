@@ -1,6 +1,8 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+)
 
 // Business errors of identity scenarios. The texts are the existing messages:
 // several of them reach clients unchanged through the transport, and legacy

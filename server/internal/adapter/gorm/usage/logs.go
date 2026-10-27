@@ -4,11 +4,11 @@ import (
 	"errors"
 	"strings"
 
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
-	"gorm.io/gorm"
-
 	keydomain "github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/internal/usage/dto"
@@ -399,8 +399,8 @@ func (Store) LogStats(q domain.LogQuery, recentSince func() int64) (domain.Stat,
 	return queryLogStats(q.Kind, q.StartTimestamp, q.EndTimestamp, q.ModelName, q.Username, q.TokenName, q.Channel, q.Group, recentSince)
 }
 
-func (Store) TokenOwner(tokenID, userID int) error {
-	_, err := model.GetTokenByIds(tokenID, userID)
+func (s Store) TokenOwner(tokenID, userID int) error {
+	_, err := s.ReadToken(tokenID, userID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return domain.ErrTokenNotFound
 	}

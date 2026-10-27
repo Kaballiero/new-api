@@ -3,7 +3,6 @@ package subscriptions
 import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
-	"github.com/QuantumNous/new-api/model"
 )
 
 func (s Store) ExpiredCandidates(limit int, now int64) ([]domain.UserSubscription, error) {
@@ -25,7 +24,7 @@ func (s Store) DueCandidates(limit int, now int64) ([]domain.UserSubscription, e
 	return result, err
 }
 func (s Store) ResetPlan(planID int) (*domain.SubscriptionPlan, error) {
-	row, err := model.GetSubscriptionPlanByIdTx(nil, planID)
+	row, err := s.plans.GetSubscriptionPlanByIdTx(nil, planID)
 	if err != nil || row == nil {
 		return nil, err
 	}

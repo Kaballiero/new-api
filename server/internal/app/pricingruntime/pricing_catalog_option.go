@@ -2,6 +2,7 @@ package pricingruntime
 
 import (
 	"context"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"sync"
 
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -28,7 +29,7 @@ var NativePublication = sync.OnceValue(func() publish_native_catalogue.Usecase {
 		pricingadapter.Capabilities(),
 		store.NewNative(store.NativeEnvironment{
 			DB:       func() *gorm.DB { return legacy.DB },
-			LockRows: legacy.LockForUpdate,
+			LockRows: locking.LockForUpdate,
 			Lock:     publication.LockOptionPublication,
 			Snapshot: pricingstate.NativeCatalogSnapshot,
 			Publish:  publication.PublishOption,

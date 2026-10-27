@@ -5,22 +5,23 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/accounts/list_accounts"
 	"github.com/QuantumNous/new-api/internal/accounts/search_accounts"
-	"github.com/QuantumNous/new-api/model"
+	core "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 )
 
 // AdminQueriesStore связывает административные сценарии с существующими запросами БД.
-type AdminQueriesStore struct{}
+type AdminQueriesStore struct{ SQL core.Store }
 
-func (AdminQueriesStore) List(input list_accounts.PageInput, order list_accounts.SortInput) ([]*domain.User, int64, error) {
-	users, total, err := model.GetAllUsers(&common.PageInfo{Page: input.Page, PageSize: input.PageSize}, model.NewUserSortOptions(order.By, order.Order))
+func (store AdminQueriesStore) List(input list_accounts.PageInput, order list_accounts.SortInput) ([]*domain.User, int64, error) {
+	users, total, err := store.SQL.GetAllUsers(&common.PageInfo{Page: input.Page, PageSize: input.PageSize}, accountrecord.NewUserSortOptions(order.By, order.Order))
 	return adminQueryUsers(users), total, err
 }
-func (AdminQueriesStore) Search(input search_accounts.Input) ([]*domain.User, int64, error) {
-	users, total, err := model.SearchUsers(input.Keyword, input.Group, input.Role, input.Status, (input.Page.Page-1)*input.Page.PageSize, input.Page.PageSize, model.NewUserSortOptions(input.Sort.By, input.Sort.Order))
+func (store AdminQueriesStore) Search(input search_accounts.Input) ([]*domain.User, int64, error) {
+	users, total, err := store.SQL.SearchUsers(input.Keyword, input.Group, input.Role, input.Status, (input.Page.Page-1)*input.Page.PageSize, input.Page.PageSize, accountrecord.NewUserSortOptions(input.Sort.By, input.Sort.Order))
 	return adminQueryUsers(users), total, err
 }
-func (AdminQueriesStore) Batch(ids []int) ([]domain.UserBatchRow, error) {
-	users, err := model.GetUsersBatch(ids)
+func (store AdminQueriesStore) Batch(ids []int) ([]domain.UserBatchRow, error) {
+	users, err := store.SQL.GetUsersBatch(ids)
 	if users == nil {
 		return nil, err
 	}
@@ -35,7 +36,7 @@ func (AdminQueriesStore) Batch(ids []int) ([]domain.UserBatchRow, error) {
 	return result, err
 }
 
-func adminQueryUsers(users []*model.User) []*domain.User {
+func adminQueryUsers(users []*accountrecord.User) []*domain.User {
 	if users == nil {
 		return nil
 	}
@@ -49,7 +50,7 @@ func adminQueryUsers(users []*model.User) []*domain.User {
 	return result
 }
 
-func adminQueryUser(user *model.User) *domain.User {
+func adminQueryUser(user *accountrecord.User) *domain.User {
 	if user == nil {
 		return nil
 	}

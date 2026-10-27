@@ -8,25 +8,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/QuantumNous/new-api/constant"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 
+	"github.com/QuantumNous/new-api/constant"
 	taskplugins "github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
-
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
-
 	effects "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
-
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/poll_tasks"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
@@ -163,11 +161,11 @@ func fixtureUsecase(store poll_tasks.Store, channels poll_tasks.ChannelReader, f
 		completion = tasksapp.NewBilling()
 	}
 	return poll_tasks.NewUsecase(store, channels, factory, completion, tasksapp.NewReconciler(), effects.Codec{}, effects.Diagnostics{},
-		poll_tasks.Limits{TimeoutMinutes: timeout, QueryLimit: func() int { return constant.TaskQueryLimit }, MaxFailures: func() int { return constant.TaskPollMaxFailures }}, time.Now, gopool.Go, taskcommon.BuildProxyURL, effects.TaskText{})
+		poll_tasks.Limits{TimeoutMinutes: timeout, QueryLimit: func() int { return constant.TaskQueryLimit }, MaxFailures: func() int { return constant.TaskPollMaxFailures }}, time.Now, gopool.Go, taskcommon.BuildProxyURL, taskbillingruntime.Text())
 }
 
 func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) TaskPollSummary {
-	store := taskstore.PollingStore{Store: taskstore.NewStore(func() *gorm.DB { return model.DB })}
+	store := taskstore.PollingStore{Store: taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache())}
 	var factory poll_tasks.Factory
 	if GetTaskAdaptorFunc != nil {
 		factory = fixtureFactory{open: GetTaskAdaptorFunc}
@@ -192,7 +190,7 @@ func runSelectedPolling(ctx context.Context, platform constant.TaskPlatform, fac
 			}
 		}
 	}
-	store := &fixtureInventory{PollingStore: taskstore.PollingStore{Store: taskstore.NewStore(func() *gorm.DB { return model.DB })}, tasks: selected}
+	store := &fixtureInventory{PollingStore: taskstore.PollingStore{Store: taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache())}, tasks: selected}
 	selectedFactory := fixtureFactory{open: func(constant.TaskPlatform) TaskPollingAdaptor {
 		if factory.open == nil {
 			return nil
@@ -225,7 +223,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	return runSelectedPolling(ctx, "fixture", fixtureFactory{open: func(constant.TaskPlatform) TaskPollingAdaptor { return adaptor }}, map[int][]string{ch.Id: {taskID}}, tasks, ch)
 }
 func sweepTimedOutTasks(ctx context.Context) {
-	store := &fixtureInventory{PollingStore: taskstore.PollingStore{Store: taskstore.NewStore(func() *gorm.DB { return model.DB })}}
+	store := &fixtureInventory{PollingStore: taskstore.PollingStore{Store: taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache())}}
 	u := fixtureUsecase(store, fixtureChannels{}, nil, func() int { return constant.TaskTimeoutMinutes }, nil)
 	_, _ = u.Execute(ctx, nil)
 }
@@ -258,7 +256,7 @@ func (c *observedCompletion) Settle(ctx context.Context, task *domain.Task, resu
 func failTaskFromPoll(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, fromStatus model.TaskStatus, reason string) error {
 	selected := record.ToDomain(task)
 	selected.Status = domain.TaskStatus(fromStatus)
-	store := &fixtureInventory{PollingStore: taskstore.PollingStore{Store: taskstore.NewStore(func() *gorm.DB { return model.DB })}, tasks: []*domain.Task{selected}}
+	store := &fixtureInventory{PollingStore: taskstore.PollingStore{Store: taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache())}, tasks: []*domain.Task{selected}}
 	completion := &observedCompletion{Completion: tasksapp.NewBilling()}
 	factory := fixtureFactory{open: func(constant.TaskPlatform) TaskPollingAdaptor {
 		return failureFixtureAdaptor{TaskPollingAdaptor: adaptor, reason: reason}

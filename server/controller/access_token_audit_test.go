@@ -1,6 +1,12 @@
 package controller
 
 import (
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
+
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
 	"context"
 	"errors"
 	"net/http"
@@ -40,7 +46,7 @@ func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
 	previousRedis := common.RedisEnabled
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Log{}, &model.AuditLog{}, &model.CasbinRule{}, &model.AuthzRole{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &identityrecord.UserSession{}, &model.Log{}, &model.AuditLog{}, &model.CasbinRule{}, &model.AuthzRole{}))
 	model.DB, model.LOG_DB = db, db
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	common.RedisEnabled = false
@@ -62,13 +68,13 @@ func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
 // userAccessTokenStatus reads the PAT status the way GET /api/user/token/status does.
 func userAccessTokenStatus(id int) (*get_status.Output, error) {
 	roles := patdomain.AuditRoles{Root: common.RoleRootUser, Common: common.RoleCommonUser, Admin: common.RoleAdminUser}
-	return get_status.NewUsecase(model.NewPersonalAccessTokenPersistence(), patdomain.Fingerprint, roles).Execute(get_status.Input{UserID: id})
+	return get_status.NewUsecase(patstorage.Persistence(), patdomain.Fingerprint, roles).Execute(get_status.Input{UserID: id})
 }
 
 // revokeUserAccessToken revokes the PAT without an HTTP audit context and
 // returns the revoked generation reference.
 func revokeUserAccessToken(id int) (string, error) {
-	output, err := revoke_token.NewUsecase(model.NewPersonalAccessTokenPersistence(), patdomain.Fingerprint, nil).Execute(revoke_token.Input{UserID: id})
+	output, err := revoke_token.NewUsecase(patstorage.Persistence(), patdomain.Fingerprint, nil).Execute(revoke_token.Input{UserID: id})
 	return output.TokenRef, err
 }
 
@@ -127,7 +133,7 @@ func TestSecurityAndOperationEventsUseAuditTable(t *testing.T) {
 	recordManageAudit(c, "option.update", map[string]any{"key": "safe"})
 	subscriptionsapp.NewResetAudit().RecordUserLogs(c, &subscriptionsdomain.ResetResult{ResetCount: 1, PlanId: 1, PlanTitle: "Plan", AffectedUserIds: []int{user.Id}}, &auditdomain.Operator{ID: user.Id})
 	for _, typ := range []int{model.LogTypeTopup, model.LogTypeConsume, model.LogTypeRefund, model.LogTypeSystem} {
-		model.RecordLog(user.Id, typ, "business entry")
+		usagestorage.Writer().RecordLog(user.Id, typ, "business entry")
 	}
 	var audits []model.AuditLog
 	require.NoError(t, model.LOG_DB.Find(&audits).Error)
@@ -149,7 +155,7 @@ func TestSecurityAndOperationEventsUseAuditTable(t *testing.T) {
 func TestPersonalAccessTokenRevocationRollsBackOnWriteFailure(t *testing.T) {
 	user, _ := setupSecurityEnrollmentTest(t)
 	token := "rollback-pat-credential"
-	require.NoError(t, model.UpdateUserAccessToken(user.Id, token))
+	require.NoError(t, patstorage.Persistence().Update(user.Id, token))
 	before, err := userAccessTokenStatus(user.Id)
 	require.NoError(t, err)
 	require.NotNil(t, before.CreatedAt)

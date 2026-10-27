@@ -1,6 +1,8 @@
 package billing_test
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"errors"
 	"fmt"
 	"math"
@@ -204,7 +206,7 @@ func TestPrepareTieredBillingForSelectedGroupStartsBillingAfterFreeGroup(t *test
 	assert.Equal(t, 0.20, relayInfo.TieredBillingSnapshot.GroupRatio)
 	assert.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
 
-	userQuota, err := model.GetUserQuota(userID, false)
+	userQuota, err := accountstorage.SQL().GetUserQuota(userID, false)
 	require.NoError(t, err)
 	assert.Equal(t, 400_000, userQuota)
 }
@@ -278,14 +280,14 @@ func TestPrepareTieredBillingForSelectedGroupTopUpArrearsAllowsNegativeBalance(t
 	assert.Equal(t, 100_000, session.GetPreConsumedQuota())
 	assert.Equal(t, 100_000, relayInfo.FinalPreConsumedQuota)
 	assert.Equal(t, 100_000, relayInfo.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
-	userQuota, err := model.GetUserQuota(userID, false)
+	userQuota, err := accountstorage.SQL().GetUserQuota(userID, false)
 	require.NoError(t, err)
 	assert.Equal(t, -30_000, userQuota)
 
 	// Settlement still reconciles against the full reservation: actual 80k
 	// refunds the 20k over-reserve, landing at seed - (actual - initial) = -10k.
 	require.NoError(t, session.Settle(80_000))
-	userQuota, err = model.GetUserQuota(userID, false)
+	userQuota, err = accountstorage.SQL().GetUserQuota(userID, false)
 	require.NoError(t, err)
 	assert.Equal(t, -10_000, userQuota)
 }
@@ -310,7 +312,7 @@ func TestBillingSessionReserveWalletTopUpDecrementsBalance(t *testing.T) {
 
 	assert.Equal(t, 100_000, session.GetPreConsumedQuota())
 	assert.Equal(t, 100_000, relayInfo.FinalPreConsumedQuota)
-	userQuota, err := model.GetUserQuota(userID, false)
+	userQuota, err := accountstorage.SQL().GetUserQuota(userID, false)
 	require.NoError(t, err)
 	assert.Equal(t, 450_000, userQuota)
 }

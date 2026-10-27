@@ -1,6 +1,10 @@
 package controller
 
 import (
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,7 +28,7 @@ func TestAuthLogoutRejectsRefreshCookieSessionMismatch(t *testing.T) {
 	previousSecret := common.SessionSecret
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &identityrecord.UserSession{}))
 	model.DB = db
 	common.RedisEnabled = false
 	common.SessionSecret = "auth-logout-mismatch-test-secret"
@@ -63,9 +67,9 @@ func TestAuthLogoutRejectsRefreshCookieSessionMismatch(t *testing.T) {
 	assert.False(t, response.Success)
 	assert.Equal(t, "AUTH_SESSION_MISMATCH", response.Code)
 	for _, sid := range []string{sessionA.Session.SID, sessionB.Session.SID} {
-		stored, err := model.GetUserSessionBySID(sid)
+		stored, err := identitystorage.SQL().GetUserSessionBySID(sid)
 		require.NoError(t, err)
-		assert.Equal(t, model.UserSessionStatusActive, stored.Status)
+		assert.Equal(t, identityrecord.UserSessionStatusActive, stored.Status)
 	}
 }
 
@@ -79,13 +83,13 @@ func TestWriteAuthSessionErrorMapsSessionGrowthLimits(t *testing.T) {
 	}{
 		{
 			name:           "active session limit",
-			err:            model.ErrUserSessionLimit,
+			err:            identitydomain.ErrSessionLimit,
 			expectedStatus: http.StatusConflict,
 			expectedCode:   "AUTH_SESSION_LIMIT",
 		},
 		{
 			name:           "issuance limit",
-			err:            model.ErrUserSessionIssuanceLimit,
+			err:            identitydomain.ErrSessionIssuanceLimit,
 			expectedStatus: http.StatusTooManyRequests,
 			expectedCode:   "AUTH_SESSION_ISSUANCE_LIMIT",
 		},
@@ -117,7 +121,7 @@ func TestSessionLimitDoesNotRecordRejectedLoginAsSuccessful(t *testing.T) {
 	previousIssuanceWindow := common.UserSessionIssuanceWindowSeconds
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.TwoFA{}, &model.PasskeyCredential{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &identityrecord.UserSession{}, &identityrecord.TwoFA{}, &identityrecord.PasskeyCredential{}))
 	model.DB = db
 	common.RedisEnabled = false
 	common.UserSessionActiveLimit = 1
@@ -138,9 +142,9 @@ func TestSessionLimitDoesNotRecordRejectedLoginAsSuccessful(t *testing.T) {
 	}
 	require.NoError(t, db.Create(user).Error)
 	now := time.Now().Unix()
-	require.NoError(t, db.Create(&model.UserSession{
+	require.NoError(t, db.Create(&identityrecord.UserSession{
 		SID: "existing-active-session", UserID: user.Id, Version: 1, UserAuthVersion: user.AuthVersion,
-		Status: model.UserSessionStatusActive, RefreshHash: "hash", LoginMethod: "password",
+		Status: identityrecord.UserSessionStatusActive, RefreshHash: "hash", LoginMethod: "password",
 		CreatedAt: now, LastActiveAt: now, ExpiresAt: now + 3600,
 	}).Error)
 

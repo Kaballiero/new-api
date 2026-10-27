@@ -1,6 +1,10 @@
 package contract_test
 
 import (
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -482,7 +486,7 @@ func newAuditFixture(t *testing.T) auditFixture {
 	}}
 	for id, pat := range map[int]string{2: f.bearers["admin_pat"], 3: f.bearers["root_pat"]} {
 		require.NoError(t, env.DB.Model(&model.User{}).Where("id = ?", id).Update("access_token", pat).Error)
-		require.NoError(t, model.PublishUserAuthCache(id))
+		require.NoError(t, accountstorage.Cache().PublishUserAuthCache(id))
 	}
 	for _, row := range []model.AuditLog{
 		{Id: 101, UserId: 1, ActorRole: 1, CreatedAt: 100, Category: "security", TokenRef: strings.Repeat("a", 64)},
@@ -531,7 +535,7 @@ func configureAuditCase(t *testing.T, f auditFixture, tc auditCase) {
 			id = 2
 		}
 		require.NoError(t, f.env.DB.Model(&model.User{}).Where("id = ?", id).Update("status", common.UserStatusDisabled).Error)
-		require.NoError(t, model.PublishUserAuthCache(id))
+		require.NoError(t, accountstorage.Cache().PublishUserAuthCache(id))
 	case "revoked":
 		require.NoError(t, f.env.DB.Model(&model.User{}).Where("id = 1").Update("access_token", nil).Error)
 	case "actor_deleted":
@@ -1036,7 +1040,7 @@ func normalizeLogin(t *testing.T, f auditFixture, body string) string {
 	require.NoError(t, err)
 	require.Equal(t, 1, identity.UserID)
 	require.Equal(t, response.Data.Session.SID, identity.SessionID)
-	var session model.UserSession
+	var session identityrecord.UserSession
 	require.NoError(t, f.env.DB.Where("sid = ?", identity.SessionID).Take(&session).Error)
 	require.Equal(t, session.CreatedAt, response.Data.Session.Created)
 	require.Equal(t, session.LastActiveAt, response.Data.Session.Active)

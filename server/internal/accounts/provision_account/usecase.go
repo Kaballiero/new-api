@@ -2,6 +2,7 @@ package provision_account
 
 import (
 	"errors"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"strings"
 	"unicode/utf8"
 )
@@ -22,33 +23,25 @@ type ProvisionAccount interface {
 }
 
 type Credentials interface{ NewProvisionedPAT() (string, int64, error) }
-type Errors interface {
-	IsUsernameConflict(error) bool
-	Invalid() error
-	UsernameTaken() error
-	Conflict() error
-	Unavailable() error
-	Denied() error
-}
 type Usecase struct {
 	operation                           ProvisionOperation
 	credentials                         Credentials
-	errors                              Errors
+	usernameConflict                    func(error) bool
 	groupExists                         func(string) bool
 	sidebar                             func(int) string
 	maxQuota, commonRole, enabledStatus int
 }
 
-func NewUsecase(operation ProvisionOperation, credentials Credentials, errors Errors, groupExists func(string) bool, sidebar func(int) string, maxQuota, commonRole, enabledStatus int) Usecase {
-	return Usecase{operation: operation, credentials: credentials, errors: errors, groupExists: groupExists, sidebar: sidebar, maxQuota: maxQuota, commonRole: commonRole, enabledStatus: enabledStatus}
+func NewUsecase(operation ProvisionOperation, credentials Credentials, usernameConflict func(error) bool, groupExists func(string) bool, sidebar func(int) string, maxQuota, commonRole, enabledStatus int) Usecase {
+	return Usecase{operation: operation, credentials: credentials, usernameConflict: usernameConflict, groupExists: groupExists, sidebar: sidebar, maxQuota: maxQuota, commonRole: commonRole, enabledStatus: enabledStatus}
 }
 
 func (u Usecase) Execute(principalRole int, request GetAPICreateUserRequest) (*GetAPICreateCredential, error) {
 	if request.InitialQuota != nil && (*request.InitialQuota < 0 || *request.InitialQuota > u.maxQuota) {
-		return nil, u.errors.Invalid()
+		return nil, domain.ErrGetAPIInvalidRequest
 	}
 	if utf8.RuneCountInString(request.Group) > maxProvisionedUserGroupRunes || (request.Group != "" && !u.groupExists(request.Group)) {
-		return nil, u.errors.Invalid()
+		return nil, domain.ErrGetAPIInvalidRequest
 	}
 	var credential *GetAPICreateCredential
 	accountInput := NewAccount{Username: strings.TrimSpace(request.Username), Password: request.Password, DisplayName: request.DisplayName, Group: request.Group, Role: u.commonRole, Status: u.enabledStatus}
@@ -57,33 +50,33 @@ func (u Usecase) Execute(principalRole int, request GetAPICreateUserRequest) (*G
 	}
 	err := u.operation.WithAccount(accountInput, func(account ProvisionAccount) error {
 		if err := account.EnsureUsername(); err != nil {
-			if errors.Is(err, u.errors.UsernameTaken()) {
-				return u.errors.Conflict()
+			if errors.Is(err, domain.ErrUsernameAlreadyTaken) {
+				return domain.ErrGetAPICreateConflict
 			}
-			return u.errors.Unavailable()
+			return domain.ErrGetAPICredentialUnavailable
 		}
 		token, now, err := u.credentials.NewProvisionedPAT()
 		if err != nil {
-			return u.errors.Unavailable()
+			return domain.ErrGetAPICredentialUnavailable
 		}
 		account.SetCredential(token, now)
 		account.SetSidebar(u.sidebar(u.commonRole))
 		userID, role, err := account.Insert()
 		if err != nil {
-			if errors.Is(err, u.errors.UsernameTaken()) || u.errors.IsUsernameConflict(err) {
-				return u.errors.Conflict()
+			if errors.Is(err, domain.ErrUsernameAlreadyTaken) || u.usernameConflict(err) {
+				return domain.ErrGetAPICreateConflict
 			}
-			return u.errors.Unavailable()
+			return domain.ErrGetAPICredentialUnavailable
 		}
 		if userID <= 0 {
-			return u.errors.Unavailable()
+			return domain.ErrGetAPICredentialUnavailable
 		}
 		if role >= principalRole {
-			return u.errors.Denied()
+			return domain.ErrGetAPICapabilityDenied
 		}
 		if request.InitialQuota != nil {
 			if err := account.SetInitialQuota(*request.InitialQuota); err != nil {
-				return u.errors.Unavailable()
+				return domain.ErrGetAPICredentialUnavailable
 			}
 		}
 		credential = &GetAPICreateCredential{UserID: userID, AccessToken: token, InitialQuota: account.Quota()}

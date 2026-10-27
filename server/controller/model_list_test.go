@@ -1,6 +1,10 @@
 package controller
 
 import (
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 
@@ -409,7 +413,7 @@ func TestGetEffectivePricingReturnsPerUsingGroupProjection(t *testing.T) {
 		assert.Equal(t, 2101, previewContext.GetInt("id"))
 		assert.Equal(t, "default", previewContext.GetString("group"))
 	}
-	user, err := model.GetUserCache(2101)
+	user, err := accountstorage.Cache().GetUserCache(2101)
 	require.NoError(t, err)
 	assert.Equal(t, "default", user.Group)
 
@@ -822,7 +826,7 @@ func TestListModelsIncludesOpenRouterReserveBilledModels(t *testing.T) {
 
 func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.AuditLog{}, &model.UserSession{}, &model.TwoFA{}, &model.PasskeyCredential{}))
+	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.AuditLog{}, &identityrecord.UserSession{}, &identityrecord.TwoFA{}, &identityrecord.PasskeyCredential{}))
 
 	hashedPassword, err := common.Password2Hash("CurrentPassword123")
 	require.NoError(t, err)

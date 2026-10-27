@@ -2,20 +2,26 @@ package login
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/model"
+
 	"time"
 )
 
 type Dependencies struct {
+	SQL identitystore.Store
+
 	TTL                     time.Duration
-	PolicyFunc              func(string, model.UserVerificationState) ([]dto.VerificationMethodOption, error)
-	RequireMethodFunc       func(*model.UserVerificationState, string) error
+	PolicyFunc              func(string, identitystore.UserVerificationState) ([]dto.VerificationMethodOption, error)
+	RequireMethodFunc       func(*identitystore.UserVerificationState, string) error
 	RequireVerificationFunc func(string, string) (*LoginVerification, error)
-	VerifyFactorFunc        func(*model.TwoFA, string) error
+	VerifyFactorFunc        func(*identityrecord.TwoFA, string) error
 	CompleteFunc            func(string, *LoginVerification, string, string, string) (*dto.AuthBundle, error)
-	NewSessionFunc          func(int, int64, string, string, string) (*model.UserSession, string, error)
-	IssueFunc               func(*model.UserSession, string, bool) (*dto.AuthBundle, error)
+	NewSessionFunc          func(int, int64, string, string, string) (*identityrecord.UserSession, string, error)
+	IssueFunc               func(*identityrecord.UserSession, string, bool) (*dto.AuthBundle, error)
 }
 type loginFlowPayload struct {
 	AuthVersion int64  `json:"auth_version"`
@@ -25,16 +31,18 @@ type loginFlowPayload struct {
 // LoginVerification is server-owned state read from a primary-authenticated flow.
 // It is never constructed from a user ID or an authentication claim in a request.
 type LoginVerification struct {
-	Flow    *model.AuthFlow
-	State   *model.UserVerificationState
+	Flow    *identityrecord.AuthFlow
+	State   *identitystore.UserVerificationState
 	payload loginFlowPayload
 }
 
 type startLoginVerificationOperation struct {
+	SQL identitystore.Store
+
 	Dependencies
-	primary     *model.User
+	primary     *accountrecord.User
 	loginMethod string
-	state       *model.UserVerificationState
+	state       *identitystore.UserVerificationState
 	methods     []dto.VerificationMethodOption
 	challenge   *dto.LoginChallenge
 }
@@ -48,7 +56,7 @@ func (op *startLoginVerificationOperation) PrimaryFacts() (int, int64, string) {
 
 func (op *startLoginVerificationOperation) LoadState() (int, int64, error) {
 	var err error
-	op.state, err = model.GetUserVerificationState(op.primary.Id)
+	op.state, err = op.SQL.GetUserVerificationState(op.primary.Id)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -71,7 +79,7 @@ func (op *startLoginVerificationOperation) CreateChallenge() error {
 		return err
 	}
 	expiresAt := time.Now().Add(op.TTL)
-	token, _, err := model.CreateAuthFlow(model.AuthFlowCreate{Purpose: model.AuthFlowPurposeLoginVerification, UserId: op.primary.Id, Payload: string(payload), ExpiresAt: expiresAt})
+	token, _, err := op.SQL.CreateAuthFlow(identitystore.AuthFlowCreate{Purpose: identitydomain.AuthFlowPurposeLoginVerification, UserId: op.primary.Id, Payload: string(payload), ExpiresAt: expiresAt})
 	if err != nil {
 		return err
 	}
@@ -80,16 +88,18 @@ func (op *startLoginVerificationOperation) CreateChallenge() error {
 }
 
 type requireLoginVerificationOperation struct {
+	SQL identitystore.Store
+
 	Dependencies
 	token   string
-	flow    *model.AuthFlow
-	state   *model.UserVerificationState
+	flow    *identityrecord.AuthFlow
+	state   *identitystore.UserVerificationState
 	payload loginFlowPayload
 }
 
 func (op *requireLoginVerificationOperation) LoadFlow() error {
 	var err error
-	op.flow, err = model.GetAuthFlow(op.token, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeLoginVerification})
+	op.flow, err = op.SQL.GetAuthFlow(op.token, identitystore.AuthFlowMatch{Purpose: identitydomain.AuthFlowPurposeLoginVerification})
 	return err
 }
 
@@ -100,7 +110,7 @@ func (op *requireLoginVerificationOperation) DecodePayload() (int64, string, err
 
 func (op *requireLoginVerificationOperation) LoadState() (int, int64, error) {
 	var err error
-	op.state, err = model.GetUserVerificationState(op.flow.UserId)
+	op.state, err = op.SQL.GetUserVerificationState(op.flow.UserId)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -112,10 +122,12 @@ func (op *requireLoginVerificationOperation) RequireMethod(method string) error 
 }
 
 type verifyLoginCodeOperation struct {
+	SQL identitystore.Store
+
 	Dependencies
 	token, code, ip, userAgent string
 	verification               *LoginVerification
-	factor                     *model.TwoFA
+	factor                     *identityrecord.TwoFA
 	bundle                     *dto.AuthBundle
 }
 
@@ -127,7 +139,7 @@ func (op *verifyLoginCodeOperation) RequireVerification() error {
 
 func (op *verifyLoginCodeOperation) LoadFactor() error {
 	var err error
-	op.factor, err = model.GetTwoFAByUserId(op.verification.State.UserID)
+	op.factor, err = op.SQL.GetTwoFAByUserId(op.verification.State.UserID)
 	return err
 }
 
@@ -142,6 +154,8 @@ func (op *verifyLoginCodeOperation) Complete() error {
 }
 
 type completeLoginVerificationOperation struct {
+	SQL identitystore.Store
+
 	Dependencies
 	loginCompletion
 	verification                 *LoginVerification
@@ -161,7 +175,7 @@ func (op *completeLoginVerificationOperation) NewSession() error {
 
 func (op *completeLoginVerificationOperation) ExpectedFlowID() int64 { return op.verification.Flow.Id }
 
-func (op *completeLoginVerificationOperation) payloadMatches(flow *model.AuthFlow) bool {
+func (op *completeLoginVerificationOperation) payloadMatches(flow *identityrecord.AuthFlow) bool {
 	// Keep the original early return: another flow never reaches the decoder.
 	if flow.Id != op.verification.Flow.Id {
 		return false
@@ -181,43 +195,46 @@ func (op *completeLoginVerificationOperation) IssueBundle() error {
 }
 
 func (op *completeLoginVerificationOperation) RevokeCreated(reason string) error {
-	_, err := model.RevokeUserSession(op.Session.UserID, op.Session.SID, reason)
+	_, err := op.SQL.RevokeUserSession(op.Session.UserID, op.Session.SID, reason)
 	return err
 }
 
 type loginCompletion struct {
+	SQL identitystore.Store
+
 	Token          string
-	Session        *model.UserSession
-	CurrentState   *model.UserVerificationState
-	PayloadMatches func(*model.AuthFlow) bool
+	Session        *identityrecord.UserSession
+	CurrentState   *identitystore.UserVerificationState
+	PayloadMatches func(*identityrecord.AuthFlow) bool
 }
 
 func (op *loginCompletion) ConsumeAndCreate(check func(int64, bool) error) error {
 	if op.PayloadMatches == nil || check == nil {
-		return model.ErrUserSessionInvalid
+		return identitydomain.ErrSessionInvalid
 	}
-	return model.CreateUserSessionFromLoginFlow(op.Token, op.Session, func(flow *model.AuthFlow, state *model.UserVerificationState) error {
+	return op.SQL.CreateUserSessionFromLoginFlow(op.Token, op.Session, func(flow *identityrecord.AuthFlow, state *identitystore.UserVerificationState) error {
 		op.CurrentState = state
 		return check(flow.Id, op.PayloadMatches(flow))
 	})
 }
 
-func NewStart(user *model.User, method string, deps Dependencies) *startLoginVerificationOperation {
-	return &startLoginVerificationOperation{Dependencies: deps, primary: user, loginMethod: method}
+func NewStart(user *accountrecord.User, method string, deps Dependencies) *startLoginVerificationOperation {
+	return &startLoginVerificationOperation{SQL: deps.SQL, Dependencies: deps, primary: user, loginMethod: method}
 }
 func (op *startLoginVerificationOperation) Challenge() *dto.LoginChallenge { return op.challenge }
 func NewRequire(token string, deps Dependencies) *requireLoginVerificationOperation {
-	return &requireLoginVerificationOperation{Dependencies: deps, token: token}
+	return &requireLoginVerificationOperation{SQL: deps.SQL, Dependencies: deps, token: token}
 }
 func (op *requireLoginVerificationOperation) Verification() *LoginVerification {
 	return &LoginVerification{Flow: op.flow, State: op.state, payload: op.payload}
 }
 func NewCode(token, code, ip, ua string, deps Dependencies) *verifyLoginCodeOperation {
-	return &verifyLoginCodeOperation{Dependencies: deps, token: token, code: code, ip: ip, userAgent: ua}
+	return &verifyLoginCodeOperation{SQL: deps.SQL, Dependencies: deps, token: token, code: code, ip: ip, userAgent: ua}
 }
 func (op *verifyLoginCodeOperation) Bundle() *dto.AuthBundle { return op.bundle }
 func NewComplete(token string, verification *LoginVerification, ip, ua string, deps Dependencies) *completeLoginVerificationOperation {
-	op := &completeLoginVerificationOperation{Dependencies: deps, verification: verification, ip: ip, userAgent: ua}
+	op := &completeLoginVerificationOperation{SQL: deps.SQL, Dependencies: deps, verification: verification, ip: ip, userAgent: ua}
+	op.loginCompletion.SQL = deps.SQL
 	op.loginCompletion.Token = token
 	op.loginCompletion.PayloadMatches = op.payloadMatches
 	return op

@@ -23,7 +23,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/apikeys/search_keys"
 	"github.com/QuantumNous/new-api/internal/apikeys/transport"
 	"github.com/QuantumNous/new-api/internal/apikeys/update_key"
-	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/apikeystorage"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -49,11 +50,11 @@ type APIKeysHTTP struct {
 }
 
 func NewAPIKeysHTTP(effects APIKeyEffects) APIKeysHTTP {
-	store := repository.NewStore(model.NewTokenPersistence(), func(key string) (*domain.Token, error) {
-		token, err := model.GetTokenByKey(key, false)
+	store := repository.NewStore(apikeystorage.Persistence(), func(key string) (*domain.Token, error) {
+		token, err := apikeystorage.Reader().Read(key, false)
 		return record.ToDomain((*record.Token)(token)), err
 	})
-	lookup := func(id int) (string, error) { return model.GetUserGroup(id, false) }
+	lookup := func(id int) (string, error) { return accountstorage.SQL().GetUserGroup(id, false) }
 	groups := func(c *gin.Context) domain.AutoGroupRules {
 		return domain.AutoGroupRules{Max: setting.GetMaxTokenAutoGroups, UserGroup: func() (string, error) { return transport.RequestGroup(c, lookup) }, Selectable: accountssettings.IsUserSelectableGroup, Encode: store.SetAutoGroups}
 	}

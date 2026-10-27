@@ -155,7 +155,7 @@ func TestUpdateTokenAutoGroupsTriStateAndNonAutoCleanup(t *testing.T) {
 			token := seedToken(t, model.DB, user.Id, "update-auto", "update-auto-key")
 			token.Group = "auto"
 			token.CrossGroupRetry = true
-			require.NoError(t, token.SetAutoGroups([]string{"vip", "default"}))
+			require.NoError(t, setTokenAutoGroupsFixture(token, []string{"vip", "default"}))
 			require.NoError(t, model.DB.Save(token).Error)
 
 			request := baseAutoTokenRequest("updated-auto")
@@ -229,4 +229,13 @@ func TestGetTokenAutoGroupsReturnsFullFilteredGlobalOrderAndLimit(t *testing.T) 
 	require.NoError(t, common.Unmarshal(response.Data, &data))
 	assert.Equal(t, []string{"vip", "default"}, data.Groups)
 	assert.Equal(t, 1, data.MaxCount)
+}
+
+func setTokenAutoGroupsFixture(token *model.Token, groups []string) error {
+	data, err := common.Marshal(groups)
+	if err != nil {
+		return err
+	}
+	token.AutoGroups = string(data)
+	return nil
 }

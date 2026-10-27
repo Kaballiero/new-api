@@ -1,6 +1,16 @@
 package controller
 
 import (
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
+
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"bytes"
 	"context"
 	"crypto/ecdsa"
@@ -71,7 +81,7 @@ func setupSecurityEnrollmentTest(t *testing.T) (*model.User, identitydomain.Auth
 	var version string
 	require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
 	t.Logf("database: %s %s", dialect, version)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.PasskeyCredential{}, &model.AuthFlow{}, &model.UserOAuthBinding{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &identityrecord.UserSession{}, &identityrecord.TwoFA{}, &identityrecord.TwoFABackupCode{}, &identityrecord.PasskeyCredential{}, &identityrecord.AuthFlow{}, &identityrecord.UserOAuthBinding{}))
 	require.NoError(t, logDB.AutoMigrate(&model.AuditLog{}))
 	model.DB, model.LOG_DB = db, logDB
 	dbType := common.DatabaseTypeSQLite
@@ -101,7 +111,7 @@ func setupSecurityEnrollmentTest(t *testing.T) (*model.User, identitydomain.Auth
 	require.NoError(t, err)
 	user := &model.User{Username: "enrollment-user", Password: password, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1}
 	require.NoError(t, db.Create(user).Error)
-	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	require.NoError(t, accountstorage.Cache().PublishUserAuthCache(user.Id))
 	bundle, err := identitycore.CreateLoginSession(user.Id, "password", "127.0.0.1", "enrollment-test")
 	require.NoError(t, err)
 	identity, err := authtoken.ParseAccessToken(bundle.AccessToken)
@@ -128,14 +138,14 @@ func issueSecurityEnrollmentProof(t *testing.T, identity identitydomain.AuthIden
 	t.Helper()
 	binding, err := identitycore.BindVerificationOperation(operation)
 	require.NoError(t, err)
-	proof, _, err := authtoken.IssueSecurityProof(identity, method, binding)
+	proof, _, err := authtoken.IssueSecurityProof(identitystorage.SQL(), identity, method, binding)
 	require.NoError(t, err)
 	return proof
 }
 
 func TestSecurityEnrollmentAccessTokenRequiresProofBeforeMutation(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
-	require.NoError(t, model.UpdateUserAccessToken(user.Id, "existing-system-token"))
+	require.NoError(t, patstorage.Persistence().Update(user.Id, "existing-system-token"))
 	for _, endpoint := range []struct {
 		method  string
 		handler gin.HandlerFunc
@@ -181,10 +191,10 @@ func TestSecurityEnrollmentAccessTokenMethodPolicy(t *testing.T) {
 				require.NoError(t, model.DB.Model(user).Update("password", "").Error)
 			}
 			if test.passkey {
-				require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: "existing-key", PublicKey: "public-key"}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.PasskeyCredential{UserID: user.Id, CredentialID: "existing-key", PublicKey: "public-key"}).Error)
 			}
 			if test.twoFA {
-				twoFA := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
+				twoFA := &identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
 				if test.locked {
 					until := time.Now().Add(time.Minute)
 					twoFA.LockedUntil = &until
@@ -236,7 +246,7 @@ func TestSecurityEnrollmentAccessTokenMethodPolicy(t *testing.T) {
 
 func TestSecurityEnrollmentAccessTokenLifecycleConsumesProofs(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
-	require.NoError(t, model.UpdateUserAccessToken(user.Id, "previous-token"))
+	require.NoError(t, patstorage.Persistence().Update(user.Id, "previous-token"))
 	previousToken := "previous-token"
 	for _, method := range []string{"GET", "POST"} {
 		proof, err := identitycore.VerifySecurityInput(identity, verify_security_input.VerificationInput{
@@ -271,7 +281,7 @@ func TestSecurityEnrollmentAccessTokenLifecycleConsumesProofs(t *testing.T) {
 	var body securityEnrollmentResponse
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success, body.Message)
-	stored, err := model.GetUserById(user.Id, true)
+	stored, err := accountstorage.SQL().GetUserById(user.Id, true)
 	require.NoError(t, err)
 	assert.Empty(t, stored.GetAccessToken())
 	revokedUser, err := authentication.NewPATAuth().Execute(previousToken)
@@ -294,7 +304,7 @@ func TestSecurityEnrollmentAccessTokenLifecycleConsumesProofs(t *testing.T) {
 
 func TestSecurityEnrollmentAccessTokenRejectsInvalidProofs(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
-	require.NoError(t, model.UpdateUserAccessToken(user.Id, "unchanged-token"))
+	require.NoError(t, patstorage.Persistence().Update(user.Id, "unchanged-token"))
 	for _, endpoint := range []struct {
 		method, scope string
 		handler       gin.HandlerFunc
@@ -314,7 +324,7 @@ func TestSecurityEnrollmentAccessTokenRejectsInvalidProofs(t *testing.T) {
 				case "user":
 					requestIdentity.UserID++
 				case "expired":
-					require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
+					require.NoError(t, model.DB.Model(&identityrecord.AuthFlow{}).Where("purpose = ?", identitydomain.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
 					code = "SECURITY_PROOF_EXPIRED"
 				}
 				response := securityEnrollmentRequest(endpoint.method, "/api/user/token", "", proof, requestIdentity, endpoint.handler)
@@ -331,7 +341,7 @@ func TestSecurityEnrollmentAccessTokenRejectsInvalidProofs(t *testing.T) {
 
 func TestSecurityEnrollmentAccessTokenFailureDoesNotRestoreProof(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
-	require.NoError(t, model.UpdateUserAccessToken(user.Id, "unchanged-token"))
+	require.NoError(t, patstorage.Persistence().Update(user.Id, "unchanged-token"))
 	require.NoError(t, model.DB.Callback().Update().Before("gorm:update").Register("access_token_write_failure", func(tx *gorm.DB) {
 		if tx.Statement.Table == "users" {
 			tx.AddError(errors.New("private database failure"))
@@ -357,7 +367,7 @@ func TestSecurityEnrollmentAccessTokenFailureDoesNotRestoreProof(t *testing.T) {
 	assert.Equal(t, user.Id, stored.Id)
 }
 
-func authorizeSecurityEnrollment(t *testing.T, identity identitydomain.AuthIdentity) *model.AuthFlowAuthorization {
+func authorizeSecurityEnrollment(t *testing.T, identity identitydomain.AuthIdentity) *identitydomain.FlowAuthorization {
 	t.Helper()
 	operation := identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeTwoFASetup}
 	proof := issueSecurityEnrollmentProof(t, identity, operation, identitydomain.VerificationMethodPassword)
@@ -434,7 +444,7 @@ func TestSecurityEnrollmentRejectsMissingProofBeforeCreatingCredentials(t *testi
 			assert.NotContains(t, response.Body.String(), "qr_code_data")
 		})
 	}
-	pending, err := model.GetTwoFAByUserId(user.Id)
+	pending, err := identitystorage.SQL().GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)
 	assert.Nil(t, pending)
 }
@@ -467,10 +477,10 @@ func TestSecurityEnrollmentMethodPolicy(t *testing.T) {
 				require.NoError(t, model.DB.Model(user).Update("password", "").Error)
 			}
 			if test.passkey {
-				require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: "enrolled-passkey", PublicKey: "public-key"}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.PasskeyCredential{UserID: user.Id, CredentialID: "enrolled-passkey", PublicKey: "public-key"}).Error)
 			}
 			if test.twoFA {
-				twoFA := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
+				twoFA := &identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
 				if test.locked {
 					until := time.Now().Add(time.Minute)
 					twoFA.LockedUntil = &until
@@ -584,8 +594,8 @@ func TestSecurityEnrollmentOperationContext(t *testing.T) {
 func TestSecurityEnrollmentChannelProofRejectsMismatchesBeforeConsumption(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
 	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
-	require.NoError(t, model.PublishUserAuthCache(user.Id))
-	twoFA := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
+	require.NoError(t, accountstorage.Cache().PublishUserAuthCache(user.Id))
+	twoFA := &identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
 	require.NoError(t, model.DB.Create(twoFA).Error)
 	operation := identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeChannelKeyRead, Context: []byte(`{"channel_id":123}`)}
 	code, err := totp.GenerateCode(twoFA.Secret, time.Now())
@@ -657,8 +667,8 @@ func TestSecurityEnrollmentProofRequiresLiveRecordAndExactDeadline(t *testing.T)
 	assert.NotEmpty(t, claims["context_hash"])
 	assert.NotContains(t, claims, "context")
 	assert.NotContains(t, claims, "channel_id")
-	var stored model.AuthFlow
-	require.NoError(t, model.DB.Where("purpose = ?", model.AuthFlowPurposeSecurityProof).First(&stored).Error)
+	var stored identityrecord.AuthFlow
+	require.NoError(t, model.DB.Where("purpose = ?", identitydomain.AuthFlowPurposeSecurityProof).First(&stored).Error)
 	assert.Equal(t, int64(claims["exp"].(float64)), stored.ExpiresAt.Unix())
 	assert.NotEqual(t, proof, stored.TokenHash)
 	assert.NotEqual(t, claims["jti"], stored.TokenHash)
@@ -718,7 +728,7 @@ func TestSecurityEnrollmentProofStorageErrorsFailClosed(t *testing.T) {
 			assert.NotContains(t, response.Body.String(), "proof_token")
 			assert.NotContains(t, response.Body.String(), "flow_token")
 			var count int64
-			require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.AuthFlowPurposePasskeyRegister).Count(&count).Error)
+			require.NoError(t, model.DB.Model(&identityrecord.AuthFlow{}).Where("purpose = ?", identitydomain.AuthFlowPurposePasskeyRegister).Count(&count).Error)
 			assert.Zero(t, count)
 			if stage == "consumption" {
 				response = securityEnrollmentRequest("POST", "/api/user/passkey/register/begin", "", proof, identity, PasskeyRegisterBegin)
@@ -749,7 +759,7 @@ func TestSecurityEnrollmentVerificationTransportsRejectInvalidContext(t *testing
 		})
 	}
 	var count int64
-	require.NoError(t, model.DB.Model(&model.AuthFlow{}).Count(&count).Error)
+	require.NoError(t, model.DB.Model(&identityrecord.AuthFlow{}).Count(&count).Error)
 	assert.Zero(t, count)
 }
 
@@ -779,12 +789,12 @@ func TestSecurityEnrollmentPendingPasskeyRejectsChangedAuthorization(t *testing.
 			require.NoError(t, err)
 			switch change {
 			case "expired":
-				require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.AuthFlowPurposePasskeyRegister).Update("expires_at", time.Now().Add(-time.Minute)).Error)
+				require.NoError(t, model.DB.Model(&identityrecord.AuthFlow{}).Where("purpose = ?", identitydomain.AuthFlowPurposePasskeyRegister).Update("expires_at", time.Now().Add(-time.Minute)).Error)
 			case "revoked":
-				_, err = model.RevokeUserSession(user.Id, identity.SessionID, "security-test")
+				_, err = identitystorage.SQL().RevokeUserSession(user.Id, identity.SessionID, "security-test")
 				require.NoError(t, err)
 			case "session version":
-				require.NoError(t, model.DB.Model(&model.UserSession{}).Where("sid = ?", identity.SessionID).Update("version", 2).Error)
+				require.NoError(t, model.DB.Model(&identityrecord.UserSession{}).Where("sid = ?", identity.SessionID).Update("version", 2).Error)
 			case "user version":
 				require.NoError(t, model.DB.Model(user).Update("auth_version", 2).Error)
 			case "method":
@@ -798,8 +808,8 @@ func TestSecurityEnrollmentPendingPasskeyRejectsChangedAuthorization(t *testing.
 			response = securityEnrollmentRequest("POST", "/api/user/passkey/register/finish", string(body), "", identity, PasskeyRegisterFinish)
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 			assert.False(t, result.Success)
-			_, err = model.GetPasskeyByUserID(user.Id)
-			assert.ErrorIs(t, err, model.ErrPasskeyNotFound)
+			_, err = identitystorage.SQL().GetPasskeyByUserID(user.Id)
+			assert.ErrorIs(t, err, identitydomain.ErrPasskeyNotFound)
 		})
 	}
 }
@@ -807,7 +817,7 @@ func TestSecurityEnrollmentPendingPasskeyRejectsChangedAuthorization(t *testing.
 func TestSecurityEnrollmentPasskeyProofProtectsChannelKeyRead(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
 	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
-	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	require.NoError(t, accountstorage.Cache().PublishUserAuthCache(user.Id))
 	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}))
 	for _, channel := range []model.Channel{
 		{Id: 123, Name: "first", Key: "first-channel-secret", Type: 1, Status: 1},
@@ -837,7 +847,7 @@ func TestSecurityEnrollmentPasskeyProofProtectsChannelKeyRead(t *testing.T) {
 	})
 	require.NoError(t, err)
 	// The dedicated registration flow remains authorized after the consumed proof expires.
-	require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
+	require.NoError(t, model.DB.Model(&identityrecord.AuthFlow{}).Where("purpose = ?", identitydomain.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
 	response = securityEnrollmentRequest("POST", "/api/user/passkey/register/finish", string(registrationBody), "", identity, PasskeyRegisterFinish)
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success, body.Message)
@@ -921,8 +931,8 @@ func TestSecurityEnrollmentPasskeyProofProtectsChannelKeyRead(t *testing.T) {
 	response = securityEnrollmentRequest("DELETE", "/api/user/passkey", "", proof.ProofToken, identity, PasskeyDelete)
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success, body.Message)
-	_, err = model.GetPasskeyByUserID(user.Id)
-	assert.ErrorIs(t, err, model.ErrPasskeyNotFound)
+	_, err = identitystorage.SQL().GetPasskeyByUserID(user.Id)
+	assert.ErrorIs(t, err, identitydomain.ErrPasskeyNotFound)
 }
 
 func TestSecurityEnrollmentVerifyRequiresDedicatedFlowForInteractiveMethods(t *testing.T) {
@@ -930,7 +940,7 @@ func TestSecurityEnrollmentVerifyRequiresDedicatedFlowForInteractiveMethods(t *t
 		t.Run(method, func(t *testing.T) {
 			user, identity := setupSecurityEnrollmentTest(t)
 			if method == identitydomain.VerificationMethodPasskey {
-				require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: "enrolled-passkey", PublicKey: "public-key"}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.PasskeyCredential{UserID: user.Id, CredentialID: "enrolled-passkey", PublicKey: "public-key"}).Error)
 			} else {
 				require.NoError(t, model.DB.Model(user).Updates(map[string]any{"password": "", "github_id": "linked-user"}).Error)
 				oauth.Register("enrollment-oauth", &enrollmentOAuthProvider{externalID: "linked-user"})
@@ -972,13 +982,13 @@ func TestSecurityEnrollmentTwoFAFlowAndSessionRotation(t *testing.T) {
 	}
 	oldCode, err := totp.GenerateCode(setups[0].Secret, time.Now())
 	require.NoError(t, err)
-	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setups[0].FlowToken, oldCode), model.ErrTwoFASetupInvalid)
-	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setups[1].FlowToken, "not-a-code"), model.ErrTwoFACodeInvalid)
-	_, err = model.GetAuthFlow(setups[1].FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeTwoFASetup})
+	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setups[0].FlowToken, oldCode), identitydomain.ErrTwoFASetupInvalid)
+	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setups[1].FlowToken, "not-a-code"), identitydomain.ErrTwoFACodeInvalid)
+	_, err = identitystorage.SQL().GetAuthFlow(setups[1].FlowToken, identitystore.AuthFlowMatch{Purpose: identitydomain.AuthFlowPurposeTwoFASetup})
 	require.NoError(t, err, "invalid code must not consume setup")
 	code, err := totp.GenerateCode(setups[1].Secret, time.Now())
 	require.NoError(t, err)
-	require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
+	require.NoError(t, model.DB.Model(&identityrecord.AuthFlow{}).Where("purpose = ?", identitydomain.AuthFlowPurposeSecurityProof).Update("expires_at", time.Now().Add(-time.Minute)).Error)
 	payload, err := common.Marshal(Verify2FARequest{Code: code, FlowToken: setups[1].FlowToken})
 	require.NoError(t, err)
 	response := securityEnrollmentRequest("POST", "/api/user/2fa/enable", string(payload), "", identity, Enable2FA)
@@ -993,14 +1003,14 @@ func TestSecurityEnrollmentTwoFAFlowAndSessionRotation(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, newIdentity.UserAuthVersion)
 	assert.Equal(t, identity.SessionID, newIdentity.SessionID)
-	otherSession, err := model.GetUserSessionBySID(other.Session.SID)
+	otherSession, err := identitystorage.SQL().GetUserSessionBySID(other.Session.SID)
 	require.NoError(t, err)
-	assert.Equal(t, model.UserSessionStatusRevoked, otherSession.Status)
-	_, err = model.GetAuthFlow(setups[1].FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeTwoFASetup})
-	assert.ErrorIs(t, err, model.ErrAuthFlowConsumed)
+	assert.Equal(t, identityrecord.UserSessionStatusRevoked, otherSession.Status)
+	_, err = identitystorage.SQL().GetAuthFlow(setups[1].FlowToken, identitystore.AuthFlowMatch{Purpose: identitydomain.AuthFlowPurposeTwoFASetup})
+	assert.ErrorIs(t, err, identitydomain.ErrAuthFlowConsumed)
 	_, err = identitycore.ConsumeOperationProof(proof, newIdentity, identitydomain.VerificationOperation{Scope: "2fa.setup"})
 	assert.Error(t, err)
-	enabled, err := model.GetTwoFAByUserId(user.Id)
+	enabled, err := identitystorage.SQL().GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)
 	assert.True(t, enabled.IsEnabled)
 	var logs []model.AuditLog
@@ -1027,10 +1037,10 @@ func TestSecurityEnrollmentSetupAndEnableRollback(t *testing.T) {
 	_, err = identitycore.StartTwoFASetup(identity, authorization)
 	assert.ErrorIs(t, err, failure)
 	require.NoError(t, model.DB.Callback().Create().Remove("security_setup_failure"))
-	pending, err := model.GetTwoFAByUserId(user.Id)
+	pending, err := identitystorage.SQL().GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, setup.Secret, pending.Secret)
-	count, err := model.GetUnusedBackupCodeCount(user.Id)
+	count, err := identitystorage.SQL().GetUnusedBackupCodeCount(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, common.BackupCodeCount, count)
 	code, err := totp.GenerateCode(setup.Secret, time.Now())
@@ -1042,9 +1052,9 @@ func TestSecurityEnrollmentSetupAndEnableRollback(t *testing.T) {
 	}))
 	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setup.FlowToken, code), failure)
 	require.NoError(t, model.DB.Callback().Update().Remove("security_enable_failure"))
-	_, err = model.GetAuthFlow(setup.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeTwoFASetup})
+	_, err = identitystorage.SQL().GetAuthFlow(setup.FlowToken, identitystore.AuthFlowMatch{Purpose: identitydomain.AuthFlowPurposeTwoFASetup})
 	require.NoError(t, err)
-	storedUser, err := model.GetUserById(user.Id, false)
+	storedUser, err := accountstorage.SQL().GetUserById(user.Id, false)
 	require.NoError(t, err)
 	assert.Equal(t, identity.UserAuthVersion, storedUser.AuthVersion)
 	require.NoError(t, identitycore.FinishTwoFASetup(identity, setup.FlowToken, code))
@@ -1114,12 +1124,12 @@ func TestSecurityEnrollmentOAuthVerificationNeverChangesLoginOrBindings(t *testi
 			}
 			var users, sessions, bindings int64
 			require.NoError(t, model.DB.Model(&model.User{}).Count(&users).Error)
-			require.NoError(t, model.DB.Model(&model.UserSession{}).Count(&sessions).Error)
-			require.NoError(t, model.DB.Model(&model.UserOAuthBinding{}).Count(&bindings).Error)
+			require.NoError(t, model.DB.Model(&identityrecord.UserSession{}).Count(&sessions).Error)
+			require.NoError(t, model.DB.Model(&identityrecord.UserOAuthBinding{}).Count(&bindings).Error)
 			assert.EqualValues(t, 1, users)
 			assert.EqualValues(t, 1, sessions)
 			assert.Zero(t, bindings)
-			stored, err := model.GetUserById(user.Id, false)
+			stored, err := accountstorage.SQL().GetUserById(user.Id, false)
 			require.NoError(t, err)
 			expectedBinding := "linked-user"
 			if scenario == "binding changed" {
@@ -1160,7 +1170,7 @@ func TestSecurityEnrollmentEncryptedPasswordVerification(t *testing.T) {
 
 func TestSecurityEnrollmentTwoFAFailureAccountingAndStorageErrors(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
-	twoFA := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
+	twoFA := &identityrecord.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
 	require.NoError(t, model.DB.Create(twoFA).Error)
 	for _, endpoint := range []struct {
 		path    string
@@ -1180,7 +1190,7 @@ func TestSecurityEnrollmentTwoFAFailureAccountingAndStorageErrors(t *testing.T) 
 			assert.Equal(t, "SECURITY_PROOF_REQUIRED", body.Code, endpoint.path)
 		}
 	}
-	stored, err := model.GetTwoFAByUserId(user.Id)
+	stored, err := identitystorage.SQL().GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)
 	assert.Zero(t, stored.FailedAttempts, "missing required input must not count as a failed verification")
 	wrongCode := ""
@@ -1192,12 +1202,12 @@ func TestSecurityEnrollmentTwoFAFailureAccountingAndStorageErrors(t *testing.T) 
 	}
 	require.NotEmpty(t, wrongCode)
 	assert.ErrorIs(t, identitycore.VerifyTwoFactorCode(twoFA, wrongCode), identitydomain.ErrVerificationFailed)
-	stored, err = model.GetTwoFAByUserId(user.Id)
+	stored, err = identitystorage.SQL().GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 1, stored.FailedAttempts)
 	hash, err := common.HashBackupCode("ABCD-1234")
 	require.NoError(t, err)
-	require.NoError(t, model.DB.Create(&model.TwoFABackupCode{UserId: user.Id, CodeHash: hash}).Error)
+	require.NoError(t, model.DB.Create(&identityrecord.TwoFABackupCode{UserId: user.Id, CodeHash: hash}).Error)
 	require.NoError(t, identitycore.VerifyTwoFactorCode(stored, "ABCD-1234"))
 	assert.ErrorIs(t, identitycore.VerifyTwoFactorCode(stored, "ABCD-1234"), identitydomain.ErrVerificationFailed)
 	until := time.Now().Add(time.Minute)
@@ -1272,7 +1282,7 @@ func TestSecurityEnrollmentPublicErrorsDiscardWrappedDetails(t *testing.T) {
 		{identitydomain.ErrVerificationFailed, "SECURITY_VERIFICATION_FAILED", identitydomain.ErrVerificationFailed.Error()},
 		{identitydomain.ErrVerificationLocked, "SECURITY_VERIFICATION_LOCKED", identitydomain.ErrVerificationLocked.Error()},
 		{identitydomain.ErrOAuthAccountMismatch, "OAUTH_ACCOUNT_MISMATCH", identitydomain.ErrOAuthAccountMismatch.Error()},
-		{model.ErrTwoFASetupInvalid, "TWOFA_SETUP_INVALID", model.ErrTwoFASetupInvalid.Error()},
+		{identitydomain.ErrTwoFASetupInvalid, "TWOFA_SETUP_INVALID", identitydomain.ErrTwoFASetupInvalid.Error()},
 	} {
 		t.Run(test.code, func(t *testing.T) {
 			response := securityEnrollmentRequest("POST", "/api/verify", "", "", identitydomain.AuthIdentity{}, func(c *gin.Context) {
@@ -1298,15 +1308,15 @@ func TestSecurityEnrollmentExpiredAndCrossSessionSetupsCannotActivate(t *testing
 	require.NoError(t, err)
 	otherIdentity, err := authtoken.ParseAccessToken(other.AccessToken)
 	require.NoError(t, err)
-	assert.ErrorIs(t, identitycore.FinishTwoFASetup(otherIdentity, setup.FlowToken, code), model.ErrTwoFASetupInvalid)
-	flow, err := model.GetAuthFlow(setup.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeTwoFASetup})
+	assert.ErrorIs(t, identitycore.FinishTwoFASetup(otherIdentity, setup.FlowToken, code), identitydomain.ErrTwoFASetupInvalid)
+	flow, err := identitystorage.SQL().GetAuthFlow(setup.FlowToken, identitystore.AuthFlowMatch{Purpose: identitydomain.AuthFlowPurposeTwoFASetup})
 	require.NoError(t, err)
 	require.NoError(t, model.DB.Model(flow).Update("expires_at", time.Now().Add(-time.Minute)).Error)
-	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setup.FlowToken, code), model.ErrTwoFASetupInvalid)
-	stored, err := model.GetTwoFAByUserId(user.Id)
+	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setup.FlowToken, code), identitydomain.ErrTwoFASetupInvalid)
+	stored, err := identitystorage.SQL().GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)
 	assert.False(t, stored.IsEnabled)
-	storedUser, err := model.GetUserById(user.Id, false)
+	storedUser, err := accountstorage.SQL().GetUserById(user.Id, false)
 	require.NoError(t, err)
 	assert.Equal(t, identity.UserAuthVersion, storedUser.AuthVersion)
 }
@@ -1349,14 +1359,14 @@ func TestSecurityEnrollmentCustomOAuthUsesExistingBinding(t *testing.T) {
 		}
 	}))
 	t.Cleanup(upstream.Close)
-	provider := oauth.NewGenericOAuthProvider(&model.CustomOAuthProvider{
+	provider := oauth.NewGenericOAuthProvider(&identityrecord.CustomOAuthProvider{
 		Id: 42, Slug: "enrollment-custom", Name: "Custom provider", Enabled: true,
 		ClientId: "client", ClientSecret: "secret", UserIdField: "sub",
 		TokenEndpoint: upstream.URL + "/token", UserInfoEndpoint: upstream.URL + "/userinfo",
 	})
 	oauth.RegisterCustom("enrollment-custom", provider)
 	t.Cleanup(func() { oauth.Unregister("enrollment-custom") })
-	require.NoError(t, model.DB.Create(&model.UserOAuthBinding{UserId: user.Id, ProviderId: 42, ProviderUserId: "custom-user"}).Error)
+	require.NoError(t, model.DB.Create(&identityrecord.UserOAuthBinding{UserId: user.Id, ProviderId: 42, ProviderUserId: "custom-user"}).Error)
 	response := securityEnrollmentRequest("GET", "/api/verify/methods?scope=2fa.setup", "", "", identity, GetVerificationMethods)
 	assert.Contains(t, response.Body.String(), "enrollment-custom")
 	assert.NotContains(t, response.Body.String(), "custom-user")
@@ -1378,7 +1388,7 @@ func TestSecurityEnrollmentCustomOAuthUsesExistingBinding(t *testing.T) {
 	require.NoError(t, common.Unmarshal(body.Data, &proof))
 	_, err := identitycore.ConsumeOperationProof(proof.ProofToken, identity, identitydomain.VerificationOperation{Scope: "2fa.setup"})
 	require.NoError(t, err)
-	bindings, err := model.GetUserOAuthBindingsByUserId(user.Id)
+	bindings, err := identitystorage.SQL().GetUserOAuthBindingsByUserId(user.Id)
 	require.NoError(t, err)
 	require.Len(t, bindings, 1)
 	assert.Equal(t, "custom-user", bindings[0].ProviderUserId)
@@ -1475,12 +1485,12 @@ func TestSecurityEnrollmentTelegramAndWeChatFirstFactor(t *testing.T) {
 				require.NoError(t, common.Unmarshal(body.Data, &proof))
 				assert.Equal(t, scope, proof.Scope)
 				assert.Equal(t, method, proof.Method)
-				before, err := model.GetUserById(user.Id, true)
+				before, err := accountstorage.SQL().GetUserById(user.Id, true)
 				require.NoError(t, err)
 				assert.Empty(t, before.Password)
 				assert.Equal(t, identity.UserAuthVersion, before.AuthVersion)
 				completeFirstSecurityFactor(t, identity, proof)
-				after, err := model.GetUserById(user.Id, true)
+				after, err := accountstorage.SQL().GetUserById(user.Id, true)
 				require.NoError(t, err)
 				assert.Equal(t, before.TelegramId, after.TelegramId)
 				assert.Equal(t, before.WeChatId, after.WeChatId)
@@ -1498,16 +1508,16 @@ func TestSecurityEnrollmentNeverTrustsSessionForFirstFactor(t *testing.T) {
 			case "password":
 				require.NoError(t, model.DB.Model(user).Update("password", "stored-hash").Error)
 			case "passkey":
-				require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: "credential", PublicKey: "key"}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.PasskeyCredential{UserID: user.Id, CredentialID: "credential", PublicKey: "key"}).Error)
 			case "locked 2fa":
 				until := time.Now().Add(time.Hour)
-				require.NoError(t, model.DB.Create(&model.TwoFA{UserId: user.Id, Secret: "secret", IsEnabled: true, LockedUntil: &until}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.TwoFA{UserId: user.Id, Secret: "secret", IsEnabled: true, LockedUntil: &until}).Error)
 			case "telegram":
 				require.NoError(t, model.DB.Model(user).Update("telegram_id", "42").Error)
 			case "github":
 				require.NoError(t, model.DB.Model(user).Update("github_id", "42").Error)
 			case "disabled custom binding":
-				require.NoError(t, model.DB.Create(&model.UserOAuthBinding{UserId: user.Id, ProviderId: 42, ProviderUserId: "linked"}).Error)
+				require.NoError(t, model.DB.Create(&identityrecord.UserOAuthBinding{UserId: user.Id, ProviderId: 42, ProviderUserId: "linked"}).Error)
 			case "no binding":
 				require.NoError(t, model.DB.Model(user).Update("wechat_id", "").Error)
 			case "binding storage failure":
@@ -1517,7 +1527,7 @@ func TestSecurityEnrollmentNeverTrustsSessionForFirstFactor(t *testing.T) {
 					}
 				}))
 			case "revoked session":
-				_, err := model.RevokeAllUserSessions(user.Id, "test")
+				_, err := identitystorage.SQL().RevokeAllUserSessions(user.Id, "test")
 				require.NoError(t, err)
 			}
 			for _, scope := range []string{"2fa.setup", "passkey.register", "passkey.delete", "channel.key.read"} {
@@ -1532,7 +1542,7 @@ func TestSecurityEnrollmentNeverTrustsSessionForFirstFactor(t *testing.T) {
 				require.NoError(t, model.DB.Callback().Query().Remove("wechat_bindings_failure"))
 			}
 			var count int64
-			require.NoError(t, model.DB.Model(&model.AuthFlow{}).Where("purpose = ?", model.AuthFlowPurposeSecurityProof).Count(&count).Error)
+			require.NoError(t, model.DB.Model(&identityrecord.AuthFlow{}).Where("purpose = ?", identitydomain.AuthFlowPurposeSecurityProof).Count(&count).Error)
 			assert.Zero(t, count)
 		})
 	}
@@ -1641,7 +1651,7 @@ func TestSecurityEnrollmentRejectsChangedFirstFactorPolicy(t *testing.T) {
 					response := securityEnrollmentRequest("POST", "/api/user/2fa/enable", string(request), "", identity, Enable2FA)
 					assert.Contains(t, response.Body.String(), `"success":false`)
 				}
-				factor, err := model.GetTwoFAByUserId(user.Id)
+				factor, err := identitystorage.SQL().GetTwoFAByUserId(user.Id)
 				require.NoError(t, err)
 				assert.True(t, factor == nil || !factor.IsEnabled)
 			})

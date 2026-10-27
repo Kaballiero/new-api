@@ -1,6 +1,9 @@
 package app
 
 import (
+	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
+	"gorm.io/gorm"
+
 	"time"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -14,7 +17,7 @@ func StartBatchUpdater() {
 	gopool.Go(func() {
 		for {
 			time.Sleep(time.Duration(common.BatchUpdateInterval) * time.Second)
-			model.FlushBatchUpdates()
+			counters.FlushBatchUpdates(func() *gorm.DB { return model.DB })
 		}
 	})
 }

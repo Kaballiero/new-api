@@ -1,6 +1,8 @@
 package billing_test
 
 import (
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+
 	"context"
 	"errors"
 	"fmt"
@@ -621,25 +623,25 @@ func isolateUsageExport(t *testing.T) {
 	t.Helper()
 	previousNode := common.NodeName
 	common.NodeName = "usage-contract-node"
-	model.CacheQuotaDataLock.Lock()
-	previous := model.CacheQuotaData
-	model.CacheQuotaData = make(map[string]*model.QuotaData)
-	model.CacheQuotaDataLock.Unlock()
+	usageadapter.CacheQuotaDataLock.Lock()
+	previous := usageadapter.CacheQuotaData
+	usageadapter.CacheQuotaData = make(map[string]*model.QuotaData)
+	usageadapter.CacheQuotaDataLock.Unlock()
 	t.Cleanup(func() {
-		model.CacheQuotaDataLock.Lock()
-		model.CacheQuotaData = previous
-		model.CacheQuotaDataLock.Unlock()
+		usageadapter.CacheQuotaDataLock.Lock()
+		usageadapter.CacheQuotaData = previous
+		usageadapter.CacheQuotaDataLock.Unlock()
 		common.NodeName = previousNode
 	})
 }
 
 func usageExportSnapshot(t *testing.T, count, quota int) []model.QuotaData {
 	t.Helper()
-	model.CacheQuotaDataLock.Lock()
-	defer model.CacheQuotaDataLock.Unlock()
-	require.Len(t, model.CacheQuotaData, count)
+	usageadapter.CacheQuotaDataLock.Lock()
+	defer usageadapter.CacheQuotaDataLock.Unlock()
+	require.Len(t, usageadapter.CacheQuotaData, count)
 	rows := make([]model.QuotaData, 0, count)
-	for _, row := range model.CacheQuotaData {
+	for _, row := range usageadapter.CacheQuotaData {
 		require.Equal(t, 1, row.Count)
 		require.Equal(t, quota, row.Quota)
 		require.Equal(t, 50, row.TokenUsed)

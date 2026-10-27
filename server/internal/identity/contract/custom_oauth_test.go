@@ -1,6 +1,10 @@
 package contract
 
 import (
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
 	"errors"
 	"fmt"
 	"io"
@@ -145,15 +149,15 @@ func providerSnapshot(t *testing.T, tc providerCase) any {
 			if tc.Variant == "empty" {
 				break
 			}
-			provider := &model.CustomOAuthProvider{Id: 11 + i, Name: slug, Slug: slug, Icon: "Fixture", Enabled: i == 0,
+			provider := &identityrecord.CustomOAuthProvider{Id: 11 + i, Name: slug, Slug: slug, Icon: "Fixture", Enabled: i == 0,
 				ClientId: "seed-client", ClientSecret: "seed-fixture-secret", AuthorizationEndpoint: "https://seed.invalid/authorize",
 				TokenEndpoint: "https://seed.invalid/token", UserInfoEndpoint: "https://seed.invalid/userinfo", WellKnown: "https://seed.invalid/discovery",
 				AuthStyle: 2, AccessPolicy: `{"conditions":[{"field":"role","op":"eq","value":"staff"}]}`, AccessDeniedMessage: "Seed denied"}
-			require.NoError(t, model.CreateCustomOAuthProvider(provider))
+			require.NoError(t, identitystorage.SQL().CreateCustomOAuthProvider(provider))
 			oauth.RegisterOrUpdateCustomProvider(provider)
 		}
 		if tc.Variant == "bound" {
-			require.NoError(t, env.Env.DB.Create(&model.UserOAuthBinding{Id: 21, UserId: 1, ProviderId: 11, ProviderUserId: "fixture-sub"}).Error)
+			require.NoError(t, env.Env.DB.Create(&identityrecord.UserOAuthBinding{Id: 21, UserId: 1, ProviderId: 11, ProviderUserId: "fixture-sub"}).Error)
 		}
 		captured := []f.Request{}
 		var mu sync.Mutex

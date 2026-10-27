@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,7 +13,7 @@ import (
 
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -153,15 +155,15 @@ func (p *DiscordProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*
 }
 
 func (p *DiscordProvider) IsUserIDTaken(providerUserID string) bool {
-	return model.IsDiscordIdAlreadyTaken(providerUserID)
+	return accountstorage.SQL().IsDiscordIdAlreadyTaken(providerUserID)
 }
 
-func (p *DiscordProvider) FillUserByProviderID(user *model.User, providerUserID string) error {
+func (p *DiscordProvider) FillUserByProviderID(user *accountrecord.User, providerUserID string) error {
 	user.DiscordId = providerUserID
-	return user.FillUserByDiscordId()
+	return accountstorage.SQL().FillUserByDiscordId(user)
 }
 
-func (p *DiscordProvider) SetProviderUserID(user *model.User, providerUserID string) {
+func (p *DiscordProvider) SetProviderUserID(user *accountrecord.User, providerUserID string) {
 	user.DiscordId = providerUserID
 }
 

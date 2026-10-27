@@ -7,12 +7,16 @@ import (
 	"errors"
 	"fmt"
 
+	"gorm.io/gorm"
+
 	"github.com/QuantumNous/new-api/common"
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
+	keycache "github.com/QuantumNous/new-api/internal/adapter/cache/apikeys"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/batch/record"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/model"
-	"gorm.io/gorm"
 )
 
 // SettleBatchItem commits the wallet debit, token counters, usage counters and
@@ -37,14 +41,14 @@ func (s Store) SettleBatchItem(batchID int64, customID string, quota int, detail
 	}
 	return s.db().Transaction(func(tx *gorm.DB) error {
 		var user model.User
-		if err := model.LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+		if err := locking.LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token model.Token
-		if err := model.LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+		if err := locking.LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
 			return err
 		}
-		if err := model.LockForUpdate(tx).First(&job, batchID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
 		}
 		var settlement struct {
@@ -59,7 +63,7 @@ func (s Store) SettleBatchItem(batchID int64, customID string, quota int, detail
 			return err
 		}
 		var item BatchItem
-		if err := model.LockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID,
+		if err := locking.LockForUpdate(tx).Where("batch_id = ? AND custom_id_hash = ?", batchID,
 			fmt.Sprintf("%x", sha256.Sum256([]byte(customID)))).First(&item).Error; err != nil {
 			return err
 		}
@@ -72,7 +76,7 @@ func (s Store) SettleBatchItem(batchID int64, customID string, quota int, detail
 		// Final upstream usage may exceed admission estimates. Debt is allowed,
 		// but each persisted signed field must remain representable.
 		var channel model.Channel
-		if err := model.LockForUpdate(tx).First(&channel, job.ChannelID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&channel, job.ChannelID).Error; err != nil {
 			return err
 		}
 		if err := domain.ValidateItemCharge(domain.Job(job), domain.Item(item), accounts(user, token), channel.UsedQuota, quota); err != nil {
@@ -136,15 +140,15 @@ func (s Store) applyBatchQuotaEvent(event BatchQuotaEvent) error {
 				return err
 			}
 			if owner.DeletedAt.Valid {
-				if err := common.RDB.Del(context.Background(), model.GetUserCacheKey(event.OwnerID)).Err(); err != nil {
+				if err := common.RDB.Del(context.Background(), accountcache.GetUserCacheKey(event.OwnerID)).Err(); err != nil {
 					return err
 				}
 				return s.db().Model(&BatchQuotaEvent{}).Where("id = ?", event.ID).Update("applied", true).Error
 			}
-			if _, err := model.GetUserCache(event.OwnerID); err != nil {
+			if _, err := s.reads.Accounts.GetUserCache(event.OwnerID); err != nil {
 				return err
 			}
-			key, quotaField = model.GetUserCacheKey(event.OwnerID), "Quota"
+			key, quotaField = accountcache.GetUserCacheKey(event.OwnerID), "Quota"
 		case "token":
 			var token model.Token
 			err := s.db().Unscoped().First(&token, event.OwnerID).Error
@@ -152,7 +156,7 @@ func (s Store) applyBatchQuotaEvent(event BatchQuotaEvent) error {
 				return err
 			}
 			if token.DeletedAt.Valid {
-				if err := common.RDB.Del(context.Background(), model.GetTokenCacheKey(token.Key)).Err(); err != nil {
+				if err := common.RDB.Del(context.Background(), keycache.GetTokenCacheKey(token.Key)).Err(); err != nil {
 					return err
 				}
 				if err := s.db().Model(&BatchQuotaEvent{}).Where("id = ?", event.ID).Update("applied", true).Error; err != nil {
@@ -160,10 +164,10 @@ func (s Store) applyBatchQuotaEvent(event BatchQuotaEvent) error {
 				}
 				return nil
 			}
-			if _, err := model.GetTokenByKey(token.Key, false); err != nil {
+			if _, err := s.reads.Tokens.Read(token.Key, false); err != nil {
 				return err
 			}
-			key, quotaField = model.GetTokenCacheKey(token.Key), "RemainQuota"
+			key, quotaField = keycache.GetTokenCacheKey(token.Key), "RemainQuota"
 		default:
 			return errors.New("invalid batch quota event owner")
 		}
@@ -185,7 +189,7 @@ func (s Store) validateBatchDispatchOwner(job *BatchJob, user *model.User, token
 		// Revocation permits accounting for proven unsubmitted work, even when
 		// the cache is cold or fenced. It must not hide known corrupt holds.
 		if common.RedisEnabled {
-			cached, err := model.CacheGetUserBase(user.Id)
+			cached, err := s.reads.Accounts.CacheGetUserBase(user.Id)
 			if err == nil && cached.BatchQuotaVersion == user.BatchQuotaVersion && cached.BatchHeldQuota != user.BatchHeldQuota {
 				return domain.ErrBatchReservationUnsafe
 			}
@@ -219,12 +223,12 @@ func (s Store) ConfirmBatchReservation(value *domain.Job) error {
 	}
 	if common.RedisEnabled {
 		if !user.DeletedAt.Valid {
-			if _, err := model.GetUserCache(user.Id); err != nil {
+			if _, err := s.reads.Accounts.GetUserCache(user.Id); err != nil {
 				return err
 			}
 		}
 		if !token.DeletedAt.Valid {
-			if _, err := model.GetTokenByKey(token.Key, false); err != nil {
+			if _, err := s.reads.Tokens.Read(token.Key, false); err != nil {
 				return err
 			}
 		}
@@ -247,7 +251,7 @@ func (s Store) confirmBatchReservation(tx *gorm.DB, job *BatchJob, user *model.U
 	quota := int64(user.Quota)
 	if common.RedisEnabled {
 		if !user.DeletedAt.Valid {
-			cached, err := model.CacheGetUserBase(user.Id)
+			cached, err := s.reads.Accounts.CacheGetUserBase(user.Id)
 			if err != nil {
 				return domain.ErrBatchReservationPending
 			}
@@ -280,15 +284,15 @@ func (s Store) MarkBatchSubmissionUnknown(value *domain.Job, runnerID string) er
 	job := &stored
 	return s.db().Transaction(func(tx *gorm.DB) error {
 		var user model.User
-		if err := model.LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+		if err := locking.LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token model.Token
-		if err := model.LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+		if err := locking.LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
 			return err
 		}
 		var current BatchJob
-		if err := model.LockForUpdate(tx).First(&current, job.ID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&current, job.ID).Error; err != nil {
 			return err
 		}
 		if !domain.CanMarkSubmissionUnknown(domain.Job(current), runnerID, common.GetTimestamp()) {
@@ -321,14 +325,14 @@ func (s Store) ReleaseSettledBatchHolds(batchID int64) error {
 	}
 	return s.db().Transaction(func(tx *gorm.DB) error {
 		var user model.User
-		if err := model.LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+		if err := locking.LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token model.Token
-		if err := model.LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+		if err := locking.LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
 			return err
 		}
-		if err := model.LockForUpdate(tx).First(&job, batchID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
 		}
 		var pending int64
@@ -369,7 +373,7 @@ func (s Store) ReleaseSettledBatchHolds(batchID int64) error {
 			return s.saveBatchAccountEvents(tx, &user, &token, batchID, 0, 0)
 		}
 		var items []BatchItem
-		if err := model.LockForUpdate(tx).Select("id", "reserved_quota").Where("batch_id = ? AND cache_pending = ?",
+		if err := locking.LockForUpdate(tx).Select("id", "reserved_quota").Where("batch_id = ? AND cache_pending = ?",
 			batchID, true).Find(&items).Error; err != nil {
 			return err
 		}
@@ -414,7 +418,7 @@ func (s Store) ReleaseSettledBatchHolds(batchID int64) error {
 func (s Store) ConfirmBatchPurchaseCost(publicID, costUSD, evidence string) error {
 	return s.db().Transaction(func(tx *gorm.DB) error {
 		var job BatchJob
-		if err := model.LockForUpdate(tx).Where("public_id = ? AND deleted_at = 0", publicID).First(&job).Error; err != nil {
+		if err := locking.LockForUpdate(tx).Where("public_id = ? AND deleted_at = 0", publicID).First(&job).Error; err != nil {
 			return err
 		}
 		switch job.Status {
@@ -441,14 +445,14 @@ func (s Store) SettleBatchJobCost(batchID int64) error {
 	}
 	err := s.db().Transaction(func(tx *gorm.DB) error {
 		var user model.User
-		if err := model.LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
+		if err := locking.LockForUpdate(tx.Unscoped()).First(&user, job.UserID).Error; err != nil {
 			return err
 		}
 		var token model.Token
-		if err := model.LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
+		if err := locking.LockForUpdate(tx.Unscoped()).First(&token, job.TokenID).Error; err != nil {
 			return err
 		}
-		if err := model.LockForUpdate(tx).First(&job, batchID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&job, batchID).Error; err != nil {
 			return err
 		}
 		var snapshot struct {
@@ -505,7 +509,7 @@ func (s Store) SettleBatchJobCost(batchID int64) error {
 			return domain.ErrBatchConflict
 		}
 		var channel model.Channel
-		if err := model.LockForUpdate(tx).First(&channel, job.ChannelID).Error; err != nil {
+		if err := locking.LockForUpdate(tx).First(&channel, job.ChannelID).Error; err != nil {
 			return err
 		}
 		if err := domain.ValidateAggregateCharge(domain.Job(job), accounts(user, token), channel.UsedQuota, quota); err != nil {

@@ -2,19 +2,20 @@ package webauthn
 
 import (
 	"fmt"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"strconv"
 	"strings"
 
-	"github.com/QuantumNous/new-api/model"
 	webauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
 type webAuthnUser struct {
-	user       *model.User
-	credential *model.PasskeyCredential
+	user       *accountrecord.User
+	credential *identityrecord.PasskeyCredential
 }
 
-func newWebAuthnUser(user *model.User, credential *model.PasskeyCredential) *webAuthnUser {
+func newWebAuthnUser(user *accountrecord.User, credential *identityrecord.PasskeyCredential) *webAuthnUser {
 	return &webAuthnUser{user: user, credential: credential}
 }
 

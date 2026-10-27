@@ -95,15 +95,3 @@ func TestClickHouseCreateTableHasTTL(t *testing.T) {
 	assert.True(t, clickHouseCreateTableHasTTL("CREATE TABLE logs (...) TTL toDateTime(created_at)"))
 	assert.False(t, clickHouseCreateTableHasTTL("CREATE TABLE logs (...)\nORDER BY (created_at, request_id)"))
 }
-
-func TestEnsureLogRequestId(t *testing.T) {
-	empty := &Log{}
-	ensureLogRequestId(empty)
-	assert.NotEmpty(t, empty.RequestId, "empty request id should be backfilled")
-
-	existing := &Log{RequestId: "fixed-request-id"}
-	ensureLogRequestId(existing)
-	assert.Equal(t, "fixed-request-id", existing.RequestId, "existing request id must be preserved")
-
-	assert.NotPanics(t, func() { ensureLogRequestId(nil) })
-}

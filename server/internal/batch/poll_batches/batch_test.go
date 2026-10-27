@@ -8,6 +8,8 @@ import (
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/batch"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	rediscache "github.com/QuantumNous/new-api/internal/adapter/redis/batch"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/apikeystorage"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 
@@ -180,7 +182,7 @@ func reserve(job *model.BatchJob, items []model.BatchItem) error {
 	return testStore().CreateBatchReservation((*domain.Job)(job), values)
 }
 func testStore() storage.Store {
-	return storage.NewStore(func() *gorm.DB { return model.DB }, func() *gorm.DB { return model.LOG_DB }, usageadapter.BatchLogs{}, math.BatchMath{}, rediscache.Cache{})
+	return storage.NewStore(func() *gorm.DB { return model.DB }, func() *gorm.DB { return model.LOG_DB }, usageadapter.BatchLogs{}, math.BatchMath{}, rediscache.Cache{}, storage.ReadCapabilities{Accounts: accountstorage.Cache(), Tokens: apikeystorage.Reader()})
 }
 func TestBatchPurchaseUsesFrozenProviderBase(t *testing.T) {
 	snapshot := math.BatchBillingSnapshot{PurchaseExpression: `tier("batch", p * 1 + c * 2)`, Client: billingexpr.BillingSnapshot{ExprString: `tier("batch", p * 1 + c * 2)`, GroupRatio: 1.8, QuotaPerUnit: 500000}}

@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/http/taskmedia"
 	httptasks "github.com/QuantumNous/new-api/internal/adapter/http/tasks"
 	runtimetechnical "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/tasks/admin_list_midjourney_tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/admin_list_tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/fetch_task_artifact"
@@ -37,7 +38,7 @@ type HTTP struct {
 }
 
 func NewHTTP() HTTP {
-	reader := gormtasks.Reader{Store: gormtasks.NewStore(func() *gorm.DB { return model.DB })}
+	reader := gormtasks.Reader{Store: gormtasks.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache())}
 	projector := taskplugins.Artifacts{}
 	storage := httptasks.ArtifactStorage{}
 	proxy := taskmedia.NewProxy()

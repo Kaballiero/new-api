@@ -1,48 +1,49 @@
 package batchruntime_test
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
-
-	"errors"
-	math "github.com/QuantumNous/new-api/internal/adapter/billing"
-	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/batch"
-	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-	account "github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
-	rediscache "github.com/QuantumNous/new-api/internal/adapter/redis/batch"
-	prices "github.com/QuantumNous/new-api/internal/adapter/settings/batch"
-	runtime "github.com/QuantumNous/new-api/internal/app/batchruntime"
-	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
-	"github.com/QuantumNous/new-api/internal/batch/recover_batch_identity"
-	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
-
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/batch/domain"
-	batchdto "github.com/QuantumNous/new-api/internal/batch/dto"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	"github.com/QuantumNous/new-api/relay/batch"
-	"github.com/alicebob/miniredis/v2"
-	"github.com/glebarez/sqlite"
-	"github.com/go-redis/redis/v8"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
+	math "github.com/QuantumNous/new-api/internal/adapter/billing"
+	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
+	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/batch"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	account "github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	rediscache "github.com/QuantumNous/new-api/internal/adapter/redis/batch"
+	prices "github.com/QuantumNous/new-api/internal/adapter/settings/batch"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
+	runtime "github.com/QuantumNous/new-api/internal/app/batchruntime"
+	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
+	"github.com/QuantumNous/new-api/internal/batch/domain"
+	batchdto "github.com/QuantumNous/new-api/internal/batch/dto"
+	"github.com/QuantumNous/new-api/internal/batch/recover_batch_identity"
+	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/relay/batch"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 func TestBatchWorkerLifecycle(t *testing.T) {
@@ -426,7 +427,7 @@ func reserve(job *model.BatchJob, items []model.BatchItem) error {
 	return testStore().CreateBatchReservation((*domain.Job)(job), values)
 }
 func testStore() storage.Store {
-	return storage.NewStore(func() *gorm.DB { return model.DB }, func() *gorm.DB { return model.LOG_DB }, usageadapter.BatchLogs{}, math.BatchMath{}, rediscache.Cache{})
+	return storage.NewStore(func() *gorm.DB { return model.DB }, func() *gorm.DB { return model.LOG_DB }, usageadapter.BatchLogs{}, math.BatchMath{}, rediscache.Cache{}, storage.ReadCapabilities{Accounts: accountstorage.Cache(), Tokens: apikeystorage.Reader()})
 }
 
 func openRouterSnapshot() (math.BatchBillingSnapshot, error) {

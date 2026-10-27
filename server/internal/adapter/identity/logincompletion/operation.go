@@ -2,16 +2,21 @@ package logincompletion
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 
-	"github.com/QuantumNous/new-api/internal/app/identitycore"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 )
 
 type Operation struct {
-	Primary  *model.User
+	Create          func(int, string, string, string) (*dto.AuthBundle, error)
+	CreateAtVersion func(int, int64, string, string, string) (*dto.AuthBundle, error)
+
+	Accounts accountstore.Store
+
+	Primary  *accountrecord.User
 	Metadata func() (method, ip, userAgent string)
-	Profile  *model.User
+	Profile  *accountrecord.User
 	Bundle   *dto.AuthBundle
 }
 
@@ -20,7 +25,7 @@ func (op *Operation) PrimaryValid() bool {
 }
 func (op *Operation) LoadProfile() error {
 	var err error
-	op.Profile, err = model.GetSelfUserById(op.Primary.Id)
+	op.Profile, err = op.Accounts.GetSelfUserById(op.Primary.Id)
 	return err
 }
 func (op *Operation) CreateSession(expected int64) error {
@@ -28,9 +33,9 @@ func (op *Operation) CreateSession(expected int64) error {
 	method, ip, userAgent := op.Metadata()
 	var err error
 	if expected > 0 {
-		op.Bundle, err = identitycore.CreateLoginSessionAtAuthVersion(userID, expected, method, ip, userAgent)
+		op.Bundle, err = op.CreateAtVersion(userID, expected, method, ip, userAgent)
 	} else {
-		op.Bundle, err = identitycore.CreateLoginSession(userID, method, ip, userAgent)
+		op.Bundle, err = op.Create(userID, method, ip, userAgent)
 	}
 	return err
 }

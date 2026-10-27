@@ -67,7 +67,7 @@ func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticate
 			Group:       "default",
 			AuthVersion: 1,
 		}
-		user.SetAccessToken(accessToken)
+		user.AccessToken = &accessToken
 		require.NoError(t, db.Create(&user).Error)
 	}
 

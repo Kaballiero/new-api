@@ -6,43 +6,47 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/model"
 )
 
-type transaction struct{ db *gorm.DB }
+type transaction struct {
+	db    *gorm.DB
+	store Store
+}
 
 func (s Store) Bind(run func(domain.BindTx) error) error {
-	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx}) })
+	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx, store: s}) })
 }
 
 func (s Store) Balance(run func(domain.BalanceTx) error) error {
-	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx}) })
+	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx, store: s}) })
 }
 
 func (s Store) Expire(run func(domain.ExpireTx) error) error {
-	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx}) })
+	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx, store: s}) })
 }
 
 func (s Store) Change(run func(domain.ChangeTx) error) error {
-	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx}) })
+	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx, store: s}) })
 }
 
 func (s Store) Reset(run func(domain.ResetTx) error) error {
-	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx}) })
+	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx, store: s}) })
 }
 
 func (s Store) ExpireUser(run func(domain.ExpiryTx) error) error {
-	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx}) })
+	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx, store: s}) })
 }
 
 func (s Store) ResetDue(run func(domain.DueResetTx) error) error {
-	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx}) })
+	return s.db().Transaction(func(tx *gorm.DB) error { return run(transaction{db: tx, store: s}) })
 }
 
 func (s Store) PlanByID(planID int) (*domain.SubscriptionPlan, error) {
-	row, err := model.GetSubscriptionPlanById(planID)
+	row, err := s.plans.GetSubscriptionPlanById(planID)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +55,7 @@ func (s Store) PlanByID(planID int) (*domain.SubscriptionPlan, error) {
 }
 
 func (t transaction) PlanByID(planID int) (*domain.SubscriptionPlan, error) {
-	row, err := model.GetSubscriptionPlanByIdTx(t.db, planID)
+	row, err := t.store.plans.GetSubscriptionPlanByIdTx(t.db, planID)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +63,7 @@ func (t transaction) PlanByID(planID int) (*domain.SubscriptionPlan, error) {
 	return &value, nil
 }
 
-func (t transaction) DatabaseTime() int64 { return model.GetDBTimestamp() }
+func (t transaction) DatabaseTime() int64 { return t.store.clock() }
 
 func (t transaction) CountPurchases(userID int, planID int) (int64, error) {
 	var count int64
@@ -69,7 +73,7 @@ func (t transaction) CountPurchases(userID int, planID int) (int64, error) {
 
 func (t transaction) LockUserID(userID int) error {
 	var user model.User
-	return model.LockForUpdate(t.db).Select("id").Where("id = ?", userID).First(&user).Error
+	return locking.LockForUpdate(t.db).Select("id").Where("id = ?", userID).First(&user).Error
 }
 
 func (t transaction) UserGroup(userID int) (string, error) {
@@ -78,7 +82,7 @@ func (t transaction) UserGroup(userID int) (string, error) {
 	}
 	var group string
 	// GORM resolves the schema field and quotes the reserved name for the current dialect.
-	err := model.LockForUpdate(t.db).Model(&model.User{}).Where("id = ?", userID).Select("group").Find(&group).Error
+	err := locking.LockForUpdate(t.db).Model(&model.User{}).Where("id = ?", userID).Select("group").Find(&group).Error
 	return group, err
 }
 
@@ -113,7 +117,7 @@ func (t transaction) ActiveUpgrade(userID int, now int64, excludeID int) (bool, 
 
 func (t transaction) WalletBalance(userID int) (int, error) {
 	var user model.User
-	if err := model.LockForUpdate(t.db).Where("id = ?", userID).First(&user).Error; err != nil {
+	if err := locking.LockForUpdate(t.db).Where("id = ?", userID).First(&user).Error; err != nil {
 		return 0, err
 	}
 	return user.Quota, nil
@@ -143,7 +147,7 @@ func (t transaction) LockOrder(tradeNo string) (*domain.SubscriptionOrder, error
 		column = `"trade_no"`
 	}
 	var row record.SubscriptionOrder
-	if err := model.LockForUpdate(t.db).Where(column+" = ?", tradeNo).First(&row).Error; err != nil {
+	if err := locking.LockForUpdate(t.db).Where(column+" = ?", tradeNo).First(&row).Error; err != nil {
 		return nil, err
 	}
 	value := domain.SubscriptionOrder(row)
@@ -152,7 +156,7 @@ func (t transaction) LockOrder(tradeNo string) (*domain.SubscriptionOrder, error
 
 func (t transaction) LockSubscription(subscriptionID int) (*domain.UserSubscription, error) {
 	var row record.UserSubscription
-	if err := model.LockForUpdate(t.db).Where("id = ?", subscriptionID).First(&row).Error; err != nil {
+	if err := locking.LockForUpdate(t.db).Where("id = ?", subscriptionID).First(&row).Error; err != nil {
 		return nil, err
 	}
 	value := domain.UserSubscription(row)
@@ -169,11 +173,11 @@ func (t transaction) DeleteSubscription(subscriptionID int) error {
 }
 
 func (t transaction) ResetCandidates(userID int, planID int, now int64) ([]domain.UserSubscription, error) {
-	query := model.LockForUpdate(t.db).
+	query := locking.LockForUpdate(t.db).
 		Where("plan_id = ? AND status = ? AND end_time > ?", planID, "active", now).
 		Order("user_id asc, end_time asc, id asc")
 	if userID > 0 {
-		query = model.LockForUpdate(t.db).
+		query = locking.LockForUpdate(t.db).
 			Where("user_id = ? AND plan_id = ? AND status = ? AND end_time > ?", userID, planID, "active", now).
 			Order("end_time asc, id asc")
 	}
@@ -211,7 +215,7 @@ func (t transaction) LastExpiredTransition(userID int) (*domain.UserSubscription
 
 func (t transaction) LockDueSubscription(subscriptionID int, now int64) (*domain.UserSubscription, error) {
 	var row record.UserSubscription
-	err := model.LockForUpdate(t.db).Where("id = ? AND next_reset_time > 0 AND next_reset_time <= ?", subscriptionID, now).First(&row).Error
+	err := locking.LockForUpdate(t.db).Where("id = ? AND next_reset_time > 0 AND next_reset_time <= ?", subscriptionID, now).First(&row).Error
 	if err != nil {
 		return nil, err
 	}

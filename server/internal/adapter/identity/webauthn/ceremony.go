@@ -4,9 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/go-webauthn/webauthn/protocol"
 	webauthnlib "github.com/go-webauthn/webauthn/webauthn"
 	"net/http"
@@ -14,14 +18,24 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/internal/adapter/identity/login"
-	"github.com/QuantumNous/new-api/internal/app/identitycore"
 	"github.com/gin-gonic/gin"
 )
 
 type Ceremony struct {
+	ValidateAuthorization   func(domain.AuthIdentity, domain.VerificationOperation, *domain.FlowAuthorization) error
+	AdvanceSessionVersion   func(domain.AuthIdentity, string) (*dto.AuthBundle, error)
+	BindVerification        func(domain.VerificationOperation) (domain.VerificationBinding, error)
+	RequireVerification     func(domain.AuthIdentity, string, string) error
+	CompleteVerification    func(domain.AuthIdentity, domain.VerificationBinding, string) (*dto.SecurityProof, error)
+	LoadLoginVerification   func(string, string) (*login.LoginVerification, error)
+	FinishLoginVerification func(string, *login.LoginVerification, string, string, string) (*dto.AuthBundle, error)
+	Accounts                accountstore.Store
+
+	SQL identitystore.Store
+
 	CreateSessionDataFlow func(string, domain.PasskeyFlowSecurity, *webauthnlib.SessionData) (string, int64, error)
 	PopSessionDataFlow    func(string, string, domain.AuthIdentity) (*webauthnlib.SessionData, *domain.PasskeyFlowSecurity, error)
-	FinishLogin           func(*gin.Context, *model.User, int64)
+	FinishLogin           func(*gin.Context, *accountrecord.User, int64)
 
 	ParentFlowToken string
 	RawAssertion    []byte
@@ -29,7 +43,7 @@ type Ceremony struct {
 	verification    *login.LoginVerification
 
 	Request           *http.Request
-	User              *model.User
+	User              *accountrecord.User
 	Authorization     *domain.FlowAuthorization
 	IdentityReader    func() (domain.AuthIdentity, bool)
 	Identity          domain.AuthIdentity
@@ -37,7 +51,7 @@ type Ceremony struct {
 	VerificationInput dto.PasskeyVerifyBeginRequest
 	ParsedCreation    *protocol.ParsedCredentialCreationData
 	ParsedAssertion   *protocol.ParsedCredentialAssertionData
-	credential        *model.PasskeyCredential
+	credential        *identityrecord.PasskeyCredential
 	wa                *webauthnlib.WebAuthn
 	data              *webauthnlib.SessionData
 	security          *domain.PasskeyFlowSecurity
@@ -48,16 +62,16 @@ type Ceremony struct {
 	challenge         dto.PasskeyChallenge
 	bundle            *dto.AuthBundle
 	proof             *dto.SecurityProof
-	loginAccount      *model.User
+	loginAccount      *accountrecord.User
 }
 
 func (op *Ceremony) LoadCredential() error {
 	var err error
-	op.credential, err = model.GetPasskeyByUserID(op.User.Id)
+	op.credential, err = op.SQL.GetPasskeyByUserID(op.User.Id)
 	return err
 }
 func (op *Ceremony) CredentialMissing(err error) bool {
-	return errors.Is(err, model.ErrPasskeyNotFound)
+	return errors.Is(err, domain.ErrPasskeyNotFound)
 }
 func (op *Ceremony) ClearCredential() { op.credential = nil }
 func (op *Ceremony) Build() error {
@@ -84,20 +98,20 @@ func (op *Ceremony) BeginRegistration() error {
 	return err
 }
 func (op *Ceremony) CreateRegistrationFlow() error {
-	token, expires, err := op.CreateSessionDataFlow(model.AuthFlowPurposePasskeyRegister, domain.PasskeyFlowSecurity{AuthSessionIdentity: op.Identity, Scope: op.Authorization.Scope, ContextHash: op.Authorization.ContextHash, Authorization: op.Authorization}, op.data)
+	token, expires, err := op.CreateSessionDataFlow(domain.AuthFlowPurposePasskeyRegister, domain.PasskeyFlowSecurity{AuthSessionIdentity: op.Identity, Scope: op.Authorization.Scope, ContextHash: op.Authorization.ContextHash, Authorization: op.Authorization}, op.data)
 	op.challenge = dto.PasskeyChallenge{Options: op.creation, FlowToken: token, ExpiresAt: expires}
 	return err
 }
 func (op *Ceremony) PopRegistrationFlow() error {
 	var err error
-	op.data, op.security, err = op.PopSessionDataFlow(op.FlowToken, model.AuthFlowPurposePasskeyRegister, op.Identity)
+	op.data, op.security, err = op.PopSessionDataFlow(op.FlowToken, domain.AuthFlowPurposePasskeyRegister, op.Identity)
 	return err
 }
 func (op *Ceremony) VerificationRequired() bool {
 	return op.data.UserVerification == protocol.VerificationRequired
 }
 func (op *Ceremony) ValidateEnrollmentAuthorization() error {
-	return identitycore.ValidateFlowAuthorization(op.Identity, domain.VerificationOperation{Scope: domain.VerificationScopePasskeyRegister}, op.security.Authorization)
+	return op.ValidateAuthorization(op.Identity, domain.VerificationOperation{Scope: domain.VerificationScopePasskeyRegister}, op.security.Authorization)
 }
 func (op *Ceremony) CreateCredential() error {
 	var err error
@@ -105,16 +119,16 @@ func (op *Ceremony) CreateCredential() error {
 	if err != nil {
 		return err
 	}
-	op.credential = model.NewPasskeyCredentialFromWebAuthn(op.User.Id, op.validated)
+	op.credential = identityrecord.NewPasskeyCredentialFromWebAuthn(op.User.Id, op.validated)
 	return nil
 }
 func (op *Ceremony) CredentialRecordValid() bool { return op.credential != nil }
 func (op *Ceremony) RegisterCredential() error {
-	return model.RegisterPasskeyForSession(op.Identity, op.credential)
+	return op.SQL.RegisterPasskeyForSession(op.Identity, op.credential)
 }
 func (op *Ceremony) AdvanceSession() error {
 	var err error
-	op.bundle, err = identitycore.AdvanceCurrentSessionToUserVersion(op.Identity, "passkey_registered")
+	op.bundle, err = op.AdvanceSessionVersion(op.Identity, "passkey_registered")
 	return err
 }
 func (op *Ceremony) BeginDiscoverable() error {
@@ -123,27 +137,27 @@ func (op *Ceremony) BeginDiscoverable() error {
 	return err
 }
 func (op *Ceremony) CreateLoginFlow() error {
-	token, expires, err := op.CreateSessionDataFlow(model.AuthFlowPurposePasskeyLogin, domain.PasskeyFlowSecurity{}, op.data)
+	token, expires, err := op.CreateSessionDataFlow(domain.AuthFlowPurposePasskeyLogin, domain.PasskeyFlowSecurity{}, op.data)
 	op.challenge = dto.PasskeyChallenge{Options: op.assertion, FlowToken: token, ExpiresAt: expires}
 	return err
 }
 func (op *Ceremony) PopLoginFlow() error {
 	var err error
-	op.data, _, err = op.PopSessionDataFlow(op.FlowToken, model.AuthFlowPurposePasskeyLogin, domain.AuthIdentity{})
+	op.data, _, err = op.PopSessionDataFlow(op.FlowToken, domain.AuthFlowPurposePasskeyLogin, domain.AuthIdentity{})
 	return err
 }
 func (op *Ceremony) ValidateDiscoverable() error {
 	handler := func(rawID, userHandle []byte) (webauthnlib.User, error) {
-		credential, err := model.GetPasskeyByCredentialID(rawID)
+		credential, err := op.SQL.GetPasskeyByCredentialID(rawID)
 		if err != nil {
 			return nil, fmt.Errorf("passkey credential not found: %w", err)
 		}
-		user := &model.User{Id: credential.UserID}
-		if err := user.FillUserById(); err != nil {
+		user := &accountrecord.User{Id: credential.UserID}
+		if err := op.Accounts.FillUserById(user); err != nil {
 			return nil, fmt.Errorf("failed to load user: %w", err)
 		}
 		if user.Status != common.UserStatusEnabled {
-			return nil, model.ErrUserSessionInactive
+			return nil, domain.ErrSessionInactive
 		}
 		if len(userHandle) > 0 {
 			userID, parseErr := strconv.Atoi(string(userHandle))
@@ -175,16 +189,15 @@ func (op *Ceremony) UpdateAssertion() error {
 	if op.loginAccount != nil {
 		user = op.loginAccount
 	}
-	return model.UpdatePasskeyAssertionState(user.Id, op.validated, time.Now())
+	return op.SQL.UpdatePasskeyAssertionState(user.Id, op.validated, time.Now())
 }
 func (op *Ceremony) BindOperation() error {
 	var err error
-	op.binding, err = identitycore.BindVerificationOperation(domain.VerificationOperation{Scope: op.VerificationInput.Scope, Context: op.VerificationInput.Context})
+	op.binding, err = op.BindVerification(domain.VerificationOperation{Scope: op.VerificationInput.Scope, Context: op.VerificationInput.Context})
 	return err
 }
 func (op *Ceremony) RequireMethod() error {
-	_, err := identitycore.RequireVerificationMethod(op.Identity, op.VerificationInput.Scope, domain.VerificationMethodPasskey)
-	return err
+	return op.RequireVerification(op.Identity, op.VerificationInput.Scope, domain.VerificationMethodPasskey)
 }
 func (op *Ceremony) BeginLogin() error {
 	var err error
@@ -192,13 +205,13 @@ func (op *Ceremony) BeginLogin() error {
 	return err
 }
 func (op *Ceremony) CreateVerificationFlow() error {
-	token, expires, err := op.CreateSessionDataFlow(model.AuthFlowPurposePasskeyStepUp, domain.PasskeyFlowSecurity{AuthSessionIdentity: op.Identity, Scope: op.binding.Scope, ContextHash: op.binding.ContextHash}, op.data)
+	token, expires, err := op.CreateSessionDataFlow(domain.AuthFlowPurposePasskeyStepUp, domain.PasskeyFlowSecurity{AuthSessionIdentity: op.Identity, Scope: op.binding.Scope, ContextHash: op.binding.ContextHash}, op.data)
 	op.challenge = dto.PasskeyChallenge{Options: op.assertion, FlowToken: token, ExpiresAt: expires}
 	return err
 }
 func (op *Ceremony) PopVerificationFlow() error {
 	var err error
-	op.data, op.security, err = op.PopSessionDataFlow(op.FlowToken, model.AuthFlowPurposePasskeyStepUp, op.Identity)
+	op.data, op.security, err = op.PopSessionDataFlow(op.FlowToken, domain.AuthFlowPurposePasskeyStepUp, op.Identity)
 	return err
 }
 func (op *Ceremony) ValidateLogin() error {
@@ -208,7 +221,7 @@ func (op *Ceremony) ValidateLogin() error {
 }
 func (op *Ceremony) IssueProof() error {
 	var err error
-	op.proof, err = identitycore.CompleteSecurityVerification(op.Identity, domain.VerificationBinding{Scope: op.security.Scope, ContextHash: op.security.ContextHash}, domain.VerificationMethodPasskey)
+	op.proof, err = op.CompleteVerification(op.Identity, domain.VerificationBinding{Scope: op.security.Scope, ContextHash: op.security.ContextHash}, domain.VerificationMethodPasskey)
 	return err
 }
 func (op *Ceremony) Challenge() dto.PasskeyChallenge { return op.challenge }
@@ -220,15 +233,15 @@ func (op *Ceremony) CompletePasskeyLogin(c *gin.Context) {
 
 func (op *Ceremony) RequireLoginVerification() error {
 	var err error
-	op.verification, err = identitycore.RequireLoginVerification(op.ParentFlowToken, domain.VerificationMethodPasskey)
+	op.verification, err = op.LoadLoginVerification(op.ParentFlowToken, domain.VerificationMethodPasskey)
 	if err != nil {
 		return err
 	}
-	op.User = &model.User{Id: op.verification.State.UserID}
+	op.User = &accountrecord.User{Id: op.verification.State.UserID}
 	return nil
 }
 func (op *Ceremony) CreateBoundLoginFlow() error {
-	token, expires, err := op.CreateSessionDataFlow(model.AuthFlowPurposeLoginPasskey, domain.PasskeyFlowSecurity{AuthSessionIdentity: model.AuthSessionIdentity{UserID: op.User.Id, UserAuthVersion: op.verification.State.AuthVersion}, LoginFlowID: op.verification.Flow.Id, LoginExpiresAt: op.verification.Flow.ExpiresAt.Unix()}, op.data)
+	token, expires, err := op.CreateSessionDataFlow(domain.AuthFlowPurposeLoginPasskey, domain.PasskeyFlowSecurity{AuthSessionIdentity: domain.AuthIdentity{UserID: op.User.Id, UserAuthVersion: op.verification.State.AuthVersion}, LoginFlowID: op.verification.Flow.Id, LoginExpiresAt: op.verification.Flow.ExpiresAt.Unix()}, op.data)
 	op.challenge = dto.PasskeyChallenge{Options: op.assertion, FlowToken: token, ExpiresAt: expires}
 	return err
 }
@@ -238,9 +251,9 @@ func (op *Ceremony) ParseAssertion() error {
 	return err
 }
 func (op *Ceremony) PopBoundLoginFlow() error {
-	op.Identity = model.AuthSessionIdentity{UserID: op.verification.State.UserID, UserAuthVersion: op.verification.State.AuthVersion}
+	op.Identity = domain.AuthIdentity{UserID: op.verification.State.UserID, UserAuthVersion: op.verification.State.AuthVersion}
 	var err error
-	op.data, op.security, err = op.PopSessionDataFlow(op.FlowToken, model.AuthFlowPurposeLoginPasskey, op.Identity)
+	op.data, op.security, err = op.PopSessionDataFlow(op.FlowToken, domain.AuthFlowPurposeLoginPasskey, op.Identity)
 	return err
 }
 func (op *Ceremony) BoundFlowValid() bool {
@@ -249,6 +262,6 @@ func (op *Ceremony) BoundFlowValid() bool {
 func (op *Ceremony) CompleteLogin() error {
 	ip, ua := op.Metadata()
 	var err error
-	op.bundle, err = identitycore.CompleteLoginVerification(op.ParentFlowToken, op.verification, domain.VerificationMethodPasskey, ip, ua)
+	op.bundle, err = op.FinishLoginVerification(op.ParentFlowToken, op.verification, domain.VerificationMethodPasskey, ip, ua)
 	return err
 }

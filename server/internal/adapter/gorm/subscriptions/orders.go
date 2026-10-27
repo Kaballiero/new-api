@@ -25,7 +25,7 @@ func (t orderTransaction) UpsertHistory(order domain.SubscriptionOrder) error {
 	return t.history(t.db, order)
 }
 func (s OrderStore) Complete(run func(domain.CompleteTx) error) error {
-	return s.db().Transaction(func(tx *gorm.DB) error { return run(orderTransaction{transaction{tx}, s.history}) })
+	return s.db().Transaction(func(tx *gorm.DB) error { return run(orderTransaction{transaction{db: tx, store: s.Store}, s.history}) })
 }
 func (s Store) FindOrder(tradeNo string) *domain.SubscriptionOrder {
 	var row *record.SubscriptionOrder

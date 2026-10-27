@@ -2,14 +2,19 @@ package accountsidentity
 
 import (
 	"errors"
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 	"github.com/QuantumNous/new-api/internal/identity/delete_account"
-	"github.com/QuantumNous/new-api/model"
+	domain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
-type Deletion struct{}
-
-func (Deletion) Delete(input delete_account.Input) error {
-	return model.DeleteUserForSession(input.Identity)
+type Deletion struct {
+	Remove func(domain.AuthIdentity) error
 }
-func (Deletion) RootDenied(err error) bool { return errors.Is(err, model.ErrCannotDeleteRootUser) }
+
+func (op Deletion) Delete(input delete_account.Input) error {
+	return op.Remove(input.Identity)
+}
+func (Deletion) RootDenied(err error) bool {
+	return errors.Is(err, accountdomain.ErrCannotDeleteRootUser)
+}

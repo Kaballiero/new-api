@@ -2,6 +2,8 @@
 package contract
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"context"
 	"crypto"
 	"crypto/hmac"
@@ -784,7 +786,7 @@ func newFixture(t *testing.T, tc contractCase) *fixture {
 	}
 	require.NoError(t, env.DB.Create(&model.Token{Id: 101, UserId: 1, Key: "payments-gateway-key", Status: 1, ExpiredTime: -1, UnlimitedQuota: true, Name: "gateway-key", Group: "default"}).Error)
 	require.NoError(t, env.DB.Model(&model.User{}).Where("id IN ?", []int{1, 2, 3}).Updates(map[string]any{"email": "", "stripe_customer": "", "setting": `{}`}).Error)
-	i18n.SetUserLangLoader(model.GetUserLanguage)
+	i18n.SetUserLangLoader(accountstorage.Cache().GetUserLanguage)
 	f.fake = &providerTransport{t: t, tc: tc, key: key, calls: []outbound{}, checkoutReady: make(chan struct{})}
 	previousTransport, previousClient := http.DefaultTransport, http.DefaultClient
 	http.DefaultTransport = f.fake

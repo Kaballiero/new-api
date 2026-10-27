@@ -3,7 +3,8 @@ package verification
 import (
 	"encoding/json"
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+
 	"github.com/QuantumNous/new-api/oauth"
 )
 
@@ -13,7 +14,7 @@ type ContextCodec struct {
 
 func (ContextCodec) Object(raw json.RawMessage) bool    { return common.GetJsonType(raw) == "object" }
 func (ContextCodec) Decode(raw []byte, value any) error { return common.Unmarshal(raw, value) }
-func (ContextCodec) NormalizeEmail(email string) string { return model.NormalizeEmail(email) }
+func (ContextCodec) NormalizeEmail(email string) string { return accountstore.NormalizeEmail(email) }
 func (ContextCodec) EmailValid(email string) bool {
 	return common.Validate.Var(email, "required,email") == nil
 }

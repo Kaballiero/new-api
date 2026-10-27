@@ -5,6 +5,8 @@
 package contracttest
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"context"
 	"flag"
 	"net/http"
@@ -134,7 +136,7 @@ func New(t *testing.T) *Env {
 	session := func(id int, username string, role int, pat *string) string {
 		user := &model.User{Id: id, Username: username, Role: role, Status: common.UserStatusEnabled, Group: "default", AffCode: username, Quota: 1000000, AuthVersion: 1, AccessToken: pat}
 		require.NoError(t, db.Create(user).Error)
-		require.NoError(t, model.PublishUserAuthCache(user.Id))
+		require.NoError(t, accountstorage.Cache().PublishUserAuthCache(user.Id))
 		bundle, err := identitycore.CreateLoginSession(user.Id, "password", "127.0.0.1", "contract-test")
 		require.NoError(t, err)
 		return bundle.AccessToken

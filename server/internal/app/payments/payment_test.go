@@ -31,6 +31,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/admission"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/payments"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/payments/admin_list_topups"
 	"github.com/QuantumNous/new-api/internal/payments/create_epay_topup"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
@@ -260,7 +261,7 @@ func TestRechargeEpayKeepsRedisAndDatabaseCreditInSync(t *testing.T) {
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 
 	user := insertUserForPaymentGuardTest(t, 502, 7)
-	_, cacheErr := model.GetUserCache(user.Id)
+	_, cacheErr := accountstorage.Cache().GetUserCache(user.Id)
 	require.NoError(t, cacheErr)
 	order := createEpayTestOrder(t, user.Id, "EPAYTESTREDISSYNC", model.PaymentProviderEpay, common.TopUpStatusPending)
 
@@ -268,7 +269,7 @@ func TestRechargeEpayKeepsRedisAndDatabaseCreditInSync(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, alreadyDone)
 	assert.Equal(t, 17, getUserQuotaForPaymentGuardTest(t, user.Id))
-	cached, err := model.GetUserCache(user.Id)
+	cached, err := accountstorage.Cache().GetUserCache(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 17, cached.Quota)
 	assert.Equal(t, "17", cache.HGet(fmt.Sprintf("user:%d", user.Id), "Quota"))
@@ -276,7 +277,7 @@ func TestRechargeEpayKeepsRedisAndDatabaseCreditInSync(t *testing.T) {
 	alreadyDone, err = completionForTest().Complete(domain.CompletionInput{TradeNo: order.TradeNo, Provider: domain.PaymentProviderEpay, Method: "alipay", CallerIP: "127.0.0.1"})
 	require.NoError(t, err)
 	assert.True(t, alreadyDone)
-	cached, err = model.GetUserCache(user.Id)
+	cached, err = accountstorage.Cache().GetUserCache(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 17, cached.Quota)
 	assert.Equal(t, "17", cache.HGet(fmt.Sprintf("user:%d", user.Id), "Quota"))

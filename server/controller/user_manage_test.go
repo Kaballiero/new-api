@@ -1,6 +1,14 @@
 package controller
 
 import (
+	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	adjust_quota "github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"errors"
 	"fmt"
 	"net/http"
@@ -68,7 +76,7 @@ func setupManageUserTestDB(t *testing.T) *gorm.DB {
 			}
 		}
 	})
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &identityrecord.UserSession{}, &model.CasbinRule{}, &model.AuthzRole{}))
 	require.NoError(t, logDB.AutoMigrate(&model.Log{}, &model.AuditLog{}))
 	versionQuery := "SELECT version()"
 	if dialect == "sqlite" {
@@ -103,9 +111,9 @@ func TestManageUserDisableAdvancesAuthVersionOnceAndRevokesSession(t *testing.T)
 		Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1,
 	}
 	require.NoError(t, db.Create(&user).Error)
-	require.NoError(t, db.Create(&model.UserSession{
+	require.NoError(t, db.Create(&identityrecord.UserSession{
 		SID: "managed-disable-session", UserID: user.Id, Version: 1, UserAuthVersion: 1,
-		Status: model.UserSessionStatusActive, RefreshHash: "refresh-hash", LoginMethod: "password",
+		Status: identityrecord.UserSessionStatusActive, RefreshHash: "refresh-hash", LoginMethod: "password",
 		LastActiveAt: now, ExpiresAt: now + 3600,
 	}).Error)
 
@@ -117,9 +125,9 @@ func TestManageUserDisableAdvancesAuthVersionOnceAndRevokesSession(t *testing.T)
 	require.NoError(t, db.First(&updated, user.Id).Error)
 	assert.Equal(t, common.UserStatusDisabled, updated.Status)
 	assert.EqualValues(t, 2, updated.AuthVersion)
-	var session model.UserSession
+	var session identityrecord.UserSession
 	require.NoError(t, db.First(&session, "sid = ?", "managed-disable-session").Error)
-	assert.Equal(t, model.UserSessionStatusRevoked, session.Status)
+	assert.Equal(t, identityrecord.UserSessionStatusRevoked, session.Status)
 }
 
 func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T) {
@@ -136,9 +144,9 @@ func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T)
 	}
 	require.NoError(t, db.Create(&user).Error)
 	for _, sid := range []string{"managed-demote-session-one", "managed-demote-session-two"} {
-		require.NoError(t, db.Create(&model.UserSession{
+		require.NoError(t, db.Create(&identityrecord.UserSession{
 			SID: sid, UserID: user.Id, Version: 1, UserAuthVersion: 1,
-			Status: model.UserSessionStatusActive, RefreshHash: "refresh-" + sid, LoginMethod: "password",
+			Status: identityrecord.UserSessionStatusActive, RefreshHash: "refresh-" + sid, LoginMethod: "password",
 			LastActiveAt: now, ExpiresAt: now + 3600,
 		}).Error)
 	}
@@ -158,11 +166,11 @@ func TestManageUserDemoteAdvancesAuthVersionAndRevokesSessionsOnce(t *testing.T)
 	require.NoError(t, db.First(&updated, user.Id).Error)
 	assert.Equal(t, common.RoleCommonUser, updated.Role)
 	assert.EqualValues(t, 2, updated.AuthVersion)
-	var sessions []model.UserSession
+	var sessions []identityrecord.UserSession
 	require.NoError(t, db.Where("user_id = ?", user.Id).Order("sid asc").Find(&sessions).Error)
 	require.Len(t, sessions, 2)
 	for _, session := range sessions {
-		assert.Equal(t, model.UserSessionStatusRevoked, session.Status)
+		assert.Equal(t, identityrecord.UserSessionStatusRevoked, session.Status)
 		assert.Equal(t, "admin_demote", session.RevokedReason)
 	}
 	assert.Equal(t, 1, sessionUpdateCount)
@@ -517,20 +525,20 @@ func TestManageUserQuotaConcurrentSnapshots(t *testing.T) {
 		}
 	}))
 	type result struct {
-		adjustment *model.UserQuotaAdjustment
+		adjustment *adjust_quota.UserQuotaAdjustment
 		err        error
 		value      int
 	}
 	results := make(chan result, 2)
 	for _, value := range []int{10, 20} {
 		go func(value int) {
-			adjustment, err := model.AdjustUserQuota(user.Id, common.RoleRootUser, "add", value)
+			adjustment, err := adjustQuotaFixture(user.Id, common.RoleRootUser, "add", value)
 			results <- result{adjustment, err, value}
 		}(value)
 	}
 	ready.Wait()
 	close(release)
-	var committed []model.UserQuotaAdjustment
+	var committed []adjust_quota.UserQuotaAdjustment
 	for range 2 {
 		result := <-results
 		if result.err != nil {
@@ -579,10 +587,10 @@ func TestManageUserQuotaCacheUsesCommittedIntegerDifference(t *testing.T) {
 			t.Cleanup(func() { _ = common.RDB.Close(); common.RDB = oldRDB })
 			user := model.User{Username: "cached-quota", Quota: tc.before, AuthVersion: 1}
 			require.NoError(t, db.Create(&user).Error)
-			cache, err := model.GetUserCache(user.Id)
+			cache, err := accountstorage.Cache().GetUserCache(user.Id)
 			require.NoError(t, err)
 			assert.Equal(t, tc.before, cache.Quota)
-			_, err = model.GetUserCache(operator.Id)
+			_, err = accountstorage.Cache().GetUserCache(operator.Id)
 			require.NoError(t, err)
 			keys := server.Keys()
 			var quotaKey string
@@ -623,4 +631,9 @@ func TestManageUserQuotaCacheUsesCommittedIntegerDifference(t *testing.T) {
 			}
 		})
 	}
+}
+
+func adjustQuotaFixture(userID, operatorRole int, mode string, value int) (*adjust_quota.UserQuotaAdjustment, error) {
+	store := accountscore.NewQuotaAdjustmentStore()
+	return adjust_quota.NewUsecase(store, store, store, common.RoleRootUser, common.MaxWalletQuota, common.WalletQuotaFromDecimalStrict).Execute(userID, operatorRole, mode, value)
 }

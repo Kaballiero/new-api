@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	"github.com/QuantumNous/new-api/internal/app/usagestorage"
 )
 
 func StartQuotaData() {
@@ -20,5 +20,5 @@ func StartQuotaData() {
 }
 
 func FlushQuotaData() {
-	storage.Store{}.SaveQuotaDataCache()
+	usagestorage.Store().SaveQuotaDataCache()
 }

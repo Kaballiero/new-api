@@ -1,6 +1,8 @@
 package controller
 
 import (
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"bytes"
 	"context"
 	"encoding/json"
@@ -146,7 +148,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, nil)
 
-	cache, err := model.GetUserCache(testUserID)
+	cache, err := accountstorage.Cache().GetUserCache(testUserID)
 	if err != nil {
 		return testResult{
 			localErr:    err,
@@ -160,7 +162,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("channel", channel.Type)
 	c.Set("base_url", channel.GetBaseURL())
-	group, _ := model.GetUserGroup(testUserID, false)
+	group, _ := accountstorage.SQL().GetUserGroup(testUserID, false)
 	c.Set("group", group)
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, testModel)
@@ -497,7 +499,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	milliseconds := tok.Sub(tik).Milliseconds()
 	consumedTime := float64(milliseconds) / 1000.0
 	// The testing user's label retains its existing language policy.
-	logName := i18n.Translate(model.GetUserLanguage(testUserID), i18n.MsgChannelTestLogName)
+	logName := i18n.Translate(accountstorage.Cache().GetUserLanguage(testUserID), i18n.MsgChannelTestLogName)
 	usagegateway.RecordChannelTest(c, info, testUserID, logName, quota, usage, priceData, tieredResult, int(consumedTime))
 
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))

@@ -2,6 +2,9 @@ package identityhttp
 
 import (
 	"errors"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -10,11 +13,10 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/complete_primary_login"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/transport"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	"github.com/QuantumNous/new-api/internal/app/identitycore"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 )
 
@@ -44,14 +46,21 @@ func LoginMethodFromContext(c *gin.Context) string {
 }
 
 type PrimaryLogin struct {
+	StartVerification      func(*accountrecord.User, string) (*dto.LoginChallenge, error)
+	CreateSession          func(int, string, string, string) (*dto.AuthBundle, error)
+	CreateSessionAtVersion func(int, int64, string, string, string) (*dto.AuthBundle, error)
+	SQL                    identitystore.Store
+
+	Accounts accountstore.Store
+
 	Usecase complete_primary_login.Usecase
-	Audit   func(*model.User, *gin.Context)
-	Profile func(*model.User) map[string]any
+	Audit   func(*accountrecord.User, *gin.Context)
+	Profile func(*accountrecord.User) map[string]any
 	Errors  transport.Writer
 }
 
-func (h PrimaryLogin) Start(user *model.User, c *gin.Context) {
-	challenge, err := identitycore.StartLoginVerification(user, LoginMethodFromContext(c))
+func (h PrimaryLogin) Start(user *accountrecord.User, c *gin.Context) {
+	challenge, err := h.StartVerification(user, LoginMethodFromContext(c))
 	if err != nil {
 		h.Errors.WriteError(c, err)
 		return
@@ -63,8 +72,8 @@ func (h PrimaryLogin) Start(user *model.User, c *gin.Context) {
 	}
 	h.AtVersion(user, user.AuthVersion, c)
 }
-func (h PrimaryLogin) AtVersion(user *model.User, version int64, c *gin.Context) {
-	op := &logincompletion.Operation{Primary: user, Metadata: func() (string, string, string) { return LoginMethodFromContext(c), c.ClientIP(), c.Request.UserAgent() }}
+func (h PrimaryLogin) AtVersion(user *accountrecord.User, version int64, c *gin.Context) {
+	op := &logincompletion.Operation{Accounts: h.Accounts, Create: h.CreateSession, CreateAtVersion: h.CreateSessionAtVersion, Primary: user, Metadata: func() (string, string, string) { return LoginMethodFromContext(c), c.ClientIP(), c.Request.UserAgent() }}
 	if err := h.Usecase.Execute(op, version); err != nil {
 		switch {
 		case errors.Is(err, domain.ErrAccountBanned):
@@ -78,10 +87,10 @@ func (h PrimaryLogin) AtVersion(user *model.User, version int64, c *gin.Context)
 	}
 	h.Write(c, op.Profile, op.Bundle)
 }
-func (h PrimaryLogin) Write(c *gin.Context, user *model.User, bundle *dto.AuthBundle) {
+func (h PrimaryLogin) Write(c *gin.Context, user *accountrecord.User, bundle *dto.AuthBundle) {
 	c.Set("login_method", bundle.Session.LoginMethod)
-	model.UpdateUserLastLoginAt(user.Id)
-	WriteRefreshCookie(c, bundle.RefreshToken)
+	h.Accounts.UpdateUserLastLoginAt(user.Id)
+	WriteRefreshCookie(h.SQL, c, bundle.RefreshToken)
 	SetAuthNoStore(c)
 	h.Audit(user, c)
 	c.JSON(http.StatusOK, gin.H{"message": "", "success": true, "data": gin.H{"access_token": bundle.AccessToken, "token_type": bundle.TokenType, "access_expires_at": bundle.AccessExpiresAt, "session": bundle.Session, "user": h.Profile(user)}})
@@ -92,7 +101,7 @@ func (h PrimaryLogin) Verified(c *gin.Context, bundle *dto.AuthBundle, method st
 		h.Errors.WriteSessionError(c, err)
 		return
 	}
-	user, err := model.GetSelfUserById(identity.UserID)
+	user, err := h.Accounts.GetSelfUserById(identity.UserID)
 	if err != nil {
 		h.Errors.WriteSessionError(c, err)
 		return

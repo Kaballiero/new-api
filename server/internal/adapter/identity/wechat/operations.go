@@ -4,8 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
-	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
 	"net/http"
 	"net/url"
@@ -54,8 +57,12 @@ func GetIDByCode(code string) (string, error) {
 }
 
 type Login struct {
-	Complete func(*model.User, *gin.Context)
-	User     *model.User
+	InsertUser func(*accountrecord.User, int, string) error
+
+	Accounts accountstore.Store
+
+	Complete func(*accountrecord.User, *gin.Context)
+	User     *accountrecord.User
 	id       string
 }
 
@@ -65,24 +72,28 @@ func (op *Login) ExchangeCode(code string) error {
 	op.id, err = GetIDByCode(code)
 	return err
 }
-func (op *Login) InitializeAccount()     { op.User = &model.User{WeChatId: op.id} }
-func (op *Login) Taken() bool            { return model.IsWeChatIdAlreadyTaken(op.id) }
-func (op *Login) LoadAccount() error     { return op.User.FillUserByWeChatId() }
+func (op *Login) InitializeAccount()     { op.User = &accountrecord.User{WeChatId: op.id} }
+func (op *Login) Taken() bool            { return op.Accounts.IsWeChatIdAlreadyTaken(op.id) }
+func (op *Login) LoadAccount() error     { return op.Accounts.FillUserByWeChatId(op.User) }
 func (op *Login) AccountID() int         { return op.User.Id }
 func (*Login) RegistrationEnabled() bool { return common.RegisterEnabled }
 func (op *Login) PrepareAccount() {
-	op.User.Username = "wechat_" + strconv.Itoa(model.GetMaxUserId()+1)
+	op.User.Username = "wechat_" + strconv.Itoa(op.Accounts.GetMaxUserId()+1)
 	op.User.DisplayName = "WeChat User"
 	op.User.Role = common.RoleCommonUser
 	op.User.Status = common.UserStatusEnabled
 }
-func (op *Login) InsertAccount(lang string) error { return op.User.Insert(0, lang) }
+func (op *Login) InsertAccount(lang string) error { return op.InsertUser(op.User, 0, lang) }
 func (op *Login) AccountEnabled() bool            { return op.User.Status == common.UserStatusEnabled }
 func (op *Login) CompleteLogin(c *gin.Context)    { op.Complete(op.User, c) }
 
 type Binding struct {
+	Accounts accountstore.Store
+
+	SQL identitystore.Store
+
 	Identity           domain.AuthIdentity
-	User               *model.User
+	User               *accountrecord.User
 	id                 string
 	succeeded, warning bool
 }
@@ -92,16 +103,16 @@ func (op *Binding) ExchangeCode(code string) error {
 	op.id, err = GetIDByCode(code)
 	return err
 }
-func (op *Binding) Taken() bool { return model.IsWeChatIdAlreadyTaken(op.id) }
+func (op *Binding) Taken() bool { return op.Accounts.IsWeChatIdAlreadyTaken(op.id) }
 func (op *Binding) BindAtomically() error {
-	return model.DB.Transaction(func(tx *gorm.DB) error {
-		return model.UpdateUserBindColumnForSessionWithTx(tx, op.Identity, "wechat_id", op.id)
+	return op.SQL.Transaction(func(tx *gorm.DB) error {
+		return op.SQL.UpdateUserBindColumnForSessionWithTx(tx, op.Identity, "wechat_id", op.id)
 	})
 }
 func (op *Binding) MarkSucceeded() { op.succeeded = true }
 func (op *Binding) LoadAccount() error {
 	var err error
-	op.User, err = model.GetUserById(op.Identity.UserID, false)
+	op.User, err = op.Accounts.GetUserById(op.Identity.UserID, false)
 	return err
 }
 func (op *Binding) NotifyAccount() bool {

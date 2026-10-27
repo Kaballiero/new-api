@@ -1,15 +1,17 @@
 package identitycore
 
 import (
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	loginadapter "github.com/QuantumNous/new-api/internal/adapter/identity/login"
 	sessionadapter "github.com/QuantumNous/new-api/internal/adapter/identity/session"
 	verificationadapter "github.com/QuantumNous/new-api/internal/adapter/identity/verification"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/model"
 )
 
-func StartLoginVerification(user *model.User, loginMethod string) (*identitydto.LoginChallenge, error) {
+func StartLoginVerification(user *accountrecord.User, loginMethod string) (*identitydto.LoginChallenge, error) {
 	op := loginadapter.NewStart(user, loginMethod, identityRuntime().LoginDependencies)
 	if err := identityRuntime().StartLoginVerification.Execute(op); err != nil {
 		return nil, err
@@ -25,7 +27,7 @@ func RequireLoginVerification(token, method string) (*loginadapter.LoginVerifica
 	return op.Verification(), nil
 }
 
-func requireLoginVerificationMethod(state *model.UserVerificationState, method string) error {
+func requireLoginVerificationMethod(state *identitystore.UserVerificationState, method string) error {
 	methods, err := securityVerificationPolicy(domain.VerificationScopeLogin, *state)
 	if err != nil {
 		return err
@@ -54,5 +56,5 @@ func CompleteLoginVerification(token string, verification *loginadapter.LoginVer
 }
 
 func loginDependencies() loginadapter.Dependencies {
-	return loginadapter.Dependencies{TTL: domain.LoginVerificationTTL, PolicyFunc: securityVerificationPolicy, RequireMethodFunc: requireLoginVerificationMethod, RequireVerificationFunc: RequireLoginVerification, VerifyFactorFunc: VerifyTwoFactorCode, CompleteFunc: CompleteLoginVerification, NewSessionFunc: sessionadapter.NewLoginSession, IssueFunc: sessionadapter.IssueAuthBundle}
+	return loginadapter.Dependencies{SQL: identitystorage.SQL(), TTL: domain.LoginVerificationTTL, PolicyFunc: securityVerificationPolicy, RequireMethodFunc: requireLoginVerificationMethod, RequireVerificationFunc: RequireLoginVerification, VerifyFactorFunc: VerifyTwoFactorCode, CompleteFunc: CompleteLoginVerification, NewSessionFunc: sessionadapter.NewLoginSession, IssueFunc: sessionadapter.IssueAuthBundle}
 }

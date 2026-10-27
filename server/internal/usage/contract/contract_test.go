@@ -1,6 +1,8 @@
 package contract_test
 
 import (
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+
 	"context"
 	"errors"
 	"flag"
@@ -920,19 +922,19 @@ func snapshotRankings(t *testing.T, env *contracttest.Env, tc readCase, response
 
 func runQuotaAggregation(t *testing.T) {
 	env := newReadEnvironment(t)
-	model.CacheQuotaDataLock.Lock()
-	previous := model.CacheQuotaData
-	model.CacheQuotaData = make(map[string]*model.QuotaData)
-	model.CacheQuotaDataLock.Unlock()
+	usagecleanup.CacheQuotaDataLock.Lock()
+	previous := usagecleanup.CacheQuotaData
+	usagecleanup.CacheQuotaData = make(map[string]*model.QuotaData)
+	usagecleanup.CacheQuotaDataLock.Unlock()
 	t.Cleanup(func() {
-		model.CacheQuotaDataLock.Lock()
-		model.CacheQuotaData = previous
-		model.CacheQuotaDataLock.Unlock()
+		usagecleanup.CacheQuotaDataLock.Lock()
+		usagecleanup.CacheQuotaData = previous
+		usagecleanup.CacheQuotaDataLock.Unlock()
 	})
-	params := model.QuotaDataLogParams{UserID: 1, Username: "contract-user", ModelName: "job-model",
+	params := usagerecord.QuotaDataLogParams{UserID: 1, Username: "contract-user", ModelName: "job-model",
 		CreatedAt: readStart + 17, UseGroup: "paid", TokenID: 11, ChannelID: 11, NodeName: "node-a", Quota: 7, TokenUsed: 11}
-	model.LogQuotaData(params)
-	model.LogQuotaData(params)
+	usagecleanup.LogQuotaData(params)
+	usagecleanup.LogQuotaData(params)
 	for dimension := range 7 {
 		changed := params
 		switch dimension {
@@ -951,18 +953,18 @@ func runQuotaAggregation(t *testing.T) {
 		case 6:
 			changed.NodeName = "node-b"
 		}
-		model.LogQuotaData(changed)
+		usagecleanup.LogQuotaData(changed)
 	}
 	appusage.FlushQuotaData()
 	first := quotaJobRows(t, env.DB)
-	model.LogQuotaData(params)
+	usagecleanup.LogQuotaData(params)
 	appusage.FlushQuotaData()
 	second := quotaJobRows(t, env.DB)
 	appusage.FlushQuotaData()
 	assert.Equal(t, second, quotaJobRows(t, env.DB), "empty repeat flush changed persistent aggregates")
-	model.CacheQuotaDataLock.Lock()
-	assert.Empty(t, model.CacheQuotaData)
-	model.CacheQuotaDataLock.Unlock()
+	usagecleanup.CacheQuotaDataLock.Lock()
+	assert.Empty(t, usagecleanup.CacheQuotaData)
+	usagecleanup.CacheQuotaDataLock.Unlock()
 	contracttest.GoldenValue(t, "usage_read_jobs", map[string]any{"first_flush": first, "second_flush": second})
 }
 

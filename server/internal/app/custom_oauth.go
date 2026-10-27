@@ -3,6 +3,7 @@ package app
 import (
 	identityhttp "github.com/QuantumNous/new-api/internal/adapter/http/identity"
 	"github.com/QuantumNous/new-api/internal/adapter/identity/customoauth"
+	"github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"github.com/QuantumNous/new-api/internal/identity/create_custom_oauth_provider"
 	"github.com/QuantumNous/new-api/internal/identity/delete_custom_oauth_provider"
 	"github.com/QuantumNous/new-api/internal/identity/fetch_custom_oauth_discovery"
@@ -21,7 +22,7 @@ type CustomOAuthHTTP struct {
 }
 
 func NewCustomOAuthHTTP() CustomOAuthHTTP {
-	store, registry := customoauth.Store{}, customoauth.Registry{}
+	store, registry := customoauth.Store{SQL: identitystorage.SQL()}, customoauth.Registry{}
 	return CustomOAuthHTTP{
 		Create:    create_custom_oauth_provider.NewHTTP(create_custom_oauth_provider.NewUsecase(store, registry)),
 		Update:    update_custom_oauth_provider.NewHTTP(update_custom_oauth_provider.NewUsecase(store, registry)),

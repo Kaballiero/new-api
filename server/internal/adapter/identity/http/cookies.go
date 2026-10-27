@@ -1,20 +1,21 @@
 package identityhttp
 
 import (
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"net/http"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/identity/session"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 )
 
-func WriteRefreshCookie(c *gin.Context, rawToken string) {
+func WriteRefreshCookie(sql identitystore.Store, c *gin.Context, rawToken string) {
 	expiresAt := time.Now().Add(domain.LoginSessionTTL)
 	if sid, _, ok := session.SplitRefreshToken(rawToken); ok {
-		if session, err := model.GetUserSessionCached(sid); err == nil && session.ExpiresAt > time.Now().Unix() {
+		if session, err := sql.GetUserSessionCached(sid); err == nil && session.ExpiresAt > time.Now().Unix() {
 			expiresAt = time.Unix(session.ExpiresAt, 0)
 		}
 	}

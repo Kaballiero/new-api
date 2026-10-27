@@ -21,13 +21,13 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
 	gormtasks "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/list_task_artifacts"
 	"github.com/QuantumNous/new-api/internal/tasks/transport"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/types"
 )
@@ -429,6 +429,6 @@ func TestOpenRouterAudioArtifactsRemainAccessibleWhileBillingUnresolved(t *testi
 }
 
 func readArtifactTaskForTest(c *gin.Context, taskID string) (*domain.Task, bool, error) {
-	reader := gormtasks.Reader{Store: gormtasks.NewStore(func() *gorm.DB { return model.DB })}
+	reader := gormtasks.Reader{Store: gormtasks.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache())}
 	return domain.ResolveTaskAccess(reader, transport.ReadTaskAccess(c, middleware.IsTaskArtifactAccess(c)), taskID)
 }

@@ -1,13 +1,15 @@
 package accountsadapter
 
-import "github.com/QuantumNous/new-api/model"
+import (
+	core "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+)
 
-type ModelAvailabilityPreferences struct{}
+type ModelAvailabilityPreferences struct{ SQL core.Store }
 
-func (ModelAvailabilityPreferences) Group(id int) (string, error) {
-	return model.GetUserGroup(id, false)
+func (store ModelAvailabilityPreferences) Group(id int) (string, error) {
+	return store.SQL.GetUserGroup(id, false)
 }
-func (ModelAvailabilityPreferences) AcceptUnset(id int) bool {
-	preferences, _ := model.GetUserSetting(id, false)
+func (store ModelAvailabilityPreferences) AcceptUnset(id int) bool {
+	preferences, _ := store.SQL.GetUserSetting(id, false)
 	return preferences.AcceptUnsetRatioModel
 }

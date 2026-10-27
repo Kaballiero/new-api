@@ -3,6 +3,12 @@ package app
 import (
 	"context"
 	"errors"
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	"github.com/QuantumNous/new-api/internal/app/accountscore"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/apikeystorage"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -66,7 +72,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
@@ -78,13 +84,13 @@ import (
 )
 
 type IdentityEffects struct {
-	LoginAudit            func(*model.User, *gin.Context)
-	CompleteOAuthLogin    func(*model.User, *gin.Context)
+	LoginAudit            func(*accountrecord.User, *gin.Context)
+	CompleteOAuthLogin    func(*accountrecord.User, *gin.Context)
 	ManageAudit           func(*gin.Context, int, string, map[string]any)
-	CompletePasskeyLogin  func(*gin.Context, *model.User, int64)
+	CompletePasskeyLogin  func(*gin.Context, *accountrecord.User, int64)
 	CompleteVerifiedLogin func(*gin.Context, *identitydto.AuthBundle, string)
 	SecurityAudit         func(*gin.Context, int, string, map[string]any)
-	BuildProfile          func(*model.User) map[string]any
+	BuildProfile          func(*accountrecord.User) map[string]any
 	CompletePasswordLogin func(*gin.Context, password_login.Account)
 }
 type IdentityHTTP struct {
@@ -140,7 +146,7 @@ type IdentityHTTP struct {
 // accounts, WebAuthn protocol errors and missing GORM records.
 func NewIdentityErrors() identitytransport.Writer {
 	return identitytransport.NewWriter(identitytransport.Foreign{
-		EmailTaken: func(err error) bool { return errors.Is(err, model.ErrEmailAlreadyTaken) },
+		EmailTaken: func(err error) bool { return errors.Is(err, accountdomain.ErrEmailAlreadyTaken) },
 		ProtocolError: func(err error) bool {
 			var protocolError *protocol.Error
 			return errors.As(err, &protocolError)
@@ -163,10 +169,12 @@ func proofIdentity(scope string) func(*gin.Context) (identitydomain.AuthIdentity
 
 func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 	errs := NewIdentityErrors()
-	management := sessionadapter.Management{ListFunc: sessionadapter.ListLoginSessions}
+	management := sessionadapter.Management{SQL: identitystorage.SQL(), ListFunc: func(id int, sid string) ([]identitydto.LoginSessionView, error) {
+		return sessionadapter.ListLoginSessions(identitystorage.SQL(), id, sid)
+	}}
 	passkeyEnabled := func() bool { return system_setting.GetPasskeySettings().Enabled }
 	authenticatedUserID := func(c *gin.Context) (int, error) {
-		user, err := identityhttp.GetAuthenticatedUser(c)
+		user, err := identityhttp.GetAuthenticatedUser(accountstorage.SQL(), c)
 		if err != nil {
 			return 0, err
 		}
@@ -174,38 +182,54 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 	}
 	return IdentityHTTP{
 		Errors: errs,
-		GetOAuthBindings: get_oauth_bindings.NewHTTP(oauthadapter.Bindings{}, func(c *gin.Context) get_oauth_bindings.AdminReader {
-			return oauthadapter.Bindings{Role: func() int { return c.GetInt("role") }}
+		GetOAuthBindings: get_oauth_bindings.NewHTTP(oauthadapter.Bindings{Accounts: accountstorage.SQL(), SQL: identitystorage.SQL()}, func(c *gin.Context) get_oauth_bindings.AdminReader {
+			return oauthadapter.Bindings{Accounts: accountstorage.SQL(), SQL: identitystorage.SQL(), Role: func() int { return c.GetInt("role") }}
 		}),
 		UnlinkOAuthAccount: unlink_oauth_account.NewHTTP(middleware.GetSessionAuthIdentity, func(c *gin.Context, context []byte) bool {
 			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccountUnbind, Context: context}) != nil
 		}, func(input unlink_oauth_account.Input) unlink_oauth_account.Completion {
-			return &oauthunlink.UnlinkConfirmation{Identity: input.Identity, ProviderID: input.ProviderID, UnlinkFunc: identitycore.UnbindAccountOAuth, Notify: emailadapter.NotifyAccountSecurityChange}
+			return &oauthunlink.UnlinkConfirmation{Accounts: accountstorage.SQL(), Identity: input.Identity, ProviderID: input.ProviderID, UnlinkFunc: identitycore.UnbindAccountOAuth, Notify: emailadapter.NotifyAccountSecurityChange}
 		}, errs.WriteError, e.SecurityAudit),
 		AdminUnlinkOAuthAccount: admin_unlink_oauth_account.NewHTTP(func(c *gin.Context) admin_unlink_oauth_account.Operation {
-			return oauthadapter.Bindings{Role: func() int { return c.GetInt("role") }, ReadProviderID: func() (int, error) { return strconv.Atoi(c.Param("provider_id")) }}
+			return oauthadapter.Bindings{Accounts: accountstorage.SQL(), SQL: identitystorage.SQL(), Role: func() int { return c.GetInt("role") }, ReadProviderID: func() (int, error) { return strconv.Atoi(c.Param("provider_id")) }}
 		}),
-		LoginWeChat: login_wechat.NewHTTP(login_wechat.NewUsecase(), func() login_wechat.Completion { return &wechatadapter.Login{Complete: e.CompleteOAuthLogin} }),
+		LoginWeChat: login_wechat.NewHTTP(login_wechat.NewUsecase(), func() login_wechat.Completion {
+			return &wechatadapter.Login{InsertUser: accountscore.Insert, Accounts: accountstorage.SQL(), Complete: e.CompleteOAuthLogin}
+		}),
 		BindWeChat: bind_wechat.NewHTTP(middleware.GetSessionAuthIdentity, func(c *gin.Context, context []byte) bool {
 			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccountBind, Context: context}) != nil
 		}, func(input bind_wechat.Input) bind_wechat.Completion {
-			return &wechatadapter.Binding{Identity: input.Identity}
+			return &wechatadapter.Binding{Accounts: accountstorage.SQL(), SQL: identitystorage.SQL(), Identity: input.Identity}
 		}, errs.WriteError, e.SecurityAudit),
 		PasswordEncryptionKey: get_password_encryption_key.NewHTTP(passwordlogin.EncryptionKey{}),
-		PrimaryLogin:          identityhttp.PrimaryLogin{Usecase: complete_primary_login.NewUsecase(), Audit: e.LoginAudit, Profile: e.BuildProfile, Errors: errs},
+		PrimaryLogin: identityhttp.PrimaryLogin{
+			StartVerification:      identitycore.StartLoginVerification,
+			CreateSession:          identitycore.CreateLoginSession,
+			CreateSessionAtVersion: identitycore.CreateLoginSessionAtAuthVersion,
+			SQL:                    identitystorage.SQL(), Accounts: accountstorage.SQL(),
+			Usecase: complete_primary_login.NewUsecase(), Audit: e.LoginAudit, Profile: e.BuildProfile, Errors: errs,
+		},
 		CompleteOAuth: complete_oauth.NewHTTP(complete_oauth.NewUsecase(), func(c *gin.Context) complete_oauth.Completion {
-			return &oauthadapter.Callback{Context: c, Name: c.Param("provider"), Complete: e.CompleteOAuthLogin}
+			return &oauthadapter.Callback{
+				ValidateAuthorization: identitycore.ValidateFlowAuthorization,
+				ValidateIdentity:      validateIdentitySession,
+				FinishVerification:    identitycore.FinishOAuthVerification,
+				InsertUserWithTx:      accountscore.InsertWithTx,
+				FinalizeUser:          accountscore.FinalizeOAuthUserCreation,
+				Accounts:              accountstorage.SQL(), SQL: identitystorage.SQL(),
+				Context: c, Name: c.Param("provider"), Complete: e.CompleteOAuthLogin,
+			}
 		}, e.SecurityAudit, func(c *gin.Context, err error) { identityhttp.WriteOAuthError(c, err, errs.WriteError) }, errs.WriteError),
 		StartOAuthFlow: start_oauth_flow.NewHTTP(func(c *gin.Context, input *start_oauth_flow.Request) start_oauth_flow.Completion {
-			return &oauthadapter.Start{Context: c, Input: input}
+			return &oauthadapter.Start{ValidateIdentity: validateIdentitySession, BeginVerification: identitycore.StartOAuthVerification, SQL: identitystorage.SQL(), Context: c, Input: input}
 		}, e.SecurityAudit, errs.WriteError),
-		DeleteAccount: selfdelete.NewHTTP(accountsidentity.Deletion{}, proofIdentity(identitydomain.VerificationScopeAccountDelete), identityhttp.ClearRefreshCookie, errs.WriteError, e.SecurityAudit),
+		DeleteAccount: selfdelete.NewHTTP(accountsidentity.Deletion{Remove: accountscore.DeleteUserForSession}, proofIdentity(identitydomain.VerificationScopeAccountDelete), identityhttp.ClearRefreshCookie, errs.WriteError, e.SecurityAudit),
 		StartEmailBinding: start_email_binding.NewHTTP(middleware.GetSessionAuthIdentity, emailadapter.ValidateAccountEmail, func(c *gin.Context, context []byte) *identitydomain.FlowAuthorization {
 			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccountBind, Context: context})
 		}, identitycore.StartEmailBinding, errs.WriteError, e.SecurityAudit),
 		ResendEmailBinding: resend_email_binding.NewHTTP(middleware.GetSessionAuthIdentity, identitycore.ResendAccountEmailBinding, errs.WriteError, e.SecurityAudit),
 		ConfirmEmailBinding: confirm_email_binding.NewHTTP(middleware.GetSessionAuthIdentity, func(identity identitydomain.AuthIdentity, input confirm_email_binding.Request) confirm_email_binding.Completion {
-			return &emailadapter.Confirmation{Identity: identity, Token: input.FlowToken, NewCode: input.NewCode, OldCode: input.OldCode, Finish: identitycore.FinishEmailBinding, Notify: emailadapter.NotifyAccountSecurityChange}
+			return &emailadapter.Confirmation{Cache: accountstorage.Cache(), Identity: identity, Token: input.FlowToken, NewCode: input.NewCode, OldCode: input.OldCode, Finish: identitycore.FinishEmailBinding, Notify: emailadapter.NotifyAccountSecurityChange}
 		}, errs.WriteError, e.SecurityAudit),
 		BeginLoginPasskey: begin_login_passkey.NewHTTP(func(c *gin.Context, input begin_login_passkey.Request) begin_login_passkey.Completion {
 			op := newIdentityPasskeyCeremony(c, nil)
@@ -218,22 +242,22 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 			op.Metadata = func() (string, string) { return c.ClientIP(), c.Request.UserAgent() }
 			return op
 		}, e.CompleteVerifiedLogin, errs.WriteError),
-		GetTwoFAStatus:   get_twofa_status.NewHTTP(factors.TwoFAStatus{}, errs.WriteError),
-		GetTwoFAStats:    get_twofa_stats.NewHTTP(factors.TwoFAStats{}, errs.WriteError),
-		GetPasskeyStatus: get_passkey_status.NewHTTP(factors.PasskeyStatus{}, authenticatedUserID, errs.WriteError),
+		GetTwoFAStatus:   get_twofa_status.NewHTTP(factors.TwoFAStatus{SQL: identitystorage.SQL()}, errs.WriteError),
+		GetTwoFAStats:    get_twofa_stats.NewHTTP(factors.TwoFAStats{SQL: identitystorage.SQL()}, errs.WriteError),
+		GetPasskeyStatus: get_passkey_status.NewHTTP(factors.PasskeyStatus{SQL: identitystorage.SQL()}, authenticatedUserID, errs.WriteError),
 		DeletePasskey: delete_passkey.NewHTTP(authenticatedUserID, func(c *gin.Context) bool {
 			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopePasskeyDelete}) != nil
 		}, middleware.GetSessionAuthIdentity, func(input delete_passkey.Input) delete_passkey.Completion {
-			return &factors.DeletePasskey{Identity: input.Identity, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
+			return &factors.DeletePasskey{SQL: identitystorage.SQL(), Identity: input.Identity, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
 		}, errs.WriteError, e.SecurityAudit),
 		AdminDisableTwoFA: admin_disable_twofa.NewHTTP(func(c *gin.Context) admin_disable_twofa.Operation {
-			return factors.AdminTwoFA{Role: func() int { return c.GetInt("role") }}
+			return factors.AdminTwoFA{Accounts: accountstorage.SQL(), SQL: identitystorage.SQL(), Role: func() int { return c.GetInt("role") }}
 		}, e.ManageAudit, errs.WriteError),
 		AdminResetPasskey: admin_reset_passkey.NewHTTP(func(c *gin.Context) admin_reset_passkey.Operation {
-			return factors.AdminPasskey{Role: func() int { return c.GetInt("role") }}
+			return factors.AdminPasskey{Accounts: accountstorage.SQL(), SQL: identitystorage.SQL(), Role: func() int { return c.GetInt("role") }}
 		}, e.ManageAudit, errs.WriteError),
 		BeginPasskeyRegistration: begin_passkey_registration.NewHTTP(begin_passkey_registration.NewUsecase(), passkeyEnabled, func(c *gin.Context) (identitydomain.PasskeyAccount, begin_passkey_registration.CompletionFactory, error) {
-			user, err := identityhttp.GetAuthenticatedUser(c)
+			user, err := identityhttp.GetAuthenticatedUser(accountstorage.SQL(), c)
 			if err != nil {
 				return identitydomain.PasskeyAccount{}, nil, err
 			}
@@ -247,7 +271,7 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopePasskeyRegister})
 		}, errs.WriteError),
 		FinishPasskeyRegistration: finish_passkey_registration.NewHTTP(finish_passkey_registration.NewUsecase(), passkeyEnabled, func(c *gin.Context) (identitydomain.PasskeyAccount, finish_passkey_registration.CompletionFactory, error) {
-			user, err := identityhttp.GetAuthenticatedUser(c)
+			user, err := identityhttp.GetAuthenticatedUser(accountstorage.SQL(), c)
 			if err != nil {
 				return identitydomain.PasskeyAccount{}, nil, err
 			}
@@ -276,7 +300,7 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 			return op, nil
 		}, errs.WriteError),
 		BeginPasskeyVerification: begin_passkey_verification.NewHTTP(begin_passkey_verification.NewUsecase(), passkeyEnabled, func(c *gin.Context) (identitydomain.PasskeyAccount, begin_passkey_verification.CompletionFactory, error) {
-			user, err := identityhttp.GetAuthenticatedUser(c)
+			user, err := identityhttp.GetAuthenticatedUser(accountstorage.SQL(), c)
 			if err != nil {
 				return identitydomain.PasskeyAccount{}, nil, err
 			}
@@ -288,7 +312,7 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 			}, nil
 		}, errs.WriteError),
 		FinishPasskeyVerification: finish_passkey_verification.NewHTTP(finish_passkey_verification.NewUsecase(), passkeyEnabled, func(c *gin.Context) (identitydomain.PasskeyAccount, finish_passkey_verification.CompletionFactory, error) {
-			user, err := identityhttp.GetAuthenticatedUser(c)
+			user, err := identityhttp.GetAuthenticatedUser(accountstorage.SQL(), c)
 			if err != nil {
 				return identitydomain.PasskeyAccount{}, nil, err
 			}
@@ -316,10 +340,10 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 			return &factors.Enable{Identity: identity, FlowToken: input.FlowToken, Code: input.Code, Finish: identitycore.FinishTwoFASetup, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
 		}, errs.WriteError, e.SecurityAudit, identitytransport.RotationData),
 		DisableTwoFA: disable_twofa.NewHTTP(proofIdentity(identitydomain.VerificationScopeTwoFADisable), func(input disable_twofa.Input) disable_twofa.Completion {
-			return &factors.Disable{Identity: input.Identity, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
+			return &factors.Disable{SQL: identitystorage.SQL(), Identity: input.Identity, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
 		}, errs.WriteError, e.SecurityAudit, identitytransport.RotationData),
 		RegenerateBackupCodes: regenerate_backup_codes.NewHTTP(proofIdentity(identitydomain.VerificationScopeTwoFABackupCodes), func(input regenerate_backup_codes.Input) regenerate_backup_codes.Completion {
-			return &factors.BackupCodes{Identity: input.Identity, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
+			return &factors.BackupCodes{SQL: identitystorage.SQL(), Identity: input.Identity, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
 		}, errs.WriteError, e.SecurityAudit, identitytransport.RotationData),
 		VerificationRequirements: get_verification_requirements.NewHTTP(middleware.GetSessionAuthIdentity, identitycore.GetVerificationRequirements, errs.WriteError),
 		VerifySecurityInput:      verify_security_input.NewHTTP(middleware.GetSessionAuthIdentity, identitycore.VerifySecurityInput, errs.WriteError, e.SecurityAudit),
@@ -329,27 +353,43 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 				return refresh_session.Output{}, err
 			}
 			return refresh_session.Output{Bundle: bundle, Profile: func() map[string]any { return e.BuildProfile(user) }}, nil
-		}, identitydomain.RefreshCookieName, identityhttp.ClearRefreshCookie, identityhttp.WriteRefreshCookie, errs.WriteSessionError),
-		Logout:                logout.NewHTTP(sessionadapter.Logout{RefreshSIDFunc: sessionadapter.RefreshTokenSID, ParseAccessFunc: authtoken.ParseAccessToken, RevokeRefreshFunc: identitycore.RevokeByRefreshToken}, identitydomain.RefreshCookieName, identityhttp.ClearRefreshCookie, errs.WriteSessionError),
+		}, identitydomain.RefreshCookieName, identityhttp.ClearRefreshCookie, func(c *gin.Context, token string) { identityhttp.WriteRefreshCookie(identitystorage.SQL(), c, token) }, errs.WriteSessionError),
+		Logout:                logout.NewHTTP(sessionadapter.Logout{SQL: identitystorage.SQL(), RefreshSIDFunc: sessionadapter.RefreshTokenSID, ParseAccessFunc: authtoken.ParseAccessToken, RevokeRefreshFunc: identitycore.RevokeByRefreshToken}, identitydomain.RefreshCookieName, identityhttp.ClearRefreshCookie, errs.WriteSessionError),
 		ListSessions:          list_sessions.NewHTTP(management, middleware.GetSessionAuthIdentity, errs.WriteSessionError),
 		RevokeSession:         revoke_session.NewHTTP(management, middleware.GetSessionAuthIdentity, identitydomain.RefreshCookieName, sessionadapter.RefreshTokenSID, identityhttp.ClearRefreshCookie, errs.WriteSessionError),
 		RevokeOtherSessions:   revoke_other_sessions.NewHTTP(management, middleware.GetSessionAuthIdentity, errs.WriteSessionError),
-		RegisterPassword:      register_password.NewHTTP(func() bool { return common.RegisterEnabled }, func() bool { return common.PasswordRegisterEnabled }, registration.Operation{}),
-		PasswordLogin:         password_login.NewHTTP(func() bool { return common.PasswordLoginEnabled }, passwordlogin.Login{}, e.CompletePasswordLogin),
-		SendVerificationEmail: send_verification_email.NewHTTP(recovery.EmailVerification{}, errs.WriteError),
+		RegisterPassword:      register_password.NewHTTP(func() bool { return common.RegisterEnabled }, func() bool { return common.PasswordRegisterEnabled }, registration.Operation{FindInsertedUserID: accountstorage.SQL().FindInsertedUserID, InsertUser: accountscore.Insert, InsertToken: apikeystorage.Persistence().Insert, Accounts: accountstorage.SQL()}),
+		PasswordLogin:         password_login.NewHTTP(func() bool { return common.PasswordLoginEnabled }, passwordlogin.Login{ValidateAndFill: accountscore.ValidateAndFill}, e.CompletePasswordLogin),
+		SendVerificationEmail: send_verification_email.NewHTTP(recovery.EmailVerification{Accounts: accountstorage.SQL()}, errs.WriteError),
 		RequestPasswordReset: request_password_reset.NewHTTP(func(ctx context.Context) request_password_reset.PasswordResetEmailOperation {
-			return recovery.PasswordResetEmail{Context: ctx}
+			return recovery.PasswordResetEmail{Accounts: accountstorage.SQL(), Context: ctx}
 		}),
-		RecoverPassword: recover_password.NewHTTP(recovery.PasswordRecovery{}),
+		RecoverPassword: recover_password.NewHTTP(recovery.PasswordRecovery{Reset: accountscore.ResetUserPasswordByEmail}),
 	}
 }
 
 // newIdentityPasskeyCeremony binds request data to the once-built flow orchestration.
-func newIdentityPasskeyCeremony(c *gin.Context, user *model.User) *webauthnadapter.Ceremony {
+func newIdentityPasskeyCeremony(c *gin.Context, user *accountrecord.User) *webauthnadapter.Ceremony {
 	return &webauthnadapter.Ceremony{
+		ValidateAuthorization: identitycore.ValidateFlowAuthorization,
+		AdvanceSessionVersion: identitycore.AdvanceCurrentSessionToUserVersion,
+		BindVerification:      identitycore.BindVerificationOperation,
+		RequireVerification: func(identity identitydomain.AuthIdentity, scope, method string) error {
+			_, err := identitycore.RequireVerificationMethod(identity, scope, method)
+			return err
+		},
+		CompleteVerification:    identitycore.CompleteSecurityVerification,
+		LoadLoginVerification:   identitycore.RequireLoginVerification,
+		FinishLoginVerification: identitycore.CompleteLoginVerification,
+		Accounts:                accountstorage.SQL(), SQL: identitystorage.SQL(),
 		Request: c.Request, User: user,
 		IdentityReader:        func() (identitydomain.AuthIdentity, bool) { return middleware.GetSessionAuthIdentity(c) },
 		CreateSessionDataFlow: identitycore.CreateSessionDataFlow,
 		PopSessionDataFlow:    identitycore.PopSessionDataFlow,
 	}
+}
+
+func validateIdentitySession(identity identitydomain.AuthIdentity) error {
+	_, _, err := identitycore.ValidateLoginSession(identity)
+	return err
 }

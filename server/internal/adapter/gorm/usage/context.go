@@ -3,8 +3,6 @@ package usage
 import (
 	"context"
 	"encoding/json"
-
-	"github.com/QuantumNous/new-api/model"
 )
 
 // logMetadata contains storage-only data, never business policy.
@@ -26,21 +24,21 @@ func WithLogMetadata(ctx context.Context, details []byte, affinity map[string]an
 
 type observationContext struct {
 	context.Context
-	observation model.LogObservation
+	observation LogObservation
 }
 
-func WithRequestObservation(ctx context.Context, observation model.LogObservation) context.Context {
+func WithRequestObservation(ctx context.Context, observation LogObservation) context.Context {
 	return observationContext{Context: ctx, observation: observation}
 }
 
-func recordingObservation(ctx context.Context) (model.LogObservation, logMetadata, error) {
+func recordingObservation(ctx context.Context) (LogObservation, logMetadata, error) {
 	metadata, wrapped := ctx.(recordingContext)
 	if wrapped {
 		ctx = metadata.Context
 	}
 	observed, ok := ctx.(observationContext)
 	if !ok || observed.observation.Identity == nil || observed.observation.ClientIP == nil {
-		return model.LogObservation{}, metadata.metadata, errGatewayContext
+		return LogObservation{}, metadata.metadata, errGatewayContext
 	}
 	return observed.observation, metadata.metadata, nil
 }

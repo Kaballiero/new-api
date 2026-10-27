@@ -21,6 +21,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/app/dbclock"
+	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -82,7 +84,7 @@ func TestSubscriptionMaintenanceContract(t *testing.T) {
 		return strconv.FormatInt(epoch, 10), nil
 	}))
 	// Initialize janitors outside the synctest bubble; the production cache is process-local.
-	model.InvalidateSubscriptionPlanCache(71)
+	subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(71)
 	// InitDB initializes dialect-dependent column names that direct gorm.Open does not set.
 	previousDB, previousPath := model.DB, common.SQLitePath
 	t.Setenv("SQL_DSN", "")
@@ -117,7 +119,7 @@ func TestSubscriptionMaintenanceContract(t *testing.T) {
 		var actual int64
 		require.NoError(t, db.Raw("SELECT strftime('%s','now')").Scan(&actual).Error)
 		require.Equal(t, epoch, actual)
-		require.Equal(t, epoch, model.GetDBTimestamp())
+		require.Equal(t, epoch, dbclock.Now())
 		require.GreaterOrEqual(t, clockCalls, 2)
 		require.NoError(t, db.Create(&model.User{Id: 1, Username: "maintenance-user", Group: "pro", AuthVersion: 3}).Error)
 		plan := model.SubscriptionPlan{Id: 71, Title: "Maintenance plan", DurationUnit: "month", DurationValue: 1, Enabled: true, TotalAmount: 100,

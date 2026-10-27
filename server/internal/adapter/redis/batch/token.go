@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	keycache "github.com/QuantumNous/new-api/internal/adapter/cache/apikeys"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/model"
 )
@@ -26,7 +27,7 @@ local quota=tonumber(redis.call('HGET',KEYS[1],'RemainQuota'))
 if not quota then return 0 end
 if ARGV[7] ~= 'true' and quota < tonumber(ARGV[4]) then return -2 end
 return 1`
-	result, err := common.RDB.Eval(context.Background(), script, []string{model.GetTokenCacheKey(token.Key), model.GetTokenCacheFenceKey(token.Key)},
+	result, err := common.RDB.Eval(context.Background(), script, []string{keycache.GetTokenCacheKey(token.Key), keycache.GetTokenCacheFenceKey(token.Key)},
 		token.Id, token.UserId, token.BatchQuotaVersion, token.BatchHeldQuota, token.Status,
 		token.ExpiredTime, strconv.FormatBool(token.UnlimitedQuota)).Int()
 	if err != nil {

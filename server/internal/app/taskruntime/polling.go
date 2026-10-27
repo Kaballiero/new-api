@@ -12,6 +12,8 @@ import (
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	taskhttp "github.com/QuantumNous/new-api/internal/adapter/http/tasks"
 	effects "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/poll_midjourney_tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/poll_tasks"
@@ -28,7 +30,7 @@ type Polling struct {
 }
 
 func NewPolling() *Polling {
-	store := taskstore.NewStore(func() *gorm.DB { return model.DB })
+	store := taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache())
 	billing := tasksapp.NewBilling()
 	diagnostics := effects.Diagnostics{}
 	codec := effects.Codec{}
@@ -38,9 +40,9 @@ func NewPolling() *Polling {
 			billing, tasksapp.NewReconciler(), codec, diagnostics, poll_tasks.Limits{
 				TimeoutMinutes: func() int { return constant.TaskTimeoutMinutes }, QueryLimit: func() int { return constant.TaskQueryLimit },
 				MaxFailures: func() int { return constant.TaskPollMaxFailures },
-			}, time.Now, gopool.Go, taskcommon.BuildProxyURL, effects.TaskText{}),
+			}, time.Now, gopool.Go, taskcommon.BuildProxyURL, taskbillingruntime.Text()),
 		midjourney: poll_midjourney_tasks.NewUsecase(taskstore.MidjourneyPollingStore{Store: store}, effects.MidjourneyChannels{},
-			taskhttp.MidjourneyPollClient{}, codec, billing, diagnostics, time.Now, effects.TaskText{}),
+			taskhttp.MidjourneyPollClient{}, codec, billing, diagnostics, time.Now, taskbillingruntime.Text()),
 	}
 }
 

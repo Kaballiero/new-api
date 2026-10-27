@@ -72,8 +72,3 @@ func Credit(tx *gorm.DB, userId int, creditedQuota int, updates map[string]any) 
 	}
 	return ErrQuotaLimit
 }
-
-// Sync credits the existing cache only after the caller's database commit.
-func Sync(userID, quota int, operation string) {
-	model.SyncCreditUserQuotaCache(userID, quota, operation)
-}

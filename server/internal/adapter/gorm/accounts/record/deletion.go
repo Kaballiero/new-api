@@ -17,7 +17,7 @@ func (op SoftDeletionOperation) UserID() int { return op.user.Id }
 func (op SoftDeletionOperation) Transaction(run func(delete_account.SoftDeletionTx) error) error {
 	return op.deps.DB().Transaction(func(tx *gorm.DB) error { return run(softDeletionTx{user: op.user, tx: tx, deps: op.deps}) })
 }
-func (op SoftDeletionOperation) RootDeletionError() error { return op.deps.RootError() }
+func (op SoftDeletionOperation) RootDeletionError() error { return op.deps.RootError }
 func (op SoftDeletionOperation) PublishAuthVersion(version int64) error {
 	return op.deps.Publish(op.user.Id, version)
 }
@@ -114,7 +114,7 @@ func (m hardDeletionTx) DeleteAccountPermanently() error {
 
 type SoftDeletionDependencies struct {
 	DB              func() *gorm.DB
-	RootError       func() error
+	RootError       error
 	Publish         func(int, int64) error
 	Revoke          func(int, string) (int64, error)
 	Invalidate      func(int) error
@@ -127,7 +127,7 @@ func NewSoftDeletionOperation(user *User, deps SoftDeletionDependencies) SoftDel
 }
 
 type HardDeletionDependencies struct {
-	Conflict                                                            func() error
+	Conflict                                                            error
 	DB                                                                  func() *gorm.DB
 	Lock                                                                func(*gorm.DB) *gorm.DB
 	Publish                                                             func(int, int64) error
@@ -143,4 +143,4 @@ func NewHardDeletionOperation(user *User, deps HardDeletionDependencies) *HardDe
 	return &HardDeletionOperation{user: user, deps: deps}
 }
 
-func (op *HardDeletionOperation) FinancialConflictError() error { return op.deps.Conflict() }
+func (op *HardDeletionOperation) FinancialConflictError() error { return op.deps.Conflict }

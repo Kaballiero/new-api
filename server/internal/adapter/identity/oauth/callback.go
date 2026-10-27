@@ -3,27 +3,41 @@ package oauthadapter
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
-	"github.com/QuantumNous/new-api/internal/app/identitycore"
+	"github.com/QuantumNous/new-api/internal/adapter/identity/verification"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Callback struct {
-	Complete func(*model.User, *gin.Context)
+	ValidateAuthorization func(domain.AuthIdentity, domain.VerificationOperation, *domain.FlowAuthorization) error
+	ValidateIdentity      func(domain.AuthIdentity) error
+	FinishVerification    func(domain.AuthIdentity, string, string, *verification.OAuthVerificationFlow) (*dto.SecurityProof, error)
+	InsertUserWithTx      func(*accountrecord.User, *gorm.DB, int) error
+	FinalizeUser          func(*accountrecord.User, int, string)
+
+	Accounts accountstore.Store
+
+	SQL identitystore.Store
+
+	Complete func(*accountrecord.User, *gin.Context)
 	*Account
 	Context                  *gin.Context
 	Name                     string
 	provider                 oauth.Provider
 	state                    string
-	pending, flow            *model.AuthFlow
-	match                    model.AuthFlowMatch
+	pending, flow            *identityrecord.AuthFlow
+	match                    identitystore.AuthFlowMatch
 	identity                 domain.AuthIdentity
 	payload, telegramPayload FlowPayload
 	token                    *oauth.OAuthToken
@@ -38,10 +52,10 @@ func (op *Callback) ProviderKnown() bool {
 func (op *Callback) LoadPending() error {
 	op.state = op.Context.Query("state")
 	var err error
-	op.pending, err = model.GetAuthFlow(op.state, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeOAuth, Provider: op.Name})
+	op.pending, err = op.SQL.GetAuthFlow(op.state, identitystore.AuthFlowMatch{Purpose: domain.AuthFlowPurposeOAuth, Provider: op.Name})
 	if err == nil {
 		op.loaded = true
-		op.match = model.AuthFlowMatch{Purpose: model.AuthFlowPurposeOAuth, Provider: op.Name, Intent: op.pending.Intent}
+		op.match = identitystore.AuthFlowMatch{Purpose: domain.AuthFlowPurposeOAuth, Provider: op.Name, Intent: op.pending.Intent}
 	}
 	return err
 }
@@ -60,13 +74,13 @@ func (op *Callback) ValidateBindingAuthorization() error {
 	if err != nil {
 		return err
 	}
-	return identitycore.ValidateFlowAuthorization(op.identity, domain.VerificationOperation{Scope: domain.VerificationScopeAccountBind, Context: context}, op.payload.Authorization)
+	return op.ValidateAuthorization(op.identity, domain.VerificationOperation{Scope: domain.VerificationScopeAccountBind, Context: context}, op.payload.Authorization)
 }
 func (op *Callback) IsTelegram() bool             { return op.Name == "telegram" }
 func (op *Callback) TelegramConfiguration() error { return oauth.TelegramConfigurationError() }
 func (op *Callback) DecodeTelegram() error {
 	if err := common.UnmarshalJsonStr(op.pending.Payload, &op.telegramPayload); err != nil || op.telegramPayload.Telegram == nil {
-		return model.ErrAuthFlowInvalid
+		return domain.ErrAuthFlowInvalid
 	}
 	return nil
 }
@@ -75,8 +89,7 @@ func (op *Callback) ReadTelegramIdentity() bool {
 	return op.telegramPayload.SessionIdentity != nil && *op.telegramPayload.SessionIdentity == op.identity
 }
 func (op *Callback) ValidateSession() error {
-	_, _, err := identitycore.ValidateLoginSession(op.identity)
-	return err
+	return op.ValidateIdentity(op.identity)
 }
 func (op *Callback) CaptureTelegramContext() {
 	op.Context.Set(oauth.TelegramOAuthFlowContextKey, op.telegramPayload.Telegram)
@@ -93,7 +106,7 @@ func (op *Callback) ProviderErrorDescription(code string) string {
 }
 func (op *Callback) ConsumeFlow() error {
 	var err error
-	op.flow, err = model.ConsumeAuthFlow(op.state, op.match)
+	op.flow, err = op.SQL.ConsumeAuthFlow(op.state, op.match)
 	return err
 }
 func (op *Callback) ExchangeCode() error {
@@ -105,7 +118,7 @@ func (op *Callback) ExchangeCode() error {
 func (op *Callback) ReadProviderUser() error {
 	user, err := op.provider.GetUserInfo(op.Context.Request.Context(), op.token)
 	if err == nil {
-		op.Account = &Account{Provider: op.provider, OAuthUser: user, User: &model.User{}, Lang: i18n.GetLangFromContext(op.Context)}
+		op.Account = &Account{SQL: op.SQL, Accounts: op.Accounts, InsertUserWithTx: op.InsertUserWithTx, FinalizeUser: op.FinalizeUser, Provider: op.provider, OAuthUser: user, User: &accountrecord.User{}, Lang: i18n.GetLangFromContext(op.Context)}
 	}
 	return err
 }
@@ -118,7 +131,7 @@ func (op *Callback) AccountEnabled() bool  { return op.User.Status == common.Use
 func (op *Callback) VerifyBoundAccount() error {
 	op.identity, _ = middleware.GetSessionAuthIdentity(op.Context)
 	var err error
-	op.proof, err = identitycore.FinishOAuthVerification(op.identity, op.Name, op.OAuthUser.ProviderUserID, op.payload.Verification)
+	op.proof, err = op.FinishVerification(op.identity, op.Name, op.OAuthUser.ProviderUserID, op.payload.Verification)
 	return err
 }
 func (op *Callback) ReadBindingIdentity() bool {
@@ -128,7 +141,7 @@ func (op *Callback) ReadBindingIdentity() bool {
 }
 func (op *Callback) DecodeBindingPayload() error {
 	if err := common.UnmarshalJsonStr(op.pending.Payload, &op.payload); err != nil {
-		return model.ErrAuthFlowInvalid
+		return domain.ErrAuthFlowInvalid
 	}
 	return nil
 }
@@ -140,27 +153,27 @@ func (op *Callback) LegacyUserTaken() bool {
 	return ok && legacy != "" && op.provider.IsUserIDTaken(legacy)
 }
 func (op *Callback) CommitBinding() error {
-	_, err := model.ConsumeAuthFlowWithAction(op.state, op.match, func(tx *gorm.DB, _ *model.AuthFlow) error {
+	_, err := op.SQL.ConsumeAuthFlowWithAction(op.state, op.match, func(tx *gorm.DB, _ *identityrecord.AuthFlow) error {
 		if op.Name == "telegram" {
-			return model.BindTelegramForSessionWithTx(tx, op.identity, op.OAuthUser.ProviderUserID)
+			return op.SQL.BindTelegramForSessionWithTx(tx, op.identity, op.OAuthUser.ProviderUserID)
 		}
 		if provider, ok := op.provider.(*oauth.GenericOAuthProvider); ok {
-			return model.UpdateUserOAuthBindingForSessionWithTx(tx, op.identity, provider.GetProviderId(), op.OAuthUser.ProviderUserID)
+			return op.SQL.UpdateUserOAuthBindingForSessionWithTx(tx, op.identity, provider.GetProviderId(), op.OAuthUser.ProviderUserID)
 		}
-		return model.UpdateUserBindColumnForSessionWithTx(tx, op.identity, op.provider.ProviderUserIDColumn(), op.OAuthUser.ProviderUserID)
+		return op.SQL.UpdateUserBindColumnForSessionWithTx(tx, op.identity, op.provider.ProviderUserIDColumn(), op.OAuthUser.ProviderUserID)
 	})
 	return err
 }
 func (op *Callback) LoadBoundAccount() error {
 	var err error
-	op.Account.User, err = model.GetUserById(op.identity.UserID, false)
+	op.Account.User, err = op.Accounts.GetUserById(op.identity.UserID, false)
 	return err
 }
 func (op *Callback) NotifyBoundAccount() bool {
 	return emailadapter.NotifyAccountSecurityChange(op.User.Email, "Login account linked: "+op.provider.GetName()) != nil
 }
 func (op *Callback) BindingAudit() (bool, int) {
-	if !op.loaded || op.pending.Intent != model.AuthFlowIntentBind {
+	if !op.loaded || op.pending.Intent != domain.AuthFlowIntentBind {
 		return false, 0
 	}
 	return true, op.pending.UserId

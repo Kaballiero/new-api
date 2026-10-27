@@ -1,17 +1,19 @@
 package verification
 
 import (
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"sort"
 
 	"github.com/QuantumNous/new-api/internal/identity/get_verification_requirements"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/oauth"
 )
 
-func OAuthProviders(user *model.User) ([]get_verification_requirements.VerificationOAuthProvider, error) {
+func OAuthProviders(sql identitystore.Store, user *accountrecord.User) ([]get_verification_requirements.VerificationOAuthProvider, error) {
 	bindings := map[int]string{}
 	if len(oauth.GetEnabledCustomProviders()) > 0 {
-		stored, err := model.GetUserOAuthBindingsByUserId(user.Id)
+		stored, err := sql.GetUserOAuthBindingsByUserId(user.Id)
 		if err != nil {
 			return nil, err
 		}

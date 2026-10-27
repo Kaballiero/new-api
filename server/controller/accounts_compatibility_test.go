@@ -1,6 +1,25 @@
 package controller
 
 import (
+	get_checkin_status "github.com/QuantumNous/new-api/internal/accounts/get_checkin_status"
+	"github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
+
+	checkinsettings "github.com/QuantumNous/new-api/internal/adapter/settings/checkin"
+
+	check_in "github.com/QuantumNous/new-api/internal/accounts/check_in"
+
+	provision_account "github.com/QuantumNous/new-api/internal/accounts/provision_account"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	batchstate "github.com/QuantumNous/new-api/pkg/batchstate"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
+	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
+
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
+
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -27,7 +46,7 @@ import (
 func TestAccountsPersistenceCompatibility(t *testing.T) {
 	db := setupManageUserTestDB(t)
 	for range 2 {
-		require.NoError(t, db.AutoMigrate(&model.Checkin{}, &model.Token{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.PasskeyCredential{}, &model.AuthFlow{}, &model.UserOAuthBinding{}, &model.BatchJob{}))
+		require.NoError(t, db.AutoMigrate(&model.Checkin{}, &model.Token{}, &identityrecord.TwoFA{}, &identityrecord.TwoFABackupCode{}, &identityrecord.PasskeyCredential{}, &identityrecord.AuthFlow{}, &identityrecord.UserOAuthBinding{}, &model.BatchJob{}))
 	}
 	oldNew, oldInvitee, oldInviter, oldUnit := common.QuotaForNewUser, common.QuotaForInvitee, common.QuotaForInviter, common.QuotaPerUnit
 	oldPayment, oldCheckin := *operation_setting.GetPaymentSetting(), *operation_setting.GetCheckinSetting()
@@ -42,7 +61,7 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 	inviter := model.User{Username: "contract-inviter", Password: "hash", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AffCode: "contract-inviter"}
 	require.NoError(t, db.Create(&inviter).Error)
 	user := model.User{Username: "contract-account", Password: "contract-password", Email: " CONTRACT@example.com ", Role: common.RoleCommonUser, InviterId: inviter.Id}
-	require.NoError(t, user.Insert(inviter.Id, i18n.LangRu))
+	require.NoError(t, accountscore.Insert(&user, inviter.Id, i18n.LangRu))
 	require.NoError(t, db.First(&user, user.Id).Error)
 	var userLogs, inviterLogs []string
 	require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("user_id = ?", user.Id).Order("id").Pluck("content", &userLogs).Error)
@@ -59,11 +78,11 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 
 	t.Run("update omits zero group and preserves accounting", func(t *testing.T) {
 		require.NoError(t, db.Model(&user).Updates(map[string]any{"quota": 1000, "used_quota": 20, "access_token": "0123456789abcdef0123456789abcdef", "group": "default"}).Error)
-		before, err := model.GetUserById(user.Id, true)
+		before, err := accountstorage.SQL().GetUserById(user.Id, true)
 		require.NoError(t, err)
 		partial := model.User{Id: user.Id, DisplayName: "Updated"}
-		require.NoError(t, partial.Update(false))
-		after, err := model.GetUserById(user.Id, true)
+		require.NoError(t, accountscore.Update(&partial, false))
+		after, err := accountstorage.SQL().GetUserById(user.Id, true)
 		require.NoError(t, err)
 		assert.Equal(t, "default", after.Group)
 		assert.Equal(t, 1000, after.Quota)
@@ -71,8 +90,8 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 		assert.Equal(t, "0123456789abcdef0123456789abcdef", after.GetAccessToken())
 		assert.Equal(t, before.AuthVersion, after.AuthVersion)
 		edit := model.User{Id: user.Id, Username: user.Username, DisplayName: "Edited", Group: ""}
-		require.NoError(t, edit.Edit(false))
-		after, err = model.GetUserById(user.Id, true)
+		require.NoError(t, accountscore.Edit(&edit, false))
+		after, err = accountstorage.SQL().GetUserById(user.Id, true)
 		require.NoError(t, err)
 		assert.Empty(t, after.Group)
 		assert.Greater(t, after.AuthVersion, before.AuthVersion)
@@ -80,11 +99,11 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 	})
 	t.Run("affiliate transfer commits both balances", func(t *testing.T) {
 		require.NoError(t, db.Model(&user).Updates(map[string]any{"quota": 1000, "aff_quota": 100}).Error)
-		require.NoError(t, user.TransferAffQuotaToQuota(20))
+		require.NoError(t, accountscore.TransferAffQuotaToQuota(&user, 20))
 		require.NoError(t, db.First(&user, user.Id).Error)
 		assert.Equal(t, 1020, user.Quota)
 		assert.Equal(t, 80, user.AffQuota)
-		require.Error(t, user.TransferAffQuotaToQuota(90))
+		require.Error(t, accountscore.TransferAffQuotaToQuota(&user, 90))
 		require.NoError(t, db.First(&user, user.Id).Error)
 		assert.Equal(t, 1020, user.Quota)
 		assert.Equal(t, 80, user.AffQuota)
@@ -93,16 +112,16 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 		*operation_setting.GetCheckinSetting() = operation_setting.CheckinSetting{Enabled: true, MinQuota: 7, MaxQuota: 7}
 		require.NoError(t, db.First(&user, user.Id).Error)
 		before := user.Quota
-		record, err := model.UserCheckin(user.Id)
+		record, err := check_in.NewUsecase(accountscore.NewCheckinStore(), checkinsettings.Current).Execute(user.Id)
 		require.NoError(t, err)
 		assert.Equal(t, 7, record.QuotaAwarded)
-		_, err = model.UserCheckin(user.Id)
+		_, err = check_in.NewUsecase(accountscore.NewCheckinStore(), checkinsettings.Current).Execute(user.Id)
 		require.Error(t, err)
 		require.NoError(t, db.First(&user, user.Id).Error)
 		assert.Equal(t, before+7, user.Quota)
-		stats, err := model.GetUserCheckinStats(user.Id, time.Now().Format("2006-01"))
+		stats, err := get_checkin_status.NewUsecase(accountscore.NewCheckinStore()).Execute(user.Id, time.Now().Format("2006-01"))
 		require.NoError(t, err)
-		history, ok := stats["records"].([]model.CheckinRecord)
+		history, ok := stats["records"].([]accountdomain.CheckinRecord)
 		require.True(t, ok, "existing Go callers must retain the public history record type")
 		require.Len(t, history, 1)
 		assert.Equal(t, 7, history[0].QuotaAwarded)
@@ -115,7 +134,7 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 				tx.AddError(errors.New("credit unavailable"))
 			}
 		}))
-		_, err = model.UserCheckin(failing.Id)
+		_, err = check_in.NewUsecase(accountscore.NewCheckinStore(), checkinsettings.Current).Execute(failing.Id)
 		require.NoError(t, db.Callback().Update().Remove("accounts_fail_credit"))
 		require.Error(t, err)
 		var count int64
@@ -123,18 +142,18 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 		assert.Zero(t, count)
 	})
 	t.Run("replaced provisioning errors and username conflict stay live", func(t *testing.T) {
-		invalid, conflict, taken := model.ErrGetAPIInvalidRequest, model.ErrGetAPICreateConflict, model.ErrUsernameAlreadyTaken
+		invalid, conflict, taken := accountdomain.ErrGetAPIInvalidRequest, accountdomain.ErrGetAPICreateConflict, accountdomain.ErrUsernameAlreadyTaken
 		t.Cleanup(func() {
-			model.ErrGetAPIInvalidRequest, model.ErrGetAPICreateConflict, model.ErrUsernameAlreadyTaken = invalid, conflict, taken
+			accountdomain.ErrGetAPIInvalidRequest, accountdomain.ErrGetAPICreateConflict, accountdomain.ErrUsernameAlreadyTaken = invalid, conflict, taken
 		})
-		model.ErrGetAPIInvalidRequest = errors.New("replacement invalid")
-		model.ErrGetAPICreateConflict = errors.New("replacement conflict")
-		model.ErrUsernameAlreadyTaken = errors.New("replacement username")
+		accountdomain.ErrGetAPIInvalidRequest = errors.New("replacement invalid")
+		accountdomain.ErrGetAPICreateConflict = errors.New("replacement conflict")
+		accountdomain.ErrUsernameAlreadyTaken = errors.New("replacement username")
 		negative := -1
-		_, err := model.ProvisionGetAPIUser(common.RoleRootUser, model.GetAPICreateUserRequest{Username: "negative", Password: "contract-password", InitialQuota: &negative})
-		assert.ErrorIs(t, err, model.ErrGetAPIInvalidRequest)
-		_, err = model.ProvisionGetAPIUser(common.RoleRootUser, model.GetAPICreateUserRequest{Username: user.Username, Password: "contract-password"})
-		assert.ErrorIs(t, err, model.ErrGetAPICreateConflict)
+		_, err := accountscore.NewProvision(accountscore.GenerateDefaultSidebarConfigForRole).Execute(common.RoleRootUser, provision_account.GetAPICreateUserRequest{Username: "negative", Password: "contract-password", InitialQuota: &negative})
+		assert.ErrorIs(t, err, accountdomain.ErrGetAPIInvalidRequest)
+		_, err = accountscore.NewProvision(accountscore.GenerateDefaultSidebarConfigForRole).Execute(common.RoleRootUser, provision_account.GetAPICreateUserRequest{Username: user.Username, Password: "contract-password"})
+		assert.ErrorIs(t, err, accountdomain.ErrGetAPICreateConflict)
 		ctx, response := newRestContext(t, http.MethodPut, "/api/user/", map[string]any{"id": inviter.Id, "username": user.Username}, nil, common.RoleRootUser)
 		UpdateUser(ctx)
 		assert.Equal(t, http.StatusConflict, response.Code)
@@ -147,11 +166,11 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 			quota *int
 			want  int
 		}{{"quota-default", nil, 50}, {"quota-zero", &zero, 0}} {
-			result, err := model.ProvisionGetAPIUser(common.RoleRootUser, model.GetAPICreateUserRequest{Username: tc.name, Password: "contract-password", InitialQuota: tc.quota})
+			result, err := accountscore.NewProvision(accountscore.GenerateDefaultSidebarConfigForRole).Execute(common.RoleRootUser, provision_account.GetAPICreateUserRequest{Username: tc.name, Password: "contract-password", InitialQuota: tc.quota})
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, result.InitialQuota)
 			assert.Len(t, result.AccessToken, 32)
-			saved, err := model.GetUserById(result.UserID, true)
+			saved, err := accountstorage.SQL().GetUserById(result.UserID, true)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, saved.Quota)
 			assert.Equal(t, result.AccessToken, saved.GetAccessToken())
@@ -197,10 +216,80 @@ func TestAccountsPersistenceCompatibility(t *testing.T) {
 		}
 	})
 
+	t.Run("PAT initialization preserves persisted credential and account balances", func(t *testing.T) {
+		target := model.User{Username: "pat-persistence", AffCode: "pat-persistence", Password: "hash", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 321, UsedQuota: 9, RequestCount: 4, AuthVersion: 3}
+		require.NoError(t, db.Create(&target).Error)
+		request := initialize_pat.Input{UserID: target.Id, ExpectedUsername: target.Username}
+		result, err := accountscore.InitializePAT().Execute(request)
+		require.NoError(t, err)
+		assert.Equal(t, "would_issue", result.Outcome)
+		assert.Nil(t, result.AccessToken)
+		require.NoError(t, db.First(&target, target.Id).Error)
+		assert.Nil(t, target.AccessToken)
+		assert.Nil(t, target.AccessTokenCreatedAt)
+		request.Apply = true
+		result, err = accountscore.InitializePAT().Execute(request)
+		require.NoError(t, err)
+		assert.Equal(t, "issued", result.Outcome)
+		require.NotNil(t, result.AccessToken)
+		issued := *result.AccessToken
+		assert.Len(t, issued, 32)
+		result, err = accountscore.InitializePAT().Execute(request)
+		require.NoError(t, err)
+		assert.Equal(t, "reused", result.Outcome)
+		require.NotNil(t, result.AccessToken)
+		assert.Equal(t, issued, *result.AccessToken)
+		require.NoError(t, db.First(&target, target.Id).Error)
+		assert.Equal(t, issued, target.GetAccessToken())
+		require.NotNil(t, target.AccessTokenCreatedAt)
+		assert.Positive(t, *target.AccessTokenCreatedAt)
+		assert.Equal(t, 321, target.Quota)
+		assert.Equal(t, 9, target.UsedQuota)
+		assert.Equal(t, 4, target.RequestCount)
+		assert.Equal(t, int64(3), target.AuthVersion)
+		blocked := model.User{Username: "pat-blocked", AffCode: "pat-blocked", Password: "hash", Role: common.RoleCommonUser, Status: common.UserStatusDisabled}
+		require.NoError(t, db.Create(&blocked).Error)
+		result, err = accountscore.InitializePAT().Execute(initialize_pat.Input{UserID: blocked.Id, ExpectedUsername: blocked.Username, Apply: true})
+		require.NoError(t, err)
+		assert.Equal(t, "blocked", result.State)
+		assert.Equal(t, "blocked_no_pat", result.Outcome)
+		assert.Nil(t, result.AccessToken)
+		require.NoError(t, db.First(&blocked, blocked.Id).Error)
+		assert.Nil(t, blocked.AccessToken)
+		assert.Nil(t, blocked.AccessTokenCreatedAt)
+	})
+	t.Run("PAT post-update failure rolls back token and timestamp", func(t *testing.T) {
+		target := model.User{Username: "pat-rollback", AffCode: "pat-rollback", Password: "hash", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 123, AuthVersion: 5}
+		require.NoError(t, db.Create(&target).Error)
+		forced := errors.New("forced PAT save failure")
+		hits := 0
+		var priorError error
+		var affected int64
+		require.NoError(t, db.Callback().Update().After("gorm:update").Register("pat_save_rollback", func(tx *gorm.DB) {
+			values, ok := tx.Statement.Dest.(map[string]any)
+			if ok && tx.Statement.Table == "users" && values["access_token"] != nil {
+				hits++
+				priorError, affected = tx.Error, tx.RowsAffected
+				tx.AddError(forced)
+			}
+		}))
+		t.Cleanup(func() { require.NoError(t, db.Callback().Update().Remove("pat_save_rollback")) })
+		_, err := accountscore.InitializePAT().Execute(initialize_pat.Input{UserID: target.Id, ExpectedUsername: target.Username, Apply: true})
+		require.ErrorIs(t, err, accountdomain.ErrGetAPICredentialUnavailable)
+		require.Equal(t, 1, hits)
+		require.NoError(t, priorError)
+		require.EqualValues(t, 1, affected)
+		require.NoError(t, db.First(&target, target.Id).Error)
+		assert.Nil(t, target.AccessToken)
+		assert.Nil(t, target.AccessTokenCreatedAt)
+		assert.Equal(t, 123, target.Quota)
+		assert.Equal(t, int64(5), target.AuthVersion)
+	})
+
 	t.Run("hard delete retains unresolved financial owner", func(t *testing.T) {
 		job := model.BatchJob{UserID: user.Id, ReservedQuota: 1, BillingStatus: "unknown", PurchaseStatus: "unknown"}
 		require.NoError(t, db.Create(&job).Error)
-		require.ErrorIs(t, user.HardDelete(), model.ErrBatchConflict)
+		require.ErrorIs(t, accountscore.HardDelete(&user), batchstate.ErrConflict)
 		require.NoError(t, db.First(&user, user.Id).Error)
 	})
 }

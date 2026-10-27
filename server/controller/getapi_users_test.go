@@ -1,6 +1,14 @@
 package controller
 
 import (
+	provision_account "github.com/QuantumNous/new-api/internal/accounts/provision_account"
+
+	initialize_pat "github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
+
+	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
+
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
+
 	"errors"
 	"fmt"
 	"net/http"
@@ -65,7 +73,7 @@ func TestGetAPICustomCreateAndInitializeRetainsPAT(t *testing.T) {
 	assert.Equal(t, http.StatusOK, apply.Code)
 	assert.Contains(t, apply.Body.String(), old)
 	user := model.User{Id: env.Data.UserID, Status: common.UserStatusDisabled}
-	require.NoError(t, user.Update(false))
+	require.NoError(t, accountscore.Update(&user, false))
 	blocked := req(fmt.Sprintf("/api/getapi/users/%d/pat", user.Id), `{"expected_username":"retain-user","apply":true}`, "", "")
 	assert.Equal(t, http.StatusOK, blocked.Code)
 	assert.Contains(t, blocked.Body.String(), old)
@@ -269,35 +277,35 @@ func TestGetAPIInitializePATMatrixAndErrors(t *testing.T) {
 	require.NoError(t, model.DB.Create(&active).Error)
 	require.NoError(t, model.DB.Create(&blocked).Error)
 	require.NoError(t, model.DB.Create(&admin).Error)
-	dry, err := model.InitializeGetAPIPAT(model.GetAPIInitializePATRequest{UserID: active.Id, ExpectedUsername: active.Username})
+	dry, err := accountscore.InitializePAT().Execute(initialize_pat.Input{UserID: active.Id, ExpectedUsername: active.Username})
 	require.NoError(t, err)
 	assert.Equal(t, "would_issue", dry.Outcome)
 	assert.Nil(t, dry.AccessToken)
-	issued, err := model.InitializeGetAPIPAT(model.GetAPIInitializePATRequest{UserID: active.Id, ExpectedUsername: active.Username, Apply: true})
+	issued, err := accountscore.InitializePAT().Execute(initialize_pat.Input{UserID: active.Id, ExpectedUsername: active.Username, Apply: true})
 	require.NoError(t, err)
 	assert.Equal(t, "issued", issued.Outcome)
 	require.NotNil(t, issued.AccessToken)
-	reuse, err := model.InitializeGetAPIPAT(model.GetAPIInitializePATRequest{UserID: active.Id, ExpectedUsername: active.Username})
+	reuse, err := accountscore.InitializePAT().Execute(initialize_pat.Input{UserID: active.Id, ExpectedUsername: active.Username})
 	require.NoError(t, err)
 	assert.Equal(t, "would_reuse", reuse.Outcome)
 	assert.Nil(t, reuse.AccessToken)
-	blockedResult, err := model.InitializeGetAPIPAT(model.GetAPIInitializePATRequest{UserID: blocked.Id, ExpectedUsername: blocked.Username, Apply: true})
+	blockedResult, err := accountscore.InitializePAT().Execute(initialize_pat.Input{UserID: blocked.Id, ExpectedUsername: blocked.Username, Apply: true})
 	require.NoError(t, err)
 	assert.Equal(t, "blocked_no_pat", blockedResult.Outcome)
 	assert.Nil(t, blockedResult.AccessToken)
-	_, err = model.InitializeGetAPIPAT(model.GetAPIInitializePATRequest{UserID: admin.Id, ExpectedUsername: admin.Username})
-	assert.ErrorIs(t, err, model.ErrGetAPITargetRoleDenied)
-	_, err = model.InitializeGetAPIPAT(model.GetAPIInitializePATRequest{UserID: active.Id, ExpectedUsername: "wrong"})
-	assert.ErrorIs(t, err, model.ErrGetAPIUsernameMismatch)
-	_, err = model.InitializeGetAPIPAT(model.GetAPIInitializePATRequest{UserID: 999999, ExpectedUsername: "missing"})
-	assert.ErrorIs(t, err, model.ErrGetAPIAccountNotFound)
+	_, err = accountscore.InitializePAT().Execute(initialize_pat.Input{UserID: admin.Id, ExpectedUsername: admin.Username})
+	assert.ErrorIs(t, err, accountdomain.ErrGetAPITargetRoleDenied)
+	_, err = accountscore.InitializePAT().Execute(initialize_pat.Input{UserID: active.Id, ExpectedUsername: "wrong"})
+	assert.ErrorIs(t, err, accountdomain.ErrGetAPIUsernameMismatch)
+	_, err = accountscore.InitializePAT().Execute(initialize_pat.Input{UserID: 999999, ExpectedUsername: "missing"})
+	assert.ErrorIs(t, err, accountdomain.ErrGetAPIAccountNotFound)
 }
 
 func TestGetAPICustomCreateConcurrentUsernameConflict(t *testing.T) {
 	_, _ = setupAccessTokenAudit(t)
 	suffix := fmt.Sprintf("%d", common.GetTimestamp())
-	req := model.GetAPICreateUserRequest{Username: "concurrent-" + suffix, Password: "safe-password", DisplayName: "Concurrent"}
-	results := make([]*model.GetAPICreateCredential, 2)
+	req := provision_account.GetAPICreateUserRequest{Username: "concurrent-" + suffix, Password: "safe-password", DisplayName: "Concurrent"}
+	results := make([]*provision_account.GetAPICreateCredential, 2)
 	errs := make([]error, 2)
 	start := make(chan struct{})
 	var group sync.WaitGroup
@@ -306,24 +314,24 @@ func TestGetAPICustomCreateConcurrentUsernameConflict(t *testing.T) {
 		go func(i int) {
 			defer group.Done()
 			<-start
-			results[i], errs[i] = model.ProvisionGetAPIUser(common.RoleAdminUser, req)
+			results[i], errs[i] = accountscore.NewProvision(accountscore.GenerateDefaultSidebarConfigForRole).Execute(common.RoleAdminUser, req)
 		}(i)
 	}
 	close(start)
 	group.Wait()
 	if errs[0] == nil {
 		require.Error(t, errs[1])
-		assert.True(t, errors.Is(errs[1], model.ErrGetAPICreateConflict) || errors.Is(errs[1], model.ErrGetAPICredentialUnavailable))
+		assert.True(t, errors.Is(errs[1], accountdomain.ErrGetAPICreateConflict) || errors.Is(errs[1], accountdomain.ErrGetAPICredentialUnavailable))
 	} else {
 		require.Error(t, errs[0])
-		assert.True(t, errors.Is(errs[0], model.ErrGetAPICreateConflict) || errors.Is(errs[0], model.ErrGetAPICredentialUnavailable))
+		assert.True(t, errors.Is(errs[0], accountdomain.ErrGetAPICreateConflict) || errors.Is(errs[0], accountdomain.ErrGetAPICredentialUnavailable))
 		assert.NoError(t, errs[1])
 	}
 	var persisted int64
 	require.NoError(t, model.DB.Model(&model.User{}).Where("username = ?", req.Username).Count(&persisted).Error)
 	assert.Equal(t, int64(1), persisted)
-	_, err := model.ProvisionGetAPIUser(common.RoleAdminUser, req)
-	assert.ErrorIs(t, err, model.ErrGetAPICreateConflict)
+	_, err := accountscore.NewProvision(accountscore.GenerateDefaultSidebarConfigForRole).Execute(common.RoleAdminUser, req)
+	assert.ErrorIs(t, err, accountdomain.ErrGetAPICreateConflict)
 }
 
 func TestGetAPIProvisionInitialQuota(t *testing.T) {
@@ -401,7 +409,7 @@ func TestGetAPIProvisionInitialQuota(t *testing.T) {
 						return
 					}
 					var envelope struct {
-						Data model.GetAPICreateCredential `json:"data"`
+						Data provision_account.GetAPICreateCredential `json:"data"`
 					}
 					require.NoError(t, common.Unmarshal(response.Body.Bytes(), &envelope))
 					assert.Equal(t, test.quota, envelope.Data.InitialQuota)
@@ -425,8 +433,8 @@ func TestGetAPIProvisionInitialQuota(t *testing.T) {
 			require.NoError(t, model.DB.Model(&model.User{}).Where("username = ?", "quota-denied").Count(&deniedCount).Error)
 			assert.Zero(t, deniedCount)
 			quota := 123
-			_, err = model.ProvisionGetAPIUser(common.RoleCommonUser, model.GetAPICreateUserRequest{Username: "quota-rollback", Password: "safe-password", InitialQuota: &quota})
-			require.ErrorIs(t, err, model.ErrGetAPICapabilityDenied)
+			_, err = accountscore.NewProvision(accountscore.GenerateDefaultSidebarConfigForRole).Execute(common.RoleCommonUser, provision_account.GetAPICreateUserRequest{Username: "quota-rollback", Password: "safe-password", InitialQuota: &quota})
+			require.ErrorIs(t, err, accountdomain.ErrGetAPICapabilityDenied)
 			require.NoError(t, model.DB.Model(&model.User{}).Where("username = ?", "quota-rollback").Count(&deniedCount).Error)
 			assert.Zero(t, deniedCount)
 		})

@@ -10,12 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
-	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
-	"github.com/QuantumNous/new-api/internal/tasks/domain"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/glebarez/sqlite"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -23,6 +17,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
+	"github.com/QuantumNous/new-api/internal/tasks/domain"
+	"github.com/QuantumNous/new-api/model"
 )
 
 func newTaskTestStore(t *testing.T) (Store, *gorm.DB) {
@@ -35,7 +37,7 @@ func newTaskTestStore(t *testing.T) (Store, *gorm.DB) {
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
 	require.NoError(t, db.AutoMigrate(&record.Task{}))
-	return NewStore(func() *gorm.DB { return db }), db
+	return NewStore(func() *gorm.DB { return db }, accountstorage.Cache()), db
 }
 
 func insertTask(t *testing.T, db *gorm.DB, task *record.Task) {
@@ -370,7 +372,7 @@ func newTaskPersistenceStore(t *testing.T, engine string) (Store, *gorm.DB) {
 	for range 2 {
 		require.NoError(t, db.AutoMigrate(&record.Task{}, &record.Midjourney{}, &model.User{}, &model.Channel{}, &model.Token{}, &model.UserSubscription{}))
 	}
-	return NewStore(func() *gorm.DB { return db }), db
+	return NewStore(func() *gorm.DB { return db }, accountstorage.Cache()), db
 }
 
 func TestPollingClaimReturnsTimestampObservedByCompletionHook(t *testing.T) {
@@ -405,7 +407,7 @@ func TestPluginTaskAccessPostgres(t *testing.T) {
 	require.NoError(t, logs.Raw("SELECT current_schema()").Scan(&logSchema).Error)
 	assert.NotEqual(t, mainSchema, logSchema)
 	require.NoError(t, db.AutoMigrate(&record.Task{}))
-	store := NewStore(func() *gorm.DB { return db })
+	store := NewStore(func() *gorm.DB { return db }, accountstorage.Cache())
 	task := record.Task{TaskID: "task_plugin_pg",
 		Platform:  "plugin",
 		UserId:    1,

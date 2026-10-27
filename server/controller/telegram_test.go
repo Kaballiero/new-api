@@ -1,6 +1,14 @@
 package controller
 
 import (
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -66,7 +74,7 @@ type telegramOAuthFixture struct {
 func setupTelegramOAuthTest(t *testing.T) *telegramOAuthFixture {
 	t.Helper()
 	user, identity := setupSecurityEnrollmentTest(t)
-	require.NoError(t, model.DB.AutoMigrate(&model.ExternalIdentityClaim{}, &model.Option{}))
+	require.NoError(t, model.DB.AutoMigrate(&identityrecord.ExternalIdentityClaim{}, &model.Option{}))
 	previousEnabled := common.TelegramOAuthEnabled
 	previousSettings := *system_setting.GetTelegramSettings()
 	previousAddress := system_setting.ServerAddress
@@ -223,10 +231,10 @@ func TestTelegramOAuthPreservesExistingAccountAndBinding(t *testing.T) {
 	}
 	require.NoError(t, common.Unmarshal(body.Data, &login))
 	assert.Equal(t, fixture.user.Id, login.User.ID)
-	stored, err := model.GetUserByTelegramID(telegramID)
+	stored, err := identitystorage.SQL().GetUserByTelegramID(telegramID)
 	require.NoError(t, err)
 	assert.Equal(t, telegramID, stored.TelegramId)
-	var claim model.ExternalIdentityClaim
+	var claim identityrecord.ExternalIdentityClaim
 	require.NoError(t, model.DB.Where("provider = ? AND subject = ?", "telegram", telegramID).First(&claim).Error)
 	assert.Equal(t, stored.Id, claim.UserId)
 	replay := telegramOAuthCallback(state, code, identitydomain.AuthIdentity{})
@@ -316,15 +324,15 @@ func TestTelegramOAuthBindingIsAtomicAndSessionBound(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, response.Code)
 	assert.NotContains(t, response.Body.String(), "private")
 	require.NoError(t, model.DB.Callback().Update().Remove("telegram_bind_failure"))
-	_, err = model.GetAuthFlow(state, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeOAuth, Provider: "telegram"})
+	_, err = identitystorage.SQL().GetAuthFlow(state, identitystore.AuthFlowMatch{Purpose: identitydomain.AuthFlowPurposeOAuth, Provider: "telegram"})
 	require.NoError(t, err)
 	var claimCount int64
-	require.NoError(t, model.DB.Model(&model.ExternalIdentityClaim{}).Count(&claimCount).Error)
+	require.NoError(t, model.DB.Model(&identityrecord.ExternalIdentityClaim{}).Count(&claimCount).Error)
 	assert.Zero(t, claimCount)
 	state, code = fixture.authorization(t, "bind", fixture.identity, "", telegramIdentityClaims(42))
 	response = telegramOAuthCallback(state, code, fixture.identity)
 	assert.Contains(t, response.Body.String(), `"success":true`)
-	stored, err := model.GetUserById(fixture.user.Id, false)
+	stored, err := accountstorage.SQL().GetUserById(fixture.user.Id, false)
 	require.NoError(t, err)
 	assert.Equal(t, "42", stored.TelegramId)
 	assert.Equal(t, fixture.user.Role, stored.Role)
@@ -340,7 +348,7 @@ func TestTelegramOAuthBindingRejectsChangedAccountsAndDuplicateOwnership(t *test
 			state, code := fixture.authorization(t, "bind", fixture.identity, "", telegramIdentityClaims(42))
 			switch change {
 			case "revoked":
-				_, err := model.RevokeAllUserSessions(fixture.user.Id, "test")
+				_, err := identitystorage.SQL().RevokeAllUserSessions(fixture.user.Id, "test")
 				require.NoError(t, err)
 			case "disabled":
 				require.NoError(t, model.DB.Model(fixture.user).Update("status", common.UserStatusDisabled).Error)
@@ -357,7 +365,7 @@ func TestTelegramOAuthBindingRejectsChangedAccountsAndDuplicateOwnership(t *test
 			response := telegramOAuthCallback(state, code, fixture.identity)
 			assert.Contains(t, response.Body.String(), `"success":false`)
 			var claims int64
-			require.NoError(t, model.DB.Model(&model.ExternalIdentityClaim{}).Where("user_id = ? AND subject = ?", fixture.user.Id, "42").Count(&claims).Error)
+			require.NoError(t, model.DB.Model(&identityrecord.ExternalIdentityClaim{}).Where("user_id = ? AND subject = ?", fixture.user.Id, "42").Count(&claims).Error)
 			assert.Zero(t, claims)
 		})
 	}
@@ -398,7 +406,7 @@ func TestTelegramOAuthConfigurationAndLegacyEndpoints(t *testing.T) {
 			case "disabled":
 				common.TelegramOAuthEnabled = false
 			case "conflict":
-				require.Error(t, oauth.RegisterCustom("telegram", oauth.NewGenericOAuthProvider(&model.CustomOAuthProvider{Slug: "telegram"})))
+				require.Error(t, oauth.RegisterCustom("telegram", oauth.NewGenericOAuthProvider(&identityrecord.CustomOAuthProvider{Slug: "telegram"})))
 			}
 			response := securityEnrollmentRequest("POST", "/api/oauth/state", `{"provider":"telegram","intent":"login"}`, "", identitydomain.AuthIdentity{}, GenerateOAuthCode)
 			assert.Contains(t, response.Body.String(), `"success":false`)
@@ -463,7 +471,7 @@ func TestTelegramOAuthConcurrentBindingHasSingleOwner(t *testing.T) {
 	var owners []model.User
 	require.NoError(t, model.DB.Where("telegram_id = ?", "42").Find(&owners).Error)
 	require.Len(t, owners, 1)
-	var claims []model.ExternalIdentityClaim
+	var claims []identityrecord.ExternalIdentityClaim
 	require.NoError(t, model.DB.Where("provider = ? AND subject = ?", "telegram", "42").Find(&claims).Error)
 	require.Len(t, claims, 1)
 	assert.Equal(t, owners[0].Id, claims[0].UserId)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
 	settingsdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"io"
 	"net/http"
@@ -313,7 +314,7 @@ func TestServeTaskPluginProtocolDisconnectDuringTerminalSettlementStopsOnlyObser
 		runtimetechnical.Codec{}, runtimetechnical.Diagnostics{}, poll_tasks.Limits{
 			TimeoutMinutes: func() int { return 0 }, QueryLimit: func() int { return 1000 },
 			MaxFailures: func() int { return constant.TaskPollMaxFailures },
-		}, time.Now, gopool.Go, taskcommon.BuildProxyURL, runtimetechnical.TaskText{},
+		}, time.Now, gopool.Go, taskcommon.BuildProxyURL, taskbillingruntime.Text(),
 	)
 
 	deps := pluginProtocolTestDeps()

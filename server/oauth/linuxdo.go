@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -14,7 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -166,15 +168,15 @@ func (p *LinuxDOProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*
 }
 
 func (p *LinuxDOProvider) IsUserIDTaken(providerUserID string) bool {
-	return model.IsLinuxDOIdAlreadyTaken(providerUserID)
+	return accountstorage.SQL().IsLinuxDOIdAlreadyTaken(providerUserID)
 }
 
-func (p *LinuxDOProvider) FillUserByProviderID(user *model.User, providerUserID string) error {
+func (p *LinuxDOProvider) FillUserByProviderID(user *accountrecord.User, providerUserID string) error {
 	user.LinuxDOId = providerUserID
-	return user.FillUserByLinuxDOId()
+	return accountstorage.SQL().FillUserByLinuxDOId(user)
 }
 
-func (p *LinuxDOProvider) SetProviderUserID(user *model.User, providerUserID string) {
+func (p *LinuxDOProvider) SetProviderUserID(user *accountrecord.User, providerUserID string) {
 	user.LinuxDOId = providerUserID
 }
 

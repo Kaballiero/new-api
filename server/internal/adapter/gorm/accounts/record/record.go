@@ -64,3 +64,10 @@ func (user *User) SetSetting(setting dto.UserSetting) {
 	}
 	user.Setting = string(settingBytes)
 }
+
+func (user *User) GetAccessToken() string {
+	if user.AccessToken == nil {
+		return ""
+	}
+	return *user.AccessToken
+}

@@ -1,6 +1,10 @@
 package main
 
 import (
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"bytes"
 	"context"
 	"embed"
@@ -326,7 +330,7 @@ func InitResources() error {
 		return err
 	}
 	if common.PasswordLoginEncryptionEnabled {
-		if err = model.InitPasswordEncryption(); err != nil {
+		if err = identitystorage.SQL().InitPasswordEncryption(); err != nil {
 			common.FatalLog("failed to initialize password encryption: " + err.Error())
 			return err
 		}
@@ -371,7 +375,7 @@ func InitResources() error {
 		common.SysLog("i18n initialized with languages: " + strings.Join(i18n.SupportedLanguages(), ", "))
 	}
 	// Register user language loader for lazy loading
-	i18n.SetUserLangLoader(model.GetUserLanguage)
+	i18n.SetUserLangLoader(accountstorage.Cache().GetUserLanguage)
 
 	// Load custom OAuth providers from database
 	err = oauth.LoadCustomProviders()

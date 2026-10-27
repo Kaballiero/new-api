@@ -1,0 +1,161 @@
+package counters
+
+import (
+	"fmt"
+	"math"
+	"sync"
+
+	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/common"
+	accountsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	keysrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
+	channelsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+)
+
+const (
+	BatchUpdateTypeUserQuota = iota
+	BatchUpdateTypeTokenQuota
+	BatchUpdateTypeUsedQuota
+	BatchUpdateTypeChannelUsedQuota
+	BatchUpdateTypeRequestCount
+	BatchUpdateTypeCount // if you add a new type, you need to add a new map and a new lock
+)
+
+var batchUpdateStores []map[int]int
+
+var batchUpdateLocks []sync.Mutex
+
+func init() {
+	for range BatchUpdateTypeCount {
+		batchUpdateStores = append(batchUpdateStores, make(map[int]int))
+		batchUpdateLocks = append(batchUpdateLocks, sync.Mutex{})
+	}
+}
+
+func AddNewRecord(type_ int, id int, value int) {
+	batchUpdateLocks[type_].Lock()
+	defer batchUpdateLocks[type_].Unlock()
+	old, ok := batchUpdateStores[type_][id]
+	if !ok {
+		batchUpdateStores[type_][id] = value
+		return
+	}
+
+	sum := old + value
+	if (value > 0 && sum < old) || (value < 0 && sum > old) {
+		common.SysError(fmt.Sprintf("batch update overflow: type=%d id=%d old=%d value=%d", type_, id, old, value))
+		if value > 0 {
+			sum = math.MaxInt
+		} else {
+			sum = math.MinInt
+		}
+	}
+	batchUpdateStores[type_][id] = sum
+}
+
+func FlushBatchUpdates(db func() *gorm.DB) {
+	// check if there's any data to update
+	hasData := false
+	for i := range BatchUpdateTypeCount {
+		batchUpdateLocks[i].Lock()
+		if len(batchUpdateStores[i]) > 0 {
+			hasData = true
+			batchUpdateLocks[i].Unlock()
+			break
+		}
+		batchUpdateLocks[i].Unlock()
+	}
+
+	if !hasData {
+		return
+	}
+
+	common.SysLog("batch update started")
+	stores := make([]map[int]int, BatchUpdateTypeCount)
+	for i := range BatchUpdateTypeCount {
+		batchUpdateLocks[i].Lock()
+		stores[i] = batchUpdateStores[i]
+		batchUpdateStores[i] = make(map[int]int)
+		batchUpdateLocks[i].Unlock()
+	}
+
+	for i, store := range stores {
+		if i == BatchUpdateTypeUserQuota || i == BatchUpdateTypeUsedQuota || i == BatchUpdateTypeRequestCount {
+			continue
+		}
+		for key, value := range store {
+			switch i {
+			case BatchUpdateTypeTokenQuota:
+				err := IncreaseTokenQuota(db(), key, value)
+				if err != nil {
+					common.SysLog("failed to batch update token quota: " + err.Error())
+				}
+			case BatchUpdateTypeChannelUsedQuota:
+				updateChannelUsedQuota(db(), key, value)
+			}
+		}
+	}
+
+	userQuotaStore := stores[BatchUpdateTypeUserQuota]
+	usedQuotaStore := stores[BatchUpdateTypeUsedQuota]
+	requestCountStore := stores[BatchUpdateTypeRequestCount]
+
+	userIDs := make(map[int]struct{}, len(userQuotaStore)+len(usedQuotaStore)+len(requestCountStore))
+	for key := range userQuotaStore {
+		userIDs[key] = struct{}{}
+	}
+	for key := range usedQuotaStore {
+		userIDs[key] = struct{}{}
+	}
+	for key := range requestCountStore {
+		userIDs[key] = struct{}{}
+	}
+	for key := range userIDs {
+		updateUserQuotaUsedQuotaAndRequestCount(db(), key, userQuotaStore[key], usedQuotaStore[key], requestCountStore[key])
+	}
+	common.SysLog("batch update finished")
+}
+
+func UpdateChannelUsedQuota(db *gorm.DB, id int, quota int) {
+	if common.BatchUpdateEnabled {
+		AddNewRecord(BatchUpdateTypeChannelUsedQuota, id, quota)
+		return
+	}
+	updateChannelUsedQuota(db, id, quota)
+}
+
+func updateChannelUsedQuota(db *gorm.DB, id int, quota int) {
+	err := db.Model(&channelsrecord.Channel{}).Where("id = ?", id).Update("used_quota", gorm.Expr("used_quota + ?", quota)).Error
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to update channel used quota: channel_id=%d, delta_quota=%d, error=%v", id, quota, err))
+	}
+}
+
+func updateUserQuotaUsedQuotaAndRequestCount(db *gorm.DB, id int, quota int, usedQuota int, requestCount int) {
+	if quota == 0 && usedQuota == 0 && requestCount == 0 {
+		return
+	}
+
+	err := db.Model(&accountsrecord.User{}).Where("id = ?", id).Updates(
+		map[string]any{
+			"quota":         gorm.Expr("quota + ?", quota),
+			"used_quota":    gorm.Expr("used_quota + ?", usedQuota),
+			"request_count": gorm.Expr("request_count + ?", requestCount),
+		},
+	).Error
+	if err != nil {
+		common.SysLog("failed to batch update user quota, used quota and request count: " + err.Error())
+	}
+}
+
+func IncreaseTokenQuota(db *gorm.DB, id int, quota int) (err error) {
+	err = db.Model(&keysrecord.Token{}).Where("id = ?", id).Updates(
+		map[string]any{
+			"remain_quota":  gorm.Expr("remain_quota + ?", quota),
+			"used_quota":    gorm.Expr("used_quota - ?", quota),
+			"accessed_time": common.GetTimestamp(),
+		},
+	).Error
+	return err
+}

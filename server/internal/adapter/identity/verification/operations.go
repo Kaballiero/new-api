@@ -3,21 +3,27 @@ package verification
 import (
 	"crypto/hmac"
 	"github.com/QuantumNous/new-api/common"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/internal/identity/verify_security_input"
-	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
 )
 
 type ProofClaims struct{ ID, Method string }
 type Dependencies struct {
+	SQL identitystore.Store
+
 	ValidateSessionFunc func(domain.AuthIdentity) error
 	RequireMethodFunc   func(domain.AuthIdentity, string, string) error
 	IssueProofFunc      func(domain.AuthIdentity, string, domain.VerificationBinding) (string, int64, error)
 	BindFunc            func(domain.VerificationOperation) (domain.VerificationBinding, error)
 	VerifyClaimsFunc    func(string, domain.AuthIdentity, domain.VerificationBinding) (*ProofClaims, error)
-	VerifyFactorFunc    func(*model.TwoFA, string) error
+	VerifyFactorFunc    func(*identityrecord.TwoFA, string) error
 	CompleteFunc        func(domain.AuthIdentity, domain.VerificationBinding, string) (*dto.SecurityProof, error)
 }
 type CompleteSecurityOperation struct {
@@ -52,7 +58,7 @@ type ConsumeProofOperation struct {
 	Operation     domain.VerificationOperation
 	Binding       domain.VerificationBinding
 	claims        *ProofClaims
-	Authorization *model.AuthFlowAuthorization
+	Authorization *domain.FlowAuthorization
 }
 
 func (op *ConsumeProofOperation) BindOperation() error {
@@ -80,14 +86,14 @@ func (op *ConsumeProofOperation) RequireMethod(method string) error {
 }
 
 func (op *ConsumeProofOperation) CaptureAuthorization() {
-	op.Authorization = &model.AuthFlowAuthorization{AuthSessionIdentity: op.Identity, ProofID: op.Flow.Id, Scope: op.Binding.Scope, ContextHash: op.Binding.ContextHash, Method: op.claims.Method}
+	op.Authorization = &domain.FlowAuthorization{AuthSessionIdentity: op.Identity, ProofID: op.Flow.Id, Scope: op.Binding.Scope, ContextHash: op.Binding.ContextHash, Method: op.claims.Method}
 }
 
 type FlowAuthorizationOperation struct {
 	Dependencies
 	Identity      domain.AuthIdentity
 	Operation     domain.VerificationOperation
-	Authorization *model.AuthFlowAuthorization
+	Authorization *domain.FlowAuthorization
 	Binding       domain.VerificationBinding
 }
 
@@ -114,13 +120,17 @@ func (op *FlowAuthorizationOperation) RequireAuthorizedMethod() error {
 }
 
 type SecurityInputOperation struct {
+	Accounts accountstore.Store
+
+	SQL identitystore.Store
+
 	Dependencies
 	Identity domain.AuthIdentity
 	Input    verify_security_input.VerificationInput
 	Binding  domain.VerificationBinding
 	Password string
-	user     *model.User
-	factor   *model.TwoFA
+	user     *accountrecord.User
+	factor   *identityrecord.TwoFA
 	Proof    *dto.SecurityProof
 }
 
@@ -146,7 +156,7 @@ func (op *SecurityInputOperation) DecryptPassword() error {
 
 func (op *SecurityInputOperation) LoadPassword() error {
 	var err error
-	op.user, err = model.GetUserById(op.Identity.UserID, true)
+	op.user, err = op.Accounts.GetUserById(op.Identity.UserID, true)
 	return err
 }
 
@@ -161,7 +171,7 @@ func (op *SecurityInputOperation) NumericCodeValid() bool {
 
 func (op *SecurityInputOperation) LoadFactor() error {
 	var err error
-	op.factor, err = model.GetTwoFAByUserId(op.Identity.UserID)
+	op.factor, err = op.SQL.GetTwoFAByUserId(op.Identity.UserID)
 	return err
 }
 
@@ -188,33 +198,41 @@ func (op FactorCodeOperation) BackupCodeValid(code string) bool {
 }
 
 type proofConsumption struct {
+	SQL identitystore.Store
+
 	Token    string
-	Identity model.AuthSessionIdentity
-	Flow     *model.AuthFlow
+	Identity domain.AuthIdentity
+	Flow     *identityrecord.AuthFlow
 }
 
 func (op *proofConsumption) ConsumeProof() error {
 	var err error
-	op.Flow, err = model.ConsumeAuthFlowWithAction(op.Token, model.AuthFlowMatch{
-		Purpose: model.AuthFlowPurposeSecurityProof, UserId: op.Identity.UserID, SessionId: op.Identity.SessionID,
-	}, func(tx *gorm.DB, _ *model.AuthFlow) error { return model.ValidateAuthSessionWithTx(tx, op.Identity) })
+	op.Flow, err = op.SQL.ConsumeAuthFlowWithAction(op.Token, identitystore.AuthFlowMatch{
+		Purpose: domain.AuthFlowPurposeSecurityProof, UserId: op.Identity.UserID, SessionId: op.Identity.SessionID,
+	}, func(tx *gorm.DB, _ *identityrecord.AuthFlow) error {
+		return op.SQL.ValidateAuthSessionWithTx(tx, op.Identity)
+	})
 	return err
 }
 
-type FactorRecordOperation struct{ Factor *model.TwoFA }
+type FactorRecordOperation struct {
+	SQL    identitystore.Store
+	Factor *identityrecord.TwoFA
+}
 
 func (op FactorRecordOperation) Enabled() bool { return op.Factor != nil && op.Factor.IsEnabled }
 func (op FactorRecordOperation) Locked() bool  { return op.Factor.IsLocked() }
 func (op FactorRecordOperation) ValidateTOTP(code string) (bool, error) {
-	return op.Factor.ValidateTOTPAndUpdateUsage(code)
+	return op.SQL.ValidateTOTPAndUpdateUsage(op.Factor, code)
 }
 func (op FactorRecordOperation) ValidateBackup(code string) (bool, error) {
-	return op.Factor.ValidateBackupCodeAndUpdateUsage(code)
+	return op.SQL.ValidateBackupCodeAndUpdateUsage(op.Factor, code)
 }
 func (op FactorRecordOperation) IncrementFailedAttempts() error {
-	return op.Factor.IncrementFailedAttempts()
+	return op.SQL.IncrementFailedAttempts(op.Factor)
 }
 
 func (op *ConsumeProofOperation) SetProofIdentity(identity domain.AuthIdentity) {
+	op.proofConsumption.SQL = op.Dependencies.SQL
 	op.proofConsumption.Identity = identity
 }

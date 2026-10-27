@@ -1,6 +1,10 @@
 package controller
 
 import (
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -11,7 +15,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -51,8 +54,8 @@ func TestPasskeyRegisterFinishRejectsUnapprovedFlowWithoutConsumingIt(t *testing
 	require.NoError(t, err)
 	payload, err := common.Marshal(map[string]any{"scope": identitydomain.VerificationScopePasskeyRegister})
 	require.NoError(t, err)
-	token, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-		Purpose: model.AuthFlowPurposePasskeyRegister, UserId: identity.UserID, SessionId: identity.SessionID,
+	token, _, err := identitystorage.SQL().CreateAuthFlow(identitystore.AuthFlowCreate{
+		Purpose: identitydomain.AuthFlowPurposePasskeyRegister, UserId: identity.UserID, SessionId: identity.SessionID,
 		Payload: string(payload), ExpiresAt: time.Now().Add(time.Minute),
 	})
 	require.NoError(t, err)
@@ -65,9 +68,9 @@ func TestPasskeyRegisterFinishRejectsUnapprovedFlowWithoutConsumingIt(t *testing
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 	assert.False(t, result.Success)
 	assert.Equal(t, "AUTH_FLOW_INVALID", result.Code)
-	_, err = model.GetPasskeyByUserID(identity.UserID)
-	assert.ErrorIs(t, err, model.ErrPasskeyNotFound)
-	flow, err := model.GetAuthFlow(token, model.AuthFlowMatch{Purpose: model.AuthFlowPurposePasskeyRegister})
+	_, err = identitystorage.SQL().GetPasskeyByUserID(identity.UserID)
+	assert.ErrorIs(t, err, identitydomain.ErrPasskeyNotFound)
+	flow, err := identitystorage.SQL().GetAuthFlow(token, identitystore.AuthFlowMatch{Purpose: identitydomain.AuthFlowPurposePasskeyRegister})
 	require.NoError(t, err)
 	assert.Nil(t, flow.ConsumedAt)
 }

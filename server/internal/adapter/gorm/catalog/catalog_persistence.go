@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
@@ -13,7 +14,7 @@ func NewCatalogPersistence(pricingMutation func(func(*gorm.DB, map[string]map[st
 	return record.NewStore(record.Environment{
 
 		LockMetadata:    func() func() { MetadataMutationMu.Lock(); return MetadataMutationMu.Unlock },
-		LockRows:        legacy.LockForUpdate,
+		LockRows:        locking.LockForUpdate,
 		PricingMutation: pricingMutation,
 		LockMetadataRow: LockMetadataMutation,
 

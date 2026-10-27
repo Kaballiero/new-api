@@ -1,8 +1,6 @@
 package taskruntime
 
 import (
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"context"
 	"testing"
 
@@ -14,16 +12,17 @@ import (
 	taskplugins "github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
-	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	effects "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	"github.com/QuantumNous/new-api/internal/app/usagestorage"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	taskdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/settle_task"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
-
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
@@ -58,7 +57,7 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actual int, rea
 		out[i] = billingadapter.Clamp(c)
 	}
 	store := storage.BillingStore{Store: fixtureStore}
-	settlement := settle_task.NewUsecase(store, effects.TaskDelta{}, usageadapter.TaskBilling{}, effects.TaskPrices{},
+	settlement := settle_task.NewUsecase(store, taskbillingruntime.Delta(), usagestorage.TaskBilling(), taskbillingruntime.Prices(),
 		effects.TaskMath{}, billingadapter.Expression{}, effects.Diagnostics{}, store, pricingdomainfx.ModelCostFXSource, common.RequestIdKey)
 	settlement.Recalculate(ctx, d, actual, reason, nil, out...)
 	*task = *record.FromDomain(d)

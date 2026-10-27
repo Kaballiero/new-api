@@ -1,15 +1,15 @@
 package tasks
 
 import (
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"context"
 
 	"github.com/QuantumNous/new-api/common"
 	billingmath "github.com/QuantumNous/new-api/internal/adapter/billing"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
-	usage "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	runtime "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
+	"github.com/QuantumNous/new-api/internal/app/usagestorage"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/record_midjourney_submission"
 	"github.com/QuantumNous/new-api/internal/tasks/refund_midjourney_task"
@@ -26,14 +26,14 @@ type Billing struct {
 
 func NewBilling() *Billing {
 	store := storage.BillingStore{Store: NewStore()}
-	delta := runtime.TaskDelta{}
-	metadata := usage.TaskBilling{}
+	delta := taskbillingruntime.Delta()
+	metadata := usagestorage.TaskBilling()
 	diagnostics := runtime.Diagnostics{}
 	return &Billing{
-		completion: settle_task.NewUsecase(store, delta, metadata, runtime.TaskPrices{}, runtime.TaskMath{}, billingmath.Expression{}, diagnostics, store, pricingdomainfx.ModelCostFXSource, common.RequestIdKey),
+		completion: settle_task.NewUsecase(store, delta, metadata, taskbillingruntime.Prices(), runtime.TaskMath{}, billingmath.Expression{}, diagnostics, store, pricingdomainfx.ModelCostFXSource, common.RequestIdKey),
 		refund:     refund_task.NewUsecase(store, delta, metadata, diagnostics),
-		mjrefund:   refund_midjourney_task.NewUsecase(runtime.MidjourneyBilling{}, store, metadata, diagnostics),
-		mjsubmit:   record_midjourney_submission.NewUsecase(store, runtime.MidjourneyBilling{}),
+		mjrefund:   refund_midjourney_task.NewUsecase(taskbillingruntime.Midjourney(), store, metadata, diagnostics),
+		mjsubmit:   record_midjourney_submission.NewUsecase(store, taskbillingruntime.Midjourney()),
 	}
 }
 func (b *Billing) Settle(ctx context.Context, task *domain.Task, result *domain.TaskInfo, adjust func(*domain.Task, *domain.TaskInfo) int) (bool, error) {

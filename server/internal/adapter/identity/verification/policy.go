@@ -2,10 +2,13 @@ package verification
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/internal/identity/get_verification_requirements"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
@@ -31,19 +34,23 @@ func (op MethodOptions) MethodOption(i int) (string, bool) {
 }
 
 type RequirementsOperation struct {
-	PolicyFunc    func(string, model.UserVerificationState) ([]dto.VerificationMethodOption, error)
-	ProvidersFunc func(*model.User) ([]get_verification_requirements.VerificationOAuthProvider, error)
+	Accounts accountstore.Store
+
+	SQL identitystore.Store
+
+	PolicyFunc    func(string, identitystore.UserVerificationState) ([]dto.VerificationMethodOption, error)
+	ProvidersFunc func(*accountrecord.User) ([]get_verification_requirements.VerificationOAuthProvider, error)
 	Identity      domain.AuthIdentity
 	Scope         string
-	state         *model.UserVerificationState
+	state         *identitystore.UserVerificationState
 	Methods       []dto.VerificationMethodOption
-	user          *model.User
+	user          *accountrecord.User
 	Requirements  *get_verification_requirements.VerificationRequirements
 }
 
 func (op *RequirementsOperation) LoadState() (int, int64, int, error) {
 	var err error
-	op.state, err = model.GetUserVerificationState(op.Identity.UserID)
+	op.state, err = op.SQL.GetUserVerificationState(op.Identity.UserID)
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -76,7 +83,7 @@ func (op *RequirementsOperation) DisableMethod(i int, reason string) {
 
 func (op *RequirementsOperation) LoadOAuthAccount() error {
 	var err error
-	op.user, err = model.GetUserById(op.Identity.UserID, false)
+	op.user, err = op.Accounts.GetUserById(op.Identity.UserID, false)
 	return err
 }
 

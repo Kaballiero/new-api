@@ -381,7 +381,7 @@ func RecordingContext(c *gin.Context, info *relaycommon.RelayInfo) context.Conte
 	}
 	var ctx context.Context
 	if c != nil {
-		ctx = app.WithRequestObservation(c, model.ObserveLogRequest(c))
+		ctx = app.WithRequestObservation(c, usageadapter.ObserveLogRequest(c))
 	}
 	return app.WithLogMetadata(ctx, details, routing.ChannelAffinityLogInfo(c))
 }

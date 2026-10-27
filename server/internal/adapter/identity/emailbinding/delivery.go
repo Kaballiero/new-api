@@ -3,17 +3,19 @@ package emailbinding
 import (
 	"crypto/rand"
 	"fmt"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"html"
 	"math/big"
 
 	"github.com/QuantumNous/new-api/common"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/model"
 )
 
 func ValidateAccountEmail(email string) (string, error) {
-	return identitydomain.ValidateEmail(email, identitydomain.EmailPolicy{Normalize: model.NormalizeEmail, Valid: func(value string) bool { return common.Validate.Var(value, "required,email,max=50") == nil }, DomainRestriction: func() bool { return common.EmailDomainRestrictionEnabled }, Whitelist: func() []string { return common.EmailDomainWhitelist }, AliasRestriction: func() bool { return common.EmailAliasRestrictionEnabled }})
+	return identitydomain.ValidateEmail(email, identitydomain.EmailPolicy{Normalize: accountstore.NormalizeEmail, Valid: func(value string) bool { return common.Validate.Var(value, "required,email,max=50") == nil }, DomainRestriction: func() bool { return common.EmailDomainRestrictionEnabled }, Whitelist: func() []string { return common.EmailDomainWhitelist }, AliasRestriction: func() bool { return common.EmailAliasRestrictionEnabled }})
 }
 
 func GenerateEmailBindingCodes(requireOld bool) (Codes, error) {
@@ -45,7 +47,7 @@ func GenerateEmailBindingCodes(requireOld bool) (Codes, error) {
 	return codes, nil
 }
 
-func SendEmailBindingCodes(state model.EmailBindingState, codes Codes) error {
+func SendEmailBindingCodes(state identitystore.EmailBindingState, codes Codes) error {
 	subject := common.SystemName + " — Confirm your email address"
 	content := fmt.Sprintf("<p>Confirm linking this email address to your account.</p><p>Verification code: <strong>%s</strong></p><p>This code expires in 10 minutes. If you did not request this change, do not share this code.</p>", html.EscapeString(codes.New))
 	if err := common.SendEmail(subject, state.Email, content); err != nil {
@@ -58,7 +60,7 @@ func SendEmailBindingCodes(state model.EmailBindingState, codes Codes) error {
 	return nil
 }
 
-func BindingData(token string, flow *model.AuthFlow, state *model.EmailBindingState) *identitydto.EmailBindingData {
+func BindingData(token string, flow *identityrecord.AuthFlow, state *identitystore.EmailBindingState) *identitydto.EmailBindingData {
 	return &identitydto.EmailBindingData{
 		FlowToken: token, Email: state.Email, CurrentEmail: common.MaskEmail(state.CurrentEmail),
 		OldEmailRequired: state.OldCodeHash != "", ExpiresAt: flow.ExpiresAt.Unix(), ResendAt: state.ResendAt,

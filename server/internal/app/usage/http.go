@@ -4,12 +4,10 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-
 	memory "github.com/QuantumNous/new-api/internal/adapter/memory/usage"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+	"github.com/QuantumNous/new-api/internal/app/usagestorage"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/admin_get_log_stats"
 	"github.com/QuantumNous/new-api/internal/usage/admin_get_usage_flow"
 	"github.com/QuantumNous/new-api/internal/usage/admin_list_logs"
@@ -46,11 +44,12 @@ type HTTP struct {
 }
 
 func NewHTTP() HTTP {
-	store := storage.Store{RankingCatalog: func() ([]pricingdomain.PricingVendor, []pricingdomain.Pricing) {
+	store := usagestorage.Store()
+	store.RankingCatalog = func() ([]pricingdomain.PricingVendor, []pricingdomain.Pricing) {
 		vendors := pricingruntime.GetVendors()
 		prices := pricingruntime.GetPricing()
 		return vendors, prices
-	}}
+	}
 	return HTTP{
 		LogAggregate:   aggregate_logs.NewHandler(aggregate_logs.NewUsecase(store)),
 		UsageAggregate: aggregate_usage_data.NewHandler(aggregate_usage_data.NewUsecase(store)),

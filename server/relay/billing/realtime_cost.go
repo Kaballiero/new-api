@@ -1,6 +1,10 @@
 package billing
 
 import (
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"fmt"
 	"strings"
 
@@ -9,7 +13,6 @@ import (
 	adapter "github.com/QuantumNous/new-api/internal/adapter/billing"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -39,12 +42,12 @@ func (g *Gateway) PreWss(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usa
 	if relayInfo.UsePrice {
 		return nil
 	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	userQuota, err := accountstorage.SQL().GetUserQuota(relayInfo.UserId, false)
 	if err != nil {
 		return err
 	}
 
-	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
+	token, err := apikeystorage.Reader().Read(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,8 @@
 package session
 
 import (
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"strings"
 	"time"
 
@@ -8,22 +10,22 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/google/uuid"
 )
 
-func NewLoginSession(userID int, authVersion int64, loginMethod, ip, userAgent string) (*model.UserSession, string, error) {
+func NewLoginSession(userID int, authVersion int64, loginMethod, ip, userAgent string) (*identityrecord.UserSession, string, error) {
 	refreshSecret, err := common.GenerateRandomCharsKey(64)
 	if err != nil {
 		return nil, "", err
 	}
 	now := time.Now().Unix()
-	session := &model.UserSession{
+	session := &identityrecord.UserSession{
 		SID:             uuid.NewString(),
 		UserID:          userID,
 		Version:         1,
 		UserAuthVersion: authVersion,
-		Status:          model.UserSessionStatusActive,
+		Status:          identityrecord.UserSessionStatusActive,
 		RefreshHash:     HashRefreshSecret(refreshSecret),
 		LoginMethod:     strings.TrimSpace(loginMethod),
 		IP:              TruncateAuthMetadata(ip, 64),
@@ -38,7 +40,7 @@ func NewLoginSession(userID int, authVersion int64, loginMethod, ip, userAgent s
 	return session, refreshSecret, nil
 }
 
-func IssueAuthBundle(session *model.UserSession, rawRefreshToken string, current bool) (*dto.AuthBundle, error) {
+func IssueAuthBundle(session *identityrecord.UserSession, rawRefreshToken string, current bool) (*dto.AuthBundle, error) {
 	identity := domain.AuthIdentity{
 		UserID:          session.UserID,
 		SessionID:       session.SID,
@@ -58,7 +60,7 @@ func IssueAuthBundle(session *model.UserSession, rawRefreshToken string, current
 	}, nil
 }
 
-func SessionView(session *model.UserSession, current bool) dto.LoginSessionView {
+func SessionView(session *identityrecord.UserSession, current bool) dto.LoginSessionView {
 	return dto.LoginSessionView{
 		SID:          session.SID,
 		Current:      current,
@@ -98,8 +100,8 @@ func TruncateAuthMetadata(value string, max int) string {
 	return value[:max]
 }
 
-func ListLoginSessions(userID int, currentSID string) ([]dto.LoginSessionView, error) {
-	sessions, err := model.ListActiveUserSessions(userID, currentSID, time.Now().Unix())
+func ListLoginSessions(sql identitystore.Store, userID int, currentSID string) ([]dto.LoginSessionView, error) {
+	sessions, err := sql.ListActiveUserSessions(userID, currentSID, time.Now().Unix())
 	if err != nil {
 		return nil, err
 	}

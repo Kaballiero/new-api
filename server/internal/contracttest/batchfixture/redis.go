@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func (f *RedisReplies) AfterProcess(_ context.Context, cmd redis.Cmder) error {
 		if strings.HasPrefix(key, "user:") {
 			var user model.User
 			require.NoError(t, model.DB.Unscoped().First(&user, 1).Error)
-			base := user.ToBaseUser()
+			base := accountcache.ToBaseUser(&user)
 			base.CacheSchema = 3
 			if f.Variant == "auth_version" {
 				base.AuthVersion++

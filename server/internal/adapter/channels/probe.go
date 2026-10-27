@@ -8,7 +8,6 @@ import (
 
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
@@ -49,7 +48,7 @@ func (result ProbeOutcome) Disable(failure error) {
 }
 
 // TestFailures applies the gateway's channel failure policy to channel tests.
-type TestFailures struct{}
+type TestFailures struct{ Language func(int) string }
 
 func (TestFailures) ShouldDisable(failure error) bool {
 	return ShouldDisableChannel(GatewayError(failure))
@@ -60,8 +59,8 @@ func (TestFailures) ShouldEnable(failure error, status int) bool {
 
 // ResponseTimeExceeded phrases the failure in the language of the testing
 // user; the text becomes the disable reason of the channel.
-func (TestFailures) ResponseTimeExceeded(userID int, elapsed, threshold float64) error {
-	message := i18n.Translate(model.GetUserLanguage(userID), i18n.MsgChannelResponseTimeExceeded, map[string]any{"Elapsed": fmt.Sprintf("%.2f", elapsed), "Threshold": fmt.Sprintf("%.2f", threshold)})
+func (failure TestFailures) ResponseTimeExceeded(userID int, elapsed, threshold float64) error {
+	message := i18n.Translate(failure.Language(userID), i18n.MsgChannelResponseTimeExceeded, map[string]any{"Elapsed": fmt.Sprintf("%.2f", elapsed), "Threshold": fmt.Sprintf("%.2f", threshold)})
 	return types.NewOpenAIError(errors.New(message), types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
 }
 

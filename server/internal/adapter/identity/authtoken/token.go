@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
@@ -107,15 +108,15 @@ func ParseDashboardAccessToken(raw string) (identity domain.AuthIdentity, intern
 	return identity, true, err
 }
 
-func IssueSecurityProof(identity domain.AuthIdentity, method string, binding domain.VerificationBinding) (string, int64, error) {
+func IssueSecurityProof(sql identitystore.Store, identity domain.AuthIdentity, method string, binding domain.VerificationBinding) (string, int64, error) {
 	method = strings.TrimSpace(method)
 	if identity.UserID <= 0 || identity.SessionID == "" || identity.UserAuthVersion <= 0 || identity.SessionVersion <= 0 || method == "" || binding.Scope == "" || binding.ContextHash == "" {
 		return "", 0, domain.ErrAuthTokenInvalid
 	}
 	now := time.Now()
 	expiresAt := now.Add(domain.SecurityProofTTL).Truncate(time.Second)
-	proofID, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-		Purpose: model.AuthFlowPurposeSecurityProof, UserId: identity.UserID,
+	proofID, _, err := sql.CreateAuthFlow(identitystore.AuthFlowCreate{
+		Purpose: domain.AuthFlowPurposeSecurityProof, UserId: identity.UserID,
 		SessionId: identity.SessionID, ExpiresAt: expiresAt,
 	})
 	if err != nil {

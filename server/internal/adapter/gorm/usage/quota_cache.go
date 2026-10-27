@@ -11,7 +11,7 @@ import (
 )
 
 func (Store) SaveQuotaDataCache() {
-	model.FlushQuotaDataCache(func(row *record.QuotaData) {
+	FlushQuotaDataCache(func(row *record.QuotaData) {
 		existing := &record.QuotaData{}
 		model.DB.Table("quota_data").Where(
 			"user_id = ? and username = ? and model_name = ? and created_at = ? and use_group = ? and token_id = ? and channel_id = ? and node_name = ?",

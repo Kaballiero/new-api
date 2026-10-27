@@ -1,6 +1,26 @@
 package controller
 
 import (
+	delete_owned_key "github.com/QuantumNous/new-api/internal/apikeys/delete_owned_key"
+
+	keyrepository "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys"
+
+	operation_setting "github.com/QuantumNous/new-api/setting/operation_setting"
+
+	search_keys "github.com/QuantumNous/new-api/internal/apikeys/search_keys"
+
+	disable_model_limits "github.com/QuantumNous/new-api/internal/apikeys/disable_model_limits"
+
+	keydomain "github.com/QuantumNous/new-api/internal/apikeys/domain"
+
+	keyrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
+
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
+
 	"bytes"
 	"database/sql"
 	"encoding/json"
@@ -462,8 +482,8 @@ func TestGetAllTokensMasksKeyInResponse(t *testing.T) {
 	if len(page.Items) != 1 {
 		t.Fatalf("expected exactly one token, got %d", len(page.Items))
 	}
-	if page.Items[0].Key != token.GetMaskedKey() {
-		t.Fatalf("expected masked key %q, got %q", token.GetMaskedKey(), page.Items[0].Key)
+	if page.Items[0].Key != keydomain.MaskKey(token.Key) {
+		t.Fatalf("expected masked key %q, got %q", keydomain.MaskKey(token.Key), page.Items[0].Key)
 	}
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("list response leaked raw token key: %s", recorder.Body.String())
@@ -489,8 +509,8 @@ func TestSearchTokensMasksKeyInResponse(t *testing.T) {
 	if len(page.Items) != 1 {
 		t.Fatalf("expected exactly one search result, got %d", len(page.Items))
 	}
-	if page.Items[0].Key != token.GetMaskedKey() {
-		t.Fatalf("expected masked search key %q, got %q", token.GetMaskedKey(), page.Items[0].Key)
+	if page.Items[0].Key != keydomain.MaskKey(token.Key) {
+		t.Fatalf("expected masked search key %q, got %q", keydomain.MaskKey(token.Key), page.Items[0].Key)
 	}
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("search response leaked raw token key: %s", recorder.Body.String())
@@ -514,8 +534,8 @@ func TestGetTokenMasksKeyInResponse(t *testing.T) {
 	if err := common.Unmarshal(response.Data, &detail); err != nil {
 		t.Fatalf("failed to decode token detail response: %v", err)
 	}
-	if detail.Key != token.GetMaskedKey() {
-		t.Fatalf("expected masked detail key %q, got %q", token.GetMaskedKey(), detail.Key)
+	if detail.Key != keydomain.MaskKey(token.Key) {
+		t.Fatalf("expected masked detail key %q, got %q", keydomain.MaskKey(token.Key), detail.Key)
 	}
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("detail response leaked raw token key: %s", recorder.Body.String())
@@ -550,8 +570,8 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	if err := common.Unmarshal(response.Data, &detail); err != nil {
 		t.Fatalf("failed to decode token update response: %v", err)
 	}
-	if detail.Key != token.GetMaskedKey() {
-		t.Fatalf("expected masked update key %q, got %q", token.GetMaskedKey(), detail.Key)
+	if detail.Key != keydomain.MaskKey(token.Key) {
+		t.Fatalf("expected masked update key %q, got %q", keydomain.MaskKey(token.Key), detail.Key)
 	}
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("update response leaked raw token key: %s", recorder.Body.String())
@@ -575,8 +595,8 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 	if err := common.Unmarshal(authorizedResponse.Data, &keyData); err != nil {
 		t.Fatalf("failed to decode token key response: %v", err)
 	}
-	if keyData.Key != token.GetFullKey() {
-		t.Fatalf("expected full key %q, got %q", token.GetFullKey(), keyData.Key)
+	if keyData.Key != token.Key {
+		t.Fatalf("expected full key %q, got %q", token.Key, keyData.Key)
 	}
 
 	unauthorizedCtx, unauthorizedRecorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/"+strconv.Itoa(token.Id)+"/key", nil, 2)
@@ -621,7 +641,7 @@ func TestAPITokenAuditDatabaseMatrix(t *testing.T) {
 				db, _ := audittest.NewDatabase(t, database.name, dsn)
 				model.DB = db
 				common.SetDatabaseTypes(database.typ, database.typ)
-				require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.Token{}))
+				require.NoError(t, db.AutoMigrate(&model.User{}, &identityrecord.UserSession{}, &model.Token{}))
 				// Initialize production column quoting as well as the existing audit table.
 				require.NoError(t, model.InitLogDB())
 				if separateLog {
@@ -654,8 +674,8 @@ func verifyAPITokenAudit(t *testing.T) {
 	require.NoError(t, model.DB.Create(user).Error)
 	other := &model.User{Username: "other-owner", Password: "placeholder", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1, AffCode: "other-owner"}
 	require.NoError(t, model.DB.Create(other).Error)
-	session := &model.UserSession{SID: "token-audit-session", UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: "placeholder", LoginMethod: "password", LastActiveAt: time.Now().Unix(), ExpiresAt: time.Now().Add(time.Hour).Unix()}
-	require.NoError(t, model.CreateUserSession(session))
+	session := &identityrecord.UserSession{SID: "token-audit-session", UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: identityrecord.UserSessionStatusActive, RefreshHash: "placeholder", LoginMethod: "password", LastActiveAt: time.Now().Unix(), ExpiresAt: time.Now().Add(time.Hour).Unix()}
+	require.NoError(t, identitystorage.SQL().CreateUserSession(session))
 	jwt, _, err := authtoken.IssueAccessToken(identitydomain.AuthIdentity{UserID: user.Id, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1})
 	require.NoError(t, err)
 	router := gin.New()
@@ -834,7 +854,7 @@ func verifyAPITokenAudit(t *testing.T) {
 				assert.NotContains(t, string(encoded), secret)
 			}
 			if tc.action == "token.key_view" && tc.success {
-				assert.Contains(t, response.Body.String(), owned.GetFullKey())
+				assert.Contains(t, response.Body.String(), owned.Key)
 			}
 		})
 	}
@@ -948,10 +968,10 @@ func TestAPIKeyCompatibilityDatabaseMatrix(t *testing.T) {
 			require.NoError(t, db.AutoMigrate(&model.Token{}))
 			ips := " 192.0.2.1,\n\n 198.51.100.0/24, "
 			token := &model.Token{UserId: 37, Key: "compat-key-secret", Name: "literal_under!name", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 25, UsedQuota: 7, ModelLimitsEnabled: true, ModelLimits: "first,second", AllowIps: &ips}
-			require.NoError(t, token.Insert())
+			require.NoError(t, apikeystorage.Persistence().Insert(token))
 			require.Positive(t, token.Id)
-			assert.Equal(t, []string{"192.0.2.1", "198.51.100.0/24"}, token.GetIpLimits())
-			assert.Equal(t, map[string]bool{"first": true, "second": true}, token.GetModelLimitsMap())
+			assert.Equal(t, []string{"192.0.2.1", "198.51.100.0/24"}, keyrecord.ToDomain(token).GetIpLimits())
+			assert.Equal(t, map[string]bool{"first": true, "second": true}, keyrecord.ToDomain(token).GetModelLimitsMap())
 
 			t.Run("wire usage and status", func(t *testing.T) {
 				ctx, response := newAuthenticatedContext(t, "GET", "/usage", nil, token.UserId)
@@ -966,30 +986,45 @@ func TestAPIKeyCompatibilityDatabaseMatrix(t *testing.T) {
 				assert.JSONEq(t, `{"object":"credit_summary","total_granted":25,"total_used":0,"total_available":25,"expires_at":0}`, response.Body.String())
 			})
 			t.Run("search escapes and ownership", func(t *testing.T) {
-				found, total, err := model.SearchUserTokens(token.UserId, "literal_under!name", "", 0, 10)
+				found, total, err := searchUserTokensFixture(token.UserId, "literal_under!name", "", 0, 10)
 				require.NoError(t, err)
 				require.Len(t, found, 1)
 				assert.EqualValues(t, 1, total)
 				assert.Equal(t, token.Id, found[0].Id)
-				found, total, err = model.SearchUserTokens(token.UserId+1, "literal_under!name", "", 0, 10)
+				found, total, err = searchUserTokensFixture(token.UserId+1, "literal_under!name", "", 0, 10)
 				require.NoError(t, err)
 				assert.Empty(t, found)
 				assert.Zero(t, total)
-				require.Error(t, model.DeleteTokenById(token.Id, token.UserId+1))
-				require.Error(t, model.DeleteTokenById(0, token.UserId))
+				require.Error(t, delete_owned_key.NewUsecase(tokenStoreFixture()).Execute(token.Id, token.UserId+1))
+				require.Error(t, delete_owned_key.NewUsecase(tokenStoreFixture()).Execute(0, token.UserId))
 			})
 			t.Run("disable limits and owner deletion", func(t *testing.T) {
-				require.NoError(t, model.DisableModelLimits(token.Id))
-				loaded, err := model.GetTokenById(token.Id)
+				require.NoError(t, disable_model_limits.NewUsecase(tokenStoreFixture()).Execute(token.Id))
+				loaded, err := apikeystorage.Persistence().GetByID(token.Id)
 				require.NoError(t, err)
 				assert.False(t, loaded.ModelLimitsEnabled)
 				assert.Empty(t, loaded.ModelLimits)
-				assert.NotNil(t, loaded.GetModelLimits())
-				assert.Empty(t, loaded.GetModelLimitsMap())
-				require.NoError(t, model.DeleteTokenById(token.Id, token.UserId))
-				_, err = model.GetTokenById(token.Id)
+				assert.NotNil(t, keyrecord.ToDomain(loaded).GetModelLimits())
+				assert.Empty(t, keyrecord.ToDomain(loaded).GetModelLimitsMap())
+				require.NoError(t, delete_owned_key.NewUsecase(tokenStoreFixture()).Execute(token.Id, token.UserId))
+				_, err = apikeystorage.Persistence().GetByID(token.Id)
 				require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 			})
 		})
 	}
+}
+
+func searchUserTokensFixture(userID int, keyword, key string, offset, limit int) ([]*keydomain.Token, int64, error) {
+	result, err := search_keys.NewUsecase(tokenStoreFixture(), operation_setting.GetMaxUserTokens, common.SysLog, common.SysError).Execute(search_keys.Input{UserID: userID, Keyword: keyword, Key: key, Start: offset, Limit: limit})
+	if err != nil {
+		return nil, 0, err
+	}
+	return result.Tokens, result.Total, nil
+}
+
+func tokenStoreFixture() keyrepository.Store {
+	return keyrepository.NewStore(apikeystorage.Persistence(), func(key string) (*keydomain.Token, error) {
+		value, err := apikeystorage.Reader().Read(key, false)
+		return keyrecord.ToDomain(value), err
+	})
 }

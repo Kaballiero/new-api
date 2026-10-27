@@ -3,14 +3,18 @@ package accountsadapter
 import (
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/accounts/get_affiliate_code"
+	core "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	"github.com/QuantumNous/new-api/model"
 )
 
 // ProfileQueriesStore адаптирует существующие чтение профиля и изменение кода приглашения.
-type ProfileQueriesStore struct{}
+type ProfileQueriesStore struct {
+	SQL    core.Store
+	Update func(*model.User, bool) error
+}
 
-func (ProfileQueriesStore) SelfProfile(id int) (domain.SelfProfile, error) {
-	user, err := model.GetSelfUserById(id)
+func (store ProfileQueriesStore) SelfProfile(id int) (domain.SelfProfile, error) {
+	user, err := store.SQL.GetSelfUserById(id)
 	if err != nil {
 		return domain.SelfProfile{}, err
 	}
@@ -47,18 +51,21 @@ func ProfileData(user *model.User) domain.SelfProfile {
 	}
 }
 
-func (ProfileQueriesStore) AffiliateAccount(id int) (get_affiliate_code.AffiliateAccount, error) {
-	user, err := model.GetUserById(id, true)
+func (store ProfileQueriesStore) AffiliateAccount(id int) (get_affiliate_code.AffiliateAccount, error) {
+	user, err := store.SQL.GetUserById(id, true)
 	if err != nil {
 		return nil, err
 	}
-	return affiliateAccount{user: user}, nil
+	return affiliateAccount{user: user, update: store.Update}, nil
 }
 
-type affiliateAccount struct{ user *model.User }
+type affiliateAccount struct {
+	user   *model.User
+	update func(*model.User, bool) error
+}
 
 func (account affiliateAccount) AffiliateCode() string { return account.user.AffCode }
 func (account affiliateAccount) SaveAffiliateCode(code string) error {
 	account.user.AffCode = code
-	return account.user.Update(false)
+	return account.update(account.user, false)
 }

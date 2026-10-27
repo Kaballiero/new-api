@@ -1,6 +1,8 @@
 package controller
 
 import (
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
@@ -15,7 +17,7 @@ type accountQuotaAudit struct {
 func (a accountQuotaAudit) RecordRecipientAdjustment(adjustment *adjust_quota.UserQuotaAdjustment, action string, params map[string]any) {
 	c := a.context
 	operation := model.AuditOperation{Action: action, Params: params}
-	model.RecordLogWithAdminInfo(adjustment.UserID, model.LogTypeTopup, auditContentEN(action, params), auditOperatorInfo(c), &operation, c)
+	usagestorage.Writer().RecordLogWithAdminInfo(adjustment.UserID, model.LogTypeTopup, auditContentEN(action, params), auditOperatorInfo(c), &operation, c)
 }
 
 func (a accountQuotaAudit) RecordOperatorAdjustment(action string, params map[string]any, success bool) {

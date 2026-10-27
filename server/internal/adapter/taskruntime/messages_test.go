@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 )
@@ -27,7 +28,7 @@ func TestTaskTextUsesRecipientLanguage(t *testing.T) {
 			require.NoError(t, err)
 			id := 100 + i
 			require.NoError(t, db.Create(&model.User{Id: id, Username: fmt.Sprintf("recipient_%d", id), AffCode: fmt.Sprintf("recipient_%d", id), Setting: string(settings)}).Error)
-			text := TaskText{}
+			text := TaskText{Language: accountstorage.Cache().GetUserLanguage}
 			assert.Equal(t, tc.timeout, text.Timeout(id, 30))
 			assert.Equal(t, tc.legacy, text.LegacyTimeout(id))
 			assert.Equal(t, tc.mjTimeout, text.MidjourneyTimeout(id))

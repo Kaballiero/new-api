@@ -4,15 +4,14 @@ import (
 	"regexp"
 
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/model"
 )
 
 // TaskText formats host-produced task messages for their recipient. Provider
 // failure strings are never passed through an error-string translator.
-type TaskText struct{}
+type TaskText struct{ Language func(int) string }
 
-func (TaskText) Phrase(userID int, key string, data map[string]any) string {
-	return i18n.Translate(i18n.ParseAcceptLanguage(model.GetUserLanguage(userID)), key, data)
+func (t TaskText) Phrase(userID int, key string, data map[string]any) string {
+	return i18n.Translate(i18n.ParseAcceptLanguage(t.Language(userID)), key, data)
 }
 func (t TaskText) Timeout(userID, minutes int) string {
 	return t.Phrase(userID, i18n.MsgTasksTimeout, map[string]any{"Minutes": minutes})

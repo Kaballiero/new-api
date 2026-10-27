@@ -1,26 +1,27 @@
 package usage
 
 import (
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"encoding/base64"
 	"encoding/json"
-
-	tasktext "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/model"
-
 	"github.com/QuantumNous/new-api/types"
 )
 
 var usageMetadata = Metadata{}
 
-type TaskBilling struct{}
+type TaskBilling struct {
+	AdjustmentText   func(int, string) string
+	Writer           Writer
+	UserUsedQuota    func(int, int)
+	ChannelUsedQuota func(int, int)
+}
 
 func Plugin(p *model.TaskPluginSnapshot) *usagedomain.Plugin {
 	if p == nil {
@@ -32,16 +33,16 @@ func Plugin(p *model.TaskPluginSnapshot) *usagedomain.Plugin {
 	}
 	return out
 }
-func (TaskBilling) UserUsed(userID, delta int)       { model.UpdateUserUsedQuota(userID, delta) }
-func (TaskBilling) ChannelUsed(channelID, delta int) { model.UpdateChannelUsedQuota(channelID, delta) }
-func (TaskBilling) Refund(task *domain.Task, quota int, reason string) {
+func (b TaskBilling) UserUsed(userID, delta int)       { b.UserUsedQuota(userID, delta) }
+func (b TaskBilling) ChannelUsed(channelID, delta int) { b.ChannelUsedQuota(channelID, delta) }
+func (b TaskBilling) Refund(task *domain.Task, quota int, reason string) {
 	t := record.FromDomain(task)
 	other := taskBillingOther(t)
 	other.SetPublic("task_id", t.TaskID)
 	other.SetPublic("reason", reason)
-	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{UserId: t.UserId, LogType: model.LogTypeRefund, Content: "", ChannelId: t.ChannelId, ModelName: domain.TaskModelName(task), Quota: quota, TokenId: t.PrivateData.TokenId, Group: t.Group, Other: other})
+	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{UserId: t.UserId, LogType: model.LogTypeRefund, Content: "", ChannelId: t.ChannelId, ModelName: domain.TaskModelName(task), Quota: quota, TokenId: t.PrivateData.TokenId, Group: t.Group, Other: other})
 }
-func (TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota int, reason string, projection *domain.BillingProjection, clamps []*billingdomain.Clamp) {
+func (b TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota int, reason string, projection *domain.BillingProjection, clamps []*billingdomain.Clamp) {
 	t := record.FromDomain(task)
 	quotaDelta := actualQuota - preConsumedQuota
 	var logType int
@@ -90,10 +91,10 @@ func (TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota i
 	for _, clamp := range clamps {
 		usageMetadata.Clamp(other, clamp)
 	}
-	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{
 		UserId:    t.UserId,
 		LogType:   logType,
-		Content:   (tasktext.TaskText{}).Adjustment(t.UserId, reason),
+		Content:   b.AdjustmentText(t.UserId, reason),
 		ChannelId: t.ChannelId,
 		ModelName: domain.TaskModelName(task),
 		Quota:     logQuota,
@@ -185,7 +186,7 @@ func taskBillingContextPriceData(bc *model.TaskBillingContext) *types.PriceData 
 	return priceData
 }
 
-func (TaskBilling) Durable(value *domain.Task, delta int) error {
+func (b TaskBilling) Durable(value *domain.Task, delta int) error {
 	task := record.FromDomain(value)
 	r := task.PrivateData.Reconciliation
 	other := new(model.LogOther)
@@ -216,7 +217,7 @@ func (TaskBilling) Durable(value *domain.Task, delta int) error {
 	if delta < 0 {
 		logType, quota = model.LogTypeRefund, -delta
 	}
-	if err := model.RecordTaskBillingLogWithError(model.RecordTaskBillingLogParams{
+	if err := b.Writer.RecordTaskBillingLogWithError(RecordTaskBillingLogParams{
 		UserId: task.UserId, ChannelId: task.ChannelId, ModelName: domain.TaskModelName(value), TokenId: task.PrivateData.TokenId,
 		LogType: logType, Quota: quota, Group: task.Group, Other: other, NodeName: task.PrivateData.NodeName,
 		Content: "OpenRouter confirmed cost settlement",
@@ -226,9 +227,9 @@ func (TaskBilling) Durable(value *domain.Task, delta int) error {
 	return nil
 }
 
-func (TaskBilling) RefundMidjourney(task *domain.Midjourney, quota int, reason string) {
+func (b TaskBilling) RefundMidjourney(task *domain.Midjourney, quota int, reason string) {
 	other := new(model.LogOther)
 	other.SetPublic("task_id", task.MjId)
 	other.SetPublic("reason", reason)
-	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{UserId: task.UserId, LogType: model.LogTypeRefund, Content: "", ChannelId: task.GetBillingChannelId(), ModelName: domain.MidjourneyModelName(task.Action), Quota: quota, TokenId: task.TokenId, Other: other})
+	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{UserId: task.UserId, LogType: model.LogTypeRefund, Content: "", ChannelId: task.GetBillingChannelId(), ModelName: domain.MidjourneyModelName(task.Action), Quota: quota, TokenId: task.TokenId, Other: other})
 }

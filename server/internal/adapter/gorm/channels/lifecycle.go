@@ -2,6 +2,7 @@ package channels
 
 import (
 	"errors"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"math/rand"
 	"sync"
 
@@ -232,7 +233,7 @@ func NewChannelPersistence() record.Store {
 		AbilityStatus: UpdateAbilityStatus,
 
 		DB:            func() *gorm.DB { return legacy.DB },
-		LockForUpdate: legacy.LockForUpdate,
+		LockForUpdate: locking.LockForUpdate,
 		GroupColumn:   func() string { return legacy.GroupColumn },
 		KeyColumn:     func() string { return legacy.KeyColumn },
 

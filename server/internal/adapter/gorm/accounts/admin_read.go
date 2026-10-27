@@ -2,18 +2,21 @@ package accountsadapter
 
 import (
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	core "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	"github.com/QuantumNous/new-api/model"
 )
 
 // AdminReadOperation сохраняет исходный указатель для HTTP-ответа и исходные данные аудита.
 type AdminReadOperation struct {
+	SQL core.Store
+
 	user   *model.User
 	Delete func(int) error
 	Audit  func(domain.AdminTarget)
 }
 
 func (op *AdminReadOperation) LoadOrigin(id int) (domain.AdminTarget, error) {
-	user, err := model.GetUserById(id, false)
+	user, err := op.SQL.GetUserById(id, false)
 	if err != nil {
 		return domain.AdminTarget{}, adminLoadError(err)
 	}

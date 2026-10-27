@@ -1,6 +1,12 @@
 package taskrecord
 
 import (
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
+
+	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
+
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -11,7 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-	tasktext "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/record_task_submission"
 	"github.com/QuantumNous/new-api/model"
@@ -23,7 +29,7 @@ import (
 
 func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model.Task) error {
 	tokenName := c.GetString("token_name")
-	texts := tasktext.TaskText{}
+	texts := taskbillingruntime.Text()
 	logContent := texts.Phrase(info.UserId, i18n.MsgTasksAction, map[string]any{"Action": info.Action})
 	// Per-call tasks retain their existing submission content.
 	if common.StringsContains(constant.TaskPricePatches, info.OriginModelName) {
@@ -80,12 +86,12 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 			other.SetAdmin("openrouter_cost_basis", bc.OpenRouterCost)
 			other.SetAdmin("openrouter_order_facts", bc.OpenRouterOrderFacts)
 		}
-		logErr = model.RecordTaskBillingLogWithError(model.RecordTaskBillingLogParams{
+		logErr = usagestorage.Writer().RecordTaskBillingLogWithError(usageadapter.RecordTaskBillingLogParams{
 			UserId: info.UserId, LogType: model.LogTypeConsume, ChannelId: info.ChannelId, ModelName: info.OriginModelName,
 			TokenId: info.TokenId, Quota: info.PriceData.Quota, Content: logContent, Group: info.UsingGroup, Other: other, NodeName: task.PrivateData.NodeName,
 		})
 	} else {
-		model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
+		usagestorage.Writer().RecordConsumeLog(c, info.UserId, usageadapter.RecordConsumeLogParams{
 			ChannelId: info.ChannelId,
 			ModelName: info.OriginModelName,
 			TokenName: tokenName,
@@ -97,8 +103,8 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		})
 	}
 
-	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
-	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
+	accountstorage.SQL().UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
+	counters.UpdateChannelUsedQuota(model.DB, info.ChannelId, info.PriceData.Quota)
 	return logErr
 }
 
