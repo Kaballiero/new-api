@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
-)
+import ()
 
 // PluginGeneration exposes the read-only facts needed for tariff projection.
 // Runtime engines and registry publication stay in the technical adapter.
@@ -19,10 +17,10 @@ type PluginMetadata struct {
 	Key              string
 	ChannelTypes     []int
 	Protocols        []PluginProtocol
-	PriceCatalog     *jsplugin.PriceCatalog
-	LegacyPriceBasis map[string]jsplugin.LegacyPriceBasis
-	UsageSchema      map[string]jsplugin.UsageFieldSchema
-	UsageExamples    []jsplugin.UsageExample
+	PriceCatalog     *TariffCatalog
+	LegacyPriceBasis map[string]VideoPriceBasis
+	UsageSchema      map[string]TariffUsageField
+	UsageExamples    []TariffUsageExample
 }
 type PluginProtocol struct{ Name string }
 type PluginCandidate struct{ Plugin *Plugin }

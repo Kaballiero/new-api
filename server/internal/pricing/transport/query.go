@@ -13,7 +13,7 @@ import (
 )
 
 // ParsePublicPricingModelsQuery parses the query of the public model catalog.
-func ParsePublicPricingModelsQuery(raw string) (domain.PublicPricingModelsQuery, error) {
+func ParsePublicPricingModelsQuery(modelTypes []string, raw string) (domain.PublicPricingModelsQuery, error) {
 	query := domain.PublicPricingModelsQuery{Page: 1, PageSize: 10}
 	values, err := url.ParseQuery(raw)
 	if err != nil {
@@ -37,7 +37,7 @@ func ParsePublicPricingModelsQuery(raw string) (domain.PublicPricingModelsQuery,
 		}
 	}
 	if raw, present := values["catalog_type"]; present {
-		if !slices.Contains(domain.CatalogModelTypes(), raw[0]) {
+		if !slices.Contains(modelTypes, raw[0]) {
 			return query, fmt.Errorf("invalid catalog_type")
 		}
 		query.CatalogType = raw[0]
@@ -105,7 +105,7 @@ func ExpectedPricingRevision(values url.Values) (string, error) {
 }
 
 // ParseEffectivePricingPageQuery parses a page of the effective pricing catalog.
-func ParseEffectivePricingPageQuery(values url.Values, personal bool) (domain.EffectivePricingPageQuery, error) {
+func ParseEffectivePricingPageQuery(modelTypes []string, values url.Values, personal bool) (domain.EffectivePricingPageQuery, error) {
 	query := domain.EffectivePricingPageQuery{Personal: personal, Limit: 20, OrderBy: "NAME", Direction: "asc"}
 	revision, err := ExpectedPricingRevision(values)
 	if err != nil {
@@ -157,7 +157,7 @@ func ParseEffectivePricingPageQuery(values url.Values, personal bool) (domain.Ef
 		target  *string
 		allowed []string
 	}{
-		{"catalog_type", &query.CatalogType, domain.CatalogModelTypes()},
+		{"catalog_type", &query.CatalogType, modelTypes},
 		{"modality", &query.Modality, []string{"TEXT", "IMAGE", "VIDEO", "EMBEDDINGS", "RERANK", "OTHER"}},
 		{"pricing_unit", &query.PricingUnit, []string{"TOKENS", "CALLS", "UNCONFIGURED"}},
 		{"order_by", &query.OrderBy, []string{"NAME", "INPUT_PRICE", "OUTPUT_PRICE"}},

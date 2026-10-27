@@ -1,6 +1,7 @@
 package controller
 
 import (
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
 
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -23,5 +24,5 @@ func pricingRevisionMatches(c *gin.Context, expected, actual string) bool {
 }
 
 func consumerPricingRevision(source string, context effectivePricingPageContext) (string, error) {
-	return pricingdomain.ConsumerPricingRevision(source, pricingdomain.EffectivePricingPageContext(context))
+	return pricingdomain.ConsumerPricingRevision(pricingadapter.Capabilities(), source, pricingdomain.EffectivePricingPageContext(context))
 }

@@ -22,7 +22,24 @@ func (g *Generation) plugin(native *jsplugin.LoadedPlugin) *domain.Plugin {
 	if v, ok := g.plugins[native]; ok {
 		return v
 	}
-	v := &domain.Plugin{Meta: domain.PluginMetadata{Key: native.Meta.Key, ChannelTypes: native.Meta.ChannelTypes, PriceCatalog: native.Meta.PriceCatalog, LegacyPriceBasis: native.Meta.LegacyPriceBasis, UsageSchema: native.Meta.UsageSchema, UsageExamples: native.Meta.UsageExamples}}
+	v := &domain.Plugin{Meta: domain.PluginMetadata{Key: native.Meta.Key, ChannelTypes: native.Meta.ChannelTypes}}
+	if native.Meta.PriceCatalog != nil {
+		value := ToTariffCatalog(*native.Meta.PriceCatalog)
+		v.Meta.PriceCatalog = &value
+	}
+	if native.Meta.LegacyPriceBasis != nil {
+		v.Meta.LegacyPriceBasis = make(map[string]domain.VideoPriceBasis, len(native.Meta.LegacyPriceBasis))
+		for key, value := range native.Meta.LegacyPriceBasis {
+			v.Meta.LegacyPriceBasis[key] = ToVideoPriceBasis(value)
+		}
+	}
+	v.Meta.UsageSchema = UsageSchema(native.Meta.UsageSchema)
+	if native.Meta.UsageExamples != nil {
+		v.Meta.UsageExamples = make([]domain.TariffUsageExample, len(native.Meta.UsageExamples))
+		for i, value := range native.Meta.UsageExamples {
+			v.Meta.UsageExamples[i] = ToTariffUsageExample(value)
+		}
+	}
 	for _, p := range native.Meta.Protocols {
 		v.Meta.Protocols = append(v.Meta.Protocols, domain.PluginProtocol{Name: p.Name})
 	}
@@ -49,4 +66,15 @@ func (g *Generation) LookupEndpointCandidates(method, path, model string) []doma
 		out[i] = domain.PluginCandidate{Plugin: g.plugin(v.Plugin)}
 	}
 	return out
+}
+
+func UsageSchema(value map[string]jsplugin.UsageFieldSchema) map[string]domain.TariffUsageField {
+	if value == nil {
+		return nil
+	}
+	result := make(map[string]domain.TariffUsageField, len(value))
+	for key, field := range value {
+		result[key] = ToTariffUsageField(field)
+	}
+	return result
 }

@@ -2,6 +2,7 @@ package get_model_pricing
 
 import (
 	"errors"
+	"github.com/QuantumNous/new-api/common"
 	"testing"
 
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -28,22 +29,22 @@ type fakeUsers struct{ err error }
 func (u fakeUsers) UserGroup(int) (string, error) { return "default", u.err }
 
 func TestExecuteClassifiesReadFailures(t *testing.T) {
-	projection := domain.NewProjection(domain.ProjectionRuntime{})
+	projection := domain.NewProjection(domain.ProjectionRuntime{Capabilities: domain.Capabilities{Codec: domain.JSONCodec{Marshal: common.Marshal}}})
 
-	_, err := NewUsecase(fakeReader{}, projection, fakeUsers{err: errors.New("cache miss")}).Execute(Input{UserID: 7, Name: "gpt"})
+	_, err := NewUsecase(domain.Capabilities{Codec: domain.JSONCodec{Marshal: common.Marshal}}, fakeReader{}, projection, fakeUsers{err: errors.New("cache miss")}).Execute(Input{UserID: 7, Name: "gpt"})
 	require.ErrorIs(t, err, domain.ErrUserGroupUnavailable)
 	assert.EqualError(t, err, "failed to resolve user pricing group")
 
-	_, err = NewUsecase(fakeReader{}, projection, fakeUsers{}).Execute(Input{UserID: 7, Name: "gpt", ExpectedRevision: "stale"})
+	_, err = NewUsecase(domain.Capabilities{Codec: domain.JSONCodec{Marshal: common.Marshal}}, fakeReader{}, projection, fakeUsers{}).Execute(Input{UserID: 7, Name: "gpt", ExpectedRevision: "stale"})
 	require.ErrorIs(t, err, domain.ErrRevisionMismatch)
 	assert.EqualError(t, err, "Pricing catalog revision changed")
 
-	_, err = NewUsecase(fakeReader{}, projection, fakeUsers{}).Execute(Input{UserID: 7, Name: "gpt"})
+	_, err = NewUsecase(domain.Capabilities{Codec: domain.JSONCodec{Marshal: common.Marshal}}, fakeReader{}, projection, fakeUsers{}).Execute(Input{UserID: 7, Name: "gpt"})
 	require.ErrorIs(t, err, domain.ErrModelPricingUnavailable)
 	assert.EqualError(t, err, "model pricing is unavailable")
 
 	// A broken snapshot keeps its generic text and is answered as unavailable.
-	_, err = NewUsecase(fakeReader{snapshotErr: errors.New("db down")}, projection, fakeUsers{}).Execute(Input{UserID: 7, Name: "gpt"})
+	_, err = NewUsecase(domain.Capabilities{Codec: domain.JSONCodec{Marshal: common.Marshal}}, fakeReader{snapshotErr: errors.New("db down")}, projection, fakeUsers{}).Execute(Input{UserID: 7, Name: "gpt"})
 	require.Error(t, err)
 	assert.EqualError(t, err, "failed to resolve pricing catalog revision")
 	assert.NotErrorIs(t, err, domain.ErrModelPricingUnavailable)

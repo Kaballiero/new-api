@@ -1,6 +1,7 @@
 package model
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
@@ -66,7 +67,7 @@ func newPricingCatalogueStore() store.Catalogue {
 	})
 }
 func newPricingOperations() *domain.Operations {
-	return domain.NewOperations(domain.OperationRuntime{AudioRatio: ratio_setting.GetAudioRatio, AudioCompletionRatio: ratio_setting.GetAudioCompletionRatio, BatchExpression: billing_setting.GetBatchBillingExpr, CatalogEntry: func(c *domain.BuildChannel, name string, endpoint constant.EndpointType) (domain.PricingCatalogEntry, bool) {
+	return domain.NewOperations(domain.OperationRuntime{Capabilities: pricingCapabilities(), AudioRatio: ratio_setting.GetAudioRatio, AudioCompletionRatio: ratio_setting.GetAudioCompletionRatio, BatchExpression: billing_setting.GetBatchBillingExpr, CatalogEntry: func(c *domain.BuildChannel, name string, endpoint constant.EndpointType) (domain.PricingCatalogEntry, bool) {
 		v, ok := GetPricingCatalogEntry(pricingNativeChannel(c), name, endpoint)
 		return domain.PricingCatalogEntry(v), ok
 	}})
@@ -86,7 +87,11 @@ func (pricingBuildState) LockPublication() func() {
 }
 func (pricingBuildState) Publish(value rebuild_catalogue.Publication) {
 	pricingMap, vendorsList = value.Pricing, value.Vendors
-	modelSupportEndpointTypes, supportedEndpointMap = value.EndpointTypes, value.Endpoints
+	nativeEndpoints := make(map[string]common.EndpointInfo, len(value.Endpoints))
+	for key, endpoint := range value.Endpoints {
+		nativeEndpoints[key] = common.EndpointInfo(endpoint)
+	}
+	modelSupportEndpointTypes, supportedEndpointMap = value.EndpointTypes, nativeEndpoints
 	pricingCatalogueRevision, pricingCatalogueRevisionError = value.Revision, nil
 
 	modelEnableGroupsLock.Lock()
@@ -104,5 +109,5 @@ func (pricingBuildState) Publish(value rebuild_catalogue.Publication) {
 	pricingRetryAfter.Store(0)
 	pricingObservedSource.Store(&value.SourceFingerprint)
 	pricingObservedChannels.Store(&value.ChannelFingerprint)
-	publishedPricing.Store(&publishedPricingCatalogue{pricing: value.Pricing, vendors: value.Vendors, revision: value.Revision, endpoints: value.Endpoints, builtAt: lastGetPricingTime, generation: value.Generation, pluginGeneration: value.PluginGeneration})
+	publishedPricing.Store(&publishedPricingCatalogue{pricing: value.Pricing, vendors: value.Vendors, revision: value.Revision, endpoints: nativeEndpoints, builtAt: lastGetPricingTime, generation: value.Generation, pluginGeneration: value.PluginGeneration})
 }

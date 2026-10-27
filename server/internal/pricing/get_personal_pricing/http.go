@@ -7,9 +7,14 @@ import (
 	"net/http"
 )
 
-type HTTP struct{ usecase Usecase }
+type HTTP struct {
+	usecase    Usecase
+	modelTypes func() []string
+}
 
-func NewHTTP(usecase Usecase) HTTP { return HTTP{usecase: usecase} }
+func NewHTTP(usecase Usecase, modelTypes func() []string) HTTP {
+	return HTTP{usecase: usecase, modelTypes: modelTypes}
+}
 func (h HTTP) Handle(c *gin.Context) {
 	values, page, err := transport.ParseCatalogueMode(c.Request.URL.RawQuery)
 	if err != nil {
@@ -18,7 +23,7 @@ func (h HTTP) Handle(c *gin.Context) {
 	}
 	input := Input{UserID: c.GetInt("id"), Page: page}
 	if input.Page {
-		input.Query, err = transport.ParseEffectivePricingPageQuery(values, true)
+		input.Query, err = transport.ParseEffectivePricingPageQuery(h.modelTypes(), values, true)
 		if err != nil {
 			transport.WriteError(c, domain.InvalidQuery(err))
 			return

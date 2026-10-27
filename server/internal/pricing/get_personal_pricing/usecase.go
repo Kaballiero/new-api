@@ -18,14 +18,15 @@ type Cache interface {
 	Put(string, domain.ConsumerPricingResponse)
 }
 type Usecase struct {
+	deps       domain.Capabilities
 	reader     Reader
 	projection *domain.Projection
 	cache      Cache
 	users      Users
 }
 
-func NewUsecase(reader Reader, projection *domain.Projection, cache Cache, users Users) Usecase {
-	return Usecase{reader: reader, projection: projection, cache: cache, users: users}
+func NewUsecase(deps domain.Capabilities, reader Reader, projection *domain.Projection, cache Cache, users Users) Usecase {
+	return Usecase{deps: deps, reader: reader, projection: projection, cache: cache, users: users}
 }
 func (u Usecase) Execute(input Input) (Output, error) {
 	group := input.Group
@@ -92,6 +93,6 @@ func (u Usecase) consumerContext(userGroup, usingGroup string) (domain.Effective
 	if usingGroup != "" {
 		ctx.UsableGroups = map[string]string{usingGroup: ctx.UsableGroups[usingGroup]}
 	}
-	ctx.Metadata.CatalogRevision, err = domain.ConsumerPricingRevision(source, ctx)
+	ctx.Metadata.CatalogRevision, err = domain.ConsumerPricingRevision(u.deps, source, ctx)
 	return ctx, err
 }

@@ -1,8 +1,6 @@
 package controller
 
 import (
-	"github.com/QuantumNous/new-api/relaykit/dto"
-
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/gin-gonic/gin"
 )
@@ -12,7 +10,7 @@ func FetchUpstreamRatios(c *gin.Context) { pricingHTTP().FetchUpstreamRatios.Han
 func buildDifferences(localData map[string]any, channels []struct {
 	name string
 	data map[string]any
-}) map[string]map[string]dto.DifferenceItem {
+}) map[string]map[string]pricingdomain.RatioDifference {
 	var values []pricingdomain.SyncChannel
 	for _, ch := range channels {
 		values = append(values, pricingdomain.SyncChannel{Name: ch.name, Data: ch.data})

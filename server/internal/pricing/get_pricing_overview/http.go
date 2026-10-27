@@ -11,9 +11,14 @@ import (
 	"strings"
 )
 
-type HTTP struct{ usecase Usecase }
+type HTTP struct {
+	usecase    Usecase
+	modelTypes func() []string
+}
 
-func NewHTTP(usecase Usecase) HTTP { return HTTP{usecase: usecase} }
+func NewHTTP(usecase Usecase, modelTypes func() []string) HTTP {
+	return HTTP{usecase: usecase, modelTypes: modelTypes}
+}
 func (h HTTP) Handle(c *gin.Context) {
 	values, err := url.ParseQuery(c.Request.URL.RawQuery)
 	if err != nil {
@@ -26,7 +31,7 @@ func (h HTTP) Handle(c *gin.Context) {
 			return
 		}
 	}
-	query, err := transport.ParseEffectivePricingPageQuery(values, false)
+	query, err := transport.ParseEffectivePricingPageQuery(h.modelTypes(), values, false)
 	if err != nil {
 		transport.WriteError(c, domain.InvalidQuery(err))
 		return

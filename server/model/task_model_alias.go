@@ -202,5 +202,5 @@ func followChannelModelMapping(modelMap map[string]string, start string) (string
 }
 
 func ResolvePricingUpstreamModel(channel *Channel, modelName string) (string, bool) {
-	return pricingdomain.ResolvePricingUpstreamModel(pricingBuildChannel(channel), modelName)
+	return pricingdomain.ResolvePricingUpstreamModel(pricingCapabilities(), pricingBuildChannel(channel), modelName)
 }

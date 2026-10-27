@@ -3,6 +3,7 @@ package model
 import (
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/rebuild_catalogue"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 
@@ -29,7 +30,15 @@ const (
 type Pricing = pricingdomain.Pricing
 
 func legacyVideoPriceBasis(generation *jsplugin.RoutingGeneration, channel *Channel, modelName, taskPluginKey string) (map[string]jsplugin.LegacyPriceBasis, bool, bool) {
-	return pricingdomain.LegacyVideoPriceBasis(pricingadapter.NewGeneration(generation), pricingBuildChannel(channel), modelName, taskPluginKey)
+	basis, known, only := pricingdomain.LegacyVideoPriceBasis(pricingCapabilities(), pricingadapter.NewGeneration(generation), pricingBuildChannel(channel), modelName, taskPluginKey)
+	var result map[string]jsplugin.LegacyPriceBasis
+	if basis != nil {
+		result = make(map[string]jsplugin.LegacyPriceBasis, len(basis))
+		for key, value := range basis {
+			result[key] = jsplugin.LegacyPriceBasis(value)
+		}
+	}
+	return result, known, only
 }
 
 type PricingVendor = pricingdomain.PricingVendor
@@ -106,7 +115,7 @@ func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
 }
 
 func rebuildPricingCatalogueLocked() {
-	rebuild_catalogue.NewUsecase(newPricingCatalogueStore(), pricingBuildState{}, rebuild_catalogue.Settings{
+	rebuild_catalogue.NewUsecase(pricingCapabilities(), pricingadapter.ChannelCodec{}, newPricingCatalogueStore(), pricingBuildState{}, rebuild_catalogue.Settings{
 		PassThrough: func() bool { return model_setting.GetGlobalSettings().PassThroughRequestEnabled }, GetModelPrice: ratio_setting.GetModelPrice, HasConfiguredModelRatio: ratio_setting.HasConfiguredModelRatio, GetModelRatio: ratio_setting.GetModelRatio, GetCompletionRatio: ratio_setting.GetCompletionRatio, GetCacheRatio: ratio_setting.GetCacheRatio, GetCreateCacheRatio: ratio_setting.GetCreateCacheRatio, GetImageRatio: ratio_setting.GetImageRatio, ContainsAudioRatio: ratio_setting.ContainsAudioRatio, ContainsAudioCompletionRatio: ratio_setting.ContainsAudioCompletionRatio, GetAudioRatio: ratio_setting.GetAudioRatio, GetAudioCompletionRatio: ratio_setting.GetAudioCompletionRatio, GetBillingMode: billing_setting.GetBillingMode, GetBillingExpr: billing_setting.GetBillingExpr, GetBatchBillingExpr: billing_setting.GetBatchBillingExpr,
 	}, func() pricingdomain.PluginGeneration {
 		return pricingadapter.NewGeneration(jsplugin.DefaultRegistry.Generation())
@@ -123,4 +132,21 @@ func GetSupportedEndpointMap() map[string]common.EndpointInfo {
 		return nil
 	}
 	return snapshot.endpoints
+}
+
+func pricingCapabilities() pricingdomain.Capabilities { return pricingadapter.Capabilities() }
+
+func pricingUsageSchema(value map[string]jsplugin.UsageFieldSchema) map[string]pricingdomain.TariffUsageField {
+	return pricingadapter.UsageSchema(value)
+}
+
+func pricingCatalogDocument(value *catalogsync.Document) *pricingdomain.SourceDocument {
+	if value == nil {
+		return nil
+	}
+	result := pricingadapter.ToSourceDocument(*value)
+	return &result
+}
+func pricingCatalogOffer(value catalogsync.Offer) pricingdomain.SourceOffer {
+	return pricingadapter.ToSourceOffer(value)
 }

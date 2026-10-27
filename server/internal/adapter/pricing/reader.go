@@ -50,8 +50,16 @@ func (c *ConsumerCache) Put(group string, response domain.ConsumerPricingRespons
 	c.entries[group] = response
 }
 
-func (r Reader) SnapshotWithEndpoints() ([]domain.Pricing, []domain.PricingVendor, map[string]common.EndpointInfo, string, error) {
-	return r.SnapshotEndpointsRead()
+func (r Reader) SnapshotWithEndpoints() ([]domain.Pricing, []domain.PricingVendor, map[string]domain.PricingEndpointInfo, string, error) {
+	pricing, vendors, endpoints, revision, err := r.SnapshotEndpointsRead()
+	var result map[string]domain.PricingEndpointInfo
+	if endpoints != nil {
+		result = make(map[string]domain.PricingEndpointInfo, len(endpoints))
+		for key, value := range endpoints {
+			result[key] = domain.PricingEndpointInfo(value)
+		}
+	}
+	return pricing, vendors, result, revision, err
 }
 func (r Reader) GroupRatios() map[string]float64 { return r.GroupRatiosRead() }
 func (r Reader) GroupGroupRatio(group, target string) (float64, bool) {

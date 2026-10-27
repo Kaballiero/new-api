@@ -12,12 +12,15 @@ import (
 type HTTP struct {
 	usecase Usecase
 	log     func(string)
+	decode  func(func(any) error) (Request, error)
 }
 
-func NewHTTP(usecase Usecase, log func(string)) HTTP { return HTTP{usecase: usecase, log: log} }
+func NewHTTP(usecase Usecase, log func(string), decode func(func(any) error) (Request, error)) HTTP {
+	return HTTP{usecase: usecase, log: log, decode: decode}
+}
 func (h HTTP) Handle(c *gin.Context) {
-	var req Request
-	if err := c.ShouldBindJSON(&req); err != nil {
+	req, err := h.decode(c.ShouldBindJSON)
+	if err != nil {
 		h.log("failed to bind upstream request: " + err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgPricingRequestInvalid)})
 		return

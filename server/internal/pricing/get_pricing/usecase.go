@@ -1,14 +1,13 @@
 package get_pricing
 
 import (
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"maps"
 )
 
 type Reader interface {
-	SnapshotWithEndpoints() ([]domain.Pricing, []domain.PricingVendor, map[string]common.EndpointInfo, string, error)
+	SnapshotWithEndpoints() ([]domain.Pricing, []domain.PricingVendor, map[string]domain.PricingEndpointInfo, string, error)
 	GroupRatios() map[string]float64
 	UserGroup(int) (string, error)
 	GroupGroupRatio(string, string) (float64, bool)

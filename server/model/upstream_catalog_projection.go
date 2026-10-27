@@ -25,17 +25,17 @@ type UpstreamCatalogRoute = pricingdomain.UpstreamCatalogRoute
 // Catalog semantics describe the consumer operation, independently of the relay
 // protocol. In particular, an image Chat request is not a text-generation offer.
 func catalogConsumerProfile(document *catalogsync.Document) (pricingOperation, string) {
-	v, modality := pricingdomain.CatalogConsumerProfile(document)
+	v, modality := pricingdomain.CatalogConsumerProfile(pricingCatalogDocument(document))
 	return pricingOperation{v.Operation, v.Main, v.Basis}, modality
 }
 
 func catalogConsumerOperation(document *catalogsync.Document, upstream string, endpoint constant.EndpointType) pricingOperation {
-	v := pricingdomain.CatalogConsumerOperation(document, upstream, endpoint)
+	v := pricingdomain.CatalogConsumerOperation(pricingCatalogDocument(document), upstream, endpoint)
 	return pricingOperation{v.Operation, v.Main, v.Basis}
 }
 
 func CatalogOfferMode(offer catalogsync.Offer, upstream string) (string, bool) {
-	return pricingdomain.CatalogOfferMode(offer, upstream)
+	return pricingdomain.CatalogOfferMode(pricingCapabilities(), pricingCatalogOffer(offer), upstream)
 }
 
 func ConfiguredCatalogSource() (CatalogSource, bool, error) {
@@ -56,8 +56,8 @@ func IsOpenRouterCatalogChannel(channel *Channel) bool {
 	return pricingdomain.IsOpenRouterCatalogChannel(pricingBuildChannel(channel))
 }
 
-func loadConfiguredCatalog(ctx context.Context) (map[string]*catalogsync.Document, map[string]string, bool, error) {
-	return read_upstream_catalogue.NewUsecase(NewImmutableCatalogPersistence(), func() (pricingdomain.CatalogSource, bool, error) {
+func loadConfiguredCatalog(ctx context.Context) (map[string]*pricingdomain.SourceDocument, map[string]string, bool, error) {
+	return read_upstream_catalogue.NewUsecase(pricingCapabilities(), NewImmutableCatalogPersistence(), func() (pricingdomain.CatalogSource, bool, error) {
 		v, on, err := ConfiguredCatalogSource()
 		return pricingdomain.CatalogSource(v), on, err
 	}).Execute(ctx)

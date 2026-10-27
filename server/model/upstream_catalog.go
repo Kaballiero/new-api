@@ -43,7 +43,7 @@ func PublishCatalogSelection(ctx context.Context, expected CatalogSource, select
 	for _, v := range documents {
 		values = append(values, domain.CatalogDocument(v))
 	}
-	return publish_catalog_selection.NewUsecase(NewImmutableCatalogPersistence(), time.Now).Execute(ctx, domain.CatalogSource(expected), selection, remote, fetched, values)
+	return publish_catalog_selection.NewUsecase(pricingCapabilities(), NewImmutableCatalogPersistence(), time.Now).Execute(ctx, domain.CatalogSource(expected), selection, remote, fetched, values)
 }
 func ReadCatalogSelection(ctx context.Context, sourceID, revision string) (CatalogSelection, error) {
 	return NewImmutableCatalogPersistence().ReadSelection(ctx, sourceID, revision)

@@ -7,11 +7,16 @@ import (
 	"net/http"
 )
 
-type HTTP struct{ usecase Usecase }
+type HTTP struct {
+	usecase    Usecase
+	modelTypes func() []string
+}
 
-func NewHTTP(usecase Usecase) HTTP { return HTTP{usecase: usecase} }
+func NewHTTP(usecase Usecase, modelTypes func() []string) HTTP {
+	return HTTP{usecase: usecase, modelTypes: modelTypes}
+}
 func (h HTTP) Handle(c *gin.Context) {
-	input, err := transport.ParsePublicPricingModelsQuery(c.Request.URL.RawQuery)
+	input, err := transport.ParsePublicPricingModelsQuery(h.modelTypes(), c.Request.URL.RawQuery)
 	if err != nil {
 		transport.WriteError(c, domain.InvalidQuery(err))
 		return

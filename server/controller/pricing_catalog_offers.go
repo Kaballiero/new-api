@@ -1,6 +1,7 @@
 package controller
 
 import (
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/app"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 
@@ -17,7 +18,7 @@ type consumerProviderOffer = pricingdomain.ConsumerProviderOffer
 type pricingUserContext = pricingdomain.PricingUserContext
 
 func catalogComponentName(rate catalogsync.Component) string {
-	return pricingdomain.CatalogComponentName(rate)
+	return pricingdomain.CatalogComponentName(pricingadapter.ToSourceRate(rate))
 }
 
 // Legacy meters can supply semantics only when their dimensions agree.
@@ -34,8 +35,7 @@ func upstreamProviderOffers(item model.Pricing, group string, ratio float64, val
 }
 
 func catalogMinima(offers []consumerProviderOffer) []consumerPricingOperation {
-	return pricingdomain.
-		CatalogMinima(offers)
+	return pricingdomain.CatalogMinima(pricingadapter.Capabilities(), offers)
 }
 
 func mergeCatalogMinima(existing, upstream []consumerPricingOperation) []consumerPricingOperation {

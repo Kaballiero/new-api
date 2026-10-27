@@ -4,9 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"reflect"
 	"strings"
 )
@@ -29,10 +27,10 @@ const PricingCatalogOptionKey = "PricingCatalog"
 const pricingCatalogMaxBytes = 8 << 20
 const pricingCatalogMaxEntries = 2048
 
-func PricingCatalogSourceFingerprint(channel *BuildChannel, upstream string, endpoint constant.EndpointType) string {
+func PricingCatalogSourceFingerprint(deps Capabilities, channel *BuildChannel, upstream string, endpoint constant.EndpointType) string {
 	var mapping map[string]string
 	if raw := strings.TrimSpace(channel.GetModelMapping()); raw != "" {
-		if err := common.UnmarshalJsonStr(raw, &mapping); err != nil {
+		if err := deps.Codec.UnmarshalJsonStr(raw, &mapping); err != nil {
 			return ""
 		}
 	}
@@ -44,9 +42,9 @@ func PricingCatalogSourceFingerprint(channel *BuildChannel, upstream string, end
 			break
 		}
 	}
-	return PricingCatalogFingerprint(channel, upstream, endpoint, []any{"route-v2", routed})
+	return PricingCatalogFingerprint(deps, channel, upstream, endpoint, []any{"route-v2", routed})
 }
-func PricingCatalogFingerprint(channel *BuildChannel, upstream string, endpoint constant.EndpointType, routeIdentity []any) string {
+func PricingCatalogFingerprint(deps Capabilities, channel *BuildChannel, upstream string, endpoint constant.EndpointType, routeIdentity []any) string {
 	baseURL := channel.GetBaseURL()
 	if baseURL == "" {
 		baseURL = constant.GetChannelBaseURL(channel.Type)
@@ -54,15 +52,15 @@ func PricingCatalogFingerprint(channel *BuildChannel, upstream string, endpoint 
 	basis := []any{channel.Id, channel.Type, channel.Status, strings.TrimRight(baseURL, "/"), channel.Group}
 	basis = append(basis, routeIdentity...)
 	basis = append(basis, channel.Key, channel.Setting, channel.OtherSettings, channel.ParamOverride, channel.HeaderOverride, upstream, endpoint)
-	data, err := common.Marshal(basis)
+	data, err := deps.Codec.Marshal(basis)
 	if err != nil {
 		return ""
 	}
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:])
 }
-func PricingCatalogSourceMatches(entry PricingCatalogEntry, channel *BuildChannel) bool {
-	current := PricingCatalogSourceFingerprint(channel, entry.UpstreamModel, entry.Endpoint)
+func PricingCatalogSourceMatches(deps Capabilities, entry PricingCatalogEntry, channel *BuildChannel) bool {
+	current := PricingCatalogSourceFingerprint(deps, channel, entry.UpstreamModel, entry.Endpoint)
 	if current == "" {
 		return false
 	}
@@ -70,18 +68,18 @@ func PricingCatalogSourceMatches(entry PricingCatalogEntry, channel *BuildChanne
 		return true
 	}
 
-	legacy := PricingCatalogFingerprint(channel, entry.UpstreamModel, entry.Endpoint, []any{channel.Models, channel.GetModelMapping()})
+	legacy := PricingCatalogFingerprint(deps, channel, entry.UpstreamModel, entry.Endpoint, []any{channel.Models, channel.GetModelMapping()})
 	return entry.Fingerprint == legacy
 }
 func PricingCatalogEntryKey(entry PricingCatalogEntry) string {
 	return fmt.Sprintf("%d:%s:%s", entry.ChannelID, entry.Endpoint, entry.UpstreamModel)
 }
-func DecodePricingCatalog(value string) (PricingCatalogSnapshot, error) {
+func DecodePricingCatalog(deps Capabilities, value string) (PricingCatalogSnapshot, error) {
 	var snapshot PricingCatalogSnapshot
 	if len(value) > pricingCatalogMaxBytes {
 		return snapshot, fmt.Errorf("pricing catalog exceeds size limit")
 	}
-	if err := common.UnmarshalJsonStr(value, &snapshot); err != nil {
+	if err := deps.Codec.DecodeCatalogSnapshot(value, &snapshot); err != nil {
 		return snapshot, fmt.Errorf("invalid pricing catalog: %w", err)
 	}
 	if snapshot.Version != 1 || snapshot.Entries == nil || len(snapshot.Entries) > pricingCatalogMaxEntries {
@@ -92,8 +90,8 @@ func DecodePricingCatalog(value string) (PricingCatalogSnapshot, error) {
 		if entry.ChannelID <= 0 || entry.UpstreamModel == "" || entry.Endpoint == "" || !strings.HasPrefix(entry.Source, "https://") || err != nil || len(fingerprint) != sha256.Size || key != PricingCatalogEntryKey(entry) {
 			return snapshot, fmt.Errorf("invalid pricing catalog source identity")
 		}
-		catalog := jsplugin.PriceCatalog{FetchedAt: entry.FetchedAt, Models: map[string][]CatalogOffer{entry.UpstreamModel: entry.Offers}}
-		if err := catalog.Validate([]string{entry.UpstreamModel}); err != nil {
+		catalog := TariffCatalog{FetchedAt: entry.FetchedAt, Models: map[string][]CatalogOffer{entry.UpstreamModel: entry.Offers}}
+		if err := deps.Catalog.ValidatePriceCatalog(catalog, []string{entry.UpstreamModel}); err != nil {
 			return snapshot, err
 		}
 	}

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
@@ -14,8 +15,7 @@ type catalogPriceWindow = pricingdomain.CatalogPriceWindow
 // Keep it in details; it cannot replace that schedule unconditionally.
 
 func catalogRateWindow(price consumerProviderPrice) (catalogPriceWindow, bool) {
-	return pricingdomain.
-		CatalogRateWindow(price)
+	return pricingdomain.CatalogRateWindow(pricingadapter.Capabilities(), price)
 }
 
 // A pathological snapshot must not multiply a list response without a

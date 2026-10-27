@@ -1,6 +1,7 @@
 package settings
 
 import (
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
@@ -12,7 +13,7 @@ type Validation struct{}
 
 func (Validation) StoredValue(key string, value string) error {
 	if key == model.PricingCatalogOptionKey {
-		_, err := pricingdomain.DecodePricingCatalog(value)
+		_, err := pricingdomain.DecodePricingCatalog(pricingadapter.Capabilities(), value)
 		return err
 	}
 	switch model.CanonicalGroupRatioOption(key) {

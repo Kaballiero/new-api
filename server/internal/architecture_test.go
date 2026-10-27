@@ -34,7 +34,7 @@ var infrastructurePackages = []string{
 func TestInternalArchitecture(t *testing.T) {
 	serverDir, err := filepath.Abs("..")
 	require.NoError(t, err)
-	deps := listPackageDeps(t, serverDir)
+	deps, packageImports := listPackageDeps(t, serverDir)
 	// The key identifies a violation; the value explains it in failure messages.
 	violations := map[string]string{}
 	add := func(rule, location, detail string) {
@@ -111,6 +111,12 @@ func TestInternalArchitecture(t *testing.T) {
 		}
 		transport := len(parts) > 3 && parts[2] == "transport" || name == "http.go"
 		scenarioLogic := len(parts) > 3 && !slices.Contains([]string{"domain", "dto", "transport"}, parts[2]) && name != "http.go" && name != "dto.go"
+		if module == "pricing" && !transport {
+			forbidden := pricingConstantAliasLeafViolations(imports, packageImports)
+			if len(forbidden) > 0 {
+				add("pricing-constant-alias-leaf", rel, strings.Join(forbidden, ", "))
+			}
+		}
 		reached := map[string]bool{}
 		for _, imported := range imports {
 			local, isLocal := strings.CutPrefix(imported, modulePath+"/")
@@ -185,8 +191,8 @@ func TestInternalArchitecture(t *testing.T) {
 	}
 }
 
-func listPackageDeps(t *testing.T, serverDir string) map[string][]string {
-	command := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}} {{join .Deps \" \"}}", "./...")
+func listPackageDeps(t *testing.T, serverDir string) (map[string][]string, map[string][]string) {
+	command := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}} {{join .Deps \" \"}}|{{join .Imports \" \"}}", "./...")
 	command.Dir = serverDir
 	output, err := command.Output()
 	var exitErr *exec.ExitError
@@ -195,13 +201,16 @@ func listPackageDeps(t *testing.T, serverDir string) map[string][]string {
 	}
 	require.NoError(t, err)
 	deps := map[string][]string{}
+	imports := map[string][]string{}
 	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
-		fields := strings.Fields(line)
+		dependencies, direct, _ := strings.Cut(line, "|")
+		fields := strings.Fields(dependencies)
 		if len(fields) > 0 {
 			deps[fields[0]] = fields[1:]
+			imports[fields[0]] = strings.Fields(direct)
 		}
 	}
-	return deps
+	return deps, imports
 }
 
 // transportImportAllowed is the allow-list for http.go and <module>/transport:
@@ -345,6 +354,80 @@ func TestRecordAliasExceptionRejectsNonAliasDeclarations(t *testing.T) {
 			file, err := parser.ParseFile(token.NewFileSet(), "alias.go", "package model;"+recordImport+";"+tc.body, 0)
 			require.NoError(t, err)
 			assert.Equal(t, tc.allowed, isRecordAliasFile(file))
+		})
+	}
+}
+
+// pricingConstantAliasLeafViolations permits only the existing constant alias
+// edges into the two exact relaykit leaves. It is not a gateway prefix exception.
+func pricingConstantAliasLeafViolations(roots []string, imports map[string][]string) []string {
+	type edge struct{ from, to string }
+	pending := make([]edge, 0, len(roots))
+	for _, root := range roots {
+		pending = append(pending, edge{to: root})
+	}
+	seen := make(map[string]bool)
+	forbidden := make(map[string]bool)
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		local, isLocal := strings.CutPrefix(current.to, modulePath+"/")
+		denied := false
+		if isLocal {
+			for _, name := range []string{"common", "pkg/billingexpr", "pkg/jsplugin", "pkg/catalogsync", "relay", "relaykit"} {
+				if local == name || strings.HasPrefix(local, name+"/") {
+					denied = true
+					break
+				}
+			}
+			switch current.to {
+			case modulePath + "/relaykit/types":
+				denied = current.from != modulePath+"/constant"
+			case modulePath + "/relaykit/relayconvert/kitutil":
+				denied = current.from != modulePath+"/relaykit/types"
+			}
+		}
+		if denied {
+			forbidden[current.from+" -> "+current.to] = true
+			continue
+		}
+		if seen[current.to] {
+			continue
+		}
+		seen[current.to] = true
+		for _, next := range imports[current.to] {
+			pending = append(pending, edge{from: current.to, to: next})
+		}
+	}
+	var result []string
+	for path := range forbidden {
+		result = append(result, path)
+	}
+	slices.Sort(result)
+	return result
+}
+
+func TestPricingConstantAliasLeafBoundary(t *testing.T) {
+	leaf := modulePath + "/constant"
+	types := modulePath + "/relaykit/types"
+	codec := modulePath + "/relaykit/relayconvert/kitutil"
+	for _, tc := range []struct {
+		name      string
+		roots     []string
+		imports   map[string][]string
+		forbidden []string
+	}{
+		{name: "existing alias chain", roots: []string{leaf}, imports: map[string][]string{leaf: {types}, types: {codec}}},
+		{name: "direct type import", roots: []string{types}, forbidden: []string{" -> " + types}},
+		{name: "alternate type owner", roots: []string{"helper"}, imports: map[string][]string{"helper": {types}}, forbidden: []string{"helper -> " + types}},
+		{name: "direct codec import", roots: []string{codec}, forbidden: []string{" -> " + codec}},
+		{name: "constant codec bypass", roots: []string{leaf}, imports: map[string][]string{leaf: {codec}}, forbidden: []string{leaf + " -> " + codec}},
+		{name: "gateway dto behind constant", roots: []string{leaf}, imports: map[string][]string{leaf: {modulePath + "/relaykit/dto"}}, forbidden: []string{leaf + " -> " + modulePath + "/relaykit/dto"}},
+		{name: "engine behind leaf", roots: []string{leaf}, imports: map[string][]string{leaf: {types}, types: {codec}, codec: {modulePath + "/pkg/billingexpr"}}, forbidden: []string{codec + " -> " + modulePath + "/pkg/billingexpr"}},
+		{name: "common behind leaf", roots: []string{leaf}, imports: map[string][]string{leaf: {types}, types: {modulePath + "/common"}}, forbidden: []string{types + " -> " + modulePath + "/common"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.forbidden, pricingConstantAliasLeafViolations(tc.roots, tc.imports))
 		})
 	}
 }

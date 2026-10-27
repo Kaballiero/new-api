@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
 )
 
 type Store interface {
@@ -14,14 +13,15 @@ type Store interface {
 	Documents(context.Context, string, []string) (map[string]domain.CatalogDocument, error)
 }
 type Usecase struct {
+	deps   domain.Capabilities
 	store  Store
 	source func() (domain.CatalogSource, bool, error)
 }
 
-func NewUsecase(store Store, source func() (domain.CatalogSource, bool, error)) Usecase {
-	return Usecase{store: store, source: source}
+func NewUsecase(deps domain.Capabilities, store Store, source func() (domain.CatalogSource, bool, error)) Usecase {
+	return Usecase{deps: deps, store: store, source: source}
 }
-func (u Usecase) Execute(ctx context.Context) (map[string]*catalogsync.Document, map[string]string, bool, error) {
+func (u Usecase) Execute(ctx context.Context) (map[string]*domain.SourceDocument, map[string]string, bool, error) {
 	source, enabled, err := u.source()
 	if err != nil || !enabled {
 		return nil, nil, enabled, err
@@ -29,13 +29,13 @@ func (u Usecase) Execute(ctx context.Context) (map[string]*catalogsync.Document,
 	head, err := u.store.Head(ctx, source.ID)
 	if err != nil {
 		if u.store.IsMissing(err) {
-			return map[string]*catalogsync.Document{}, map[string]string{}, true, nil
+			return map[string]*domain.SourceDocument{}, map[string]string{}, true, nil
 		}
 		return nil, nil, true, err
 	}
 
 	if head.Revision == "" {
-		return map[string]*catalogsync.Document{}, map[string]string{}, true, nil
+		return map[string]*domain.SourceDocument{}, map[string]string{}, true, nil
 	}
 	selection, err := u.store.ReadSelection(ctx, source.ID, head.Revision)
 	if err != nil {
@@ -49,22 +49,23 @@ func (u Usecase) Execute(ctx context.Context) (map[string]*catalogsync.Document,
 	if err != nil {
 		return nil, nil, true, err
 	}
-	models := make(map[string]*catalogsync.Document, len(selection.Models))
+	models := make(map[string]*domain.SourceDocument, len(selection.Models))
 	byID := make(map[string]string, len(selection.Models))
 	for _, ref := range selection.Models {
 		row, exists := stored[ref.Hash]
 		if !exists {
 			return nil, nil, true, errors.New("published catalog document missing")
 		}
-		doc, err := catalogsync.DecodeDocument([]byte(row.Payload), catalogsync.Reference{ID: ref.ID, Hash: ref.Hash})
+		doc, err := u.deps.Catalog.DecodeDocument([]byte(row.Payload), domain.SourceReference{ID: ref.ID, Hash: ref.Hash})
 		if err != nil {
 			return nil, nil, true, err
 		}
 		models[ref.ID] = doc
 		byID[ref.ID] = ref.Hash
 	}
+	resolveAlias := u.deps.Catalog.Aliases(models)
 	for id := range models {
-		if _, err := catalogsync.ResolveAlias(models, id); err != nil {
+		if _, err := resolveAlias(id); err != nil {
 			return nil, nil, true, err
 		}
 	}

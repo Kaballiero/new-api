@@ -36,7 +36,7 @@ func NewPricingOptionsPersistence() store.Options {
 	return store.NewOptions(store.OptionsEnvironment{DB: func() *gorm.DB { return DB }, KeyColumn: func() string { return commonKeyCol }, LockRows: LockForUpdate, Lock: func() func() { modelPricingMutationMu.Lock(); return modelPricingMutationMu.Unlock }, Publish: PublishOption})
 }
 func NewPricingConfiguration() *domain.Configuration {
-	return domain.NewConfiguration(domain.ConfigurationRuntime{Keys: func() []string { return modelPricingOptionKeys }, DefaultMaps: ratio_setting.GetDefaultPricingMaps, MatchingName: ratio_setting.FormatMatchingModelName, Builtin: billing_setting.GetBuiltinBillingExpr, Builtins: billing_setting.GetBuiltinBillingExprCopy, SelfUse: func() bool { return operation_setting.SelfUseModeEnabled }, Completion: func(name string) (float64, bool) {
+	return domain.NewConfiguration(domain.ConfigurationRuntime{Capabilities: pricingCapabilities(), Keys: func() []string { return modelPricingOptionKeys }, DefaultMaps: ratio_setting.GetDefaultPricingMaps, MatchingName: ratio_setting.FormatMatchingModelName, Builtin: billing_setting.GetBuiltinBillingExpr, Builtins: billing_setting.GetBuiltinBillingExprCopy, SelfUse: func() bool { return operation_setting.SelfUseModeEnabled }, Completion: func(name string) (float64, bool) {
 		v := ratio_setting.GetCompletionRatioInfo(name)
 		return v.Ratio, v.Locked
 	}, ValidateBatchExpression: billing_setting.SmokeTestExpr, ValidateExpression: func(name, expression string) error {
@@ -56,34 +56,36 @@ func NewPricingConfiguration() *domain.Configuration {
 		return err
 	}})
 }
-func NewPricingUsageSchemas() func(string) map[string]jsplugin.UsageFieldSchema {
+func NewPricingUsageSchemas() func(string) map[string]domain.TariffUsageField {
 	generation := jsplugin.DefaultRegistry.Generation()
-	return func(name string) map[string]jsplugin.UsageFieldSchema {
+	return func(name string) map[string]domain.TariffUsageField {
 		if plugin, ok := generation.GetByModel(name); ok {
-			return plugin.Meta.UsageSchema
+			return pricingUsageSchema(plugin.Meta.UsageSchema)
 		}
 		if target, ok := ResolveTaskModelAlias(generation, name); ok {
 			if plugin, ok := generation.Get(target.PluginKey); ok {
-				return plugin.Meta.UsageSchema
+				return pricingUsageSchema(plugin.Meta.UsageSchema)
 			}
 		}
 		return nil
 	}
 }
-func IsModelPricingOption(key string) bool            { return NewPricingConfiguration().IsOption(key) }
-func ModelPricingVersion(values PricingValues) string { return domain.ModelPricingVersion(values) }
+func IsModelPricingOption(key string) bool { return NewPricingConfiguration().IsOption(key) }
+func ModelPricingVersion(values PricingValues) string {
+	return domain.ModelPricingVersion(pricingCapabilities(), values)
+}
 func GetModelPricingSnapshot(names []string) (*ModelPricingSnapshot, error) {
-	return get_pricing_config.NewUsecase(NewPricingOptionsPersistence(), NewPricingConfiguration(), NewPricingUsageSchemas).Execute(get_pricing_config.Input{Models: names})
+	return get_pricing_config.NewUsecase(pricingCapabilities(), NewPricingOptionsPersistence(), NewPricingConfiguration(), NewPricingUsageSchemas).Execute(get_pricing_config.Input{Models: names})
 }
 func ValidateModelPricing(name string, values PricingValues) error {
 	return NewPricingConfiguration().Validate(name, values)
 }
 func UpdateModelPricing(changes []ModelPricingChange) error {
-	return update_pricing_config.NewUsecase(NewPricingOptionsPersistence(), NewPricingConfiguration(), common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache, func([]string) {}).Execute(changes)
+	return update_pricing_config.NewUsecase(pricingCapabilities(), NewPricingOptionsPersistence(), NewPricingConfiguration(), common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache, func([]string) {}).Execute(changes)
 }
 func UpdateModelPricingOptions(updates map[string]string) error {
-	return update_pricing_options.NewUsecase(NewPricingOptionsPersistence(), NewPricingConfiguration(), common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache).Execute(updates)
+	return update_pricing_options.NewUsecase(pricingCapabilities(), NewPricingOptionsPersistence(), NewPricingConfiguration(), common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache).Execute(updates)
 }
 func mutateModelPricingOptions(mutate func(*gorm.DB, map[string]map[string]any) error) error {
-	return mutate_pricing_options.NewUsecase(NewPricingOptionsPersistence().WithNativeMutation(mutate), NewPricingConfiguration(), common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache).Execute()
+	return mutate_pricing_options.NewUsecase(pricingCapabilities(), NewPricingOptionsPersistence().WithNativeMutation(mutate), NewPricingConfiguration(), common.SysError, RefreshPricing, ratio_setting.InvalidateExposedDataCache).Execute()
 }

@@ -4,19 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	catalogdomain "github.com/QuantumNous/new-api/internal/catalog/domain"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/expr-lang/expr/ast"
 	"github.com/expr-lang/expr/parser"
 	"math"
-
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"maps"
 	"slices"
@@ -56,14 +49,14 @@ type BuildAbility struct {
 	ChannelId, ChannelType int
 }
 
-func LegacyVideoPriceBasis(generation PluginGeneration, channel *BuildChannel, modelName, taskPluginKey string) (map[string]jsplugin.LegacyPriceBasis, bool, bool) {
+func LegacyVideoPriceBasis(deps Capabilities, generation PluginGeneration, channel *BuildChannel, modelName, taskPluginKey string) (map[string]VideoPriceBasis, bool, bool) {
 	if channel == nil {
 		return nil, false, false
 	}
 	declared, known := generation.CanonicalModel(modelName)
 	if !known {
 		mapping := make(map[string]string)
-		if err := common.UnmarshalJsonStr(channel.GetModelMapping(), &mapping); err != nil {
+		if err := deps.Codec.UnmarshalJsonStr(channel.GetModelMapping(), &mapping); err != nil {
 			return nil, false, false
 		}
 		tail, cyclic := FollowChannelModelMapping(mapping, modelName)
@@ -91,18 +84,18 @@ func LegacyVideoPriceBasis(generation PluginGeneration, channel *BuildChannel, m
 	}
 	return nil, false, false
 }
-func GetPricingEndpointTypesForAbility(ability BuildAbility, advancedCustomConfigs map[int]*dto.AdvancedCustomConfig) []constant.EndpointType {
+func GetPricingEndpointTypesForAbility(deps Capabilities, ability BuildAbility, advancedCustomConfigs map[int]AdvancedEndpoints) []constant.EndpointType {
 	if ability.ChannelType != constant.ChannelTypeAdvancedCustom {
-		endpoints := common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
+		endpoints := deps.Endpoints.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
 		return endpoints
 	}
 	if config := advancedCustomConfigs[ability.ChannelId]; config != nil {
 		return config.SupportedEndpointTypesForModel(ability.Model)
 	}
-	return common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
+	return deps.Endpoints.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
 }
 func AppendPricingEndpoint(endpoints []string, endpoint string) []string {
-	if endpoint == "" || common.StringsContains(endpoints, endpoint) {
+	if endpoint == "" || slices.Contains(endpoints, endpoint) {
 		return endpoints
 	}
 	return append(endpoints, endpoint)
@@ -110,7 +103,7 @@ func AppendPricingEndpoint(endpoints []string, endpoint string) []string {
 
 // Catalog semantics describe the consumer operation, independently of the relay
 // protocol. In particular, an image Chat request is not a text-generation offer.
-func CatalogConsumerProfile(document *catalogsync.Document) (PricingOperation, string) {
+func CatalogConsumerProfile(document *SourceDocument) (PricingOperation, string) {
 	if document == nil {
 		return PricingOperation{}, ""
 	}
@@ -156,7 +149,7 @@ func CatalogConsumerProfile(document *catalogsync.Document) (PricingOperation, s
 	}
 	return PricingOperation{}, "OTHER"
 }
-func CatalogConsumerOperation(document *catalogsync.Document, upstream string, endpoint constant.EndpointType) PricingOperation {
+func CatalogConsumerOperation(document *SourceDocument, upstream string, endpoint constant.EndpointType) PricingOperation {
 	profile, _ := CatalogConsumerProfile(document)
 	if profile.Operation == "" {
 		return PricingOperation{}
@@ -171,7 +164,7 @@ func CatalogConsumerOperation(document *catalogsync.Document, upstream string, e
 	if batch && endpoint != PricingEndpointBatch {
 		return PricingOperation{}
 	}
-	if endpoint == PricingEndpointBatch && !batch && !slices.ContainsFunc(document.Offers, func(offer catalogsync.Offer) bool {
+	if endpoint == PricingEndpointBatch && !batch && !slices.ContainsFunc(document.Offers, func(offer SourceOffer) bool {
 		return offer.Mode != nil && *offer.Mode == "batch"
 	}) {
 		return PricingOperation{}
@@ -243,7 +236,7 @@ func FollowChannelModelMapping(modelMap map[string]string, start string) (string
 		current = mapped
 	}
 }
-func ResolvePricingUpstreamModel(channel *BuildChannel, modelName string) (string, bool) {
+func ResolvePricingUpstreamModel(deps Capabilities, channel *BuildChannel, modelName string) (string, bool) {
 	if channel == nil || strings.TrimSpace(modelName) == "" {
 		return "", false
 	}
@@ -251,7 +244,7 @@ func ResolvePricingUpstreamModel(channel *BuildChannel, modelName string) (strin
 		return modelName, true
 	}
 	var mapping map[string]string
-	if common.UnmarshalJsonStr(channel.GetModelMapping(), &mapping) != nil {
+	if deps.Codec.UnmarshalJsonStr(channel.GetModelMapping(), &mapping) != nil {
 		return "", false
 	}
 	upstream, cyclic := FollowChannelModelMapping(mapping, modelName)
@@ -262,7 +255,7 @@ type PricingOperation struct {
 	Operation, Main, Basis string `json:"-"`
 }
 
-func ConfiguredPricingOperation(channel *BuildChannel, public, upstream string, endpoint constant.EndpointType) PricingOperation {
+func ConfiguredPricingOperation(deps Capabilities, channel *BuildChannel, public, upstream string, endpoint constant.EndpointType) PricingOperation {
 	if channel.Type == constant.ChannelTypeGemini && (upstream == "lyria-3-clip-preview" || upstream == "lyria-3-pro-preview" || upstream == "lyria-3.5") {
 		return PricingOperation{"music_generation", "audio_output", "song"}
 	}
@@ -270,7 +263,7 @@ func ConfiguredPricingOperation(channel *BuildChannel, public, upstream string, 
 		return PricingOperation{"embeddings", "input", "tokens"}
 	}
 	if channel.Type == constant.ChannelTypeOpenAI {
-		if endpoint == constant.EndpointTypeOpenAI && slices.Contains(common.GetEndpointTypesByChannelType(channel.Type, upstream), constant.EndpointTypeImageGeneration) {
+		if endpoint == constant.EndpointTypeOpenAI && slices.Contains(deps.Endpoints.GetEndpointTypesByChannelType(channel.Type, upstream), constant.EndpointTypeImageGeneration) {
 			return PricingOperation{"image_generation", "output", "image_tokens"}
 		}
 		switch upstream {
@@ -278,7 +271,7 @@ func ConfiguredPricingOperation(channel *BuildChannel, public, upstream string, 
 			return PricingOperation{"embeddings", "input", "tokens"}
 		case "tts-1", "tts-1-1106", "tts-1-hd", "tts-1-hd-1106":
 			basis := "unknown"
-			if constant.CountToken && (&dto.AudioRequest{Model: public}).GetTokenCountMeta().TokenType == types.TokenTypeTextNumber {
+			if constant.CountToken && deps.Endpoints.AudioCharacterCount(public) {
 				basis = "characters"
 			}
 			return PricingOperation{"speech_generation", "input", basis}
@@ -291,7 +284,7 @@ func ConfiguredPricingOperation(channel *BuildChannel, public, upstream string, 
 		case "gpt-4o-transcribe", "gpt-4o-transcribe-diarize", "gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe-2025-03-20", "gpt-4o-mini-transcribe-2025-12-15", "gpt-transcribe":
 			return PricingOperation{"transcription", "input", "tokens"}
 		case "gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-03-20", "gpt-4o-mini-tts-2025-12-15":
-			if constant.CountToken && (&dto.AudioRequest{Model: public}).GetTokenCountMeta().TokenType == types.TokenTypeTokenizer {
+			if constant.CountToken && deps.Endpoints.AudioTokenizerCount(public) {
 				return PricingOperation{"speech_generation", "input", "speech_input_tokens"}
 			}
 			return PricingOperation{"speech_generation", "input", "unknown"}
@@ -351,10 +344,10 @@ func (pricingPolicy *Operations) ConfiguredOperationOffers(pricing Pricing, prof
 	if formula {
 		offers := []CatalogOffer{}
 		rows := pricing.ConfiguredPrices[expression]
-		var publicTiers []billingexpr.CatalogPriceTier
+		var publicTiers []ExpressionPriceTier
 		if len(public) > 0 && public[0] {
-			publicTiers = billingexpr.CatalogPriceTiers(expression)
-			rows = make([][]billingexpr.DisplayPrice, len(publicTiers))
+			publicTiers = pricingPolicy.runtime.Capabilities.Expressions.CatalogPriceTiers(expression)
+			rows = make([][]ExpressionPrice, len(publicTiers))
 			for i, tier := range publicTiers {
 				rows[i] = tier.Prices
 			}
@@ -508,7 +501,7 @@ func (pricingPolicy *Operations) ConfiguredOperationOffers(pricing Pricing, prof
 	}
 	return []CatalogOffer{unknown}
 }
-func (pricingPolicy *Operations) ProjectPricingOperations(pricing *Pricing, abilities []BuildAbility, channels map[int]*BuildChannel, generation PluginGeneration, advanced map[int]*dto.AdvancedCustomConfig, taskPluginKeys map[int]string) {
+func (pricingPolicy *Operations) ProjectPricingOperations(pricing *Pricing, abilities []BuildAbility, channels map[int]*BuildChannel, generation PluginGeneration, advanced map[int]AdvancedEndpoints, taskPluginKeys map[int]string) {
 	public := *pricing
 	public.CatalogOffersByGroup = make(map[string][]CatalogOffer, len(pricing.CatalogOffersByGroup))
 	for group, offers := range pricing.CatalogOffersByGroup {
@@ -531,7 +524,7 @@ func (pricingPolicy *Operations) ProjectPricingOperations(pricing *Pricing, abil
 	pricingPolicy.ProjectPricingOperationsMode(&public, abilities, channels, generation, advanced, true, taskPluginKeys)
 	pricing.PublicCatalogOffersByGroup = public.CatalogOffersByGroup
 }
-func (pricingPolicy *Operations) ProjectPricingOperationsMode(pricing *Pricing, abilities []BuildAbility, channels map[int]*BuildChannel, generation PluginGeneration, advanced map[int]*dto.AdvancedCustomConfig, public bool, taskPluginKeys map[int]string) {
+func (pricingPolicy *Operations) ProjectPricingOperationsMode(pricing *Pricing, abilities []BuildAbility, channels map[int]*BuildChannel, generation PluginGeneration, advanced map[int]AdvancedEndpoints, public bool, taskPluginKeys map[int]string) {
 	native := pricing.CatalogOffersByGroup
 	pricing.CatalogOffersByGroup = make(map[string][]CatalogOffer)
 	pricing.ConsumerCanonicalModelsByGroup = make(map[string]string)
@@ -541,10 +534,10 @@ func (pricingPolicy *Operations) ProjectPricingOperationsMode(pricing *Pricing, 
 			continue
 		}
 		channel := channels[ability.ChannelId]
-		if channel == nil || channel.Status != common.ChannelStatusEnabled {
+		if channel == nil || channel.Status != constant.ChannelStatusEnabled {
 			continue
 		}
-		upstream, resolved := ResolvePricingUpstreamModel(channel, ability.Model)
+		upstream, resolved := ResolvePricingUpstreamModel(pricingPolicy.runtime.Capabilities, channel, ability.Model)
 		if !resolved {
 			continue
 		}
@@ -555,7 +548,7 @@ func (pricingPolicy *Operations) ProjectPricingOperationsMode(pricing *Pricing, 
 				offers = append(offers, offer)
 			}
 		}
-		legacy, video, _ := LegacyVideoPriceBasis(generation, channel, ability.Model, taskPluginKeys[channel.Id])
+		legacy, video, _ := LegacyVideoPriceBasis(pricingPolicy.runtime.Capabilities, generation, channel, ability.Model, taskPluginKeys[channel.Id])
 		actual := channel.Type == constant.ChannelTypeOpenRouter || channel.Type == constant.ChannelTypeTaskPlugin && taskPluginKeys[channel.Id] == "openrouter-video"
 		batchAlias := strings.HasSuffix(ability.Model, ":batch")
 		if batchAlias && actual {
@@ -606,7 +599,7 @@ func (pricingPolicy *Operations) ProjectPricingOperationsMode(pricing *Pricing, 
 		}
 		if video {
 			if !actual && pricing.BillingMode == BillingModeTieredExpr && channel.Type == constant.ChannelTypeGemini && strings.HasPrefix(upstream, "veo-") {
-				offers = append(offers, ConfiguredVeoUsageOffers(*pricing, channel, upstream, generation)...)
+				offers = append(offers, ConfiguredVeoUsageOffers(pricingPolicy.runtime.Capabilities, *pricing, channel, upstream, generation)...)
 			}
 			if !actual && len(legacy) > 0 {
 				for action, basis := range legacy {
@@ -641,12 +634,12 @@ func (pricingPolicy *Operations) ProjectPricingOperationsMode(pricing *Pricing, 
 			pricing.CatalogOffersByGroup[ability.Group] = append(pricing.CatalogOffersByGroup[ability.Group], offers...)
 			continue
 		}
-		endpoints := GetPricingEndpointTypesForAbility(ability, advanced)
+		endpoints := GetPricingEndpointTypesForAbility(pricingPolicy.runtime.Capabilities, ability, advanced)
 		if slices.Contains(endpoints, constant.EndpointTypeImageGeneration) {
 			endpoints = []constant.EndpointType{constant.EndpointTypeImageGeneration}
 		}
 		for _, endpoint := range endpoints {
-			profile := ConfiguredPricingOperation(channel, ability.Model, upstream, endpoint)
+			profile := ConfiguredPricingOperation(pricingPolicy.runtime.Capabilities, channel, ability.Model, upstream, endpoint)
 			offers = append(offers, pricingPolicy.ConfiguredOperationOffers(*pricing, profile, "sync", pricing.BillingExpr, public)...)
 			batchSources := pricing.BillingSourcesForGroup(ability.Group)[PricingEndpointBatch]
 			if expression, known := pricingPolicy.runtime.BatchExpression(ability.Model); known && expression != "" && slices.Contains(batchSources, BillingSourceConfiguredTariff) && (profile.Operation == "text" || profile.Operation == "embeddings") {
@@ -671,7 +664,7 @@ func (pricingPolicy *Operations) PairedPricingBatchBase(ability BuildAbility, up
 		if candidate.ChannelId != ability.ChannelId || candidate.Group != ability.Group || candidate.Model != base {
 			continue
 		}
-		mapped, known := ResolvePricingUpstreamModel(channels[candidate.ChannelId], candidate.Model)
+		mapped, known := ResolvePricingUpstreamModel(pricingPolicy.runtime.Capabilities, channels[candidate.ChannelId], candidate.Model)
 		if known && mapped == strings.TrimSuffix(upstream, ":batch") {
 			return base, true
 		}
@@ -907,18 +900,18 @@ func GetDefaultVendorIcon(vendorName string) string {
 	}
 	return ""
 }
-func PricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (string, error) {
+func PricingCatalogueFingerprint(deps Capabilities, pricing []Pricing, vendors []PricingVendor) (string, error) {
 	rows := make([]string, 0, len(pricing))
 	for _, item := range pricing {
 		groups := append([]string{}, item.EnableGroup...)
 		slices.Sort(groups)
 		endpoints := append([]constant.EndpointType{}, item.SupportedEndpointTypes...)
 		slices.Sort(endpoints)
-		offers, err := PricingFingerprintOffers(item.CatalogOffersByGroup)
+		offers, err := PricingFingerprintOffers(deps, item.CatalogOffersByGroup)
 		if err != nil {
 			return "", err
 		}
-		publicOffers, err := PricingFingerprintOffers(item.PublicCatalogOffersByGroup)
+		publicOffers, err := PricingFingerprintOffers(deps, item.PublicCatalogOffersByGroup)
 		if err != nil {
 			return "", err
 		}
@@ -948,7 +941,7 @@ func PricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (st
 			CanonicalGroups                                                           map[string]string
 			PublicOffers                                                              map[string][]string
 		}{item.ModelName, item.Description, item.Icon, item.Tags, item.OwnerBy, item.DisplayName, item.CatalogModality, item.CatalogType, upstreamRoutes, item.VendorID, groups, endpoints, offers, canonical, publicOffers}
-		value, err := common.Marshal(row)
+		value, err := deps.Codec.Marshal(row)
 		if err != nil {
 			return "", err
 		}
@@ -957,7 +950,7 @@ func PricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (st
 	slices.Sort(rows)
 	creators := append([]PricingVendor{}, vendors...)
 	slices.SortFunc(creators, func(left, right PricingVendor) int { return left.ID - right.ID })
-	value, err := common.Marshal(struct {
+	value, err := deps.Codec.Marshal(struct {
 		Rows    []string
 		Vendors []PricingVendor
 	}{rows, creators})
@@ -967,14 +960,14 @@ func PricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (st
 	digest := sha256.Sum256(value)
 	return hex.EncodeToString(digest[:]), nil
 }
-func PricingFingerprintOffers(byGroup map[string][]CatalogOffer) (map[string][]string, error) {
+func PricingFingerprintOffers(deps Capabilities, byGroup map[string][]CatalogOffer) (map[string][]string, error) {
 	offers := make(map[string][]string, len(byGroup))
 	for group, candidates := range byGroup {
 		offers[group] = make([]string, 0, len(candidates))
 		for _, offer := range candidates {
 			offer.Prices = append([]CatalogPrice{}, offer.Prices...)
 			slices.SortFunc(offer.Prices, comparePricingFingerprintPrices)
-			value, err := common.Marshal(offer)
+			value, err := deps.Codec.Marshal(offer)
 			if err != nil {
 				return nil, err
 			}
@@ -987,6 +980,7 @@ func PricingFingerprintOffers(byGroup map[string][]CatalogOffer) (map[string][]s
 func commonHash(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 
 type OperationRuntime struct {
+	Capabilities                     Capabilities
 	CatalogEntry                     func(*BuildChannel, string, constant.EndpointType) (PricingCatalogEntry, bool)
 	AudioRatio, AudioCompletionRatio func(string) float64
 	BatchExpression                  func(string) (string, bool)
@@ -997,19 +991,19 @@ func NewOperations(runtime OperationRuntime) *Operations { return &Operations{ru
 
 // ConfiguredVeoUsageOffers projects the declared Google duration-rate shape only.
 // Unsupported expressions remain unknown; this never evaluates task billing.
-func ConfiguredVeoUsageOffers(pricing Pricing, channel *BuildChannel, upstream string, generation PluginGeneration) []CatalogOffer {
+func ConfiguredVeoUsageOffers(deps Capabilities, pricing Pricing, channel *BuildChannel, upstream string, generation PluginGeneration) []CatalogOffer {
 	unknown := []CatalogOffer{
 		{ID: "configured:video:unknown", Operation: constant.TaskActionTextToVideo, Mode: "sync", MainComponent: "video_output"},
 		{ID: "configured:image-video:unknown", Operation: constant.TaskActionImageToVideo, Mode: "sync", MainComponent: "video_output"},
 	}
-	var schema map[string]jsplugin.UsageFieldSchema
+	var schema map[string]TariffUsageField
 	for _, candidate := range generation.LookupEndpointCandidates("POST", "/v1/videos", upstream) {
 		if candidate.Plugin != nil && candidate.Plugin.Meta.Key == "google" && slices.Contains(candidate.Plugin.Meta.ChannelTypes, channel.Type) {
 			schema = candidate.Plugin.Meta.UsageSchema
 			break
 		}
 	}
-	_, body := billingexpr.ParseExprVersion(pricing.BillingExpr)
+	_, body := deps.Expressions.ParseExprVersion(pricing.BillingExpr)
 	tree, err := parser.Parse(body)
 	if err != nil || schema == nil || pricing.BillingMode != BillingModeTieredExpr {
 		return unknown
@@ -1040,7 +1034,7 @@ func ConfiguredVeoUsageOffers(pricing Pricing, channel *BuildChannel, upstream s
 	}
 	type branch struct {
 		node   ast.Node
-		guards []jsplugin.CatalogUsageCondition
+		guards []TariffUsageCondition
 		depth  int
 	}
 	pending := []branch{{node: product.Right}}
@@ -1069,7 +1063,7 @@ func ConfiguredVeoUsageOffers(pricing Pricing, channel *BuildChannel, upstream s
 			if !ok || name.Value != "u" || !literal || !slices.Contains(schema[key.Value].Enum, value.Value) {
 				return unknown
 			}
-			guard := jsplugin.CatalogUsageCondition{Field: key.Value, Value: value.Value}
+			guard := TariffUsageCondition{Field: key.Value, Value: value.Value}
 			then := append(slices.Clone(current.guards), guard)
 			guard.Negated = true
 			otherwise := append(slices.Clone(current.guards), guard)

@@ -14,12 +14,13 @@ type Reader interface {
 }
 
 type Usecase struct {
+	deps       domain.Capabilities
 	reader     Reader
 	projection *domain.Projection
 }
 
-func NewUsecase(reader Reader, projection *domain.Projection) Usecase {
-	return Usecase{reader: reader, projection: projection}
+func NewUsecase(deps domain.Capabilities, reader Reader, projection *domain.Projection) Usecase {
+	return Usecase{deps: deps, reader: reader, projection: projection}
 }
 func (u Usecase) Execute(input Input) (Output, error) {
 	ctx, err := u.consumerContext("default", "default")
@@ -54,6 +55,6 @@ func (u Usecase) consumerContext(userGroup, usingGroup string) (domain.Effective
 	if usingGroup != "" {
 		ctx.UsableGroups = map[string]string{usingGroup: ctx.UsableGroups[usingGroup]}
 	}
-	ctx.Metadata.CatalogRevision, err = domain.ConsumerPricingRevision(source, ctx)
+	ctx.Metadata.CatalogRevision, err = domain.ConsumerPricingRevision(u.deps, source, ctx)
 	return ctx, err
 }

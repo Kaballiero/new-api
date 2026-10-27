@@ -1,7 +1,6 @@
 package mutate_pricing_options
 
 import (
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"strings"
 )
@@ -12,14 +11,15 @@ type Store interface {
 	Publish(string, string) error
 }
 type Usecase struct {
+	deps                domain.Capabilities
 	store               Store
 	policy              *domain.Configuration
 	log                 func(string)
 	refresh, invalidate func()
 }
 
-func NewUsecase(store Store, policy *domain.Configuration, log func(string), refresh, invalidate func()) Usecase {
-	return Usecase{store: store, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
+func NewUsecase(deps domain.Capabilities, store Store, policy *domain.Configuration, log func(string), refresh, invalidate func()) Usecase {
+	return Usecase{deps: deps, store: store, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
 }
 
 func (u Usecase) Execute() error {
@@ -43,7 +43,7 @@ func (u Usecase) Execute() error {
 			if existing[key] {
 				continue
 			}
-			encoded, err := common.Marshal(defaults[key])
+			encoded, err := u.deps.Codec.Marshal(defaults[key])
 			if err != nil {
 				return err
 			}
@@ -55,7 +55,7 @@ func (u Usecase) Execute() error {
 			return err
 		}
 		for _, key := range u.policy.Keys() {
-			encoded, err := common.Marshal(values[key])
+			encoded, err := u.deps.Codec.Marshal(values[key])
 			if err != nil {
 				return err
 			}
@@ -70,7 +70,7 @@ func (u Usecase) Execute() error {
 		return err
 	}
 	for _, key := range u.policy.Keys() {
-		encoded, _ := common.Marshal(committed[key])
+		encoded, _ := u.deps.Codec.Marshal(committed[key])
 		if err := u.store.Publish(key, string(encoded)); err != nil {
 			return err
 		}

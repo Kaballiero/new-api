@@ -1,6 +1,7 @@
 package get_group_pricing
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"testing"
 
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -33,7 +34,7 @@ func (c *fakeCache) Put(string, domain.ConsumerPricingResponse) { c.puts++ }
 
 func TestExecuteRejectsGroupsAndStaleRevisions(t *testing.T) {
 	cache := &fakeCache{}
-	usecase := NewUsecase(fakeReader{}, domain.NewProjection(domain.ProjectionRuntime{}), cache, fakeGroups{"default": true, "auto": true})
+	usecase := NewUsecase(domain.Capabilities{Codec: domain.JSONCodec{Marshal: common.Marshal}}, fakeReader{}, domain.NewProjection(domain.ProjectionRuntime{Capabilities: domain.Capabilities{Codec: domain.JSONCodec{Marshal: common.Marshal}}}), cache, fakeGroups{"default": true, "auto": true})
 
 	for _, group := range []string{"auto", "vip"} {
 		_, err := usecase.Execute(Input{Group: group})

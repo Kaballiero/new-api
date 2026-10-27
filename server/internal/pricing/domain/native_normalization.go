@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"maps"
 	"slices"
 	"strings"
@@ -45,6 +43,7 @@ type NativeImageResponse struct {
 	Endpoints []NativeImageEndpoint
 }
 type NativeNormalizationRuntime struct {
+	Capabilities       Capabilities
 	DecodeEndpoint     func([]byte) (NativeEndpointResponse, error)
 	DecodeImage        func([]byte) (NativeImageResponse, error)
 	ReadPrice          func(json.RawMessage) (float64, error)
@@ -68,25 +67,25 @@ type pricingCatalogOverride struct {
 	prices           map[string]json.RawMessage
 }
 
-func NativePricingClock(raw json.RawMessage) (int, error) {
+func NativePricingClock(deps Capabilities, raw json.RawMessage) (int, error) {
 	var clock int
-	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || common.Unmarshal(raw, &clock) != nil || clock < 0 || clock > 2359 || clock%100 >= 60 {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || deps.Codec.Unmarshal(raw, &clock) != nil || clock < 0 || clock > 2359 || clock%100 >= 60 {
 		return 0, errors.New("invalid native pricing UTC time")
 	}
 	return clock/100*60 + clock%100, nil
 }
-func NativePricingVectors(endpoint NativePricedEndpoint, conditions ...*[][]billingexpr.TierCondition) ([]map[string]json.RawMessage, error) {
+func NativePricingVectors(deps Capabilities, endpoint NativePricedEndpoint, conditions ...*[][]ExpressionCondition) ([]map[string]json.RawMessage, error) {
 	prices := maps.Clone(endpoint.Pricing)
 	raw, hasOverrides := prices["overrides"]
 	delete(prices, "overrides")
 	if !hasOverrides || string(raw) == "null" {
 		if len(conditions) > 0 {
-			*conditions[0] = [][]billingexpr.TierCondition{nil}
+			*conditions[0] = [][]ExpressionCondition{nil}
 		}
 		return []map[string]json.RawMessage{prices}, nil
 	}
 	var declarations []map[string]json.RawMessage
-	if common.Unmarshal(raw, &declarations) != nil || len(declarations) > 128 {
+	if deps.Codec.Unmarshal(raw, &declarations) != nil || len(declarations) > 128 {
 		return nil, errors.New("invalid native pricing overrides")
 	}
 	weekdays := []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
@@ -97,7 +96,7 @@ func NativePricingVectors(endpoint NativePricedEndpoint, conditions ...*[][]bill
 		override := pricingCatalogOverride{prices: make(map[string]json.RawMessage)}
 		if threshold, exists := declaration["min_prompt_tokens"]; exists {
 			override.thresholdPresent = true
-			if bytes.Equal(bytes.TrimSpace(threshold), []byte("null")) || common.Unmarshal(threshold, &override.threshold) != nil || override.threshold < 0 {
+			if bytes.Equal(bytes.TrimSpace(threshold), []byte("null")) || deps.Codec.Unmarshal(threshold, &override.threshold) != nil || override.threshold < 0 {
 				return nil, errors.New("invalid native pricing threshold")
 			}
 		}
@@ -108,11 +107,11 @@ func NativePricingVectors(endpoint NativePricedEndpoint, conditions ...*[][]bill
 		}
 		if startExists {
 			var err error
-			override.start, err = NativePricingClock(start)
+			override.start, err = NativePricingClock(deps, start)
 			if err != nil {
 				return nil, err
 			}
-			override.end, err = NativePricingClock(end)
+			override.end, err = NativePricingClock(deps, end)
 			if err != nil {
 				return nil, err
 			}
@@ -123,7 +122,7 @@ func NativePricingVectors(endpoint NativePricedEndpoint, conditions ...*[][]bill
 			minutes = append(minutes, override.start, override.end)
 		}
 		if rawDays, exists := declaration["utc_days"]; exists {
-			if common.Unmarshal(rawDays, &override.days) != nil || len(override.days) == 0 || len(override.days) > 7 {
+			if deps.Codec.Unmarshal(rawDays, &override.days) != nil || len(override.days) == 0 || len(override.days) > 7 {
 				return nil, errors.New("invalid native pricing UTC days")
 			}
 			seenDays := make(map[string]bool, len(override.days))
@@ -161,7 +160,7 @@ func NativePricingVectors(endpoint NativePricedEndpoint, conditions ...*[][]bill
 	}
 	vectors := []map[string]json.RawMessage{}
 	seen := map[string]int{}
-	guards := [][]billingexpr.TierCondition{}
+	guards := [][]ExpressionCondition{}
 	for thresholdIndex, threshold := range thresholds {
 		for minuteIndex, minute := range minutes {
 			for _, day := range days {
@@ -183,34 +182,34 @@ func NativePricingVectors(endpoint NativePricedEndpoint, conditions ...*[][]bill
 						vector[key] = value
 					}
 				}
-				encoded, err := common.Marshal(vector)
+				encoded, err := deps.Codec.Marshal(vector)
 				if err != nil {
 					return nil, err
 				}
-				context := []billingexpr.TierCondition{}
+				context := []ExpressionCondition{}
 				if len(thresholds) > 1 {
-					context = append(context, billingexpr.TierCondition{Var: "p", Op: ">=", Value: float64(threshold)})
+					context = append(context, ExpressionCondition{Var: "p", Op: ">=", Value: float64(threshold)})
 					if thresholdIndex+1 < len(thresholds) {
-						context = append(context, billingexpr.TierCondition{Var: "p", Op: "<", Value: float64(thresholds[thresholdIndex+1])})
+						context = append(context, ExpressionCondition{Var: "p", Op: "<", Value: float64(thresholds[thresholdIndex+1])})
 					}
 				}
 				if len(minutes) > 1 {
-					context = append(context, billingexpr.TierCondition{Var: "utc_minute", Arg: "UTC", Op: ">=", Value: float64(minute)})
+					context = append(context, ExpressionCondition{Var: "utc_minute", Arg: "UTC", Op: ">=", Value: float64(minute)})
 					upper := 24 * 60
 					if minuteIndex+1 < len(minutes) {
 						upper = minutes[minuteIndex+1]
 					}
-					context = append(context, billingexpr.TierCondition{Var: "utc_minute", Arg: "UTC", Op: "<", Value: float64(upper)})
+					context = append(context, ExpressionCondition{Var: "utc_minute", Arg: "UTC", Op: "<", Value: float64(upper)})
 				}
 				if len(days) > 1 {
-					context = append(context, billingexpr.TierCondition{Var: "weekday", Arg: "UTC", Op: "==", Value: float64((slices.Index(weekdays, day) + 1) % 7)})
+					context = append(context, ExpressionCondition{Var: "weekday", Arg: "UTC", Op: "==", Value: float64((slices.Index(weekdays, day) + 1) % 7)})
 				}
 				if index, exists := seen[string(encoded)]; exists {
-					alternative := billingexpr.TierCondition{Op: "&&", Operands: context}
+					alternative := ExpressionCondition{Op: "&&", Operands: context}
 					if len(guards[index]) == 1 && guards[index][0].Op == "||" {
 						guards[index][0].Operands = append(guards[index][0].Operands, alternative)
 					} else {
-						guards[index] = []billingexpr.TierCondition{{Op: "||", Operands: []billingexpr.TierCondition{{Op: "&&", Operands: guards[index]}, alternative}}}
+						guards[index] = []ExpressionCondition{{Op: "||", Operands: []ExpressionCondition{{Op: "&&", Operands: guards[index]}, alternative}}}
 					}
 				} else {
 					seen[string(encoded)] = len(vectors)
@@ -280,8 +279,8 @@ func (normalizer *NativeNormalizer) NormalizeEndpointPricing(upstream, operation
 		offers = append(offers, CatalogOffer{ID: "native:unknown", Operation: operation, Mode: "sync", MainComponent: main})
 	}
 	for index, endpoint := range response.Data.Endpoints {
-		var conditions [][]billingexpr.TierCondition
-		vectors, err := NativePricingVectors(endpoint, &conditions)
+		var conditions [][]ExpressionCondition
+		vectors, err := NativePricingVectors(normalizer.runtime.Capabilities, endpoint, &conditions)
 		if err != nil {
 			return nil, err
 		}
@@ -389,7 +388,7 @@ func (normalizer *NativeNormalizer) NormalizeImagePricing(upstream string, body 
 			Pricing []map[string]json.RawMessage `json:"pricing"`
 		} `json:"endpoints"`
 	}
-	if common.Unmarshal(body, &rawResponse) != nil {
+	if normalizer.runtime.Capabilities.Codec.Unmarshal(body, &rawResponse) != nil {
 		return nil, errors.New("invalid native image rates")
 	}
 	offers := []CatalogOffer{}

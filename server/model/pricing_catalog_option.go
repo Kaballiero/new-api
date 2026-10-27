@@ -27,15 +27,15 @@ type PricingCatalogEntry = pricingdomain.PricingCatalogEntry
 var pricingCatalogState atomic.Pointer[PricingCatalogSnapshot]
 
 func PricingCatalogSourceFingerprint(channel *Channel, upstream string, endpoint constant.EndpointType) string {
-	return pricingdomain.PricingCatalogSourceFingerprint(pricingBuildChannel(channel), upstream, endpoint)
+	return pricingdomain.PricingCatalogSourceFingerprint(pricingCapabilities(), pricingBuildChannel(channel), upstream, endpoint)
 }
 
 func pricingCatalogFingerprint(channel *Channel, upstream string, endpoint constant.EndpointType, routeIdentity []any) string {
-	return pricingdomain.PricingCatalogFingerprint(pricingBuildChannel(channel), upstream, endpoint, routeIdentity)
+	return pricingdomain.PricingCatalogFingerprint(pricingCapabilities(), pricingBuildChannel(channel), upstream, endpoint, routeIdentity)
 }
 
 func pricingCatalogSourceMatches(entry PricingCatalogEntry, channel *Channel) bool {
-	return pricingdomain.PricingCatalogSourceMatches(entry, pricingBuildChannel(channel))
+	return pricingdomain.PricingCatalogSourceMatches(pricingCapabilities(), entry, pricingBuildChannel(channel))
 }
 
 func pricingCatalogEntryKey(entry PricingCatalogEntry) string {
@@ -43,7 +43,7 @@ func pricingCatalogEntryKey(entry PricingCatalogEntry) string {
 }
 
 func decodePricingCatalog(value string) (PricingCatalogSnapshot, error) {
-	return pricingdomain.DecodePricingCatalog(value)
+	return pricingdomain.DecodePricingCatalog(pricingCapabilities(), value)
 }
 
 func loadPricingCatalog(snapshot PricingCatalogSnapshot) {
@@ -95,7 +95,7 @@ func PublishPricingCatalogContext(ctx context.Context, entries []PricingCatalogE
 }
 
 func publishPricingCatalogContext(ctx context.Context, entries []PricingCatalogEntry, allowChangedSources bool) (int, error) {
-	return publish_native_catalogue.NewUsecase(store.NewNative(store.NativeEnvironment{DB: func() *gorm.DB { return DB }, LockRows: LockForUpdate, Lock: func() func() { groupRatioOptionMutex.Lock(); return groupRatioOptionMutex.Unlock }, Snapshot: pricingCatalogState.Load, Publish: PublishOption})).Execute(ctx, entries, allowChangedSources)
+	return publish_native_catalogue.NewUsecase(pricingCapabilities(), store.NewNative(store.NativeEnvironment{DB: func() *gorm.DB { return DB }, LockRows: LockForUpdate, Lock: func() func() { groupRatioOptionMutex.Lock(); return groupRatioOptionMutex.Unlock }, Snapshot: pricingCatalogState.Load, Publish: PublishOption})).Execute(ctx, entries, allowChangedSources)
 }
 
 func pricingCatalogSemanticallyEqual(left, right PricingCatalogSnapshot) bool {

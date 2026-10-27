@@ -91,5 +91,5 @@ func (pricingReadState) StartRefresh() bool { return pricingRefreshRunning.Compa
 func (pricingReadState) EndRefresh()        { pricingRefreshRunning.Store(false) }
 
 func pricingCatalogueFingerprint(pricing []Pricing, vendors []PricingVendor) (string, error) {
-	return pricingdomain.PricingCatalogueFingerprint(pricing, vendors)
+	return pricingdomain.PricingCatalogueFingerprint(pricingCapabilities(), pricing, vendors)
 }

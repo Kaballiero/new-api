@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"net/url"
@@ -33,6 +32,7 @@ type Store interface {
 	Channel(int) (Channel, error)
 }
 type Usecase struct {
+	deps            domain.Capabilities
 	store           Store
 	source          func() (domain.CatalogSource, bool, error)
 	sync            func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error)
@@ -42,8 +42,8 @@ type Usecase struct {
 	now             func() time.Time
 }
 
-func NewUsecase(store Store, source func() (domain.CatalogSource, bool, error), sync func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error), publish func(context.Context, []domain.PricingCatalogEntry) (int, error), normalizer *domain.NativeNormalizer, batchExpression func(string) (string, bool), now func() time.Time) Usecase {
-	return Usecase{store: store, source: source, sync: sync, publish: publish, normalizer: normalizer, batchExpression: batchExpression, now: now}
+func NewUsecase(deps domain.Capabilities, store Store, source func() (domain.CatalogSource, bool, error), sync func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error), publish func(context.Context, []domain.PricingCatalogEntry) (int, error), normalizer *domain.NativeNormalizer, batchExpression func(string) (string, bool), now func() time.Time) Usecase {
+	return Usecase{deps: deps, store: store, source: source, sync: sync, publish: publish, normalizer: normalizer, batchExpression: batchExpression, now: now}
 }
 func (u Usecase) DiscoverSources(ctx context.Context) ([]Source, error) {
 	abilities, err := u.store.Abilities()
@@ -72,7 +72,7 @@ func (u Usecase) DiscoverSources(ctx context.Context) ([]Source, error) {
 			}
 			channels[ability.ChannelId] = channel
 		}
-		if channel.Value().Status != common.ChannelStatusEnabled {
+		if channel.Value().Status != constant.ChannelStatusEnabled {
 			continue
 		}
 		baseURL := channel.Value().GetBaseURL()
@@ -85,7 +85,7 @@ func (u Usecase) DiscoverSources(ctx context.Context) ([]Source, error) {
 		if channel.Value().ParamOverride != nil && strings.TrimSpace(*channel.Value().ParamOverride) != "" && strings.TrimSpace(*channel.Value().ParamOverride) != "{}" {
 			continue
 		}
-		upstream, resolved := domain.ResolvePricingUpstreamModel(channel.Value(), ability.Model)
+		upstream, resolved := domain.ResolvePricingUpstreamModel(u.deps, channel.Value(), ability.Model)
 		if !resolved || strings.Contains(upstream, ":") && !strings.HasSuffix(upstream, ":batch") && !strings.HasSuffix(upstream, ":free") {
 			continue
 		}
@@ -98,7 +98,7 @@ func (u Usecase) DiscoverSources(ctx context.Context) ([]Source, error) {
 				} `json:"data"`
 			}
 			if fetchErr == nil {
-				fetchErr = common.Unmarshal(body, &response)
+				fetchErr = u.deps.Codec.Unmarshal(body, &response)
 			}
 			if fetchErr != nil || response.Data == nil {
 				discoveryError = errors.Join(discoveryError, errors.New("native image capability discovery failed"))
@@ -114,7 +114,7 @@ func (u Usecase) DiscoverSources(ctx context.Context) ([]Source, error) {
 				return
 			}
 			seen[key] = true
-			sources = append(sources, Source{channel, upstream, endpoint, domain.PricingCatalogSourceFingerprint(channel.Value(), upstream, endpoint)})
+			sources = append(sources, Source{channel, upstream, endpoint, domain.PricingCatalogSourceFingerprint(u.deps, channel.Value(), upstream, endpoint)})
 		}
 		for endpoint, billingSources := range pricing[ability.Model].BillingSourcesForGroup(ability.Group) {
 			if !slices.Contains(billingSources, domain.BillingSourceOpenRouterActualCost) || endpoint == constant.EndpointTypeOpenAIVideo {
@@ -324,10 +324,10 @@ func (u Usecase) RefreshUpstream(ctx context.Context, source domain.CatalogSourc
 			}
 			channels[ability.ChannelId] = channel
 		}
-		if channel.Value().Status != common.ChannelStatusEnabled || !domain.IsOpenRouterCatalogChannel(channel.Value()) {
+		if channel.Value().Status != constant.ChannelStatusEnabled || !domain.IsOpenRouterCatalogChannel(channel.Value()) {
 			continue
 		}
-		upstream, resolved := domain.ResolvePricingUpstreamModel(channel.Value(), ability.Model)
+		upstream, resolved := domain.ResolvePricingUpstreamModel(u.deps, channel.Value(), ability.Model)
 		if !resolved {
 			return summary, fmt.Errorf("catalog channel model mapping is unresolved")
 		}

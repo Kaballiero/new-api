@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/app"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -220,15 +221,16 @@ func TestDecisionCatalogConsumerPrices(t *testing.T) {
 func TestConsumerCatalogBatchPricesStaySeparate(t *testing.T) {
 	raw, err := os.ReadFile("../model/testdata/upstream_catalog/aggregator.json")
 	require.NoError(t, err)
-	doc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "router/aggregated", Hash: catalogsync.Hash(raw)})
+	nativeDoc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "router/aggregated", Hash: catalogsync.Hash(raw)})
 	require.NoError(t, err)
+	doc := pricingTestDocument(nativeDoc)
 	doc.ID, doc.Type = "vendor/model", "text"
 	doc.Modalities.Output = []string{"text"}
 	syncOffer := doc.Offers[0]
 	syncOffer.Operation, syncOffer.Mode = nil, nil
 	syncOffer.Identity = []byte(`{"modelId":"vendor/model"}`)
 	syncOffer.Variant = []byte(`{"variant":"standard","model_variant_slug":"vendor/model"}`)
-	syncOffer.Components = append([]catalogsync.Component{}, syncOffer.Components[:2]...)
+	syncOffer.Components = append([]pricingdomain.SourceRate{}, syncOffer.Components[:2]...)
 	syncOffer.Components[0].AmountUSD = common.GetPointer("10")
 	syncOffer.Components[1].AmountUSD = common.GetPointer("50")
 	syncOffer.Components[1].Billable = common.GetPointer("output_tokens")
@@ -240,10 +242,10 @@ func TestConsumerCatalogBatchPricesStaySeparate(t *testing.T) {
 	batchOffer.ID = "batch-provider"
 	batchOffer.Identity = []byte(`{"modelId":"vendor/model:batch"}`)
 	batchOffer.Variant = []byte(`{"variant":"batch","model_variant_slug":"vendor/model:batch"}`)
-	batchOffer.Components = append([]catalogsync.Component{}, syncOffer.Components...)
+	batchOffer.Components = append([]pricingdomain.SourceRate{}, syncOffer.Components...)
 	batchOffer.Components[0].AmountUSD = common.GetPointer("5")
 	batchOffer.Components[1].AmountUSD = common.GetPointer("25")
-	doc.Offers = []catalogsync.Offer{syncOffer, batchOffer}
+	doc.Offers = []pricingdomain.SourceOffer{syncOffer, batchOffer}
 	item := model.Pricing{ModelName: "alias", CatalogModality: "TEXT", EnableGroup: []string{"default"}, SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAI}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {
 		{Operation: "text", Mode: "sync", Endpoint: constant.EndpointTypeOpenAI, ModelID: doc.ID, Document: doc},
 		{Operation: "text", Mode: "batch", Endpoint: model.PricingEndpointBatch, ModelID: doc.ID + ":batch", Document: doc},
@@ -294,11 +296,11 @@ func TestConsumerCatalogBatchPricesStaySeparate(t *testing.T) {
 	}
 	// Explicit Mode is authoritative over the legacy tuple.
 	batchOffer.Mode = common.GetPointer("sync")
-	doc.Offers = []catalogsync.Offer{batchOffer}
+	doc.Offers = []pricingdomain.SourceOffer{batchOffer}
 	assert.Empty(t, upstreamProviderOffers(model.Pricing{UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {item.UpstreamCatalogRoutesByGroup["default"][1]}}}, "default", 1, true, pricingUserContext{}))
 	batchOffer.Mode = nil
 	batchOffer.Variant = []byte(`{"variant":"batch","model_variant_slug":"other/model:batch"}`)
-	doc.Offers = []catalogsync.Offer{batchOffer}
+	doc.Offers = []pricingdomain.SourceOffer{batchOffer}
 	assert.Empty(t, upstreamProviderOffers(item, "default", 1, true, pricingUserContext{}), "unbound Batch identity must not become sync or a guessed Batch price")
 }
 
@@ -333,7 +335,7 @@ func TestConsumerBatchEmptyZeroAndTierPrices(t *testing.T) {
 const prodFXFactor = 0.854594
 
 func tieredPricing(expr string) model.Pricing {
-	return model.Pricing{BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: expr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expr: billingexpr.CatalogPrices(expr)}}
+	return model.Pricing{BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: expr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{expr: pricingadapter.Expressions{}.CatalogPrices(expr)}}
 }
 
 func float(v float64) *float64 { return &v }
@@ -1866,8 +1868,8 @@ func TestPublicPricingModelsConditionalAlternativesAndUnknown(t *testing.T) {
 	ctx.GroupRatios["default"] = 2
 	ctx.FxFactor = .9
 	offers := []model.CatalogOffer{
-		{ID: "conditional:a", Operation: "speech_generation", Mode: "sync", MainComponent: "input", PublicConditional: true, PublicConditions: []billingexpr.TierCondition{{Var: "len", Op: "<=", Value: 100}}, Prices: []model.CatalogPrice{{Component: "input", Unit: "million_characters", AmountUSD: float(0)}}},
-		{ID: "conditional:b", Operation: "speech_generation", Mode: "sync", MainComponent: "input", PublicConditional: true, PublicConditions: []billingexpr.TierCondition{{Var: "len", Op: "<=", Value: 100, Negated: true}}, Prices: []model.CatalogPrice{{Component: "input", Unit: "million_characters", AmountUSD: float(5)}}},
+		{ID: "conditional:a", Operation: "speech_generation", Mode: "sync", MainComponent: "input", PublicConditional: true, PublicConditions: []pricingdomain.ExpressionCondition{{Var: "len", Op: "<=", Value: 100}}, Prices: []model.CatalogPrice{{Component: "input", Unit: "million_characters", AmountUSD: float(0)}}},
+		{ID: "conditional:b", Operation: "speech_generation", Mode: "sync", MainComponent: "input", PublicConditional: true, PublicConditions: []pricingdomain.ExpressionCondition{{Var: "len", Op: "<=", Value: 100, Negated: true}}, Prices: []model.CatalogPrice{{Component: "input", Unit: "million_characters", AmountUSD: float(5)}}},
 		{ID: "unknown", Operation: "transcription", Mode: "sync", MainComponent: "audio_input", Prices: []model.CatalogPrice{{Component: "audio_input", Unit: "minute"}}},
 	}
 	item := model.Pricing{PublicCatalogOffersByGroup: map[string][]model.CatalogOffer{"default": offers}}
@@ -2281,12 +2283,13 @@ func TestLegacyPricingCapturesEndpointMapWithModels(t *testing.T) {
 func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	raw, err := os.ReadFile("../model/testdata/upstream_catalog/aggregator.json")
 	require.NoError(t, err)
-	doc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "router/aggregated", Hash: catalogsync.Hash(raw)})
+	nativeDoc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "router/aggregated", Hash: catalogsync.Hash(raw)})
 	require.NoError(t, err)
+	doc := pricingTestDocument(nativeDoc)
 	a, b := doc.Offers[0], doc.Offers[1]
 	b.Mode = nil
-	makeRates := func(input, output string) []catalogsync.Component {
-		rates := append([]catalogsync.Component(nil), a.Components...)
+	makeRates := func(input, output string) []pricingdomain.SourceRate {
+		rates := append([]pricingdomain.SourceRate(nil), a.Components...)
 		rates[0].AmountUSD = &input
 		rates[1].AmountUSD = &output
 		rates[1].Billable = common.GetPointer("output_tokens")
@@ -2298,7 +2301,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 	}
 	a.Components = makeRates("1", "9")
 	b.Components = makeRates("7", "3")
-	doc.Offers = []catalogsync.Offer{a, b}
+	doc.Offers = []pricingdomain.SourceOffer{a, b}
 	override := `{"provider":{"only":["b"]}}`
 	route := model.UpstreamCatalogRoute{Operation: "embeddings", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: doc, ParamOverride: &override}
 	item := model.Pricing{ModelName: "my-alias", DisplayName: "Google: Readable name", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
@@ -2459,7 +2462,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		doc.Offers[1].Mode = nil
 	})
 	t.Run("null provider and unknown amounts preserve meaning", func(t *testing.T) {
-		doc.Offers = []catalogsync.Offer{a}
+		doc.Offers = []pricingdomain.SourceOffer{a}
 		doc.Offers[0].Provider = nil
 		doc.Offers[0].Components[0].AmountUSD = nil
 		route.ParamOverride = nil
@@ -2471,7 +2474,7 @@ func TestUpstreamCatalogConsumerProjection(t *testing.T) {
 		assert.Equal(t, "0", *offers[0].Prices[2].AmountRub)
 	})
 	t.Run("same offer id does not hide different variants", func(t *testing.T) {
-		doc.Offers = []catalogsync.Offer{a, b}
+		doc.Offers = []pricingdomain.SourceOffer{a, b}
 		doc.Offers[1].ID = a.ID
 		offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
 		require.Len(t, offers, 2)
@@ -2501,7 +2504,7 @@ func TestUpstreamCatalogDetailDropsModelPagePricesShadowedByGenericSchedule(t *t
 		offer.Components = components
 		document := *doc
 		document.Offers = []catalogsync.Offer{offer}
-		route := model.UpstreamCatalogRoute{Operation: "embeddings", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: &document}
+		route := model.UpstreamCatalogRoute{Operation: "embeddings", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: pricingTestDocument(&document)}
 		item := model.Pricing{ModelName: "detail", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
 		offers := upstreamProviderOffers(item, "default", 1, validRatio, pricingUserContext{})
 		require.Len(t, offers, 1)
@@ -2638,7 +2641,7 @@ func TestUpstreamCatalogDetailFoldsModelScopeOffersIntoProviderOffers(t *testing
 			routes := []model.UpstreamCatalogRoute{}
 			for index, offers := range tc.documents {
 				document := catalogsync.Document{ID: "runway/aleph-2", Offers: offers}
-				routes = append(routes, model.UpstreamCatalogRoute{Operation: "video_generation", Mode: "sync", ModelID: document.ID, DocumentHash: catalogsync.Hash([]byte(tc.name + strconv.Itoa(index))), Document: &document})
+				routes = append(routes, model.UpstreamCatalogRoute{Operation: "video_generation", Mode: "sync", ModelID: document.ID, DocumentHash: catalogsync.Hash([]byte(tc.name + strconv.Itoa(index))), Document: pricingTestDocument(&document)})
 			}
 			item := model.Pricing{ModelName: "aleph", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": routes}}
 			detail := buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, true)
@@ -2672,7 +2675,7 @@ func TestUpstreamCatalogDetailKeepsPricedCopyOfDuplicatePrice(t *testing.T) {
 	unnormalized.Provenance = json.RawMessage(`not json`)
 	build := func(details bool, components ...catalogsync.Component) consumerPricingModel {
 		document := catalogsync.Document{ID: "runway/gen-4.5", Offers: []catalogsync.Offer{{ID: "runway", Scope: "endpoint", Provider: &catalogsync.Provider{Tag: common.GetPointer("runway")}, Variant: json.RawMessage(`{"variant":"standard"}`), Eligibility: &catalogsync.Eligibility{Eligible: true}, Components: components}}}
-		route := model.UpstreamCatalogRoute{Operation: "video_generation", Mode: "sync", ModelID: document.ID, DocumentHash: catalogsync.Hash([]byte("duplicate")), Document: &document}
+		route := model.UpstreamCatalogRoute{Operation: "video_generation", Mode: "sync", ModelID: document.ID, DocumentHash: catalogsync.Hash([]byte("duplicate")), Document: pricingTestDocument(&document)}
 		item := model.Pricing{ModelName: "gen", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
 		return buildConsumerPricingModel(map[string]string{"default": "Default"}, map[string]float64{"default": 1}, 1, item, details)
 	}
@@ -2744,7 +2747,7 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 	client := newClient(nil)
 	source := model.CatalogSource{ID: model.CatalogHash([]byte(t.Name())), Kind: "openrouter", BaseURL: client.BaseURL()}
 	requestedAlias := map[string]bool{"router/latest": true}
-	initial, err := service.SyncUpstreamCatalog(ctx, source, requestedAlias, client)
+	initial, err := service.SyncUpstreamCatalog(ctx, source, requestedAlias, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
 	require.NoError(t, err)
 	assert.True(t, initial.Publication.Changed)
 	assert.Equal(t, 1, initial.ImportedModels)
@@ -2765,7 +2768,7 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 	t.Run("unchanged_selection_fetches_only_manifest", func(t *testing.T) {
 		before, err := model.EnsureCatalogSource(ctx, source)
 		require.NoError(t, err)
-		result, err := service.SyncUpstreamCatalog(ctx, source, requestedAlias, client)
+		result, err := service.SyncUpstreamCatalog(ctx, source, requestedAlias, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
 		require.NoError(t, err)
 		assert.False(t, result.Publication.Changed)
 		assert.Equal(t, initial.Publication.Revision, result.Publication.Revision)
@@ -2788,7 +2791,7 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 		require.NoError(t, err)
 		failDirect.Store(true)
 		defer failDirect.Store(false)
-		_, err = service.SyncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, client)
+		_, err = service.SyncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
 		require.ErrorContains(t, err, "catalog HTTP status 503")
 		after, err := model.EnsureCatalogSource(ctx, source)
 		require.NoError(t, err)
@@ -2815,7 +2818,7 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 		})
 		staleResult := make(chan error, 1)
 		go func() {
-			_, err := service.SyncUpstreamCatalog(ctx, source, requestedAlias, staleClient)
+			_, err := service.SyncUpstreamCatalog(ctx, source, requestedAlias, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: staleClient})
 			staleResult <- err
 		}()
 		select {
@@ -2825,7 +2828,7 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 		}
 		// The older acquisition is still inside Manifest GET. A complete newer
 		// selection must win even though the older response arrives afterwards.
-		newer, err := service.SyncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, client)
+		newer, err := service.SyncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
 		require.NoError(t, err)
 		require.True(t, newer.Publication.Changed)
 		require.NotEqual(t, initial.Publication.Revision, newer.Publication.Revision)
@@ -2875,11 +2878,11 @@ func TestUpstreamCatalogLiveIntegration(t *testing.T) {
 	client, err := catalogsync.NewClient(base, http.DefaultClient)
 	require.NoError(t, err)
 	requested := map[string]bool{"google/gemini-2.5-flash": true}
-	first, err := service.SyncUpstreamCatalog(context.Background(), source, requested, client)
+	first, err := service.SyncUpstreamCatalog(context.Background(), source, requested, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
 	require.NoError(t, err)
 	assert.Equal(t, 1, first.ImportedModels)
 	assert.Equal(t, 1, first.Publication.NewDocuments)
-	second, err := service.SyncUpstreamCatalog(context.Background(), source, requested, client)
+	second, err := service.SyncUpstreamCatalog(context.Background(), source, requested, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
 	require.NoError(t, err)
 	assert.Equal(t, first.Publication.Revision, second.Publication.Revision)
 	assert.Zero(t, second.Publication.NewDocuments)
@@ -2932,7 +2935,7 @@ func TestCatalogSemanticSnapshotProjection(t *testing.T) {
 	require.Equal(t, "c701c04af8a12644c4514f72de8269d6c01d23674d39757c511ce64641fe4452", catalogsync.Hash(raw))
 	doc, err := catalogsync.DecodeDocument(raw, catalogsync.Reference{ID: "openai/gpt-5.4", Hash: catalogsync.Hash(raw)})
 	require.NoError(t, err)
-	route := model.UpstreamCatalogRoute{Operation: "text", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: doc}
+	route := model.UpstreamCatalogRoute{Operation: "text", Mode: "sync", ModelID: doc.ID, DocumentHash: catalogsync.Hash(raw), Document: pricingTestDocument(doc)}
 	item := model.Pricing{ModelName: "gpt-5.4", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {route}}}
 	offers := upstreamProviderOffers(item, "default", 1, true, pricingUserContext{})
 	// This immutable document includes one explicitly identified Batch sibling.
@@ -3757,7 +3760,7 @@ func TestCatalogMinimumGenerationChargeIsPublished(t *testing.T) {
 	}
 	pricing := func(doc *catalogsync.Document) model.Pricing {
 		return model.Pricing{ModelName: "aleph-alias", EnableGroup: []string{"default"}, UpstreamCatalogRoutesByGroup: map[string][]model.UpstreamCatalogRoute{"default": {
-			{Operation: "video_editing", Mode: "sync", ModelID: doc.ID, DocumentHash: strings.Repeat("a", 64), Document: doc},
+			{Operation: "video_editing", Mode: "sync", ModelID: doc.ID, DocumentHash: strings.Repeat("a", 64), Document: pricingTestDocument(doc)},
 		}}}
 	}
 	amounts := func(prices []consumerUnitPrice) map[string]float64 {
@@ -3832,4 +3835,12 @@ func TestConsumerPricingTagsPreserveStoredTags(t *testing.T) {
 	} {
 		assert.Equal(t, tc.expected, pricingdomain.ConsumerPricingTags(tc.stored), tc.stored)
 	}
+}
+
+func pricingTestDocument(value *catalogsync.Document) *pricingdomain.SourceDocument {
+	if value == nil {
+		return nil
+	}
+	result := pricingadapter.ToSourceDocument(*value)
+	return &result
 }

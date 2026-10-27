@@ -906,6 +906,11 @@ func exprToSchema(expr ast.Expr) map[string]interface{} {
 
 func identToSchema(name string) map[string]interface{} {
 	switch name {
+	// Pricing facts preserve the published SDK schema identities.
+	case "TariffUsageField":
+		return identToSchema("UsageFieldSchema")
+	case "TariffUsageExample":
+		return identToSchema("UsageExample")
 	case "tokenAutoGroupsInput":
 		return map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "nullable": true}
 	case "string":

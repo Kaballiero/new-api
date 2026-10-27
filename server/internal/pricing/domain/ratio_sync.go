@@ -14,10 +14,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
-
-	"github.com/QuantumNous/new-api/relaykit/dto"
-
 	"github.com/samber/lo"
 )
 
@@ -203,8 +199,8 @@ func ModelPricingSyncValues(data map[string]any, name string) map[string]any {
 	}
 	return values
 }
-func BuildDifferences(localData map[string]any, successfulChannels []SyncChannel) map[string]map[string]dto.DifferenceItem {
-	differences := make(map[string]map[string]dto.DifferenceItem)
+func BuildDifferences(localData map[string]any, successfulChannels []SyncChannel) map[string]map[string]RatioDifference {
+	differences := make(map[string]map[string]RatioDifference)
 	localData = EffectivePricingSyncData(localData)
 	normalizedChannels := make([]SyncChannel, 0, len(successfulChannels))
 	for _, channel := range successfulChannels {
@@ -326,9 +322,9 @@ func BuildDifferences(localData map[string]any, successfulChannels []SyncChannel
 
 			if shouldInclude {
 				if differences[modelName] == nil {
-					differences[modelName] = make(map[string]dto.DifferenceItem)
+					differences[modelName] = make(map[string]RatioDifference)
 				}
-				differences[modelName][ratioType] = dto.DifferenceItem{
+				differences[modelName][ratioType] = RatioDifference{
 					Current:    localValue,
 					Upstreams:  upstreamValues,
 					Confidence: confidenceValues,
@@ -403,7 +399,7 @@ func IsModelsDevAPIEndpoint(rawURL string) bool {
 //	since 1 ratio unit = $0.002/1K tokens and USD=500, the factor is 500_000
 //
 // completion_ratio = completion_price / prompt_price (output/input multiplier)
-func ConvertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
+func ConvertOpenRouterToRatioData(deps Capabilities, reader io.Reader) (map[string]any, error) {
 	var orResp struct {
 		Data []struct {
 			ID      string `json:"id"`
@@ -415,7 +411,7 @@ func ConvertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
 		} `json:"data"`
 	}
 
-	if err := common.DecodeJson(reader, &orResp); err != nil {
+	if err := deps.Codec.DecodeJson(reader, &orResp); err != nil {
 		return nil, fmt.Errorf("failed to decode OpenRouter response: %w", err)
 	}
 
@@ -555,9 +551,9 @@ func ShouldReplaceModelsDevCandidate(current, next ModelsDevCandidate) bool {
 // Duplicate model keys across providers are resolved by selecting the
 // cheapest non-zero input cost. If only zero-priced candidates exist,
 // a zero ratio is kept.
-func ConvertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
+func ConvertModelsDevToRatioData(deps Capabilities, reader io.Reader) (map[string]any, error) {
 	var upstreamData map[string]ModelsDevProvider
-	if err := common.DecodeJson(reader, &upstreamData); err != nil {
+	if err := deps.Codec.DecodeJson(reader, &upstreamData); err != nil {
 		return nil, fmt.Errorf("failed to decode models.dev response: %w", err)
 	}
 	if len(upstreamData) == 0 {
@@ -650,12 +646,12 @@ type RatioDecodeError struct {
 
 func (e *RatioDecodeError) Error() string { return e.Err.Error() }
 func (e *RatioDecodeError) Unwrap() error { return e.Err }
-func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name string) (map[string]any, error) {
+func DecodeRatioData(deps Capabilities, bodyBytes []byte, isOpenRouter, isModelsDev bool, name string) (map[string]any, error) {
 	warning := ""
 	warn := func(message string) { warning = message }
 	chItem := struct{ Name string }{Name: name}
 	if isOpenRouter {
-		converted, err := ConvertOpenRouterToRatioData(bytes.NewReader(bodyBytes))
+		converted, err := ConvertOpenRouterToRatioData(deps, bytes.NewReader(bodyBytes))
 		if err != nil {
 			warn("OpenRouter parse failed from " + chItem.Name + ": " + err.Error())
 			return nil, &RatioDecodeError{Err: err, Warning: warning}
@@ -664,7 +660,7 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 	}
 
 	if isModelsDev {
-		converted, err := ConvertModelsDevToRatioData(bytes.NewReader(bodyBytes))
+		converted, err := ConvertModelsDevToRatioData(deps, bytes.NewReader(bodyBytes))
 		if err != nil {
 			warn("models.dev parse failed from " + chItem.Name + ": " + err.Error())
 			return nil, &RatioDecodeError{Err: err, Warning: warning}
@@ -681,7 +677,7 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 		Message string          `json:"message"`
 	}
 
-	if err := common.DecodeJson(bytes.NewReader(bodyBytes), &body); err != nil {
+	if err := deps.Codec.DecodeJson(bytes.NewReader(bodyBytes), &body); err != nil {
 		warn("json decode failed from " + chItem.Name + ": " + err.Error())
 		return nil, &RatioDecodeError{Err: err, Warning: warning}
 	}
@@ -692,7 +688,7 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 
 	// Try type1 first
 	var type1Data map[string]any
-	if err := common.Unmarshal(body.Data, &type1Data); err == nil {
+	if err := deps.Codec.Unmarshal(body.Data, &type1Data); err == nil {
 
 		isType1 := false
 		for _, rt := range pricingSyncFields {
@@ -721,7 +717,7 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 		BillingMode          string   `json:"billing_mode"`
 		BillingExpr          string   `json:"billing_expr"`
 	}
-	if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
+	if err := deps.Codec.Unmarshal(body.Data, &pricingItems); err != nil {
 		warn("unrecognized data format from " + chItem.Name + ": " + err.Error())
 		return nil, &RatioDecodeError{Err: ErrUpstreamDataUnrecognized, Warning: warning}
 	}
@@ -823,4 +819,11 @@ func DecodeRatioData(bodyBytes []byte, isOpenRouter, isModelsDev bool, name stri
 	}
 
 	return converted, nil
+}
+
+// RatioDifference preserves the public ratio comparison fields.
+type RatioDifference struct {
+	Current    any             `json:"current"`
+	Upstreams  map[string]any  `json:"upstreams"`
+	Confidence map[string]bool `json:"confidence"`
 }

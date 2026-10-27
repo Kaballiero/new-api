@@ -3,7 +3,6 @@ package update_pricing_config
 import (
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"strings"
 )
@@ -14,6 +13,7 @@ type Store interface {
 	Publish(string, string) error
 }
 type Usecase struct {
+	deps                domain.Capabilities
 	audit               func([]string)
 	store               Store
 	policy              *domain.Configuration
@@ -21,8 +21,8 @@ type Usecase struct {
 	refresh, invalidate func()
 }
 
-func NewUsecase(store Store, policy *domain.Configuration, log func(string), refresh, invalidate func(), audit func([]string)) Usecase {
-	return Usecase{audit: audit, store: store, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
+func NewUsecase(deps domain.Capabilities, store Store, policy *domain.Configuration, log func(string), refresh, invalidate func(), audit func([]string)) Usecase {
+	return Usecase{deps: deps, audit: audit, store: store, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
 }
 func (u Usecase) Execute(changes []domain.ModelPricingChange) error {
 	if len(changes) == 0 {
@@ -44,7 +44,7 @@ func (u Usecase) Execute(changes []domain.ModelPricingChange) error {
 	err := u.mutate(func(_ domain.OptionTransaction, values map[string]map[string]any) error {
 		defaults := u.policy.Defaults()
 		for _, change := range changes {
-			if domain.ModelPricingVersion(u.policy.Values(values, change.ModelName)) != change.ExpectedVersion {
+			if domain.ModelPricingVersion(u.deps, u.policy.Values(values, change.ModelName)) != change.ExpectedVersion {
 				return fmt.Errorf("%w: %s", domain.ErrModelPricingConflict, change.ModelName)
 			}
 			pricing := change.Pricing
@@ -91,7 +91,7 @@ func (u Usecase) mutate(mutate func(domain.OptionTransaction, map[string]map[str
 			if existing[key] {
 				continue
 			}
-			encoded, err := common.Marshal(defaults[key])
+			encoded, err := u.deps.Codec.Marshal(defaults[key])
 			if err != nil {
 				return err
 			}
@@ -103,7 +103,7 @@ func (u Usecase) mutate(mutate func(domain.OptionTransaction, map[string]map[str
 			return err
 		}
 		for _, key := range u.policy.Keys() {
-			encoded, err := common.Marshal(values[key])
+			encoded, err := u.deps.Codec.Marshal(values[key])
 			if err != nil {
 				return err
 			}
@@ -118,7 +118,7 @@ func (u Usecase) mutate(mutate func(domain.OptionTransaction, map[string]map[str
 		return err
 	}
 	for _, key := range u.policy.Keys() {
-		encoded, _ := common.Marshal(committed[key])
+		encoded, _ := u.deps.Codec.Marshal(committed[key])
 		if err := u.store.Publish(key, string(encoded)); err != nil {
 			return err
 		}

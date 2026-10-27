@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"golang.org/x/sync/errgroup"
 	"slices"
 	"strings"
@@ -26,17 +24,18 @@ type Store interface {
 	Transaction(context.Context, func(domain.CatalogTransaction) error) error
 }
 type Client interface {
-	Manifest(context.Context) (catalogsync.Manifest, error)
-	Document(context.Context, catalogsync.Reference) ([]byte, *catalogsync.Document, error)
+	Manifest(context.Context) (domain.SourceManifest, error)
+	Document(context.Context, domain.SourceReference) ([]byte, *domain.SourceDocument, error)
 }
 type Usecase struct {
+	deps       domain.Capabilities
 	store      Store
 	now        func() time.Time
 	invalidate func()
 }
 
-func NewUsecase(store Store, now func() time.Time, invalidate func()) Usecase {
-	return Usecase{store: store, now: now, invalidate: invalidate}
+func NewUsecase(deps domain.Capabilities, store Store, now func() time.Time, invalidate func()) Usecase {
+	return Usecase{deps: deps, store: store, now: now, invalidate: invalidate}
 }
 
 // SyncUpstreamCatalog acquires one immutable remote manifest and its requested
@@ -51,11 +50,11 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	if err != nil {
 		return result, err
 	}
-	refs := make(map[string]catalogsync.Reference, len(manifest.Models))
+	refs := make(map[string]domain.SourceReference, len(manifest.Models))
 	for _, ref := range manifest.Models {
 		refs[ref.ID] = ref
 	}
-	pending := []catalogsync.Reference{}
+	pending := []domain.SourceReference{}
 	for id := range requested {
 		ref, exists := refs[id]
 		if !exists {
@@ -65,8 +64,8 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 		pending = append(pending, ref)
 	}
 	slices.Sort(result.MissingModels)
-	selected := map[string]catalogsync.Reference{}
-	decoded := map[string]*catalogsync.Document{}
+	selected := map[string]domain.SourceReference{}
+	decoded := map[string]*domain.SourceDocument{}
 	fresh := []domain.CatalogDocument{}
 	for len(pending) > 0 {
 		hashes := make([]string, 0, len(pending))
@@ -83,10 +82,10 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 		workers.SetLimit(5)
 		for _, ref := range pending {
 			workers.Go(func() error {
-				var doc *catalogsync.Document
+				var doc *domain.SourceDocument
 				if row, exists := cached[ref.Hash]; exists {
 					var decodeErr error
-					doc, decodeErr = catalogsync.DecodeDocument([]byte(row.Payload), ref)
+					doc, decodeErr = u.deps.Catalog.DecodeDocument([]byte(row.Payload), ref)
 					if decodeErr != nil {
 						return decodeErr
 					}
@@ -126,8 +125,9 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 			pending = append(pending, ref)
 		}
 	}
+	resolveAlias := u.deps.Catalog.Aliases(decoded)
 	for id := range decoded {
-		if _, err := catalogsync.ResolveAlias(decoded, id); err != nil {
+		if _, err := resolveAlias(id); err != nil {
 			return result, err
 		}
 	}
@@ -188,7 +188,7 @@ func (u Usecase) publishSelection(ctx context.Context, expected domain.CatalogSo
 		references[ref.ID] = ref.Hash
 		byHash[ref.Hash] = ref.ID
 	}
-	payload, err := common.Marshal(selection)
+	payload, err := u.deps.Codec.Marshal(selection)
 	if err != nil {
 		return result, err
 	}
@@ -202,7 +202,7 @@ func (u Usecase) publishSelection(ctx context.Context, expected domain.CatalogSo
 			return result, fmt.Errorf("duplicate catalog document")
 		}
 		var raw json.RawMessage
-		if common.GetJsonType([]byte(doc.Payload)) != "object" || common.UnmarshalJsonStr(doc.Payload, &raw) != nil {
+		if u.deps.Codec.GetJsonType([]byte(doc.Payload)) != "object" || u.deps.Codec.UnmarshalJsonStr(doc.Payload, &raw) != nil {
 			return result, fmt.Errorf("catalog document must be a valid JSON object")
 		}
 		candidates[doc.Hash] = doc

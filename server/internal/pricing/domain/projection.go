@@ -5,12 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
 
 	"github.com/shopspring/decimal"
 	"golang.org/x/text/cases"
@@ -58,19 +53,19 @@ type EffectivePricingModel struct {
 	GroupPrices            []EffectiveGroupPricing `json:"group_prices"`
 }
 type EffectiveGroupPricing struct {
-	BillingSourcesByEndpoint map[constant.EndpointType][]string   `json:"billing_sources_by_endpoint,omitempty"`
-	UsingGroup               string                               `json:"using_group"`
-	PureGroupRatio           float64                              `json:"pure_group_ratio"`
-	EffectiveBillingRatio    float64                              `json:"effective_billing_ratio"`
-	BillingMode              string                               `json:"billing_mode"`
-	BillingSurface           string                               `json:"billing_surface"`
-	Status                   string                               `json:"status"`
-	UnitPrices               []EffectiveUnitPrice                 `json:"unit_prices,omitempty"`
-	Tiers                    []EffectivePricingTier               `json:"tiers"`
-	IsFree                   bool                                 `json:"is_free"`
-	Formula                  *EffectivePricingFormula             `json:"formula,omitempty"`
-	Limitations              []string                             `json:"limitations,omitempty"`
-	UsageSchema              map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
+	BillingSourcesByEndpoint map[constant.EndpointType][]string `json:"billing_sources_by_endpoint,omitempty"`
+	UsingGroup               string                             `json:"using_group"`
+	PureGroupRatio           float64                            `json:"pure_group_ratio"`
+	EffectiveBillingRatio    float64                            `json:"effective_billing_ratio"`
+	BillingMode              string                             `json:"billing_mode"`
+	BillingSurface           string                             `json:"billing_surface"`
+	Status                   string                             `json:"status"`
+	UnitPrices               []EffectiveUnitPrice               `json:"unit_prices,omitempty"`
+	Tiers                    []EffectivePricingTier             `json:"tiers"`
+	IsFree                   bool                               `json:"is_free"`
+	Formula                  *EffectivePricingFormula           `json:"formula,omitempty"`
+	Limitations              []string                           `json:"limitations,omitempty"`
+	UsageSchema              map[string]TariffUsageField        `json:"usage_schema,omitempty"`
 }
 type EffectiveUnitPrice struct {
 	Component string  `json:"component"`
@@ -248,7 +243,7 @@ type ConsumerUnitPrice struct {
 	Unit      string   `json:"unit"`
 	AmountRub *float64 `json:"amount_rub"`
 }
-type UpstreamRate catalogsync.Component
+type UpstreamRate SourceRate
 type ConsumerProviderPrice struct {
 	UpstreamRate
 	Component string  `json:"component"`
@@ -258,20 +253,20 @@ type ConsumerProviderOffer struct {
 	MinimumEligible bool   `json:"-"`
 	DocumentHash    string `json:"-"`
 
-	Availability  string                   `json:"catalog_availability"`
-	Limitations   []string                 `json:"limitations"`
-	ID            string                   `json:"id"`
-	UpstreamModel string                   `json:"upstream_model"`
-	Operation     string                   `json:"operation"`
-	Mode          string                   `json:"mode"`
-	Scope         string                   `json:"scope"`
-	Provider      *catalogsync.Provider    `json:"provider"`
-	Variant       json.RawMessage          `json:"variant"`
-	Prices        []ConsumerProviderPrice  `json:"prices"`
-	Coverage      catalogsync.Coverage     `json:"coverage"`
-	Eligibility   *catalogsync.Eligibility `json:"eligibility"`
-	Capabilities  json.RawMessage          `json:"capabilities"`
-	Limits        json.RawMessage          `json:"limits"`
+	Availability  string                  `json:"catalog_availability"`
+	Limitations   []string                `json:"limitations"`
+	ID            string                  `json:"id"`
+	UpstreamModel string                  `json:"upstream_model"`
+	Operation     string                  `json:"operation"`
+	Mode          string                  `json:"mode"`
+	Scope         string                  `json:"scope"`
+	Provider      *SourceProvider         `json:"provider"`
+	Variant       json.RawMessage         `json:"variant"`
+	Prices        []ConsumerProviderPrice `json:"prices"`
+	Coverage      SourceCoverage          `json:"coverage"`
+	Eligibility   *SourceEligibility      `json:"eligibility"`
+	Capabilities  json.RawMessage         `json:"capabilities"`
+	Limits        json.RawMessage         `json:"limits"`
 }
 type PricingUserContext struct {
 	Id    int    `json:"-"`
@@ -350,7 +345,7 @@ func FilterPricingByUsableGroups(pricing []Pricing, usableGroup map[string]strin
 
 	filtered := make([]Pricing, 0, len(pricing))
 	for _, item := range pricing {
-		if common.StringsContains(item.EnableGroup, "all") {
+		if slices.Contains(item.EnableGroup, "all") {
 			filtered = append(filtered, item)
 			continue
 		}
@@ -421,7 +416,7 @@ func (pricingPolicy *Projection) BuildEffectivePricingModelWithRatios(usableGrou
 	return result
 }
 func EffectivePricingGroups(enableGroups []string, usableGroups map[string]string) []string {
-	if common.StringsContains(enableGroups, "all") {
+	if slices.Contains(enableGroups, "all") {
 		groups := make([]string, 0, len(usableGroups))
 		for group := range usableGroups {
 			groups = append(groups, group)
@@ -454,7 +449,7 @@ func (pricingPolicy *Projection) BuildEffectiveGroupPricing(item Pricing, group 
 			groupPrice.BillingSurface = "task"
 			outputToQuota = float64(pricingPolicy.runtime.QuotaUnit()) * effectiveRatio
 			outputToRub = outputToQuota / (float64(pricingPolicy.runtime.QuotaUnit()) / 100)
-			groupPrice.UsageSchema = make(map[string]jsplugin.UsageFieldSchema, len(item.BillingUsageSchema))
+			groupPrice.UsageSchema = make(map[string]TariffUsageField, len(item.BillingUsageSchema))
 			for key, schema := range item.BillingUsageSchema {
 				groupPrice.UsageSchema[key] = schema
 			}
@@ -463,7 +458,7 @@ func (pricingPolicy *Projection) BuildEffectiveGroupPricing(item Pricing, group 
 		groupPrice.Formula = &EffectivePricingFormula{Expression: item.BillingExpr, Kind: kind, OutputToQuotaFactor: outputToQuota, OutputToRubFactor: outputToRub}
 		groupPrice.SetTiers([]EffectivePricingTier{})
 		if kind == "token_expression" {
-			groupPrice.SetTiers(TokenExpressionTiers(item.BillingExpr, outputToRub))
+			groupPrice.SetTiers(TokenExpressionTiers(pricingPolicy.runtime.Capabilities, item.BillingExpr, outputToRub))
 		}
 		return groupPrice
 	}
@@ -733,8 +728,6 @@ func NormalizePricingSearch(value string) string {
 	return cases.Lower(language.Und).String(TrimPricingText(value))
 }
 
-// CatalogModelTypes lists the catalog_type values a pricing query may select.
-func CatalogModelTypes() []string { return catalogsync.ModelTypes() }
 func (pricingPolicy *Projection) BuildEffectivePricingOverview(context EffectivePricingPageContext, query EffectivePricingPageQuery) EffectivePricingOverviewData {
 	query.Overview = true
 	page := pricingPolicy.BuildEffectivePricingPage(context, query, context.Project)
@@ -790,7 +783,7 @@ func (pricingPolicy *Projection) BuildPublicPricingModelsPage(context EffectiveP
 	}
 	return response
 }
-func PublicPricingGuard(guard billingexpr.TierCondition, units ...map[string]string) PublicPricingCondition {
+func PublicPricingGuard(guard ExpressionCondition, units ...map[string]string) PublicPricingCondition {
 	condition := PublicPricingCondition{Kind: "comparison", Subject: guard.Var, Argument: guard.Arg, Operator: guard.Op, Value: &guard.Value}
 	if guard.Var == "len" {
 		condition.Subject = "context_length"
@@ -894,7 +887,7 @@ func (pricingPolicy *Projection) BuildCatalogModelTariff(context EffectivePricin
 				}
 				tier.Prices = append(tier.Prices, public)
 			}
-			encoded, err := common.Marshal(tier)
+			encoded, err := pricingPolicy.runtime.Capabilities.Codec.Marshal(tier)
 			if err == nil && !seen[string(encoded)] {
 				row.Tiers = append(row.Tiers, tier)
 				seen[string(encoded)] = true
@@ -906,7 +899,7 @@ func (pricingPolicy *Projection) BuildCatalogModelTariff(context EffectivePricin
 		row.IsFree = row.IsFree && !unknown
 		result.Operations = append(result.Operations, row)
 	}
-	minima := CatalogMinimumOperations(pricingPolicy.IterateUpstreamProviderOffers(item, group, ratio, ratioErr == nil, PricingUserContext{}))
+	minima := CatalogMinimumOperations(pricingPolicy.runtime.Capabilities, pricingPolicy.IterateUpstreamProviderOffers(item, group, ratio, ratioErr == nil, PricingUserContext{}))
 	for _, operation := range minima {
 		index := slices.IndexFunc(result.Operations, func(row PublicPricingOperation) bool {
 			return row.Operation == operation.Operation && row.Mode == operation.Mode
@@ -977,10 +970,10 @@ func (pricingPolicy *Projection) BuildConsumerPricingModel(usableGroups map[stri
 		var minima []ConsumerPricingOperation
 		if details {
 			offers := pricingPolicy.UpstreamProviderOffers(item, group, ratio, err == nil, user)
-			minima = CatalogMinima(offers)
-			providers = CatalogProviderDisplayOffers(offers)
+			minima = CatalogMinima(pricingPolicy.runtime.Capabilities, offers)
+			providers = CatalogProviderDisplayOffers(pricingPolicy.runtime.Capabilities, offers)
 		} else {
-			minima = CatalogMinimumOperations(pricingPolicy.IterateUpstreamProviderOffers(item, group, ratio, err == nil, user))
+			minima = CatalogMinimumOperations(pricingPolicy.runtime.Capabilities, pricingPolicy.IterateUpstreamProviderOffers(item, group, ratio, err == nil, user))
 		}
 		operations := MergeCatalogMinima(ConsumerOperations(item, group, ratio, err == nil), minima)
 		if slices.ContainsFunc(item.PublicCatalogOffersByGroup[group], func(offer CatalogOffer) bool { return len(offer.PublicUsageConditions) > 0 }) {
@@ -1091,7 +1084,7 @@ func ConsumerOperation(endpoint constant.EndpointType) (string, string) {
 	}
 	return "", ""
 }
-func CatalogComponentName(rate catalogsync.Component) string {
+func CatalogComponentName(rate SourceRate) string {
 	billable := ""
 	if rate.Billable != nil {
 		billable = *rate.Billable
@@ -1186,12 +1179,12 @@ func CatalogProviderForwardingOperation(operation map[string]any) bool {
 
 // A catalog is a projection, not request admission. Use the same override engine
 // as relay; apply provider selection to the resulting routing preferences.
-func (pricingPolicy *Projection) CatalogProviderAllowed(route UpstreamCatalogRoute, apiModel, group string, user PricingUserContext, offer catalogsync.Offer) (bool, bool, bool) {
+func (pricingPolicy *Projection) CatalogProviderAllowed(route UpstreamCatalogRoute, apiModel, group string, user PricingUserContext, offer SourceOffer) (bool, bool, bool) {
 	if route.ParamOverride == nil || strings.TrimSpace(*route.ParamOverride) == "" || strings.TrimSpace(*route.ParamOverride) == "{}" {
-		return true, true, CatalogServiceTierAllowed(route, offer, "", nil, nil)
+		return true, true, CatalogServiceTierAllowed(pricingPolicy.runtime.Capabilities, route, offer, "", nil, nil)
 	}
 	var overrides map[string]any
-	if common.UnmarshalJsonStr(*route.ParamOverride, &overrides) != nil {
+	if pricingPolicy.runtime.Capabilities.Codec.UnmarshalJsonStr(*route.ParamOverride, &overrides) != nil {
 		return false, true, false
 	}
 
@@ -1249,13 +1242,13 @@ func (pricingPolicy *Projection) CatalogProviderAllowed(route UpstreamCatalogRou
 		}
 	}
 
-	body, err := common.Marshal(map[string]string{"model": route.ModelID})
+	body, err := pricingPolicy.runtime.Capabilities.Codec.Marshal(map[string]string{"model": route.ModelID})
 	if err != nil {
 		return false, true, false
 	}
-	path, _ := common.GetDefaultEndpointInfo(route.Endpoint)
+	path, _ := pricingPolicy.runtime.Capabilities.Endpoints.GetDefaultEndpointInfo(route.Endpoint)
 	if route.Endpoint == PricingEndpointSystemOne {
-		path = common.EndpointInfo{Path: "/v1/systemone", Method: "POST"}
+		path = PricingEndpointInfo{Path: "/v1/systemone", Method: "POST"}
 	}
 	body, err = pricingPolicy.runtime.ApplyOverride(body, overrides, OverrideContext{UserID: user.Id, UserGroup: user.Group, UsingGroup: group, Model: apiModel, Path: path.Path, Upstream: route.ModelID})
 	if err != nil {
@@ -1268,14 +1261,14 @@ func (pricingPolicy *Projection) CatalogProviderAllowed(route UpstreamCatalogRou
 			AllowFallbacks      *bool `json:"allow_fallbacks"`
 		} `json:"provider"`
 	}
-	if common.Unmarshal(body, &fields) != nil {
+	if pricingPolicy.runtime.Capabilities.Codec.Unmarshal(body, &fields) != nil {
 		return false, true, false
 	}
 	var routing struct {
 		Model    string                     `json:"model"`
 		Provider map[string]json.RawMessage `json:"provider"`
 	}
-	if common.Unmarshal(body, &routing) != nil {
+	if pricingPolicy.runtime.Capabilities.Codec.Unmarshal(body, &routing) != nil {
 		return false, true, false
 	}
 	certain := routing.Model == route.ModelID
@@ -1289,7 +1282,7 @@ func (pricingPolicy *Projection) CatalogProviderAllowed(route UpstreamCatalogRou
 		}
 	}
 	preferences := fields.Provider
-	tierAllowed := CatalogServiceTierAllowed(route, offer, fields.ServiceTier, preferences.Only, preferences.Order)
+	tierAllowed := CatalogServiceTierAllowed(pricingPolicy.runtime.Capabilities, route, offer, fields.ServiceTier, preferences.Only, preferences.Order)
 	if len(preferences.Only) == 0 && len(preferences.Ignore) == 0 && (preferences.AllowFallbacks == nil || *preferences.AllowFallbacks || len(preferences.Order) == 0) {
 		return true, certain, tierAllowed
 	}
@@ -1338,7 +1331,7 @@ func (pricingPolicy *Projection) IterateUpstreamProviderOffers(item Pricing, gro
 				continue
 			}
 			for offerIndex, offer := range route.Document.Offers {
-				mode, knownMode := CatalogOfferMode(offer, route.ModelID)
+				mode, knownMode := CatalogOfferMode(pricingPolicy.runtime.Capabilities, offer, route.ModelID)
 				if !knownMode || mode != route.Mode || offer.Operation != nil && *offer.Operation != route.Operation {
 					continue
 				}
@@ -1347,7 +1340,7 @@ func (pricingPolicy *Projection) IterateUpstreamProviderOffers(item Pricing, gro
 					continue
 				}
 				certain := known && offer.Eligibility != nil
-				id := catalogsync.Hash([]byte(route.DocumentHash + "\n" + route.ModelID + "\n" + strconv.Itoa(offerIndex) + "\n" + route.Operation + "\n" + route.Mode))
+				id := CatalogHash([]byte(route.DocumentHash + "\n" + route.ModelID + "\n" + strconv.Itoa(offerIndex) + "\n" + route.Operation + "\n" + route.Mode))
 				row := ConsumerProviderOffer{MinimumEligible: tierAllowed, DocumentHash: route.DocumentHash, ID: id, UpstreamModel: route.ModelID, Operation: route.Operation, Mode: route.Mode, Scope: offer.Scope, Provider: offer.Provider, Variant: offer.Variant, Prices: []ConsumerProviderPrice{}, Coverage: offer.Coverage, Eligibility: offer.Eligibility, Capabilities: offer.Capabilities, Limits: offer.Limits}
 				row.Limitations = slices.Clone(offer.Limitations)
 				row.Availability = "eligible"
@@ -1369,7 +1362,7 @@ func (pricingPolicy *Projection) IterateUpstreamProviderOffers(item Pricing, gro
 					}
 					row.Prices = append(row.Prices, price)
 				}
-				row.Prices = CatalogDetailPrices(row.Prices)
+				row.Prices = CatalogDetailPrices(pricingPolicy.runtime.Capabilities, row.Prices)
 				if !yield(row) {
 					return
 				}
@@ -1382,14 +1375,14 @@ func (pricingPolicy *Projection) IterateUpstreamProviderOffers(item Pricing, gro
 // schedule replaces for the same component and unit. Public minima and schedule
 // tiers (CatalogSchedulePrices) ignore them, so offer details must not show them
 // either.
-func CatalogShadowedModelPrices(prices []ConsumerProviderPrice) []bool {
+func CatalogShadowedModelPrices(deps Capabilities, prices []ConsumerProviderPrice) []bool {
 	sources := make([]string, len(prices))
 	generic := map[string]bool{}
 	for index, price := range prices {
 		var provenance struct {
 			Source string `json:"source"`
 		}
-		if common.Unmarshal(price.Provenance, &provenance) != nil {
+		if deps.Codec.Unmarshal(price.Provenance, &provenance) != nil {
 			continue
 		}
 		sources[index] = provenance.Source
@@ -1404,19 +1397,19 @@ func CatalogShadowedModelPrices(prices []ConsumerProviderPrice) []bool {
 	return shadowed
 }
 
-func CatalogDetailPrices(prices []ConsumerProviderPrice) []ConsumerProviderPrice {
-	shadowed := CatalogShadowedModelPrices(prices)
+func CatalogDetailPrices(deps Capabilities, prices []ConsumerProviderPrice) []ConsumerProviderPrice {
+	shadowed := CatalogShadowedModelPrices(deps, prices)
 	result := make([]ConsumerProviderPrice, 0, len(prices))
 	for index, price := range prices {
 		if shadowed[index] {
 			continue
 		}
-		duplicate := slices.IndexFunc(result, func(kept ConsumerProviderPrice) bool { return CatalogSamePrice(kept, price) })
+		duplicate := slices.IndexFunc(result, func(kept ConsumerProviderPrice) bool { return CatalogSamePrice(deps, kept, price) })
 		if duplicate < 0 {
 			result = append(result, price)
 			continue
 		}
-		if CatalogPreferredDuplicate(price, result[duplicate]) {
+		if CatalogPreferredDuplicate(deps, price, result[duplicate]) {
 			result[duplicate] = price
 		}
 	}
@@ -1425,15 +1418,15 @@ func CatalogDetailPrices(prices []ConsumerProviderPrice) []ConsumerProviderPrice
 
 // CatalogPreferredDuplicate keeps the copy of an identical price that schedules
 // and minima can use: a rouble amount first, then readable provenance.
-func CatalogPreferredDuplicate(candidate, kept ConsumerProviderPrice) bool {
+func CatalogPreferredDuplicate(deps Capabilities, candidate, kept ConsumerProviderPrice) bool {
 	if (candidate.AmountRub != nil) != (kept.AmountRub != nil) {
 		return candidate.AmountRub != nil
 	}
 	var provenance struct {
 		Source string `json:"source"`
 	}
-	candidateReadable := common.Unmarshal(candidate.Provenance, &provenance) == nil
-	keptReadable := common.Unmarshal(kept.Provenance, &provenance) == nil
+	candidateReadable := deps.Codec.Unmarshal(candidate.Provenance, &provenance) == nil
+	keptReadable := deps.Codec.Unmarshal(kept.Provenance, &provenance) == nil
 	return candidateReadable && !keptReadable
 }
 
@@ -1443,7 +1436,7 @@ func CatalogPricedRate(price ConsumerProviderPrice) bool {
 
 // CatalogSamePriceSlot reports whether two rates bill the same component, unit,
 // quantity, conditions and variant, regardless of amount and source labels.
-func CatalogSamePriceSlot(a, b ConsumerProviderPrice) bool {
+func CatalogSamePriceSlot(deps Capabilities, a, b ConsumerProviderPrice) bool {
 	if a.Component != b.Component || a.Unit != b.Unit || a.Component == "unknown" && a.ComponentID != b.ComponentID {
 		return false
 	}
@@ -1454,7 +1447,7 @@ func CatalogSamePriceSlot(a, b ConsumerProviderPrice) bool {
 	}
 	for _, pair := range [][2]json.RawMessage{{a.Conditions, b.Conditions}, {a.Variant, b.Variant}} {
 		var left, right map[string]any
-		if len(pair[0]) > 0 && common.Unmarshal(pair[0], &left) != nil || len(pair[1]) > 0 && common.Unmarshal(pair[1], &right) != nil {
+		if len(pair[0]) > 0 && deps.Codec.Unmarshal(pair[0], &left) != nil || len(pair[1]) > 0 && deps.Codec.Unmarshal(pair[1], &right) != nil {
 			return false
 		}
 		if len(left) == 0 || len(right) == 0 {
@@ -1463,8 +1456,8 @@ func CatalogSamePriceSlot(a, b ConsumerProviderPrice) bool {
 			}
 			continue
 		}
-		leftRaw, errL := common.Marshal(left)
-		rightRaw, errR := common.Marshal(right)
+		leftRaw, errL := deps.Codec.Marshal(left)
+		rightRaw, errR := deps.Codec.Marshal(right)
 		if errL != nil || errR != nil || string(leftRaw) != string(rightRaw) {
 			return false
 		}
@@ -1472,8 +1465,8 @@ func CatalogSamePriceSlot(a, b ConsumerProviderPrice) bool {
 	return true
 }
 
-func CatalogSamePrice(a, b ConsumerProviderPrice) bool {
-	if !CatalogPricedRate(a) || !CatalogPricedRate(b) || !CatalogSamePriceSlot(a, b) {
+func CatalogSamePrice(deps Capabilities, a, b ConsumerProviderPrice) bool {
+	if !CatalogPricedRate(a) || !CatalogPricedRate(b) || !CatalogSamePriceSlot(deps, a, b) {
 		return false
 	}
 	amountA, errA := decimal.NewFromString(*a.AmountUSD)
@@ -1488,7 +1481,7 @@ func CatalogSamePrice(a, b ConsumerProviderPrice) bool {
 // The model-scope offer stays separate when that group has no provider offer,
 // when it holds a priced rate that cannot be carried, or when one of its prices
 // contradicts a provider price in the same slot.
-func CatalogProviderDisplayOffers(offers []ConsumerProviderOffer) []ConsumerProviderOffer {
+func CatalogProviderDisplayOffers(deps Capabilities, offers []ConsumerProviderOffer) []ConsumerProviderOffer {
 	type key struct{ document, model, operation, mode string }
 	endpoints := map[key][]int{}
 	result := make([]ConsumerProviderOffer, 0, len(offers))
@@ -1517,7 +1510,7 @@ func CatalogProviderDisplayOffers(offers []ConsumerProviderOffer) []ConsumerProv
 			}
 			for _, target := range targets {
 				if slices.ContainsFunc(result[target].Prices, func(kept ConsumerProviderPrice) bool {
-					return CatalogPricedRate(kept) && CatalogSamePriceSlot(kept, price) && !CatalogSamePrice(kept, price)
+					return CatalogPricedRate(kept) && CatalogSamePriceSlot(deps, kept, price) && !CatalogSamePrice(deps, kept, price)
 				}) {
 					foldable = false
 					break
@@ -1532,13 +1525,13 @@ func CatalogProviderDisplayOffers(offers []ConsumerProviderOffer) []ConsumerProv
 		}
 		folded[index] = true
 		var capabilities map[string]json.RawMessage
-		if len(offer.Capabilities) > 0 && common.Unmarshal(offer.Capabilities, &capabilities) != nil {
+		if len(offer.Capabilities) > 0 && deps.Codec.Unmarshal(offer.Capabilities, &capabilities) != nil {
 			capabilities = nil
 		}
 		for _, target := range targets {
 			endpoint := &result[target]
 			for _, price := range offer.Prices {
-				if CatalogPricedRate(price) && !slices.ContainsFunc(endpoint.Prices, func(kept ConsumerProviderPrice) bool { return CatalogSamePrice(kept, price) }) {
+				if CatalogPricedRate(price) && !slices.ContainsFunc(endpoint.Prices, func(kept ConsumerProviderPrice) bool { return CatalogSamePrice(deps, kept, price) }) {
 					endpoint.Prices = append(endpoint.Prices, price)
 				}
 			}
@@ -1546,7 +1539,7 @@ func CatalogProviderDisplayOffers(offers []ConsumerProviderOffer) []ConsumerProv
 				continue
 			}
 			merged := map[string]json.RawMessage{}
-			if len(endpoint.Capabilities) > 0 && common.Unmarshal(endpoint.Capabilities, &merged) != nil {
+			if len(endpoint.Capabilities) > 0 && deps.Codec.Unmarshal(endpoint.Capabilities, &merged) != nil {
 				continue
 			}
 			if merged == nil {
@@ -1562,7 +1555,7 @@ func CatalogProviderDisplayOffers(offers []ConsumerProviderOffer) []ConsumerProv
 			if !added {
 				continue
 			}
-			if raw, err := common.Marshal(merged); err == nil {
+			if raw, err := deps.Codec.Marshal(merged); err == nil {
 				endpoint.Capabilities = raw
 			}
 		}
@@ -1576,14 +1569,14 @@ func CatalogProviderDisplayOffers(offers []ConsumerProviderOffer) []ConsumerProv
 	return kept
 }
 
-func CatalogMinima(offers []ConsumerProviderOffer) []ConsumerPricingOperation {
-	return CatalogMinimumOperations(slices.Values(offers))
+func CatalogMinima(deps Capabilities, offers []ConsumerProviderOffer) []ConsumerPricingOperation {
+	return CatalogMinimumOperations(deps, slices.Values(offers))
 }
-func CatalogMinimumOperations(offers iter.Seq[ConsumerProviderOffer]) []ConsumerPricingOperation {
+func CatalogMinimumOperations(deps Capabilities, offers iter.Seq[ConsumerProviderOffer]) []ConsumerPricingOperation {
 	type key struct{ operation, mode string }
 	schedules := map[key][]CatalogScheduledPrice{}
 	seen := map[string]bool{}
-	minima := CatalogUnconditionalMinima(func(yield func(ConsumerProviderOffer) bool) {
+	minima := CatalogUnconditionalMinima(deps, func(yield func(ConsumerProviderOffer) bool) {
 		for offer := range offers {
 			if offer.MinimumEligible && offer.Availability == "eligible" && (offer.Eligibility == nil || offer.Eligibility.Eligible) {
 				if offer.ID != "" && seen[offer.ID] {
@@ -1591,7 +1584,7 @@ func CatalogMinimumOperations(offers iter.Seq[ConsumerProviderOffer]) []Consumer
 				}
 				seen[offer.ID] = true
 				k := key{offer.Operation, offer.Mode}
-				schedules[k] = append(schedules[k], CatalogScheduledRates(offer)...)
+				schedules[k] = append(schedules[k], CatalogScheduledRates(deps, offer)...)
 			}
 			if !yield(offer) {
 				return
@@ -1599,7 +1592,7 @@ func CatalogMinimumOperations(offers iter.Seq[ConsumerProviderOffer]) []Consumer
 		}
 	})
 	for index := range minima {
-		minima[index].Tiers = CatalogScheduleTiers(schedules[key{minima[index].Operation, minima[index].Mode}])
+		minima[index].Tiers = CatalogScheduleTiers(deps, schedules[key{minima[index].Operation, minima[index].Mode}])
 		if len(minima[index].Tiers) == 0 {
 			minima[index].Prices = []ConsumerUnitPrice{}
 			from := false
@@ -1608,7 +1601,7 @@ func CatalogMinimumOperations(offers iter.Seq[ConsumerProviderOffer]) []Consumer
 	}
 	return minima
 }
-func CatalogUnconditionalMinima(offers iter.Seq[ConsumerProviderOffer]) []ConsumerPricingOperation {
+func CatalogUnconditionalMinima(deps Capabilities, offers iter.Seq[ConsumerProviderOffer]) []ConsumerPricingOperation {
 	type key struct{ operation, mode string }
 	type winner struct {
 		Price           ConsumerProviderPrice `json:"-"`
@@ -1627,7 +1620,7 @@ func CatalogUnconditionalMinima(offers iter.Seq[ConsumerProviderOffer]) []Consum
 			grouped[k] = map[string]winner{}
 			candidates[k] = map[string]map[string]bool{}
 		}
-		for _, price := range CatalogSchedulePrices(offer) {
+		for _, price := range CatalogSchedulePrices(deps, offer) {
 			if price.AmountRub == nil {
 				continue
 			}
@@ -1721,11 +1714,11 @@ func MergeCatalogMinima(existing, upstream []ConsumerPricingOperation) []Consume
 	})
 	return existing
 }
-func CatalogServiceTier(variant []byte) string {
+func CatalogServiceTier(deps Capabilities, variant []byte) string {
 	var fields struct {
 		Tier string `json:"service_tier"`
 	}
-	if len(variant) != 0 && common.Unmarshal(variant, &fields) != nil {
+	if len(variant) != 0 && deps.Codec.Unmarshal(variant, &fields) != nil {
 		return "unknown"
 	}
 	if fields.Tier == "" || fields.Tier == "standard" {
@@ -1736,8 +1729,8 @@ func CatalogServiceTier(variant []byte) string {
 	}
 	return fields.Tier
 }
-func CatalogServiceTierAllowed(route UpstreamCatalogRoute, offer catalogsync.Offer, requested string, only, order []string) bool {
-	tier := CatalogServiceTier(offer.Variant)
+func CatalogServiceTierAllowed(deps Capabilities, route UpstreamCatalogRoute, offer SourceOffer, requested string, only, order []string) bool {
+	tier := CatalogServiceTier(deps, offer.Variant)
 	if tier == "unknown" {
 		return false
 	}
@@ -1766,21 +1759,21 @@ func CatalogServiceTierAllowed(route UpstreamCatalogRoute, offer catalogsync.Off
 // A component variant (resolution, language, quality, operation...) identifies a
 // separately billed SKU. Prices of different variants are never alternatives for
 // one request, so each variant keeps its own public condition.
-func CatalogPriceVariant(raw json.RawMessage) (string, []PublicPricingCondition, bool) {
+func CatalogPriceVariant(deps Capabilities, raw json.RawMessage) (string, []PublicPricingCondition, bool) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", nil, true
 	}
 	var fields map[string]json.RawMessage
-	if common.Unmarshal(raw, &fields) != nil || fields == nil {
+	if deps.Codec.Unmarshal(raw, &fields) != nil || fields == nil {
 		return "", nil, false
 	}
 	var key strings.Builder
 	conditions := []PublicPricingCondition{}
 	for _, name := range slices.Sorted(maps.Keys(fields)) {
 		var value string
-		if common.Unmarshal(fields[name], &value) != nil {
+		if deps.Codec.Unmarshal(fields[name], &value) != nil {
 			var scalar any
-			if common.Unmarshal(fields[name], &scalar) != nil {
+			if deps.Codec.Unmarshal(fields[name], &scalar) != nil {
 				return "", nil, false
 			}
 			switch scalar.(type) {
@@ -1795,8 +1788,8 @@ func CatalogPriceVariant(raw json.RawMessage) (string, []PublicPricingCondition,
 	}
 	return key.String(), conditions, true
 }
-func CatalogSchedulePrices(offer ConsumerProviderOffer) []ConsumerProviderPrice {
-	shadowed := CatalogShadowedModelPrices(offer.Prices)
+func CatalogSchedulePrices(deps Capabilities, offer ConsumerProviderOffer) []ConsumerProviderPrice {
+	shadowed := CatalogShadowedModelPrices(deps, offer.Prices)
 	result := []ConsumerProviderPrice{}
 	for index, price := range offer.Prices {
 		if price.Component == "unknown" || price.AmountRub == nil || shadowed[index] {
@@ -1805,26 +1798,26 @@ func CatalogSchedulePrices(offer ConsumerProviderOffer) []ConsumerProviderPrice 
 		var provenance struct {
 			Source string `json:"source"`
 		}
-		if common.Unmarshal(price.Provenance, &provenance) != nil {
+		if deps.Codec.Unmarshal(price.Provenance, &provenance) != nil {
 			continue
 		}
-		if _, valid := CatalogRateWindow(price); !valid {
+		if _, valid := CatalogRateWindow(deps, price); !valid {
 			continue
 		}
-		if _, _, valid := CatalogPriceVariant(price.Variant); !valid {
+		if _, _, valid := CatalogPriceVariant(deps, price.Variant); !valid {
 			continue
 		}
 		result = append(result, price)
 	}
 	return result
 }
-func CatalogRateWindow(price ConsumerProviderPrice) (CatalogPriceWindow, bool) {
+func CatalogRateWindow(deps Capabilities, price ConsumerProviderPrice) (CatalogPriceWindow, bool) {
 	window := CatalogPriceWindow{}
 	if len(price.Conditions) == 0 || string(price.Conditions) == "null" {
 		return window, true
 	}
 	var fields map[string]any
-	if common.Unmarshal(price.Conditions, &fields) != nil || fields == nil {
+	if deps.Codec.Unmarshal(price.Conditions, &fields) != nil || fields == nil {
 		return window, false
 	}
 	for key, value := range fields {
@@ -1838,7 +1831,7 @@ func CatalogRateWindow(price ConsumerProviderPrice) (CatalogPriceWindow, bool) {
 			return window, false
 		}
 	}
-	if common.Unmarshal(price.Conditions, &window) != nil {
+	if deps.Codec.Unmarshal(price.Conditions, &window) != nil {
 		return window, false
 	}
 	if window.ContextMin != nil && (*window.ContextMin < 0 || *window.ContextMin > CatalogUnboundedContext) || window.ContextMax != nil && (*window.ContextMax < 0 || *window.ContextMax > CatalogUnboundedContext) {
@@ -1856,7 +1849,7 @@ func CatalogRateWindow(price ConsumerProviderPrice) (CatalogPriceWindow, bool) {
 	}
 	return window, start >= 0 && start < end && end <= 2400 && start%100 < 60 && end%100 < 60
 }
-func CatalogScheduleTiers(rates []CatalogScheduledPrice) []PublicPricingTier {
+func CatalogScheduleTiers(deps Capabilities, rates []CatalogScheduledPrice) []PublicPricingTier {
 	type group struct{ tier, variant string }
 	byGroup := map[group][]CatalogScheduledPrice{}
 	serviceTiers := []string{}
@@ -1904,12 +1897,12 @@ func CatalogScheduleTiers(rates []CatalogScheduledPrice) []PublicPricingTier {
 						}
 					}
 
-					minimum := CatalogUnconditionalMinima(slices.Values([]ConsumerProviderOffer{candidates}))
+					minimum := CatalogUnconditionalMinima(deps, slices.Values([]ConsumerProviderOffer{candidates}))
 					if len(minimum) == 0 || len(minimum[0].Prices) == 0 {
 						continue
 					}
 					prices := minimum[0].Prices
-					wire, err := common.Marshal(prices)
+					wire, err := deps.Codec.Marshal(prices)
 					if err != nil {
 						continue
 					}
@@ -1966,12 +1959,12 @@ func CatalogScheduleTiers(rates []CatalogScheduledPrice) []PublicPricingTier {
 	}
 	return tiers
 }
-func CatalogScheduledRates(offer ConsumerProviderOffer) []CatalogScheduledPrice {
+func CatalogScheduledRates(deps Capabilities, offer ConsumerProviderOffer) []CatalogScheduledPrice {
 	result := []CatalogScheduledPrice{}
-	for _, price := range CatalogSchedulePrices(offer) {
-		window, _ := CatalogRateWindow(price)
-		variant, conditions, _ := CatalogPriceVariant(price.Variant)
-		rate := CatalogScheduledPrice{Price: price, Tier: CatalogServiceTier(offer.Variant), Variant: variant, Conditions: conditions, High: CatalogUnboundedContext, Day: -1, End: 2400}
+	for _, price := range CatalogSchedulePrices(deps, offer) {
+		window, _ := CatalogRateWindow(deps, price)
+		variant, conditions, _ := CatalogPriceVariant(deps, price.Variant)
+		rate := CatalogScheduledPrice{Price: price, Tier: CatalogServiceTier(deps, offer.Variant), Variant: variant, Conditions: conditions, High: CatalogUnboundedContext, Day: -1, End: 2400}
 		if window.ContextMin != nil {
 			rate.Low = *window.ContextMin
 		}
@@ -2008,8 +2001,8 @@ func (g *EffectiveGroupPricing) SetTiers(tiers []EffectivePricingTier) {
 // zero amount means "free" while absence means "not priced". Any tier whose
 // body has no linear price makes the whole projection empty: a partial table
 // would be a wrong price.
-func TokenExpressionTiers(expression string, outputToRub float64) []EffectivePricingTier {
-	tiers, err := billingexpr.EnumerateTiers(expression)
+func TokenExpressionTiers(deps Capabilities, expression string, outputToRub float64) []EffectivePricingTier {
+	tiers, err := deps.Expressions.EnumerateTiers(expression)
 	if err != nil {
 		return []EffectivePricingTier{}
 	}
@@ -2062,7 +2055,7 @@ func ComponentName(variable string) string {
 	}
 	return variable
 }
-func ClassifyTierConditions(conditions []billingexpr.TierCondition) *EffectivePricingTierCondition {
+func ClassifyTierConditions(conditions []ExpressionCondition) *EffectivePricingTierCondition {
 	if len(conditions) == 0 {
 		return nil
 	}
@@ -2077,8 +2070,8 @@ func ClassifyTierConditions(conditions []billingexpr.TierCondition) *EffectivePr
 
 // tokenBoundsCondition folds a chain of comparisons on one token variable into
 // (min, max]. Token counts are integers, so strict comparisons shift by one.
-func TokenBoundsCondition(conditions []billingexpr.TierCondition) (*EffectivePricingTierCondition, bool) {
-	var comparisons []billingexpr.TierCondition
+func TokenBoundsCondition(conditions []ExpressionCondition) (*EffectivePricingTierCondition, bool) {
+	var comparisons []ExpressionCondition
 	for _, condition := range conditions {
 		if !FlattenConjunction(condition, &comparisons) {
 			return nil, false
@@ -2114,7 +2107,7 @@ func TokenBoundsCondition(conditions []billingexpr.TierCondition) (*EffectivePri
 	result.Kind = TierConditionKinds[variable]
 	return result, true
 }
-func FlattenConjunction(condition billingexpr.TierCondition, comparisons *[]billingexpr.TierCondition) bool {
+func FlattenConjunction(condition ExpressionCondition, comparisons *[]ExpressionCondition) bool {
 	if len(condition.Operands) == 0 {
 		*comparisons = append(*comparisons, condition)
 		return true
@@ -2151,7 +2144,7 @@ func NegateComparison(op string) string {
 // timeOfDayCondition evaluates hour("<zone>") guards for each hour of the day
 // and reports the hours in which the tier applies as [start, end) windows, so
 // an else branch yields the exact complement of its sibling.
-func TimeOfDayCondition(conditions []billingexpr.TierCondition) (*EffectivePricingTierCondition, bool) {
+func TimeOfDayCondition(conditions []ExpressionCondition) (*EffectivePricingTierCondition, bool) {
 	zone := ""
 	hours := uint32(1<<HoursPerDay - 1)
 	for _, condition := range conditions {
@@ -2175,7 +2168,7 @@ func TimeOfDayCondition(conditions []billingexpr.TierCondition) (*EffectivePrici
 	}
 	return result, true
 }
-func HourMask(condition billingexpr.TierCondition, zone *string) (uint32, bool) {
+func HourMask(condition ExpressionCondition, zone *string) (uint32, bool) {
 	const allHours = uint32(1<<HoursPerDay - 1)
 	var mask uint32
 	switch condition.Op {
@@ -2229,8 +2222,8 @@ func CompareNumbers(left float64, op string, right float64) bool {
 		return false
 	}
 }
-func ConsumerPricingRevision(source string, context EffectivePricingPageContext) (string, error) {
-	value, err := common.Marshal(struct {
+func ConsumerPricingRevision(deps Capabilities, source string, context EffectivePricingPageContext) (string, error) {
+	value, err := deps.Codec.Marshal(struct {
 		Source, UserGroup, UsingGroup string
 		AutoGroups                    []string
 		UsableGroups                  map[string]string

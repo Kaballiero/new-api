@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
 	"github.com/QuantumNous/new-api/model"
@@ -116,7 +117,7 @@ func nativeImageEndpoint(value domain.NativeImageEndpoint) openrouter.ImageEndpo
 	return out
 }
 func NewNativeNormalizer() *domain.NativeNormalizer {
-	return domain.NewNativeNormalizer(domain.NativeNormalizationRuntime{
+	return domain.NewNativeNormalizer(domain.NativeNormalizationRuntime{Capabilities: pricingadapter.Capabilities(),
 		DecodeEndpoint: func(body []byte) (domain.NativeEndpointResponse, error) {
 			var value struct {
 				Data struct {

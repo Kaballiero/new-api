@@ -3,20 +3,19 @@ package rebuild_catalogue
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	catalogdomain "github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	hosttypes "github.com/QuantumNous/new-api/types"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 )
+
+type ChannelCodec interface {
+	Setting(string, *domain.PricingChannelSetting) error
+	Other(string, *domain.PricingChannelOther) error
+}
 
 type Store interface {
 	Abilities() ([]domain.BuildAbility, error)
@@ -24,14 +23,14 @@ type Store interface {
 	Vendors() ([]catalogdomain.Vendor, error)
 	Channels() ([]*domain.BuildChannel, error)
 	InputFingerprint([]catalogdomain.Model, []catalogdomain.Vendor, []*domain.BuildChannel, []domain.BuildAbility) (string, error)
-	ConfiguredCatalog(context.Context) (map[string]*catalogsync.Document, map[string]string, bool, error)
+	ConfiguredCatalog(context.Context) (map[string]*domain.SourceDocument, map[string]string, bool, error)
 	CatalogEntry(*domain.BuildChannel, string, constant.EndpointType) (domain.PricingCatalogEntry, bool)
 }
 type Publication struct {
 	Pricing                                         []domain.Pricing
 	Vendors                                         []domain.PricingVendor
 	EndpointTypes                                   map[string][]constant.EndpointType
-	Endpoints                                       map[string]common.EndpointInfo
+	Endpoints                                       map[string]domain.PricingEndpointInfo
 	Revision, SourceFingerprint, ChannelFingerprint string
 	Generation, PluginGeneration                    uint64
 }
@@ -56,6 +55,8 @@ type Settings struct {
 	GetBillingExpr, GetBatchBillingExpr               func(string) (string, bool)
 }
 type Usecase struct {
+	channelCodec ChannelCodec
+	deps         domain.Capabilities
 	store        Store
 	state        State
 	settings     Settings
@@ -66,8 +67,8 @@ type Usecase struct {
 	log          func(string)
 }
 
-func NewUsecase(store Store, state State, settings Settings, plugins func() domain.PluginGeneration, resolveAlias func(domain.PluginGeneration, string) (AliasTarget, bool), operations *domain.Operations, now func() time.Time, log func(string)) Usecase {
-	return Usecase{store: store, state: state, settings: settings, plugins: plugins, resolveAlias: resolveAlias, operations: operations, now: now, log: log}
+func NewUsecase(deps domain.Capabilities, channelCodec ChannelCodec, store Store, state State, settings Settings, plugins func() domain.PluginGeneration, resolveAlias func(domain.PluginGeneration, string) (AliasTarget, bool), operations *domain.Operations, now func() time.Time, log func(string)) Usecase {
+	return Usecase{deps: deps, channelCodec: channelCodec, store: store, state: state, settings: settings, plugins: plugins, resolveAlias: resolveAlias, operations: operations, now: now, log: log}
 }
 func (u Usecase) Execute() {
 	generation := u.state.Generation()
@@ -130,20 +131,20 @@ func (u Usecase) Execute() {
 		})
 	}
 
-	modelGroupsMap := make(map[string]*hosttypes.Set[string])
+	modelGroupsMap := make(map[string]map[string]struct{})
 
 	for _, ability := range enableAbilities {
 		groups, ok := modelGroupsMap[ability.Model]
 		if !ok {
-			groups = hosttypes.NewSet[string]()
+			groups = make(map[string]struct{})
 			modelGroupsMap[ability.Model] = groups
 		}
-		groups.Add(ability.Group)
+		groups[ability.Group] = struct{}{}
 	}
 
 	modelSupportEndpointsStr := make(map[string][]string)
 	pricingChannels := make(map[int]*domain.BuildChannel, len(channels))
-	advancedCustomConfigs := make(map[int]*dto.AdvancedCustomConfig)
+	advancedCustomConfigs := make(map[int]domain.AdvancedEndpoints)
 	taskPluginKeys := make(map[int]string)
 	serviceTierEnabled := make(map[int]bool)
 	referenced := make(map[int]bool)
@@ -155,28 +156,28 @@ func (u Usecase) Execute() {
 			continue
 		}
 		pricingChannels[channel.Id] = channel
-		if channel.Status != common.ChannelStatusEnabled {
+		if channel.Status != constant.ChannelStatusEnabled {
 			continue
 		}
 		// domain.Pricing owns a read-only source snapshot. domain.BuildChannel getters may repair and
 		// save malformed rows, so decode only relevant inputs without those getters.
-		var settings dto.ChannelSettings
+		var settings domain.PricingChannelSetting
 		if channel.Setting != nil && *channel.Setting != "" {
-			if err := common.UnmarshalJsonStr(*channel.Setting, &settings); err != nil {
+			if err := u.channelCodec.Setting(*channel.Setting, &settings); err != nil {
 				u.log(fmt.Sprintf("pricing channel setting invalid: channel_id=%d", channel.Id))
 				return
 			}
 		}
-		var other dto.ChannelOtherSettings
+		var other domain.PricingChannelOther
 		if channel.OtherSettings != "" {
-			if err := common.UnmarshalJsonStr(channel.OtherSettings, &other); err != nil {
+			if err := u.channelCodec.Other(channel.OtherSettings, &other); err != nil {
 				u.log(fmt.Sprintf("pricing channel settings invalid: channel_id=%d", channel.Id))
 				return
 			}
 		}
 		if channel.ModelMapping != nil && strings.TrimSpace(*channel.ModelMapping) != "" {
 			var mapping map[string]string
-			if err := common.UnmarshalJsonStr(*channel.ModelMapping, &mapping); err != nil {
+			if err := u.deps.Codec.UnmarshalJsonStr(*channel.ModelMapping, &mapping); err != nil {
 				u.log(fmt.Sprintf("pricing channel mapping invalid: channel_id=%d", channel.Id))
 				return
 			}
@@ -188,7 +189,7 @@ func (u Usecase) Execute() {
 		}
 	}
 	billingSources := make(map[string]map[string]map[constant.EndpointType][]string)
-	legacyVideoBases := make(map[string]map[string][]map[string]jsplugin.LegacyPriceBasis)
+	legacyVideoBases := make(map[string]map[string][]map[string]domain.VideoPriceBasis)
 	for _, ability := range enableAbilities {
 		if pricingChannels[ability.ChannelId] == nil {
 			return
@@ -197,7 +198,7 @@ func (u Usecase) Execute() {
 
 	for _, ability := range enableAbilities {
 		endpoints := modelSupportEndpointsStr[ability.Model]
-		channelTypes := domain.GetPricingEndpointTypesForAbility(ability, advancedCustomConfigs)
+		channelTypes := domain.GetPricingEndpointTypesForAbility(u.deps, ability, advancedCustomConfigs)
 		if billingSources[ability.Model] == nil {
 			billingSources[ability.Model] = make(map[string]map[constant.EndpointType][]string)
 		}
@@ -209,7 +210,7 @@ func (u Usecase) Execute() {
 		if ability.ChannelType == constant.ChannelTypeOpenRouter || openRouterVideo {
 			source = domain.BillingSourceOpenRouterActualCost
 		}
-		legacyBasis, videoRoute, videoOnly := domain.LegacyVideoPriceBasis(pluginGeneration, pricingChannels[ability.ChannelId], ability.Model, taskPluginKeys[ability.ChannelId])
+		legacyBasis, videoRoute, videoOnly := domain.LegacyVideoPriceBasis(u.deps, pluginGeneration, pricingChannels[ability.ChannelId], ability.Model, taskPluginKeys[ability.ChannelId])
 		if videoOnly && ability.ChannelType != constant.ChannelTypeAdvancedCustom {
 			channelTypes = slices.DeleteFunc(slices.Clone(channelTypes), func(endpoint constant.EndpointType) bool {
 				return endpoint == constant.EndpointTypeImageGeneration
@@ -232,7 +233,7 @@ func (u Usecase) Execute() {
 		for _, endpoint := range operationTypes {
 			if endpoint == constant.EndpointTypeOpenAIVideo && source == domain.BillingSourceConfiguredTariff {
 				if legacyVideoBases[ability.Model] == nil {
-					legacyVideoBases[ability.Model] = make(map[string][]map[string]jsplugin.LegacyPriceBasis)
+					legacyVideoBases[ability.Model] = make(map[string][]map[string]domain.VideoPriceBasis)
 				}
 				legacyVideoBases[ability.Model][ability.Group] = append(legacyVideoBases[ability.Model][ability.Group], legacyBasis)
 			}
@@ -242,7 +243,7 @@ func (u Usecase) Execute() {
 			}
 		}
 		for _, channelType := range channelTypes {
-			if !common.StringsContains(endpoints, string(channelType)) {
+			if !slices.Contains(endpoints, string(channelType)) {
 				endpoints = append(endpoints, string(channelType))
 			}
 		}
@@ -254,7 +255,7 @@ func (u Usecase) Execute() {
 			continue
 		}
 		var raw map[string]any
-		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
+		if err := u.deps.Codec.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			endpoints := modelSupportEndpointsStr[modelName]
 			for k, v := range raw {
 				switch v.(type) {
@@ -278,11 +279,11 @@ func (u Usecase) Execute() {
 		nextEndpointTypes[model] = supportedEndpoints
 	}
 
-	nextSupportedEndpoints := make(map[string]common.EndpointInfo)
+	nextSupportedEndpoints := make(map[string]domain.PricingEndpointInfo)
 
 	for _, endpoints := range nextEndpointTypes {
 		for _, et := range endpoints {
-			if info, ok := common.GetDefaultEndpointInfo(et); ok {
+			if info, ok := u.deps.Endpoints.GetDefaultEndpointInfo(et); ok {
 				if _, exists := nextSupportedEndpoints[string(et)]; !exists {
 					nextSupportedEndpoints[string(et)] = info
 				}
@@ -295,13 +296,13 @@ func (u Usecase) Execute() {
 			continue
 		}
 		var raw map[string]any
-		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
+		if err := u.deps.Codec.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			for k, v := range raw {
 				switch val := v.(type) {
 				case string:
-					nextSupportedEndpoints[k] = common.EndpointInfo{Path: val, Method: "POST"}
+					nextSupportedEndpoints[k] = domain.PricingEndpointInfo{Path: val, Method: "POST"}
 				case map[string]any:
-					ep := common.EndpointInfo{Method: "POST"}
+					ep := domain.PricingEndpointInfo{Method: "POST"}
 					if p, ok := val["path"].(string); ok {
 						ep.Path = p
 					}
@@ -321,16 +322,17 @@ func (u Usecase) Execute() {
 		return
 	}
 	upstreamRoutes := make(map[string]map[string][]domain.UpstreamCatalogRoute)
-	upstreamMetadata := make(map[string]*catalogsync.Document)
+	upstreamMetadata := make(map[string]*domain.SourceDocument)
 	upstreamTypes := make(map[string]string)
 	catalogOffers := make(map[string]map[string][]domain.CatalogOffer)
+	resolveAlias := u.deps.Catalog.Aliases(upstreamDocuments)
 	for _, ability := range enableAbilities {
 		channel := pricingChannels[ability.ChannelId]
 		if channel == nil || channel.Status != 1 {
 			continue
 		}
 		if upstreamEnabled && domain.IsOpenRouterCatalogChannel(channel) {
-			upstream, resolved := domain.ResolvePricingUpstreamModel(channel, ability.Model)
+			upstream, resolved := domain.ResolvePricingUpstreamModel(u.deps, channel, ability.Model)
 			if !resolved {
 				continue
 			}
@@ -338,13 +340,13 @@ func (u Usecase) Execute() {
 			if original == nil {
 				continue
 			}
-			canonical, resolveErr := catalogsync.ResolveAlias(upstreamDocuments, upstream)
+			canonical, resolveErr := resolveAlias(upstream)
 			if resolveErr != nil {
 				return
 			}
-			if prior := upstreamMetadata[ability.Model]; prior == nil || catalogsync.CompareIDs(original.ID, prior.ID) < 0 {
+			if prior := upstreamMetadata[ability.Model]; prior == nil || u.deps.Catalog.CompareIDs(original.ID, prior.ID) < 0 {
 				upstreamMetadata[ability.Model] = original
-				if slices.Contains(catalogsync.ModelTypes(), canonical.Type) {
+				if slices.Contains(u.deps.Catalog.ModelTypes(), canonical.Type) {
 					upstreamTypes[ability.Model] = canonical.Type
 				} else {
 					delete(upstreamTypes, ability.Model)
@@ -362,8 +364,8 @@ func (u Usecase) Execute() {
 
 				consumerDocument = canonical
 				consumerEndpoints = nil
-				if slices.ContainsFunc(canonical.Offers, func(offer catalogsync.Offer) bool {
-					mode, known := domain.CatalogOfferMode(offer, upstream)
+				if slices.ContainsFunc(canonical.Offers, func(offer domain.SourceOffer) bool {
+					mode, known := domain.CatalogOfferMode(u.deps, offer, upstream)
 					return offer.Scope == "endpoint" && offer.Eligibility != nil && offer.Eligibility.Eligible &&
 						(offer.Operation == nil || *offer.Operation == "decisions") && known && mode == "sync"
 				}) {
@@ -398,7 +400,7 @@ func (u Usecase) Execute() {
 				continue
 			}
 		}
-		upstream, resolved := domain.ResolvePricingUpstreamModel(channel, ability.Model)
+		upstream, resolved := domain.ResolvePricingUpstreamModel(u.deps, channel, ability.Model)
 		if !resolved {
 			continue
 		}
@@ -450,7 +452,7 @@ func (u Usecase) Execute() {
 		}
 	}
 	nextPricing := make([]domain.Pricing, 0)
-	projectedExpressions := make(map[string][][]billingexpr.DisplayPrice)
+	projectedExpressions := make(map[string][][]domain.ExpressionPrice)
 	for model, groups := range modelGroupsMap {
 		pricing := domain.Pricing{
 			UpstreamCatalogRoutesByGroup: upstreamRoutes[model],
@@ -458,7 +460,7 @@ func (u Usecase) Execute() {
 			LegacyVideoPriceBasisByGroup: legacyVideoBases[model],
 			ModelName:                    model,
 			BillingSourcesByGroup:        billingSources[model],
-			EnableGroup:                  groups.Items(),
+			EnableGroup:                  slices.Collect(maps.Keys(groups)),
 			SupportedEndpointTypes:       nextEndpointTypes[model],
 		}
 
@@ -528,32 +530,32 @@ func (u Usecase) Execute() {
 			}
 		}
 		if ok && plugin != nil && len(plugin.Meta.UsageSchema) > 0 {
-			pricing.BillingUsageSchema = make(map[string]jsplugin.UsageFieldSchema, len(plugin.Meta.UsageSchema))
+			pricing.BillingUsageSchema = make(map[string]domain.TariffUsageField, len(plugin.Meta.UsageSchema))
 			for key, field := range plugin.Meta.UsageSchema {
 				field.Enum = append([]string(nil), field.Enum...)
 				field.Description = maps.Clone(field.Description)
 				if field.EnumLabels != nil {
-					labels := make(map[string]jsplugin.LocalizedText, len(field.EnumLabels))
+					labels := make(map[string]domain.TariffLocalizedText, len(field.EnumLabels))
 					for value, label := range field.EnumLabels {
-						labels[value] = maps.Clone(label)
+						labels[value] = slices.Clone(label)
 					}
 					field.EnumLabels = labels
 				}
 				pricing.BillingUsageSchema[key] = field
 			}
 			if len(plugin.Meta.UsageExamples) > 0 {
-				pricing.BillingUsageExamples = make([]jsplugin.UsageExample, len(plugin.Meta.UsageExamples))
+				pricing.BillingUsageExamples = make([]domain.TariffUsageExample, len(plugin.Meta.UsageExamples))
 				for index, example := range plugin.Meta.UsageExamples {
 					facts := make(map[string]any, len(example.Facts))
 					maps.Copy(facts, example.Facts)
-					pricing.BillingUsageExamples[index] = jsplugin.UsageExample{
+					pricing.BillingUsageExamples[index] = domain.TariffUsageExample{
 						Label: example.Label,
 						Facts: facts,
 					}
 				}
 			}
 		}
-		pricing.ConfiguredPrices = make(map[string][][]billingexpr.DisplayPrice)
+		pricing.ConfiguredPrices = make(map[string][][]domain.ExpressionPrice)
 		for _, endpoints := range pricing.BillingSourcesByGroup {
 			for endpoint, sources := range endpoints {
 				if !slices.Contains(sources, domain.BillingSourceConfiguredTariff) {
@@ -568,7 +570,7 @@ func (u Usecase) Execute() {
 				}
 				prices, exists := projectedExpressions[expression]
 				if !exists {
-					prices = billingexpr.CatalogPrices(expression)
+					prices = u.deps.Expressions.CatalogPrices(expression)
 					projectedExpressions[expression] = prices
 				}
 				pricing.ConfiguredPrices[expression] = prices
@@ -599,7 +601,7 @@ func (u Usecase) Execute() {
 		nextPricing[0].PricingVersion = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f"
 	}
 
-	revision, err := domain.PricingCatalogueFingerprint(nextPricing, nextVendors)
+	revision, err := domain.PricingCatalogueFingerprint(u.deps, nextPricing, nextVendors)
 	if err != nil {
 		return
 	}

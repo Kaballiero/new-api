@@ -8,7 +8,7 @@ import (
 	catalogdomain "github.com/QuantumNous/new-api/internal/catalog/domain"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
+
 	"gorm.io/gorm"
 )
 
@@ -16,7 +16,7 @@ type CatalogueEnvironment struct {
 	DB                func() *gorm.DB
 	Abilities         func() ([]domain.BuildAbility, error)
 	Fingerprint       func([]catalogdomain.Model, []catalogdomain.Vendor, []*domain.BuildChannel, []domain.BuildAbility) (string, error)
-	ConfiguredCatalog func(context.Context) (map[string]*catalogsync.Document, map[string]string, bool, error)
+	ConfiguredCatalog func(context.Context) (map[string]*domain.SourceDocument, map[string]string, bool, error)
 	CatalogEntry      func(*domain.BuildChannel, string, constant.EndpointType) (domain.PricingCatalogEntry, bool)
 }
 type Catalogue struct{ env CatalogueEnvironment }
@@ -59,7 +59,7 @@ func (s Catalogue) Channels() ([]*domain.BuildChannel, error) {
 func (s Catalogue) InputFingerprint(m []catalogdomain.Model, v []catalogdomain.Vendor, c []*domain.BuildChannel, a []domain.BuildAbility) (string, error) {
 	return s.env.Fingerprint(m, v, c, a)
 }
-func (s Catalogue) ConfiguredCatalog(ctx context.Context) (map[string]*catalogsync.Document, map[string]string, bool, error) {
+func (s Catalogue) ConfiguredCatalog(ctx context.Context) (map[string]*domain.SourceDocument, map[string]string, bool, error) {
 	return s.env.ConfiguredCatalog(ctx)
 }
 func (s Catalogue) CatalogEntry(ch *domain.BuildChannel, upstream string, endpoint constant.EndpointType) (domain.PricingCatalogEntry, bool) {

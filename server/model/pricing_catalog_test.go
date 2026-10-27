@@ -3,6 +3,7 @@ package model_test
 import (
 	"context"
 	"errors"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/glebarez/sqlite"
 	"os"
 	"path/filepath"
@@ -16,7 +17,6 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -266,7 +266,7 @@ func TestImagePricingTokenInputsStayWithTheirProvider(t *testing.T) {
 		conditional := tokens
 		conditional.ID = "43:google/model:studio:0:1"
 		conditional.PublicConditional = true
-		conditional.PublicConditions = []billingexpr.TierCondition{{Var: "len", Op: ">", Value: 100}}
+		conditional.PublicConditions = []pricingdomain.ExpressionCondition{{Var: "len", Op: ">", Value: 100}}
 		conditional.Prices = []model.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: amount(1)}}
 		source := tokens
 		source.PublicAlternatives = []model.CatalogOffer{tokens, conditional}

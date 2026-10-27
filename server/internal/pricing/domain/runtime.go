@@ -10,6 +10,7 @@ type OverrideContext struct {
 	UserGroup, UsingGroup, Model, Path, Upstream string
 }
 type ProjectionRuntime struct {
+	Capabilities  Capabilities
 	UsableGroups  func(string) map[string]string
 	GroupRatio    func(string, string) float64
 	AutoGroups    func(string) []string

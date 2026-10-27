@@ -1,19 +1,15 @@
 package domain
 
 import (
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"maps"
 	"math"
 	"slices"
 	"strings"
 )
 
-type CatalogPrice = jsplugin.CatalogPrice
-type CatalogOffer = jsplugin.CatalogOffer
+type CatalogPrice = TariffPrice
+type CatalogOffer = TariffOffer
 
 const (
 	BillingSourceConfiguredTariff                           = "configured_tariff"
@@ -29,7 +25,7 @@ type Pricing struct {
 	UpstreamCatalogRoutesByGroup    map[string][]UpstreamCatalogRoute             `json:"-"`
 	PublicCatalogOffersByGroup      map[string][]CatalogOffer                     `json:"-"`
 	ConsumerCanonicalModelsByGroup  map[string]string                             `json:"-"`
-	ConfiguredPrices                map[string][][]billingexpr.DisplayPrice       `json:"-"`
+	ConfiguredPrices                map[string][][]ExpressionPrice                `json:"-"`
 	PriceConfigured                 bool                                          `json:"-"`
 	CatalogOffersByGroup            map[string][]CatalogOffer                     `json:"-"`
 	BillingSourcesByGroup           map[string]map[constant.EndpointType][]string `json:"billing_sources_by_group,omitempty"`
@@ -53,11 +49,11 @@ type Pricing struct {
 	SupportedEndpointTypes          []constant.EndpointType                       `json:"supported_endpoint_types"`
 	BillingMode                     string                                        `json:"billing_mode,omitempty"`
 	BillingExpr                     string                                        `json:"billing_expr,omitempty"`
-	BillingUsageSchema              map[string]jsplugin.UsageFieldSchema          `json:"billing_usage_schema,omitempty"`
-	BillingUsageExamples            []jsplugin.UsageExample                       `json:"billing_usage_examples,omitempty"`
+	BillingUsageSchema              map[string]TariffUsageField                   `json:"billing_usage_schema,omitempty"`
+	BillingUsageExamples            []TariffUsageExample                          `json:"billing_usage_examples,omitempty"`
 	PricingVersion                  string                                        `json:"pricing_version,omitempty"`
 
-	LegacyVideoPriceBasisByGroup map[string][]map[string]jsplugin.LegacyPriceBasis `json:"-"`
+	LegacyVideoPriceBasisByGroup map[string][]map[string]VideoPriceBasis `json:"-"`
 }
 type PricingVendor struct {
 	ID          int    `json:"id"`
@@ -71,15 +67,15 @@ type UpstreamCatalogRoute struct {
 	Endpoint     constant.EndpointType
 	ModelID      string
 	DocumentHash string
-	Document     *catalogsync.Document
+	Document     *SourceDocument
 	// Overrides are private projection inputs, never consumer response fields.
 	ChannelID          int     `json:"-"`
 	ParamOverride      *string `json:"-"`
 	ServiceTierEnabled bool    `json:"-"`
 }
 
-func (p Pricing) LegacyVideoPriceBasisForGroup(group string) (map[string]jsplugin.LegacyPriceBasis, bool) {
-	var basis map[string]jsplugin.LegacyPriceBasis
+func (p Pricing) LegacyVideoPriceBasisForGroup(group string) (map[string]VideoPriceBasis, bool) {
+	var basis map[string]VideoPriceBasis
 	for _, sourceGroup := range []string{"all", group} {
 		for _, routeBasis := range p.LegacyVideoPriceBasisByGroup[sourceGroup] {
 			if len(routeBasis) == 0 || (basis != nil && !maps.Equal(basis, routeBasis)) {
@@ -136,7 +132,7 @@ func SelectCatalogOffer(offers []CatalogOffer) *CatalogOffer {
 
 // Legacy normalization v2 kept the exact Batch identity and variant while Mode
 // was nullable. Require both facts; a model-name suffix alone is not a tariff.
-func CatalogOfferMode(offer catalogsync.Offer, upstream string) (string, bool) {
+func CatalogOfferMode(deps Capabilities, offer SourceOffer, upstream string) (string, bool) {
 	if offer.Mode != nil {
 		return *offer.Mode, *offer.Mode == "sync" || *offer.Mode == "batch"
 	}
@@ -147,7 +143,7 @@ func CatalogOfferMode(offer catalogsync.Offer, upstream string) (string, bool) {
 		Variant   string `json:"variant"`
 		ModelSlug string `json:"model_variant_slug"`
 	}
-	if len(offer.Identity) > 0 && common.Unmarshal(offer.Identity, &identity) != nil || len(offer.Variant) > 0 && common.Unmarshal(offer.Variant, &variant) != nil {
+	if len(offer.Identity) > 0 && deps.Codec.Unmarshal(offer.Identity, &identity) != nil || len(offer.Variant) > 0 && deps.Codec.Unmarshal(offer.Variant, &variant) != nil {
 		return "", false
 	}
 	if variant.Variant == "batch" || strings.HasSuffix(identity.ModelID, ":batch") {

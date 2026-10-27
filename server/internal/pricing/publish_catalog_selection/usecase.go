@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"slices"
 	"strings"
@@ -16,12 +15,13 @@ type Store interface {
 	Transaction(context.Context, func(domain.CatalogTransaction) error) error
 }
 type Usecase struct {
+	deps  domain.Capabilities
 	store Store
 	now   func() time.Time
 }
 
-func NewUsecase(store Store, now func() time.Time) Usecase {
-	return Usecase{store: store, now: now}
+func NewUsecase(deps domain.Capabilities, store Store, now func() time.Time) Usecase {
+	return Usecase{deps: deps, store: store, now: now}
 }
 
 // PublishCatalogSelection checks references and updates the head in the same
@@ -52,7 +52,7 @@ func (u Usecase) Execute(ctx context.Context, expected domain.CatalogSource, sel
 		references[ref.ID] = ref.Hash
 		byHash[ref.Hash] = ref.ID
 	}
-	payload, err := common.Marshal(selection)
+	payload, err := u.deps.Codec.Marshal(selection)
 	if err != nil {
 		return result, err
 	}
@@ -66,7 +66,7 @@ func (u Usecase) Execute(ctx context.Context, expected domain.CatalogSource, sel
 			return result, fmt.Errorf("duplicate catalog document")
 		}
 		var raw json.RawMessage
-		if common.GetJsonType([]byte(doc.Payload)) != "object" || common.UnmarshalJsonStr(doc.Payload, &raw) != nil {
+		if u.deps.Codec.GetJsonType([]byte(doc.Payload)) != "object" || u.deps.Codec.UnmarshalJsonStr(doc.Payload, &raw) != nil {
 			return result, fmt.Errorf("catalog document must be a valid JSON object")
 		}
 		candidates[doc.Hash] = doc

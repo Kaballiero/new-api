@@ -4,9 +4,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"math"
 	"slices"
 	"strings"
@@ -20,11 +17,11 @@ type ModelPricingChange struct {
 	Reset           bool          `json:"reset,omitempty"`
 }
 type ModelPricingEntry struct {
-	ModelName   string                               `json:"model_name"`
-	Version     string                               `json:"version"`
-	Configured  PricingValues                        `json:"configured"`
-	Effective   PricingValues                        `json:"effective"`
-	UsageSchema map[string]jsplugin.UsageFieldSchema `json:"usage_schema,omitempty"`
+	ModelName   string                      `json:"model_name"`
+	Version     string                      `json:"version"`
+	Configured  PricingValues               `json:"configured"`
+	Effective   PricingValues               `json:"effective"`
+	UsageSchema map[string]TariffUsageField `json:"usage_schema,omitempty"`
 }
 type ModelPricingSnapshot struct {
 	Entries      []ModelPricingEntry `json:"entries"`
@@ -33,6 +30,7 @@ type ModelPricingSnapshot struct {
 }
 type OptionRow struct{ Key, Value string }
 type ConfigurationRuntime struct {
+	Capabilities            Capabilities
 	Keys                    func() []string
 	DefaultMaps             func() map[string]map[string]float64
 	MatchingName            func(string) string
@@ -53,8 +51,8 @@ func (c *Configuration) Builtins() map[string]string { return c.runtime.Builtins
 func (c *Configuration) IsOption(key string) bool {
 	return slices.Contains(c.runtime.Keys(), key)
 }
-func ModelPricingVersion(values PricingValues) string {
-	encoded, _ := common.Marshal(values)
+func ModelPricingVersion(deps Capabilities, values PricingValues) string {
+	encoded, _ := deps.Codec.Marshal(values)
 	return fmt.Sprintf("%x", sha256.Sum256(encoded))
 }
 func (c *Configuration) Defaults() map[string]map[string]any {
@@ -136,7 +134,7 @@ func (c *Configuration) Validate(name string, values PricingValues) error {
 			if !ok || strings.TrimSpace(expression) == "" {
 				return errors.New("Batch billing expression is required")
 			}
-			if billingexpr.UsedVars(expression)["header"] {
+			if c.runtime.Capabilities.Expressions.UsedVars(expression)["header"] {
 				return errors.New("Batch billing expressions using header() are not supported")
 			}
 			if err := c.runtime.ValidateBatchExpression(expression); err != nil {
@@ -175,7 +173,7 @@ func (c *Configuration) DecodeRows(rows []OptionRow) (map[string]map[string]any,
 	counts := make(map[string]int)
 	for _, row := range rows {
 		var entries map[string]any
-		if err := common.UnmarshalJsonStr(row.Value, &entries); err != nil {
+		if err := c.runtime.Capabilities.Codec.UnmarshalJsonStr(row.Value, &entries); err != nil {
 			return nil, nil, nil, fmt.Errorf("%s: %w", row.Key, err)
 		}
 		if entries == nil {

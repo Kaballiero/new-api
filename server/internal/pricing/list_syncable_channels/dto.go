@@ -1,7 +1,10 @@
 package list_syncable_channels
 
-import (
-	"github.com/QuantumNous/new-api/relaykit/dto"
-)
-
-type Output []dto.SyncableChannel
+type SyncableChannel struct {
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	Status  int    `json:"status"`
+	Type    int    `json:"type"`
+}
+type Output []SyncableChannel

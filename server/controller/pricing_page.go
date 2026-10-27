@@ -4,6 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/app"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 
 	"net/url"
 
@@ -23,7 +24,7 @@ type effectivePricingPageQuery = pricingdomain.EffectivePricingPageQuery
 type effectivePricingPageContext pricingdomain.EffectivePricingPageContext
 
 func parseEffectivePricingPageQuery(values url.Values, personal bool) (effectivePricingPageQuery, error) {
-	return pricingquery.ParseEffectivePricingPageQuery(values, personal)
+	return pricingquery.ParseEffectivePricingPageQuery(catalogsync.ModelTypes(), values, personal)
 }
 
 func buildEffectivePricingPage(context effectivePricingPageContext, query effectivePricingPageQuery, project func(model.Pricing) consumerPricingModel) effectivePricingPageData {

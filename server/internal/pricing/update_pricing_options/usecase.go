@@ -2,7 +2,6 @@ package update_pricing_options
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"strings"
 )
@@ -13,14 +12,15 @@ type Store interface {
 	Publish(string, string) error
 }
 type Usecase struct {
+	deps                domain.Capabilities
 	store               Store
 	policy              *domain.Configuration
 	log                 func(string)
 	refresh, invalidate func()
 }
 
-func NewUsecase(store Store, policy *domain.Configuration, log func(string), refresh, invalidate func()) Usecase {
-	return Usecase{store: store, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
+func NewUsecase(deps domain.Capabilities, store Store, policy *domain.Configuration, log func(string), refresh, invalidate func()) Usecase {
+	return Usecase{deps: deps, store: store, policy: policy, log: log, refresh: refresh, invalidate: invalidate}
 }
 
 // UpdateModelPricingOptions keeps legacy single-option callers on the same
@@ -33,7 +33,7 @@ func (u Usecase) Execute(updates map[string]string) error {
 				return fmt.Errorf("unsupported pricing field: %s", key)
 			}
 			var entries map[string]any
-			if err := common.UnmarshalJsonStr(raw, &entries); err != nil {
+			if err := u.deps.Codec.UnmarshalJsonStr(raw, &entries); err != nil {
 				return err
 			}
 			if entries == nil {
@@ -76,7 +76,7 @@ func (u Usecase) mutate(mutate func(domain.OptionTransaction, map[string]map[str
 			if existing[key] {
 				continue
 			}
-			encoded, err := common.Marshal(defaults[key])
+			encoded, err := u.deps.Codec.Marshal(defaults[key])
 			if err != nil {
 				return err
 			}
@@ -88,7 +88,7 @@ func (u Usecase) mutate(mutate func(domain.OptionTransaction, map[string]map[str
 			return err
 		}
 		for _, key := range u.policy.Keys() {
-			encoded, err := common.Marshal(values[key])
+			encoded, err := u.deps.Codec.Marshal(values[key])
 			if err != nil {
 				return err
 			}
@@ -103,7 +103,7 @@ func (u Usecase) mutate(mutate func(domain.OptionTransaction, map[string]map[str
 		return err
 	}
 	for _, key := range u.policy.Keys() {
-		encoded, _ := common.Marshal(committed[key])
+		encoded, _ := u.deps.Codec.Marshal(committed[key])
 		if err := u.store.Publish(key, string(encoded)); err != nil {
 			return err
 		}

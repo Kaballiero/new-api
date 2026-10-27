@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"io"
 	"net/http"
 	"os"
@@ -14,7 +16,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -517,7 +518,7 @@ func TestDecisionConfiguredPriceCompatibility(t *testing.T) {
 			item := Pricing{ModelName: "decision-alias", CatalogModality: "TEXT", CatalogType: "decision", PriceConfigured: tc.configured, QuotaType: 1, BillingExpr: tc.expr, BillingSourcesByGroup: map[string]map[constant.EndpointType][]string{"default": {constant.EndpointTypeOpenAI: {tc.source}}}}
 			if tc.expr != "" {
 				item.BillingMode = billing_setting.BillingModeTieredExpr
-				item.ConfiguredPrices = map[string][][]billingexpr.DisplayPrice{tc.expr: billingexpr.CatalogPrices(tc.expr)}
+				item.ConfiguredPrices = map[string][][]pricingdomain.ExpressionPrice{tc.expr: pricingadapter.Expressions{}.CatalogPrices(tc.expr)}
 			}
 			channel := &Channel{Id: 43, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, ParamOverride: common.GetPointer(`{"openrouter_model_reserve_usd":{"decision-alias":0.05}}`)}
 			abilities := []AbilityWithChannel{{Ability: Ability{Model: item.ModelName, Group: "default", ChannelId: 43}}}

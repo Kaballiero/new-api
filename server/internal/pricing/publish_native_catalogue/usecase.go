@@ -3,7 +3,7 @@ package publish_native_catalogue
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"maps"
 	"slices"
@@ -20,9 +20,14 @@ type Store interface {
 	Transaction(context.Context, func(Transaction) error) error
 	PublishOption(string) error
 }
-type Usecase struct{ store Store }
+type Usecase struct {
+	deps  domain.Capabilities
+	store Store
+}
 
-func NewUsecase(store Store) Usecase { return Usecase{store: store} }
+func NewUsecase(deps domain.Capabilities, store Store) Usecase {
+	return Usecase{deps: deps, store: store}
+}
 func (u Usecase) Execute(ctx context.Context, entries []domain.PricingCatalogEntry, allowChangedSources bool) (int, error) {
 	unlock := u.store.Lock()
 	defer unlock()
@@ -41,7 +46,7 @@ func (u Usecase) Execute(ctx context.Context, entries []domain.PricingCatalogEnt
 			return err
 		}
 
-		if current, err := domain.DecodePricingCatalog(value); err == nil {
+		if current, err := domain.DecodePricingCatalog(u.deps, value); err == nil {
 			maps.Copy(snapshot.Entries, current.Entries)
 		}
 		ids := map[int]bool{}
@@ -64,13 +69,13 @@ func (u Usecase) Execute(ctx context.Context, entries []domain.PricingCatalogEnt
 		}
 		for key, entry := range snapshot.Entries {
 			channel := channels[entry.ChannelID]
-			if channel == nil || channel.Status != common.ChannelStatusEnabled || !domain.PricingCatalogSourceMatches(entry, channel) {
+			if channel == nil || channel.Status != constant.ChannelStatusEnabled || !domain.PricingCatalogSourceMatches(u.deps, entry, channel) {
 				delete(snapshot.Entries, key)
 			}
 		}
 		for _, entry := range entries {
 			channel := channels[entry.ChannelID]
-			if channel != nil && channel.Status == common.ChannelStatusEnabled && domain.PricingCatalogSourceMatches(entry, channel) {
+			if channel != nil && channel.Status == constant.ChannelStatusEnabled && domain.PricingCatalogSourceMatches(u.deps, entry, channel) {
 				snapshot.Entries[domain.PricingCatalogEntryKey(entry)] = entry
 				published++
 			} else if !allowChangedSources {
@@ -78,11 +83,11 @@ func (u Usecase) Execute(ctx context.Context, entries []domain.PricingCatalogEnt
 			}
 		}
 
-		data, err = common.Marshal(snapshot)
+		data, err = u.deps.Codec.Marshal(snapshot)
 		if err != nil {
 			return err
 		}
-		if _, err = domain.DecodePricingCatalog(string(data)); err != nil {
+		if _, err = domain.DecodePricingCatalog(u.deps, string(data)); err != nil {
 			return err
 		}
 		return tx.SaveOption(string(data))

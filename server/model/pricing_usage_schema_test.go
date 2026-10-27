@@ -2,17 +2,25 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
+	"github.com/gin-gonic/gin"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -221,7 +229,9 @@ func TestPricingCarriesTaskUsageSchemaAndRefreshesWithPluginGeneration(t *testin
 	require.Contains(t, initialPricing, "ordinary-model")
 	assert.Equal(t, "second", initialPricing["pricing-usage-model"].BillingUsageSchema["seconds"].Unit)
 	assert.Equal(t, "Estimated duration.", initialPricing["pricing-usage-model"].BillingUsageSchema["seconds"].Description["en"])
-	assert.Equal(t, "生成视频", initialPricing["pricing-usage-model"].BillingUsageSchema["action"].EnumLabels["video"]["zh"])
+	var videoLabel map[string]string
+	require.NoError(t, common.Unmarshal(initialPricing["pricing-usage-model"].BillingUsageSchema["action"].EnumLabels["video"], &videoLabel))
+	assert.Equal(t, "生成视频", videoLabel["zh"])
 	assert.Nil(t, initialPricing["ordinary-model"].BillingUsageSchema)
 
 	updatedSource := pricingUsagePluginSource("1.1.0", `{
@@ -332,7 +342,7 @@ func TestPricingHeygenReferenceOperationsUseEligibleTariff(t *testing.T) {
 			eligible := make([]CatalogOffer, 0)
 			for _, offer := range offers {
 				if offer.Operation == scenario.operation {
-					eligible = append(eligible, offer)
+					eligible = append(eligible, pricingadapter.ToTariffOffer(offer))
 				}
 			}
 			selected := SelectCatalogOffer(eligible)
@@ -617,7 +627,7 @@ func TestPricingMiniTTSKeepsTextInputAndExplicitUnknownOutput(t *testing.T) {
 	for _, name := range []string{"gpt-4o-mini-tts", "gpt-4o-mini-tts-2025-03-20", "gpt-4o-mini-tts-2025-12-15"} {
 		profile := configuredPricingOperation(&Channel{Type: constant.ChannelTypeOpenAI}, name, name, constant.EndpointTypeOpenAI)
 		for _, item := range []Pricing{
-			{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}},
+			{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{expression: pricingCapabilities().Expressions.CatalogPrices(expression)}},
 			{PriceConfigured: true, ModelRatio: .3, CompletionRatio: 20},
 		} {
 			offers := configuredOperationOffers(item, profile, "sync", expression)
@@ -633,7 +643,7 @@ func TestPricingMiniTTSKeepsTextInputAndExplicitUnknownOutput(t *testing.T) {
 	}
 	profile := configuredPricingOperation(&Channel{Type: constant.ChannelTypeOpenAI}, "gpt-4o-mini-tts", "gpt-4o-mini-tts", constant.EndpointTypeOpenAI)
 	zeroExpression := `tier("base",p*0+c*12+ao*12)`
-	selected := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{zeroExpression: billingexpr.CatalogPrices(zeroExpression)}}, profile, "sync", zeroExpression))
+	selected := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{zeroExpression: pricingCapabilities().Expressions.CatalogPrices(zeroExpression)}}, profile, "sync", zeroExpression))
 	require.NotNil(t, selected)
 	assert.Zero(t, *selected.Prices[0].AmountUSD)
 	assert.Nil(t, selected.Prices[1].AmountUSD)
@@ -642,7 +652,7 @@ func TestPricingMiniTTSKeepsTextInputAndExplicitUnknownOutput(t *testing.T) {
 	require.Len(t, free.Prices, 1)
 	assert.Zero(t, *free.Prices[0].AmountUSD)
 	fixedExpression := `fixed(.02)`
-	fixed := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{fixedExpression: billingexpr.CatalogPrices(fixedExpression)}}, profile, "sync", fixedExpression))
+	fixed := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{fixedExpression: pricingCapabilities().Expressions.CatalogPrices(fixedExpression)}}, profile, "sync", fixedExpression))
 	require.NotNil(t, fixed)
 	require.Len(t, fixed.Prices, 1)
 	assert.Equal(t, "call", fixed.Prices[0].Unit)
@@ -703,7 +713,7 @@ func TestPricingCatalogueFingerprintIsCanonicalAndTracksConsumerChanges(t *testi
 			delete(items[0].PublicCatalogOffersByGroup, "default")
 		},
 		func(items []Pricing) {
-			items[0].PublicCatalogOffersByGroup["default"][0].PublicConditions = []billingexpr.TierCondition{{Var: "len", Op: ">", Value: 100}}
+			items[0].PublicCatalogOffersByGroup["default"][0].PublicConditions = []pricingdomain.ExpressionCondition{{Var: "len", Op: ">", Value: 100}}
 		},
 		func(items []Pricing) { items[0].ConsumerCanonicalModelsByGroup["default"] = "other" },
 	} {
@@ -850,7 +860,7 @@ func TestPricingRealtimeProjectsConfiguredTokenCounters(t *testing.T) {
 	for _, name := range []string{"gpt-realtime", "gpt-realtime-2025-08-28", "gpt-realtime-1.5", "gpt-realtime-2", "gpt-realtime-2.1", "gpt-realtime-mini", "gpt-realtime-mini-2025-12-15", "gpt-realtime-2.1-mini", "gpt-realtime-translate", "gpt-realtime-whisper"} {
 		t.Run(name, func(t *testing.T) {
 			profile := configuredPricingOperation(channel, name, name, constant.EndpointTypeOpenAI)
-			item := Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}}
+			item := Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{expression: pricingCapabilities().Expressions.CatalogPrices(expression)}}
 			selected := SelectCatalogOffer(configuredOperationOffers(item, profile, "sync", expression))
 			require.NotNil(t, selected)
 			assert.Equal(t, "realtime", selected.Operation)
@@ -866,7 +876,7 @@ func TestPricingRealtimeProjectsConfiguredTokenCounters(t *testing.T) {
 	}
 	profile := configuredPricingOperation(channel, "gpt-realtime-whisper", "gpt-realtime-whisper", constant.EndpointTypeOpenAI)
 	inputOnly := `tier("base",p*17)`
-	selected := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{inputOnly: billingexpr.CatalogPrices(inputOnly)}}, profile, "sync", inputOnly))
+	selected := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{inputOnly: pricingCapabilities().Expressions.CatalogPrices(inputOnly)}}, profile, "sync", inputOnly))
 	require.NotNil(t, selected)
 	require.Len(t, selected.Prices, 1)
 	assert.Equal(t, 17.0, *selected.Prices[0].AmountUSD)
@@ -889,7 +899,7 @@ func TestPricingTranscriptionPublishesConfiguredBillingTokens(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			profile := configuredPricingOperation(channel, name, name, constant.EndpointTypeOpenAI)
 			for _, item := range []Pricing{
-				{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}},
+				{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{expression: pricingCapabilities().Expressions.CatalogPrices(expression)}},
 				{PriceConfigured: true, ModelRatio: .625, CompletionRatio: 4},
 			} {
 				selected := SelectCatalogOffer(configuredOperationOffers(item, profile, "sync", expression))
@@ -909,7 +919,7 @@ func TestPricingTranscriptionPublishesConfiguredBillingTokens(t *testing.T) {
 				assert.Equal(t, 5.0, *prices["output"].AmountUSD)
 			}
 			inputOnly := `tier("base",p*4.5)`
-			selected := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{inputOnly: billingexpr.CatalogPrices(inputOnly)}}, profile, "sync", inputOnly))
+			selected := SelectCatalogOffer(configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{inputOnly: pricingCapabilities().Expressions.CatalogPrices(inputOnly)}}, profile, "sync", inputOnly))
 			require.NotNil(t, selected)
 			require.Len(t, selected.Prices, 1)
 			assert.Equal(t, "million_tokens", selected.Prices[0].Unit)
@@ -949,7 +959,7 @@ func TestPricingOmitsUnchargedUnknownAudioComponents(t *testing.T) {
 			item := scenario.pricing
 			if scenario.expression != "" {
 				item.BillingMode = billing_setting.BillingModeTieredExpr
-				item.ConfiguredPrices = map[string][][]billingexpr.DisplayPrice{scenario.expression: billingexpr.CatalogPrices(scenario.expression)}
+				item.ConfiguredPrices = map[string][][]pricingdomain.ExpressionPrice{scenario.expression: pricingCapabilities().Expressions.CatalogPrices(scenario.expression)}
 			}
 			selected := SelectCatalogOffer(configuredOperationOffers(item, speech, "sync", scenario.expression))
 			require.NotNil(t, selected)
@@ -968,7 +978,7 @@ func TestPricingOmitsUnchargedUnknownAudioComponents(t *testing.T) {
 	transcription := configuredPricingOperation(channel, "gpt-4o-mini-transcribe", "gpt-4o-mini-transcribe", constant.EndpointTypeOpenAI)
 	expression := `tier("base",p*0+c*5)`
 	for _, item := range []Pricing{
-		{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}},
+		{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{expression: pricingCapabilities().Expressions.CatalogPrices(expression)}},
 		{PriceConfigured: true, CompletionRatio: 4},
 	} {
 		selected := SelectCatalogOffer(configuredOperationOffers(item, transcription, "sync", expression))
@@ -1148,7 +1158,7 @@ func TestPricingNativeGeminiEmbeddingsPreserveInputTariff(t *testing.T) {
 			require.NoError(t, err)
 			mappingJSON := string(mapping)
 			channel := &Channel{Id: 991, Type: constant.ChannelTypeGemini, Status: common.ChannelStatusEnabled, ModelMapping: &mappingJSON}
-			item := Pricing{ModelName: scenario.public, PriceConfigured: true, BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: scenario.expression, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{scenario.expression: billingexpr.CatalogPrices(scenario.expression)}}
+			item := Pricing{ModelName: scenario.public, PriceConfigured: true, BillingMode: billing_setting.BillingModeTieredExpr, BillingExpr: scenario.expression, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{scenario.expression: pricingCapabilities().Expressions.CatalogPrices(scenario.expression)}}
 			abilities := []AbilityWithChannel{{Ability: Ability{ChannelId: channel.Id, Model: scenario.public, Group: "default", Enabled: true}, ChannelType: channel.Type}}
 			projectPricingOperations(&item, abilities, map[int]*Channel{channel.Id: channel}, jsplugin.NewRegistry().Generation(), nil, nil)
 			for _, offers := range [][]CatalogOffer{item.CatalogOffersForGroup("default"), item.PublicCatalogOffersByGroup["default"]} {
@@ -1176,7 +1186,7 @@ func TestPricingNativeGeminiEmbeddingsPreserveInputTariff(t *testing.T) {
 	}
 	profile := configuredPricingOperation(&Channel{Type: constant.ChannelTypeGemini}, "gemini-embedding-001", "gemini-embedding-001", constant.EndpointTypeGemini)
 	expression := `tier("unsupported", p * .15 + c * .1)`
-	offers := configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]billingexpr.DisplayPrice{expression: billingexpr.CatalogPrices(expression)}}, profile, "sync", expression)
+	offers := configuredOperationOffers(Pricing{BillingMode: billing_setting.BillingModeTieredExpr, ConfiguredPrices: map[string][][]pricingdomain.ExpressionPrice{expression: pricingCapabilities().Expressions.CatalogPrices(expression)}}, profile, "sync", expression)
 	assert.Nil(t, SelectCatalogOffer(offers), "payable output must not be silently discarded for an embedding tariff")
 }
 
@@ -1247,5 +1257,125 @@ func TestPricingNativeLyriaSongAndVeoEnumTariffs(t *testing.T) {
 		require.Len(t, unknown, 2)
 		assert.Nil(t, SelectCatalogOffer(unknown))
 		assert.Empty(t, unknown[0].Prices)
+	}
+}
+
+// TestPricingPortParity compares the new fact/codec ports with their existing SDK
+// and expression implementations; it does not define a second pricing oracle.
+func TestPricingPortParity(t *testing.T) {
+	zero := 0.0
+	mode := "sync"
+	amount := "0.000001"
+	document := catalogsync.Document{
+		SchemaVersion: 1, ID: "vendor/model", Name: "Model", Description: &mode,
+		Author: &catalogsync.Author{Namespace: "vendor"}, Type: "text",
+		Modalities: catalogsync.Modalities{Input: []string{}, Output: []string{"text"}},
+		Metadata:   []byte(`{"zero":0}`), Capabilities: []byte(`{}`), Limits: []byte(`{}`),
+		Offers: []catalogsync.Offer{{ID: "one", Scope: "endpoint", Identity: []byte(`{}`),
+			Provider: &catalogsync.Provider{ID: &mode}, Operation: &mode, Mode: &mode,
+			Eligibility: &catalogsync.Eligibility{Eligible: true, Reasons: []string{}},
+			Components:  []catalogsync.Component{{Parameter: "p", ComponentID: "input", AmountUSD: &amount, Unit: "million_tokens", Quantity: "1"}},
+			Coverage:    catalogsync.Coverage{Reasons: []string{}, ExpectedSources: []string{"one"}}, Limitations: []string{}, Facts: []byte(`{}`)}},
+		Coverage: catalogsync.Coverage{Offers: "complete"}, Limitations: []string{}, Provenance: []byte(`{}`),
+	}
+	catalog := jsplugin.PriceCatalog{FetchedAt: "2026-01-01T00:00:00Z", Models: map[string][]jsplugin.CatalogOffer{
+		"model": {{ID: "zero", Operation: "text", Mode: "sync", MainComponent: "input", Prices: []jsplugin.CatalogPrice{{Component: "input", Unit: "million_tokens", AmountUSD: &zero}},
+			PublicConditions:      []billingexpr.TierCondition{{Var: "len", Op: ">", Value: 0, Operands: []billingexpr.TierCondition{}}},
+			PublicUsageConditions: []jsplugin.CatalogUsageCondition{{Field: "mode", Value: "fast", Negated: true}}, PublicAlternatives: []jsplugin.CatalogOffer{}}},
+	}}
+	schema := jsplugin.UsageFieldSchema{Type: "enum", Unit: "count", Enum: []string{}, Description: jsplugin.LocalizedText{"en": "Mode"}, EnumLabels: map[string]jsplugin.LocalizedText{"fast": {}, "slow": nil}}
+	deps := pricingCapabilities()
+	for _, tc := range []struct {
+		name               string
+		native, mapped     any
+		expression, decode string
+		originalError      string
+		originalType       reflect.Type
+		binding            string
+	}{
+		{name: "source-document", native: document, mapped: pricingadapter.ToSourceDocument(document)},
+		{name: "plugin-catalog", native: catalog, mapped: pricingadapter.ToTariffCatalog(catalog)},
+		{name: "usage-schema", native: schema, mapped: pricingadapter.ToTariffUsageField(schema)},
+		{name: "nil-catalog", native: jsplugin.PriceCatalog{}, mapped: pricingadapter.ToTariffCatalog(jsplugin.PriceCatalog{})},
+		{name: "empty-catalog", native: jsplugin.PriceCatalog{Models: map[string][]jsplugin.CatalogOffer{}}, mapped: pricingadapter.ToTariffCatalog(jsplugin.PriceCatalog{Models: map[string][]jsplugin.CatalogOffer{}})},
+		{name: "fixed-zero", expression: `tier("base", fixed(0))`},
+		{name: "context-cache", expression: `len <= 100 ? tier("short", p * 2 + cr * 0.5) : tier("long", p * 4 + cr * 1)`},
+		{name: "invalid-expression", expression: `tier(`},
+
+		{name: "binding-root", binding: `[]`},
+		{name: "binding-upstreams", binding: `{"upstreams":"bad"}`},
+		{name: "binding-field", binding: `{"upstreams":[{"name":4}]}`},
+		{name: "binding-null", binding: `null`},
+		{name: "binding-empty", binding: `{"channel_ids":[],"upstreams":[],"timeout":0}`},
+		{name: "binding-valid", binding: `{"upstreams":[{"name":"x","base_url":"https://example.com"}],"timeout":0}`},
+		{name: "decode-empty", decode: `{"version":1,"entries":{}}`},
+		{name: "decode-null", decode: `null`},
+		{name: "decode-bad-offer", decode: `{"version":1,"entries":{"x":{"offers":[{"prices":[{"amount_usd":"bad"}]}]}}}`},
+		{name: "decode-bad-array", decode: `{"entries":{"x":{"offers":"bad"}}}`},
+		{name: "decode-root-type", decode: `[]`, originalError: "json: cannot unmarshal array into Go value of type domain.PricingCatalogSnapshot", originalType: reflect.TypeFor[pricingdomain.PricingCatalogSnapshot]()},
+		{name: "decode-map-type", decode: `{"entries":1}`, originalError: "json: cannot unmarshal number into Go struct field PricingCatalogSnapshot.entries of type map[string]domain.PricingCatalogEntry", originalType: reflect.TypeFor[map[string]pricingdomain.PricingCatalogEntry]()},
+		{name: "decode-entry-type", decode: `{"entries":{"x":1}}`, originalError: "json: cannot unmarshal number into Go struct field PricingCatalogSnapshot.entries.x of type domain.PricingCatalogEntry", originalType: reflect.TypeFor[pricingdomain.PricingCatalogEntry]()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			native, mapped := tc.native, tc.mapped
+			if tc.binding != "" {
+				var original dto.UpstreamRequest
+				originalContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+				originalContext.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tc.binding))
+				originalErr := originalContext.ShouldBindJSON(&original)
+				convertedContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+				convertedContext.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tc.binding))
+				converted, convertedErr := pricingadapter.DecodeUpstreamRequest(convertedContext.ShouldBindJSON)
+				if originalErr != nil {
+					require.EqualError(t, convertedErr, originalErr.Error())
+				} else {
+					require.NoError(t, convertedErr)
+				}
+				native, mapped = original, converted
+			}
+
+			if tc.expression != "" {
+				original, originalErr := billingexpr.EnumerateTiers(tc.expression)
+				converted, convertedErr := deps.Expressions.EnumerateTiers(tc.expression)
+				if originalErr != nil {
+					require.EqualError(t, convertedErr, originalErr.Error())
+				} else {
+					require.NoError(t, convertedErr)
+				}
+				native, mapped = original, converted
+				want, err := common.Marshal(billingexpr.CatalogPriceTiers(tc.expression))
+				require.NoError(t, err)
+				got, err := common.Marshal(deps.Expressions.CatalogPriceTiers(tc.expression))
+				require.NoError(t, err)
+				assert.Equal(t, string(want), string(got))
+			}
+			if tc.decode != "" {
+				var original pricingadapter.PricingCatalogSnapshot
+				originalErr := common.UnmarshalJsonStr(tc.decode, &original)
+				var converted pricingdomain.PricingCatalogSnapshot
+				convertedErr := deps.Codec.DecodeCatalogSnapshot(tc.decode, &converted)
+				if tc.originalError != "" {
+					require.EqualError(t, convertedErr, tc.originalError)
+					var originalFacts pricingdomain.PricingCatalogSnapshot
+					baselineError := common.UnmarshalJsonStr(tc.decode, &originalFacts)
+					require.EqualError(t, baselineError, tc.originalError)
+					var gotTypeError, wantTypeError *json.UnmarshalTypeError
+					require.ErrorAs(t, convertedErr, &gotTypeError)
+					require.ErrorAs(t, baselineError, &wantTypeError)
+					assert.Equal(t, tc.originalType, gotTypeError.Type)
+					assert.Equal(t, *wantTypeError, *gotTypeError)
+				} else if originalErr != nil {
+					require.EqualError(t, convertedErr, originalErr.Error())
+				} else {
+					require.NoError(t, convertedErr)
+				}
+				native, mapped = original, converted
+			}
+			want, err := common.Marshal(native)
+			require.NoError(t, err)
+			got, err := common.Marshal(mapped)
+			require.NoError(t, err)
+			assert.Equal(t, string(want), string(got))
+		})
 	}
 }

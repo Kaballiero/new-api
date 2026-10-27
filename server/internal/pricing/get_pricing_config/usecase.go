@@ -1,24 +1,23 @@
 package get_pricing_config
 
 import (
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"sort"
 )
 
 type Store interface {
 	ReadRows([]string) ([]domain.OptionRow, error)
 }
-type UsageSchemas func() func(string) map[string]jsplugin.UsageFieldSchema
+type UsageSchemas func() func(string) map[string]domain.TariffUsageField
 type Usecase struct {
+	deps    domain.Capabilities
 	store   Store
 	policy  *domain.Configuration
 	schemas UsageSchemas
 }
 
-func NewUsecase(store Store, policy *domain.Configuration, schemas UsageSchemas) Usecase {
-	return Usecase{store: store, policy: policy, schemas: schemas}
+func NewUsecase(deps domain.Capabilities, store Store, policy *domain.Configuration, schemas UsageSchemas) Usecase {
+	return Usecase{deps: deps, store: store, policy: policy, schemas: schemas}
 }
 func (u Usecase) Execute(input Input) (*Output, error) {
 	names := input.Models
@@ -45,11 +44,11 @@ func (u Usecase) Execute(input Input) (*Output, error) {
 		}
 	}
 	sort.Strings(names)
-	result := &domain.ModelPricingSnapshot{Entries: make([]domain.ModelPricingEntry, 0, len(names)), Options: make(map[string]string), EmptyVersion: domain.ModelPricingVersion(domain.PricingValues{})}
+	result := &domain.ModelPricingSnapshot{Entries: make([]domain.ModelPricingEntry, 0, len(names)), Options: make(map[string]string), EmptyVersion: domain.ModelPricingVersion(u.deps, domain.PricingValues{})}
 	schema := u.schemas()
 	for _, name := range names {
 		configured := u.policy.Values(values, name)
-		entry := domain.ModelPricingEntry{ModelName: name, Version: domain.ModelPricingVersion(configured), Configured: configured, Effective: u.policy.Effective(values, name)}
+		entry := domain.ModelPricingEntry{ModelName: name, Version: domain.ModelPricingVersion(u.deps, configured), Configured: configured, Effective: u.policy.Effective(values, name)}
 		entry.UsageSchema = schema(name)
 		result.Entries = append(result.Entries, entry)
 	}
@@ -67,7 +66,7 @@ func (u Usecase) Execute(input Input) (*Output, error) {
 		}
 	}
 	for key, entries := range values {
-		encoded, err := common.Marshal(entries)
+		encoded, err := u.deps.Codec.Marshal(entries)
 		if err != nil {
 			return nil, err
 		}

@@ -1,9 +1,11 @@
 package controller
 
 import (
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/app"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	pricingquery "github.com/QuantumNous/new-api/internal/pricing/transport"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -23,7 +25,7 @@ type publicPricingModelsQuery = pricingdomain.PublicPricingModelsQuery
 
 func parsePublicPricingModelsQuery(raw string) (publicPricingModelsQuery, error) {
 	return pricingquery.
-		ParsePublicPricingModelsQuery(raw)
+		ParsePublicPricingModelsQuery(catalogsync.ModelTypes(), raw)
 }
 
 func GetPublicPricingModels(c *gin.Context) { pricingHTTP().GetPublicModels.Handle(c) }
@@ -36,7 +38,7 @@ func buildPublicPricingModelsPage(context effectivePricingPageContext, query pub
 // The public catalog always projects the default tariff, independently of the user's usable groups.
 
 func publicPricingGuard(guard billingexpr.TierCondition, units ...map[string]string) publicPricingCondition {
-	return pricingdomain.PublicPricingGuard(guard, units...)
+	return pricingdomain.PublicPricingGuard(pricingadapter.ToExpressionCondition(guard), units...)
 }
 
 func buildPublicModelTariff(context effectivePricingPageContext, item model.Pricing) publicModelTariff {

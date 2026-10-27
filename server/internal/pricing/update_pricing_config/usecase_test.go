@@ -11,7 +11,7 @@ import (
 // The checks run before any storage access, so the store is never used.
 func TestExecuteRejectsInvalidChangeSets(t *testing.T) {
 	audited := false
-	usecase := NewUsecase(nil, nil, func(string) {}, func() {}, func() {}, func([]string) { audited = true })
+	usecase := NewUsecase(domain.Capabilities{}, nil, nil, func(string) {}, func() {}, func() {}, func([]string) { audited = true })
 
 	err := usecase.Execute(nil)
 	assert.EqualError(t, err, "select model pricing changes before saving")

@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/QuantumNous/new-api/relaykit/dto"
-
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 
 	"errors"
@@ -28,6 +26,7 @@ type Client interface {
 }
 type Clients interface{ NewClient() Client }
 type Usecase struct {
+	deps     domain.Capabilities
 	channels Channels
 	clients  Clients
 	local    func() map[string]any
@@ -35,8 +34,8 @@ type Usecase struct {
 	logWarn  func(context.Context, string, ...any)
 }
 
-func NewUsecase(channels Channels, clients Clients, local func() map[string]any, logError func(context.Context, string), logWarn func(context.Context, string, ...any)) Usecase {
-	return Usecase{channels: channels, clients: clients, local: local, logError: logError, logWarn: logWarn}
+func NewUsecase(deps domain.Capabilities, channels Channels, clients Clients, local func() map[string]any, logError func(context.Context, string), logWarn func(context.Context, string, ...any)) Usecase {
+	return Usecase{deps: deps, channels: channels, clients: clients, local: local, logError: logError, logWarn: logWarn}
 }
 
 // Execute fetches the ratios of the requested upstreams and compares them with
@@ -48,7 +47,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (Output, error) {
 		req.Timeout = 10
 	}
 
-	var upstreams []dto.UpstreamDTO
+	var upstreams []RatioUpstream
 
 	if len(req.Upstreams) > 0 {
 		for _, u := range req.Upstreams {
@@ -72,7 +71,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (Output, error) {
 		}
 		for _, ch := range dbChannels {
 			if base := ch.BaseURL; strings.HasPrefix(base, "http") {
-				upstreams = append(upstreams, dto.UpstreamDTO{
+				upstreams = append(upstreams, RatioUpstream{
 					ID:       ch.ID,
 					Name:     ch.Name,
 					BaseURL:  strings.TrimRight(base, "/"),
@@ -95,7 +94,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (Output, error) {
 
 	for _, chn := range upstreams {
 		wg.Add(1)
-		go func(chItem dto.UpstreamDTO) {
+		go func(chItem RatioUpstream) {
 			defer wg.Done()
 
 			sem <- struct{}{}
@@ -135,7 +134,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (Output, error) {
 				ch <- domain.UpstreamResult{Name: uniqueName, Err: err}
 				return
 			}
-			converted, err := domain.DecodeRatioData(bodyBytes, isOpenRouter, isModelsDev, chItem.Name)
+			converted, err := domain.DecodeRatioData(u.deps, bodyBytes, isOpenRouter, isModelsDev, chItem.Name)
 			if err != nil {
 				var decodeErr *domain.RatioDecodeError
 				if errors.As(err, &decodeErr) && decodeErr.Warning != "" {
@@ -154,20 +153,20 @@ func (u Usecase) Execute(ctx context.Context, input Input) (Output, error) {
 
 	localData := domain.EffectivePricingSyncData(u.local())
 
-	var testResults []dto.TestResult
+	var testResults []RatioTestResult
 	var successfulChannels []domain.SyncChannel
 
 	for r := range ch {
 		// An upstream failure with an empty message (e.g. {"success":false}) has
 		// always been reported as a success; keep that contract.
 		if r.Err != nil && r.Err.Error() != "" {
-			testResults = append(testResults, dto.TestResult{
+			testResults = append(testResults, RatioTestResult{
 				Name:   r.Name,
 				Status: "error",
 				Error:  input.ErrorText(r.Err),
 			})
 		} else {
-			testResults = append(testResults, dto.TestResult{
+			testResults = append(testResults, RatioTestResult{
 				Name:   r.Name,
 				Status: "success",
 			})
