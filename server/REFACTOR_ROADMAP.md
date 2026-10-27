@@ -195,7 +195,8 @@
 - [x] 7e service technical leaves: HTTP/proxy/protected fetch/worker → pkg/httpclient, media/files → pkg/media, text filter → pkg/textfilter, gateway helpers → gateway/{mapping,routing,tokenusage}, artifacts → adapter/artifacts и payment return URL → settings/payments. Удалены 29 production service files; назначенных 7e allowlist rows нет. Routing group-policy BRIDGE остаётся до 7g; свежие host/PostgreSQL acceptance обязательны.
   Commits da229b010 перенос, cca50637b docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений. SQLite/MySQL не проверялись.
 
-- [ ] 7f authorization core: единый Casbin state/mutex в adapter, leaf `app/authorizationcore` для init/sync и общей сборки; middleware/router/accounts переведены, `service/authz` и 14 исключений удалены. Master/follower, in-tx rollback/postcommit reload и тексты сохранены. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
+- [x] 7f authorization core: единый Casbin state/mutex в adapter, leaf `app/authorizationcore` для init/sync и общей сборки; middleware/router/accounts переведены, `service/authz` и 14 исключений удалены. Master/follower, in-tx rollback/postcommit reload и тексты сохранены. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
+  Commits 0076e7c9c перенос, 754a6e5d8 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, authz PG-тесты зелёные. SQLite/MySQL не проверялись.
 
 - [ ] FX refresh owner (pricing/FX): перенести service.RefreshModelCostFX и replica lifecycle вместе с реальными consumers; убрать system FX BRIDGE, не копируя экономику.
 - [ ] Decide metrics owner (A or C): перенести единственный pkg/perf_metrics state/Record/Query/Summary/flush/SQL/Redis в system либо отдельный performance_metrics; RelayInfo mapping оставить gateway-owned.
