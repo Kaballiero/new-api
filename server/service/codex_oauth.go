@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 )
 
 const (
@@ -93,7 +94,7 @@ func refreshCodexOAuthToken(
 }
 
 func getCodexOAuthHTTPClient(proxyURL string) (*http.Client, error) {
-	baseClient, err := GetHttpClientWithProxy(strings.TrimSpace(proxyURL))
+	baseClient, err := httpclient.GetHttpClientWithProxy(strings.TrimSpace(proxyURL))
 	if err != nil {
 		return nil, err
 	}

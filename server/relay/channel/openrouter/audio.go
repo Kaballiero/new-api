@@ -12,13 +12,14 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/httpclient"
+
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/provider"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 )
 
 // transcriptionReservationPayload describes the outgoing multipart order without
@@ -195,6 +196,6 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 	c.Header("X-Task-Id", state.TaskID)
 	// Preserve the gateway's existing response/header policy while
 	// retaining audio fields even if ForceFormat/ThinkingToContent are enabled.
-	service.IOCopyOpaqueBytesGracefully(c, resp, body)
+	httpclient.IOCopyOpaqueBytesGracefully(c, resp, body)
 	return &dto.Usage{Cost: state.CostUSD}, nil
 }

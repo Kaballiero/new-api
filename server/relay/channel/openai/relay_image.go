@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/httpclient"
+
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -32,7 +34,7 @@ func updateOpenAIImageCount(info *relaycommon.RelayInfo, count int64) {
 // OpenaiImageHandler handles non-streaming OpenAI image responses
 // (generations/edits), returning the parsed usage for billing.
 func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	defer service.CloseResponseBodyGracefully(resp)
+	defer httpclient.CloseResponseBodyGracefully(resp)
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -56,7 +58,7 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	}
 
 	// 写入新的 response body
-	if err := service.IOCopyBytesGracefully(c, resp, responseBody); err != nil {
+	if err := httpclient.IOCopyBytesGracefully(c, resp, responseBody); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
 
@@ -161,7 +163,7 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 				sr.Stop(err)
 				return
 			}
-			if service.ValidUsage(&chunk.Usage) {
+			if tokenusage.ValidUsage(&chunk.Usage) {
 				usage = &chunk.Usage
 			}
 			if chunk.Type == "image_generation.completed" || chunk.Type == "image_edit.completed" {
@@ -273,7 +275,7 @@ func extractOpenAIImageStreamErrorMessage(data []byte) string {
 }
 
 func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	defer service.CloseResponseBodyGracefully(resp)
+	defer httpclient.CloseResponseBodyGracefully(resp)
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -309,7 +311,7 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 		info.SetFirstResponseTime()
 	}
 
-	validUsage := service.ValidUsage(&usageResp.Usage)
+	validUsage := tokenusage.ValidUsage(&usageResp.Usage)
 	var usageJSON []byte
 	if validUsage {
 		usageJSON, err = common.Marshal(usageResp.Usage)

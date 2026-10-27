@@ -14,12 +14,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+	media "github.com/QuantumNous/new-api/pkg/media"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -305,7 +306,7 @@ func downloadImagesToBase64(urls []string) ([]string, error) {
 		if strings.TrimSpace(url) == "" {
 			continue
 		}
-		_, data, err := service.GetImageFromUrl(url)
+		_, data, err := media.GetImageFromUrl(url)
 		if err != nil {
 			return nil, fmt.Errorf("replicate adaptor: failed to download image from %s: %w", url, err)
 		}
@@ -478,7 +479,7 @@ func uploadFileFromForm(c *gin.Context, info *relaycommon.RelayInfo, fieldCandid
 	req.Header.Set("Content-Type", formContentType)
 	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
 
-	resp, err := service.GetHttpClient().Do(req)
+	resp, err := httpclient.GetHttpClient().Do(req)
 	if err != nil {
 		return "", fmt.Errorf("replicate adaptor: upload image failed: %w", err)
 	}

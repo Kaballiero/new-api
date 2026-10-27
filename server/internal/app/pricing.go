@@ -34,6 +34,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -167,7 +168,7 @@ func NewRefreshPricingCatalogue() refresh_catalogue.Usecase {
 		v, on, err := model.ConfiguredCatalogSource()
 		return domain.CatalogSource(v), on, err
 	}, func(ctx context.Context, source domain.CatalogSource, requested map[string]bool) (domain.CatalogSyncSummary, error) {
-		client, err := catalogsync.NewClient(source.BaseURL, service.GetHttpClient())
+		client, err := catalogsync.NewClient(source.BaseURL, httpclient.GetHttpClient())
 		if err != nil {
 			return domain.CatalogSyncSummary{}, err
 		}

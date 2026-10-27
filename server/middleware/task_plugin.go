@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/i18n"
 	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
 	"io"
@@ -30,7 +31,7 @@ import (
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -246,7 +247,7 @@ func PrepareTaskPluginRoute() gin.HandlerFunc {
 			c.Set("expected_task_plugin_key", pinned.Plugin.Meta.Key)
 			c.Set("task_plugin_key", pinned.Plugin.Meta.Key)
 			c.Set("platform", pinned.Plugin.Meta.Key)
-			service.AppendTaskPluginIdentityFilter(c, pinned.Plugin.Meta.Key)
+			routing.AppendTaskPluginIdentityFilter(c, pinned.Plugin.Meta.Key)
 			if action != "" {
 				c.Set("task_action", action)
 			}
@@ -709,7 +710,7 @@ func PrepareTaskPluginEndpoint() gin.HandlerFunc {
 		c.Set("expected_task_plugin_key", pinned.Plugin.Meta.Key)
 		c.Set("task_plugin_key", pinned.Plugin.Meta.Key)
 		c.Set("platform", pinned.Plugin.Meta.Key)
-		service.AppendTaskPluginIdentityFilter(c, pinned.Plugin.Meta.Key)
+		routing.AppendTaskPluginIdentityFilter(c, pinned.Plugin.Meta.Key)
 		c.Set("relay_mode", relayconstant.RelayModeVideoSubmit)
 		if strings.TrimSpace(action) != "" {
 			c.Set("task_action", action)
@@ -1020,7 +1021,7 @@ func applyOriginTaskIntent(c *gin.Context, intent map[string]any, meta pluginrun
 	if len(result.Tasks) == 0 {
 		return nil
 	}
-	service.GetChannelConstraints(c).AddPin(dto.ChannelPin{ChannelId: result.ChannelID,
+	routing.GetChannelConstraints(c).AddPin(dto.ChannelPin{ChannelId: result.ChannelID,
 		Source:    dto.PinSourceOriginTask,
 		Rank:      dto.PinRankOriginTask,
 		RetryMode: dto.PinRetrySameChannel})
@@ -1347,7 +1348,7 @@ func PrepareTaskPluginSubmit() gin.HandlerFunc {
 		c.Set("task_request", requestBody)
 		c.Set("resolved_task_model", modelName)
 		c.Set("expected_task_plugin_key", pluginKey)
-		service.AppendTaskPluginIdentityFilter(c, pluginKey)
+		routing.AppendTaskPluginIdentityFilter(c, pluginKey)
 		c.Set("relay_mode", relayconstant.RelayModeVideoSubmit)
 		logger.LogDebug(
 			c,

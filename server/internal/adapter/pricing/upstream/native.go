@@ -12,8 +12,9 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
-	"github.com/QuantumNous/new-api/service"
+
 	"io"
 	"net/http"
 	"time"
@@ -40,7 +41,7 @@ func (c NativeChannel) Metadata(ctx context.Context, endpoint string) ([]byte, e
 	}
 	request.Header = headers
 	settings := c.channel.GetSetting()
-	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
+	client, err := httpclient.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return nil, errors.New("pricing discovery transport unavailable")
 	}

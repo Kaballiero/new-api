@@ -22,11 +22,11 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/plugins"
 	vertexcore "github.com/QuantumNous/new-api/relay/channel/vertex"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
 )
 
 var taskOAuthManifest = flag.Bool("tasks-oauth-manifest", false, "list OAuth fixture cases")
@@ -88,7 +88,7 @@ func (p *oauthContractTransport) RoundTrip(r *http.Request) (*http.Response, err
 	return &http.Response{StatusCode: 200, Request: r, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"done":false}`))}, nil
 }
 func runTaskOAuthContract(t *testing.T, name string, updating bool) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	original := acquireAccessToken
 	defer func() { acquireAccessToken = original; pluginAuthCache = sync.Map{} }()
 	synctest.Test(t, func(t *testing.T) {
@@ -120,7 +120,7 @@ func runTaskOAuthContract(t *testing.T, name string, updating bool) {
 				UpstreamModelName: "veo-3.0-generate-001"},
 			PrivateData: model.TaskPrivateData{UpstreamTaskID: base64.RawURLEncoding.EncodeToString([]byte(operation))}}
 		transport := &oauthContractTransport{calls: []map[string]any{}}
-		service.GetHttpClient().Transport = transport
+		httpclient.GetHttpClient().Transport = transport
 		results := []any{}
 		for step := range 2 {
 			if name == "expired" && step == 1 {

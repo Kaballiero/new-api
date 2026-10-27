@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/common"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	"github.com/QuantumNous/new-api/relay/channel"
@@ -23,7 +24,6 @@ import (
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 )
 
 // ReserveCost establishes the hold from a freshly prepared monetary estimate.
@@ -124,7 +124,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		}
 	}
 	if meta != nil {
-		tokens, countErr := service.CountRequestToken(c, meta, info)
+		tokens, countErr := tokenusage.CountRequestToken(c, meta, info)
 		if countErr != nil {
 			return nil, countErr
 		}
@@ -162,7 +162,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 			}
 			input := billingexpr.RequestInput{Body: body, Headers: info.RequestHeaders, EvaluatedAt: time.Now().UTC()}
 			var unavailableVars []string
-			promptTokens := max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), models[0]))
+			promptTokens := max(info.GetEstimatePromptTokens(), tokenusage.CountTextToken(string(body), models[0]))
 			if operation == "audio/transcriptions" || operation == "decisions" || operation == "rerank" {
 				promptTokens = 0
 				unavailableVars = []string{"p", "c", "len"}

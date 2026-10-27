@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	taskdto "github.com/QuantumNous/new-api/dto"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -304,14 +305,14 @@ func TestDistributeProviderRoutingConstraints(t *testing.T) {
 				require.Equal(t, []string{"incompatible-only", "vip"}, service.GetRequestAutoGroups(c, "default"))
 			}
 			if tc.pin != 0 {
-				service.GetChannelConstraints(c).AddPin(taskdto.ChannelPin{ChannelId: tc.pin, Source: taskdto.PinSourceToken, Rank: taskdto.PinRankToken})
+				routing.GetChannelConstraints(c).AddPin(taskdto.ChannelPin{ChannelId: tc.pin, Source: taskdto.PinSourceToken, Rank: taskdto.PinRankToken})
 			}
 			if tc.affinityID != 0 {
 				c.Request.Header.Set("X-Test-Affinity", t.Name())
-				_, _ = service.GetPreferredChannelByAffinity(c, "routing-model", group)
-				service.RecordChannelAffinity(c, tc.affinityID)
-				t.Cleanup(func() { service.ClearCurrentChannelAffinityCache(c) })
-				id, found := service.GetPreferredChannelByAffinity(c, "routing-model", group)
+				_, _ = routing.GetPreferredChannelByAffinity(c, "routing-model", group)
+				routing.RecordChannelAffinity(c, tc.affinityID)
+				t.Cleanup(func() { routing.ClearCurrentChannelAffinityCache(c) })
+				id, found := routing.GetPreferredChannelByAffinity(c, "routing-model", group)
 				require.True(t, found)
 				require.Equal(t, tc.affinityID, id)
 			}
@@ -325,8 +326,8 @@ func TestDistributeProviderRoutingConstraints(t *testing.T) {
 			require.False(t, c.IsAborted(), recorder.Body.String())
 			require.Equal(t, tc.wantChannel, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
 			if tc.wantChannel == 920002 && tc.pin == 0 {
-				retry := service.RetryParam{Ctx: c, TokenGroup: group, ModelName: "routing-model", RequestPath: path, Retry: common.GetPointer(1)}
-				selected, _, err := service.CacheGetRandomSatisfiedChannel(&retry)
+				retry := routing.RetryParam{Ctx: c, TokenGroup: group, ModelName: "routing-model", RequestPath: path, Retry: common.GetPointer(1)}
+				selected, _, err := routing.CacheGetRandomSatisfiedChannel(&retry)
 				require.NoError(t, err)
 				require.NotNil(t, selected)
 				assert.Equal(t, 920002, selected.Id)

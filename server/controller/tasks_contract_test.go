@@ -32,7 +32,8 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	"github.com/QuantumNous/new-api/setting/config"
 )
 
@@ -176,7 +177,7 @@ func runMJTickContract(t *testing.T, name string, updating bool) {
 		runTaskProxyContract(t, name, updating)
 		return
 	}
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	synctest.Test(t, func(t *testing.T) {
 		db := fixture.Open(t)
 		nowMS := time.Now().UnixMilli()
@@ -261,7 +262,7 @@ func runMJTickContract(t *testing.T, name string, updating bool) {
 		}
 		require.NoError(t, db.Create(task).Error)
 		transport := &mjContractTransport{calls: []map[string]any{}, name: name, t: t, response: response}
-		service.GetHttpClient().Transport = transport
+		httpclient.GetHttpClient().Transport = transport
 		events := []any{}
 		for range 2 {
 			summary := runMidjourneyTaskUpdateOnce(t.Context(), nil)
@@ -400,7 +401,7 @@ func (p *proxyContractTransport) RoundTrip(r *http.Request) (*http.Response, err
 }
 func runTaskProxyContract(t *testing.T, name string, updating bool) {
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"fetch_setting.enable_ssrf_protection": "false"}))
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	synctest.Test(t, func(t *testing.T) {
 		db := fixture.Open(t)
 		variant := strings.TrimPrefix(name, "proxy_")
@@ -457,7 +458,7 @@ func runTaskProxyContract(t *testing.T, name string, updating bool) {
 			expected, calls = 502, 10
 		}
 		transport := &proxyContractTransport{name: variant, calls: []map[string]any{}}
-		service.GetSSRFProtectedHTTPClient().Transport = transport
+		httpclient.GetSSRFProtectedHTTPClient().Transport = transport
 		recorder := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(recorder)
 		c.Request = httptest.NewRequest("GET", "http://gateway.test/v1/videos/task_proxy/content", nil)

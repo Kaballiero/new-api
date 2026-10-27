@@ -24,11 +24,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -300,11 +302,11 @@ func runOption(t *testing.T, tc optionCase, updating bool) {
 	common.StartTime = fixture.Epoch
 	constant.Setup = true
 	settingsapp.Initialize()
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	transport := &noNetwork{}
-	service.GetHttpClient().Transport = transport
+	httpclient.GetHttpClient().Transport = transport
 	// Create the existing cache janitor outside the virtual-time bubble.
-	service.GetChannelAffinityCacheStats()
+	routing.GetChannelAffinityCacheStats()
 	identities := map[string]service.AuthIdentity{}
 	for actor, token := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {
 		identity, err := service.ParseAccessToken(token)

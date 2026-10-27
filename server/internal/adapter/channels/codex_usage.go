@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/service"
 	"net/http"
 )
@@ -16,7 +17,7 @@ func NewCodexUsage(fetch func(context.Context, *http.Client, string, string, str
 	return CodexUsage{fetch: fetch}
 }
 func (provider CodexUsage) Open(proxy string) (domain.CodexUsageFetch, error) {
-	client, err := service.GetHttpClientWithProxy(proxy)
+	client, err := httpclient.GetHttpClientWithProxy(proxy)
 	if err != nil {
 		return nil, err
 	}

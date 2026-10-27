@@ -15,12 +15,14 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 )
@@ -114,7 +116,7 @@ func (e *RequestEstimator) Discover(c *gin.Context, info *relaycommon.RelayInfo,
 	for key, value := range overrides {
 		req.Header.Set(key, value)
 	}
-	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	client, err := httpclient.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return errors.New("OpenRouter pricing discovery transport unavailable")
 	}
@@ -372,7 +374,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if err != nil {
 		return 0, err
 	}
-	prompt := max(info.GetEstimatePromptTokens(), service.CountTextToken(string(body), request.Model))
+	prompt := max(info.GetEstimatePromptTokens(), tokenusage.CountTextToken(string(body), request.Model))
 	if dedicatedAudio || decisions || rerank {
 		prompt = 0
 	}

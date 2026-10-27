@@ -19,7 +19,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
@@ -30,7 +31,7 @@ func allowPrivateTaskMediaTest(t *testing.T) {
 	system_setting.GetFetchSetting().AllowPrivateIp = true
 	system_setting.GetFetchSetting().AllowedPorts = []string{"1-65535"}
 	t.Cleanup(func() { *system_setting.GetFetchSetting() = originalFetchSetting })
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 }
 
 func TestProxyTaskMediaForwardsRangeAndFiltersResponseHeaders(t *testing.T) {

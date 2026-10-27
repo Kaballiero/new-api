@@ -7,12 +7,13 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -84,7 +85,7 @@ func SystemOneHelper(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIE
 		return systemOneResponseError("System One response missing")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return service.RelayErrorHandler(c.Request.Context(), resp, false)
+		return mapping.RelayErrorHandler(c.Request.Context(), resp, false)
 	}
 	body, responseErr := capability.ReadSystemOneResponse(resp, info)
 	if responseErr != nil {

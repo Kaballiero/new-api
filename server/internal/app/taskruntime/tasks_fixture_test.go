@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/QuantumNous/new-api/common"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	billingadapter "github.com/QuantumNous/new-api/internal/adapter/billing"
 	taskplugins "github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
@@ -110,7 +111,7 @@ func openRouterSyncTask(info *relaycommon.RelayInfo) (*model.Task, error) {
 
 func disableTaskFixtureArtifacts(t *testing.T) {
 	t.Helper()
-	t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+	t.Cleanup(func() { require.NoError(t, artifacts.InitTaskArtifactStore()) })
 	t.Setenv(system_setting.TaskArtifactStoreModeEnv, system_setting.TaskArtifactStoreModeUpstream)
-	require.NoError(t, service.InitTaskArtifactStore())
+	require.NoError(t, artifacts.InitTaskArtifactStore())
 }

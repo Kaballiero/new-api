@@ -40,6 +40,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	taskruntime "github.com/QuantumNous/new-api/internal/app/taskruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/contracttest"
@@ -48,6 +49,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/contracttest/taskmultipart"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay"
@@ -1089,16 +1091,16 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 		require.NoError(t, os.Chmod(root, 0700))
 		t.Setenv(system_setting.TaskArtifactStoreModeEnv, system_setting.TaskArtifactStoreModeFilesystem)
 		t.Setenv(system_setting.TaskArtifactStoreRootEnv, root)
-		require.NoError(t, service.InitTaskArtifactStore())
+		require.NoError(t, artifacts.InitTaskArtifactStore())
 		t.Cleanup(func() {
 			_ = os.Setenv(system_setting.TaskArtifactStoreModeEnv, system_setting.TaskArtifactStoreModeUpstream)
-			_ = service.InitTaskArtifactStore()
+			_ = artifacts.InitTaskArtifactStore()
 		})
 		task, exists, err := tasksapp.NewStore().GetByTaskId(1, "task_own")
 		require.NoError(t, err)
 		require.True(t, exists)
 		reference,
-			err := service.GetTaskArtifactStore().Persist(t.Context(),
+			err := artifacts.GetTaskArtifactStore().Persist(t.Context(),
 			task,
 			types.TaskArtifact{Key: "result",
 				Type:     "audio",
@@ -1125,7 +1127,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 			task.PrivateData.OpenRouterAudio.ResultSHA256 = strings.Repeat("z", 64)
 		case "disabled_store":
 			t.Setenv(system_setting.TaskArtifactStoreModeEnv, system_setting.TaskArtifactStoreModeUpstream)
-			require.NoError(t, service.InitTaskArtifactStore())
+			require.NoError(t, artifacts.InitTaskArtifactStore())
 		}
 		require.NoError(t, tasksapp.NewStore().UpdateTask(task))
 		require.NoError(t, env.DB.Model(&model.Task{}).Where("id=81").UpdateColumn("updated_at", fixture.Epoch).Error)
@@ -1140,9 +1142,9 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 				"updated_at": fixture.Epoch}).Error)
 	}
 	env.MountTasks()
-	service.InitHttpClient()
-	service.GetHttpClient().Transport = f.provider
-	if client := service.GetSSRFProtectedHTTPClient(); client != nil {
+	httpclient.InitHttpClient()
+	httpclient.GetHttpClient().Transport = f.provider
+	if client := httpclient.GetSSRFProtectedHTTPClient(); client != nil {
 		client.Transport = f.provider
 	}
 	if tc.Variant == "read_error" || tc.Variant == "count_error" || tc.Variant == "db_error" {
@@ -1230,7 +1232,7 @@ func runTaskCase(t *testing.T, tc taskCase, updating bool) {
 			actor = "user"
 		}
 		if tc.Kind == "capability" {
-			access, err := service.IssueTaskArtifactAccess("task_own", "video")
+			access, err := artifacts.IssueTaskArtifactAccess("task_own", "video")
 			require.NoError(t, err)
 			switch tc.Variant {
 			case "tampered", "bearer_bad_access":

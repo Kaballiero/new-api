@@ -18,6 +18,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
@@ -244,7 +245,7 @@ func TestWssCharacterization(t *testing.T) {
 	}
 	t.Run("terminal_tail_failure_is_logged_and_settled_once", func(t *testing.T) {
 		event := dto.RealtimeEvent{Type: dto.RealtimeEventResponseAudioTranscriptionDelta, Delta: "counted terminal output"}
-		n, a, err := service.CountTokenRealtime(testRelayInfo(false), event, "wss-char-model")
+		n, a, err := tokenusage.CountTokenRealtime(testRelayInfo(false), event, "wss-char-model")
 		require.NoError(t, err)
 		require.Positive(t, n)
 		require.Zero(t, a)

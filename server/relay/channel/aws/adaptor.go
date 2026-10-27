@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"strings"
 
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	media "github.com/QuantumNous/new-api/pkg/media"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/pkg/errors"
 
@@ -55,7 +57,7 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 					if mediaMessage.Source.Type == "url" {
 						// 使用统一的文件服务获取图片数据
 						source := types.NewURLFileSource(mediaMessage.Source.Url)
-						base64Data, mimeType, err := service.GetBase64Data(c, source, "formatting image for Claude")
+						base64Data, mimeType, err := media.GetBase64Data(c, source, "formatting image for Claude")
 						if err != nil {
 							return nil, fmt.Errorf("get file base64 from url failed: %s", err.Error())
 						}
@@ -127,7 +129,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	}
 
 	// 原有的Claude模型处理逻辑
-	result, err := service.ConvertRequest(c, info, types.RelayFormatClaude, request)
+	result, err := mapping.ConvertRequest(c, info, types.RelayFormatClaude, request)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to convert openai request to claude request")
 	}

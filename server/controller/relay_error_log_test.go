@@ -30,9 +30,10 @@ import (
 	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -276,7 +277,7 @@ func TestRelayPricingAdmissionPresentersAreSafeAndLocal(t *testing.T) {
 
 func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousMemory, previousRedis, previousBatch := common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled
 	previousConsume, previousError := common.LogConsumeEnabled, constant.ErrorLogEnabled

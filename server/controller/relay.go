@@ -10,8 +10,12 @@ import (
 	"strings"
 	"time"
 
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
+	textfilter "github.com/QuantumNous/new-api/pkg/textfilter"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -153,7 +157,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	if needSensitiveCheck && meta != nil {
-		contains, words := service.CheckSensitiveText(meta.CombineText)
+		contains, words := textfilter.CheckSensitiveText(meta.CombineText)
 		if contains {
 			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ", ")))
 			newAPIError = types.NewError(err, types.ErrorCodeSensitiveWordsDetected)
@@ -161,7 +165,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}
 
-	tokens, err := service.EstimateRequestToken(c, meta, relayInfo)
+	tokens, err := tokenusage.EstimateRequestToken(c, meta, relayInfo)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeCountTokenFailed)
 		return
@@ -214,7 +218,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
-	retryParam := &service.RetryParam{
+	retryParam := &routing.RetryParam{
 		Ctx:         c,
 		TokenGroup:  relayInfo.TokenGroup,
 		ModelName:   relayInfo.OriginModelName,
@@ -332,7 +336,7 @@ func CountClaudeTokens(c *gin.Context) {
 	}
 
 	info := relaycommon.GenRelayInfoClaude(c, request)
-	inputTokens, err := service.CountRequestToken(c, request.GetTokenCountMeta(), info)
+	inputTokens, err := tokenusage.CountRequestToken(c, request.GetTokenCountMeta(), info)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"type": "error",
@@ -391,7 +395,7 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 	return meta
 }
 
-func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
+func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *routing.RetryParam) (*model.Channel, *types.NewAPIError) {
 	if info.ChannelMeta == nil {
 		autoBan := c.GetBool("auto_ban")
 		autoBanInt := 1
@@ -405,7 +409,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+	channel, selectGroup, err := routing.CacheGetRandomSatisfiedChannel(retryParam)
 	if err != nil {
 		return nil, types.NewError(fmt.Errorf("failed to get an available channel for model %[2]s in group %[1]s (retry): %[3]s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
@@ -441,7 +445,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if openaiErr == nil {
 		return false
 	}
-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+	if routing.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
 	if types.IsChannelError(openaiErr) {
@@ -453,7 +457,7 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if retryTimes <= 0 {
 		return false
 	}
-	if service.GetChannelConstraints(c).SuppressesRetry() {
+	if routing.GetChannelConstraints(c).SuppressesRetry() {
 		return false
 	}
 	code := openaiErr.StatusCode
@@ -665,10 +669,10 @@ func executeTaskSubmissionWith(
 	stage = "before_attempt"
 	if requestErr := c.Request.Context().Err(); requestErr != nil {
 		diagnostics.cancelled("before_attempt", 0)
-		return nil, service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
+		return nil, mapping.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
 	}
 
-	retryParam := &service.RetryParam{
+	retryParam := &routing.RetryParam{
 		Ctx:         c,
 		TokenGroup:  relayInfo.TokenGroup,
 		ModelName:   relayInfo.OriginModelName,
@@ -680,7 +684,7 @@ func executeTaskSubmissionWith(
 		stage = "select_channel"
 		if requestErr := c.Request.Context().Err(); requestErr != nil {
 			diagnostics.cancelled("before_attempt", retryParam.GetRetry()+1)
-			taskErr = service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
+			taskErr = mapping.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
 			break
 		}
 		var channel *model.Channel
@@ -689,7 +693,7 @@ func executeTaskSubmissionWith(
 			channel = lockedCh
 			if retryParam.GetRetry() > 0 {
 				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
-					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
+					taskErr = mapping.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
 					break
 				}
 			}
@@ -701,7 +705,7 @@ func executeTaskSubmissionWith(
 				if admissionErr := billinggateway.TaskBillingAdmissionError(c, relayInfo, channelErr.Err); admissionErr != nil {
 					taskErr = admissionErr
 				} else {
-					taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+					taskErr = mapping.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
 				}
 				break
 			}
@@ -713,9 +717,9 @@ func executeTaskSubmissionWith(
 		if bodyErr != nil {
 			stage = "read_body"
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
-				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
+				taskErr = mapping.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
 			} else {
-				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest)
+				taskErr = mapping.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusBadRequest)
 			}
 			break
 		}
@@ -725,7 +729,7 @@ func executeTaskSubmissionWith(
 		result, taskErr = submit(c, relayInfo)
 		if requestErr := c.Request.Context().Err(); requestErr != nil {
 			diagnostics.cancelled("after_submit", retryParam.GetRetry()+1)
-			taskErr = service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
+			taskErr = mapping.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
 			break
 		}
 		if taskErr == nil {
@@ -759,13 +763,13 @@ func executeTaskSubmissionWith(
 		return nil, taskErr
 	}
 	if result == nil {
-		taskErr = service.TaskErrorWrapperLocal(errors.New("task submission returned no result"), "task_submit_failed", http.StatusInternalServerError)
+		taskErr = mapping.TaskErrorWrapperLocal(errors.New("task submission returned no result"), "task_submit_failed", http.StatusInternalServerError)
 		diagnostics.failed("submit", "missing_result", taskErr, false)
 		return nil, taskErr
 	}
 	if requestErr := c.Request.Context().Err(); requestErr != nil {
 		diagnostics.cancelled("before_reserve", retryParam.GetRetry()+1)
-		return nil, service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
+		return nil, mapping.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
 	}
 
 	// Reserve any submit-time upward billing adjustment before persistence.
@@ -776,7 +780,7 @@ func executeTaskSubmissionWith(
 		diagnostics.reserve("reserve_start", result.Quota)
 		if reserveErr := relayInfo.Billing.Reserve(result.Quota); reserveErr != nil {
 			common.SysError("reserve adjusted task billing error: " + reserveErr.Error())
-			taskErr = service.TaskErrorWrapperLocal(errors.New("insufficient quota for adjusted task cost"), string(types.ErrorCodeInsufficientUserQuota), http.StatusForbidden)
+			taskErr = mapping.TaskErrorWrapperLocal(errors.New("insufficient quota for adjusted task cost"), string(types.ErrorCodeInsufficientUserQuota), http.StatusForbidden)
 			diagnostics.failed("reserve", "insufficient_quota", taskErr, false)
 			return nil, taskErr
 		}
@@ -784,7 +788,7 @@ func executeTaskSubmissionWith(
 	}
 	if requestErr := c.Request.Context().Err(); requestErr != nil {
 		diagnostics.cancelled("before_insert", retryParam.GetRetry()+1)
-		return nil, service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
+		return nil, mapping.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
 	}
 
 	stage = "insert"
@@ -814,7 +818,7 @@ func executeTaskSubmissionWith(
 	diagnostics.insertStart(task)
 	if insertErr := taskPersistence.InsertTask(c.Request.Context(), task); insertErr != nil {
 		common.SysError("insert task error: " + insertErr.Error())
-		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to persist task"), "task_insert_failed", http.StatusInternalServerError)
+		taskErr = mapping.TaskErrorWrapperLocal(errors.New("failed to persist task"), "task_insert_failed", http.StatusInternalServerError)
 		diagnostics.failed("insert", "database_error", taskErr, false)
 		return nil, taskErr
 	}
@@ -825,12 +829,12 @@ func executeTaskSubmissionWith(
 
 	if settleErr := billinggateway.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
 		common.SysError("settle task billing error: " + settleErr.Error())
-		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to settle task billing"), "task_billing_settlement_failed", http.StatusInternalServerError)
+		taskErr = mapping.TaskErrorWrapperLocal(errors.New("failed to settle task billing"), "task_billing_settlement_failed", http.StatusInternalServerError)
 		diagnostics.failed("settle", "billing_error", taskErr, true)
 		return nil, taskErr
 	}
 	if logErr := taskrecord.LogTaskConsumption(c, relayInfo, task); logErr != nil {
-		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to record task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
+		taskErr = mapping.TaskErrorWrapperLocal(errors.New("failed to record task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
 		diagnostics.failed("settle", "billing_log_error", taskErr, true)
 		return nil, taskErr
 	}
@@ -839,7 +843,7 @@ func executeTaskSubmissionWith(
 		state.Required = false
 		won, err := taskPersistence.UpdateTaskWithStatus(task, task.Status)
 		if err != nil || !won {
-			taskErr = service.TaskErrorWrapperLocal(errors.New("failed to confirm task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
+			taskErr = mapping.TaskErrorWrapperLocal(errors.New("failed to confirm task reservation"), "task_billing_settlement_failed", http.StatusInternalServerError)
 			diagnostics.failed("settle", "billing_state_error", taskErr, true)
 			return nil, taskErr
 		}
@@ -934,13 +938,13 @@ func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskEr
 	if taskErr == nil {
 		return false
 	}
-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+	if routing.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
 	}
 	if retryTimes <= 0 {
 		return false
 	}
-	if service.GetChannelConstraints(c).SuppressesRetry() {
+	if routing.GetChannelConstraints(c).SuppressesRetry() {
 		return false
 	}
 	if taskErr.StatusCode == http.StatusTooManyRequests {

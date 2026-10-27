@@ -22,9 +22,11 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
@@ -33,7 +35,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relay/taskview"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -104,10 +106,10 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 					resolved, resolvedOK := resolvedValue.(map[string]any)
 					resolvedModel, modelOK := resolved["model"].(string)
 					if callErr != nil || !resolvedOK || !modelOK || resolvedModel != pinned.Model {
-						return service.TaskErrorWrapperLocal(fmt.Errorf("final task plugin decoder rejected the pinned model"), "plugin_request_invalid", http.StatusBadRequest)
+						return mapping.TaskErrorWrapperLocal(fmt.Errorf("final task plugin decoder rejected the pinned model"), "plugin_request_invalid", http.StatusBadRequest)
 					}
 					if _, forbidden := resolved["renderer"]; forbidden {
-						return service.TaskErrorWrapperLocal(fmt.Errorf("decoder must not return renderer"), "plugin_request_invalid", http.StatusBadRequest)
+						return mapping.TaskErrorWrapperLocal(fmt.Errorf("decoder must not return renderer"), "plugin_request_invalid", http.StatusBadRequest)
 					}
 					if body, present := resolved["requestBody"]; present {
 						c.Set("task_request", body)
@@ -127,11 +129,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 	}
 	if request, exists := c.Get("task_request"); exists {
 		if err := a.validateResolvedUsageRequest(request); err != nil {
-			return service.TaskErrorWrapperLocal(err, "plugin_usage_invalid", http.StatusBadRequest)
+			return mapping.TaskErrorWrapperLocal(err, "plugin_usage_invalid", http.StatusBadRequest)
 		}
 	}
 	if _, err := a.buildSubmit(c, info); err != nil {
-		return service.TaskErrorWrapperLocal(err, "plugin_request_invalid", http.StatusBadRequest)
+		return mapping.TaskErrorWrapperLocal(err, "plugin_request_invalid", http.StatusBadRequest)
 	}
 	return nil
 }
@@ -514,7 +516,7 @@ func (a *TaskAdaptor) ParseResponse(c *gin.Context, resp *http.Response, info *r
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		logger.LogDebug(c, "task_plugin subsystem=adaptor event=parse_submit_failed plugin=%q stage=read_response reason=read_failed status=%d", a.plugin.Meta.Key, resp.StatusCode)
-		return nil, service.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
+		return nil, mapping.TaskErrorWrapper(err, "read_response_body_failed", http.StatusInternalServerError)
 	}
 	logger.LogDebug(
 		c,
@@ -539,11 +541,11 @@ func (a *TaskAdaptor) ParseResponse(c *gin.Context, resp *http.Response, info *r
 			resp.StatusCode,
 			time.Since(started).Milliseconds(),
 		)
-		return nil, service.TaskErrorWrapper(err, "plugin_submit_response_failed", http.StatusBadGateway)
+		return nil, mapping.TaskErrorWrapper(err, "plugin_submit_response_failed", http.StatusBadGateway)
 	}
 	if object, ok := value.(map[string]any); ok {
 		if _, forbidden := object["clientResponse"]; forbidden {
-			return nil, service.TaskErrorWrapperLocal(fmt.Errorf("parseSubmitResponse must not return clientResponse"), "plugin_submit_response_invalid", http.StatusBadGateway)
+			return nil, mapping.TaskErrorWrapperLocal(fmt.Errorf("parseSubmitResponse must not return clientResponse"), "plugin_submit_response_invalid", http.StatusBadGateway)
 		}
 	}
 	var parsed submitResponse
@@ -558,13 +560,13 @@ func (a *TaskAdaptor) ParseResponse(c *gin.Context, resp *http.Response, info *r
 			resp.StatusCode,
 			time.Since(started).Milliseconds(),
 		)
-		return nil, service.TaskErrorWrapper(err, "plugin_submit_response_invalid", http.StatusBadGateway)
+		return nil, mapping.TaskErrorWrapper(err, "plugin_submit_response_invalid", http.StatusBadGateway)
 	}
 	var taskData []byte
 	if parsed.TaskData != nil {
 		taskData, err = common.Marshal(parsed.TaskData)
 		if err != nil {
-			return nil, service.TaskErrorWrapper(err, "plugin_submit_response_invalid", http.StatusBadGateway)
+			return nil, mapping.TaskErrorWrapper(err, "plugin_submit_response_invalid", http.StatusBadGateway)
 		}
 	}
 	var immediate *relaycommon.TaskInfo
@@ -660,7 +662,7 @@ func (a *TaskAdaptor) doFetchDescriptor(baseURL, proxy string, value any) (*http
 	for name, value := range descriptor.Headers {
 		req.Header.Set(name, value)
 	}
-	client, err := service.GetHttpClientWithProxy(proxy)
+	client, err := httpclient.GetHttpClientWithProxy(proxy)
 	if err != nil {
 		return nil, err
 	}

@@ -12,7 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/internal/tasks/poll_midjourney_tasks"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/service"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 )
 
 // MidjourneyPollClient preserves the grouped legacy query and its timeout.
@@ -34,7 +34,7 @@ func (MidjourneyPollClient) Fetch(ctx context.Context, channel poll_midjourney_t
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("mj-api-secret", channel.Key)
-	resp, err := service.GetHttpClient().Do(req)
+	resp, err := httpclient.GetHttpClient().Do(req)
 	if err != nil {
 		logger.LogError(ctx, fmt.Sprintf("Get Task Do req error: %v", err))
 		cancel()

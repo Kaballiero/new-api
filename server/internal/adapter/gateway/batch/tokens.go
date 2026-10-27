@@ -5,11 +5,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	commonrelay "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,5 +39,5 @@ func CountBatchItemTokens(c *gin.Context, modelName, endpoint string, body []byt
 	// Metadata extraction never re-marshals the prepared provider payload.
 	itemContext := c.Copy()
 	common.SetContextKey(itemContext, constant.ContextKeyOriginalModel, modelName)
-	return service.CountRequestToken(itemContext, request.GetTokenCountMeta(), info)
+	return tokenusage.CountRequestToken(itemContext, request.GetTokenCountMeta(), info)
 }

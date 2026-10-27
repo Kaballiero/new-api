@@ -7,8 +7,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ func TestShouldRetryHonorsPinRetryMode(t *testing.T) {
 	assert.True(t, shouldRetry(c, openaiErr, 1))
 
 	origin := newPinRetryContext()
-	service.GetChannelConstraints(origin).AddPin(dto.ChannelPin{
+	routing.GetChannelConstraints(origin).AddPin(dto.ChannelPin{
 		ChannelId: 2,
 		Source:    dto.PinSourceOriginTask,
 		Rank:      dto.PinRankOriginTask,
@@ -30,7 +31,7 @@ func TestShouldRetryHonorsPinRetryMode(t *testing.T) {
 	assert.True(t, shouldRetry(origin, openaiErr, 1), "origin pin retries on the same channel")
 
 	token := newPinRetryContext()
-	service.GetChannelConstraints(token).AddPin(dto.ChannelPin{
+	routing.GetChannelConstraints(token).AddPin(dto.ChannelPin{
 		ChannelId: 1,
 		Source:    dto.PinSourceToken,
 		Rank:      dto.PinRankToken,
@@ -46,7 +47,7 @@ func TestShouldRetryTaskRelayHonorsPinRetryMode(t *testing.T) {
 	assert.True(t, shouldRetryTaskRelay(c, 1, taskErr, 1))
 
 	origin := newPinRetryContext()
-	service.GetChannelConstraints(origin).AddPin(dto.ChannelPin{
+	routing.GetChannelConstraints(origin).AddPin(dto.ChannelPin{
 		ChannelId: 2,
 		Source:    dto.PinSourceOriginTask,
 		Rank:      dto.PinRankOriginTask,
@@ -55,7 +56,7 @@ func TestShouldRetryTaskRelayHonorsPinRetryMode(t *testing.T) {
 	assert.True(t, shouldRetryTaskRelay(origin, 2, taskErr, 1))
 
 	token := newPinRetryContext()
-	service.GetChannelConstraints(token).AddPin(dto.ChannelPin{
+	routing.GetChannelConstraints(token).AddPin(dto.ChannelPin{
 		ChannelId: 1,
 		Source:    dto.PinSourceToken,
 		Rank:      dto.PinRankToken,
@@ -76,7 +77,7 @@ func TestOpenRouterVideoSubmitIsNotReplayedAfterDispatch(t *testing.T) {
 
 func TestSameChannelPinsMergeToStricterRetryMode(t *testing.T) {
 	c := newPinRetryContext()
-	constraints := service.GetChannelConstraints(c)
+	constraints := routing.GetChannelConstraints(c)
 	constraints.AddPin(dto.ChannelPin{
 		ChannelId: 7,
 		Source:    dto.PinSourceOriginTask,

@@ -8,18 +8,20 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/pkg/httpclient"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 )
 
 func GeminiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	defer service.CloseResponseBodyGracefully(resp)
+	defer httpclient.CloseResponseBodyGracefully(resp)
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -53,7 +55,7 @@ func GeminiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 
 	usage := buildUsageFromGeminiResponse(c, info, &geminiResponse)
 
-	convertResult, err := service.ConvertResponse(c, info, types.RelayFormatOpenAIResponses, &geminiResponse)
+	convertResult, err := mapping.ConvertResponse(c, info, types.RelayFormatOpenAIResponses, &geminiResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -71,7 +73,7 @@ func GeminiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 	}
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	httpclient.IOCopyBytesGracefully(c, resp, responseBody)
 	return &usage, nil
 }
 
@@ -122,7 +124,7 @@ func GeminiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, r
 		return true
 	}
 	sendChunk := func(chunk *dto.GeminiChatResponse) bool {
-		results, err := service.ConvertStreamResponseChunk(c, info, state, chunk)
+		results, err := mapping.ConvertStreamResponseChunk(c, info, state, chunk)
 		if err != nil {
 			if failResponsesStream(err) {
 				return false
@@ -178,7 +180,7 @@ func GeminiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, r
 	if usage != nil {
 		state.SetUsage(usage)
 	}
-	finalResults, err := service.FinalizeStreamResponse(c, info, state)
+	finalResults, err := mapping.FinalizeStreamResponse(c, info, state)
 	if err != nil {
 		if failResponsesStream(err) {
 			return usage, streamErr

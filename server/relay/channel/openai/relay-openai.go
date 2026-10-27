@@ -8,13 +8,15 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -106,7 +108,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 
-	defer service.CloseResponseBodyGracefully(resp)
+	defer httpclient.CloseResponseBodyGracefully(resp)
 
 	model := info.UpstreamModelName
 	var responseId string
@@ -158,7 +160,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			var streamResponse struct {
 				Usage *dto.Usage `json:"usage"`
 			}
-			if err := common.UnmarshalJsonStr(data, &streamResponse); err == nil && service.ValidUsage(streamResponse.Usage) {
+			if err := common.UnmarshalJsonStr(data, &streamResponse); err == nil && tokenusage.ValidUsage(streamResponse.Usage) {
 				latestStreamUsage = dto.MergeUsageNonZero(latestStreamUsage, streamResponse.Usage)
 				latestStreamUsageData = data
 			}
@@ -188,7 +190,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 	if embeddedStreamError && latestStreamUsage != nil {
 		usage = dto.MergeUsageNonZero(usage, latestStreamUsage)
-		containStreamUsage = service.ValidUsage(usage)
+		containStreamUsage = tokenusage.ValidUsage(usage)
 	}
 
 	// 部分兼容网关把完整的累计usage附在倒数第二个事件上，随后发送一个空的最后事件。
@@ -226,7 +228,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	if !containStreamUsage {
-		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		usage = tokenusage.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
 	}
 
@@ -319,7 +321,7 @@ func collectStreamFunctionCallNames(data string, seen map[string]struct{}, names
 }
 
 func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	defer service.CloseResponseBodyGracefully(resp)
+	defer httpclient.CloseResponseBodyGracefully(resp)
 
 	var simpleResponse dto.OpenAITextResponse
 	responseBody, err := io.ReadAll(resp.Body)
@@ -375,7 +377,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		completionTokens := simpleResponse.Usage.CompletionTokens
 		if completionTokens == 0 {
 			for _, choice := range simpleResponse.Choices {
-				ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.GetReasoningContent(), info.UpstreamModelName)
+				ctkm := tokenusage.CountTextToken(choice.Message.StringContent()+choice.Message.GetReasoningContent(), info.UpstreamModelName)
 				completionTokens += ctkm
 			}
 		}
@@ -411,7 +413,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			break
 		}
 	case types.RelayFormatClaude:
-		convertResult, err := service.ConvertResponse(c, info, types.RelayFormatClaude, &simpleResponse)
+		convertResult, err := mapping.ConvertResponse(c, info, types.RelayFormatClaude, &simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
@@ -421,7 +423,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}
 		responseBody = claudeRespStr
 	case types.RelayFormatGemini:
-		convertResult, err := service.ConvertResponse(c, info, types.RelayFormatGemini, &simpleResponse)
+		convertResult, err := mapping.ConvertResponse(c, info, types.RelayFormatGemini, &simpleResponse)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
@@ -432,7 +434,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		responseBody = geminiRespStr
 	}
 
-	if err := service.IOCopyBytesGracefully(c, resp, responseBody); err != nil {
+	if err := httpclient.IOCopyBytesGracefully(c, resp, responseBody); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
 

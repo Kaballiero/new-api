@@ -16,8 +16,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
@@ -69,8 +71,8 @@ func TestUsageHTTPContract(t *testing.T) {
 			continue
 		}
 		if tc.name == selected {
-			service.InitHttpClient()
-			service.InitTokenEncoders()
+			httpclient.InitHttpClient()
+			tokenusage.InitTokenEncoders()
 			runUsageHTTPContract(t, tc)
 			return
 		}

@@ -11,6 +11,7 @@ import (
 
 	notification "github.com/QuantumNous/new-api/internal/adapter/notifications"
 	"github.com/QuantumNous/new-api/internal/app/notifications"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -58,7 +59,7 @@ func runTrigger(t *testing.T, name string) any {
 		system_setting.GetFetchSetting().EnableSSRFProtection = false
 		operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
 
-		service.GetHttpClient().Transport = transport
+		httpclient.GetHttpClient().Transport = transport
 		language := f.Locale()
 		if language == "default" {
 			language = ""

@@ -13,7 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
-	"github.com/QuantumNous/new-api/service"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 )
 
 type Metadata struct{}
@@ -79,7 +79,7 @@ func fetchMetadata(ctx context.Context, task *domain.Task, endpoint string) ([]b
 			headers.Set(name, strings.ReplaceAll(value.(string), "{api_key}", key))
 		}
 	}
-	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
+	client, err := httpclient.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return nil, 0, 0, "transport_unavailable"
 	}

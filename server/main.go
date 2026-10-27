@@ -18,6 +18,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/app"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
@@ -30,6 +31,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
@@ -304,9 +306,9 @@ func InitResources() error {
 	// Initialize model settings
 	ratio_setting.InitRatioSettings()
 
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 
-	service.InitTokenEncoders()
+	tokenusage.InitTokenEncoders()
 
 	// Initialize SQL Database
 	err = model.InitDB()

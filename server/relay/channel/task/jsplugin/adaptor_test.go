@@ -21,13 +21,14 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 )
@@ -451,7 +452,7 @@ export function buildContentRequest(ctx) { return {url:"https://cdn.example/vide
 
 func TestTaskAdaptorMapsJSContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/submit":
@@ -1136,7 +1137,7 @@ export function extractUsageOnComplete(task, result, body) { return {upstreamUni
 // results by taskId, preserve the explicit result URL, and skip entries without
 // a task id.
 func TestTaskAdaptorBatchBridge(t *testing.T) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/batch", r.URL.Path)
 		require.Equal(t, http.MethodPost, r.Method)
@@ -1245,7 +1246,7 @@ func TestTaskAdaptorBuildSubmitReceivesMappedUpstreamModel(t *testing.T) {
 // Polling has no relay info, so query hooks can only branch on the model when
 // the host forwards the persisted task identities from the fetch body.
 func TestTaskAdaptorFetchTaskExposesModelIdentities(t *testing.T) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	var requested string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requested = r.URL.RequestURI()
@@ -1297,7 +1298,7 @@ export function parseTaskResult(){return {status:"SUCCESS"}}
 }
 
 func TestTaskAdaptorQueryContextOmitsRequestBody(t *testing.T) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	var captured map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, common.DecodeJson(r.Body, &captured))
@@ -1369,7 +1370,7 @@ export function parseTaskResult(ctx, body, response){
 }
 
 func TestTaskAdaptorParseSubmitResponsePersistsState(t *testing.T) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"id":"upstream-1"}`))
 	}))
@@ -1402,7 +1403,7 @@ export function parseTaskResult(){return {status:"SUCCESS"}}
 }
 
 func TestTaskAdaptorBatchQueryReceivesTaskObjects(t *testing.T) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	var captured map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, common.DecodeJson(r.Body, &captured))
@@ -1441,7 +1442,7 @@ export function parseBatchResult(){return [];}
 }
 
 func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	source, err := plugins.Source("openrouter-video")
 	require.NoError(t, err)
 	plugin, err := pluginruntime.NewRegistry().RegisterFactory(source, pluginruntime.Options{Key: "openrouter-video"})

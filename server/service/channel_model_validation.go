@@ -2,6 +2,7 @@ package service
 
 import (
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+	textfilter "github.com/QuantumNous/new-api/pkg/textfilter"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
@@ -20,5 +21,5 @@ func ClassifyModelValidation(localErr error, apiErr *types.NewAPIError) (ModelLi
 	if apiErr != nil {
 		upstreamErr = apiErr
 	}
-	return domain.ClassifyModelValidation(localErr, upstreamErr, AcSearch)
+	return domain.ClassifyModelValidation(localErr, upstreamErr, textfilter.AcSearch)
 }

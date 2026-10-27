@@ -14,8 +14,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -201,7 +202,7 @@ func (s *stubTaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, 
 // body. net/http derives a correct snapshot-based GetBody from the
 // *bytes.Reader bodies the task adaptors pass in, and it must be left intact.
 func TestDoTaskApiRequest_KeepsReplayableGetBody(t *testing.T) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 
 	payload := []byte(`{"model":"test-model","prompt":"hello"}`)
 

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/QuantumNous/new-api/service"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -142,7 +142,7 @@ func popTaskArtifactAccessQuery(request *http.Request) (string, bool, bool) {
 	for part := range strings.SplitSeq(request.URL.RawQuery, "&") {
 		rawKey, rawValue, _ := strings.Cut(part, "=")
 		key, err := url.QueryUnescape(rawKey)
-		if err != nil || key != service.TaskArtifactAccessQueryParameter {
+		if err != nil || key != artifacts.TaskArtifactAccessQueryParameter {
 			kept = append(kept, part)
 			continue
 		}
@@ -196,7 +196,7 @@ func TokenOrTaskArtifactAccessAuth(taskParam, artifactParam string) gin.HandlerF
 		if ip == "" {
 			ip = "unknown"
 		}
-		if invalid || !service.VerifyTaskArtifactAccess(rawAccess, taskID, artifactKey) {
+		if invalid || !artifacts.VerifyTaskArtifactAccess(rawAccess, taskID, artifactKey) {
 			if !taskArtifactAnonymousLimiter.invalidAttempt(time.Now(), ip) {
 				writeTaskArtifactAccessLimited(c)
 				return

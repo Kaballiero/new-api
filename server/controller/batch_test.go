@@ -7,8 +7,9 @@ import (
 	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/batch"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -49,7 +50,7 @@ func TestBatchAdmissionFreezesFinalEnvelopeProvider(t *testing.T) {
 		settings.CustomCurrencyExchangeRate = previousExchangeRate
 	})
 	seedNativeRouteFX(t, db)
-	client := service.GetHttpClient()
+	client := httpclient.GetHttpClient()
 	if client == nil {
 		client = http.DefaultClient
 	}

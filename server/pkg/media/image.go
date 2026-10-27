@@ -1,0 +1,153 @@
+package media
+
+import (
+	"bytes"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"image"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
+	"golang.org/x/image/webp"
+)
+
+// return image.Config, format, clean base64 string, error
+func DecodeBase64ImageData(base64String string) (image.Config, string, string, error) {
+	// Remove a data URL prefix if present.
+	if idx := strings.Index(base64String, ","); idx != -1 {
+		base64String = base64String[idx+1:]
+	}
+
+	if len(base64String) == 0 {
+		return image.Config{}, "", "", errors.New("base64 string is empty")
+	}
+
+	// Decode the Base64 string into bytes.
+	decodedData, err := base64.StdEncoding.DecodeString(base64String)
+	if err != nil {
+		fmt.Println("Error: Failed to decode base64 string")
+		return image.Config{}, "", "", fmt.Errorf("failed to decode base64 string: %s", err.Error())
+	}
+
+	// Read the decoded image bytes.
+	reader := bytes.NewReader(decodedData)
+	config, format, err := getImageConfig(reader)
+	return config, format, base64String, err
+}
+
+func DecodeBase64FileData(base64String string) (string, string, error) {
+	var mimeType string
+	var idx int
+	idx = strings.Index(base64String, ",")
+	if idx == -1 {
+		_, file_type, base64, err := DecodeBase64ImageData(base64String)
+		return "image/" + file_type, base64, err
+	}
+	mimeType = base64String[:idx]
+	base64String = base64String[idx+1:]
+	idx = strings.Index(mimeType, ";")
+	if idx == -1 {
+		_, file_type, base64, err := DecodeBase64ImageData(base64String)
+		return "image/" + file_type, base64, err
+	}
+	mimeType = mimeType[:idx]
+	idx = strings.Index(mimeType, ":")
+	if idx == -1 {
+		_, file_type, base64, err := DecodeBase64ImageData(base64String)
+		return "image/" + file_type, base64, err
+	}
+	mimeType = mimeType[idx+1:]
+	return mimeType, base64String, nil
+}
+
+// GetImageFromUrl returns the image MIME type and Base64 data.
+func GetImageFromUrl(url string) (mimeType string, data string, err error) {
+	resp, err := httpclient.DoDownloadRequest(url)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to download image: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check HTTP status code
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("failed to download image: HTTP %d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "application/octet-stream" && !strings.HasPrefix(contentType, "image/") {
+		return "", "", fmt.Errorf("invalid content type: %s, required image/*", contentType)
+	}
+	maxImageSize := int64(constant.MaxFileDownloadMB * 1024 * 1024)
+
+	// Check Content-Length if available
+	if resp.ContentLength > maxImageSize {
+		return "", "", fmt.Errorf("image size %d exceeds maximum allowed size of %d bytes", resp.ContentLength, maxImageSize)
+	}
+
+	// Use LimitReader to prevent reading oversized images
+	limitReader := io.LimitReader(resp.Body, maxImageSize)
+	buffer := &bytes.Buffer{}
+
+	written, err := io.Copy(buffer, limitReader)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read image data: %w", err)
+	}
+	if written >= maxImageSize {
+		return "", "", fmt.Errorf("image size exceeds maximum allowed size of %d bytes", maxImageSize)
+	}
+
+	data = base64.StdEncoding.EncodeToString(buffer.Bytes())
+	mimeType = contentType
+
+	// Handle application/octet-stream type
+	if mimeType == "application/octet-stream" {
+		_, format, _, err := DecodeBase64ImageData(data)
+		if err != nil {
+			return "", "", err
+		}
+		mimeType = "image/" + format
+	}
+
+	return mimeType, data, nil
+}
+
+func getImageConfig(reader io.Reader) (image.Config, string, error) {
+	// Read all data so we can retry with different decoders
+	data, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		return image.Config{}, "", fmt.Errorf("failed to read image data: %w", readErr)
+	}
+
+	// Decode image headers to read dimensions.
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err == nil {
+		return config, format, nil
+	}
+	common.SysLog(fmt.Sprintf("fail to decode image config(gif, jpg, png): %s", err.Error()))
+
+	config, err = webp.DecodeConfig(bytes.NewReader(data))
+	if err == nil {
+		return config, "webp", nil
+	}
+	common.SysLog(fmt.Sprintf("fail to decode image config(webp): %s", err.Error()))
+
+	// Try HEIF/HEIC: parse ISOBMFF ispe box for dimensions
+	if heifMime := detectHEIF(data); heifMime != "" {
+		formatName := "heif"
+		if heifMime == "image/heic" {
+			formatName = "heic"
+		}
+		if w, h, ok := parseHEIFDimensions(data); ok {
+			return image.Config{Width: w, Height: h}, formatName, nil
+		}
+		return image.Config{}, "", fmt.Errorf("failed to decode HEIF/HEIC image dimensions")
+	}
+
+	return image.Config{}, "", err
+}

@@ -2,6 +2,7 @@ package create_batch
 
 import (
 	"errors"
+	"github.com/QuantumNous/new-api/gateway/tokenusage"
 	math "github.com/QuantumNous/new-api/internal/adapter/billing"
 	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
 	prices "github.com/QuantumNous/new-api/internal/adapter/settings/batch"
@@ -85,7 +86,7 @@ func TestBatchTokenEstimates(t *testing.T) {
 	} {
 		t.Run(tc.endpoint, func(t *testing.T) {
 			require.NoError(t, common.UnmarshalJsonStr(tc.body, tc.request))
-			want := CountTextToken(tc.request.GetTokenCountMeta().CombineText, "gpt-4o") + tc.framing + tc.output
+			want := tokenusage.CountTextToken(tc.request.GetTokenCountMeta().CombineText, "gpt-4o") + tc.framing + tc.output
 			for _, raw := range []string{tc.body, " \n" + strings.TrimSuffix(tc.body, "}") + `,"opaque_provider_extension":{"ignored":"` + strings.Repeat("x", 1000) + `"}}`} {
 				body := []byte(raw)
 				quota, err := testCreation().estimate(tokenAdmission{c: c, endpoint: tc.endpoint}, pureSnapshot(t, snapshot), body, tc.output)
@@ -101,7 +102,7 @@ func TestBatchTokenEstimates(t *testing.T) {
 	require.NoError(t, err)
 	var prepared dto.GeneralOpenAIRequest
 	require.NoError(t, common.Unmarshal(body, &prepared))
-	assert.Equal(t, CountTextToken(prepared.GetTokenCountMeta().CombineText, "gpt-4o")+16, quota, "estimate uses prepared overrides")
+	assert.Equal(t, tokenusage.CountTextToken(prepared.GetTokenCountMeta().CombineText, "gpt-4o")+16, quota, "estimate uses prepared overrides")
 	assert.Contains(t, string(body), `"temperature":0`)
 	assert.Contains(t, string(body), `"opaque":false`)
 	assert.Contains(t, string(body), `"model":"mapped"`)

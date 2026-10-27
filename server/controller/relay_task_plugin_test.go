@@ -14,8 +14,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay"
@@ -401,7 +403,7 @@ func TestExecuteTaskSubmissionAmbiguousOpenRouterAttemptUsesStandardRetryAndRefu
 				if disconnect {
 					cancel()
 				}
-				return nil, service.TaskErrorWrapper(errors.New("unknown paid submission outcome"), "do_request_failed", http.StatusBadGateway)
+				return nil, mapping.TaskErrorWrapper(errors.New("unknown paid submission outcome"), "do_request_failed", http.StatusBadGateway)
 			})
 			assert.Nil(t, outcome)
 			require.NotNil(t, taskErr)
@@ -462,7 +464,7 @@ func TestExecuteTaskSubmissionCallerCancellationDuringSubmitRefundsBeforeDurable
 		outcome, taskErr = executeTaskSubmissionWith(c, info, func(c *gin.Context, _ *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
 			close(submitStarted)
 			<-c.Request.Context().Done()
-			return nil, service.TaskErrorWrapperLocal(c.Request.Context().Err(), "do_request_failed", http.StatusInternalServerError)
+			return nil, mapping.TaskErrorWrapperLocal(c.Request.Context().Err(), "do_request_failed", http.StatusInternalServerError)
 		})
 	}()
 	select {
@@ -612,7 +614,7 @@ func TestExecuteOpenRouterSubmissionAccepts202BeforePersistingTask(t *testing.T)
 		_, _ = w.Write([]byte(`{"id":"accepted-job","status":"pending"}`))
 	}))
 	t.Cleanup(server.Close)
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	c := taskSubmissionTestContext()
 	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: plugin})
 	c.Set("group", "default")

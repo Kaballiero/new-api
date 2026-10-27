@@ -3,11 +3,11 @@ package billing
 import (
 	"github.com/QuantumNous/new-api/i18n"
 	notification "github.com/QuantumNous/new-api/internal/adapter/notifications"
+	payments "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
 	notificationdomain "github.com/QuantumNous/new-api/internal/notifications/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/service"
 )
 
 type Notification struct {
@@ -34,7 +34,7 @@ func (n Notification) Deliver(notice domain.Notice) error {
 	}
 	values := []any{title, logger.FormatQuota(notice.Remaining)}
 	if bodyKey == i18n.MsgBillingQuotaWarningHTML {
-		link := service.PaymentReturnURL("/wallet")
+		link := payments.PaymentReturnURL("/wallet")
 		values = append(values, link, link)
 	}
 	// Preserve the legacy template and Values wire contract, including the

@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/service"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +23,7 @@ func TestTaskArtifactAccessIsRedactedAndVerifiedBeforeHandler(t *testing.T) {
 	common.CryptoSecret = "task-artifact-middleware-secret"
 	t.Cleanup(func() { common.CryptoSecret = previousSecret })
 
-	access, err := service.IssueTaskArtifactAccess("task-1", "video-main")
+	access, err := artifacts.IssueTaskArtifactAccess("task-1", "video-main")
 	require.NoError(t, err)
 
 	router := gin.New()
@@ -32,7 +33,7 @@ func TestTaskArtifactAccessIsRedactedAndVerifiedBeforeHandler(t *testing.T) {
 		TokenOrTaskArtifactAccessAuth("key", "artifact_key"),
 		func(c *gin.Context) {
 			assert.True(t, IsTaskArtifactAccess(c))
-			assert.NotContains(t, c.Request.URL.RawQuery, service.TaskArtifactAccessQueryParameter)
+			assert.NotContains(t, c.Request.URL.RawQuery, artifacts.TaskArtifactAccessQueryParameter)
 			assert.Equal(t, "kept", c.Query("keep"))
 			c.Status(http.StatusNoContent)
 		},

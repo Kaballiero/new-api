@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/httpclient"
+
 	cl "github.com/QuantumNous/new-api/relay/channel/claude"
 	ge "github.com/QuantumNous/new-api/relay/channel/gemini"
 	oa "github.com/QuantumNous/new-api/relay/channel/openai"
@@ -11,7 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/tidwall/gjson"
 	"io"
@@ -289,7 +291,7 @@ func TestClientPrivacyJSONClassificationAndOpaqueFormats(t *testing.T) {
 func TestClientPrivacyRejectsAmbiguousMetadataBeforeFraming(t *testing.T) {
 	for _, body := range []string{"", " ", `{BROKEN`, `{"response":{"usage":{"cost":1},"us\u0061ge":{"cost":2}}}`, `{"data":{"data":{"usage":{"cost":1,"\u0063ost":2}}}}`, `{"result":{"usageMetadata":{"cost":1,"cost":2}}}`} {
 		c, recorder, _ := privacyRelayContext(t, "openai", false)
-		err := service.IOCopyBytesGracefully(c, nil, []byte(body))
+		err := httpclient.IOCopyBytesGracefully(c, nil, []byte(body))
 		require.Error(t, err)
 		assert.Equal(t, 502, recorder.Code)
 		assert.Empty(t, recorder.Body.String())

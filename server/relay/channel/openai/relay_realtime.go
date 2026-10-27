@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
@@ -16,7 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -102,7 +103,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					}
 				}
 
-				textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
+				textToken, audioToken, err := tokenusage.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
 				if err != nil {
 					readerErr = fmt.Errorf("error counting client text token: %w", err)
 					return
@@ -169,7 +170,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 						localUsage = dto.RealtimeUsage{}
 						localMu.Unlock()
 					} else {
-						textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
+						textToken, audioToken, err := tokenusage.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
 						if err != nil {
 							readerErr = fmt.Errorf("error counting target text token: %w", err)
 							return
@@ -201,7 +202,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 						info.OutputAudioFormat = common.GetStringIfEmpty(realtimeSession.OutputAudioFormat, info.OutputAudioFormat)
 					}
 				} else {
-					textToken, audioToken, err := service.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
+					textToken, audioToken, err := tokenusage.CountTokenRealtime(info, *realtimeEvent, info.UpstreamModelName)
 					if err != nil {
 						readerErr = fmt.Errorf("error counting target text token: %w", err)
 						return

@@ -9,7 +9,7 @@ import (
 	. "github.com/QuantumNous/new-api/internal/app/system"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	. "github.com/QuantumNous/new-api/internal/system/domain"
-	"github.com/QuantumNous/new-api/service"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 
 	"context"
 	"errors"
@@ -194,12 +194,12 @@ func (h harness) runBatchTickContract(t *testing.T, tc Case, updating bool) {
 	taskfixture.Open(t)
 	fixture.SplitLogs(t)
 	fixture.Migrate(t)
-	ginClient := service.GetHttpClient()
+	ginClient := httpclient.GetHttpClient()
 	if ginClient == nil {
-		service.InitHttpClient()
+		httpclient.InitHttpClient()
 	}
 	provider := fixture.NewProvider(t, tc.Family, tc.Variant)
-	client := service.GetHttpClient()
+	client := httpclient.GetHttpClient()
 	previous := client.Transport
 	client.Transport = &provider.Transport
 	t.Cleanup(func() { client.Transport = previous })

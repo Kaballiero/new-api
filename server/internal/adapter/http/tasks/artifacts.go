@@ -6,19 +6,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/service"
 )
 
 type ArtifactStorage struct{}
 
 func (ArtifactStorage) ContentURL(taskID, key string) (string, error) {
-	return service.BuildTaskArtifactContentURL(taskID, key)
+	return artifacts.BuildTaskArtifactContentURL(taskID, key)
 }
 func (ArtifactStorage) Resolve(task *domain.Task, key string) (*domain.StoredArtifactRef, error) {
-	ref, err := service.GetTaskArtifactStore().Resolve(record.FromDomain(task), key)
+	ref, err := artifacts.GetTaskArtifactStore().Resolve(record.FromDomain(task), key)
 	if ref == nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func (ArtifactStorage) Resolve(task *domain.Task, key string) (*domain.StoredArt
 	}, err
 }
 func (ArtifactStorage) Serve(c *gin.Context, task *domain.Task, ref *domain.StoredArtifactRef) error {
-	return service.GetTaskArtifactStore().Serve(c, record.FromDomain(task), &service.StoredArtifactRef{
+	return artifacts.GetTaskArtifactStore().Serve(c, record.FromDomain(task), &artifacts.StoredArtifactRef{
 		Backend:   ref.Backend,
 		Bucket:    ref.Bucket,
 		ObjectKey: ref.ObjectKey,

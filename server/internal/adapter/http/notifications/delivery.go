@@ -13,13 +13,13 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/notifications/domain"
-	"github.com/QuantumNous/new-api/service"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 )
 
 type Delivery struct {
 	WorkerEnabled func() bool
 	WorkerKey     func() string
-	Worker        func(*service.WorkerRequest) (*http.Response, error)
+	Worker        func(*httpclient.WorkerRequest) (*http.Response, error)
 	Validate      func(string) error
 	Client        func() *http.Client
 }
@@ -46,7 +46,7 @@ func (d Delivery) Bark(barkURL string, data domain.Notice) error {
 	var err error
 
 	if d.WorkerEnabled() {
-		workerReq := &service.WorkerRequest{
+		workerReq := &httpclient.WorkerRequest{
 			URL:    finalURL,
 			Key:    d.WorkerKey(),
 			Method: http.MethodGet,
@@ -124,7 +124,7 @@ func (d Delivery) Gotify(gotifyUrl string, gotifyToken string, priority int, dat
 	var resp *http.Response
 
 	if d.WorkerEnabled() {
-		workerReq := &service.WorkerRequest{
+		workerReq := &httpclient.WorkerRequest{
 			URL:    finalURL,
 			Key:    d.WorkerKey(),
 			Method: http.MethodPost,
@@ -209,7 +209,7 @@ func (d Delivery) Webhook(webhookURL string, secret string, data domain.Notice) 
 	var resp *http.Response
 
 	if d.WorkerEnabled() {
-		workerReq := &service.WorkerRequest{
+		workerReq := &httpclient.WorkerRequest{
 			URL:    webhookURL,
 			Key:    d.WorkerKey(),
 			Method: http.MethodPost,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"io"
 	"math"
 	"net/http"
@@ -21,7 +22,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/shopspring/decimal"
@@ -156,7 +157,7 @@ func GetResponseBody(method, url string, channel *model.Channel, headers http.He
 	for k := range headers {
 		req.Header.Add(k, headers.Get(k))
 	}
-	client, err := service.GetHttpClientWithProxy(channel.GetSetting().Proxy)
+	client, err := httpclient.GetHttpClientWithProxy(channel.GetSetting().Proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +392,7 @@ func FetchAdvancedCustomBalance(channel *model.Channel) (BalanceResult, error) {
 			request.Host = headers.Get(name)
 		}
 	}
-	client, err := service.GetHttpClientWithProxy(channel.GetSetting().Proxy)
+	client, err := httpclient.GetHttpClientWithProxy(channel.GetSetting().Proxy)
 	if err != nil {
 		return BalanceResult{}, SanitizeFetchModelsError(err, key)
 	}

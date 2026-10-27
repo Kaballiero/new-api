@@ -19,9 +19,9 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/batch"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
 )
 
 func doBatchRequest(ctx context.Context, job *domain.Job, request batch.Request, body io.Reader, contentType string) (*http.Response, error) {
@@ -48,7 +48,7 @@ func doBatchRequest(ctx context.Context, job *domain.Job, request batch.Request,
 		return nil, errors.New("batch credential changed; reconciliation required")
 	}
 	settings := channel.GetSetting()
-	client, err := service.GetHttpClientWithProxySettings(settings.Proxy, settings)
+	client, err := httpclient.GetHttpClientWithProxySettings(settings.Proxy, settings)
 	if err != nil {
 		return nil, err
 	}

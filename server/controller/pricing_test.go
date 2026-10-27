@@ -10,6 +10,7 @@ import (
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	pricinghttp "github.com/QuantumNous/new-api/internal/pricing/transport"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"io"
 	"math"
 	"net/http"
@@ -1069,7 +1070,7 @@ func (transport pricingCatalogTestTransport) RoundTrip(request *http.Request) (*
 }
 
 func TestPricingCatalogFetchUsesBoundedMetadataAndConsumerDoesNoHTTP(t *testing.T) {
-	client := service.GetHttpClient()
+	client := httpclient.GetHttpClient()
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -1331,7 +1332,7 @@ func TestPricingCatalogSourceJobsUseNativeCapabilitiesAndExactBatch(t *testing.T
 	}
 	model.InitChannelCache()
 	model.RefreshPricing()
-	client := service.GetHttpClient()
+	client := httpclient.GetHttpClient()
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -1957,7 +1958,7 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	require.NoError(t, db.Create(channel).Error)
 	require.NoError(t, db.Create(&model.Ability{Group: "default", Model: "provider/model", ChannelId: channel.Id, Enabled: true}).Error)
 	require.NoError(t, db.Create(&model.Model{ModelName: "provider/model", Tags: "top text", Status: 1, NameRule: model.NameRuleExact}).Error)
-	client := service.GetHttpClient()
+	client := httpclient.GetHttpClient()
 	if client == nil {
 		client = http.DefaultClient
 	}

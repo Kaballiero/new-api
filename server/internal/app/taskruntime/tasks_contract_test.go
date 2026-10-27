@@ -28,6 +28,7 @@ import (
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
@@ -695,7 +696,7 @@ func (p *syncContractTransport) RoundTrip(r *http.Request) (*http.Response, erro
 }
 
 func runSyncMetadataContract(t *testing.T, tc taskTickCase, updating bool) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	synctest.Test(t, func(t *testing.T) {
 		db := fixture.Open(t)
 		require.NoError(t, db.Create(&model.User{Id: 1, Username: "sync-user", Quota: 10000, Group: "default", Status: 1}).Error)
@@ -768,7 +769,7 @@ func runSyncMetadataContract(t *testing.T, tc taskTickCase, updating bool) {
 		}
 		require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }).UpdateOpenRouterSync(task, state.Revision))
 		transport := &syncContractTransport{tc: tc, t: t, calls: []map[string]any{}}
-		service.GetHttpClient().Transport = transport
+		httpclient.GetHttpClient().Transport = transport
 		constant.TaskQueryLimit, constant.TaskTimeoutMinutes = 100, 0
 		for range 2 {
 			summary := RunTaskPollingOnce(t.Context(), nil)

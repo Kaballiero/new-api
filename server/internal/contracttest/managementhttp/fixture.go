@@ -9,10 +9,12 @@ import (
 	"testing/synctest"
 
 	"github.com/QuantumNous/new-api/common"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	f "github.com/QuantumNous/new-api/internal/contracttest/managementfixture"
 	tf "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/stretchr/testify/require"
 )
@@ -31,8 +33,8 @@ func Run(t *testing.T, relay bool, execute func(*testing.T, *Fixture) any) any {
 	tf.Configure()
 	common.StartTime = tf.Epoch
 	common.OptionMap = map[string]string{}
-	service.InitHttpClient()
-	service.GetChannelAffinityCacheStats()
+	httpclient.InitHttpClient()
+	routing.GetChannelAffinityCacheStats()
 	model.InvalidateSubscriptionPlanCache(1)
 	identities := map[string]service.AuthIdentity{}
 	for actor, token := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {

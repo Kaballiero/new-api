@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	hostdto "github.com/QuantumNous/new-api/dto"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	math "github.com/QuantumNous/new-api/internal/adapter/billing"
 	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
 	core "github.com/QuantumNous/new-api/internal/app/batch"
@@ -24,7 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/batch/prepare_batch"
 	"github.com/QuantumNous/new-api/internal/batch/recover_batch_identity"
 	systemdomain "github.com/QuantumNous/new-api/internal/system/domain"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -56,7 +57,7 @@ func New() Runtime {
 		Poll: core.NewPolling(native, kinds()), Recovery: recover_batch_identity.NewHandler(recovery),
 		Prepare: prepare_batch.NewHandler(prepare_batch.NewUsecase(store, gateway.Validation{},
 			math.BatchCodec{}, common.GetRandomString), func(c *gin.Context, endpoint string) {
-			service.GetChannelConstraints(c).AddFilter(hostdto.ChannelFilter{Kind: hostdto.FilterBatchEndpoint, BatchEndpoint: endpoint})
+			routing.GetChannelConstraints(c).AddFilter(hostdto.ChannelFilter{Kind: hostdto.FilterBatchEndpoint, BatchEndpoint: endpoint})
 		}),
 		Create: create_batch.NewHandler(core.NewCreation(gateway.AdmissionGateway{}, gateway.Validation{})),
 		Get:    get_own_batch.NewHandler(store), List: list_own_batches.NewHandler(list_own_batches.NewUsecase(store)),

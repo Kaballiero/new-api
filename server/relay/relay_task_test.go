@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,7 @@ import (
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -126,7 +127,7 @@ func TestRelayTaskSubmitDoesNotApplyMappingTwice(t *testing.T) {
 func TestRelayTaskSubmitEmptyOriginKeepsLateMapping(t *testing.T) {
 	plugin, err := pluginruntime.NewRegistry().Register(mappingOrderSubmitPlugin, pluginruntime.Options{})
 	require.NoError(t, err)
-	synthesized := service.CoverTaskActionToModelName(constant.TaskPlatform(plugin.Meta.Key), "text_to_video")
+	synthesized := mapping.CoverTaskActionToModelName(constant.TaskPlatform(plugin.Meta.Key), "text_to_video")
 	c, info := newTaskSubmitContext(t, "pre-validate-upstream",
 		`{"pre-validate-upstream":"should-not-apply-early","`+synthesized+`":"legacy-tail"}`)
 	c.Set(pluginruntime.ContextKeyPinnedPlugin, pluginruntime.PinnedPlugin{Plugin: plugin})

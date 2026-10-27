@@ -20,11 +20,12 @@ import (
 	taskruntime "github.com/QuantumNous/new-api/internal/app/taskruntime"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
@@ -39,7 +40,7 @@ export function buildContentRequest(ctx){const item=(ctx.data.artifacts||[]).fin
 `
 
 func TestDocumentPluginRunsGenericBatchArtifactChain(t *testing.T) {
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	originalDB := model.DB
 	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)

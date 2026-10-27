@@ -1,7 +1,9 @@
 package relay
 
 import (
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
+	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,9 +12,8 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +43,7 @@ func TestOptInSafeToolLossRejectedAsBadRequestWithAdminDiagnostics(t *testing.T)
 		Tools: tools,
 	}
 
-	result, convErr := service.ConvertRequest(c, info, types.RelayFormatOpenAI, req)
+	result, convErr := mapping.ConvertRequest(c, info, types.RelayFormatOpenAI, req)
 	require.Error(t, convErr)
 	var loss *types.ConversionLossError
 	require.ErrorAs(t, convErr, &loss)

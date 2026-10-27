@@ -2,6 +2,7 @@ package service
 
 import (
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+	textfilter "github.com/QuantumNous/new-api/pkg/textfilter"
 
 	"github.com/QuantumNous/new-api/common"
 
@@ -10,7 +11,7 @@ import (
 )
 
 func channelFailurePolicy() domain.FailurePolicy {
-	return domain.FailurePolicy{DisableEnabled: func() bool { return common.AutomaticDisableChannelEnabled }, EnableEnabled: func() bool { return common.AutomaticEnableChannelEnabled }, DisableStatus: operation_setting.ShouldDisableByStatusCode, Keywords: func() []string { return operation_setting.AutomaticDisableKeywords }, Search: AcSearch}
+	return domain.FailurePolicy{DisableEnabled: func() bool { return common.AutomaticDisableChannelEnabled }, EnableEnabled: func() bool { return common.AutomaticEnableChannelEnabled }, DisableStatus: operation_setting.ShouldDisableByStatusCode, Keywords: func() []string { return operation_setting.AutomaticDisableKeywords }, Search: textfilter.AcSearch}
 }
 
 // channelFailure describes a gateway error for the channel failure policy.

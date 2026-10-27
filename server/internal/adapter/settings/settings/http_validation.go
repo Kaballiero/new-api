@@ -4,10 +4,11 @@ import (
 	"sort"
 
 	"github.com/QuantumNous/new-api/common"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	"github.com/QuantumNous/new-api/internal/settings/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
@@ -19,7 +20,7 @@ import (
 
 func (Validation) ComplianceConfirmed() bool { return operation_setting.IsPaymentComplianceConfirmed() }
 func (Validation) TaskPublicAddress(value string) error {
-	return service.ValidateTaskArtifactBaseURL(value)
+	return artifacts.ValidateTaskArtifactBaseURL(value)
 }
 func (Validation) RequirementSatisfied(key string) bool {
 	switch key {

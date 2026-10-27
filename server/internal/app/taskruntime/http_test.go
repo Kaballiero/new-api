@@ -17,6 +17,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	"github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
 	gormtasks "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
@@ -25,7 +26,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/tasks/transport"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/types"
 )
@@ -67,7 +69,7 @@ func allowPrivateTaskMediaTest(t *testing.T) {
 	system_setting.GetFetchSetting().AllowPrivateIp = true
 	system_setting.GetFetchSetting().AllowedPorts = []string{"1-65535"}
 	t.Cleanup(func() { *system_setting.GetFetchSetting() = originalFetchSetting })
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 }
 
 func TestGetTaskDoesNotProjectArtifacts(t *testing.T) {
@@ -183,8 +185,8 @@ func TestDashboardTaskArtifactsReturnsLegacyCapabilityWithoutUpstreamURL(t *test
 	contentURL, err := url.Parse(response.Data.LegacyContentURL)
 	require.NoError(t, err)
 	assert.Equal(t, "/prefix/v1/tasks/"+task.TaskID+"/artifacts/video/content", contentURL.Path)
-	assert.True(t, service.VerifyTaskArtifactAccess(
-		contentURL.Query().Get(service.TaskArtifactAccessQueryParameter),
+	assert.True(t, artifacts.VerifyTaskArtifactAccess(
+		contentURL.Query().Get(artifacts.TaskArtifactAccessQueryParameter),
 		task.TaskID,
 		"video",
 	))
@@ -323,7 +325,7 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 		},
 	}})
 	require.NoError(t, model.DB.Save(task).Error)
-	require.False(t, service.GetTaskArtifactStore().Enabled())
+	require.False(t, artifacts.GetTaskArtifactStore().Enabled())
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -368,17 +370,17 @@ func TestOpenRouterSyncWithoutStoredResultDoesNotAdvertiseArtifacts(t *testing.T
 func TestOpenRouterAudioArtifactsRemainAccessibleWhileBillingUnresolved(t *testing.T) {
 	task := setupGenericTaskTest(t)
 	// Registered first: restore the startup backend after t.Setenv restores env.
-	t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+	t.Cleanup(func() { require.NoError(t, artifacts.InitTaskArtifactStore()) })
 	root := t.TempDir()
 	require.NoError(t, os.Chmod(root, 0700))
 	t.Setenv(system_setting.TaskArtifactStoreModeEnv, system_setting.TaskArtifactStoreModeFilesystem)
 	t.Setenv(system_setting.TaskArtifactStoreRootEnv, root)
-	require.NoError(t, service.InitTaskArtifactStore())
+	require.NoError(t, artifacts.InitTaskArtifactStore())
 	previousSecret := common.CryptoSecret
 	common.CryptoSecret = "audio-artifact-access-fixture"
 	t.Cleanup(func() { common.CryptoSecret = previousSecret })
 	payload := "persisted audio"
-	ref, err := service.GetTaskArtifactStore().Persist(t.Context(), task, types.TaskArtifact{Key: "result", Type: "audio", MimeType: "audio/pcm"}, strings.NewReader(payload))
+	ref, err := artifacts.GetTaskArtifactStore().Persist(t.Context(), task, types.TaskArtifact{Key: "result", Type: "audio", MimeType: "audio/pcm"}, strings.NewReader(payload))
 	require.NoError(t, err)
 	task.PrivateData.OpenRouterAudio = &model.OpenRouterAudioTask{ResultReady: true, ResultMimeType: ref.MimeType, ResultSize: ref.Size, ResultSHA256: ref.SHA256}
 	// A stale upstream URL must never be used to serve a host-owned result.

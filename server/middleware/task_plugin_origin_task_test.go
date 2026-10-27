@@ -12,12 +12,13 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	appI18n "github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -81,7 +82,7 @@ func originTaskTestContext(userID int) *gin.Context {
 }
 
 func resolvedOriginPin(c *gin.Context) (int, bool) {
-	pin, found, _ := service.GetChannelConstraints(c).ResolvedPin()
+	pin, found, _ := routing.GetChannelConstraints(c).ResolvedPin()
 	if !found {
 		return 0, false
 	}
@@ -389,7 +390,7 @@ func TestDistributeHonorsOriginTaskChannelPin(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/vendor/jobs", strings.NewReader(`{}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("resolved_task_model", "resolved-model")
-	service.GetChannelConstraints(c).AddPin(dto.ChannelPin{
+	routing.GetChannelConstraints(c).AddPin(dto.ChannelPin{
 		ChannelId: channel.Id,
 		Source:    dto.PinSourceOriginTask,
 		Rank:      dto.PinRankOriginTask,
@@ -422,7 +423,7 @@ func TestDistributeTokenPinBeatsOriginPin(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/vendor/jobs", strings.NewReader(`{}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("resolved_task_model", "resolved-model")
-	constraints := service.GetChannelConstraints(c)
+	constraints := routing.GetChannelConstraints(c)
 	constraints.AddPin(dto.ChannelPin{
 		ChannelId: tokenChannel.Id,
 		Source:    dto.PinSourceToken,
@@ -460,7 +461,7 @@ func TestDistributePinViolatingIdentityFilterErrors(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("resolved_task_model", "resolved-model")
 	c.Set("expected_task_plugin_key", "alpha")
-	service.GetChannelConstraints(c).AddPin(dto.ChannelPin{
+	routing.GetChannelConstraints(c).AddPin(dto.ChannelPin{
 		ChannelId: channel.Id,
 		Source:    dto.PinSourceOriginTask,
 		Rank:      dto.PinRankOriginTask,
@@ -488,7 +489,7 @@ func TestApplyChannelPinLocksOnlySameChannelRetry(t *testing.T) {
 	assert.Equal(t, channel.Id, locked.Id)
 
 	tokenOnly := originTaskTestContext(7)
-	service.GetChannelConstraints(tokenOnly).AddPin(dto.ChannelPin{
+	routing.GetChannelConstraints(tokenOnly).AddPin(dto.ChannelPin{
 		ChannelId: channel.Id,
 		Source:    dto.PinSourceToken,
 		Rank:      dto.PinRankToken,

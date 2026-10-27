@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/QuantumNous/new-api/i18n"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
 	"net/http"
 	"strings"
@@ -29,7 +30,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
 	"github.com/QuantumNous/new-api/relay/taskview"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -75,7 +76,7 @@ func defaultPluginProtocolBridgeDeps() pluginProtocolBridgeDeps {
 		now:                time.Now,
 		admissions:         pluginsruntime.ObservationAdmissions(),
 		protocolLimits:     relay.DefaultPluginProtocolLimits(),
-		artifactContentURL: service.BuildTaskArtifactContentURL,
+		artifactContentURL: artifacts.BuildTaskArtifactContentURL,
 		submissionTimeout:  timeout,
 		observationTimeout: timeout,
 		loadTimeout:        loadTimeout,

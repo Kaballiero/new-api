@@ -12,9 +12,10 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 )
@@ -113,7 +114,7 @@ func EstimateVideo(c *gin.Context, info *relaycommon.RelayInfo, body []byte) (fl
 	for key, value := range overrides {
 		req.Header.Set(key, value)
 	}
-	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	client, err := httpclient.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return 0, errors.New("OpenRouter reservation unavailable: video discovery transport")
 	}

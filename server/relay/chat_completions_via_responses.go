@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/relay/channel"
 	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -16,7 +17,6 @@ import (
 	"github.com/QuantumNous/new-api/relay/provider"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -107,7 +107,7 @@ func textRequestViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adapto
 		request = &overriddenChatReq
 	}
 
-	result, err := service.ConvertRequest(c, info, types.RelayFormatOpenAIResponses, request)
+	result, err := mapping.ConvertRequest(c, info, types.RelayFormatOpenAIResponses, request)
 	if err != nil {
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
@@ -185,15 +185,15 @@ func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 	upstreamStream := isResponsesEventStreamContentType(httpResp.Header.Get("Content-Type"))
 	info.IsStream = clientStream || upstreamStream
 	if httpResp.StatusCode != http.StatusOK {
-		newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
-		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+		newApiErr := mapping.RelayErrorHandler(c.Request.Context(), httpResp, false)
+		mapping.ResetStatusCode(newApiErr, statusCodeMappingStr)
 		return nil, newApiErr
 	}
 
 	if upstreamStream && clientStream {
 		usage, newApiErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
 		if newApiErr != nil {
-			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+			mapping.ResetStatusCode(newApiErr, statusCodeMappingStr)
 			return nil, newApiErr
 		}
 		return usage, nil
@@ -202,7 +202,7 @@ func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 		info.IsStream = false
 		usage, newApiErr := openaichannel.OaiResponsesToChatBufferedStreamHandler(c, info, httpResp)
 		if newApiErr != nil {
-			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+			mapping.ResetStatusCode(newApiErr, statusCodeMappingStr)
 			return nil, newApiErr
 		}
 		return usage, nil
@@ -210,7 +210,7 @@ func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 
 	usage, newApiErr := openaichannel.OaiResponsesToChatHandler(c, info, httpResp)
 	if newApiErr != nil {
-		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+		mapping.ResetStatusCode(newApiErr, statusCodeMappingStr)
 		return nil, newApiErr
 	}
 	return usage, nil

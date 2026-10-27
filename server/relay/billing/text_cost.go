@@ -7,13 +7,14 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/QuantumNous/new-api/constant"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/internal/billing/calculate_text_cost"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 )
 
 func (g *Gateway) TextCost(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage) TextCostSummary {
@@ -129,9 +130,9 @@ func (g *Gateway) PostText(c *gin.Context, info *relaycommon.RelayInfo, usage *d
 	if relaycommon.HasOpenRouterSyncTask(info) {
 		return
 	}
-	effective := service.EffectiveBillingUsage(usage)
+	effective := tokenusage.EffectiveBillingUsage(usage)
 	if usage != nil {
-		service.ObserveChannelAffinityUsageCacheByRelayFormat(c, effective, info.GetFinalRequestRelayFormat())
+		routing.ObserveChannelAffinityUsageCacheByRelayFormat(c, effective, info.GetFinalRequestRelayFormat())
 	}
 	elapsed := time.Now().Unix() - info.StartTime.Unix()
 	summary := g.TextCost(c, info, effective)

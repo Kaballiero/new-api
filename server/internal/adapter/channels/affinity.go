@@ -1,11 +1,13 @@
 package channels
 
-import "github.com/QuantumNous/new-api/service"
+import (
+	routing "github.com/QuantumNous/new-api/gateway/routing"
+)
 
 type AffinityCache struct{}
 
 func NewAffinityCache() AffinityCache { return AffinityCache{} }
-func (AffinityCache) ClearAll() int   { return service.ClearChannelAffinityCacheAll() }
+func (AffinityCache) ClearAll() int   { return routing.ClearChannelAffinityCacheAll() }
 func (AffinityCache) ClearRule(rule string) (int, error) {
-	return service.ClearChannelAffinityCacheByRuleName(rule)
+	return routing.ClearChannelAffinityCacheByRuleName(rule)
 }

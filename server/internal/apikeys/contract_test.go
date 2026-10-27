@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -108,7 +109,7 @@ func TestGatewayCredentialHTTPContract(t *testing.T) {
 	var lastContext map[string]any
 	capture := func(c *gin.Context) { c.Next(); lastContext = contextValues(c) }
 	snapshot := func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"context": contextValues(c), "constraints": service.GetChannelConstraints(c)})
+		c.JSON(http.StatusOK, gin.H{"context": contextValues(c), "constraints": routing.GetChannelConstraints(c)})
 	}
 	for _, path := range []string{"/v1/models", "/v1/messages", "/v1beta/models/gemini", "/mj/auth-contract"} {
 		env.Route(http.MethodGet, path, capture, middleware.TokenAuth(), snapshot)

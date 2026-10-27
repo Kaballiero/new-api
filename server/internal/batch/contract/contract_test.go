@@ -22,6 +22,7 @@ import (
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -387,9 +388,9 @@ func runBatchHTTP(t *testing.T, tc batchCase, updating bool) {
 		require.NoError(t, env.DB.Model(&model.User{}).Where("id=?", id).Update("access_token", pat).Error)
 	}
 	env.MountRelay()
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	provider := fixture.NewProvider(t, tc.Family, "")
-	service.GetHttpClient().Transport = &provider.Transport
+	httpclient.GetHttpClient().Transport = &provider.Transport
 	synctest.Test(t, func(t *testing.T) {
 		require.Equal(t, taskfixture.Epoch, time.Now().Unix())
 		taskfixture.AssertDBClock(t)

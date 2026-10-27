@@ -22,18 +22,20 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	"github.com/QuantumNous/new-api/internal/app/taskruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -85,7 +87,7 @@ func (b *nativeRouteBilling) Reserve(quota int) error {
 
 func TestKlingNativeRouteSubmitPollSettleAndQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 
 	previousDB := model.DB
 	previousLogDB := model.LOG_DB
@@ -324,7 +326,7 @@ func TestGetChannelRecomposesRetainedFXForSelectedTieredGroupTransitions(t *test
 				TieredBillingSnapshot: &billingexpr.BillingSnapshot{BillingMode: billing_setting.BillingModeTieredExpr, GroupRatio: testCase.initialGroup * .9, EstimatedQuotaBeforeGroup: 100, EstimatedQuotaAfterGroup: int(testCase.initialGroup * 90)},
 			}
 			retry := 0
-			channel, channelErr := getChannel(c, info, &service.RetryParam{Ctx: c, TokenGroup: "auto", ModelName: "routing-fx-model", RequestPath: c.Request.URL.Path, Retry: &retry})
+			channel, channelErr := getChannel(c, info, &routing.RetryParam{Ctx: c, TokenGroup: "auto", ModelName: "routing-fx-model", RequestPath: c.Request.URL.Path, Retry: &retry})
 			if channelErr != nil {
 				t.Fatal(channelErr.Error())
 			}
@@ -489,7 +491,7 @@ func (b *nativeRouteBilling) eventsToReservationTargets() []int {
 
 func TestMidjourneyAndSwapFaceCaptureFXBeforeUpstreamAndKeepSavedRefund(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	database := setupRoutingRetryTestDatabase(t, "default", 1)
 	previousLogDB := model.LOG_DB
 	model.LOG_DB = database

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/go-redis/redis/v8"
 	"net"
 	"net/http"
 	"net/textproto"
@@ -22,12 +23,13 @@ import (
 	"testing/synctest"
 	"time"
 
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	notificationadapter "github.com/QuantumNous/new-api/internal/adapter/notifications"
 	redisnotification "github.com/QuantumNous/new-api/internal/adapter/redis/notifications"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
 	"github.com/QuantumNous/new-api/internal/app/notifications"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
-	"github.com/QuantumNous/new-api/service"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -38,7 +40,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -93,8 +95,8 @@ func runNotification(t *testing.T, name string) any {
 	common.IsMasterNode = true
 	require.NoError(t, model.InitDB())
 	require.NoError(t, model.InitLogDB())
-	service.InitHttpClient()
-	service.GetChannelAffinityCacheStats()
+	httpclient.InitHttpClient()
+	routing.GetChannelAffinityCacheStats()
 	// Delivery cases characterize the limiter separately; its original janitor is outside the virtual clock.
 	if name != "memory_cleanup_loop" {
 		notificationadapter.CleanupOnce.Do(notificationadapter.StartCleanupTask)
@@ -122,8 +124,8 @@ func runNotification(t *testing.T, name string) any {
 			GotifyUrl: "https://notify.invalid/", GotifyToken: "fixture-gotify-token", GotifyPriority: 0,
 			Language: "zh-CN"}
 
-		service.GetHttpClient().Transport = transport
-		service.GetSSRFProtectedHTTPClient().Transport = transport
+		httpclient.GetHttpClient().Transport = transport
+		httpclient.GetSSRFProtectedHTTPClient().Transport = transport
 		var logs bytes.Buffer
 		oldWriter, oldErrorWriter := gin.DefaultWriter, gin.DefaultErrorWriter
 		common.LogWriterMu.Lock()

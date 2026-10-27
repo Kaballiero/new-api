@@ -4,9 +4,11 @@ import (
 	"context"
 	"time"
 
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
 	"github.com/QuantumNous/new-api/internal/app/notifications"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -141,8 +143,8 @@ type ChannelsHTTP struct {
 
 type channelProxyCache struct{}
 
-func (channelProxyCache) Reset()                  { service.ResetProxyClientCache() }
-func (channelProxyCache) Invalidate(proxy string) { service.InvalidateProxyClient(proxy) }
+func (channelProxyCache) Reset()                  { httpclient.ResetProxyClientCache() }
+func (channelProxyCache) Invalidate(proxy string) { httpclient.InvalidateProxyClient(proxy) }
 
 func canChannel(c *gin.Context, permission authz.Permission) func() bool {
 	return func() bool { return authz.Can(c.GetInt("id"), c.GetInt("role"), permission) }
@@ -165,12 +167,12 @@ func NewChannelsHTTP(effects ChannelEffects) ChannelsHTTP {
 			})
 		}),
 		DeleteDisabledChannels: delete_disabled_channels.NewHTTP(func(c *gin.Context) delete_disabled_channels.Usecase {
-			return delete_disabled_channels.NewUsecase(repository.NewStore(), effects.Refresh, service.ResetProxyClientCache, func(count int64) {
+			return delete_disabled_channels.NewUsecase(repository.NewStore(), effects.Refresh, httpclient.ResetProxyClientCache, func(count int64) {
 				effects.Audit(c, "channel.delete_disabled", map[string]any{"count": count})
 			})
 		}),
 		DeleteChannelsBatch: delete_channels_batch.NewHTTP(func(c *gin.Context) delete_channels_batch.Usecase {
-			return delete_channels_batch.NewUsecase(repository.NewStore(), effects.Refresh, service.ResetProxyClientCache, func(count int64) {
+			return delete_channels_batch.NewUsecase(repository.NewStore(), effects.Refresh, httpclient.ResetProxyClientCache, func(count int64) {
 				effects.Audit(c, "channel.delete_batch", map[string]any{"count": count})
 			})
 		}),
@@ -227,7 +229,7 @@ func NewChannelsHTTP(effects ChannelEffects) ChannelsHTTP {
 			return copy_channel.NewUsecase(repository.NewStore(), canChannel(c, authz.TaskPluginBind), common.GetTimestamp, common.SysError, effects.Refresh, audit(c, "channel.copy"))
 		}),
 		UpdateChannel: update_channel.NewHTTP(func(c *gin.Context) update_channel.Usecase {
-			return update_channel.NewUsecase(repository.NewStore(), channeladapter.ChannelPatchCodec{}, canChannel(c, authz.TaskPluginBind), canChannel(c, authz.ChannelSensitiveWrite), service.NormalizeProxyURL, effects.Refresh, service.InvalidateProxyClient, audit(c, "channel.update"))
+			return update_channel.NewUsecase(repository.NewStore(), channeladapter.ChannelPatchCodec{}, canChannel(c, authz.TaskPluginBind), canChannel(c, authz.ChannelSensitiveWrite), httpclient.NormalizeProxyURL, effects.Refresh, httpclient.InvalidateProxyClient, audit(c, "channel.update"))
 		}),
 		PullOllamaModel: pull_ollama_model.NewHTTP(func(*gin.Context) pull_ollama_model.Usecase {
 			return pull_ollama_model.NewUsecase(repository.NewStore(), channeladapter.NewOllama())
@@ -280,10 +282,10 @@ func NewChannelsHTTP(effects ChannelEffects) ChannelsHTTP {
 		ListChannelModels:        list_channel_models.NewHTTP(list_channel_models.NewUsecase(effects.ChannelListModels)),
 		ListEnabledChannelModels: list_enabled_channel_models.NewHTTP(list_enabled_channel_models.NewUsecase(model.GetEnabledModels)),
 		GetAffinityCacheStats: get_affinity_cache_stats.NewHTTP(get_affinity_cache_stats.NewUsecase(func() get_affinity_cache_stats.Output {
-			return get_affinity_cache_stats.Output(service.GetChannelAffinityCacheStats())
+			return get_affinity_cache_stats.Output(routing.GetChannelAffinityCacheStats())
 		})),
 		GetAffinityUsageStats: get_affinity_usage_stats.NewHTTP(get_affinity_usage_stats.NewUsecase(func(rule, group, key string) get_affinity_usage_stats.Output {
-			return get_affinity_usage_stats.Output(service.GetChannelAffinityUsageCacheStats(rule, group, key))
+			return get_affinity_usage_stats.Output(routing.GetChannelAffinityUsageCacheStats(rule, group, key))
 		})),
 		ClearAffinityCache: clear_affinity_cache.NewHTTP(clear_affinity_cache.NewUsecase(channeladapter.NewAffinityCache())),
 		ApplyUpstreamModels: apply_upstream_model_updates.NewHTTP(func(c *gin.Context) apply_upstream_model_updates.Usecase {

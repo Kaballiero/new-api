@@ -11,7 +11,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/notifications/notify_model_update_watchers"
 	"github.com/QuantumNous/new-api/internal/notifications/notify_root_user"
 	"github.com/QuantumNous/new-api/internal/notifications/send_notification"
-	"github.com/QuantumNous/new-api/service"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
@@ -22,7 +23,7 @@ type runtime struct {
 }
 
 var assembled = sync.OnceValue(func() runtime {
-	transport := delivery.Delivery{WorkerEnabled: system_setting.EnableWorker, WorkerKey: func() string { return system_setting.WorkerValidKey }, Worker: service.DoWorkerRequest, Validate: service.ValidateSSRFProtectedFetchURL, Client: service.GetSSRFProtectedHTTPClient}
+	transport := delivery.Delivery{WorkerEnabled: system_setting.EnableWorker, WorkerKey: func() string { return system_setting.WorkerValidKey }, Worker: httpclient.DoWorkerRequest, Validate: httpclient.ValidateSSRFProtectedFetchURL, Client: httpclient.GetSSRFProtectedHTTPClient}
 	send := send_notification.NewUsecase(checkNotificationLimit, transport, common.SysLog)
 	recipients := accountsadapter.NotificationRecipients{}
 	return runtime{send: send, root: notify_root_user.NewUsecase(recipients.Root, send.Execute, common.SysLog), watchers: notify_model_update_watchers.NewUsecase(recipients.Watchers, send.Execute, common.SysLog)}

@@ -29,6 +29,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/logger"
@@ -1370,10 +1371,10 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 	})
 	root := t.TempDir()
 	require.NoError(t, os.Chmod(root, 0700))
-	t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+	t.Cleanup(func() { require.NoError(t, artifacts.InitTaskArtifactStore()) })
 	t.Setenv(system_setting.TaskArtifactStoreModeEnv, "filesystem")
 	t.Setenv(system_setting.TaskArtifactStoreRootEnv, root)
-	require.NoError(t, service.InitTaskArtifactStore())
+	require.NoError(t, artifacts.InitTaskArtifactStore())
 	var pngData bytes.Buffer
 	require.NoError(t, png.Encode(&pngData, image.NewRGBA(image.Rect(0, 0, 1, 1))))
 	encoded := base64.StdEncoding.EncodeToString(pngData.Bytes())
@@ -1447,9 +1448,9 @@ func TestNativeImageProviderSinglePaidRequest(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.storageDisabled {
-				t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+				t.Cleanup(func() { require.NoError(t, artifacts.InitTaskArtifactStore()) })
 				t.Setenv(system_setting.TaskArtifactStoreModeEnv, "upstream")
-				require.NoError(t, service.InitTaskArtifactStore())
+				require.NoError(t, artifacts.InitTaskArtifactStore())
 			}
 			id := 1000 + i
 			quota := 10000000

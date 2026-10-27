@@ -3,6 +3,7 @@ package channels
 import (
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 
 	"errors"
@@ -207,7 +208,7 @@ func GetFetchModelsResponseBody(method string, requestURL string, channel *model
 			request.Host = headers.Get(name)
 		}
 	}
-	client, err := service.NewProxyHttpClient(channel.GetSetting().Proxy)
+	client, err := httpclient.NewProxyHttpClient(channel.GetSetting().Proxy)
 	if err != nil {
 		return nil, err
 	}

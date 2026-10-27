@@ -24,14 +24,15 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+
 	"github.com/QuantumNous/new-api/logger"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 )
 
 // ImageAdaptor uses OpenRouter's dedicated /images protocol. Embedding the
@@ -363,7 +364,7 @@ func (a *ImageAdaptor) Prepare(c *gin.Context, info *relaycommon.RelayInfo, requ
 	for key, value := range overrides {
 		req.Header.Set(key, value)
 	}
-	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	client, err := httpclient.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return errors.New("OpenRouter image discovery transport unavailable")
 	}
@@ -897,7 +898,7 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 		info.NativeImage.OutcomeUnknown = true
 		return nil, imageResponseError("OpenRouter returned no image response")
 	}
-	defer service.CloseResponseBodyGracefully(resp)
+	defer httpclient.CloseResponseBodyGracefully(resp)
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, int64(max(constant.MaxRequestBodyMB, 64))*1024*1024+1))
 	if err != nil || len(responseBody) > max(constant.MaxRequestBodyMB, 64)*1024*1024 {
 		info.NativeImage.OutcomeUnknown = true
@@ -959,7 +960,7 @@ func (a *ImageAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rel
 		}
 		helper.Done(c)
 	} else {
-		if writeErr := service.IOCopyBytesGracefully(c, resp, encoded); writeErr != nil {
+		if writeErr := httpclient.IOCopyBytesGracefully(c, resp, encoded); writeErr != nil {
 			logger.LogWarn(c, "OpenRouter image result delivery failed after completed generation")
 		}
 	}
@@ -1042,7 +1043,7 @@ func ParseImageResponse(body []byte) (*imageResponse, *dto.Usage, error) {
 // ImageError records only a bounded reason, status, and correlation ID. Provider
 // metadata.raw and flagged inputs never enter the relay error or backend logs.
 func ImageError(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) *types.NewAPIError {
-	defer service.CloseResponseBodyGracefully(resp)
+	defer httpclient.CloseResponseBodyGracefully(resp)
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (64<<10)+1))
 	info.NativeImage.OutcomeUnknown = readErr != nil || relaycommon.HasOpenRouterSyncTask(info)
 	if readErr == nil && len(body) <= 64<<10 && relaycommon.HasOpenRouterSyncTask(info) {

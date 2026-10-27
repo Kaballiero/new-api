@@ -7,13 +7,14 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billing "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -201,7 +202,7 @@ func TestCalculateTextQuotaSummaryUsesClaudeBillingUsageBeforeTopLevelUsage(t *t
 		}),
 	}
 
-	summary := calculateTextQuotaSummary(ctx, relayInfo, service.EffectiveBillingUsage(usage))
+	summary := calculateTextQuotaSummary(ctx, relayInfo, tokenusage.EffectiveBillingUsage(usage))
 
 	require.True(t, summary.IsClaudeUsageSemantic)
 
@@ -245,7 +246,7 @@ func TestCalculateTextQuotaSummaryUsesGeminiBillingUsageBeforeTopLevelUsage(t *t
 		}),
 	}
 
-	summary := calculateTextQuotaSummary(ctx, relayInfo, service.EffectiveBillingUsage(usage))
+	summary := calculateTextQuotaSummary(ctx, relayInfo, tokenusage.EffectiveBillingUsage(usage))
 
 	require.False(t, summary.IsClaudeUsageSemantic)
 
@@ -283,7 +284,7 @@ func TestCalculateTextQuotaSummaryUsesOpenAIBillingUsageBeforeTopLevelUsage(t *t
 		}),
 	}
 
-	summary := calculateTextQuotaSummary(ctx, relayInfo, service.EffectiveBillingUsage(usage))
+	summary := calculateTextQuotaSummary(ctx, relayInfo, tokenusage.EffectiveBillingUsage(usage))
 
 	require.False(t, summary.IsClaudeUsageSemantic)
 
@@ -326,7 +327,7 @@ func TestCalculateTextQuotaSummaryUsesOpenAIResponsesInputTokenDetails(t *testin
 		BillingUsage: dto.NewOpenAIResponsesBillingUsage(responsesUsage),
 	}
 
-	effectiveUsage := service.EffectiveBillingUsage(convertedUsage)
+	effectiveUsage := tokenusage.EffectiveBillingUsage(convertedUsage)
 	require.Equal(t, 40, effectiveUsage.PromptTokensDetails.CachedTokens)
 	require.Zero(t, convertedUsage.BillingUsage.OpenAIUsage.PromptTokensDetails.CachedTokens)
 
@@ -370,7 +371,7 @@ func TestCalculateTextQuotaSummaryNormalizesOpenAIResponsesBillingUsageDetails(t
 		}),
 	}
 
-	effectiveUsage := service.EffectiveBillingUsage(usage)
+	effectiveUsage := tokenusage.EffectiveBillingUsage(usage)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, effectiveUsage)
 
 	require.Equal(t, dto.BillingUsageSourceOAIResponses, effectiveUsage.UsageSource)

@@ -10,11 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/service"
 )
 
 func TestDeliveryFailureReason(t *testing.T) {
@@ -107,7 +107,7 @@ func TestUsageFromOpenAIBillingUsageNormalizesCacheDetailsWithoutOverwritingCano
 	}
 
 	billingUsage := dto.NewOpenAIResponsesBillingUsage(responsesUsage)
-	usage := service.EffectiveBillingUsage(&dto.Usage{BillingUsage: billingUsage})
+	usage := tokenusage.EffectiveBillingUsage(&dto.Usage{BillingUsage: billingUsage})
 
 	require.Equal(t, 8, usage.PromptTokensDetails.CachedTokens)
 	require.Equal(t, 5, usage.PromptTokensDetails.CachedCreationTokens)
@@ -119,7 +119,7 @@ func TestUsageFromOpenAIBillingUsageNormalizesCacheDetailsWithoutOverwritingCano
 }
 
 func TestUsageFromOpenAIBillingUsageFallsBackToPromptCacheHitTokens(t *testing.T) {
-	usage := service.EffectiveBillingUsage(&dto.Usage{
+	usage := tokenusage.EffectiveBillingUsage(&dto.Usage{
 		BillingUsage: dto.NewOpenAIChatBillingUsage(&dto.Usage{
 			PromptTokens:         100,
 			CompletionTokens:     10,

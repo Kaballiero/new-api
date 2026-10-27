@@ -24,6 +24,7 @@ import (
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/pluginfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
@@ -301,9 +302,9 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 		require.NoError(t, env.DB.Model(&model.User{}).Where("id=?", id).Update("access_token", pat).Error)
 	}
 	env.MountTasks()
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	transport := &fixture.Transport{T: t, Calls: []fixture.Outgoing{}}
-	service.GetHttpClient().Transport = transport
+	httpclient.GetHttpClient().Transport = transport
 	synctest.Test(t, func(t *testing.T) {
 		require.Equal(t, taskfixture.Epoch, time.Now().Unix())
 		taskfixture.AssertDBClock(t)

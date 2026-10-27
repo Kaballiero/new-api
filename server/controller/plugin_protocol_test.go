@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/i18n"
 	settingsdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"io"
@@ -30,7 +31,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -111,7 +112,7 @@ func TestServeTaskPluginProtocolDisconnectDuringSubmissionFinishesDurableWithout
 		<-checkSubmissionContext
 		select {
 		case <-c.Request.Context().Done():
-			return nil, service.TaskErrorWrapperLocal(c.Request.Context().Err(), "request_cancelled", http.StatusRequestTimeout)
+			return nil, mapping.TaskErrorWrapperLocal(c.Request.Context().Err(), "request_cancelled", http.StatusRequestTimeout)
 		default:
 			close(submissionContextActive)
 		}

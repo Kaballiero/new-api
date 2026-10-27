@@ -15,9 +15,10 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -32,7 +33,7 @@ import (
 
 func TestSystemOneRelay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service.InitHttpClient()
+	httpclient.InitHttpClient()
 	previousDB, previousLogDB := model.DB, model.LOG_DB
 	previousMemory, previousRedis, previousBatch := common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled
 	previousConsume, previousError := common.LogConsumeEnabled, constant.ErrorLogEnabled
@@ -257,7 +258,7 @@ func TestSystemOneRelay(t *testing.T) {
 			c.Request = httptest.NewRequest("POST", "/v1/systemone", strings.NewReader(body))
 			c.Request.Header.Set("Content-Type", "application/json")
 			if tc.timeout {
-				client := service.GetHttpClient()
+				client := httpclient.GetHttpClient()
 				previousTimeout := client.Timeout
 				client.Timeout = 50 * time.Millisecond
 				defer func() { client.Timeout = previousTimeout }()

@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"net/http"
 
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -44,7 +45,7 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 	}
 	if responseErr != nil {
 		// reset status code 重置状态码
-		service.ResetStatusCode(responseErr, statusCodeMappingStr)
+		mapping.ResetStatusCode(responseErr, statusCodeMappingStr)
 		if settlementErr != nil {
 			responseErr.Err = errors.Join(responseErr.Err, fmt.Errorf("WSS settlement failed: %w", settlementErr))
 			return responseErr

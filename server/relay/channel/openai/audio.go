@@ -9,12 +9,15 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/httpclient"
+
 	"github.com/QuantumNous/new-api/logger"
+	textfilter "github.com/QuantumNous/new-api/pkg/textfilter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,12 +28,12 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 	// if the upstream returns a specific status code, once the upstream has already written the header,
 	// the subsequent failure of the response body should be regarded as a non-recoverable error,
 	// and can be terminated directly.
-	defer service.CloseResponseBodyGracefully(resp)
+	defer httpclient.CloseResponseBodyGracefully(resp)
 	usage := &dto.Usage{}
 	usage.PromptTokens = info.GetEstimatePromptTokens()
 	usage.TotalTokens = info.GetEstimatePromptTokens()
 	for k, v := range resp.Header {
-		if !service.ShouldCopyUpstreamHeader(c, k, v) {
+		if !httpclient.ShouldCopyUpstreamHeader(c, k, v) {
 			continue
 		}
 		c.Writer.Header().Set(k, v[0])
@@ -39,7 +42,7 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 
 	if info.IsStream {
 		helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-			if service.SundaySearch(data, "usage") {
+			if textfilter.SundaySearch(data, "usage") {
 				var simpleResponse dto.SimpleResponse
 				if err := common.Unmarshal([]byte(data), &simpleResponse); err != nil {
 					logger.LogError(c, err.Error())
@@ -116,7 +119,7 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 }
 
 func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, responseFormat string) (*types.NewAPIError, *dto.Usage) {
-	defer service.CloseResponseBodyGracefully(resp)
+	defer httpclient.CloseResponseBodyGracefully(resp)
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -125,9 +128,9 @@ func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 	// 写入新的 response body
 	switch responseFormat {
 	case "text", "srt", "vtt":
-		service.IOCopyOpaqueBytesGracefully(c, resp, responseBody)
+		httpclient.IOCopyOpaqueBytesGracefully(c, resp, responseBody)
 	default:
-		service.IOCopyBytesGracefully(c, resp, responseBody)
+		httpclient.IOCopyBytesGracefully(c, resp, responseBody)
 	}
 	if c.IsAborted() {
 		return types.NewOpenAIError(fmt.Errorf("invalid client response"), types.ErrorCodeBadResponseBody, http.StatusBadGateway), nil

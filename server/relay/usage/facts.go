@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	app "github.com/QuantumNous/new-api/internal/app/usage"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
@@ -22,7 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/taskview"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
@@ -382,7 +383,7 @@ func RecordingContext(c *gin.Context, info *relaycommon.RelayInfo) context.Conte
 	if c != nil {
 		ctx = app.WithRequestObservation(c, model.ObserveLogRequest(c))
 	}
-	return app.WithLogMetadata(ctx, details, service.ChannelAffinityLogInfo(c))
+	return app.WithLogMetadata(ctx, details, routing.ChannelAffinityLogInfo(c))
 }
 
 func clampFacts(clamp *common.QuotaClamp) *billingdomain.Clamp {

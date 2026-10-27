@@ -27,16 +27,19 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	modelpkg "github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -636,7 +639,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 			if tc.missingCost {
 				transport.response = `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{}}`
 			}
-			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 			require.NoError(t, err)
 			oldTransport := client.Transport
 			client.Transport = transport
@@ -912,7 +915,7 @@ func TestOpenRouterConfiguredPriceReservation(t *testing.T) {
 			if tc.missingCost {
 				transport.response = `{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{}}`
 			}
-			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 			require.NoError(t, err)
 			oldTransport := client.Transport
 			client.Transport = transport
@@ -1017,7 +1020,7 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 		require.NoError(t, sqlDB.Close())
 	})
 	const alias = "chat-image-client-alias"
-	service.InitTokenEncoders()
+	tokenusage.InitTokenEncoders()
 	var pngBytes bytes.Buffer
 	require.NoError(t, png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 1, 1))))
 	pngData := base64.StdEncoding.EncodeToString(pngBytes.Bytes())
@@ -1174,7 +1177,7 @@ func TestOpenRouterChatImageReservationAndResponse(t *testing.T) {
 			if tc.metadataFailure {
 				transport.metadataError = errors.New("injected metadata connection failure")
 			}
-			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 			require.NoError(t, err)
 			oldTransport := client.Transport
 			client.Transport = transport
@@ -1358,14 +1361,14 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 	})
 	artifactRoot := t.TempDir()
 	require.NoError(t, os.Chmod(artifactRoot, 0700))
-	t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+	t.Cleanup(func() { require.NoError(t, artifacts.InitTaskArtifactStore()) })
 	t.Setenv(system_setting.TaskArtifactStoreModeEnv, "filesystem")
 	t.Setenv(system_setting.TaskArtifactStoreRootEnv, artifactRoot)
-	require.NoError(t, service.InitTaskArtifactStore())
+	require.NoError(t, artifacts.InitTaskArtifactStore())
 	const alias = "audio-client-alias"
 	const model = "vendor/audio-model"
 	const chunk = "data: {\"choices\":[{\"delta\":{\"audio\":{\"data\":\"UklGRg==\",\"transcript\":\"hello\"}}}]}\n\n"
-	service.InitTokenEncoders()
+	tokenusage.InitTokenEncoders()
 	oldPrices := ratio_setting.ModelPrice2JSONString()
 	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
 	oldModes, oldExprs := settings.BillingMode, settings.BillingExpr
@@ -1434,9 +1437,9 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.storageDisabled {
-				t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+				t.Cleanup(func() { require.NoError(t, artifacts.InitTaskArtifactStore()) })
 				t.Setenv(system_setting.TaskArtifactStoreModeEnv, "upstream")
-				require.NoError(t, service.InitTaskArtifactStore())
+				require.NoError(t, artifacts.InitTaskArtifactStore())
 			}
 			price := 2.0
 			if tc.zeroLocal {
@@ -1516,7 +1519,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 			if tc.noGenerationID {
 				transport.responseHeaders.Del("X-Generation-Id")
 			}
-			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 			require.NoError(t, err)
 			oldTransport := client.Transport
 			client.Transport = transport
@@ -1690,7 +1693,7 @@ func TestOpenRouterSyncProviderFinalPayload(t *testing.T) {
 		} {
 			t.Run(operation.name+"/"+variant.name, func(t *testing.T) {
 				transport := &sonarAdmissionTransport{metadata: `{"data":{"id":"vendor/provider-test","endpoints":[{"tag":"openai","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000001","completion":"0.000002"}},{"tag":"azure","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000003","completion":"0.000004"}}]}}`}
-				client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+				client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 				require.NoError(t, err)
 				previous := client.Transport
 				client.Transport = transport
@@ -1771,7 +1774,7 @@ func TestOpenRouterRerankProviderRequiresReservationContract(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			transport := &sonarAdmissionTransport{metadata: `{"data":{"id":"vendor/rerank","architecture":{"output_modalities":["rerank"]},"endpoints":[{"tag":"cohere","model_id":"vendor/rerank","pricing":{"prompt":"0.000001","completion":"0"}}]}}`}
-			client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 			require.NoError(t, err)
 			previous := client.Transport
 			client.Transport = transport
@@ -1971,10 +1974,10 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 	})
 	root := t.TempDir()
 	require.NoError(t, os.Chmod(root, 0700))
-	t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+	t.Cleanup(func() { require.NoError(t, artifacts.InitTaskArtifactStore()) })
 	t.Setenv(system_setting.TaskArtifactStoreModeEnv, "filesystem")
 	t.Setenv(system_setting.TaskArtifactStoreRootEnv, root)
-	require.NoError(t, service.InitTaskArtifactStore())
+	require.NoError(t, artifacts.InitTaskArtifactStore())
 	oldPrices := ratio_setting.ModelPrice2JSONString()
 	settings := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
 	oldModes, oldExprs := settings.BillingMode, settings.BillingExpr
@@ -2027,9 +2030,9 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.storageDisabled {
-				t.Cleanup(func() { require.NoError(t, service.InitTaskArtifactStore()) })
+				t.Cleanup(func() { require.NoError(t, artifacts.InitTaskArtifactStore()) })
 				t.Setenv(system_setting.TaskArtifactStoreModeEnv, "upstream")
-				require.NoError(t, service.InitTaskArtifactStore())
+				require.NoError(t, artifacts.InitTaskArtifactStore())
 			}
 			id := i + 1
 			require.NoError(t, db.Create(&modelpkg.User{Id: id, Username: fmt.Sprintf("rerank-%d", id), AffCode: fmt.Sprint(id), Quota: 10000000}).Error)
@@ -2115,7 +2118,7 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 			}
 			var deadlineTransport *sonarAdmissionTransport
 			if tc.deadline {
-				client, err := service.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+				client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 				require.NoError(t, err)
 				previousTransport := client.Transport
 				deadlineTransport = &sonarAdmissionTransport{metadata: `{"data":{"id":"vendor/reranker","architecture":{"output_modalities":["rerank"]},"endpoints":[{"tag":"fixture","model_id":"vendor/reranker","pricing":{"prompt":"0","completion":"0"}}]}}`, responseError: context.DeadlineExceeded}

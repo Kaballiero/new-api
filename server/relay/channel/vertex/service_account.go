@@ -6,15 +6,15 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"net/url"
 	"strings"
 
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/service"
 
 	"github.com/bytedance/gopkg/cache/asynccache"
-	"github.com/golang-jwt/jwt/v5"
 
 	"fmt"
 	"time"
@@ -111,7 +111,7 @@ func exchangeJwtForAccessToken(signedJWT string, info *relaycommon.RelayInfo) (s
 	data.Set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
 	data.Set("assertion", signedJWT)
 
-	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	client, err := httpclient.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return "", fmt.Errorf("new proxy http client failed: %w", err)
 	}
@@ -151,12 +151,12 @@ func exchangeJwtForAccessTokenWithProxy(signedJWT string, proxy string) (string,
 	var client *http.Client
 	var err error
 	if proxy != "" {
-		client, err = service.GetHttpClientWithProxy(proxy)
+		client, err = httpclient.GetHttpClientWithProxy(proxy)
 		if err != nil {
 			return "", fmt.Errorf("new proxy http client failed: %w", err)
 		}
 	} else {
-		client = service.GetHttpClient()
+		client = httpclient.GetHttpClient()
 	}
 
 	resp, err := client.PostForm(authURL, data)

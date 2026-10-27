@@ -6,13 +6,14 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -137,7 +138,7 @@ func ClaudeResponsesStreamHandler(c *gin.Context, resp *http.Response, info *rel
 			return
 		}
 
-		results, err := service.ConvertStreamResponseChunk(c, info, state, &claudeResponse)
+		results, err := mapping.ConvertStreamResponseChunk(c, info, state, &claudeResponse)
 		if err != nil {
 			if failResponsesStream(err) {
 				sr.Stop(streamErr)
@@ -164,7 +165,7 @@ func ClaudeResponsesStreamHandler(c *gin.Context, resp *http.Response, info *rel
 	HandleStreamFinalResponse(c, info, claudeInfo)
 	openAIUsage := buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage)
 	state.SetUsage(&openAIUsage)
-	finalResults, err := service.FinalizeStreamResponse(c, info, state)
+	finalResults, err := mapping.FinalizeStreamResponse(c, info, state)
 	if err != nil {
 		if failResponsesStream(err) {
 			return claudeInfo.Usage, streamErr

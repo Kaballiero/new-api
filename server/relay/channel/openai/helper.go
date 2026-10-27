@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -13,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 
 	"github.com/samber/lo"
 
@@ -70,7 +71,7 @@ func handleClaudeFormat(c *gin.Context, data string, info *relaycommon.RelayInfo
 	if streamResponse.Usage != nil {
 		info.EnsureClaudeConvertInfo().Usage = streamResponse.Usage
 	}
-	result, err := service.ConvertStreamResponse(c, info, types.RelayFormatClaude, &streamResponse)
+	result, err := mapping.ConvertStreamResponse(c, info, types.RelayFormatClaude, &streamResponse)
 	if err != nil {
 		return err
 	}
@@ -95,7 +96,7 @@ func handleGeminiFormat(c *gin.Context, data string, info *relaycommon.RelayInfo
 	if err != nil {
 		return err
 	}
-	results, err := service.ConvertStreamResponseChunk(c, info, state, &streamResponse)
+	results, err := mapping.ConvertStreamResponseChunk(c, info, state, &streamResponse)
 	if err != nil {
 		return err
 	}
@@ -202,7 +203,7 @@ func handleLastResponse(lastStreamData string, responseId *string, createAt *int
 	*systemFingerprint = lastStreamResponse.GetSystemFingerprint()
 	*model = lastStreamResponse.Model
 
-	if service.ValidUsage(lastStreamResponse.Usage) {
+	if tokenusage.ValidUsage(lastStreamResponse.Usage) {
 		*containStreamUsage = true
 		*usage = dto.MergeUsageNonZero(*usage, lastStreamResponse.Usage)
 		if !info.ShouldIncludeUsage {
@@ -237,7 +238,7 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 
 		info.ClaudeConvertInfo.Usage = usage
 
-		result, err := service.ConvertStreamResponse(c, info, types.RelayFormatClaude, &streamResponse)
+		result, err := mapping.ConvertStreamResponse(c, info, types.RelayFormatClaude, &streamResponse)
 		if err != nil {
 			common.SysLog("error converting Claude stream response: " + err.Error())
 			return
@@ -266,7 +267,7 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 		}
 		state.SetUsage(usage)
 
-		results, err := service.ConvertStreamResponseChunk(c, info, state, &streamResponse)
+		results, err := mapping.ConvertStreamResponseChunk(c, info, state, &streamResponse)
 		if err != nil {
 			common.SysLog("error converting final Gemini stream response: " + err.Error())
 			return
@@ -276,7 +277,7 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 			return
 		}
 
-		results, err = service.FinalizeStreamResponse(c, info, state)
+		results, err = mapping.FinalizeStreamResponse(c, info, state)
 		if err != nil {
 			common.SysLog("error finalizing Gemini stream response: " + err.Error())
 			return

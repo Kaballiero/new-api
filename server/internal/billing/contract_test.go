@@ -5,6 +5,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/go-redis/redis/v8"
 	"io"
 	"math"
 	"mime/multipart"
@@ -20,10 +22,12 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
@@ -33,10 +37,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
-	"github.com/alicebob/miniredis/v2"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -80,8 +84,8 @@ type billingLedger struct {
 // traverses the real relay router to an HTTP provider, and snapshots both the
 // hold observed by that provider and the final ledgers/consumption log rows.
 func TestBillingHTTPContract(t *testing.T) {
-	service.InitHttpClient()
-	service.InitTokenEncoders()
+	httpclient.InitHttpClient()
+	tokenusage.InitTokenEncoders()
 	cases := []billingCase{
 		{name: "nonstream_delta_charge", wallet: 1000, token: 1000, actual: 150, status: 200},
 		{name: "nonstream_delta_return", wallet: 1000, token: 1000, actual: 50, status: 200},
@@ -511,8 +515,8 @@ func runBillingCostContracts(t *testing.T, gateway bool) {
 		}
 		if selected != "" {
 			if tc.name == selected {
-				service.InitHttpClient()
-				service.InitTokenEncoders()
+				httpclient.InitHttpClient()
+				tokenusage.InitTokenEncoders()
 				runBillingCostRelayContract(t, tc)
 				return
 			}
