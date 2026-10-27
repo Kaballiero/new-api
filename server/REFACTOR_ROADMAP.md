@@ -198,7 +198,8 @@
 - [x] 7f authorization core: единый Casbin state/mutex в adapter, leaf `app/authorizationcore` для init/sync и общей сборки; middleware/router/accounts переведены, `service/authz` и 14 исключений удалены. Master/follower, in-tx rollback/postcommit reload и тексты сохранены. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
   Commits 0076e7c9c перенос, 754a6e5d8 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, authz PG-тесты зелёные. SQLite/MySQL не проверялись.
 
-- [ ] 7g channels/pricing/settings/catalog composition: строгие Channel/Ability/catalog record aliases; один channel cache/alias view, publication adapter и leaf app/pricingruntime; catalog mutex/anchor и same-tx pricing capability. Удалены 57 назначенных allowlist rows, новых нет. G1=A: два quota writer остаются вместе с counter queue в model/utils.go до 7j. Реализация и sandbox handoff отделены от обязательного fresh host/PostgreSQL acceptance. SQLite/MySQL not checked.
+- [x] 7g channels/pricing/settings/catalog composition: строгие Channel/Ability/catalog record aliases; один channel cache/alias view, publication adapter и leaf app/pricingruntime; catalog mutex/anchor и same-tx pricing capability. Удалены 57 назначенных allowlist rows, новых нет. G1=A: два quota writer остаются вместе с counter queue в model/utils.go до 7j. Реализация и sandbox handoff отделены от обязательного fresh host/PostgreSQL acceptance. SQLite/MySQL not checked.
+  Commits d5ef61335 перенос, 7f48acf1c docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, pricing/catalog/settings/channel PG-тесты зелёные. SQLite/MySQL не проверялись.
 
 
 - [ ] FX refresh owner (pricing/FX): перенести service.RefreshModelCostFX и replica lifecycle вместе с реальными consumers; убрать system FX BRIDGE, не копируя экономику.
