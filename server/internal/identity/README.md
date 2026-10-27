@@ -14,7 +14,7 @@
 Понятия и бизнес-ошибки описаны в `domain/`:
 - `AuthIdentity`, `SessionState`, `SessionPolicy`, области проверки (`VerificationScope*`), контексты привязки;
 - правила e-mail (`ValidateEmail`) и пароля (`PasswordCredential`);
-- ошибки (`errors.go`): значения, которыми пользуются сценарии, transport и старые имена в `model`, `service` и `oauth` (алиасы).
+- ошибки (`errors.go`): значения, которыми пользуются сценарии, transport и сохранённые имена records в `model` (алиасы).
 
 ## Возможности
 
@@ -45,10 +45,14 @@
 | `send_verification_email` | код подтверждения e-mail для регистрации | `GET /api/verification` + `EmailVerificationRateLimit`, `TurnstileCheck` |
 | `request_password_reset`, `recover_password` | ссылка сброса пароля и новый пароль по ней | `GET /api/reset_password`, `POST /api/user/reset` + `CriticalRateLimit` |
 | `delete_account` | удаление своего аккаунта с доказательством, аудит `user.account_delete` | `DELETE /api/user/self` + `UserAuth` |
-| `create_session`, `validate_session`, `validate_session_reference`, `revoke_refresh_token`, `advance_session_security` | выпуск, проверка, отзыв и продвижение сессий | без HTTP, через `service/auth_session.go` и `middleware` |
-| `start_login_verification`, `require_login_verification`, `complete_login_verification`, `require_verification_method`, `complete_primary_login` | второй шаг входа | без HTTP, через `service/login_verification.go` и `adapter/identity/http.PrimaryLogin` |
-| `verification_policy`, `bind_verification_operation`, `validate_authorization`, `consume_proof`, `verify_factor_code`, `complete_verification`, `start_oauth_verification`, `finish_oauth_verification` | правила и выдача доказательств | без HTTP, через `service/security_verification.go`, `service/oauth_verification.go`, `middleware.RequireSecurityProof` |
-| `create_passkey_flow`, `consume_passkey_flow` | одноразовые данные WebAuthn-церемоний | без HTTP, через `service/passkey` |
+| `create_session`, `validate_session`, `revoke_refresh_token`, `advance_session_security` | выпуск, проверка, отзыв и продвижение сессий | без HTTP, через leaf `app/identitycore` и `middleware` |
+| `start_login_verification`, `require_login_verification`, `complete_login_verification`, `require_verification_method`, `complete_primary_login` | второй шаг входа | без HTTP, через `app/identitycore` и `adapter/identity/http.PrimaryLogin` |
+| `verification_policy`, `bind_verification_operation`, `validate_authorization`, `consume_proof`, `verify_factor_code`, `complete_verification`, `start_oauth_verification`, `finish_oauth_verification` | правила и выдача доказательств | без HTTP, через `app/identitycore` и `middleware.RequireSecurityProof` |
+| `create_passkey_flow`, `consume_passkey_flow` | одноразовые данные WebAuthn-церемоний | без HTTP, через `app/identitycore` и `adapter/identity/webauthn` |
+| `list_custom_oauth_providers`, `get_custom_oauth_provider` | настройки custom OAuth без client secret; список без бизнес-правил использует узкий Reader | `GET /api/custom-oauth-provider/`, `GET /api/custom-oauth-provider/:id` + `RootAuth` (сессия/PAT) |
+| `create_custom_oauth_provider`, `update_custom_oauth_provider`, `delete_custom_oauth_provider` | проверки slug и привязок, запись и последующая публикация в общем registry | `POST /api/custom-oauth-provider/`, `PUT/DELETE /api/custom-oauth-provider/:id` + `RootAuth` |
+| `fetch_custom_oauth_discovery` | загрузка discovery по URL либо issuer, прежние ответы и ошибки провайдера | `POST /api/custom-oauth-provider/discovery` + `RootAuth` |
+| `cleanup_auth_artifacts` | alert по часовому выпуску, затем независимая очистка expired sessions, старых revoked sessions и auth flows | фоновый запуск на master: сразу и каждый час, каждый вызов Start запускает прежний отдельный цикл |
 | `change_password`, `change_self_password`, `reset_password` | запись пароля | без HTTP, через `model/account_security.go`, `model/user.go`, `adapter/identity/accounts` |
 
 Ошибки сценариев — значения из `domain/errors.go`. В HTTP их переводит `transport.Writer` (собирается один раз в `app.NewIdentityErrors`):
@@ -63,15 +67,16 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/identity.go`) читает `h
 ## Зависимости
 
 - `accounts/domain` — правило управления ролью цели (`CanManageTargetRole`) в админских сценариях.
-- Сборка — `internal/app/identity.go`, один раз через `sync.OnceValue` в `controller/identity.go`. `app.NewIdentityErrors` также используют `personal_access_tokens` и `controller.writeSecurityOperationError` (accounts, channels).
-- Адаптеры: `internal/adapter/identity/*` поверх `model` и `service` (сессии, факторы, WebAuthn, OAuth, e-mail, восстановление, регистрация); `adapter/identity/http` — завершение первичного входа (`PrimaryLogin`), загрузка текущего пользователя, ошибки OAuth-провайдеров.
-- Потребители: `controller/` (HTTP), `middleware` (проверка сессии и доказательств через `service`), `model`/`service`/`oauth` (алиасы ошибок и вызовы сценариев).
+- HTTP-сборка — `internal/app/identity.go`, один раз через `sync.OnceValue` в `controller/identity.go`; custom OAuth — `app/custom_oauth.go` и собственный once в `controller/custom_oauth.go`. Leaf `app/identitycore` один раз собирает session/proof/login/email/passkey-flow usecases и зависимости; каждый запрос получает отдельные operation adapters. `app.NewIdentityErrors` также используют `personal_access_tokens` и `controller.writeSecurityOperationError` (accounts, channels).
+- Адаптеры: `internal/adapter/identity/*` поверх `model` (сессии, факторы, WebAuthn SDK, OAuth, e-mail, восстановление, регистрация). `authtoken` сохраняет JWT/HMAC и выпуск proof; `session` — record/bundle mapping и refresh crypto; `http` — cookie flags/сроки, `PrimaryLogin`, загрузка текущего пользователя и ошибки провайдеров. Исходящий discovery HTTP — `adapter/http/identity`; SQL/custom registry — `adapter/identity/customoauth`.
+- Потребители: `controller/` (HTTP), `middleware` (проверка сессии и доказательств через leaf core и token adapter), `model` (сохранённые error/table aliases). Сценарии не получают SDK/ORM types; HTTP passkey/OAuth/WeChat использует минимальные `PasskeyAccount` facts и `domain.FlowAuthorization`. Bound factory сохраняет первоначальный user record внутри технической сборки, без дополнительного SQL или whole-user DTO.
 
 ## Границы и долг
 
 - Модулю не принадлежат профиль и e-mail аккаунта как данные (accounts), права администраторов (authorization), PAT (personal_access_tokens).
-- ⚠ Большая часть логики сессий и проверок всё ещё в `service/auth_session.go`, `service/security_verification.go`, `service/login_verification.go`, `service/twofa.go`, `service/email_binding.go`, `service/passkey`: они создают usecase внутри `service` (записи `legacy-imports-internal` в списке исключений). Так же `model/account_security.go`, `model/user.go`, `model/auth_flow.go`.
-- ⚠ Алиасы ошибок: старые имена в `model` (`ErrUserSession*`, `ErrAuthFlow*`, `ErrTwoFA*`, `ErrPasskeyNotFound`, `ErrEmailBinding*`, `ErrExternalIdentityAlreadyClaimed`, ошибки пароля и привязок), `service` (`ErrLoginSession*`, `ErrRefresh*`, `ErrAuthToken*`, `ErrProof*`, `ErrVerification*`, `ErrOAuthAccountMismatch`, `ErrAccountEmail*`, `ErrEmailBindingDelivery`) и `oauth` (`ErrTelegram*`) ссылаются на значения `domain`. Объявления собраны в файлах, которые уже импортировали `identity/domain`.
-- `http.go` сценариев passkey, OAuth callback и входа WeChat всё ещё получают `*model.User` и `*model.AuthFlowAuthorization` (записи `transport-imports … -> model`).
+- Session/token/proof/login/email/passkey service facades удалены; соответствующие 56 allowlist entries сняты. Middleware и оставшиеся controller delegates используют настоящих владельцев, новых model/service forwarding layers нет.
+- SQL/locks/auth cache, records и migration/backfill ещё в `model/account_security.go`, `model/auth_flow.go`, `model/user_session.go`, факторах и account/key persistence; их общий storage lifecycle не перенесён этой частью.
+- ⚠ В `model` остаются aliases `ErrUserSession*`, `ErrAuthFlow*`, `ErrTwoFA*`, `ErrPasskeyNotFound`, `ErrEmailBinding*`, `ErrExternalIdentityAlreadyClaimed`, ошибки пароля/привязок до переноса реальных SQL consumers. Service и OAuth aliases этих ошибок удалены вместе с callers.
+- Controller callbacks login audit/profile и HTTP delegates сохраняются до перехода router на owning handlers. Identity core не зависит от parent app, middleware или HTTP adapters.
 - `password_login.Authenticate` получает фабрики ошибок от `adapter/gorm/accounts/record.PasswordLoginLookup` (адаптер accounts) — граница с accounts не тронута.
 - Сообщения об успехе и письма восстановления и подтверждения e-mail переводятся на язык запроса (zh-CN — прежние тексты). AST-генератор OpenAPI не выводит тип `common.TranslateMessage`, поэтому схема `message: string` этих ответов зафиксирована в `preserveIdentityHandlerContract`.

@@ -213,9 +213,10 @@
 - [ ] Перенести оставшиеся model.LockForUpdate, model.SyncCreditUserQuotaCache и model.CacheDecrUserQuota вместе с shared row-lock/quota-cache primitives; без копирования Lua/key/schema.
 - [ ] Общие quota cache/Lua/DB primitives из `model/quota_reserve.go`, user/token/task consumers → технические адаптеры с одним владельцем; 2b1 сохраняет primitives и SQL/Redis semantics без изменений.
 
-- [ ] identity: логика сессий и проверок из `service/auth_session.go`, `security_verification.go`, `login_verification.go`, `twofa.go`, `email_binding.go`, `service/passkey` → сценарии; `model/account_security.go`, `auth_flow.go` → адаптеры.
+- [ ] 7i identity orchestration + transport: leaf `app/identitycore`, token/session/email/WebAuthn adapters, cleanup owner и custom OAuth management/discovery; service facades и 56 исключений удалены, семь HTTP model-imports заменены plain facts/bound factories. Записаны 144 immutable custom OAuth contracts. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
+- [ ] 7j identity SQL: `model/account_security.go`, `auth_flow.go`, sessions/factors и shared account/key/cache state → технические адаптеры с прежними транзакциями и блокировками.
 - [ ] Убрать алиасы ошибок в `model`, `service`, `oauth`, когда у них не останется потребителей.
-- [ ] Убрать `*model.User` и `*model.AuthFlowAuthorization` из transport identity.
+- [x] 7i: `*model.User` и `*model.AuthFlowAuthorization` убраны из transport identity; SQL records остаются внутри adapters/composition.
 - [ ] Мосты `// BRIDGE:` — удалить все.
 - [ ] Список исключений архитектурного теста → 0.
 - [ ] `controller/` — только связка с роутером; `service/` — пусто или удалён; `model/` — алиасы таблиц и миграции.
