@@ -4698,6 +4698,63 @@
         ],
         "type": "object"
       },
+      "GetAPIQuotaCreditRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "operationKey": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "quota": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operationKey",
+          "quota"
+        ],
+        "type": "object"
+      },
+      "GetAPIQuotaCreditResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GetAPIQuotaCreditResult"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "type": "object"
+      },
+      "GetAPIQuotaCreditResult": {
+        "properties": {
+          "alreadyApplied": {
+            "type": "boolean"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "quota": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "alreadyApplied",
+          "quota"
+        ],
+        "type": "object"
+      },
       "GetApiCreateCredentialResponse": {
         "properties": {
           "data": {
@@ -4753,6 +4810,8 @@
           "code": {
             "enum": [
               "GETAPI_INVALID_REQUEST",
+              "GETAPI_QUOTA_CREDIT_CONFLICT",
+              "wallet quota limit exceeded",
               "AUTH_UNAUTHORIZED",
               "GETAPI_CAPABILITY_DENIED",
               "GETAPI_ACCOUNT_NOT_FOUND",
@@ -20447,6 +20506,185 @@
           }
         ],
         "summary": "post /api/getapi/users/{user_id}/pat",
+        "tags": [
+          "Uncategorized"
+        ]
+      }
+    },
+    "/api/getapi/users/{user_id}/quota-credits": {
+      "post": {
+        "deprecated": false,
+        "description": "Requires an enabled admin/root principal with getapi.users.credit-quota in GETAPI_INTEGRATIONS. operationKey is globally unique and compared exactly (case and trailing spaces are significant). First credit returns applied=true; replay with the same user and quota returns alreadyApplied=true and the current database quota. A different user or quota returns 409. Quota overflow returns 400. No-store responses.",
+        "operationId": "creditGetApiUserQuota",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetAPIQuotaCreditRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIQuotaCreditResponse"
+                }
+              }
+            },
+            "description": "Успех",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetApiErrorResponse"
+                }
+              }
+            },
+            "description": "Успех",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetApiErrorResponse"
+                }
+              }
+            },
+            "description": "Успех",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetApiErrorResponse"
+                }
+              }
+            },
+            "description": "Успех",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetApiErrorResponse"
+                }
+              }
+            },
+            "description": "Успех",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetApiErrorResponse"
+                }
+              }
+            },
+            "description": "Успех",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetApiErrorResponse"
+                }
+              }
+            },
+            "description": "Успех",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "Idempotently credit user quota",
         "tags": [
           "Uncategorized"
         ]
