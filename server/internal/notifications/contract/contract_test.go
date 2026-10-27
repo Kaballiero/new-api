@@ -19,9 +19,9 @@ import (
 	h "github.com/QuantumNous/new-api/internal/contracttest/managementhttp"
 	tf "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
+	service "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
@@ -91,7 +91,7 @@ func runTrigger(t *testing.T, name string) any {
 			if variant == "quiet" {
 				actual = 0
 			}
-			callErr = service.SettleWssBilling(context, info, actual)
+			callErr = service.New().SettleWss(context, info, actual)
 		}
 		require.NoError(t, callErr)
 		synctest.Wait()

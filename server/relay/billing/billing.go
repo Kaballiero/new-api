@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/i18n"
 	app "github.com/QuantumNous/new-api/internal/app/billing"
 	"github.com/QuantumNous/new-api/internal/billing/apply_quota_delta"
@@ -27,7 +28,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 )
 
 type Gateway struct {
@@ -37,10 +37,8 @@ type Gateway struct {
 
 func New() *Gateway { return &Gateway{usecases: app.New(), costs: app.NewCosts()} }
 
-// Register the single production bridge for every binary linking the gateway.
+// The gateway shares one billing assembly in every linked binary.
 var defaultGateway = New()
-
-func init() { service.BillingGateway = defaultGateway }
 
 type Session struct {
 	gateway     *Gateway
@@ -286,7 +284,7 @@ func SettleBilling(c *gin.Context, info *relaycommon.RelayInfo, quota int) error
 	return defaultGateway.Settle(c, info, quota)
 }
 
-func (g *Gateway) RecordViolationFee(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, feeQuota int, apiErr *types.NewAPIError, baseAmount, groupRatio float64) {
+func recordViolationFee(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, feeQuota int, apiErr *types.NewAPIError, baseAmount, groupRatio float64) {
 	accountstorage.SQL().UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, feeQuota)
 	counters.UpdateChannelUsedQuota(model.DB, relayInfo.ChannelId, feeQuota)
 
@@ -304,7 +302,7 @@ func (g *Gateway) RecordViolationFee(ctx *gin.Context, relayInfo *relaycommon.Re
 		"status_code":          apiErr.StatusCode,
 		"upstream_error_type":  oai.Type,
 		"upstream_error_code":  fmt.Sprintf("%v", oai.Code),
-		"violation_fee_marker": service.CSAMViolationMarker,
+		"violation_fee_marker": mapping.CSAMViolationMarker,
 	})
 
 	usagestorage.Writer().RecordConsumeLog(ctx, relayInfo.UserId, usageadapter.RecordConsumeLogParams{
@@ -320,4 +318,9 @@ func (g *Gateway) RecordViolationFee(ctx *gin.Context, relayInfo *relaycommon.Re
 		Other:          other,
 	})
 
+}
+
+func PostConsumeQuota(info *relaycommon.RelayInfo, delta, preConsumed int, notify bool) error {
+	_, _, err := defaultGateway.ApplyDelta(info, delta, preConsumed, notify)
+	return err
 }

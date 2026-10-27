@@ -16,11 +16,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (g *Gateway) TokenParams(usage *dto.Usage, claude bool, used map[string]bool) billingexpr.TokenParams {
-	return billingexpr.TokenParams(domain.BuildTieredTokenParams(CostUsage(usage), claude, used))
-}
 func BuildTieredTokenParams(usage *dto.Usage, claude bool, used map[string]bool) billingexpr.TokenParams {
-	return defaultGateway.TokenParams(usage, claude, used)
+	return billingexpr.TokenParams(domain.BuildTieredTokenParams(CostUsage(usage), claude, used))
 }
 
 // TryTieredSettle maps the channel-test controller's frozen request into billing.
@@ -31,7 +28,7 @@ func TryTieredSettle(info *relaycommon.RelayInfo, params billingexpr.TokenParams
 	}
 	return ok, quota, gatewayTiered(result)
 }
-func (g *Gateway) CacheCreateTokens(u dto.Usage, p hosttypes.PriceData) int {
+func CalcOpenRouterCacheCreateTokens(u dto.Usage, p hosttypes.PriceData) int {
 	return domain.CalcOpenRouterCacheCreateTokens(*CostUsage(&u), costPrices(p), common.QuotaPerUnit, adapter.CostMath{})
 }
 func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.BillingSnapshot, error) {

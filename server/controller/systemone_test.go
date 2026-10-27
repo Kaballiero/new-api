@@ -2,6 +2,8 @@ package controller
 
 import (
 	"fmt"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -125,7 +127,7 @@ func TestSystemOneRelay(t *testing.T) {
 			}
 			operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
 			common.QuotaPerUnit = 500000
-			seedNativeRouteFX(t, database)
+			fxseed.SeedNativeRouteFX(t, database)
 			mode, expr := "{}", "{}"
 			if tc.configured {
 				mode = `{"alias":"tiered_expr"}`
@@ -275,7 +277,7 @@ func TestSystemOneRelay(t *testing.T) {
 			c.Set("username", "decision-owner")
 			c.Set("token_name", "decision-token")
 			require.Nil(t, middleware.SetupContextForSelectedChannel(c, &selected, "alias"))
-			Relay(c, types.RelayFormatSystemOne)
+			gatewaytransport.Relay(c, types.RelayFormatSystemOne)
 			assert.Equal(t, tc.status, recorder.Code, recorder.Body.String())
 			expectedCalls := int32(1)
 			if tc.status == 400 {

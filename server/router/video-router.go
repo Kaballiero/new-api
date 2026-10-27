@@ -1,7 +1,7 @@
 package router
 
 import (
-	"github.com/QuantumNous/new-api/controller"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	"github.com/QuantumNous/new-api/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -19,7 +19,7 @@ func SetVideoRouter(router *gin.Engine) {
 		middleware.PrepareTaskPluginEndpoint(),
 		middleware.Distribute(),
 		func(c *gin.Context) {
-			controller.RelayTaskPluginEndpoint(c, controller.RelayTask)
+			gatewaytransport.RelayTaskPluginEndpoint(c, gatewaytransport.RelayTask)
 		},
 	)
 
@@ -27,7 +27,7 @@ func SetVideoRouter(router *gin.Engine) {
 	videoV1Router.Use(middleware.RouteTag("relay"))
 	videoV1Router.Use(middleware.TokenAuth(), middleware.Distribute())
 	{
-		videoV1Router.GET("/video/generations/:task_id", controller.RelayTaskFetch)
-		videoV1Router.POST("/videos/:video_id/remix", controller.RelayTask)
+		videoV1Router.GET("/video/generations/:task_id", gatewaytransport.RelayTaskFetch)
+		videoV1Router.POST("/videos/:video_id/remix", gatewaytransport.RelayTask)
 	}
 }

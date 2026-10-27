@@ -2,6 +2,7 @@ package router
 
 import (
 	"github.com/QuantumNous/new-api/controller"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +16,7 @@ func SetTaskRouter(router *gin.Engine) {
 	taskSubmitRouter := router.Group("/v1/tasks")
 	taskSubmitRouter.Use(middleware.RouteTag("relay"), middleware.TokenAuth())
 	{
-		taskSubmitRouter.POST("/:key", middleware.PrepareTaskPluginSubmit(), middleware.Distribute(), controller.RelayTask)
+		taskSubmitRouter.POST("/:key", middleware.PrepareTaskPluginSubmit(), middleware.Distribute(), gatewaytransport.RelayTask)
 	}
 
 	taskReadRouter := router.Group("/v1/tasks")

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
@@ -37,8 +38,8 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
+	service "github.com/QuantumNous/new-api/relay/billing"
 	relaykittypes "github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -457,7 +458,7 @@ func TestWssCharacterization(t *testing.T) {
 			common.SetContextKey(c, constant.ContextKeyChannelId, 1)
 			common.SetContextKey(c, constant.ContextKeyChannelKey, "test")
 			common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstream.URL)
-			Relay(c, relaykittypes.RelayFormatOpenAIRealtime)
+			gatewaytransport.Relay(c, relaykittypes.RelayFormatOpenAIRealtime)
 		}))
 		var client *websocket.Conn
 		t.Cleanup(func() {
@@ -551,7 +552,7 @@ func TestWssCharacterization(t *testing.T) {
 		require.Len(t, logs, 1)
 		assert.Equal(t, 2, logs[0].Quota)
 
-		require.NoError(t, service.SettleWssBilling(c, info, 2))
+		require.NoError(t, service.New().SettleWss(c, info, 2))
 		info.Billing.Refund(c)
 		assert.False(t, info.Billing.NeedsRefund())
 		assert.EqualValues(t, 2, subscriptionAmountUsed(t, db, subscription.Id))
@@ -620,7 +621,7 @@ func TestWssCharacterization(t *testing.T) {
 				require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
 				require.Len(t, logs, 1)
 				assert.Equal(t, 3, logs[0].Quota)
-				require.NoError(t, service.SettleWssBilling(c, info, 3))
+				require.NoError(t, service.New().SettleWss(c, info, 3))
 				info.Billing.Refund(c)
 				assert.Equal(t, tc.wantFinal, readLedger(t, db))
 			})
@@ -656,11 +657,11 @@ func TestWssCharacterization(t *testing.T) {
 		require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
 		assert.Empty(t, logs)
 
-		require.NoError(t, service.SettleWssBilling(c, info, 2))
+		require.NoError(t, service.New().SettleWss(c, info, 2))
 		info.Billing.Refund(c)
 		assert.False(t, info.Billing.NeedsRefund())
 		assert.Equal(t, ledger{wallet: 9_999_999_998, token: 9_999_999_998, tokenUsed: 2}, readLedger(t, db))
-		require.NoError(t, service.SettleWssBilling(c, info, 2))
+		require.NoError(t, service.New().SettleWss(c, info, 2))
 		assert.Equal(t, ledger{wallet: 9_999_999_998, token: 9_999_999_998, tokenUsed: 2}, readLedger(t, db))
 	})
 
@@ -741,7 +742,7 @@ func TestWssCharacterization(t *testing.T) {
 		assert.Equal(t, ledger{wallet: 99, token: 99, tokenUsed: 1}, readLedger(t, db))
 		require.NoError(t, service.PostWssConsumeQuota(c, info, info.OriginModelName, providerUsage(1), ""))
 		assert.Equal(t, ledger{wallet: 99, token: 99, tokenUsed: 1}, readLedger(t, db))
-		require.NoError(t, service.SettleWssBilling(c, info, 1))
+		require.NoError(t, service.New().SettleWss(c, info, 1))
 		assert.Equal(t, ledger{wallet: 99, token: 99, tokenUsed: 1}, readLedger(t, db))
 	})
 
@@ -772,9 +773,9 @@ func TestWssCharacterization(t *testing.T) {
 		require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
 		assert.Empty(t, logs)
 
-		require.NoError(t, service.SettleWssBilling(c, info, 2))
+		require.NoError(t, service.New().SettleWss(c, info, 2))
 		assert.Equal(t, ledger{wallet: 98, token: 98, tokenUsed: 2}, readLedger(t, db))
-		require.NoError(t, service.SettleWssBilling(c, info, 2))
+		require.NoError(t, service.New().SettleWss(c, info, 2))
 		assert.Equal(t, ledger{wallet: 98, token: 98, tokenUsed: 2}, readLedger(t, db))
 	})
 
@@ -795,7 +796,7 @@ func TestWssCharacterization(t *testing.T) {
 		require.Len(t, logs, 1)
 		assert.Equal(t, 2, logs[0].Quota)
 
-		require.NoError(t, service.SettleWssBilling(c, info, 2))
+		require.NoError(t, service.New().SettleWss(c, info, 2))
 		assert.Equal(t, ledger{wallet: 98, token: 100, tokenUsed: 0}, readLedger(t, db))
 	})
 

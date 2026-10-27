@@ -5,6 +5,7 @@ import (
 	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	billingappfx "github.com/QuantumNous/new-api/internal/app/billing"
 	billingdomainfx "github.com/QuantumNous/new-api/internal/billing/domain"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
 	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 
 	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
@@ -1742,8 +1743,8 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 	previousMemory := common.MemoryCacheEnabled
 	common.MemoryCacheEnabled = true
 	t.Cleanup(func() { common.MemoryCacheEnabled = previousMemory; pricingstate.InvalidatePricingCache() })
-	now := time.Now().Unix()
-	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	// Publish above the process-global FX version left by other controller tests.
+	publishWssFX(t, db, 90)
 	require.NoError(t, db.Create(&model.User{Id: 2198, Username: "audio-pricing-user", Password: "fixture", Group: "default", Status: common.UserStatusEnabled}).Error)
 	require.NoError(t, db.Create(&model.Channel{Id: 998, Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled, Models: "gpt-realtime-mini,gpt-4o-transcribe-diarize,gpt-4o-mini-tts,gpt-transcribe"}).Error)
 	for _, name := range []string{"gpt-realtime-mini", "gpt-4o-transcribe-diarize", "gpt-4o-mini-tts", "gpt-transcribe"} {
@@ -1990,8 +1991,8 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 		common.QuotaPerUnit = previousQuota
 		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousExchange
 	})
-	now := time.Now().Unix()
-	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: now, FetchedAt: now, Rates: map[string]float64{"USD": 90}}, 0))
+	// Publish above the process-global FX version left by other controller tests.
+	publishWssFX(t, db, 90)
 	channel := &model.Channel{Id: 990, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "secret-fixture", Models: "provider/model", Group: "default"}
 	require.NoError(t, db.Create(channel).Error)
 	require.NoError(t, db.Create(&channelrecord.Ability{Group: "default", Model: "provider/model", ChannelId: channel.Id, Enabled: true}).Error)
@@ -3259,7 +3260,7 @@ func TestCatalogConsumerAuditCandidate534(t *testing.T) {
 	require.Positive(t, fixture.FXRateUSDRUB)
 	// Reuse the existing cache-aware test seed: a new DB starts at version1,
 	// while the process may already hold a newer publication from another test.
-	seedNativeRouteFX(t, db)
+	fxseed.SeedNativeRouteFX(t, db)
 	seededFX, err := fxstate.CurrentModelCostFX("cbr-xml-daily.ru")
 	require.NoError(t, err)
 	require.NoError(t, fxstorage.SaveModelCostFX(context.Background(), pricingdomainfx.ModelCostFXSnapshot{Source: "cbr-xml-daily.ru", EffectiveAt: seededFX.EffectiveAt + 1, FetchedAt: seededFX.FetchedAt + 1, Rates: map[string]float64{"USD": fixture.FXRateUSDRUB}}, seededFX.Version))

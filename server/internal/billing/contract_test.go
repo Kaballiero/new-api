@@ -1,6 +1,7 @@
 package billing_test
 
 import (
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 
 	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
@@ -27,7 +28,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/controller"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
@@ -43,8 +43,8 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
+	service "github.com/QuantumNous/new-api/relay/billing"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -849,7 +849,7 @@ func runBillingCostRelayContract(t *testing.T, tc billingCostCase) {
 		env.Route(http.MethodPost, tc.path,
 			middleware.RouteTag("relay"), middleware.SystemPerformanceCheck(),
 			middleware.TokenAuth(), middleware.ModelRequestRateLimit(), middleware.Distribute(),
-			func(c *gin.Context) { controller.Relay(c, relaytypes.RelayFormatOpenAIResponses) })
+			func(c *gin.Context) { gatewaytransport.Relay(c, relaytypes.RelayFormatOpenAIResponses) })
 	}
 	recorder := env.Serve(request)
 	require.Equal(t, tc.status, recorder.Code, recorder.Body.String())

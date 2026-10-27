@@ -2,12 +2,12 @@ package router
 
 import (
 	"embed"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	"net/http"
 	"path"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-contrib/static"
@@ -69,7 +69,7 @@ func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.Han
 		static.Serve("/", frontendFS),
 		func(c *gin.Context) {
 			if isAPIPath(c.Request.URL.Path) {
-				controller.RelayNotFound(c)
+				gatewaytransport.RelayNotFound(c)
 				return
 			}
 			c.Header("Cache-Control", "no-cache")

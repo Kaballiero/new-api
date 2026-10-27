@@ -28,7 +28,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// BRIDGE: relay/billing and remaining Task/MJ metadata consumers.
+// Gateway billing and Task/MJ presenters share one usage recording assembly.
 // Construction is lazy and shared by every binary linking these entrypoints.
 var recording = sync.OnceValue(app.New)
 

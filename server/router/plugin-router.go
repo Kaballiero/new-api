@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	"net"
 	"net/http"
 	"os"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -121,7 +121,7 @@ func productionPluginRouteHandlers(generation *jsplugin.RoutingGeneration, bindi
 		middleware.ModelRequestRateLimit(),
 		middleware.PrepareTaskPluginRoute(),
 		middleware.Distribute(),
-		controller.RelayTask,
+		gatewaytransport.RelayTask,
 	}
 }
 

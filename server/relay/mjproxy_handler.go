@@ -1,6 +1,7 @@
 package relay
 
 import (
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
@@ -56,7 +57,7 @@ import (
 
 func RelayMidjourneyImage(c *gin.Context) {
 	taskId := c.Param("id")
-	midjourneyTask := taskPersistence.GetByOnlyMJId(taskId)
+	midjourneyTask := tasksapp.MidjourneyIngress().GetByOnlyMJId(taskId)
 	if midjourneyTask == nil {
 		c.JSON(400, gin.H{
 			"error": "midjourney_task_not_found",
@@ -136,7 +137,7 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 			Result:      "",
 		}
 	}
-	midjourneyTask := taskPersistence.GetByOnlyMJId(midjRequest.MjId)
+	midjourneyTask := tasksapp.MidjourneyIngress().GetByOnlyMJId(midjRequest.MjId)
 	if midjourneyTask == nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
@@ -157,7 +158,7 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 	midjourneyTask.VideoUrls = string(videoUrlsStr)
 	midjourneyTask.Status = midjRequest.Status
 	midjourneyTask.FailReason = midjRequest.FailReason
-	err = taskPersistence.UpdateMidjourney(midjourneyTask)
+	err = tasksapp.MidjourneyIngress().UpdateMidjourney(midjourneyTask)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
@@ -292,7 +293,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	if billingErr != nil {
 		common.SysLog("error consuming Midjourney quota: " + billingErr.Error())
 	}
-	err = taskPersistence.InsertMidjourney(midjourneyTask)
+	err = tasksapp.MidjourneyIngress().InsertMidjourney(midjourneyTask)
 	if err != nil {
 		return mapping.MidjourneyErrorWrapper(constant.MjRequestError, "insert_midjourney_task_failed")
 	}
@@ -333,7 +334,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 func RelayMidjourneyTaskImageSeed(c *gin.Context) *dto.MidjourneyResponse {
 	taskId := c.Param("id")
 	userId := c.GetInt("id")
-	originTask := taskPersistence.GetByMJId(userId, taskId)
+	originTask := tasksapp.MidjourneyIngress().GetByMJId(userId, taskId)
 	if originTask == nil {
 		return mapping.MidjourneyErrorWrapper(constant.MjRequestError, "task_no_found")
 	}
@@ -370,7 +371,7 @@ func RelayMidjourneyTask(c *gin.Context, relayMode int) *dto.MidjourneyResponse 
 	switch relayMode {
 	case relayconstant.RelayModeMidjourneyTaskFetch:
 		taskId := c.Param("id")
-		originTask := taskPersistence.GetByMJId(userId, taskId)
+		originTask := tasksapp.MidjourneyIngress().GetByMJId(userId, taskId)
 		if originTask == nil {
 			return &dto.MidjourneyResponse{
 				Code:        4,
@@ -398,7 +399,7 @@ func RelayMidjourneyTask(c *gin.Context, relayMode int) *dto.MidjourneyResponse 
 		}
 		var tasks []dto.MidjourneyDto
 		if len(condition.IDs) != 0 {
-			originTasks := taskPersistence.GetByMJIds(userId, condition.IDs)
+			originTasks := tasksapp.MidjourneyIngress().GetByMJIds(userId, condition.IDs)
 			for _, originTask := range originTasks {
 				midjourneyTask := coverMidjourneyTaskDto(c, originTask)
 				tasks = append(tasks, midjourneyTask)
@@ -502,7 +503,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			mjId = midjRequest.TaskId
 		}
 
-		originTask := taskPersistence.GetByMJId(relayInfo.UserId, mjId)
+		originTask := tasksapp.MidjourneyIngress().GetByMJId(relayInfo.UserId, mjId)
 		if originTask == nil {
 			return mapping.MidjourneyErrorWrapper(constant.MjRequestError, "task_not_found")
 		} else { //原任务的Status=SUCCESS，则可以做放大UPSCALE、变换VARIATION等动作，此时必须使用原来的请求地址才能正确处理
@@ -658,7 +659,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 	if billingErr != nil {
 		common.SysLog("error consuming Midjourney quota: " + billingErr.Error())
 	}
-	err = taskPersistence.InsertMidjourney(midjourneyTask)
+	err = tasksapp.MidjourneyIngress().InsertMidjourney(midjourneyTask)
 	if err != nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,

@@ -659,9 +659,7 @@ func getTaskOriginModelName(c *gin.Context) string {
 	}
 
 	userId := c.GetInt("id")
-	// BRIDGE: getTaskOriginModelName reads the owned task for gateway model authorization.
-	// Remove when the task owner exposes the origin-model lookup scenario.
-	if task, exist, err := tasksapp.NewStore().GetByTaskId(userId, taskId); err == nil && exist && task != nil {
+	if task, exist, err := tasksapp.Origins().GetByTaskId(userId, taskId); err == nil && exist && task != nil {
 		return task.Properties.OriginModelName
 	}
 	return ""

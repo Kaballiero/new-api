@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -64,7 +65,7 @@ func SetRelayRouter(router *gin.Engine) {
 	playgroundRouter.Use(middleware.SystemPerformanceCheck())
 	playgroundRouter.Use(middleware.UserAuth(), middleware.Distribute())
 	{
-		playgroundRouter.POST("/chat/completions", controller.Playground)
+		playgroundRouter.POST("/chat/completions", gatewaytransport.Playground)
 	}
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RouteTag("relay"))
@@ -85,7 +86,7 @@ func SetRelayRouter(router *gin.Engine) {
 		wsRouter := relayV1Router.Group("")
 		wsRouter.Use(middleware.Distribute())
 		wsRouter.GET("/realtime", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIRealtime)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAIRealtime)
 		})
 	}
 	{
@@ -94,92 +95,91 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.Use(middleware.Distribute())
 
 		// claude related routes
-		// TODO: /messages/count_tokens is disabled. The current controller.CountClaudeTokens
-		// httpRouter.POST("/messages/count_tokens", controller.CountClaudeTokens)
+		// /messages/count_tokens remains disabled.
 		httpRouter.POST("/messages", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatClaude)
+			gatewaytransport.Relay(c, types.RelayFormatClaude)
 		})
 
 		// chat related routes
 		httpRouter.POST("/completions", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAI)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAI)
 		})
 		httpRouter.POST("/chat/completions", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAI)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAI)
 		})
 
 		// response related routes
 		httpRouter.POST("/responses/compact", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
 		})
 
 		// alpha search related routes (Codex standalone web search)
 		httpRouter.POST("/alpha/search", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIAlphaSearch)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAIAlphaSearch)
 		})
 
 		// image related routes
 		httpRouter.POST("/edits", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIImage)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAIImage)
 		})
 		httpRouter.POST("/images/generations", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIImage)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAIImage)
 		})
 		httpRouter.POST("/images/edits", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIImage)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAIImage)
 		})
 
 		httpRouter.POST("/systemone", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatSystemOne)
+			gatewaytransport.Relay(c, types.RelayFormatSystemOne)
 		})
 
 		// embedding related routes
 		httpRouter.POST("/embeddings", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatEmbedding)
+			gatewaytransport.Relay(c, types.RelayFormatEmbedding)
 		})
 
 		// audio related routes
 		httpRouter.POST("/audio/transcriptions", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIAudio)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAIAudio)
 		})
 		httpRouter.POST("/audio/translations", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIAudio)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAIAudio)
 		})
 		httpRouter.POST("/audio/speech", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAIAudio)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAIAudio)
 		})
 
 		// rerank related routes
 		httpRouter.POST("/rerank", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatRerank)
+			gatewaytransport.Relay(c, types.RelayFormatRerank)
 		})
 
 		// gemini relay routes
 		httpRouter.POST("/engines/:model/embeddings", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatGemini)
+			gatewaytransport.Relay(c, types.RelayFormatGemini)
 		})
 		httpRouter.POST("/models/*path", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatGemini)
+			gatewaytransport.Relay(c, types.RelayFormatGemini)
 		})
 
 		// other relay routes
 		httpRouter.POST("/moderations", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatOpenAI)
+			gatewaytransport.Relay(c, types.RelayFormatOpenAI)
 		})
 
 		// not implemented
-		httpRouter.POST("/images/variations", controller.RelayNotImplemented)
-		httpRouter.GET("/files", controller.RelayNotImplemented)
-		httpRouter.POST("/files", controller.RelayNotImplemented)
-		httpRouter.DELETE("/files/:id", controller.RelayNotImplemented)
-		httpRouter.GET("/files/:id", controller.RelayNotImplemented)
-		httpRouter.GET("/files/:id/content", controller.RelayNotImplemented)
-		httpRouter.POST("/fine-tunes", controller.RelayNotImplemented)
-		httpRouter.GET("/fine-tunes", controller.RelayNotImplemented)
-		httpRouter.GET("/fine-tunes/:id", controller.RelayNotImplemented)
-		httpRouter.POST("/fine-tunes/:id/cancel", controller.RelayNotImplemented)
-		httpRouter.GET("/fine-tunes/:id/events", controller.RelayNotImplemented)
-		httpRouter.DELETE("/models/:model", controller.RelayNotImplemented)
+		httpRouter.POST("/images/variations", gatewaytransport.RelayNotImplemented)
+		httpRouter.GET("/files", gatewaytransport.RelayNotImplemented)
+		httpRouter.POST("/files", gatewaytransport.RelayNotImplemented)
+		httpRouter.DELETE("/files/:id", gatewaytransport.RelayNotImplemented)
+		httpRouter.GET("/files/:id", gatewaytransport.RelayNotImplemented)
+		httpRouter.GET("/files/:id/content", gatewaytransport.RelayNotImplemented)
+		httpRouter.POST("/fine-tunes", gatewaytransport.RelayNotImplemented)
+		httpRouter.GET("/fine-tunes", gatewaytransport.RelayNotImplemented)
+		httpRouter.GET("/fine-tunes/:id", gatewaytransport.RelayNotImplemented)
+		httpRouter.POST("/fine-tunes/:id/cancel", gatewaytransport.RelayNotImplemented)
+		httpRouter.GET("/fine-tunes/:id/events", gatewaytransport.RelayNotImplemented)
+		httpRouter.DELETE("/models/:model", gatewaytransport.RelayNotImplemented)
 	}
 
 	relayMjRouter := router.Group("/mj")
@@ -202,7 +202,7 @@ func SetRelayRouter(router *gin.Engine) {
 	{
 		// Gemini API 路径格式: /v1beta/models/{model_name}:{action}
 		relayGeminiRouter.POST("/models/*path", func(c *gin.Context) {
-			controller.Relay(c, types.RelayFormatGemini)
+			gatewaytransport.Relay(c, types.RelayFormatGemini)
 		})
 	}
 }
@@ -211,21 +211,21 @@ func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
 	relayMjRouter.GET("/image/:id", relay.RelayMidjourneyImage)
 	relayMjRouter.Use(middleware.TokenAuth(), middleware.Distribute())
 	{
-		relayMjRouter.POST("/submit/action", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/shorten", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/modal", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/imagine", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/change", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/simple-change", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/describe", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/blend", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/edits", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/video", controller.RelayMidjourney)
-		//relayMjRouter.POST("/notify", controller.RelayMidjourney)
-		relayMjRouter.GET("/task/:id/fetch", controller.RelayMidjourney)
-		relayMjRouter.GET("/task/:id/image-seed", controller.RelayMidjourney)
-		relayMjRouter.POST("/task/list-by-condition", controller.RelayMidjourney)
-		relayMjRouter.POST("/insight-face/swap", controller.RelayMidjourney)
-		relayMjRouter.POST("/submit/upload-discord-images", controller.RelayMidjourney)
+		relayMjRouter.POST("/submit/action", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/shorten", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/modal", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/imagine", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/change", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/simple-change", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/describe", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/blend", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/edits", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/video", gatewaytransport.RelayMidjourney)
+		//relayMjRouter.POST("/notify", gatewaytransport.RelayMidjourney)
+		relayMjRouter.GET("/task/:id/fetch", gatewaytransport.RelayMidjourney)
+		relayMjRouter.GET("/task/:id/image-seed", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/task/list-by-condition", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/insight-face/swap", gatewaytransport.RelayMidjourney)
+		relayMjRouter.POST("/submit/upload-discord-images", gatewaytransport.RelayMidjourney)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	batchmath "github.com/QuantumNous/new-api/internal/adapter/billing"
 	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/batch"
@@ -49,7 +50,7 @@ func TestBatchAdmissionFreezesFinalEnvelopeProvider(t *testing.T) {
 		common.QuotaPerUnit = previousQuotaUnit
 		settings.CustomCurrencyExchangeRate = previousExchangeRate
 	})
-	seedNativeRouteFX(t, db)
+	fxseed.SeedNativeRouteFX(t, db)
 	client := httpclient.GetHttpClient()
 	if client == nil {
 		client = http.DefaultClient

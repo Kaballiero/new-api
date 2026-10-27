@@ -74,7 +74,7 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 	}
 
 	// 查找原始任务
-	originTask, exist, err := taskPersistence.GetByTaskId(info.UserId, info.OriginTaskID)
+	originTask, exist, err := tasksapp.Origins().GetByTaskId(info.UserId, info.OriginTaskID)
 	if err != nil {
 		return mapping.TaskErrorWrapper(err, "get_origin_task_failed", http.StatusInternalServerError)
 	}
@@ -511,7 +511,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 	}
 	userId := c.GetInt("id")
 
-	originTask, exist, err := taskPersistence.GetByTaskId(userId, taskId)
+	originTask, exist, err := tasksapp.Origins().GetByTaskId(userId, taskId)
 	if err != nil {
 		taskResp = mapping.TaskErrorWrapper(err, "get_task_failed", http.StatusInternalServerError)
 		return
@@ -617,7 +617,7 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 	}
 
 	if !snap.Equal(task.Snapshot()) {
-		_, _ = taskPersistence.UpdateTaskWithStatus(task, model.TaskStatus(snap.Status))
+		_, _ = tasksapp.FetchUpdates().UpdateTaskWithStatus(task, model.TaskStatus(snap.Status))
 	}
 
 	// OpenAI Video API 由调用者的 ConvertToOpenAIVideo 分支处理
@@ -705,7 +705,3 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Data:       task.Data,
 	}
 }
-
-// BRIDGE: RelayTaskSubmit and RelayTaskFetch read origin tasks and claim provider fetch updates.
-// Remove when origin lookup and fetch status claims are exposed by task scenarios.
-var taskPersistence = tasksapp.NewStore()
