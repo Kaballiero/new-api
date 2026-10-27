@@ -1,4 +1,4 @@
-package service
+package identitycore
 
 import (
 	"bytes"
@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
@@ -331,7 +334,7 @@ func TestLoginSessionCreateRefreshAndRevoke(t *testing.T) {
 	bundle, err := CreateLoginSession(user.Id, "password", "127.0.0.1", "test-agent")
 	require.NoError(t, err)
 	assert.NotEmpty(t, bundle.RefreshToken)
-	identity, err := ParseAccessToken(bundle.AccessToken)
+	identity, err := authtoken.ParseAccessToken(bundle.AccessToken)
 	require.NoError(t, err)
 	_, cachedUser, err := ValidateLoginSession(identity)
 	require.NoError(t, err)
@@ -348,11 +351,11 @@ func TestLoginSessionCreateRefreshAndRevoke(t *testing.T) {
 	assert.Equal(t, refreshed.RefreshToken, recovered.RefreshToken, "a concurrent refresh must recover the winner's rotated token")
 
 	_, _, err = RefreshLoginSession(refreshed.RefreshToken, "different-session", "127.0.0.2", "test-agent-2")
-	assert.ErrorIs(t, err, ErrLoginSessionMismatch)
+	assert.ErrorIs(t, err, identitydomain.ErrLoginSessionMismatch)
 
 	require.NoError(t, RevokeByRefreshToken(refreshed.RefreshToken, refreshed.Session.SID, "logout"))
 	_, _, err = ValidateLoginSession(identity)
-	assert.True(t, errors.Is(err, ErrLoginSessionRevoked))
+	assert.True(t, errors.Is(err, identitydomain.ErrLoginSessionRevoked))
 }
 
 func TestIndependentRedisSessionRevokeConvergesAfterCacheTTL(t *testing.T) {
@@ -363,7 +366,7 @@ func TestIndependentRedisSessionRevokeConvergesAfterCacheTTL(t *testing.T) {
 	common.RDB = clientA
 	bundle, err := CreateLoginSession(user.Id, "password", "127.0.0.1", "node-a")
 	require.NoError(t, err)
-	identity, err := ParseAccessToken(bundle.AccessToken)
+	identity, err := authtoken.ParseAccessToken(bundle.AccessToken)
 	require.NoError(t, err)
 
 	common.RDB = clientB
@@ -377,7 +380,7 @@ func TestIndependentRedisSessionRevokeConvergesAfterCacheTTL(t *testing.T) {
 	serverB.FastForward(3 * time.Second)
 	common.RDB = clientB
 	_, _, err = ValidateLoginSession(identity)
-	assert.ErrorIs(t, err, ErrLoginSessionRevoked)
+	assert.ErrorIs(t, err, identitydomain.ErrLoginSessionRevoked)
 }
 
 func TestIndependentRedisAuthVersionAdvanceConvergesAfterCacheTTL(t *testing.T) {
@@ -388,7 +391,7 @@ func TestIndependentRedisAuthVersionAdvanceConvergesAfterCacheTTL(t *testing.T) 
 	common.RDB = clientA
 	bundle, err := CreateLoginSession(user.Id, "password", "127.0.0.1", "node-a")
 	require.NoError(t, err)
-	oldIdentity, err := ParseAccessToken(bundle.AccessToken)
+	oldIdentity, err := authtoken.ParseAccessToken(bundle.AccessToken)
 	require.NoError(t, err)
 
 	common.RDB = clientB
@@ -401,7 +404,7 @@ func TestIndependentRedisAuthVersionAdvanceConvergesAfterCacheTTL(t *testing.T) 
 	common.RDB = clientA
 	rotated, err := AdvanceCurrentSessionSecurity(oldIdentity, "security_update")
 	require.NoError(t, err)
-	newIdentity, err := ParseAccessToken(rotated.AccessToken)
+	newIdentity, err := authtoken.ParseAccessToken(rotated.AccessToken)
 	require.NoError(t, err)
 	assert.Greater(t, newIdentity.SessionVersion, oldIdentity.SessionVersion)
 	assert.Greater(t, newIdentity.UserAuthVersion, oldIdentity.UserAuthVersion)
@@ -411,7 +414,7 @@ func TestIndependentRedisAuthVersionAdvanceConvergesAfterCacheTTL(t *testing.T) 
 	_, _, err = ValidateLoginSession(newIdentity)
 	require.NoError(t, err)
 	_, _, err = ValidateLoginSession(oldIdentity)
-	assert.ErrorIs(t, err, ErrLoginSessionRevoked)
+	assert.ErrorIs(t, err, identitydomain.ErrLoginSessionRevoked)
 }
 
 func TestUserAuthVersionInvalidatesExistingSession(t *testing.T) {
@@ -419,15 +422,15 @@ func TestUserAuthVersionInvalidatesExistingSession(t *testing.T) {
 	user := setupAuthSessionTestDB(t)
 	bundle, err := CreateLoginSession(user.Id, "password", "127.0.0.1", "test-agent")
 	require.NoError(t, err)
-	identity, err := ParseAccessToken(bundle.AccessToken)
+	identity, err := authtoken.ParseAccessToken(bundle.AccessToken)
 	require.NoError(t, err)
 
 	_, err = model.BumpUserAuthVersion(user.Id)
 	require.NoError(t, err)
 	_, _, err = ValidateLoginSession(identity)
-	assert.ErrorIs(t, err, ErrLoginSessionRevoked)
+	assert.ErrorIs(t, err, identitydomain.ErrLoginSessionRevoked)
 	_, err = CreateLoginSessionAtAuthVersion(user.Id, identity.UserAuthVersion, "2fa", "127.0.0.1", "test-agent")
-	assert.ErrorIs(t, err, ErrLoginSessionRevoked, "a pending 2FA flow must not survive an auth-version change")
+	assert.ErrorIs(t, err, identitydomain.ErrLoginSessionRevoked, "a pending 2FA flow must not survive an auth-version change")
 }
 
 func TestCreateLoginSessionReadsLimitsAfterStorage(t *testing.T) {
@@ -451,4 +454,12 @@ func TestCreateLoginSessionReadsLimitsAfterStorage(t *testing.T) {
 	var count int64
 	require.NoError(t, model.DB.Model(&model.UserSession{}).Count(&count).Error)
 	assert.Zero(t, count, "a late limit change must reject issuance before persistence")
+}
+
+// AdvanceCurrentSessionSecurity keeps the existing Redis convergence fixture on the live advancement scenario.
+func AdvanceCurrentSessionSecurity(identity identitydomain.AuthIdentity, reason string) (*identitydto.AuthBundle, error) {
+	if _, err := model.BumpUserAuthVersion(identity.UserID); err != nil {
+		return nil, err
+	}
+	return AdvanceCurrentSessionToUserVersion(identity, reason)
 }

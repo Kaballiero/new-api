@@ -27,7 +27,9 @@ import (
 	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type tokenAPIResponse struct {
@@ -654,7 +656,7 @@ func verifyAPITokenAudit(t *testing.T) {
 	require.NoError(t, model.DB.Create(other).Error)
 	session := &model.UserSession{SID: "token-audit-session", UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: "placeholder", LoginMethod: "password", LastActiveAt: time.Now().Unix(), ExpiresAt: time.Now().Add(time.Hour).Unix()}
 	require.NoError(t, model.CreateUserSession(session))
-	jwt, _, err := service.IssueAccessToken(service.AuthIdentity{UserID: user.Id, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1})
+	jwt, _, err := authtoken.IssueAccessToken(identitydomain.AuthIdentity{UserID: user.Id, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1})
 	require.NoError(t, err)
 	router := gin.New()
 	router.Use(middleware.RequestId(), middleware.AccessTokenAudit())

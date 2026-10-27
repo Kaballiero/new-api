@@ -33,7 +33,9 @@ import (
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/revoke_token"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
@@ -176,7 +178,7 @@ func TestAccessTokenAuditsResultsAndExcludesBrowserSessions(t *testing.T) {
 	now := time.Now().Unix()
 	session := &model.UserSession{SID: "audit-session", UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: "refresh-placeholder", LoginMethod: "password", LastActiveAt: now, ExpiresAt: now + 3600}
 	require.NoError(t, model.CreateUserSession(session))
-	jwt, _, err := service.IssueAccessToken(service.AuthIdentity{UserID: user.Id, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1})
+	jwt, _, err := authtoken.IssueAccessToken(identitydomain.AuthIdentity{UserID: user.Id, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1})
 	require.NoError(t, err)
 	assert.Equal(t, 200, auditRequest(router, "GET", "/read/123", jwt).Code)
 	assert.Equal(t, 401, auditRequest(router, "GET", "/read/123", "unknown-token").Code)
@@ -274,7 +276,7 @@ func TestAuditRoleVisibilityAndPermissions(t *testing.T) {
 	now := time.Now().Unix()
 	session := &model.UserSession{SID: "audit-permissions-session", UserID: admin.Id, Version: 1, UserAuthVersion: 1, Status: model.UserSessionStatusActive, RefreshHash: "placeholder", LoginMethod: "password", LastActiveAt: now, ExpiresAt: now + 3600}
 	require.NoError(t, model.CreateUserSession(session))
-	jwt, _, err := service.IssueAccessToken(service.AuthIdentity{UserID: admin.Id, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1})
+	jwt, _, err := authtoken.IssueAccessToken(identitydomain.AuthIdentity{UserID: admin.Id, SessionID: session.SID, UserAuthVersion: 1, SessionVersion: 1})
 	require.NoError(t, err)
 	for _, credential := range []string{pat, jwt} {
 		assert.Equal(t, http.StatusForbidden, auditRequest(router, "GET", "/api/audit", credential).Code)

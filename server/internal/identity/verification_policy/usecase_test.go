@@ -50,7 +50,7 @@ func TestExecute(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			op := &fakeOperation{passkey: tc.passkey}
-			err := NewUsecase(root, op).Execute(tc.scope, tc.role, tc.state)
+			err := NewUsecase(root).Execute(op, tc.scope, tc.role, tc.state)
 			if tc.want == nil {
 				assert.NoError(t, err)
 			} else {

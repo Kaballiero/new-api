@@ -6,20 +6,19 @@ type CompleteSecurityOperation interface {
 	IssueProof(method string) error
 }
 
-func (usecase Usecase) Execute(method string) error {
-	if err := usecase.operation.ValidateSession(); err != nil {
+func (usecase Usecase) Execute(operation CompleteSecurityOperation, method string) error {
+	if err := operation.ValidateSession(); err != nil {
 		return err
 	}
-	if err := usecase.operation.RequireMethod(method); err != nil {
+	if err := operation.RequireMethod(method); err != nil {
 		return err
 	}
-	return usecase.operation.IssueProof(method)
+	return operation.IssueProof(method)
 }
 
 type Usecase struct {
-	operation CompleteSecurityOperation
 }
 
-func NewUsecase(operation CompleteSecurityOperation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

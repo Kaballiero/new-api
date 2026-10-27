@@ -1,4 +1,4 @@
-package passkey
+package webauthn
 
 import (
 	"errors"
@@ -11,13 +11,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
-
 	"github.com/go-webauthn/webauthn/protocol"
 	webauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
-// BuildWebAuthn constructs a WebAuthn instance using the current passkey settings and request context.
-func BuildWebAuthn(r *http.Request) (*webauthn.WebAuthn, error) {
+// buildWebAuthn constructs a WebAuthn instance using the current passkey settings and request context.
+func buildWebAuthn(r *http.Request) (*webauthn.WebAuthn, error) {
 	settings := system_setting.GetPasskeySettings()
 	if settings == nil {
 		return nil, errors.New("未找到 Passkey 设置")
@@ -76,9 +75,8 @@ func BuildWebAuthn(r *http.Request) (*webauthn.WebAuthn, error) {
 func resolveOrigins(r *http.Request, settings *system_setting.PasskeySettings) ([]string, error) {
 	originsStr := strings.TrimSpace(settings.Origins)
 	if originsStr != "" {
-		originList := strings.Split(originsStr, ",")
-		origins := make([]string, 0, len(originList))
-		for _, origin := range originList {
+		origins := make([]string, 0, strings.Count(originsStr, ",")+1)
+		for origin := range strings.SplitSeq(originsStr, ",") {
 			trimmed := strings.TrimSpace(origin)
 			if trimmed == "" {
 				continue
@@ -89,7 +87,7 @@ func resolveOrigins(r *http.Request, settings *system_setting.PasskeySettings) (
 			origins = append(origins, trimmed)
 		}
 		if len(origins) == 0 {
-			// 如果配置了Origins但过滤后为空，使用自动推导
+			// Derive origins automatically when the configured list is empty.
 			goto autoDetect
 		}
 		return origins, nil
@@ -100,10 +98,10 @@ autoDetect:
 	if scheme == "http" && !settings.AllowInsecureOrigin && r.Host != "localhost" && r.Host != "127.0.0.1" && !strings.HasPrefix(r.Host, "127.0.0.1:") && !strings.HasPrefix(r.Host, "localhost:") {
 		return nil, fmt.Errorf("Passkey 仅支持 HTTPS，当前访问: %s://%s，请在 Passkey 设置中允许不安全 Origin 或配置 HTTPS", scheme, r.Host)
 	}
-	// 优先使用请求的完整Host（包含端口）
+	// Prefer the full request host, including its port.
 	host := r.Host
 
-	// 如果无法从请求获取Host，尝试从ServerAddress获取
+	// Fall back to the configured server address when the request host is absent.
 	if host == "" && system_setting.ServerAddress != "" {
 		if parsed, err := url.Parse(system_setting.ServerAddress); err == nil && parsed.Host != "" {
 			host = parsed.Host

@@ -36,11 +36,11 @@ func TestExecuteMapsConsumption(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			op := &fakeOperation{consume: tc.consume}
-			assert.ErrorIs(t, NewUsecase(op).Execute(), tc.want)
+			assert.ErrorIs(t, NewUsecase().Execute(op), tc.want)
 			assert.False(t, op.captured)
 		})
 	}
 	op := &fakeOperation{}
-	assert.NoError(t, NewUsecase(op).Execute())
+	assert.NoError(t, NewUsecase().Execute(op))
 	assert.True(t, op.captured)
 }

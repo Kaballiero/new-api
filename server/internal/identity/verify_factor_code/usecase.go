@@ -16,22 +16,22 @@ type FactorCodeOperation interface {
 }
 
 // Execute selects exactly one mechanism and therefore one failed-attempt counter increment.
-func (usecase Usecase) Execute(code string) error {
-	if !usecase.operation.Enabled() {
+func (usecase Usecase) Execute(operation FactorCodeOperation, code string) error {
+	if !operation.Enabled() {
 		return domain.ErrTwoFANotEnabled
 	}
-	if usecase.operation.Locked() {
+	if operation.Locked() {
 		return domain.ErrVerificationLocked
 	}
 	code = strings.TrimSpace(code)
 	var valid bool
 	var err error
-	if numeric, numericErr := usecase.operation.NumericCode(code); numericErr == nil {
-		valid, err = usecase.operation.ValidateTOTP(numeric)
-	} else if usecase.operation.BackupCodeValid(code) {
-		valid, err = usecase.operation.ValidateBackup(code)
+	if numeric, numericErr := operation.NumericCode(code); numericErr == nil {
+		valid, err = operation.ValidateTOTP(numeric)
+	} else if operation.BackupCodeValid(code) {
+		valid, err = operation.ValidateBackup(code)
 	} else {
-		err = usecase.operation.IncrementFailedAttempts()
+		err = operation.IncrementFailedAttempts()
 	}
 	if err != nil {
 		return err
@@ -43,9 +43,8 @@ func (usecase Usecase) Execute(code string) error {
 }
 
 type Usecase struct {
-	operation FactorCodeOperation
 }
 
-func NewUsecase(operation FactorCodeOperation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

@@ -21,40 +21,39 @@ type Operation interface {
 	CaptureData()
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.LoadChange(); err != nil {
+func (usecase Usecase) Execute(operation Operation) error {
+	if err := operation.LoadChange(); err != nil {
 		return err
 	}
-	if err := usecase.operation.BindOperation(); err != nil {
+	if err := operation.BindOperation(); err != nil {
 		return err
 	}
-	if err := usecase.operation.ValidateAuthorization(); err != nil {
+	if err := operation.ValidateAuthorization(); err != nil {
 		return err
 	}
-	if usecase.operation.ResendAt() > time.Now().Unix() {
+	if operation.ResendAt() > time.Now().Unix() {
 		return domain.ErrEmailBindingResendWait
 	}
-	if usecase.operation.FailedAttempts() >= usecase.operation.MaximumAttempts() {
+	if operation.FailedAttempts() >= operation.MaximumAttempts() {
 		return domain.ErrEmailBindingLocked
 	}
-	if err := usecase.operation.GenerateCodes(usecase.operation.HasOldCode()); err != nil {
+	if err := operation.GenerateCodes(operation.HasOldCode()); err != nil {
 		return err
 	}
-	if err := usecase.operation.ReplaceCodes(); err != nil {
+	if err := operation.ReplaceCodes(); err != nil {
 		return err
 	}
-	if err := usecase.operation.DeliverCodes(); err != nil {
-		usecase.operation.InvalidateChange()
+	if err := operation.DeliverCodes(); err != nil {
+		operation.InvalidateChange()
 		return domain.ErrEmailBindingDelivery
 	}
-	usecase.operation.CaptureData()
+	operation.CaptureData()
 	return nil
 }
 
 type Usecase struct {
-	operation Operation
 }
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

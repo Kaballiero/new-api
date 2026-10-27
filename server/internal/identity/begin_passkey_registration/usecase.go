@@ -12,30 +12,26 @@ type Operation interface {
 	CreateRegistrationFlow() error
 }
 
-func (usecase Usecase) Execute() error {
-	err := usecase.operation.LoadCredential()
-	if err != nil && !usecase.operation.CredentialMissing(err) {
+func (usecase Usecase) Execute(operation Operation) error {
+	err := operation.LoadCredential()
+	if err != nil && !operation.CredentialMissing(err) {
 		return err
 	}
-	if usecase.operation.CredentialMissing(err) {
-		usecase.operation.ClearCredential()
+	if operation.CredentialMissing(err) {
+		operation.ClearCredential()
 	}
-	if err := usecase.operation.Build(); err != nil {
+	if err := operation.Build(); err != nil {
 		return err
 	}
-	if err := usecase.operation.BeginRegistration(); err != nil {
+	if err := operation.BeginRegistration(); err != nil {
 		return err
 	}
-	if !usecase.operation.ReadIdentity() {
+	if !operation.ReadIdentity() {
 		return domain.ErrPasskeyIdentityRequired
 	}
-	return usecase.operation.CreateRegistrationFlow()
+	return operation.CreateRegistrationFlow()
 }
 
-type Usecase struct {
-	operation Operation
-}
+type Usecase struct{}
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
-}
+func NewUsecase() Usecase { return Usecase{} }

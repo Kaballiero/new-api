@@ -18,11 +18,11 @@ type RequirementsOperation interface {
 	TelegramConfigurationError() error
 }
 
-func (usecase Usecase) Execute(scope string, expectedVersion int64) error {
+func (usecase Usecase) Execute(operation RequirementsOperation, scope string, expectedVersion int64) error {
 	if scope == "auth.login" {
 		return domain.ErrProofScope
 	}
-	status, version, role, err := usecase.operation.LoadState()
+	status, version, role, err := operation.LoadState()
 	if err != nil {
 		return err
 	}
@@ -32,33 +32,33 @@ func (usecase Usecase) Execute(scope string, expectedVersion int64) error {
 	if scope == "channel.key.read" && role != usecase.rootRole {
 		return domain.ErrVerificationForbidden
 	}
-	if err := usecase.operation.Policy(); err != nil {
+	if err := operation.Policy(); err != nil {
 		return err
 	}
-	usecase.operation.CaptureRequirements()
-	for i := range usecase.operation.MethodCount() {
-		method, _ := usecase.operation.MethodOption(i)
-		if method == "password" && !usecase.operation.PasswordLoginEnabled() {
+	operation.CaptureRequirements()
+	for i := range operation.MethodCount() {
+		method, _ := operation.MethodOption(i)
+		if method == "password" && !operation.PasswordLoginEnabled() {
 			switch scope {
 			case "account.binding.bind", "account.binding.unbind", "account.password.set", "account.password.change", "account.delete":
-				usecase.operation.DisableMethod(i, "Password authentication is disabled.")
+				operation.DisableMethod(i, "Password authentication is disabled.")
 			}
 		}
 		if method != "oauth" {
 			continue
 		}
-		if err := usecase.operation.LoadOAuthAccount(); err != nil {
+		if err := operation.LoadOAuthAccount(); err != nil {
 			return err
 		}
-		count, err := usecase.operation.LoadOAuthProviders()
+		count, err := operation.LoadOAuthProviders()
 		if err != nil {
 			return err
 		}
 		if count == 0 {
-			usecase.operation.DisableMethod(i, "No linked OAuth provider is available.")
-			if usecase.operation.HasTelegram() {
-				if err := usecase.operation.TelegramConfigurationError(); err != nil {
-					usecase.operation.DisableMethod(i, err.Error())
+			operation.DisableMethod(i, "No linked OAuth provider is available.")
+			if operation.HasTelegram() {
+				if err := operation.TelegramConfigurationError(); err != nil {
+					operation.DisableMethod(i, err.Error())
 				}
 			}
 		}
@@ -67,11 +67,10 @@ func (usecase Usecase) Execute(scope string, expectedVersion int64) error {
 }
 
 type Usecase struct {
-	operation     RequirementsOperation
 	enabledStatus int
 	rootRole      int
 }
 
-func NewUsecase(operation RequirementsOperation, enabledStatus int, rootRole int) Usecase {
-	return Usecase{operation: operation, enabledStatus: enabledStatus, rootRole: rootRole}
+func NewUsecase(enabledStatus int, rootRole int) Usecase {
+	return Usecase{enabledStatus: enabledStatus, rootRole: rootRole}
 }

@@ -10,7 +10,7 @@ type RevokeOperation interface {
 	RevokeByHash(sid, secret, reason string) error
 }
 
-func (usecase Usecase) Execute(rawToken string, expectedSID string, reason string) error {
+func (usecase Usecase) Execute(operation RevokeOperation, rawToken string, expectedSID string, reason string) error {
 	sid, secret, ok := usecase.split(rawToken)
 	if !ok {
 		return nil
@@ -18,15 +18,14 @@ func (usecase Usecase) Execute(rawToken string, expectedSID string, reason strin
 	if expectedSID = strings.TrimSpace(expectedSID); expectedSID != "" && expectedSID != sid {
 		return domain.ErrLoginSessionMismatch
 	}
-	return usecase.operation.RevokeByHash(sid, secret, reason)
+	return operation.RevokeByHash(sid, secret, reason)
 }
 
 type Usecase struct {
-	operation RevokeOperation
-	split     func(string) (
+	split func(string) (
 		string, string, bool)
 }
 
-func NewUsecase(operation RevokeOperation, split func(string) (string, string, bool)) Usecase {
-	return Usecase{operation: operation, split: split}
+func NewUsecase(split func(string) (string, string, bool)) Usecase {
+	return Usecase{split: split}
 }

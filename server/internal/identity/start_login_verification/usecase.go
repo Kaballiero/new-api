@@ -9,33 +9,32 @@ type StartLoginOperation interface {
 	CreateChallenge() error
 }
 
-func (usecase Usecase) Execute() error {
-	userID, authVersion, loginMethod := usecase.operation.PrimaryFacts()
+func (usecase Usecase) Execute(operation StartLoginOperation) error {
+	userID, authVersion, loginMethod := operation.PrimaryFacts()
 	if userID <= 0 || authVersion <= 0 || loginMethod == "" {
 		return domain.ErrAuthFlowInvalid
 	}
-	status, currentVersion, err := usecase.operation.LoadState()
+	status, currentVersion, err := operation.LoadState()
 	if err != nil {
 		return err
 	}
 	if status != usecase.enabledStatus || currentVersion != authVersion {
 		return domain.ErrSessionInactive
 	}
-	count, available, err := usecase.operation.Policy("auth.login")
+	count, available, err := operation.Policy("auth.login")
 	if err != nil || count == 0 {
 		return err
 	}
 	if !available {
 		return domain.ErrVerificationUnavailable
 	}
-	return usecase.operation.CreateChallenge()
+	return operation.CreateChallenge()
 }
 
 type Usecase struct {
-	operation     StartLoginOperation
 	enabledStatus int
 }
 
-func NewUsecase(operation StartLoginOperation, enabledStatus int) Usecase {
-	return Usecase{operation: operation, enabledStatus: enabledStatus}
+func NewUsecase(enabledStatus int) Usecase {
+	return Usecase{enabledStatus: enabledStatus}
 }

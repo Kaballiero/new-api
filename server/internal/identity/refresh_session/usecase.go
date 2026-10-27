@@ -8,6 +8,7 @@ import (
 )
 
 type RefreshOperation interface {
+	SetPresentedSecret(string)
 	LoadSession(sid string) (domain.SessionState, error)
 	LoadCachedAccount(userID int) (domain.AccountState, error)
 	LoadCurrentAccount(userID int) (domain.AccountState, error)
@@ -22,15 +23,16 @@ type RefreshCodec struct {
 	DeriveNext func(string, string) string
 }
 
-func (usecase Usecase) Execute(rawToken string, expectedSID string, ip string, userAgent string) error {
+func (usecase Usecase) Execute(operation RefreshOperation, rawToken string, expectedSID string, ip string, userAgent string) error {
 	sid, secret, ok := usecase.codec.Split(rawToken)
+	operation.SetPresentedSecret(secret)
 	if !ok {
 		return domain.ErrRefreshTokenInvalid
 	}
 	if expectedSID = strings.TrimSpace(expectedSID); expectedSID != "" && expectedSID != sid {
 		return domain.ErrLoginSessionMismatch
 	}
-	session, err := usecase.operation.LoadSession(sid)
+	session, err := operation.LoadSession(sid)
 	if err != nil {
 		if errors.Is(err, domain.ErrSessionInactive) {
 			return domain.ErrLoginSessionRevoked
@@ -40,24 +42,24 @@ func (usecase Usecase) Execute(rawToken string, expectedSID string, ip string, u
 	if session.Status != usecase.policy.ActiveStatus || session.RevokedAt != 0 || session.ExpiresAt <= time.Now().Unix() {
 		return domain.ErrLoginSessionRevoked
 	}
-	cached, err := usecase.operation.LoadCachedAccount(session.UserID)
+	cached, err := operation.LoadCachedAccount(session.UserID)
 	if err != nil {
 		return err
 	}
-	current, err := usecase.operation.LoadCurrentAccount(session.UserID)
+	current, err := operation.LoadCurrentAccount(session.UserID)
 	if err != nil {
 		return err
 	}
 	if cached.Status != usecase.policy.EnabledStatus || cached.AuthVersion != session.UserAuthVersion || current.Status != usecase.policy.EnabledStatus || current.AuthVersion != session.UserAuthVersion {
-		_ = usecase.operation.Revoke("user_security_changed")
+		_ = operation.Revoke("user_security_changed")
 		return domain.ErrLoginSessionRevoked
 	}
 	nextSecret := usecase.codec.DeriveNext(sid, secret)
 	// The operation computes both current callback HMACs before reading the rotation time.
-	err = usecase.operation.Rotate(nextSecret)
+	err = operation.Rotate(nextSecret)
 	if err != nil {
-		if errors.Is(err, domain.ErrSessionRefreshRace) && usecase.operation.RotationMatchesNextSecret() {
-			return usecase.operation.IssueBundle()
+		if errors.Is(err, domain.ErrSessionRefreshRace) && operation.RotationMatchesNextSecret() {
+			return operation.IssueBundle()
 		}
 		if errors.Is(err, domain.ErrSessionRefreshReuse) {
 			return domain.ErrLoginSessionRevoked
@@ -70,16 +72,16 @@ func (usecase Usecase) Execute(rawToken string, expectedSID string, ip string, u
 		}
 		return err
 	}
-	usecase.operation.SetResponseMetadata(ip, userAgent)
-	return usecase.operation.IssueBundle()
+	operation.SetResponseMetadata(ip, userAgent)
+	return operation.IssueBundle()
 }
 
 type Usecase struct {
-	codec     RefreshCodec
-	operation RefreshOperation
-	policy    domain.SessionPolicy
+	codec RefreshCodec
+
+	policy domain.SessionPolicy
 }
 
-func NewUsecase(operation RefreshOperation, policy domain.SessionPolicy, codec RefreshCodec) Usecase {
-	return Usecase{operation: operation, policy: policy, codec: codec}
+func NewUsecase(policy domain.SessionPolicy, codec RefreshCodec) Usecase {
+	return Usecase{policy: policy, codec: codec}
 }

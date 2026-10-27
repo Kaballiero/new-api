@@ -20,7 +20,6 @@ import (
 	identityhttp "github.com/QuantumNous/new-api/internal/identity/transport"
 	pricing "github.com/QuantumNous/new-api/internal/pricing/domain"
 	pricinghttp "github.com/QuantumNous/new-api/internal/pricing/transport"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -661,8 +660,8 @@ func TestWeChatLiteralFailureResponses(t *testing.T) {
 	for _, tc := range cases {
 		for _, language := range []string{i18n.LangZhCN, i18n.LangZhTW} {
 			t.Run(tc.message+"/"+language, func(t *testing.T) {
-				fixture := wechatLiteralFailure{err: tc.err}
-				handler := login_wechat.NewHTTP(func() login_wechat.Completion { return fixture }, func(*model.User, *gin.Context) { t.Fatal("failed login must not authenticate") })
+				fixture := wechatLiteralFailure{err: tc.err, complete: func() { t.Fatal("failed login must not authenticate") }}
+				handler := login_wechat.NewHTTP(login_wechat.NewUsecase(), func() login_wechat.Completion { return fixture })
 				response := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(response)
 				c.Request = httptest.NewRequest(http.MethodGet, "/?code=fixture", nil)
@@ -682,10 +681,13 @@ func TestWeChatLiteralFailureResponses(t *testing.T) {
 	}
 }
 
-type wechatLiteralFailure struct{ err error }
+type wechatLiteralFailure struct {
+	err      error
+	complete func()
+}
 
-func (wechatLiteralFailure) Enabled() bool                  { return true }
-func (wechatLiteralFailure) AuthenticatedUser() *model.User { return nil }
+func (wechatLiteralFailure) Enabled() bool                { return true }
+func (f wechatLiteralFailure) CompleteLogin(*gin.Context) { f.complete() }
 func (f wechatLiteralFailure) ExchangeCode(string) error {
 	if f.err == identity.ErrWeChatCodeMissing || f.err == identity.ErrWeChatCodeInvalid {
 		return f.err

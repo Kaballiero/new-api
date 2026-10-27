@@ -6,30 +6,33 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Completion interface {
 	Operation
 	Challenge() dto.PasskeyChallenge
 }
+type CompletionFactory func(request Request) Completion
+
 type HTTP struct {
+	usecase    Usecase
 	enabled    func() bool
-	user       func(*gin.Context) (*model.User, error)
-	factory    func(c *gin.Context, user *model.User, request Request) Completion
+	user       func(*gin.Context) (domain.PasskeyAccount, CompletionFactory, error)
 	writeError func(*gin.Context, error)
 }
 
-func NewHTTP(enabled func() bool, user func(*gin.Context) (*model.User, error), factory func(c *gin.Context, user *model.User, request Request) Completion, writeError func(*gin.Context, error)) *HTTP {
-	return &HTTP{enabled: enabled, user: user, factory: factory, writeError: writeError}
+func NewHTTP(usecase Usecase, enabled func() bool, user func(*gin.Context) (domain.PasskeyAccount, CompletionFactory, error), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{usecase: usecase, enabled: enabled, user: user, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	if !h.enabled() {
 		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyDisabled)
 		return
 	}
-	user, err := h.user(c)
+	_, factory, err := h.user(c)
 	if err != nil {
 		h.writeError(c, err)
 		return
@@ -39,8 +42,8 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyRequestInvalid)
 		return
 	}
-	op := h.factory(c, user, request)
-	if err := NewUsecase(op).Execute(); err != nil {
+	op := factory(request)
+	if err := h.usecase.Execute(op); err != nil {
 		h.writeError(c, err)
 		return
 	}

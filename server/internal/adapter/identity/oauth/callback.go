@@ -7,12 +7,16 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+
+	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
+	"github.com/QuantumNous/new-api/internal/app/identitycore"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Callback struct {
+	Complete func(*model.User, *gin.Context)
 	*Account
 	Context                  *gin.Context
 	Name                     string
@@ -20,7 +24,7 @@ type Callback struct {
 	state                    string
 	pending, flow            *model.AuthFlow
 	match                    model.AuthFlowMatch
-	identity                 service.AuthIdentity
+	identity                 domain.AuthIdentity
 	payload, telegramPayload FlowPayload
 	token                    *oauth.OAuthToken
 	proof                    *dto.SecurityProof
@@ -52,11 +56,11 @@ func (op *Callback) ReadBoundIdentity() bool {
 	return true
 }
 func (op *Callback) ValidateBindingAuthorization() error {
-	context, err := common.Marshal(service.AccountBindingContext{Provider: op.Name})
+	context, err := common.Marshal(domain.AccountBindingContext{Provider: op.Name})
 	if err != nil {
 		return err
 	}
-	return service.ValidateFlowAuthorization(op.identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: context}, op.payload.Authorization)
+	return identitycore.ValidateFlowAuthorization(op.identity, domain.VerificationOperation{Scope: domain.VerificationScopeAccountBind, Context: context}, op.payload.Authorization)
 }
 func (op *Callback) IsTelegram() bool             { return op.Name == "telegram" }
 func (op *Callback) TelegramConfiguration() error { return oauth.TelegramConfigurationError() }
@@ -71,7 +75,7 @@ func (op *Callback) ReadTelegramIdentity() bool {
 	return op.telegramPayload.SessionIdentity != nil && *op.telegramPayload.SessionIdentity == op.identity
 }
 func (op *Callback) ValidateSession() error {
-	_, _, err := service.ValidateLoginSession(op.identity)
+	_, _, err := identitycore.ValidateLoginSession(op.identity)
 	return err
 }
 func (op *Callback) CaptureTelegramContext() {
@@ -114,7 +118,7 @@ func (op *Callback) AccountEnabled() bool  { return op.User.Status == common.Use
 func (op *Callback) VerifyBoundAccount() error {
 	op.identity, _ = middleware.GetSessionAuthIdentity(op.Context)
 	var err error
-	op.proof, err = service.FinishOAuthVerification(op.identity, op.Name, op.OAuthUser.ProviderUserID, op.payload.Verification)
+	op.proof, err = identitycore.FinishOAuthVerification(op.identity, op.Name, op.OAuthUser.ProviderUserID, op.payload.Verification)
 	return err
 }
 func (op *Callback) ReadBindingIdentity() bool {
@@ -153,7 +157,7 @@ func (op *Callback) LoadBoundAccount() error {
 	return err
 }
 func (op *Callback) NotifyBoundAccount() bool {
-	return service.NotifyAccountSecurityChange(op.User.Email, "Login account linked: "+op.provider.GetName()) != nil
+	return emailadapter.NotifyAccountSecurityChange(op.User.Email, "Login account linked: "+op.provider.GetName()) != nil
 }
 func (op *Callback) BindingAudit() (bool, int) {
 	if !op.loaded || op.pending.Intent != model.AuthFlowIntentBind {
@@ -161,6 +165,6 @@ func (op *Callback) BindingAudit() (bool, int) {
 	}
 	return true, op.pending.UserId
 }
-func (op *Callback) Proof() *dto.SecurityProof      { return op.proof }
-func (op *Callback) ProofUserID() int               { return op.identity.UserID }
-func (op *Callback) AuthenticatedUser() *model.User { return op.User }
+func (op *Callback) Proof() *dto.SecurityProof    { return op.proof }
+func (op *Callback) ProofUserID() int             { return op.identity.UserID }
+func (op *Callback) CompleteLogin(c *gin.Context) { op.Complete(op.User, c) }

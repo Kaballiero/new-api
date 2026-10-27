@@ -6,12 +6,14 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"gorm.io/gorm"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
+	"github.com/gin-gonic/gin"
 )
 
 type loginResponse struct {
@@ -52,8 +54,9 @@ func GetIDByCode(code string) (string, error) {
 }
 
 type Login struct {
-	User *model.User
-	id   string
+	Complete func(*model.User, *gin.Context)
+	User     *model.User
+	id       string
 }
 
 func (*Login) Enabled() bool { return common.WeChatAuthEnabled }
@@ -75,7 +78,7 @@ func (op *Login) PrepareAccount() {
 }
 func (op *Login) InsertAccount(lang string) error { return op.User.Insert(0, lang) }
 func (op *Login) AccountEnabled() bool            { return op.User.Status == common.UserStatusEnabled }
-func (op *Login) AuthenticatedUser() *model.User  { return op.User }
+func (op *Login) CompleteLogin(c *gin.Context)    { op.Complete(op.User, c) }
 
 type Binding struct {
 	Identity           domain.AuthIdentity
@@ -102,7 +105,7 @@ func (op *Binding) LoadAccount() error {
 	return err
 }
 func (op *Binding) NotifyAccount() bool {
-	return service.NotifyAccountSecurityChange(op.User.Email, "WeChat account linked") != nil
+	return emailadapter.NotifyAccountSecurityChange(op.User.Email, "WeChat account linked") != nil
 }
 func (op *Binding) SetNotificationWarning(warning bool) { op.warning = warning }
 func (op *Binding) Succeeded() bool                     { return op.succeeded }

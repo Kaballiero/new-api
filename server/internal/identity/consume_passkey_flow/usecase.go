@@ -10,8 +10,8 @@ type Operation interface {
 	ValidateCurrentSession() error
 }
 
-func (usecase Usecase) Execute(purpose string, identity domain.AuthIdentity) error {
-	return usecase.operation.Consume(func(security domain.PasskeyFlowSecurity) error {
+func (usecase Usecase) Execute(operation Operation, purpose string, identity domain.AuthIdentity) error {
+	return operation.Consume(func(security domain.PasskeyFlowSecurity) error {
 		if purpose == domain.AuthFlowPurposePasskeyLogin {
 			return nil
 		}
@@ -27,14 +27,13 @@ func (usecase Usecase) Execute(purpose string, identity domain.AuthIdentity) err
 		if purpose == domain.AuthFlowPurposePasskeyRegister && (security.Authorization == nil || security.Authorization.ProofID <= 0 || security.Authorization.AuthSessionIdentity != identity) {
 			return domain.ErrAuthFlowInvalid
 		}
-		return usecase.operation.ValidateCurrentSession()
+		return operation.ValidateCurrentSession()
 	})
 }
 
 type Usecase struct {
-	operation Operation
 }
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

@@ -7,11 +7,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 func withHeaderNavModules(t *testing.T, raw string) {
@@ -177,7 +178,7 @@ func TestHeaderNavPublicRouteRejectsExpiredInternalAccessToken(t *testing.T) {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 	request := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	request.Header.Set("Authorization", "Bearer "+issueExpiredDashboardAccessToken(t, service.AuthIdentity{
+	request.Header.Set("Authorization", "Bearer "+issueExpiredDashboardAccessToken(t, identitydomain.AuthIdentity{
 		UserID: 1, SessionID: "expired-header-nav-session", UserAuthVersion: 1, SessionVersion: 1,
 	}))
 	response := httptest.NewRecorder()

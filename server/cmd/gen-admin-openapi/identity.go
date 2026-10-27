@@ -12,6 +12,12 @@ import (
 
 // Stable operation names resolve to the scenario that owns the HTTP contract.
 var identityHandlerSources = map[string]struct{ scenario, method string }{
+	"GetCustomOAuthProviders":     {"list_custom_oauth_providers", "Handle"},
+	"GetCustomOAuthProvider":      {"get_custom_oauth_provider", "Handle"},
+	"CreateCustomOAuthProvider":   {"create_custom_oauth_provider", "Handle"},
+	"UpdateCustomOAuthProvider":   {"update_custom_oauth_provider", "Handle"},
+	"DeleteCustomOAuthProvider":   {"delete_custom_oauth_provider", "Handle"},
+	"FetchCustomOAuthDiscovery":   {"fetch_custom_oauth_discovery", "Handle"},
 	"RefreshAuth":                 {"refresh_session", "Handle"},
 	"AuthLogout":                  {"logout", "Handle"},
 	"GetLoginSessions":            {"list_sessions", "Handle"},
@@ -125,6 +131,10 @@ func parseIdentityHandlers() error {
 // published projections rather than changing client contracts during the move.
 func preserveIdentityHandlerContract(info *HandlerInfo) {
 	switch info.Name {
+	case "CreateCustomOAuthProvider", "UpdateCustomOAuthProvider":
+		info.RespType = ""
+		info.RespSchema = map[string]any{"type": "object", "properties": map[string]any{"success": map[string]any{"type": "boolean"}, "message": map[string]any{"type": "string"}, "data": map[string]any{"$ref": "#/components/schemas/CustomOAuthProviderResponse"}}}
+		referencedTypes["CustomOAuthProviderResponse"] = true
 	case "Setup2FA":
 		info.RespType = "TwoFASetup"
 	case "UniversalVerify":

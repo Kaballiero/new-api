@@ -6,17 +6,20 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/adapter/identity/verification"
+	"github.com/QuantumNous/new-api/internal/app/identitycore"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type FlowPayload struct {
-	AffiliateCode   string                         `json:"affiliate_code,omitempty"`
-	Verification    *service.OAuthVerificationFlow `json:"verification,omitempty"`
-	Telegram        *oauth.TelegramOAuthFlow       `json:"telegram,omitempty"`
-	SessionIdentity *service.AuthIdentity          `json:"session_identity,omitempty"`
-	Authorization   *model.AuthFlowAuthorization   `json:"authorization,omitempty"`
+	AffiliateCode   string                              `json:"affiliate_code,omitempty"`
+	Verification    *verification.OAuthVerificationFlow `json:"verification,omitempty"`
+	Telegram        *oauth.TelegramOAuthFlow            `json:"telegram,omitempty"`
+	SessionIdentity *domain.AuthIdentity                `json:"session_identity,omitempty"`
+	Authorization   *domain.FlowAuthorization           `json:"authorization,omitempty"`
 }
 type Start struct {
 	state                    string
@@ -24,7 +27,7 @@ type Start struct {
 	Context                  *gin.Context
 	Input                    *start_oauth_flow.Request
 	payload                  FlowPayload
-	identity                 service.AuthIdentity
+	identity                 domain.AuthIdentity
 	userID                   int
 	sessionID                string
 	AuditRequired, Succeeded bool
@@ -48,21 +51,21 @@ func (op *Start) ReadIdentity() bool {
 }
 func (op *Start) BeginBindingAudit() { op.AuditRequired = true }
 func (op *Start) RequireBindingProof() (bool, error) {
-	context, err := common.Marshal(service.AccountBindingContext{Provider: op.Input.Provider})
+	context, err := common.Marshal(domain.AccountBindingContext{Provider: op.Input.Provider})
 	if err != nil {
 		return false, err
 	}
-	op.payload.Authorization = middleware.RequireSecurityProof(op.Context, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: context})
+	op.payload.Authorization = middleware.RequireSecurityProof(op.Context, domain.VerificationOperation{Scope: domain.VerificationScopeAccountBind, Context: context})
 	return op.payload.Authorization != nil, nil
 }
 func (op *Start) HasTelegram() bool { return op.payload.Telegram != nil }
 func (op *Start) ValidateSession() error {
-	_, _, err := service.ValidateLoginSession(op.identity)
+	_, _, err := identitycore.ValidateLoginSession(op.identity)
 	return err
 }
 func (op *Start) CaptureSession() { identity := op.identity; op.payload.SessionIdentity = &identity }
 func (op *Start) StartVerification() error {
-	verification, err := service.StartOAuthVerification(op.identity, service.VerificationOperation{Scope: op.Input.Scope, Context: op.Input.Context}, op.Input.Provider)
+	verification, err := identitycore.StartOAuthVerification(op.identity, domain.VerificationOperation{Scope: op.Input.Scope, Context: op.Input.Context}, op.Input.Provider)
 	op.payload.Verification = verification
 	return err
 }

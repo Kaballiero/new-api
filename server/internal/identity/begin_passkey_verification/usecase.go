@@ -12,32 +12,28 @@ type Operation interface {
 	CreateVerificationFlow() error
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.BindOperation(); err != nil {
+func (usecase Usecase) Execute(operation Operation) error {
+	if err := operation.BindOperation(); err != nil {
 		return err
 	}
-	if !usecase.operation.ReadIdentity() {
+	if !operation.ReadIdentity() {
 		return domain.ErrAuthTokenInvalid
 	}
-	if err := usecase.operation.RequireMethod(); err != nil {
+	if err := operation.RequireMethod(); err != nil {
 		return err
 	}
-	if err := usecase.operation.LoadCredential(); err != nil {
+	if err := operation.LoadCredential(); err != nil {
 		return domain.ErrPasskeyMissing
 	}
-	if err := usecase.operation.Build(); err != nil {
+	if err := operation.Build(); err != nil {
 		return err
 	}
-	if err := usecase.operation.BeginLogin(); err != nil {
+	if err := operation.BeginLogin(); err != nil {
 		return err
 	}
-	return usecase.operation.CreateVerificationFlow()
+	return operation.CreateVerificationFlow()
 }
 
-type Usecase struct {
-	operation Operation
-}
+type Usecase struct{}
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
-}
+func NewUsecase() Usecase { return Usecase{} }

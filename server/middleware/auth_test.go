@@ -13,13 +13,16 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 func setupDashboardAuthMiddlewareTest(t *testing.T) {
@@ -46,7 +49,7 @@ func setupDashboardAuthMiddlewareTest(t *testing.T) {
 	})
 }
 
-func issueExpiredDashboardAccessToken(t *testing.T, identity service.AuthIdentity) string {
+func issueExpiredDashboardAccessToken(t *testing.T, identity identitydomain.AuthIdentity) string {
 	t.Helper()
 	claims := jwt.MapClaims{
 		"iss":       "new-api",
@@ -111,8 +114,8 @@ func TestUserAuthAllowsOpaqueDottedPAT(t *testing.T) {
 
 func TestUserAuthNeverFallsBackForRecognizedInvalidInternalJWT(t *testing.T) {
 	setupDashboardAuthMiddlewareTest(t)
-	identity := service.AuthIdentity{UserID: 42, SessionID: "session-42", UserAuthVersion: 1, SessionVersion: 1}
-	token, _, err := service.IssueAccessToken(identity)
+	identity := identitydomain.AuthIdentity{UserID: 42, SessionID: "session-42", UserAuthVersion: 1, SessionVersion: 1}
+	token, _, err := authtoken.IssueAccessToken(identity)
 	require.NoError(t, err)
 	tampered := tamperDashboardToken(token)
 	createMiddlewarePATUser(t, "jwt-fallback-user", tampered)
@@ -149,18 +152,18 @@ func TestTryUserAuthCredentialClassification(t *testing.T) {
 		ExpiresAt:       now + 3600,
 	}
 	require.NoError(t, model.CreateUserSession(session))
-	identity := service.AuthIdentity{
+	identity := identitydomain.AuthIdentity{
 		UserID:          internalUser.Id,
 		SessionID:       session.SID,
 		UserAuthVersion: session.UserAuthVersion,
 		SessionVersion:  session.Version,
 	}
-	accessToken, _, err := service.IssueAccessToken(identity)
+	accessToken, _, err := authtoken.IssueAccessToken(identity)
 	require.NoError(t, err)
 	require.NoError(t, model.DB.AutoMigrate(&model.AuthFlow{}))
-	binding, err := service.BindVerificationOperation(service.VerificationOperation{Scope: "channel.key.read", Context: []byte(`{"channel_id":123}`)})
+	binding, err := identitycore.BindVerificationOperation(identitydomain.VerificationOperation{Scope: "channel.key.read", Context: []byte(`{"channel_id":123}`)})
 	require.NoError(t, err)
-	securityProof, _, err := service.IssueSecurityProof(identity, "2fa", binding)
+	securityProof, _, err := authtoken.IssueSecurityProof(identity, "2fa", binding)
 	require.NoError(t, err)
 	externalToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"iss": "external-issuer",
@@ -266,7 +269,7 @@ func TestSecurityProofAndTurnstileMessagesAreLocalized(t *testing.T) {
 
 	router := gin.New()
 	router.GET("/proof", func(c *gin.Context) {
-		RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeChannelKeyRead})
+		RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeChannelKeyRead})
 	})
 	router.GET("/turnstile", TurnstileCheck(), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 

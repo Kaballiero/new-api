@@ -15,8 +15,10 @@ import (
 	tf "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/stretchr/testify/require"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Fixture struct {
@@ -36,9 +38,9 @@ func Run(t *testing.T, relay bool, execute func(*testing.T, *Fixture) any) any {
 	httpclient.InitHttpClient()
 	routing.GetChannelAffinityCacheStats()
 	model.InvalidateSubscriptionPlanCache(1)
-	identities := map[string]service.AuthIdentity{}
+	identities := map[string]identitydomain.AuthIdentity{}
 	for actor, token := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {
-		identity, err := service.ParseAccessToken(token)
+		identity, err := authtoken.ParseAccessToken(token)
 		require.NoError(t, err)
 		identities[actor] = identity
 	}
@@ -54,7 +56,7 @@ func Run(t *testing.T, relay bool, execute func(*testing.T, *Fixture) any) any {
 			"user_pat": env.UserPAT, "admin_pat": "wave6c-admin-pat", "root_pat": "wave6c-root-pat"},
 			Observations: []any{}}
 		for actor, identity := range identities {
-			token, _, err := service.IssueAccessToken(identity)
+			token, _, err := authtoken.IssueAccessToken(identity)
 			require.NoError(t, err)
 			h.Bearers[actor] = token
 		}

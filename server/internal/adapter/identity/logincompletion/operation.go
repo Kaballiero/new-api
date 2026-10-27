@@ -3,14 +3,16 @@ package logincompletion
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+
+	"github.com/QuantumNous/new-api/internal/app/identitycore"
+	"github.com/QuantumNous/new-api/internal/identity/dto"
 )
 
 type Operation struct {
 	Primary  *model.User
 	Metadata func() (method, ip, userAgent string)
 	Profile  *model.User
-	Bundle   *service.AuthBundle
+	Bundle   *dto.AuthBundle
 }
 
 func (op *Operation) PrimaryValid() bool {
@@ -26,9 +28,9 @@ func (op *Operation) CreateSession(expected int64) error {
 	method, ip, userAgent := op.Metadata()
 	var err error
 	if expected > 0 {
-		op.Bundle, err = service.CreateLoginSessionAtAuthVersion(userID, expected, method, ip, userAgent)
+		op.Bundle, err = identitycore.CreateLoginSessionAtAuthVersion(userID, expected, method, ip, userAgent)
 	} else {
-		op.Bundle, err = service.CreateLoginSession(userID, method, ip, userAgent)
+		op.Bundle, err = identitycore.CreateLoginSession(userID, method, ip, userAgent)
 	}
 	return err
 }

@@ -31,7 +31,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 )
 
 const originCommit = "6b0f439a432ab129817e4e41ce323e6bd3c3c0c3"
@@ -1031,7 +1032,7 @@ func normalizeLogin(t *testing.T, f auditFixture, body string) string {
 		} `json:"data"`
 	}
 	require.NoError(t, common.UnmarshalJsonStr(body, &response))
-	identity, err := service.ParseAccessToken(response.Data.Token)
+	identity, err := authtoken.ParseAccessToken(response.Data.Token)
 	require.NoError(t, err)
 	require.Equal(t, 1, identity.UserID)
 	require.Equal(t, response.Data.Session.SID, identity.SessionID)

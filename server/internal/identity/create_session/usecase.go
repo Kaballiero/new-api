@@ -14,8 +14,8 @@ type CreateOperation interface {
 	RevokeCreated(reason string) error
 }
 
-func (usecase Usecase) Execute(expectedAuthVersion int64) error {
-	user, err := usecase.operation.LoadAccount()
+func (usecase Usecase) Execute(operation CreateOperation, expectedAuthVersion int64) error {
+	user, err := operation.LoadAccount()
 	if err != nil {
 		return err
 	}
@@ -26,35 +26,34 @@ func (usecase Usecase) Execute(expectedAuthVersion int64) error {
 		return domain.ErrLoginSessionRevoked
 	}
 	now := time.Now().Unix()
-	active, err := usecase.operation.CountActive(now)
+	active, err := operation.CountActive(now)
 	if err != nil {
 		return err
 	}
 	if active >= usecase.policy.ActiveLimit() {
 		return domain.ErrSessionLimit
 	}
-	issued, err := usecase.operation.CountIssued(now - usecase.policy.IssuanceWindowSeconds())
+	issued, err := operation.CountIssued(now - usecase.policy.IssuanceWindowSeconds())
 	if err != nil {
 		return err
 	}
 	if issued >= usecase.policy.IssuanceLimit() {
 		return domain.ErrSessionIssuanceLimit
 	}
-	if err := usecase.operation.Create(user.AuthVersion); err != nil {
+	if err := operation.Create(user.AuthVersion); err != nil {
 		return err
 	}
-	if err := usecase.operation.IssueBundle(); err != nil {
-		_ = usecase.operation.RevokeCreated("token_issue_failed")
+	if err := operation.IssueBundle(); err != nil {
+		_ = operation.RevokeCreated("token_issue_failed")
 		return err
 	}
 	return nil
 }
 
 type Usecase struct {
-	operation CreateOperation
-	policy    domain.SessionPolicy
+	policy domain.SessionPolicy
 }
 
-func NewUsecase(operation CreateOperation, policy domain.SessionPolicy) Usecase {
-	return Usecase{operation: operation, policy: policy}
+func NewUsecase(policy domain.SessionPolicy) Usecase {
+	return Usecase{policy: policy}
 }

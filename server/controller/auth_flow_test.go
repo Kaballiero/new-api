@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/fxamacker/cbor/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,15 +20,18 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
-	"github.com/fxamacker/cbor/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
+	verify_security_input "github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 )
 
 func newSecurityLoginPasskey(t *testing.T, userID int) *ecdsa.PrivateKey {
@@ -48,7 +52,7 @@ func beginSecurityLoginPasskey(t *testing.T, parentToken string) (string, string
 	t.Helper()
 	body, err := common.Marshal(map[string]string{"flow_token": parentToken})
 	require.NoError(t, err)
-	response := securityEnrollmentRequest("POST", "/api/user/login/passkey/begin", string(body), "", service.AuthIdentity{}, LoginPasskeyBegin)
+	response := securityEnrollmentRequest("POST", "/api/user/login/passkey/begin", string(body), "", identitydomain.AuthIdentity{}, LoginPasskeyBegin)
 	var result struct {
 		Success bool `json:"success"`
 		Data    struct {
@@ -76,7 +80,7 @@ func TestSecurityLoginCodeCompletesOnce(t *testing.T) {
 			user, _ := setupSecurityEnrollmentTest(t)
 			factor := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
 			require.NoError(t, model.DB.Create(factor).Error)
-			challenge, err := service.StartLoginVerification(user, "password")
+			challenge, err := identitycore.StartLoginVerification(user, "password")
 			require.NoError(t, err)
 			require.NotNil(t, challenge)
 			code, err := totp.GenerateCode(factor.Secret, time.Now())
@@ -99,7 +103,7 @@ func TestSecurityLoginCodeCompletesOnce(t *testing.T) {
 				require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 				assert.Equal(t, attempt == 0, result.Success, response.Body.String())
 				if attempt == 0 {
-					var bundle service.AuthBundle
+					var bundle identitydto.AuthBundle
 					require.NoError(t, common.Unmarshal(result.Data, &bundle))
 					assert.NotEmpty(t, bundle.AccessToken)
 					assert.Equal(t, "password", bundle.Session.LoginMethod)
@@ -121,7 +125,7 @@ func TestSecurityLoginRejectsChangedOrExpiredAuthorization(t *testing.T) {
 			user, _ := setupSecurityEnrollmentTest(t)
 			factor := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
 			require.NoError(t, model.DB.Create(factor).Error)
-			challenge, err := service.StartLoginVerification(user, "password")
+			challenge, err := identitycore.StartLoginVerification(user, "password")
 			require.NoError(t, err)
 			method := "2fa"
 			switch change {
@@ -146,7 +150,7 @@ func TestSecurityLoginRejectsChangedOrExpiredAuthorization(t *testing.T) {
 			require.NoError(t, err)
 			body, err := common.Marshal(map[string]string{"flow_token": challenge.FlowToken, "code": code, "method": method})
 			require.NoError(t, err)
-			response := securityEnrollmentRequest("POST", "/api/user/login/verify", string(body), "", service.AuthIdentity{}, VerifyLogin)
+			response := securityEnrollmentRequest("POST", "/api/user/login/verify", string(body), "", identitydomain.AuthIdentity{}, VerifyLogin)
 			var result securityEnrollmentResponse
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 			assert.False(t, result.Success, change)
@@ -167,7 +171,7 @@ func TestSecurityLoginPasskeyDoesNotRequireAdditionalTwoFA(t *testing.T) {
 			for _, verified := range []bool{false, true} {
 				var flowToken, challenge, parentToken string
 				if direct {
-					response := securityEnrollmentRequest("POST", "/api/user/passkey/login/begin", "", "", service.AuthIdentity{}, PasskeyLoginBegin)
+					response := securityEnrollmentRequest("POST", "/api/user/passkey/login/begin", "", "", identitydomain.AuthIdentity{}, PasskeyLoginBegin)
 					var result struct {
 						Data struct {
 							FlowToken string `json:"flow_token"`
@@ -183,7 +187,7 @@ func TestSecurityLoginPasskeyDoesNotRequireAdditionalTwoFA(t *testing.T) {
 					require.Equal(t, "required", result.Data.Options.PublicKey.UserVerification)
 					flowToken, challenge = result.Data.FlowToken, result.Data.Options.PublicKey.Challenge
 				} else {
-					pending, err := service.StartLoginVerification(user, "oauth:github")
+					pending, err := identitycore.StartLoginVerification(user, "oauth:github")
 					require.NoError(t, err)
 					parentToken = pending.FlowToken
 					flowToken, challenge = beginSecurityLoginPasskey(t, parentToken)
@@ -211,7 +215,7 @@ func TestSecurityLoginPasskeyDoesNotRequireAdditionalTwoFA(t *testing.T) {
 				require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 				require.Equal(t, verified, result.Success, response.Body.String())
 				if verified {
-					var bundle service.AuthBundle
+					var bundle identitydto.AuthBundle
 					require.NoError(t, common.Unmarshal(result.Data, &bundle))
 					assert.NotEmpty(t, bundle.AccessToken)
 				} else {
@@ -225,7 +229,7 @@ func TestSecurityLoginPasskeyDoesNotRequireAdditionalTwoFA(t *testing.T) {
 func TestSecurityLoginPasskeyConcurrentCompletionCreatesOneSession(t *testing.T) {
 	user, _ := setupSecurityEnrollmentTest(t)
 	key := newSecurityLoginPasskey(t, user.Id)
-	pending, err := service.StartLoginVerification(user, "password")
+	pending, err := identitycore.StartLoginVerification(user, "password")
 	require.NoError(t, err)
 	requests := make([]string, 2)
 	for index := range requests {
@@ -243,7 +247,7 @@ func TestSecurityLoginPasskeyConcurrentCompletionCreatesOneSession(t *testing.T)
 	for _, body := range requests {
 		workers.Go(func() {
 			<-start
-			responses <- securityEnrollmentRequest("POST", "/api/user/login/passkey/finish", body, "", service.AuthIdentity{}, LoginPasskeyFinish)
+			responses <- securityEnrollmentRequest("POST", "/api/user/login/passkey/finish", body, "", identitydomain.AuthIdentity{}, LoginPasskeyFinish)
 		})
 	}
 	close(start)
@@ -266,7 +270,7 @@ func TestSecurityLoginPasskeyConcurrentCompletionCreatesOneSession(t *testing.T)
 func TestSecurityLoginSessionFailureRollsBackChallengeConsumption(t *testing.T) {
 	user, _ := setupSecurityEnrollmentTest(t)
 	key := newSecurityLoginPasskey(t, user.Id)
-	pending, err := service.StartLoginVerification(user, "password")
+	pending, err := identitycore.StartLoginVerification(user, "password")
 	require.NoError(t, err)
 	require.NoError(t, model.DB.Callback().Create().Before("gorm:create").Register("login_session_failure", func(tx *gorm.DB) {
 		if tx.Statement.Table == "user_sessions" {
@@ -278,7 +282,7 @@ func TestSecurityLoginSessionFailureRollsBackChallengeConsumption(t *testing.T) 
 		token, challenge := beginSecurityLoginPasskey(t, pending.FlowToken)
 		body, err := common.Marshal(map[string]any{"flow_token": pending.FlowToken, "passkey_flow_token": token, "credential": securityPasskeyResponse(t, key, challenge, false, 0)})
 		require.NoError(t, err)
-		response := securityEnrollmentRequest("POST", "/api/user/login/passkey/finish", string(body), "", service.AuthIdentity{}, LoginPasskeyFinish)
+		response := securityEnrollmentRequest("POST", "/api/user/login/passkey/finish", string(body), "", identitydomain.AuthIdentity{}, LoginPasskeyFinish)
 		var result securityEnrollmentResponse
 		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 		assert.Equal(t, !fail, result.Success, response.Body.String())
@@ -315,7 +319,7 @@ func TestSecurityLoginFactorStateDoesNotAddPasswordLoginQueries(t *testing.T) {
 	assert.False(t, state.HasTwoFA)
 	assert.Equal(t, 1, queries, "factor availability must be one database round trip")
 	queries = 0
-	response := securityEnrollmentRequest("POST", "/api/user/login", `{"username":"enrollment-user","password":"enrollment-password"}`, "", service.AuthIdentity{}, Login)
+	response := securityEnrollmentRequest("POST", "/api/user/login", `{"username":"enrollment-user","password":"enrollment-password"}`, "", identitydomain.AuthIdentity{}, Login)
 	assert.Contains(t, response.Body.String(), `"require_verification":true`)
 	assert.Equal(t, 2, queries, "only the existing credential lookup and the replacement factor-state lookup run before the challenge")
 }
@@ -347,8 +351,8 @@ func TestSecurityLoginAllPrimaryTransportsRequireAdditionalVerification(t *testi
 			switch transport {
 			case "telegram":
 				require.NoError(t, model.DB.Model(user).Update("telegram_id", "42").Error)
-				state, code := telegram.authorization(t, "login", service.AuthIdentity{}, "", telegramIdentityClaims(42))
-				response = telegramOAuthCallback(state, code, service.AuthIdentity{})
+				state, code := telegram.authorization(t, "login", identitydomain.AuthIdentity{}, "", telegramIdentityClaims(42))
+				response = telegramOAuthCallback(state, code, identitydomain.AuthIdentity{})
 			case "wechat":
 				require.NoError(t, model.DB.Model(user).Update("wechat_id", "bound-wechat").Error)
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +363,7 @@ func TestSecurityLoginAllPrimaryTransportsRequireAdditionalVerification(t *testi
 				previousEnabled, previousAddress := common.WeChatAuthEnabled, common.WeChatServerAddress
 				common.WeChatAuthEnabled, common.WeChatServerAddress = true, upstream.URL
 				t.Cleanup(func() { common.WeChatAuthEnabled, common.WeChatServerAddress = previousEnabled, previousAddress })
-				response = securityEnrollmentRequest("GET", "/api/oauth/wechat?code=wechat-code", "", "", service.AuthIdentity{}, WeChatAuth)
+				response = securityEnrollmentRequest("GET", "/api/oauth/wechat?code=wechat-code", "", "", identitydomain.AuthIdentity{}, WeChatAuth)
 			default:
 				const slug = "unified-login-test"
 				if transport == "custom oauth" {
@@ -389,13 +393,13 @@ func TestSecurityLoginAllPrimaryTransportsRequireAdditionalVerification(t *testi
 				router.ServeHTTP(response, httptest.NewRequest("GET", "/api/oauth/"+slug+"?state="+token+"&code=provider-code", nil))
 			}
 			var result struct {
-				Success bool                   `json:"success"`
-				Data    service.LoginChallenge `json:"data"`
+				Success bool                       `json:"success"`
+				Data    identitydto.LoginChallenge `json:"data"`
 			}
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 			require.True(t, result.Success, response.Body.String())
 			assert.True(t, result.Data.RequireVerification)
-			assert.Equal(t, []service.VerificationMethodOption{{Method: "passkey", Available: true}}, result.Data.Methods)
+			assert.Equal(t, []identitydto.VerificationMethodOption{{Method: "passkey", Available: true}}, result.Data.Methods)
 			assert.NotEmpty(t, result.Data.FlowToken)
 			assert.Empty(t, response.Header().Values("Set-Cookie"))
 			count, err := model.CountActiveUserSessions(user.Id, time.Now().Unix())
@@ -410,7 +414,7 @@ func TestSecurityLoginPasskeyCannotCompleteAnotherChallenge(t *testing.T) {
 		t.Run(fmt.Sprintf("other-user=%t", otherUser), func(t *testing.T) {
 			user, _ := setupSecurityEnrollmentTest(t)
 			key := newSecurityLoginPasskey(t, user.Id)
-			first, err := service.StartLoginVerification(user, "password")
+			first, err := identitycore.StartLoginVerification(user, "password")
 			require.NoError(t, err)
 			passkeyToken, challenge := beginSecurityLoginPasskey(t, first.FlowToken)
 			if otherUser {
@@ -418,11 +422,11 @@ func TestSecurityLoginPasskeyCannotCompleteAnotherChallenge(t *testing.T) {
 				require.NoError(t, model.DB.Create(user).Error)
 				newSecurityLoginPasskey(t, user.Id)
 			}
-			second, err := service.StartLoginVerification(user, "password")
+			second, err := identitycore.StartLoginVerification(user, "password")
 			require.NoError(t, err)
 			body, err := common.Marshal(map[string]any{"flow_token": second.FlowToken, "passkey_flow_token": passkeyToken, "credential": securityPasskeyResponse(t, key, challenge, false, 0)})
 			require.NoError(t, err)
-			response := securityEnrollmentRequest("POST", "/api/user/login/passkey/finish", string(body), "", service.AuthIdentity{}, LoginPasskeyFinish)
+			response := securityEnrollmentRequest("POST", "/api/user/login/passkey/finish", string(body), "", identitydomain.AuthIdentity{}, LoginPasskeyFinish)
 			var result securityEnrollmentResponse
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 			assert.False(t, result.Success)
@@ -435,7 +439,7 @@ func TestSecurityLoginPasskeyCannotCompleteAnotherChallenge(t *testing.T) {
 }
 
 func TestSecurityLoginPasskeyCanManageTwoFAWithScopedProofs(t *testing.T) {
-	for _, scope := range []string{service.VerificationScopeTwoFADisable, service.VerificationScopeTwoFABackupCodes} {
+	for _, scope := range []string{identitydomain.VerificationScopeTwoFADisable, identitydomain.VerificationScopeTwoFABackupCodes} {
 		t.Run(scope, func(t *testing.T) {
 			user, identity := setupSecurityEnrollmentTest(t)
 			key := newSecurityLoginPasskey(t, user.Id)
@@ -443,9 +447,9 @@ func TestSecurityLoginPasskeyCanManageTwoFAWithScopedProofs(t *testing.T) {
 			hash, err := common.HashBackupCode("ABCD-1234")
 			require.NoError(t, err)
 			require.NoError(t, model.DB.Create(&model.TwoFABackupCode{UserId: user.Id, CodeHash: hash}).Error)
-			if scope == service.VerificationScopeTwoFABackupCodes {
-				_, err := service.VerifySecurityInput(identity, service.VerificationInput{Scope: scope, Method: "2fa", Code: "ABCD-1234"})
-				assert.ErrorIs(t, err, service.ErrVerificationFailed)
+			if scope == identitydomain.VerificationScopeTwoFABackupCodes {
+				_, err := identitycore.VerifySecurityInput(identity, verify_security_input.VerificationInput{Scope: scope, Method: "2fa", Code: "ABCD-1234"})
+				assert.ErrorIs(t, err, identitydomain.ErrVerificationFailed)
 				remaining, err := model.GetUnusedBackupCodeCount(user.Id)
 				require.NoError(t, err)
 				assert.Equal(t, 1, remaining, "backup codes cannot authorize generating replacement backup codes")
@@ -474,10 +478,10 @@ func TestSecurityLoginPasskeyCanManageTwoFAWithScopedProofs(t *testing.T) {
 			var result securityEnrollmentResponse
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
 			require.True(t, result.Success, response.Body.String())
-			var proof service.SecurityProof
+			var proof identitydto.SecurityProof
 			require.NoError(t, common.Unmarshal(result.Data, &proof))
 			handler, path := Disable2FA, "/api/user/2fa/disable"
-			if scope == service.VerificationScopeTwoFABackupCodes {
+			if scope == identitydomain.VerificationScopeTwoFABackupCodes {
 				handler, path = RegenerateBackupCodes, "/api/user/2fa/backup_codes"
 				response = securityEnrollmentRequest("POST", "/api/user/2fa/disable", `{}`, proof.ProofToken, identity, Disable2FA)
 				assert.Contains(t, response.Body.String(), "SECURITY_PROOF_SCOPE_MISMATCH")
@@ -492,7 +496,7 @@ func TestSecurityLoginPasskeyCanManageTwoFAWithScopedProofs(t *testing.T) {
 			require.NoError(t, err, "managing 2FA must retain the alternative Passkey factor")
 			factor, err := model.GetTwoFAByUserId(user.Id)
 			require.NoError(t, err)
-			if scope == service.VerificationScopeTwoFADisable {
+			if scope == identitydomain.VerificationScopeTwoFADisable {
 				assert.Nil(t, factor)
 			} else {
 				require.NotNil(t, factor)
@@ -512,7 +516,7 @@ func TestSecurityLoginRegisteredPasskeyRequiresUserVerification(t *testing.T) {
 			user, identity := setupSecurityEnrollmentTest(t)
 			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 			require.NoError(t, err)
-			proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopePasskeyRegister}, service.VerificationMethodPassword)
+			proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopePasskeyRegister}, identitydomain.VerificationMethodPassword)
 			response := securityEnrollmentRequest("POST", "/api/user/passkey/register/begin", "", proof, identity, PasskeyRegisterBegin)
 			var result struct {
 				Success bool `json:"success"`
@@ -552,15 +556,15 @@ func TestSecurityLoginRequiresConfiguredFactors(t *testing.T) {
 		name             string
 		twoFA, passkey   bool
 		locked, disabled bool
-		methods          []service.VerificationMethodOption
+		methods          []identitydto.VerificationMethodOption
 		unavailable      bool
 	}{
 		{name: "password without additional factors"},
-		{name: "passkey requires verification", passkey: true, methods: []service.VerificationMethodOption{{Method: "passkey", Available: true}}},
-		{name: "twofa requires verification", twoFA: true, methods: []service.VerificationMethodOption{{Method: "2fa", Available: true}}},
-		{name: "both factors are alternatives", twoFA: true, passkey: true, methods: []service.VerificationMethodOption{{Method: "2fa", Available: true}, {Method: "passkey", Available: true}}},
-		{name: "locked twofa permits passkey", twoFA: true, passkey: true, locked: true, methods: []service.VerificationMethodOption{{Method: "2fa", Available: false, Reason: service.ErrVerificationLocked.Error()}, {Method: "passkey", Available: true}}},
-		{name: "disabled passkey permits twofa", twoFA: true, passkey: true, disabled: true, methods: []service.VerificationMethodOption{{Method: "2fa", Available: true}, {Method: "passkey", Available: false, Reason: "Passkey authentication is disabled."}}},
+		{name: "passkey requires verification", passkey: true, methods: []identitydto.VerificationMethodOption{{Method: "passkey", Available: true}}},
+		{name: "twofa requires verification", twoFA: true, methods: []identitydto.VerificationMethodOption{{Method: "2fa", Available: true}}},
+		{name: "both factors are alternatives", twoFA: true, passkey: true, methods: []identitydto.VerificationMethodOption{{Method: "2fa", Available: true}, {Method: "passkey", Available: true}}},
+		{name: "locked twofa permits passkey", twoFA: true, passkey: true, locked: true, methods: []identitydto.VerificationMethodOption{{Method: "2fa", Available: false, Reason: identitydomain.ErrVerificationLocked.Error()}, {Method: "passkey", Available: true}}},
+		{name: "disabled passkey permits twofa", twoFA: true, passkey: true, disabled: true, methods: []identitydto.VerificationMethodOption{{Method: "2fa", Available: true}, {Method: "passkey", Available: false, Reason: "Passkey authentication is disabled."}}},
 		{name: "only passkey disabled blocks password", passkey: true, disabled: true, unavailable: true},
 		{name: "both factors unavailable block password", passkey: true, twoFA: true, disabled: true, locked: true, unavailable: true},
 	} {
@@ -583,15 +587,15 @@ func TestSecurityLoginRequiresConfiguredFactors(t *testing.T) {
 			system_setting.GetPasskeySettings().Enabled = !test.disabled
 			before, err := model.CountActiveUserSessions(user.Id, time.Now().Unix())
 			require.NoError(t, err)
-			response := securityEnrollmentRequest(http.MethodPost, "/api/user/login", `{"username":"enrollment-user","password":"enrollment-password"}`, "", service.AuthIdentity{}, Login)
+			response := securityEnrollmentRequest(http.MethodPost, "/api/user/login", `{"username":"enrollment-user","password":"enrollment-password"}`, "", identitydomain.AuthIdentity{}, Login)
 			var result struct {
 				Success bool `json:"success"`
 				Data    struct {
-					RequireVerification bool                               `json:"require_verification"`
-					FlowToken           string                             `json:"flow_token"`
-					ExpiresAt           int64                              `json:"expires_at"`
-					AccessToken         string                             `json:"access_token"`
-					Methods             []service.VerificationMethodOption `json:"methods"`
+					RequireVerification bool                                   `json:"require_verification"`
+					FlowToken           string                                 `json:"flow_token"`
+					ExpiresAt           int64                                  `json:"expires_at"`
+					AccessToken         string                                 `json:"access_token"`
+					Methods             []identitydto.VerificationMethodOption `json:"methods"`
 				} `json:"data"`
 			}
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
@@ -706,7 +710,7 @@ func TestGenerateOAuthCodeBindsFlowToAuthenticatedSession(t *testing.T) {
 	_, identity := setupSecurityEnrollmentTest(t)
 	oauth.Register("auth-flow-test", &authFlowTestOAuthProvider{})
 	t.Cleanup(func() { oauth.Unregister("auth-flow-test") })
-	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: []byte(`{"provider":"auth-flow-test"}`)}, service.VerificationMethodPassword)
+	proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccountBind, Context: []byte(`{"provider":"auth-flow-test"}`)}, identitydomain.VerificationMethodPassword)
 	response := securityEnrollmentRequest(http.MethodPost, "/api/oauth/state", `{"provider":"auth-flow-test","intent":"bind"}`, proof, identity, GenerateOAuthCode)
 	var result struct {
 		Success bool `json:"success"`
@@ -797,7 +801,7 @@ func TestOAuthBindProviderErrorConsumesSessionBoundFlow(t *testing.T) {
 	provider := &authFlowTestOAuthProvider{}
 	oauth.Register("auth-flow-test", provider)
 	t.Cleanup(func() { oauth.Unregister("auth-flow-test") })
-	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: []byte(`{"provider":"auth-flow-test"}`)}, service.VerificationMethodPassword)
+	proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccountBind, Context: []byte(`{"provider":"auth-flow-test"}`)}, identitydomain.VerificationMethodPassword)
 	started := securityEnrollmentRequest(http.MethodPost, "/api/oauth/state", `{"provider":"auth-flow-test","intent":"bind"}`, proof, identity, GenerateOAuthCode)
 	var result struct {
 		Data struct {

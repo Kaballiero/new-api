@@ -7,23 +7,22 @@ type VerifyLoginCodeOperation interface {
 	Complete() error
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.RequireVerification(); err != nil {
+func (usecase Usecase) Execute(operation VerifyLoginCodeOperation) error {
+	if err := operation.RequireVerification(); err != nil {
 		return err
 	}
-	if err := usecase.operation.LoadFactor(); err != nil {
+	if err := operation.LoadFactor(); err != nil {
 		return err
 	}
-	if err := usecase.operation.VerifyFactor(); err != nil {
+	if err := operation.VerifyFactor(); err != nil {
 		return err
 	}
-	return usecase.operation.Complete()
+	return operation.Complete()
 }
 
 type Usecase struct {
-	operation VerifyLoginCodeOperation
 }
 
-func NewUsecase(operation VerifyLoginCodeOperation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

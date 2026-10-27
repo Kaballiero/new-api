@@ -15,6 +15,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/fxamacker/cbor/v2"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,9 +30,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
-	"github.com/fxamacker/cbor/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pquerna/otp/totp"
@@ -39,9 +38,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
+	verify_security_input "github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 )
 
-func setupSecurityEnrollmentTest(t *testing.T) (*model.User, service.AuthIdentity) {
+func setupSecurityEnrollmentTest(t *testing.T) (*model.User, identitydomain.AuthIdentity) {
 	t.Helper()
 	require.NoError(t, i18n.Init())
 	gin.SetMode(gin.TestMode)
@@ -97,14 +102,14 @@ func setupSecurityEnrollmentTest(t *testing.T) (*model.User, service.AuthIdentit
 	user := &model.User{Username: "enrollment-user", Password: password, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1}
 	require.NoError(t, db.Create(user).Error)
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
-	bundle, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "enrollment-test")
+	bundle, err := identitycore.CreateLoginSession(user.Id, "password", "127.0.0.1", "enrollment-test")
 	require.NoError(t, err)
-	identity, err := service.ParseAccessToken(bundle.AccessToken)
+	identity, err := authtoken.ParseAccessToken(bundle.AccessToken)
 	require.NoError(t, err)
 	return user, identity
 }
 
-func securityEnrollmentRequest(method, path, body, proof string, identity service.AuthIdentity, handler gin.HandlerFunc) *httptest.ResponseRecorder {
+func securityEnrollmentRequest(method, path, body, proof string, identity identitydomain.AuthIdentity, handler gin.HandlerFunc) *httptest.ResponseRecorder {
 	response := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(response)
 	c.Request = httptest.NewRequest(method, path, strings.NewReader(body))
@@ -119,11 +124,11 @@ func securityEnrollmentRequest(method, path, body, proof string, identity servic
 	return response
 }
 
-func issueSecurityEnrollmentProof(t *testing.T, identity service.AuthIdentity, operation service.VerificationOperation, method string) string {
+func issueSecurityEnrollmentProof(t *testing.T, identity identitydomain.AuthIdentity, operation identitydomain.VerificationOperation, method string) string {
 	t.Helper()
-	binding, err := service.BindVerificationOperation(operation)
+	binding, err := identitycore.BindVerificationOperation(operation)
 	require.NoError(t, err)
-	proof, _, err := service.IssueSecurityProof(identity, method, binding)
+	proof, _, err := authtoken.IssueSecurityProof(identity, method, binding)
 	require.NoError(t, err)
 	return proof
 }
@@ -195,13 +200,13 @@ func TestSecurityEnrollmentAccessTokenMethodPolicy(t *testing.T) {
 				require.NoError(t, model.DB.Model(user).Update("wechat_id", "wechat-user").Error)
 			}
 			system_setting.GetPasskeySettings().Enabled = !test.disabledPasskey
-			passwordScope := service.VerificationScopePasswordChange
+			passwordScope := identitydomain.VerificationScopePasswordChange
 			if !test.password {
-				passwordScope = service.VerificationScopePasswordSet
+				passwordScope = identitydomain.VerificationScopePasswordSet
 			}
-			for _, scope := range []string{service.VerificationScopeAccessTokenGenerate, service.VerificationScopeAccessTokenRevoke,
-				service.VerificationScopeAccountBind, service.VerificationScopeAccountUnbind, passwordScope} {
-				requirements, err := service.GetVerificationRequirements(identity, scope)
+			for _, scope := range []string{identitydomain.VerificationScopeAccessTokenGenerate, identitydomain.VerificationScopeAccessTokenRevoke,
+				identitydomain.VerificationScopeAccountBind, identitydomain.VerificationScopeAccountUnbind, passwordScope} {
+				requirements, err := identitycore.GetVerificationRequirements(identity, scope)
 				require.NoError(t, err)
 				count := 1
 				if test.twoFA && test.passkey {
@@ -211,18 +216,18 @@ func TestSecurityEnrollmentAccessTokenMethodPolicy(t *testing.T) {
 				assert.Equal(t, test.method, requirements.Methods[0].Method)
 				assert.Equal(t, test.available, requirements.Methods[0].Available)
 				if count == 2 {
-					assert.Equal(t, service.VerificationMethodOption{Method: "passkey", Available: true}, requirements.Methods[1])
+					assert.Equal(t, identitydto.VerificationMethodOption{Method: "passkey", Available: true}, requirements.Methods[1])
 				}
 				if test.wechat {
-					input := service.VerificationInput{Scope: scope, Method: "session"}
+					input := verify_security_input.VerificationInput{Scope: scope, Method: "session"}
 					switch scope {
-					case service.VerificationScopeAccountBind:
+					case identitydomain.VerificationScopeAccountBind:
 						input.Context = []byte(`{"provider":"email","email":"new@example.com"}`)
-					case service.VerificationScopeAccountUnbind:
+					case identitydomain.VerificationScopeAccountUnbind:
 						input.Context = []byte(`{"provider_id":1}`)
 					}
-					_, err := service.VerifySecurityInput(identity, input)
-					assert.ErrorIs(t, err, service.ErrProofMethod)
+					_, err := identitycore.VerifySecurityInput(identity, input)
+					assert.ErrorIs(t, err, identitydomain.ErrProofMethod)
 				}
 			}
 		})
@@ -234,8 +239,8 @@ func TestSecurityEnrollmentAccessTokenLifecycleConsumesProofs(t *testing.T) {
 	require.NoError(t, model.UpdateUserAccessToken(user.Id, "previous-token"))
 	previousToken := "previous-token"
 	for _, method := range []string{"GET", "POST"} {
-		proof, err := service.VerifySecurityInput(identity, service.VerificationInput{
-			Scope: service.VerificationScopeAccessTokenGenerate, Method: "password", Password: "enrollment-password",
+		proof, err := identitycore.VerifySecurityInput(identity, verify_security_input.VerificationInput{
+			Scope: identitydomain.VerificationScopeAccessTokenGenerate, Method: "password", Password: "enrollment-password",
 		})
 		require.NoError(t, err)
 		wrongScope := securityEnrollmentRequest("DELETE", "/api/user/token", "", proof.ProofToken, identity, RevokeAccessToken)
@@ -261,7 +266,7 @@ func TestSecurityEnrollmentAccessTokenLifecycleConsumesProofs(t *testing.T) {
 		assert.Contains(t, response.Body.String(), `"code":"SECURITY_PROOF_CONSUMED"`)
 		previousToken = token
 	}
-	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccessTokenRevoke}, "password")
+	proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccessTokenRevoke}, "password")
 	response := securityEnrollmentRequest("DELETE", "/api/user/token", "", proof, identity, RevokeAccessToken)
 	var body securityEnrollmentResponse
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
@@ -294,13 +299,13 @@ func TestSecurityEnrollmentAccessTokenRejectsInvalidProofs(t *testing.T) {
 		method, scope string
 		handler       gin.HandlerFunc
 	}{
-		{"GET", service.VerificationScopeAccessTokenGenerate, GenerateAccessToken},
-		{"POST", service.VerificationScopeAccessTokenGenerate, GenerateAccessToken},
-		{"DELETE", service.VerificationScopeAccessTokenRevoke, RevokeAccessToken},
+		{"GET", identitydomain.VerificationScopeAccessTokenGenerate, GenerateAccessToken},
+		{"POST", identitydomain.VerificationScopeAccessTokenGenerate, GenerateAccessToken},
+		{"DELETE", identitydomain.VerificationScopeAccessTokenRevoke, RevokeAccessToken},
 	} {
 		for _, failure := range []string{"session", "user", "expired"} {
 			t.Run(endpoint.method+"/"+failure, func(t *testing.T) {
-				proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: endpoint.scope}, "password")
+				proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: endpoint.scope}, "password")
 				requestIdentity := identity
 				code := "SECURITY_PROOF_INVALID"
 				switch failure {
@@ -336,10 +341,10 @@ func TestSecurityEnrollmentAccessTokenFailureDoesNotRestoreProof(t *testing.T) {
 		method, scope string
 		handler       gin.HandlerFunc
 	}{
-		{"POST", service.VerificationScopeAccessTokenGenerate, GenerateAccessToken},
-		{"DELETE", service.VerificationScopeAccessTokenRevoke, RevokeAccessToken},
+		{"POST", identitydomain.VerificationScopeAccessTokenGenerate, GenerateAccessToken},
+		{"DELETE", identitydomain.VerificationScopeAccessTokenRevoke, RevokeAccessToken},
 	} {
-		proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: endpoint.scope}, "password")
+		proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: endpoint.scope}, "password")
 		response := securityEnrollmentRequest(endpoint.method, "/api/user/token", "", proof, identity, endpoint.handler)
 		assert.Equal(t, http.StatusInternalServerError, response.Code)
 		assert.NotContains(t, response.Body.String(), "private database")
@@ -352,11 +357,11 @@ func TestSecurityEnrollmentAccessTokenFailureDoesNotRestoreProof(t *testing.T) {
 	assert.Equal(t, user.Id, stored.Id)
 }
 
-func authorizeSecurityEnrollment(t *testing.T, identity service.AuthIdentity) *model.AuthFlowAuthorization {
+func authorizeSecurityEnrollment(t *testing.T, identity identitydomain.AuthIdentity) *model.AuthFlowAuthorization {
 	t.Helper()
-	operation := service.VerificationOperation{Scope: service.VerificationScopeTwoFASetup}
-	proof := issueSecurityEnrollmentProof(t, identity, operation, service.VerificationMethodPassword)
-	authorization, err := service.ConsumeOperationProof(proof, identity, operation)
+	operation := identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeTwoFASetup}
+	proof := issueSecurityEnrollmentProof(t, identity, operation, identitydomain.VerificationMethodPassword)
+	authorization, err := identitycore.ConsumeOperationProof(proof, identity, operation)
 	require.NoError(t, err)
 	return authorization
 }
@@ -473,7 +478,7 @@ func TestSecurityEnrollmentMethodPolicy(t *testing.T) {
 				require.NoError(t, model.DB.Create(twoFA).Error)
 			}
 			system_setting.GetPasskeySettings().Enabled = !test.disabledPasskey
-			requirements, err := service.GetVerificationRequirements(identity, "passkey.register")
+			requirements, err := identitycore.GetVerificationRequirements(identity, "passkey.register")
 			require.NoError(t, err)
 			count := 1
 			if test.twoFA && test.passkey {
@@ -483,10 +488,10 @@ func TestSecurityEnrollmentMethodPolicy(t *testing.T) {
 			assert.Equal(t, test.method, requirements.Methods[0].Method)
 			assert.Equal(t, test.available, requirements.Methods[0].Available)
 			if count == 2 {
-				assert.Equal(t, service.VerificationMethodOption{Method: "passkey", Available: true}, requirements.Methods[1])
+				assert.Equal(t, identitydto.VerificationMethodOption{Method: "passkey", Available: true}, requirements.Methods[1])
 			}
 			if test.passkey && !test.twoFA {
-				requirements, err = service.GetVerificationRequirements(identity, "2fa.setup")
+				requirements, err = identitycore.GetVerificationRequirements(identity, "2fa.setup")
 				require.NoError(t, err)
 				assert.Equal(t, "passkey", requirements.Methods[0].Method)
 			}
@@ -502,15 +507,15 @@ func TestSecurityEnrollmentPasswordProofIsBoundToSessionAndAction(t *testing.T) 
 	var body securityEnrollmentResponse
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success, body.Message)
-	var proof service.SecurityProof
+	var proof identitydto.SecurityProof
 	require.NoError(t, common.Unmarshal(body.Data, &proof))
-	_, err := service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: "passkey.register"})
-	assert.ErrorIs(t, err, service.ErrProofScope)
+	_, err := identitycore.ConsumeOperationProof(proof.ProofToken, identity, identitydomain.VerificationOperation{Scope: "passkey.register"})
+	assert.ErrorIs(t, err, identitydomain.ErrProofScope)
 	other := identity
 	other.SessionID = "another-session"
-	_, err = service.ConsumeOperationProof(proof.ProofToken, other, service.VerificationOperation{Scope: "2fa.setup"})
-	assert.ErrorIs(t, err, service.ErrAuthTokenInvalid)
-	_, err = service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: "2fa.setup"})
+	_, err = identitycore.ConsumeOperationProof(proof.ProofToken, other, identitydomain.VerificationOperation{Scope: "2fa.setup"})
+	assert.ErrorIs(t, err, identitydomain.ErrAuthTokenInvalid)
+	_, err = identitycore.ConsumeOperationProof(proof.ProofToken, identity, identitydomain.VerificationOperation{Scope: "2fa.setup"})
 	require.NoError(t, err)
 	response = securityEnrollmentRequest("POST", "/api/verify", `{"method":"password","scope":"channel.key.read","password":"enrollment-password"}`, "", identity, UniversalVerify)
 	assert.NotContains(t, response.Body.String(), "proof_token")
@@ -519,13 +524,13 @@ func TestSecurityEnrollmentPasswordProofIsBoundToSessionAndAction(t *testing.T) 
 	assert.NotContains(t, response.Body.String(), "proof_token", "encryption-required mode must reject plaintext")
 	common.PasswordLoginEncryptionEnabled = false
 	require.NoError(t, model.DB.Model(user).Update("auth_version", 2).Error)
-	_, err = service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: "2fa.setup"})
-	assert.ErrorIs(t, err, service.ErrLoginSessionRevoked)
+	_, err = identitycore.ConsumeOperationProof(proof.ProofToken, identity, identitydomain.VerificationOperation{Scope: "2fa.setup"})
+	assert.ErrorIs(t, err, identitydomain.ErrLoginSessionRevoked)
 }
 
 func TestSecurityEnrollmentProofStartsOnlyOneSetup(t *testing.T) {
 	_, identity := setupSecurityEnrollmentTest(t)
-	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: "2fa.setup"}, "password")
+	proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: "2fa.setup"}, "password")
 	first := securityEnrollmentRequest("POST", "/api/user/2fa/setup", `{}`, proof, identity, Setup2FA)
 	var body securityEnrollmentResponse
 	require.NoError(t, common.Unmarshal(first.Body.Bytes(), &body))
@@ -543,35 +548,35 @@ func TestSecurityEnrollmentOperationContext(t *testing.T) {
 		err                  error
 	}{
 		{"channel", "channel.key.read", `{"channel_id":123}`, nil},
-		{"missing channel", "channel.key.read", ``, service.ErrVerificationContextInvalid},
-		{"null channel", "channel.key.read", `{"channel_id":null}`, service.ErrVerificationContextInvalid},
-		{"string channel", "channel.key.read", `{"channel_id":"123"}`, service.ErrVerificationContextInvalid},
-		{"fractional channel", "channel.key.read", `{"channel_id":123.5}`, service.ErrVerificationContextInvalid},
-		{"zero channel", "channel.key.read", `{"channel_id":0}`, service.ErrVerificationContextInvalid},
-		{"negative channel", "channel.key.read", `{"channel_id":-1}`, service.ErrVerificationContextInvalid},
-		{"overflow channel", "channel.key.read", `{"channel_id":18446744073709551615}`, service.ErrVerificationContextInvalid},
-		{"extra field", "channel.key.read", `{"channel_id":123,"extra":true}`, service.ErrVerificationContextInvalid},
-		{"null context", "passkey.register", `null`, service.ErrVerificationContextInvalid},
-		{"array context", "passkey.register", `[]`, service.ErrVerificationContextInvalid},
+		{"missing channel", "channel.key.read", ``, identitydomain.ErrVerificationContextInvalid},
+		{"null channel", "channel.key.read", `{"channel_id":null}`, identitydomain.ErrVerificationContextInvalid},
+		{"string channel", "channel.key.read", `{"channel_id":"123"}`, identitydomain.ErrVerificationContextInvalid},
+		{"fractional channel", "channel.key.read", `{"channel_id":123.5}`, identitydomain.ErrVerificationContextInvalid},
+		{"zero channel", "channel.key.read", `{"channel_id":0}`, identitydomain.ErrVerificationContextInvalid},
+		{"negative channel", "channel.key.read", `{"channel_id":-1}`, identitydomain.ErrVerificationContextInvalid},
+		{"overflow channel", "channel.key.read", `{"channel_id":18446744073709551615}`, identitydomain.ErrVerificationContextInvalid},
+		{"extra field", "channel.key.read", `{"channel_id":123,"extra":true}`, identitydomain.ErrVerificationContextInvalid},
+		{"null context", "passkey.register", `null`, identitydomain.ErrVerificationContextInvalid},
+		{"array context", "passkey.register", `[]`, identitydomain.ErrVerificationContextInvalid},
 		{"empty enrollment", "passkey.register", `{}`, nil},
 		{"implicit enrollment", "passkey.register", ``, nil},
 		{"generate access token", "access_token.generate", `{}`, nil},
 		{"revoke access token", "access_token.revoke", ``, nil},
-		{"access token target injection", "access_token.revoke", `{"user_id":42}`, service.ErrVerificationContextInvalid},
-		{"enrollment target injection", "passkey.register", `{"user_id":42}`, service.ErrVerificationContextInvalid},
-		{"unknown scope", "user.email.change", `{}`, service.ErrProofScope},
+		{"access token target injection", "access_token.revoke", `{"user_id":42}`, identitydomain.ErrVerificationContextInvalid},
+		{"enrollment target injection", "passkey.register", `{"user_id":42}`, identitydomain.ErrVerificationContextInvalid},
+		{"unknown scope", "user.email.change", `{}`, identitydomain.ErrProofScope},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := service.BindVerificationOperation(service.VerificationOperation{Scope: test.scope, Context: []byte(test.context)})
+			_, err := identitycore.BindVerificationOperation(identitydomain.VerificationOperation{Scope: test.scope, Context: []byte(test.context)})
 			assert.ErrorIs(t, err, test.err)
 		})
 	}
-	var first, reordered service.VerificationOperation
+	var first, reordered identitydomain.VerificationOperation
 	require.NoError(t, common.UnmarshalJsonStr(`{"scope":"channel.key.read","context":{"channel_id":123}}`, &first))
 	require.NoError(t, common.UnmarshalJsonStr(`{"context": { "channel_id": 123 }, "scope":"channel.key.read"}`, &reordered))
-	firstBinding, err := service.BindVerificationOperation(first)
+	firstBinding, err := identitycore.BindVerificationOperation(first)
 	require.NoError(t, err)
-	secondBinding, err := service.BindVerificationOperation(reordered)
+	secondBinding, err := identitycore.BindVerificationOperation(reordered)
 	require.NoError(t, err)
 	assert.Equal(t, firstBinding, secondBinding)
 }
@@ -582,50 +587,50 @@ func TestSecurityEnrollmentChannelProofRejectsMismatchesBeforeConsumption(t *tes
 	require.NoError(t, model.PublishUserAuthCache(user.Id))
 	twoFA := &model.TwoFA{UserId: user.Id, Secret: "JBSWY3DPEHPK3PXP", IsEnabled: true}
 	require.NoError(t, model.DB.Create(twoFA).Error)
-	operation := service.VerificationOperation{Scope: service.VerificationScopeChannelKeyRead, Context: []byte(`{"channel_id":123}`)}
+	operation := identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeChannelKeyRead, Context: []byte(`{"channel_id":123}`)}
 	code, err := totp.GenerateCode(twoFA.Secret, time.Now())
 	require.NoError(t, err)
-	proof, err := service.VerifySecurityInput(identity, service.VerificationInput{Method: "2fa", Scope: operation.Scope, Context: operation.Context, Code: code})
+	proof, err := identitycore.VerifySecurityInput(identity, verify_security_input.VerificationInput{Method: "2fa", Scope: operation.Scope, Context: operation.Context, Code: code})
 	require.NoError(t, err)
 	for _, test := range []struct {
 		name      string
-		identity  service.AuthIdentity
-		operation service.VerificationOperation
+		identity  identitydomain.AuthIdentity
+		operation identitydomain.VerificationOperation
 		err       error
 	}{
-		{"channel", identity, service.VerificationOperation{Scope: operation.Scope, Context: []byte(`{"channel_id":456}`)}, service.ErrProofContext},
-		{"scope", identity, service.VerificationOperation{Scope: "passkey.delete"}, service.ErrProofScope},
-		{"user", service.AuthIdentity{UserID: user.Id + 1, SessionID: identity.SessionID, UserAuthVersion: identity.UserAuthVersion, SessionVersion: identity.SessionVersion}, operation, service.ErrAuthTokenInvalid},
-		{"session", service.AuthIdentity{UserID: user.Id, SessionID: "other-session", UserAuthVersion: identity.UserAuthVersion, SessionVersion: identity.SessionVersion}, operation, service.ErrAuthTokenInvalid},
-		{"session version", service.AuthIdentity{UserID: user.Id, SessionID: identity.SessionID, UserAuthVersion: identity.UserAuthVersion, SessionVersion: identity.SessionVersion + 1}, operation, service.ErrAuthTokenInvalid},
-		{"user version", service.AuthIdentity{UserID: user.Id, SessionID: identity.SessionID, UserAuthVersion: identity.UserAuthVersion + 1, SessionVersion: identity.SessionVersion}, operation, service.ErrAuthTokenInvalid},
+		{"channel", identity, identitydomain.VerificationOperation{Scope: operation.Scope, Context: []byte(`{"channel_id":456}`)}, identitydomain.ErrProofContext},
+		{"scope", identity, identitydomain.VerificationOperation{Scope: "passkey.delete"}, identitydomain.ErrProofScope},
+		{"user", identitydomain.AuthIdentity{UserID: user.Id + 1, SessionID: identity.SessionID, UserAuthVersion: identity.UserAuthVersion, SessionVersion: identity.SessionVersion}, operation, identitydomain.ErrAuthTokenInvalid},
+		{"session", identitydomain.AuthIdentity{UserID: user.Id, SessionID: "other-session", UserAuthVersion: identity.UserAuthVersion, SessionVersion: identity.SessionVersion}, operation, identitydomain.ErrAuthTokenInvalid},
+		{"session version", identitydomain.AuthIdentity{UserID: user.Id, SessionID: identity.SessionID, UserAuthVersion: identity.UserAuthVersion, SessionVersion: identity.SessionVersion + 1}, operation, identitydomain.ErrAuthTokenInvalid},
+		{"user version", identitydomain.AuthIdentity{UserID: user.Id, SessionID: identity.SessionID, UserAuthVersion: identity.UserAuthVersion + 1, SessionVersion: identity.SessionVersion}, operation, identitydomain.ErrAuthTokenInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := service.ConsumeOperationProof(proof.ProofToken, test.identity, test.operation)
+			_, err := identitycore.ConsumeOperationProof(proof.ProofToken, test.identity, test.operation)
 			assert.ErrorIs(t, err, test.err)
 		})
 	}
 	require.NoError(t, model.DB.Model(twoFA).Update("is_enabled", false).Error)
-	_, err = service.ConsumeOperationProof(proof.ProofToken, identity, operation)
-	assert.ErrorIs(t, err, service.ErrProofMethod)
+	_, err = identitycore.ConsumeOperationProof(proof.ProofToken, identity, operation)
+	assert.ErrorIs(t, err, identitydomain.ErrProofMethod)
 	require.NoError(t, model.DB.Model(twoFA).Update("is_enabled", true).Error)
-	authorization, err := service.ConsumeOperationProof(proof.ProofToken, identity, operation)
+	authorization, err := identitycore.ConsumeOperationProof(proof.ProofToken, identity, operation)
 	require.NoError(t, err)
 	assert.Positive(t, authorization.ProofID)
-	_, err = service.ConsumeOperationProof(proof.ProofToken, identity, operation)
-	assert.ErrorIs(t, err, service.ErrProofConsumed)
+	_, err = identitycore.ConsumeOperationProof(proof.ProofToken, identity, operation)
+	assert.ErrorIs(t, err, identitydomain.ErrProofConsumed)
 }
 
 func TestSecurityEnrollmentProofConcurrentConsumption(t *testing.T) {
 	_, identity := setupSecurityEnrollmentTest(t)
-	operation := service.VerificationOperation{Scope: "passkey.register"}
+	operation := identitydomain.VerificationOperation{Scope: "passkey.register"}
 	proof := issueSecurityEnrollmentProof(t, identity, operation, "password")
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	for range 2 {
 		go func() {
 			<-start
-			_, err := service.ConsumeOperationProof(proof, identity, operation)
+			_, err := identitycore.ConsumeOperationProof(proof, identity, operation)
 			results <- err
 		}()
 	}
@@ -633,7 +638,7 @@ func TestSecurityEnrollmentProofConcurrentConsumption(t *testing.T) {
 	successes := 0
 	for range 2 {
 		if err := <-results; err != nil {
-			assert.ErrorIs(t, err, service.ErrProofConsumed)
+			assert.ErrorIs(t, err, identitydomain.ErrProofConsumed)
 		} else {
 			successes++
 		}
@@ -643,7 +648,7 @@ func TestSecurityEnrollmentProofConcurrentConsumption(t *testing.T) {
 
 func TestSecurityEnrollmentProofRequiresLiveRecordAndExactDeadline(t *testing.T) {
 	_, identity := setupSecurityEnrollmentTest(t)
-	operation := service.VerificationOperation{Scope: "passkey.register"}
+	operation := identitydomain.VerificationOperation{Scope: "passkey.register"}
 	proof := issueSecurityEnrollmentProof(t, identity, operation, "password")
 	claims := jwt.MapClaims{}
 	_, _, err := jwt.NewParser().ParseUnverified(proof, claims)
@@ -658,16 +663,16 @@ func TestSecurityEnrollmentProofRequiresLiveRecordAndExactDeadline(t *testing.T)
 	assert.NotEqual(t, proof, stored.TokenHash)
 	assert.NotEqual(t, claims["jti"], stored.TokenHash)
 	require.NoError(t, model.DB.Model(&stored).Update("expires_at", time.Now()).Error)
-	_, err = service.ConsumeOperationProof(proof, identity, operation)
-	assert.ErrorIs(t, err, service.ErrAuthTokenExpired, "database deadline must reject even while the JWT is within its clock tolerance")
+	_, err = identitycore.ConsumeOperationProof(proof, identity, operation)
+	assert.ErrorIs(t, err, identitydomain.ErrAuthTokenExpired, "database deadline must reject even while the JWT is within its clock tolerance")
 	require.NoError(t, model.DB.Delete(&stored).Error)
-	_, err = service.ConsumeOperationProof(proof, identity, operation)
-	assert.ErrorIs(t, err, service.ErrAuthTokenInvalid)
+	_, err = identitycore.ConsumeOperationProof(proof, identity, operation)
+	assert.ErrorIs(t, err, identitydomain.ErrAuthTokenInvalid)
 }
 
 func TestSecurityEnrollmentProofIsBurnedAfterBusinessFailure(t *testing.T) {
 	_, identity := setupSecurityEnrollmentTest(t)
-	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: "passkey.register"}, "password")
+	proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: "passkey.register"}, "password")
 	require.NoError(t, model.DB.Callback().Create().Before("gorm:create").Register("security_flow_creation_failure", func(tx *gorm.DB) {
 		if tx.Statement.Table == "auth_flows" {
 			tx.AddError(errors.New("injected creation failure"))
@@ -687,7 +692,7 @@ func TestSecurityEnrollmentProofStorageErrorsFailClosed(t *testing.T) {
 			_, identity := setupSecurityEnrollmentTest(t)
 			proof := ""
 			if stage == "consumption" {
-				proof = issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: "passkey.register"}, "password")
+				proof = issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: "passkey.register"}, "password")
 			}
 			failure := func(tx *gorm.DB) {
 				if tx.Statement.Table == "auth_flows" {
@@ -752,7 +757,7 @@ func TestSecurityEnrollmentPendingPasskeyRejectsChangedAuthorization(t *testing.
 	for _, change := range []string{"expired", "revoked", "session version", "user version", "method", "other session"} {
 		t.Run(change, func(t *testing.T) {
 			user, identity := setupSecurityEnrollmentTest(t)
-			proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: "passkey.register"}, "password")
+			proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: "passkey.register"}, "password")
 			response := securityEnrollmentRequest("POST", "/api/user/passkey/register/begin", "", proof, identity, PasskeyRegisterBegin)
 			var result securityEnrollmentResponse
 			require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
@@ -785,9 +790,9 @@ func TestSecurityEnrollmentPendingPasskeyRejectsChangedAuthorization(t *testing.
 			case "method":
 				require.NoError(t, model.DB.Model(user).Update("password", "").Error)
 			case "other session":
-				other, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "other-session")
+				other, err := identitycore.CreateLoginSession(user.Id, "password", "127.0.0.1", "other-session")
 				require.NoError(t, err)
-				identity, err = service.ParseAccessToken(other.AccessToken)
+				identity, err = authtoken.ParseAccessToken(other.AccessToken)
 				require.NoError(t, err)
 			}
 			response = securityEnrollmentRequest("POST", "/api/user/passkey/register/finish", string(body), "", identity, PasskeyRegisterFinish)
@@ -812,7 +817,7 @@ func TestSecurityEnrollmentPasskeyProofProtectsChannelKeyRead(t *testing.T) {
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	registrationProof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: "passkey.register"}, "password")
+	registrationProof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: "passkey.register"}, "password")
 	response := securityEnrollmentRequest("POST", "/api/user/passkey/register/begin", "", registrationProof, identity, PasskeyRegisterBegin)
 	var body securityEnrollmentResponse
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
@@ -840,7 +845,7 @@ func TestSecurityEnrollmentPasskeyProofProtectsChannelKeyRead(t *testing.T) {
 		AccessToken string `json:"access_token"`
 	}
 	require.NoError(t, common.Unmarshal(body.Data, &rotation))
-	identity, err = service.ParseAccessToken(rotation.AccessToken)
+	identity, err = authtoken.ParseAccessToken(rotation.AccessToken)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, identity.UserAuthVersion)
 	response = securityEnrollmentRequest("POST", "/api/user/passkey/register/finish", string(registrationBody), "", identity, PasskeyRegisterFinish)
@@ -859,7 +864,7 @@ func TestSecurityEnrollmentPasskeyProofProtectsChannelKeyRead(t *testing.T) {
 	response = securityEnrollmentRequest("POST", "/api/user/passkey/verify/finish", string(assertionBody), "", identity, PasskeyVerifyFinish)
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success, body.Message)
-	var proof service.SecurityProof
+	var proof identitydto.SecurityProof
 	require.NoError(t, common.Unmarshal(body.Data, &proof))
 	assert.Equal(t, "passkey", proof.Method)
 	assert.Equal(t, "channel.key.read", proof.Scope, "finish cannot replace the operation approved at begin")
@@ -921,19 +926,19 @@ func TestSecurityEnrollmentPasskeyProofProtectsChannelKeyRead(t *testing.T) {
 }
 
 func TestSecurityEnrollmentVerifyRequiresDedicatedFlowForInteractiveMethods(t *testing.T) {
-	for _, method := range []string{service.VerificationMethodPasskey, service.VerificationMethodOAuth} {
+	for _, method := range []string{identitydomain.VerificationMethodPasskey, identitydomain.VerificationMethodOAuth} {
 		t.Run(method, func(t *testing.T) {
 			user, identity := setupSecurityEnrollmentTest(t)
-			if method == service.VerificationMethodPasskey {
+			if method == identitydomain.VerificationMethodPasskey {
 				require.NoError(t, model.DB.Create(&model.PasskeyCredential{UserID: user.Id, CredentialID: "enrolled-passkey", PublicKey: "public-key"}).Error)
 			} else {
 				require.NoError(t, model.DB.Model(user).Updates(map[string]any{"password": "", "github_id": "linked-user"}).Error)
 				oauth.Register("enrollment-oauth", &enrollmentOAuthProvider{externalID: "linked-user"})
 				t.Cleanup(func() { oauth.Unregister("enrollment-oauth") })
 			}
-			_, err := service.RequireVerificationMethod(identity, service.VerificationScopeTwoFASetup, method)
+			_, err := identitycore.RequireVerificationMethod(identity, identitydomain.VerificationScopeTwoFASetup, method)
 			require.NoError(t, err)
-			payload, err := common.Marshal(service.VerificationInput{Method: method, Scope: service.VerificationScopeTwoFASetup})
+			payload, err := common.Marshal(verify_security_input.VerificationInput{Method: method, Scope: identitydomain.VerificationScopeTwoFASetup})
 			require.NoError(t, err)
 			response := securityEnrollmentRequest("POST", "/api/verify", string(payload), "", identity, UniversalVerify)
 			var body securityEnrollmentResponse
@@ -949,17 +954,17 @@ func TestSecurityEnrollmentVerifyRequiresDedicatedFlowForInteractiveMethods(t *t
 
 func TestSecurityEnrollmentTwoFAFlowAndSessionRotation(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
-	other, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "other-device")
+	other, err := identitycore.CreateLoginSession(user.Id, "password", "127.0.0.1", "other-device")
 	require.NoError(t, err)
 	var proof string
-	var setups []service.TwoFASetup
+	var setups []identitydto.TwoFASetup
 	for range 2 {
-		proof = issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: "2fa.setup"}, "password")
+		proof = issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: "2fa.setup"}, "password")
 		response := securityEnrollmentRequest("POST", "/api/user/2fa/setup", `{}`, proof, identity, Setup2FA)
 		var body securityEnrollmentResponse
 		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 		require.True(t, body.Success, body.Message)
-		var setup service.TwoFASetup
+		var setup identitydto.TwoFASetup
 		require.NoError(t, common.Unmarshal(body.Data, &setup))
 		require.NotEmpty(t, setup.FlowToken)
 		require.Len(t, setup.BackupCodes, common.BackupCodeCount)
@@ -967,8 +972,8 @@ func TestSecurityEnrollmentTwoFAFlowAndSessionRotation(t *testing.T) {
 	}
 	oldCode, err := totp.GenerateCode(setups[0].Secret, time.Now())
 	require.NoError(t, err)
-	assert.ErrorIs(t, service.FinishTwoFASetup(identity, setups[0].FlowToken, oldCode), model.ErrTwoFASetupInvalid)
-	assert.ErrorIs(t, service.FinishTwoFASetup(identity, setups[1].FlowToken, "not-a-code"), model.ErrTwoFACodeInvalid)
+	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setups[0].FlowToken, oldCode), model.ErrTwoFASetupInvalid)
+	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setups[1].FlowToken, "not-a-code"), model.ErrTwoFACodeInvalid)
 	_, err = model.GetAuthFlow(setups[1].FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeTwoFASetup})
 	require.NoError(t, err, "invalid code must not consume setup")
 	code, err := totp.GenerateCode(setups[1].Secret, time.Now())
@@ -984,7 +989,7 @@ func TestSecurityEnrollmentTwoFAFlowAndSessionRotation(t *testing.T) {
 		AccessToken string `json:"access_token"`
 	}
 	require.NoError(t, common.Unmarshal(body.Data, &rotated))
-	newIdentity, err := service.ParseAccessToken(rotated.AccessToken)
+	newIdentity, err := authtoken.ParseAccessToken(rotated.AccessToken)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, newIdentity.UserAuthVersion)
 	assert.Equal(t, identity.SessionID, newIdentity.SessionID)
@@ -993,7 +998,7 @@ func TestSecurityEnrollmentTwoFAFlowAndSessionRotation(t *testing.T) {
 	assert.Equal(t, model.UserSessionStatusRevoked, otherSession.Status)
 	_, err = model.GetAuthFlow(setups[1].FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeTwoFASetup})
 	assert.ErrorIs(t, err, model.ErrAuthFlowConsumed)
-	_, err = service.ConsumeOperationProof(proof, newIdentity, service.VerificationOperation{Scope: "2fa.setup"})
+	_, err = identitycore.ConsumeOperationProof(proof, newIdentity, identitydomain.VerificationOperation{Scope: "2fa.setup"})
 	assert.Error(t, err)
 	enabled, err := model.GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)
@@ -1010,7 +1015,7 @@ func TestSecurityEnrollmentTwoFAFlowAndSessionRotation(t *testing.T) {
 
 func TestSecurityEnrollmentSetupAndEnableRollback(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
-	setup, err := service.StartTwoFASetup(identity, authorizeSecurityEnrollment(t, identity))
+	setup, err := identitycore.StartTwoFASetup(identity, authorizeSecurityEnrollment(t, identity))
 	require.NoError(t, err)
 	failure := errors.New("injected storage failure")
 	authorization := authorizeSecurityEnrollment(t, identity)
@@ -1019,7 +1024,7 @@ func TestSecurityEnrollmentSetupAndEnableRollback(t *testing.T) {
 			tx.AddError(failure)
 		}
 	}))
-	_, err = service.StartTwoFASetup(identity, authorization)
+	_, err = identitycore.StartTwoFASetup(identity, authorization)
 	assert.ErrorIs(t, err, failure)
 	require.NoError(t, model.DB.Callback().Create().Remove("security_setup_failure"))
 	pending, err := model.GetTwoFAByUserId(user.Id)
@@ -1035,14 +1040,14 @@ func TestSecurityEnrollmentSetupAndEnableRollback(t *testing.T) {
 			tx.AddError(failure)
 		}
 	}))
-	assert.ErrorIs(t, service.FinishTwoFASetup(identity, setup.FlowToken, code), failure)
+	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setup.FlowToken, code), failure)
 	require.NoError(t, model.DB.Callback().Update().Remove("security_enable_failure"))
 	_, err = model.GetAuthFlow(setup.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeTwoFASetup})
 	require.NoError(t, err)
 	storedUser, err := model.GetUserById(user.Id, false)
 	require.NoError(t, err)
 	assert.Equal(t, identity.UserAuthVersion, storedUser.AuthVersion)
-	require.NoError(t, service.FinishTwoFASetup(identity, setup.FlowToken, code))
+	require.NoError(t, identitycore.FinishTwoFASetup(identity, setup.FlowToken, code))
 }
 
 type enrollmentOAuthProvider struct {
@@ -1100,9 +1105,9 @@ func TestSecurityEnrollmentOAuthVerificationNeverChangesLoginOrBindings(t *testi
 			assert.NotContains(t, response.Body.String(), "access_token")
 			assert.Empty(t, response.Header().Values("Set-Cookie"))
 			if scenario == "success" {
-				var proof service.SecurityProof
+				var proof identitydto.SecurityProof
 				require.NoError(t, common.Unmarshal(body.Data, &proof))
-				_, err := service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: "2fa.setup"})
+				_, err := identitycore.ConsumeOperationProof(proof.ProofToken, identity, identitydomain.VerificationOperation{Scope: "2fa.setup"})
 				require.NoError(t, err)
 				replayed := securityEnrollmentRequest("GET", path, "", "", identity, handler)
 				assert.Equal(t, http.StatusForbidden, replayed.Code)
@@ -1143,14 +1148,14 @@ func TestSecurityEnrollmentEncryptedPasswordVerification(t *testing.T) {
 	ciphertext, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, publicKey, []byte("enrollment-password"), nil)
 	require.NoError(t, err)
 	common.PasswordLoginEncryptionEnabled = true
-	input := service.VerificationInput{Method: "password", Scope: "passkey.register", PasswordEncrypted: base64.StdEncoding.EncodeToString(ciphertext), EncryptionKeyID: keyID}
-	proof, err := service.VerifySecurityInput(identity, input)
+	input := verify_security_input.VerificationInput{Method: "password", Scope: "passkey.register", PasswordEncrypted: base64.StdEncoding.EncodeToString(ciphertext), EncryptionKeyID: keyID}
+	proof, err := identitycore.VerifySecurityInput(identity, input)
 	require.NoError(t, err)
-	_, err = service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: input.Scope})
+	_, err = identitycore.ConsumeOperationProof(proof.ProofToken, identity, identitydomain.VerificationOperation{Scope: input.Scope})
 	require.NoError(t, err)
 	input.EncryptionKeyID = "incorrect-key-id"
-	_, err = service.VerifySecurityInput(identity, input)
-	assert.ErrorIs(t, err, service.ErrVerificationFailed)
+	_, err = identitycore.VerifySecurityInput(identity, input)
+	assert.ErrorIs(t, err, identitydomain.ErrVerificationFailed)
 }
 
 func TestSecurityEnrollmentTwoFAFailureAccountingAndStorageErrors(t *testing.T) {
@@ -1186,18 +1191,18 @@ func TestSecurityEnrollmentTwoFAFailureAccountingAndStorageErrors(t *testing.T) 
 		}
 	}
 	require.NotEmpty(t, wrongCode)
-	assert.ErrorIs(t, service.VerifyTwoFactorCode(twoFA, wrongCode), service.ErrVerificationFailed)
+	assert.ErrorIs(t, identitycore.VerifyTwoFactorCode(twoFA, wrongCode), identitydomain.ErrVerificationFailed)
 	stored, err = model.GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 1, stored.FailedAttempts)
 	hash, err := common.HashBackupCode("ABCD-1234")
 	require.NoError(t, err)
 	require.NoError(t, model.DB.Create(&model.TwoFABackupCode{UserId: user.Id, CodeHash: hash}).Error)
-	require.NoError(t, service.VerifyTwoFactorCode(stored, "ABCD-1234"))
-	assert.ErrorIs(t, service.VerifyTwoFactorCode(stored, "ABCD-1234"), service.ErrVerificationFailed)
+	require.NoError(t, identitycore.VerifyTwoFactorCode(stored, "ABCD-1234"))
+	assert.ErrorIs(t, identitycore.VerifyTwoFactorCode(stored, "ABCD-1234"), identitydomain.ErrVerificationFailed)
 	until := time.Now().Add(time.Minute)
 	stored.LockedUntil = &until
-	assert.ErrorIs(t, service.VerifyTwoFactorCode(stored, "ABCD-1234"), service.ErrVerificationLocked)
+	assert.ErrorIs(t, identitycore.VerifyTwoFactorCode(stored, "ABCD-1234"), identitydomain.ErrVerificationLocked)
 	stored.LockedUntil = nil
 	code, err := totp.GenerateCode(stored.Secret, time.Now())
 	require.NoError(t, err)
@@ -1207,7 +1212,7 @@ func TestSecurityEnrollmentTwoFAFailureAccountingAndStorageErrors(t *testing.T) 
 			tx.AddError(failure)
 		}
 	}))
-	assert.ErrorIs(t, service.VerifyTwoFactorCode(stored, code), failure)
+	assert.ErrorIs(t, identitycore.VerifyTwoFactorCode(stored, code), failure)
 	require.NoError(t, model.DB.Callback().Update().Remove("security_usage_failure"))
 }
 
@@ -1233,7 +1238,7 @@ func TestSecurityEnrollmentDatabaseErrorsAreNotReturned(t *testing.T) {
 			_, identity := setupSecurityEnrollmentTest(t)
 			oauth.Register("enrollment-oauth", &enrollmentOAuthProvider{externalID: "linked-user"})
 			t.Cleanup(func() { oauth.Unregister("enrollment-oauth") })
-			proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeTwoFASetup}, service.VerificationMethodPassword)
+			proof := issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeTwoFASetup}, identitydomain.VerificationMethodPassword)
 			privateError := errors.New("database connection failed: private-db-host private_table SELECT secret_column")
 			callback := func(tx *gorm.DB) {
 				if tx.Statement.Table == test.table {
@@ -1264,13 +1269,13 @@ func TestSecurityEnrollmentPublicErrorsDiscardWrappedDetails(t *testing.T) {
 		code    string
 		message string
 	}{
-		{service.ErrVerificationFailed, "SECURITY_VERIFICATION_FAILED", service.ErrVerificationFailed.Error()},
-		{service.ErrVerificationLocked, "SECURITY_VERIFICATION_LOCKED", service.ErrVerificationLocked.Error()},
-		{service.ErrOAuthAccountMismatch, "OAUTH_ACCOUNT_MISMATCH", service.ErrOAuthAccountMismatch.Error()},
+		{identitydomain.ErrVerificationFailed, "SECURITY_VERIFICATION_FAILED", identitydomain.ErrVerificationFailed.Error()},
+		{identitydomain.ErrVerificationLocked, "SECURITY_VERIFICATION_LOCKED", identitydomain.ErrVerificationLocked.Error()},
+		{identitydomain.ErrOAuthAccountMismatch, "OAUTH_ACCOUNT_MISMATCH", identitydomain.ErrOAuthAccountMismatch.Error()},
 		{model.ErrTwoFASetupInvalid, "TWOFA_SETUP_INVALID", model.ErrTwoFASetupInvalid.Error()},
 	} {
 		t.Run(test.code, func(t *testing.T) {
-			response := securityEnrollmentRequest("POST", "/api/verify", "", "", service.AuthIdentity{}, func(c *gin.Context) {
+			response := securityEnrollmentRequest("POST", "/api/verify", "", "", identitydomain.AuthIdentity{}, func(c *gin.Context) {
 				writeSecurityOperationError(c, fmt.Errorf("private database details: %w", test.err))
 			})
 			var body securityEnrollmentResponse
@@ -1285,19 +1290,19 @@ func TestSecurityEnrollmentPublicErrorsDiscardWrappedDetails(t *testing.T) {
 
 func TestSecurityEnrollmentExpiredAndCrossSessionSetupsCannotActivate(t *testing.T) {
 	user, identity := setupSecurityEnrollmentTest(t)
-	setup, err := service.StartTwoFASetup(identity, authorizeSecurityEnrollment(t, identity))
+	setup, err := identitycore.StartTwoFASetup(identity, authorizeSecurityEnrollment(t, identity))
 	require.NoError(t, err)
 	code, err := totp.GenerateCode(setup.Secret, time.Now())
 	require.NoError(t, err)
-	other, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "other-session")
+	other, err := identitycore.CreateLoginSession(user.Id, "password", "127.0.0.1", "other-session")
 	require.NoError(t, err)
-	otherIdentity, err := service.ParseAccessToken(other.AccessToken)
+	otherIdentity, err := authtoken.ParseAccessToken(other.AccessToken)
 	require.NoError(t, err)
-	assert.ErrorIs(t, service.FinishTwoFASetup(otherIdentity, setup.FlowToken, code), model.ErrTwoFASetupInvalid)
+	assert.ErrorIs(t, identitycore.FinishTwoFASetup(otherIdentity, setup.FlowToken, code), model.ErrTwoFASetupInvalid)
 	flow, err := model.GetAuthFlow(setup.FlowToken, model.AuthFlowMatch{Purpose: model.AuthFlowPurposeTwoFASetup})
 	require.NoError(t, err)
 	require.NoError(t, model.DB.Model(flow).Update("expires_at", time.Now().Add(-time.Minute)).Error)
-	assert.ErrorIs(t, service.FinishTwoFASetup(identity, setup.FlowToken, code), model.ErrTwoFASetupInvalid)
+	assert.ErrorIs(t, identitycore.FinishTwoFASetup(identity, setup.FlowToken, code), model.ErrTwoFASetupInvalid)
 	stored, err := model.GetTwoFAByUserId(user.Id)
 	require.NoError(t, err)
 	assert.False(t, stored.IsEnabled)
@@ -1369,9 +1374,9 @@ func TestSecurityEnrollmentCustomOAuthUsesExistingBinding(t *testing.T) {
 	})
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success, body.Message)
-	var proof service.SecurityProof
+	var proof identitydto.SecurityProof
 	require.NoError(t, common.Unmarshal(body.Data, &proof))
-	_, err := service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: "2fa.setup"})
+	_, err := identitycore.ConsumeOperationProof(proof.ProofToken, identity, identitydomain.VerificationOperation{Scope: "2fa.setup"})
 	require.NoError(t, err)
 	bindings, err := model.GetUserOAuthBindingsByUserId(user.Id)
 	require.NoError(t, err)
@@ -1379,15 +1384,15 @@ func TestSecurityEnrollmentCustomOAuthUsesExistingBinding(t *testing.T) {
 	assert.Equal(t, "custom-user", bindings[0].ProviderUserId)
 }
 
-func completeFirstSecurityFactor(t *testing.T, identity service.AuthIdentity, proof service.SecurityProof) {
+func completeFirstSecurityFactor(t *testing.T, identity identitydomain.AuthIdentity, proof identitydto.SecurityProof) {
 	t.Helper()
 	var response *httptest.ResponseRecorder
-	if proof.Scope == service.VerificationScopeTwoFASetup {
+	if proof.Scope == identitydomain.VerificationScopeTwoFASetup {
 		response = securityEnrollmentRequest("POST", "/api/user/2fa/setup", "", proof.ProofToken, identity, Setup2FA)
 		var body securityEnrollmentResponse
 		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 		require.True(t, body.Success, body.Message)
-		var setup service.TwoFASetup
+		var setup identitydto.TwoFASetup
 		require.NoError(t, common.Unmarshal(body.Data, &setup))
 		code, err := totp.GenerateCode(setup.Secret, time.Now())
 		require.NoError(t, err)
@@ -1424,22 +1429,22 @@ func completeFirstSecurityFactor(t *testing.T, identity service.AuthIdentity, pr
 		AccessToken string `json:"access_token"`
 	}
 	require.NoError(t, common.Unmarshal(body.Data, &rotation))
-	updated, err := service.ParseAccessToken(rotation.AccessToken)
+	updated, err := authtoken.ParseAccessToken(rotation.AccessToken)
 	require.NoError(t, err)
 	assert.Equal(t, identity.UserID, updated.UserID)
 	assert.Equal(t, identity.UserAuthVersion+1, updated.UserAuthVersion)
-	_, err = service.ConsumeOperationProof(proof.ProofToken, updated, service.VerificationOperation{Scope: proof.Scope})
+	_, err = identitycore.ConsumeOperationProof(proof.ProofToken, updated, identitydomain.VerificationOperation{Scope: proof.Scope})
 	assert.Error(t, err)
 }
 
 func TestSecurityEnrollmentTelegramAndWeChatFirstFactor(t *testing.T) {
 	for _, provider := range []string{"telegram", "wechat"} {
-		for _, scope := range []string{service.VerificationScopeTwoFASetup, service.VerificationScopePasskeyRegister} {
+		for _, scope := range []string{identitydomain.VerificationScopeTwoFASetup, identitydomain.VerificationScopePasskeyRegister} {
 			t.Run(provider+"/"+scope, func(t *testing.T) {
 				var user *model.User
-				var identity service.AuthIdentity
+				var identity identitydomain.AuthIdentity
 				var response *httptest.ResponseRecorder
-				method := service.VerificationMethodSession
+				method := identitydomain.VerificationMethodSession
 				if provider == "telegram" {
 					fixture := setupTelegramOAuthTest(t)
 					user, identity = fixture.user, fixture.identity
@@ -1450,11 +1455,11 @@ func TestSecurityEnrollmentTelegramAndWeChatFirstFactor(t *testing.T) {
 					assert.NotContains(t, mismatch.Body.String(), "proof_token")
 					state, code = fixture.authorization(t, "verify", identity, scope, telegramIdentityClaims(42))
 					response = telegramOAuthCallback(state, code, identity)
-					method = service.VerificationMethodOAuth
+					method = identitydomain.VerificationMethodOAuth
 				} else {
 					user, identity = setupSecurityEnrollmentTest(t)
 					require.NoError(t, model.DB.Model(user).Updates(map[string]any{"password": "", "wechat_id": "wechat-user"}).Error)
-					request, err := common.Marshal(service.VerificationInput{Scope: scope, Method: method})
+					request, err := common.Marshal(verify_security_input.VerificationInput{Scope: scope, Method: method})
 					require.NoError(t, err)
 					response = securityEnrollmentRequest("POST", "/api/verify", string(request), "", identity, UniversalVerify)
 				}
@@ -1466,7 +1471,7 @@ func TestSecurityEnrollmentTelegramAndWeChatFirstFactor(t *testing.T) {
 					return
 				}
 				require.True(t, body.Success, response.Body.String())
-				var proof service.SecurityProof
+				var proof identitydto.SecurityProof
 				require.NoError(t, common.Unmarshal(body.Data, &proof))
 				assert.Equal(t, scope, proof.Scope)
 				assert.Equal(t, method, proof.Method)
@@ -1520,7 +1525,7 @@ func TestSecurityEnrollmentNeverTrustsSessionForFirstFactor(t *testing.T) {
 				if scope == "channel.key.read" {
 					context = json.RawMessage(`{"channel_id":1}`)
 				}
-				_, err := service.VerifySecurityInput(identity, service.VerificationInput{Method: "session", Scope: scope, Context: context})
+				_, err := identitycore.VerifySecurityInput(identity, verify_security_input.VerificationInput{Method: "session", Scope: scope, Context: context})
 				assert.Error(t, err, scope)
 			}
 			if scenario == "binding storage failure" {
@@ -1577,7 +1582,7 @@ func TestSecurityEnrollmentMissingTargetsAreBusinessErrors(t *testing.T) {
 		assert.Equal(t, http.StatusInternalServerError, failed.Code)
 		assert.NotContains(t, failed.Body.String(), "private database failure")
 	}
-	_, _, err := service.ValidateLoginSession(identity)
+	_, _, err := identitycore.ValidateLoginSession(identity)
 	require.NoError(t, err)
 }
 
@@ -1588,7 +1593,7 @@ func TestSecurityEnrollmentRejectsChangedFirstFactorPolicy(t *testing.T) {
 				fixture := setupTelegramOAuthTest(t)
 				user, identity := fixture.user, fixture.identity
 				require.NoError(t, model.DB.Model(user).Update("password", "").Error)
-				var proof *service.SecurityProof
+				var proof *identitydto.SecurityProof
 				var err error
 				if provider == "telegram" {
 					require.NoError(t, model.DB.Model(user).Update("telegram_id", "42").Error)
@@ -1600,12 +1605,12 @@ func TestSecurityEnrollmentRejectsChangedFirstFactorPolicy(t *testing.T) {
 					require.NoError(t, common.Unmarshal(body.Data, &proof))
 				} else {
 					require.NoError(t, model.DB.Model(user).Update("wechat_id", "wechat-user").Error)
-					proof, err = service.VerifySecurityInput(identity, service.VerificationInput{Scope: "2fa.setup", Method: "session"})
+					proof, err = identitycore.VerifySecurityInput(identity, verify_security_input.VerificationInput{Scope: "2fa.setup", Method: "session"})
 					require.Error(t, err)
 					assert.Nil(t, proof)
 					return
 				}
-				_, err = service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: "passkey.register"})
+				_, err = identitycore.ConsumeOperationProof(proof.ProofToken, identity, identitydomain.VerificationOperation{Scope: "passkey.register"})
 				assert.Error(t, err)
 				var setupToken string
 				if stage == "setup" {
@@ -1618,8 +1623,8 @@ func TestSecurityEnrollmentRejectsChangedFirstFactorPolicy(t *testing.T) {
 					}
 					require.NoError(t, common.Unmarshal(body.Data, &setup))
 					setupToken = setup.FlowToken
-					_, err = service.ConsumeOperationProof(proof.ProofToken, identity, service.VerificationOperation{Scope: "2fa.setup"})
-					assert.ErrorIs(t, err, service.ErrProofConsumed)
+					_, err = identitycore.ConsumeOperationProof(proof.ProofToken, identity, identitydomain.VerificationOperation{Scope: "2fa.setup"})
+					assert.ErrorIs(t, err, identitydomain.ErrProofConsumed)
 				}
 				if provider == "telegram" {
 					common.TelegramOAuthEnabled = false

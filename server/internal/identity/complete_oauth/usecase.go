@@ -70,93 +70,93 @@ func CompleteBinding(op BindingOperation) (Result, error) {
 // *domain.ProviderError, a provider-reported error is
 // *domain.ProviderMessageError; the result outcome is empty when the flow
 // stops without a response.
-func (usecase Usecase) Execute() (Result, error) {
-	if !usecase.operation.ProviderKnown() {
+func (usecase Usecase) Execute(operation CallbackOperation, binding BindingOperation, lookup AccountLookup, registration AccountRegistration) (Result, error) {
+	if !operation.ProviderKnown() {
 		return Result{}, domain.ErrProviderUnknown
 	}
-	if err := usecase.operation.LoadPending(); err != nil {
+	if err := operation.LoadPending(); err != nil {
 		return Result{}, domain.ErrOAuthStateInvalid
 	}
-	intent := usecase.operation.PendingIntent()
+	intent := operation.PendingIntent()
 	if intent == "bind" || intent == "verify" {
-		if !usecase.operation.ReadBoundIdentity() {
+		if !operation.ReadBoundIdentity() {
 			return Result{}, domain.ErrOAuthStateInvalid
 		}
 		if intent == "bind" {
-			if err := usecase.operation.DecodeBindingPayload(); err != nil {
+			if err := operation.DecodeBindingPayload(); err != nil {
 				return Result{}, err
 			}
-			if err := usecase.operation.ValidateBindingAuthorization(); err != nil {
+			if err := operation.ValidateBindingAuthorization(); err != nil {
 				return Result{}, err
 			}
 		}
 	} else if intent != "login" {
 		return Result{}, domain.ErrInvalidInput
 	}
-	if usecase.operation.IsTelegram() {
-		if err := usecase.operation.TelegramConfiguration(); err != nil {
+	if operation.IsTelegram() {
+		if err := operation.TelegramConfiguration(); err != nil {
 			return Result{}, err
 		}
-		if err := usecase.operation.DecodeTelegram(); err != nil {
+		if err := operation.DecodeTelegram(); err != nil {
 			return Result{}, err
 		}
 		if intent != "login" {
-			if !usecase.operation.ReadTelegramIdentity() {
+			if !operation.ReadTelegramIdentity() {
 				return Result{}, domain.ErrAuthFlowInvalid
 			}
-			if err := usecase.operation.ValidateSession(); err != nil {
+			if err := operation.ValidateSession(); err != nil {
 				return Result{}, err
 			}
 		}
-		usecase.operation.CaptureTelegramContext()
+		operation.CaptureTelegramContext()
 	}
-	if !usecase.operation.ProviderEnabled() {
+	if !operation.ProviderEnabled() {
 		return Result{}, domain.ErrProviderDisabled
 	}
-	if code := usecase.operation.ProviderError(); code != "" {
-		if err := usecase.operation.ConsumeFlow(); err != nil {
+	if code := operation.ProviderError(); code != "" {
+		if err := operation.ConsumeFlow(); err != nil {
 			return Result{}, domain.ErrOAuthStateInvalid
 		}
-		return Result{}, &domain.ProviderMessageError{Message: usecase.operation.ProviderErrorDescription(code)}
+		return Result{}, &domain.ProviderMessageError{Message: operation.ProviderErrorDescription(code)}
 	}
-	if err := usecase.operation.ExchangeCode(); err != nil {
-		if usecase.operation.IsTelegram() {
+	if err := operation.ExchangeCode(); err != nil {
+		if operation.IsTelegram() {
 			return Result{}, err
 		}
 		return Result{}, &domain.ProviderError{Cause: err}
 	}
-	if err := usecase.operation.ReadProviderUser(); err != nil {
-		if usecase.operation.IsTelegram() {
+	if err := operation.ReadProviderUser(); err != nil {
+		if operation.IsTelegram() {
 			return Result{}, err
 		}
 		return Result{}, &domain.ProviderError{Cause: err}
 	}
 	if intent == "bind" {
-		return CompleteBinding(usecase.binding)
+		return CompleteBinding(binding)
 	}
-	if err := usecase.operation.ConsumeFlow(); err != nil {
+	if err := operation.ConsumeFlow(); err != nil {
 		return Result{}, domain.ErrOAuthStateInvalid
 	}
-	switch usecase.operation.ConsumedIntent() {
+	switch operation.ConsumedIntent() {
 	case "login":
-		if err := usecase.operation.DecodePayload(); err != nil {
+		if err := operation.DecodePayload(); err != nil {
 			return Result{}, err
 		}
-		if err := ResolveAccount(usecase.operation.AffiliateCode(), usecase.lookup, usecase.registration); err != nil {
-			if usecase.registration.EmailTaken(err) || errors.Is(err, domain.ErrEmailTaken) {
+		if err := ResolveAccount(operation.AffiliateCode(), lookup, registration); err != nil {
+			if registration.EmailTaken(err) || errors.Is(err, domain.ErrEmailTaken) {
 				return Result{}, domain.ErrEmailTaken
 			}
 			return Result{}, err
 		}
-		if !usecase.operation.AccountEnabled() {
+		if !operation.AccountEnabled() {
 			return Result{}, domain.ErrAccountBanned
 		}
 		return Result{Outcome: OutcomeLogin}, nil
 	case "verify":
-		if err := usecase.operation.DecodePayload(); err != nil {
+		if err := operation.DecodePayload(); err != nil {
 			return Result{}, err
 		}
-		if err := usecase.operation.VerifyBoundAccount(); err != nil {
+		if err := operation.VerifyBoundAccount(); err != nil {
 			return Result{}, err
 		}
 		return Result{Outcome: OutcomeVerified}, nil
@@ -164,13 +164,6 @@ func (usecase Usecase) Execute() (Result, error) {
 	return Result{}, nil
 }
 
-type Usecase struct {
-	operation    CallbackOperation
-	binding      BindingOperation
-	lookup       AccountLookup
-	registration AccountRegistration
-}
+type Usecase struct{}
 
-func NewUsecase(operation CallbackOperation, binding BindingOperation, lookup AccountLookup, registration AccountRegistration) Usecase {
-	return Usecase{operation: operation, binding: binding, lookup: lookup, registration: registration}
-}
+func NewUsecase() Usecase { return Usecase{} }

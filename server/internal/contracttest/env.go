@@ -21,11 +21,12 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/router"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
 )
 
 // Same convention as relaykit/relayconvert golden tests.
@@ -134,7 +135,7 @@ func New(t *testing.T) *Env {
 		user := &model.User{Id: id, Username: username, Role: role, Status: common.UserStatusEnabled, Group: "default", AffCode: username, Quota: 1000000, AuthVersion: 1, AccessToken: pat}
 		require.NoError(t, db.Create(user).Error)
 		require.NoError(t, model.PublishUserAuthCache(user.Id))
-		bundle, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "contract-test")
+		bundle, err := identitycore.CreateLoginSession(user.Id, "password", "127.0.0.1", "contract-test")
 		require.NoError(t, err)
 		return bundle.AccessToken
 	}

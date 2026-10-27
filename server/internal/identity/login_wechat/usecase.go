@@ -18,37 +18,33 @@ type Operation interface {
 // Execute signs in or registers the WeChat account of the code. Outcomes with
 // their own responses are domain.ErrAccountDeleted,
 // domain.ErrRegistrationDisabled and domain.ErrAccountBanned.
-func (usecase Usecase) Execute(input Input) error {
-	if err := usecase.operation.ExchangeCode(input.Code); err != nil {
+func (usecase Usecase) Execute(operation Operation, input Input) error {
+	if err := operation.ExchangeCode(input.Code); err != nil {
 		return err
 	}
-	usecase.operation.InitializeAccount()
-	if usecase.operation.Taken() {
-		if err := usecase.operation.LoadAccount(); err != nil {
+	operation.InitializeAccount()
+	if operation.Taken() {
+		if err := operation.LoadAccount(); err != nil {
 			return err
 		}
-		if usecase.operation.AccountID() == 0 {
+		if operation.AccountID() == 0 {
 			return domain.ErrAccountDeleted
 		}
 	} else {
-		if !usecase.operation.RegistrationEnabled() {
+		if !operation.RegistrationEnabled() {
 			return domain.ErrRegistrationDisabled
 		}
-		usecase.operation.PrepareAccount()
-		if err := usecase.operation.InsertAccount(input.Lang); err != nil {
+		operation.PrepareAccount()
+		if err := operation.InsertAccount(input.Lang); err != nil {
 			return err
 		}
 	}
-	if !usecase.operation.AccountEnabled() {
+	if !operation.AccountEnabled() {
 		return domain.ErrAccountBanned
 	}
 	return nil
 }
 
-type Usecase struct {
-	operation Operation
-}
+type Usecase struct{}
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
-}
+func NewUsecase() Usecase { return Usecase{} }

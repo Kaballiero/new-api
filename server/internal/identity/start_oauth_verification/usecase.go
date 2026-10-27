@@ -11,14 +11,14 @@ type Operation interface {
 	Capture()
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.Bind(); err != nil {
+func (usecase Usecase) Execute(operation Operation) error {
+	if err := operation.Bind(); err != nil {
 		return err
 	}
-	if err := usecase.operation.FindLinkedAccount(); err != nil {
+	if err := operation.FindLinkedAccount(); err != nil {
 		return err
 	}
-	usecase.operation.Capture()
+	operation.Capture()
 	return nil
 }
 
@@ -32,9 +32,8 @@ func LinkedAccount(providers []identitydto.VerificationOAuthProvider, provider s
 }
 
 type Usecase struct {
-	operation Operation
 }
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

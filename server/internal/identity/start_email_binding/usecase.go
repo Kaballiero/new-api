@@ -19,42 +19,41 @@ type Operation interface {
 	SetNotificationWarning(bool)
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.ValidateEmail(); err != nil {
+func (usecase Usecase) Execute(operation Operation) error {
+	if err := operation.ValidateEmail(); err != nil {
 		return err
 	}
-	if err := usecase.operation.BindOperation(); err != nil {
+	if err := operation.BindOperation(); err != nil {
 		return err
 	}
-	if err := usecase.operation.ValidateAuthorization(); err != nil {
+	if err := operation.ValidateAuthorization(); err != nil {
 		return err
 	}
-	if err := usecase.operation.LoadAccount(); err != nil {
+	if err := operation.LoadAccount(); err != nil {
 		return err
 	}
-	usecase.operation.PrepareChange()
-	requireOld := usecase.operation.CurrentEmail() != "" && usecase.operation.AuthorizationMethod() != "2fa" && usecase.operation.AuthorizationMethod() != "passkey"
-	if err := usecase.operation.GenerateCodes(requireOld); err != nil {
+	operation.PrepareChange()
+	requireOld := operation.CurrentEmail() != "" && operation.AuthorizationMethod() != "2fa" && operation.AuthorizationMethod() != "passkey"
+	if err := operation.GenerateCodes(requireOld); err != nil {
 		return err
 	}
-	if err := usecase.operation.CreateChange(); err != nil {
+	if err := operation.CreateChange(); err != nil {
 		return err
 	}
-	if err := usecase.operation.DeliverCodes(); err != nil {
-		usecase.operation.InvalidateChange()
+	if err := operation.DeliverCodes(); err != nil {
+		operation.InvalidateChange()
 		return domain.ErrEmailBindingDelivery
 	}
-	usecase.operation.CaptureData()
-	if usecase.operation.CurrentEmail() != "" && !requireOld {
-		usecase.operation.SetNotificationWarning(usecase.operation.NotifyCurrentEmail())
+	operation.CaptureData()
+	if operation.CurrentEmail() != "" && !requireOld {
+		operation.SetNotificationWarning(operation.NotifyCurrentEmail())
 	}
 	return nil
 }
 
 type Usecase struct {
-	operation Operation
 }
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

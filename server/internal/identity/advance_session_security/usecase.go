@@ -2,51 +2,30 @@ package advance_session_security
 
 import "github.com/QuantumNous/new-api/internal/identity/domain"
 
-type Advancement interface {
-	Advance(version int64) error
+type Operation interface {
+	LoadAccount() (domain.AccountState, error)
+	Advance(int64) error
 	RevokeOthers() error
 	Issue() error
 }
-type BumpOperation interface {
-	Advancement
-	BumpUserVersion() (int64, error)
-}
-type CurrentVersionOperation interface {
-	Advancement
-	LoadAccount() (domain.AccountState, error)
-}
 
-func (usecase Usecase) Execute(version int64) error {
-	if err := usecase.operation.Advance(version); err != nil {
-		return err
-	}
-	if err := usecase.operation.RevokeOthers(); err != nil {
-		return err
-	}
-	return usecase.operation.Issue()
-}
-func BumpAndAdvance(op BumpOperation) error {
-	version, err := op.BumpUserVersion()
-	if err != nil {
-		return err
-	}
-	return NewUsecase(op).Execute(version)
-}
-func AdvanceFromCurrentVersion(expectedVersion int64, enabledStatus int, op CurrentVersionOperation) error {
+type Usecase struct{ enabledStatus int }
+
+func NewUsecase(enabledStatus int) Usecase { return Usecase{enabledStatus: enabledStatus} }
+
+func (u Usecase) Execute(op Operation, expectedVersion int64) error {
 	user, err := op.LoadAccount()
 	if err != nil {
 		return err
 	}
-	if user.Status != enabledStatus || user.AuthVersion <= expectedVersion {
+	if user.Status != u.enabledStatus || user.AuthVersion <= expectedVersion {
 		return domain.ErrLoginSessionRevoked
 	}
-	return NewUsecase(op).Execute(user.AuthVersion)
-}
-
-type Usecase struct {
-	operation Advancement
-}
-
-func NewUsecase(operation Advancement) Usecase {
-	return Usecase{operation: operation}
+	if err := op.Advance(user.AuthVersion); err != nil {
+		return err
+	}
+	if err := op.RevokeOthers(); err != nil {
+		return err
+	}
+	return op.Issue()
 }

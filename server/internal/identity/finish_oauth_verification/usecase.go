@@ -9,23 +9,22 @@ type Operation interface {
 	IssueProof() error
 }
 
-func (usecase Usecase) Execute() error {
-	if !usecase.operation.FlowValid() {
+func (usecase Usecase) Execute(operation Operation) error {
+	if !operation.FlowValid() {
 		return domain.ErrAuthTokenInvalid
 	}
-	if err := usecase.operation.FindLinkedAccount(); err != nil {
+	if err := operation.FindLinkedAccount(); err != nil {
 		return err
 	}
-	if !usecase.operation.AccountMatches() {
+	if !operation.AccountMatches() {
 		return domain.ErrOAuthAccountMismatch
 	}
-	return usecase.operation.IssueProof()
+	return operation.IssueProof()
 }
 
 type Usecase struct {
-	operation Operation
 }
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

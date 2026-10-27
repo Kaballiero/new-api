@@ -21,7 +21,6 @@ import (
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -29,6 +28,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	verify_security_input "github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 )
 
 type telegramTestTransport struct{ target *url.URL }
@@ -50,7 +54,7 @@ type telegramTestGrant struct {
 
 type telegramOAuthFixture struct {
 	user        *model.User
-	identity    service.AuthIdentity
+	identity    identitydomain.AuthIdentity
 	client      *http.Client
 	key         *rsa.PrivateKey
 	mutex       sync.Mutex
@@ -153,13 +157,13 @@ func setupTelegramOAuthTest(t *testing.T) *telegramOAuthFixture {
 	return fixture
 }
 
-func (fixture *telegramOAuthFixture) authorization(t *testing.T, intent string, identity service.AuthIdentity, scope string, claims jwt.MapClaims) (string, string) {
+func (fixture *telegramOAuthFixture) authorization(t *testing.T, intent string, identity identitydomain.AuthIdentity, scope string, claims jwt.MapClaims) (string, string) {
 	t.Helper()
 	request, err := common.Marshal(oauthStateRequest{Provider: "telegram", Intent: intent, Scope: scope})
 	require.NoError(t, err)
 	proof := ""
 	if intent == "bind" {
-		proof = issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: []byte(`{"provider":"telegram"}`)}, service.VerificationMethodPassword)
+		proof = issueSecurityEnrollmentProof(t, identity, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccountBind, Context: []byte(`{"provider":"telegram"}`)}, identitydomain.VerificationMethodPassword)
 	}
 	response := securityEnrollmentRequest("POST", "/api/oauth/state", string(request), proof, identity, GenerateOAuthCode)
 	var body securityEnrollmentResponse
@@ -193,7 +197,7 @@ func telegramIdentityClaims(id any) jwt.MapClaims {
 	}
 }
 
-func telegramOAuthCallback(state, code string, identity service.AuthIdentity) *httptest.ResponseRecorder {
+func telegramOAuthCallback(state, code string, identity identitydomain.AuthIdentity) *httptest.ResponseRecorder {
 	path := "/api/oauth/telegram?" + url.Values{"state": {state}, "code": {code}}.Encode()
 	return securityEnrollmentRequest("GET", path, "", "", identity, func(c *gin.Context) {
 		c.Params = gin.Params{{Key: "provider", Value: "telegram"}}
@@ -207,8 +211,8 @@ func TestTelegramOAuthPreservesExistingAccountAndBinding(t *testing.T) {
 	require.NoError(t, model.DB.Model(fixture.user).Update("telegram_id", telegramID).Error)
 	require.NoError(t, model.InitializeExternalIdentityClaims())
 	require.NoError(t, model.InitializeExternalIdentityClaims())
-	state, code := fixture.authorization(t, "login", service.AuthIdentity{}, "", telegramIdentityClaims(json.Number(telegramID)))
-	response := telegramOAuthCallback(state, code, service.AuthIdentity{})
+	state, code := fixture.authorization(t, "login", identitydomain.AuthIdentity{}, "", telegramIdentityClaims(json.Number(telegramID)))
+	response := telegramOAuthCallback(state, code, identitydomain.AuthIdentity{})
 	var body securityEnrollmentResponse
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 	require.True(t, body.Success, response.Body.String())
@@ -225,10 +229,10 @@ func TestTelegramOAuthPreservesExistingAccountAndBinding(t *testing.T) {
 	var claim model.ExternalIdentityClaim
 	require.NoError(t, model.DB.Where("provider = ? AND subject = ?", "telegram", telegramID).First(&claim).Error)
 	assert.Equal(t, stored.Id, claim.UserId)
-	replay := telegramOAuthCallback(state, code, service.AuthIdentity{})
+	replay := telegramOAuthCallback(state, code, identitydomain.AuthIdentity{})
 	assert.Equal(t, http.StatusForbidden, replay.Code)
-	state, code = fixture.authorization(t, "login", service.AuthIdentity{}, "", telegramIdentityClaims(999))
-	response = telegramOAuthCallback(state, code, service.AuthIdentity{})
+	state, code = fixture.authorization(t, "login", identitydomain.AuthIdentity{}, "", telegramIdentityClaims(999))
+	response = telegramOAuthCallback(state, code, identitydomain.AuthIdentity{})
 	assert.Contains(t, response.Body.String(), "TELEGRAM_ACCOUNT_NOT_BOUND")
 	var count int64
 	require.NoError(t, model.DB.Model(&model.User{}).Count(&count).Error)
@@ -254,38 +258,38 @@ func TestTelegramOAuthRejectsInvalidTokens(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			claims := telegramIdentityClaims(42)
 			test.change(claims)
-			state, code := fixture.authorization(t, "login", service.AuthIdentity{}, "", claims)
-			response := telegramOAuthCallback(state, code, service.AuthIdentity{})
+			state, code := fixture.authorization(t, "login", identitydomain.AuthIdentity{}, "", claims)
+			response := telegramOAuthCallback(state, code, identitydomain.AuthIdentity{})
 			assert.Contains(t, response.Body.String(), "TELEGRAM_OAUTH_FAILED")
 			assert.NotContains(t, response.Body.String(), "access_token")
 		})
 	}
 	t.Run("signature", func(t *testing.T) {
-		state, code := fixture.authorization(t, "login", service.AuthIdentity{}, "", telegramIdentityClaims(42))
+		state, code := fixture.authorization(t, "login", identitydomain.AuthIdentity{}, "", telegramIdentityClaims(42))
 		otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
 		require.NoError(t, err)
 		grant := fixture.grants[code]
 		grant.key = otherKey
 		fixture.grants[code] = grant
-		assert.Contains(t, telegramOAuthCallback(state, code, service.AuthIdentity{}).Body.String(), "TELEGRAM_OAUTH_FAILED")
+		assert.Contains(t, telegramOAuthCallback(state, code, identitydomain.AuthIdentity{}).Body.String(), "TELEGRAM_OAUTH_FAILED")
 	})
 	t.Run("PKCE", func(t *testing.T) {
-		state, code := fixture.authorization(t, "login", service.AuthIdentity{}, "", telegramIdentityClaims(42))
+		state, code := fixture.authorization(t, "login", identitydomain.AuthIdentity{}, "", telegramIdentityClaims(42))
 		grant := fixture.grants[code]
 		grant.challenge = "wrong-challenge"
 		fixture.grants[code] = grant
-		assert.Contains(t, telegramOAuthCallback(state, code, service.AuthIdentity{}).Body.String(), "TELEGRAM_OAUTH_FAILED")
+		assert.Contains(t, telegramOAuthCallback(state, code, identitydomain.AuthIdentity{}).Body.String(), "TELEGRAM_OAUTH_FAILED")
 	})
 	for _, endpoint := range []string{"token", "jwks"} {
 		t.Run(endpoint+" unavailable", func(t *testing.T) {
-			state, code := fixture.authorization(t, "login", service.AuthIdentity{}, "", telegramIdentityClaims(42))
+			state, code := fixture.authorization(t, "login", identitydomain.AuthIdentity{}, "", telegramIdentityClaims(42))
 			oauth.Register("telegram", oauth.NewTelegramProvider(fixture.client))
 			if endpoint == "token" {
 				fixture.tokenStatus = 503
 			} else {
 				fixture.jwksStatus = 503
 			}
-			response := telegramOAuthCallback(state, code, service.AuthIdentity{})
+			response := telegramOAuthCallback(state, code, identitydomain.AuthIdentity{})
 			assert.Contains(t, response.Body.String(), "TELEGRAM_OAUTH_FAILED")
 			fixture.tokenStatus, fixture.jwksStatus = 0, 0
 		})
@@ -297,9 +301,9 @@ func TestTelegramOAuthBindingIsAtomicAndSessionBound(t *testing.T) {
 	// Older rows may predate the Telegram column and have a NULL binding.
 	require.NoError(t, model.DB.Model(fixture.user).Update("telegram_id", nil).Error)
 	state, code := fixture.authorization(t, "bind", fixture.identity, "", telegramIdentityClaims(42))
-	otherBundle, err := service.CreateLoginSession(fixture.user.Id, "password", "127.0.0.1", "other")
+	otherBundle, err := identitycore.CreateLoginSession(fixture.user.Id, "password", "127.0.0.1", "other")
 	require.NoError(t, err)
-	otherIdentity, err := service.ParseAccessToken(otherBundle.AccessToken)
+	otherIdentity, err := authtoken.ParseAccessToken(otherBundle.AccessToken)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, telegramOAuthCallback(state, code, otherIdentity).Code)
 	failure := errors.New("private Telegram bind storage failure")
@@ -396,18 +400,18 @@ func TestTelegramOAuthConfigurationAndLegacyEndpoints(t *testing.T) {
 			case "conflict":
 				require.Error(t, oauth.RegisterCustom("telegram", oauth.NewGenericOAuthProvider(&model.CustomOAuthProvider{Slug: "telegram"})))
 			}
-			response := securityEnrollmentRequest("POST", "/api/oauth/state", `{"provider":"telegram","intent":"login"}`, "", service.AuthIdentity{}, GenerateOAuthCode)
+			response := securityEnrollmentRequest("POST", "/api/oauth/state", `{"provider":"telegram","intent":"login"}`, "", identitydomain.AuthIdentity{}, GenerateOAuthCode)
 			assert.Contains(t, response.Body.String(), `"success":false`)
 			assert.NotContains(t, response.Body.String(), "flow_token")
 			for _, scope := range []string{"2fa.setup", "passkey.register"} {
-				requirements, err := service.GetVerificationRequirements(fixture.identity, scope)
+				requirements, err := identitycore.GetVerificationRequirements(fixture.identity, scope)
 				require.NoError(t, err)
 				require.Len(t, requirements.Methods, 1)
 				assert.False(t, requirements.Methods[0].Available)
 				assert.Contains(t, requirements.Methods[0].Reason, "administrator")
-				_, err = service.VerifySecurityInput(fixture.identity, service.VerificationInput{Scope: scope, Method: "session"})
+				_, err = identitycore.VerifySecurityInput(fixture.identity, verify_security_input.VerificationInput{Scope: scope, Method: "session"})
 				assert.Error(t, err)
-				_, err = service.StartOAuthVerification(fixture.identity, service.VerificationOperation{Scope: scope}, "telegram")
+				_, err = identitycore.StartOAuthVerification(fixture.identity, identitydomain.VerificationOperation{Scope: scope}, "telegram")
 				assert.Error(t, err)
 			}
 			for _, handler := range []gin.HandlerFunc{Setup2FA, PasskeyRegisterBegin} {
@@ -435,9 +439,9 @@ func TestTelegramOAuthConcurrentBindingHasSingleOwner(t *testing.T) {
 	fixture := setupTelegramOAuthTest(t)
 	other := &model.User{Username: "other-owner", AffCode: "other-owner", Password: fixture.user.Password, Status: common.UserStatusEnabled, AuthVersion: 1}
 	require.NoError(t, model.DB.Create(other).Error)
-	bundle, err := service.CreateLoginSession(other.Id, "password", "127.0.0.1", "test")
+	bundle, err := identitycore.CreateLoginSession(other.Id, "password", "127.0.0.1", "test")
 	require.NoError(t, err)
-	otherIdentity, err := service.ParseAccessToken(bundle.AccessToken)
+	otherIdentity, err := authtoken.ParseAccessToken(bundle.AccessToken)
 	require.NoError(t, err)
 	state, code := fixture.authorization(t, "bind", fixture.identity, "", telegramIdentityClaims(42))
 	otherState, otherCode := fixture.authorization(t, "bind", otherIdentity, "", telegramIdentityClaims(42))

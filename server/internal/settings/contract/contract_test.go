@@ -37,7 +37,6 @@ import (
 
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -46,6 +45,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 var manifest = flag.Bool("settings-manifest", false, "list settings cases without fixtures")
@@ -312,9 +314,9 @@ func runOption(t *testing.T, tc optionCase, updating bool) {
 	httpclient.GetHttpClient().Transport = transport
 	// Create the existing cache janitor outside the virtual-time bubble.
 	routing.GetChannelAffinityCacheStats()
-	identities := map[string]service.AuthIdentity{}
+	identities := map[string]identitydomain.AuthIdentity{}
 	for actor, token := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {
-		identity, err := service.ParseAccessToken(token)
+		identity, err := authtoken.ParseAccessToken(token)
 		require.NoError(t, err)
 		identities[actor] = identity
 	}
@@ -327,7 +329,7 @@ func runOption(t *testing.T, tc optionCase, updating bool) {
 		bearers := map[string]string{"anonymous": "", "key": "sk-settings-api-key", "user_pat": env.UserPAT,
 			"admin_pat": "settings-admin-pat", "root_pat": "settings-root-pat"}
 		for actor, identity := range identities {
-			token, _, err := service.IssueAccessToken(identity)
+			token, _, err := authtoken.IssueAccessToken(identity)
 			require.NoError(t, err)
 			bearers[actor] = token
 		}

@@ -8,7 +8,6 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,18 +20,18 @@ type Completion interface {
 	BindingAudit() (bool, int)
 	Proof() *dto.SecurityProof
 	ProofUserID() int
-	AuthenticatedUser() *model.User
+	CompleteLogin(*gin.Context)
 }
 type HTTP struct {
+	usecase       Usecase
 	factory       func(*gin.Context) Completion
 	audit         func(*gin.Context, int, string, map[string]any)
-	complete      func(*model.User, *gin.Context)
 	externalError func(*gin.Context, error)
 	writeError    func(*gin.Context, error)
 }
 
-func NewHTTP(factory func(*gin.Context) Completion, audit func(*gin.Context, int, string, map[string]any), complete func(*model.User, *gin.Context), externalError func(*gin.Context, error), writeError func(*gin.Context, error)) *HTTP {
-	return &HTTP{factory: factory, audit: audit, complete: complete, externalError: externalError, writeError: writeError}
+func NewHTTP(usecase Usecase, factory func(*gin.Context) Completion, audit func(*gin.Context, int, string, map[string]any), externalError func(*gin.Context, error), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{usecase: usecase, factory: factory, audit: audit, externalError: externalError, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	op := h.factory(c)
@@ -43,7 +42,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 			h.audit(c, id, "user.binding_bind", map[string]any{"provider": c.Param("provider"), "success": bindingSucceeded, "notification_failed": warning})
 		}
 	}()
-	result, err := NewUsecase(op, op, op, op).Execute()
+	result, err := h.usecase.Execute(op, op, op, op)
 	if err != nil {
 		bindingSucceeded, warning = result.BindingSucceeded, result.NotificationWarning
 		var external *domain.ProviderError
@@ -81,7 +80,7 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{"action": "bind", "notification_warning": result.NotificationWarning})
 		bindingSucceeded, warning = result.BindingSucceeded, result.NotificationWarning
 	case OutcomeLogin:
-		h.complete(op.AuthenticatedUser(), c)
+		op.CompleteLogin(c)
 	case OutcomeVerified:
 		proof := op.Proof()
 		h.audit(c, op.ProofUserID(), "user.security_verify", map[string]any{"method": proof.Method, "scope": proof.Scope, "provider": c.Param("provider")})

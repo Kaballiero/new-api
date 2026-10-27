@@ -23,7 +23,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -31,6 +30,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 var batchManifest = flag.Bool("batch-manifest", false, "list Batch HTTP cases without fixtures")
@@ -378,9 +380,9 @@ func runBatchHTTP(t *testing.T, tc batchCase, updating bool) {
 	setting.ModelRequestRateLimitEnabled = false
 	constant.UpdateTask = true
 	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
-	identities := map[string]service.AuthIdentity{}
+	identities := map[string]identitydomain.AuthIdentity{}
 	for actor, token := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {
-		identity, err := service.ParseAccessToken(token)
+		identity, err := authtoken.ParseAccessToken(token)
 		require.NoError(t, err)
 		identities[actor] = identity
 	}
@@ -397,7 +399,7 @@ func runBatchHTTP(t *testing.T, tc batchCase, updating bool) {
 		bearers := map[string]string{"key": "sk-" + fixture.Key, "foreign_key": "sk-batchforeignfixturekey", "user_pat": env.UserPAT,
 			"admin_pat": "batch-admin-pat", "root_pat": "batch-root-pat"}
 		for actor, identity := range identities {
-			token, _, err := service.IssueAccessToken(identity)
+			token, _, err := authtoken.IssueAccessToken(identity)
 			require.NoError(t, err)
 			bearers[actor] = token
 		}

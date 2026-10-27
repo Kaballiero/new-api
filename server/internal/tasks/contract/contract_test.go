@@ -64,13 +64,15 @@ import (
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/types"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 var tasksManifest = flag.Bool("tasks-manifest", false, "list task cases without fixtures")
@@ -801,7 +803,7 @@ func (p *taskProvider) RoundTrip(r *http.Request) (*http.Response, error) {
 
 type httpFixture struct {
 	env        *contracttest.Env
-	identities map[string]service.AuthIdentity
+	identities map[string]identitydomain.AuthIdentity
 	bearers    map[string]string
 	provider   *taskProvider
 }
@@ -841,7 +843,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 	model.LOG_DB = logDB
 	t.Cleanup(func() { pool, err := logDB.DB(); require.NoError(t, err); require.NoError(t, pool.Close()) })
 	f := &httpFixture{env: env,
-		identities: map[string]service.AuthIdentity{},
+		identities: map[string]identitydomain.AuthIdentity{},
 		bearers: map[string]string{"anonymous": "",
 			"api_key":   "sk-tasksfixturekey",
 			"user_pat":  env.UserPAT,
@@ -850,7 +852,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 		provider: &taskProvider{tc: tc,
 			calls: []outgoing{}}}
 	for actor, token := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {
-		identity, err := service.ParseAccessToken(token)
+		identity, err := authtoken.ParseAccessToken(token)
 		require.NoError(t, err)
 		f.identities[actor] = identity
 	}
@@ -1190,7 +1192,7 @@ func runTaskCase(t *testing.T, tc taskCase, updating bool) {
 			time.Sleep(published.Add(time.Second).Sub(time.Now()))
 		}
 		for actor, identity := range f.identities {
-			token, _, err := service.IssueAccessToken(identity)
+			token, _, err := authtoken.IssueAccessToken(identity)
 			require.NoError(t, err)
 			f.bearers[actor] = token
 		}

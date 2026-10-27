@@ -27,12 +27,6 @@ const (
 
 // Telegram login errors are owned by the identity domain; the legacy names stay
 // as aliases.
-var (
-	ErrTelegramOAuthNotConfigured = identitydomain.ErrTelegramOAuthNotConfigured
-	ErrTelegramOAuthConflict      = identitydomain.ErrTelegramOAuthConflict
-	ErrTelegramOAuthFailed        = identitydomain.ErrTelegramOAuthFailed
-	ErrTelegramAccountNotBound    = identitydomain.ErrTelegramAccountNotBound
-)
 
 // TelegramOAuthFlow keeps the PKCE secret and original client configuration on
 // the server. Only AuthorizationURL is sent to the browser.
@@ -44,10 +38,10 @@ type TelegramOAuthFlow struct {
 
 func TelegramConfigurationError() error {
 	if HasCustomProviderConflict("telegram") {
-		return ErrTelegramOAuthConflict
+		return identitydomain.ErrTelegramOAuthConflict
 	}
 	if !common.TelegramOAuthEnabled || !system_setting.GetTelegramSettings().IsConfigured() {
-		return ErrTelegramOAuthNotConfigured
+		return identitydomain.ErrTelegramOAuthNotConfigured
 	}
 	return nil
 }
@@ -59,7 +53,7 @@ func NewTelegramOAuthFlow() (*TelegramOAuthFlow, error) {
 	redirectURI := strings.TrimRight(system_setting.ServerAddress, "/") + "/oauth/telegram"
 	parsed, err := url.Parse(redirectURI)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
-		return nil, ErrTelegramOAuthNotConfigured
+		return nil, identitydomain.ErrTelegramOAuthNotConfigured
 	}
 	return &TelegramOAuthFlow{
 		CodeVerifier: oauth2.GenerateVerifier(),
@@ -116,7 +110,7 @@ func (p *TelegramProvider) ExchangeToken(ctx context.Context, code string, c *gi
 	if !ok || flow == nil || flow.CodeVerifier == "" || code == "" ||
 		flow.ClientID != strings.TrimSpace(settings.ClientID) ||
 		flow.RedirectURI != strings.TrimRight(system_setting.ServerAddress, "/")+"/oauth/telegram" {
-		return nil, ErrTelegramOAuthFailed
+		return nil, identitydomain.ErrTelegramOAuthFailed
 	}
 	values := url.Values{
 		"grant_type":    {"authorization_code"},
@@ -127,24 +121,24 @@ func (p *TelegramProvider) ExchangeToken(ctx context.Context, code string, c *gi
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, TelegramIssuer+"/token", strings.NewReader(values.Encode()))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTelegramOAuthFailed, err)
+		return nil, fmt.Errorf("%w: %v", identitydomain.ErrTelegramOAuthFailed, err)
 	}
 	request.SetBasicAuth(flow.ClientID, strings.TrimSpace(settings.ClientSecret))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response, err := p.client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTelegramOAuthFailed, err)
+		return nil, fmt.Errorf("%w: %v", identitydomain.ErrTelegramOAuthFailed, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: token endpoint status %d", ErrTelegramOAuthFailed, response.StatusCode)
+		return nil, fmt.Errorf("%w: token endpoint status %d", identitydomain.ErrTelegramOAuthFailed, response.StatusCode)
 	}
 	var token OAuthToken
 	if err := common.DecodeJson(io.LimitReader(response.Body, 1<<20), &token); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTelegramOAuthFailed, err)
+		return nil, fmt.Errorf("%w: %v", identitydomain.ErrTelegramOAuthFailed, err)
 	}
 	if token.IDToken == "" {
-		return nil, ErrTelegramOAuthFailed
+		return nil, identitydomain.ErrTelegramOAuthFailed
 	}
 	token.ClientID = flow.ClientID
 	return &token, nil
@@ -155,18 +149,18 @@ func (p *TelegramProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (
 		return nil, err
 	}
 	if token == nil || token.ClientID != strings.TrimSpace(system_setting.GetTelegramSettings().ClientID) {
-		return nil, ErrTelegramOAuthFailed
+		return nil, identitydomain.ErrTelegramOAuthFailed
 	}
 	verifier := oidc.NewVerifier(TelegramIssuer, p.keys, &oidc.Config{
 		ClientID: token.ClientID, SupportedSigningAlgs: []string{oidc.RS256, oidc.ES256},
 	})
 	verified, err := verifier.Verify(ctx, token.IDToken)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTelegramOAuthFailed, err)
+		return nil, fmt.Errorf("%w: %v", identitydomain.ErrTelegramOAuthFailed, err)
 	}
 	var rawClaims json.RawMessage
 	if err := verified.Claims(&rawClaims); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTelegramOAuthFailed, err)
+		return nil, fmt.Errorf("%w: %v", identitydomain.ErrTelegramOAuthFailed, err)
 	}
 	var claims struct {
 		ID       json.Number `json:"id"`
@@ -174,11 +168,11 @@ func (p *TelegramProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (
 		Username string      `json:"preferred_username"`
 	}
 	if err := common.Unmarshal(rawClaims, &claims); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTelegramOAuthFailed, err)
+		return nil, fmt.Errorf("%w: %v", identitydomain.ErrTelegramOAuthFailed, err)
 	}
 	id, err := strconv.ParseUint(claims.ID.String(), 10, 64)
 	if err != nil || id == 0 || verified.Subject == "" {
-		return nil, ErrTelegramOAuthFailed
+		return nil, identitydomain.ErrTelegramOAuthFailed
 	}
 	return &OAuthUser{
 		ProviderUserID: strconv.FormatUint(id, 10),

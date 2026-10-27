@@ -13,35 +13,31 @@ type Operation interface {
 	IssueProof() error
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.Build(); err != nil {
+func (usecase Usecase) Execute(operation Operation) error {
+	if err := operation.Build(); err != nil {
 		return err
 	}
-	if err := usecase.operation.LoadCredential(); err != nil {
+	if err := operation.LoadCredential(); err != nil {
 		return domain.ErrPasskeyMissing
 	}
-	if !usecase.operation.ReadIdentity() {
+	if !operation.ReadIdentity() {
 		return domain.ErrPasskeyIdentityRequired
 	}
-	if err := usecase.operation.PopVerificationFlow(); err != nil {
+	if err := operation.PopVerificationFlow(); err != nil {
 		return err
 	}
-	if !usecase.operation.VerificationRequired() {
+	if !operation.VerificationRequired() {
 		return domain.ErrAuthFlowInvalid
 	}
-	if err := usecase.operation.ValidateLogin(); err != nil {
+	if err := operation.ValidateLogin(); err != nil {
 		return err
 	}
-	if err := usecase.operation.UpdateAssertion(); err != nil {
+	if err := operation.UpdateAssertion(); err != nil {
 		return err
 	}
-	return usecase.operation.IssueProof()
+	return operation.IssueProof()
 }
 
-type Usecase struct {
-	operation Operation
-}
+type Usecase struct{}
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
-}
+func NewUsecase() Usecase { return Usecase{} }

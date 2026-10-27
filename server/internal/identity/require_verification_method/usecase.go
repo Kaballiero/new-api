@@ -9,9 +9,9 @@ type MethodOptions interface {
 	MethodOption(index int) (method string, available bool)
 }
 
-func (usecase Usecase) Execute(method string) error {
-	for i := range usecase.operation.MethodCount() {
-		candidate, available := usecase.operation.MethodOption(i)
+func (usecase Usecase) Execute(operation MethodOptions, method string) error {
+	for i := range operation.MethodCount() {
+		candidate, available := operation.MethodOption(i)
 		if candidate != method {
 			continue
 		}
@@ -24,9 +24,8 @@ func (usecase Usecase) Execute(method string) error {
 }
 
 type Usecase struct {
-	operation MethodOptions
 }
 
-func NewUsecase(operation MethodOptions) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

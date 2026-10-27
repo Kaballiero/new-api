@@ -3,14 +3,15 @@ package identityhttp
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 func GetAuthenticatedUser(c *gin.Context) (*model.User, error) {
 	id := c.GetInt("id")
 	if id == 0 {
-		return nil, service.ErrAuthTokenInvalid
+		return nil, domain.ErrAuthTokenInvalid
 	}
 	user, err := model.GetUserById(id, false)
 	if err != nil {

@@ -10,7 +10,7 @@ type VerificationPolicyOperation interface {
 	AddMethod(method string, available bool, reason string)
 }
 
-func (usecase Usecase) Execute(scope string, role int, state FactorPolicyState) error {
+func (usecase Usecase) Execute(operation VerificationPolicyOperation, scope string, role int, state FactorPolicyState) error {
 	var methods []string
 	if state.HasTwoFA {
 		methods = append(methods, "2fa")
@@ -49,19 +49,18 @@ func (usecase Usecase) Execute(scope string, role int, state FactorPolicyState) 
 		if method == "2fa" && state.TwoFALocked {
 			available, reason = false, domain.ErrVerificationLocked.Error()
 		}
-		if !usecase.operation.PasskeyEnabled() && (method == "passkey" || scope == "passkey.register") {
+		if !operation.PasskeyEnabled() && (method == "passkey" || scope == "passkey.register") {
 			available, reason = false, "Passkey authentication is disabled."
 		}
-		usecase.operation.AddMethod(method, available, reason)
+		operation.AddMethod(method, available, reason)
 	}
 	return nil
 }
 
 type Usecase struct {
-	rootRole  int
-	operation VerificationPolicyOperation
+	rootRole int
 }
 
-func NewUsecase(rootRole int, operation VerificationPolicyOperation) Usecase {
-	return Usecase{rootRole: rootRole, operation: operation}
+func NewUsecase(rootRole int) Usecase {
+	return Usecase{rootRole: rootRole}
 }

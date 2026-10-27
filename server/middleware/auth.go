@@ -11,9 +11,12 @@ import (
 	"github.com/QuantumNous/new-api/internal/apikeys/validate_key"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 const authIdentityContextKey = "auth_identity"
@@ -110,21 +113,21 @@ func RootAuth() func(c *gin.Context) {
 
 // GetAuthIdentity returns a dashboard session identity. PAT-authenticated
 // requests intentionally have no SessionID and cannot manage browser sessions.
-func GetAuthIdentity(c *gin.Context) (service.AuthIdentity, bool) {
+func GetAuthIdentity(c *gin.Context) (identitydomain.AuthIdentity, bool) {
 	value, ok := c.Get(authIdentityContextKey)
 	if !ok {
-		return service.AuthIdentity{}, false
+		return identitydomain.AuthIdentity{}, false
 	}
-	identity, ok := value.(service.AuthIdentity)
+	identity, ok := value.(identitydomain.AuthIdentity)
 	return identity, ok
 }
 
 // GetSessionAuthIdentity returns only identities backed by a live dashboard
 // session. PAT-authenticated requests intentionally fail this check.
-func GetSessionAuthIdentity(c *gin.Context) (service.AuthIdentity, bool) {
+func GetSessionAuthIdentity(c *gin.Context) (identitydomain.AuthIdentity, bool) {
 	identity, ok := GetAuthIdentity(c)
 	if !ok {
-		identity = service.AuthIdentity{
+		identity = identitydomain.AuthIdentity{
 			UserID:          c.GetInt("id"),
 			SessionID:       c.GetString("session_id"),
 			UserAuthVersion: c.GetInt64("auth_version"),
@@ -132,51 +135,51 @@ func GetSessionAuthIdentity(c *gin.Context) (service.AuthIdentity, bool) {
 		}
 	}
 	if identity.UserID <= 0 || identity.SessionID == "" || identity.UserAuthVersion <= 0 || identity.SessionVersion <= 0 {
-		return service.AuthIdentity{}, false
+		return identitydomain.AuthIdentity{}, false
 	}
 	return identity, true
 }
 
-func authenticateDashboardRequest(c *gin.Context) (*model.UserBase, service.AuthIdentity, bool, error) {
+func authenticateDashboardRequest(c *gin.Context) (*model.UserBase, identitydomain.AuthIdentity, bool, error) {
 	user, identity, credentialKind, err := classifyDashboardCredential(c)
 	if err != nil {
-		return nil, service.AuthIdentity{}, credentialKind == dashboardCredentialPAT, err
+		return nil, identitydomain.AuthIdentity{}, credentialKind == dashboardCredentialPAT, err
 	}
 	if credentialKind == dashboardCredentialUnmatched {
-		return nil, service.AuthIdentity{}, false, service.ErrAuthTokenInvalid
+		return nil, identitydomain.AuthIdentity{}, false, identitydomain.ErrAuthTokenInvalid
 	}
 	return user, identity, credentialKind == dashboardCredentialPAT, nil
 }
 
-func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthIdentity, dashboardCredentialKind, error) {
+func classifyDashboardCredential(c *gin.Context) (*model.UserBase, identitydomain.AuthIdentity, dashboardCredentialKind, error) {
 	raw, ok := authorizationToken(c.GetHeader("Authorization"))
 	if !ok {
-		return nil, service.AuthIdentity{}, dashboardCredentialUnmatched, nil
+		return nil, identitydomain.AuthIdentity{}, dashboardCredentialUnmatched, nil
 	}
-	identity, internal, err := service.ParseDashboardAccessToken(raw)
+	identity, internal, err := authtoken.ParseDashboardAccessToken(raw)
 	if internal {
 		if err != nil {
-			return nil, service.AuthIdentity{}, dashboardCredentialInternal, err
+			return nil, identitydomain.AuthIdentity{}, dashboardCredentialInternal, err
 		}
-		_, user, err := service.ValidateLoginSession(identity)
+		_, user, err := identitycore.ValidateLoginSession(identity)
 		if err != nil {
-			return nil, service.AuthIdentity{}, dashboardCredentialInternal, err
+			return nil, identitydomain.AuthIdentity{}, dashboardCredentialInternal, err
 		}
 		return user, identity, dashboardCredentialInternal, nil
 	}
 	patUser, err := personalAccessTokenAuth().Execute(raw)
 	if err != nil {
-		return nil, service.AuthIdentity{}, dashboardCredentialPAT, err
+		return nil, identitydomain.AuthIdentity{}, dashboardCredentialPAT, err
 	}
 	if patUser == nil || patUser.Id <= 0 {
-		return nil, service.AuthIdentity{}, dashboardCredentialUnmatched, nil
+		return nil, identitydomain.AuthIdentity{}, dashboardCredentialUnmatched, nil
 	}
 	beginAccessTokenAudit(c, patUser)
 	user, err := model.GetUserCache(patUser.Id)
 	if err != nil {
-		return nil, service.AuthIdentity{}, dashboardCredentialPAT, err
+		return nil, identitydomain.AuthIdentity{}, dashboardCredentialPAT, err
 	}
-	return user, service.AuthIdentity{UserID: user.Id, UserAuthVersion: user.AuthVersion}, dashboardCredentialPAT, nil
+	return user, identitydomain.AuthIdentity{UserID: user.Id, UserAuthVersion: user.AuthVersion}, dashboardCredentialPAT, nil
 }
 
 func authorizationToken(header string) (string, bool) {
@@ -193,7 +196,7 @@ func authorizationToken(header string) (string, bool) {
 	return header, header != ""
 }
 
-func setDashboardAuthContext(c *gin.Context, user *model.UserBase, identity service.AuthIdentity, useAccessToken bool) {
+func setDashboardAuthContext(c *gin.Context, user *model.UserBase, identity identitydomain.AuthIdentity, useAccessToken bool) {
 	c.Header("Auth-Version", "864b7076dbcd0a3c01b5520316720ebf")
 	c.Set("username", user.Username)
 	c.Set("role", user.Role)
@@ -209,15 +212,15 @@ func setDashboardAuthContext(c *gin.Context, user *model.UserBase, identity serv
 }
 
 func writeDashboardAuthError(c *gin.Context, err error) {
-	if errors.Is(err, service.ErrAuthTokenExpired) {
+	if errors.Is(err, identitydomain.ErrAuthTokenExpired) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_TOKEN_EXPIRED", "message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn)})
 		return
 	}
-	if errors.Is(err, service.ErrLoginSessionRevoked) || errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, identitydomain.ErrLoginSessionRevoked) || errors.Is(err, gorm.ErrRecordNotFound) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_SESSION_REVOKED", "message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn)})
 		return
 	}
-	if errors.Is(err, service.ErrAuthTokenInvalid) {
+	if errors.Is(err, identitydomain.ErrAuthTokenInvalid) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_UNAUTHORIZED", "message": common.TranslateMessage(c, i18n.MsgAuthAccessTokenInvalid)})
 		return
 	}
@@ -251,7 +254,7 @@ func TokenOrUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		raw, ok := authorizationToken(c.GetHeader("Authorization"))
 		if ok {
-			identity, internal, err := service.ParseDashboardAccessToken(raw)
+			identity, internal, err := authtoken.ParseDashboardAccessToken(raw)
 			if !internal {
 				TokenAuth()(c)
 				return
@@ -260,7 +263,7 @@ func TokenOrUserAuth() func(c *gin.Context) {
 				writeDashboardAuthError(c, err)
 				return
 			}
-			_, user, err := service.ValidateLoginSession(identity)
+			_, user, err := identitycore.ValidateLoginSession(identity)
 			if err != nil {
 				writeDashboardAuthError(c, err)
 				return

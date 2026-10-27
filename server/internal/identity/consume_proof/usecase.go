@@ -14,21 +14,21 @@ type ConsumeProofOperation interface {
 	CaptureAuthorization()
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.BindOperation(); err != nil {
+func (usecase Usecase) Execute(operation ConsumeProofOperation) error {
+	if err := operation.BindOperation(); err != nil {
 		return err
 	}
-	method, err := usecase.operation.VerifyClaims()
+	method, err := operation.VerifyClaims()
 	if err != nil {
 		return err
 	}
-	if err := usecase.operation.ValidateSession(); err != nil {
+	if err := operation.ValidateSession(); err != nil {
 		return err
 	}
-	if err := usecase.operation.RequireMethod(method); err != nil {
+	if err := operation.RequireMethod(method); err != nil {
 		return err
 	}
-	err = usecase.operation.ConsumeProof()
+	err = operation.ConsumeProof()
 	switch {
 	case errors.Is(err, domain.ErrAuthFlowConsumed):
 		return domain.ErrProofConsumed
@@ -39,14 +39,13 @@ func (usecase Usecase) Execute() error {
 	case err != nil:
 		return err
 	}
-	usecase.operation.CaptureAuthorization()
+	operation.CaptureAuthorization()
 	return nil
 }
 
 type Usecase struct {
-	operation ConsumeProofOperation
 }
 
-func NewUsecase(operation ConsumeProofOperation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

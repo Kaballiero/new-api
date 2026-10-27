@@ -7,22 +7,21 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
 
 type Completion interface {
 	Operation
 	Enabled() bool
-	AuthenticatedUser() *model.User
+	CompleteLogin(*gin.Context)
 }
 type HTTP struct {
-	factory  func() Completion
-	complete func(*model.User, *gin.Context)
+	usecase Usecase
+	factory func() Completion
 }
 
-func NewHTTP(factory func() Completion, complete func(*model.User, *gin.Context)) *HTTP {
-	return &HTTP{factory: factory, complete: complete}
+func NewHTTP(usecase Usecase, factory func() Completion) *HTTP {
+	return &HTTP{usecase: usecase, factory: factory}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	op := h.factory()
@@ -30,11 +29,11 @@ func (h *HTTP) Handle(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgIdentityWeChatDisabled)
 		return
 	}
-	err := NewUsecase(op).Execute(Input{Code: c.Query("code"), Lang: i18n.GetLangFromContext(c)})
+	err := h.usecase.Execute(op, Input{Code: c.Query("code"), Lang: i18n.GetLangFromContext(c)})
 	message := ""
 	switch {
 	case err == nil:
-		h.complete(op.AuthenticatedUser(), c)
+		op.CompleteLogin(c)
 		return
 	case errors.Is(err, domain.ErrAccountDeleted):
 		message = i18n.T(c, i18n.MsgIdentityWeChatAccountDeleted)

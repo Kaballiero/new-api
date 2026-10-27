@@ -8,8 +8,9 @@ import (
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/revoke_token"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type PersonalAccessTokensHTTP struct {
@@ -25,12 +26,12 @@ func NewPersonalAccessTokensHTTP(audit func(*gin.Context, int, string, map[strin
 	return PersonalAccessTokensHTTP{
 		Status: get_status.NewHTTP(store, domain.Fingerprint, roles, securityError),
 		Generate: generate_token.NewHTTP(store, func(c *gin.Context) bool {
-			return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccessTokenGenerate}) != nil
+			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccessTokenGenerate}) != nil
 		}, func() (string, error) { return common.GenerateRandomKey(29 + common.GetRandomInt(4)) }, domain.Fingerprint, func(c *gin.Context, id int, ref string) {
 			audit(c, id, "access_token.generate", map[string]any{"token_ref": ref})
 		}, securityError),
 		Revoke: revoke_token.NewHTTP(store, func(c *gin.Context) bool {
-			return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccessTokenRevoke}) != nil
+			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccessTokenRevoke}) != nil
 		}, domain.Fingerprint, func(c *gin.Context, id int, ref string) {
 			audit(c, id, "access_token.revoke", map[string]any{"token_ref": ref})
 		}, securityError),

@@ -1,4 +1,4 @@
-package passkey
+package webauthn
 
 import (
 	"fmt"
@@ -6,27 +6,26 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/model"
-
 	webauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 
-type WebAuthnUser struct {
+type webAuthnUser struct {
 	user       *model.User
 	credential *model.PasskeyCredential
 }
 
-func NewWebAuthnUser(user *model.User, credential *model.PasskeyCredential) *WebAuthnUser {
-	return &WebAuthnUser{user: user, credential: credential}
+func newWebAuthnUser(user *model.User, credential *model.PasskeyCredential) *webAuthnUser {
+	return &webAuthnUser{user: user, credential: credential}
 }
 
-func (u *WebAuthnUser) WebAuthnID() []byte {
+func (u *webAuthnUser) WebAuthnID() []byte {
 	if u == nil || u.user == nil {
 		return nil
 	}
 	return []byte(strconv.Itoa(u.user.Id))
 }
 
-func (u *WebAuthnUser) WebAuthnName() string {
+func (u *webAuthnUser) WebAuthnName() string {
 	if u == nil || u.user == nil {
 		return ""
 	}
@@ -37,7 +36,7 @@ func (u *WebAuthnUser) WebAuthnName() string {
 	return name
 }
 
-func (u *WebAuthnUser) WebAuthnDisplayName() string {
+func (u *webAuthnUser) WebAuthnDisplayName() string {
 	if u == nil || u.user == nil {
 		return ""
 	}
@@ -48,24 +47,10 @@ func (u *WebAuthnUser) WebAuthnDisplayName() string {
 	return u.WebAuthnName()
 }
 
-func (u *WebAuthnUser) WebAuthnCredentials() []webauthn.Credential {
+func (u *webAuthnUser) WebAuthnCredentials() []webauthn.Credential {
 	if u == nil || u.credential == nil {
 		return nil
 	}
 	cred := u.credential.ToWebAuthnCredential()
 	return []webauthn.Credential{cred}
-}
-
-func (u *WebAuthnUser) ModelUser() *model.User {
-	if u == nil {
-		return nil
-	}
-	return u.user
-}
-
-func (u *WebAuthnUser) PasskeyCredential() *model.PasskeyCredential {
-	if u == nil {
-		return nil
-	}
-	return u.credential
 }

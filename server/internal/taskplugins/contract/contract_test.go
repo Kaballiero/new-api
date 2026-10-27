@@ -31,7 +31,6 @@ import (
 
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -39,6 +38,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 var manifest = flag.Bool("plugins-manifest", false, "list plugin cases without fixtures")
@@ -297,9 +299,9 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 	require.NoError(t, env.DB.Create(&model.ModelCostFXRow{Source: "cbr-xml-daily.ru", EffectiveAt: taskfixture.Epoch,
 		FetchedAt: taskfixture.Epoch, Version: 1, RatesJSON: `{"USD":100}`}).Error)
 	require.NoError(t, model.LoadModelCostFX(context.Background(), "cbr-xml-daily.ru"))
-	identities := map[string]service.AuthIdentity{}
+	identities := map[string]identitydomain.AuthIdentity{}
 	for actor, bearer := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {
-		identity, err := service.ParseAccessToken(bearer)
+		identity, err := authtoken.ParseAccessToken(bearer)
 		require.NoError(t, err)
 		identities[actor] = identity
 	}
@@ -316,7 +318,7 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 		bearers := map[string]string{"key": "sk-" + fixture.Token, "foreign_key": "sk-pluginsforeignkey", "user_pat": env.UserPAT,
 			"admin_pat": "plugins-admin-pat", "root_pat": "plugins-root-pat"}
 		for actor, identity := range identities {
-			bearer, _, err := service.IssueAccessToken(identity)
+			bearer, _, err := authtoken.IssueAccessToken(identity)
 			require.NoError(t, err)
 			bearers[actor] = bearer
 		}

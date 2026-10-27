@@ -12,32 +12,28 @@ type Operation interface {
 	UpdateAssertion() error
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.Build(); err != nil {
+func (usecase Usecase) Execute(operation Operation) error {
+	if err := operation.Build(); err != nil {
 		return err
 	}
-	if err := usecase.operation.PopLoginFlow(); err != nil {
+	if err := operation.PopLoginFlow(); err != nil {
 		return err
 	}
-	if !usecase.operation.VerificationRequired() {
+	if !operation.VerificationRequired() {
 		return domain.ErrAuthFlowInvalid
 	}
-	if err := usecase.operation.ValidateDiscoverable(); err != nil {
+	if err := operation.ValidateDiscoverable(); err != nil {
 		return err
 	}
-	if !usecase.operation.LoginAccountValid() {
+	if !operation.LoginAccountValid() {
 		return domain.ErrPasskeyLoginInvalid
 	}
-	if !usecase.operation.LoginAccountEnabled() {
+	if !operation.LoginAccountEnabled() {
 		return domain.ErrPasskeyAccountDisabled
 	}
-	return usecase.operation.UpdateAssertion()
+	return operation.UpdateAssertion()
 }
 
-type Usecase struct {
-	operation Operation
-}
+type Usecase struct{}
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
-}
+func NewUsecase() Usecase { return Usecase{} }

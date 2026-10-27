@@ -17,45 +17,41 @@ type Operation interface {
 	AdvanceSession() error
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.Build(); err != nil {
+func (usecase Usecase) Execute(operation Operation) error {
+	if err := operation.Build(); err != nil {
 		return err
 	}
-	err := usecase.operation.LoadCredential()
-	if err != nil && !usecase.operation.CredentialMissing(err) {
+	err := operation.LoadCredential()
+	if err != nil && !operation.CredentialMissing(err) {
 		return err
 	}
-	if usecase.operation.CredentialMissing(err) {
-		usecase.operation.ClearCredential()
+	if operation.CredentialMissing(err) {
+		operation.ClearCredential()
 	}
-	if !usecase.operation.ReadIdentity() {
+	if !operation.ReadIdentity() {
 		return domain.ErrPasskeyIdentityRequired
 	}
-	if err := usecase.operation.PopRegistrationFlow(); err != nil {
+	if err := operation.PopRegistrationFlow(); err != nil {
 		return err
 	}
-	if !usecase.operation.VerificationRequired() {
+	if !operation.VerificationRequired() {
 		return domain.ErrAuthFlowInvalid
 	}
-	if err := usecase.operation.ValidateEnrollmentAuthorization(); err != nil {
+	if err := operation.ValidateEnrollmentAuthorization(); err != nil {
 		return err
 	}
-	if err := usecase.operation.CreateCredential(); err != nil {
+	if err := operation.CreateCredential(); err != nil {
 		return err
 	}
-	if !usecase.operation.CredentialRecordValid() {
+	if !operation.CredentialRecordValid() {
 		return domain.ErrPasskeyRecordInvalid
 	}
-	if err := usecase.operation.RegisterCredential(); err != nil {
+	if err := operation.RegisterCredential(); err != nil {
 		return err
 	}
-	return usecase.operation.AdvanceSession()
+	return operation.AdvanceSession()
 }
 
-type Usecase struct {
-	operation Operation
-}
+type Usecase struct{}
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
-}
+func NewUsecase() Usecase { return Usecase{} }

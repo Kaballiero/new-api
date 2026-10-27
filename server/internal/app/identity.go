@@ -67,11 +67,14 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
 	"gorm.io/gorm"
+
+	"github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	"github.com/QuantumNous/new-api/internal/app/identitycore"
+	"github.com/QuantumNous/new-api/internal/identity/complete_primary_login"
 )
 
 type IdentityEffects struct {
@@ -150,7 +153,7 @@ func NewIdentityErrors() identitytransport.Writer {
 // identity; the proof check writes its own response on failure.
 func proofIdentity(scope string) func(*gin.Context) (identitydomain.AuthIdentity, bool) {
 	return func(c *gin.Context) (identitydomain.AuthIdentity, bool) {
-		if middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: scope}) == nil {
+		if middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: scope}) == nil {
 			return identitydomain.AuthIdentity{}, false
 		}
 		identity, _ := middleware.GetSessionAuthIdentity(c)
@@ -160,7 +163,7 @@ func proofIdentity(scope string) func(*gin.Context) (identitydomain.AuthIdentity
 
 func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 	errs := NewIdentityErrors()
-	management := sessionadapter.Management{ListFunc: service.ListLoginSessions}
+	management := sessionadapter.Management{ListFunc: sessionadapter.ListLoginSessions}
 	passkeyEnabled := func() bool { return system_setting.GetPasskeySettings().Enabled }
 	authenticatedUserID := func(c *gin.Context) (int, error) {
 		user, err := identityhttp.GetAuthenticatedUser(c)
@@ -175,48 +178,53 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 			return oauthadapter.Bindings{Role: func() int { return c.GetInt("role") }}
 		}),
 		UnlinkOAuthAccount: unlink_oauth_account.NewHTTP(middleware.GetSessionAuthIdentity, func(c *gin.Context, context []byte) bool {
-			return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccountUnbind, Context: context}) != nil
+			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccountUnbind, Context: context}) != nil
 		}, func(input unlink_oauth_account.Input) unlink_oauth_account.Completion {
-			return &oauthunlink.UnlinkConfirmation{Identity: input.Identity, ProviderID: input.ProviderID, UnlinkFunc: service.UnbindAccountOAuth, Notify: service.NotifyAccountSecurityChange}
+			return &oauthunlink.UnlinkConfirmation{Identity: input.Identity, ProviderID: input.ProviderID, UnlinkFunc: identitycore.UnbindAccountOAuth, Notify: emailadapter.NotifyAccountSecurityChange}
 		}, errs.WriteError, e.SecurityAudit),
 		AdminUnlinkOAuthAccount: admin_unlink_oauth_account.NewHTTP(func(c *gin.Context) admin_unlink_oauth_account.Operation {
 			return oauthadapter.Bindings{Role: func() int { return c.GetInt("role") }, ReadProviderID: func() (int, error) { return strconv.Atoi(c.Param("provider_id")) }}
 		}),
-		LoginWeChat: login_wechat.NewHTTP(func() login_wechat.Completion { return &wechatadapter.Login{} }, e.CompleteOAuthLogin),
+		LoginWeChat: login_wechat.NewHTTP(login_wechat.NewUsecase(), func() login_wechat.Completion { return &wechatadapter.Login{Complete: e.CompleteOAuthLogin} }),
 		BindWeChat: bind_wechat.NewHTTP(middleware.GetSessionAuthIdentity, func(c *gin.Context, context []byte) bool {
-			return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: context}) != nil
+			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccountBind, Context: context}) != nil
 		}, func(input bind_wechat.Input) bind_wechat.Completion {
 			return &wechatadapter.Binding{Identity: input.Identity}
 		}, errs.WriteError, e.SecurityAudit),
 		PasswordEncryptionKey: get_password_encryption_key.NewHTTP(passwordlogin.EncryptionKey{}),
-		PrimaryLogin:          identityhttp.PrimaryLogin{Audit: e.LoginAudit, Profile: e.BuildProfile, Errors: errs},
-		CompleteOAuth: complete_oauth.NewHTTP(func(c *gin.Context) complete_oauth.Completion {
-			return &oauthadapter.Callback{Context: c, Name: c.Param("provider")}
-		}, e.SecurityAudit, e.CompleteOAuthLogin, func(c *gin.Context, err error) { identityhttp.WriteOAuthError(c, err, errs.WriteError) }, errs.WriteError),
+		PrimaryLogin:          identityhttp.PrimaryLogin{Usecase: complete_primary_login.NewUsecase(), Audit: e.LoginAudit, Profile: e.BuildProfile, Errors: errs},
+		CompleteOAuth: complete_oauth.NewHTTP(complete_oauth.NewUsecase(), func(c *gin.Context) complete_oauth.Completion {
+			return &oauthadapter.Callback{Context: c, Name: c.Param("provider"), Complete: e.CompleteOAuthLogin}
+		}, e.SecurityAudit, func(c *gin.Context, err error) { identityhttp.WriteOAuthError(c, err, errs.WriteError) }, errs.WriteError),
 		StartOAuthFlow: start_oauth_flow.NewHTTP(func(c *gin.Context, input *start_oauth_flow.Request) start_oauth_flow.Completion {
 			return &oauthadapter.Start{Context: c, Input: input}
 		}, e.SecurityAudit, errs.WriteError),
-		DeleteAccount: selfdelete.NewHTTP(accountsidentity.Deletion{}, proofIdentity(service.VerificationScopeAccountDelete), service.ClearRefreshCookie, errs.WriteError, e.SecurityAudit),
-		StartEmailBinding: start_email_binding.NewHTTP(middleware.GetSessionAuthIdentity, service.ValidateAccountEmail, func(c *gin.Context, context []byte) *identitydomain.FlowAuthorization {
-			return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: context})
-		}, service.StartEmailBinding, errs.WriteError, e.SecurityAudit),
-		ResendEmailBinding: resend_email_binding.NewHTTP(middleware.GetSessionAuthIdentity, service.ResendAccountEmailBinding, errs.WriteError, e.SecurityAudit),
+		DeleteAccount: selfdelete.NewHTTP(accountsidentity.Deletion{}, proofIdentity(identitydomain.VerificationScopeAccountDelete), identityhttp.ClearRefreshCookie, errs.WriteError, e.SecurityAudit),
+		StartEmailBinding: start_email_binding.NewHTTP(middleware.GetSessionAuthIdentity, emailadapter.ValidateAccountEmail, func(c *gin.Context, context []byte) *identitydomain.FlowAuthorization {
+			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeAccountBind, Context: context})
+		}, identitycore.StartEmailBinding, errs.WriteError, e.SecurityAudit),
+		ResendEmailBinding: resend_email_binding.NewHTTP(middleware.GetSessionAuthIdentity, identitycore.ResendAccountEmailBinding, errs.WriteError, e.SecurityAudit),
 		ConfirmEmailBinding: confirm_email_binding.NewHTTP(middleware.GetSessionAuthIdentity, func(identity identitydomain.AuthIdentity, input confirm_email_binding.Request) confirm_email_binding.Completion {
-			return &emailadapter.Confirmation{Identity: identity, Token: input.FlowToken, NewCode: input.NewCode, OldCode: input.OldCode, Finish: service.FinishEmailBinding, Notify: service.NotifyAccountSecurityChange}
+			return &emailadapter.Confirmation{Identity: identity, Token: input.FlowToken, NewCode: input.NewCode, OldCode: input.OldCode, Finish: identitycore.FinishEmailBinding, Notify: emailadapter.NotifyAccountSecurityChange}
 		}, errs.WriteError, e.SecurityAudit),
 		BeginLoginPasskey: begin_login_passkey.NewHTTP(func(c *gin.Context, input begin_login_passkey.Request) begin_login_passkey.Completion {
-			return &webauthnadapter.Ceremony{Request: c.Request, ParentFlowToken: input.FlowToken}
+			op := newIdentityPasskeyCeremony(c, nil)
+			op.ParentFlowToken = input.FlowToken
+			return op
 		}, errs.WriteError),
 		FinishLoginPasskey: finish_login_passkey.NewHTTP(func(c *gin.Context, input finish_login_passkey.Request) finish_login_passkey.Completion {
-			return &webauthnadapter.Ceremony{Request: c.Request, ParentFlowToken: input.FlowToken, FlowToken: input.PasskeyFlowToken, RawAssertion: input.Credential, Metadata: func() (string, string) { return c.ClientIP(), c.Request.UserAgent() }}
+			op := newIdentityPasskeyCeremony(c, nil)
+			op.ParentFlowToken, op.FlowToken, op.RawAssertion = input.FlowToken, input.PasskeyFlowToken, input.Credential
+			op.Metadata = func() (string, string) { return c.ClientIP(), c.Request.UserAgent() }
+			return op
 		}, e.CompleteVerifiedLogin, errs.WriteError),
 		GetTwoFAStatus:   get_twofa_status.NewHTTP(factors.TwoFAStatus{}, errs.WriteError),
 		GetTwoFAStats:    get_twofa_stats.NewHTTP(factors.TwoFAStats{}, errs.WriteError),
 		GetPasskeyStatus: get_passkey_status.NewHTTP(factors.PasskeyStatus{}, authenticatedUserID, errs.WriteError),
 		DeletePasskey: delete_passkey.NewHTTP(authenticatedUserID, func(c *gin.Context) bool {
-			return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopePasskeyDelete}) != nil
+			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopePasskeyDelete}) != nil
 		}, middleware.GetSessionAuthIdentity, func(input delete_passkey.Input) delete_passkey.Completion {
-			return &factors.DeletePasskey{Identity: input.Identity, Advance: service.AdvanceCurrentSessionToUserVersion}
+			return &factors.DeletePasskey{Identity: input.Identity, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
 		}, errs.WriteError, e.SecurityAudit),
 		AdminDisableTwoFA: admin_disable_twofa.NewHTTP(func(c *gin.Context) admin_disable_twofa.Operation {
 			return factors.AdminTwoFA{Role: func() int { return c.GetInt("role") }}
@@ -224,68 +232,107 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 		AdminResetPasskey: admin_reset_passkey.NewHTTP(func(c *gin.Context) admin_reset_passkey.Operation {
 			return factors.AdminPasskey{Role: func() int { return c.GetInt("role") }}
 		}, e.ManageAudit, errs.WriteError),
-		BeginPasskeyRegistration: begin_passkey_registration.NewHTTP(passkeyEnabled, identityhttp.GetAuthenticatedUser, func(c *gin.Context) *model.AuthFlowAuthorization {
-			return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopePasskeyRegister})
-		}, func(c *gin.Context, user *model.User, authorization *model.AuthFlowAuthorization) begin_passkey_registration.Completion {
-			return &webauthnadapter.Ceremony{Request: c.Request, IdentityReader: func() (identitydomain.AuthIdentity, bool) { return middleware.GetSessionAuthIdentity(c) }, User: user, Authorization: authorization}
-		}, errs.WriteError),
-		FinishPasskeyRegistration: finish_passkey_registration.NewHTTP(passkeyEnabled, identityhttp.GetAuthenticatedUser, func(c *gin.Context, user *model.User, request finish_passkey_registration.Request) (finish_passkey_registration.Completion, error) {
-			parsed, err := protocol.ParseCredentialCreationResponseBytes(request.Credential)
+		BeginPasskeyRegistration: begin_passkey_registration.NewHTTP(begin_passkey_registration.NewUsecase(), passkeyEnabled, func(c *gin.Context) (identitydomain.PasskeyAccount, begin_passkey_registration.CompletionFactory, error) {
+			user, err := identityhttp.GetAuthenticatedUser(c)
 			if err != nil {
-				return nil, err
+				return identitydomain.PasskeyAccount{}, nil, err
 			}
-			return &webauthnadapter.Ceremony{Request: c.Request, IdentityReader: func() (identitydomain.AuthIdentity, bool) { return middleware.GetSessionAuthIdentity(c) }, User: user, FlowToken: request.FlowToken, ParsedCreation: parsed}, nil
+			facts := identitydomain.PasskeyAccount{ID: user.Id, AuthVersion: user.AuthVersion}
+			return facts, func(authorization *identitydomain.FlowAuthorization) begin_passkey_registration.Completion {
+				op := newIdentityPasskeyCeremony(c, user)
+				op.Authorization = authorization
+				return op
+			}, nil
+		}, func(c *gin.Context) *identitydomain.FlowAuthorization {
+			return middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopePasskeyRegister})
+		}, errs.WriteError),
+		FinishPasskeyRegistration: finish_passkey_registration.NewHTTP(finish_passkey_registration.NewUsecase(), passkeyEnabled, func(c *gin.Context) (identitydomain.PasskeyAccount, finish_passkey_registration.CompletionFactory, error) {
+			user, err := identityhttp.GetAuthenticatedUser(c)
+			if err != nil {
+				return identitydomain.PasskeyAccount{}, nil, err
+			}
+			facts := identitydomain.PasskeyAccount{ID: user.Id, AuthVersion: user.AuthVersion}
+			return facts, func(request finish_passkey_registration.Request) (finish_passkey_registration.Completion, error) {
+				parsed, err := protocol.ParseCredentialCreationResponseBytes(request.Credential)
+				if err != nil {
+					return nil, err
+				}
+				op := newIdentityPasskeyCeremony(c, user)
+				op.FlowToken, op.ParsedCreation = request.FlowToken, parsed
+				return op, nil
+			}, nil
 		}, e.SecurityAudit, errs.WriteError),
 		BeginPasskeyLogin: begin_passkey_login.NewHTTP(passkeyEnabled, func(c *gin.Context) begin_passkey_login.Completion {
-			return &webauthnadapter.Ceremony{Request: c.Request, IdentityReader: func() (identitydomain.AuthIdentity, bool) { return middleware.GetSessionAuthIdentity(c) }}
+			return newIdentityPasskeyCeremony(c, nil)
 		}, errs.WriteError),
-		FinishPasskeyLogin: finish_passkey_login.NewHTTP(passkeyEnabled, func(c *gin.Context, request finish_passkey_login.Request) (finish_passkey_login.Completion, error) {
+		FinishPasskeyLogin: finish_passkey_login.NewHTTP(finish_passkey_login.NewUsecase(), passkeyEnabled, func(c *gin.Context, request finish_passkey_login.Request) (finish_passkey_login.Completion, error) {
 			parsed, err := protocol.ParseCredentialRequestResponseBytes(request.Credential)
 			if err != nil {
 				return nil, err
 			}
-			return &webauthnadapter.Ceremony{Request: c.Request, IdentityReader: func() (identitydomain.AuthIdentity, bool) { return middleware.GetSessionAuthIdentity(c) }, FlowToken: request.FlowToken, ParsedAssertion: parsed}, nil
-		}, e.CompletePasskeyLogin, errs.WriteError),
-		BeginPasskeyVerification: begin_passkey_verification.NewHTTP(passkeyEnabled, identityhttp.GetAuthenticatedUser, func(c *gin.Context, user *model.User, request begin_passkey_verification.Request) begin_passkey_verification.Completion {
-			return &webauthnadapter.Ceremony{Request: c.Request, IdentityReader: func() (identitydomain.AuthIdentity, bool) { return middleware.GetSessionAuthIdentity(c) }, User: user, VerificationInput: request}
+			op := newIdentityPasskeyCeremony(c, nil)
+			op.FlowToken, op.ParsedAssertion = request.FlowToken, parsed
+			op.FinishLogin = e.CompletePasskeyLogin
+			return op, nil
 		}, errs.WriteError),
-		FinishPasskeyVerification: finish_passkey_verification.NewHTTP(passkeyEnabled, identityhttp.GetAuthenticatedUser, func(c *gin.Context, user *model.User, request finish_passkey_verification.Request) (finish_passkey_verification.Completion, error) {
-			parsed, err := protocol.ParseCredentialRequestResponseBytes(request.Credential)
+		BeginPasskeyVerification: begin_passkey_verification.NewHTTP(begin_passkey_verification.NewUsecase(), passkeyEnabled, func(c *gin.Context) (identitydomain.PasskeyAccount, begin_passkey_verification.CompletionFactory, error) {
+			user, err := identityhttp.GetAuthenticatedUser(c)
 			if err != nil {
-				return nil, err
+				return identitydomain.PasskeyAccount{}, nil, err
 			}
-			return &webauthnadapter.Ceremony{Request: c.Request, IdentityReader: func() (identitydomain.AuthIdentity, bool) { return middleware.GetSessionAuthIdentity(c) }, User: user, FlowToken: request.FlowToken, ParsedAssertion: parsed}, nil
+			facts := identitydomain.PasskeyAccount{ID: user.Id, AuthVersion: user.AuthVersion}
+			return facts, func(request begin_passkey_verification.Request) begin_passkey_verification.Completion {
+				op := newIdentityPasskeyCeremony(c, user)
+				op.VerificationInput = request
+				return op
+			}, nil
+		}, errs.WriteError),
+		FinishPasskeyVerification: finish_passkey_verification.NewHTTP(finish_passkey_verification.NewUsecase(), passkeyEnabled, func(c *gin.Context) (identitydomain.PasskeyAccount, finish_passkey_verification.CompletionFactory, error) {
+			user, err := identityhttp.GetAuthenticatedUser(c)
+			if err != nil {
+				return identitydomain.PasskeyAccount{}, nil, err
+			}
+			facts := identitydomain.PasskeyAccount{ID: user.Id, AuthVersion: user.AuthVersion}
+			return facts, func(request finish_passkey_verification.Request) (finish_passkey_verification.Completion, error) {
+				parsed, err := protocol.ParseCredentialRequestResponseBytes(request.Credential)
+				if err != nil {
+					return nil, err
+				}
+				op := newIdentityPasskeyCeremony(c, user)
+				op.FlowToken, op.ParsedAssertion = request.FlowToken, parsed
+				return op, nil
+			}, nil
 		}, e.SecurityAudit, errs.WriteError),
-		VerifyLoginCode: verify_login_code.NewHTTP(service.VerifyLoginCode, e.CompleteVerifiedLogin, errs.WriteError),
+		VerifyLoginCode: verify_login_code.NewHTTP(identitycore.VerifyLoginCode, e.CompleteVerifiedLogin, errs.WriteError),
 		StartTwoFASetup: start_twofa_setup.NewHTTP(func(c *gin.Context) (identitydomain.AuthIdentity, *identitydomain.FlowAuthorization, bool) {
-			authorization := middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: service.VerificationScopeTwoFASetup})
+			authorization := middleware.RequireSecurityProof(c, identitydomain.VerificationOperation{Scope: identitydomain.VerificationScopeTwoFASetup})
 			if authorization == nil {
 				return identitydomain.AuthIdentity{}, nil, false
 			}
 			identity, _ := middleware.GetSessionAuthIdentity(c)
 			return identity, authorization, true
-		}, service.StartTwoFASetup, errs.WriteError, e.SecurityAudit),
+		}, identitycore.StartTwoFASetup, errs.WriteError, e.SecurityAudit),
 		FinishTwoFASetup: finish_twofa_setup.NewHTTP(middleware.GetSessionAuthIdentity, func(identity identitydomain.AuthIdentity, input finish_twofa_setup.Verify2FARequest) finish_twofa_setup.Completion {
-			return &factors.Enable{Identity: identity, FlowToken: input.FlowToken, Code: input.Code, Finish: service.FinishTwoFASetup, Advance: service.AdvanceCurrentSessionToUserVersion}
+			return &factors.Enable{Identity: identity, FlowToken: input.FlowToken, Code: input.Code, Finish: identitycore.FinishTwoFASetup, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
 		}, errs.WriteError, e.SecurityAudit, identitytransport.RotationData),
-		DisableTwoFA: disable_twofa.NewHTTP(proofIdentity(service.VerificationScopeTwoFADisable), func(input disable_twofa.Input) disable_twofa.Completion {
-			return &factors.Disable{Identity: input.Identity, Advance: service.AdvanceCurrentSessionToUserVersion}
+		DisableTwoFA: disable_twofa.NewHTTP(proofIdentity(identitydomain.VerificationScopeTwoFADisable), func(input disable_twofa.Input) disable_twofa.Completion {
+			return &factors.Disable{Identity: input.Identity, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
 		}, errs.WriteError, e.SecurityAudit, identitytransport.RotationData),
-		RegenerateBackupCodes: regenerate_backup_codes.NewHTTP(proofIdentity(service.VerificationScopeTwoFABackupCodes), func(input regenerate_backup_codes.Input) regenerate_backup_codes.Completion {
-			return &factors.BackupCodes{Identity: input.Identity, Advance: service.AdvanceCurrentSessionToUserVersion}
+		RegenerateBackupCodes: regenerate_backup_codes.NewHTTP(proofIdentity(identitydomain.VerificationScopeTwoFABackupCodes), func(input regenerate_backup_codes.Input) regenerate_backup_codes.Completion {
+			return &factors.BackupCodes{Identity: input.Identity, Advance: identitycore.AdvanceCurrentSessionToUserVersion}
 		}, errs.WriteError, e.SecurityAudit, identitytransport.RotationData),
-		VerificationRequirements: get_verification_requirements.NewHTTP(middleware.GetSessionAuthIdentity, service.GetVerificationRequirements, errs.WriteError),
-		VerifySecurityInput:      verify_security_input.NewHTTP(middleware.GetSessionAuthIdentity, service.VerifySecurityInput, errs.WriteError, e.SecurityAudit),
+		VerificationRequirements: get_verification_requirements.NewHTTP(middleware.GetSessionAuthIdentity, identitycore.GetVerificationRequirements, errs.WriteError),
+		VerifySecurityInput:      verify_security_input.NewHTTP(middleware.GetSessionAuthIdentity, identitycore.VerifySecurityInput, errs.WriteError, e.SecurityAudit),
 		RefreshSession: refresh_session.NewHTTP(func(raw, sid, ip, ua string) (refresh_session.Output, error) {
-			bundle, user, err := service.RefreshLoginSession(raw, sid, ip, ua)
+			bundle, user, err := identitycore.RefreshLoginSession(raw, sid, ip, ua)
 			if err != nil {
 				return refresh_session.Output{}, err
 			}
 			return refresh_session.Output{Bundle: bundle, Profile: func() map[string]any { return e.BuildProfile(user) }}, nil
-		}, service.RefreshCookieName, service.ClearRefreshCookie, service.WriteRefreshCookie, errs.WriteSessionError),
-		Logout:                logout.NewHTTP(sessionadapter.Logout{RefreshSIDFunc: service.RefreshTokenSID, ParseAccessFunc: service.ParseAccessToken, RevokeRefreshFunc: service.RevokeByRefreshToken}, service.RefreshCookieName, service.ClearRefreshCookie, errs.WriteSessionError),
+		}, identitydomain.RefreshCookieName, identityhttp.ClearRefreshCookie, identityhttp.WriteRefreshCookie, errs.WriteSessionError),
+		Logout:                logout.NewHTTP(sessionadapter.Logout{RefreshSIDFunc: sessionadapter.RefreshTokenSID, ParseAccessFunc: authtoken.ParseAccessToken, RevokeRefreshFunc: identitycore.RevokeByRefreshToken}, identitydomain.RefreshCookieName, identityhttp.ClearRefreshCookie, errs.WriteSessionError),
 		ListSessions:          list_sessions.NewHTTP(management, middleware.GetSessionAuthIdentity, errs.WriteSessionError),
-		RevokeSession:         revoke_session.NewHTTP(management, middleware.GetSessionAuthIdentity, service.RefreshCookieName, service.RefreshTokenSID, service.ClearRefreshCookie, errs.WriteSessionError),
+		RevokeSession:         revoke_session.NewHTTP(management, middleware.GetSessionAuthIdentity, identitydomain.RefreshCookieName, sessionadapter.RefreshTokenSID, identityhttp.ClearRefreshCookie, errs.WriteSessionError),
 		RevokeOtherSessions:   revoke_other_sessions.NewHTTP(management, middleware.GetSessionAuthIdentity, errs.WriteSessionError),
 		RegisterPassword:      register_password.NewHTTP(func() bool { return common.RegisterEnabled }, func() bool { return common.PasswordRegisterEnabled }, registration.Operation{}),
 		PasswordLogin:         password_login.NewHTTP(func() bool { return common.PasswordLoginEnabled }, passwordlogin.Login{}, e.CompletePasswordLogin),
@@ -294,5 +341,15 @@ func NewIdentityHTTP(e IdentityEffects) IdentityHTTP {
 			return recovery.PasswordResetEmail{Context: ctx}
 		}),
 		RecoverPassword: recover_password.NewHTTP(recovery.PasswordRecovery{}),
+	}
+}
+
+// newIdentityPasskeyCeremony binds request data to the once-built flow orchestration.
+func newIdentityPasskeyCeremony(c *gin.Context, user *model.User) *webauthnadapter.Ceremony {
+	return &webauthnadapter.Ceremony{
+		Request: c.Request, User: user,
+		IdentityReader:        func() (identitydomain.AuthIdentity, bool) { return middleware.GetSessionAuthIdentity(c) },
+		CreateSessionDataFlow: identitycore.CreateSessionDataFlow,
+		PopSessionDataFlow:    identitycore.PopSessionDataFlow,
 	}
 }

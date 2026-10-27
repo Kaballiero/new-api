@@ -132,3 +132,5 @@ func (op RevokeRefreshOperation) RevokeByHash(sid, secret, reason string) error 
 	_, e := model.RevokeUserSessionByRefreshHash(sid, op.Hash(secret), reason)
 	return e
 }
+
+func (op *RefreshSessionOperation) SetPresentedSecret(secret string) { op.PresentedSecret = secret }

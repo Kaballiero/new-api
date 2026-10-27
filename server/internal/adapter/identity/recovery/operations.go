@@ -8,14 +8,15 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
+	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
 )
 
 type EmailVerification struct{}
 
 func (EmailVerification) ValidateEmail(raw string) (string, error) {
-	return service.ValidateAccountEmail(raw)
+	return emailadapter.ValidateAccountEmail(raw)
 }
 func (EmailVerification) EmailTaken(email string) bool { return model.IsEmailAlreadyTaken(email) }
 func (EmailVerification) GenerateCode(n int) string    { return common.GenerateVerificationCode(n) }

@@ -9,7 +9,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/audit/domain"
 	"github.com/QuantumNous/new-api/internal/audit/transport"
 	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
-	"github.com/QuantumNous/new-api/service"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 )
 
 // BRIDGE: gateway authentication and router middleware retain their existing ordering.
@@ -35,7 +36,7 @@ func AccessTokenAudit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw, present := authorizationToken(c.GetHeader("Authorization"))
 		if present {
-			_, internal, _ := service.ParseDashboardAccessToken(raw)
+			_, internal, _ := authtoken.ParseDashboardAccessToken(raw)
 			if !internal {
 				user, err := personalAccessTokenAuth().Execute(raw)
 				if err == nil && user != nil && user.Id > 0 {

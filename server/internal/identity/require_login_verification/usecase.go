@@ -9,29 +9,28 @@ type RequireLoginOperation interface {
 	RequireMethod(method string) error
 }
 
-func (usecase Usecase) Execute(method string) error {
-	if err := usecase.operation.LoadFlow(); err != nil {
+func (usecase Usecase) Execute(operation RequireLoginOperation, method string) error {
+	if err := operation.LoadFlow(); err != nil {
 		return err
 	}
-	version, loginMethod, err := usecase.operation.DecodePayload()
+	version, loginMethod, err := operation.DecodePayload()
 	if err != nil || version <= 0 || loginMethod == "" {
 		return domain.ErrAuthFlowInvalid
 	}
-	status, currentVersion, err := usecase.operation.LoadState()
+	status, currentVersion, err := operation.LoadState()
 	if err != nil {
 		return err
 	}
 	if status != usecase.enabledStatus || currentVersion != version {
 		return domain.ErrSessionInactive
 	}
-	return usecase.operation.RequireMethod(method)
+	return operation.RequireMethod(method)
 }
 
 type Usecase struct {
-	operation     RequireLoginOperation
 	enabledStatus int
 }
 
-func NewUsecase(operation RequireLoginOperation, enabledStatus int) Usecase {
-	return Usecase{operation: operation, enabledStatus: enabledStatus}
+func NewUsecase(enabledStatus int) Usecase {
+	return Usecase{enabledStatus: enabledStatus}
 }

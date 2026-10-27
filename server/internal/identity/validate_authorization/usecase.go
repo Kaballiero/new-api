@@ -12,26 +12,25 @@ type FlowAuthorizationOperation interface {
 	RequireAuthorizedMethod() error
 }
 
-func (usecase Usecase) Execute() error {
-	if !usecase.operation.AuthorizationValid() {
+func (usecase Usecase) Execute(operation FlowAuthorizationOperation) error {
+	if !operation.AuthorizationValid() {
 		return domain.ErrAuthFlowInvalid
 	}
-	if err := usecase.operation.BindOperation(); err != nil {
+	if err := operation.BindOperation(); err != nil {
 		return err
 	}
-	if !usecase.operation.BindingMatches() {
+	if !operation.BindingMatches() {
 		return domain.ErrAuthFlowInvalid
 	}
-	if err := usecase.operation.ValidateSession(); err != nil {
+	if err := operation.ValidateSession(); err != nil {
 		return err
 	}
-	return usecase.operation.RequireAuthorizedMethod()
+	return operation.RequireAuthorizedMethod()
 }
 
 type Usecase struct {
-	operation FlowAuthorizationOperation
 }
 
-func NewUsecase(operation FlowAuthorizationOperation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

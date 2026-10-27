@@ -17,34 +17,34 @@ type SecurityInputOperation interface {
 	Complete() error
 }
 
-func (usecase Usecase) Execute(scope string, method string) error {
-	if err := usecase.operation.BindOperation(); err != nil {
+func (usecase Usecase) Execute(operation SecurityInputOperation, scope string, method string) error {
+	if err := operation.BindOperation(); err != nil {
 		return err
 	}
-	if err := usecase.operation.RequireMethod(method); err != nil {
+	if err := operation.RequireMethod(method); err != nil {
 		return err
 	}
 	switch method {
 	case "password":
-		if usecase.operation.PasswordEncryptionEnabled() {
-			if err := usecase.operation.DecryptPassword(); err != nil {
+		if operation.PasswordEncryptionEnabled() {
+			if err := operation.DecryptPassword(); err != nil {
 				return domain.ErrVerificationFailed
 			}
 		}
-		if err := usecase.operation.LoadPassword(); err != nil {
+		if err := operation.LoadPassword(); err != nil {
 			return err
 		}
-		if !usecase.operation.PasswordMatches() {
+		if !operation.PasswordMatches() {
 			return domain.ErrVerificationFailed
 		}
 	case "2fa":
-		if scope == "2fa.backup_codes.regenerate" && !usecase.operation.NumericCodeValid() {
+		if scope == "2fa.backup_codes.regenerate" && !operation.NumericCodeValid() {
 			return domain.ErrVerificationFailed
 		}
-		if err := usecase.operation.LoadFactor(); err != nil {
+		if err := operation.LoadFactor(); err != nil {
 			return err
 		}
-		if err := usecase.operation.VerifyFactor(); err != nil {
+		if err := operation.VerifyFactor(); err != nil {
 			return err
 		}
 	case "passkey", "oauth":
@@ -52,13 +52,12 @@ func (usecase Usecase) Execute(scope string, method string) error {
 	default:
 		return domain.ErrProofMethod
 	}
-	return usecase.operation.Complete()
+	return operation.Complete()
 }
 
 type Usecase struct {
-	operation SecurityInputOperation
 }
 
-func NewUsecase(operation SecurityInputOperation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

@@ -5,8 +5,12 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/change_self_password"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+
+	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
 )
 
 type PasswordChange struct {
@@ -20,7 +24,7 @@ func NewPasswordChange(c *gin.Context, succeeded *bool) update_profile.PasswordC
 func (change PasswordChange) Change(input update_profile.AccountInput, id int) (update_profile.PasswordResult, error) {
 	identity, ok := middleware.GetSessionAuthIdentity(change.context)
 	if !ok {
-		return update_profile.PasswordResult{}, service.ErrAuthTokenInvalid
+		return update_profile.PasswordResult{}, identitydomain.ErrAuthTokenInvalid
 	}
 	op := &selfPasswordOperation{change: change, identity: identity, input: input, id: id}
 	outcome, err := change_self_password.NewUsecase(op).Execute()
@@ -35,12 +39,12 @@ func (change PasswordChange) Change(input update_profile.AccountInput, id int) (
 
 type selfPasswordOperation struct {
 	change   PasswordChange
-	identity service.AuthIdentity
+	identity identitydomain.AuthIdentity
 	input    update_profile.AccountInput
 	id       int
 	current  *model.User
 	clean    model.User
-	bundle   *service.AuthBundle
+	bundle   *identitydto.AuthBundle
 }
 
 func (op *selfPasswordOperation) LoadCurrent() (bool, error) {
@@ -52,7 +56,7 @@ func (op *selfPasswordOperation) LoadCurrent() (bool, error) {
 	return op.current.Password != "", nil
 }
 func (op *selfPasswordOperation) RequireProof(scope string) (bool, error) {
-	return middleware.RequireSecurityProof(op.change.context, service.VerificationOperation{Scope: scope}) != nil, nil
+	return middleware.RequireSecurityProof(op.change.context, identitydomain.VerificationOperation{Scope: scope}) != nil, nil
 }
 func (op *selfPasswordOperation) ChangePassword(first bool) error {
 	op.clean = model.User{Id: op.id, Username: op.input.Username, Password: op.input.Password, DisplayName: op.input.DisplayName, OriginalPassword: op.input.OriginalPassword}
@@ -60,13 +64,13 @@ func (op *selfPasswordOperation) ChangePassword(first bool) error {
 }
 func (op *selfPasswordOperation) MarkSucceeded() { *op.change.succeeded = true }
 func (op *selfPasswordOperation) NotifyPasswordUpdated() bool {
-	return service.NotifyAccountSecurityChange(op.current.Email, "Password updated") != nil
+	return emailadapter.NotifyAccountSecurityChange(op.current.Email, "Password updated") != nil
 }
 func (op *selfPasswordOperation) PublishAuthCache() error {
 	return model.PublishUserAuthCache(op.clean.Id)
 }
 func (op *selfPasswordOperation) AdvanceCurrentSession() error {
 	var err error
-	op.bundle, err = service.AdvanceCurrentSessionToUserVersion(op.identity, "password_changed")
+	op.bundle, err = identitycore.AdvanceCurrentSessionToUserVersion(op.identity, "password_changed")
 	return err
 }

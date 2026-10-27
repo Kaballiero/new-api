@@ -6,33 +6,36 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Completion interface {
 	Operation
 	Challenge() dto.PasskeyChallenge
 }
+type CompletionFactory func(authorization *domain.FlowAuthorization) Completion
+
 type HTTP struct {
+	usecase    Usecase
 	enabled    func() bool
-	user       func(*gin.Context) (*model.User, error)
-	authorize  func(*gin.Context) *model.AuthFlowAuthorization
-	factory    func(c *gin.Context, user *model.User, authorization *model.AuthFlowAuthorization) Completion
+	user       func(*gin.Context) (domain.PasskeyAccount, CompletionFactory, error)
+	authorize  func(*gin.Context) *domain.FlowAuthorization
 	writeError func(*gin.Context, error)
 }
 
 // NewHTTP builds the handler; authorize writes its own response and returns
 // nil when the security proof is missing or rejected.
-func NewHTTP(enabled func() bool, user func(*gin.Context) (*model.User, error), authorize func(*gin.Context) *model.AuthFlowAuthorization, factory func(c *gin.Context, user *model.User, authorization *model.AuthFlowAuthorization) Completion, writeError func(*gin.Context, error)) *HTTP {
-	return &HTTP{enabled: enabled, user: user, authorize: authorize, factory: factory, writeError: writeError}
+func NewHTTP(usecase Usecase, enabled func() bool, user func(*gin.Context) (domain.PasskeyAccount, CompletionFactory, error), authorize func(*gin.Context) *domain.FlowAuthorization, writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{usecase: usecase, enabled: enabled, user: user, authorize: authorize, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	if !h.enabled() {
 		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyDisabled)
 		return
 	}
-	user, err := h.user(c)
+	_, factory, err := h.user(c)
 	if err != nil {
 		h.writeError(c, err)
 		return
@@ -41,8 +44,8 @@ func (h *HTTP) Handle(c *gin.Context) {
 	if authorization == nil {
 		return
 	}
-	op := h.factory(c, user, authorization)
-	if err := NewUsecase(op).Execute(); err != nil {
+	op := factory(authorization)
+	if err := h.usecase.Execute(op); err != nil {
 		h.writeError(c, err)
 		return
 	}

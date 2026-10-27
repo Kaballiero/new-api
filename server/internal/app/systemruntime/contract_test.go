@@ -29,7 +29,6 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -39,6 +38,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type systemCase struct {
@@ -205,9 +207,9 @@ func runSystem(t *testing.T, tc systemCase) any {
 	common.SetPerformanceMonitorConfig(common.PerformanceMonitorConfig{Enabled: true, CPUThreshold: 90, MemoryThreshold: 90, DiskThreshold: 95})
 	transport := &uptimeTransport{variant: tc.Variant}
 	http.DefaultTransport = transport
-	identities := map[string]service.AuthIdentity{}
+	identities := map[string]identitydomain.AuthIdentity{}
 	for name, token := range map[string]string{"user": env.User, "admin": env.Admin, "root": env.Root} {
-		id, err := service.ParseAccessToken(token)
+		id, err := authtoken.ParseAccessToken(token)
 		require.NoError(t, err)
 		identities[name] = id
 	}
@@ -219,7 +221,7 @@ func runSystem(t *testing.T, tc systemCase) any {
 		tokens := map[string]string{"anonymous": "", "key": "sk-system-key", "user_pat": env.UserPAT,
 			"admin_pat": "system-admin-pat", "root_pat": "system-root-pat"}
 		for name, id := range identities {
-			token, _, err := service.IssueAccessToken(id)
+			token, _, err := authtoken.IssueAccessToken(id)
 			require.NoError(t, err)
 			tokens[name] = token
 		}

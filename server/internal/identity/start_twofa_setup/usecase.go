@@ -9,31 +9,30 @@ type StartTwoFASetupOperation interface {
 	CaptureSetup()
 }
 
-func (usecase Usecase) Execute() error {
-	if err := usecase.operation.ValidateAuthorization(); err != nil {
+func (usecase Usecase) Execute(operation StartTwoFASetupOperation) error {
+	if err := operation.ValidateAuthorization(); err != nil {
 		return err
 	}
-	username, err := usecase.operation.LoadAccountName()
+	username, err := operation.LoadAccountName()
 	if err != nil {
 		return err
 	}
-	if err := usecase.operation.GenerateSecret(username); err != nil {
+	if err := operation.GenerateSecret(username); err != nil {
 		return err
 	}
-	if err := usecase.operation.GenerateBackupCodes(); err != nil {
+	if err := operation.GenerateBackupCodes(); err != nil {
 		return err
 	}
-	if err := usecase.operation.CreateEnrollment(); err != nil {
+	if err := operation.CreateEnrollment(); err != nil {
 		return err
 	}
-	usecase.operation.CaptureSetup()
+	operation.CaptureSetup()
 	return nil
 }
 
 type Usecase struct {
-	operation StartTwoFASetupOperation
 }
 
-func NewUsecase(operation StartTwoFASetupOperation) Usecase {
-	return Usecase{operation: operation}
+func NewUsecase() Usecase {
+	return Usecase{}
 }

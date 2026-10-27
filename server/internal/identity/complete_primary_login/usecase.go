@@ -10,20 +10,16 @@ type Operation interface {
 
 // Execute returns domain.ErrAccountBanned for a disabled account, a
 // domain.Internal profile failure or the session creation error.
-func (usecase Usecase) Execute(expectedVersion int64) error {
-	if !usecase.operation.PrimaryValid() {
+func (usecase Usecase) Execute(operation Operation, expectedVersion int64) error {
+	if !operation.PrimaryValid() {
 		return domain.ErrAccountBanned
 	}
-	if err := usecase.operation.LoadProfile(); err != nil {
+	if err := operation.LoadProfile(); err != nil {
 		return domain.Internal(err)
 	}
-	return usecase.operation.CreateSession(expectedVersion)
+	return operation.CreateSession(expectedVersion)
 }
 
-type Usecase struct {
-	operation Operation
-}
+type Usecase struct{}
 
-func NewUsecase(operation Operation) Usecase {
-	return Usecase{operation: operation}
-}
+func NewUsecase() Usecase { return Usecase{} }

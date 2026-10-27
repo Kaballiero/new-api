@@ -3,25 +3,24 @@ package finish_passkey_login
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
 
 type Completion interface {
 	Operation
-	LoginAccount() *model.User
+	CompletePasskeyLogin(*gin.Context)
 }
 type HTTP struct {
+	usecase    Usecase
 	enabled    func() bool
 	factory    func(c *gin.Context, request Request) (Completion, error)
-	complete   func(*gin.Context, *model.User, int64)
 	writeError func(*gin.Context, error)
 }
 
 // NewHTTP builds the handler; factory parses the WebAuthn assertion and
 // returns its error.
-func NewHTTP(enabled func() bool, factory func(c *gin.Context, request Request) (Completion, error), complete func(*gin.Context, *model.User, int64), writeError func(*gin.Context, error)) *HTTP {
-	return &HTTP{enabled: enabled, factory: factory, complete: complete, writeError: writeError}
+func NewHTTP(usecase Usecase, enabled func() bool, factory func(c *gin.Context, request Request) (Completion, error), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{usecase: usecase, enabled: enabled, factory: factory, writeError: writeError}
 }
 func (h *HTTP) Handle(c *gin.Context) {
 	if !h.enabled() {
@@ -38,11 +37,10 @@ func (h *HTTP) Handle(c *gin.Context) {
 		h.writeError(c, err)
 		return
 	}
-	if err := NewUsecase(op).Execute(); err != nil {
+	if err := h.usecase.Execute(op); err != nil {
 		h.writeError(c, err)
 		return
 	}
-	user := op.LoginAccount()
 	c.Set("login_verification_method", "passkey")
-	h.complete(c, user, user.AuthVersion)
+	op.CompletePasskeyLogin(c)
 }

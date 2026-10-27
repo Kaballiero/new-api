@@ -12,11 +12,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type passkeyTestBody struct {
@@ -48,7 +49,7 @@ func TestPasskeyRegisterFinishRejectsUnapprovedFlowWithoutConsumingIt(t *testing
 	system_setting.GetPasskeySettings().UserVerification = "required"
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
-	payload, err := common.Marshal(map[string]any{"scope": service.VerificationScopePasskeyRegister})
+	payload, err := common.Marshal(map[string]any{"scope": identitydomain.VerificationScopePasskeyRegister})
 	require.NoError(t, err)
 	token, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
 		Purpose: model.AuthFlowPurposePasskeyRegister, UserId: identity.UserID, SessionId: identity.SessionID,

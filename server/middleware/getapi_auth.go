@@ -11,7 +11,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service"
+
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type getAPIIntegration struct {
@@ -25,7 +26,7 @@ func GetAPIAuth(capability string) gin.HandlerFunc {
 		c.Header("Cache-Control", "no-store")
 		defer recordGetAPIAudit(c, capability)
 		user, identity, useAccessToken, err := authenticateDashboardRequest(c)
-		if err != nil && !errors.Is(err, service.ErrAuthTokenInvalid) && !errors.Is(err, service.ErrAuthTokenExpired) && !errors.Is(err, service.ErrLoginSessionRevoked) && !errors.Is(err, gorm.ErrRecordNotFound) {
+		if err != nil && !errors.Is(err, identitydomain.ErrAuthTokenInvalid) && !errors.Is(err, identitydomain.ErrAuthTokenExpired) && !errors.Is(err, identitydomain.ErrLoginSessionRevoked) && !errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "code": "GETAPI_CREDENTIAL_UNAVAILABLE", "message": "Credential unavailable"})
 			return
 		}

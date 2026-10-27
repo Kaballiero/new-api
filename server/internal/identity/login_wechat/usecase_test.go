@@ -48,7 +48,7 @@ func TestExecute(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			op := tc.op
-			err := NewUsecase(&op).Execute(Input{Code: "c", Lang: "ru"})
+			err := NewUsecase().Execute(&op, Input{Code: "c", Lang: "ru"})
 			if tc.want == nil {
 				assert.NoError(t, err)
 			} else {
@@ -64,6 +64,6 @@ func TestExecute(t *testing.T) {
 
 func TestExecuteKeepsExchangeErrors(t *testing.T) {
 	cause := errors.New("wechat server unavailable")
-	err := NewUsecase(&fakeOperation{exchangeErr: cause}).Execute(Input{Code: "c"})
+	err := NewUsecase().Execute(&fakeOperation{exchangeErr: cause}, Input{Code: "c"})
 	assert.Equal(t, cause, err, "the handler shows the provider text")
 }

@@ -61,6 +61,8 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
 )
 
 //go:embed web/dist
@@ -393,7 +395,7 @@ func InitResources() error {
 		// Don't return error, custom OAuth is not critical
 	}
 
-	service.StartAuthArtifactCleanup()
+	identitycore.StartAuthArtifactCleanup()
 
 	return nil
 }
