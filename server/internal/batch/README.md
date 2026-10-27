@@ -57,7 +57,8 @@ POST, partial ID+decode error и identity verification до staged-result persis
 
 adapter/http/batchaccount — одно тело config hash/static-header policy для Batch и tasksync.
 adapter/redis/batch — единственные Batch Lua bodies; namespaces, mutation fence, schema и hydration
-остаются у технического model cache owner. Raw cache readers под locks не заменены hydration.
+принадлежат adapter/cache/accounts и adapter/cache/apikeys (волна7j). App/batch передаёт
+ReadCapabilities явно. Raw cache readers под locks не заменены hydration.
 
 provider_batch_poll регистрируется явно из controller.RegisterScheduledSystemTasks. Root server
 и Electron достигают этого существующего entrypoint; тест регистрации вызывает его же. Голый импорт
@@ -68,10 +69,11 @@ service больше не регистрирует Batch. UpdateTask, 15s interv
 
 - controller/batch.go — once-сборка handlers для существующих router registrations; удалить при прямой сборке router.
 - model aliases нужны startup migration и оставшимся record consumers, включая account deletion.
-- model/batch_conflict.go — legacy alias pkg/batchstate.ErrConflict для newHardDeletionOperation;
-  удалить в wave 7 после подключения account deletion к Batch financial-decision port. Domain и model
-  используют один leaf sentinel; model не импортирует Batch internal, архитектурных исключений нет.
-- Shared model lock/cache primitives остаются до переноса их технического владельца. Batch-only
+- model/batch_conflict.go удалён в7j. Account deletion получает финансовую проверку через
+  adapter/gorm/batch.AccountDeletionFinancialDecision на исходном tx; единственный sentinel — pkg/batchstate.ErrConflict.
+  App/accountscore собирает capability, model forwarding отсутствует.
+- Shared lock/cache primitives принадлежат adapter/gorm/locking и adapter/cache/{accounts,apikeys};
+  reserve orchestration — billing adapter, counter queue — adapter/gorm/counters. Batch-only
   service bodies и relay/billing/usage_bridge.go удалены; BillingGateway больше не обслуживает Batch.
 - TECH_DEBT #77–#79: lease/fencing, прежние DB-fixtures и orphan upload. Существующие bugs не исправляются.
 

@@ -12,9 +12,9 @@
 | `deployments` | управление io.net deployments, настройки и технические provider reads | 18 | [README](deployments/README.md) |
 | `notifications` | доставка, event limiter, root и upstream model watchers | 3 | [README](notifications/README.md) |
 | `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; общий publication adapter и leaf pricing runtime | 11 | [README](settings/README.md) |
-| `accounts` | аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 24 | [README](accounts/README.md) |
+| `accounts` | GetAPI PAT initialization и аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 25 | [README](accounts/README.md) |
 | `identity` | вход и доказательство личности: пароль, сессии и их отзыв, 2FA и резервные коды, passkey (WebAuthn), OAuth и WeChat, подтверждение email, восстановление пароля, повторная проверка для чувствительных действий | 66 | [README](identity/README.md) |
-| `apikeys` | API-ключи пользователей для шлюза: создание, просмотр с маской, раскрытие, изменение, удаление, группы, статус, использование и gateway-аутентификация ключа | 16 | [README](apikeys/README.md) |
+| `apikeys` | API-ключи пользователей для шлюза: создание, просмотр с маской, раскрытие, изменение, удаление, группы, статус, использование и gateway-аутентификация ключа и billing subscription compatibility | 17 | [README](apikeys/README.md) |
 | `personal_access_tokens` | персональные токены доступа к панели управления (PAT): выпуск, статус, отзыв и проверка | 4 | [README](personal_access_tokens/README.md) |
 | `authorization` | права администраторов (Casbin): каталог разрешений, проверка, переопределения для пользователя, загрузка политики | 11 | [README](authorization/README.md) |
 | `catalog` | модели/вендоры, metadata sync, доступность моделей шлюза, presets и prefill groups | 25 | [README](catalog/README.md) |
@@ -22,7 +22,7 @@
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
 | `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 11 | [README](billing/README.md) |
 | `batch` | native Batch admission holds, execution, results, settlement/release, procurement и polling; provider wire остаётся в relay/batch | 10 | [README](batch/README.md) |
-| `usage` | запись consumption/error; чтение логов, quota_data, flow, агрегаты и рейтинги; role visibility и metadata | 3 | [README](usage/README.md) |
+| `usage` | запись consumption/error; чтение логов, quota_data, flow, агрегаты и рейтинги; role visibility, metadata и billing usage compatibility | 4 | [README](usage/README.md) |
 | `audit` | чтение событий и role projection; запись login/security/operation/PAT, metadata policy | 3 | [README](audit/README.md) |
 | `redemption` | выпуск и управление кодами пополнения, атомарное погашение с начислением квоты | 9 | [README](redemption/README.md) |
 
@@ -60,3 +60,11 @@ observation admission/timeout/backoff и retrieve policy. Сборка `app/task
 Durable tasks и background writes остаются tasks; provider VM/wire machine остаются gateway.
 Единый alias view находится в `adapter/taskplugins/aliases`, SQL reader — channels adapter.
 Channel records/cache/abilities принадлежат channels adapter; model сохраняет строгие aliases.
+
+Wave 7j: account/key/identity SQL и records принадлежат `adapter/gorm/{accounts,apikeys,identity}`;
+`model.User`/`Token` и identity tables — строгие aliases, migrations/backfills остаются в model.
+`adapter/cache/{accounts,apikeys,quota,subscriptions}`, `gorm/{locking,counters,usage,dbclock}` — единственные
+технические владельцы общего состояния. Leaf `app/{accountstorage,apikeystorage,identitystorage,patstorage,
+quotaruntime,subscriptionstorage,usagestorage}` явно собирают capabilities; lifecycle accounts — `app/accountscore`.
+Все 39 оставшихся architecture allowlist rows удалены; новых исключений нет. Acceptance host/PostgreSQL
+и real Redis остаётся отдельным gate. SQLite/MySQL not checked.

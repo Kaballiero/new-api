@@ -46,8 +46,9 @@
 | `update_notification_preferences` | настройки уведомлений о квоте (email, webhook, Bark, Gotify) | `PUT /api/user/setting` |
 | `get_checkin_status` | статистика отметок за месяц | `GET /api/user/checkin` |
 | `check_in` | ежедневная отметка с наградой, запись в лог пользователя | `POST /api/user/checkin` + `TurnstileCheck` |
+| `initialize_pat` | атомарная выдача или повторное чтение PAT, dry-run и прежние 400/404/409 ответы | `POST /api/getapi/users/:user_id/pat` + `GetAPIAuth("getapi.users.initialize-pat")` |
 | `provision_account` | создание аккаунта и PAT для интеграции GetAPI, ответ 201 | `POST /api/getapi/users` + `GetAPIAuth("getapi.users.provision")` |
-| `register_account`, `persist_account`, `bind_email` | регистрация, сохранение аккаунта с отзывом сессий при изменении безопасности, привязка email | без HTTP, через `model` (`User.Insert`, `User.Update`/`Edit`, привязка email) |
+| `register_account`, `persist_account`, `bind_email` | регистрация, сохранение аккаунта с отзывом сессий при изменении безопасности, привязка email | без HTTP, через `app/accountscore` и capabilities record adapters |
 
 Ошибки сценариев — значения из `domain/errors.go`. Их переводит в HTTP общий `transport.WriteError`:
 - `ErrAccountNotFound` → 404 `user_not_found`;
@@ -75,15 +76,33 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/accounts.go`) берёт ст
 - Права администраторов: `service/authz` (`SetUserPermissionsInTx`, `ClearUserAuthorizationInTx`, `ReloadPolicy`, `Capabilities`).
 - Смена пароля: `internal/adapter/identity/accounts` реализует `update_profile.PasswordChanger` через сценарий `identity/change_self_password`.
 - Аудит и ошибки безопасности: функции `controller` (`recordManageAuditFor`, `recordUserSecurityAudit`, `writeSecurityOperationError`, `accountQuotaAudit`), передаются через `app.AccountsEffects`.
-- Потребители: `controller/user.go`, `checkin.go`, `group.go`, `getapi_users.go`, `user_quota.go` (HTTP); `model` (регистрация, сохранение, удаление, отметка, перевод реферальной квоты); `identity` использует `accounts/domain`.
+- Потребители: `controller/user.go`, `checkin.go`, `group.go`, `getapi_users.go`, `user_quota.go` (HTTP); `app/accountscore` (регистрация, сохранение, удаление, отметка, перевод реферальной квоты); `identity` использует `accounts/domain`.
 
 ## Границы и долг
 
 - Модулю не принадлежат вход, сессии, 2FA, passkey и OAuth (`identity`), права администраторов (`authorization`), API-ключи (`apikeys`), пополнение баланса и списание квоты шлюзом.
-- ⚠ `model` всё ещё импортирует `internal` по аккаунтам (записи `legacy-imports-internal` для `model/user.go`, `accounts_*.go`, `checkin.go`): GORM-запись `User` живёт в адаптере, а `model` создаёт usecase регистрации, сохранения, удаления, отметки, перевода реферальной квоты, корректировки квоты и выдачи GetAPI-аккаунта.
-- `provision_account` получает ошибки через интерфейс `Errors` (`model.ProvisionErrors`) и фабрику `invalid func() error`: это контракт интеграции GetAPI (`model.ErrGetAPI*`, `writeGetAPIError`), общий с другими её маршрутами; тест `TestAccountsPersistenceCompatibility` фиксирует позднее чтение этих ошибок.
 - Сценарии и DTO accounts не зависят от `common` и `relaykit`: `domain.UserSetting` содержит plain facts. Адаптер `internal/adapter/gorm/accounts/settings.go` явно преобразует все поля в прежний wire DTO и обратно; запись сохраняет прежние JSON tags, порядок полей и encoder. Raw `SelfProfile.Setting` передаётся без изменений.
 - `internal/adapter/accounts` декодирует sidebar перед чтением прав, сохраняя частично прочитанное значение и прежнюю диагностику при ошибке JSON. Он же предоставляет позднее чтение имён типов уведомлений; административный порог передаёт `app`.
 - `adjust_quota.QuotaMath` и `transfer_affiliate_quota.QuotaMath` — узкие функциональные порты к существующим `common.WalletQuotaFromDecimalStrict` и `common.QuotaFromFloat`; `app` и оставшиеся legacy callers передают функции напрямую. Лимит `MaxWalletQuota` — явный параметр сценария. Формулы, округление и saturation имеют прежнего единственного владельца.
 - Метки групп («用户分组» — описание собственной группы, «自动» — коэффициент группы `auto`) переводятся на язык запроса только в ответе `get_groups`; остальные потребители `accountssettings.UserGroups()` (service, pricing, relay) получают прежние zh-CN значения. Записи лога пользователя (регистрация, приглашение, отметка) пишутся на языке запроса того, кто выполняет действие.
 - Ответы ошибок `check_in` и `get_checkin_status` раньше писались структурой (`success`, `message`), теперь `common.ApiErrorI18n` / `ApiError` (`gin.H`): тот же JSON, другой порядок ключей в теле.
+
+## Storage после волны 7j
+
+`adapter/gorm/accounts/core.Store` владеет account SQL; `record` — таблицами и transaction adapters.
+`app/accountstorage` один раз собирает SQL и `adapter/cache/accounts.Store`, передавая поздние DB/group getters.
+У hash аккаунта, quota и auth-version fence один Redis-владелец. Hydration использует прежний row lock;
+commit предшествует cache publish. `model.User` и `model.Checkin` — строгие table aliases без workflows.
+Регистрацию, persistence, удаление, check-in и affiliate usecases собирает `app/accountscore`.
+При hard delete financial decision принадлежит batch adapter, удаление факторов — identity SQL;
+все capabilities работают в переданной исходной транзакции. Миграции auth_version и Telegram остались в model
+с прежним порядком startup. Общая блокировка — `adapter/gorm/locking`.
+
+GetAPI initialization находится в `initialize_pat`: transport сохраняет strict parsing, nullable fields,
+4096-byte body limit и audit context; usecase сохраняет порядок role/username/status/reuse/dry-run/write.
+SQL читает пользователя под row lock и пишет PAT в той же транзакции. `provision_account` использует прямые
+domain sentinels, общий `transport.GetAPIErrors` получает только техническую классификацию missing record.
+В `contract/compatibility_test.go` 83 записанных до переноса raw-контракта: 47 PAT и 36 billing compatibility.
+Goldens неизменяемы. Четыре новых негативных factor cases проверяют same-tx rollback в identity owner tests.
+Existing `TestAccountsPersistenceCompatibility` также проверяет PAT dry/issue/reuse/blocked, сохранение account balances и rollback token/timestamp при post-update failure; тот же root входит в PostgreSQL matrix.
+Host/PostgreSQL и real Redis acceptance выполняются отдельно. SQLite/MySQL not checked.

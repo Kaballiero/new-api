@@ -60,7 +60,7 @@
 - `WriteSessionError` — ответ сессии: статус и код (`AUTH_SESSION_LIMIT`, `AUTH_SESSION_ISSUANCE_LIMIT`, `AUTH_SESSION_MISMATCH`, `AUTH_REFRESH_RACE`, `AUTH_TOKEN_EXPIRED`, `AUTH_SESSION_REVOKED`, `AUTH_UNAUTHORIZED`), текст статуса как сообщение; прочие ошибки — 500 `AUTH_INTERNAL_ERROR` с записью причины в лог;
 - исходы конкретного сценария (вход, регистрация, OAuth callback, админские операции) сопоставляет его `http.go`, остальное передаёт `WriteError`.
 
-`transport.Foreign` распознаёт ошибки, значения которых принадлежат не identity: занятый e-mail (`model.ErrEmailAlreadyTaken`, владелец — accounts), ошибки протокола WebAuthn и `gorm.ErrRecordNotFound`.
+`transport.Foreign` распознаёт ошибки, значения которых принадлежат не identity: занятый e-mail (`accounts/domain.ErrEmailAlreadyTaken`, владелец — accounts), ошибки протокола WebAuthn и `gorm.ErrRecordNotFound`.
 
 OpenAPI-генератор (`cmd/gen-admin-openapi/identity.go`) читает `http.go` и DTO сценариев; опубликованные схемы, которые обход AST не выводит, зафиксированы в `preserveIdentityHandlerContract`.
 
@@ -68,15 +68,32 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/identity.go`) читает `h
 
 - `accounts/domain` — правило управления ролью цели (`CanManageTargetRole`) в админских сценариях.
 - HTTP-сборка — `internal/app/identity.go`, один раз через `sync.OnceValue` в `controller/identity.go`; custom OAuth — `app/custom_oauth.go` и собственный once в `controller/custom_oauth.go`. Leaf `app/identitycore` один раз собирает session/proof/login/email/passkey-flow usecases и зависимости; каждый запрос получает отдельные operation adapters. `app.NewIdentityErrors` также используют `personal_access_tokens` и `controller.writeSecurityOperationError` (accounts, channels).
-- Адаптеры: `internal/adapter/identity/*` поверх `model` (сессии, факторы, WebAuthn SDK, OAuth, e-mail, восстановление, регистрация). `authtoken` сохраняет JWT/HMAC и выпуск proof; `session` — record/bundle mapping и refresh crypto; `http` — cookie flags/сроки, `PrimaryLogin`, загрузка текущего пользователя и ошибки провайдеров. Исходящий discovery HTTP — `adapter/http/identity`; SQL/custom registry — `adapter/identity/customoauth`.
+- Адаптеры: `internal/adapter/identity/*` поверх injected `adapter/gorm/identity.Store` и record capabilities (сессии, факторы, WebAuthn SDK, OAuth, e-mail, восстановление, регистрация). `authtoken` сохраняет JWT/HMAC и выпуск proof; `session` — record/bundle mapping и refresh crypto; `http` — cookie flags/сроки, `PrimaryLogin`, загрузка текущего пользователя и ошибки провайдеров. Исходящий discovery HTTP — `adapter/http/identity`; SQL/custom registry — `adapter/identity/customoauth`.
 - Потребители: `controller/` (HTTP), `middleware` (проверка сессии и доказательств через leaf core и token adapter), `model` (сохранённые error/table aliases). Сценарии не получают SDK/ORM types; HTTP passkey/OAuth/WeChat использует минимальные `PasskeyAccount` facts и `domain.FlowAuthorization`. Bound factory сохраняет первоначальный user record внутри технической сборки, без дополнительного SQL или whole-user DTO.
 
 ## Границы и долг
 
 - Модулю не принадлежат профиль и e-mail аккаунта как данные (accounts), права администраторов (authorization), PAT (personal_access_tokens).
 - Session/token/proof/login/email/passkey service facades удалены; соответствующие 56 allowlist entries сняты. Middleware и оставшиеся controller delegates используют настоящих владельцев, новых model/service forwarding layers нет.
-- SQL/locks/auth cache, records и migration/backfill ещё в `model/account_security.go`, `model/auth_flow.go`, `model/user_session.go`, факторах и account/key persistence; их общий storage lifecycle не перенесён этой частью.
-- ⚠ В `model` остаются aliases `ErrUserSession*`, `ErrAuthFlow*`, `ErrTwoFA*`, `ErrPasskeyNotFound`, `ErrEmailBinding*`, `ErrExternalIdentityAlreadyClaimed`, ошибки пароля/привязок до переноса реальных SQL consumers. Service и OAuth aliases этих ошибок удалены вместе с callers.
 - Controller callbacks login audit/profile и HTTP delegates сохраняются до перехода router на owning handlers. Identity core не зависит от parent app, middleware или HTTP adapters.
-- `password_login.Authenticate` получает фабрики ошибок от `adapter/gorm/accounts/record.PasswordLoginLookup` (адаптер accounts) — граница с accounts не тронута.
+- `password_login.Authenticate` получает значения ошибок через `adapter/gorm/accounts/record.PasswordLoginLookup` (адаптер accounts) — граница с accounts не тронута.
 - Сообщения об успехе и письма восстановления и подтверждения e-mail переводятся на язык запроса (zh-CN — прежние тексты). AST-генератор OpenAPI не выводит тип `common.TranslateMessage`, поэтому схема `message: string` этих ответов зафиксирована в `preserveIdentityHandlerContract`.
+
+## SQL и записи после волны 7j
+
+Единственный SQL owner — `adapter/gorm/identity.Store`; записи и hooks находятся в его `record` package.
+`app/identitystorage` передаёт поздний DB getter и account-cache/email-lock capabilities. Table aliases
+в model сохранены, workflow/error facades удалены. Auth-version initialization и legacy Telegram backfill
+остаются отдельными migration files в model, с прежним startup order и общим Claim primitive записи.
+Factor writes, claims, auth-version increment и session changes сохраняют исходные transaction boundaries.
+Email/WebAuthn/OAuth adapters получают нужные операции явно; обратных adapter→app импортов нет.
+`app/identitycore` собирает lifecycle; parent app передаёт callbacks login/OAuth/ceremony adapters.
+
+Native SQL tests перемещены к владельцу. Private SQLite fixture остаётся default; PostgreSQL включается
+только `WAVE7J_IDENTITY_POSTGRES=1` + `TEST_POSTGRES_DSN`, с private schema/startup search_path и двумя pool probes.
+Четыре rollback subcases проверяют отказ после изменения auth_version для backup replacement, 2FA disable,
+passkey upsert и passkey delete. Все factor rows и версия должны откатиться вместе.
+144 custom OAuth goldens и 83 новых compatibility goldens проверяются host verifier без update.
+Security guidance: OWASP Authentication и Session Management Cheat Sheets, ASVS 5.0.0; это structural
+перенос, полная ASVS compliance не заявляется. Host/PostgreSQL/real Redis acceptance отдельно.
+SQLite/MySQL not checked.

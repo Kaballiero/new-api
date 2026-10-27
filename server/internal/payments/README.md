@@ -55,9 +55,9 @@ SQL, records и projection — adapter/gorm/payments; исходящие API/sig
 требует main-only регистрации. Диагностика получает request context явно и выдерживает nil Gin/Request.
 
 Completion выбирает порядок lookup/provider/status/quota/Save/credit; adapter выполняет их в одном tx.
-FOR UPDATE использует прежний model.LockForUpdate: MySQL/PostgreSQL получают clause, SQLite пропускает.
-Общий adapter/wallet владеет capacity check, единственным atomic ceiling credit и post-commit cache sync;
-тот же tx передаёт redemption. Lua/key/schema не копируются. Cache credit не создаёт partial hash и не
+FOR UPDATE использует общий adapter/gorm/locking.LockForUpdate: MySQL/PostgreSQL получают clause, SQLite пропускает.
+Общий adapter/wallet владеет capacity check и единственным atomic ceiling credit;
+тот же tx передаёт redemption. Post-commit cache sync собирает app/payments через adapter/cache/accounts. Lua/key/schema не копируются. Cache credit не создаёт partial hash и не
 отменяет committed payment при ошибке. Receipt идёт после commit в LOG_DB; Pancake сохраняет RecordLog,
 остальные — RecordTopupLog с прежними payment metadata/IP. Audit продолжает писать существующий middleware.
 
@@ -83,7 +83,8 @@ Active catalog filter общий в domain.FilterActivePancakeProducts. Subscrip
 Прежний BRIDGE block app/payments/http.go, controller GetEpayClient/LockOrder/UnlockOrder,
 CreemProduct и requirePaymentCompliance удалены вместе с реальными потребителями. Controller top-up
 entrypoints сохраняются; model/topup.go и common status constants — строгие aliases. Shared
-model.LockForUpdate/SyncCreditUserQuotaCache/CacheDecrUserQuota ждут отдельного quota-cache owner.
+В волне7j shared lock принадлежит adapter/gorm/locking, user hash/quota/auth fence —
+adapter/cache/accounts; app/payments передаёт SQL/account/cache capabilities явно.
 
 Новых architecture exceptions нет. Schema, migrations, tags/indexes, money arithmetic, routes, ordering,
 query semantics и audit policy не менялись. Сохраняются известные #50–59 в TECH_DEBT; #52 и #55 —

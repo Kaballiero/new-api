@@ -69,9 +69,11 @@ Leaf-пакеты constant/common/dto/types/relaykit не импортируют
 
 ## Остатки и проверка
 
-model/task_model_alias.go остаётся единым executable routing/cache bridge для pricing/channel cache;
-alias ownership перенесено не полностью, удаление после появления их lifecycle owners (cleanup волны 7);
-это не record. Shared model quota/cache/lock primitives — до7. BillingGateway остаётся только для реальных
+Task alias view имеет одного владельца adapter/taskplugins/aliases; SQL reader находится у channels adapter,
+сборка pricing publication — app/pricingruntime. Shared quota/cache/lock перенесены в7j:
+adapter/cache/{accounts,apikeys}, adapter/gorm/{billing,locking,counters}; app/taskbillingruntime явно
+собирает TaskDelta/TaskPrices/Midjourney/TaskText, включая recipient-language capability.
+Log writer и export state принадлежат usage adapter. BillingGateway остаётся только для реальных
 violation/immutable billing/WSS consumers; gateway task metadata обращается к usage непосредственно.
 Filesystem artifact backend и plugin CRUD/protocol/runtime не перенесены.
 

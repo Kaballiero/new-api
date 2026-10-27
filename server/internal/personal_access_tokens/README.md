@@ -41,8 +41,8 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/personal_access_tokens.go`) �
 - Проверка PAT собирается в `internal/app/authentication/personal_access_tokens.go`; `middleware.personalAccessTokenAuth` создаёт её один раз через `sync.OnceValue` (BRIDGE для dashboard auth и аудита).
 - `internal/adapter/gorm/personal_access_tokens.Authentication` выполняет прежний поиск `users.access_token` с прежним подавлением SQL-логов; выборка и soft-delete semantics сохранены. Секрет не выходит из адаптера в результат сценария.
 - Сборка — `internal/app/personal_access_tokens.go`, один раз через `sync.OnceValue` в `controller/access_token.go`.
-- Хранение: `internal/adapter/gorm/personal_access_tokens` (`Store`) поверх GORM-записи `users` из `internal/adapter/gorm/accounts/record` и таблицы аудита; экземпляр создаёт `model.NewPersonalAccessTokenPersistence` (`model.DB`, `model.LOG_DB`, `lockForUpdate`).
-- Повторная проверка: `middleware.RequireSecurityProof` со скоупами `service.VerificationScopeAccessTokenGenerate` / `...Revoke`.
+- Хранение: `internal/adapter/gorm/personal_access_tokens` (`Store`) поверх GORM-записи `users` из `internal/adapter/gorm/accounts/record` и таблицы аудита; экземпляр один раз собирает `app/patstorage` (поздние DB/LOG_DB getters, shared `locking.LockForUpdate`).
+- Повторная проверка: `middleware.RequireSecurityProof` со скоупами `identity/domain.VerificationScopeAccessTokenGenerate` / `...Revoke`.
 - Ошибки операций безопасности: `internal/identity/transport` (`Writer.WriteError`, собирается `app.NewIdentityErrors`).
 - Аудит: `recordUserSecurityAudit` из `controller/audit.go`.
 - Потребители: `controller/access_token.go` (HTTP), `middleware.AccessTokenAudit` (отпечаток из `Caller`).
@@ -50,9 +50,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/personal_access_tokens.go`) �
 ## Границы и долг
 
 - Модулю не принадлежат проверка dashboard-сессий, аудит использования и чтение журнала аудита (`GET /api/audit*`, `controller.GetAuditLogs`).
-- ⚠ `model` всё ещё импортирует `internal` (1 запись в списке исключений архитектурного теста):
-  - `model/personal_access_tokens.go` → `adapter/gorm/personal_access_tokens`: `NewPersonalAccessTokenPersistence` нужен приватный `lockForUpdate`, а `UpdateUserAccessToken` используют тесты `model/` и `controller/`;
-  - Неиспользуемый после переноса `model.AccessTokenFingerprint` удалён; тесты используют `domain.Fingerprint`, исключение `model/audit_log.go -> personal_access_tokens/domain` удалено.
+- Model persistence factories удалены; SQL и record capabilities собирает app. GetAPI issuance принадлежит `accounts/initialize_pat`, dashboard PAT lifecycle остаётся здесь.
 - Ошибки хранения и формат ответа 401/500 принадлежат identity (`identity/transport.Writer.WriteError`); модуль только передаёт их дальше.
 
 `model.ValidateAccessToken` удалён вместе с двумя production-потребителями; существующие controller-тесты обращаются к сценарию через сборку. Новых model→internal исключений нет. HTTP valid/invalid/revoked зафиксированы в контрактном тесте apikeys на origin/main.

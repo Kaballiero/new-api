@@ -38,8 +38,8 @@
 | `get_key_status` | сводка `credit_summary` по ключу | маршрута нет (как и в `origin/main`); обработчик `controller.GetTokenStatus` остаётся в OpenAPI-генераторе |
 | `validate_key` | проверка ключа и владельца, срока/квоты с прежней записью статуса, IP, группы, ограничений моделей и pin канала; возвращает типизированный `Caller` | `TokenAuth`, ключевая ветка `TokenOrUserAuth`; `TokenAuthReadOnly` допускает expired/exhausted, но отклоняет disabled |
 | `validate_key.PrepareContext` | контекст доверенного временного ключа playground, включая auto-группы и pin; те же правила, что у ключа шлюза | мост `middleware.SetupContextForToken` для `controller/playground.go` |
-| `disable_model_limits` | снимает ограничения по моделям у ключа | без HTTP, через `model.DisableModelLimits` |
-| `delete_owned_key` | удаляет ключ владельца по id | без HTTP, через `model.DeleteTokenById` |
+| `disable_model_limits` | снимает ограничения по моделям у ключа | без HTTP, напрямую через сценарий |
+| `delete_owned_key` | удаляет ключ владельца по id | без HTTP, напрямую через сценарий |
 
 Ошибки сценариев — значения из `domain/errors.go`. Их переводит в HTTP общий `transport.WriteError`:
 - `ErrKeyNotFound` → 404 `token_not_found`;
@@ -58,20 +58,23 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/apikeys.go`) берёт ко�
 - Сборка — `internal/app/apikeys.go`, один раз через `sync.OnceValue` в `controller/token.go`.
 - Хранение: `internal/adapter/gorm/apikeys` (`Store`) поверх `internal/adapter/gorm/apikeys/record` (GORM-запись `tokens`, кэш-fence при записи, чтение по ключу через Redis-кэш).
 - Настройки: `internal/adapter/settings/apikeys` (`MaxQuota`), `operation_setting.GetMaxUserTokens`, `setting.GetMaxTokenAutoGroups`.
-- Группы: `service.IsUserSelectableGroup`, `service.GetUserAutoGroup`, `model.GetUserGroup`.
+- Группы: settings adapters групп и `app/accountstorage.Cache`.
 - Аудит: функции `tokenAuditParams` / `tokenBatchAuditParams` из `controller/audit.go`; запись события делает middleware `TokenOperationAudit`.
-- Потребители: `controller/token.go` (HTTP), `model/token.go` (шлюз и legacy-код).
+- Потребители: `controller/token.go` (HTTP), gateway и app assembly через явные capabilities.
 
 ## Границы и долг
 
-- Модулю не принадлежат списание и возврат квоты ключа (`model.IncreaseTokenQuota` / `DecreaseTokenQuota`, batch updater) и кэш ключей в Redis — это часть биллинга шлюза, они остаются в `model`.
-- ⚠ `model/token.go` всё ещё импортирует `internal` (6 записей в списке исключений архитектурного теста):
-  - `type Token record.Token` — GORM-запись живёт в адаптере, а `model.Token` на неё ссылается;
-  - `SearchUserTokens`, `DisableModelLimits`, `DeleteTokenById` создают usecase внутри `model`;
-  - `sanitizeLikePattern` / `validateLikePattern` (их используют `model/log.go`, `model/topup.go`) берутся из `domain`.
-
-  По решению архитектора wave 2a эти шесть зависимостей остаются вне scope. Удалён только импорт `validate_key`; `model.ValidateUserToken` и его stateful validation-адаптер удалены. `GetTokenByKey` остаётся общим техническим чтением для billing/batch; шлюз вызывает его только через адаптер сценария.
-- Мосты wave 2a: `middleware.gatewayKeyAuth` для прежних router-фабрик; `middleware.SetupContextForToken` для playground и существующих context-тестов. Оба помечены `BRIDGE`. Технические мосты `model.GetTokenByKey` (billing/batch/credential adapter) и `model.NewTokenPersistence` (mutation adapters/legacy) также отмечены `BRIDGE`. Контекст сохраняет прежние имена, типы и условность записей, включая частичное заполнение при отказе.
+- `model.Token` — строгий alias `adapter/gorm/apikeys/record.Token`. Record хранит таблицу и codec; `record.Store` выполняет mutations, `KeyReader` — чтение. Старые model factories и test-only facades удалены.
+- `adapter/cache/apikeys` владеет token hash/fence/init/delta; `adapter/gorm/apikeys.QuotaStore` — SQL и прежним enqueue. Единственные пять counter maps и flush принадлежат `adapter/gorm/counters`, reserve orchestration — billing adapter. Redis keys, Lua и TTL сохранены.
+- `app/apikeystorage` собирает persistence/reader/quota один раз, с поздними DB/key-column getters. Gateway credential adapter и Batch получают реальные reader/quota capabilities.
+- Сохраняются consumer-owned `middleware.gatewayKeyAuth` и `middleware.SetupContextForToken` для router/playground. Удаление этих transport bridges — следующий gateway slice; model forwarding layers отсутствуют.
 - Ограничения моделей передаются сценарием в контекст; фактический запрошенный model по-прежнему проверяет `middleware.Distribute` до выбора канала.
 - HTTP goldens `gateway_*` записаны на `origin/main` `6b0f439a4`; тест не обращается к upstream. Это проверка контракта, не подтверждение работы провайдера.
 - Ошибки шаблона поиска (`ErrSearch*Wildcards`, `ErrSearchKeywordTooShort`) возвращает и `model.sanitizeLikePattern`, который используют поиск логов и пополнений. Там они уходят клиенту английским текстом ошибки без перевода, пока эти модули не перенесены.
+
+`get_billing_subscription` владеет совместимым `/v1/dashboard/billing/subscription`: порядок чтения,
+unlimited 1e8, expiry и currency projection сохранены. `app.NewBillingCompatibilityHTTP` собирает handler
+и технический reader; `controller/billing.go` содержит entrypoint bridge до прямой router binding.
+83 общих raw goldens с PAT и usage включают 36 billing cases. Redis fence/reserve regression требует
+реальный Redis (`TestSharedQuotaCacheRealRedis`) и actual server version; miniredis не заменяет этот gate.
+SQLite/MySQL not checked; host/PostgreSQL acceptance отдельно.

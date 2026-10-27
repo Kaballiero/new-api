@@ -171,7 +171,7 @@
 - [x] 6b acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, 4822 goldens и 18 locale baselines без -update;
   PostgreSQL 15 full suite совпадает с 3b, system/setup/log cleanup и прежние PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] Content-only (commit 097c976b7): system/setup/task сообщения — i18n keys, English по умолчанию + ru, zh без изменений.
-- [ ] 6b gaps: FX refresh остаётся service BRIDGE (A2); pkg/perf_metrics остаётся collection/query/flush owner (A3=B).
+- [ ] 6b gaps: FX/metrics ownership реализован в 7h; fresh host/PostgreSQL acceptance остаётся обязательным.
 - [x] 6c implementation: deployments, catalog availability/prefill и notifications; once app wiring, gateway static snapshot/model view, channelruntime integration. Контракты: 8a12bf350.
 - [x] 6c commits: 078dce766 перенос, c651b5995 docs, e03272e52 test-fix PostgreSQL-теста setup из 6b (не хватало i18n.Init).
 - [x] 6c acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, 5717 goldens и 22 locale/log baselines без -update;
@@ -202,8 +202,7 @@
   Commits d5ef61335 перенос, 7f48acf1c docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, pricing/catalog/settings/channel PG-тесты зелёные. SQLite/MySQL не проверялись.
 
 
-- [ ] FX refresh owner (pricing/FX): перенести service.RefreshModelCostFX и replica lifecycle вместе с реальными consumers; убрать system FX BRIDGE, не копируя экономику.
-- [ ] Decide metrics owner (A or C): перенести единственный pkg/perf_metrics state/Record/Query/Summary/flush/SQL/Redis в system либо отдельный performance_metrics; RelayInfo mapping оставить gateway-owned.
+- [ ] 7h FX + metrics: pricing-owned FX record/SQL/RAM/refresh/replica lifecycle; system-owned metrics read/policy и leaf app/systemmetrics core/loop, adapters aggregation/SQL/Redis, gateway RelayInfo projection. Service FX/collector bodies и pkg/perf_metrics implementation удалены; model сохраняет table aliases. Назначенных 7h allowlist rows нет, новых исключений нет. Реализация и sandbox evidence отделены от обязательного fresh host/PostgreSQL и real Redis acceptance. SQLite/MySQL not checked.
 
 - [ ] Settings A2=B cleanup: перенести единственные `model.PublishOption`, `groupRatioOptionMutex`, alias facts и pricing/catalog option composition
   (`model/model_pricing_config.go`, `model/pricing_catalog_option.go`, `model/catalog_persistence.go`) вместе с реальными consumers
@@ -215,7 +214,7 @@
 
 - [x] 7i identity orchestration + transport: leaf `app/identitycore`, token/session/email/WebAuthn adapters, cleanup owner и custom OAuth management/discovery; service facades и 56 исключений удалены, семь HTTP model-imports заменены plain facts/bound factories. Записаны 144 immutable custom OAuth contracts. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
   Commits bcc76e3d4 контракты (144 новых эталона), 04fae5d87 перенос, a1efd6376 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и все goldens без -update, PostgreSQL 15 full suite без новых падений, identity PG-тесты зелёные. SQLite/MySQL не проверялись.
-- [ ] 7j identity SQL: `model/account_security.go`, `auth_flow.go`, sessions/factors и shared account/key/cache state → технические адаптеры с прежними транзакциями и блокировками.
+- [ ] 7j account/key/identity SQL + shared quota/cache: строгие User/Token/identity aliases; SQL/cache/reserve/locking/counters/log writer/subscription cache перенесены к единственным техническим владельцам, app собирает явные capabilities. GetAPI PAT initialization и billing compatibility — owning scenarios/HTTP. Удалены 39 оставшихся allowlist rows, новых нет; migrations/backfill/startup order сохранены. 83 новых origin-recorded compatibility goldens и 144 custom OAuth входят в immutable verifier. Реализация и sandbox handoff отделены от обязательных свежих host/PostgreSQL и real Redis acceptance. SQLite/MySQL not checked.
 - [ ] Убрать алиасы ошибок в `model`, `service`, `oauth`, когда у них не останется потребителей.
 - [x] 7i: `*model.User` и `*model.AuthFlowAuthorization` убраны из transport identity; SQL records остаются внутри adapters/composition.
 - [ ] Мосты `// BRIDGE:` — удалить все.

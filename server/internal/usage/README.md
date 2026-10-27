@@ -56,7 +56,7 @@ Sandbox checks не заменяют host HTTP/Redis/WSS/full suite и real MySQ
 
 `transport` содержит общие parsers/envelopes/i18n, не SQL и не orchestration. Deprecated search handlers — прямой transport response, без пустого usecase. domain.VisibilityPolicy описывает разрешения, не persisted JSON; codec применяет их с сохранением raw lexemes и исторического rejection precedence. Adapter не выбирает роль/лимиты/ранжирование. HTTP DTO и record раздельны.
 
-Quota export сохраняет один RAM cache и один batch queue в model до волны 7 (A2). usage app запускает quota flush немедленно при старте и далее через DataExportInterval минут с поздним export gate; общая counter composition internal/app/background.go запускает batch writer со sleep-first interval и прежнее shutdown поведение. Adapter flush сохраняет lock-through-I/O, ignored errors и clear-on-failure. Пустого flush usecase нет. system_task orchestration принадлежит internal/system; CountOldLog/DeleteOldLogBatch — adapter/gorm/usage.Cleanup с поздним LOG_DB, прежним ClickHouse branch и LIMIT semantics. Main task-state и log deletion не atomic; real-dialect acceptance остаётся отдельной проверкой (#41).
+Quota export сохраняет один RAM cache в `adapter/gorm/usage`, общий batch queue — `adapter/gorm/counters` (A2, волна 7j). usage app запускает quota flush немедленно при старте и далее через DataExportInterval минут с поздним export gate; общая counter composition internal/app/background.go запускает batch writer со sleep-first interval и прежнее shutdown поведение. Adapter flush сохраняет lock-through-I/O, ignored errors и clear-on-failure. Пустого flush usecase нет. system_task orchestration принадлежит internal/system; CountOldLog/DeleteOldLogBatch — adapter/gorm/usage.Cleanup с поздним LOG_DB, прежним ClickHouse branch и LIMIT semantics. Main task-state и log deletion не atomic; real-dialect acceptance остаётся отдельной проверкой (#41).
 
 347 `usage_read_*` goldens и default-locale origin baseline из commit 5ca688857 immutable. Parity cases посылают explicit zh-CN/zh-TW. English default и ru проверяются отдельно exact old→new таблицей; неизвестные storage errors не нормализуются. Commit 0 (05edd5ad1) устраняет wave-1 регрессию raw search errors до записи baseline.
 
@@ -69,3 +69,17 @@ InvalidRankingPeriod несёт period отдельным полем. Единс
 Simplified bytes для zh-TW. Domain policy содержит только permissions; malformed/rejection codec
 правила выводит сам record codec. Log kind constants имеют одного владельца domain; record экспортирует
 их для model alias compatibility (кратчайшая цепь при запрете model→domain импорта).
+
+## Технические владельцы после волны 7j
+
+`adapter/gorm/usage.Writer` содержит единственные log writer/observation и RAM quota-export cache.
+`app/usagestorage` передаёт поздние DB/LOG_DB, username и settings capabilities; отдельный LOG_DB сохраняется.
+Flush export сохраняет lock-through-I/O, clear-on-failure и ignored-error порядок; counter queue живёт отдельно
+в `adapter/gorm/counters` и сохраняет swap-before-I/O. `adapter/gorm/dbclock` сохраняет SQL dialect branches.
+Task/Batch/payment/notification adapters получают account/key/writer capabilities через app; копий состояния нет.
+
+`get_billing_usage` отвечает за `/v1/dashboard/billing/usage`: account/token read order, прежнее перетирание
+ошибки второго чтения, integer sum before float, единицы и error envelope сохранены. Handler собирается
+`app.NewBillingCompatibilityHTTP`; controller entrypoint остаётся bridge до router binding. Native observation
+test перемещён из model к writer owner; новые raw cases находятся в accounts compatibility corpus.
+Host/PostgreSQL и настоящий Redis проверяются отдельно. SQLite/MySQL not checked.

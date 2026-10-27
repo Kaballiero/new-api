@@ -47,7 +47,7 @@ Expire изменяет только pending order своего provider. Billin
 
 Balance: cached plan внутри tx → availability/strict decimal ceil → locked wallet → debit → grant →
 success order. TopUp history не создаётся. Guarded cache debit после commit использует единственное
-тело model.CacheDecrUserQuota. Ошибка cache не меняет committed result.
+тело adapter/cache/accounts.Store.CacheDecrUserQuota. Ошибка cache не меняет committed result.
 
 Stripe вызывает shared protocol client до INSERT, subscription mode/quantity1/plan price ID, wallet
 redirects, без top-up promotion flag. Creem вставляет pending до provider, quota metadata=0; ошибка
@@ -71,13 +71,12 @@ map traversal/partial count до failed commit; reset re-lock проверяет
 
 Реальные остатки и удалённый task bridge:
 
-- model/subscription_plan_cache.go: фактический plan/info HybridCache + lookup/invalidation для billing,
-  subscriptions adapters и immutable WSS. Удаление — общий технический cache owner и отдельное решение
-  о перемещении immutable caller; новых forwarders нет.
+- `adapter/cache/subscriptions.Store`: один plan/info HybridCache и прежние lookup/invalidation;
+  `app/subscriptionstorage` собирает его с SQL/DB-clock/account-cache capabilities.
 - Standalone subscription delta перенесена единственным телом в adapter/gorm/billing; task settlement
   использует отдельную owner-checked capability на том же tx. model/subscription_quota.go удалён, nested refund #27 сохранён.
-- model/user_cache.go: единственное CacheDecrUserQuota, механический export существующего guarded body.
-  Удаление — общий quota-cache owner рядом с LockForUpdate/SyncCreditUserQuotaCache (roadmap7).
+- `adapter/cache/accounts.Store` владеет guarded quota debit и auth fence; shared locking adapter
+  сохраняет прежнюю dialect ветку. Model forwarders отсутствуют.
 - controller/subscription*.go: прежние router entrypoints → sync.OnceValue app handlers.
 
 Сохраняются TECH_DEBT60–66; #63 и #65 — financial/resource candidates. Structural перенос сохраняет все

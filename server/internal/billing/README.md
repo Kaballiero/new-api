@@ -26,7 +26,7 @@
 
 Domain/usecase не импортируют Gin, GORM, Redis, common, model, service, relay или relaykit. Узкие storage/notifier порты объявлены рядом со сценариями; общий `domain.TokenReserver` нужен initial reserve и increase. `internal/app/billing.New` явно собирает stateless usecase-объекты один раз при подключении gateway-пакета.
 
-- `internal/adapter/gorm/billing.Store` вызывает существующие model quota primitives. Там остаются SQL, Lua, hydration/fallback, batch queue, компенсация и subscription transaction/locking. Новой схемы, миграций и Redis namespaces нет.
+- `internal/adapter/gorm/billing.Store` получает account/key/reserve/subscription capabilities из app. `ReserveStore` владеет reserve SQL/Lua orchestration и компенсацией; account/key hashes и fences — cache adapters; единственная counter queue — `adapter/gorm/counters`. Subscription transaction/locking сохраняет прежнего владельца. Новой схемы, миграций и Redis namespaces нет.
 - `internal/adapter/billing.Notification` переводит данные notice в прежний NotifyUser transport: language получателя, English по умолчанию; wire DTO принадлежат адаптеру, не бизнесу.
 - `relay/billing` — владелец gateway mapping: RelayInfo ↔ domain state, mutex request-local session, старый BillingSettler, Gin Refund, i18n → NewAPIError и error options. Business-state PostDelta переносится в RelayInfo без изменения consume-log JSON. Язык ошибок разрешается только при ошибке из сохранённых входов языка запроса; при nil Context/Request используется English.
 - `service.BillingGateway` — один временный интерфейс в терминах старого потребителя. `relay/billing.init` регистрирует единственную production реализацию; `relay/relay_adaptor.go` явно подключает её для всех relay entry points, включая plugin adapters. Service-only и adaptor-only binaries подключают `relay/billing` явно; тестовые binaries используют тот же механизм. Отдельного wiring в main или contracttest нет.
@@ -37,7 +37,7 @@ Domain/usecase не импортируют Gin, GORM, Redis, common, model, serv
 
 Initial wallet и OpenRouter additional reserve проверяют доступный остаток с held. Обычный wallet increase и terminal wallet/token debit сохраняют возможность долга. Ошибка token после успешного обычного funding settle не запускает refund funding; known-cost OpenRouter failures сохраняют applied outcome для ручного ремонта. WSS может повторить только неуспешную terminal leg. Это request-local защита, не durable exact-once при падении процесса.
 
-Subscription initial refund повторяется максимум 3 раза с 200/400 ms; extraReserved/token/wallet — одна попытка. `TECH_DEBT.md` #26–29 описывают legacy debt, nested subscription refund transaction, notification snapshot и несовместимость placeholders с webhook renderer. Шаблон и отдельное поле values quota webhook сохранены. Общие cache primitives остаются в model до волны 7.
+Subscription initial refund повторяется максимум 3 раза с 200/400 ms; extraReserved/token/wallet — одна попытка. `TECH_DEBT.md` #26–29 описывают legacy debt, nested subscription refund transaction, notification snapshot и несовместимость placeholders с webhook renderer. Шаблон и отдельное поле values quota webhook сохранены. Общие cache primitives перенесены в `adapter/cache/{accounts,apikeys,quota,subscriptions}` в волне 7j.
 
 Мосты: service/billing.go оставляет PreConsumeBilling/SettleWssBilling/PostConsumeQuota для immutable billing/WSS tests и violation; ordinary SettleBilling удалён после переезда recording. PostText/cache inference нужны immutable billing oracle, Pre/PostWss/CaptureFX — WSS characterization; TokenParams/CurrentFX/ApplyFX сохраняются только при оставшихся immutable/violation/FX consumers; Batch использует billing domain и core FX composition. Gateway Task/MJ и owner regressions используют usage непосредственно; прежние FX/plugin/MJ/saturation delegates bridge удалены. Batch-only clamp/tiered delegates удалены: Batch получает serializer напрямую через usage adapter. Ручного test-only production mapping нет. Task/Batch передают конкретные FX/clamp/tiered/plugin metadata в единственный usage serializer. Второго registry и новых architecture exceptions нет. Mutable tests используют владельцев; отдельные facades ради них не сохраняются.
 
@@ -73,3 +73,11 @@ Task plugins: observer admission/timeout/reload принадлежат `internal
 FX и same-transaction subscription predicates не менялись. Provenance projector теперь `relay/taskview`.
 
 Delivery capability `notifications.Send` передаётся billing renderer через `app/billing`; renderer сохраняет язык пользователя, templates и values. Delivery/limiter принадлежат notifications, общие SMTP/HTTP/worker primitives остаются техническими зависимостями.
+
+`app/quotaruntime` собирает reserve owner без второго Redis state. `adapter/gorm/locking` содержит прежний
+FOR UPDATE dialect branch. Counter enqueue сохраняет overflow policy; flush меняет все пять maps под mutex
+до I/O, после чего читает актуальный DB getter для каждого SQL update. Ошибки и clear/swap semantics прежние.
+`service.BillingGateway` остаётся до 7k; его narrow `RecordViolationFee` capability передаёт counters/log effects
+существующей relay/billing реализации без service→internal импортов, fee policy и порядок эффектов сохранены.
+Sandbox evidence не заменяет PostgreSQL+real Redis, whole/default/full и host acceptance.
+SQLite/MySQL not checked.
