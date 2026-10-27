@@ -22,16 +22,16 @@
 | Сценарий | Что делает | Маршрут |
 |---|---|---|
 | `get_permission_catalog` | каталог ресурсов и действий, роли с базовыми разрешениями (для редактора прав) | `GET /api/authz/catalog` + `AdminAuth` |
-| `check_permission` | разрешено ли действие пользователю | без HTTP, через `authz.Can` (`middleware.RequirePermission`) |
-| `get_capabilities` | матрица разрешений пользователя по каталогу | без HTTP, через `authz.Capabilities` / `ExplicitUserPermissions` (профиль, карточка аккаунта) |
-| `get_user_overrides` | явные переопределения пользователя | без HTTP, через `authz.ExplicitUserOverrides` |
-| `set_user_permissions` | записать переопределения в загруженную политику | без HTTP, через `authz.SetUserPermissions` |
-| `set_user_permissions_in_tx` | записать переопределения в транзакции вызывающего (политика перечитывается после коммита) | без HTTP, через `authz.SetUserPermissionsInTx` (accounts) |
-| `clear_user_permissions` | снять все переопределения пользователя в загруженной политике | без HTTP, через `authz.ClearUserPermissions` |
-| `clear_user_permissions_in_tx` | снять переопределения в транзакции вызывающего | без HTTP, через `authz.ClearUserPermissionsInTx` (accounts) |
-| `initialize_authorization` | при старте: на master-узле upsert ролей и пересоздание базовых разрешений, затем создание enforcer | без HTTP, `authz.Init` из `main.go` |
-| `reload_policy` | перечитать политику из БД | без HTTP, `authz.ReloadPolicy` (accounts после коммита) |
-| `sync_policy` | фоновое перечитывание политики раз в `SyncFrequency` секунд с логом ошибок | фоновая задача `authz.StartPolicySync` из `main.go` |
+| `check_permission` | разрешено ли действие пользователю | без HTTP, через `authorizationcore.Can` (`middleware.RequirePermission`) |
+| `get_capabilities` | матрица разрешений пользователя по каталогу | без HTTP, через `authorizationcore.Capabilities` (профиль, карточка аккаунта) |
+| `get_user_overrides` | явные переопределения пользователя | без HTTP, через сценарий `get_user_overrides` |
+| `set_user_permissions` | записать переопределения в загруженную политику | без HTTP, через `authorizationcore.SetUserPermissions` |
+| `set_user_permissions_in_tx` | записать переопределения в транзакции вызывающего (политика перечитывается после коммита) | без HTTP, через `authorizationcore.SetUserPermissionsInTx` (accounts) |
+| `clear_user_permissions` | снять все переопределения пользователя в загруженной политике | без HTTP, через сценарий `clear_user_permissions` |
+| `clear_user_permissions_in_tx` | снять переопределения в транзакции вызывающего | без HTTP, через `authorizationcore.ClearUserAuthorizationInTx` (accounts) |
+| `initialize_authorization` | при старте: на master-узле upsert ролей и пересоздание базовых разрешений, затем создание enforcer | без HTTP, `authorizationcore.Init` из `main.go` |
+| `reload_policy` | перечитать политику из БД | без HTTP, `authorizationcore.ReloadPolicy` (accounts после коммита) |
+| `sync_policy` | фоновое перечитывание политики раз в `SyncFrequency` секунд с логом ошибок | фоновая задача `authorizationcore.StartPolicySync` из `main.go` |
 
 Ошибки сценариев — значения из `domain/errors.go`:
 - `ErrEnforcerNotInitialized` — операция с политикой до `initialize_authorization`, текст прежний (`authz enforcer is not initialized`);
@@ -45,16 +45,17 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/authorization.go`) читае
 
 - Чужие `domain` модуль не импортирует.
 - Сборка обработчика каталога — `internal/app/authorization.go`, один раз через `sync.OnceValue` в `controller/authz.go`.
-- Остальные сценарии собирает `service/authz/authz.go`: там же живёт текущий enforcer (`enforcer` под `RWMutex`), реестр ресурсов (`RegisterResource`) и функции-обёртки, которые вызывают `middleware`, `controller` и `internal/app/accounts.go`.
+- Leaf `internal/app/authorizationcore` собирает проверки, capabilities, запись загруженной политики и reload/sync один раз через `sync.OnceValue`; каталог и встроенные роли общие. Он не импортирует parent app, middleware или gateway, поэтому middleware и accounts используют одну сборку без цикла. Init получает текущую БД, операции in-tx — транзакцию вызывающего; эти адаптеры создаются на соответствующей границе вызова.
 - Адаптеры:
-  - `internal/adapter/casbin/authorization` — модель Casbin, публикация и перечитывание enforcer (`Engine`, `State`, `Policy`);
+  - `internal/adapter/casbin/authorization` — модель Casbin, единственное состояние enforcer и его `RWMutex`, публикация и перечитывание (`Engine`, `State`, `Policy`);
   - `internal/adapter/gorm/authorization` — Casbin `persist.Adapter` поверх `casbin_rule` и `Store` (upsert ролей, сброс базовой политики, запись переопределений в транзакции);
   - `internal/adapter/gorm/authorization/record` — GORM-записи `CasbinRule`, `AuthzRole` (`model` держит алиасы для миграций).
-- Потребители: `middleware.RequirePermission`, профиль и карточка аккаунта (`authz.Capabilities`), изменение прав администратора в accounts, `main.go` (инициализация и синхронизация).
+- Потребители: `middleware.RequirePermission`, профиль и карточка аккаунта (`authorizationcore.Capabilities`), изменение прав администратора в accounts, `main.go` (инициализация и синхронизация).
 
 ## Границы и долг
 
 - Модулю не принадлежат системные роли пользователей (`common.Role*`) и решение, кому можно менять права: это accounts.
-- ⚠ `service/authz/authz.go` создаёт usecase внутри `service` (14 записей в списке исключений архитектурного теста). Перенести сборку в `app` нельзя, пока `middleware.RequirePermission` вызывает `authz.Can`: `middleware` не может импортировать `internal/app` (`app` сам импортирует `middleware`). Разбираем вместе с переносом проверки прав из `middleware`.
-- ⚠ `model/casbin_rule.go` и `model/authz_role.go` — алиасы GORM-записей адаптера для миграций (2 записи в списке исключений).
+- `service/authz` удалён; legacy-исключений и мостов для authorization нет. `model/casbin_rule.go` и `model/authz_role.go` остаются строгими алиасами записей для миграций.
 - `reload_policy` и `sync_policy` возвращают и логируют ошибку адаптера без классификации.
+
+Инициализация сохраняет порядок: master upsert ролей → reset базовой политики → создание и загрузка enforcer → запись разрешений admin. Follower только создаёт и загружает enforcer. In-tx запись не меняет RAM; accounts завершает транзакцию и затем перечитывает политику. Rollback не публикует изменения. Синхронизация на каждом узле сначала ждёт `SyncFrequency`, затем выполняет reload; неположительный интервал отключает цикл.
