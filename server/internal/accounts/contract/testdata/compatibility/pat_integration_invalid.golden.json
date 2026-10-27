@@ -1,0 +1,164 @@
+{
+  "abilities": [],
+  "audit": [
+    {
+      "action": "getapi.users.initialize-pat",
+      "actor_role": 10,
+      "auth_method": "access_token",
+      "category": "operation",
+      "content": "",
+      "created_at": 946684800,
+      "event_id": "\u003caudit_logs-event_id-1\u003e",
+      "id": 1,
+      "ip": "192.0.2.1",
+      "method": "POST",
+      "other": "{\"root_info\":{\"integration_id\":\"\",\"target_user_id\":0}}",
+      "request_id": "\u003caudit_logs-request_id-1\u003e",
+      "route": "/api/getapi/users/:user_id/pat",
+      "status": 403,
+      "success": 0,
+      "token_ref": "",
+      "user_agent": "",
+      "user_id": 2,
+      "username": "contract-admin"
+    },
+    {
+      "action": "",
+      "actor_role": 10,
+      "auth_method": "access_token",
+      "category": "access_token",
+      "content": "",
+      "created_at": 946684800,
+      "event_id": "\u003caudit_logs-event_id-2\u003e",
+      "id": 2,
+      "ip": "192.0.2.1",
+      "method": "POST",
+      "other": "{}",
+      "request_id": "\u003caudit_logs-request_id-1\u003e",
+      "route": "/api/getapi/users/:user_id/pat",
+      "status": 403,
+      "success": 0,
+      "token_ref": "2a286af128690ee2e4792be35235e13c9b1d324571e5e964d4496642c0171b2b",
+      "user_agent": "",
+      "user_id": 2,
+      "username": "contract-admin"
+    }
+  ],
+  "channels": [],
+  "credentials": [
+    {
+      "access_token": "contracttestpersonalaccesstoken1",
+      "access_token_created_at": null,
+      "auth_version": 1,
+      "id": 1,
+      "quota": 1000000,
+      "role": 1,
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "access_token": "wave6c-admin-pat",
+      "access_token_created_at": null,
+      "auth_version": 1,
+      "id": 2,
+      "quota": 1000000,
+      "role": 10,
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "access_token": "wave6c-root-pat",
+      "access_token_created_at": null,
+      "auth_version": 1,
+      "id": 3,
+      "quota": 1000000,
+      "role": 100,
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    },
+    {
+      "access_token": null,
+      "access_token_created_at": null,
+      "auth_version": 1,
+      "id": 41,
+      "quota": 1234567,
+      "role": 1,
+      "status": 1,
+      "used_quota": 125007,
+      "username": "pat-target"
+    }
+  ],
+  "logs": [],
+  "models": [],
+  "observations": [
+    {
+      "body": "{\"code\":\"GETAPI_CAPABILITY_DENIED\",\"message\":\"Integration capability required\",\"success\":false}",
+      "headers": {
+        "Cache-Control": [
+          "no-store"
+        ],
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/getapi/users/41/pat",
+      "status": 403
+    }
+  ],
+  "options": [],
+  "prefill": [],
+  "users": [
+    {
+      "email": "",
+      "group": "default",
+      "id": 1,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-user"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 2,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 10,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-admin"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 3,
+      "quota": 1000000,
+      "request_count": 0,
+      "role": 100,
+      "setting": "",
+      "status": 1,
+      "used_quota": 0,
+      "username": "contract-root"
+    },
+    {
+      "email": "",
+      "group": "default",
+      "id": 41,
+      "quota": 1234567,
+      "request_count": 0,
+      "role": 1,
+      "setting": "",
+      "status": 1,
+      "used_quota": 125007,
+      "username": "pat-target"
+    }
+  ],
+  "vendors": []
+}
