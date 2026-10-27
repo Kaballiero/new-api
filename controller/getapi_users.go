@@ -115,7 +115,7 @@ func writeGetAPIError(c *gin.Context, err error) {
 	status := http.StatusServiceUnavailable
 	code := model.ErrGetAPICredentialUnavailable.Error()
 	switch {
-	case errors.Is(err, model.ErrGetAPIInvalidRequest):
+	case errors.Is(err, model.ErrGetAPIInvalidRequest), errors.Is(err, model.ErrWalletQuotaLimitExceeded):
 		status = http.StatusBadRequest
 		code = err.Error()
 	case errors.Is(err, model.ErrGetAPICapabilityDenied), errors.Is(err, model.ErrGetAPITargetRoleDenied):
@@ -124,9 +124,38 @@ func writeGetAPIError(c *gin.Context, err error) {
 	case errors.Is(err, model.ErrGetAPIAccountNotFound), errors.Is(err, gorm.ErrRecordNotFound):
 		status = http.StatusNotFound
 		code = model.ErrGetAPIAccountNotFound.Error()
-	case errors.Is(err, model.ErrGetAPICreateConflict), errors.Is(err, model.ErrGetAPIUsernameMismatch):
+	case errors.Is(err, model.ErrGetAPIQuotaCreditConflict), errors.Is(err, model.ErrGetAPICreateConflict), errors.Is(err, model.ErrGetAPIUsernameMismatch):
 		status = http.StatusConflict
 		code = err.Error()
 	}
 	c.JSON(status, gin.H{"success": false, "code": code, "message": "GetAPI request could not be completed"})
+}
+
+func CreditGetAPIUserQuota(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("user_id"))
+	if err != nil || id <= 0 {
+		writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
+		return
+	}
+	c.Set("getapi_target_user_id", id)
+	raw, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 4096))
+	var fields map[string]json.RawMessage
+	if err != nil || common.HasDuplicateJSONKeys(raw) || common.Unmarshal(raw, &fields) != nil || len(fields) != 2 || common.GetJsonType(fields["operationKey"]) != "string" || common.GetJsonType(fields["quota"]) != "number" {
+		writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
+		return
+	}
+	var req struct {
+		OperationKey string `json:"operationKey"`
+		Quota        int    `json:"quota"`
+	}
+	if common.Unmarshal(raw, &req) != nil {
+		writeGetAPIError(c, model.ErrGetAPIInvalidRequest)
+		return
+	}
+	result, err := model.CreditGetAPIUserQuota(id, req.OperationKey, req.Quota)
+	if err != nil {
+		writeGetAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }

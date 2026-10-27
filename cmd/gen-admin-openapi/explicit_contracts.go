@@ -8,6 +8,8 @@ import (
 
 var getAPIErrorCodes = []string{
 	"GETAPI_INVALID_REQUEST",
+	"GETAPI_QUOTA_CREDIT_CONFLICT",
+	"wallet quota limit exceeded",
 	"AUTH_UNAUTHORIZED",
 	"GETAPI_CAPABILITY_DENIED",
 	"GETAPI_ACCOUNT_NOT_FOUND",
@@ -225,6 +227,9 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 		}
 		if route.HandlerName == "ProvisionGetAPIUser" {
 			enrichGetAPIContract(op, true)
+		}
+		if route.HandlerName == "CreditGetAPIUserQuota" {
+			enrichGetAPIQuotaCreditContract(op)
 		}
 		if route.HandlerName == "InitializeGetAPIPAT" {
 			enrichGetAPIInitializeContract(op)
@@ -660,4 +665,38 @@ func normalizeAggregateSchemas(schemas map[string]any) {
 			}
 		}
 	}
+}
+
+func enrichGetAPIQuotaCreditContract(op map[string]any) {
+	responses := map[string]any{}
+	for _, status := range []string{"200", "400", "401", "403", "404", "409", "503"} {
+		schema := "GetApiErrorResponse"
+		if status == "200" {
+			schema = "GetAPIQuotaCreditResponse"
+		}
+		response := buildResponse(respSpec{Custom: schema})["200"].(map[string]any)
+		response["headers"] = map[string]any{"Cache-Control": map[string]any{"schema": map[string]any{"type": "string", "enum": []string{"no-store"}}}}
+		responses[status] = response
+	}
+	op["responses"] = responses
+	op["operationId"] = "creditGetApiUserQuota"
+	op["summary"] = "Idempotently credit user quota"
+	op["description"] = "Requires an enabled admin/root principal with getapi.users.credit-quota in GETAPI_INTEGRATIONS. operationKey is globally unique and compared exactly (case and trailing spaces are significant). First credit returns applied=true; replay with the same user and quota returns alreadyApplied=true and the current database quota. A different user or quota returns 409. Quota overflow returns 400. No-store responses."
+	op["parameters"] = []any{map[string]any{"name": "user_id", "in": "path", "required": true, "schema": map[string]any{"type": "integer", "minimum": 1}}}
+	op["requestBody"] = map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/GetAPIQuotaCreditRequest"}}}}
+}
+
+func enrichGetAPIQuotaCreditSchemas(schemas map[string]any) {
+	schemas["GetAPIQuotaCreditRequest"] = map[string]any{
+		"type": "object", "additionalProperties": false, "required": []string{"operationKey", "quota"},
+		"properties": map[string]any{
+			"operationKey": map[string]any{"type": "string", "minLength": 1, "maxLength": 200},
+			"quota":        map[string]any{"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+		},
+	}
+	result := structToSchema(modelTypes["GetAPIQuotaCreditResult"])
+	result["required"] = []string{"applied", "alreadyApplied", "quota"}
+	schemas["GetAPIQuotaCreditResult"] = result
+	schemas["GetAPIQuotaCreditResponse"] = wrapResponse(map[string]any{"$ref": "#/components/schemas/GetAPIQuotaCreditResult"})
+	schemas["GetAPIQuotaCreditResponse"].(map[string]any)["required"] = []string{"success", "data"}
 }

@@ -339,6 +339,7 @@ func migrateDB() error {
 		&Token{},
 		&User{},
 		&UserSession{},
+		&GetAPIQuotaCredit{},
 		&AuthFlow{},
 		&ExternalIdentityClaim{},
 		&PasskeyCredential{},

@@ -7,9 +7,13 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -427,6 +431,230 @@ func TestGetAPIProvisionInitialQuota(t *testing.T) {
 			require.ErrorIs(t, err, model.ErrGetAPICapabilityDenied)
 			require.NoError(t, model.DB.Model(&model.User{}).Where("username = ?", "quota-rollback").Count(&deniedCount).Error)
 			assert.Zero(t, deniedCount)
+		})
+	}
+}
+
+// Exercise the same HTTP and persistence contracts against each real dialect.
+// The database helper creates isolated loopback databases for server engines.
+func TestGetAPIQuotaCredits(t *testing.T) {
+	for _, tc := range []struct {
+		name, env string
+		typ       common.DatabaseType
+	}{
+		{"sqlite", "", common.DatabaseTypeSQLite},
+		{"mysql", "TEST_MYSQL_DSN", common.DatabaseTypeMySQL},
+		{"postgres", "TEST_POSTGRES_DSN", common.DatabaseTypePostgreSQL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.env != "" && os.Getenv(tc.env) == "" {
+				t.Skip(tc.env + " is not configured")
+			}
+			principal, pat := setupAccessTokenAudit(t)
+			var db *gorm.DB
+			if tc.name == "sqlite" {
+				var err error
+				db, err = gorm.Open(sqlite.Open("file:"+t.TempDir()+"/credits.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(OFF)"), &gorm.Config{})
+				require.NoError(t, err)
+			} else {
+				db, _ = newAuditTestDatabase(t, tc.name, os.Getenv(tc.env))
+			}
+			conn, err := db.DB()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.Close() })
+			// Two independent connections exercise the actual database lock boundary.
+			conn.SetMaxOpenConns(4)
+			require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.AuditLog{}))
+			principal.Id = 0
+			require.NoError(t, db.Create(principal).Error)
+			target := model.User{Username: "credit-target", Password: "placeholder", AffCode: "credit-target", Quota: 100}
+			other := model.User{Username: "credit-other", Password: "placeholder", AffCode: "credit-other", Quota: 200}
+			require.NoError(t, db.Create(&target).Error)
+			require.NoError(t, db.Create(&other).Error)
+			// Upgrade an existing users table, then restart migration twice. Preserve data
+			// and a durable receipt, including its unique operation key.
+			require.NoError(t, db.AutoMigrate(&model.GetAPIQuotaCredit{}))
+			seed := model.GetAPIQuotaCredit{OperationKey: []byte("historical"), UserID: target.Id, Quota: 1, CreatedAt: 1}
+			require.NoError(t, db.Create(&seed).Error)
+			for range 2 {
+				require.NoError(t, db.AutoMigrate(&model.GetAPIQuotaCredit{}))
+			}
+			require.Error(t, db.Create(&model.GetAPIQuotaCredit{OperationKey: []byte("historical"), UserID: target.Id, Quota: 1}).Error)
+			model.DB, model.LOG_DB = db, db
+			common.SetDatabaseTypes(tc.typ, tc.typ)
+			var version string
+			versionSQL := "SELECT version()"
+			if tc.name == "sqlite" {
+				versionSQL = "SELECT sqlite_version()"
+			}
+			require.NoError(t, db.Raw(versionSQL).Scan(&version).Error)
+			t.Logf("database version: %s", version)
+			cfg, err := common.Marshal([]map[string]any{{"integration_id": "test", "principal_user_id": principal.Id, "capabilities": []string{"getapi.users.credit-quota"}}})
+			require.NoError(t, err)
+			t.Setenv("GETAPI_INTEGRATIONS", string(cfg))
+			r := gin.New()
+			r.POST("/api/getapi/users/:user_id/quota-credits", middleware.GetAPIAuth("getapi.users.credit-quota"), CreditGetAPIUserQuota)
+			post := func(id int, body, token string) *httptest.ResponseRecorder {
+				q := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/getapi/users/%d/quota-credits", id), strings.NewReader(body))
+				if token != "" {
+					q.Header.Set("Authorization", "Bearer "+token)
+				}
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, q)
+				return w
+			}
+			cache := miniredis.RunT(t)
+			previousRDB, previousRedisEnabled := common.RDB, common.RedisEnabled
+			common.RDB = redis.NewClient(&redis.Options{Addr: cache.Addr()})
+			common.RedisEnabled = true
+			t.Cleanup(func() {
+				_ = common.RDB.Close()
+				common.RDB, common.RedisEnabled = previousRDB, previousRedisEnabled
+			})
+			cacheKey := fmt.Sprintf("user:%d", target.Id)
+			_, err = model.GetUserCache(target.Id)
+			require.NoError(t, err)
+			require.Equal(t, "100", cache.HGet(cacheKey, "Quota"))
+			body := `{"operationKey":"payment:1","quota":50}`
+			first := post(target.Id, body, pat)
+			require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+			assert.JSONEq(t, `{"success":true,"data":{"applied":true,"alreadyApplied":false,"quota":150}}`, first.Body.String())
+			assert.Equal(t, "150", cache.HGet(cacheKey, "Quota"))
+			// A replay reports the current balance, rather than the original snapshot.
+			require.NoError(t, db.Model(&target).Update("quota", 145).Error)
+			replay := post(target.Id, body, pat)
+			require.Equal(t, http.StatusOK, replay.Code, replay.Body.String())
+			assert.JSONEq(t, `{"success":true,"data":{"applied":false,"alreadyApplied":true,"quota":145}}`, replay.Body.String())
+			assert.Equal(t, "150", cache.HGet(cacheKey, "Quota"))
+			// Force a stale initial lookup of a committed receipt. The INSERT must
+			// hit the real unique constraint, roll back, then replay in a fresh transaction.
+			lookups, duplicateInserts := 0, 0
+			const callback = "test:quota_credit_unique_retry"
+			require.NoError(t, db.Callback().Query().After("gorm:query").Register(callback, func(tx *gorm.DB) {
+				if receipt, ok := tx.Statement.Dest.(*model.GetAPIQuotaCredit); ok {
+					lookups++
+					if lookups == 1 {
+						*receipt = model.GetAPIQuotaCredit{}
+						tx.Error, tx.RowsAffected = gorm.ErrRecordNotFound, 0
+					}
+				}
+			}))
+			require.NoError(t, db.Callback().Create().After("gorm:create").Register(callback, func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Dest.(*model.GetAPIQuotaCredit); ok && tx.Error != nil {
+					duplicateInserts++
+				}
+			}))
+			t.Cleanup(func() {
+				_ = db.Callback().Query().Remove(callback)
+				_ = db.Callback().Create().Remove(callback)
+			})
+			require.NoError(t, db.Model(&target).Update("quota", common.MaxWalletQuota).Error)
+			retried := post(target.Id, body, pat)
+			require.NoError(t, db.Callback().Query().Remove(callback))
+			require.NoError(t, db.Callback().Create().Remove(callback))
+			require.Equal(t, http.StatusOK, retried.Code, retried.Body.String())
+			assert.JSONEq(t, fmt.Sprintf(`{"success":true,"data":{"applied":false,"alreadyApplied":true,"quota":%d}}`, common.MaxWalletQuota), retried.Body.String())
+			require.NoError(t, db.Model(&target).Update("quota", 145).Error)
+			assert.Equal(t, 2, lookups)
+			assert.Equal(t, 1, duplicateInserts)
+			assert.Equal(t, "150", cache.HGet(cacheKey, "Quota"))
+			assert.Equal(t, http.StatusConflict, post(target.Id, `{"operationKey":"payment:1","quota":51}`, pat).Code)
+			assert.Equal(t, http.StatusConflict, post(other.Id, body, pat).Code)
+			assert.Equal(t, http.StatusConflict, post(999999, body, pat).Code)
+			assert.Equal(t, http.StatusNotFound, post(999999, `{"operationKey":"missing-user","quota":50}`, pat).Code)
+			assert.Equal(t, http.StatusUnauthorized, post(target.Id, body, "").Code)
+			cfg, err = common.Marshal([]map[string]any{{"integration_id": "test", "principal_user_id": principal.Id, "capabilities": []string{"getapi.users.provision"}}})
+			require.NoError(t, err)
+			t.Setenv("GETAPI_INTEGRATIONS", string(cfg))
+			assert.Equal(t, http.StatusForbidden, post(target.Id, body, pat).Code)
+			cfg, err = common.Marshal([]map[string]any{{"integration_id": "test", "principal_user_id": principal.Id, "capabilities": []string{"getapi.users.provision", "getapi.users.credit-quota"}}})
+			require.NoError(t, err)
+			t.Setenv("GETAPI_INTEGRATIONS", string(cfg))
+			for _, invalid := range []string{
+				`{}`, `{"operationKey":"","quota":1}`, `{"operationKey":"x","quota":0}`, `{"operationKey":"x","quota":-1}`,
+				`{"operationKey":"x","quota":1.5}`, `{"operationKey":"x","quota":null}`, `{"operationKey":null,"quota":1}`,
+				`{"operationKey":"x","quota":18446744073709551615}`, `{"operationKey":"x","quota":1,"extra":true}`,
+				`{"operationKey":"x","quota":1,"quota":2}`, fmt.Sprintf(`{"operationKey":%q,"quota":1}`, strings.Repeat("x", 201)),
+			} {
+				assert.Equal(t, http.StatusBadRequest, post(target.Id, invalid, pat).Code, invalid)
+			}
+			assert.Equal(t, http.StatusBadRequest, post(0, body, pat).Code)
+			// Distinct binary identities must survive a case-insensitive MySQL collation.
+			for _, key := range []string{"Key", "key", "key ", strings.Repeat("😀", 200)} {
+				w := post(other.Id, fmt.Sprintf(`{"operationKey":%q,"quota":1}`, key), pat)
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				assert.Contains(t, w.Body.String(), `"applied":true`)
+			}
+			require.NoError(t, db.Model(&other).Update("quota", common.MaxWalletQuota).Error)
+			overflow := post(other.Id, `{"operationKey":"overflow","quota":1}`, pat)
+			assert.Equal(t, http.StatusBadRequest, overflow.Code, overflow.Body.String())
+			var count int64
+			require.NoError(t, db.Model(&model.GetAPIQuotaCredit{}).Where("operation_key = ?", []byte("overflow")).Count(&count).Error)
+			assert.Zero(t, count)
+			// Overflow must not consume the key: a corrected balance can be credited.
+			require.NoError(t, db.Model(&other).Update("quota", 200).Error)
+			assert.Equal(t, http.StatusOK, post(other.Id, `{"operationKey":"overflow","quota":1}`, pat).Code)
+			for _, differentUsers := range []bool{false, true} {
+				key := fmt.Sprintf("race:%v", differentUsers)
+				raceBody := fmt.Sprintf(`{"operationKey":%q,"quota":25}`, key)
+				ids := []int{target.Id, target.Id}
+				if differentUsers {
+					ids[1] = other.Id
+				}
+				responses := make([]*httptest.ResponseRecorder, 2)
+				start := make(chan struct{})
+				var wg sync.WaitGroup
+				for i := range 2 {
+					wg.Go(func() { <-start; responses[i] = post(ids[i], raceBody, pat) })
+				}
+				close(start)
+				wg.Wait()
+				applied, replayed, conflicts := 0, 0, 0
+				for _, w := range responses {
+					if w.Code == http.StatusConflict {
+						conflicts++
+						continue
+					}
+					require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+					var envelope struct {
+						Success bool                          `json:"success"`
+						Data    model.GetAPIQuotaCreditResult `json:"data"`
+					}
+					require.NoError(t, common.Unmarshal(w.Body.Bytes(), &envelope))
+					require.True(t, envelope.Success)
+					if envelope.Data.Applied {
+						applied++
+					}
+					if envelope.Data.AlreadyApplied {
+						replayed++
+					}
+				}
+				assert.Equal(t, 1, applied)
+				if differentUsers {
+					assert.Equal(t, 1, conflicts)
+				} else {
+					assert.Equal(t, 1, replayed)
+				}
+				require.NoError(t, db.Model(&model.GetAPIQuotaCredit{}).Where("operation_key = ?", []byte(key)).Count(&count).Error)
+				assert.EqualValues(t, 1, count)
+			}
+			var persisted model.User
+			require.NoError(t, db.First(&persisted, target.Id).Error)
+			// Same-user race adds exactly 25; the other race adds 25 to just one wallet.
+			var otherPersisted model.User
+			require.NoError(t, db.First(&otherPersisted, other.Id).Error)
+			assert.Equal(t, 145+25+201+25, persisted.Quota+otherPersisted.Quota)
+			// A lost successful response remains replayable after soft deletion.
+			require.NoError(t, db.Delete(&target).Error)
+			deletedReplay := post(target.Id, body, pat)
+			require.Equal(t, http.StatusOK, deletedReplay.Code, deletedReplay.Body.String())
+			assert.JSONEq(t, fmt.Sprintf(`{"success":true,"data":{"applied":false,"alreadyApplied":true,"quota":%d}}`, persisted.Quota), deletedReplay.Body.String())
+			assert.Equal(t, http.StatusConflict, post(target.Id, `{"operationKey":"payment:1","quota":51}`, pat).Code)
+			assert.Equal(t, http.StatusConflict, post(target.Id, `{"operationKey":"historical","quota":50}`, pat).Code)
+			assert.Equal(t, http.StatusNotFound, post(target.Id, `{"operationKey":"deleted-new","quota":50}`, pat).Code)
+			var afterDelete model.User
+			require.NoError(t, db.Unscoped().First(&afterDelete, target.Id).Error)
+			assert.Equal(t, persisted.Quota, afterDelete.Quota)
 		})
 	}
 }
