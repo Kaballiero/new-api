@@ -1,0 +1,170 @@
+{
+  "audit": [
+    {
+      "action": "custom_oauth.create",
+      "actor_role": 100,
+      "auth_method": "session",
+      "category": "operation",
+      "content": "POST /api/custom-oauth-provider/",
+      "created_at": 946684800,
+      "event_id": "\u003caudit_logs-event_id-1\u003e",
+      "id": 1,
+      "ip": "192.0.2.1",
+      "method": "POST",
+      "other": "{\"op\":{\"action\":\"custom_oauth.create\"},\"admin_info\":{\"admin_id\":3,\"admin_username\":\"contract-root\",\"admin_role\":100,\"auth_method\":\"session\"},\"audit_info\":{\"method\":\"POST\",\"route\":\"/api/custom-oauth-provider/\",\"path\":\"/api/custom-oauth-provider/\",\"status\":200,\"success\":false}}",
+      "request_id": "\u003caudit_logs-request_id-1\u003e",
+      "route": "/api/custom-oauth-provider/",
+      "status": 200,
+      "success": 0,
+      "token_ref": "",
+      "user_agent": "",
+      "user_id": 3,
+      "username": "contract-root"
+    }
+  ],
+  "bindings": [],
+  "observations": [
+    {
+      "body": "{\"message\":\"fixture database failure\",\"success\":false}",
+      "headers": {
+        "Content-Type": [
+          "application/json; charset=utf-8"
+        ]
+      },
+      "path": "/api/custom-oauth-provider/",
+      "status": 200
+    }
+  ],
+  "outbound": [],
+  "providers": [
+    {
+      "access_denied_message": "Seed denied",
+      "access_policy": "{\"conditions\":[{\"field\":\"role\",\"op\":\"eq\",\"value\":\"staff\"}]}",
+      "auth_style": 2,
+      "authorization_endpoint": "https://seed.invalid/authorize",
+      "client_id": "seed-client",
+      "client_secret": "seed-fixture-secret",
+      "created_at": "2000-01-01T00:00:00Z",
+      "display_name_field": "name",
+      "email_field": "email",
+      "enabled": 1,
+      "icon": "Fixture",
+      "id": 11,
+      "name": "fixture-alpha",
+      "scopes": "openid profile email",
+      "slug": "fixture-alpha",
+      "token_endpoint": "https://seed.invalid/token",
+      "updated_at": "2000-01-01T00:00:00Z",
+      "user_id_field": "sub",
+      "user_info_endpoint": "https://seed.invalid/userinfo",
+      "username_field": "preferred_username",
+      "well_known": "https://seed.invalid/discovery"
+    },
+    {
+      "access_denied_message": "Seed denied",
+      "access_policy": "{\"conditions\":[{\"field\":\"role\",\"op\":\"eq\",\"value\":\"staff\"}]}",
+      "auth_style": 2,
+      "authorization_endpoint": "https://seed.invalid/authorize",
+      "client_id": "seed-client",
+      "client_secret": "seed-fixture-secret",
+      "created_at": "2000-01-01T00:00:00Z",
+      "display_name_field": "name",
+      "email_field": "email",
+      "enabled": 0,
+      "icon": "Fixture",
+      "id": 12,
+      "name": "fixture-beta",
+      "scopes": "openid profile email",
+      "slug": "fixture-beta",
+      "token_endpoint": "https://seed.invalid/token",
+      "updated_at": "2000-01-01T00:00:00Z",
+      "user_id_field": "sub",
+      "user_info_endpoint": "https://seed.invalid/userinfo",
+      "username_field": "preferred_username",
+      "well_known": "https://seed.invalid/discovery"
+    }
+  ],
+  "registry": {
+    "fixture-alpha": {
+      "config": {
+        "id": 11,
+        "name": "fixture-alpha",
+        "slug": "fixture-alpha",
+        "icon": "Fixture",
+        "enabled": true,
+        "client_id": "seed-client",
+        "authorization_endpoint": "https://seed.invalid/authorize",
+        "token_endpoint": "https://seed.invalid/token",
+        "user_info_endpoint": "https://seed.invalid/userinfo",
+        "scopes": "openid profile email",
+        "user_id_field": "sub",
+        "username_field": "preferred_username",
+        "display_name_field": "name",
+        "email_field": "email",
+        "well_known": "https://seed.invalid/discovery",
+        "auth_style": 2,
+        "access_policy": "{\"conditions\":[{\"field\":\"role\",\"op\":\"eq\",\"value\":\"staff\"}]}",
+        "access_denied_message": "Seed denied",
+        "created_at": "2000-01-01T00:00:00Z",
+        "updated_at": "2000-01-01T00:00:00Z"
+      },
+      "conflict": false,
+      "custom": true,
+      "fixture_secret": "seed-fixture-secret",
+      "registered": true
+    },
+    "fixture-beta": {
+      "config": {
+        "id": 12,
+        "name": "fixture-beta",
+        "slug": "fixture-beta",
+        "icon": "Fixture",
+        "enabled": false,
+        "client_id": "seed-client",
+        "authorization_endpoint": "https://seed.invalid/authorize",
+        "token_endpoint": "https://seed.invalid/token",
+        "user_info_endpoint": "https://seed.invalid/userinfo",
+        "scopes": "openid profile email",
+        "user_id_field": "sub",
+        "username_field": "preferred_username",
+        "display_name_field": "name",
+        "email_field": "email",
+        "well_known": "https://seed.invalid/discovery",
+        "auth_style": 2,
+        "access_policy": "{\"conditions\":[{\"field\":\"role\",\"op\":\"eq\",\"value\":\"staff\"}]}",
+        "access_denied_message": "Seed denied",
+        "created_at": "2000-01-01T00:00:00Z",
+        "updated_at": "2000-01-01T00:00:00Z"
+      },
+      "conflict": false,
+      "custom": true,
+      "fixture_secret": "seed-fixture-secret",
+      "registered": true
+    },
+    "fixture-new": {
+      "conflict": false,
+      "custom": false,
+      "registered": false
+    },
+    "fixture-renamed": {
+      "conflict": false,
+      "custom": false,
+      "registered": false
+    },
+    "fixture-upper": {
+      "conflict": false,
+      "custom": false,
+      "registered": false
+    },
+    "github": {
+      "conflict": false,
+      "custom": false,
+      "registered": true
+    },
+    "telegram": {
+      "conflict": false,
+      "custom": false,
+      "registered": true
+    }
+  }
+}
