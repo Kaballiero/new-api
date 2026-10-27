@@ -54,7 +54,7 @@ func catalog() domain.Catalog {
 	return domain.Catalog{Resources: domain.BuiltInResources(), BuiltInRoles: domain.BuiltInRoles()}
 }
 
-// Mirrors service/authz TestInitSeedsBuiltInRolesAndPoliciesOnce and
+// Mirrors app/authorizationcore TestInitSeedsBuiltInRolesAndPoliciesOnce and
 // TestInitOnSlaveOnlyLoadsPolicies: the master seeds roles and the admin
 // baseline (root is implicit), a follower only loads the policy.
 func TestInitializeAuthorization(t *testing.T) {

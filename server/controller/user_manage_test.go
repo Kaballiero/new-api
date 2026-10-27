@@ -23,10 +23,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service/authz"
 )
 
 func setupManageUserTestDB(t *testing.T) *gorm.DB {

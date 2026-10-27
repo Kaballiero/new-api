@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/internal/channels/apply_all_upstream_model_updates"
 	"github.com/QuantumNous/new-api/internal/channels/apply_upstream_model_updates"
 	"github.com/QuantumNous/new-api/internal/channels/clear_affinity_cache"
@@ -64,7 +65,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )

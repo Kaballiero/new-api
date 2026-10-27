@@ -25,12 +25,13 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
+	authzdomain "github.com/QuantumNous/new-api/internal/authorization/domain"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/service/authz"
 )
 
 const originCommit = "6b0f439a432ab129817e4e41ce323e6bd3c3c0c3"
@@ -516,13 +517,13 @@ func newAuditFixture(t *testing.T) auditFixture {
 func configureAuditCase(t *testing.T, f auditFixture, tc auditCase) {
 	t.Helper()
 	if strings.HasPrefix(tc.Actor, "allowed") {
-		require.NoError(t, authz.SetUserPermissions(2, authz.PermissionsMap{authz.ResourceAudit: {authz.ActionRead: true}}))
+		require.NoError(t, authz.SetUserPermissions(2, authz.PermissionsMap{authzdomain.ResourceAudit: {authzdomain.ActionRead: true}}))
 	}
 	switch tc.Setup {
 	case "deny":
-		require.NoError(t, authz.SetUserPermissions(2, authz.PermissionsMap{authz.ResourceAudit: {authz.ActionRead: false}}))
+		require.NoError(t, authz.SetUserPermissions(2, authz.PermissionsMap{authzdomain.ResourceAudit: {authzdomain.ActionRead: false}}))
 	case "user_allow":
-		require.NoError(t, authz.SetUserPermissions(1, authz.PermissionsMap{authz.ResourceAudit: {authz.ActionRead: true}}))
+		require.NoError(t, authz.SetUserPermissions(1, authz.PermissionsMap{authzdomain.ResourceAudit: {authzdomain.ActionRead: true}}))
 	case "disabled", "disabled_public":
 		id := 1
 		if tc.Group == "getapi" {

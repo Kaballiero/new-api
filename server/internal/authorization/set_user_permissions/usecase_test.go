@@ -41,7 +41,7 @@ func catalog() domain.Catalog {
 	return domain.Catalog{Resources: domain.BuiltInResources(), BuiltInRoles: domain.BuiltInRoles()}
 }
 
-// Mirrors service/authz TestSetUserPermissionsStoresOnlyOverrides: only values
+// Mirrors app/authorizationcore TestSetUserPermissionsStoresOnlyOverrides: only values
 // that differ from the admin baseline are stored, previous overrides of the
 // resource are replaced and unknown resources are ignored.
 func TestSetUserPermissionsStoresOnlyOverrides(t *testing.T) {

@@ -25,8 +25,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service/authz"
 )
 
 func httpPostgres(t *testing.T, dsn string) *gorm.DB {

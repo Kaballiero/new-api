@@ -9,9 +9,9 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	"github.com/QuantumNous/new-api/internal/apikeys/validate_key"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )

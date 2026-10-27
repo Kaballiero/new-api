@@ -1,8 +1,8 @@
 package app
 
 import (
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/internal/authorization/get_permission_catalog"
-	"github.com/QuantumNous/new-api/service/authz"
 )
 
 func NewAuthorizationHTTP() get_permission_catalog.HTTP {

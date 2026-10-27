@@ -1,4 +1,4 @@
-package authz
+package authorizationcore
 
 import (
 	"errors"
@@ -8,7 +8,12 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	casbinadapter "github.com/QuantumNous/new-api/internal/adapter/casbin/authorization"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/authorization"
+	"github.com/QuantumNous/new-api/internal/authorization/clear_user_permissions"
+	"github.com/QuantumNous/new-api/internal/authorization/domain"
+	"github.com/QuantumNous/new-api/internal/authorization/get_user_overrides"
+	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -136,13 +141,13 @@ func TestSetUserPermissionsStoresOnlyOverrides(t *testing.T) {
 			ActionBind: false,
 		},
 		ResourceAudit: {ActionRead: false},
-	}, ExplicitUserPermissions(42))
+	}, explicitUserPermissions(42))
 	assert.Equal(t, PermissionsMap{
 		ResourceChannel: {
 			ActionSensitiveWrite: true,
 			ActionWrite:          false,
 		},
-	}, ExplicitUserOverrides(42))
+	}, explicitUserOverrides(42))
 
 	var userPolicyCount int64
 	require.NoError(t, db.Model(&model.CasbinRule{}).Where("v0 = ?", UserSubject(42)).Count(&userPolicyCount).Error)
@@ -168,8 +173,8 @@ func TestSetUserPermissionsStoresOnlyOverrides(t *testing.T) {
 			ActionBind: false,
 		},
 		ResourceAudit: {ActionRead: false},
-	}, ExplicitUserPermissions(42))
-	assert.Empty(t, ExplicitUserOverrides(42))
+	}, explicitUserPermissions(42))
+	assert.Empty(t, explicitUserOverrides(42))
 }
 
 func TestClearUserAuthorizationRemovesOverrides(t *testing.T) {
@@ -184,9 +189,9 @@ func TestClearUserAuthorizationRemovesOverrides(t *testing.T) {
 	assert.True(t, Can(90, common.RoleAdminUser, ChannelSensitiveWrite))
 	assert.False(t, Can(90, common.RoleAdminUser, ChannelWrite))
 
-	require.NoError(t, ClearUserAuthorization(90))
+	require.NoError(t, clearUserPermissions(90))
 
-	assert.Empty(t, ExplicitUserOverrides(90))
+	assert.Empty(t, explicitUserOverrides(90))
 	assert.True(t, Can(90, common.RoleAdminUser, ChannelRead))
 	assert.True(t, Can(90, common.RoleAdminUser, ChannelWrite))
 	assert.False(t, Can(90, common.RoleAdminUser, ChannelSensitiveWrite))
@@ -288,7 +293,7 @@ func TestTaskPluginBindIsRootOnlyUntilGranted(t *testing.T) {
 	assert.False(t, Can(2, common.RoleAdminUser, TaskPluginBind))
 	assert.True(t, Can(1, common.RoleRootUser, TaskPluginBind))
 
-	enforcer := currentEnforcer()
+	enforcer := state.Current()
 	require.NotNil(t, enforcer)
 	_, err := enforcer.AddPolicy(RoleSubject(BuiltInRoleAdmin), ResourceTaskPlugin, ActionBind, EffectAllow)
 	require.NoError(t, err)
@@ -305,24 +310,22 @@ func TestAuthorizationFailureAndOverrideContracts(t *testing.T) {
 	unknown := Permission{Resource: "unregistered", Action: "unknown"}
 	assert.True(t, Can(7, common.RoleRootUser, unknown))
 	assert.False(t, Can(7, common.RoleAdminUser, unknown))
-	e := currentEnforcer()
+	e := state.Current()
 	_, err := e.AddPolicy(UserSubject(7), ChannelRead.Resource, ChannelRead.Action, EffectAllow)
 	require.NoError(t, err)
 	_, err = e.AddPolicy(UserSubject(7), ChannelRead.Resource, ChannelRead.Action, EffectDeny)
 	require.NoError(t, err)
 	assert.False(t, Can(7, common.RoleAdminUser, ChannelRead), "an explicit deny wins even when an allow also exists")
-	enforcerMu.Lock()
-	enforcer = nil
-	enforcerMu.Unlock()
-	t.Cleanup(func() { enforcerMu.Lock(); enforcer = e; enforcerMu.Unlock() })
+	state.Publish(nil)
+	t.Cleanup(func() { state.Publish(e) })
 	assert.False(t, Can(7, common.RoleAdminUser, ChannelRead))
 	assert.True(t, Can(7, common.RoleRootUser, unknown))
 	require.Error(t, SetUserPermissions(7, PermissionsMap{}))
-	require.Error(t, ClearUserPermissions(7))
+	require.Error(t, clearUserPermissions(7))
 	sentinel := errors.New("rollback cleanup")
 	err = db.Transaction(func(tx *gorm.DB) error {
 		require.Error(t, SetUserPermissionsInTx(tx, 7, PermissionsMap{}))
-		require.NoError(t, ClearUserPermissionsInTx(tx, 7))
+		require.NoError(t, ClearUserAuthorizationInTx(tx, 7))
 		return sentinel
 	})
 	require.ErrorIs(t, err, sentinel)
@@ -367,4 +370,92 @@ func TestAuthorizationStorageUpgradeCompatibility(t *testing.T) {
 	assert.EqualValues(t, 3, overrides)
 	require.Error(t, db.Create(&model.AuthzRole{Key: BuiltInRoleRoot, Name: "duplicate"}).Error)
 	require.Error(t, db.Create(&model.CasbinRule{Ptype: "p", V0: UserSubject(4242), V1: ResourceChannel, V2: ActionRead, V3: EffectDeny}).Error)
+}
+
+// Test spellings refer directly to the owning domain.
+type ActionDefinition = domain.ActionDefinition
+
+var UserSubject = domain.UserSubject
+var RoleSubject = domain.RoleSubject
+
+func PermissionsForRole(role string) []Permission { return currentCatalog().PermissionsForRole(role) }
+
+const (
+	EffectAllow          = domain.EffectAllow
+	EffectDeny           = domain.EffectDeny
+	BuiltInRoleRoot      = domain.BuiltInRoleRoot
+	BuiltInRoleAdmin     = domain.BuiltInRoleAdmin
+	ResourceAudit        = domain.ResourceAudit
+	ResourceChannel      = domain.ResourceChannel
+	ResourceTaskPlugin   = domain.ResourceTaskPlugin
+	ActionRead           = domain.ActionRead
+	ActionOperate        = domain.ActionOperate
+	ActionWrite          = domain.ActionWrite
+	ActionSensitiveWrite = domain.ActionSensitiveWrite
+	ActionSecretView     = domain.ActionSecretView
+	ActionBind           = domain.ActionBind
+)
+
+func explicitUserPermissions(id int) PermissionsMap {
+	return operations().capabilities.Execute(id, common.RoleAdminUser)
+}
+func explicitUserOverrides(id int) PermissionsMap {
+	return get_user_overrides.NewUsecase(currentCatalog, readPolicy).Execute(id)
+}
+func clearUserPermissions(id int) error {
+	return clear_user_permissions.NewUsecase(currentCatalog, func() clear_user_permissions.Writer {
+		p := casbinadapter.NewPolicy(state.Current())
+		if p == nil {
+			return nil
+		}
+		return p
+	}).Execute(id)
+}
+
+// TestAuthorizationPostgres scopes each existing native case to its own schema.
+// The original fixtures and assertions also remain independently runnable.
+func TestAuthorizationPostgres(t *testing.T) {
+	if os.Getenv("WAVE7F_AUTHORIZATION_POSTGRES") != "1" {
+		t.Skip("WAVE7F_AUTHORIZATION_POSTGRES is not configured")
+	}
+	require.Empty(t, os.Getenv("TEST_AUTHORIZATION_UPGRADE_PHASE"))
+	require.Empty(t, os.Getenv("TEST_AUTHORIZATION_UPGRADE_DSN"))
+	dsn := os.Getenv("TEST_POSTGRES_DSN")
+	require.NotEmpty(t, dsn)
+	cases := []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"TestInitSeedsBuiltInRolesAndPoliciesOnce", TestInitSeedsBuiltInRolesAndPoliciesOnce},
+		{"TestInitOnSlaveOnlyLoadsPolicies", TestInitOnSlaveOnlyLoadsPolicies},
+		{"TestSetUserPermissionsStoresOnlyOverrides", TestSetUserPermissionsStoresOnlyOverrides},
+		{"TestClearUserAuthorizationRemovesOverrides", TestClearUserAuthorizationRemovesOverrides},
+		{"TestSetUserPermissionsInTxDoesNotMutateEnforcerBeforeReload", TestSetUserPermissionsInTxDoesNotMutateEnforcerBeforeReload},
+		{"TestSetUserPermissionsInTxRollbackLeavesNoPolicy", TestSetUserPermissionsInTxRollbackLeavesNoPolicy},
+		{"TestAdapterAddPolicyIsIdempotent", TestAdapterAddPolicyIsIdempotent},
+		{"TestCapabilitiesUseCatalogShape", TestCapabilitiesUseCatalogShape},
+		{"TestTaskPluginBindIsRootOnlyUntilGranted", TestTaskPluginBindIsRootOnlyUntilGranted},
+		{"TestAuthorizationFailureAndOverrideContracts", TestAuthorizationFailureAndOverrideContracts},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scoped := pgfixture.ScopedDSN(t, dsn)
+			// Startup search_path applies to the entire pool and survives reopen.
+			for range 2 {
+				db, err := gorm.Open(postgres.Open(scoped), &gorm.Config{})
+				require.NoError(t, err)
+				pool, err := db.DB()
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, pool.Close()) })
+				pgfixture.ProbePool(t, db)
+				var version string
+				require.NoError(t, db.Raw("SHOW server_version").Scan(&version).Error)
+				t.Logf("authorization PostgreSQL version: %s", version)
+				require.NoError(t, pool.Close())
+			}
+			t.Setenv("TEST_POSTGRES_DSN", scoped)
+			t.Setenv("TEST_AUTHORIZATION_DIALECT", "postgres")
+			tc.run(t)
+		})
+	}
 }

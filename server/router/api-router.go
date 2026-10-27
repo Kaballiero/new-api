@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/controller"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/gin-gonic/gin"
 
 	// Import oauth package to register providers via init()

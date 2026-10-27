@@ -24,15 +24,16 @@ import (
 	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	auditdto "github.com/QuantumNous/new-api/internal/audit/dto"
+	authzdomain "github.com/QuantumNous/new-api/internal/authorization/domain"
 	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/get_status"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/revoke_token"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/service/authz"
 )
 
 func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
@@ -228,7 +229,7 @@ func TestAuditIsolationVisibilityAndFailureContracts(t *testing.T) {
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload), "audit metadata must be a JSON object, not an encoded string")
 	require.Len(t, payload.Data.Items, 1)
 	assert.Contains(t, payload.Data.Items[0].Other, "op")
-	require.NoError(t, authz.SetUserPermissions(user.Id, authz.PermissionsMap{authz.ResourceAudit: {authz.ActionRead: true}}))
+	require.NoError(t, authz.SetUserPermissions(user.Id, authz.PermissionsMap{authzdomain.ResourceAudit: {authzdomain.ActionRead: true}}))
 	response = auditRequest(router, "GET", "/api/audit?category=security", pat)
 	assert.Contains(t, response.Body.String(), "admin_info")
 	assert.NotContains(t, response.Body.String(), "root-only")
@@ -279,7 +280,7 @@ func TestAuditRoleVisibilityAndPermissions(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, auditRequest(router, "GET", "/api/audit", credential).Code)
 	}
 	require.NoError(t, model.DB.Transaction(func(tx *gorm.DB) error {
-		return authz.SetUserPermissionsInTx(tx, admin.Id, authz.PermissionsMap{authz.ResourceAudit: {authz.ActionRead: true}})
+		return authz.SetUserPermissionsInTx(tx, admin.Id, authz.PermissionsMap{authzdomain.ResourceAudit: {authzdomain.ActionRead: true}})
 	}))
 	require.NoError(t, authz.ReloadPolicy())
 	for _, credential := range []string{pat, jwt} {
@@ -313,7 +314,7 @@ func TestAuditRoleVisibilityAndPermissions(t *testing.T) {
 	rootAll := auditRequest(router, "GET", "/api/audit?category=security", rootToken)
 	assert.Contains(t, rootAll.Body.String(), `"total":7`)
 	assert.Contains(t, rootAll.Body.String(), "root-only")
-	require.NoError(t, authz.SetUserPermissions(admin.Id, authz.PermissionsMap{authz.ResourceAudit: {authz.ActionRead: false}}))
+	require.NoError(t, authz.SetUserPermissions(admin.Id, authz.PermissionsMap{authzdomain.ResourceAudit: {authzdomain.ActionRead: false}}))
 	for _, credential := range []string{pat, jwt} {
 		assert.Equal(t, http.StatusForbidden, auditRequest(router, "GET", "/api/audit", credential).Code)
 		assert.Equal(t, http.StatusOK, auditRequest(router, "GET", "/api/audit/self", credential).Code)
@@ -613,7 +614,7 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 					require.NoError(t, authz.Init(model.DB))
 					assert.False(t, authz.Can(1, common.RoleAdminUser, authz.AuditRead))
 					require.NoError(t, model.DB.Transaction(func(tx *gorm.DB) error {
-						return authz.SetUserPermissionsInTx(tx, 1, authz.PermissionsMap{authz.ResourceAudit: {authz.ActionRead: true}})
+						return authz.SetUserPermissionsInTx(tx, 1, authz.PermissionsMap{authzdomain.ResourceAudit: {authzdomain.ActionRead: true}})
 					}))
 					require.NoError(t, authz.ReloadPolicy())
 					assert.True(t, authz.Can(1, common.RoleAdminUser, authz.AuditRead))
@@ -621,7 +622,7 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 					require.NoError(t, authz.Init(model.DB))
 					assert.True(t, authz.Can(1, common.RoleAdminUser, authz.AuditRead))
 					require.NoError(t, model.DB.Transaction(func(tx *gorm.DB) error {
-						return authz.SetUserPermissionsInTx(tx, 1, authz.PermissionsMap{authz.ResourceAudit: {authz.ActionRead: false}})
+						return authz.SetUserPermissionsInTx(tx, 1, authz.PermissionsMap{authzdomain.ResourceAudit: {authzdomain.ActionRead: false}})
 					}))
 					require.NoError(t, authz.ReloadPolicy())
 					assert.False(t, authz.Can(1, common.RoleAdminUser, authz.AuditRead))

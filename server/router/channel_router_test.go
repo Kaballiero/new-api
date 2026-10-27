@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/controller"
-	"github.com/QuantumNous/new-api/service/authz"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

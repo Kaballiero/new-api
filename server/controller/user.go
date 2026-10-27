@@ -14,10 +14,10 @@ import (
 	accountsadapter "github.com/QuantumNous/new-api/internal/adapter/accounts"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts"
 	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	"github.com/QuantumNous/new-api/internal/identity/password_login"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service/authz"
 )
 
 type LoginRequest = password_login.LoginRequest

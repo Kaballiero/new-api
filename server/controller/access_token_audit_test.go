@@ -20,6 +20,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/audittest"
 	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	auditdto "github.com/QuantumNous/new-api/internal/audit/dto"
@@ -30,7 +31,6 @@ import (
 	subscriptionsdomain "github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/service/authz"
 )
 
 func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
