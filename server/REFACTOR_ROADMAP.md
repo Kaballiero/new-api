@@ -182,7 +182,7 @@
 
 - [x] 7a accounts purity: plain `domain.UserSetting`, codec профиля в адаптере, функциональные `QuotaMath` ports; 11 accounts-исключений удалены. Commits 21d7533f3 перенос, c108b36dc docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, accounts/quota PG-тесты зелёные. SQLite/MySQL не проверялись.
 
-- [ ] Catalog A3: перенести `NewCatalogPersistence` вместе с private metadata mutex/transaction/anchor и PricingMutation callback; same-tx pricing deletion и lock ownership сохраняются до общего cleanup.
+- [ ] Catalog A3: composition, metadata mutex/transaction/anchor и same-tx PricingMutation перенесены в 7g; acceptance остаётся в общем 7g gate.
 - [x] 7b Catalog A4: codec/version hash вынесены в adapter/catalog, domain чистый; availability/prefill объединены с root domain без изменения wire bytes; private Fill*, consumer-owned mutation ports и P3 test-only остатки перенесены. Удалены 19 исключений. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
   Commits c4474edfa перенос, 01f2da575 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, catalog PG-тесты зелёные. SQLite/MySQL не проверялись.
 
@@ -197,6 +197,9 @@
 
 - [x] 7f authorization core: единый Casbin state/mutex в adapter, leaf `app/authorizationcore` для init/sync и общей сборки; middleware/router/accounts переведены, `service/authz` и 14 исключений удалены. Master/follower, in-tx rollback/postcommit reload и тексты сохранены. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
   Commits 0076e7c9c перенос, 754a6e5d8 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, authz PG-тесты зелёные. SQLite/MySQL не проверялись.
+
+- [ ] 7g channels/pricing/settings/catalog composition: строгие Channel/Ability/catalog record aliases; один channel cache/alias view, publication adapter и leaf app/pricingruntime; catalog mutex/anchor и same-tx pricing capability. Удалены 57 назначенных allowlist rows, новых нет. G1=A: два quota writer остаются вместе с counter queue в model/utils.go до 7j. Реализация и sandbox handoff отделены от обязательного fresh host/PostgreSQL acceptance. SQLite/MySQL not checked.
+
 
 - [ ] FX refresh owner (pricing/FX): перенести service.RefreshModelCostFX и replica lifecycle вместе с реальными consumers; убрать system FX BRIDGE, не копируя экономику.
 - [ ] Decide metrics owner (A or C): перенести единственный pkg/perf_metrics state/Record/Query/Summary/flush/SQL/Redis в system либо отдельный performance_metrics; RelayInfo mapping оставить gateway-owned.

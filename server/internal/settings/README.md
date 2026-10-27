@@ -42,7 +42,7 @@ Cache-Control, Vary и ответ 304. GET редактора исключает
 Порты Store сценариев реализует `adapter/gorm/settings`: Option record, чтение всех строк,
 legacy FirstOrCreate/Save и checked batch transaction. Single path игнорирует SQL errors
 (TECH_DEBT #58); batch публикует значения после commit. `model.Option` — alias технического record.
-Publisher/lock/aliases и pricing writer подключаются из model. `adapter/settings/settings` реализует
+Единственные publisher/lock/alias facts принадлежат `adapter/settings/publication`; pricing writer и observation подключаются из leaf `app/pricingruntime`. `adapter/settings/settings` реализует
 defaults, codecs, validators, editor и late status readers; `adapter/gateway/settings` читает FX status.
 `adapter/runtime/system.Facts` даёт late version/start/setup для GetStatus без I/O.
 
@@ -54,18 +54,9 @@ defaults, codecs, validators, editor и late status readers; `adapter/gateway/se
 
 - `controller/option.go` и delegates в `controller/misc.go` связывают существующие router registrations
   с settings handlers; удалить при сборке handlers непосредственно в router.
-- A2=B: **model/option.go перенесён не полностью**. Единственные publisher, groupRatioOptionMutex
-  и alias facts остаются в model; pricing/catalog option composition получит собственного владельца
-  при cleanup волны 7. Settings использует injected technical port с той же картой и блокировкой.
-  Сохранённые мосты до появления этого владельца:
-  - `model/option.go`: `GroupRatioOptionAliases` и `CanonicalGroupRatioOption` нужны app/settings и
-    retained PublishOption; `PublishOption` нужен app/settings, NewPricingOptionsPersistence и
-    publishPricingCatalogContext; `LockOptionPublication` даёт app/settings общий lock с native writers.
-  - `model/pricing_inputs.go`: `SyncPricingCatalogueInputs` нужен app/settings.SyncOptions для
-    observation после reload.
-  - `model/option_record.go`: alias `Option` нужен model migrations и pricing/catalog consumers;
-    удалить после их перехода на settings record.
+- `adapter/settings/publication` владеет общим group-ratio mutex, alias map и единственным `PublishOption`. Settings single/bulk/reload и native pricing используют этот же publisher. PricingCatalog публикуется до общего OptionMap lock, как и раньше.
+- Leaf `app/pricingruntime` собирает pricing/options/catalog capabilities без импорта parent app/settings. Reset writer связан со settings во внешнем app; `SyncOptions` после reload вызывает общий observer.
+- `model.Option` остаётся строгим record alias для bootstrap/migrations.
 - Setup, health, uptime и performance принадлежат system; deployments, catalog и user notifications
   остаются за границей модуля. Direct runtime readers в `setting/*` сохранены.
-- Существующие исключения model pricing composition остаются в architecture allowlist по A2=B;
-  новых исключений settings не добавляет. TECH_DEBT #58 и #86–#87 остаются открытыми.
+- Legacy pricing composition exceptions удалены; новых исключений нет. TECH_DEBT #58 и #86–#87 остаются открытыми.

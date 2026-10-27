@@ -89,20 +89,17 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/channels.go`) читает DT
 - Сборка — `internal/app/channels.go`: `NewChannelsHTTP` один раз через `sync.OnceValue` в `controller/channel_scenarios.go`; фоновые прогоны собираются на каждый запуск (`NewChannelTestTaskUsecase`, `NewScanChannelModelsUsecase`, `NewChannelBalancesUsecase`). Usecase, который читает каналы, создаётся на каждый запрос: `adapter/gorm/channels.Store` хранит записи, загруженные в рамках одного запроса, чтобы изменения попадали в объект кэша каналов.
 - Хранение: `internal/adapter/gorm/channels` (`Store`) поверх `internal/adapter/gorm/channels/record` (GORM-запись `channels`, abilities, теги, настройки шлюза в DTO relaykit).
 - Шлюз: `internal/adapter/channels` — проверка канала (`ProbeEngine`, `ProbeOutcome`, `TestFailures`), загрузка моделей, баланс, Ollama, Codex, кэш привязки, тексты уведомления об обновлении моделей; сама проверка — `controller/channel-test.go`.
-- Права: `service/authz` (`ChannelSensitiveWrite`, `TaskPluginBind`); аудит — `recordManageAudit`, `markAuditLogged` из `controller`.
-- Потребители: `controller/channel*.go`, `controller/codex_usage.go`, `controller/model.go` (HTTP), `model/channel.go`, `app/channelruntime`, `service/channel.go` (failure policy), `service/codex_*` (шлюз и legacy-код).
+- Права: `app/authorizationcore` (`ChannelSensitiveWrite`, `TaskPluginBind`); аудит — `recordManageAudit`, `markAuditLogged` из `controller`.
+- Потребители: `controller/channel*.go`, `controller/codex_usage.go`, `controller/model.go` (HTTP), `app/channelruntime`, `app/channelcore`, gateway и taskplugins через технические ports.
 
 ## Границы и долг
 
-- Модулю не принадлежат выбор канала при запросе (`middleware/distributor.go`), учёт использования канала (`used_quota`) и кэш каналов в памяти — это часть шлюза в `model`.
-- Удаление модели из каталога переписывает abilities каналов внутри `catalog` (через `model`), а цены строятся из записей каналов в `pricing` (`model/pricing_build.go`) — эти границы не меняли.
-- ⚠ Мосты:
-  - `app/channelruntime` один раз собирает `disable_channel` / `enable_channel` и root notifier для relay и app/channels; доставка через независимый `app/notifications`, failure policy остаётся service;
-  - `service/codex_*` собирают сценарии Codex для фоновой задачи и relay;
-  - `model/channel.go` создаёт `change_channel_state`, `model/model_identity.go` использует `domain`;
-  - тестовые обёртки в `controller/channel_upstream_update.go`, `controller/channel-test.go`, `controller/channel_authz.go` переводят `model.Channel` в `domain.Channel` для существующих тестов.
+- Выбор канала при запросе остаётся в gateway/middleware. Единственный cache, polling/status mutex и ability SQL принадлежат `adapter/gorm/channels`; счётчик `used_quota` пока обслуживает общий counter owner в `model/utils.go` вместе с user/token очередями. `model.Channel` и `model.Ability` — строгие aliases записей.
+- Удаление модели из каталога переписывает abilities через channels adapter на переданном tx. Pricing получает технические channel/ability facts через свой store; бизнес-правила не копируются.
+- `app/channelcore` собирает смену статуса, Codex discovery/refresh и прежние расписания. `app/channelruntime` собирает enable/disable/root notifications; `adapter/channels` отображает gateway errors в failure policy, а `adapter/channels/codex` обслуживает прежние HTTP clients/cache.
+- Тестовые controller wrappers и gateway probe engine остаются у прежних потребителей до переноса gateway transport. Новых model/service мостов нет.
 - `domain` и usecase транзитивно не зависят от Gin/GORM/Redis. JSON полей mapping, ключей и `OtherInfo` обслуживает `adapter/gorm/channels/record.Codec`; бизнес получает типизированные maps/ключи и узкие codec capabilities. Диагностика `OtherInfo` приходит явно через `Codec.Log`, маскирование и log preview — из app через прежние common-функции.
 - Статусы каналов объявлены в существующем leaf `constant`; прежние имена `common.ChannelStatus*` ссылаются на те же константы. Wire snapshot и patch остаются в `adapter/channels.ChannelPatchCodec`; domain сохраняет правила валидации, нормализации и смены статусов. Ошибки `clear_affinity_cache` и `get_affinity_usage_stats` остаются в их пакетах.
-- `ModelUpdateRules.Errors` и `ModelIdentity.Errors` получают ошибки маппинга моделей из `model` через функцию (`model.ErrModelMapping*`): ошибки объявлены в `model/errors.go`, а алиас на `domain` добавил бы новый импорт `internal` из `model`.
+- Mapping sentinels объявлены только в `channels/domain`; прежняя injected Errors граница использует те же значения без aliases в model.
 - `detect_upstream_model_updates` и `scan_upstream_model_updates` (метод `Check`), `apply_upstream_model_updates` и `apply_all_upstream_model_updates` (метод `Apply`) содержат одинаковый код: сценарии не вызывают друг друга, а общий шаг зависит от хранилища.
 - Конструктор `run_channel_tests` и `scan_upstream_model_updates` принимает больше трёх функций без группировки.

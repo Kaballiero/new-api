@@ -11,7 +11,7 @@
 | `system` | setup, task registry/lease/history/cleanup, instances и runtime maintenance; FX/metrics gaps до волны 7 | 25 | [README](system/README.md) |
 | `deployments` | управление io.net deployments, настройки и технические provider reads | 18 | [README](deployments/README.md) |
 | `notifications` | доставка, event limiter, root и upstream model watchers | 3 | [README](notifications/README.md) |
-| `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; publisher/pricing composition остаются model по A2=B | 11 | [README](settings/README.md) |
+| `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; общий publication adapter и leaf pricing runtime | 11 | [README](settings/README.md) |
 | `accounts` | аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 24 | [README](accounts/README.md) |
 | `identity` | вход и доказательство личности: пароль, сессии и их отзыв, 2FA и резервные коды, passkey (WebAuthn), OAuth и WeChat, подтверждение email, восстановление пароля, повторная проверка для чувствительных действий | 66 | [README](identity/README.md) |
 | `apikeys` | API-ключи пользователей для шлюза: создание, просмотр с маской, раскрытие, изменение, удаление, группы, статус, использование и gateway-аутентификация ключа | 16 | [README](apikeys/README.md) |
@@ -44,7 +44,10 @@ README каждого модуля появляется в коммите, ко�
 
 ## Ещё не перенесено
 
-Шлюз (`relay/`, `controller/relay.go`) остаётся снаружи internal; его static model snapshot и wire rendering принадлежат `relay/modelcatalog` и `relay/modelview`. Deployments, catalog HTTP и notifications перенесены. Settings publisher/mutex и pricing/catalog composition, включая `NewCatalogPersistence`, private metadata mutex/transaction и PricingMutation callback, остаются в model до волны 7. Корень `catalog/domain` пока импортирует common; волна 7 выделяет codec/version hash и объединяет чистые availability/prefill leaves обратно. System FX и perf_metrics сохраняют описанные в README границы.
+Шлюз (`relay/`, `controller/relay.go`) остаётся снаружи internal; его static model snapshot и wire rendering принадлежат `relay/modelcatalog` и `relay/modelview`. Deployments, catalog HTTP и notifications перенесены. Settings publisher/mutex принадлежат `adapter/settings/publication`, pricing state — `adapter/pricing/state`,
+общая сборка — leaf `app/pricingruntime`. Metadata mutex/anchor/transaction находятся в catalog adapter;
+same-tx pricing edits передаются явной capability. Catalog domain чистый; codecs/version hashing — adapters.
+System FX и perf_metrics сохраняют описанные в README границы.
 
 - `tasks` — durable async/Midjourney учёт, terminal billing, polling и media access; core сборка
   `app/tasks`, gateway/runtime — `app/taskruntime`, records/SQL — `adapter/gorm/tasks`.
@@ -55,5 +58,5 @@ observation admission/timeout/backoff и retrieve policy. Сборка `app/task
 `app/taskpluginsruntime`, storage `adapter/gorm/taskplugins`, compiler/settings
 `adapter/taskplugins`. Публичный task projection/provenance — gateway `relay/taskview`.
 Durable tasks и background writes остаются tasks; provider VM/wire machine остаются gateway.
-`model/task_model_alias.go` сохраняется для pricing и InitChannelCache: alias ownership не полностью
-перенесено; cleanup в волне 7. Подробнее — [taskplugins/README.md](taskplugins/README.md).
+Единый alias view находится в `adapter/taskplugins/aliases`, SQL reader — channels adapter.
+Channel records/cache/abilities принадлежат channels adapter; model сохраняет строгие aliases.

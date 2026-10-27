@@ -17,9 +17,12 @@ sources используют injected reader без пустого usecase; ос
 создаётся один раз при сборке. `StartSync` выполняет первый pass немедленно, затем каждые 30 секунд;
 master/follower gating не добавляется. SQL, транзакции и порядок публикации generation не менялись.
 
-`model/task_model_alias.go` остаётся исполняемым bridge для pricing и InitChannelCache.
-Владение alias/cache перенесено не полностью. Provider execution и wire protocol принадлежат шлюзу;
-денежная политика и durable Task принадлежат billing/tasks. Общие option writes подключены через app к settings; собственные taskplugins guards и RAM-before-persist порядок сохранены. Единственный legacy publisher остаётся model по settings A2=B до cleanup волны 7.
+`adapter/taskplugins/aliases.View` — единственный executable alias view; channels adapter создаёт
+его один раз с собственным SQL reader. Pricing, gateway и channel-cache lifecycle используют этот
+же view: прежние generation/TTL, ASCII folding, ambiguity/drop policy и rebuild timing.
+
+Provider execution и wire protocol принадлежат шлюзу;
+денежная политика и durable Task принадлежат billing/tasks. Общие option writes подключены через app к settings; собственные taskplugins guards и RAM-before-persist порядок сохранены. Общий publisher/lock принадлежит adapter/settings/publication.
 
 Контрактные эталоны в `contract/testdata` записаны на origin до переноса; они неизменяемы.
 Результаты sandbox не заменяют текущую host/PG-проверку; MySQL недоступен и не проверен.
@@ -60,8 +63,6 @@ record и domain не заменяют provider API. Типы metadata — read-
   registrations на transport. Handler создаётся once, а не при запросе.
 - controller/relay.go: private submission → plain task-domain boundary, пока ordinary relay consumer
   использует private outcome; durable insert/reservation bridge остаётся tasks store consumer.
-- model/task_model_alias.go: model/pricing.go, model/model_pricing_config.go, InitChannelCache;
-  gateway читает тот же view напрямую через model bridge. Удалить при собственных pricing/channel-cache owners.
 - relay/relay_task.go и middleware/distributor.go: ordinary task origin/fetch/model authorization consumers
   tasks store; не являются копией taskplugins origin/query policy.
 

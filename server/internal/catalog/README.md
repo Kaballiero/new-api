@@ -55,7 +55,8 @@ Controller delegates обслуживают существующие router regi
 assembly. `model.Model`, `Vendor`, `PrefillGroup` и сопутствующие constants/codecs — record aliases
 для migrations и pricing readers, без исполнительных metadata фасадов.
 
-`model.NewCatalogPersistence` сохраняет composition с единственными metadata mutex/transaction,
-option-row anchor и private PricingMutation callback. Это общая граница с pricing/options до
-появления их владельца; вся catalog/model cleanup не завершена. Domain и usecases не зависят
-транзитивно от common, транспорта, ORM или Redis.
+`adapter/gorm/catalog` владеет единственными metadata mutex, transaction и option-row anchor.
+Leaf `app/pricingruntime` передаёт техническую PricingMutation capability: deletion и правки pricing
+выполняются на одном tx, с прежним порядком блокировок и publication после commit. Routing/ability
+записи обслуживает channels adapter на том же tx. GroupColumn читается поздно из единственного
+bootstrap state в model. Domain/usecases транзитивно не зависят от common, транспорта, ORM и Redis.

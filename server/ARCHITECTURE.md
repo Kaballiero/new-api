@@ -320,6 +320,14 @@ GetStatus получает late version/start/setup, сохраняя прежн
 
 Catalog объединяет metadata CRUD/sync с availability и prefill groups. Статический linking snapshot принадлежит шлюзу (`relay/modelcatalog`): first-wins slice и last-wins lookup различаются; dashboard presets применяются поздно. `relay/modelview` владеет OpenAI/Anthropic/Gemini представлением. Account preferences и owner/reserve SQL предоставляют plain facts через adapters; правила pricing и списания не копируются. Prefill record/JSON codec принадлежат gorm adapter, model сохраняет только технические aliases для миграций.
 
-`model.NewCatalogPersistence` вместе с прежними private metadata mutex, transaction anchor и PricingMutation callback остаётся composition gap до волны 7; исполняемые metadata/vendor фасады удалены. `catalog/domain` root всё ещё импортирует common. В волне 7 нужно выделить codec/version hash, затем собрать чистые availability/prefill domain leaves обратно; исключения не расширяются.
+Catalog codec/version hashing находятся в adapters, domain чистый. Metadata mutex/transaction/anchor
+принадлежат catalog adapter; `app/pricingruntime` связывает их с технической same-tx pricing mutation.
+Pricing snapshot/observation/publication state находится в adapters, статические сценарии собираются
+один раз leaf app без parent app/settings. Reset writer связывает внешний app. Единственный option
+publisher/group-ratio mutex принадлежит settings/publication и используется также native pricing.
+Channel cache/abilities и alias view имеют по одному техническому владельцу; bootstrap GroupColumn/
+KeyColumn сохраняют единственные state cells и поздние callbacks. Model Channel/Ability/catalog tables —
+строгие record aliases. Два channel quota writer остаются у общей counter queue до её переноса.
 
-Notifications владеет delivery/limiter/root/watchers, аккаунты — recipient records, billing — шаблонами и eligibility. `app/notifications` — независимая once-сборка; RAM state и lazy memory cleanup принадлежат `adapter/notifications`, app выбирает RAM/Redis counter; `app/channelruntime` собирает channel enable/disable/root notifier для relay и background consumers. Service сохраняет общие HTTP/worker/SSRF primitives и channel failure policy; runtime callbacks передаются из app. Нет main-only регистрации и обратных service→app notification мостов.
+
+Notifications владеет delivery/limiter/root/watchers, аккаунты — recipient records, billing — шаблонами и eligibility. `app/notifications` — независимая once-сборка; RAM state и lazy memory cleanup принадлежат `adapter/notifications`, app выбирает RAM/Redis counter; `app/channelruntime` собирает channel enable/disable/root notifier для relay и background consumers. Общие HTTP/worker/SSRF primitives принадлежат pkg/httpclient, channel failure projection — adapter/channels; runtime callbacks передаются из app. Нет main-only регистрации и обратных service→app notification мостов.
