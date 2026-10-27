@@ -29,7 +29,7 @@ Domain/usecase не импортируют Gin, GORM, Redis, common, model, serv
 - `internal/adapter/gorm/billing.Store` получает account/key/reserve/subscription capabilities из app. `ReserveStore` владеет reserve SQL/Lua orchestration и компенсацией; account/key hashes и fences — cache adapters; единственная counter queue — `adapter/gorm/counters`. Subscription transaction/locking сохраняет прежнего владельца. Новой схемы, миграций и Redis namespaces нет.
 - `internal/adapter/billing.Notification` переводит данные notice в прежний NotifyUser transport: language получателя, English по умолчанию; wire DTO принадлежат адаптеру, не бизнесу.
 - `relay/billing` — владелец gateway mapping: RelayInfo ↔ domain state, mutex request-local session, старый BillingSettler, Gin Refund, i18n → NewAPIError и error options. Business-state PostDelta переносится в RelayInfo без изменения consume-log JSON. Язык ошибок разрешается только при ошибке из сохранённых входов языка запроса; при nil Context/Request используется English.
-- `service.BillingGateway` — один временный интерфейс в терминах старого потребителя. `relay/billing.init` регистрирует единственную production реализацию; `relay/relay_adaptor.go` явно подключает её для всех relay entry points, включая plugin adapters. Service-only и adaptor-only binaries подключают `relay/billing` явно; тестовые binaries используют тот же механизм. Отдельного wiring в main или contracttest нет.
+- `relay/billing` подключается непосредственно потребителями: один default gateway без mutable registry, init-registration или service facades. Immutable harness использует реальные gateway entrypoints; WSS terminal tests вызывают Gateway.SettleWss напрямую.
 
 ## Границы и долг
 
@@ -77,7 +77,8 @@ Delivery capability `notifications.Send` передаётся billing renderer �
 `app/quotaruntime` собирает reserve owner без второго Redis state. `adapter/gorm/locking` содержит прежний
 FOR UPDATE dialect branch. Counter enqueue сохраняет overflow policy; flush меняет все пять maps под mutex
 до I/O, после чего читает актуальный DB getter для каждого SQL update. Ошибки и clear/swap semantics прежние.
-`service.BillingGateway` остаётся до 7k; его narrow `RecordViolationFee` capability передаёт counters/log effects
-существующей relay/billing реализации без service→internal импортов, fee policy и порядок эффектов сохранены.
+`charge_violation_fee` выбирает fee по поздним настройкам и прежнему quota-math port, затем выполняет
+request-bound deduction. Gateway normalizes protocol errors, сохраняет refund → fee deduction → counters/log
+order и исходный group ratio. Decimal conversion принадлежит adapter/billing, без второй формулы.
 Sandbox evidence не заменяет PostgreSQL+real Redis, whole/default/full и host acceptance.
 SQLite/MySQL not checked.

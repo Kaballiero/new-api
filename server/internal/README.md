@@ -68,3 +68,7 @@ Wave 7j: account/key/identity SQL и records принадлежат `adapter/gor
 quotaruntime,subscriptionstorage,usagestorage}` явно собирают capabilities; lifecycle accounts — `app/accountscore`.
 Все 39 оставшихся architecture allowlist rows удалены; новых исключений нет. Acceptance host/PostgreSQL
 и real Redis остаётся отдельным gate. SQLite/MySQL not checked.
+
+Gateway ingress находится вне business modules в `gateway/transport`, probe — в `adapter/gateway/channels`.
+Tasks владеет confirmation marker, billing — violation fee policy. Callers используют реальные owners;
+production service и mutable BillingGateway registry удалены. Controller residue остаётся отдельной границей.

@@ -100,7 +100,7 @@ client
 |---|---|
 | reserve → settle → refund, wallet/subscription fallback и token quota | `internal/billing`, [README](internal/billing/README.md) |
 | RelayInfo, request-local mutex, NewAPIError, Gin Refund | `relay/billing` |
-| прежние cost/task consumers | `service/billing.go`: один временный BillingGateway bridge (Batch metadata → usage; Task/MJ обращаются непосредственно к usage), регистрация в `relay/billing.init`; root relay подключает gateway явно |
+| gateway ingress и billing consumers | `gateway/transport`, channel probe в `adapter/gateway/channels`; прямые вызовы `relay/billing` без registry/facades. Task insert/origin/fetch capabilities собираются в `app/tasks`, reservation marker — tasks scenario; Task/MJ metadata → usage |
 | durable Task и legacy Midjourney после отправки | `internal/tasks`, core `app/tasks`, outer `app/taskruntime` |
 | Batch holds и terminal settlement | `service/batch_billing.go`, `model/batch*`, `BatchHeldQuota` |
 | text/audio/realtime cost, tiered policy и FX | `internal/billing` cost-сценарии/domain; plain mapping в `relay/billing`, late settings и RAM FX в app/adapters |

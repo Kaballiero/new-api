@@ -73,8 +73,11 @@ Task alias view имеет одного владельца adapter/taskplugins/a
 сборка pricing publication — app/pricingruntime. Shared quota/cache/lock перенесены в7j:
 adapter/cache/{accounts,apikeys}, adapter/gorm/{billing,locking,counters}; app/taskbillingruntime явно
 собирает TaskDelta/TaskPrices/Midjourney/TaskText, включая recipient-language capability.
-Log writer и export state принадлежат usage adapter. BillingGateway остаётся только для реальных
-violation/immutable billing/WSS consumers; gateway task metadata обращается к usage непосредственно.
+Log writer и export state принадлежат usage adapter. Gateway task metadata обращается к usage напрямую.
+app/tasks предоставляет узкие insert/origin/fetch/protocol capabilities без пустых pass-through usecases.
+confirm_submission_reservation владеет marker decision после durable settlement/log: без reconciliation
+нет CAS; flags меняются до CAS и сохраняются при ошибке/проигрыше. Operation adapter удерживает исходный
+record pointer, ID/timestamps/hooks и прежний status predicate; новый request context к update не добавляется.
 Filesystem artifact backend и plugin CRUD/protocol/runtime не перенесены.
 
 TECH_DEBT69–75 описывает сохранённые financial/security/resource риски. Контракты:319 HTTP/state/outbound,
