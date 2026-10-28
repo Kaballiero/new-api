@@ -44,7 +44,7 @@ rollback-only panic recovery и partial destinations; count limit поиска �
 
 Domain содержит чистые Order/User/provider facts, availability, pricing и общую Completion policy.
 Он не содержит GORM/JSON stored shape и не зависит от Gin, common или SDK. Общие payment statuses и
-method/provider constants определены здесь; record/model/common сохраняют необходимые прямые aliases.
+method/provider constants определены здесь; record/common сохраняют прямые aliases, model — только table alias TopUp.
 Сценарии объявляют consumer-owned ports, получают зависимости через NewUsecase и возвращают error. Чистая info projection возвращает Info без фиктивной ошибки.
 HTTP хранит wire DTO и сопоставляет domain errors через errors.Is/errors.As с i18n.MsgPayments*.
 Raw storage/SDK/bind ошибки не распознаются по тексту.
@@ -80,32 +80,27 @@ Stripe adapter имеет отдельный SubscriptionCheckout с quantity1/p
 Active catalog filter общий в domain.FilterActivePancakeProducts. Subscription history projector находится
 в adapter/gorm/payments и получает исходный tx и typed факты без вызова top-up usecase.
 
-Прежний BRIDGE block app/payments/http.go, controller GetEpayClient/LockOrder/UnlockOrder,
-CreemProduct и requirePaymentCompliance удалены вместе с реальными потребителями. Controller top-up
-entrypoints сохраняются; model/topup.go и common status constants — строгие aliases. Shared
-В волне7j shared lock принадлежит adapter/gorm/locking, user hash/quota/auth fence —
+Controller top-up entrypoints — однострочные router bindings, сборка — app/httpapi.
+model/topup.go сохраняет только migration-used TopUp alias; status constants принадлежат record/common.
+Shared lock принадлежит adapter/gorm/locking, user hash/quota/auth fence —
 adapter/cache/accounts; app/payments передаёт SQL/account/cache capabilities явно.
 
 Новых architecture exceptions нет. Schema, migrations, tags/indexes, money arithmetic, routes, ordering,
 query semantics и audit policy не менялись. Сохраняются известные #50–59 в TECH_DEBT; #52 и #55 —
-financial/security candidates. Отдельное исправление operational logging подготовлено вне дерева.
+financial/security candidates. Operational logging использует применённую redaction policy (#50).
 
-После отдельного content-only изменения HTTP ошибки получают English default/en и ru; обе zh
+HTTP ошибки используют English default/en и ru; обе zh
 сохраняют прежние bytes. Payment receipts используют язык получателя, English fallback; обе zh
 сохраняют legacy content. Три inherited search-pattern ошибки остаются English во всех локалях.
 Operational events сохраняют уровни и места вызова; их English messages применены отдельным content-only изменением.
 Старые rows не мигрируются.
 
-## Проверки и границы evidence
+## Тестовые fixtures
 
-615 immutable HTTP/state/outbound oracles записаны до переноса; прежние 972 oracles не обновляются.
-Матрица фиксирует реальные routes/middleware, подписи, повторы, out-of-order events, quota ceiling,
-rollback/commit failures, subscription effects, split main/LOG_DB и исходящие provider requests.
-Отдельные 204 locale snapshots сохраняют default/en/ru/обе zh/unknown. App regressions используют
-изолированные main/log PostgreSQL schemas и startup search_path каждого pool connection.
-MySQL без DSN явно SKIP; его совместимость этим не подтверждается.
+Контрактные HTTP/state/outbound fixtures находятся в `contract/`; PostgreSQL fixtures создают
+собственные main/log schemas и startup search_path каждого pool connection.
 
-Waffo outbound evidence проходит через **подставленный SDK transport**: byte-identical SDK mirror,
+Waffo contract fixture использует **подставленный SDK transport**: byte-identical SDK mirror,
 alternate modfile и overlay заменяют только три Transport bindings. Serialization/signatures/response
 verification прежние. Fake закрыт для неизвестных destinations; реальная сеть/provider payment не нужны.
 Обычный full suite без этих artifacts явно SKIP-ит payments contract; он не заменяет dedicated run:
@@ -116,9 +111,8 @@ go test -mod=readonly -modfile="$PAYMENTS_CONTRACT_MODFILE" \
   -run '^TestPaymentsContract$' -count=1 -update=false
 ```
 
-Транспортные artifacts проверяются внешним guard по hashes и точному diff. Sandbox parity/review не
-являются host/PostgreSQL/Redis/WSS/production acceptance. Все host проверки запускаются отдельно;
-никакой durable exactly-once после crash этим переносом не заявлен.
+Транспортные artifacts проверяются guard по hashes и точному diff; production SDK не подменяется.
+Process-local admission не даёт durable exactly-once после crash.
 
 Raw bind/GORM/SDK errors сохраняют прежнюю raw форму. В частности, data.error у Pancake pair —
 динамический SDK error-chain вместе с прежними English prefixes create/publish/store-created;

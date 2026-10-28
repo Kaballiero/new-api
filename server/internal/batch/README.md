@@ -57,36 +57,27 @@ POST, partial ID+decode error и identity verification до staged-result persis
 
 adapter/http/batchaccount — одно тело config hash/static-header policy для Batch и tasksync.
 adapter/redis/batch — единственные Batch Lua bodies; namespaces, mutation fence, schema и hydration
-принадлежат adapter/cache/accounts и adapter/cache/apikeys (волна7j). App/batch передаёт
+принадлежат adapter/cache/accounts и adapter/cache/apikeys. App/batch передаёт
 ReadCapabilities явно. Raw cache readers под locks не заменены hydration.
 
 provider_batch_poll регистрируется явно из app/httpapi.RegisterScheduledSystemTasks. Root server
-и Electron достигают этого существующего entrypoint; тест регистрации вызывает его же. Голый импорт
-service больше не регистрирует Batch. UpdateTask, 15s interval, master/once, lease/heartbeat и history
+и Electron достигают этого существующего entrypoint; тест регистрации вызывает его же.  UpdateTask, 15s interval, master/once, lease/heartbeat и history
 принадлежат app/system runner; SystemHandler использует его finish/fail capability. Direct poll собирается без main.
 
-## Мосты и долг
+## Границы и долг
 
-- controller/batch.go — once-сборка handlers для существующих router registrations; удалить при прямой сборке router.
-- model aliases нужны startup migration и оставшимся record consumers, включая account deletion.
+- controller/batch.go содержит однострочные router bindings; once-сборка handlers принадлежит app/httpapi.
+- model сохраняет только табличные aliases для startup migration; account deletion использует owning adapters.
 - model/batch_conflict.go удалён в7j. Account deletion получает финансовую проверку через
   adapter/gorm/batch.AccountDeletionFinancialDecision на исходном tx; единственный sentinel — pkg/batchstate.ErrConflict.
   App/accountscore собирает capability, model forwarding отсутствует.
 - Shared lock/cache primitives принадлежат adapter/gorm/locking и adapter/cache/{accounts,apikeys};
-  reserve orchestration — billing adapter, counter queue — adapter/gorm/counters. Batch-only
-  service bodies и relay/billing/usage_bridge.go удалены; BillingGateway больше не обслуживает Batch.
+  reserve orchestration — billing adapter, counter queue — adapter/gorm/counters. Production service и BillingGateway registry отсутствуют.
 - TECH_DEBT #77–#79: lease/fencing, прежние DB-fixtures и orphan upload. Существующие bugs не исправляются.
 
-## Проверка и тексты
+## Контракты и тексты
 
-484 immutable contracts: 204 HTTP/state/outbound и 280 tick/accounting/cache/scheduler; oracle bytes
-и 12 locale baseline files всего корпуса не меняются. Native tests направлены к владельцам;
-tick harness разделён между poll (262), recovery (12) и service scheduler (6);
-приватные seams существуют только в owning _test.go. Private SQLite tests не наследуют PG по TEST_POSTGRES_DSN. PG fixtures используют отдельные schemas,
-startup search_path, два simultaneous connection probes и reopen с тем же scoped DSN.
-
-Структурный слой сохраняет default/en/ru/zh-CN/zh-TW и persisted text bytes. Transport владеет
-status/code/default mapping; business возвращает RuleError kind/cause/data. Перевод/i18n и язык
-владельца persisted texts готовятся отдельным content-only пакетом, который здесь не применяется.
-Локальные contracts/build/architecture или offline replay не подтверждают host/PG/Redis/WSS/full-suite
-acceptance. Точные выполненные checks и gaps фиксируются в отчёте, MySQL не считается проверенным.
+HTTP/state/outbound fixtures находятся в `contract`, polling/recovery — рядом со сценариями,
+регистрация scheduler — в `app/system`. Immutable fixtures в `service/testdata` не образуют Go package.
+HTTP status/code/default mapping принадлежит transport. Persisted bulk reasons используют English default;
+персональная локализация одного bulk UPDATE требует отдельного решения, без изменения порядка SQL (#75).

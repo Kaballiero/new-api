@@ -1,77 +1,61 @@
 # server/internal — карта модулей
 
-Бизнес-логика backend, разложенная по самостоятельным модулям. Внутри модуля каждый сценарий — отдельный пакет, который читается сверху вниз: `http.go` → `usecase.go` → узкие интерфейсы → адаптеры. Правила структуры — [AGENTS.md](AGENTS.md). Общая схема backend — [ARCHITECTURE.md](../ARCHITECTURE.md), порядок работ — [REFACTOR_ROADMAP.md](../REFACTOR_ROADMAP.md).
-
-Шлюз к AI-моделям (`relay/`, `relaykit/`, relay-цепочка `middleware/`) сюда не входит: это заменяемая часть, бизнес-модули её не импортируют.
+Бизнес backend разделён на самостоятельные модули. Сценарий читается как HTTP → usecase →
+узкие порты → adapters. Правила — [AGENTS.md](AGENTS.md), схема backend —
+[ARCHITECTURE.md](../ARCHITECTURE.md), статус — [REFACTOR_ROADMAP.md](../REFACTOR_ROADMAP.md).
 
 ## Модули
 
-| Модуль | Ответственность | Сценариев | README |
+Число сценариев означает подпапки с http.go или usecase.go; это не число HTTP registrations.
+
+| Модуль | Ответственность | Пакетов сценариев | README |
 |---|---|---|---|
 | `system` | setup, task registry/lease/history/cleanup, instances и runtime maintenance и performance metrics | 25 | [README](system/README.md) |
-| `deployments` | управление io.net deployments, настройки и технические provider reads | 18 | [README](deployments/README.md) |
+| `deployments` | управление io.net deployments, настройки и технические provider reads | 19 | [README](deployments/README.md) |
 | `notifications` | доставка, event limiter, root и upstream model watchers | 3 | [README](notifications/README.md) |
 | `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; общий publication adapter и leaf pricing runtime | 11 | [README](settings/README.md) |
 | `accounts` | GetAPI PAT initialization и аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 25 | [README](accounts/README.md) |
-| `identity` | вход и доказательство личности: пароль, сессии и их отзыв, 2FA и резервные коды, passkey (WebAuthn), OAuth и WeChat, подтверждение email, восстановление пароля, повторная проверка для чувствительных действий | 66 | [README](identity/README.md) |
-| `apikeys` | API-ключи пользователей для шлюза: создание, просмотр с маской, раскрытие, изменение, удаление, группы, статус, использование и gateway-аутентификация ключа и billing subscription compatibility | 17 | [README](apikeys/README.md) |
+| `identity` | вход и доказательство личности: пароль, сессии и их отзыв, 2FA и резервные коды, passkey (WebAuthn), OAuth и WeChat, подтверждение email, восстановление пароля, повторная проверка для чувствительных действий | 72 | [README](identity/README.md) |
+| `apikeys` | API-ключи пользователей для шлюза: создание, просмотр с маской, раскрытие, изменение, удаление, группы, статус, использование и gateway-аутентификация ключа и billing subscription compatibility | 16 | [README](apikeys/README.md) |
 | `personal_access_tokens` | персональные токены доступа к панели управления (PAT): выпуск, статус, отзыв и проверка | 4 | [README](personal_access_tokens/README.md) |
 | `authorization` | права администраторов (Casbin): каталог разрешений, проверка, переопределения для пользователя, загрузка политики | 11 | [README](authorization/README.md) |
 | `catalog` | модели/вендоры, metadata sync, доступность моделей шлюза, presets и prefill groups | 25 | [README](catalog/README.md) |
 | `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 26 | [README](pricing/README.md) |
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
-| `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 11 | [README](billing/README.md) |
+| `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 12 | [README](billing/README.md) |
 | `batch` | native Batch admission holds, execution, results, settlement/release, procurement и polling; provider wire остаётся в relay/batch | 10 | [README](batch/README.md) |
-| `usage` | запись consumption/error; чтение логов, quota_data, flow, агрегаты и рейтинги; role visibility, metadata и billing usage compatibility | 4 | [README](usage/README.md) |
+| `usage` | запись consumption/error; чтение логов, quota_data, flow, агрегаты и рейтинги; role visibility, metadata и billing usage compatibility | 18 | [README](usage/README.md) |
 | `audit` | чтение событий и role projection; запись login/security/operation/PAT, metadata policy | 3 | [README](audit/README.md) |
 | `redemption` | выпуск и управление кодами пополнения, атомарное погашение с начислением квоты | 9 | [README](redemption/README.md) |
-
-| `subscriptions` | планы, user subscriptions, balance/provider checkout, Epay callbacks, order completion/expiry, reset maintenance | 25 registrations | [README](subscriptions/README.md) |
+| `subscriptions` | планы, user subscriptions, balance/provider checkout, Epay callbacks, order completion/expiry, reset maintenance | 25 | [README](subscriptions/README.md) |
 | `payments` | top-up orders, checkout и provider webhooks, manual completion, payment availability/compliance и Pancake config | 22 | [README](payments/README.md) |
+| `tasks` | durable async/Midjourney учёт, polling, terminal billing и media access | 25 | [README](tasks/README.md) |
+| `taskplugins` | версии/registry sync, origin/query, observation и retrieve policy | 19 | [README](taskplugins/README.md) |
 
-README каждого модуля появляется в коммите, который чистит или переносит этот модуль.
+## Сборка и технические владельцы
 
-## Служебные части
+- `app/` создаёт сценарии/adapters; `app/httpapi` держит HTTP once-сборку, audit/login callbacks и
+  startup channel effects. Controller содержит только однострочные router bindings и wire OpenAPI declarations.
+- `app/authentication`, `identitycore`, `authorizationcore` — leaf-сборки без parent app/middleware cycle.
+- `adapter/gorm/<module>/record` содержит records/hooks/codecs, `adapter/gorm/<module>` — SQL.
+- `adapter/cache/{accounts,apikeys}` владеет одним hash/fence/hydration state; `app/quotaruntime`
+  связывает reserve orchestration billing с явными account/key capabilities.
+- `adapter/gorm/counters` владеет пятью RAM очередями, `adapter/gorm/usage.Writer` — log writer и
+  отдельным export cache; locking/dbclock/subscription cache имеют собственных технических владельцев.
+- `adapter/settings/publication` владеет одним option publisher/group-ratio mutex; `adapter/pricing/state`
+  — snapshot/revision/observations. `app/pricingruntime` связывает settings/pricing/catalog,
+  сохраняя metadata anchor и same-tx pricing mutation.
+- `adapter/taskplugins/aliases` — один TTL/generation view с channels SQL reader.
+- `app/pricingfx` собирает FX refresh/replica; `app/systemmetrics` — metrics core/loop над runtime/SQL/Redis adapters.
+- `contracttest/` содержит общие тестовые fixtures; неизменяемые testdata могут оставаться по прежним путям.
 
-| Папка | Что внутри |
-|---|---|
-| `app/` | сборка зависимостей модулей и HTTP-обработчики для `controller/`; `app/authentication` — сборка проверок credentials без обратного импорта middleware; `app/billing` — сборка lifecycle/cost без gateway types; независимые `app/notifications` и `app/channelruntime` — доставка и канал/root integration |
-| `adapter/gorm/<module>` | хранение через GORM |
-| `adapter/settings/<module>` | чтение настроек |
-| `adapter/casbin`, `adapter/identity`, `adapter/channels`, `adapter/pricing`, `adapter/catalog` | технические реализации интерфейсов модулей |
-| `contracttest/` | заготовка контрактных HTTP-тестов |
-| `architecture_test.go` | проверка правил импортов; текущий долг — `architecture_known_violations_test.go` |
+## Границы
 
-## Ещё не перенесено
+Gateway ingress — `gateway/transport`, protocol execution — `relay/`, независимо собираемые wire DTO —
+`relaykit/`. Business вызывает их только через consumer ports/adapters. Для pricing сохранён узкий
+D1 constant/type alias leaf, описанный в AGENTS.md; direct gateway imports запрещены.
 
-Шлюз (`relay/`, `controller/relay.go`) остаётся снаружи internal; его static model snapshot и wire rendering принадлежат `relay/modelcatalog` и `relay/modelview`. Deployments, catalog HTTP и notifications перенесены. Settings publisher/mutex принадлежат `adapter/settings/publication`, pricing state — `adapter/pricing/state`,
-общая сборка — leaf `app/pricingruntime`. Metadata mutex/anchor/transaction находятся в catalog adapter;
-same-tx pricing edits передаются явной capability. Catalog domain чистый; codecs/version hashing — adapters.
-System metrics core/loop собирается в leaf app/systemmetrics; aggregation/SQL/Redis находятся в adapters. Pricing FX refresh/replica lifecycle собирается в leaf app/pricingfx; RelayInfo mapping принадлежит gateway/metrics.
-
-- `tasks` — durable async/Midjourney учёт, terminal billing, polling и media access; core сборка
-  `app/tasks`, gateway/runtime — `app/taskruntime`, records/SQL — `adapter/gorm/tasks`.
-
-
-`taskplugins` — управление версиями/слоями task-плагинов, sync pass, origin/query selection,
-observation admission/timeout/backoff и retrieve policy. Сборка `app/taskplugins`, outer
-`app/taskpluginsruntime`, storage `adapter/gorm/taskplugins`, compiler/settings
-`adapter/taskplugins`. Публичный task projection/provenance — gateway `relay/taskview`.
-Durable tasks и background writes остаются tasks; provider VM/wire machine остаются gateway.
-Единый alias view находится в `adapter/taskplugins/aliases`, SQL reader — channels adapter.
-Channel records/cache/abilities принадлежат channels adapter; model сохраняет строгие aliases.
-
-Wave 7j: account/key/identity SQL и records принадлежат `adapter/gorm/{accounts,apikeys,identity}`;
-`model.User`/`Token` и identity tables — строгие aliases, migrations/backfills остаются в model.
-`adapter/cache/{accounts,apikeys,quota,subscriptions}`, `gorm/{locking,counters,usage,dbclock}` — единственные
-технические владельцы общего состояния. Leaf `app/{accountstorage,apikeystorage,identitystorage,patstorage,
-quotaruntime,subscriptionstorage,usagestorage}` явно собирают capabilities; lifecycle accounts — `app/accountscore`.
-Все 39 оставшихся architecture allowlist rows удалены; новых исключений нет. Acceptance host/PostgreSQL
-и real Redis остаётся отдельным gate. SQLite/MySQL not checked.
-
-Gateway ingress находится вне business modules в `gateway/transport`, probe — в `adapter/gateway/channels`.
-Tasks владеет confirmation marker, billing — violation fee policy. Callers используют реальные owners;
-production service и mutable BillingGateway registry удалены. HTTP-сборка, audit/login callbacks и startup channel effects находятся в app/httpapi;
-controller сохраняет только однострочные router bindings и wire-декларации OpenAPI.
-Тестовые helpers находятся в *_test.go. В production нет BRIDGE comments или service Go files;
-architecture allowlist пуст. Строгие table aliases/bootstrap/migrations остаются в model.
+Production service и временных BRIDGE нет. Model содержит 46 migration-used table aliases,
+DB bootstrap и прежние migrations/backfills; вспомогательные types/constants/errors используют владельцев.
+Architecture allowlist пуст; import/purity/D1 и closure проверяются в architecture_test.go.
+Технический долг бизнес-поведения сохраняется в TECH_DEBT.md; его устранение требует отдельного решения.

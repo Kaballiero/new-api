@@ -16,7 +16,7 @@
 
 `app/notifications` один раз собирает сценарии и общую delivery capability; не зависит от parent app, billing или channelruntime. Получатели — `adapter/gorm/accounts.NotificationRecipients`: прежние users, SQL filters без дополнительной сортировки, декодирование настроек в момент обработки получателя. Общий порт доставки передаётся обоим fan-out сценариям без импорта соседнего сценария.
 
-`adapter/http/notifications` сериализует webhook, Bark и Gotify; protected HTTP client, URL validator и worker request передаются из app и сохраняют единственные реализации в service. SMTP остаётся `common.SendEmail`. Webhook сохраняет прежний renderer, HMAC, timestamp и отдельные values; worker добавляет Bearer, direct — только подпись. Gotify сохраняет различие User-Agent direct/worker и явный priority=0.
+`adapter/http/notifications` сериализует webhook, Bark и Gotify; protected HTTP client и worker request принадлежат `pkg/httpclient`, URL validation — `common`; app передаёт эти capabilities явно. SMTP остаётся `common.SendEmail`. Webhook сохраняет прежний renderer, HMAC, timestamp и отдельные values; worker добавляет Bearer, direct — только подпись. Gotify сохраняет различие User-Agent direct/worker и явный priority=0.
 
 Лимитер читает RedisEnabled и настройки поздно. Redis adapter сохраняет GET/SET/INCR/TTL, RAM state и lazy cleanup принадлежат `adapter/notifications.MemoryCounter`; `app/notifications` только выбирает RAM/Redis counter. Cleanup делает sleep перед часовым проходом и запускается при первом memory access. Смена алгоритма на атомарный или устранение счётчика rejected-вызовов не входят в модульный перенос.
 

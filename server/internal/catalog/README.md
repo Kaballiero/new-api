@@ -49,7 +49,7 @@ MetadataMutation принадлежит apply_metadata_sync; create_model и upd
 узкие ModelMutation для своих транзакций.
 Сериализация SQL JSON и HTTP raw JSON принадлежат соответствующим codecs; поля копируются явно.
 
-## Мосты и остатки
+## Границы
 
 Controller содержит однострочные router bindings; HTTP callbacks собираются в app/httpapi.
 model.Model, Vendor, PrefillGroup — строгие table aliases для bootstrap/migrations.

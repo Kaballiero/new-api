@@ -61,7 +61,7 @@
 - ошибки отметки, перевода реферальной квоты, настроек уведомлений и профиля → 200 `{success:false}` с i18n-сообщением; `domain.AffiliateTransferFailed(err)` вкладывает переведённую причину в «Transfer failed …»;
 - ошибка без доменного смысла → 200 `{success:false}` с её текстом.
 
-Исключения: `update_profile` передаёт ошибку смены пароля (`domain.ErrPasswordChangeFailed`) в обработчик ошибок операций безопасности из `controller`; `provision_account` пишет ошибки через обработчик GetAPI (`writeGetAPIError`).
+Исключения: `update_profile` передаёт ошибку смены пароля (`domain.ErrPasswordChangeFailed`) в обработчик ошибок операций безопасности identity через callback `app/httpapi`; `provision_account` пишет ошибки через обработчик GetAPI (`writeGetAPIError`).
 
 Тексты отметки и перевода реферальной квоты раньше были захардкожены на китайском; теперь это i18n-ключи `checkin.*`, `user.transfer_quota_minimum`, `user.invite_quota_insufficient` (китайский текст сохранён в `zh-CN`).
 
@@ -83,11 +83,11 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/accounts.go`) берёт ст
 - Модулю не принадлежат вход, сессии, 2FA, passkey и OAuth (`identity`), права администраторов (`authorization`), API-ключи (`apikeys`), пополнение баланса и списание квоты шлюзом.
 - Сценарии и DTO accounts не зависят от `common` и `relaykit`: `domain.UserSetting` содержит plain facts. Адаптер `internal/adapter/gorm/accounts/settings.go` явно преобразует все поля в прежний wire DTO и обратно; запись сохраняет прежние JSON tags, порядок полей и encoder. Raw `SelfProfile.Setting` передаётся без изменений.
 - `internal/adapter/accounts` декодирует sidebar перед чтением прав, сохраняя частично прочитанное значение и прежнюю диагностику при ошибке JSON. Он же предоставляет позднее чтение имён типов уведомлений; административный порог передаёт `app`.
-- `adjust_quota.QuotaMath` и `transfer_affiliate_quota.QuotaMath` — узкие функциональные порты к существующим `common.WalletQuotaFromDecimalStrict` и `common.QuotaFromFloat`; `app` и оставшиеся legacy callers передают функции напрямую. Лимит `MaxWalletQuota` — явный параметр сценария. Формулы, округление и saturation имеют прежнего единственного владельца.
-- Метки групп («用户分组» — описание собственной группы, «自动» — коэффициент группы `auto`) переводятся на язык запроса только в ответе `get_groups`; остальные потребители `accountssettings.UserGroups()` (service, pricing, relay) получают прежние zh-CN значения. Записи лога пользователя (регистрация, приглашение, отметка) пишутся на языке запроса того, кто выполняет действие.
+- `adjust_quota.QuotaMath` и `transfer_affiliate_quota.QuotaMath` — узкие функциональные порты к существующим `common.WalletQuotaFromDecimalStrict` и `common.QuotaFromFloat`; `app` и технические callers передают функции напрямую. Лимит `MaxWalletQuota` — явный параметр сценария. Формулы, округление и saturation имеют прежнего единственного владельца.
+- Метки групп («用户分组» — описание собственной группы, «自动» — коэффициент группы `auto`) переводятся на язык запроса только в ответе `get_groups`; остальные потребители `accountssettings.UserGroups()` (pricing и gateway) получают прежние zh-CN значения. Записи лога пользователя (регистрация, приглашение, отметка) пишутся на языке запроса того, кто выполняет действие.
 - Ответы ошибок `check_in` и `get_checkin_status` раньше писались структурой (`success`, `message`), теперь `common.ApiErrorI18n` / `ApiError` (`gin.H`): тот же JSON, другой порядок ключей в теле.
 
-## Storage после волны 7j
+## Хранение
 
 `adapter/gorm/accounts/core.Store` владеет account SQL; `record` — таблицами и transaction adapters.
 `app/accountstorage` один раз собирает SQL и `adapter/cache/accounts.Store`, передавая поздние DB/group getters.
@@ -102,7 +102,4 @@ GetAPI initialization находится в `initialize_pat`: transport сохр
 4096-byte body limit и audit context; usecase сохраняет порядок role/username/status/reuse/dry-run/write.
 SQL читает пользователя под row lock и пишет PAT в той же транзакции. `provision_account` использует прямые
 domain sentinels, общий `transport.GetAPIErrors` получает только техническую классификацию missing record.
-В `contract/compatibility_test.go` 83 записанных до переноса raw-контракта: 47 PAT и 36 billing compatibility.
-Goldens неизменяемы. Четыре новых негативных factor cases проверяют same-tx rollback в identity owner tests.
-Existing `TestAccountsPersistenceCompatibility` также проверяет PAT dry/issue/reuse/blocked, сохранение account balances и rollback token/timestamp при post-update failure; тот же root входит в PostgreSQL matrix.
-Host/PostgreSQL и real Redis acceptance выполняются отдельно. SQLite/MySQL not checked.
+Контрактные fixtures находятся в `contract/compatibility_test.go`; persistence-регрессии — рядом с SQL adapters и в `controller/user_manage_test.go`.

@@ -61,7 +61,7 @@ Payments сохраняет signature/dispatch/ACK через собственн
 Обе композиции явно получают один shared.Orders с исходной reference-counted admission mechanics.
 Прежние 4b checkout/client/address/catalog/controller bridges удалены.
 
-## Maintenance и реальные остатки
+## Maintenance и технические владельцы
 
 app/subscriptions.StartSubscriptionQuotaResetTask сохраняет sync.Once, master-only gate внутри Do,
 первый немедленный tick, interval1m, atomic running guard. Tick делает expiry batches300, reset batches300,
@@ -69,7 +69,7 @@ app/subscriptions.StartSubscriptionQuotaResetTask сохраняет sync.Once, 
 map traversal/partial count до failed commit; reset re-lock проверяет прежние id/reset predicates.
 Отдельные expire_due/reset_due/cleanup_preconsume usecases принимают SQL capabilities; scheduling — app.
 
-Реальные остатки и удалённый task bridge:
+Технические зависимости:
 
 - `adapter/cache/subscriptions.Store`: один plan/info HybridCache и прежние lookup/invalidation;
   `app/subscriptionstorage` собирает его с SQL/DB-clock/account-cache capabilities.
@@ -79,16 +79,10 @@ map traversal/partial count до failed commit; reset re-lock проверяет
   сохраняет прежнюю dialect ветку. Model forwarders отсутствуют.
 - controller/subscription*.go: однострочные router bindings → once-сборка app/httpapi.
 
-Сохраняются TECH_DEBT60–66; #63 и #65 — financial/resource candidates. Structural перенос сохраняет все
-тексты, включая15 operational events и purchase/reset receipts. English default/en + ru и English logs
-подготовлены отдельным неприменённым content-only package; исторические rows не мигрируются.
+Сохраняются TECH_DEBT60–66; #63 и #65 — financial/resource candidates. Ошибки используют English default/en и ru; receipts/reset audit — язык получателя с English fallback. Operational logs — English; исторические rows не мигрируются.
 
-## Проверка
+## Тестовые fixtures
 
-519 immutable HTTP/state/outbound goldens +13 deterministic ticks;132 locale snapshots.
-Прежние1705 goldens (включая24 relaykit) не меняются; всего2237. Tick harness перемещён с private body,
-13 oracle files физически остаются service/testdata/subscription-maintenance. Mutable owner regressions
-проверяют resets, group/auth_version/session/cache и provider guard. SQLite/PostgreSQL fixture matrix
-проверяет repeat completion, history method, rollback grant/group, balance ceil/no-history и reset.
-PostgreSQL использует private schema, startup search_path на всех connections, два pool probes и cleanup
-с новым context. Real PostgreSQL/Redis/WSS/full suite — отдельная host evidence; MySQL не проверен.
+HTTP/state/outbound контракты находятся в `contract`, maintenance — в `app/subscriptions`.
+Неизменяемые maintenance oracles остаются в `service/testdata/subscription-maintenance`;
+это каталог данных без Go package. PostgreSQL fixtures используют private schemas и startup search_path.

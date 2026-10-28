@@ -60,10 +60,8 @@ Domain/usecases не зависят от Gin, GORM, common, model, service ил�
 
 ## Границы и долг
 
-- `controller` delegates нужны существующим router registrations; удалить, когда router собирает handlers напрямую.
-  `RegisterScheduledSystemTasks` остаётся мостом для main/scheduler entrypoints до прямой передачи ChannelEffects startup owner.
-- `model/setup.go`, `system_task.go`, `system_instance.go`: aliases нужны migrations и legacy record consumers;
-  удалить после их перехода на system record. Исполняемых model/service → internal мостов нет.
+- `controller` содержит однострочные router bindings. `app/httpapi.RegisterScheduledSystemTasks` собирает ChannelEffects и регистрирует handlers для main/scheduler до запуска runner.
+- `model/setup.go`, `system_task.go`, `system_instance.go` содержат только migration-used table aliases; исполняемых model/service → internal мостов нет.
 - `app/systemmetrics` содержит единственный core чтения/записи и sleep-first flush loop. Aggregation
   counters/state реализованы `adapter/runtime/systemmetrics`, SQL — `adapter/gorm/systemmetrics`,
   Redis write-only projection — `adapter/redis/systemmetrics`. Init запускает цикл при каждом вызове;

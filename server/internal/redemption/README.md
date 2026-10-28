@@ -48,14 +48,13 @@ Scenarios объявляют consumer-owned Reader/Store/Tx/Receipt/Admission; �
 
 Wallet credit и post-commit cache sync подключаются через общий technical adapter `internal/adapter/wallet`.
 Wallet владеет единственным credit body и capacity guard; redemption передаёт тот же tx. Чужие account workflows не вызываются.
-Receipt использует прежний model.RecordLog; аудит — уже существующий audit owner, не новый writer.
+Receipt использует `adapter/gorm/usage.Writer.RecordLog`; аудит — уже существующий audit owner, не новый writer.
 
 ## Границы и долг
 
 Payments/webhooks/subscriptions, generic quota primitives и usage/audit policy остаются у владельцев.
-Новых architecture exceptions нет. Технические мосты: controller/redemption.go и TopUp в controller/user.go;
-общие экспорты LockForUpdate и SyncCreditUserQuotaCache в исходных model файлах до переноса shared primitives. Существующие
-model consumers механически переведены на те же exported entrypoints; private forwarders удалены.
+Controller содержит однострочные router bindings; callbacks собираются в app/httpapi.
+Shared row lock принадлежит adapter/gorm/locking, credit cache sync — adapter/cache/accounts; model forwarders отсутствуют.
 
 Единственная новая default delta: id=0 error `id is empty`, ru `ID не указан`; обе zh сохраняют старые bytes.
 Дополнительно ru quota errors переведены: «Квота кода пополнения должна быть положительной» и
@@ -65,10 +64,7 @@ Persisted receipt и quota display fragment audit.create используют я
 обе zh сохраняют прежние bytes. Этот ранее принятый content contract не меняется при подключении wallet.
 
 Долг: partial create #45; management/redeem races и re-enable #46; маска кода в operational error log (#47 закрыт)
-(security candidate, намеренно не исправлен); retained admission entries #48; post-commit cache/log #49.
+(redaction применён); retained admission entries #48; post-commit cache/log #49.
 Новые guards, retries, repair и очищение lock map не добавлялись.
 
-Проверки: 214 immutable HTTP/state goldens, отдельные origin/pre-move locale baselines, перенесённые search/
-batch/exact-once/overflow/concurrent regressions в app/redemption, decision/failure order tests в redeem_code.
-Новые PostgreSQL fixtures имеют собственные main/log schemas и startup search_path каждого pool connection;
-cleanup использует свежий context. Отсутствующий MySQL DSN — SKIP, не подтверждение совместимости.
+Контрактные fixtures — `contract/`, сценарные и SQL-регрессии — у владельцев.

@@ -24,8 +24,7 @@ master/follower gating не добавляется. SQL, транзакции и
 Provider execution и wire protocol принадлежат шлюзу;
 денежная политика и durable Task принадлежат billing/tasks. Общие option writes подключены через app к settings; собственные taskplugins guards и RAM-before-persist порядок сохранены. Общий publisher/lock принадлежит adapter/settings/publication.
 
-Контрактные эталоны в `contract/testdata` записаны на origin до переноса; они неизменяемы.
-Результаты sandbox не заменяют текущую host/PG-проверку; MySQL недоступен и не проверен.
+Контрактные fixtures находятся в `contract/testdata`; сценарные тесты — рядом с владельцами.
 
 
 ## Возможности и доступ
@@ -57,16 +56,11 @@ record и domain не заменяют provider API. Типы metadata — read-
 отменённый observer и следующий запрос не разделяют session/outcome/admission.
 `retrieve_plugin_response` выбирает pending/failure/final/events после owner lookup и protocol claim.
 
-Оставшиеся bridges:
+## Границы и долг
 
-- controller/task_plugin.go: однострочные management delegates для router; удалить после перехода
-  registrations на transport. Handler создаётся once, а не при запросе.
-- controller/relay.go: private submission → plain task-domain boundary, пока ordinary relay consumer
-  использует private outcome; durable insert/reservation bridge остаётся tasks store consumer.
-- relay/relay_task.go и middleware/distributor.go: ordinary task origin/fetch/model authorization consumers
-  tasks store; не являются копией taskplugins origin/query policy.
-
-Middleware origin/query BRIDGE bodies удалены. Новых architecture allowlist entries нет.
-TECH_DEBT80–82 сохраняют first-active concurrency, partial lifecycle publication и background whole-data
-write без CAS; они не исправлялись. Mutable management/storage/limiter/projector tests перемещены
-к владельцам. Immutable contract assertions сравнивают прежние bytes, новых golden updates нет.
+Controller содержит однострочные router bindings; HTTP-сборка — app/httpapi.
+Gateway ingress, private submission и protocol session принадлежат `gateway/transport`;
+ordinary task origin/fetch consumers используют capabilities `app/tasks`.
+Provider VM/wire engine остаётся в gateway, единственная registry — `pkg/jsplugin`.
+TECH_DEBT #80–82 сохраняют first-active concurrency, partial lifecycle publication и background
+whole-data write без CAS. Durable Task и financial policy принадлежат tasks/billing.

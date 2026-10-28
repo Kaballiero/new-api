@@ -14,7 +14,7 @@
 Понятия и бизнес-ошибки описаны в `domain/`:
 - `AuthIdentity`, `SessionState`, `SessionPolicy`, области проверки (`VerificationScope*`), контексты привязки;
 - правила e-mail (`ValidateEmail`) и пароля (`PasswordCredential`);
-- ошибки (`errors.go`): значения, которыми пользуются сценарии, transport и сохранённые имена records в `model` (алиасы).
+- ошибки (`errors.go`): значения, которыми пользуются сценарии, transport и технические adapters.
 
 ## Возможности
 
@@ -53,7 +53,7 @@
 | `create_custom_oauth_provider`, `update_custom_oauth_provider`, `delete_custom_oauth_provider` | проверки slug и привязок, запись и последующая публикация в общем registry | `POST /api/custom-oauth-provider/`, `PUT/DELETE /api/custom-oauth-provider/:id` + `RootAuth` |
 | `fetch_custom_oauth_discovery` | загрузка discovery по URL либо issuer, прежние ответы и ошибки провайдера | `POST /api/custom-oauth-provider/discovery` + `RootAuth` |
 | `cleanup_auth_artifacts` | alert по часовому выпуску, затем независимая очистка expired sessions, старых revoked sessions и auth flows | фоновый запуск на master: сразу и каждый час, каждый вызов Start запускает прежний отдельный цикл |
-| `change_password`, `change_self_password`, `reset_password` | запись пароля | без HTTP, через `model/account_security.go`, `model/user.go`, `adapter/identity/accounts` |
+| `change_password`, `change_self_password`, `reset_password` | запись пароля | без HTTP, через `app/identitycore`, `app/accountscore` и `adapter/identity/accounts` |
 
 Ошибки сценариев — значения из `domain/errors.go`. В HTTP их переводит `transport.Writer` (собирается один раз в `app.NewIdentityErrors`):
 - `WriteError` — ответ операции безопасности: `{success:false, code, message}` с прежними статусом и кодом (`EMAIL_*`, `PASSWORD_POLICY_REJECTED`, `ACCOUNT_SECURITY_STATE_CHANGED`, `TELEGRAM_*`, `SECURITY_*`, `TWOFA_*`, `PASSKEY_NOT_FOUND`, `AUTH_FLOW_INVALID`), значение `security_error_code` в контексте; исходы passkey-церемоний — `{success:false, message}` с i18n-сообщением;
@@ -69,7 +69,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/identity.go`) читает `h
 - `accounts/domain` — правило управления ролью цели (`CanManageTargetRole`) в админских сценариях.
 - HTTP-сборка — `internal/app/identity.go`, один раз через `sync.OnceValue` в `app/httpapi/identity.go`; custom OAuth — `app/custom_oauth.go` и собственный once в `app/httpapi/handlers.go`. Leaf `app/identitycore` один раз собирает session/proof/login/email/passkey-flow usecases и зависимости; каждый запрос получает отдельные operation adapters. `app.NewIdentityErrors` также используют `personal_access_tokens` и app/httpapi для accounts и channels.
 - Адаптеры: `internal/adapter/identity/*` поверх injected `adapter/gorm/identity.Store` и record capabilities (сессии, факторы, WebAuthn SDK, OAuth, e-mail, восстановление, регистрация). `authtoken` сохраняет JWT/HMAC и выпуск proof; `session` — record/bundle mapping и refresh crypto; `http` — cookie flags/сроки, `PrimaryLogin`, загрузка текущего пользователя и ошибки провайдеров. Исходящий discovery HTTP — `adapter/http/identity`; SQL/custom registry — `adapter/identity/customoauth`.
-- Потребители: `controller/` (HTTP), `middleware` (проверка сессии и доказательств через leaf core и token adapter), `model` (сохранённые error/table aliases). Сценарии не получают SDK/ORM types; HTTP passkey/OAuth/WeChat использует минимальные `PasskeyAccount` facts и `domain.FlowAuthorization`. Bound factory сохраняет первоначальный user record внутри технической сборки, без дополнительного SQL или whole-user DTO.
+- Потребители: `controller/` (HTTP), `middleware` (проверка сессии и доказательств через leaf core и token adapter), DB bootstrap (табличные aliases в `model`). Сценарии не получают SDK/ORM types; HTTP passkey/OAuth/WeChat использует минимальные `PasskeyAccount` facts и `domain.FlowAuthorization`. Bound factory сохраняет первоначальный user record внутри технической сборки, без дополнительного SQL или whole-user DTO.
 
 ## Границы и долг
 
@@ -80,7 +80,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/identity.go`) читает `h
 - `password_login.Authenticate` получает значения ошибок через `adapter/gorm/accounts/record.PasswordLoginLookup` (адаптер accounts) — граница с accounts не тронута.
 - Сообщения об успехе и письма восстановления и подтверждения e-mail переводятся на язык запроса (zh-CN — прежние тексты). AST-генератор OpenAPI не выводит тип `common.TranslateMessage`, поэтому схема `message: string` этих ответов зафиксирована в `preserveIdentityHandlerContract`.
 
-## SQL и записи после волны 7j
+## SQL и записи
 
 Единственный SQL owner — `adapter/gorm/identity.Store`; записи и hooks находятся в его `record` package.
 `app/identitystorage` передаёт поздний DB getter и account-cache/email-lock capabilities. Table aliases
@@ -92,9 +92,4 @@ Email/WebAuthn/OAuth adapters получают нужные операции я�
 
 Native SQL tests перемещены к владельцу. Private SQLite fixture остаётся default; PostgreSQL включается
 только `WAVE7J_IDENTITY_POSTGRES=1` + `TEST_POSTGRES_DSN`, с private schema/startup search_path и двумя pool probes.
-Четыре rollback subcases проверяют отказ после изменения auth_version для backup replacement, 2FA disable,
-passkey upsert и passkey delete. Все factor rows и версия должны откатиться вместе.
-144 custom OAuth goldens и 83 новых compatibility goldens проверяются host verifier без update.
-Security guidance: OWASP Authentication и Session Management Cheat Sheets, ASVS 5.0.0; это structural
-перенос, полная ASVS compliance не заявляется. Host/PostgreSQL/real Redis acceptance отдельно.
-SQLite/MySQL not checked.
+Rollback-регрессии находятся рядом с identity SQL adapter; HTTP-контракты — в `contract/`.

@@ -59,14 +59,14 @@
 | `apply_all_upstream_model_updates` | применение всех найденных изменений, аудит `channel.upstream_apply_all` | `POST /api/channel/upstream_updates/apply_all` — `channel.write` |
 | `scan_upstream_model_updates` | один прогон проверки моделей upstream всех каналов с уведомлением администраторов | системная задача `model_update` |
 | `run_channel_tests` | один прогон проверки каналов: отключение медленных и сбойных, включение восстановленных | системная задача `channel_test` |
-| `refresh_codex_credential` | обновление OAuth-учётных данных Codex | `POST /api/channel/:id/codex/refresh` — `channel.sensitive_write`; также `service.RefreshCodexChannelCredential` |
-| `refresh_codex_credentials` | обновление истекающих учётных данных Codex | фоновая задача `service.StartCodexCredentialAutoRefreshTask` |
-| `discover_codex_models` | модели Codex у upstream | без HTTP, через `service` |
+| `refresh_codex_credential` | обновление OAuth-учётных данных Codex | `POST /api/channel/:id/codex/refresh` — `channel.sensitive_write`; также `app/channelcore.RefreshCodexChannelCredential` |
+| `refresh_codex_credentials` | обновление истекающих учётных данных Codex | фоновая задача `app/channelcore.StartCodexCredentialAutoRefreshTask` |
+| `discover_codex_models` | модели Codex у upstream | без HTTP, через `app/channelcore` |
 | `get_codex_usage`, `get_codex_reset_credits`, `reset_codex_usage` | использование Codex, кредиты сброса и сброс | `GET /api/channel/:id/codex/usage`, `GET .../usage/reset-credits` — `channel.read`; `POST .../usage/reset` — `channel.operate` |
 | `pull_ollama_model`, `stream_ollama_model_pull`, `delete_ollama_model`, `get_ollama_version` | модели и версия Ollama | `POST /api/channel/ollama/pull`, `/ollama/pull/stream`, `DELETE /ollama/delete`, `GET /ollama/version/:id` — `channel.sensitive_write` |
 | `get_affinity_cache_stats`, `clear_affinity_cache` | статистика и очистка кэша привязки каналов | `GET`, `DELETE /api/option/channel_affinity_cache` — `RootAuth` |
 | `get_affinity_usage_stats` | использование кэша привязки по правилу и ключу | `GET /api/log/channel_affinity_usage_cache` — `AdminAuth` |
-| `change_channel_state` | смена статуса канала или ключа с учётом кэша | без HTTP, через `model.UpdateChannelStatus` |
+| `change_channel_state` | смена статуса канала или ключа с учётом кэша | без HTTP, через `app/channelcore.UpdateChannelStatus` |
 | `disable_channel`, `enable_channel` | отключение и включение по ошибкам шлюза с уведомлением root | без HTTP, через `app/channelruntime.Disable` / `app/channelruntime.Enable` |
 
 Ошибки сценариев — значения из `domain/errors.go`. Их переводит в HTTP общий `transport.WriteError`; `transport.Message` даёт текст ошибки на языке запроса:

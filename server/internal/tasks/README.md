@@ -67,10 +67,10 @@ Media adapter сохраняет streaming ownership, redirect/SSRF/header/range
 TaskPlatform и canonical action vocabulary остаются leaf-owned в constant; domain использует aliases.
 Leaf-пакеты constant/common/dto/types/relaykit не импортируют internal (architecture guard).
 
-## Остатки и проверка
+## Границы и долг
 
 Task alias view имеет одного владельца adapter/taskplugins/aliases; SQL reader находится у channels adapter,
-сборка pricing publication — app/pricingruntime. Shared quota/cache/lock перенесены в7j:
+сборка pricing publication — app/pricingruntime. Shared quota/cache/lock принадлежат
 adapter/cache/{accounts,apikeys}, adapter/gorm/{billing,locking,counters}; app/taskbillingruntime явно
 собирает TaskDelta/TaskPrices/Midjourney/TaskText, включая recipient-language capability.
 Log writer и export state принадлежат usage adapter. Gateway task metadata обращается к usage напрямую.
@@ -78,17 +78,12 @@ app/tasks предоставляет узкие insert/origin/fetch/protocol cap
 confirm_submission_reservation владеет marker decision после durable settlement/log: без reconciliation
 нет CAS; flags меняются до CAS и сохраняются при ошибке/проигрыше. Operation adapter удерживает исходный
 record pointer, ID/timestamps/hooks и прежний status predicate; новый request context к update не добавляется.
-Filesystem artifact backend и plugin CRUD/protocol/runtime не перенесены.
+Filesystem artifact backend принадлежит adapter/artifacts; plugin CRUD — taskplugins, protocol/runtime — gateway.
 
-TECH_DEBT69–75 описывает сохранённые financial/security/resource риски. Контракты:319 HTTP/state/outbound,
-216 policy/ticks,47 MJ/scheduler/media и4 OAuth — всего586 immutable goldens. Вместе с2237 прежними —2823;
-два locale baselines фиксируют42 snapshots каждый и ровно6 inherited locale deltas. Новые default deltas:0.
-Package/call-site перемещение harness не разрешает правок oracle bytes. Runtime owner fixtures используют
-shared test-only helper; PostgreSQL — отдельные main/log schemas и startup search_path каждого connection.
-Sandbox проверки и подготовленные host scripts не доказывают host/PostgreSQL/MySQL/Redis/WSS/full-suite,
-CI/live provider или production acceptance. Фактические результаты находятся в wave5a-report.md handoff.
+TECH_DEBT #69–75 описывают сохранённые financial/security/resource риски.
+Контрактные fixtures находятся в `contract/` и у owning runtime/scenario packages.
 
-C1 content gap: общие bulk fail_reason получают English default, без выбора языка root или владельца.
+Persisted bulk reasons: общие bulk fail_reason получают English default, без выбора языка root или владельца.
 Один UPDATE и порядок SQL неизменны; per-owner локализация требует отдельного DB-изменения (#75).
 
 Общий frozen-account hash/static-header helper находится в adapter/http/batchaccount; tasksync и Batch используют одно тело. Batch-only metadata delegates BillingGateway удалены.

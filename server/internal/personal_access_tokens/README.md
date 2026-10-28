@@ -53,4 +53,4 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/personal_access_tokens.go`) �
 - Model persistence factories удалены; SQL и record capabilities собирает app. GetAPI issuance принадлежит `accounts/initialize_pat`, dashboard PAT lifecycle остаётся здесь.
 - Ошибки хранения и формат ответа 401/500 принадлежат identity (`identity/transport.Writer.WriteError`); модуль только передаёт их дальше.
 
-`model.ValidateAccessToken` удалён вместе с двумя production-потребителями; существующие controller-тесты обращаются к сценарию через сборку. Новых model→internal исключений нет. HTTP valid/invalid/revoked зафиксированы в контрактном тесте apikeys на origin/main.
+PAT validation fixtures находятся в контрактном тесте apikeys; production consumers используют сценарий через app/authentication.

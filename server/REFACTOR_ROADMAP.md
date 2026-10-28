@@ -33,8 +33,8 @@
 | 3 | Учёт и аналитика: логи, usedata, агрегаты, рейтинги, аудит | ✅ (3a, 3b) | средний |
 | 4 | Платежи, подписки, коды пополнения | ✅ (4a коды, 4b платежи, 4c подписки) | высокий |
 | 5 | Асинхронные задачи и batch (бизнес-часть) | ✅ (5a задачи; 5b batch; 5c плагины задач) | средний |
-| 6 | Настройки и система | ⬜ | низкий |
-| 7 | Доводка: остатки в `service`/`model`, алиасы, список исключений → 0 | ⬜ | средний |
+| 6 | Настройки и система | ✅ (6a, 6b, 6c; итоговая приёмка на дереве 7m) | низкий |
+| 7 | Доводка: остатки в `service`/`model`, алиасы, список исключений → 0 | ✅ (7a–7m; host/PostgreSQL приёмка) | средний |
 | 8 | *(по желанию)* Раскладка внутри шлюза | ⬜ | средний |
 | 9 | *(по желанию)* Общий слой платформы | ⬜ | средний |
 
@@ -84,7 +84,7 @@
 - [x] **2b2 implementation**: text/audio/realtime cost, token/cache normalization, tiered policy, selected-group refresh и FX в flat action-пакетах `internal/billing`; plain gateway mapping и late readers. `ExpressionEvaluator`/`QuotaMath` adapters используют прежний engine/rounding. Provider discovery/unknown policy не переносились.
 - [x] Cost baseline до переноса: `fa7f25e43`, 64 goldens, origin/main record + два повтора + branch compare; прежние 62 неизменны.
 - [x] **2b2 host acceptance**: все 126 immutable goldens, неизменный WSS characterization, full suite, vet/OpenAPI/U1000; PostgreSQL 15.19 full suite совпадает с origin/main, изолированные adapter/WSS/cost/task проверки зелёные. SQLite/MySQL полной матрицей не проверялись.
-- [ ] Удалить единственный service BillingGateway bridge после переноса log orchestration в 2c и Batch/Task/Midjourney/violation в волну 5; WSS facades пока нужны неизменному characterization.
+- [x] BillingGateway registry и service/WSS facades удалены в 7k; immutable harness вызывает реальных gateway owners.
 
 ### 2c — запись использования
 
@@ -103,11 +103,11 @@
 - [x] 3b implementation: audit admin_list_events/list_own_events/record_event; domain policy, transport snapshots, gorm records/codec, sync.OnceValue composition. Routes/permissions, LOG_DB и legacy subscription row shape сохранены.
 - [x] 3b baseline (74c45a2d8): 257 audit goldens + default-locale baseline, origin/main record + два повтора + candidate parity; прежние 501 immutable, всего 758.
 - [x] 3b host acceptance (commit f5e0d6daa): 758 goldens без -update, locales, WSS, full suite, relaykit/OpenAPI/U1000; PostgreSQL 15.19 full suite совпадает с origin/main, audit matrix (main + отдельная log schema, fresh/upgrade) и token audit matrix зелёные. SQLite/MySQL полной матрицей не проверялись.
-- [x] Read queries к `LOG_DB` отделены, отдельная log DB сохранена; #36 закрыт plain request observation. Legacy writers/cleanup и общие RAM queues остаются до волн 5/7 (A2/A4), без нового locator.
+- [x] Read queries к `LOG_DB` отделены, отдельная log DB сохранена; #36 закрыт plain request observation. Writers/cleanup и RAM queues перенесены в gorm/usage и gorm/counters (7j), без нового locator.
 
 ## Волна 4 — платежи, подписки, коды ✅
 
-- [x] `payments` implementation: 22 сценария, 23 регистрации, пять provider adapters, wallet owner, strict TopUp record alias; subscription workflow остаётся legacy до 4c (commits 1168444a1..20d2e7035).
+- [x] `payments` implementation: 22 сценария, 23 регистрации, пять provider adapters, wallet owner, strict TopUp record alias; subscription workflow перенесён отдельно в 4c (commits 1168444a1..20d2e7035).
 - [x] `subscriptions` implementation: plans/user subscriptions, balance/provider checkout, complete/expire, pure calendar и app maintenance; model alias-only и согласованные cache/delta/debit остатки. Contract1 d0e1e5e97:519 HTTP +13 ticks,132 locales; всего2237 immutable golden files.
 - [x] 4c host acceptance (commits 3fb737451..4227b8903): 2237 goldens без -update, Redis/WSS/full suite, relaykit/OpenAPI/U1000;
   PostgreSQL 15.19 full suite совпадает с 3b, изолированные subscriptions/billing/payments на PG зелёные. SQLite/MySQL полной матрицей не проверялись.
@@ -133,12 +133,12 @@
 
 - [x] 5a implementation: standalone delta единственным телом в gorm/billing; same-tx task capability, nested refund #27 сохранён.
 
-- [ ] Перевести persisted Task/Batch/Midjourney/violation log texts на English (translate persisted log texts to English); удалить metadata delegates единственного bridge после переноса consumers.
+- [x] Новые Task/Batch/Midjourney/violation log templates переведены применённым English content package; metadata delegates удалены после переноса consumers. Исторические persisted rows не мигрировались (#34).
 
 Отправка задачи провайдеру — шлюз; учёт задач, их биллинг и опрос — бизнес.
 
-- [x] 5a implementation: Task/MJ records, accounting, polling, dashboard/media и OR durable sync — internal/tasks (commits df33308eb контракты, 1113bf66f перенос, 97de3dcf3 docs); plugin routing/cache model/task_model_alias.go сохраняется для pricing/channel-cache cleanup волны 7; alias ownership перенесено не полностью.
-- [x] 5b implementation: Batch API, worker, billing и storage — internal/batch (commits 0caf7748d контракты, ec10c079c перенос, 3e761c3dd docs); provider_batch_poll регистрируется явно из controller.RegisterScheduledSystemTasks.
+- [x] 5a implementation: Task/MJ records, accounting, polling, dashboard/media и OR durable sync — internal/tasks (commits df33308eb контракты, 1113bf66f перенос, 97de3dcf3 docs); alias view затем перенесён в adapter/taskplugins/aliases (7g), с channels SQL reader.
+- [x] 5b implementation: Batch API, worker, billing и storage — internal/batch (commits 0caf7748d контракты, ec10c079c перенос, 3e761c3dd docs); provider_batch_poll регистрируется явно из app/httpapi.RegisterScheduledSystemTasks.
 - [x] 5b host acceptance: 484 новых + все прежние goldens без -update по два повтора, full suite, relaykit/OpenAPI/U1000. -count=2 падает только на тех же roots, что и HEAD (#76, SQLITE_BUSY flake).
   PostgreSQL 15 full suite совпадает с 3b, целевые batch/tasks/billing на PG зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] 7f2be5459: два теста вне goldens переведены на English default тексты 5a.
@@ -149,15 +149,13 @@
 - [x] 5c acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, все goldens без -update по два повтора;
   PostgreSQL 15 full suite совпадает с 3b, taskplugins/tasks/batch PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] Content-only (commit 3d03566a7): ошибки плагинов задач — i18n keys, English по умолчанию + ru, zh без изменений.
-- [ ] Волна 7 cleanup: единый executable `model/task_model_alias.go` для model/pricing.go,
-  model/model_pricing_config.go и InitChannelCache. Удалить, когда у pricing и channel-cache lifecycle
-  появятся собственные владельцы; без новых model→internal imports/exceptions. Alias ownership не полностью перенесено.
+- [x] Alias cleanup7g: один adapter/taskplugins/aliases.View используется pricing и channel-cache lifecycle; model/task_model_alias.go удалён.
 - [x] 5a: polling consumer port → adapter/gateway/taskplugins → leaf relay/taskregistry; явная runtime assembly, main-only factory удалена.
 - [x] 5a host acceptance: 586 новых + 2237 прежних goldens без -update, Redis/WSS/full suite, relaykit/OpenAPI/U1000;
   PostgreSQL 15.19 full suite совпадает с 3b, изолированные tasks/billing/subscriptions/payments на PG зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] Content-only (commit e2956edbd): ошибки задач — English по умолчанию + ru, тексты биллинга и причины сбоя на языке владельца, zh без изменений; 344 строки в 147 goldens. Общий fail_reason bulk UPDATE — English (#75).
 
-## Волна 6 — настройки и система ⬜
+## Волна 6 — настройки и система ✅ (историческая приёмка)
 
 - [x] 6a implementation: `internal/settings` — generic write/read/reload, root editor, public status/legal/content;
   `app/settings` сохраняет defaults→reload и sleep→reload→pricing observation. Contracts: commit 7899e7233, 749 новых goldens.
@@ -165,65 +163,67 @@
 - [x] 6a acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, 4452 goldens и 16 locale baselines без -update;
   PostgreSQL 15 full suite совпадает с 3b, settings/group ratio/pricing publication/tasks/batch PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] Content-only (commit d7e8e42a7): ошибки редактора опций — i18n keys, English по умолчанию + ru, zh без изменений.
-- [ ] 6a A2=B ownership gap: `model/option.go` перенесён не полностью; single publisher/mutex и pricing/catalog option composition остаются до волны 7.
+- [x] 6a A2=B ownership gap закрыт в7g: один settings publication owner и app/pricingruntime; catalog same-tx capability сохранена.
 - [x] 6b implementation: internal/system — setup, system tasks/lease/history/cleanup, instances и runtime maintenance; app/system + app/systemruntime, explicit registration всех 8 handlers.
 - [x] 6b commits: bc5fd76d2 контракты, 738eae5b9 перенос, 9ba1f994d docs.
 - [x] 6b acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, 4822 goldens и 18 locale baselines без -update;
   PostgreSQL 15 full suite совпадает с 3b, system/setup/log cleanup и прежние PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] Content-only (commit 097c976b7): system/setup/task сообщения — i18n keys, English по умолчанию + ru, zh без изменений.
-- [ ] 6b gaps: FX/metrics ownership реализован в 7h; fresh host/PostgreSQL acceptance остаётся обязательным.
+- [x] 6b ownership gaps закрыты в7h; финальная host/PostgreSQL приёмка относится ко всему текущему дереву7m.
 - [x] 6c implementation: deployments, catalog availability/prefill и notifications; once app wiring, gateway static snapshot/model view, channelruntime integration. Контракты: 8a12bf350.
 - [x] 6c commits: 078dce766 перенос, c651b5995 docs, e03272e52 test-fix PostgreSQL-теста setup из 6b (не хватало i18n.Init).
 - [x] 6c acceptance: host full suite/WSS/relaykit/OpenAPI/U1000, 5717 goldens и 22 locale/log baselines без -update;
   PostgreSQL 15 full suite без новых падений относительно 6b, deployments/catalog/notifications/system/settings/tasks PG-тесты зелёные. SQLite/MySQL полной матрицей не проверялись.
 - [x] Content-only (commit 820f02271): сообщения deployments и prefill groups — i18n keys, English по умолчанию + ru, zh без изменений.
 
-## Волна 7 — доводка ⬜
+## Волна 7 — завершение владельцев ✅
 
-- [x] 7a accounts purity: plain `domain.UserSetting`, codec профиля в адаптере, функциональные `QuotaMath` ports; 11 accounts-исключений удалены. Commits 21d7533f3 перенос, c108b36dc docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, accounts/quota PG-тесты зелёные. SQLite/MySQL не проверялись.
+Реализация всех под-волн присутствует в дереве. Финальная host/PostgreSQL/real Redis приёмка
+выполнена на дереве 7m (commits 0bf4f16c7, a90abee0f — 7l; 06f569a64 и docs — 7m).
 
-- [ ] Catalog A3: composition, metadata mutex/transaction/anchor и same-tx PricingMutation перенесены в 7g; acceptance остаётся в общем 7g gate.
-- [x] 7b Catalog A4: codec/version hash вынесены в adapter/catalog, domain чистый; availability/prefill объединены с root domain без изменения wire bytes; private Fill*, consumer-owned mutation ports и P3 test-only остатки перенесены. Удалены 19 исключений. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
-  Commits c4474edfa перенос, 01f2da575 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, catalog PG-тесты зелёные. SQLite/MySQL не проверялись.
+| Подволна | Фактический результат | Source |
+|---|---|---|
+| 7a accounts purity | plain UserSetting/profile facts, codec/QuotaMath ports | [x] |
+| 7b catalog purity/P3 | чистый domain, adapter codec/hash, consumer-owned mutations и HTTP audit | [x] |
+| 7c channels purity | typed codecs/diagnostics, leaf statuses, чистый domain | [x] |
+| 7d pricing purity | plain facts/capabilities, точный D1 alias leaf и сохранённые codec diagnostics | [x] |
+| 7e technical service | HTTP/media/text/artifacts и gateway mapping/routing/tokenusage у владельцев | [x] |
+| 7f authorization | один Casbin state/mutex, leaf app/authorizationcore, service/authz удалён | [x] |
+| 7g shared composition | channel cache/abilities, alias view, один publisher, catalog anchor/same-tx pricing | [x] |
+| 7h FX/metrics | pricing FX SQL/RAM/HTTP + replica, system metrics core и adapters | [x] |
+| 7i identity orchestration | leaf core, session/token/email/WebAuthn adapters, cleanup и custom OAuth | [x] |
+| 7j shared persistence | account/key/identity SQL, reserve/cache/locking/counters/usage/subscription owners | [x] |
+| 7k gateway/task | gateway/transport, probe adapter, task capabilities/marker, BillingGateway удалён | [x] |
+| 7l controller closure | app/httpapi assembly/callbacks/startup, однострочные controller bindings | [x] |
+| 7m final closure | 46 migration-used aliases, 65 helper re-exports удалены, docs/carry/strict checks | [x] |
 
-- [x] 7c channels purity: typed mapping/key/OtherInfo facts, codec и diagnostics boundary; domain/usecase транзитивно чистые, 36 исключений удалены. Mapping sentinels и legacy composition остаются до 7g. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
-  Commits 8bd03012c перенос, 4c8eae5d2 docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, channel PG-тесты зелёные. SQLite/MySQL не проверялись.
+- [x] В service нет production Go-кода или тестового пакета; immutable testdata сохраняет прежние пути.
+- [x] В model только migration-used table aliases, bootstrap и прежние migrations/backfills в исходном порядке.
+- [x] Error aliases без consumers и все временные BRIDGE удалены; architecture allowlist пуст.
+- [x] Controller содержит только router bindings и реальные wire-декларации OpenAPI; helpers только в tests.
+- [x] Carry P3: catalog mutations/Fill* и notification selector у владельцев, model_sync helpers только в tests.
+- [x] Import blocks нормализованы в Go-файлах, изменённых веткой с 6b0f439a4; нет изменений untouched paths.
+- [x] `system.task_i_d_required` → `system.task_id_required` в keys.go и четырёх локалях; тексты прежние.
+- [x] TECH_DEBT #76 дополнен актуальным owner FX tests и PostgreSQL shared-state observation.
+- [x] README/ARCHITECTURE/AGENTS/TECH_DEBT отражают владельцев и границы.
+- [x] Финальный host: все 5944 goldens/22 baselines без update, locale_after, metadata TCP×20,
+  WSS, real Redis, whole-1/full-suite strict, whole-2 против actual HEAD с explicit moved_roots,
+  build/vet/architecture, standalone relaykit, OpenAPI и U1000. Whole-2 допускает только roots HEAD;
+  документированные #76 FX roots сопоставлены с новым owner internal/app/pricingfx.
+- [x] Финальный PostgreSQL 15: full suite без новых падений относительно 7k (те же known roots:
+  #76 FX shared state, TestInitOnSlaveOnlyLoadsPolicies, TestOpenRouterRerankDurableReservation),
+  checks job PASS, 24/24 owning package/test jobs, separate main/log schemas, no-SKIP guards.
+- [x] Коммиты на ветке. Публикация (push/PR) — только по решению владельца.
 
-- [x] 7d pricing purity: pricing-owned offer/document/schema/tier/display facts и явные codec/expression/catalog/endpoint ports; business graph очищен от common/billingexpr/jsplugin/catalogsync и direct gateway imports, удалены ровно 28 исключений. По D1 сохранён только точный constant→relaykit/types→relaykit/relayconvert/kitutil alias leaf; отдельное архитектурное правило запрещает остальные пути. Expression engine, wire bytes, revision/hash и legacy publication ownership сохранены; свежие host/PostgreSQL acceptance обязательны.
-  Commits f9a0a89e9 перенос, 65e3a3d8b docs; host full suite/WSS/relaykit/OpenAPI/U1000 и goldens без -update, PostgreSQL 15 full suite без новых падений, pricing PG-тесты зелёные. SQLite/MySQL не проверялись.
-
-- [ ] 7e service technical leaves: HTTP/proxy/protected fetch/worker → pkg/httpclient, media/files → pkg/media, text filter → pkg/textfilter, gateway helpers → gateway/{mapping,routing,tokenusage}, artifacts → adapter/artifacts и payment return URL → settings/payments. Удалены 29 production service files; назначенных 7e allowlist rows нет. Routing group-policy BRIDGE остаётся до 7g; свежие host/PostgreSQL acceptance обязательны.
-
-- [ ] 7f authorization core: единый Casbin state/mutex в adapter, leaf `app/authorizationcore` для init/sync и общей сборки; middleware/router/accounts переведены, `service/authz` и 14 исключений удалены. Master/follower, in-tx rollback/postcommit reload и тексты сохранены. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
-
-- [ ] 7g channels/pricing/settings/catalog composition: строгие Channel/Ability/catalog record aliases; один channel cache/alias view, publication adapter и leaf app/pricingruntime; catalog mutex/anchor и same-tx pricing capability. Удалены 57 назначенных allowlist rows, новых нет. G1=A: два quota writer перенесены вместе с counter queue в 7j, единственный owner — adapter/gorm/counters. Реализация и sandbox handoff отделены от обязательного fresh host/PostgreSQL acceptance. SQLite/MySQL not checked.
-
-
-- [ ] 7h FX + metrics: pricing-owned FX record/SQL/RAM/refresh/replica lifecycle; system-owned metrics read/policy и leaf app/systemmetrics core/loop, adapters aggregation/SQL/Redis, gateway RelayInfo projection. Service FX/collector bodies и pkg/perf_metrics implementation удалены; model сохраняет table aliases. Назначенных 7h allowlist rows нет, новых исключений нет. Реализация и sandbox evidence отделены от обязательного fresh host/PostgreSQL и real Redis acceptance. SQLite/MySQL not checked.
-
-- [ ] Settings A2=B cleanup: перенести единственные `model.PublishOption`, `groupRatioOptionMutex`, alias facts и pricing/catalog option composition
-  (`model/model_pricing_config.go`, `model/pricing_catalog_option.go`, `model/catalog_persistence.go`) вместе с реальными consumers
-  NewPricingOptionsPersistence/native catalog publication; сохранить same-tx catalog deletion+pricing edits и один lock/publisher.
-  До собственного владельца composition ownership gap открыт; новых model→internal imports/exceptions не вводить.
-
-- [ ] Перенести оставшиеся model.LockForUpdate, model.SyncCreditUserQuotaCache и model.CacheDecrUserQuota вместе с shared row-lock/quota-cache primitives; без копирования Lua/key/schema.
-- [ ] Общие quota cache/Lua/DB primitives из `model/quota_reserve.go`, user/token/task consumers → технические адаптеры с одним владельцем; 2b1 сохраняет primitives и SQL/Redis semantics без изменений.
-
-- [ ] 7i identity orchestration + transport: leaf `app/identitycore`, token/session/email/WebAuthn adapters, cleanup owner и custom OAuth management/discovery; service facades и 56 исключений удалены, семь HTTP model-imports заменены plain facts/bound factories. Записаны 144 immutable custom OAuth contracts. Реализация готова; свежие host/PostgreSQL acceptance обязательны.
-- [ ] 7j account/key/identity SQL + shared quota/cache: строгие User/Token/identity aliases; SQL/cache/reserve/locking/counters/log writer/subscription cache перенесены к единственным техническим владельцам, app собирает явные capabilities. GetAPI PAT initialization и billing compatibility — owning scenarios/HTTP. Удалены 39 оставшихся allowlist rows, новых нет; migrations/backfill/startup order сохранены. 83 новых origin-recorded compatibility goldens и 144 custom OAuth входят в immutable verifier. Реализация и sandbox handoff отделены от обязательных свежих host/PostgreSQL и real Redis acceptance. SQLite/MySQL not checked.
-- [ ] 7k gateway transport + task bridges: ingress/plugin/session/debug/playground перенесены в gateway/transport, channel probe — adapter/gateway/channels; task owner получил narrow insert/origin/fetch ports и confirmation marker scenario. BillingGateway registry и production service facades удалены; violation policy — billing, protocol normalization — gateway/mapping. Immutable harness rewired только по package/import/entrypoint/path; oracle bytes прежние. Реализация и sandbox evidence не заменяют свежие host/PostgreSQL и real Redis gates. SQLite/MySQL not checked.
-- [ ] Убрать алиасы ошибок в `model`, `service`, `oauth`, когда у них не останется потребителей.
-- [x] 7i: `*model.User` и `*model.AuthFlowAuthorization` убраны из transport identity; SQL records остаются внутри adapters/composition.
-- [ ] Мосты `// BRIDGE:` — удалить все.
-- [ ] Список исключений архитектурного теста → 0.
-- [ ] `controller/` — только связка с роутером; `service/` — пусто или удалён; `model/` — алиасы таблиц и миграции.
-- [ ] Обновить `internal/README.md` и `ARCHITECTURE.md` по факту.
+Принято A5=B: PostgreSQL-only acceptance, **SQLite/MySQL not checked**; полная DB compatibility
+не заявляется. Реальные security/financial/resource defects из TECH_DEBT не исправлены переносом.
+Optional Waves 8/9 не являются условием source closure Wave 7.
 
 ## Волна 8 — раскладка внутри шлюза (по желанию) ⬜
 
 Остаётся снаружи `internal`, бизнес его не импортирует.
 
-- [ ] Входы шлюза по папкам: chat, responses, claude messages, gemini, embeddings, images, audio, rerank, realtime, tasks (`controller/relay.go`, `relay/*_handler.go`).
+- [ ] Входы шлюза по папкам: chat, responses, claude messages, gemini, embeddings, images, audio, rerank, realtime, tasks (`gateway/transport`, `relay/*_handler.go`).
 - [ ] Реестр адаптеров провайдеров вместо switch в `relay/relay_adaptor.go`.
 - [ ] Выбор канала (`middleware/distributor.go`) — отдельный компонент шлюза поверх конфигурации каналов из `channels`.
 - [ ] Адаптеры `relay/channel/*` — единая структура файлов.
@@ -252,5 +252,3 @@
 - [ ] `.worktrees/main-baseline`;
 - [ ] stash `accounts-channels-before-rebase-main-20261020`;
 - [ ] неотслеживаемые `client/` и `server/` в корневом checkout (остатки сборки).
-
-- [ ] 7l controller residue + bridges: HTTP assembly, audit/login callbacks и channel startup effects перенесены в app/httpapi; test-only helpers — в *_test.go, controller содержит однострочные router bindings. Удалены non-table BRIDGE re-exports model; остальные table aliases обслуживают bootstrap. Production BRIDGE comments0, service Go files0, architecture allowlist0. Реализация не заменяет свежие host/PostgreSQL/real Redis acceptance. SQLite/MySQL not checked.

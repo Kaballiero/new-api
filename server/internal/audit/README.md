@@ -20,7 +20,7 @@
 
 ## Зависимости
 
-`domain` содержит чистые события, роли, visibility, action/content и правила ограниченных batch params. Он не содержит хранимый JSON envelope и не зависит от common/Gin/GORM. Read DTO живут в `dto`; хранимые record/tags и raw-preserving metadata codec — в `internal/adapter/gorm/audit/record`. `model/audit_records.go` содержит только same-name aliases и const re-exports; migration helper остаётся в отдельном model файле с прежним DDL.
+`domain` содержит чистые события, роли, visibility, action/content и правила ограниченных batch params. Он не содержит хранимый JSON envelope и не зависит от common/Gin/GORM. Read DTO живут в `dto`; хранимые record/tags и raw-preserving metadata codec — в `internal/adapter/gorm/audit/record`. `model/audit_records.go` содержит только табличный alias AuditLog; migration helper остаётся в отдельном model файле с прежним DDL.
 
 Модуль использует только собственный domain; зависимости на domain других бизнес-модулей нет. Read-сценарии объявляют узкий Reader.List, record_event — Store.Append/Username и Diagnostics.InvalidRole. GORM adapter реализует чтение/запись и username lookup через инжектированный callback, app — диагностику через logger. Transport получает Execute/error callbacks, часы и генератор ID; зависимости собирает internal/app/audit.
 
@@ -32,7 +32,7 @@ ClickHouse insert row encoding принадлежит record.InsertRow и исп
 
 ## Границы и долг
 
-Usage logs, PAT lifecycle, аутентификация, финансы и подписки остаются у своих владельцев. Аудит фиксирует результат, не меняя их workflow. Для subscription reset domain operator передаётся напрямую; legacy model operator DTO остаётся только у quota recipient usage writer.
+Usage logs, PAT lifecycle, аутентификация, финансы и подписки остаются у своих владельцев. Аудит фиксирует результат, не меняя их workflow. Для subscription reset domain operator передаётся напрямую; quota recipient usage writer получает operator envelope своего record owner.
 
 PAT last-use reader остаётся в PAT adapter с прежним read-only SQL (#44); двойная PAT validation и race отзыва — отдельный долг #25. Нет audit → PAT зависимости.
 
@@ -44,6 +44,4 @@ Quota recipient сохраняет прежний usage/top-up writer, operation
 Controller содержит однострочные router bindings; временных audit callbacks в нём нет.
 Middleware сохраняет прежние begin/finish и defer-порядок записи integration completion.
 
-Проверки: 257 неизменных audit HTTP/state goldens и отдельный locale baseline; прежние 501 billing/usage goldens; record_event policy/nil-request/error-identity regressions; codec integer precision; existing controller callers и API-key middleware matrix. Audit storage/migration integration tests находятся в app/audit, codec — рядом с record; оставшиеся controller tests проверяют внешние вызовы. Общая test fixture `internal/adapter/gorm/audit/audittest` выделяет PostgreSQL schema + startup search_path для каждого пула, отдельный LOG_DB получает свою схему. Внешние MySQL/ClickHouse tests запускаются только с DSN; отсутствие DSN — SKIP, а не подтверждение совместимости.
-
-Auth/security review ограничен переносом существующих событий и access projection: OWASP ASVS 5.0.0 V16 (16.1.1, 16.2.1, 16.2.5, 16.3.1/2, 16.4.1/2, 16.5.1/2), Authentication/Session Management/Logging Cheat Sheets. Credentials, codes, keys и сырые bodies/query не добавляются в events. Legacy login пишет только успехи; полнота ASVS inventory, доставка/защита внешнего log store и production durability этим переносом не доказаны.
+Аудит исключает usable credentials, codes, keys и сырые bodies/query; запись остаётся best-effort.

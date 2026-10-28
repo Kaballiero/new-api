@@ -67,7 +67,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/pricing.go`) читает DTO
 - Сборка — `internal/app/pricing.go` (`NewPricingHTTP`), один раз через `sync.OnceValue` в `app/httpapi/pricing.go`; аудит — callback app/httpapi к app/audit.Recording.
 - Адаптеры: `adapter/pricing` (`Reader`, `ConsumerCache`, `RatioSettings`, `RatioChannels`, плагины), `adapter/pricing/upstream` (HTTP-клиенты ratio sync и нативных цен, override, нормализация), `adapter/gorm/pricing` (опции, каталог, неизменяемые записи, наблюдения).
 - Настройки: `setting/ratio_setting`, `setting/billing_setting`, account group policy в settings/accounts. Leaf `app/pricingruntime` собирает статические сценарии once; `adapter/pricing/state` владеет единым опубликованным snapshot, revision/generation/observation state и lock order. DB, колонки, настройки, registry и clock читаются поздно.
-- Потребители: `controller/pricing*.go`, `ratio_sync.go`, `ratio_config.go`, `model_pricing_config.go` (HTTP и алиасы типов для тестов); `app/pricingruntime` и технические adapters (сценарии без HTTP).
+- Потребители: `controller/pricing*.go`, `ratio_sync.go`, `ratio_config.go`, `model_pricing_config.go` (HTTP bindings и wire-декларации OpenAPI); `app/pricingruntime` и технические adapters (сценарии без HTTP).
 
 ## Границы и долг
 

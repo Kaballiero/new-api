@@ -35,9 +35,9 @@
 | `delete_keys_batch` | пакетное удаление, аудит `token.delete_batch` | `POST /api/token/batch` |
 | `reveal_keys_batch` | полные ключи пачкой (до 100 id), аудит `token.key_view_batch` | `POST /api/token/batch/keys` + `CriticalRateLimit`, `DisableCache` |
 | `get_key_usage` | остаток и расход квоты по самому ключу из `Authorization: Bearer sk-…` | `GET /api/usage/token/` + `CORS`, `CriticalRateLimit`, `TokenAuthReadOnly` |
-| `get_key_status` | сводка `credit_summary` по ключу | маршрута нет (как и в `origin/main`); обработчик `controller.GetTokenStatus` остаётся в OpenAPI-генераторе |
+| `get_key_status` | сводка `credit_summary` по ключу | HTTP-маршрута нет; native fixture вызывает owning HTTP напрямую, а OpenAPI parser читает его AST |
 | `validate_key` | проверка ключа и владельца, срока/квоты с прежней записью статуса, IP, группы, ограничений моделей и pin канала; возвращает типизированный `Caller` | `TokenAuth`, ключевая ветка `TokenOrUserAuth`; `TokenAuthReadOnly` допускает expired/exhausted, но отклоняет disabled |
-| `validate_key.PrepareContext` | контекст доверенного временного ключа playground, включая auto-группы и pin; те же правила, что у ключа шлюза | мост `middleware.SetupContextForToken` для `controller/playground.go` |
+| `validate_key.PrepareContext` | контекст доверенного временного ключа playground, включая auto-группы и pin; те же правила, что у ключа шлюза | `middleware.SetupContextForToken` для `gateway/transport/playground.go` |
 | `disable_model_limits` | снимает ограничения по моделям у ключа | без HTTP, напрямую через сценарий |
 | `delete_owned_key` | удаляет ключ владельца по id | без HTTP, напрямую через сценарий |
 
@@ -69,12 +69,9 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/apikeys.go`) берёт ко�
 - `app/apikeystorage` собирает persistence/reader/quota один раз, с поздними DB/key-column getters. Gateway credential adapter и Batch получают реальные reader/quota capabilities.
 - Gateway key checks собирает app/authentication.GatewayKeyAuth; middleware.SetupContextForToken выполняет реальную context projection для router/playground. Временных transport bridges и model forwarding layers нет.
 - Ограничения моделей передаются сценарием в контекст; фактический запрошенный model по-прежнему проверяет `middleware.Distribute` до выбора канала.
-- HTTP goldens `gateway_*` записаны на `origin/main` `6b0f439a4`; тест не обращается к upstream. Это проверка контракта, не подтверждение работы провайдера.
-- Ошибки шаблона поиска (`ErrSearch*Wildcards`, `ErrSearchKeywordTooShort`) возвращает и `model.sanitizeLikePattern`, который используют поиск логов и пополнений. Там они уходят клиенту английским текстом ошибки без перевода, пока эти модули не перенесены.
+- Общие ошибки шаблона поиска принадлежат apikeys/domain; usage и payments adapters сохраняют их прежний English error text.
 
 `get_billing_subscription` владеет совместимым `/v1/dashboard/billing/subscription`: порядок чтения,
 unlimited 1e8, expiry и currency projection сохранены. `app.NewBillingCompatibilityHTTP` собирает handler
-и технический reader; `controller/billing.go` содержит entrypoint bridge до прямой router binding.
-83 общих raw goldens с PAT и usage включают 36 billing cases. Redis fence/reserve regression требует
-реальный Redis (`TestSharedQuotaCacheRealRedis`) и actual server version; miniredis не заменяет этот gate.
-SQLite/MySQL not checked; host/PostgreSQL acceptance отдельно.
+и технический reader; `controller/billing.go` содержит однострочные router bindings.
+Shared quota/cache регрессии находятся у `adapter/cache/accounts` и `adapter/gorm/billing`.

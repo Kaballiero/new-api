@@ -37,6 +37,5 @@ List/search, rename и extend используют самостоятельны�
 
 Локальных deployment records, quota debit, customer settlement и фонового scheduler нет.
 Авторизация принадлежит middleware, настройки options — settings, SDK transport — pkg/ionet.
-`controller/deployment.go` содержит delegates для существующих router registrations; их можно
-удалить после прямой сборки handlers в router. Прежние HTTP200 error envelopes и provider error
+`controller/deployment.go` содержит однострочные router bindings; HTTP-сборка принадлежит app/httpapi. Прежние HTTP200 error envelopes и provider error
 chains сохраняются, включая отдельную legacy direct type assertion test-connection.
