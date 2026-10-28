@@ -219,6 +219,20 @@
 не заявляется. Реальные security/financial/resource defects из TECH_DEBT не исправлены переносом.
 Optional Waves 8/9 не являются условием source closure Wave 7.
 
+## Синхронизация с main ✅
+
+Слит origin/main bb9799246 (31 коммит, включая #142): 669575872. Каждое изменение upstream перенесено
+к своему владельцу в `internal`; корневая раскладка не возвращена. Только для тестов: `TestMain` в
+`internal/app/system` с тем же FX-окружением, что было у пакета `service` в origin.
+
+- [x] Все 801 затронутых эталона записаны на old origin, new origin и итоговом дереве: 713 совпадают
+  с new origin байт-в-байт, 88 отличаются только локализацией строки действия задачи (e2956edbd).
+- [x] Эталоны переведены на вторую базу отдельным коммитом c85db5dac.
+- [x] Изменения API из upstream перенесены как есть (например, `usage_refund_accounting` в `/api/status`).
+- [x] Host: приёмка слияния PASS; на итоговом дереве vet, `go test ./...` с real Redis и relaykit PASS.
+- [x] PostgreSQL 15: набор падений совпадает с 7m, checks PASS, 27/27 owning jobs; новые SKIP — только
+  `/mysql`-варианты тестов из upstream. **SQLite/MySQL не проверялись.**
+
 ## Волна 8 — раскладка внутри шлюза (по желанию) ⬜
 
 Остаётся снаружи `internal`, бизнес его не импортирует.
