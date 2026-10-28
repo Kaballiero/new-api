@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 
 	"gorm.io/gorm"
@@ -15,10 +14,11 @@ type Store struct {
 	keyColumn      func() string
 	invalidate     func(string) error
 	invalidateMany func([]Token) error
+	lockForUpdate  func(*gorm.DB) *gorm.DB
 }
 
-func NewStore(db func() *gorm.DB, keyColumn func() string, invalidate func(string) error, invalidateMany func([]Token) error) Store {
-	return Store{db: db, keyColumn: keyColumn, invalidate: invalidate, invalidateMany: invalidateMany}
+func NewStore(db func() *gorm.DB, keyColumn func() string, invalidate func(string) error, invalidateMany func([]Token) error, lockForUpdate func(*gorm.DB) *gorm.DB) Store {
+	return Store{db: db, keyColumn: keyColumn, invalidate: invalidate, invalidateMany: invalidateMany, lockForUpdate: lockForUpdate}
 }
 
 func (store Store) Insert(token *Token) error {
@@ -62,7 +62,7 @@ func (store Store) lockOwner(userID int, run func(Store) error) error {
 			}
 		} else {
 			var ids []int
-			if err := locking.LockForUpdate(tx.Table("users")).Where("id = ?", userID).Pluck("id", &ids).Error; err != nil {
+			if err := store.lockForUpdate(tx.Table("users")).Where("id = ?", userID).Pluck("id", &ids).Error; err != nil {
 				return err
 			}
 		}

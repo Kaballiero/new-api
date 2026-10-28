@@ -12,6 +12,7 @@ import (
 	accountsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/audittest"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 
 	"github.com/glebarez/sqlite"
@@ -54,7 +55,7 @@ func openStoreDatabase(t *testing.T, kind string) *gorm.DB {
 
 func newStore(db *gorm.DB) record.Store {
 	return record.NewStore(func() *gorm.DB { return db }, func() string { return "key" },
-		func(string) error { return nil }, func([]record.Token) error { return nil })
+		func(string) error { return nil }, func([]record.Token) error { return nil }, locking.LockForUpdate)
 }
 
 func createUser(t *testing.T, db *gorm.DB, name string) int {
