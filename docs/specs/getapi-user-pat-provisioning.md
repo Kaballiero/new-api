@@ -3,7 +3,7 @@
 - **Status:** Draft
 - **Version:** v1.3
 - **Owners:** new-api — единственный issuer и источник состояния; getapi-backend — защищённая копия PAT.
-- **Source files:** `controller/user.go`, `model/user.go`, `router/api-router.go`, `controller/access_token.go`, `docs/openapi/api.en.json`, `docs/openapi/api.json`.
+- **Source files:** `server/controller/user.go`, `server/model/user.go`, `server/router/api-router.go`, `server/controller/access_token.go`, `server/docs/openapi/api.en.json`, `server/docs/openapi/api.json`.
 - **Related ADRs:** нет.
 - **Связанный контракт:** [интеграция getapi-backend](../../../getapi-backend/docs/specs/newapi-pat-integration.md).
 
@@ -30,10 +30,10 @@
 
 Проверенная база fork: `7ff55129233e58a098dfe7fc12efa94f744f0271`.
 
-- PAT хранится в `users.access_token`, один на пользователя; validator не проверяет TTL (`model/user.go:95–96,1329–1342`).
-- `GET`/`POST /api/user/token` генерируют и заменяют PAT, а не читают его; требуются dashboard session и одноразовый proof `access_token.generate` (`controller/access_token.go:24–48`, `middleware/secure_verification.go:39–75`). Metadata status не возвращает секрет.
-- Обе админки вызывают `POST /api/user/manage`: native `web/src/features/users/api.ts:124–128`, GetAPI `src/integrations/newApi/services/new-api-user.service.ts:74–75` в соседнем backend.
-- Disable/enable сходятся в `controller/user.go:1112–1119,1192` → `model/user.go:821–879`. `UpdateWithTx` сейчас читает строку без row lock и исключает `access_token`; status/PAT не меняются атомарно. Отдельные PAT helpers `model/user.go:146–176` сами по себе эту гарантию не дают.
+- PAT хранится в `users.access_token`, один на пользователя; validator не проверяет TTL (`server/model/user.go:95–96,1329–1342`).
+- `GET`/`POST /api/user/token` генерируют и заменяют PAT, а не читают его; требуются dashboard session и одноразовый proof `access_token.generate` (`server/controller/access_token.go:24–48`, `middleware/secure_verification.go:39–75`). Metadata status не возвращает секрет.
+- Обе админки вызывают `POST /api/user/manage`: native `client/src/features/users/api.ts:124–128`, GetAPI `src/integrations/newApi/services/new-api-user.service.ts:74–75` в соседнем backend.
+- Disable/enable сходятся в `server/controller/user.go:1112–1119,1192` → `server/model/user.go:821–879`. `UpdateWithTx` сейчас читает строку без row lock и исключает `access_token`; status/PAT не меняются атомарно. Отдельные PAT helpers `server/model/user.go:146–176` сами по себе эту гарантию не дают.
 - PAT не является session JWT: logout/session revoke/password reset не равнозначны его отзыву. Сейчас disabled запрещает использование, но enable может вернуть доступ старому PAT.
 - Текущий fork create возвращает `201` и `data`; точный upstream handler в `0c76e4dae77a279e015329b7478e6f02d6b62edd:controller/user.go:969–1025` возвращает `200 {success,message}` без `data`.
 

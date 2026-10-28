@@ -1,0 +1,57 @@
+package transport
+
+import (
+	"errors"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
+
+	"github.com/gin-gonic/gin"
+)
+
+type PrefillGroup struct {
+	Id          int            `json:"id"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"`
+	Items       RawPrefillJSON `json:"items"`
+	Description string         `json:"description,omitempty"`
+	CreatedTime int64          `json:"created_time"`
+	UpdatedTime int64          `json:"updated_time"`
+}
+
+// RawPrefillJSON retains scalar, object, array and null JSON without copying through a codec round trip.
+type RawPrefillJSON []byte
+
+func (v RawPrefillJSON) MarshalJSON() ([]byte, error) {
+	if v == nil {
+		return []byte("null"), nil
+	}
+	return v, nil
+}
+func (v *RawPrefillJSON) UnmarshalJSON(raw []byte) error {
+	if raw == nil {
+		*v = nil
+		return nil
+	}
+	*v = append((*v)[:0], raw...)
+	return nil
+}
+func (v PrefillGroup) Value() domain.PrefillGroup {
+	return domain.PrefillGroup{Id: v.Id, Name: v.Name, Type: v.Type, Items: []byte(v.Items), Description: v.Description, CreatedTime: v.CreatedTime, UpdatedTime: v.UpdatedTime}
+}
+func PrefillResponse(v domain.PrefillGroup) PrefillGroup {
+	return PrefillGroup{Id: v.Id, Name: v.Name, Type: v.Type, Items: RawPrefillJSON(v.Items), Description: v.Description, CreatedTime: v.CreatedTime, UpdatedTime: v.UpdatedTime}
+}
+func PrefillError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, domain.ErrPrefillNameAndType):
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgPrefillNameType))
+	case errors.Is(err, domain.ErrPrefillDuplicate):
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgPrefillDuplicate))
+	case errors.Is(err, domain.ErrPrefillID):
+		common.ApiErrorMsg(c, i18n.T(c, i18n.MsgPrefillIDRequired))
+	default:
+		common.ApiError(c, err)
+	}
+}

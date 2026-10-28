@@ -1,0 +1,129 @@
+package common
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+
+	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
+
+	"github.com/gin-gonic/gin/binding"
+)
+
+// hostJSONCodec is the single place where the host chooses its JSON engine.
+// Swap the implementation here (for example to sonic.ConfigStd) and every
+// common.* and kitutil.* JSON helper, including relaykit DTO (un)marshalling,
+// follows. Injected from init() rather than main() so tests run on the same
+// engine as production: common is imported by virtually every root package
+// and test binary, while main() never executes under `go test`.
+type hostJSONCodec struct{}
+
+func (hostJSONCodec) Marshal(v any) ([]byte, error) {
+	return json.Marshal(v)
+}
+
+func (hostJSONCodec) Unmarshal(data []byte, v any) error {
+	return json.Unmarshal(data, v)
+}
+
+func (hostJSONCodec) Decode(r io.Reader, v any) error {
+	return json.NewDecoder(r).Decode(v)
+}
+
+func (hostJSONCodec) Valid(data []byte) bool {
+	return json.Valid(data)
+}
+
+func init() {
+	kitutil.SetCodec(hostJSONCodec{})
+}
+
+func Unmarshal(data []byte, v any) error {
+	return kitutil.Unmarshal(data, v)
+}
+
+func UnmarshalJsonStr(data string, v any) error {
+	return kitutil.UnmarshalJsonStr(data, v)
+}
+
+func DecodeJson(reader io.Reader, v any) error {
+	return kitutil.DecodeJson(reader, v)
+}
+
+// JSONStreamDecoder exposes incremental decoding for upstream result streams.
+// Keep the streaming engine here alongside hostJSONCodec, rather than letting
+// provider implementations select their own JSON engine.
+type JSONStreamDecoder struct {
+	decoder *json.Decoder
+}
+
+func NewJSONStreamDecoder(reader io.Reader) *JSONStreamDecoder {
+	return &JSONStreamDecoder{decoder: json.NewDecoder(reader)}
+}
+
+func (d *JSONStreamDecoder) Decode(value any) error     { return d.decoder.Decode(value) }
+func (d *JSONStreamDecoder) Token() (json.Token, error) { return d.decoder.Token() }
+func (d *JSONStreamDecoder) UseNumber()                 { d.decoder.UseNumber() }
+func (d *JSONStreamDecoder) More() bool                 { return d.decoder.More() }
+func (d *JSONStreamDecoder) InputOffset() int64         { return d.decoder.InputOffset() }
+
+func HasDuplicateJSONKeys(data []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return false
+	}
+	seen := map[string]struct{}{}
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return false
+		}
+		if _, exists := seen[key]; exists {
+			return true
+		}
+		seen[key] = struct{}{}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return false
+		}
+	}
+	return false
+}
+
+// DecodeJsonWithValidation decodes JSON and applies Gin's configured binding-tag
+// validator, including binding:"required" and any registered custom validators.
+func DecodeJsonWithValidation(reader io.Reader, v any) error {
+	if err := DecodeJson(reader, v); err != nil {
+		return err
+	}
+	if binding.Validator == nil {
+		return nil
+	}
+	return binding.Validator.ValidateStruct(v)
+}
+
+func Marshal(v any) ([]byte, error) {
+	return kitutil.Marshal(v)
+}
+
+func IndentJson(data []byte) ([]byte, error) {
+	var buffer bytes.Buffer
+	if err := json.Indent(&buffer, data, "", "  "); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func GetJsonType(data json.RawMessage) string {
+	return kitutil.GetJsonType(data)
+}
+
+// JsonRawMessageToString returns JSON strings as their decoded value and other JSON values as raw text.
+func JsonRawMessageToString(data json.RawMessage) string {
+	return kitutil.JsonRawMessageToString(data)
+}

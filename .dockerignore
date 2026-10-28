@@ -5,9 +5,12 @@
 .gitignore
 Makefile
 docs
-!docs/openapi
+!server/docs/openapi
 .eslintcache
 .gocache
-/web/node_modules
-/web/dist
+/client/node_modules
+/client/dist
 !THIRD-PARTY-LICENSES.md
+
+/server/web/dist
+.worktrees

@@ -1,5 +1,5 @@
-WEB_DIR = ./web
-API_DIR = .
+WEB_DIR = ./client
+API_DIR = ./server
 DEV_WEB_PORT ?= 5173
 DEV_COMPOSE_FILE = docker-compose.dev.yml
 DEV_POSTGRES_SERVICE = postgres
@@ -8,7 +8,7 @@ DEV_POSTGRES_DB = new-api
 DEV_POSTGRES_USER = root
 DEV_SQLITE_PATH ?= one-api.db
 
-.PHONY: all build-web build-all-web start-api dev dev-api dev-api-rebuild dev-web reset-setup test
+.PHONY: build-client stage-client build-server openapi openapi-check all build-web build-all-web start-api dev dev-api dev-api-rebuild dev-web reset-setup test
 
 all: build-all-web start-api
 
@@ -18,10 +18,20 @@ build-web:
 	@cd $(WEB_DIR) && DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$$(cat ../VERSION) bun run build
 
 build-all-web: build-web
+	@$(MAKE) stage-client
 
-start-api:
+stage-client:
+	@test -f $(WEB_DIR)/dist/index.html || { echo "Build client/dist/index.html first." >&2; exit 1; }
+	@rm -rf $(API_DIR)/web/dist
+	@mkdir -p $(API_DIR)/web/dist
+	@cp -R $(WEB_DIR)/dist/. $(API_DIR)/web/dist/
+
+build-server: stage-client
+	@cd $(API_DIR) && GOWORK=off go build -o ../new-api .
+
+start-api: build-server
 	@echo "Starting api dev server..."
-	@cd $(API_DIR) && go run main.go &
+	@./new-api &
 
 dev-api:
 	@echo "Starting api services (docker)..."
@@ -42,11 +52,11 @@ dev: dev-api dev-web
 # The main package embeds the ignored web/dist output and is covered after build-web.
 test:
 	@echo "Testing root Go module..."
-	@root_module=$$(GOWORK=off go list -m); \
+	@set -e; cd $(API_DIR); root_module=$$(GOWORK=off go list -m); \
 		root_packages=$$(GOWORK=off go list -e ./... | grep -vxF "$$root_module"); \
 		GOWORK=off go test $$root_packages
 	@echo "Testing relaykit Go module..."
-	@cd relaykit && GOWORK=off go test ./...
+	@cd $(API_DIR)/relaykit && GOWORK=off go test ./...
 
 reset-setup:
 	@echo "Resetting local setup wizard state..."
@@ -71,3 +81,11 @@ reset-setup:
 		echo "Start the dev stack with 'make dev-api', or set SQLITE_PATH/DEV_SQLITE_PATH to your local SQLite database."; \
 		exit 1; \
 	fi
+
+openapi:
+	@cd $(API_DIR) && GOWORK=off go run ./cmd/gen-admin-openapi
+
+openapi-check:
+	@cd $(API_DIR) && GOWORK=off go run ./cmd/gen-admin-openapi -check
+
+build-client: build-web stage-client

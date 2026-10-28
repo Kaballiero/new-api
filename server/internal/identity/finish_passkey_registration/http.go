@@ -1,0 +1,60 @@
+package finish_passkey_registration
+
+import (
+	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/QuantumNous/new-api/internal/identity/dto"
+	"github.com/QuantumNous/new-api/internal/identity/transport"
+
+	"github.com/gin-gonic/gin"
+)
+
+type Completion interface {
+	Operation
+	Bundle() *dto.AuthBundle
+}
+type CompletionFactory func(request Request) (Completion, error)
+
+type HTTP struct {
+	usecase    Usecase
+	enabled    func() bool
+	user       func(*gin.Context) (domain.PasskeyAccount, CompletionFactory, error)
+	audit      func(*gin.Context, int, string, map[string]any)
+	writeError func(*gin.Context, error)
+}
+
+// NewHTTP builds the handler; factory parses the WebAuthn credential and
+// returns its error.
+func NewHTTP(usecase Usecase, enabled func() bool, user func(*gin.Context) (domain.PasskeyAccount, CompletionFactory, error), audit func(*gin.Context, int, string, map[string]any), writeError func(*gin.Context, error)) *HTTP {
+	return &HTTP{usecase: usecase, enabled: enabled, user: user, audit: audit, writeError: writeError}
+}
+func (h *HTTP) Handle(c *gin.Context) {
+	if !h.enabled() {
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyDisabled)
+		return
+	}
+	user, factory, err := h.user(c)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	var request Request
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil || request.FlowToken == "" || len(request.Credential) == 0 {
+		common.ApiErrorI18n(c, i18n.MsgIdentityPasskeyRequestInvalid)
+		return
+	}
+	op, err := factory(request)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	if err := h.usecase.Execute(op); err != nil {
+		h.writeError(c, err)
+		return
+	}
+	h.audit(c, user.ID, "user.passkey_register", nil)
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": common.TranslateMessage(c, i18n.MsgIdentityPasskeyRegistered), "data": transport.RotationData(op.Bundle())})
+}

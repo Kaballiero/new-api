@@ -1,0 +1,72 @@
+package middleware
+
+import (
+	"net/http"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+
+	"github.com/gin-gonic/gin"
+)
+
+const (
+	EmailVerificationRateLimitMark = "EV"
+	EmailVerificationMaxRequests   = 2  // At most 2 requests per window
+	EmailVerificationDuration      = 30 // Window length in seconds
+)
+
+func redisEmailVerificationRateLimiter(c *gin.Context) {
+	allowed, _, ttlSeconds, err := redisFixedWindowTake(
+		c.Request.Context(),
+		redisIPRateLimitKey(EmailVerificationRateLimitMark, c.ClientIP()),
+		EmailVerificationMaxRequests,
+		EmailVerificationDuration,
+	)
+	if err != nil {
+		memoryEmailVerificationRateLimiter(c)
+		return
+	}
+	if allowed {
+		c.Next()
+		return
+	}
+
+	waitSeconds := int64(EmailVerificationDuration)
+	if ttlSeconds > 0 {
+		waitSeconds = ttlSeconds
+	}
+
+	c.JSON(http.StatusTooManyRequests, gin.H{
+		"success": false,
+		"message": common.TranslateMessage(c, i18n.MsgEmailVerificationRateLimitedWait, map[string]any{"Seconds": waitSeconds}),
+	})
+	c.Abort()
+}
+
+func memoryEmailVerificationRateLimiter(c *gin.Context) {
+	key := EmailVerificationRateLimitMark + ":" + c.ClientIP()
+
+	if !inMemoryRateLimiter.Request(key, EmailVerificationMaxRequests, EmailVerificationDuration) {
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"success": false,
+			"message": common.TranslateMessage(c, i18n.MsgEmailVerificationRateLimitedNoWait),
+		})
+		c.Abort()
+		return
+	}
+
+	c.Next()
+}
+
+func EmailVerificationRateLimit() gin.HandlerFunc {
+	// Keep the fallback ready before requests arrive so a concurrent Redis
+	// outage cannot race the in-memory limiter's first initialization.
+	inMemoryRateLimiter.Init(common.RateLimitKeyExpirationDuration)
+	return func(c *gin.Context) {
+		if common.RedisEnabled {
+			redisEmailVerificationRateLimiter(c)
+		} else {
+			memoryEmailVerificationRateLimiter(c)
+		}
+	}
+}

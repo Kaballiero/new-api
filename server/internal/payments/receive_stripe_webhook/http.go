@@ -1,0 +1,40 @@
+package receive_stripe_webhook
+
+import (
+	"io"
+	"net/http"
+
+	"github.com/QuantumNous/new-api/internal/payments/transport"
+
+	"github.com/gin-gonic/gin"
+)
+
+type HTTP struct {
+	usecase Usecase
+	enabled func() bool
+	observe func(c *gin.Context, payload []byte, signature string)
+}
+
+func NewHTTP(usecase Usecase, enabled func() bool, observe func(c *gin.Context, payload []byte, signature string)) HTTP {
+	return HTTP{usecase: usecase, enabled: enabled, observe: observe}
+}
+
+func (h HTTP) Handle(c *gin.Context) {
+	if !h.enabled() {
+		h.usecase.diagnostics.Warn(transport.Context(c), "Stripe webhook rejected reason=webhook_disabled path=%q client_ip=%s", c.Request.URL.Path, c.ClientIP())
+		c.AbortWithStatus(http.StatusForbidden)
+		return
+	}
+	payload, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		h.usecase.diagnostics.Error(transport.Context(c), "Stripe webhook request body read failed path=%q client_ip=%s error=%q", c.Request.URL.Path, c.ClientIP(), err)
+		c.AbortWithStatus(http.StatusServiceUnavailable)
+		return
+	}
+	h.observe(c, payload, c.GetHeader("Stripe-Signature"))
+	if err := h.usecase.Execute(transport.Context(c), Input{Payload: payload, Signature: c.GetHeader("Stripe-Signature"), CallerIP: c.ClientIP(), Path: c.Request.URL.Path}); err != nil {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+	c.Status(http.StatusOK)
+}

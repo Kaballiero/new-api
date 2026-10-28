@@ -11,8 +11,8 @@ build
 *.db-shm
 *.db-wal
 logs
-web/dist
-web/node_modules
+client/dist
+client/node_modules
 .env
 one-api
 new-api
@@ -40,7 +40,9 @@ skills-lock.json
 
 # Local-only live probes and scratch test workspaces.
 .local-tests/
-relaykit/relayconvert/chat_responses_live_local_test.go
-service/openaicompat/chat_responses_live_local_test.go
+server/relaykit/relayconvert/chat_responses_live_local_test.go
+server/service/openaicompat/chat_responses_live_local_test.go
 go.work
 go.work.sum
+
+/server/web/dist/
