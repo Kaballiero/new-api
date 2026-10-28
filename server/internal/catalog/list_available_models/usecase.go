@@ -2,14 +2,12 @@ package list_available_models
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 
 type Store interface {
 	PreferredOwners([]string, []string) (map[string]int, error)
-	ReserveBilled([]string, []string) (map[string]bool, error)
 }
 type Accounts interface {
 	Group(int) (string, error)
@@ -18,13 +16,13 @@ type Accounts interface {
 type Models interface {
 	Profile(string) domain.AvailableModel
 	Owner(int) string
-	Configured(string) bool
 }
 type Runtime struct {
-	SelfUse       func() bool
-	EnabledModels func([]string) []string
-	RoutingMatch  func(string) string
-	Log           func(string)
+	SelfUse        func() bool
+	EnabledModels  func([]string) []string
+	RoutingMatch   func(string) string
+	Log            func(string)
+	BillableModels func([]string, []string) []string
 }
 type Usecase struct {
 	store    Store
@@ -56,8 +54,6 @@ func (u Usecase) Execute(input Input) ([]domain.AvailableModel, error) {
 		groups = []string{input.TokenGroup}
 	}
 	names := make([]string, 0)
-	unpriced := map[string]bool{}
-	var unpricedNames []string
 	for _, name := range u.runtime.EnabledModels(groups) {
 		if input.LimitEnabled {
 			matching := u.runtime.RoutingMatch(name)
@@ -65,18 +61,10 @@ func (u Usecase) Execute(input Input) ([]domain.AvailableModel, error) {
 				continue
 			}
 		}
-		if !accept && !u.models.Configured(name) {
-			unpricedNames = append(unpricedNames, name)
-			unpriced[name] = true
-		}
 		names = append(names, name)
 	}
-	if len(unpricedNames) > 0 {
-		reserve, err := u.store.ReserveBilled(unpricedNames, groups)
-		if err != nil {
-			u.runtime.Log(fmt.Sprintf("GetOpenRouterReserveBilledModels error: %v", err))
-		}
-		names = slices.DeleteFunc(names, func(name string) bool { return unpriced[name] && !reserve[name] })
+	if !accept {
+		names = u.runtime.BillableModels(names, groups)
 	}
 	owners := map[string]string{}
 	if len(groups) > 0 {

@@ -46,6 +46,7 @@ func (u Usecase) Execute(_ context.Context, input Input) error {
 		return errors.New("OpenRouter synchronous result lease expired")
 	}
 	a.ResultFailed, a.LastError = true, input.Reason
+	a.RecordResultReason(input.Reason)
 	r.SubmissionPending = false
 	a.NextPoll = u.now().Unix()
 	if state.Final && state.Valid && !a.IdentityConflict && (task.Platform == string(domain.TaskPlatformOpenRouterImage) ||

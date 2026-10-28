@@ -2,6 +2,8 @@ package tasks
 
 import (
 	"context"
+	"github.com/QuantumNous/new-api/internal/tasks/apply_sync_operator_decision"
+	"github.com/QuantumNous/new-api/internal/tasks/hold_sync_task"
 	"time"
 
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
@@ -21,6 +23,8 @@ import (
 
 // Reconciler assembles durable synchronous-task actions without a gateway dependency.
 type Reconciler struct {
+	operator   apply_sync_operator_decision.Usecase
+	hold       hold_sync_task.Usecase
 	begin      begin_sync_task.Usecase
 	load       get_sync_task.Usecase
 	commit     commit_sync_reservation.Usecase
@@ -38,12 +42,14 @@ func NewReconciler() *Reconciler {
 	accounts := httpadapter.Accounts{}
 	billing := NewBilling()
 	return &Reconciler{
+		operator:   apply_sync_operator_decision.NewUsecase(store, billing, projection, time.Now),
+		hold:       hold_sync_task.NewUsecase(store, projection, time.Now),
 		begin:      begin_sync_task.NewUsecase(store, accounts, projection, time.Now),
 		load:       get_sync_task.NewUsecase(store),
 		commit:     commit_sync_reservation.NewUsecase(store, projection, time.Now),
 		configure:  configure_sync_submission.NewUsecase(store, accounts, time.Now),
 		generation: record_sync_generation.NewUsecase(store),
-		receipt:    record_sync_receipt.NewUsecase(store, projection, time.Now),
+		receipt:    record_sync_receipt.NewUsecase(store, projection, billing, time.Now),
 		complete:   complete_sync_task.NewUsecase(store, projection, billing, runtime.Diagnostics{}, time.Now),
 		fail:       fail_sync_task.NewUsecase(store, projection, billing, time.Now),
 		poll:       reconcile_sync_task.NewUsecase(store, projection, billing, httpadapter.Metadata{}, time.Now),
@@ -75,4 +81,11 @@ func (r *Reconciler) Fail(ctx context.Context, input fail_sync_task.Input) error
 }
 func (r *Reconciler) Poll(ctx context.Context, task *domain.Task) error {
 	return r.poll.Execute(ctx, task)
+}
+
+func (r *Reconciler) Operator(ctx context.Context, input apply_sync_operator_decision.Input) (domain.OpenRouterSyncOperatorResult, error) {
+	return r.operator.Execute(ctx, input)
+}
+func (r *Reconciler) Hold(ctx context.Context, input hold_sync_task.Input) error {
+	return r.hold.Execute(ctx, input)
 }

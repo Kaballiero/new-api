@@ -104,6 +104,7 @@ func (p PublicConfiguration) ReadStatus() domain.PublicStatus {
 		"user_agreement_enabled":      legalSetting.UserAgreement != "",
 		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "",
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
+		"usage_refund_accounting":     true,
 	}
 
 	return domain.PublicStatus{Values: data, Panels: []domain.Panel{

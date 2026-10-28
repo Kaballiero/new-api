@@ -20,6 +20,8 @@ type Store interface {
 	FinishClaim(job *domain.Job, owner string, now int64, message *string) error
 	DeleteLocal(job *domain.Job, now int64) error
 	RequireReconciliation(job *domain.Job) error
+	SaveUnknownDiagnostic(*domain.Job, string, string, bool) (bool, error)
+	FlagProviderWindow(*domain.Job) (bool, error)
 	MarkTerminalIncomplete(job *domain.Job) error
 	MarkCancelSent(job *domain.Job) error
 	Items(id int64) ([]domain.Item, error)
@@ -49,6 +51,7 @@ type Store interface {
 type Gateway interface {
 	domain.Gateway
 	Failure(string, int, string, []byte) string
+	AmbiguousFailure(string, int, string, []byte) string
 	UsageFacts(*domain.Job, domain.Result) (domain.UsageFacts, error)
 }
 type Diagnostics interface {
@@ -102,7 +105,7 @@ func (u Usecase) Execute(ctx context.Context, runnerID string) error {
 			u.diagnostics.Error(fmt.Sprintf("batch %s: %v", job.PublicID, err))
 		}
 		var lastError *string
-		if job.Status != "failed" || (err != nil && job.LastError == "") {
+		if job.SubmitState != "submission_unknown" && job.SubmitState != "rejected" && (job.Status != "failed" || (err != nil && job.LastError == "")) {
 			lastError = &message
 		}
 		if err := u.store.FinishClaim(&job, runnerID, u.now().Unix(), lastError); err != nil {
@@ -139,7 +142,34 @@ func (u Usecase) processBatchJob(ctx context.Context, job *domain.Job, runnerID 
 		}
 	}
 	if job.SubmitState == "submission_unknown" {
-		return u.store.RequireReconciliation(job)
+		if err := u.store.RequireReconciliation(job); err != nil {
+			return err
+		}
+		job.BillingStatus = "reconciliation_required"
+		if !domain.SubmissionOverdue(job, u.now()) {
+			return nil
+		}
+		var failure domain.Failure
+		if u.codec.UnmarshalJsonStr(job.LastError, &failure) != nil || failure.Version != 1 {
+			failure = domain.Failure{Version: 1, Phase: "create", Code: "submission_unknown", Category: "ambiguous", Message: "The provider Batch creation outcome is unknown."}
+		}
+		if failure.AlertedAt != 0 {
+			return nil
+		}
+		failure.AlertedAt = u.now().Unix()
+		encoded, err := u.codec.Marshal(failure)
+		if err != nil {
+			return err
+		}
+		changed, err := u.store.SaveUnknownDiagnostic(job, runnerID, string(encoded), false)
+		if err != nil {
+			return err
+		}
+		if changed {
+			job.LastError = string(encoded)
+			u.diagnostics.Error(fmt.Sprintf("Batch %s: creation outcome unknown >48h; hold %d kept; verify provider, then recover or release", job.PublicID, job.ReservedQuota))
+		}
+		return nil
 	}
 	if job.SubmitState == "rejected" {
 		reason := job.LastError
@@ -174,6 +204,16 @@ func (u Usecase) processBatchJob(ctx context.Context, job *domain.Job, runnerID 
 	}
 	if err := u.settleResults(job); err != nil {
 		return err
+	}
+	if domain.ProviderWindowExceeded(job, u.now(), u.kinds) {
+		changed, err := u.store.FlagProviderWindow(job)
+		if err != nil {
+			return err
+		}
+		if changed {
+			job.BillingStatus = "reconciliation_required"
+			u.diagnostics.Error(fmt.Sprintf("Batch %s: provider window of 24h plus 2h grace exceeded while %s; hold %d kept for reconciliation", job.PublicID, job.Status, job.ReservedQuota))
+		}
 	}
 	if err := u.store.SyncBatchQuotaEvents(1000); err != nil {
 		u.diagnostics.Error("Batch outbox: " + err.Error())
@@ -244,6 +284,7 @@ func (u Usecase) submitBatch(ctx context.Context, job *domain.Job, adapter domai
 	job.SubmitState = "submission_unknown"
 	response, err := u.gateway.Request(ctx, job, request, nil, "")
 	if err != nil {
+		u.recordAmbiguousCreation(job, runnerID, "transport_error", 0, "", nil)
 		return err
 	}
 	defer response.Body.Close()
@@ -259,11 +300,16 @@ func (u Usecase) submitBatch(ctx context.Context, job *domain.Job, adapter domai
 			u.diagnostics.Error(fmt.Sprintf("Batch %s creation rejected: %s", job.PublicID, diagnostic))
 			return u.rejectUnsubmittedBatch(job, diagnostic)
 		}
+		body, _ := io.ReadAll(io.LimitReader(response.Body, (16<<10)+1))
+		u.recordAmbiguousCreation(job, runnerID, "", response.StatusCode, response.RequestID, body)
 		return fmt.Errorf("ambiguous batch creation HTTP %d", response.StatusCode)
 	}
 	snapshot, decodeErr := adapter.ReadStatus(response.Body, func(result domain.Result) error { return u.recordResult(job, result) })
-	if snapshot.ID != "" {
+	if snapshot.ID == "" {
+		u.recordAmbiguousCreation(job, runnerID, "missing_batch_id", response.StatusCode, response.RequestID, nil)
+	} else {
 		if _, err := adapter.Poll(snapshot.ID); err != nil {
+			u.recordAmbiguousCreation(job, runnerID, "invalid_batch_id", response.StatusCode, response.RequestID, nil)
 			return err
 		}
 		state := snapshot.State
@@ -438,26 +484,7 @@ func (u Usecase) recordResult(job *domain.Job, result domain.Result) error {
 }
 
 func (u Usecase) rejectUnsubmittedBatch(job *domain.Job, reason string) error {
-	if job.SubmitState != "queued" && job.SubmitState != "preparing" && job.SubmitState != "rejected" {
-		return errors.New("cannot refund an ambiguous or submitted batch")
-	}
-	if err := u.store.RejectUnsubmitted(job, reason); err != nil {
-		return err
-	}
-	job.Status, job.LastError = "failed", reason
-	items, err := u.store.UnsettledIdentities(job.ID)
-	if err != nil {
-		return err
-	}
-	for _, item := range items {
-		if err := u.store.SettleBatchItem(job.ID, item.CustomID, 0, `{"purchase_status":"unbilled","purchase_usd":0,"reason":"batch_not_submitted"}`); err != nil {
-			return err
-		}
-	}
-	if err := u.store.SyncBatchQuotaEvents(1000); err != nil {
-		u.diagnostics.Error("Batch outbox: " + err.Error())
-	}
-	return u.store.ReleaseSettledBatchHolds(job.ID)
+	return domain.RejectUnsubmitted(u.store, u.diagnostics.Error, job, reason)
 }
 
 func (u Usecase) cleanupBatch(ctx context.Context, job *domain.Job, adapter domain.Provider) error {
@@ -481,4 +508,16 @@ func (u Usecase) cleanupBatch(ctx context.Context, job *domain.Job, adapter doma
 		}
 	}
 	return u.store.ClearResults(job)
+}
+
+func (u Usecase) recordAmbiguousCreation(job *domain.Job, runnerID, code string, status int, requestID string, body []byte) {
+	diagnostic := u.gateway.AmbiguousFailure(code, status, requestID, body)
+	changed, err := u.store.SaveUnknownDiagnostic(job, runnerID, diagnostic, true)
+	if err != nil {
+		u.diagnostics.Error(fmt.Sprintf("Batch %s: cannot store creation diagnostic: %v", job.PublicID, err))
+		return
+	}
+	if changed {
+		job.LastError = diagnostic
+	}
 }

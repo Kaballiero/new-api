@@ -3,6 +3,7 @@ package taskrecord
 import (
 	"context"
 	"errors"
+	"github.com/QuantumNous/new-api/internal/tasks/hold_sync_task"
 	"net/http"
 	"sync"
 
@@ -43,13 +44,16 @@ func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform,
 		if info.OpenRouterCost != nil && info.OpenRouterCost.BufferedAudio {
 			return constant.TaskPlatformOpenRouterAudio, "audio", nil
 		}
+		if info.OpenRouterCost != nil && info.OpenRouterCost.ChatText {
+			return constant.TaskPlatformOpenRouterChatImage, "chat", nil
+		}
 	}
 	return "", "", errors.New("unsupported OpenRouter synchronous operation")
 }
 
 // BeginOpenRouterSyncTask maps the provider operation into the durable task owner.
 func BeginOpenRouterSyncTask(c *gin.Context, info *relaycommon.RelayInfo, quota int) error {
-	if err := domain.ValidateNewSyncReservation(quota, info.NativeImage != nil || info.OpenRouterCost != nil && info.OpenRouterCost.ChatImage, relaycommon.HasOpenRouterSyncTask(info)); err != nil {
+	if err := domain.ValidateNewSyncReservation(quota, info.NativeImage != nil || info.OpenRouterCost != nil && (info.OpenRouterCost.ChatImage || info.OpenRouterCost.ChatText), relaycommon.HasOpenRouterSyncTask(info)); err != nil {
 		return err
 	}
 	platform, action, err := openRouterSyncIdentity(info)
@@ -177,4 +181,12 @@ func FailOpenRouterSyncTask(info *relaycommon.RelayInfo, reason string) error {
 		return err
 	}
 	return syncTasks().Fail(context.Background(), fail_sync_task.Input{Task: task, Cost: syncCost(info), Reason: reason})
+}
+
+func HoldOpenRouterSyncTaskForReconciliation(info *relaycommon.RelayInfo, reason string) error {
+	task, err := openRouterSyncTask(info)
+	if err != nil {
+		return err
+	}
+	return syncTasks().Hold(context.Background(), hold_sync_task.Input{Task: task, IdentityConflict: info.OpenRouterCost.IdentityConflict, Reason: reason})
 }

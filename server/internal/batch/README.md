@@ -18,14 +18,16 @@ Batch не использует subscription funding и request-local Reservatio
 | fetch_batch_results | GET /v1/batches/:id/results: owner/expiry/readiness, raw NDJSON, один row за чтение, Flush/cancellation |
 | cancel_batch | POST /v1/batches/:id/cancel: capability до terminal shortcut; marker, без refund |
 | delete_batch | DELETE /v1/batches/:id: terminal и оба financial states settled; local hide |
-| recover_batch_identity | POST /api/batches/:id/recover: bounded root input, lease и private provider identities; только bind, без replay/debit |
+| recover_batch_identity | POST /api/batches/:id/recover: bounded root input, leased-row eligibility и private provider identities; только bind, без replay/debit; root-only audit каждой попытки на существующей job |
+| release_unsubmitted_batch | POST /api/batches/:id/release-unsubmitted: root evidence, lease, отсутствие provider identity/results/charges, возврат hold через прежний rejection/outbox path; повтор безопасен |
+| list_batch_reconciliation | GET /api/batches/reconciliation: root queue с keyset cursor, normalized diagnostics и точными recovery/release predicates |
 | confirm_batch_purchase | POST /api/batches/:id/purchase: bounded decimal/evidence, terminal immutable procurement receipt |
 | poll_batches | provider_batch_poll: один последовательный pass, submit/poll/results/settlement/outboxes/reconcile/release/cleanup |
 
 Первые шесть registrations используют прежние TokenAuth/ModelRequestRateLimit; create сохраняет
 Prepare → Distribute → Create. Root management registrations сохраняют RootAuth,
-CriticalRateLimit и DisableCache, session/PAT audit. Новых routes/permissions/rate limits нет.
-Публичного Batch files/upload/admin-list API нет. Пользовательский JSON проецируется через dto.Job;
+CriticalRateLimit и DisableCache, session/PAT audit. Новые root queue/release routes используют тот же management perimeter.
+Публичного Batch files/upload API нет; reconciliation queue доступна только root. Пользовательский JSON проецируется через dto.Job;
 provider IDs, channel/account secrets, snapshots, receipts и lease fields остаются private.
 
 ## Хранение и финансовые границы
@@ -41,6 +43,10 @@ Per-item settlement атомарно пишет wallet/token/channel counters, i
 outbox и cache events. Hold освобождается после acknowledgement. OpenRouter v2 использует один
 подтверждённый total/receipt на job; сумма не распределяется между output rows. Legacy v1 остаётся
 per-item. Unknown/null/invalid cost не становится нулём; explicit zero остаётся допустимым.
+Unknown creation хранит первую normalized cause и после 48h поднимает один operator alert.
+OpenAI/OpenRouter nonterminal job после 24h + 2h grace помечается для reconciliation.
+Оба случая сохраняют hold; время само по себе не разрешает refund или повторный POST.
+Evidence и supplied recovery ID сохраняются только в root-only audit; provider requests остаются private.
 
 Billing domain/Expression/CostMath и существующий FX owner сохраняют normalization, rounding и
 формулы. Usage владеет единственными metadata/log builders; payload строится внутри money tx,

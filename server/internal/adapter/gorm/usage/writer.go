@@ -229,23 +229,24 @@ func (w Writer) WriteConsumeLog(observation LogObservation, userId int, params R
 }
 
 type RecordTaskBillingLogParams struct {
-	UserId    int
-	LogType   int
-	Content   string
-	ChannelId int
-	ModelName string
-	Quota     int
-	TokenId   int
-	Group     string
-	Other     *record.LogOther
-	NodeName  string // The originating task node; fall back to the current node when empty.
+	UserId     int
+	LogType    int
+	Content    string
+	ChannelId  int
+	ModelName  string
+	Quota      int
+	TokenId    int
+	Group      string
+	Other      *record.LogOther
+	NodeName   string // The originating task node; fall back to the current node when empty.
+	Adjustment bool   // A settlement delta of an already counted request.
 }
 
 func (w Writer) RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	if params.LogType == record.LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
-	if err := w.RecordTaskBillingLogWithError(params); err != nil {
+	if err := w.recordTaskBillingLog(params, common.LogConsumeEnabled); err != nil {
 		common.SysLog("failed to record task billing log: " + err.Error())
 	}
 }
@@ -253,6 +254,10 @@ func (w Writer) RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 // RecordTaskBillingLogWithError persists required financial evidence even when
 // ordinary consume logging is disabled.
 func (w Writer) RecordTaskBillingLogWithError(params RecordTaskBillingLogParams) error {
+	return w.recordTaskBillingLog(params, true)
+}
+
+func (w Writer) recordTaskBillingLog(params RecordTaskBillingLogParams, exportQuotaData bool) error {
 	var user model.User
 	_ = w.env.DB().Select("username").Where("id = ?", params.UserId).First(&user).Error
 	username := user.Username
@@ -281,21 +286,26 @@ func (w Writer) RecordTaskBillingLogWithError(params RecordTaskBillingLogParams)
 	if err != nil {
 		return err
 	}
-	if params.LogType == record.LogTypeConsume && common.DataExportEnabled {
+	if (params.LogType == record.LogTypeConsume || params.LogType == record.LogTypeRefund) && common.DataExportEnabled && exportQuotaData {
 		nodeName := params.NodeName
 		if nodeName == "" {
 			nodeName = common.NodeName
 		}
+		quota := params.Quota
+		if params.LogType == record.LogTypeRefund {
+			quota = -quota
+		}
 		LogQuotaData(record.QuotaDataLogParams{
-			UserID:    params.UserId,
-			Username:  username,
-			ModelName: params.ModelName,
-			Quota:     params.Quota,
-			CreatedAt: createdAt,
-			UseGroup:  params.Group,
-			TokenID:   params.TokenId,
-			ChannelID: params.ChannelId,
-			NodeName:  nodeName,
+			Correction: params.LogType == record.LogTypeRefund || params.Adjustment,
+			UserID:     params.UserId,
+			Username:   username,
+			ModelName:  params.ModelName,
+			Quota:      quota,
+			CreatedAt:  createdAt,
+			UseGroup:   params.Group,
+			TokenID:    params.TokenId,
+			ChannelID:  params.ChannelId,
+			NodeName:   nodeName,
 		})
 	}
 	return nil

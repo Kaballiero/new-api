@@ -16,12 +16,16 @@ func (Store) CountAggregateUsers(ids []int) (int64, error) {
 
 func (Store) ReadLogAggregate(q domain.AggregateScope, kind int) (domain.LogAggregate, error) {
 	var result domain.LogAggregate
-	sum := "COALESCE(SUM(quota), 0)"
+	selection := "COALESCE(SUM(CASE WHEN type = ? THEN quota ELSE 0 END), 0) AS quota, " +
+		"COALESCE(SUM(CASE WHEN type = ? THEN quota ELSE 0 END), 0) AS refund_quota, " +
+		"COALESCE(SUM(CASE WHEN type = ? THEN 1 ELSE 0 END), 0) AS request_count"
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
-		sum = "toString(SUM(toDecimal128(quota, 0)))"
+		selection = "toString(SUM(toDecimal128(if(type = ?, quota, 0), 0))) AS quota, " +
+			"toString(SUM(toDecimal128(if(type = ?, quota, 0), 0))) AS refund_quota, " +
+			"countIf(type = ?) AS request_count"
 	}
-	err := model.LOG_DB.Table("logs").Select(sum+" AS quota, COUNT(*) AS request_count").
-		Where("user_id IN ? AND type = ? AND created_at >= ? AND created_at <= ?", q.UserIDs, kind, *q.StartTimestamp, *q.EndTimestamp).
+	err := model.LOG_DB.Table("logs").Select(selection, domain.LogTypeConsume, domain.LogTypeRefund, domain.LogTypeConsume).
+		Where("user_id IN ? AND type IN ? AND created_at >= ? AND created_at <= ?", q.UserIDs, []int{domain.LogTypeConsume, domain.LogTypeRefund}, *q.StartTimestamp, *q.EndTimestamp).
 		Scan(&result).Error
 	if err != nil {
 		return domain.LogAggregate{}, err

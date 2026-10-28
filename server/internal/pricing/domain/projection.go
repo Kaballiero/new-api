@@ -119,12 +119,14 @@ type EffectivePricingPageContext struct {
 	UsableGroups map[string]string       `json:"-"`
 	GroupRatios  map[string]float64      `json:"-"`
 	UsingGroup   string                  `json:"-"`
+	Billable     map[string]bool         `json:"-"`
 }
 type EffectivePricingPageCandidate struct {
-	Index    int                      `json:"-"`
-	Modality string                   `json:"-"`
-	Creator  *EffectivePricingCreator `json:"-"`
-	Price    *float64                 `json:"-"`
+	Index     int                      `json:"-"`
+	Modality  string                   `json:"-"`
+	Creator   *EffectivePricingCreator `json:"-"`
+	Price     *float64                 `json:"-"`
+	Projected *ConsumerPricingModel    `json:"-"`
 }
 type EffectivePricingOverviewSection struct {
 	Modality   string                     `json:"modality"`
@@ -500,6 +502,12 @@ func (context EffectivePricingPageContext) Project(item Pricing) ConsumerPricing
 	pricingPolicy := context.Policy
 	return pricingPolicy.BuildConsumerPricingModel(context.UsableGroups, context.GroupRatios, context.FxFactor, item, false, PricingUserContext{Id: context.UserID, Group: context.Metadata.UserGroup})
 }
+func (candidate EffectivePricingPageCandidate) Tariff(pricing []Pricing, project func(Pricing) ConsumerPricingModel) ConsumerPricingModel {
+	if candidate.Projected != nil {
+		return *candidate.Projected
+	}
+	return project(pricing[candidate.Index])
+}
 func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePricingPageContext, query EffectivePricingPageQuery, Project func(Pricing) ConsumerPricingModel) EffectivePricingPageData {
 	context.Pricing = ConsumerPricingCatalogue(context.Pricing, context.UsableGroups)
 	response := EffectivePricingPageData{ConsumerPricingResponse: context.Metadata, Offset: query.Offset, Limit: query.Limit, Creators: []EffectivePricingCreator{}, Data: []EffectivePricingPageItem{}}
@@ -524,6 +532,17 @@ func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePric
 		if query.CatalogTypeMissing && item.CatalogType != "" || query.CatalogType != "" && item.CatalogType != query.CatalogType {
 			continue
 		}
+		var projected *ConsumerPricingModel
+		if !query.Personal && !query.Overview {
+			if context.Billable != nil && !context.Billable[item.ModelName] {
+				continue
+			}
+			value := Project(item)
+			if !HasConfirmedConsumerPrice(value) {
+				continue
+			}
+			projected = &value
+		}
 		creator := creators[item.VendorID]
 		if item.VendorID == 0 {
 			creator = nil
@@ -542,10 +561,13 @@ func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePric
 		if query.CreatorID != nil && (creator == nil || creator.ID != *query.CreatorID) {
 			continue
 		}
-		candidate := EffectivePricingPageCandidate{Index: index, Creator: creator, Modality: modality}
+		candidate := EffectivePricingPageCandidate{Index: index, Creator: creator, Modality: modality, Projected: projected}
 		if query.PricingUnit != "" || query.OrderBy != "NAME" {
-			projected := Project(item)
-			unit, price := EffectivePricingPageKeys(projected, query.OrderBy)
+			if candidate.Projected == nil {
+				value := Project(item)
+				candidate.Projected = &value
+			}
+			unit, price := EffectivePricingPageKeys(*candidate.Projected, query.OrderBy)
 			if query.PricingUnit != "" && unit != query.PricingUnit {
 				continue
 			}
@@ -591,7 +613,7 @@ func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePric
 		for _, candidate := range candidates {
 			response.SectionCounts[candidate.Modality]++
 			if response.SectionCounts[candidate.Modality] <= query.Limit {
-				response.Data = append(response.Data, EffectivePricingPageItem{ConsumerPricingModel: Project(context.Pricing[candidate.Index]), Modality: candidate.Modality, Creator: candidate.Creator})
+				response.Data = append(response.Data, EffectivePricingPageItem{ConsumerPricingModel: candidate.Tariff(context.Pricing, Project), Modality: candidate.Modality, Creator: candidate.Creator})
 			}
 		}
 		return response
@@ -599,7 +621,7 @@ func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePric
 	start := min(query.Offset, len(candidates))
 	end := start + min(query.Limit, len(candidates)-start)
 	for _, candidate := range candidates[start:end] {
-		response.Data = append(response.Data, EffectivePricingPageItem{ConsumerPricingModel: Project(context.Pricing[candidate.Index]), Modality: candidate.Modality, Creator: candidate.Creator})
+		response.Data = append(response.Data, EffectivePricingPageItem{ConsumerPricingModel: candidate.Tariff(context.Pricing, Project), Modality: candidate.Modality, Creator: candidate.Creator})
 	}
 	return response
 }
@@ -748,22 +770,40 @@ func PricingTags(value string) []string {
 	slices.Sort(tags)
 	return slices.Compact(tags)
 }
+func PublicTariffConfirmed(tariff PublicModelTariff) bool {
+	return slices.ContainsFunc(tariff.Operations, func(operation PublicPricingOperation) bool {
+		return ConfirmedConsumerPrices(operation.Prices, operation.Tiers)
+	})
+}
+
 func (pricingPolicy *Projection) BuildPublicPricingModelsPage(context EffectivePricingPageContext, query PublicPricingModelsQuery) PublicPricingModelsPage {
 	response := PublicPricingModelsPage{SchemaVersion: "v1", CatalogRevision: context.Metadata.CatalogRevision, Currency: "RUB", Page: query.Page, PageSize: query.PageSize, Data: []PublicPricingModel{}}
-
+	// The public catalog always projects the default tariff, independently of the user's usable groups.
 	context.UsableGroups = map[string]string{"default": "default"}
 	pricing := ConsumerPricingCatalogue(context.Pricing, context.UsableGroups)
-	candidates := make([]Pricing, 0, len(pricing))
+	type pricedModel struct {
+		item   Pricing
+		tariff PublicModelTariff
+	}
+	candidates := make([]pricedModel, 0, len(pricing))
 	for _, item := range pricing {
 		if query.CatalogTypeMissing && item.CatalogType != "" || query.CatalogType != "" && item.CatalogType != query.CatalogType {
 			continue
 		}
+		if context.Billable != nil && !context.Billable[item.ModelName] {
+			continue
+		}
 		tags := PricingTags(item.Tags)
-		if !slices.ContainsFunc(query.Tags, func(tag string) bool { return !slices.Contains(tags, tag) }) {
-			candidates = append(candidates, item)
+		if slices.ContainsFunc(query.Tags, func(tag string) bool { return !slices.Contains(tags, tag) }) {
+			continue
+		}
+		// Models without a single confirmed price are not offered publicly; a zero price still counts.
+		tariff := pricingPolicy.BuildPublicModelTariff(context, item)
+		if PublicTariffConfirmed(tariff) {
+			candidates = append(candidates, pricedModel{item: item, tariff: tariff})
 		}
 	}
-	slices.SortFunc(candidates, func(a, b Pricing) int { return CompareEffectivePricingNames(a.ModelName, b.ModelName) })
+	slices.SortFunc(candidates, func(a, b pricedModel) int { return CompareEffectivePricingNames(a.item.ModelName, b.item.ModelName) })
 	response.TotalCount = len(candidates)
 	start := len(candidates)
 	if query.Page-1 <= len(candidates)/query.PageSize {
@@ -776,11 +816,13 @@ func (pricingPolicy *Projection) BuildPublicPricingModelsPage(context EffectiveP
 			creators[vendor.ID] = &EffectivePricingCreator{ID: vendor.ID, Name: name}
 		}
 	}
-	for _, item := range candidates[start:end] {
-		response.Data = append(response.Data, PublicPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: PricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: creators[item.VendorID], Tariff: pricingPolicy.BuildPublicModelTariff(context, item)})
+	for _, candidate := range candidates[start:end] {
+		item := candidate.item
+		response.Data = append(response.Data, PublicPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: PricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: creators[item.VendorID], Tariff: candidate.tariff})
 	}
 	return response
 }
+
 func PublicPricingGuard(guard ExpressionCondition, units ...map[string]string) PublicPricingCondition {
 	condition := PublicPricingCondition{Kind: "comparison", Subject: guard.Var, Argument: guard.Arg, Operator: guard.Op, Value: &guard.Value}
 	if guard.Var == "len" {
@@ -1007,6 +1049,13 @@ func ConsumerPricingTags(value string) string {
 	return strings.Join(tags, ",")
 }
 
+func HasConfirmedConsumerPrice(item ConsumerPricingModel) bool {
+	return slices.ContainsFunc(item.GroupPrices, func(group ConsumerGroupPricing) bool {
+		return slices.ContainsFunc(group.Operations, func(operation ConsumerPricingOperation) bool {
+			return ConfirmedConsumerPrices(operation.Prices, operation.Tiers)
+		})
+	})
+}
 func ConfirmedConsumerPrices(prices []ConsumerUnitPrice, tiers []PublicPricingTier) bool {
 	for _, price := range prices {
 		if price.AmountRub != nil && *price.AmountRub >= 0 && !math.IsNaN(*price.AmountRub) && !math.IsInf(*price.AmountRub, 0) && price.Unit != "" && price.Unit != "unknown" {

@@ -12,6 +12,7 @@ type Reader interface {
 	AutoGroups(string) []string
 	UsableGroups(string) map[string]string
 	GroupRatio(string, string) float64
+	Billable([]domain.Pricing, string, string) map[string]bool
 }
 
 type Usecase struct {
@@ -31,6 +32,7 @@ func (u Usecase) Execute(input Input) (Output, error) {
 	if err = domain.CheckRevision(input.ExpectedRevision, ctx.Metadata.CatalogRevision); err != nil {
 		return Output{}, err
 	}
+	ctx.Billable = u.reader.Billable(ctx.Pricing, "default", ctx.Metadata.CatalogRevision)
 	return u.projection.BuildPublicPricingModelsPage(ctx, input), nil
 }
 func (u Usecase) consumerContext(userGroup, usingGroup string) (domain.EffectivePricingPageContext, error) {

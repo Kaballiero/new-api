@@ -1431,8 +1431,17 @@ func (a *TaskAdaptor) validateResolvedUsageValue(value any) error {
 	case map[string]any:
 		for key, item := range typed {
 			if schema, declared := a.plugin.Meta.UsageSchema[key]; declared {
-				if _, err := validateUsageValue(item, schema, true); err != nil {
-					return err
+				// A collection under a count fact name (frame_images,
+				// images) is request payload, not the fact itself; the
+				// extracted count is bounded by validatedUsageRatios.
+				// Other units, such as seconds, keep the scalar type guard.
+				_, isList := item.([]any)
+				_, isObject := item.(map[string]any)
+				countFact := len(schema.Enum) == 0 && schema.Type != "boolean" && schema.Unit == "count"
+				if !countFact || (!isList && !isObject) {
+					if _, err := validateUsageValue(item, schema, true); err != nil {
+						return err
+					}
 				}
 			} else if limit, canonical := canonicalUsageLimit(key); canonical {
 				if err := validateUsageLimit(item, limit, true); err != nil {
@@ -1537,6 +1546,11 @@ func (a *TaskAdaptor) validatedCompletionUsageFacts(facts any) (map[string]any, 
 func validateUsageValue(value any, schema pluginruntime.UsageFieldSchema, allowNumericString bool) (float64, error) {
 	if len(schema.Enum) > 0 {
 		text, ok := value.(string)
+		if number, numeric := value.(float64); numeric && allowNumericString {
+			// Raw requests may carry the numeric form of a stringified usage
+			// fact (for example creativity 0 becomes the "0" enum value).
+			text, ok = strconv.FormatFloat(number, 'f', -1, 64), true
+		}
 		if !ok {
 			return 0, fmt.Errorf("plugin usage enum must be a string")
 		}

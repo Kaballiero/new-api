@@ -129,6 +129,11 @@ func SetRelayRouter(router *gin.Engine) {
 			gatewaytransport.Relay(c, types.RelayFormatOpenAIImage)
 		})
 
+		// OpenRouter decisions: /decisions matches the upstream operation name;
+		// /systemone is kept for existing clients.
+		httpRouter.POST("/decisions", func(c *gin.Context) {
+			gatewaytransport.Relay(c, types.RelayFormatSystemOne)
+		})
 		httpRouter.POST("/systemone", func(c *gin.Context) {
 			gatewaytransport.Relay(c, types.RelayFormatSystemOne)
 		})

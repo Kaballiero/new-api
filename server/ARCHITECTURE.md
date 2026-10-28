@@ -122,10 +122,10 @@ Audit — best-effort отдельный write после операции; cred
 
 ## DB bootstrap и миграции
 
-`model` содержит только 46 migration-used table aliases, DB/LOG_DB, dialect column state, bootstrap,
+`model` содержит только 47 migration-used table aliases, DB/LOG_DB, dialect column state, bootstrap,
 logger/dialect wrappers и существующие migrations/backfills. Alias-файл импортирует одного record owner
 и содержит только `type X = record.X`; вспомогательные types, const/error re-exports отсутствуют.
-Каждый alias имеет migration/bootstrap consumer. AutoMigrate и backfills сохраняют прежний порядок.
+Каждый alias имеет migration/bootstrap consumer. AutoMigrate добавляет upstream `getapi_quota_credits` после UserSession; прочие migrations/backfills сохраняют прежний порядок.
 Auth-version initialization и Telegram claim backfill используют owning record primitive на том же tx.
 
 Storage adapters сохраняют SQLite/MySQL/PostgreSQL branches и отдельный ClickHouse LOG_DB.

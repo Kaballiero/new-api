@@ -44,6 +44,11 @@ type Adaptor struct {
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
+	if info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeOpenRouter {
+		if err := openrouter.ValidateGeminiRequest(c, request); err != nil {
+			return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+	}
 	result, err := mapping.ConvertRequest(c, info, types.RelayFormatOpenAI, request)
 	if err != nil {
 		return nil, err
@@ -803,6 +808,18 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 			if info.RelayFormat != types.RelayFormatClaude {
 				return nil, types.NewErrorWithStatusCode(fmt.Errorf("OpenRouter operation lacks a validated cost reservation contract"), types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
+		case relayconstant.RelayModeGemini:
+			// Only a GeminiHelper generateContent/streamGenerateContent request is
+			// converted to a priced Chat body; embeddings, countTokens and raw
+			// pass-through bodies are not.
+			_, chatRequest := info.Request.(*dto.GeminiChatRequest)
+			path := c.Request.URL.Path
+			if info.RelayFormat != types.RelayFormatGemini || !chatRequest || !strings.HasSuffix(path, ":generateContent") && !strings.HasSuffix(path, ":streamGenerateContent") {
+				return nil, types.NewErrorWithStatusCode(fmt.Errorf("OpenRouter operation lacks a validated cost reservation contract"), types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
+			if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+				return nil, types.NewErrorWithStatusCode(fmt.Errorf("OpenRouter Gemini requests require conversion; request pass-through is not supported"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
 		case relayconstant.RelayModeAudioSpeech:
 			operation = "audio/speech"
 		case relayconstant.RelayModeAudioTranscription:
@@ -837,13 +854,18 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		if info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription {
 			return openrouter.AudioResponse(c, resp, info)
 		}
-		if info.OpenRouterCost.ChatImage {
-			// Delivery uses the existing chat parser/stream. Only the durable Task
-			// owns money, even when a valid result has no terminal usage.cost.
-			defer func() {
-				if info.OpenRouterCost.IdentityConflict {
-					err = openrouter.CostError("OpenRouter generation identity is unverified")
-				}
+		// Delivery uses the existing chat parser/stream. Once a durable Task
+		// exists (chat image, or chat text whose cost was deferred), only the
+		// Task owns money, even when a valid result has no terminal usage.cost.
+		defer func() {
+			if info.RelayMode != relayconstant.RelayModeChatCompletions || !relaycommon.HasOpenRouterSyncTask(info) {
+				return
+			}
+			chatImage := info.OpenRouterCost.ChatImage
+			if chatImage && info.OpenRouterCost.IdentityConflict {
+				err = openrouter.CostError("OpenRouter generation identity is unverified")
+			}
+			if chatImage {
 				if err != nil {
 					_ = taskrecord.FailOpenRouterSyncTask(info, "invalid_chat_image_result")
 					return
@@ -852,21 +874,74 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 					_ = taskrecord.FailOpenRouterSyncTask(info, "chat_image_completion_unavailable")
 					err = openrouter.CostError("OpenRouter chat-image completion requires reconciliation")
 				}
-			}()
-		}
+				return
+			}
+			if err != nil {
+				// Nothing delivered means no automatic charge: the operator decides.
+				if !info.IsStream && !c.Writer.Written() {
+					if holdErr := taskrecord.HoldOpenRouterSyncTaskForReconciliation(info, "undelivered_chat_result"); holdErr != nil {
+						logger.LogError(c, fmt.Sprintf("OpenRouter undelivered chat text task %s requires reconciliation: %v", info.OpenRouterCost.TaskID, holdErr))
+					}
+					return
+				}
+				_ = taskrecord.FailOpenRouterSyncTask(info, "invalid_chat_result")
+				return
+			}
+			// The Task retains the hold, so the delivered text stays a success; an
+			// unfinished reservation is parked in manual reconciliation by the poller.
+			if completeErr := taskrecord.CompleteOpenRouterSyncTask(c, info, nil, "application/json"); completeErr != nil {
+				failErr := taskrecord.FailOpenRouterSyncTask(info, "chat_completion_unavailable")
+				logger.LogError(c, fmt.Sprintf("OpenRouter chat text delivered; task %s requires reconciliation: complete=%v fail=%v", info.OpenRouterCost.TaskID, completeErr, failErr))
+			}
+		}()
 		if !info.IsStream {
 			if costErr := openrouter.ValidateResponse(resp, info); costErr != nil {
-				return nil, costErr
+				if !info.OpenRouterCost.ChatText {
+					return nil, costErr
+				}
+				if info.OpenRouterCost.UnknownReason == "upstream_error" {
+					return nil, openrouter.RejectUpstreamError(c, info, costErr)
+				}
+				// Deferral needs an inspected body, so delivery below always reads
+				// the buffered response restored by ValidateResponse.
+				if deferErr := openrouter.DeferCostToGeneration(c, info, a); deferErr != nil {
+					if !relaycommon.HasOpenRouterSyncTask(info) {
+						logger.LogWarn(c, "OpenRouter cost deferral unavailable: unknown_reason=%s channel=%d reserve=%d: %v",
+							info.OpenRouterCost.UnknownReason, info.ChannelId, info.FinalPreConsumedQuota, deferErr)
+						return nil, costErr
+					}
+					// Once a Task owns the hold the buffered response is always delivered.
+					logger.LogError(c, fmt.Sprintf("OpenRouter cost deferral incomplete; task %s retains the hold for reconciliation: unknown_reason=%s channel=%d reserve=%d: %v",
+						info.OpenRouterCost.TaskID, info.OpenRouterCost.UnknownReason, info.ChannelId, info.FinalPreConsumedQuota, deferErr))
+				}
 			}
 		}
+		// Defers run LIFO: this one decides deferral and may override err, then
+		// the Task defer above reads err to Complete or Fail. Fail never releases
+		// a chat hold: it settles only a confirmed cost, otherwise awaits lookup
+		// or manual reconciliation.
 		defer func() {
-
-			if !info.OpenRouterCost.Final && !info.OpenRouterCost.ChatImage {
+			if !info.OpenRouterCost.Final && info.IsStream && info.OpenRouterCost.ChatText {
+				if info.OpenRouterCost.UnknownReason == "upstream_error" {
+					// Output delivered before the error keeps its hold in a Task.
+					if deferErr := openrouter.DeferCostToGeneration(c, info, a); deferErr != nil && relaycommon.HasOpenRouterSyncTask(info) {
+						logger.LogError(c, fmt.Sprintf("OpenRouter streamed output cost deferral incomplete; task %s retains the hold: %v", info.OpenRouterCost.TaskID, deferErr))
+					}
+					usage, err = nil, openrouter.RejectUpstreamError(c, info, nil)
+					return
+				}
+				if deferErr := openrouter.DeferCostToGeneration(c, info, a); deferErr != nil {
+					logger.LogError(c, fmt.Sprintf("OpenRouter streamed output cost deferral failed: unknown_reason=%s channel=%d reserve=%d task_id=%s generation_id_present=%t: %v",
+						info.OpenRouterCost.UnknownReason, info.ChannelId, info.FinalPreConsumedQuota, info.OpenRouterCost.TaskID, info.OpenRouterCost.GenerationID != "", deferErr))
+				}
+			}
+			if !info.OpenRouterCost.Final && !info.OpenRouterCost.ChatImage && !relaycommon.HasOpenRouterSyncTask(info) {
 				usage = nil
 				err = openrouter.CostError("OpenRouter terminal usage.cost is missing or invalid")
 				return
 			}
-			if result, ok := usage.(*dto.Usage); ok {
+			// A failed handler returns a typed nil usage.
+			if result, ok := usage.(*dto.Usage); ok && result != nil {
 				result.Cost = info.OpenRouterCost.CostUSD
 			}
 		}()

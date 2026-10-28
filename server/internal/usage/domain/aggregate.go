@@ -88,5 +88,5 @@ func (q *UsageAggregateQuery) Validate() error {
 }
 
 type LogAggregate struct {
-	Quota, RequestCount int64
+	Quota, RefundQuota, RequestCount int64
 }

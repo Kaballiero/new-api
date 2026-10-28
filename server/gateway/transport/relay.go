@@ -73,7 +73,10 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 
 func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
-	if strings.Contains(c.Request.URL.Path, "embed") {
+	// Dispatch on the Gemini method (or the legacy /engines/{model}/embeddings
+	// route), never on a model id that merely contains "embed".
+	path := c.Request.URL.Path
+	if info.RelayMode == relayconstant.RelayModeEmbeddings || strings.Contains(path, ":embedContent") || strings.Contains(path, ":batchEmbedContents") {
 		err = relay.GeminiEmbeddingHandler(c, info)
 	} else {
 		err = relay.GeminiHelper(c, info)
@@ -116,6 +119,28 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					"type":  "error",
 					"error": newAPIError.ToClaudeError(),
 				})
+			case types.RelayFormatGemini:
+				// Native Gemini envelope is enabled only on the OpenRouter path for now.
+				if common.GetContextKeyInt(c, constant.ContextKeyChannelType) != constant.ChannelTypeOpenRouter {
+					c.JSON(newAPIError.StatusCode, gin.H{
+						"error": newAPIError.ToOpenAIError(),
+					})
+					return
+				}
+				body := gin.H{"error": newAPIError.ToGeminiError()}
+				if !strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream") {
+					c.JSON(newAPIError.StatusCode, body)
+					return
+				}
+				// Headers are already sent: terminate the stream with one Gemini SSE
+				// error frame unless the upstream error frame was already relayed.
+				if common.GetContextKeyBool(c, constant.ContextKeyStreamErrorFrameWritten) {
+					return
+				}
+				if payload, err := common.Marshal(body); err == nil {
+					_, _ = c.Writer.WriteString("data: " + string(payload) + "\n\n")
+					_ = helper.FlushWriter(c)
+				}
 			default:
 				c.JSON(newAPIError.StatusCode, gin.H{
 					"error": newAPIError.ToOpenAIError(),

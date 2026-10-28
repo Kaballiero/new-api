@@ -46,6 +46,7 @@
 | `update_notification_preferences` | настройки уведомлений о квоте (email, webhook, Bark, Gotify) | `PUT /api/user/setting` |
 | `get_checkin_status` | статистика отметок за месяц | `GET /api/user/checkin` |
 | `check_in` | ежедневная отметка с наградой, запись в лог пользователя | `POST /api/user/checkin` + `TurnstileCheck` |
+| `credit_getapi_quota` | идемпотентное зачисление с глобальным binary operationKey, атомарной квитанцией и балансом, replay возвращает текущий баланс | `POST /api/getapi/users/:user_id/quota-credits` + `GetAPIAuth("getapi.users.credit-quota")` |
 | `initialize_pat` | атомарная выдача или повторное чтение PAT, dry-run и прежние 400/404/409 ответы | `POST /api/getapi/users/:user_id/pat` + `GetAPIAuth("getapi.users.initialize-pat")` |
 | `provision_account` | создание аккаунта и PAT для интеграции GetAPI, ответ 201 | `POST /api/getapi/users` + `GetAPIAuth("getapi.users.provision")` |
 | `register_account`, `persist_account`, `bind_email` | регистрация, сохранение аккаунта с отзывом сессий при изменении безопасности, привязка email | без HTTP, через `app/accountscore` и capabilities record adapters |
@@ -103,3 +104,5 @@ GetAPI initialization находится в `initialize_pat`: transport сохр
 SQL читает пользователя под row lock и пишет PAT в той же транзакции. `provision_account` использует прямые
 domain sentinels, общий `transport.GetAPIErrors` получает только техническую классификацию missing record.
 Контрактные fixtures находятся в `contract/compatibility_test.go`; persistence-регрессии — рядом с SQL adapters и в `controller/user_manage_test.go`.
+
+GetAPI quota receipts хранятся в `adapter/gorm/accounts/record.GetAPIQuotaCredit`; SQL lock/unique retry — `accounts/core`, транзакцией и проверками лимита управляет `credit_getapi_quota`. Redis получает delta только после commit; replay после soft delete не зачисляет повторно.

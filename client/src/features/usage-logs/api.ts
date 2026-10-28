@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api, type ApiRequestConfig } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { buildQueryParams } from './lib/query-params'
 import { parseTaskArtifactsResponse } from './lib/task-artifacts'
@@ -27,6 +28,7 @@ import type {
   GetLogStatsResponse,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
+  OpenRouterSyncOperatorResult,
   TaskArtifactsResponse,
   UserInfo,
 } from './types'
@@ -124,4 +126,41 @@ export async function getTaskArtifacts(taskId: string) {
     taskArtifactRequestConfig
   )
   return parseTaskArtifactsResponse(response.data)
+}
+
+// ============================================================================
+// OpenRouter Synchronous Task Reconciliation (root only)
+// ============================================================================
+
+type OpenRouterSyncOperatorResponse = {
+  success: boolean
+  message?: string
+  data?: OpenRouterSyncOperatorResult
+}
+
+function openRouterSyncPath(taskId: string, action: 'release' | 'settle') {
+  return `/api/task/${encodeURIComponent(taskId)}/openrouter-sync/${action}`
+}
+
+export async function releaseOpenRouterSyncHold(
+  taskId: string,
+  evidence: string
+) {
+  const res = await api.post<OpenRouterSyncOperatorResponse>(
+    openRouterSyncPath(taskId, 'release'),
+    { evidence }
+  )
+  return requireServerSuccess(res.data)
+}
+
+export async function settleOpenRouterSyncCost(
+  taskId: string,
+  costUsd: string,
+  evidence: string
+) {
+  const res = await api.post<OpenRouterSyncOperatorResponse>(
+    openRouterSyncPath(taskId, 'settle'),
+    { cost_usd: costUsd, evidence }
+  )
+  return requireServerSuccess(res.data)
 }

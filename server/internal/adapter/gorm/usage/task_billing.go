@@ -41,7 +41,7 @@ func (b TaskBilling) Refund(task *domain.Task, quota int, reason string) {
 	other := taskBillingOther(t)
 	other.SetPublic("task_id", t.TaskID)
 	other.SetPublic("reason", reason)
-	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{UserId: t.UserId, LogType: usagerecord.LogTypeRefund, Content: "", ChannelId: t.ChannelId, ModelName: domain.TaskModelName(task), Quota: quota, TokenId: t.PrivateData.TokenId, Group: t.Group, Other: other})
+	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{UserId: t.UserId, LogType: usagerecord.LogTypeRefund, Content: "", ChannelId: t.ChannelId, ModelName: domain.TaskModelName(task), Quota: quota, TokenId: t.PrivateData.TokenId, Group: t.Group, Other: other, NodeName: t.PrivateData.NodeName})
 }
 func (b TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota int, reason string, projection *domain.BillingProjection, clamps []*billingdomain.Clamp) {
 	t := record.FromDomain(task)
@@ -93,16 +93,17 @@ func (b TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota
 		usageMetadata.Clamp(other, clamp)
 	}
 	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{
-		UserId:    t.UserId,
-		LogType:   logType,
-		Content:   b.AdjustmentText(t.UserId, reason),
-		ChannelId: t.ChannelId,
-		ModelName: domain.TaskModelName(task),
-		Quota:     logQuota,
-		TokenId:   t.PrivateData.TokenId,
-		Group:     t.Group,
-		Other:     other,
-		NodeName:  t.PrivateData.NodeName,
+		UserId:     t.UserId,
+		LogType:    logType,
+		Content:    b.AdjustmentText(t.UserId, reason),
+		ChannelId:  t.ChannelId,
+		ModelName:  domain.TaskModelName(task),
+		Quota:      logQuota,
+		TokenId:    t.PrivateData.TokenId,
+		Group:      t.Group,
+		Other:      other,
+		NodeName:   t.PrivateData.NodeName,
+		Adjustment: true,
 	})
 }
 func taskBillingOther(task *model.Task) *usagerecord.LogOther {
@@ -214,6 +215,12 @@ func (b TaskBilling) Durable(value *domain.Task, delta int) error {
 	} else if bc.TieredSnapshot != nil {
 		other.SetAdmin("effective_group_ratio", bc.TieredSnapshot.GroupRatio)
 	}
+	content := "OpenRouter confirmed cost settlement"
+	if state := task.PrivateData.OpenRouterSyncState(); state != nil && state.OperatorDecision != nil {
+		decision := state.OperatorDecision
+		other.SetAdmin("operator_reconciliation", map[string]any{"action": decision.Action, "operator_id": decision.OperatorID, "cost_usd": decision.CostUSD})
+		content = "OpenRouter operator cost settlement"
+	}
 	logType, quota := usagerecord.LogTypeConsume, delta
 	if delta < 0 {
 		logType, quota = usagerecord.LogTypeRefund, -delta
@@ -221,7 +228,7 @@ func (b TaskBilling) Durable(value *domain.Task, delta int) error {
 	if err := b.Writer.RecordTaskBillingLogWithError(RecordTaskBillingLogParams{
 		UserId: task.UserId, ChannelId: task.ChannelId, ModelName: domain.TaskModelName(value), TokenId: task.PrivateData.TokenId,
 		LogType: logType, Quota: quota, Group: task.Group, Other: other, NodeName: task.PrivateData.NodeName,
-		Content: "OpenRouter confirmed cost settlement",
+		Content: content, Adjustment: true,
 	}); err != nil {
 		return err
 	}

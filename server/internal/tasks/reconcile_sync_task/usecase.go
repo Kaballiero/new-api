@@ -47,7 +47,7 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 	validIdentity := task.Platform == string(domain.TaskPlatformOpenRouterAudio) && task.Action == "audio" && task.PrivateData.OpenRouterSync == nil ||
 		(task.Platform == string(domain.TaskPlatformOpenRouterRerank) && task.Action == "rerank" ||
 			task.Platform == string(domain.TaskPlatformOpenRouterImage) && task.Action == "image" ||
-			task.Platform == string(domain.TaskPlatformOpenRouterChatImage) && task.Action == "chat-image") && task.PrivateData.OpenRouterAudio == nil
+			task.Platform == string(domain.TaskPlatformOpenRouterChatImage) && (task.Action == "chat-image" || task.Action == "chat")) && task.PrivateData.OpenRouterAudio == nil
 	if !validIdentity {
 		domain.MarkSyncManual(task, "operation_identity_changed", u.now().Unix())
 		u.codec.Project(task)
@@ -63,6 +63,9 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 	if r.ReservationPending || r.SubmissionPending {
 		if now.Unix() < a.LeaseUntil {
 			return nil
+		}
+		if !r.ReservationPending {
+			a.RecordResultReason("result_outcome_unknown")
 		}
 		if r.ReservationPending || task.PrivateData.UpstreamTaskID == "" {
 			domain.MarkSyncManual(task, "interrupted_reservation_or_submission", u.now().Unix())
@@ -97,7 +100,7 @@ func (u Usecase) Execute(ctx context.Context, task *domain.Task) error {
 		}
 	}
 	cost, status, retryAfter, class := u.lookup(ctx, task)
-	a.LastHTTPStatus, a.LastError = status, class
+	a.LastHTTPStatus, a.LastError, a.LastLookupClass = status, class, class
 	if class == "" {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, cost
 		domain.FinishSyncTask(task, u.now().Unix(), u.settlement.Prepare)
@@ -150,7 +153,8 @@ func (u Usecase) lookup(ctx context.Context, task *domain.Task) (float64, int, t
 		}
 	}
 	completedSpeech := d.APIType == "tts" && a.ResultReady && !a.ResultFailed && strings.HasPrefix(a.ResultMimeType, "audio/")
-	if d.Cancelled == nil || *d.Cancelled || d.GenerationTime == nil && !completedSpeech {
+	billedCancel := task.Action == "chat" && d.Cancelled != nil && *d.Cancelled && u.now().Unix()-task.StartTime >= 30
+	if d.Cancelled == nil || *d.Cancelled && !billedCancel || d.GenerationTime == nil && !completedSpeech {
 		return 0, status, retryAfter, "incomplete_metadata"
 	}
 	if d.GenerationTime != nil && (*d.GenerationTime < 0 || math.IsNaN(*d.GenerationTime) || math.IsInf(*d.GenerationTime, 0)) {

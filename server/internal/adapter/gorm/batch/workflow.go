@@ -42,7 +42,7 @@ func (s Store) Inventory(now int64) ([]domain.Job, error) {
 func (s Store) ReloadClaim(id int64, owner string) (domain.Job, error) {
 	var j BatchJob
 	e := s.db().Where("id = ? AND lease_owner = ?", id, owner).First(&j).Error
-	return domain.Job(j), e
+	return domain.Job(j), notFound(e)
 }
 func (s Store) FinishClaim(job *domain.Job, owner string, now int64, message *string) error {
 	updates := map[string]any{"lease_until": 0, "lease_owner": "", "updated_at": now}
@@ -156,12 +156,23 @@ func (s Store) CountProviderID(id int64, providerID string) (int64, error) {
 }
 func (s Store) RejectUnsubmitted(job *domain.Job, reason string) error {
 	r := BatchJob(*job)
-	e := changed(s.db().Model(&r).Where("submit_state IN ? AND upstream_id = '' AND lease_owner = ?",
-		[]string{"queued", "preparing", "rejected"}, job.LeaseOwner).Updates(map[string]any{"submit_state": "rejected",
-		"status": "failed", "last_error": reason}))
+	changed := s.db().Model(&r).Where("submit_state IN ? AND upstream_id = '' AND lease_owner = ?", []string{"queued", "preparing", "rejected"}, job.LeaseOwner).Updates(map[string]any{"submit_state": "rejected", "status": "failed", "last_error": reason})
+	if changed.Error != nil {
+		return changed.Error
+	}
+	if changed.RowsAffected != 1 {
+		var current BatchJob
+		if err := s.db().Select("submit_state", "status", "upstream_id", "last_error", "lease_owner").First(&current, job.ID).Error; err != nil {
+			return err
+		}
+		if current.SubmitState != "rejected" || current.Status != "failed" || current.UpstreamID != "" || current.LastError != reason || current.LeaseOwner != job.LeaseOwner {
+			return domain.ErrBatchConflict
+		}
+	}
 	*job = domain.Job(r)
-	return e
+	return nil
 }
+
 func (s Store) UnsettledIdentities(id int64) ([]domain.Item, error) {
 	var items []BatchItem
 	e := s.db().Select("custom_id").Where("batch_id = ? AND billing_status <> ?", id, "settled").Find(&items).Error
@@ -216,4 +227,51 @@ func (s Store) ReconcilePurchase(job *domain.Job, cost, evidence string) error {
 		"purchase_usd": cost, "purchase_evidence": evidence}).Error
 	*job = domain.Job(r)
 	return e
+}
+
+func (s Store) SaveUnknownDiagnostic(job *domain.Job, owner, diagnostic string, first bool) (bool, error) {
+	q := s.db().Model(&BatchJob{}).Where("id = ? AND lease_owner = ?", job.ID, owner)
+	if first {
+		q = q.Where("submit_state = ? AND (last_error = '' OR last_error IS NULL)", "submission_unknown")
+	} else if job.LastError == "" {
+		q = q.Where("(last_error = '' OR last_error IS NULL)")
+	} else {
+		q = q.Where("last_error = ?", job.LastError)
+	}
+	result := q.Update("last_error", diagnostic)
+	return result.RowsAffected == 1, result.Error
+}
+func (s Store) FlagProviderWindow(job *domain.Job) (bool, error) {
+	result := s.db().Model(&BatchJob{}).Where("id = ? AND billing_status = ?", job.ID, "reserved").Update("billing_status", "reconciliation_required")
+	return result.RowsAffected == 1, result.Error
+}
+func (s Store) ListReconciliationJobs(before int64, limit int) ([]domain.Job, error) {
+	var jobs []BatchJob
+	q := s.db().Where("deleted_at = 0 AND (billing_status = ? OR purchase_status = ? OR submit_state = ?)", "reconciliation_required", "reconciliation_required", "submission_unknown")
+	if before > 0 {
+		q = q.Where("id < ?", before)
+	}
+	err := q.Order("id desc").Limit(min(max(limit, 1), 101)).Find(&jobs).Error
+	var out []domain.Job
+	if jobs != nil {
+		out = make([]domain.Job, len(jobs))
+		for i := range jobs {
+			out[i] = domain.Job(jobs[i])
+		}
+	}
+	return out, err
+}
+func (s Store) CountTouchedItems(id int64) (int64, error) {
+	var touched int64
+	err := s.db().Model(&BatchItem{}).Where("batch_id = ? AND (result_hash <> '' OR billing_status IN ?)", id, []string{"settled", "settled_at_batch"}).Count(&touched).Error
+	return touched, err
+}
+func (s Store) MarkOperatorReleased(job *domain.Job, owner, diagnostic string) error {
+	return changed(s.db().Model(&BatchJob{}).Where("id = ? AND submit_state = ? AND upstream_id = '' AND result_count = 0 AND lease_owner = ?", job.ID, "submission_unknown", owner).Updates(map[string]any{"submit_state": "rejected", "last_error": diagnostic}))
+}
+
+func (s Store) ReconciliationCursor(publicID string) (int64, error) {
+	var job BatchJob
+	err := s.db().Select("id").Where("public_id = ? AND deleted_at = 0", publicID).First(&job).Error
+	return job.ID, notFound(err)
 }

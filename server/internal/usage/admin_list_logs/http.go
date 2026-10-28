@@ -18,6 +18,9 @@ func NewHandler(usecase Usecase) Handler {
 func (h Handler) Handle(c *gin.Context) {
 	page := common.GetPageQuery(c)
 	query := transport.ReadLogQuery(c)
+	if !transport.ReadLogTypes(c, &query) {
+		return
+	}
 	result, err := h.usecase.Execute(Input{Query: query, Audience: transport.Audience(c)})
 	if err != nil {
 		transport.WriteLogError(c, err)

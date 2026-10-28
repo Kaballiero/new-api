@@ -19,6 +19,8 @@ type Reader struct {
 	GroupRatioRead    func(string, string) float64
 	UserGroupRead     func(int) (string, error)
 	ContainsGroupRead func(string) bool
+	BillableRead      func([]domain.Pricing, string, string) map[string]bool
+	ReservesRead      func([]string, []string) (map[string]float64, error)
 }
 
 func (r Reader) Snapshot() ([]domain.Pricing, []domain.PricingVendor, string, error) {
@@ -65,4 +67,11 @@ func (r Reader) SnapshotWithEndpoints() ([]domain.Pricing, []domain.PricingVendo
 func (r Reader) GroupRatios() map[string]float64 { return r.GroupRatiosRead() }
 func (r Reader) GroupGroupRatio(group, target string) (float64, bool) {
 	return r.GroupGroupRatioRead(group, target)
+}
+
+func (r Reader) Billable(pricing []domain.Pricing, group, revision string) map[string]bool {
+	return r.BillableRead(pricing, group, revision)
+}
+func (r Reader) ModelReserves(names, groups []string) (map[string]float64, error) {
+	return r.ReservesRead(names, groups)
 }

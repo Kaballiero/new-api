@@ -59,3 +59,5 @@ func TestExecuteRejectsGroupsAndStaleRevisions(t *testing.T) {
 	assert.Equal(t, "default", output.Full.UserGroup)
 	assert.Equal(t, 1, cache.puts)
 }
+
+func (fakeReader) Billable([]domain.Pricing, string, string) map[string]bool { return nil }

@@ -30,7 +30,8 @@ func (h Handler) Handle(c *gin.Context) {
 		}
 		query.TokenID = tokenID
 	}
-	result, err := h.usecase.Execute(Input{Query: query})
+	values, _ := c.GetQueryArray("types")
+	result, err := h.usecase.Execute(Input{Query: query, TypesQuery: values})
 	if err != nil {
 		transport.WriteLogError(c, err)
 		return

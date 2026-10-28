@@ -18,3 +18,5 @@ func (Diagnostics) Saturation(job *domain.Job, id string, clamp error) {
 	ctx := context.WithValue(context.Background(), common.RequestIdKey, requestID)
 	logger.LogWarn(ctx, fmt.Sprintf("batch %s item %s quota saturation: %v", job.PublicID, id, clamp))
 }
+
+func (Diagnostics) Info(message string) { common.SysLog(message) }

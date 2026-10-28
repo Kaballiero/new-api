@@ -145,6 +145,38 @@ type OpenRouterSyncTask struct {
 	ResultMimeType    string              `json:"result_mime_type,omitempty"`
 	ResultSize        int64               `json:"result_size,omitempty"`
 	ResultSHA256      string              `json:"result_sha256,omitempty"`
+	// ResultReason is the first reason recorded by the result path. Unlike
+	// LastError it is never overwritten by later lookup or manual outcomes.
+	ResultReason string `json:"result_reason,omitempty"`
+	// ResultReasonTracked marks Tasks created after ResultReason existed. Only
+	// untracked (legacy) Tasks may treat an empty reason as "nothing delivered".
+	ResultReasonTracked bool `json:"result_reason_tracked,omitempty"`
+	// LastLookupClass is the outcome class of the last cost lookup attempt.
+	LastLookupClass  string                          `json:"last_lookup_class,omitempty"`
+	OperatorDecision *OpenRouterSyncOperatorDecision `json:"operator_decision,omitempty"`
+}
+
+// RecordResultReason keeps the first result-path reason; later failures of
+// the same Task never rewrite what happened to the original delivery.
+func (a *OpenRouterSyncTask) RecordResultReason(reason string) {
+	if a.ResultReason == "" {
+		a.ResultReason = reason
+	}
+}
+
+const (
+	OpenRouterSyncOperatorRelease = "release"
+	OpenRouterSyncOperatorSettle  = "settle"
+)
+
+// OpenRouterSyncOperatorDecision records the root decision that resolved a
+// manual reconciliation hold. CostUSD is the canonical decimal string.
+type OpenRouterSyncOperatorDecision struct {
+	Action     string `json:"action"`
+	CostUSD    string `json:"cost_usd"`
+	OperatorID int    `json:"operator_id"`
+	Evidence   string `json:"evidence"`
+	DecidedAt  int64  `json:"decided_at"`
 }
 
 // OpenRouterAudioTask preserves the legacy audio snapshot type.
@@ -430,4 +462,8 @@ type SyncTaskQueryParams struct {
 	StartTimestamp int64
 	EndTimestamp   int64
 	UserIDs        []int
+}
+
+func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
+	return ToDomain(t).OpenRouterSyncOperatorEligible(action)
 }

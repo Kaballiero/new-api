@@ -87,3 +87,20 @@ func (Gateway) Failure(phase string, status int, requestID string, body []byte) 
 	encoded, _ := common.Marshal(diagnostic)
 	return string(encoded)
 }
+
+func (g Gateway) AmbiguousFailure(code string, status int, requestID string, body []byte) string {
+	messages := map[string]string{"transport_error": "The Batch creation request ended without a provider response.", "missing_batch_id": "The provider accepted Batch creation without a Batch identity.", "invalid_batch_id": "The provider returned an invalid Batch identity."}
+	message, ok := messages[code]
+	if !ok {
+		return g.Failure("create", status, requestID, body)
+	}
+	failure := domain.Failure{Version: 1, Phase: "create", Code: code, Category: "ambiguous", Message: message, HTTPStatus: status}
+	if batchProviderRequestID.MatchString(requestID) {
+		failure.RequestID = requestID
+	}
+	encoded, err := common.Marshal(failure)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}

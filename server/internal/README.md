@@ -14,22 +14,22 @@
 | `deployments` | управление io.net deployments, настройки и технические provider reads | 19 | [README](deployments/README.md) |
 | `notifications` | доставка, event limiter, root и upstream model watchers | 3 | [README](notifications/README.md) |
 | `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; общий publication adapter и leaf pricing runtime | 11 | [README](settings/README.md) |
-| `accounts` | GetAPI PAT initialization и аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 25 | [README](accounts/README.md) |
+| `accounts` | GetAPI PAT initialization и аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 26 | [README](accounts/README.md) |
 | `identity` | вход и доказательство личности: пароль, сессии и их отзыв, 2FA и резервные коды, passkey (WebAuthn), OAuth и WeChat, подтверждение email, восстановление пароля, повторная проверка для чувствительных действий | 72 | [README](identity/README.md) |
 | `apikeys` | API-ключи пользователей для шлюза: создание, просмотр с маской, раскрытие, изменение, удаление, группы, статус, использование и gateway-аутентификация ключа и billing subscription compatibility | 16 | [README](apikeys/README.md) |
 | `personal_access_tokens` | персональные токены доступа к панели управления (PAT): выпуск, статус, отзыв и проверка | 4 | [README](personal_access_tokens/README.md) |
 | `authorization` | права администраторов (Casbin): каталог разрешений, проверка, переопределения для пользователя, загрузка политики | 11 | [README](authorization/README.md) |
-| `catalog` | модели/вендоры, metadata sync, доступность моделей шлюза, presets и prefill groups | 25 | [README](catalog/README.md) |
-| `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 26 | [README](pricing/README.md) |
+| `catalog` | модели/вендоры, metadata sync, доступность моделей шлюза, presets и prefill groups | 26 | [README](catalog/README.md) |
+| `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 27 | [README](pricing/README.md) |
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
 | `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 12 | [README](billing/README.md) |
-| `batch` | native Batch admission holds, execution, results, settlement/release, procurement и polling; provider wire остаётся в relay/batch | 10 | [README](batch/README.md) |
+| `batch` | native Batch admission holds, execution, results, settlement/release, procurement и polling; provider wire остаётся в relay/batch | 12 | [README](batch/README.md) |
 | `usage` | запись consumption/error; чтение логов, quota_data, flow, агрегаты и рейтинги; role visibility, metadata и billing usage compatibility | 18 | [README](usage/README.md) |
 | `audit` | чтение событий и role projection; запись login/security/operation/PAT, metadata policy | 3 | [README](audit/README.md) |
 | `redemption` | выпуск и управление кодами пополнения, атомарное погашение с начислением квоты | 9 | [README](redemption/README.md) |
 | `subscriptions` | планы, user subscriptions, balance/provider checkout, Epay callbacks, order completion/expiry, reset maintenance | 25 | [README](subscriptions/README.md) |
 | `payments` | top-up orders, checkout и provider webhooks, manual completion, payment availability/compliance и Pancake config | 22 | [README](payments/README.md) |
-| `tasks` | durable async/Midjourney учёт, polling, terminal billing и media access | 25 | [README](tasks/README.md) |
+| `tasks` | durable async/Midjourney учёт, polling, terminal billing и media access | 27 | [README](tasks/README.md) |
 | `taskplugins` | версии/registry sync, origin/query, observation и retrieve policy | 19 | [README](taskplugins/README.md) |
 
 ## Сборка и технические владельцы
@@ -55,7 +55,7 @@ Gateway ingress — `gateway/transport`, protocol execution — `relay/`, нез
 `relaykit/`. Business вызывает их только через consumer ports/adapters. Для pricing сохранён узкий
 D1 constant/type alias leaf, описанный в AGENTS.md; direct gateway imports запрещены.
 
-Production service и временных BRIDGE нет. Model содержит 46 migration-used table aliases,
+Production service и временных BRIDGE нет. Model содержит 47 migration-used table aliases,
 DB bootstrap и прежние migrations/backfills; вспомогательные types/constants/errors используют владельцев.
 Architecture allowlist пуст; import/purity/D1 и closure проверяются в architecture_test.go.
 Технический долг бизнес-поведения сохраняется в TECH_DEBT.md; его устранение требует отдельного решения.

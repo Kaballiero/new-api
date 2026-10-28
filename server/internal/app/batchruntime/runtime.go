@@ -9,10 +9,13 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	hostdto "github.com/QuantumNous/new-api/dto"
 	routing "github.com/QuantumNous/new-api/gateway/routing"
+	diagnostics "github.com/QuantumNous/new-api/internal/adapter/batchruntime"
 	math "github.com/QuantumNous/new-api/internal/adapter/billing"
 	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
+	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	core "github.com/QuantumNous/new-api/internal/app/batch"
 	systemcore "github.com/QuantumNous/new-api/internal/app/system"
+	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	"github.com/QuantumNous/new-api/internal/batch/cancel_batch"
 	"github.com/QuantumNous/new-api/internal/batch/confirm_batch_purchase"
 	"github.com/QuantumNous/new-api/internal/batch/create_batch"
@@ -20,10 +23,12 @@ import (
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/internal/batch/fetch_batch_results"
 	"github.com/QuantumNous/new-api/internal/batch/get_own_batch"
+	"github.com/QuantumNous/new-api/internal/batch/list_batch_reconciliation"
 	"github.com/QuantumNous/new-api/internal/batch/list_own_batches"
 	"github.com/QuantumNous/new-api/internal/batch/poll_batches"
 	"github.com/QuantumNous/new-api/internal/batch/prepare_batch"
 	"github.com/QuantumNous/new-api/internal/batch/recover_batch_identity"
+	"github.com/QuantumNous/new-api/internal/batch/release_unsubmitted_batch"
 	systemdomain "github.com/QuantumNous/new-api/internal/system/domain"
 
 	"github.com/gin-gonic/gin"
@@ -35,16 +40,18 @@ func kinds() domain.ChannelKinds {
 }
 
 type Runtime struct {
-	Poll     poll_batches.Usecase
-	Recovery recover_batch_identity.Handler
-	Prepare  prepare_batch.Handler
-	Create   create_batch.Handler
-	Get      get_own_batch.Handler
-	List     list_own_batches.Handler
-	Results  fetch_batch_results.Handler
-	Cancel   cancel_batch.Handler
-	Delete   delete_batch.Handler
-	Purchase confirm_batch_purchase.Handler
+	Poll           poll_batches.Usecase
+	Recovery       recover_batch_identity.Handler
+	Release        release_unsubmitted_batch.Handler
+	Reconciliation list_batch_reconciliation.Handler
+	Prepare        prepare_batch.Handler
+	Create         create_batch.Handler
+	Get            get_own_batch.Handler
+	List           list_own_batches.Handler
+	Results        fetch_batch_results.Handler
+	Cancel         cancel_batch.Handler
+	Delete         delete_batch.Handler
+	Purchase       confirm_batch_purchase.Handler
 }
 
 var Default = sync.OnceValue(New)
@@ -54,7 +61,9 @@ func New() Runtime {
 	native := gateway.Gateway{}
 	recovery := recover_batch_identity.NewUsecase(store, native, kinds(), common.GetRandomString)
 	return Runtime{
-		Poll: core.NewPolling(native, kinds()), Recovery: recover_batch_identity.NewHandler(recovery),
+		Poll: core.NewPolling(native, kinds()), Recovery: recover_batch_identity.NewHandler(recovery, recordOperatorAudit),
+		Release:        release_unsubmitted_batch.NewHandler(release_unsubmitted_batch.NewUsecase(store, math.BatchCodec{}, common.GetRandomString, diagnostics.Diagnostics{}), recordOperatorAudit),
+		Reconciliation: list_batch_reconciliation.NewHandler(list_batch_reconciliation.NewUsecase(store, native, math.BatchCodec{}, kinds(), time.Now)),
 		Prepare: prepare_batch.NewHandler(prepare_batch.NewUsecase(store, gateway.Validation{},
 			math.BatchCodec{}, common.GetRandomString), func(c *gin.Context, endpoint string) {
 			routing.GetChannelConstraints(c).AddFilter(hostdto.ChannelFilter{Kind: hostdto.FilterBatchEndpoint, BatchEndpoint: endpoint})
@@ -84,4 +93,16 @@ func (h SystemHandler) Run(ctx context.Context, task *systemdomain.SystemTask, r
 	if err := systemcore.Default().Store.FinishSystemTask(task.TaskID, runnerID, systemdomain.SystemTaskStatusSucceeded, nil, ""); err != nil {
 		common.SysError("failed to finish Batch poll: " + err.Error())
 	}
+}
+
+func recordOperatorAudit(c *gin.Context, action string, params, rootFields map[string]any, status int, success bool) {
+	content := auditdomain.OperationContent(action, map[string]any{"id": c.Param("id")})
+	if !success {
+		if action == "batch.recover" {
+			content = "Failed Batch recovery"
+		} else {
+			content = "Failed Batch hold release"
+		}
+	}
+	auditapp.Recording().Operation(c, action, content, params, rootFields, status, success, true)
 }

@@ -29,6 +29,14 @@ type OpenRouterCostState struct {
 	CostSource        string
 	// TaskID transfers financial ownership to the durable Task lifecycle.
 	TaskID string
+	// ChatText marks a plain chat completion whose missing cost may be
+	// deferred to the durable Task through its generation identity.
+	ChatText bool
+	// ContentDelivered records that a forwarded stream chunk carried content,
+	// reasoning or a tool call. Read-ahead and role-only chunks never count.
+	ContentDelivered bool
+	// UpstreamError keeps the error object of a successful-status envelope.
+	UpstreamError json.RawMessage
 	// ApproximateResearchReserveUSD records the accepted hold policy, not a
 	// guaranteed maximum charge. Actual cost always uses the frozen Basis.
 	ApproximateResearchReserveUSD *float64
@@ -62,10 +70,11 @@ func (s *OpenRouterCostState) Observe(body []byte, terminal bool) {
 		s.UnknownReason = "malformed_usage"
 		return
 	}
-	if s.ChatImage && envelope.ID != "" {
+	if (s.ChatImage || s.ChatText) && envelope.ID != "" {
 		s.ObserveGenerationID(envelope.ID)
 	}
-	if s.IdentityConflict {
+	// A text identity conflict only disables deferral; a valid cost still settles.
+	if s.ChatImage && s.IdentityConflict {
 		s.Valid, s.Final, s.UnknownReason = false, false, "generation_identity_unverified"
 		return
 	}
@@ -73,6 +82,9 @@ func (s *OpenRouterCostState) Observe(body []byte, terminal bool) {
 		s.Valid = false
 		s.Final = false
 		s.UnknownReason = "upstream_error"
+		if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
+			s.UpstreamError = append(json.RawMessage(nil), envelope.Error...)
+		}
 		return
 	}
 	terminal = terminal || envelope.Type == "response.completed" || envelope.Type == "response.done" || envelope.Type == "response.incomplete"

@@ -42,7 +42,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) (*domain.Task, error)
 	task.PrivateData.SubscriptionId = 0
 	task.PrivateData.Reconciliation.ReservedQuota = 0
 	now := u.now()
-	state := &domain.OpenRouterSyncTask{RequestID: input.RequestID, BillingPreference: input.Preference, PlannedQuota: input.Quota, LeaseUntil: now.Add(5 * time.Minute).Unix(), Deadline: now.Add(24 * time.Hour).Unix()}
+	state := &domain.OpenRouterSyncTask{RequestID: input.RequestID, BillingPreference: input.Preference, PlannedQuota: input.Quota, LeaseUntil: now.Add(5 * time.Minute).Unix(), Deadline: now.Add(24 * time.Hour).Unix(), ResultReasonTracked: true}
 	if task.Platform == string(domain.TaskPlatformOpenRouterAudio) {
 		task.PrivateData.OpenRouterAudio = state
 	} else {

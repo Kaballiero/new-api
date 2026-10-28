@@ -23,3 +23,6 @@ func DeleteBatch(c *gin.Context) { batchruntime.Default().Delete.Handle(c) }
 func RecoverBatch(c *gin.Context) { batchruntime.Default().Recovery.Handle(c) }
 
 func ConfirmBatchPurchase(c *gin.Context) { batchruntime.Default().Purchase.Handle(c) }
+
+func ReleaseUnsubmittedBatch(c *gin.Context) { batchruntime.Default().Release.Handle(c) }
+func ListBatchReconciliation(c *gin.Context) { batchruntime.Default().Reconciliation.Handle(c) }

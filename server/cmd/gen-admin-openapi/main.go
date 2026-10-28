@@ -57,6 +57,9 @@ func main() {
 // Splitting this out lets the locale loop reuse the parsed handlers/routes/
 // schemas without re-walking the source on every iteration.
 func bootstrap() error {
+	if err := parseModels("./internal/accounts/credit_getapi_quota"); err != nil {
+		return err
+	}
 	if err := parseModels("./internal/identity/dto"); err != nil {
 		return err
 	}
@@ -257,6 +260,7 @@ func run(locale string) error {
 	enrichLoginSchemas(schemas)
 	enrichMetadataSelectionSchema(schemas)
 	enrichGetAPIInitializeSchemas(schemas)
+	enrichGetAPIQuotaCreditSchemas(schemas)
 	schemas["GetApiCreateCredentialResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/GetAPICreateCredential"})
 	schemas["GetApiCreateCredentialResponse"].(map[string]interface{})["required"] = []string{"success", "data"}
 	schemas["GetAPICreateCredential"] = structToSchema(modelTypes["GetAPICreateCredential"])

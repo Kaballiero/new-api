@@ -11,7 +11,8 @@ type Reader interface {
 }
 
 type Input struct {
-	Query domain.LogQuery
+	Query      domain.LogQuery
+	TypesQuery []string
 }
 
 type Result struct {
@@ -31,6 +32,13 @@ func (u Usecase) Execute(in Input) (Result, error) {
 	if in.Query.TokenID > 0 {
 		if err := u.reader.TokenOwner(in.Query.TokenID, in.Query.UserID); err != nil {
 			return Result{}, err
+		}
+	}
+	if in.TypesQuery != nil {
+		var valid bool
+		in.Query.Kinds, valid = domain.ParseLogTypesQuery(in.TypesQuery)
+		if !valid {
+			return Result{}, domain.ErrInvalidLogQuery
 		}
 	}
 	in.Query.CountLimit = domain.MaxLogSearchCount

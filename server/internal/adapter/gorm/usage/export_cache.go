@@ -38,6 +38,10 @@ func logQuotaDataCache(quotaData *record.QuotaData) {
 func LogQuotaData(params record.QuotaDataLogParams) {
 	// Truncate the timestamp to the hour.
 	createdAt := params.CreatedAt - (params.CreatedAt % 3600)
+	count := 1
+	if params.Correction {
+		count = 0
+	}
 	quotaData := &record.QuotaData{
 		UserID:    params.UserID,
 		Username:  params.Username,
@@ -47,7 +51,7 @@ func LogQuotaData(params record.QuotaDataLogParams) {
 		TokenID:   params.TokenID,
 		ChannelID: params.ChannelID,
 		NodeName:  params.NodeName,
-		Count:     1,
+		Count:     count,
 		Quota:     params.Quota,
 		TokenUsed: params.TokenUsed,
 	}

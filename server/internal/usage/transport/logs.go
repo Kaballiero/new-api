@@ -32,6 +32,10 @@ func ReadLogQuery(c *gin.Context) domain.LogQuery {
 }
 
 func WriteLogError(c *gin.Context, err error) {
+	if errors.Is(err, domain.ErrInvalidLogQuery) {
+		common.ApiErrorI18nStatusCode(c, 400, "invalid_params", i18n.MsgInvalidParams)
+		return
+	}
 	if errors.Is(err, domain.ErrTokenNotFound) {
 		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "token_not_found", i18n.MsgTokenNotExists)
 		return
@@ -41,4 +45,16 @@ func WriteLogError(c *gin.Context, err error) {
 
 func Deprecated(c *gin.Context) {
 	c.JSON(200, gin.H{"success": false, "message": Translate(c, i18n.MsgUsageDeprecated)})
+}
+
+func ReadLogTypes(c *gin.Context, query *domain.LogQuery) bool {
+	if values, supplied := c.GetQueryArray("types"); supplied {
+		var valid bool
+		query.Kinds, valid = domain.ParseLogTypesQuery(values)
+		if !valid {
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
+			return false
+		}
+	}
+	return true
 }

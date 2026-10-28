@@ -20,3 +20,5 @@ var (
 	ErrGetAPITargetRoleDenied      = errors.New("GETAPI_TARGET_ROLE_DENIED")
 	ErrGetAPICredentialUnavailable = errors.New("GETAPI_CREDENTIAL_UNAVAILABLE")
 )
+
+var ErrGetAPIQuotaCreditConflict = errors.New("GETAPI_QUOTA_CREDIT_CONFLICT")

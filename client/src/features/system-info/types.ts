@@ -85,3 +85,66 @@ export type SystemInstanceDeleteResponse = {
     deleted_count: number
   }
 }
+
+export type BatchReconciliationReason =
+  | 'submission_unknown'
+  | 'submission_unknown_overdue'
+  | 'provider_window_exceeded'
+  | 'terminal_without_cost'
+  | 'unsettled_items'
+  | 'purchase_unconfirmed'
+
+export type BatchReconciliationDiagnostic = {
+  phase?: string
+  code?: string
+  category?: string
+  message?: string
+  http_status?: number
+  request_id?: string
+  alerted_at?: number
+}
+
+export type BatchReconciliationJob = {
+  id: string
+  user_id: number
+  token_id: number
+  channel_id: number
+  model: string
+  upstream_model: string
+  status: string
+  submit_state: string
+  billing_status: string
+  purchase_status: string
+  upstream_id: string
+  request_count: number
+  result_count: number
+  settled_count: number
+  reserved_quota: number
+  charged_quota: number
+  created_at: number
+  updated_at: number
+  diagnostic?: BatchReconciliationDiagnostic
+  reason: BatchReconciliationReason
+  can_release: boolean
+  can_recover: boolean
+}
+
+export type BatchReconciliationListResponse = {
+  success?: boolean
+  message?: string
+  data?: BatchReconciliationJob[]
+  has_more?: boolean
+}
+
+export type BatchReleaseResponse = {
+  success?: boolean
+  id?: string
+  released_quota?: number
+  already_released?: boolean
+  status?: 'release_pending'
+}
+
+export type BatchRecoverResponse = {
+  success?: boolean
+  id?: string
+}

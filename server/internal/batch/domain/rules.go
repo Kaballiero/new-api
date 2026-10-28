@@ -3,6 +3,20 @@ package domain
 type ErrorKind string
 
 const (
+	ReleaseNotFound             ErrorKind = "release_not_found"
+	ReleaseBusy                 ErrorKind = "release_busy"
+	ReconciliationInvalidLimit  ErrorKind = "reconciliation_invalid_limit"
+	ReconciliationInvalidCursor ErrorKind = "reconciliation_invalid_cursor"
+	ReconciliationStorage       ErrorKind = "reconciliation_storage"
+
+	RecoveryIneligible     ErrorKind = "recovery_ineligible"
+	RecoveryConflict       ErrorKind = "recovery_conflict"
+	RecoveryStorage        ErrorKind = "recovery_storage"
+	ReleaseIneligible      ErrorKind = "release_ineligible"
+	ReleaseConflict        ErrorKind = "release_conflict"
+	ReleaseStorage         ErrorKind = "release_storage"
+	InvalidReleaseEvidence ErrorKind = "invalid_release_evidence"
+
 	BatchBusy                      ErrorKind = "batch_busy/BatchBusy"
 	BatchNotReconciled             ErrorKind = "batch_not_reconciled/BatchNotReconciled"
 	BatchPricingUnavailable        ErrorKind = "batch_pricing_unavailable/BatchPricingUnavailable"

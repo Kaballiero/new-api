@@ -70,7 +70,7 @@ func (u Usecase) Execute(ctx context.Context, input Input) error {
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, state.CostUSD
 		r.UpstreamIsBYOK, r.UpstreamCostDetails = state.IsBYOK, string(state.CostDetails)
 		domain.FinishSyncTask(task, u.now().Unix(), u.settlement.Prepare)
-	} else if task.PrivateData.UpstreamTaskID == "" {
+	} else if task.PrivateData.UpstreamTaskID == "" || task.Platform == string(domain.TaskPlatformOpenRouterChatImage) && a.MetadataURL == "" {
 		domain.MarkSyncManual(task, "missing_generation_identity", u.now().Unix())
 	}
 	u.codec.Project(task)

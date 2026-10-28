@@ -113,6 +113,38 @@ type OpenRouterSyncTask struct {
 	ResultMimeType    string
 	ResultSize        int64
 	ResultSHA256      string
+	// ResultReason is the first reason recorded by the result path. Unlike
+	// LastError it is never overwritten by later lookup or manual outcomes.
+	ResultReason string
+	// ResultReasonTracked marks Tasks created after ResultReason existed. Only
+	// untracked (legacy) Tasks may treat an empty reason as "nothing delivered".
+	ResultReasonTracked bool
+	// LastLookupClass is the outcome class of the last cost lookup attempt.
+	LastLookupClass  string
+	OperatorDecision *OpenRouterSyncOperatorDecision
+}
+
+// RecordResultReason keeps the first result-path reason; later failures of
+// the same Task never rewrite what happened to the original delivery.
+func (a *OpenRouterSyncTask) RecordResultReason(reason string) {
+	if a.ResultReason == "" {
+		a.ResultReason = reason
+	}
+}
+
+const (
+	OpenRouterSyncOperatorRelease = "release"
+	OpenRouterSyncOperatorSettle  = "settle"
+)
+
+// OpenRouterSyncOperatorDecision records the root decision that resolved a
+// manual reconciliation hold. CostUSD is the canonical decimal string.
+type OpenRouterSyncOperatorDecision struct {
+	Action     string
+	CostUSD    string
+	OperatorID int
+	Evidence   string
+	DecidedAt  int64
 }
 
 // OpenRouterSyncState reads old audio snapshots without rewriting stored JSON.

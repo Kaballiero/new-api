@@ -24,6 +24,6 @@ func (h Handler) Handle(c *gin.Context) {
 	result, err := h.usecase.Execute(domain.AggregateScope{
 		UserIDs: request.UserIDs, StartTimestamp: request.StartTimestamp, EndTimestamp: request.EndTimestamp,
 	})
-	wire := Response{Quota: result.Quota, RequestCount: result.RequestCount}
+	wire := Response{Quota: result.Quota, RefundQuota: result.RefundQuota, RequestCount: result.RequestCount}
 	transport.RespondAggregate(c, wire, err)
 }

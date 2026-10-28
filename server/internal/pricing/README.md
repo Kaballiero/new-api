@@ -25,6 +25,7 @@
 | `get_model_pricing` | карточка одной модели для текущего пользователя (`model_name`) | `GET /api/user/effective-pricing/model`, `UserAuth`, `DisableCache` |
 | `get_group_pricing` | тариф заданной группы (`group`, `using_group`), полный или постранично; анонимный полный каталог кэшируется по группе | `GET /api/pricing/effective`, `RootAuth`, `DisableCache` |
 | `get_pricing_overview` | обзор по модальностям (по 4 модели в секции по умолчанию) | `GET /api/pricing/effective/overview`, `RootAuth`, `DisableCache` |
+| `list_unbillable_models` | диагностика моделей группы default без billing-конфигурации или подтверждённой публичной цены; рекомендации reserve для OpenRouter | `GET /api/models/unbillable`, AdminAuth |
 | `get_public_models` | публичный каталог тарифа `default` по тегам (`tag`, `p`, `page_size`) | `GET /api/pricing/effective/models`, без авторизации, `DisableCache` |
 | `preview_pricing` | предпросмотр тарифа выбранной группы (`user_group`) без смены группы | `GET /api/option/effective_pricing`, `RootAuth`, `DisableCache` |
 | `get_pricing_config` | конфигурация цен моделей с версиями и схемами usage плагинов | `GET /api/option/model_pricing`, `RootAuth` |
@@ -80,7 +81,8 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/pricing.go`) читает DTO
 - Сценарии создаёт app. `adapter/settings/publication` предоставляет один publisher/lock для settings, legacy pricing options и native publication; каталожные удаления получают same-tx техническую capability.
 - Бизнес-ошибки принадлежат pricing/domain; model сохраняет только строгие table aliases для immutable catalog records.
 - Имена пресетов «官方倍率预设» / «models.dev 价格预设» в `list_syncable_channels` — идентификаторы, с которыми сравнивает клиент (`client/src/features/system-settings/models/constants.ts`); не локализуются.
-- `consumerContext` продублирован в пяти сценариях чтения (`get_personal_pricing`, `get_group_pricing`, `get_model_pricing`, `get_pricing_overview`, `get_public_models`).
+- `consumerContext` используется сценариями чтения и диагностикой `list_unbillable_models`. Публичные страницы скрывают модели без подтверждённой цены (явный ноль считается ценой) и без возможности биллинга; персональные страницы и overview сохраняют полный состав. Eligibility читает catalog owner через узкий порт, minute cache принадлежит `adapter/pricing`. После успешного refresh диагностические причины добавляются в summary и лог.
+- Creator берётся из сохранённых metadata, затем catalog author, затем эвристики имени; display vendors не записываются в БД. Context window добавляется как display tag только при отсутствии сохранённого K/M tag.
 
 ResetModelRatios пишет через settings owner из app, сохраняя дополнительную PublishRatios после Persist.
 Pricing/catalog composition принадлежит leaf app; технические records/cache/publication state находятся

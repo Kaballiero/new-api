@@ -189,3 +189,10 @@ func (r Recording) FinishAccess(c *gin.Context) {
 	snapshot.in.Response = snapshot.writer.result()
 	r.complete(c, snapshot.in)
 }
+
+// Operation records an explicit operator reconciliation with root-only evidence.
+func (r Recording) Operation(c *gin.Context, action, content string, params, rootFields map[string]any, status int, success, outcomePresent bool) {
+	r.complete(c, domain.Recording{Source: domain.OperatorReconciliation, Actor: Actor(c), Action: action, Content: content,
+		Parameters: params, RootFields: rootFields, Status: status, Success: success, OutcomePresent: outcomePresent})
+	MarkLogged(c)
+}

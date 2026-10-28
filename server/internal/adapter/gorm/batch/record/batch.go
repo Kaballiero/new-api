@@ -59,6 +59,7 @@ type BatchFailure struct {
 	Message    string `json:"message"`
 	HTTPStatus int    `json:"http_status,omitempty"`
 	RequestID  string `json:"request_id,omitempty"`
+ AlertedAt int64 `json:"alerted_at,omitempty"`
 }
 
 type BatchItem struct {

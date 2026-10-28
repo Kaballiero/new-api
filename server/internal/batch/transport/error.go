@@ -12,11 +12,24 @@ import (
 type responseError struct {
 	Status          int
 	Code, MessageID string
+	Message         string
 }
 
 var responses = map[domain.ErrorKind]responseError{
-	domain.BatchBusy:          {Status: 409, Code: "batch_busy", MessageID: i18n.MsgBatchBatchBusy},
-	domain.BatchNotReconciled: {Status: 409, Code: "batch_not_reconciled", MessageID: i18n.MsgBatchBatchNotReconciled},
+	domain.ReleaseNotFound:             {Status: 404, Code: "not_found", Message: "batch not found"},
+	domain.ReleaseBusy:                 {Status: 409, Code: "batch_busy", Message: "batch reconciliation is already in progress"},
+	domain.ReconciliationInvalidLimit:  {Status: 400, Code: "invalid_limit", Message: "limit must be in 1..100"},
+	domain.ReconciliationInvalidCursor: {Status: 400, Code: "invalid_cursor", Message: "unknown batch cursor"},
+	domain.ReconciliationStorage:       {Status: 503, Code: "storage_unavailable", Message: "batch storage unavailable"},
+	domain.RecoveryIneligible:          {Status: 409, Code: "recovery_ineligible", Message: "only an unknown creation without provider identity can be recovered"},
+	domain.RecoveryConflict:            {Status: 409, Code: "batch_conflict", Message: "Batch state changed during recovery; reload and retry"},
+	domain.RecoveryStorage:             {Status: 503, Code: "storage_unavailable", Message: "cannot recover Batch"},
+	domain.ReleaseIneligible:           {Status: 409, Code: "release_ineligible", Message: "only an unknown creation without provider identity, results or charges can be released"},
+	domain.ReleaseConflict:             {Status: 409, Code: "batch_conflict", Message: "Batch state changed during release; reload and retry"},
+	domain.ReleaseStorage:              {Status: 503, Code: "storage_unavailable", Message: "cannot release Batch hold"},
+	domain.InvalidReleaseEvidence:      {Status: 400, Code: "invalid_request", Message: "non-empty evidence of at most 4096 characters is required"},
+	domain.BatchBusy:                   {Status: 409, Code: "batch_busy", MessageID: i18n.MsgBatchBatchBusy},
+	domain.BatchNotReconciled:          {Status: 409, Code: "batch_not_reconciled", MessageID: i18n.MsgBatchBatchNotReconciled},
 
 	domain.BatchPricingUnavailable:    {Status: 503, Code: "batch_pricing_unavailable"},
 	domain.BatchQuotaOverflow:         {Status: 400, Code: "batch_quota_overflow", MessageID: i18n.MsgBatchBatchQuotaOverflow},
@@ -59,7 +72,7 @@ var responses = map[domain.ErrorKind]responseError{
 	domain.UnsupportedOperation:           {Status: 400, Code: "unsupported_operation"},
 }
 
-func Error(c *gin.Context, err error) {
+func Error(c *gin.Context, err error) string {
 	var failure *domain.RuleError
 	if !errors.As(err, &failure) {
 		panic(err)
@@ -68,7 +81,7 @@ func Error(c *gin.Context, err error) {
 	if !ok {
 		panic(err)
 	}
-	message := ""
+	message := response.Message
 	if response.MessageID != "" {
 		message = i18n.T(c, response.MessageID)
 	}
@@ -78,6 +91,7 @@ func Error(c *gin.Context, err error) {
 		message = causeMessage(c, failure.Cause)
 	}
 	c.AbortWithStatusJSON(response.Status, gin.H{"error": gin.H{"type": "batch_error", "code": response.Code, "message": message}})
+	return response.Code
 }
 
 var detailMessages = map[domain.ErrorKind]string{

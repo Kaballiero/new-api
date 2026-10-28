@@ -72,6 +72,7 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	components := map[string]interface{}{}
 	schemas := buildSchemas()
 	enrichGetAPIInitializeSchemas(schemas)
+	enrichGetAPIQuotaCreditSchemas(schemas)
 	schemas["GetApiCreateCredentialResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/GetAPICreateCredential"})
 	schemas["GetApiCreateCredential"] = structToSchema(modelTypes["GetAPICreateCredential"])
 	schemas["GetAPICreateCredential"].(map[string]interface{})["required"] = []string{"user_id", "access_token"}
@@ -89,6 +90,7 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	}{
 		{"/api/getapi/users", "post", "provisionGetApiUser", []string{"201", "400", "401", "403", "404", "409", "503"}},
 		{"/api/getapi/users/{user_id}/pat", "post", "initializeGetApiPat", []string{"200", "201", "400", "401", "403", "404", "409", "503"}},
+		{"/api/getapi/users/{user_id}/quota-credits", "post", "creditGetApiUserQuota", []string{"200", "400", "401", "403", "404", "409", "503"}},
 	} {
 		op := operation(custom.path, custom.method)
 		assert.Equal(t, custom.operationID, op["operationId"])
@@ -103,6 +105,9 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 				expected = "#/components/schemas/GetApiCreateCredentialResponse"
 			} else if custom.path == "/api/getapi/users/{user_id}/pat" && (status == "200" || status == "201") {
 				expected = "#/components/schemas/GetApiInitializePATResponse"
+			}
+			if custom.path == "/api/getapi/users/{user_id}/quota-credits" && status == "200" {
+				expected = "#/components/schemas/GetAPIQuotaCreditResponse"
 			}
 			assert.Equal(t, expected, extractContentSchema(response)["$ref"])
 		}

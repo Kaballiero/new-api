@@ -17,3 +17,6 @@ func TaskArtifactContent(c *gin.Context) { httpapi.Tasks().TaskArtifactContent(c
 func GetAllTask(c *gin.Context) { httpapi.Tasks().GetAllTask(c) }
 
 func GetUserTask(c *gin.Context) { httpapi.Tasks().GetUserTask(c) }
+
+func ReleaseOpenRouterSyncHold(c *gin.Context) { httpapi.Tasks().ReleaseOpenRouterSyncHold(c) }
+func SettleOpenRouterSyncCost(c *gin.Context)  { httpapi.Tasks().SettleOpenRouterSyncCost(c) }

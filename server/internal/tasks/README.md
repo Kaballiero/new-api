@@ -21,6 +21,8 @@
 | begin_sync_task / get_sync_task / commit_sync_reservation | Intent до hold, проверка identity, передача существующего резерва |
 | configure_sync_submission / record_sync_generation / record_sync_receipt | Frozen metadata/account и correlation, без повторного paid POST |
 | complete_sync_task / fail_sync_task / reconcile_sync_task | Независимые delivery и financial outcome, revision CAS, metadata-only reconciliation |
+| hold_sync_task | Сохранение резерва за недоставленный chat-result до ручного решения |
+| apply_sync_operator_decision | POST /api/task/:task_id/openrouter-sync/release и /openrouter-sync/settle; RootAuth, подтверждённая нулевая/явная стоимость и аудит каждой попытки |
 | poll_tasks / poll_midjourney_tasks | Один отменяемый прогон, без собственного scheduler/ticker |
 
 Router и порядок middleware сохранены. Dashboard допускает прежние session/PAT; API-ключи не становятся
@@ -31,7 +33,8 @@ Router и порядок middleware сохранены. Dashboard допуска
 ## Хранение и финансовые границы
 
 Records/codecs и SQL — internal/adapter/gorm/tasks. model/task.go и model/midjourney.go содержат только
-same-name aliases. Field order, JSON/GORM tags, таблицы, миграции и индексы не меняются. Чистые domain
+same-name aliases. Таблицы, миграции и индексы прежние; private JSON дополнен первой причиной результата,
+классом последнего lookup и необратимым решением оператора. Чистые domain
 facts отделены от records; технические conversion сохраняют raw FX/group presence, null и malformed
 history, а также ссылки на state при обновлении revision. Неполная современная история не становится legacy.
 
@@ -44,7 +47,12 @@ OpenRouter confirmed settlement: один locked main transaction claim → subs
 любой отказ откатывает все DB legs. Owner-checked subscription capability выполняется в том же tx.
 После commit следуют cache delta → обязательная финансовая запись → отдельный finalize CAS. MainApplied
 не воспроизводится автоматически после сбоя cache/log. Missing/null/invalid cost остаётся unknown;
-только подтверждённый terminal zero разрешает соответствующий legacy refund. Paid submission не replay-ится.
+только подтверждённый terminal zero разрешает соответствующий legacy refund. Definitive 4xx без generation
+освобождает audio hold, кроме timeout/rate-limit. Chat text без terminal cost передаёт резерв durable Task:
+metadata lookup или root-решение завершают расчёт; отправленная клиенту часть stream учитывается отдельно.
+Release разрешён лишь для доказанно недоставленного результата, settle принимает положительную стоимость
+до 50 USD на frozen basis; CAS фиксирует решение до движения средств, повтор того же решения не списывает
+повторно. Evidence хранится только в root audit; публичная проекция его не содержит. Paid submission не replay-ится.
 Standalone subscription delta теперь имеет единственное тело в adapter/gorm/billing; nested refund #27 сохранён.
 
 Usage сохраняет единственный metadata serializer и прежние обычный/required writers.

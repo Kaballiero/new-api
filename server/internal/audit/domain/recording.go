@@ -12,6 +12,7 @@ const (
 	Integration
 	QuotaAdjustment
 	SubscriptionReset
+	OperatorReconciliation
 )
 
 type Recording struct {
@@ -20,6 +21,9 @@ type Recording struct {
 	TargetID                                      int
 	Action, Content, TokenRef                     string
 	Parameters                                    map[string]any
+	RootFields                                    map[string]any
+	Status                                        int
+	OutcomePresent                                bool
 	Request                                       RequestFacts
 	Response                                      ResponseResult
 	Operator                                      *Operator

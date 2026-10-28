@@ -193,6 +193,8 @@ func (pricingCatalogHandler) Run(ctx context.Context, task *domain.SystemTask, r
 	status := domain.SystemTaskStatusSucceeded
 	if err != nil {
 		status = domain.SystemTaskStatusFailed
+	} else {
+		app.LogUnbillableModels(&summary)
 	}
 	finishSystemTaskHandler(task, runnerID, status, summary, err)
 }

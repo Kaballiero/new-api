@@ -2,6 +2,7 @@ package taskruntime
 
 import (
 	"context"
+	"github.com/QuantumNous/new-api/internal/tasks/apply_sync_operator_decision"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -115,4 +116,18 @@ func disableTaskFixtureArtifacts(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, artifacts.InitTaskArtifactStore()) })
 	t.Setenv(system_setting.TaskArtifactStoreModeEnv, system_setting.TaskArtifactStoreModeUpstream)
 	require.NoError(t, artifacts.InitTaskArtifactStore())
+}
+
+var ErrOpenRouterSyncOperatorInvalid = taskdomain.ErrOpenRouterSyncOperatorInvalid
+var ErrOpenRouterSyncOperatorConflict = taskdomain.ErrOpenRouterSyncOperatorConflict
+var HoldOpenRouterSyncTaskForReconciliation = taskrecord.HoldOpenRouterSyncTaskForReconciliation
+
+func ApplyOpenRouterSyncOperatorDecision(taskID, action, cost, evidence string, operatorID int) (taskdomain.OpenRouterSyncOperatorResult, error) {
+	return tasksapp.NewReconciler().Operator(context.Background(), apply_sync_operator_decision.Input{TaskID: taskID, Action: action, CostUSD: cost, Evidence: evidence, OperatorID: operatorID})
+}
+func OpenRouterSyncReconciliation(task *model.Task) map[string]any {
+	return taskdomain.OpenRouterSyncReconciliation(record.ToDomain(task))
+}
+func OpenRouterSyncAdminView(task *model.Task) map[string]any {
+	return taskdomain.OpenRouterSyncAdminView(record.ToDomain(task))
 }

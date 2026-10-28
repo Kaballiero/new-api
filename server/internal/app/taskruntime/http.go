@@ -1,14 +1,18 @@
 package taskruntime
 
 import (
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
 	gormtasks "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	"github.com/QuantumNous/new-api/internal/adapter/http/taskmedia"
 	httptasks "github.com/QuantumNous/new-api/internal/adapter/http/tasks"
 	runtimetechnical "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
+	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/admin_list_midjourney_tasks"
 	"github.com/QuantumNous/new-api/internal/tasks/admin_list_tasks"
+	"github.com/QuantumNous/new-api/internal/tasks/apply_sync_operator_decision"
 	"github.com/QuantumNous/new-api/internal/tasks/fetch_task_artifact"
 	"github.com/QuantumNous/new-api/internal/tasks/fetch_video_content"
 	"github.com/QuantumNous/new-api/internal/tasks/get_own_task"
@@ -26,6 +30,8 @@ import (
 )
 
 type HTTP struct {
+	ReleaseOpenRouterSyncHold gin.HandlerFunc
+	SettleOpenRouterSyncCost  gin.HandlerFunc
 	GetTask                   gin.HandlerFunc
 	GetTaskArtifacts          gin.HandlerFunc
 	GetDashboardTaskArtifacts gin.HandlerFunc
@@ -57,7 +63,11 @@ func NewHTTP() HTTP {
 	})
 	videoUsecase := fetch_video_content.NewUsecase(reader, projector, projector, httptasks.VideoDiagnostics{})
 	video := fetch_video_content.NewHandler(videoUsecase, proxy.Serve, capability, logTaskMediaError)
+	operator := apply_sync_operator_decision.NewHandler(tasksapp.NewReconciler().Operator, func(c *gin.Context, action, content string, params, rootFields map[string]any, status int, success bool) {
+		auditapp.Recording().Operation(c, action, content, params, rootFields, status, success, false)
+	}, common.SysLog)
 	return HTTP{
+		ReleaseOpenRouterSyncHold: operator.Release, SettleOpenRouterSyncCost: operator.Settle,
 		GetTask:                   detail.Handle,
 		GetTaskArtifacts:          artifacts.Handle,
 		GetDashboardTaskArtifacts: artifacts.Dashboard,

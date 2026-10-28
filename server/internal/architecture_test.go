@@ -437,7 +437,7 @@ func TestLegacyArchitectureClosure(t *testing.T) {
 	require.Empty(t, knownViolations, "the completed architecture has no allowlist")
 	serverDir, err := filepath.Abs("..")
 	require.NoError(t, err)
-	tables := strings.Fields("Ability AuditLog AuthFlow AuthzRole BatchItem BatchJob BatchLogEvent BatchLogReceipt BatchQuotaEvent CasbinRule CatalogDocument CatalogRevision CatalogSource Channel Checkin CustomOAuthProvider ExternalIdentityClaim Log LoginEncryptionKey Midjourney Model ModelCostFXRow Option PasskeyCredential PerfMetric PrefillGroup QuotaData Redemption Setup SubscriptionOrder SubscriptionPlan SubscriptionPreConsumeRecord SystemInstance SystemTask SystemTaskLock Task TaskPlugin Token TopUp TwoFA TwoFABackupCode User UserOAuthBinding UserSession UserSubscription Vendor")
+	tables := strings.Fields("Ability AuditLog AuthFlow AuthzRole BatchItem BatchJob BatchLogEvent BatchLogReceipt BatchQuotaEvent CasbinRule CatalogDocument CatalogRevision CatalogSource Channel Checkin CustomOAuthProvider ExternalIdentityClaim GetAPIQuotaCredit Log LoginEncryptionKey Midjourney Model ModelCostFXRow Option PasskeyCredential PerfMetric PrefillGroup QuotaData Redemption Setup SubscriptionOrder SubscriptionPlan SubscriptionPreConsumeRecord SystemInstance SystemTask SystemTaskLock Task TaskPlugin Token TopUp TwoFA TwoFABackupCode User UserOAuthBinding UserSession UserSubscription Vendor")
 	bootstrap := strings.Fields("audit_log.go batch_migration.go external_identity_claim_migration.go frontend_option_migration.go gorm_logger.go main.go migration_dialector.go option_primary_key_migration.go prefill_group_migration.go token_migration.go user_auth_migration.go")
 	aliases := map[string]string{}
 	consumers := map[string]bool{}

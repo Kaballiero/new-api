@@ -2,6 +2,7 @@ package openrouter
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -439,6 +440,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	var maximum decimal.Decimal
 	maximumIncludesReserve := false
 	found := false
+	// Exclusion details explain an empty pool without changing its status or
+	// code. A filter is named only when no endpoint passed it.
+	var unmatchedQuantizations, unsupportedParameters []string
+	quantizationMatched, parametersSupported := false, false
 	for _, model := range models {
 		if model == "perplexity/sonar-deep-research" && !approximateReserve {
 			return 0, errors.New("OpenRouter Sonar research reserve policy is disabled")
@@ -497,8 +502,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				continue
 			}
 			if len(request.Provider.Quantizations) > 0 && !slices.Contains(request.Provider.Quantizations, endpoint.Quantization) {
+				unmatchedQuantizations = append(unmatchedQuantizations, cmp.Or(endpoint.Quantization, "unspecified"))
 				continue
 			}
+			quantizationMatched = true
 			if endpoint.Tag == "" {
 				return 0, errors.New("OpenRouter endpoint tag is missing")
 			}
@@ -574,10 +581,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 					output = min(output, available)
 				}
 			}
-			excluded := false
 			if request.Provider.RequireParameters {
-				var fields map[string]json.RawMessage
-				_ = common.Unmarshal(body, &fields)
+				var unsupported []string
 				for key := range fields {
 					if decisions {
 						switch key {
@@ -585,18 +590,22 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 							continue
 						}
 					}
+					// usage is OpenRouter's usage-accounting control, injected by the
+					// adaptor and never listed in supported_parameters. Admitting more
+					// endpoints only widens the pool whose maximum cost is reserved.
 					switch key {
-					case "model", "models", "messages", "input", "prompt", "provider", "stream", "stream_options":
+					case "model", "models", "messages", "input", "prompt", "provider", "stream", "stream_options", "usage":
 						continue
 					}
 					if !slices.Contains(endpoint.SupportedParameters, key) {
-						excluded = true
-						break
+						unsupported = append(unsupported, key)
 					}
 				}
-				if excluded {
+				if len(unsupported) > 0 {
+					unsupportedParameters = append(unsupportedParameters, unsupported...)
 					continue
 				}
+				parametersSupported = true
 			}
 			if approximateReserve || searchReserveUSD != nil {
 				if sonarModel && tag != "perplexity" {
@@ -708,6 +717,18 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 	}
 	if !found {
+		var reasons []string
+		if len(unmatchedQuantizations) > 0 && !quantizationMatched {
+			slices.Sort(unmatchedQuantizations)
+			reasons = append(reasons, "no OpenRouter endpoint matches the requested quantizations; endpoints report: "+strings.Join(slices.Compact(unmatchedQuantizations), ", "))
+		}
+		if len(unsupportedParameters) > 0 && !parametersSupported {
+			slices.Sort(unsupportedParameters)
+			reasons = append(reasons, "provider.require_parameters excluded endpoints that do not support: "+strings.Join(slices.Compact(unsupportedParameters), ", "))
+		}
+		if len(reasons) > 0 {
+			return 0, errors.New("OpenRouter request has no compatible priced endpoint: " + strings.Join(reasons, "; "))
+		}
 		return 0, errors.New("OpenRouter request has no compatible priced endpoint")
 	}
 	if searchReserveUSD != nil {

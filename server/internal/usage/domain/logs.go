@@ -2,6 +2,9 @@ package domain
 
 import (
 	"errors"
+	"slices"
+	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -35,6 +38,7 @@ type LogQuery struct {
 	CountLimit                          int
 	Kind, UserID, TokenID               int
 	UserIDs                             []int
+	Kinds                               []int
 	StartTimestamp, EndTimestamp        int64
 	ModelName, Username, TokenName      string
 	Channel                             int
@@ -44,7 +48,7 @@ type LogQuery struct {
 }
 
 type Stat struct {
-	Quota, Rpm, Tpm int
+	Quota, RefundQuota, Rpm, Tpm int
 }
 
 var ErrInvalidLogQuery = errors.New("invalid log query")
@@ -58,6 +62,58 @@ func (q *LogQuery) ValidateStrict() error {
 		len(q.ModelName) > MaxLogModelBytes || !utf8.ValidString(q.ModelName) {
 		return ErrInvalidLogQuery
 	}
+	if q.Kinds != nil {
+		var valid bool
+		q.Kinds, valid = NormalizeLogTypes(q.Kinds)
+		if !valid {
+			return ErrInvalidLogQuery
+		}
+	}
 	q.Start = (q.Page - 1) * q.Count
 	return nil
+}
+
+// LogTypes preserves the legacy type filter when the multi-type filter is absent.
+func (q LogQuery) LogTypes() []int {
+	if q.Kinds != nil {
+		return q.Kinds
+	}
+	if q.Kind == LogTypeUnknown {
+		return nil
+	}
+	return []int{q.Kind}
+}
+
+// NormalizeLogTypes validates known kinds and preserves first occurrence order.
+func NormalizeLogTypes(kinds []int) ([]int, bool) {
+	if len(kinds) == 0 {
+		return nil, false
+	}
+	normalized := make([]int, 0, len(kinds))
+	for _, kind := range kinds {
+		if kind < LogTypeTopup || kind > LogTypeLogin {
+			return nil, false
+		}
+		if !slices.Contains(normalized, kind) {
+			normalized = append(normalized, kind)
+		}
+	}
+	return normalized, true
+}
+
+// ParseLogTypesQuery accepts one comma-separated parameter, rejecting padding,
+// signs, spaces and repeated parameters exactly as the upstream API does.
+func ParseLogTypesQuery(values []string) ([]int, bool) {
+	if len(values) != 1 {
+		return nil, false
+	}
+	var kinds []int
+	for part := range strings.SplitSeq(values[0], ",") {
+		kind, err := strconv.Atoi(part)
+		if err != nil || len(part) != 1 {
+			return nil, false
+		}
+		kinds = append(kinds, kind)
+	}
+	return NormalizeLogTypes(kinds)
 }

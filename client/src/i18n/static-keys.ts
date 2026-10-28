@@ -19,6 +19,33 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // OpenRouter synchronous task operator decision validation.
+  'Evidence is required',
+  'Enter a USD amount with at most 12 decimal places',
+  'Cost must be greater than 0',
+  'Cost must be at most 50 USD',
+  // Batch reconciliation reasons (system-info panel).
+  'Creation outcome unknown',
+  'Creation outcome unknown for over 48 hours',
+  'Provider window exceeded',
+  'Finished without provider cost',
+  'Unsettled requests',
+  'Purchase cost unconfirmed',
+  // Batch hold release validation (system-info panel).
+  'Enter provider evidence',
+  'Evidence must be at most 4096 characters',
+  // Batch recovery by provider ID (system-info panel).
+  'Enter the provider Batch ID',
+  'Batch ID must be at most 191 characters',
+  'Use letters, digits, _ and - only, optionally prefixed with batches/',
+  'Provider ownership could not be verified; the Batch is unchanged.',
+  'This Batch can no longer be recovered by ID; the Batch is unchanged.',
+  // Models without tariff: reason labels and hints chosen at runtime.
+  'No tariff or reserve',
+  'No catalog price',
+  'The catalog has no price for this model: disable it or check the provider.',
+  'Set a tiered billing expression for the batch model.',
+  'Set a price, ratio or tiered expression, or an OpenRouter reserve on the channel.',
   // OpenRouter reserve policy validation.
   'Use exact model IDs and finite positive USD amounts',
   'Use exact model IDs with upstream or configured_price',

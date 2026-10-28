@@ -88,6 +88,9 @@ func estimateSourceMediaVideo(model VideoModelPricing, body []byte) (float64, er
 		} else if ref.Type == "audio_url" {
 			uri = ref.AudioURL.URL
 		}
+		if !strings.HasPrefix(uri, "data:") {
+			return 0, errors.New("OpenRouter source media requires an inline data URI; remote URLs are not accepted")
+		}
 		header, encoded, ok := strings.Cut(uri, ",")
 		// The 16MB encoded limit also fits Runway's documented data URI limit.
 		if !ok || len(uri) > 16_000_000 || total+len(uri) > 16_000_000 {

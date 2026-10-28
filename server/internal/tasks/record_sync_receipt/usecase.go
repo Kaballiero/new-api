@@ -3,6 +3,7 @@ package record_sync_receipt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
@@ -10,6 +11,10 @@ import (
 
 type Store interface {
 	UpdateRevision(task *domain.Task, revision int) error
+}
+type Settlement interface {
+	Prepare(*domain.Task)
+	SettleDurable(*domain.Task) error
 }
 type Projection interface{ Project(task *domain.Task) }
 type Input struct {
@@ -23,13 +28,14 @@ type Input struct {
 	Observe              func(generationID string, conflict bool)
 }
 type Usecase struct {
-	store Store
-	codec Projection
-	now   func() time.Time
+	store      Store
+	codec      Projection
+	settlement Settlement
+	now        func() time.Time
 }
 
-func NewUsecase(store Store, codec Projection, now func() time.Time) Usecase {
-	return Usecase{store: store, codec: codec, now: now}
+func NewUsecase(store Store, codec Projection, settlement Settlement, now func() time.Time) Usecase {
+	return Usecase{store: store, codec: codec, settlement: settlement, now: now}
 }
 
 func (u Usecase) Execute(_ context.Context, input Input) error {
@@ -75,9 +81,24 @@ func (u Usecase) Execute(_ context.Context, input Input) error {
 	if image && task.Status == domain.TaskStatusFailure {
 		return u.store.UpdateRevision(task, a.Revision)
 	}
+	if !image && !input.RequestError && input.ResponsePresent && input.Status >= 400 && input.Status < 500 && input.Status != 408 && input.Status != 429 && task.PrivateData.UpstreamTaskID == "" {
+		r := task.PrivateData.Reconciliation
+		r.SubmissionPending = false
+		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
+		a.ResultFailed, a.LastError = true, "upstream_rejected"
+		a.RecordResultReason("upstream_rejected")
+		domain.FinishSyncTask(task, u.now().Unix(), u.settlement.Prepare)
+		task.FailReason = fmt.Sprintf("OpenRouter rejected the request with HTTP %d; reservation released", input.Status)
+		u.codec.Project(task)
+		if err := u.store.UpdateRevision(task, a.Revision); err != nil {
+			return err
+		}
+		return u.settlement.SettleDurable(task)
+	}
 	if input.RequestError || !input.ResponsePresent || input.Status != 200 && !image {
 		task.PrivateData.Reconciliation.SubmissionPending = false
 		a.ResultFailed, a.LastError = true, "submission_outcome_unknown"
+		a.RecordResultReason("submission_outcome_unknown")
 		a.NextPoll = u.now().Unix()
 		if task.PrivateData.UpstreamTaskID == "" || task.Platform == string(domain.TaskPlatformOpenRouterImage) {
 			domain.MarkSyncManual(task, "submission_outcome_unknown", u.now().Unix())

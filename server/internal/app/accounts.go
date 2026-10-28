@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
@@ -8,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/check_in"
 	"github.com/QuantumNous/new-api/internal/accounts/clear_binding"
 	"github.com/QuantumNous/new-api/internal/accounts/create_account"
+	"github.com/QuantumNous/new-api/internal/accounts/credit_getapi_quota"
 	"github.com/QuantumNous/new-api/internal/accounts/delete_account"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/accounts/get_account"
@@ -52,6 +54,7 @@ import (
 
 // AccountsHTTP holds the explicitly assembled handlers of account scenarios.
 type AccountsHTTP struct {
+	CreditGetAPIQuota             *credit_getapi_quota.HTTP
 	ClearBinding                  *clear_binding.HTTP
 	CreateAccount                 *create_account.HTTP
 	UpdateAccount                 *update_account.HTTP
@@ -145,6 +148,11 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		UpdateNotificationPreferences: update_notification_preferences.NewHTTP(update_notification_preferences.NewUsecase(repository.NotificationPreferencesStore{SQL: accountstorage.SQL()}, accountsadapter.NotificationTypes, common.RoleAdminUser)),
 		ProvisionAccount:              provision_account.NewHTTP(accountscore.NewProvision(effects.Sidebar), effects.GetAPIError),
 		InitializePAT:                 initialize_pat.NewHTTP(accountscore.InitializePAT(), effects.GetAPIError),
+		CreditGetAPIQuota: credit_getapi_quota.NewHTTP(credit_getapi_quota.NewUsecase(accountstorage.SQL(), common.MaxWalletQuota,
+			common.WalletQuotaFromDecimalStrict, common.GetTimestamp, accountstorage.Cache().CacheIncrUserQuota,
+			func(id int, err error) {
+				common.SysError(fmt.Sprintf("failed to sync quota credit for user %d: %s", id, err))
+			}), effects.GetAPIError),
 		CheckIn: check_in.NewHTTP(check_in.NewUsecase(accountscore.NewCheckinStore(), checkinsettings.Current), checkinsettings.Current, func(id, quota int, lang string) {
 			usagestorage.Writer().RecordLog(id, usagerecord.LogTypeSystem, i18n.Translate(lang, i18n.MsgAccountCheckinLog, map[string]any{"Quota": logger.LogQuota(quota)}))
 		}),

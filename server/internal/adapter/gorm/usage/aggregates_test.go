@@ -177,7 +177,10 @@ func TestLogAggregateUsesSeparateLogDatabase(t *testing.T) {
 	}
 	result, err := readLogAggregate(domain.AggregateScope{UserIDs: []int{1, 1}, StartTimestamp: &start, EndTimestamp: &end})
 	require.NoError(t, err)
-	assert.Equal(t, domain.LogAggregate{Quota: 2147483655, RequestCount: 3}, result)
+	assert.Equal(t, domain.LogAggregate{Quota: 2147483655, RefundQuota: 99, RequestCount: 3}, result)
+	refundOnly, err := readLogAggregate(domain.AggregateScope{UserIDs: []int{1}, StartTimestamp: &end, EndTimestamp: &end})
+	require.NoError(t, err)
+	assert.Equal(t, domain.LogAggregate{Quota: 7, RefundQuota: 99, RequestCount: 1}, refundOnly)
 	zeroTime := int64(150)
 	zero, err := readLogAggregate(domain.AggregateScope{UserIDs: []int{1}, StartTimestamp: &zeroTime, EndTimestamp: &zeroTime})
 	require.NoError(t, err)
@@ -188,6 +191,25 @@ func TestLogAggregateUsesSeparateLogDatabase(t *testing.T) {
 	assert.Equal(t, domain.LogAggregate{}, empty)
 	_, err = readLogAggregate(domain.AggregateScope{StartTimestamp: &start, EndTimestamp: &end})
 	assert.ErrorIs(t, err, domain.ErrInvalidAggregate)
+
+	// domain.Stat keeps quota gross, reports refunds separately and counts rpm/tpm on consumption only.
+	now := time.Now().Unix()
+	for _, row := range []model.Log{
+		{UserId: 1, CreatedAt: now, Type: usagerecord.LogTypeConsume, Quota: 5, PromptTokens: 3, CompletionTokens: 4},
+		{UserId: 1, CreatedAt: now, Type: usagerecord.LogTypeRefund, Quota: 2, PromptTokens: 100, CompletionTokens: 100},
+		{UserId: 1, CreatedAt: now, Type: usagerecord.LogTypeError, Quota: 1000, PromptTokens: 100},
+	} {
+		require.NoError(t, logDB.Create(&row).Error)
+	}
+	stat, err := queryLogStats(usagerecord.LogTypeUnknown, 0, 0, "", "", "", 0, "", func() int64 { return time.Now().Unix() - 60 })
+	require.NoError(t, err)
+	assert.Equal(t, domain.Stat{Quota: 2147683658, RefundQuota: 101, Rpm: 1, Tpm: 7}, stat)
+	stat, err = queryLogStats(usagerecord.LogTypeUnknown, start, end, "", "", "", 0, "", func() int64 { return time.Now().Unix() - 60 })
+	require.NoError(t, err)
+	assert.Equal(t, domain.Stat{Quota: 2147583654, RefundQuota: 99, Rpm: 1, Tpm: 7}, stat)
+	require.NoError(t, logDB.Create(&model.Log{UserId: 1, CreatedAt: start, Type: usagerecord.LogTypeRefund, Quota: int(domain.MaxAggregateInteger)}).Error)
+	_, err = readLogAggregate(domain.AggregateScope{UserIDs: []int{1}, StartTimestamp: &start, EndTimestamp: &end})
+	assert.ErrorIs(t, err, domain.ErrAggregateOverflow)
 }
 
 func TestLogAggregateDatabaseMatrix(t *testing.T) {
@@ -211,11 +233,10 @@ func TestLogAggregateDatabaseMatrix(t *testing.T) {
 			model.LOG_DB = logDB
 			common.SetDatabaseTypes(previousMainType, databaseType)
 			t.Cleanup(func() { model.LOG_DB = previousDB; common.SetDatabaseTypes(previousMainType, previousLogType) })
-
 			require.NoError(t, model.LOG_DB.Exec("DROP TABLE IF EXISTS logs").Error)
-			ddl := "CREATE TABLE logs (user_id BIGINT, created_at BIGINT, type INTEGER, quota BIGINT)"
+			ddl := "CREATE TABLE logs (user_id BIGINT, created_at BIGINT, type INTEGER, quota BIGINT, prompt_tokens INTEGER, completion_tokens INTEGER)"
 			if databaseType == common.DatabaseTypeClickHouse {
-				ddl = "CREATE TABLE logs (user_id Int64, created_at Int64, type Int32, quota Int64) ENGINE=MergeTree ORDER BY tuple()"
+				ddl = "CREATE TABLE logs (user_id Int64, created_at Int64, type Int32, quota Int64, prompt_tokens Int32, completion_tokens Int32) ENGINE=MergeTree ORDER BY tuple()"
 			}
 			require.NoError(t, model.LOG_DB.Exec(ddl).Error)
 			require.NoError(t, model.DB.Create(&model.User{Id: 1, Username: "aggregate-log", AffCode: "agg-log"}).Error)
@@ -224,14 +245,19 @@ func TestLogAggregateDatabaseMatrix(t *testing.T) {
 				{1, 200, usagerecord.LogTypeRefund, 99}, {2, 200, usagerecord.LogTypeConsume, 99999},
 				{1, 201, usagerecord.LogTypeConsume, 99999}, {1, 99, usagerecord.LogTypeConsume, 99999},
 			} {
-				require.NoError(t, model.LOG_DB.Exec("INSERT INTO logs (user_id, created_at, type, quota) VALUES (?, ?, ?, ?)",
-					row.user, row.created, row.kind, row.quota).Error)
+				require.NoError(t, model.LOG_DB.Exec("INSERT INTO logs (user_id, created_at, type, quota) VALUES (?, ?, ?, ?)", row.user, row.created, row.kind, row.quota).Error)
 			}
 			start, end := int64(100), int64(200)
 			scope := domain.AggregateScope{UserIDs: []int{1, 1}, StartTimestamp: &start, EndTimestamp: &end}
 			result, err := readLogAggregate(scope)
 			require.NoError(t, err)
-			assert.Equal(t, domain.LogAggregate{Quota: 2147483655, RequestCount: 3}, result)
+			assert.Equal(t, domain.LogAggregate{Quota: 2147483655, RefundQuota: 99, RequestCount: 3}, result)
+			refundOnly, err := readLogAggregate(domain.AggregateScope{UserIDs: []int{1}, StartTimestamp: &end, EndTimestamp: &end})
+			require.NoError(t, err)
+			assert.Equal(t, domain.LogAggregate{Quota: 7, RefundQuota: 99, RequestCount: 1}, refundOnly)
+			stat, err := queryLogStats(usagerecord.LogTypeUnknown, start, end, "", "", "", 0, "", func() int64 { return time.Now().Unix() - 60 })
+			require.NoError(t, err)
+			assert.Equal(t, domain.Stat{Quota: 2147583654, RefundQuota: 99}, stat)
 			zeroTime := int64(150)
 			zero, err := readLogAggregate(domain.AggregateScope{UserIDs: []int{1}, StartTimestamp: &zeroTime, EndTimestamp: &zeroTime})
 			require.NoError(t, err)
@@ -240,13 +266,11 @@ func TestLogAggregateDatabaseMatrix(t *testing.T) {
 			empty, err := readLogAggregate(domain.AggregateScope{UserIDs: []int{1}, StartTimestamp: &emptyStart, EndTimestamp: &emptyEnd})
 			require.NoError(t, err)
 			assert.Equal(t, domain.LogAggregate{}, empty)
-			require.NoError(t, model.LOG_DB.Exec("INSERT INTO logs (user_id, created_at, type, quota) VALUES (?, ?, ?, ?)",
-				1, start, usagerecord.LogTypeConsume, domain.MaxAggregateInteger).Error)
+			require.NoError(t, model.LOG_DB.Exec("INSERT INTO logs (user_id, created_at, type, quota) VALUES (?, ?, ?, ?)", 1, start, usagerecord.LogTypeConsume, domain.MaxAggregateInteger).Error)
 			_, err = readLogAggregate(scope)
 			assert.ErrorIs(t, err, domain.ErrAggregateOverflow)
 			for range 2 {
-				require.NoError(t, model.LOG_DB.Exec("INSERT INTO logs (user_id, created_at, type, quota) VALUES (?, ?, ?, ?)",
-					1, start, usagerecord.LogTypeConsume, int64(1<<63-1)).Error)
+				require.NoError(t, model.LOG_DB.Exec("INSERT INTO logs (user_id, created_at, type, quota) VALUES (?, ?, ?, ?)", 1, start, usagerecord.LogTypeConsume, int64(1<<63-1)).Error)
 			}
 			_, err = readLogAggregate(scope)
 			assert.Error(t, err)

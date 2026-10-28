@@ -30,7 +30,7 @@ func (u Usecase) Execute(q domain.AggregateScope) (domain.LogAggregate, error) {
 	if err != nil {
 		return domain.LogAggregate{}, err
 	}
-	if err := domain.ValidateAggregateIntegers(result.Quota, result.RequestCount); err != nil {
+	if err := domain.ValidateAggregateIntegers(result.Quota, result.RefundQuota, result.RequestCount); err != nil {
 		return domain.LogAggregate{}, err
 	}
 	return result, nil

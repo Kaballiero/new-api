@@ -173,6 +173,10 @@ func ToDomainOpenRouterSyncTask(v *OpenRouterSyncTask) *domain.OpenRouterSyncTas
 		ResultMimeType:    v.ResultMimeType,
 		ResultSize:        v.ResultSize,
 		ResultSHA256:      v.ResultSHA256,
+		ResultReason:      v.ResultReason, ResultReasonTracked: v.ResultReasonTracked, LastLookupClass: v.LastLookupClass,
+	}
+	if d := v.OperatorDecision; d != nil {
+		out.OperatorDecision = &domain.OpenRouterSyncOperatorDecision{Action: d.Action, CostUSD: d.CostUSD, OperatorID: d.OperatorID, Evidence: d.Evidence, DecidedAt: d.DecidedAt}
 	}
 	return out
 }
@@ -211,6 +215,10 @@ func FromDomainOpenRouterSyncTask(v *domain.OpenRouterSyncTask) *OpenRouterSyncT
 		ResultMimeType:    v.ResultMimeType,
 		ResultSize:        v.ResultSize,
 		ResultSHA256:      v.ResultSHA256,
+		ResultReason:      v.ResultReason, ResultReasonTracked: v.ResultReasonTracked, LastLookupClass: v.LastLookupClass,
+	}
+	if d := v.OperatorDecision; d != nil {
+		out.OperatorDecision = &OpenRouterSyncOperatorDecision{Action: d.Action, CostUSD: d.CostUSD, OperatorID: d.OperatorID, Evidence: d.Evidence, DecidedAt: d.DecidedAt}
 	}
 	return out
 }

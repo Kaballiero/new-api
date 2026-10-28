@@ -500,3 +500,203 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenRouterGeminiNativeRelay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	httpclient.InitHttpClient()
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMemory, previousRedis, previousBatch := common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled
+	previousConsume, previousError := common.LogConsumeEnabled, constant.ErrorLogEnabled
+	previousCount, previousRetries := constant.CountToken, common.RetryTimes
+	previousPrices := ratio_setting.ModelPrice2JSONString()
+	previousRate := operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate
+	previousUnit, previousTimeout := common.QuotaPerUnit, constant.StreamingTimeout
+	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { savedConfig[key] = value; return nil }))
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = previousMemory, previousRedis, previousBatch
+		common.LogConsumeEnabled, constant.ErrorLogEnabled = previousConsume, previousError
+		constant.CountToken, common.RetryTimes = previousCount, previousRetries
+		operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = previousRate
+		common.QuotaPerUnit, constant.StreamingTimeout = previousUnit, previousTimeout
+		common.SetDatabaseTypes(previousMain, previousLog)
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices))
+	})
+	common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = false, false, false
+	common.LogConsumeEnabled, constant.ErrorLogEnabled = true, false
+	constant.CountToken, common.RetryTimes = false, 3
+	common.QuotaPerUnit, constant.StreamingTimeout = 500000, 30
+	operation_setting.GetGeneralSetting().CustomCurrencyExchangeRate = 100
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	const geminiModel = "vendor/gemini-fixture"
+	const textRequest = `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":16,"temperature":0}}`
+	for _, tc := range []struct {
+		name, model, action, body, cost string
+		upstreamStatus, status          int
+		quota                           int
+		stream, rejected, streamError   bool
+		envelope                        *types.GeminiError
+	}{
+		{name: "generateContent settles terminal cost", action: ":generateContent", body: textRequest, cost: "0.02", status: 200, quota: 20000},
+		{name: "streamGenerateContent settles terminal cost", action: ":streamGenerateContent?alt=sse", body: textRequest, cost: "0.02", stream: true, status: 200, quota: 20000},
+		{name: "alt=sse on generateContent streams", action: ":generateContent?alt=sse", body: textRequest, cost: "0.02", stream: true, status: 200, quota: 20000},
+		{name: "model id containing embed is served as chat", model: "vendor/embed-chat", action: ":generateContent", body: textRequest, cost: "0.02", status: 200, quota: 20000},
+		{name: "embedded stream error yields one Gemini error frame and refunds", action: ":streamGenerateContent?alt=sse", body: textRequest, stream: true, streamError: true, status: 200},
+		{name: "upstream rejection uses Gemini envelope and refunds", action: ":generateContent", body: textRequest, upstreamStatus: 429, status: 429, envelope: &types.GeminiError{Code: 429, Status: "RESOURCE_EXHAUSTED"}},
+		{name: "missing terminal cost refunds with Gemini envelope", action: ":generateContent", body: textRequest, status: 502, envelope: &types.GeminiError{Code: 502, Status: "UNAVAILABLE"}},
+		{name: "hosted tool rejected before reservation", action: ":generateContent", body: `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"googleSearch":{}}]}`, rejected: true, status: 400,
+			envelope: &types.GeminiError{Code: 400, Status: "INVALID_ARGUMENT", Message: `tool "googleSearch" is not supported for OpenRouter channels; only functionDeclarations are supported`}},
+		{name: "media-only systemInstruction is rejected, not dropped", action: ":generateContent", body: `{"systemInstruction":{"parts":[{"inlineData":{"mimeType":"image/png","data":"AAAA"}}]},"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, rejected: true, status: 400,
+			envelope: &types.GeminiError{Code: 400, Status: "INVALID_ARGUMENT", Message: "systemInstruction non-text parts are not supported for OpenRouter channels; only text parts are supported"}},
+		{name: "countTokens never reaches a paid Chat call", action: ":countTokens", body: textRequest, rejected: true, status: 400,
+			envelope: &types.GeminiError{Code: 400, Status: "INVALID_ARGUMENT", Message: "OpenRouter operation lacks a validated cost reservation contract"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			modelName := geminiModel
+			if tc.model != "" {
+				modelName = tc.model
+			}
+			database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := database.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+			require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}, &model.ModelCostFXRow{}))
+			model.DB, model.LOG_DB = database, database
+			fxseed.SeedNativeRouteFX(t, database)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				"billing_setting.billing_mode": `{}`, "billing_setting.billing_expr": `{}`,
+				"group_ratio_setting.group_ratio": `{"default":2}`, "group_ratio_setting.group_group_ratio": `{}`,
+			}))
+			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+			const initial = 1000000
+			require.NoError(t, database.Create(&model.User{Id: 7, Username: "gemini-owner", Group: "default", Quota: initial}).Error)
+			require.NoError(t, database.Create(&model.Token{Id: 11, UserId: 7, Key: "fixture-token", Name: "gemini-token", RemainQuota: initial}).Error)
+			var gets, posts atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Bearer fixture-provider", r.Header.Get("Authorization"))
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodGet {
+					gets.Add(1)
+					assert.Equal(t, "/v1/models/"+modelName+"/endpoints", r.URL.Path)
+					_, _ = fmt.Fprintf(w, `{"data":{"id":%q,"endpoints":[{"tag":"fixture","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`, modelName)
+					return
+				}
+				posts.Add(1)
+				assert.Equal(t, "/v1/chat/completions", r.URL.Path, "Gemini native is served by the priced OpenRouter Chat endpoint")
+				var payload map[string]any
+				assert.NoError(t, common.DecodeJson(r.Body, &payload))
+				assert.Equal(t, modelName, payload["model"])
+				assert.Equal(t, []any{map[string]any{"role": "user", "content": "hi"}}, payload["messages"])
+				assert.Equal(t, float64(16), payload["max_tokens"])
+				assert.Equal(t, float64(0), payload["temperature"], "explicit zero survives conversion")
+				assert.Equal(t, map[string]any{"include": true}, payload["usage"])
+				assert.Equal(t, tc.stream, payload["stream"])
+				var user model.User
+				assert.NoError(t, database.First(&user, 7).Error)
+				assert.Less(t, user.Quota, initial, "wallet reserved before provider dispatch")
+				if tc.upstreamStatus != 0 {
+					w.WriteHeader(tc.upstreamStatus)
+					_, _ = io.WriteString(w, `{"error":{"code":429,"message":"rate limited"}}`)
+					return
+				}
+				usage := `"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5`
+				if tc.cost != "" {
+					usage += `,"cost":` + tc.cost
+				}
+				usage += `}`
+				if tc.stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, `data: {"id":"gen-gemini","object":"chat.completion.chunk","created":1,"model":"vendor/gemini-fixture","choices":[{"index":0,"delta":{"role":"assistant","content":"hello"}}]}`+"\n\n")
+					if tc.streamError {
+						_, _ = io.WriteString(w, `data: {"id":"gen-gemini","choices":[],"error":{"code":502,"message":"Upstream error from Nvidia"}}`+"\n\n")
+						return
+					}
+					_, _ = io.WriteString(w, `data: {"id":"gen-gemini","object":"chat.completion.chunk","created":1,"model":"vendor/gemini-fixture","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`+"\n\n")
+					_, _ = io.WriteString(w, `data: {"id":"gen-gemini","object":"chat.completion.chunk","created":1,"model":"vendor/gemini-fixture","choices":[],`+usage+`}`+"\n\ndata: [DONE]\n\n")
+					return
+				}
+				_, _ = io.WriteString(w, `{"id":"gen-gemini","object":"chat.completion","created":1,"model":"vendor/gemini-fixture","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],`+usage+`}`)
+			}))
+			t.Cleanup(upstream.Close)
+			selected := model.Channel{Id: 21, Type: constant.ChannelTypeOpenRouter, Name: "fixture-gemini", Key: "fixture-provider", BaseURL: &upstream.URL, Status: common.ChannelStatusEnabled, Models: modelName, Group: "default"}
+			require.NoError(t, database.Create(&selected).Error)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/"+modelName+tc.action, strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			common.SetContextKey(c, common.RequestIdKey, "gemini-relay")
+			common.SetContextKey(c, constant.ContextKeyUserId, 7)
+			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyTokenGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUserQuota, initial)
+			common.SetContextKey(c, constant.ContextKeyUserSetting, dto.UserSetting{BillingPreference: "wallet_only"})
+			common.SetContextKey(c, constant.ContextKeyTokenId, 11)
+			common.SetContextKey(c, constant.ContextKeyTokenKey, "fixture-token")
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, modelName)
+			c.Set("username", "gemini-owner")
+			c.Set("token_name", "gemini-token")
+			require.Nil(t, middleware.SetupContextForSelectedChannel(c, &selected, modelName))
+
+			Relay(c, types.RelayFormatGemini)
+
+			require.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			if tc.rejected {
+				assert.Zero(t, posts.Load())
+				assert.Zero(t, gets.Load(), "rejection precedes discovery and reservation")
+			} else {
+				assert.Equal(t, int32(1), posts.Load(), "never replay a paid generation")
+			}
+			switch {
+			case tc.streamError:
+				frames := recorder.Body.String()
+				assert.Contains(t, frames, `"text":"hello"`)
+				assert.Equal(t, 1, strings.Count(frames, `"error"`), "exactly one error frame: %s", frames)
+				errorFrame := frames[strings.Index(frames, `data: {"error":`):]
+				var body struct {
+					Error types.GeminiError `json:"error"`
+				}
+				require.NoError(t, common.UnmarshalJsonStr(strings.TrimSpace(strings.TrimPrefix(errorFrame, "data: ")), &body), errorFrame)
+				assert.Equal(t, 502, body.Error.Code)
+				assert.Equal(t, "UNAVAILABLE", body.Error.Status)
+				assert.Contains(t, body.Error.Message, "Upstream error from Nvidia")
+				assert.NotContains(t, frames, "usage.cost")
+			case tc.envelope != nil:
+				var body struct {
+					Error types.GeminiError `json:"error"`
+				}
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body), recorder.Body.String())
+				assert.Equal(t, tc.envelope.Code, body.Error.Code)
+				assert.Equal(t, tc.envelope.Status, body.Error.Status)
+				assert.Contains(t, body.Error.Message, tc.envelope.Message)
+				assert.NotContains(t, recorder.Body.String(), "fixture-provider")
+			case tc.stream:
+				frames := recorder.Body.String()
+				assert.Contains(t, frames, `"text":"hello"`)
+				assert.Contains(t, frames, `"usageMetadata":{"promptTokenCount":3,"toolUsePromptTokenCount":0,"candidatesTokenCount":2,"totalTokenCount":5`, "terminal usage frame")
+			default:
+				var response dto.GeminiChatResponse
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response), recorder.Body.String())
+				require.Len(t, response.Candidates, 1)
+				require.Len(t, response.Candidates[0].Content.Parts, 1)
+				assert.Equal(t, "hello", response.Candidates[0].Content.Parts[0].Text)
+				assert.Equal(t, 3, response.UsageMetadata.PromptTokenCount)
+				assert.Equal(t, 2, response.UsageMetadata.CandidatesTokenCount)
+				assert.Equal(t, 5, response.UsageMetadata.TotalTokenCount)
+			}
+			require.Eventually(t, func() bool {
+				var user model.User
+				var token model.Token
+				if database.First(&user, 7).Error != nil || database.First(&token, 11).Error != nil {
+					return false
+				}
+				return user.Quota == initial-tc.quota && token.RemainQuota == initial-tc.quota
+			}, 5*time.Second, 10*time.Millisecond, "wallet/token settle the terminal usage.cost or refund the whole reservation")
+		})
+	}
+}

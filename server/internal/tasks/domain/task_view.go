@@ -52,9 +52,10 @@ type TaskPluginRuntimeInfo struct {
 }
 
 type TaskAdminInfo struct {
-	RequestID   string          `json:"request_id,omitempty"`
-	RequestPath string          `json:"request_path,omitempty"`
-	TaskPlugin  *TaskPluginInfo `json:"task_plugin,omitempty"`
+	OpenRouterSync map[string]any  `json:"openrouter_sync,omitempty"`
+	RequestID      string          `json:"request_id,omitempty"`
+	RequestPath    string          `json:"request_path,omitempty"`
+	TaskPlugin     *TaskPluginInfo `json:"task_plugin,omitempty"`
 }
 
 type TaskRootInfo struct {
@@ -128,7 +129,8 @@ func ProjectTaskView(task *Task, visibility Visibility, projectData func([]byte,
 				}
 			}
 		}
-		if info.RequestID != "" || info.RequestPath != "" || info.TaskPlugin != nil {
+		info.OpenRouterSync = OpenRouterSyncAdminView(task)
+		if info.RequestID != "" || info.RequestPath != "" || info.TaskPlugin != nil || info.OpenRouterSync != nil {
 			item.AdminInfo = info
 		}
 	}

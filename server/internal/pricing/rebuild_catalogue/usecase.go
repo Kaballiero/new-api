@@ -120,17 +120,11 @@ func (u Usecase) Execute() {
 		vendorMap[vendors[i].Id] = &vendors[i]
 	}
 
-	domain.InitDefaultVendorMapping(metaMap, vendorMap, enableAbilities)
-
-	nextVendors := make([]domain.PricingVendor, 0, len(vendorMap))
-	for _, v := range vendorMap {
-		nextVendors = append(nextVendors, domain.PricingVendor{
-			ID:          v.Id,
-			Name:        v.Name,
-			Description: v.Description,
-			Icon:        v.Icon,
-		})
+	storedMeta := make(map[string]bool, len(metaMap))
+	for name := range metaMap {
+		storedMeta[name] = true
 	}
+	domain.InitDefaultVendorMapping(metaMap, vendorMap, enableAbilities)
 
 	modelGroupsMap := make(map[string]map[string]struct{})
 
@@ -482,6 +476,12 @@ func (u Usecase) Execute() {
 			if pricing.Description == "" && upstream.Description != nil {
 				pricing.Description = *upstream.Description
 			}
+			if !storedMeta[model] || pricing.VendorID == 0 {
+				if vendorID := domain.CatalogAuthorVendor(upstream.Author, vendorMap); vendorID != 0 {
+					pricing.VendorID = vendorID
+				}
+			}
+			pricing.Tags = domain.WithCatalogContextTag(u.deps, pricing.Tags, upstream.Limits)
 		}
 		modelPrice, findPrice := u.settings.GetModelPrice(model, false)
 		pricing.PriceConfigured = findPrice || u.settings.HasConfiguredModelRatio(model)
@@ -600,6 +600,16 @@ func (u Usecase) Execute() {
 
 	if len(nextPricing) > 0 {
 		nextPricing[0].PricingVersion = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f"
+	}
+
+	nextVendors := make([]domain.PricingVendor, 0, len(vendorMap))
+	for _, v := range vendorMap {
+		nextVendors = append(nextVendors, domain.PricingVendor{
+			ID:          v.Id,
+			Name:        v.Name,
+			Description: v.Description,
+			Icon:        v.Icon,
+		})
 	}
 
 	revision, err := domain.PricingCatalogueFingerprint(u.deps, nextPricing, nextVendors)

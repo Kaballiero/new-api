@@ -89,6 +89,15 @@ func (u Usecase) Execute(ctx context.Context, in domain.Recording) error {
 		}
 		// Operation recording historically resolves the owner before the general writer defaults.
 		event.Username = u.store.Username(event.OwnerID)
+	case domain.OperatorReconciliation:
+		event.Category = domain.AuditCategoryOperation
+		event.OperationPresent, event.OperationAction = true, in.Action
+		event.Status, event.Success = in.Status, in.Success
+		event.Operator = &domain.Operator{ID: in.Actor.ID, Username: in.Actor.Username, Role: in.Actor.Role, AuthMethod: req.AuthMethod}
+		if in.OutcomePresent {
+			event.Outcome = &domain.RequestOutcome{Method: req.Method, Route: req.Route, Path: req.Route, Status: in.Status, Success: in.Success}
+		}
+		event.RootFields = in.RootFields
 	case domain.Login:
 		event.Category, event.Action, event.Success = domain.AuditCategoryLogin, "login", true
 		event.OperationPresent, event.OperationAction = true, "login"

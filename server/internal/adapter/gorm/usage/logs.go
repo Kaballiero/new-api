@@ -74,7 +74,7 @@ func queryKeyLogs(tokenId, limit int) (logs []*record.Log, err error) {
 }
 
 func queryAllLogs(
-	logType int,
+	logTypes []int,
 	startTimestamp int64,
 	endTimestamp int64,
 	modelName string,
@@ -87,12 +87,7 @@ func queryAllLogs(
 	requestId string,
 	upstreamRequestId string,
 ) (logs []*record.Log, total int64, err error) {
-	var tx *gorm.DB
-	if logType == domain.LogTypeUnknown {
-		tx = model.LOG_DB
-	} else {
-		tx = model.LOG_DB.Where("logs.type = ?", logType)
-	}
+	tx := whereLogTypes(model.LOG_DB, logTypes)
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
@@ -126,17 +121,14 @@ func queryAllLogs(
 
 func queryUserIDsLogs(
 	userIDs []int,
-	logType int,
+	logTypes []int,
 	startTimestamp,
 	endTimestamp int64,
 	modelName string,
 	startIdx,
 	num int,
 ) ([]*record.Log, int64, error) {
-	tx := model.LOG_DB.Where("logs.user_id IN ?", userIDs)
-	if logType != domain.LogTypeUnknown {
-		tx = tx.Where("logs.type = ?", logType)
-	}
+	tx := whereLogTypes(model.LOG_DB.Where("logs.user_id IN ?", userIDs), logTypes)
 	var err error
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
@@ -213,7 +205,7 @@ func readAdminLogs(tx *gorm.DB, startIdx, num int) (logs []*record.Log, total in
 func queryOwnLogs(
 	userId int,
 	tokenId int,
-	logType int,
+	logTypes []int,
 	startTimestamp int64,
 	endTimestamp int64,
 	modelName string,
@@ -226,12 +218,7 @@ func queryOwnLogs(
 	literalModel bool,
 	countLimit int,
 ) (logs []*record.Log, total int64, err error) {
-	var tx *gorm.DB
-	if logType == domain.LogTypeUnknown {
-		tx = model.LOG_DB.Where("logs.user_id = ?", userId)
-	} else {
-		tx = model.LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
-	}
+	tx := whereLogTypes(model.LOG_DB.Where("logs.user_id = ?", userId), logTypes)
 
 	if literalModel {
 		condition := "LOWER(logs.model_name) LIKE ? ESCAPE '!'"
@@ -295,7 +282,7 @@ func queryLogStats(
 	group string,
 	recentSince func() int64,
 ) (stat domain.Stat, err error) {
-	tx := model.LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
+	tx := model.LOG_DB.Table("logs").Select("COALESCE(SUM(CASE WHEN type = ? THEN quota ELSE 0 END), 0) AS quota, COALESCE(SUM(CASE WHEN type = ? THEN quota ELSE 0 END), 0) AS refund_quota", domain.LogTypeConsume, domain.LogTypeRefund)
 
 	// Build a separate query for RPM and TPM.
 	rpmTpmQuery := model.LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
@@ -331,8 +318,8 @@ func queryLogStats(
 		rpmTpmQuery = rpmTpmQuery.Where(logGroupColumn()+" = ?", group)
 	}
 
-	tx = tx.Where("type = ?", logType)
-	rpmTpmQuery = rpmTpmQuery.Where("type = ?", logType)
+	tx = tx.Where("type IN ?", []int{domain.LogTypeConsume, domain.LogTypeRefund})
+	rpmTpmQuery = rpmTpmQuery.Where("type = ?", domain.LogTypeConsume)
 
 	// Count RPM and TPM over the last 60 seconds.
 	rpmTpmQuery = rpmTpmQuery.Where("created_at >= ?", recentSince())
@@ -374,18 +361,18 @@ func assignDisplayLogIds(logs []*record.Log, start int) {
 }
 
 func (Store) ListAdminLogs(q domain.LogQuery, policy domain.VisibilityPolicy) ([]*dto.Log, int64, error) {
-	rows, total, err := queryAllLogs(q.Kind, q.StartTimestamp, q.EndTimestamp, q.ModelName,
+	rows, total, err := queryAllLogs(q.LogTypes(), q.StartTimestamp, q.EndTimestamp, q.ModelName,
 		q.Username, q.TokenName, q.Start, q.Count, q.Channel, q.Group, q.RequestID, q.UpstreamRequestID)
 	return logDTOs(rows, policy, q.Start), total, err
 }
 
 func (Store) QueryUserLogs(q domain.LogQuery, policy domain.VisibilityPolicy) ([]*dto.Log, int64, error) {
-	rows, total, err := queryUserIDsLogs(q.UserIDs, q.Kind, q.StartTimestamp, q.EndTimestamp, q.ModelName, q.Start, q.Count)
+	rows, total, err := queryUserIDsLogs(q.UserIDs, q.LogTypes(), q.StartTimestamp, q.EndTimestamp, q.ModelName, q.Start, q.Count)
 	return logDTOs(rows, policy, q.Start), total, err
 }
 
 func (Store) ListOwnLogs(q domain.LogQuery, policy domain.VisibilityPolicy) ([]*dto.Log, int64, error) {
-	rows, total, err := queryOwnLogs(q.UserID, q.TokenID, q.Kind, q.StartTimestamp, q.EndTimestamp,
+	rows, total, err := queryOwnLogs(q.UserID, q.TokenID, q.LogTypes(), q.StartTimestamp, q.EndTimestamp,
 		q.ModelName, q.TokenName, q.Start, q.Count, q.Group, q.RequestID, q.UpstreamRequestID, q.LiteralModel, q.CountLimit)
 	return logDTOs(rows, policy, q.Start), total, err
 }
@@ -405,4 +392,15 @@ func (s Store) TokenOwner(tokenID, userID int) error {
 		return domain.ErrTokenNotFound
 	}
 	return err
+}
+
+func whereLogTypes(tx *gorm.DB, kinds []int) *gorm.DB {
+	switch len(kinds) {
+	case 0:
+		return tx
+	case 1:
+		return tx.Where("logs.type = ?", kinds[0])
+	default:
+		return tx.Where("logs.type IN ?", kinds)
+	}
 }

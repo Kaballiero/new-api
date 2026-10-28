@@ -61,7 +61,19 @@ func (s AvailabilityStore) PreferredOwners(modelNames []string, groups []string)
 }
 
 func (s AvailabilityStore) ReserveBilled(modelNames []string, groups []string) (map[string]bool, error) {
-	result := make(map[string]bool)
+	reserves, err := s.ModelReserves(modelNames, groups)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]bool, len(reserves))
+	for name := range reserves {
+		result[name] = true
+	}
+	return result, nil
+}
+
+func (s AvailabilityStore) ModelReserves(modelNames []string, groups []string) (map[string]float64, error) {
+	result := make(map[string]float64)
 	modelNames = domain.NormalizeLookupValues(modelNames)
 	groups = domain.NormalizeLookupValues(groups)
 	if len(modelNames) == 0 || len(groups) == 0 {
@@ -78,13 +90,14 @@ func (s AvailabilityStore) ReserveBilled(modelNames []string, groups []string) (
 		Joins("JOIN channels ON abilities.channel_id = channels.id").
 		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ? AND channels.type = ?", modelNames, true, common.ChannelStatusEnabled, constant.ChannelTypeOpenRouter).
 		Where("abilities."+s.groupColumn()+" IN ?", groups).
+		Order("channels.id").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
 
 	for _, row := range rows {
-		if result[row.Model] || row.Setting == nil || strings.TrimSpace(*row.Setting) == "" {
+		if _, seen := result[row.Model]; seen || row.Setting == nil || strings.TrimSpace(*row.Setting) == "" {
 			continue
 		}
 		var settings kitdto.ChannelSettings
@@ -96,7 +109,7 @@ func (s AvailabilityStore) ReserveBilled(modelNames []string, groups []string) (
 			continue
 		}
 		if reserve := settings.OpenRouterReserveUSD(upstream); reserve != nil && *reserve > 0 {
-			result[row.Model] = true
+			result[row.Model] = *reserve
 		}
 	}
 	return result, nil

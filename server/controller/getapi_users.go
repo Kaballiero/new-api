@@ -9,3 +9,5 @@ import (
 func ProvisionGetAPIUser(c *gin.Context) { httpapi.Accounts().ProvisionAccount.Handle(c) }
 
 func InitializeGetAPIPAT(c *gin.Context) { httpapi.Accounts().InitializePAT.Handle(c) }
+
+func CreditGetAPIUserQuota(c *gin.Context) { httpapi.Accounts().CreditGetAPIQuota.Handle(c) }

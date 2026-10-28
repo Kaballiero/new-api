@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	metadataupstream "github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
+	cataloggateway "github.com/QuantumNous/new-api/internal/adapter/gateway/catalog"
+	catalogstore "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
@@ -19,6 +22,7 @@ import (
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	systemcore "github.com/QuantumNous/new-api/internal/app/system"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
+	"github.com/QuantumNous/new-api/internal/catalog/filter_billable_models"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/enqueue_catalogue_refresh"
 	"github.com/QuantumNous/new-api/internal/pricing/fetch_upstream_ratios"
@@ -31,6 +35,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/get_public_models"
 	"github.com/QuantumNous/new-api/internal/pricing/get_ratio_config"
 	"github.com/QuantumNous/new-api/internal/pricing/list_syncable_channels"
+	"github.com/QuantumNous/new-api/internal/pricing/list_unbillable_models"
 	"github.com/QuantumNous/new-api/internal/pricing/preview_pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
 	"github.com/QuantumNous/new-api/internal/pricing/reset_model_ratios"
@@ -38,12 +43,15 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/update_pricing_config"
 	"github.com/QuantumNous/new-api/internal/system/enqueue_system_task"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func NewPricingProjection() *domain.Projection {
@@ -56,6 +64,10 @@ func NewPricingProjection() *domain.Projection {
 }
 
 var pricingConsumerCache pricingadapter.ConsumerCache
+var pricingBillableCache = pricingadapter.BillableCache{SelfUse: func() bool { return operation_setting.SelfUseModeEnabled }, Filter: func(names, groups []string) []string {
+	store := catalogstore.NewAvailabilityStore(func() *gorm.DB { return model.DB }, pricingruntime.NewCatalogPersistence().GroupColumn)
+	return filter_billable_models.NewUsecase(store, cataloggateway.Models{}.Configured, common.SysLog).Execute(names, groups)
+}}
 
 func newPricingReader() pricingadapter.Reader {
 	return pricingadapter.Reader{SnapshotEndpointsRead: pricingruntime.GetPricingCatalogueSnapshotWithEndpoints, GroupRatiosRead: ratio_setting.GetGroupRatioCopy, GroupGroupRatioRead: ratio_setting.GetGroupGroupRatio,
@@ -68,7 +80,7 @@ func newPricingReader() pricingadapter.Reader {
 				return "", err
 			}
 			return u.Group, nil
-		}, ContainsGroupRead: ratio_setting.ContainsGroupRatio,
+		}, ContainsGroupRead: ratio_setting.ContainsGroupRatio, BillableRead: pricingBillableCache.Models, ReservesRead: catalogstore.NewAvailabilityStore(func() *gorm.DB { return model.DB }, pricingruntime.NewCatalogPersistence().GroupColumn).ModelReserves,
 	}
 }
 
@@ -80,6 +92,7 @@ type PricingEffects struct {
 // PricingHTTP holds the handlers of the pricing reads, the pricing
 // configuration and the upstream ratio sync.
 type PricingHTTP struct {
+	ListUnbillableModels list_unbillable_models.HTTP
 	GetPricing           get_pricing.HTTP
 	GetPersonalPricing   get_personal_pricing.HTTP
 	GetGroupPricing      get_group_pricing.HTTP
@@ -102,13 +115,14 @@ func NewPricingHTTP(effects PricingEffects) PricingHTTP {
 	projection := NewPricingProjection()
 	channels := newPricingRatioChannels()
 	return PricingHTTP{
-		GetPricing:         get_pricing.NewHTTP(get_pricing.NewUsecase(reader)),
-		GetPersonalPricing: get_personal_pricing.NewHTTP(get_personal_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, reader), catalogsync.ModelTypes),
-		GetGroupPricing:    get_group_pricing.NewHTTP(get_group_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, reader), catalogsync.ModelTypes),
-		GetModelPricing:    get_model_pricing.NewHTTP(get_model_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, reader)),
-		GetPublicModels:    get_public_models.NewHTTP(get_public_models.NewUsecase(pricingadapter.Capabilities(), reader, projection), catalogsync.ModelTypes),
-		GetPricingOverview: get_pricing_overview.NewHTTP(get_pricing_overview.NewUsecase(pricingadapter.Capabilities(), reader, projection, reader), catalogsync.ModelTypes),
-		PreviewPricing:     preview_pricing.NewHTTP(preview_pricing.NewUsecase(reader, projection)),
+		ListUnbillableModels: list_unbillable_models.NewHTTP(list_unbillable_models.NewUsecase(pricingadapter.Capabilities(), reader, projection)),
+		GetPricing:           get_pricing.NewHTTP(get_pricing.NewUsecase(reader)),
+		GetPersonalPricing:   get_personal_pricing.NewHTTP(get_personal_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, reader), catalogsync.ModelTypes),
+		GetGroupPricing:      get_group_pricing.NewHTTP(get_group_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, reader), catalogsync.ModelTypes),
+		GetModelPricing:      get_model_pricing.NewHTTP(get_model_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, reader)),
+		GetPublicModels:      get_public_models.NewHTTP(get_public_models.NewUsecase(pricingadapter.Capabilities(), reader, projection), catalogsync.ModelTypes),
+		GetPricingOverview:   get_pricing_overview.NewHTTP(get_pricing_overview.NewUsecase(pricingadapter.Capabilities(), reader, projection, reader), catalogsync.ModelTypes),
+		PreviewPricing:       preview_pricing.NewHTTP(preview_pricing.NewUsecase(reader, projection)),
 		GetRatioConfig: get_ratio_config.NewHTTP(get_ratio_config.NewUsecase(pricingadapter.RatioSettings{Expose: ratio_setting.IsExposeRatioEnabled, Data: func() map[string]any {
 			return billing_setting.GetPricingSyncData(map[string]any(ratio_setting.GetExposedData()))
 		}})),
@@ -187,4 +201,27 @@ func NewEnqueuePricingCatalogueRefresh() enqueue_catalogue_refresh.Usecase {
 		_, err := systemcore.Default().Enqueue.Execute(enqueue_system_task.Input{Type: systemrecord.SystemTaskTypePricingCatalog})
 		return err
 	}, common.SysLog)
+}
+
+// ListUnbillableModels executes the same diagnostic used by the management endpoint.
+func ListUnbillableModels() ([]domain.UnbillableModel, error) {
+	return list_unbillable_models.NewUsecase(pricingadapter.Capabilities(), newPricingReader(), NewPricingProjection()).Execute()
+}
+func LogUnbillableModels(summary *domain.CatalogRefreshSummary) {
+	models, err := ListUnbillableModels()
+	if err != nil {
+		summary.HiddenPublicModelsError = err.Error()
+		common.SysError("pricing: failed to list models hidden from public pricing: " + err.Error())
+		return
+	}
+	summary.HiddenPublicModelsCount = len(models)
+	if len(models) == 0 {
+		return
+	}
+	entries := make([]string, 0, len(models))
+	for _, item := range models {
+		entries = append(entries, item.ModelName+" ("+item.Reason+")")
+	}
+	summary.HiddenPublicModels = entries[:min(len(entries), 20)]
+	common.SysError(fmt.Sprintf("pricing: %d enabled models are hidden from public pricing and need configuration: %s", len(entries), strings.Join(entries, ", ")))
 }

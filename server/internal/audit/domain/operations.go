@@ -53,6 +53,8 @@ var auditContentTemplates = map[string]string{
 
 	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",
 	"subscription.user_plan_reset": "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
+	"batch.release_unsubmitted":    "Released the hold of unsubmitted Batch ${id}",
+	"batch.recover":                "Recovered Batch ${id} by its provider identity",
 }
 
 func OperationContent(action string, params map[string]any) string {

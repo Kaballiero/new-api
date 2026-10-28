@@ -69,6 +69,13 @@ func (h Handler) Get(c *gin.Context) {
 			*parameter.target = value
 		}
 	}
+	if values, supplied := query["types"]; supplied {
+		var valid bool
+		if request.Types, valid = domain.ParseLogTypesQuery(values); !valid {
+			common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgInvalidParams)
+			return
+		}
+	}
 	request.ModelName = query.Get("model_name")
 	h.respond(c, request)
 }
@@ -100,7 +107,7 @@ func (h Handler) Post(c *gin.Context) {
 
 func (h Handler) respond(c *gin.Context, request AdminLogQueryRequest) {
 	page := common.PageInfo{Page: request.Page, PageSize: request.PageSize}
-	query := domain.LogQuery{UserIDs: request.UserIDs, Kind: request.Type,
+	query := domain.LogQuery{UserIDs: request.UserIDs, Kind: request.Type, Kinds: request.Types,
 		StartTimestamp: request.StartTimestamp, EndTimestamp: request.EndTimestamp, ModelName: request.ModelName,
 		Page: request.Page, Count: page.PageSize}
 	result, err := h.usecase.Execute(Input{Query: query, Audience: transport.Audience(c)})

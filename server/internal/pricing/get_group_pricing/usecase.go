@@ -12,6 +12,7 @@ type Reader interface {
 	AutoGroups(string) []string
 	UsableGroups(string) map[string]string
 	GroupRatio(string, string) float64
+	Billable([]domain.Pricing, string, string) map[string]bool
 }
 type Groups interface{ ContainsGroup(string) bool }
 type Cache interface {
@@ -57,6 +58,7 @@ func (u Usecase) Execute(input Input) (Output, error) {
 		if err := domain.CheckRevision(input.Query.ExpectedRevision, ctx.Metadata.CatalogRevision); err != nil {
 			return Output{}, err
 		}
+		ctx.Billable = u.reader.Billable(ctx.Pricing, ctx.UsingGroup, ctx.Metadata.CatalogRevision)
 		page := u.projection.BuildEffectivePricingPage(ctx, input.Query, ctx.Project)
 		return Output{Page: &page}, nil
 	}

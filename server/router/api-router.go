@@ -28,6 +28,7 @@ func SetApiRouter(router *gin.Engine) {
 	apiRouter.Use(middleware.GlobalAPIRateLimit())
 	anonymousRequestBodyLimit := middleware.AnonymousRequestBodyLimit()
 	apiRouter.POST("/getapi/users", middleware.GetAPIAuth("getapi.users.provision"), controller.ProvisionGetAPIUser)
+	apiRouter.POST("/getapi/users/:user_id/quota-credits", middleware.GetAPIAuth("getapi.users.credit-quota"), controller.CreditGetAPIUserQuota)
 	apiRouter.POST("/getapi/users/:user_id/pat", middleware.GetAPIAuth("getapi.users.initialize-pat"), controller.InitializeGetAPIPAT)
 	{
 		apiRouter.GET("/setup", controller.GetSetup)
@@ -45,6 +46,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/pricing", middleware.HeaderNavModuleAuth("pricing"), controller.GetPricing)
 		apiRouter.POST("/batches/:id/purchase", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ConfirmBatchPurchase)
 		apiRouter.POST("/batches/:id/recover", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RecoverBatch)
+		apiRouter.POST("/batches/:id/release-unsubmitted", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ReleaseUnsubmittedBatch)
+		apiRouter.GET("/batches/reconciliation", middleware.RootAuth(), middleware.DisableCache(), controller.ListBatchReconciliation)
 		apiRouter.GET("/pricing/effective/overview", middleware.RootAuth(), middleware.DisableCache(), controller.GetEffectivePricingOverview)
 		apiRouter.GET("/pricing/effective/models", middleware.DisableCache(), controller.GetPublicPricingModels)
 		apiRouter.GET("/pricing/effective", middleware.RootAuth(), middleware.DisableCache(), controller.GetEffectivePricingByGroup)
@@ -388,6 +391,8 @@ func SetApiRouter(router *gin.Engine) {
 			taskRoute.GET("/self", middleware.UserAuth(), controller.GetUserTask)
 			taskRoute.GET("", middleware.AdminAuth(), controller.GetAllTask)
 			taskRoute.GET("/:task_id/artifacts", middleware.UserAuth(), controller.GetDashboardTaskArtifacts)
+			taskRoute.POST("/:task_id/openrouter-sync/release", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.ReleaseOpenRouterSyncHold)
+			taskRoute.POST("/:task_id/openrouter-sync/settle", middleware.RootAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.SettleOpenRouterSyncCost)
 		}
 
 		vendorRoute := apiRouter.Group("/vendors")
@@ -410,6 +415,7 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.POST("/sync_upstream", controller.SyncUpstreamModels)
 			modelsRoute.POST("/delete", controller.BatchDeleteModelMeta)
 			modelsRoute.GET("/missing", controller.GetMissingModels)
+			modelsRoute.GET("/unbillable", controller.GetUnbillableModels)
 			modelsRoute.GET("/", controller.GetAllModelsMeta)
 			modelsRoute.GET("/search", controller.SearchModelsMeta)
 			modelsRoute.GET("/:id", controller.GetModelMeta)

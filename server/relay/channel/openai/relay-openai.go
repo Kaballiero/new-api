@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -139,6 +140,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				sr.Stop(err)
 				return
 			}
+			markOpenRouterContentDelivered(info, lastStreamData)
 		}
 
 		var errorResponse struct {
@@ -224,6 +226,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			if err := sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 			}
+			markOpenRouterContentDelivered(info, lastStreamData)
 		}
 	}
 
@@ -246,6 +249,22 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	return usage, nil
 }
 
+// markOpenRouterContentDelivered records billable output in a chunk that was
+// actually written to an OpenRouter chat text client.
+func markOpenRouterContentDelivered(info *relaycommon.RelayInfo, data string) {
+	state := info.OpenRouterCost
+	if state == nil || !state.ChatText || state.ContentDelivered {
+		return
+	}
+	var chunk dto.ChatCompletionsStreamResponse
+	if common.UnmarshalJsonStr(data, &chunk) != nil {
+		return
+	}
+	state.ContentDelivered = slices.ContainsFunc(chunk.Choices, func(choice dto.ChatCompletionsStreamResponseChoice) bool {
+		return choice.Delta.GetContentString() != "" || choice.Delta.GetReasoningContent() != "" || len(choice.Delta.ToolCalls) > 0
+	})
+}
+
 func writeEmbeddedOpenAIStreamError(c *gin.Context, info *relaycommon.RelayInfo, relayError *types.NewAPIError) error {
 	if info.RelayFormat == types.RelayFormatClaude {
 		payload, err := common.Marshal(dto.ClaudeResponse{
@@ -264,15 +283,22 @@ func writeEmbeddedOpenAIStreamError(c *gin.Context, info *relaycommon.RelayInfo,
 		return helper.FlushWriter(c)
 	}
 
-	payload, err := common.Marshal(struct {
+	var envelope any = struct {
 		Error types.OpenAIError `json:"error"`
-	}{Error: relayError.ToOpenAIError()})
+	}{Error: relayError.ToOpenAIError()}
+	if info.RelayFormat == types.RelayFormatGemini && info.ChannelMeta != nil && info.ChannelType == constant.ChannelTypeOpenRouter {
+		envelope = struct {
+			Error types.GeminiError `json:"error"`
+		}{Error: relayError.ToGeminiError()}
+	}
+	payload, err := common.Marshal(envelope)
 	if err != nil {
 		return err
 	}
 	if _, err := c.Writer.WriteString("data: " + string(payload) + "\n\n"); err != nil {
 		return err
 	}
+	common.SetContextKey(c, constant.ContextKeyStreamErrorFrameWritten, true)
 	return helper.FlushWriter(c)
 }
 

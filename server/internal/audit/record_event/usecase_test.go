@@ -191,3 +191,30 @@ func TestReadErrorsUseIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestOperatorReconciliationPreservesCallerAuditShape(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		outcome bool
+	}{{"batch.release_unsubmitted", true}, {"openrouter_sync.release", false}, {"openrouter_sync.settle_cost", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &eventStore{}
+			root := map[string]any{"evidence": "provider confirmed"}
+			in := domain.Recording{Source: domain.OperatorReconciliation, Actor: domain.Actor{ID: 7, Username: "operator", Role: 100}, Action: tc.name, Content: "original", Status: 202, Success: true, OutcomePresent: tc.outcome, RootFields: root, Parameters: map[string]any{"id": "task"}, Request: domain.RequestFacts{Present: true, Method: "POST", Route: "/api/operation", AuthMethod: "session"}}
+			require.NoError(t, recordingUsecase(store).Execute(t.Context(), in))
+			require.Len(t, store.events, 1)
+			event := store.events[0]
+			assert.Equal(t, root, event.RootFields)
+			assert.Equal(t, in.Parameters, event.Parameters)
+			assert.Equal(t, "original", event.Content)
+			assert.Equal(t, 202, event.Status)
+			assert.True(t, event.Success)
+			assert.Equal(t, &domain.Operator{ID: 7, Username: "operator", Role: 100, AuthMethod: "session"}, event.Operator)
+			if tc.outcome {
+				assert.Equal(t, &domain.RequestOutcome{Method: "POST", Route: "/api/operation", Path: "/api/operation", Status: 202, Success: true}, event.Outcome)
+			} else {
+				assert.Nil(t, event.Outcome)
+			}
+		})
+	}
+}

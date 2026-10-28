@@ -47,3 +47,7 @@ func (s BillingStore) UpdateRevision(task *domain.Task, revision int) error {
 func (s BillingStore) UpdateMidjourneyBilling(task *domain.Midjourney) error {
 	return s.Store.UpdateMidjourneyBillingState(MidjourneyFromDomain(task))
 }
+
+func (s BillingStore) Feasible(task *domain.Task) error {
+	return s.Store.CheckTaskCostSettlementFeasible(record.FromDomain(task))
+}

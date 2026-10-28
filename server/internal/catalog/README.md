@@ -13,6 +13,7 @@
 | Metadata sync | preview_metadata_sync / apply_metadata_sync: `/api/models/sync_upstream/preview` и `/sync_upstream`, AdminAuth |
 | Missing metadata | list_missing_models: `/api/models/missing`, AdminAuth; literal names, прежнее различие `[]` и `null` |
 | Availability | list_available_models: существующие gateway model-list routes; group/auto-group selection, token limit, configured-price/reserve eligibility и preferred owner |
+| Billing eligibility | filter_billable_models: configured price/ratio/expression либо положительный OpenRouter reserve; порт используется публичной pricing-проекцией |
 | Static lookup | get_registered_model: gateway retrieve без availability filtering; существующий unknown-model HTTP200 error |
 | Presets | list_model_presets: GET `/api/models`, UserAuth; live plugin overwrite поверх linking-time snapshot |
 | Prefill | list_prefill_groups, create_prefill_group, update_prefill_group, delete_prefill_group: `/api/prefill_group`, AdminAuth |

@@ -19,6 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/api'
 
 import type {
+  BatchReconciliationListResponse,
+  BatchRecoverResponse,
+  BatchReleaseResponse,
   SystemInstanceDeleteResponse,
   SystemInstanceListResponse,
 } from './types'
@@ -40,6 +43,32 @@ export async function deleteStaleSystemInstances() {
 export async function deleteStaleSystemInstance(nodeName: string) {
   const res = await api.delete<SystemInstanceDeleteResponse>(
     `/api/system-info/instances/${encodeURIComponent(nodeName)}`
+  )
+  return res.data
+}
+
+export async function listBatchReconciliation(limit: number) {
+  const res = await api.get<BatchReconciliationListResponse>(
+    '/api/batches/reconciliation',
+    { params: { limit } }
+  )
+  return res.data
+}
+
+/** A 202 means the hold is committed for release but cache delivery is pending. */
+export async function releaseUnsubmittedBatch(id: string, evidence: string) {
+  const res = await api.post<BatchReleaseResponse>(
+    `/api/batches/${encodeURIComponent(id)}/release-unsubmitted`,
+    { evidence }
+  )
+  return { status: res.status, data: res.data }
+}
+
+/** The server verifies provider ownership before binding the identity. */
+export async function recoverBatch(id: string, upstreamId: string) {
+  const res = await api.post<BatchRecoverResponse>(
+    `/api/batches/${encodeURIComponent(id)}/recover`,
+    { upstream_id: upstreamId }
   )
   return res.data
 }

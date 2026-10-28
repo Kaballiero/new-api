@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
 
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -59,8 +60,29 @@ func (s Store) UpdateOpenRouterSync(t *record.Task, expectedRevision int) error 
 			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.SubmissionPending && !next.ReservationPending
 		lateImageReceipt := (saved.Platform == constant.TaskPlatformOpenRouterImage || saved.Platform == constant.TaskPlatformOpenRouterChatImage) && saved.Status == record.TaskStatusFailure && t.Status == record.TaskStatusFailure &&
 			prior != nil && next != nil && prior.Required && !prior.ReservationPending && !prior.HasUpstreamCost && !prior.SettlementPending && !prior.Finalized && !next.HasUpstreamCost
-		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID ||
-			saved.Status == record.TaskStatusSuccess || saved.Status == record.TaskStatusFailure && !lateImageCost && !lateImageReceipt ||
+		// A root decision may claim an eligible hold only as one confirmed cost
+		// settlement: zero for a release, a positive cost for a settle.
+		nextState := t.PrivateData.OpenRouterSyncState()
+		decision := nextState.OperatorDecision
+		// The claimed cost and target must be exactly the decision priced on the
+		// frozen basis, never an arbitrary target written next to a decision.
+		decisionPriced := false
+		if decision != nil && next != nil && saved.PrivateData.BillingContext != nil && saved.PrivateData.BillingContext.OpenRouterCost != nil {
+			cost, costErr := decimal.NewFromString(decision.CostUSD)
+			target, clamp, quotaErr := saved.PrivateData.BillingContext.OpenRouterCost.Quota(next.UpstreamCostUSD)
+			decisionPriced = costErr == nil && cost.InexactFloat64() == next.UpstreamCostUSD && quotaErr == nil && clamp == nil && target == next.TargetQuota
+		}
+		operatorDecision := state != nil && state.OperatorDecision == nil && decision != nil && decisionPriced && saved.OpenRouterSyncOperatorEligible(decision.Action) &&
+			t.Status == record.TaskStatusFailure && t.PrivateData.UpstreamTaskID == saved.PrivateData.UpstreamTaskID && next != nil &&
+			next.HasUpstreamCost && next.UpstreamCostConfirmed && next.SettlementPending && !next.MainApplied && !next.Finalized && next.QuotaSaturation == "" &&
+			next.ReservedQuota == prior.ReservedQuota && t.Quota == saved.Quota &&
+			(decision.Action == record.OpenRouterSyncOperatorRelease && next.UpstreamCostUSD == 0 && next.TargetQuota == 0 ||
+				decision.Action == record.OpenRouterSyncOperatorSettle && next.UpstreamCostUSD > 0)
+		// No other writer may add, replace or drop a recorded decision.
+		decisionChanged := state != nil && (state.OperatorDecision == nil) != (decision == nil) ||
+			state != nil && state.OperatorDecision != nil && decision != nil && *state.OperatorDecision != *decision
+		if state == nil || state.Revision != expectedRevision || saved.TaskID != t.TaskID || decisionChanged && !operatorDecision ||
+			saved.Status == record.TaskStatusSuccess || saved.Status == record.TaskStatusFailure && !lateImageCost && !lateImageReceipt && !operatorDecision ||
 			saved.Platform != t.Platform || saved.Action != t.Action || saved.UserId != t.UserId || saved.ChannelId != t.ChannelId || saved.PrivateData.TokenId != t.PrivateData.TokenId || saved.Properties.UpstreamModelName != t.Properties.UpstreamModelName {
 			return fmt.Errorf("OpenRouter synchronous task claim changed")
 		}
@@ -576,4 +598,48 @@ func (s Store) FinalizeTaskCostSettlement(t *record.Task) error {
 // MarkResponsesBackground preserves the existing whole-private-data update for protocol submission.
 func (s Store) MarkResponsesBackground(task *record.Task) error {
 	return s.db().Model(task).Update("private_data", task.PrivateData).Error
+}
+
+// CheckTaskCostSettlementFeasible reports, without moving funds, whether
+// ApplyTaskCostSettlement can apply the frozen target to the current funding
+// rows. A caller that must not leave an irreversible pending claim checks first.
+func (s Store) CheckTaskCostSettlementFeasible(t *record.Task) error {
+	r := t.PrivateData.Reconciliation
+	if r == nil {
+		return fmt.Errorf("missing task reconciliation")
+	}
+	source := t.PrivateData.BillingSource
+	if source != "wallet" && source != "subscription" {
+		return fmt.Errorf("unknown task funding source")
+	}
+	if source == "subscription" && t.PrivateData.SubscriptionId <= 0 {
+		return fmt.Errorf("missing task subscription")
+	}
+	delta := r.TargetQuota - r.ReservedQuota
+	if delta == 0 {
+		return nil
+	}
+	if source == "subscription" {
+		var sub model.UserSubscription
+		if err := s.db().Where("id = ? AND user_id = ?", t.PrivateData.SubscriptionId, t.UserId).First(&sub).Error; err != nil {
+			return fmt.Errorf("task subscription unavailable")
+		}
+		if used := max(sub.AmountUsed+int64(delta), 0); sub.AmountTotal > 0 && used > sub.AmountTotal {
+			return fmt.Errorf("subscription used exceeds total")
+		}
+	}
+	var count int64
+	if err := s.db().Model(&model.User{}).Where("id = ?", t.UserId).Count(&count).Error; err != nil || count != 1 {
+		return fmt.Errorf("task user missing")
+	}
+	if err := s.db().Model(&model.Channel{}).Where("id = ?", t.ChannelId).Count(&count).Error; err != nil || count != 1 {
+		return fmt.Errorf("task channel missing")
+	}
+	if t.PrivateData.TokenId > 0 {
+		var token model.Token
+		if err := s.db().Where("id = ? AND user_id = ?", t.PrivateData.TokenId, t.UserId).First(&token).Error; err != nil {
+			return fmt.Errorf("task token missing")
+		}
+	}
+	return nil
 }

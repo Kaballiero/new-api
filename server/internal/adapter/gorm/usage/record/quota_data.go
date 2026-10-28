@@ -27,4 +27,6 @@ type QuotaDataLogParams struct {
 	TokenID   int
 	ChannelID int
 	NodeName  string
+	// Correction changes quota without adding a request.
+	Correction bool
 }
