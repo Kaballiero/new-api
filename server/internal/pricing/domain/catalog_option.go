@@ -4,9 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/QuantumNous/new-api/constant"
 	"reflect"
 	"strings"
+
+	"github.com/QuantumNous/new-api/constant"
 )
 
 type PricingCatalogSnapshot struct {

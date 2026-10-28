@@ -8,8 +8,8 @@ import (
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	legacy "github.com/QuantumNous/new-api/model"
-
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
+
 	"gorm.io/gorm"
 )
 

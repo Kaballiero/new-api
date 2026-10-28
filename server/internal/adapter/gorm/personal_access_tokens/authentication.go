@@ -6,6 +6,7 @@ import (
 
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
+
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )

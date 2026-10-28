@@ -4,11 +4,11 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/audit/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Recording struct {

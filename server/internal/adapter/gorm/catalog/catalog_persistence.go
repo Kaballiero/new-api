@@ -1,13 +1,13 @@
 package catalog
 
 import (
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	legacy "github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 func NewCatalogPersistence(pricingMutation func(func(*gorm.DB, map[string]map[string]any) error) error) record.Store {

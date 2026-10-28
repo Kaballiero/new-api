@@ -1,8 +1,6 @@
 package billing_test
 
 import (
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +11,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/jackc/pgx/v5"
@@ -234,7 +235,7 @@ func runTextDeliveryOutcomeCases(t *testing.T, db *gorm.DB) {
 			require.NoError(t, db.Where("user_id = ?", user.Id).Order("id").Find(&logs).Error)
 			require.Len(t, logs, map[bool]int{true: 2, false: 1}[tc.wantReason != "" && constant.ErrorLogEnabled])
 			consume := logs[0]
-			require.Equal(t, model.LogTypeConsume, consume.Type)
+			require.Equal(t, usagerecord.LogTypeConsume, consume.Type)
 			require.Equal(t, 5, consume.Quota)
 			var other map[string]any
 			require.NoError(t, common.UnmarshalJsonStr(consume.Other, &other))
@@ -246,7 +247,7 @@ func runTextDeliveryOutcomeCases(t *testing.T, db *gorm.DB) {
 			assert.Equal(t, tc.wantReason, other["delivery_reason"])
 			if constant.ErrorLogEnabled {
 				errorLog := logs[1]
-				require.Equal(t, model.LogTypeError, errorLog.Type)
+				require.Equal(t, usagerecord.LogTypeError, errorLog.Type)
 				assert.Zero(t, errorLog.Quota)
 				assert.Equal(t, consume.RequestId, errorLog.RequestId)
 				assert.Equal(t, consume.ChannelId, errorLog.ChannelId)

@@ -15,15 +15,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
 	billing "github.com/QuantumNous/new-api/internal/adapter/billing"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/batch"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 

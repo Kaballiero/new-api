@@ -11,20 +11,20 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	routing "github.com/QuantumNous/new-api/gateway/routing"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	app "github.com/QuantumNous/new-api/internal/app/usage"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/internal/usage/record_consumption"
 	"github.com/QuantumNous/new-api/internal/usage/record_failure"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskview"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-
 	hosttypes "github.com/QuantumNous/new-api/types"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -197,7 +197,7 @@ func UsagePath(local bool, usage *dto.Usage) string {
 	return domain.UsagePath(local, true, usage.BillingUsage.Estimated, effective.UsageSemantic)
 }
 
-func AppendTaskBillingFX(other *model.LogOther, info *relaycommon.RelayInfo, p hosttypes.PriceData, stage string) {
+func AppendTaskBillingFX(other *usagerecord.LogOther, info *relaycommon.RelayInfo, p hosttypes.PriceData, stage string) {
 	if info == nil {
 		return
 	}
@@ -214,13 +214,13 @@ func AppendTaskBillingFX(other *model.LogOther, info *relaycommon.RelayInfo, p h
 	Recording().Metadata.BillingFX(other, f, priceFacts(p), stage)
 }
 
-func AppendTaskClamp(other *model.LogOther, clamp *common.QuotaClamp) {
+func AppendTaskClamp(other *usagerecord.LogOther, clamp *common.QuotaClamp) {
 	if clamp != nil {
 		Recording().Metadata.Clamp(other, clampFacts(clamp))
 	}
 }
 
-func AppendTaskQuotaSaturation(c *gin.Context, info *relaycommon.RelayInfo, other *model.LogOther) {
+func AppendTaskQuotaSaturation(c *gin.Context, info *relaycommon.RelayInfo, other *usagerecord.LogOther) {
 	if info == nil || info.QuotaClamp == nil {
 		return
 	}
@@ -232,11 +232,11 @@ func AppendTaskQuotaSaturation(c *gin.Context, info *relaycommon.RelayInfo, othe
 	logger.LogWarn(ctx, quotaSaturationWarning(info))
 }
 
-func AppendTaskTiered(other *model.LogOther, info *relaycommon.RelayInfo, result *billingexpr.TieredResult) {
+func AppendTaskTiered(other *usagerecord.LogOther, info *relaycommon.RelayInfo, result *billingexpr.TieredResult) {
 	Recording().Metadata.Tiered(other, Tiered(info, result))
 }
 
-func MidjourneyOther(info *relaycommon.RelayInfo, p hosttypes.PriceData) *model.LogOther {
+func MidjourneyOther(info *relaycommon.RelayInfo, p hosttypes.PriceData) *usagerecord.LogOther {
 	f := domain.RequestFacts{PriceData: priceFacts(p)}
 	if info != nil {
 		f.RequestURLPath = info.RequestURLPath

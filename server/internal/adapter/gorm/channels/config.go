@@ -6,6 +6,7 @@ import (
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
 	"gorm.io/gorm"
 )
 

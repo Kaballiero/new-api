@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"io"
 	"net/http"
 	"net/url"
@@ -15,9 +12,12 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
-
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
@@ -28,8 +28,8 @@ const (
 	TelegramOAuthFlowContextKey = "telegram_oauth_flow"
 )
 
-// Telegram login errors are owned by the identity domain; the legacy names stay
-// as aliases.
+// Telegram login errors are owned by the identity domain and used directly
+// by provider and transport consumers.
 
 // TelegramOAuthFlow keeps the PKCE secret and original client configuration on
 // the server. Only AuthorizationURL is sent to the browser.

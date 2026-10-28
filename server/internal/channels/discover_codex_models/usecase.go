@@ -3,11 +3,12 @@ package discover_codex_models
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 type Configuration interface {

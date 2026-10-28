@@ -2,9 +2,10 @@ package provision_account
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 
 const maxProvisionedUserGroupRunes = 64

@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"strings"
-)
+import "strings"
 
 func NormalizeLookupValues(values []string) []string {
 	seen := make(map[string]struct{}, len(values))

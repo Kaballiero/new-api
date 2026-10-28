@@ -11,14 +11,15 @@ import (
 	"testing"
 	"time"
 
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-
-	sqlmysql "github.com/go-sql-driver/mysql"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
+	"github.com/QuantumNous/new-api/model"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	sqlmysql "github.com/go-sql-driver/mysql"
 	pgx "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/assert"
@@ -27,9 +28,6 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
-	"github.com/QuantumNous/new-api/model"
 )
 
 func httpPostgres(t *testing.T, dsn string) *gorm.DB {

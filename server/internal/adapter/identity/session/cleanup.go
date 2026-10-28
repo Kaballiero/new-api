@@ -1,8 +1,9 @@
 package session
 
 import (
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"time"
+
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 )
 
 type ArtifactCleanup struct{ SQL identitystore.Store }

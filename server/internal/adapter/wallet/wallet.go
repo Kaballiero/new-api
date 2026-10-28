@@ -4,10 +4,10 @@ import (
 	"errors"
 	"maps"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 var ErrInvalidQuota = errors.New("invalid top-up quota")

@@ -11,14 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
-	"github.com/shopspring/decimal"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
@@ -45,6 +37,14 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestPriceDataOtherRatiosFilterAndSnapshot(t *testing.T) {
@@ -382,7 +382,7 @@ func TestMidjourneyRefundRestoresEveryAccountingElementOnBillingChannel(t *testi
 	assert.Equal(t, billingChannelID, persisted.BillingChannelId)
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 	assert.Equal(t, chargedQuota, log.Quota)
 	assert.Equal(t, tokenID, log.TokenId)
 	assert.Equal(t, billingChannelID, log.ChannelId)
@@ -593,7 +593,7 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 	// A refund log should be created
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed, log.Quota)
 	assert.Equal(t, "test-model", log.ModelName)
 	assert.Zero(t, task.Quota)
@@ -603,16 +603,16 @@ func TestRefundTaskQuota_Wallet(t *testing.T) {
 func TestRefundTaskQuota_ReconciledEvidenceAndStaleWorker(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		evidence model.TaskReconciliation
+		evidence record.TaskReconciliation
 		refund   bool
 	}{
-		{"missing cost", model.TaskReconciliation{}, false},
-		{"unconfirmed zero", model.TaskReconciliation{HasUpstreamCost: true}, false},
-		{"paid failure", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, UpstreamCostUSD: 0.1}, false},
-		{"reservation pending", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, ReservationPending: true}, false},
-		{"submission pending", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, SubmissionPending: true}, false},
-		{"refund pending", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, RefundPending: true}, false},
-		{"confirmed zero", model.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true}, true},
+		{"missing cost", record.TaskReconciliation{}, false},
+		{"unconfirmed zero", record.TaskReconciliation{HasUpstreamCost: true}, false},
+		{"paid failure", record.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, UpstreamCostUSD: 0.1}, false},
+		{"reservation pending", record.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, ReservationPending: true}, false},
+		{"submission pending", record.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, SubmissionPending: true}, false},
+		{"refund pending", record.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true, RefundPending: true}, false},
+		{"confirmed zero", record.TaskReconciliation{HasUpstreamCost: true, UpstreamCostConfirmed: true}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			taskfixture.Truncate(t)
@@ -622,7 +622,7 @@ func TestRefundTaskQuota_ReconciledEvidenceAndStaleWorker(t *testing.T) {
 			taskfixture.SeedChannel(t, 1)
 			taskfixture.SeedChargedAccounting(t, 1, 1, 1, charged, 1)
 			task := taskfixture.MakeTask(1, 1, charged, 1, BillingSourceWallet, 0)
-			task.Status = model.TaskStatusFailure
+			task.Status = record.TaskStatusFailure
 			tc.evidence.ReservedQuota = charged
 			task.PrivateData.Reconciliation = &tc.evidence
 			require.NoError(t, model.DB.Create(task).Error)
@@ -660,8 +660,8 @@ func TestReconciledRefundInterruptionRetainsHoldAfterReload(t *testing.T) {
 			taskfixture.SeedChannel(t, 1)
 			taskfixture.SeedChargedAccounting(t, 1, 1, 1, charged, 1)
 			task := taskfixture.MakeTask(1, 1, charged, 1, BillingSourceWallet, 0)
-			task.Status = model.TaskStatusFailure
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{
+			task.Status = record.TaskStatusFailure
+			task.PrivateData.Reconciliation = &record.TaskReconciliation{
 				ReservedQuota: charged, HasUpstreamCost: true, UpstreamCostConfirmed: true,
 			}
 			require.NoError(t, model.DB.Create(task).Error)
@@ -715,7 +715,7 @@ func TestReconciledRefundInterruptionRetainsHoldAfterReload(t *testing.T) {
 				require.NoError(t, model.DB.First(&token, 1).Error)
 				assert.Equal(t, charged, token.UsedQuota)
 				var refundLogs int64
-				require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("type = ?", model.LogTypeRefund).Count(&refundLogs).Error)
+				require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("type = ?", usagerecord.LogTypeRefund).Count(&refundLogs).Error)
 				assert.Equal(t, wantLogs, refundLogs)
 			})
 		})
@@ -730,8 +730,8 @@ func TestReconciledSubmissionManualEvidenceThenRefundOnce(t *testing.T) {
 	taskfixture.SeedChannel(t, 1)
 	taskfixture.SeedChargedAccounting(t, 1, 1, 1, charged, 1)
 	task := taskfixture.MakeTask(1, 1, charged, 1, BillingSourceWallet, 0)
-	task.Status = model.TaskStatusFailure
-	task.PrivateData.Reconciliation = &model.TaskReconciliation{
+	task.Status = record.TaskStatusFailure
+	task.PrivateData.Reconciliation = &record.TaskReconciliation{
 		ReservedQuota: charged, SubmissionPending: true, Required: true,
 	}
 	require.NoError(t, model.DB.Create(task).Error)
@@ -748,7 +748,7 @@ func TestReconciledSubmissionManualEvidenceThenRefundOnce(t *testing.T) {
 		loaded.PrivateData.Reconciliation.SubmissionPending = false
 		loaded.PrivateData.Reconciliation.HasUpstreamCost = true
 		loaded.PrivateData.Reconciliation.UpstreamCostConfirmed = true
-		won, err := fixtureStore.UpdateTaskWithStatus(&loaded, model.TaskStatusFailure)
+		won, err := fixtureStore.UpdateTaskWithStatus(&loaded, record.TaskStatusFailure)
 		require.NoError(t, err)
 		require.True(t, won)
 		var stale model.Task
@@ -766,7 +766,7 @@ func TestReconciledSubmissionManualEvidenceThenRefundOnce(t *testing.T) {
 		assert.Equal(t, 8000, getTokenRemainQuota(t, 1))
 		assert.Zero(t, getChannelUsedQuota(t, 1))
 		var refundLogs int64
-		require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("type = ?", model.LogTypeRefund).Count(&refundLogs).Error)
+		require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("type = ?", usagerecord.LogTypeRefund).Count(&refundLogs).Error)
 		assert.Equal(t, int64(1), refundLogs)
 	})
 }
@@ -804,7 +804,7 @@ func TestRefundTaskQuota_Subscription(t *testing.T) {
 
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 	assert.Zero(t, getTaskQuota(t, task.ID))
 }
 
@@ -852,7 +852,7 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 	// Log created
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 	assert.Zero(t, getTaskQuota(t, task.ID))
 }
 
@@ -865,7 +865,7 @@ func TestRefundTaskQuota_FundingFailureKeepsAccountingAndPendingMarker(t *testin
 	taskfixture.SeedChannel(t, channelID)
 	taskfixture.SeedChargedAccounting(t, userID, channelID, 0, preConsumed, 1)
 	task := taskfixture.MakeTask(userID, channelID, preConsumed, 0, BillingSourceSubscription, 9999)
-	task.Status = model.TaskStatusFailure
+	task.Status = record.TaskStatusFailure
 	require.NoError(t, model.DB.Create(task).Error)
 
 	assert.False(t, RefundTaskQuota(ctx, task, "subscription missing"))
@@ -918,7 +918,7 @@ func TestRecalculate_PositiveDelta(t *testing.T) {
 	// Log type should be Consume (additional charge)
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeConsume, log.Type)
+	assert.Equal(t, usagerecord.LogTypeConsume, log.Type)
 	assert.Equal(t, actualQuota-preConsumed, log.Quota)
 }
 
@@ -957,7 +957,7 @@ func TestRecalculate_NegativeDelta(t *testing.T) {
 	// Log type should be Refund
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed-actualQuota, log.Quota)
 }
 
@@ -999,7 +999,7 @@ func TestRecalculate_ActualQuotaZero(t *testing.T) {
 	assert.Zero(t, task.Quota)
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumed, log.Quota)
 }
 
@@ -1054,7 +1054,7 @@ func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
 
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 }
 
 // ===========================================================================
@@ -1065,7 +1065,7 @@ func TestRecalculate_Subscription_NegativeDelta(t *testing.T) {
 // simulatePollBilling reproduces the CAS + billing logic from updateVideoSingleTask.
 // It takes a persisted task (already in DB), applies the new status, and performs
 // the conditional update + billing exactly as the polling loop does.
-func simulatePollBilling(ctx context.Context, task *model.Task, newStatus model.TaskStatus, actualQuota int) {
+func simulatePollBilling(ctx context.Context, task *model.Task, newStatus record.TaskStatus, actualQuota int) {
 	snap := task.Snapshot()
 
 	shouldRefund := false
@@ -1074,11 +1074,11 @@ func simulatePollBilling(ctx context.Context, task *model.Task, newStatus model.
 
 	task.Status = newStatus
 	switch string(newStatus) {
-	case model.TaskStatusSuccess:
+	case record.TaskStatusSuccess:
 		task.Progress = "100%"
 		task.FinishTime = 9999
 		shouldSettle = true
-	case model.TaskStatusFailure:
+	case record.TaskStatusFailure:
 		task.Progress = "100%"
 		task.FinishTime = 9999
 		task.FailReason = "upstream error"
@@ -1089,7 +1089,7 @@ func simulatePollBilling(ctx context.Context, task *model.Task, newStatus model.
 		task.Progress = "50%"
 	}
 
-	isDone := task.Status == model.TaskStatus(model.TaskStatusSuccess) || task.Status == model.TaskStatus(model.TaskStatusFailure)
+	isDone := task.Status == record.TaskStatus(record.TaskStatusSuccess) || task.Status == record.TaskStatus(record.TaskStatusFailure)
 	if isDone && snap.Status != task.Status {
 		won, err := fixtureStore.UpdateTaskWithStatus(task, snap.Status)
 		if err != nil {
@@ -1125,15 +1125,15 @@ func TestCASGuardedRefund_Win(t *testing.T) {
 	taskfixture.SeedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := taskfixture.MakeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
-	task.Status = model.TaskStatus(model.TaskStatusInProgress)
+	task.Status = record.TaskStatus(record.TaskStatusInProgress)
 	require.NoError(t, model.DB.Create(task).Error)
 
-	simulatePollBilling(ctx, task, model.TaskStatus(model.TaskStatusFailure), 0)
+	simulatePollBilling(ctx, task, record.TaskStatus(record.TaskStatusFailure), 0)
 
 	// CAS wins: task in DB should now be FAILURE
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
-	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.EqualValues(t, record.TaskStatusFailure, reloaded.Status)
 	assert.Zero(t, reloaded.Quota)
 
 	// Refund should have happened
@@ -1146,7 +1146,7 @@ func TestCASGuardedRefund_Win(t *testing.T) {
 
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 }
 
 func TestCASGuardedRefund_Lose(t *testing.T) {
@@ -1164,15 +1164,15 @@ func TestCASGuardedRefund_Lose(t *testing.T) {
 
 	// Create task with IN_PROGRESS in DB
 	task := taskfixture.MakeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
-	task.Status = model.TaskStatus(model.TaskStatusInProgress)
+	task.Status = record.TaskStatus(record.TaskStatusInProgress)
 	require.NoError(t, model.DB.Create(task).Error)
 
 	// Simulate another process already transitioning to FAILURE
-	model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Update("status", model.TaskStatusFailure)
+	model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Update("status", record.TaskStatusFailure)
 
 	// Our process still has the old in-memory state (IN_PROGRESS) and tries to transition
 	// task.Status is still IN_PROGRESS in the snapshot
-	simulatePollBilling(ctx, task, model.TaskStatus(model.TaskStatusFailure), 0)
+	simulatePollBilling(ctx, task, record.TaskStatus(record.TaskStatusFailure), 0)
 
 	// CAS lost: user quota should NOT change (no double refund)
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
@@ -1201,15 +1201,15 @@ func TestCASGuardedSettle_Win(t *testing.T) {
 	taskfixture.SeedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
 
 	task := taskfixture.MakeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
-	task.Status = model.TaskStatus(model.TaskStatusInProgress)
+	task.Status = record.TaskStatus(record.TaskStatusInProgress)
 	require.NoError(t, model.DB.Create(task).Error)
 
-	simulatePollBilling(ctx, task, model.TaskStatus(model.TaskStatusSuccess), actualQuota)
+	simulatePollBilling(ctx, task, record.TaskStatus(record.TaskStatusSuccess), actualQuota)
 
 	// CAS wins: task should be SUCCESS
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
-	assert.EqualValues(t, model.TaskStatusSuccess, reloaded.Status)
+	assert.EqualValues(t, record.TaskStatusSuccess, reloaded.Status)
 
 	// Settlement should refund the over-charge (5000 - 3000 = 2000 back to user)
 	assert.Equal(t, initQuota+(preConsumed-actualQuota), getUserQuota(t, userID))
@@ -1234,12 +1234,12 @@ func TestNonTerminalUpdate_NoBilling(t *testing.T) {
 	taskfixture.SeedChannel(t, channelID)
 
 	task := taskfixture.MakeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0)
-	task.Status = model.TaskStatus(model.TaskStatusInProgress)
+	task.Status = record.TaskStatus(record.TaskStatusInProgress)
 	task.Progress = "20%"
 	require.NoError(t, model.DB.Create(task).Error)
 
 	// Simulate a non-terminal poll update (still IN_PROGRESS, progress changed)
-	simulatePollBilling(ctx, task, model.TaskStatus(model.TaskStatusInProgress), 0)
+	simulatePollBilling(ctx, task, record.TaskStatus(record.TaskStatusInProgress), 0)
 
 	// User quota should NOT change
 	assert.Equal(t, initQuota, getUserQuota(t, userID))
@@ -1295,7 +1295,7 @@ func TestSettle_PerCallBilling_SkipsAdaptorAdjust(t *testing.T) {
 	task.PrivateData.BillingContext.PerCallBilling = true
 
 	adaptor := &mockAdaptor{adjustReturn: 2000}
-	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}
+	taskResult := &relaycommon.TaskInfo{Status: record.TaskStatusSuccess}
 
 	settled, err := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
 	require.NoError(t, err)
@@ -1324,7 +1324,7 @@ func TestSettle_PerCallBilling_SkipsTotalTokens(t *testing.T) {
 	task.PrivateData.BillingContext.PerCallBilling = true
 
 	adaptor := &mockAdaptor{adjustReturn: 0}
-	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, TotalTokens: 9999}
+	taskResult := &relaycommon.TaskInfo{Status: record.TaskStatusSuccess, TotalTokens: 9999}
 
 	settled, err := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
 	require.NoError(t, err)
@@ -1354,7 +1354,7 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	// PerCallBilling defaults to false
 
 	adaptor := &mockAdaptor{adjustReturn: adaptorQuota}
-	taskResult := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess}
+	taskResult := &relaycommon.TaskInfo{Status: record.TaskStatusSuccess}
 
 	settled, err := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
 	require.NoError(t, err)
@@ -1367,7 +1367,7 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 }
 
 func TestSettle_TieredEvaluationFailureKeepsPreConsumedCharge(t *testing.T) {
@@ -1388,7 +1388,7 @@ func TestSettle_TieredEvaluationFailureKeepsPreConsumedCharge(t *testing.T) {
 		TaskUsageBilling: true,
 	}
 
-	settled, err := settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{Status: model.TaskStatusFailure})
+	settled, err := settleTaskBillingOnComplete(ctx, &mockAdaptor{}, task, &relaycommon.TaskInfo{Status: record.TaskStatusFailure})
 	require.NoError(t, err)
 
 	assert.True(t, settled)
@@ -1407,7 +1407,7 @@ func TestSettle_TieredFailureReturnsFalseForCallerRefund(t *testing.T) {
 
 	expression := `tier("base", u("seconds") + u("clips") * 10)`
 	task := taskfixture.MakeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
-	task.Status = model.TaskStatusFailure
+	task.Status = record.TaskStatusFailure
 	task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
 		ExprString:       expression,
 		ExprHash:         billingexpr.ExprHashString(expression),
@@ -1423,7 +1423,7 @@ func TestSettle_TieredFailureReturnsFalseForCallerRefund(t *testing.T) {
 		ctx,
 		&mockAdaptor{adjustReturn: 1},
 		task,
-		&relaycommon.TaskInfo{Status: model.TaskStatusFailure, UsageFacts: map[string]any{"seconds": float64(8)}},
+		&relaycommon.TaskInfo{Status: record.TaskStatusFailure, UsageFacts: map[string]any{"seconds": float64(8)}},
 	)
 
 	assert.False(t, settled)
@@ -1444,7 +1444,7 @@ func TestSettle_TieredSuccessStillRecomputes(t *testing.T) {
 
 	expression := `tier("base", u("seconds") + u("clips") * 10)`
 	task := taskfixture.MakeTask(userID, 0, preConsumed, 0, BillingSourceWallet, 0)
-	task.Status = model.TaskStatusSuccess
+	task.Status = record.TaskStatusSuccess
 	task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
 		ExprString:       expression,
 		ExprHash:         billingexpr.ExprHashString(expression),
@@ -1460,7 +1460,7 @@ func TestSettle_TieredSuccessStillRecomputes(t *testing.T) {
 		ctx,
 		&mockAdaptor{adjustReturn: 1},
 		task,
-		&relaycommon.TaskInfo{Status: model.TaskStatusSuccess, UsageFacts: map[string]any{"seconds": float64(8)}},
+		&relaycommon.TaskInfo{Status: record.TaskStatusSuccess, UsageFacts: map[string]any{"seconds": float64(8)}},
 	)
 
 	assert.True(t, settled)
@@ -1471,7 +1471,7 @@ func TestSettle_TieredSuccessStillRecomputes(t *testing.T) {
 
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 	var other map[string]any
 	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
 	assert.Equal(t, "tiered_expr", other["billing_mode"])
@@ -1533,7 +1533,7 @@ func TestSettle_TieredUsageFactsMergeCompletionOverSubmission(t *testing.T) {
 				context.Background(),
 				&mockAdaptor{},
 				task,
-				&relaycommon.TaskInfo{Status: model.TaskStatusSuccess, UsageFacts: testCase.completionFacts},
+				&relaycommon.TaskInfo{Status: record.TaskStatusSuccess, UsageFacts: testCase.completionFacts},
 			)
 
 			assert.True(t, settled)
@@ -1583,7 +1583,7 @@ func TestSettle_TieredSnapshotWriteBackUsesSettledFactsAndMatchedTier(t *testing
 		&mockAdaptor{},
 		task,
 		&relaycommon.TaskInfo{
-			Status:     model.TaskStatusSuccess,
+			Status:     record.TaskStatusSuccess,
 			UsageFacts: map[string]any{"resolution": "1080P"},
 		},
 	)
@@ -1659,7 +1659,7 @@ func TestSettle_TokenRecalcFallsBackToCompletionTokens(t *testing.T) {
 				&mockAdaptor{},
 				task,
 				&relaycommon.TaskInfo{
-					Status:           model.TaskStatusSuccess,
+					Status:           record.TaskStatusSuccess,
 					TotalTokens:      testCase.totalTokens,
 					CompletionTokens: testCase.completionTokens,
 				},
@@ -1694,7 +1694,7 @@ func TestRecalculateTaskQuotaByTokensUsesPersistedFXAfterReload(t *testing.T) {
 	task := taskfixture.MakeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0)
 	task.PrivateData.BillingContext.GroupRatio = 4
 	task.PrivateData.BillingContext.BillingFX = taskfixture.BillingFX(200)
-	task.PrivateData.BillingContext.SubmitGroup = &model.TaskBillingSubmitGroup{
+	task.PrivateData.BillingContext.SubmitGroup = &record.TaskBillingSubmitGroup{
 		PureRatio:       2,
 		HasSpecialRatio: true,
 		SpecialRatio:    &specialRatio,
@@ -1752,15 +1752,15 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 	modern := taskfixture.MakeTask(userID, channelID, preConsumed, 0, BillingSourceWallet, 0)
 	modern.PrivateData.BillingContext.GroupRatio = 4
 	modern.PrivateData.BillingContext.BillingFX = taskfixture.BillingFX(200)
-	modern.PrivateData.BillingContext.SubmitGroup = &model.TaskBillingSubmitGroup{
+	modern.PrivateData.BillingContext.SubmitGroup = &record.TaskBillingSubmitGroup{
 		PureRatio: 2, HasSpecialRatio: true, SpecialRatio: &specialRatio,
 	}
 	require.NoError(t, model.DB.Create(modern).Error)
 
 	modern.Progress = "25%"
 	require.NoError(t, fixtureStore.UpdateTask(modern))
-	modern.Status = model.TaskStatusSuccess
-	won, err := fixtureStore.UpdateTaskWithStatus(modern, model.TaskStatusInProgress)
+	modern.Status = record.TaskStatusSuccess
+	won, err := fixtureStore.UpdateTaskWithStatus(modern, record.TaskStatusInProgress)
 	require.NoError(t, err)
 	require.True(t, won)
 
@@ -1775,7 +1775,7 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 		var reloaded model.Task
 		require.NoError(t, model.DB.First(&reloaded, modern.ID).Error)
 		require.Equal(t, "25%", reloaded.Progress)
-		require.Equal(t, model.TaskStatus(model.TaskStatusSuccess), reloaded.Status)
+		require.Equal(t, record.TaskStatus(record.TaskStatusSuccess), reloaded.Status)
 		require.NotNil(t, reloaded.PrivateData.BillingContext)
 		require.Equal(t, 2.0, reloaded.PrivateData.BillingContext.BillingFX.Rate/100)
 		require.True(t, RecalculateTaskQuotaByTokens(context.Background(), &reloaded, 10))
@@ -1800,7 +1800,7 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 	refund := taskfixture.MakeTask(refundUserID, refundChannelID, refundQuota, 0, BillingSourceWallet, 0)
 	refund.PrivateData.BillingContext.GroupRatio = 4
 	refund.PrivateData.BillingContext.BillingFX = taskfixture.BillingFX(200)
-	refund.PrivateData.BillingContext.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+	refund.PrivateData.BillingContext.SubmitGroup = &record.TaskBillingSubmitGroup{PureRatio: 2}
 	require.NoError(t, model.DB.Create(refund).Error)
 	require.True(t, RefundTaskQuota(context.Background(), refund, "real dialect refund"))
 	assert.Equal(t, 10_000, getUserQuota(t, refundUserID))
@@ -1809,7 +1809,7 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 	zeroDelta := taskfixture.MakeTask(userID, channelID, 60, 0, BillingSourceWallet, 0)
 	zeroDelta.PrivateData.BillingContext.GroupRatio = 4
 	zeroDelta.PrivateData.BillingContext.BillingFX = taskfixture.BillingFX(200)
-	zeroDelta.PrivateData.BillingContext.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+	zeroDelta.PrivateData.BillingContext.SubmitGroup = &record.TaskBillingSubmitGroup{PureRatio: 2}
 	require.NoError(t, model.DB.Create(zeroDelta).Error)
 	logsBefore := countLogs(t)
 	require.True(t, RecalculateTaskQuotaByTokens(context.Background(), zeroDelta, 10))
@@ -1865,7 +1865,7 @@ func TestTaskBillingRealDialectPersistenceAndLogPrivacy(t *testing.T) {
 			"kind": string(clampCase.kind), "clamped": float64(clampCase.quota),
 		}, admin["quota_saturation"], clampCase.requestID)
 		userLogs, total, err := (usageadapter.Store{}).ListOwnLogs(usagedomain.LogQuery{CountLimit: usagedomain.MaxLogSearchCount,
-			UserID: userID, Kind: model.LogTypeConsume, StartTimestamp: 0, EndTimestamp: 0, ModelName: "",
+			UserID: userID, Kind: usagerecord.LogTypeConsume, StartTimestamp: 0, EndTimestamp: 0, ModelName: "",
 			TokenName: "", Start: 0, Count: 10, Group: "", RequestID: clampCase.requestID, UpstreamRequestID: ""},
 			usagedomain.LogVisibility(usagedomain.AudienceUser))
 		require.NoError(t, err)
@@ -1962,7 +1962,7 @@ func TestTaskBillingFXHistoryRejectsPresentNullAndMissingMembers(t *testing.T) {
 		`{"billing_context":{"billing_fx":{"schema_version":1,"source":"cbr-xml-daily.ru","rate":100,"publication_version":1,"effective_at":1,"fetched_at":1},"submit_group":{},"group_ratio":0}}`,
 		`{"billing_context":{"billing_fx":"wrong","submit_group":{"pure_ratio":0,"has_special_ratio":true,"special_ratio":0},"group_ratio":0}}`,
 	} {
-		var privateData model.TaskPrivateData
+		var privateData record.TaskPrivateData
 		require.NoError(t, privateData.Scan(raw))
 		_, modern, err := taskdomain.TaskBillingFXFactor(record.ToDomainTaskBillingContext(privateData.BillingContext), pricingdomainfx.ModelCostFXSource)
 		assert.True(t, modern)
@@ -1998,8 +1998,8 @@ func TestTaskCompletionCallersKeepInvalidHistorySeparateFromRefundEligibility(t 
 		require.NoError(t, model.DB.First(&tieredReloaded, tiered.ID).Error)
 
 		adaptor := &scriptedBatchPollingAdaptor{results: map[string]*BatchTaskResult{
-			invalidReloaded.GetUpstreamTaskID(): {TaskInfo: relaycommon.TaskInfo{Status: model.TaskStatusSuccess, TotalTokens: 10}},
-			tieredReloaded.GetUpstreamTaskID():  {TaskInfo: relaycommon.TaskInfo{Status: model.TaskStatusFailure, Reason: "known failed tiered task"}},
+			invalidReloaded.GetUpstreamTaskID(): {TaskInfo: relaycommon.TaskInfo{Status: record.TaskStatusSuccess, TotalTokens: 10}},
+			tieredReloaded.GetUpstreamTaskID():  {TaskInfo: relaycommon.TaskInfo{Status: record.TaskStatusFailure, Reason: "known failed tiered task"}},
 		}}
 		require.NoError(t, updateBatchTasks(context.Background(), adaptor, channelID,
 			[]string{invalidReloaded.GetUpstreamTaskID(), tieredReloaded.GetUpstreamTaskID()},
@@ -2026,7 +2026,7 @@ func TestTaskCompletionCallersKeepInvalidHistorySeparateFromRefundEligibility(t 
 		var reloaded model.Task
 		require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
 
-		adaptor := &scriptedPollingAdaptor{parse: &relaycommon.TaskInfo{Status: model.TaskStatusFailure, Reason: "known failure"}}
+		adaptor := &scriptedPollingAdaptor{parse: &relaycommon.TaskInfo{Status: record.TaskStatusFailure, Reason: "known failure"}}
 		require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, &model.Channel{Id: channelID, Key: "test"}, reloaded.GetUpstreamTaskID(), map[string]*model.Task{reloaded.GetUpstreamTaskID(): &reloaded}))
 
 		assert.Zero(t, getTaskQuota(t, task.ID))
@@ -2046,7 +2046,7 @@ func TestTaskCompletionCallersKeepInvalidHistorySeparateFromRefundEligibility(t 
 		var invalidReloaded model.Task
 		require.NoError(t, model.DB.First(&invalidReloaded, invalid.ID).Error)
 
-		err := failTaskFromPoll(context.Background(), &mockAdaptor{adjustReturn: 5}, &invalidReloaded, model.TaskStatusInProgress, "poll failure")
+		err := failTaskFromPoll(context.Background(), &mockAdaptor{adjustReturn: 5}, &invalidReloaded, record.TaskStatusInProgress, "poll failure")
 		require.Error(t, err)
 		assert.Equal(t, 70, getTaskQuota(t, invalid.ID))
 		assert.Equal(t, 10_000, getUserQuota(t, 704))
@@ -2061,7 +2061,7 @@ func TestTaskCompletionCallersKeepInvalidHistorySeparateFromRefundEligibility(t 
 		require.NoError(t, model.DB.Create(tiered).Error)
 		var tieredReloaded model.Task
 		require.NoError(t, model.DB.First(&tieredReloaded, tiered.ID).Error)
-		require.Error(t, failTaskFromPoll(context.Background(), &mockAdaptor{}, &tieredReloaded, model.TaskStatusInProgress, "known failed tiered task"))
+		require.Error(t, failTaskFromPoll(context.Background(), &mockAdaptor{}, &tieredReloaded, record.TaskStatusInProgress, "known failed tiered task"))
 		assert.Zero(t, getTaskQuota(t, tiered.ID))
 		assert.Equal(t, 10_030, getUserQuota(t, 705))
 		assert.Equal(t, int64(1), countLogs(t))
@@ -2129,7 +2129,7 @@ func TestRecalculateTaskQuotaByTokensModernF1TruncatesFractionalDebit(t *testing
 				task.PrivateData.BillingContext.OtherRatios = tc.other
 				if modern {
 					task.PrivateData.BillingContext.BillingFX = taskfixture.BillingFX(100)
-					task.PrivateData.BillingContext.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 1}
+					task.PrivateData.BillingContext.SubmitGroup = &record.TaskBillingSubmitGroup{PureRatio: 1}
 				}
 				require.NoError(t, model.DB.Create(task).Error)
 				var loaded model.Task
@@ -2142,10 +2142,10 @@ func TestRecalculateTaskQuotaByTokensModernF1TruncatesFractionalDebit(t *testing
 				log := getLastLog(t)
 				require.NotNil(t, log)
 				if tc.want > tc.saved {
-					assert.Equal(t, model.LogTypeConsume, log.Type)
+					assert.Equal(t, usagerecord.LogTypeConsume, log.Type)
 					assert.Equal(t, tc.want-tc.saved, log.Quota)
 				} else {
-					assert.Equal(t, model.LogTypeRefund, log.Type)
+					assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 					assert.Equal(t, tc.saved-tc.want, log.Quota)
 				}
 			}
@@ -2213,11 +2213,11 @@ func TestTaskBillingCompletionAppliedGroup(t *testing.T) {
 			taskfixture.SeedChannel(t, id)
 			task := taskfixture.MakeTask(id, id, 50, 0, BillingSourceWallet, 0)
 			task.TaskID = "applied-group-task"
-			task.Status = model.TaskStatusSuccess
+			task.Status = record.TaskStatusSuccess
 			bc := task.PrivateData.BillingContext
 			bc.BillingFX = taskfixture.BillingFX(200)
 			bc.GroupRatio = tc.pure * 2
-			bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: tc.pure, HasSpecialRatio: tc.special}
+			bc.SubmitGroup = &record.TaskBillingSubmitGroup{PureRatio: tc.pure, HasSpecialRatio: tc.special}
 			if tc.special {
 				v := tc.pure
 				bc.SubmitGroup.SpecialRatio = &v
@@ -2237,7 +2237,7 @@ func TestTaskBillingCompletionAppliedGroup(t *testing.T) {
 				if tc.stage == "adaptor_quota" {
 					adaptor.adjustReturn = 7
 				}
-				handled, err := settleTaskBillingOnComplete(context.Background(), adaptor, &loaded, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, TotalTokens: 10})
+				handled, err := settleTaskBillingOnComplete(context.Background(), adaptor, &loaded, &relaycommon.TaskInfo{Status: record.TaskStatusSuccess, TotalTokens: 10})
 				require.NoError(t, err)
 				require.True(t, handled)
 			}
@@ -2309,7 +2309,7 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 			}
 			taskfixture.SeedChargedAccounting(t, id, id, id, 50, 1)
 			task := taskfixture.MakeTask(id, id, 50, id, BillingSourceWallet, 0)
-			task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV1
+			task.PrivateData.BillingContext.SettlementMode = record.TaskSettlementOpenRouterCostV1
 			if tc.legacy {
 				task.PrivateData.BillingContext.SettlementMode = ""
 			}
@@ -2319,21 +2319,21 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 			bc := task.PrivateData.BillingContext
 			bc.GroupRatio = 4
 			bc.BillingFX = taskfixture.BillingFX(200)
-			bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+			bc.SubmitGroup = &record.TaskBillingSubmitGroup{PureRatio: 2}
 			if tc.invalidBasis {
 				bc.BillingFX.Rate = 300
 			}
 			bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000, ExprString: "tier(\"reserve\", 0.000025)"}
 			if tc.v2 {
-				bc.SettlementMode = model.TaskSettlementOpenRouterCostV2
-				bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: model.TaskSettlementOpenRouterCostV2, EffectiveGroupRatio: 4, QuotaPerUnit: 500000, EstimatedUSD: 0.000025}
+				bc.SettlementMode = record.TaskSettlementOpenRouterCostV2
+				bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: record.TaskSettlementOpenRouterCostV2, EffectiveGroupRatio: 4, QuotaPerUnit: 500000, EstimatedUSD: 0.000025}
 				bc.TieredSnapshot = nil
 				bc.OpenRouterOrderFacts = map[string]any{"requested_seconds": float64(5), "images": float64(1)}
 				if tc.invalidBasis {
 					bc.OpenRouterCost.Version = "unknown_version"
 				}
 			}
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, HasUpstreamCost: tc.present, UpstreamCostConfirmed: tc.confirmed, UpstreamCostUSD: tc.cost}
+			task.PrivateData.Reconciliation = &record.TaskReconciliation{ReservedQuota: 50, HasUpstreamCost: tc.present, UpstreamCostConfirmed: tc.confirmed, UpstreamCostUSD: tc.cost}
 			require.NoError(t, model.DB.Create(task).Error)
 			var stale model.Task
 			require.NoError(t, model.DB.First(&stale, task.ID).Error)
@@ -2343,12 +2343,12 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 				assert.Equal(t, bc.OpenRouterCost, stale.PrivateData.BillingContext.OpenRouterCost)
 				assert.Equal(t, bc.OpenRouterOrderFacts, stale.PrivateData.BillingContext.OpenRouterOrderFacts)
 			}
-			task.Status = model.TaskStatusSuccess
+			task.Status = record.TaskStatusSuccess
 			if tc.failed {
-				task.Status = model.TaskStatusFailure
+				task.Status = record.TaskStatusFailure
 			}
 			prepareOpenRouterCostSettlement(task)
-			won, err := fixtureStore.UpdateTaskWithStatus(task, model.TaskStatusInProgress)
+			won, err := fixtureStore.UpdateTaskWithStatus(task, record.TaskStatusInProgress)
 			require.NoError(t, err)
 			require.True(t, won)
 			oldBatch, oldLogging := common.BatchUpdateEnabled, common.LogConsumeEnabled
@@ -2369,7 +2369,7 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 			}
 			stale.Status = task.Status
 			stale.PrivateData = task.PrivateData
-			won, err = fixtureStore.UpdateTaskWithStatus(&stale, model.TaskStatusInProgress)
+			won, err = fixtureStore.UpdateTaskWithStatus(&stale, record.TaskStatusInProgress)
 			require.NoError(t, err)
 			assert.False(t, won)
 			var saved model.Task
@@ -2408,9 +2408,9 @@ func TestOpenRouterCostSettlement(t *testing.T) {
 				}
 				assert.Equal(t, expectedDelta, logs[0].Quota)
 				if tc.target < 50 {
-					assert.Equal(t, model.LogTypeRefund, logs[0].Type)
+					assert.Equal(t, usagerecord.LogTypeRefund, logs[0].Type)
 				} else {
-					assert.Equal(t, model.LogTypeConsume, logs[0].Type)
+					assert.Equal(t, usagerecord.LogTypeConsume, logs[0].Type)
 				}
 				assert.Contains(t, logs[0].Other, bc.SettlementMode)
 				assert.Contains(t, logs[0].Other, "admin_info")
@@ -2458,25 +2458,25 @@ func TestOpenRouterCostSettlementCacheAndSubscription(t *testing.T) {
 			}
 			task := taskfixture.MakeTask(id, id, 50, id, source, subID)
 			bc := task.PrivateData.BillingContext
-			bc.SettlementMode = model.TaskSettlementOpenRouterCostV1
+			bc.SettlementMode = record.TaskSettlementOpenRouterCostV1
 			bc.GroupRatio = 4
 			bc.BillingFX = taskfixture.BillingFX(200)
-			bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+			bc.SubmitGroup = &record.TaskBillingSubmitGroup{PureRatio: 2}
 			bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000}
 			if tc.v2 {
-				bc.SettlementMode = model.TaskSettlementOpenRouterCostV2
-				bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: model.TaskSettlementOpenRouterCostV2, EffectiveGroupRatio: 4, QuotaPerUnit: 500000, EstimatedUSD: 0.000025}
+				bc.SettlementMode = record.TaskSettlementOpenRouterCostV2
+				bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: record.TaskSettlementOpenRouterCostV2, EffectiveGroupRatio: 4, QuotaPerUnit: 500000, EstimatedUSD: 0.000025}
 				bc.TieredSnapshot = nil
 			}
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, HasUpstreamCost: true, UpstreamCostConfirmed: true, UpstreamCostUSD: 0.00005}
+			task.PrivateData.Reconciliation = &record.TaskReconciliation{ReservedQuota: 50, HasUpstreamCost: true, UpstreamCostConfirmed: true, UpstreamCostUSD: 0.00005}
 			require.NoError(t, model.DB.Create(task).Error)
 			oldGroups := ratio_setting.GroupRatio2JSONString()
 			t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroups)) })
 			require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":17}`))
-			task.Status = model.TaskStatusSuccess
+			task.Status = record.TaskStatusSuccess
 			prepareOpenRouterCostSettlement(task)
 			require.Equal(t, 100, task.PrivateData.Reconciliation.TargetQuota)
-			won, err := fixtureStore.UpdateTaskWithStatus(task, model.TaskStatusInProgress)
+			won, err := fixtureStore.UpdateTaskWithStatus(task, record.TaskStatusInProgress)
 			require.NoError(t, err)
 			require.True(t, won)
 			server := miniredis.RunT(t)
@@ -2547,7 +2547,7 @@ func TestOpenRouterCostReservationLogRequired(t *testing.T) {
 			taskfixture.SeedUser(t, id, 9950)
 			taskfixture.SeedChannel(t, id)
 			task := taskfixture.MakeTask(id, id, 50, 0, BillingSourceWallet, 0)
-			task.PrivateData.BillingContext.SettlementMode = model.TaskSettlementOpenRouterCostV1
+			task.PrivateData.BillingContext.SettlementMode = record.TaskSettlementOpenRouterCostV1
 			info := &relaycommon.RelayInfo{UserId: id, OriginModelName: "test-model", UsingGroup: "default", ChannelMeta: &relaycommon.ChannelMeta{ChannelId: id}, TaskRelayInfo: &relaycommon.TaskRelayInfo{Action: "GENERATE"}, PriceData: types.PriceData{Quota: 50, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}}}
 			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
@@ -2567,7 +2567,7 @@ func TestOpenRouterCostReservationLogRequired(t *testing.T) {
 				log := getLastLog(t)
 				require.NotNil(t, log)
 				assert.Equal(t, 50, log.Quota)
-				assert.Equal(t, model.LogTypeConsume, log.Type)
+				assert.Equal(t, usagerecord.LogTypeConsume, log.Type)
 				assert.Contains(t, log.Other, "reserved_quota")
 				assert.Contains(t, log.Other, "openrouter_cost_v1")
 			}
@@ -2578,12 +2578,12 @@ func TestOpenRouterCostReservationLogRequired(t *testing.T) {
 func TestOpenRouterCostPerTaskPolling(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		status model.TaskStatus
+		status record.TaskStatus
 		cost   float64
 		target int
 	}{
-		{"lower", model.TaskStatusSuccess, 0.00002, 40}, {"higher", model.TaskStatusSuccess, 0.00005, 100},
-		{"zero", model.TaskStatusSuccess, 0, 0}, {"paid_failure", model.TaskStatusFailure, 0.00002, 40},
+		{"lower", record.TaskStatusSuccess, 0.00002, 40}, {"higher", record.TaskStatusSuccess, 0.00005, 100},
+		{"zero", record.TaskStatusSuccess, 0, 0}, {"paid_failure", record.TaskStatusFailure, 0.00002, 40},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			taskfixture.Truncate(t)
@@ -2595,12 +2595,12 @@ func TestOpenRouterCostPerTaskPolling(t *testing.T) {
 			task := taskfixture.MakeTask(id, id, 50, id, BillingSourceWallet, 0)
 			task.PrivateData.UpstreamTaskID = "upstream-cost-task"
 			bc := task.PrivateData.BillingContext
-			bc.SettlementMode = model.TaskSettlementOpenRouterCostV1
+			bc.SettlementMode = record.TaskSettlementOpenRouterCostV1
 			bc.GroupRatio = 4
 			bc.BillingFX = taskfixture.BillingFX(200)
-			bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+			bc.SubmitGroup = &record.TaskBillingSubmitGroup{PureRatio: 2}
 			bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000}
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50}
+			task.PrivateData.Reconciliation = &record.TaskReconciliation{ReservedQuota: 50}
 			require.NoError(t, model.DB.Create(task).Error)
 			var stale model.Task
 			require.NoError(t, model.DB.First(&stale, task.ID).Error)
@@ -2799,11 +2799,11 @@ func TestOpenRouterAudioDurableCostReconciliation(t *testing.T) {
 				assert.Zero(t, modelCalls)
 			}
 			if tc.pending {
-				assert.Equal(t, model.TaskStatus(model.TaskStatusInProgress), task.Status)
+				assert.Equal(t, record.TaskStatus(record.TaskStatusInProgress), task.Status)
 				assert.False(t, task.PrivateData.Reconciliation.Finalized)
 				assert.GreaterOrEqual(t, task.PrivateData.OpenRouterAudio.NextPoll, time.Now().Add(59*time.Minute).Unix())
 			} else if tc.manual {
-				assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), task.Status)
+				assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), task.Status)
 				assert.Contains(t, task.FailReason, "manual reconciliation")
 			} else {
 				assert.True(t, task.PrivateData.Reconciliation.Finalized)
@@ -2845,7 +2845,7 @@ func TestOpenRouterAudioCrashOwnershipAndStaleWriters(t *testing.T) {
 			RunTaskPollingOnce(t.Context(), nil)
 			settled, err := openRouterSyncTask(info)
 			require.NoError(t, err)
-			assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), settled.Status)
+			assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), settled.Status)
 			assert.False(t, settled.PrivateData.OpenRouterAudio.ResultReady)
 			if hasGeneration {
 				assert.Equal(t, 1, calls)
@@ -3012,7 +3012,7 @@ func TestOpenRouterAudioDelayedMetadataAndBoundedUnknown(t *testing.T) {
 				assert.GreaterOrEqual(t, saved.PrivateData.OpenRouterAudio.NextPoll, time.Now().Add(119*time.Minute).Unix())
 				assert.Equal(t, 9950, getUserQuota(t, info.UserId))
 			default:
-				assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), saved.Status)
+				assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), saved.Status)
 				assert.Contains(t, saved.FailReason, "manual reconciliation")
 				assert.Equal(t, 9950, getUserQuota(t, info.UserId))
 			}
@@ -3045,7 +3045,7 @@ func TestOpenRouterAudioRetainsLargerExistingHoldAccounting(t *testing.T) {
 	require.Len(t, logs, 2)
 	assert.Equal(t, 100, logs[0].Quota)
 	assert.Equal(t, 60, logs[1].Quota)
-	assert.Equal(t, model.LogTypeRefund, logs[1].Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, logs[1].Type)
 }
 
 func TestOpenRouterAudioSlowMetadataDoesNotBlockVideoPolling(t *testing.T) {
@@ -3195,7 +3195,7 @@ func TestOpenRouterChatImageDurableReconciliation(t *testing.T) {
 			}
 			saved, err := openRouterSyncTask(info)
 			require.NoError(t, err)
-			if saved.Status != model.TaskStatusFailure && !saved.PrivateData.Reconciliation.Finalized {
+			if saved.Status != record.TaskStatusFailure && !saved.PrivateData.Reconciliation.Finalized {
 				require.NoError(t, pollOpenRouterSync(t.Context(), saved))
 			}
 			saved, err = openRouterSyncTask(info)
@@ -3227,7 +3227,7 @@ func TestOpenRouterChatImageInterruptedSubmissionAndLateCost(t *testing.T) {
 	require.NoError(t, pollOpenRouterSync(t.Context(), saved))
 	saved, err = openRouterSyncTask(info)
 	require.NoError(t, err)
-	assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), saved.Status)
+	assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), saved.Status)
 	assert.Equal(t, 9950, getUserQuota(t, info.UserId))
 	assert.False(t, info.Billing.NeedsRefund())
 	// An original in-flight response may later carry a receipt and confirmed cost;
@@ -3357,7 +3357,7 @@ func TestOpenRouterChatImageLookupBoundsAndConfigBinding(t *testing.T) {
 			assert.Zero(t, calls)
 			saved, err = openRouterSyncTask(info)
 			require.NoError(t, err)
-			assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), saved.Status)
+			assert.Equal(t, record.TaskStatus(record.TaskStatusFailure), saved.Status)
 			assert.Equal(t, "manual_reconciliation", taskdomain.OpenRouterSyncReconciliation(record.ToDomain(saved))["billing_state"])
 			assert.Equal(t, 9950, getUserQuota(t, info.UserId))
 		})

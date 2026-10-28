@@ -1,8 +1,6 @@
 package systemruntime
 
 import (
-	pricingfx "github.com/QuantumNous/new-api/internal/app/pricingfx"
-
 	"context"
 	"fmt"
 	"sync"
@@ -12,11 +10,11 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/app"
 	"github.com/QuantumNous/new-api/internal/app/batchruntime"
+	pricingfx "github.com/QuantumNous/new-api/internal/app/pricingfx"
 	core "github.com/QuantumNous/new-api/internal/app/system"
 	taskruntime "github.com/QuantumNous/new-api/internal/app/taskruntime"
 	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/logger"
-
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 

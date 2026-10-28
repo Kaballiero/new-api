@@ -2,9 +2,9 @@ package controller
 
 import (
 	"github.com/QuantumNous/new-api/constant"
-
 	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 )
 

@@ -1,12 +1,6 @@
 package transport
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"bytes"
 	"context"
 	"fmt"
@@ -21,39 +15,39 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
-	routing "github.com/QuantumNous/new-api/gateway/routing"
-
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/app/taskruntime"
-
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
-
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type nativeRouteBilling struct {
@@ -236,7 +230,7 @@ func TestKlingNativeRouteSubmitPollSettleAndQuery(t *testing.T) {
 	require.NoError(t, database.Where("task_id = ?", "task_kling_public").First(&persisted).Error)
 	assert.Equal(t, constant.TaskPlatform("kling"), persisted.Platform)
 	assert.Equal(t, "kling-private-1", persisted.PrivateData.UpstreamTaskID)
-	assert.Equal(t, model.TaskStatus(model.TaskStatusNotStart), persisted.Status)
+	assert.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusNotStart), persisted.Status)
 
 	previousQueryLimit := constant.TaskQueryLimit
 	constant.TaskQueryLimit = 1000
@@ -244,7 +238,7 @@ func TestKlingNativeRouteSubmitPollSettleAndQuery(t *testing.T) {
 	taskruntime.NewPolling().RunTasks(context.Background(), nil)
 
 	require.NoError(t, database.Where("task_id = ?", "task_kling_public").First(&persisted).Error)
-	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), persisted.Status)
+	assert.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusSuccess), persisted.Status)
 	assert.Equal(t, "100%", persisted.Progress)
 	assert.Equal(t, 1, persisted.Quota)
 	assert.Equal(t, int32(1), queryCalls.Load())
@@ -524,7 +518,7 @@ func TestMidjourneyAndSwapFaceCaptureFXBeforeUpstreamAndKeepSavedRefund(t *testi
 	require.NoError(t, database.First(&user, 4452).Error)
 	assert.Equal(t, 3_100_000, user.Quota)
 	var submitLog model.Log
-	require.NoError(t, database.Where("type = ?", model.LogTypeConsume).First(&submitLog).Error)
+	require.NoError(t, database.Where("type = ?", usagerecord.LogTypeConsume).First(&submitLog).Error)
 	other, err := common.StrToMap(submitLog.Other)
 	require.NoError(t, err)
 	assert.Equal(t, float64(2), other["group_ratio"])
@@ -571,7 +565,7 @@ func TestMidjourneyAndSwapFaceCaptureFXBeforeUpstreamAndKeepSavedRefund(t *testi
 	require.NoError(t, database.First(&user, 4452).Error)
 	assert.Equal(t, 3_100_000, user.Quota)
 	var swapLog model.Log
-	require.NoError(t, database.Where("type = ?", model.LogTypeConsume).Order("id DESC").First(&swapLog).Error)
+	require.NoError(t, database.Where("type = ?", usagerecord.LogTypeConsume).Order("id DESC").First(&swapLog).Error)
 	swapOther, err := common.StrToMap(swapLog.Other)
 	require.NoError(t, err)
 	swapAdmin := swapOther["admin_info"].(map[string]any)

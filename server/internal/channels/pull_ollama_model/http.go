@@ -1,9 +1,11 @@
 package pull_ollama_model
 
 import (
-	"github.com/QuantumNous/new-api/internal/channels/transport"
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/internal/channels/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ usecase func(*gin.Context) Usecase }

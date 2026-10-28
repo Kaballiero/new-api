@@ -1,11 +1,12 @@
 package domain
 
 import (
-	"github.com/QuantumNous/new-api/constant"
 	"maps"
 	"math"
 	"slices"
 	"strings"
+
+	"github.com/QuantumNous/new-api/constant"
 )
 
 type CatalogPrice = TariffPrice

@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
 	"gorm.io/gorm"
 )
 

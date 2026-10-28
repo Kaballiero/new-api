@@ -1,10 +1,11 @@
 package metrics
 
 import (
+	"time"
+
 	"github.com/QuantumNous/new-api/internal/app/systemmetrics"
 	"github.com/QuantumNous/new-api/internal/system/domain"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"time"
 )
 
 func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens int64) {

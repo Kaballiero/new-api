@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"github.com/shopspring/decimal"
-)
+import "github.com/shopspring/decimal"
 
 // PricingSettings reads money/display configuration at each calculation point.
 type PricingSettings interface {

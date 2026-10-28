@@ -4,8 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/constant"
 	routing "github.com/QuantumNous/new-api/gateway/routing"
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
@@ -15,6 +13,8 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+
+	"github.com/gin-gonic/gin"
 )
 
 func (g *Gateway) TextCost(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage) TextCostSummary {

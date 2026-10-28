@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"net/url"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 const pricingCatalogWorkers = 5

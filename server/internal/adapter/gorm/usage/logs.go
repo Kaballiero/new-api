@@ -4,8 +4,6 @@ import (
 	"errors"
 	"strings"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
@@ -14,6 +12,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/usage/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/types"
+
+	"gorm.io/gorm"
 )
 
 func applyExplicitLogTextFilter(tx *gorm.DB, column string, value string) (*gorm.DB, error) {

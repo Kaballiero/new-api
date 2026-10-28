@@ -5,11 +5,10 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/i18n"
-
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct{ usecase Usecase }

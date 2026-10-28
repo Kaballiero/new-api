@@ -1,9 +1,10 @@
 package get_affinity_usage_stats
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ scenario Usecase }

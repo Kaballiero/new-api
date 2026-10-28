@@ -8,10 +8,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
-
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"

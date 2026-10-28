@@ -11,18 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	auditrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
 	locking "github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/redemption"
 	"github.com/QuantumNous/new-api/internal/adapter/wallet"
@@ -35,6 +26,16 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func isolatedDatabase(t *testing.T, kind string) *gorm.DB {
@@ -185,7 +186,7 @@ func TestDeleteRedemptionBatch(t *testing.T) {
 					assert.EqualValues(t, 16, count)
 					var events []model.AuditLog
 					require.NoError(t, logDB.Where("request_id = ? AND category = ?", response.Header().Get(common.RequestIdKey),
-						model.AuditCategoryOperation).Find(&events).Error)
+						auditrecord.AuditCategoryOperation).Find(&events).Error)
 					require.Len(t, events, 1)
 					assert.False(t, events[0].Success)
 					assert.Equal(t, "redemption.delete_batch", events[0].Action)
@@ -215,7 +216,7 @@ func TestDeleteRedemptionBatch(t *testing.T) {
 				assert.Equal(t, expectedCount, result.Data)
 				var events []model.AuditLog
 				require.NoError(t, logDB.Where("request_id = ? AND category = ?", response.Header().Get(common.RequestIdKey),
-					model.AuditCategoryOperation).Find(&events).Error)
+					auditrecord.AuditCategoryOperation).Find(&events).Error)
 				require.Len(t, events, 1, "one operation event, without a duplicate single-delete fallback")
 				event := events[0]
 				assert.Equal(t, "redemption.delete_batch", event.Action)

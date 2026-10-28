@@ -1,10 +1,11 @@
 package locking
 
 import (
-	"github.com/QuantumNous/new-api/model"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

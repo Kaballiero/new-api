@@ -1,8 +1,6 @@
 package reset_due
 
-import (
-	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
-)
+import "github.com/QuantumNous/new-api/internal/subscriptions/domain"
 
 type Store interface {
 	DueCandidates(limit int, now int64) ([]domain.UserSubscription, error)

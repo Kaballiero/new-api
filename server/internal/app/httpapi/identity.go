@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"sync"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	profiledto "github.com/QuantumNous/new-api/internal/accounts/dto"
@@ -15,11 +17,11 @@ import (
 	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/internal/identity/password_login"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
-	"sync"
 )
 
-// identityErrors writes identity errors for the controller bridges and the
+// identityErrors writes identity errors for the controller bindings and the
 // modules that reuse the security error responses.
 var identityErrors = app.NewIdentityErrors()
 

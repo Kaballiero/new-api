@@ -3,9 +3,9 @@ package transport
 import (
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 func ReadTaskQuery(c *gin.Context) domain.TaskQuery {

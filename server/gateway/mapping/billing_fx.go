@@ -2,6 +2,7 @@ package mapping
 
 import (
 	"errors"
+
 	"github.com/QuantumNous/new-api/common"
 )
 

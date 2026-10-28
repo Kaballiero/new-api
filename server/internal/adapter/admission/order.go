@@ -1,8 +1,6 @@
 package admission
 
-import (
-	"sync"
-)
+import "sync"
 
 // OrderAdmission retains the legacy reference-counted per-order registry.
 type OrderAdmission struct {

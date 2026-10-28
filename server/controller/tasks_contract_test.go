@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,13 +16,11 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/adapter/http/taskmedia"
 	systemcore "github.com/QuantumNous/new-api/internal/app/system"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
@@ -34,8 +31,11 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
 	"github.com/QuantumNous/new-api/setting/config"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var mjTickManifest = flag.Bool("tasks-mj-manifest", false, "list Midjourney tick cases")
@@ -308,7 +308,7 @@ func runTaskScheduleContract(t *testing.T, name string, updating bool) {
 			if family == "mj" {
 				require.NoError(t, db.Create(&model.Midjourney{Id: 91, MjId: "schedule-mj", Status: "IN_PROGRESS", Progress: "50%", ChannelId: 99}).Error)
 			} else {
-				require.NoError(t, db.Create(&model.Task{ID: 81, TaskID: "schedule-async", Status: model.TaskStatusInProgress, ChannelId: 99, Platform: "kling"}).Error)
+				require.NoError(t, db.Create(&model.Task{ID: 81, TaskID: "schedule-async", Status: tasksrecord.TaskStatusInProgress, ChannelId: 99, Platform: "kling"}).Error)
 			}
 		}
 		if variant == "disabled" {
@@ -408,7 +408,7 @@ func runTaskProxyContract(t *testing.T, name string, updating bool) {
 		variant := strings.TrimPrefix(name, "proxy_")
 		base := "https://203.0.113.10"
 		require.NoError(t, db.Create(&model.Channel{Id: 71, Key: "fixture-key", BaseURL: &base, Status: 1}).Error)
-		task := &model.Task{ID: 81, TaskID: "task_proxy", ChannelId: 71, UserId: 1, Status: model.TaskStatusSuccess, Platform: "kling"}
+		task := &model.Task{ID: 81, TaskID: "task_proxy", ChannelId: 71, UserId: 1, Status: tasksrecord.TaskStatusSuccess, Platform: "kling"}
 		require.NoError(t, db.Create(task).Error)
 		descriptor := &domain.MediaRequest{URL: base + "/source", Headers: map[string]string{"Authorization": "Bearer fixture-key", "Range": "bytes=0-1"}}
 		expected, calls := 200, 1

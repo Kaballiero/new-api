@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/internal/usage/record_failure"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

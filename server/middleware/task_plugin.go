@@ -5,12 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
-	routing "github.com/QuantumNous/new-api/gateway/routing"
-	"github.com/QuantumNous/new-api/i18n"
-
 	"io"
 	"mime"
 	"mime/multipart"
@@ -24,22 +18,21 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
-	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
-
+	routing "github.com/QuantumNous/new-api/gateway/routing"
+	"github.com/QuantumNous/new-api/i18n"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	taskrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
-
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
-
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/internal/taskplugins/query_plugin_tasks"
 	"github.com/QuantumNous/new-api/internal/taskplugins/resolve_plugin_origins"
+	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
-
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/types"
+
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )

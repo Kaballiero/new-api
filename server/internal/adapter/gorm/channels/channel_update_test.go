@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	legacy "github.com/QuantumNous/new-api/model"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-	legacy "github.com/QuantumNous/new-api/model"
 )
 
 func openChannelUpdateTestDB(t *testing.T) *gorm.DB {

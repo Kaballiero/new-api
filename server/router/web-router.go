@@ -2,13 +2,14 @@ package router
 
 import (
 	"embed"
-	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	"net/http"
 	"path"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	"github.com/QuantumNous/new-api/middleware"
+
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"

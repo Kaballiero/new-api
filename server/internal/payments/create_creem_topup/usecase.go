@@ -3,9 +3,9 @@ package create_creem_topup
 import (
 	"context"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/QuantumNous/new-api/internal/payments/domain"
+
+	"github.com/shopspring/decimal"
 )
 
 // Products reads the current product list, preserving malformed configuration as an error.

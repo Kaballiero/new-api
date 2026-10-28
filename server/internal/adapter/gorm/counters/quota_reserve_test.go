@@ -5,10 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	keycache "github.com/QuantumNous/new-api/internal/adapter/cache/apikeys"
 	cachequota "github.com/QuantumNous/new-api/internal/adapter/cache/quota"
@@ -18,6 +14,10 @@ import (
 	"github.com/QuantumNous/new-api/internal/app/quotaruntime"
 	"github.com/QuantumNous/new-api/internal/contracttest/cachefixture"
 	"github.com/QuantumNous/new-api/model"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func createReserveTestUser(t *testing.T, quota int) model.User {

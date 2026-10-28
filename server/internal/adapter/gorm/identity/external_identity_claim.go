@@ -2,11 +2,13 @@ package identity
 
 import (
 	"errors"
+	"strings"
+
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"gorm.io/gorm"
-	"strings"
 )
 
 func (s Store) ReleaseExternalIdentityWithTx(tx *gorm.DB, provider string, userId int) error {

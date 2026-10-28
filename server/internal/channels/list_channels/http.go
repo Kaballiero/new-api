@@ -1,11 +1,13 @@
 package list_channels
 
 import (
+	"strconv"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/channels/transport"
+
 	"github.com/gin-gonic/gin"
-	"strconv"
 )
 
 type HTTP struct{ usecase func(*gin.Context) Usecase }

@@ -9,17 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/QuantumNous/new-api/internal/system/purge_old_logs"
-
-	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-
-	"github.com/QuantumNous/new-api/internal/system/list_system_instances"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	systemstore "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
 	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	settings "github.com/QuantumNous/new-api/internal/app/settings"
 	core "github.com/QuantumNous/new-api/internal/app/system"
@@ -27,7 +22,10 @@ import (
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/internal/system/complete_setup"
 	"github.com/QuantumNous/new-api/internal/system/domain"
+	"github.com/QuantumNous/new-api/internal/system/list_system_instances"
+	"github.com/QuantumNous/new-api/internal/system/purge_old_logs"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

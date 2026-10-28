@@ -14,7 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/model"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 

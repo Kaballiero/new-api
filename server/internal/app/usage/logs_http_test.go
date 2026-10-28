@@ -10,20 +10,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	app "github.com/QuantumNous/new-api/internal/app/usage"
 	query "github.com/QuantumNous/new-api/internal/usage/admin_query_user_logs"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/internal/usage/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type selfLogFilterDatabase struct {
@@ -101,21 +102,21 @@ func TestGetUserLogsByTokenIdFiltersBeforeCountAndPagination(t *testing.T) {
 			db := setupSelfLogTokenFilterTest(t, database)
 			seedSelfLogTokenFilterData(t, db)
 
-			firstPage, total, err := queryOwnLogs(1, 11, model.LogTypeUnknown, 150, 450, "alpha", "", 0, 1, "", "", "")
+			firstPage, total, err := queryOwnLogs(1, 11, usagerecord.LogTypeUnknown, 150, 450, "alpha", "", 0, 1, "", "", "")
 			require.NoError(t, err)
 			require.Equal(t, int64(2), total)
 			require.Len(t, firstPage, 1)
 			assert.Equal(t, 11, firstPage[0].TokenId)
 			assert.Equal(t, int64(400), firstPage[0].CreatedAt)
 
-			secondPage, total, err := queryOwnLogs(1, 11, model.LogTypeUnknown, 150, 450, "alpha", "", 1, 1, "", "", "")
+			secondPage, total, err := queryOwnLogs(1, 11, usagerecord.LogTypeUnknown, 150, 450, "alpha", "", 1, 1, "", "", "")
 			require.NoError(t, err)
 			require.Equal(t, int64(2), total)
 			require.Len(t, secondPage, 1)
 			assert.Equal(t, 11, secondPage[0].TokenId)
 			assert.Equal(t, int64(300), secondPage[0].CreatedAt)
 
-			renamedTokenLogs, total, err := queryOwnLogs(1, 13, model.LogTypeUnknown, 0, 0, "", "", 0, 20, "", "", "")
+			renamedTokenLogs, total, err := queryOwnLogs(1, 13, usagerecord.LogTypeUnknown, 0, 0, "", "", 0, 20, "", "", "")
 			require.NoError(t, err)
 			require.Equal(t, int64(1), total)
 			require.Len(t, renamedTokenLogs, 1)
@@ -199,14 +200,14 @@ func TestTokenUsageModelSubstringFilter(t *testing.T) {
 				db = model.LOG_DB
 			}
 			for _, log := range []*model.Log{
-				{UserId: 1, TokenId: 11, ModelName: "gpt-4o", CreatedAt: 700, Type: model.LogTypeConsume},
-				{UserId: 1, TokenId: 11, ModelName: "vendor/GPT-4.1", CreatedAt: 800, Type: model.LogTypeConsume},
-				{UserId: 1, TokenId: 11, ModelName: "claude-sonnet", CreatedAt: 900, Type: model.LogTypeConsume},
-				{UserId: 1, TokenId: 11, ModelName: `custom%_!\model`, CreatedAt: 1000, Type: model.LogTypeConsume},
-				{UserId: 1, TokenId: 13, ModelName: "gpt-4o", CreatedAt: 800, Type: model.LogTypeConsume},
-				{UserId: 2, TokenId: 21, ModelName: "gpt-4o", CreatedAt: 800, Type: model.LogTypeConsume},
-				{UserId: 1, TokenId: 11, ModelName: "gpt-4o", CreatedAt: 1100, Type: model.LogTypeConsume},
-				{UserId: 1, TokenId: 11, ModelName: "gpt-4o", CreatedAt: 850, Type: model.LogTypeError},
+				{UserId: 1, TokenId: 11, ModelName: "gpt-4o", CreatedAt: 700, Type: usagerecord.LogTypeConsume},
+				{UserId: 1, TokenId: 11, ModelName: "vendor/GPT-4.1", CreatedAt: 800, Type: usagerecord.LogTypeConsume},
+				{UserId: 1, TokenId: 11, ModelName: "claude-sonnet", CreatedAt: 900, Type: usagerecord.LogTypeConsume},
+				{UserId: 1, TokenId: 11, ModelName: `custom%_!\model`, CreatedAt: 1000, Type: usagerecord.LogTypeConsume},
+				{UserId: 1, TokenId: 13, ModelName: "gpt-4o", CreatedAt: 800, Type: usagerecord.LogTypeConsume},
+				{UserId: 2, TokenId: 21, ModelName: "gpt-4o", CreatedAt: 800, Type: usagerecord.LogTypeConsume},
+				{UserId: 1, TokenId: 11, ModelName: "gpt-4o", CreatedAt: 1100, Type: usagerecord.LogTypeConsume},
+				{UserId: 1, TokenId: 11, ModelName: "gpt-4o", CreatedAt: 850, Type: usagerecord.LogTypeError},
 			} {
 				require.NoError(t, db.Create(log).Error)
 			}
@@ -279,7 +280,7 @@ func TestAdminLogUserQueryContract(t *testing.T) {
 			}
 			for index := range 150 {
 				row := map[string]any{
-					"user_id": index%2 + 1, "created_at": int64(100 + index/2), "type": model.LogTypeConsume,
+					"user_id": index%2 + 1, "created_at": int64(100 + index/2), "type": usagerecord.LogTypeConsume,
 					"username": "historical-name", "model_name": "alpha_one", "token_name": "api-key-name", "channel_id": 7,
 					"other":      `{"admin_info":{"quota_saturation":{"source":"test"}},"root_info":{"diagnostic":"root-only"}}`,
 					"request_id": fmt.Sprintf("request-%03d", index+1),
@@ -287,10 +288,10 @@ func TestAdminLogUserQueryContract(t *testing.T) {
 				require.NoError(t, logDB.Table("logs").Create(row).Error)
 			}
 			for _, row := range []map[string]any{
-				{"user_id": 3, "created_at": int64(1000), "type": model.LogTypeConsume, "model_name": "alpha_one",
+				{"user_id": 3, "created_at": int64(1000), "type": usagerecord.LogTypeConsume, "model_name": "alpha_one",
 					"username": "outsider", "request_id": "outsider", "token_name": "", "channel_id": 0,
 					"other": "{}"},
-				{"user_id": 1, "created_at": int64(1000), "type": model.LogTypeError, "model_name": "beta",
+				{"user_id": 1, "created_at": int64(1000), "type": usagerecord.LogTypeError, "model_name": "beta",
 					"username": "current-name", "request_id": "error", "token_name": "", "channel_id": 0,
 					"other": "{}"},
 			} {
@@ -386,7 +387,7 @@ func TestAdminLogUserQueryContract(t *testing.T) {
 			t.Run("equal-clickhouse-sort-keys-have-no-identity-guarantee", func(t *testing.T) {
 				for _, userID := range []int{1, 2} {
 					require.NoError(t, logDB.Table("logs").Create(map[string]any{"user_id": userID, "created_at": int64(3000),
-						"type": model.LogTypeConsume, "username": "tie-user", "model_name": "tie-model",
+						"type": usagerecord.LogTypeConsume, "username": "tie-user", "model_name": "tie-model",
 						"token_name": "", "channel_id": 0, "other": "{}", "request_id": "duplicate-tie"}).Error)
 				}
 				status, info, logs := requestPage("POST", "/api/log/query", `{"user_ids":[1,2],"type":2,"model_name":"tie-model"}`, "")
@@ -412,7 +413,7 @@ func TestAdminLogUserQueryContract(t *testing.T) {
 					maximumIDs[index] = math.MaxInt32 - index
 					modelName := "bulk-model"
 					rows[index] = map[string]any{"user_id": maximumIDs[index], "created_at": int64(2000),
-						"type": model.LogTypeConsume, "username": "bulk-user", "model_name": modelName,
+						"type": usagerecord.LogTypeConsume, "username": "bulk-user", "model_name": modelName,
 						"token_name": "", "channel_id": 0, "other": "{}", "request_id": fmt.Sprintf("bulk-%05d",
 							index+1)}
 				}

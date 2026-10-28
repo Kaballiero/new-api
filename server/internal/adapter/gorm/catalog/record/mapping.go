@@ -1,8 +1,6 @@
 package record
 
-import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
-)
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 func ToModel(value *Model) *domain.Model {
 	if value == nil {

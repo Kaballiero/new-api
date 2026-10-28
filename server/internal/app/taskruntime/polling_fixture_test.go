@@ -8,9 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/constant"
 	taskplugins "github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
@@ -26,6 +23,9 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
+	"github.com/bytedance/gopkg/util/gopool"
+	"gorm.io/gorm"
 )
 
 // These test ports preserve existing provider fakes while exercising the real
@@ -240,7 +240,7 @@ func (a failureFixtureAdaptor) FetchTask(string, string, *model.Task, string) (*
 	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
 }
 func (a failureFixtureAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
-	return &relaycommon.TaskInfo{Status: model.TaskStatusFailure, Reason: a.reason}, nil
+	return &relaycommon.TaskInfo{Status: record.TaskStatusFailure, Reason: a.reason}, nil
 }
 
 type observedCompletion struct {
@@ -253,7 +253,7 @@ func (c *observedCompletion) Settle(ctx context.Context, task *domain.Task, resu
 	c.err = err
 	return settled, err
 }
-func failTaskFromPoll(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, fromStatus model.TaskStatus, reason string) error {
+func failTaskFromPoll(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, fromStatus record.TaskStatus, reason string) error {
 	selected := record.ToDomain(task)
 	selected.Status = domain.TaskStatus(fromStatus)
 	store := &fixtureInventory{PollingStore: taskstore.PollingStore{Store: taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache())}, tasks: []*domain.Task{selected}}

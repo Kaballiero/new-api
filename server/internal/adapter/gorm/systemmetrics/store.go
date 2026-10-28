@@ -3,6 +3,7 @@ package systemmetrics
 import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics/record"
 	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
-	"gorm.io/gorm"
-
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
+
+	"gorm.io/gorm"
 )
 
 const CatalogAPIURLEnv = "PRICING_CATALOG_API_URL"

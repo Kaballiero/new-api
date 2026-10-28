@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -182,7 +183,7 @@ func (a *TaskAdaptor) PrepareOpenRouterCost(c *gin.Context, info *relaycommon.Re
 		estimate = max(estimate, *minimum)
 	}
 	basis := relaycommon.NewOpenRouterCostBasis(info, estimate)
-	basis.Version = model.TaskSettlementOpenRouterCostV2
+	basis.Version = tasksrecord.TaskSettlementOpenRouterCostV2
 	quota, clamp, err := basis.Quota(estimate)
 	if err != nil {
 		return err
@@ -820,7 +821,7 @@ func (a *TaskAdaptor) ParseTaskResult(task *model.Task, resp *http.Response, bod
 					result.UpstreamCostUSD = &cost
 					byok, known := usage["is_byok"].(bool)
 					result.UpstreamCostConfirmed = known && !byok
-					if task != nil && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.SettlementMode == model.TaskSettlementOpenRouterCostV2 {
+					if task != nil && task.PrivateData.BillingContext != nil && task.PrivateData.BillingContext.SettlementMode == tasksrecord.TaskSettlementOpenRouterCostV2 {
 						result.UpstreamCostConfirmed = true
 					}
 				}
@@ -842,12 +843,12 @@ func (a *TaskAdaptor) ParseTaskResult(task *model.Task, resp *http.Response, bod
 			a.applyCompletionUsageFacts(result, facts)
 		}
 	}
-	taskStatus := model.TaskStatus(result.Status)
+	taskStatus := tasksrecord.TaskStatus(result.Status)
 	logger.LogDebug(
 		context.Background(),
 		"task_plugin subsystem=adaptor event=parse_task_complete plugin=%q terminal=%t body_bytes=%d elapsed_ms=%d",
 		a.plugin.Meta.Key,
-		taskStatus == model.TaskStatusSuccess || taskStatus == model.TaskStatusFailure,
+		taskStatus == tasksrecord.TaskStatusSuccess || taskStatus == tasksrecord.TaskStatusFailure,
 		len(body),
 		time.Since(started).Milliseconds(),
 	)

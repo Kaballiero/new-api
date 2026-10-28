@@ -1,14 +1,14 @@
 package login
 
 import (
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
-
-	"time"
 )
 
 type Dependencies struct {

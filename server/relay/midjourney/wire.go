@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
@@ -18,8 +16,9 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-
 	"github.com/QuantumNous/new-api/setting"
+
+	"github.com/gin-gonic/gin"
 )
 
 func GetMjRequestModel(relayMode int, midjRequest *dto.MidjourneyRequest) (string, *dto.MidjourneyResponse, bool) {

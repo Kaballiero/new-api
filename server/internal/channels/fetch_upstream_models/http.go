@@ -1,12 +1,14 @@
 package fetch_upstream_models
 
 import (
+	"net/http"
+	"strconv"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/channels/transport"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
-	"strconv"
 )
 
 type HTTP struct{ usecase func(*gin.Context) Usecase }

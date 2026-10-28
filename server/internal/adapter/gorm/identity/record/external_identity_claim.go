@@ -2,11 +2,13 @@ package model
 
 import (
 	"errors"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"strings"
 	"time"
+
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const ExternalIdentityProviderTelegram = "telegram"

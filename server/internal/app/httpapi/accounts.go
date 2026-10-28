@@ -1,17 +1,20 @@
 package httpapi
 
 import (
+	"sync"
+
 	"github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
+	auditrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/app"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	audittransport "github.com/QuantumNous/new-api/internal/audit/transport"
 	subscriptiontransport "github.com/QuantumNous/new-api/internal/subscriptions/transport"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
 	"github.com/gin-gonic/gin"
-	"sync"
 )
 
 // Accounts builds the account handlers once; settings, the database and
@@ -28,15 +31,15 @@ type accountQuotaAudit struct {
 
 func (a accountQuotaAudit) RecordRecipientAdjustment(adjustment *adjust_quota.UserQuotaAdjustment, action string, params map[string]any) {
 	c := a.context
-	operation := model.AuditOperation{Action: action, Params: params}
-	usagestorage.Writer().RecordLogWithAdminInfo(adjustment.UserID, model.LogTypeTopup, auditdomain.OperationContent(action, params), quotaOperatorInfo(c), &operation, c)
+	operation := auditrecord.AuditOperation{Action: action, Params: params}
+	usagestorage.Writer().RecordLogWithAdminInfo(adjustment.UserID, usagerecord.LogTypeTopup, auditdomain.OperationContent(action, params), quotaOperatorInfo(c), &operation, c)
 }
 
 func (a accountQuotaAudit) RecordOperatorAdjustment(action string, params map[string]any, success bool) {
 	auditapp.Recording().Quota(a.context, action, params, success)
 }
 
-func quotaOperatorInfo(c *gin.Context) *model.AuditAdminInfo {
+func quotaOperatorInfo(c *gin.Context) *auditrecord.AuditAdminInfo {
 	operator := audittransport.Operator(c)
-	return &model.AuditAdminInfo{AdminID: operator.ID, AdminUsername: operator.Username, AdminRole: operator.Role, AuthMethod: operator.AuthMethod}
+	return &auditrecord.AuditAdminInfo{AdminID: operator.ID, AdminUsername: operator.Username, AdminRole: operator.Role, AuthMethod: operator.AuthMethod}
 }

@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (s Store) SyncBatchConsumeLogs(limit int) error {

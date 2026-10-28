@@ -3,12 +3,14 @@ package refresh_codex_credential
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ usecase func(*gin.Context) Usecase }

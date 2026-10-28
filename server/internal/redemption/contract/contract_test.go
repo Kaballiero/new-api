@@ -2,8 +2,6 @@
 package contract
 
 import (
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -22,16 +20,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/contracttest"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/contracttest"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 const originCommit = "6b0f439a432ab129817e4e41ce323e6bd3c3c0c3"

@@ -3,12 +3,12 @@ package channels
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/constant"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestChannelValidateSettingsRejectsInvalidHTTPTransport(t *testing.T) {

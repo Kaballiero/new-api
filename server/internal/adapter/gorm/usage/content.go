@@ -2,8 +2,9 @@ package usage
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/usage/domain"
 )
 
 type Content struct{ Quota func(int) string }

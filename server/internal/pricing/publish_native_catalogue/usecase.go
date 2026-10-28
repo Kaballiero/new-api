@@ -3,10 +3,11 @@ package publish_native_catalogue
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"maps"
 	"slices"
+
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 type Transaction interface {

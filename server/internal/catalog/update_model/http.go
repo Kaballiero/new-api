@@ -1,11 +1,13 @@
 package update_model
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/catalog/transport"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct{ scenario Usecase }

@@ -1,27 +1,25 @@
 package middleware
 
 import (
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-	"github.com/QuantumNous/new-api/internal/app/authentication"
-
-	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
-
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
-	"github.com/QuantumNous/new-api/internal/apikeys/validate_key"
-	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-
 	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	"github.com/QuantumNous/new-api/internal/apikeys/validate_key"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/authentication"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/QuantumNous/new-api/model"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const authIdentityContextKey = "auth_identity"

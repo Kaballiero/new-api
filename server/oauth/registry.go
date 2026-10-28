@@ -2,12 +2,12 @@ package oauth
 
 import (
 	"fmt"
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"maps"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 )
 
 var (

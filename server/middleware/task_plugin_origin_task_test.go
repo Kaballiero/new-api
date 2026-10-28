@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	routing "github.com/QuantumNous/new-api/gateway/routing"
 	appI18n "github.com/QuantumNous/new-api/i18n"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
@@ -61,8 +62,8 @@ func insertOriginOwnedTask(t *testing.T, taskID string, userID, channelID int, p
 		ChannelId: channelID,
 		Platform:  platform,
 		Action:    "text_to_video",
-		Status:    model.TaskStatusSuccess,
-		PrivateData: model.TaskPrivateData{
+		Status:    tasksrecord.TaskStatusSuccess,
+		PrivateData: tasksrecord.TaskPrivateData{
 			UpstreamTaskID: "upstream-" + taskID,
 		},
 	}
@@ -242,7 +243,7 @@ func TestApplyOriginTaskAffinitySetsLockedChannel(t *testing.T) {
 	assert.Equal(t, "task-lock", info.OriginTasks[0].TaskID)
 	assert.Equal(t, "upstream-task-lock", info.OriginTasks[0].UpstreamTaskID)
 	assert.Equal(t, "text_to_video", info.OriginTasks[0].Action)
-	assert.Equal(t, string(model.TaskStatusSuccess), info.OriginTasks[0].Status)
+	assert.Equal(t, string(tasksrecord.TaskStatusSuccess), info.OriginTasks[0].Status)
 }
 
 func TestPrepareTaskPluginRoutePinsOriginTaskChannel(t *testing.T) {

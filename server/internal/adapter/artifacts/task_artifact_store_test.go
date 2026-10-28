@@ -10,8 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/types"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,12 +43,12 @@ func TestFilesystemTaskArtifactSurvivesReopenAndVerifiesSnapshot(t *testing.T) {
 	require.NoError(t, os.Chmod(directory, 0700))
 	store, err := newFilesystemTaskArtifactStore(directory)
 	require.NoError(t, err)
-	task := &model.Task{TaskID: "task-audio-result", Status: model.TaskStatusInProgress}
+	task := &model.Task{TaskID: "task-audio-result", Status: tasksrecord.TaskStatusInProgress}
 	payload := "raw audio result"
 	artifact := types.TaskArtifact{Key: "result", Type: "audio", MimeType: "audio/pcm"}
 	ref, err := store.Persist(t.Context(), task, artifact, strings.NewReader(payload))
 	require.NoError(t, err)
-	task.PrivateData.OpenRouterAudio = &model.OpenRouterAudioTask{ResultReady: true, ResultSize: ref.Size, ResultSHA256: ref.SHA256, ResultMimeType: ref.MimeType}
+	task.PrivateData.OpenRouterAudio = &tasksrecord.OpenRouterAudioTask{ResultReady: true, ResultSize: ref.Size, ResultSHA256: ref.SHA256, ResultMimeType: ref.MimeType}
 	info, err := os.Stat(filepath.Join(directory, ref.ObjectKey))
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
@@ -59,7 +61,7 @@ func TestFilesystemTaskArtifactSurvivesReopenAndVerifiesSnapshot(t *testing.T) {
 	resolved, err := store.Resolve(task, "result")
 	require.NoError(t, err)
 	require.Equal(t, ref, resolved)
-	for _, status := range []model.TaskStatus{model.TaskStatusInProgress, model.TaskStatusFailure, model.TaskStatusSuccess} {
+	for _, status := range []tasksrecord.TaskStatus{tasksrecord.TaskStatusInProgress, tasksrecord.TaskStatusFailure, tasksrecord.TaskStatusSuccess} {
 		task.Status = status
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
 			recorder := httptest.NewRecorder()

@@ -1,8 +1,9 @@
 package verify_factor_code
 
 import (
-	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type FactorCodeOperation interface {

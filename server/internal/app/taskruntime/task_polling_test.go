@@ -10,18 +10,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	taskdto "github.com/QuantumNous/new-api/dto"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
+	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type taskPollingFetchAdaptor struct {
@@ -56,7 +58,7 @@ func (a *batchPollingAdaptor) ParseBatchResult(_ []*model.Task, _ *http.Response
 	}
 	results := make(map[string]*BatchTaskResult, len(a.batchIDs))
 	for _, taskID := range a.batchIDs {
-		results[taskID] = &BatchTaskResult{TaskInfo: relaycommon.TaskInfo{TaskID: taskID, Status: model.TaskStatusInProgress, Url: "https://example.com/result"}}
+		results[taskID] = &BatchTaskResult{TaskInfo: relaycommon.TaskInfo{TaskID: taskID, Status: tasksrecord.TaskStatusInProgress, Url: "https://example.com/result"}}
 	}
 	return results, nil
 }
@@ -91,7 +93,7 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, task *model.Task
 		Code: taskdto.TaskSuccessCode,
 		Data: model.Task{
 			TaskID:   taskID,
-			Status:   model.TaskStatusInProgress,
+			Status:   tasksrecord.TaskStatusInProgress,
 			Progress: "30%",
 		},
 	}
@@ -106,7 +108,7 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, task *model.Task
 }
 
 func (a *taskPollingFetchAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
-	return &relaycommon.TaskInfo{Status: model.TaskStatusInProgress}, nil
+	return &relaycommon.TaskInfo{Status: tasksrecord.TaskStatusInProgress}, nil
 }
 
 func (a *taskPollingFetchAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
@@ -185,11 +187,11 @@ func seedPollingTask(t *testing.T, channelID int, publicID string, upstreamID st
 		UserId:    1,
 		ChannelId: channelID,
 		Action:    constant.TaskActionImageToVideo,
-		Status:    model.TaskStatusInProgress,
+		Status:    tasksrecord.TaskStatusInProgress,
 		Progress:  "30%",
 		CreatedAt: time.Now().Unix(),
 		UpdatedAt: time.Now().Unix(),
-		PrivateData: model.TaskPrivateData{
+		PrivateData: tasksrecord.TaskPrivateData{
 			UpstreamTaskID: upstreamID,
 		},
 	}
@@ -258,14 +260,14 @@ func TestDispatchPlatformUpdateUsesFetchMode(t *testing.T) {
 func TestUpdateBatchTasksSettlesTieredUsageForTerminalStates(t *testing.T) {
 	testCases := []struct {
 		name        string
-		status      model.TaskStatus
+		status      tasksrecord.TaskStatus
 		units       float64
 		actualQuota int
 	}{
-		{name: "success with usage", status: model.TaskStatusSuccess, units: 3, actualQuota: 3_000},
-		{name: "failure with usage", status: model.TaskStatusFailure, units: 3, actualQuota: 0},
-		{name: "success with zero usage", status: model.TaskStatusSuccess, units: 0, actualQuota: 0},
-		{name: "failure with zero usage", status: model.TaskStatusFailure, units: 0, actualQuota: 0},
+		{name: "success with usage", status: tasksrecord.TaskStatusSuccess, units: 3, actualQuota: 3_000},
+		{name: "failure with usage", status: tasksrecord.TaskStatusFailure, units: 3, actualQuota: 0},
+		{name: "success with zero usage", status: tasksrecord.TaskStatusSuccess, units: 0, actualQuota: 0},
+		{name: "failure with zero usage", status: tasksrecord.TaskStatusFailure, units: 0, actualQuota: 0},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -296,7 +298,7 @@ func TestUpdateBatchTasksSettlesTieredUsageForTerminalStates(t *testing.T) {
 
 			upstreamID := task.GetUpstreamTaskID()
 			reason := ""
-			if testCase.status == model.TaskStatusFailure {
+			if testCase.status == tasksrecord.TaskStatusFailure {
 				reason = "upstream failed"
 			}
 			result := &BatchTaskResult{TaskInfo: relaycommon.TaskInfo{
@@ -321,10 +323,10 @@ func TestUpdateBatchTasksSettlesTieredUsageForTerminalStates(t *testing.T) {
 			assert.Equal(t, initialQuota+(preConsumedQuota-testCase.actualQuota), getUserQuota(t, userID))
 			assert.Equal(t, tokenRemain+(preConsumedQuota-testCase.actualQuota), getTokenRemainQuota(t, tokenID))
 			assert.Equal(t, int64(1), countLogs(t))
-			if testCase.status == model.TaskStatusFailure {
+			if testCase.status == tasksrecord.TaskStatusFailure {
 				log := getLastLog(t)
 				require.NotNil(t, log)
-				assert.Equal(t, model.LogTypeRefund, log.Type)
+				assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 			}
 
 			// A duplicate terminal response must not settle the same task twice.
@@ -365,7 +367,7 @@ func TestUpdateBatchTasksRefundsFailedTieredTask(t *testing.T) {
 	adaptor := &batchPollingAdaptor{results: map[string]*BatchTaskResult{
 		upstreamID: {TaskInfo: relaycommon.TaskInfo{
 			TaskID:     upstreamID,
-			Status:     model.TaskStatusFailure,
+			Status:     tasksrecord.TaskStatusFailure,
 			Reason:     "upstream failed",
 			UsageFacts: map[string]any{"units": float64(5)},
 		}},
@@ -374,14 +376,14 @@ func TestUpdateBatchTasksRefundsFailedTieredTask(t *testing.T) {
 
 	var persisted model.Task
 	require.NoError(t, model.DB.First(&persisted, task.ID).Error)
-	assert.EqualValues(t, model.TaskStatusFailure, persisted.Status)
+	assert.EqualValues(t, tasksrecord.TaskStatusFailure, persisted.Status)
 	assert.Zero(t, persisted.Quota)
 	assert.Equal(t, initialQuota+preConsumedQuota, getUserQuota(t, userID))
 	assert.Equal(t, tokenRemain+preConsumedQuota, getTokenRemainQuota(t, tokenID))
 
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 	assert.Equal(t, preConsumedQuota, log.Quota)
 	var other map[string]any
 	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
@@ -411,7 +413,7 @@ func TestUpdateBatchTasksRefundsFailedTaskWithoutUsageSettlement(t *testing.T) {
 
 	upstreamID := task.GetUpstreamTaskID()
 	adaptor := &batchPollingAdaptor{results: map[string]*BatchTaskResult{
-		upstreamID: {TaskInfo: relaycommon.TaskInfo{TaskID: upstreamID, Status: model.TaskStatusFailure, Reason: "upstream failed", TotalTokens: 123}},
+		upstreamID: {TaskInfo: relaycommon.TaskInfo{TaskID: upstreamID, Status: tasksrecord.TaskStatusFailure, Reason: "upstream failed", TotalTokens: 123}},
 	}}
 	require.NoError(t, UpdateBatchTasks(context.Background(), adaptor, map[int][]string{channelID: {upstreamID}}, map[string]*model.Task{upstreamID: task}))
 
@@ -419,7 +421,7 @@ func TestUpdateBatchTasksRefundsFailedTaskWithoutUsageSettlement(t *testing.T) {
 	assert.Equal(t, tokenRemain+preConsumedQuota, getTokenRemainQuota(t, tokenID))
 	log := getLastLog(t)
 	require.NotNil(t, log)
-	assert.Equal(t, model.LogTypeRefund, log.Type)
+	assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 }
 
 func TestUpdateVideoTasksCanSkipPollingSleepPerChannel(t *testing.T) {
@@ -621,7 +623,7 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	task := taskfixture.MakeTask(userID, channelID, taskQuota, tokenID, BillingSourceWallet, 0)
 	task.TaskID = publicTaskID
 	task.Platform = constant.TaskPlatformSuno
-	task.Status = model.TaskStatusInProgress
+	task.Status = tasksrecord.TaskStatusInProgress
 	task.Progress = "50%"
 	task.SubmitTime = time.Now().Unix()
 	task.PrivateData.UpstreamTaskID = upstreamTaskID
@@ -635,7 +637,7 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 	adaptor := &batchPollingAdaptor{results: map[string]*BatchTaskResult{
 		upstreamTaskID: {TaskInfo: relaycommon.TaskInfo{
 			TaskID: upstreamTaskID,
-			Status: model.TaskStatusFailure,
+			Status: tasksrecord.TaskStatusFailure,
 			Reason: "upstream failed",
 		}},
 	}}
@@ -652,7 +654,7 @@ func TestUpdateSunoTasksStalePollsRefundExactlyOnce(t *testing.T) {
 
 	var reloaded model.Task
 	require.NoError(t, model.DB.First(&reloaded, task.ID).Error)
-	assert.EqualValues(t, model.TaskStatusFailure, reloaded.Status)
+	assert.EqualValues(t, tasksrecord.TaskStatusFailure, reloaded.Status)
 	assert.Zero(t, reloaded.Quota)
 	assert.Equal(t, initialUserQuota+taskQuota, getUserQuota(t, userID))
 	assert.Equal(t, initialTokenQuota+taskQuota, getTokenRemainQuota(t, tokenID))
@@ -682,7 +684,7 @@ func TestRunTaskPollingOncePendingAttemptsDoNotStarveLaterTasks(t *testing.T) {
 				task := taskfixture.MakeTask(1, 0, 100, 0, BillingSourceWallet, 0)
 				task.TaskID = []string{"pending-reservation", "pending-submit"}[i]
 				task.SubmitTime = time.Now().Unix()
-				task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 100, Required: true, ReservationPending: i == 0, SubmissionPending: i == 1}
+				task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservedQuota: 100, Required: true, ReservationPending: i == 0, SubmissionPending: i == 1}
 				require.NoError(t, model.DB.Create(task).Error)
 			}
 			// Ordinary tasks behind pending attempts must still be polled.
@@ -697,7 +699,7 @@ func TestRunTaskPollingOncePendingAttemptsDoNotStarveLaterTasks(t *testing.T) {
 			assert.Equal(t, len(tc.wantIDs), summary.UnfinishedTasks)
 			assert.ElementsMatch(t, tc.wantIDs, adaptor.fetchedTaskIDs())
 			var unfinishedCount int64
-			require.NoError(t, model.DB.Model(&model.Task{}).Where("status = ?", model.TaskStatusInProgress).Count(&unfinishedCount).Error)
+			require.NoError(t, model.DB.Model(&model.Task{}).Where("status = ?", tasksrecord.TaskStatusInProgress).Count(&unfinishedCount).Error)
 			assert.Equal(t, int64(4), unfinishedCount)
 		})
 	}
@@ -711,7 +713,7 @@ func TestRunTaskPollingOnceDoesNotRefundHistoricalFailedTask(t *testing.T) {
 
 	task := taskfixture.MakeTask(userID, 0, taskQuota, 0, BillingSourceWallet, 0)
 	task.TaskID = "historical_failed_already_refunded"
-	task.Status = model.TaskStatusFailure
+	task.Status = tasksrecord.TaskStatusFailure
 	task.Progress = "100%"
 	task.SubmitTime = time.Now().Add(-90 * 24 * time.Hour).Unix()
 	task.UpdatedAt = time.Now().Add(-time.Minute).Unix()
@@ -764,8 +766,8 @@ func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
 	var reloadedModern model.Task
 	require.NoError(t, model.DB.First(&reloadedLegacy, legacyTask.ID).Error)
 	require.NoError(t, model.DB.First(&reloadedModern, modernTask.ID).Error)
-	assert.EqualValues(t, model.TaskStatusFailure, reloadedLegacy.Status)
-	assert.EqualValues(t, model.TaskStatusFailure, reloadedModern.Status)
+	assert.EqualValues(t, tasksrecord.TaskStatusFailure, reloadedLegacy.Status)
+	assert.EqualValues(t, tasksrecord.TaskStatusFailure, reloadedModern.Status)
 	assert.Zero(t, reloadedLegacy.Quota)
 	assert.Zero(t, reloadedModern.Quota)
 	assert.Contains(t, reloadedLegacy.FailReason, "Task timed out (legacy task; no automatic refund, contact the administrator)")
@@ -804,7 +806,7 @@ func (a *scriptedPollingAdaptor) ParseTaskResult(*model.Task, *http.Response, []
 	if a.parse != nil {
 		return a.parse, nil
 	}
-	return &relaycommon.TaskInfo{Status: model.TaskStatusInProgress}, nil
+	return &relaycommon.TaskInfo{Status: tasksrecord.TaskStatusInProgress}, nil
 }
 func (a *scriptedPollingAdaptor) AdjustBillingOnComplete(*model.Task, *relaycommon.TaskInfo) int {
 	return 0
@@ -814,18 +816,18 @@ func TestReconciledTaskTerminalPurchaseEvidence(t *testing.T) {
 	zero, paid := 0.0, 0.12
 	for _, tc := range []struct {
 		name      string
-		status    model.TaskStatus
+		status    tasksrecord.TaskStatus
 		cost      *float64
 		confirmed bool
 		refund    bool
 	}{
-		{"failed missing final evidence", model.TaskStatusFailure, nil, false, false},
-		{"failed paid", model.TaskStatusFailure, &paid, true, false},
-		{"failed unconfirmed zero", model.TaskStatusFailure, &zero, false, false},
-		{"failed confirmed zero", model.TaskStatusFailure, &zero, true, true},
-		{"success without usage", model.TaskStatusSuccess, nil, false, false},
-		{"success with purchase evidence", model.TaskStatusSuccess, &paid, true, false},
-		{"unknown state hides upstream diagnostics", model.TaskStatusUnknown, nil, false, false},
+		{"failed missing final evidence", tasksrecord.TaskStatusFailure, nil, false, false},
+		{"failed paid", tasksrecord.TaskStatusFailure, &paid, true, false},
+		{"failed unconfirmed zero", tasksrecord.TaskStatusFailure, &zero, false, false},
+		{"failed confirmed zero", tasksrecord.TaskStatusFailure, &zero, true, true},
+		{"success without usage", tasksrecord.TaskStatusSuccess, nil, false, false},
+		{"success with purchase evidence", tasksrecord.TaskStatusSuccess, &paid, true, false},
+		{"unknown state hides upstream diagnostics", tasksrecord.TaskStatusUnknown, nil, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			truncate(t)
@@ -836,7 +838,7 @@ func TestReconciledTaskTerminalPurchaseEvidence(t *testing.T) {
 			task := taskfixture.MakeTask(1, 1, 3000, 1, BillingSourceWallet, 0)
 			task.PrivateData.UpstreamTaskID = "upstream-fixture"
 			// Provisional zero observed before completion is not final evidence.
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 3000, HasUpstreamCost: true, UpstreamCostConfirmed: true}
+			task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservedQuota: 3000, HasUpstreamCost: true, UpstreamCostConfirmed: true}
 			require.NoError(t, model.DB.Create(task).Error)
 			adaptor := &scriptedPollingAdaptor{
 				body:  []byte(`{"error":"Bearer secret-value","unsigned_urls":["https://example.com?token=secret-value"]}`),
@@ -850,13 +852,13 @@ func TestReconciledTaskTerminalPurchaseEvidence(t *testing.T) {
 			var loaded model.Task
 			require.NoError(t, model.DB.First(&loaded, task.ID).Error)
 			wantStatus := tc.status
-			if tc.status == model.TaskStatusUnknown {
-				wantStatus = model.TaskStatusFailure
+			if tc.status == tasksrecord.TaskStatusUnknown {
+				wantStatus = tasksrecord.TaskStatusFailure
 			}
 			assert.Equal(t, wantStatus, loaded.Status)
 			assert.NotContains(t, loaded.FailReason, "secret-value")
 			assert.NotContains(t, string(loaded.Data), "secret-value")
-			if tc.status != model.TaskStatusUnknown {
+			if tc.status != tasksrecord.TaskStatusUnknown {
 				assert.Equal(t, tc.cost != nil, loaded.PrivateData.Reconciliation.HasUpstreamCost)
 			}
 			wantQuota := 3000
@@ -865,7 +867,7 @@ func TestReconciledTaskTerminalPurchaseEvidence(t *testing.T) {
 			}
 			assert.Equal(t, wantQuota, loaded.Quota)
 			assert.Equal(t, 13000-wantQuota, getUserQuota(t, 1))
-			assert.Equal(t, !tc.refund && !(tc.status == model.TaskStatusSuccess && tc.confirmed), loaded.PrivateData.Reconciliation.Required)
+			assert.Equal(t, !tc.refund && !(tc.status == tasksrecord.TaskStatusSuccess && tc.confirmed), loaded.PrivateData.Reconciliation.Required)
 		})
 	}
 }
@@ -896,7 +898,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 		priorFailures int
 		priorState    string
 		maxFailures   int
-		wantStatus    model.TaskStatus
+		wantStatus    tasksrecord.TaskStatus
 		wantFailures  int
 		wantRefund    bool
 		wantReason    string
@@ -906,7 +908,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 		{
 			name:          "404 fails immediately and refunds",
 			statusCode:    http.StatusNotFound,
-			wantStatus:    model.TaskStatusFailure,
+			wantStatus:    tasksrecord.TaskStatusFailure,
 			wantRefund:    true,
 			wantReason:    "upstream task not found (HTTP 404)",
 			wantUnchanged: false,
@@ -914,7 +916,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 		{
 			name:          "401 increments without changing status",
 			statusCode:    http.StatusUnauthorized,
-			wantStatus:    model.TaskStatusInProgress,
+			wantStatus:    tasksrecord.TaskStatusInProgress,
 			wantFailures:  1,
 			wantUnchanged: true,
 		},
@@ -923,7 +925,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 			statusCode:    http.StatusTooManyRequests,
 			priorFailures: 2,
 			maxFailures:   3,
-			wantStatus:    model.TaskStatusFailure,
+			wantStatus:    tasksrecord.TaskStatusFailure,
 			wantFailures:  3,
 			wantRefund:    true,
 			wantReason:    "poll failed: transient (HTTP 429)",
@@ -931,43 +933,43 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 		{
 			name:          "UNKNOWN increments",
 			statusCode:    http.StatusOK,
-			parse:         &relaycommon.TaskInfo{Status: model.TaskStatusUnknown, Reason: "weird"},
-			wantStatus:    model.TaskStatusInProgress,
+			parse:         &relaycommon.TaskInfo{Status: tasksrecord.TaskStatusUnknown, Reason: "weird"},
+			wantStatus:    tasksrecord.TaskStatusInProgress,
 			wantFailures:  1,
 			wantUnchanged: true,
 		},
 		{
 			name:          "valid 2xx resets the failure counter",
 			statusCode:    http.StatusOK,
-			parse:         &relaycommon.TaskInfo{Status: model.TaskStatusInProgress},
+			parse:         &relaycommon.TaskInfo{Status: tasksrecord.TaskStatusInProgress},
 			priorFailures: 5,
-			wantStatus:    model.TaskStatusInProgress,
+			wantStatus:    tasksrecord.TaskStatusInProgress,
 			wantFailures:  0,
 		},
 		{
 			name:       "omit state preserves previous plugin state",
 			statusCode: http.StatusOK,
-			parse:      &relaycommon.TaskInfo{Status: model.TaskStatusInProgress},
+			parse:      &relaycommon.TaskInfo{Status: tasksrecord.TaskStatusInProgress},
 			priorState: `{"req_key":"keep"}`,
-			wantStatus: model.TaskStatusInProgress,
+			wantStatus: tasksrecord.TaskStatusInProgress,
 			wantState:  `{"req_key":"keep"}`,
 		},
 		{
 			name:       "returned state replaces plugin state",
 			statusCode: http.StatusOK,
 			parse: &relaycommon.TaskInfo{
-				Status:      model.TaskStatusInProgress,
+				Status:      tasksrecord.TaskStatusInProgress,
 				PluginState: []byte(`{"req_key":"new"}`),
 			},
 			priorState: `{"req_key":"old"}`,
-			wantStatus: model.TaskStatusInProgress,
+			wantStatus: tasksrecord.TaskStatusInProgress,
 			wantState:  `{"req_key":"new"}`,
 		},
 		{
 			name:          "other 4xx non-terminal is unrecognized",
 			statusCode:    http.StatusBadRequest,
-			parse:         &relaycommon.TaskInfo{Status: model.TaskStatusInProgress},
-			wantStatus:    model.TaskStatusInProgress,
+			parse:         &relaycommon.TaskInfo{Status: tasksrecord.TaskStatusInProgress},
+			wantStatus:    tasksrecord.TaskStatusInProgress,
 			wantFailures:  1,
 			wantUnchanged: true,
 		},
@@ -1021,7 +1023,7 @@ func TestUpdateVideoSingleTaskPollClassification(t *testing.T) {
 				assert.Zero(t, persisted.Quota)
 				log := getLastLog(t)
 				require.NotNil(t, log)
-				assert.Equal(t, model.LogTypeRefund, log.Type)
+				assert.Equal(t, usagerecord.LogTypeRefund, log.Type)
 			} else {
 				assert.Equal(t, initialQuota, getUserQuota(t, userID))
 				assert.Equal(t, tokenRemain, getTokenRemainQuota(t, tokenID))
@@ -1034,8 +1036,8 @@ func TestUpdateBatchTasksPollClassification(t *testing.T) {
 	testCases := []struct {
 		name         string
 		statusCode   int
-		resultStatus model.TaskStatus
-		wantStatus   model.TaskStatus
+		resultStatus tasksrecord.TaskStatus
+		wantStatus   tasksrecord.TaskStatus
 		wantFailures int
 		wantRefund   bool
 		wantReason   string
@@ -1043,21 +1045,21 @@ func TestUpdateBatchTasksPollClassification(t *testing.T) {
 		{
 			name:       "404 fails the batch and refunds",
 			statusCode: http.StatusNotFound,
-			wantStatus: model.TaskStatusFailure,
+			wantStatus: tasksrecord.TaskStatusFailure,
 			wantRefund: true,
 			wantReason: "upstream task not found (HTTP 404)",
 		},
 		{
 			name:         "401 increments every task",
 			statusCode:   http.StatusUnauthorized,
-			wantStatus:   model.TaskStatusInProgress,
+			wantStatus:   tasksrecord.TaskStatusInProgress,
 			wantFailures: 1,
 		},
 		{
 			name:         "UNKNOWN increments",
 			statusCode:   http.StatusOK,
-			resultStatus: model.TaskStatusUnknown,
-			wantStatus:   model.TaskStatusInProgress,
+			resultStatus: tasksrecord.TaskStatusUnknown,
+			wantStatus:   tasksrecord.TaskStatusInProgress,
 			wantFailures: 1,
 		},
 	}

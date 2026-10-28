@@ -1,14 +1,14 @@
 package session
 
 import (
+	"time"
+
 	cacheaccounts "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
-
-	"time"
 )
 
 // CreateSessionOperation keeps the canonical records and the original codec callback.

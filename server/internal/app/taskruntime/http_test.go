@@ -9,12 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
@@ -30,6 +24,12 @@ import (
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func setupGenericTaskTest(t *testing.T) *model.Task {
@@ -56,7 +56,7 @@ func setupGenericTaskTest(t *testing.T) *model.Task {
 	}).Error)
 	task := &model.Task{
 		TaskID: "task_generic", Platform: "document", UserId: 7, ChannelId: 1,
-		Status: model.TaskStatusSuccess, Progress: "100%", SubmitTime: 10, FinishTime: 20,
+		Status: record.TaskStatusSuccess, Progress: "100%", SubmitTime: 10, FinishTime: 20,
 	}
 	require.NoError(t, database.Create(task).Error)
 	return task
@@ -75,10 +75,10 @@ func allowPrivateTaskMediaTest(t *testing.T) {
 func TestGetTaskDoesNotProjectArtifacts(t *testing.T) {
 	task := setupGenericTaskTest(t)
 	task.FailReason = "https://stale-upstream.invalid/video.mp4"
-	task.PrivateData = model.TaskPrivateData{
+	task.PrivateData = record.TaskPrivateData{
 		ResultURL: "https://private-upstream.invalid/video.mp4",
-		Execution: &model.TaskExecutionSnapshot{
-			TaskPlugin: &model.TaskPluginSnapshot{Key: "missing-plugin", Name: "Missing"},
+		Execution: &record.TaskExecutionSnapshot{
+			TaskPlugin: &record.TaskPluginSnapshot{Key: "missing-plugin", Name: "Missing"},
 		},
 	}
 	require.NoError(t, model.DB.Save(task).Error)
@@ -233,7 +233,7 @@ func TestTaskArtifactAccessRejectsAmbiguousHistoricalTaskID(t *testing.T) {
 	}).Error)
 	require.NoError(t, model.DB.Create(&model.Task{
 		TaskID: task.TaskID, Platform: task.Platform, UserId: 8, ChannelId: task.ChannelId,
-		Action: constant.TaskActionTextToVideo, Status: model.TaskStatusSuccess,
+		Action: constant.TaskActionTextToVideo, Status: record.TaskStatusSuccess,
 		FailReason: "https://second-upstream.invalid/video.mp4",
 	}).Error)
 
@@ -316,7 +316,7 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 		"base_url": upstream.URL,
 	}).Error)
 	task.Platform = constant.TaskPlatform("google")
-	task.PrivateData.Execution = &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{
+	task.PrivateData.Execution = &record.TaskExecutionSnapshot{TaskPlugin: &record.TaskPluginSnapshot{
 		Key: "google", Name: "Google Veo (Gemini API)", Version: "1.0.0", APIVersion: 1,
 	}}
 	task.SetData(map[string]any{"response": map[string]any{
@@ -348,8 +348,8 @@ func TestDisabledArtifactStorePreservesPluginUpstreamContent(t *testing.T) {
 func TestOpenRouterSyncWithoutStoredResultDoesNotAdvertiseArtifacts(t *testing.T) {
 	task := setupGenericTaskTest(t)
 	task.PrivateData.TokenId = 1
-	task.PrivateData.OpenRouterAudio = &model.OpenRouterAudioTask{ResultReady: true, ResultMimeType: "audio/pcm", ResultSize: 16}
-	for _, status := range []model.TaskStatus{model.TaskStatusInProgress, model.TaskStatusSuccess} {
+	task.PrivateData.OpenRouterAudio = &record.OpenRouterAudioTask{ResultReady: true, ResultMimeType: "audio/pcm", ResultSize: 16}
+	for _, status := range []record.TaskStatus{record.TaskStatusInProgress, record.TaskStatusSuccess} {
 		task.Status = status
 		require.NoError(t, model.DB.Save(task).Error)
 		artifacts, err := domain.ProjectArtifacts(record.ToDomain(task), taskplugins.Artifacts{})
@@ -382,10 +382,10 @@ func TestOpenRouterAudioArtifactsRemainAccessibleWhileBillingUnresolved(t *testi
 	payload := "persisted audio"
 	ref, err := artifacts.GetTaskArtifactStore().Persist(t.Context(), task, types.TaskArtifact{Key: "result", Type: "audio", MimeType: "audio/pcm"}, strings.NewReader(payload))
 	require.NoError(t, err)
-	task.PrivateData.OpenRouterAudio = &model.OpenRouterAudioTask{ResultReady: true, ResultMimeType: ref.MimeType, ResultSize: ref.Size, ResultSHA256: ref.SHA256}
+	task.PrivateData.OpenRouterAudio = &record.OpenRouterAudioTask{ResultReady: true, ResultMimeType: ref.MimeType, ResultSize: ref.Size, ResultSHA256: ref.SHA256}
 	// A stale upstream URL must never be used to serve a host-owned result.
 	task.PrivateData.ResultURL = "https://must-not-fetch.invalid/private"
-	for _, status := range []model.TaskStatus{model.TaskStatusInProgress, model.TaskStatusFailure} {
+	for _, status := range []record.TaskStatus{record.TaskStatusInProgress, record.TaskStatusFailure} {
 		task.Status = status
 		require.NoError(t, model.DB.Save(task).Error)
 		recorder := httptest.NewRecorder()

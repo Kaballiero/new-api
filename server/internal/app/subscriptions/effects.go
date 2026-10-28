@@ -3,14 +3,14 @@ package subscriptions
 import (
 	"fmt"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
-	"github.com/QuantumNous/new-api/model"
+
+	"github.com/shopspring/decimal"
 )
 
 type effects struct{}
@@ -23,7 +23,7 @@ func (effects) RefreshGroup(userID int, operation string) {
 func (effects) Purchase(r domain.PurchaseReceipt) {
 	usagestorage.Writer().RecordLog(
 		r.UserID,
-		model.LogTypeTopup,
+		usagerecord.LogTypeTopup,
 		i18n.Translate(
 			receiptLanguage(r.UserID),
 			i18n.MsgSubscriptionsReceiptPurchase,
@@ -38,7 +38,7 @@ func (effects) Purchase(r domain.PurchaseReceipt) {
 func (effects) BalancePurchase(r domain.BalanceReceipt) {
 	usagestorage.Writer().RecordLog(
 		r.UserID,
-		model.LogTypeTopup,
+		usagerecord.LogTypeTopup,
 		i18n.Translate(
 			receiptLanguage(r.UserID),
 			i18n.MsgSubscriptionsReceiptBalance,

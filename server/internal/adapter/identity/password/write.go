@@ -5,6 +5,7 @@ import (
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/identity/change_password"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"gorm.io/gorm"
 )
 

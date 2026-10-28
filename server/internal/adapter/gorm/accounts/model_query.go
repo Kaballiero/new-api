@@ -1,8 +1,6 @@
 package accountsadapter
 
-import (
-	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
-)
+import accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 
 type AccountModelGroupReader struct{ Cache accountcache.Store }
 

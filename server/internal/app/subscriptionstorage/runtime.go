@@ -4,13 +4,13 @@ package subscriptionstorage
 import (
 	"sync"
 
-	"gorm.io/gorm"
-
 	cache "github.com/QuantumNous/new-api/internal/adapter/cache/subscriptions"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/app/dbclock"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 var cacheOnce = sync.OnceValue(func() *cache.Store { return cache.NewStore(func() *gorm.DB { return model.DB }) })

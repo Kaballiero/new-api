@@ -5,15 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
-	"strings"
 )
 
 type Environment struct {
@@ -49,10 +51,10 @@ func (store Store) UpdateUserSetting(userId int, setting dto.UserSetting) error 
 	return store.env.Cache.UpdateUserSettingCache(userId, settingValue)
 }
 
-// UpdateUserBindColumn 第三方账号绑定字段的专用更新。
-// 绑定操作必须只写绑定列：若改为“读取完整用户 → 改一个字段 → 整体更新”，
-// 读快照期间并发发生的封禁、降权或分组变更会被旧快照覆盖恢复。
-// 角色、状态、分组只允许通过各自带锁/CAS 的专用方法修改。
+// UpdateUserBindColumn updates only the external account binding column.
+// Loading and saving a whole user would overwrite concurrent bans, role changes,
+// or group changes with an earlier snapshot. Role, status, and group changes
+// must use their dedicated methods with locking or CAS.
 func (store Store) UpdateUserBindColumn(userId int, column string, value string) error {
 	if userId <= 0 {
 		return errors.New("id 为空！")
@@ -566,7 +568,7 @@ func (store Store) updateUserUsedQuotaAndRequestCount(id int, quota int, count i
 		return
 	}
 
-	//// 更新缓存
+	//// Update the cache
 	//if err := invalidateUserCache(id); err != nil {
 	//	common.SysError("failed to invalidate user cache: " + err.Error())
 	//}

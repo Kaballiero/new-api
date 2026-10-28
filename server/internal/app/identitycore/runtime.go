@@ -1,7 +1,6 @@
 package identitycore
 
 import (
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
@@ -10,6 +9,7 @@ import (
 	loginadapter "github.com/QuantumNous/new-api/internal/adapter/identity/login"
 	sessionadapter "github.com/QuantumNous/new-api/internal/adapter/identity/session"
 	verificationadapter "github.com/QuantumNous/new-api/internal/adapter/identity/verification"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"github.com/QuantumNous/new-api/internal/identity/advance_session_security"
 	"github.com/QuantumNous/new-api/internal/identity/bind_verification_operation"
 	"github.com/QuantumNous/new-api/internal/identity/cleanup_auth_artifacts"

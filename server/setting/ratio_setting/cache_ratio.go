@@ -1,8 +1,6 @@
 package ratio_setting
 
-import (
-	"github.com/QuantumNous/new-api/types"
-)
+import "github.com/QuantumNous/new-api/types"
 
 var defaultCacheRatio = map[string]float64{
 	"gemini-3-flash-preview":              0.1,

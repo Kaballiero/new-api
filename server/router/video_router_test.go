@@ -7,7 +7,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,9 +78,9 @@ func TestGetOpenAIVideoRouteRendersJimengTask(t *testing.T) {
 		UserId:    91,
 		Group:     "default",
 		ChannelId: 17,
-		Status:    model.TaskStatusSuccess,
+		Status:    tasksrecord.TaskStatusSuccess,
 		Progress:  "100%",
-		PrivateData: model.TaskPrivateData{
+		PrivateData: tasksrecord.TaskPrivateData{
 			ResultURL: "data:video/mp4;base64,ZGF0YQ==",
 		},
 	}

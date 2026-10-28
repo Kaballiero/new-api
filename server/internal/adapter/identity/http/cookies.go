@@ -1,11 +1,11 @@
 package identityhttp
 
 import (
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"net/http"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/adapter/identity/session"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 

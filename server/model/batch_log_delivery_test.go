@@ -5,17 +5,18 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	core "github.com/QuantumNous/new-api/internal/app/batch"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
 	. "github.com/QuantumNous/new-api/model"
+
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 )
@@ -87,7 +88,7 @@ func TestBatchSeparateLogDatabase(t *testing.T) {
 				require.NoError(t, e)
 				sqlDB.SetMaxOpenConns(1)
 			}
-			payload, err := common.Marshal(Log{UserId: 1, Type: LogTypeConsume, RequestId: "batch-log-contract", Quota: 10, CreatedAt: common.GetTimestamp(), Other: `{"admin_info":{"quota_saturation":{"kind":"overflow"}}}`})
+			payload, err := common.Marshal(Log{UserId: 1, Type: usagerecord.LogTypeConsume, RequestId: "batch-log-contract", Quota: 10, CreatedAt: common.GetTimestamp(), Other: `{"admin_info":{"quota_saturation":{"kind":"overflow"}}}`})
 			require.NoError(t, err)
 			event := BatchLogEvent{ItemID: common.GetPointer(int64(1)), State: "pending", Payload: string(payload)}
 			require.NoError(t, primary.Create(&event).Error)
@@ -104,7 +105,7 @@ func TestBatchSeparateLogDatabase(t *testing.T) {
 			assert.EqualValues(t, 1, count, "lost acknowledgement must not duplicate log or expense statistics")
 			// A job-scoped receipt uses the same delivery guarantees without a
 			// synthetic item identity, including a separately configured log DB.
-			payload, err = common.Marshal(Log{UserId: 1, Type: LogTypeConsume, RequestId: "batch-job-log-contract", Quota: 7, CreatedAt: common.GetTimestamp()})
+			payload, err = common.Marshal(Log{UserId: 1, Type: usagerecord.LogTypeConsume, RequestId: "batch-job-log-contract", Quota: 7, CreatedAt: common.GetTimestamp()})
 			require.NoError(t, err)
 			jobEvent := BatchLogEvent{BatchID: common.GetPointer(int64(1)), State: "pending", Payload: string(payload)}
 			require.NoError(t, primary.Create(&jobEvent).Error)

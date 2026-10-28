@@ -2,6 +2,7 @@ package clear_binding
 
 import (
 	"errors"
+
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 

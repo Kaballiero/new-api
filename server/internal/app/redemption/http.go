@@ -5,9 +5,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	locking "github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/redemption"
@@ -27,6 +24,9 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type HTTP struct {

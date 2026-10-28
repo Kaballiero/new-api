@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/apikeys/validate_key"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

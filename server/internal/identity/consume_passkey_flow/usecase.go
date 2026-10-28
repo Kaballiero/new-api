@@ -1,8 +1,9 @@
 package consume_passkey_flow
 
 import (
-	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Operation interface {

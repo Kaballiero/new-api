@@ -2,11 +2,13 @@ package get_codex_usage
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/channels/transport"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/channels/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ usecase func(*gin.Context) Usecase }

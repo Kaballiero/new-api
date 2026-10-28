@@ -1,9 +1,7 @@
 // Package identity owns identity SQL transactions and the session cache.
 package identity
 
-import (
-	"gorm.io/gorm"
-)
+import "gorm.io/gorm"
 
 type Environment struct {
 	DB                             func() *gorm.DB

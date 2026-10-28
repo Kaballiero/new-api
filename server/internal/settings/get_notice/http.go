@@ -2,6 +2,7 @@ package get_notice
 
 import (
 	"github.com/QuantumNous/new-api/internal/settings/transport"
+
 	"github.com/gin-gonic/gin"
 )
 

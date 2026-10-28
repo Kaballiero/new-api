@@ -2,13 +2,11 @@ package channels
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
 	codex "github.com/QuantumNous/new-api/internal/adapter/channels/codex"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-
-	"net/http"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 )
 

@@ -1,11 +1,6 @@
 package channels
 
 import (
-	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"github.com/QuantumNous/new-api/internal/channels/domain"
-
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
 	"errors"
 	"fmt"
 	"io"
@@ -15,18 +10,20 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+
 	"github.com/samber/lo"
 )
 

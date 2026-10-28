@@ -4,14 +4,14 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	hosttypes "github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Adaptor interface {

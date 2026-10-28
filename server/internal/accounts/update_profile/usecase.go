@@ -1,8 +1,6 @@
 package update_profile
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 // SelfUpdateStore keeps the previous writes of the account and its settings.
 type SelfUpdateStore interface {

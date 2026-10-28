@@ -5,9 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/QuantumNous/new-api/internal/system/purge_old_logs"
-
 	"github.com/QuantumNous/new-api/internal/system/domain"
+	"github.com/QuantumNous/new-api/internal/system/purge_old_logs"
 )
 
 // These private seams are compiled only into the owning contract test binary.

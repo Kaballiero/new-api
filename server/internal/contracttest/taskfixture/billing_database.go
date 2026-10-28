@@ -11,7 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/glebarez/sqlite"
 	"github.com/jackc/pgx/v5"
@@ -20,10 +24,6 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 var Dialect string
@@ -300,8 +300,8 @@ func WithOtherNode(t *testing.T, run func()) {
 // Seed helpers
 // ---------------------------------------------------------------------------
 
-func BillingFX(rate float64) *model.TaskBillingFX {
-	return &model.TaskBillingFX{SchemaVersion: 1, Source: "cbr-xml-daily.ru", Rate: rate, PublicationVersion: 1, EffectiveAt: 1, FetchedAt: 1}
+func BillingFX(rate float64) *tasksrecord.TaskBillingFX {
+	return &tasksrecord.TaskBillingFX{SchemaVersion: 1, Source: "cbr-xml-daily.ru", Rate: rate, PublicationVersion: 1, EffectiveAt: 1, FetchedAt: 1}
 }
 
 func Truncate(t *testing.T) {
@@ -381,19 +381,19 @@ func MakeTask(userId, channelId, quota, tokenId int, billingSource string, subsc
 		UserId:    userId,
 		ChannelId: channelId,
 		Quota:     quota,
-		Status:    model.TaskStatus(model.TaskStatusInProgress),
+		Status:    tasksrecord.TaskStatus(tasksrecord.TaskStatusInProgress),
 		Group:     "default",
 		Data:      json.RawMessage(`{}`),
 		CreatedAt: time.Now().Unix(),
 		UpdatedAt: time.Now().Unix(),
-		Properties: model.Properties{
+		Properties: tasksrecord.Properties{
 			OriginModelName: "test-model",
 		},
-		PrivateData: model.TaskPrivateData{
+		PrivateData: tasksrecord.TaskPrivateData{
 			BillingSource:  billingSource,
 			SubscriptionId: subscriptionId,
 			TokenId:        tokenId,
-			BillingContext: &model.TaskBillingContext{
+			BillingContext: &tasksrecord.TaskBillingContext{
 				ModelPrice:      0.02,
 				GroupRatio:      1.0,
 				OriginModelName: "test-model",

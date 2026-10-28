@@ -2,11 +2,12 @@ package model
 
 import (
 	"fmt"
-	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"

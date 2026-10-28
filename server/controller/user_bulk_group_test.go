@@ -1,8 +1,6 @@
 package controller
 
 import (
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
 	"bytes"
 	"fmt"
 	"net/http"
@@ -12,15 +10,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/model"
+	// import ratio_setting for its init() that seeds defaultGroupRatio
+	// ("default", "vip", "svip") into groupRatioMap.
+	_ "github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	// import ratio_setting for its init() that seeds defaultGroupRatio
-	// ("default", "vip", "svip") into groupRatioMap.
-	_ "github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 type bulkGroupAPIResponse struct {

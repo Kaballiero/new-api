@@ -3,6 +3,7 @@ package get_password_encryption_key
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/gin-gonic/gin"
 )
 

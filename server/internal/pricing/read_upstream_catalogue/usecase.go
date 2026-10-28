@@ -3,6 +3,7 @@ package read_upstream_catalogue
 import (
 	"context"
 	"errors"
+
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 

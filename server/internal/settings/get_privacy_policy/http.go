@@ -2,6 +2,7 @@ package get_privacy_policy
 
 import (
 	"github.com/QuantumNous/new-api/internal/settings/transport"
+
 	"github.com/gin-gonic/gin"
 )
 

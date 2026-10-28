@@ -4,10 +4,10 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 func ReadQuotaQuery(c *gin.Context) domain.QuotaQuery {

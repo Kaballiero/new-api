@@ -5,12 +5,11 @@ package authentication
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	adapter "github.com/QuantumNous/new-api/internal/adapter/apikeys"
 	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
+	"github.com/QuantumNous/new-api/internal/apikeys/validate_key"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/app/apikeystorage"
-
-	adapter "github.com/QuantumNous/new-api/internal/adapter/apikeys"
-	"github.com/QuantumNous/new-api/internal/apikeys/validate_key"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )

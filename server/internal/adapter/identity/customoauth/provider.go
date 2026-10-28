@@ -1,13 +1,12 @@
 package customoauth
 
 import (
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
-
 	"github.com/QuantumNous/new-api/oauth"
 )
 

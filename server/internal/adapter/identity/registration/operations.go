@@ -2,16 +2,15 @@ package registration
 
 import (
 	"errors"
-	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
-	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
-	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
-	tokenrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	tokenrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	"github.com/QuantumNous/new-api/internal/identity/register_password"
-
 	"github.com/QuantumNous/new-api/setting"
 )
 

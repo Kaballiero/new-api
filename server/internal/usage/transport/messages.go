@@ -3,11 +3,11 @@ package transport
 import (
 	"errors"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/i18n"
 	keydomain "github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 // Translate preserves the historical Simplified bytes for both Chinese locales,

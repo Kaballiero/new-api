@@ -1,8 +1,9 @@
 package channels
 
 import (
-	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"sync"
+
+	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 // ModelUpdateNotifications suppresses repeated background model-update reports.

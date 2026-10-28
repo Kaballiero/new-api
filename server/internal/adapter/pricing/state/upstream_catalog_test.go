@@ -14,7 +14,17 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	legacy "github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,21 +33,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
-
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
-	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
-
-	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
-
-	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
-
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	legacy "github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
-	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	"github.com/QuantumNous/new-api/setting/billing_setting"
 )
 
 func TestCatalogConsumerOperationRequiresModelSemantics(t *testing.T) {

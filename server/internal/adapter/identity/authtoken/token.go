@@ -5,13 +5,13 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 
 	"github.com/golang-jwt/jwt/v5"

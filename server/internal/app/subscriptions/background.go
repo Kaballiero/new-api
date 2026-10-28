@@ -7,8 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/app/dbclock"
 	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
@@ -16,6 +14,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/subscriptions/expire_due"
 	"github.com/QuantumNous/new-api/internal/subscriptions/reset_due"
 	"github.com/QuantumNous/new-api/logger"
+
+	"github.com/bytedance/gopkg/util/gopool"
 )
 
 const (

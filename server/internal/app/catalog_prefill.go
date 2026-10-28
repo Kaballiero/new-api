@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/catalog/list_prefill_groups"
 	"github.com/QuantumNous/new-api/internal/catalog/update_prefill_group"
 	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
 )
 

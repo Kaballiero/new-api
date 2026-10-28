@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"sync"
+
 	"github.com/QuantumNous/new-api/internal/app"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	paymentsapp "github.com/QuantumNous/new-api/internal/app/payments"
@@ -12,8 +14,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/app/taskruntime"
 	appusage "github.com/QuantumNous/new-api/internal/app/usage"
 	audittransport "github.com/QuantumNous/new-api/internal/audit/transport"
+
 	"github.com/gin-gonic/gin"
-	"sync"
 )
 
 // PersonalAccessTokens builds the personal access token handlers once; the

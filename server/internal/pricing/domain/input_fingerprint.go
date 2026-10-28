@@ -3,9 +3,10 @@ package domain
 import (
 	"crypto/sha256"
 	"fmt"
+	"slices"
+
 	"github.com/QuantumNous/new-api/constant"
 	catalogdomain "github.com/QuantumNous/new-api/internal/catalog/domain"
-	"slices"
 )
 
 func PersistedInputFingerprint(deps Capabilities, metadata []BuildModel, vendors []BuildVendor, channels []*BuildChannel, abilities []BuildAbility, catalogRevision string) (string, error) {

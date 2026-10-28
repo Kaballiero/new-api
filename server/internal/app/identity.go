@@ -3,16 +3,13 @@ package app
 import (
 	"context"
 	"errors"
-	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
-	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
-	"github.com/QuantumNous/new-api/internal/app/accountscore"
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-	"github.com/QuantumNous/new-api/internal/app/apikeystorage"
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	accountsidentity "github.com/QuantumNous/new-api/internal/adapter/identity/accounts"
+	"github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
 	"github.com/QuantumNous/new-api/internal/adapter/identity/factors"
 	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
@@ -24,6 +21,11 @@ import (
 	sessionadapter "github.com/QuantumNous/new-api/internal/adapter/identity/session"
 	webauthnadapter "github.com/QuantumNous/new-api/internal/adapter/identity/webauthn"
 	wechatadapter "github.com/QuantumNous/new-api/internal/adapter/identity/wechat"
+	"github.com/QuantumNous/new-api/internal/app/accountscore"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/apikeystorage"
+	"github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"github.com/QuantumNous/new-api/internal/identity/admin_disable_twofa"
 	"github.com/QuantumNous/new-api/internal/identity/admin_reset_passkey"
 	"github.com/QuantumNous/new-api/internal/identity/admin_unlink_oauth_account"
@@ -33,6 +35,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/begin_passkey_verification"
 	"github.com/QuantumNous/new-api/internal/identity/bind_wechat"
 	"github.com/QuantumNous/new-api/internal/identity/complete_oauth"
+	"github.com/QuantumNous/new-api/internal/identity/complete_primary_login"
 	"github.com/QuantumNous/new-api/internal/identity/confirm_email_binding"
 	selfdelete "github.com/QuantumNous/new-api/internal/identity/delete_account"
 	"github.com/QuantumNous/new-api/internal/identity/delete_passkey"
@@ -72,15 +75,11 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
-
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	"github.com/QuantumNous/new-api/internal/app/identitycore"
-	"github.com/QuantumNous/new-api/internal/identity/complete_primary_login"
 )
 
 type IdentityEffects struct {

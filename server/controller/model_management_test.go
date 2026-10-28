@@ -1,14 +1,6 @@
 package controller
 
 import (
-	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-	"github.com/QuantumNous/new-api/model"
-
 	"bytes"
 	"errors"
 	"fmt"
@@ -22,14 +14,19 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
 	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -1,10 +1,6 @@
 package transport
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
-
 	"context"
 	"errors"
 	"fmt"
@@ -19,7 +15,11 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
@@ -33,6 +33,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -127,10 +128,10 @@ func TestPresentTaskSubmissionUsesHostOpenAIVideoCreateReceipt(t *testing.T) {
 	})
 	task := &model.Task{
 		TaskID:     "task_public",
-		Status:     model.TaskStatusSubmitted,
+		Status:     tasksrecord.TaskStatusSubmitted,
 		Progress:   "0%",
 		CreatedAt:  456,
-		Properties: model.Properties{OriginModelName: "video-model"},
+		Properties: tasksrecord.Properties{OriginModelName: "video-model"},
 	}
 	outcome := &taskSubmissionOutcome{Result: &relay.TaskSubmitResult{}, Task: task, RelayInfo: &relaycommon.RelayInfo{}}
 
@@ -651,7 +652,7 @@ func TestExecuteOpenRouterSubmissionAccepts202BeforePersistingTask(t *testing.T)
 	assert.Equal(t, constant.TaskPlatform("openrouter-video"), saved.Platform)
 	assert.Equal(t, "accepted-job", saved.GetUpstreamTaskID())
 	assert.Equal(t, "accepted-provider-key", saved.PrivateData.Key)
-	assert.Equal(t, model.TaskSettlementOpenRouterCostV2, saved.PrivateData.BillingContext.SettlementMode)
+	assert.Equal(t, tasksrecord.TaskSettlementOpenRouterCostV2, saved.PrivateData.BillingContext.SettlementMode)
 	require.NotNil(t, saved.PrivateData.BillingContext.OpenRouterCost)
 	assert.InDelta(t, 0.0001, saved.PrivateData.BillingContext.OpenRouterCost.EstimatedUSD, 1e-12)
 	assert.EqualValues(t, 4, saved.PrivateData.BillingContext.OpenRouterOrderFacts["requested_seconds"])

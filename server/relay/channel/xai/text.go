@@ -6,9 +6,8 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/pkg/httpclient"
-
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
+	"github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"

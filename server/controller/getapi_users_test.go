@@ -1,14 +1,6 @@
 package controller
 
 import (
-	provision_account "github.com/QuantumNous/new-api/internal/accounts/provision_account"
-
-	initialize_pat "github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
-
-	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
-
-	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
-
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,10 +11,15 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
+	initialize_pat "github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
+	provision_account "github.com/QuantumNous/new-api/internal/accounts/provision_account"
+	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

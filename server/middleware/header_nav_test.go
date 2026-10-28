@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 func withHeaderNavModules(t *testing.T, raw string) {

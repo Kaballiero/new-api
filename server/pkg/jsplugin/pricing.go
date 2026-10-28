@@ -2,10 +2,11 @@ package jsplugin
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"math"
 	"slices"
 	"time"
+
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
 )
 
 type CatalogPrice struct {

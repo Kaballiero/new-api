@@ -1,8 +1,6 @@
 package ollama
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
 type OllamaChatMessage struct {
 	Role       string           `json:"role"`

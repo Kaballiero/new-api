@@ -1,8 +1,9 @@
 package httpapi
 
 import (
-	"github.com/QuantumNous/new-api/internal/app"
 	"sync"
+
+	"github.com/QuantumNous/new-api/internal/app"
 )
 
 // Catalog builds the catalog handlers once; settings and the database are

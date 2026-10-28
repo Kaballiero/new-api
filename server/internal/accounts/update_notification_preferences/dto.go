@@ -1,8 +1,6 @@
 package update_notification_preferences
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 // NotificationPreferencesAccount holds the account data needed to change the
 // notification settings.

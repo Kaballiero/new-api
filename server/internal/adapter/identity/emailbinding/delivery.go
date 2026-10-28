@@ -3,13 +3,13 @@ package emailbinding
 import (
 	"crypto/rand"
 	"fmt"
-	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"html"
 	"math/big"
 
 	"github.com/QuantumNous/new-api/common"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
 )

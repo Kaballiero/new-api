@@ -1,16 +1,14 @@
 package systemmetrics
 
 import (
-	aggregation "github.com/QuantumNous/new-api/internal/adapter/runtime/systemmetrics"
-	"github.com/QuantumNous/new-api/internal/system/domain"
-
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics/record"
-
 	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics/record"
+	aggregation "github.com/QuantumNous/new-api/internal/adapter/runtime/systemmetrics"
+	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
 )
 

@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"strings"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	plancache "github.com/QuantumNous/new-api/internal/adapter/cache/subscriptions"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	subscriptionrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	subscriptiondomain "github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 type subscriptionPreConsumeResult struct {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/require"
 )

@@ -1,19 +1,19 @@
 package batch
 
 import (
-	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
-	"github.com/QuantumNous/new-api/model"
-
-	math "github.com/QuantumNous/new-api/internal/adapter/billing"
-
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	math "github.com/QuantumNous/new-api/internal/adapter/billing"
+	batchrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/batch/record"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	batchdto "github.com/QuantumNous/new-api/internal/batch/dto"
+	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/batch"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,7 +118,7 @@ func TestBatchFailureDiagnostics(t *testing.T) {
 			assert.Less(t, len(stored), 4096)
 			assert.NotContains(t, stored, "private prompt")
 			assert.NotContains(t, stored, "sk-secret")
-			var diagnostic model.BatchFailure
+			var diagnostic batchrecord.BatchFailure
 			require.NoError(t, common.UnmarshalJsonStr(stored, &diagnostic))
 			assert.Equal(t, tc.wantCode, diagnostic.Code)
 			assert.Equal(t, tc.wantRequestID, diagnostic.RequestID)
@@ -137,7 +137,7 @@ func TestBatchFailureDiagnostics(t *testing.T) {
 	for _, name := range []string{"openai/gpt-4-turbo", "openai/gpt-4.1-mini", "openai/gpt-4.1-nano", "openai/gpt-5.4-pro", "openai/gpt-5.5-pro", "openai/gpt-5.5"} {
 		t.Run(name, func(t *testing.T) {
 			body := fmt.Sprintf(`{"error":{"code":400,"message":"Model '%s:batch' does not have a :batch endpoint."}}`, name)
-			var diagnostic model.BatchFailure
+			var diagnostic batchrecord.BatchFailure
 			require.NoError(t, common.UnmarshalJsonStr((Gateway{}).Failure("create", 400, "req-123", []byte(body)), &diagnostic))
 			assert.Equal(t, "batch_endpoint_unavailable", diagnostic.Code)
 			assert.Equal(t, "endpoint_unavailable", diagnostic.Category)
@@ -165,7 +165,7 @@ func TestBatchFailureDiagnostics(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stored := (Gateway{}).Failure("create", 400, "req-123", []byte(tc.body))
-			var diagnostic model.BatchFailure
+			var diagnostic batchrecord.BatchFailure
 			require.NoError(t, common.UnmarshalJsonStr(stored, &diagnostic))
 			assert.Equal(t, tc.code, diagnostic.Code)
 			assert.Equal(t, tc.category, diagnostic.Category)

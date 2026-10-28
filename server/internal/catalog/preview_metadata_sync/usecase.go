@@ -2,8 +2,9 @@ package preview_metadata_sync
 
 import (
 	"context"
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"sort"
+
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 
 type Source interface {

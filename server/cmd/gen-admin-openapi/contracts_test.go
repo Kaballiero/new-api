@@ -3,11 +3,11 @@ package main
 import (
 	"os"
 	"strings"
-
-	"github.com/QuantumNous/new-api/common"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	adminrouter "github.com/QuantumNous/new-api/router"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -9,12 +9,14 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay"
 	taskplugin "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -592,7 +594,7 @@ func TestAlibabaWanCompletionFactsAndArtifacts(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			adaptor := taskplugin.New(plugin)
-			task := &model.Task{Properties: model.Properties{OriginModelName: "my-alias", UpstreamModelName: tc.model}}
+			task := &model.Task{Properties: tasksrecord.Properties{OriginModelName: "my-alias", UpstreamModelName: tc.model}}
 			encoded, err := common.Marshal(map[string]any{
 				"output": map[string]any{"task_status": "SUCCEEDED", "results": map[string]any{"video_url": "https://cdn.example/result.mp4"}},
 				"usage":  tc.usage,
@@ -611,7 +613,7 @@ func TestAlibabaWanCompletionFactsAndArtifacts(t *testing.T) {
 	}
 
 	adaptor := taskplugin.New(plugin)
-	task := &model.Task{TaskID: "task_public", Status: model.TaskStatusSuccess, Properties: model.Properties{OriginModelName: "wan2.2-s2v"}}
+	task := &model.Task{TaskID: "task_public", Status: tasksrecord.TaskStatusSuccess, Properties: tasksrecord.Properties{OriginModelName: "wan2.2-s2v"}}
 	task.SetData(map[string]any{"output": map[string]any{"task_status": "SUCCEEDED", "results": map[string]any{"video_url": "https://cdn.example/result.mp4"}}})
 	artifacts, err := adaptor.ListArtifacts(task)
 	require.NoError(t, err)

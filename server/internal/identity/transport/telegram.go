@@ -1,8 +1,9 @@
 package transport
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 // TelegramLegacyAuth retires the unsigned-flow widget endpoints. Existing

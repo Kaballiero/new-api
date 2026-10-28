@@ -1,8 +1,6 @@
 package list_codes
 
-import (
-	"github.com/QuantumNous/new-api/internal/redemption/domain"
-)
+import "github.com/QuantumNous/new-api/internal/redemption/domain"
 
 // Reader runs Count and Find in the same read transaction, including legacy panic recovery.
 type Reader interface {

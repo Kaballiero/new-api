@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/change_password"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
 )
 

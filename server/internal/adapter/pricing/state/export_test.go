@@ -5,16 +5,11 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
-	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
-
 	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
-
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
+	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
-
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"

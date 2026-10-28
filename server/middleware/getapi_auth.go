@@ -3,17 +3,16 @@ package middleware
 import (
 	"encoding/json"
 	"errors"
-	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	"net/http"
 	"os"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
+	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
 
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type getAPIIntegration struct {

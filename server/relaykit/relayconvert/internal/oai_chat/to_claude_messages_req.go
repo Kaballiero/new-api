@@ -1,10 +1,9 @@
 package oaichat
 
 import (
+	"context"
 	"fmt"
 	"strings"
-
-	"context"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"

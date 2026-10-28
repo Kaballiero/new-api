@@ -1,12 +1,12 @@
 package session
 
 import (
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"

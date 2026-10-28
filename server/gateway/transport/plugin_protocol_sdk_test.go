@@ -10,10 +10,12 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	"github.com/gin-gonic/gin"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -53,7 +55,7 @@ func TestTaskPluginResponsesNonStreamDecodesWithOfficialGoSDK(t *testing.T) {
 			TaskID:   "task_sdk_final",
 			UserId:   71,
 			Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key),
-			Status:   model.TaskStatusSuccess,
+			Status:   tasksrecord.TaskStatusSuccess,
 		}, true, nil
 	}
 	server := newPluginProtocolSDKTestServer(t, pinned, deps)
@@ -99,7 +101,7 @@ func TestTaskPluginResponsesStreamDecodesWithOfficialGoSDK(t *testing.T) {
 			TaskID:   "task_sdk_stream",
 			UserId:   71,
 			Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key),
-			Status:   model.TaskStatusSuccess,
+			Status:   tasksrecord.TaskStatusSuccess,
 		}, true, nil
 	}
 	server := newPluginProtocolSDKTestServer(t, pinned, deps)
@@ -245,7 +247,7 @@ func builtInKlingProtocolSDKFixture(t *testing.T, taskID string) (pluginruntime.
 	deps.loadTask = func(context.Context, int, constant.TaskPlatform, string) (*model.Task, bool, error) {
 		task := &model.Task{
 			TaskID: taskID, Platform: constant.TaskPlatform(plugin.Meta.Key), UserId: 71,
-			Status: model.TaskStatusSuccess, Progress: "100%", CreatedAt: 1_710_000_000,
+			Status: tasksrecord.TaskStatusSuccess, Progress: "100%", CreatedAt: 1_710_000_000,
 		}
 		task.SetData(map[string]any{
 			"code": 0,

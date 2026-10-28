@@ -1,30 +1,27 @@
 package controller
 
 import (
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
 	"context"
 	"errors"
 	"net/http"
 
-	"github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
-	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
-
 	"github.com/QuantumNous/new-api/common"
 	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
-	"github.com/QuantumNous/new-api/internal/catalog/apply_metadata_sync"
-	"github.com/QuantumNous/new-api/internal/catalog/create_model"
-	"github.com/QuantumNous/new-api/internal/catalog/create_vendor"
-	"github.com/QuantumNous/new-api/internal/catalog/update_model"
-	"github.com/QuantumNous/new-api/internal/catalog/update_vendor"
-
+	"github.com/QuantumNous/new-api/internal/adapter/catalog/upstream"
 	store "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+	"github.com/QuantumNous/new-api/internal/catalog/apply_metadata_sync"
 	"github.com/QuantumNous/new-api/internal/catalog/apply_vendor_operation"
+	"github.com/QuantumNous/new-api/internal/catalog/create_model"
+	"github.com/QuantumNous/new-api/internal/catalog/create_vendor"
 	"github.com/QuantumNous/new-api/internal/catalog/delete_models_batch"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/catalog/preview_vendor_operation"
+	"github.com/QuantumNous/new-api/internal/catalog/update_model"
+	"github.com/QuantumNous/new-api/internal/catalog/update_vendor"
 	"github.com/QuantumNous/new-api/model"
 )
 

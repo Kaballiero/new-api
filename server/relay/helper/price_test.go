@@ -1,9 +1,6 @@
 package helper
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-
 	"bytes"
 	"context"
 	"errors"
@@ -16,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
@@ -29,6 +28,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"

@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 func Audience(c *gin.Context) domain.Audience {

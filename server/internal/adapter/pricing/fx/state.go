@@ -1,9 +1,10 @@
 package fx
 
 import (
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"strings"
 	"sync"
+
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 var modelCostFXState struct {

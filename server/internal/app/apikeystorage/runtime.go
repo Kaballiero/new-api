@@ -2,14 +2,16 @@
 package apikeystorage
 
 import (
+	"sync"
+
 	"github.com/QuantumNous/new-api/common"
 	cache "github.com/QuantumNous/new-api/internal/adapter/cache/apikeys"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
-	"sync"
 )
 
 type runtime struct {

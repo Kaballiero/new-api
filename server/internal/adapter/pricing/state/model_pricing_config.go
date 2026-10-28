@@ -1,8 +1,6 @@
 package pricingstate
 
-import (
-	"sync"
-)
+import "sync"
 
 // Lock order is stable across instances. Creating missing option rows inside
 // the transaction also serializes the first write to an unconfigured database.

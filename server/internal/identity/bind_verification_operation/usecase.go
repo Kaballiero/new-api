@@ -2,8 +2,9 @@ package bind_verification_operation
 
 import (
 	"encoding/json"
-	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Codec interface {

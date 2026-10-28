@@ -1,12 +1,6 @@
 package controller
 
 import (
-	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
-
-	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
 	"context"
 	"errors"
 	"net/http"
@@ -15,19 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	auditstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/audit"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/audittest"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
 	subscriptionsapp "github.com/QuantumNous/new-api/internal/app/subscriptions"
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	auditdto "github.com/QuantumNous/new-api/internal/audit/dto"
 	audittransport "github.com/QuantumNous/new-api/internal/audit/transport"
@@ -37,6 +29,12 @@ import (
 	subscriptionsdomain "github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
@@ -132,7 +130,7 @@ func TestSecurityAndOperationEventsUseAuditTable(t *testing.T) {
 	}
 	recordManageAudit(c, "option.update", map[string]any{"key": "safe"})
 	subscriptionsapp.NewResetAudit().RecordUserLogs(c, &subscriptionsdomain.ResetResult{ResetCount: 1, PlanId: 1, PlanTitle: "Plan", AffectedUserIds: []int{user.Id}}, &auditdomain.Operator{ID: user.Id})
-	for _, typ := range []int{model.LogTypeTopup, model.LogTypeConsume, model.LogTypeRefund, model.LogTypeSystem} {
+	for _, typ := range []int{usagerecord.LogTypeTopup, usagerecord.LogTypeConsume, usagerecord.LogTypeRefund, usagerecord.LogTypeSystem} {
 		usagestorage.Writer().RecordLog(user.Id, typ, "business entry")
 	}
 	var audits []model.AuditLog

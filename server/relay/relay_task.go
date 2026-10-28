@@ -11,30 +11,26 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"github.com/gin-gonic/gin"
-	"github.com/shopspring/decimal"
-
 	mapping "github.com/QuantumNous/new-api/gateway/mapping"
-
 	routing "github.com/QuantumNous/new-api/gateway/routing"
-
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
-
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 type TaskSubmitResult struct {
@@ -602,7 +598,7 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 
 	// 将上游最新状态更新到 task
 	if ti.Status != "" {
-		task.Status = model.TaskStatus(ti.Status)
+		task.Status = tasksrecord.TaskStatus(ti.Status)
 	}
 	if ti.Progress != "" {
 		task.Progress = ti.Progress
@@ -611,13 +607,13 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 		// data: URI — kept in Data, not ResultURL
 	} else if ti.Url != "" {
 		task.PrivateData.ResultURL = ti.Url
-	} else if task.Status == model.TaskStatusSuccess {
+	} else if task.Status == tasksrecord.TaskStatusSuccess {
 		// No URL from adaptor — construct proxy URL using public task ID
 		task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 	}
 
 	if !snap.Equal(task.Snapshot()) {
-		_, _ = tasksapp.FetchUpdates().UpdateTaskWithStatus(task, model.TaskStatus(snap.Status))
+		_, _ = tasksapp.FetchUpdates().UpdateTaskWithStatus(task, tasksrecord.TaskStatus(snap.Status))
 	}
 
 	// OpenAI Video API 由调用者的 ConvertToOpenAIVideo 分支处理
@@ -668,13 +664,13 @@ func detectVideoFormat(rawBody []byte) string {
 }
 
 // mapTaskStatusToSimple 将内部 TaskStatus 映射为简化状态字符串
-func mapTaskStatusToSimple(status model.TaskStatus) string {
+func mapTaskStatusToSimple(status tasksrecord.TaskStatus) string {
 	switch status {
-	case model.TaskStatusSuccess:
+	case tasksrecord.TaskStatusSuccess:
 		return "succeeded"
-	case model.TaskStatusFailure:
+	case tasksrecord.TaskStatusFailure:
 		return "failed"
-	case model.TaskStatusQueued, model.TaskStatusSubmitted:
+	case tasksrecord.TaskStatusQueued, tasksrecord.TaskStatusSubmitted:
 		return "queued"
 	default:
 		return "processing"

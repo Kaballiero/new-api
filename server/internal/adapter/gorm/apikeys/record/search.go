@@ -3,6 +3,7 @@ package model
 import (
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 	"github.com/QuantumNous/new-api/internal/apikeys/search_keys"
+
 	"gorm.io/gorm"
 )
 

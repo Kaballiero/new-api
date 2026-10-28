@@ -2,9 +2,10 @@ package batch
 
 import (
 	"encoding/json"
-	providerrouting "github.com/QuantumNous/new-api/relay/provider"
 	"io"
 	"net/http"
+
+	providerrouting "github.com/QuantumNous/new-api/relay/provider"
 )
 
 type OpenRouter struct{}

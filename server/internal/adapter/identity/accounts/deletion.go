@@ -2,8 +2,8 @@ package accountsidentity
 
 import (
 	"errors"
-	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
 
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/identity/delete_account"
 	domain "github.com/QuantumNous/new-api/internal/identity/domain"
 )

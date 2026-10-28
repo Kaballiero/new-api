@@ -7,13 +7,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-
 	"github.com/QuantumNous/new-api/common"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/channels/refresh_codex_credentials"
 	"github.com/QuantumNous/new-api/logger"
+
+	"github.com/bytedance/gopkg/util/gopool"
 )
 
 const (

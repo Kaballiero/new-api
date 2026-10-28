@@ -6,12 +6,11 @@ import (
 	"github.com/QuantumNous/new-api/controller"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	"github.com/QuantumNous/new-api/middleware"
-	"github.com/gin-gonic/gin"
-
 	// Import oauth package to register providers via init()
 	_ "github.com/QuantumNous/new-api/oauth"
 
 	"github.com/gin-contrib/gzip"
+	"github.com/gin-gonic/gin"
 )
 
 func SetApiRouter(router *gin.Engine) {

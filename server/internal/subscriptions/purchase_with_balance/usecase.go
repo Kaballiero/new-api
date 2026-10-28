@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
+
+	"github.com/shopspring/decimal"
 )
 
 type Input struct{ UserID, PlanID int }

@@ -1,10 +1,6 @@
 package contract
 
 import (
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
 	"errors"
 	"fmt"
 	"io"
@@ -16,11 +12,14 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	f "github.com/QuantumNous/new-api/internal/contracttest/managementfixture"
 	h "github.com/QuantumNous/new-api/internal/contracttest/managementhttp"
 	tf "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

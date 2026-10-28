@@ -2,9 +2,9 @@ package verification
 
 import (
 	"encoding/json"
+
 	"github.com/QuantumNous/new-api/common"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
-
 	"github.com/QuantumNous/new-api/oauth"
 )
 

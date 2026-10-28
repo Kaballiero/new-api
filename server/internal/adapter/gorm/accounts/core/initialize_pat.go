@@ -2,10 +2,12 @@ package core
 
 import (
 	"errors"
+
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
+
 	"gorm.io/gorm"
 )
 

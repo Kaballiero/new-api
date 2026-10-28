@@ -1,18 +1,6 @@
 package controller
 
 import (
-	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
-
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
-	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
-
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -33,21 +21,27 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
+	verify_security_input "github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
-	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
-	verify_security_input "github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 )
 
 func TestSecurityAccountDeletionRequiresScopedProof(t *testing.T) {

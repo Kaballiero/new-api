@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/shopspring/decimal"
 )
 
 type quotaMath struct{}
@@ -60,7 +60,7 @@ func (completionEffects) Receipt(order domain.Order, quota int, ip, provider str
 	}
 	content := i18n.Translate(lang, key, params)
 	if provider == domain.PaymentProviderWaffoPancake {
-		usagestorage.Writer().RecordLog(order.UserID, model.LogTypeTopup, content)
+		usagestorage.Writer().RecordLog(order.UserID, usagerecord.LogTypeTopup, content)
 		return
 	}
 	usagestorage.Writer().RecordTopupLog(order.UserID, content, ip, order.PaymentMethod, provider)

@@ -1,8 +1,6 @@
 package transport
 
 import (
-	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
-
 	"context"
 	"errors"
 	"fmt"
@@ -12,47 +10,35 @@ import (
 	"strings"
 	"time"
 
-	mapping "github.com/QuantumNous/new-api/gateway/mapping"
-
-	routing "github.com/QuantumNous/new-api/gateway/routing"
-
-	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	textfilter "github.com/QuantumNous/new-api/pkg/textfilter"
-
 	taskdto "github.com/QuantumNous/new-api/dto"
-
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
+	perfmetrics "github.com/QuantumNous/new-api/gateway/metrics"
+	routing "github.com/QuantumNous/new-api/gateway/routing"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	taskpersistence "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
-
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
-
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
-
 	tasksdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
-
-	perfmetrics "github.com/QuantumNous/new-api/gateway/metrics"
+	textfilter "github.com/QuantumNous/new-api/pkg/textfilter"
 	"github.com/QuantumNous/new-api/relay"
-
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relay/taskview"
-
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -735,17 +721,17 @@ func executeTaskSubmissionWith(
 	}
 	task.Action = relayInfo.Action
 	if immediate := result.Immediate; immediate != nil {
-		task.Status = model.TaskStatus(immediate.Status)
+		task.Status = taskpersistence.TaskStatus(immediate.Status)
 		task.Progress = immediate.Progress
-		if immediate.Status == model.TaskStatusSuccess || immediate.Status == model.TaskStatusFailure {
+		if immediate.Status == taskpersistence.TaskStatusSuccess || immediate.Status == taskpersistence.TaskStatusFailure {
 			task.FinishTime = time.Now().Unix()
 		}
-		if immediate.Status == model.TaskStatusFailure {
+		if immediate.Status == taskpersistence.TaskStatusFailure {
 			task.FailReason = immediate.Reason
 		}
 		if immediate.Url != "" {
 			task.PrivateData.ResultURL = immediate.Url
-		} else if immediate.Status == model.TaskStatusSuccess {
+		} else if immediate.Status == taskpersistence.TaskStatusSuccess {
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		}
 	}

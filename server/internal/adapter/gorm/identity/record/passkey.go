@@ -2,12 +2,14 @@ package model
 
 import (
 	"encoding/base64"
+	"strings"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
+
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"gorm.io/gorm"
-	"strings"
-	"time"
 )
 
 type PasskeyCredential struct {

@@ -4,6 +4,7 @@ import (
 	adapter "github.com/QuantumNous/new-api/internal/adapter/gorm/personal_access_tokens"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/validate_token"
 	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
 )
 

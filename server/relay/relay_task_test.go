@@ -1,16 +1,10 @@
 package relay
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	mapping "github.com/QuantumNous/new-api/gateway/mapping"
-	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,16 +14,21 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-
+	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"

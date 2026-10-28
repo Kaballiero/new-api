@@ -2,8 +2,6 @@
 package contract
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -21,28 +19,26 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
-
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	"github.com/QuantumNous/new-api/internal/contracttest"
-
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/pluginfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 var manifest = flag.Bool("plugins-manifest", false, "list plugin cases without fixtures")
@@ -355,9 +351,9 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 				platform = "other"
 			}
 			require.NoError(t, env.DB.Create(&model.Task{ID: int64(300 + i), UserId: user, TaskID: "task_seed_" + name, Platform: platform,
-				Status: model.TaskStatusSuccess, ChannelId: 71, CreatedAt: taskfixture.Epoch, UpdatedAt: taskfixture.Epoch,
-				Properties: model.Properties{OriginModelName: fixture.Model}, Data: []byte(`{"id":"private-seed","task_id":"private-seed"}`),
-				PrivateData: model.TaskPrivateData{UpstreamTaskID: "private-seed"}}).Error)
+				Status: tasksrecord.TaskStatusSuccess, ChannelId: 71, CreatedAt: taskfixture.Epoch, UpdatedAt: taskfixture.Epoch,
+				Properties: tasksrecord.Properties{OriginModelName: fixture.Model}, Data: []byte(`{"id":"private-seed","task_id":"private-seed"}`),
+				PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "private-seed"}}).Error)
 		}
 		body := tc.Body
 		path := tc.Path
@@ -460,7 +456,7 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 				body = `{"enabled":false}`
 			}
 			if tc.Kind != "upload_post" {
-				require.NoError(t, env.DB.Model(&model.Task{}).Where("id=300").Update("status", model.TaskStatusInProgress).Error)
+				require.NoError(t, env.DB.Model(&model.Task{}).Where("id=300").Update("status", tasksrecord.TaskStatusInProgress).Error)
 			}
 			if tc.Variant == "force" {
 				path += "?force=true"
@@ -542,10 +538,10 @@ func runPluginHTTP(t *testing.T, tc pluginCase, updating bool) {
 			}
 			body = `{"model":"contract-video","prompt":"fixture","duration":1,"origins":` + ids + `}`
 		case "pending":
-			require.NoError(t, env.DB.Model(&model.Task{}).Where("id=300").Update("status", model.TaskStatusInProgress).Error)
+			require.NoError(t, env.DB.Model(&model.Task{}).Where("id=300").Update("status", tasksrecord.TaskStatusInProgress).Error)
 		case "failure":
 			require.NoError(t, env.DB.Model(&model.Task{}).Where("id=300").Updates(map[string]any{
-				"status": model.TaskStatusFailure, "fail_reason": "private error",
+				"status": tasksrecord.TaskStatusFailure, "fail_reason": "private error",
 			}).Error)
 		case "foreign":
 			path = "/v1/responses/resp_seed_foreign"

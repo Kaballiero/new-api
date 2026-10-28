@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/identity/transport"
+
 	"github.com/gin-gonic/gin"
 )
 

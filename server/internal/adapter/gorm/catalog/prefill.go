@@ -3,6 +3,7 @@ package catalog
 import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
+
 	"gorm.io/gorm"
 )
 

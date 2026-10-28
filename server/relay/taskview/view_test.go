@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +36,7 @@ func TestBuildTaskPluginViewRewritesOnlyStructuredTaskIDFields(t *testing.T) {
 	require.NoError(t, err)
 	task := &model.Task{
 		TaskID: publicTaskID,
-		PrivateData: model.TaskPrivateData{
+		PrivateData: tasksrecord.TaskPrivateData{
 			UpstreamTaskID: privateTaskID,
 		},
 		Data: taskData,
@@ -66,7 +68,7 @@ func TestBuildTaskPluginViewOmitsPrivatePollState(t *testing.T) {
 	task := &model.Task{
 		TaskID: "task_public_view",
 		Data:   []byte(`{"ok":true}`),
-		PrivateData: model.TaskPrivateData{
+		PrivateData: tasksrecord.TaskPrivateData{
 			PluginState:  []byte(`{"req_key":"secret"}`),
 			PollFailures: 7,
 		},

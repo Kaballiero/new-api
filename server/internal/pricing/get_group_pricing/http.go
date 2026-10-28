@@ -1,12 +1,13 @@
 package get_group_pricing
 
 import (
+	"net/http"
+	"strings"
+
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/transport"
-	"github.com/gin-gonic/gin"
-	"net/http"
 
-	"strings"
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {

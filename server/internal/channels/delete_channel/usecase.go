@@ -1,8 +1,6 @@
 package delete_channel
 
-import (
-	"github.com/QuantumNous/new-api/internal/channels/domain"
-)
+import "github.com/QuantumNous/new-api/internal/channels/domain"
 
 type Store interface {
 	Get(int, bool) (*domain.Channel, error)

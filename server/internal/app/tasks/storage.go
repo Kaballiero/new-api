@@ -1,11 +1,11 @@
 package tasks
 
 import (
-	"gorm.io/gorm"
-
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 // NewStore wires task persistence to the current primary database in every binary.

@@ -14,12 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -28,9 +25,12 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const mockPlugin = `
@@ -368,10 +368,10 @@ export function buildContentRequest(ctx) {
 	taskData, err := common.Marshal(map[string]any{"id": "raw-upstream"})
 	require.NoError(t, err)
 	task := &model.Task{
-		TaskID: "task-public", Status: model.TaskStatusSuccess, Data: taskData,
-		PrivateData: model.TaskPrivateData{
+		TaskID: "task-public", Status: tasksrecord.TaskStatusSuccess, Data: taskData,
+		PrivateData: tasksrecord.TaskPrivateData{
 			UpstreamTaskID: "upstream-task",
-			Execution: &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{
+			Execution: &tasksrecord.TaskExecutionSnapshot{TaskPlugin: &tasksrecord.TaskPluginSnapshot{
 				Version: "0.9.0",
 			}},
 		},
@@ -424,7 +424,7 @@ export function buildContentRequest(ctx) { return {url:ctx.baseUrl+"/content",me
 			plugin, err := pluginruntime.NewRegistry().Register(source, pluginruntime.Options{})
 			require.NoError(t, err)
 			adaptor := New(plugin)
-			_, err = adaptor.ListArtifacts(&model.Task{TaskID: "task", Status: model.TaskStatusSuccess, Data: []byte(`{}`)})
+			_, err = adaptor.ListArtifacts(&model.Task{TaskID: "task", Status: tasksrecord.TaskStatusSuccess, Data: []byte(`{}`)})
 			require.Error(t, err)
 		})
 	}
@@ -511,7 +511,7 @@ func TestTaskAdaptorMapsJSContract(t *testing.T) {
 
 	queryResp, err := adaptor.FetchTask(server.URL, "secret", &model.Task{
 		Action:      info.Action,
-		PrivateData: model.TaskPrivateData{UpstreamTaskID: parsed.UpstreamTaskID},
+		PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: parsed.UpstreamTaskID},
 	}, "")
 	require.NoError(t, err)
 	queryBody, err := io.ReadAll(queryResp.Body)
@@ -524,7 +524,7 @@ func TestTaskAdaptorMapsJSContract(t *testing.T) {
 	assert.Zero(t, adaptor.AdjustBillingOnComplete(&model.Task{}, result))
 	assert.Equal(t, 23, result.TotalTokens)
 
-	rendered, err := adaptor.ConvertToOpenAIVideo(&model.Task{TaskID: "task_public", Status: model.TaskStatusSuccess})
+	rendered, err := adaptor.ConvertToOpenAIVideo(&model.Task{TaskID: "task_public", Status: tasksrecord.TaskStatusSuccess})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 		"id":"task_public",
@@ -546,12 +546,12 @@ func TestTaskAdaptorPreservesSoraVideoResponseFields(t *testing.T) {
 	adaptor := New(plugin)
 
 	for _, tc := range []struct {
-		status model.TaskStatus
+		status tasksrecord.TaskStatus
 		want   string
 	}{
-		{model.TaskStatusInProgress, "in_progress"},
-		{model.TaskStatusSuccess, "completed"},
-		{model.TaskStatusFailure, "failed"},
+		{tasksrecord.TaskStatusInProgress, "in_progress"},
+		{tasksrecord.TaskStatusSuccess, "completed"},
+		{tasksrecord.TaskStatusFailure, "failed"},
 	} {
 		t.Run(string(tc.status), func(t *testing.T) {
 			task := &model.Task{
@@ -560,8 +560,8 @@ func TestTaskAdaptorPreservesSoraVideoResponseFields(t *testing.T) {
 				Progress:    "42%",
 				CreatedAt:   100,
 				FinishTime:  200,
-				Properties:  model.Properties{OriginModelName: "origin-model"},
-				PrivateData: model.TaskPrivateData{UpstreamTaskID: "upstream-task-id"},
+				Properties:  tasksrecord.Properties{OriginModelName: "origin-model"},
+				PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "upstream-task-id"},
 				Data: []byte(`{
 					"id":"upstream-task-id","task_id":"upstream-task-id",
 					"object":"provider-video","model":"provider-model",
@@ -586,7 +586,7 @@ func TestTaskAdaptorPreservesSoraVideoResponseFields(t *testing.T) {
 			assert.Equal(t, tc.want, fields["status"])
 			assert.Equal(t, float64(42), fields["progress"])
 			assert.Equal(t, float64(100), fields["created_at"])
-			if tc.status == model.TaskStatusSuccess {
+			if tc.status == tasksrecord.TaskStatusSuccess {
 				assert.Equal(t, float64(200), fields["completed_at"])
 			} else {
 				assert.NotContains(t, fields, "completed_at")
@@ -631,11 +631,11 @@ func TestTaskAdaptorPreservesOpenAIVideoFailureSlotsAndOwnsLifecycle(t *testing.
 	adaptor := New(plugin)
 	task := &model.Task{
 		TaskID:     "task_public",
-		Status:     model.TaskStatusFailure,
+		Status:     tasksrecord.TaskStatusFailure,
 		FailReason: "provider secret",
 		CreatedAt:  10,
 		UpdatedAt:  20,
-		Properties: model.Properties{OriginModelName: "origin-model"},
+		Properties: tasksrecord.Properties{OriginModelName: "origin-model"},
 	}
 
 	rendered, err := adaptor.ConvertToOpenAIVideo(task)
@@ -1159,8 +1159,8 @@ func TestTaskAdaptorBatchBridge(t *testing.T) {
 	require.Equal(t, "batch", adaptor.FetchMode())
 
 	tasks := []*model.Task{
-		{PrivateData: model.TaskPrivateData{UpstreamTaskID: "task-a"}},
-		{PrivateData: model.TaskPrivateData{UpstreamTaskID: "task-b"}},
+		{PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "task-a"}},
+		{PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "task-b"}},
 	}
 	resp, err := adaptor.FetchBatchTasks(server.URL, "secret", tasks, "")
 	require.NoError(t, err)
@@ -1273,16 +1273,16 @@ export function parseTaskResult(){return {status:"SUCCESS"}}
 		{
 			name: "mapped model",
 			task: &model.Task{
-				Properties:  model.Properties{OriginModelName: "alias", UpstreamModelName: "declared-model"},
-				PrivateData: model.TaskPrivateData{UpstreamTaskID: "t1"},
+				Properties:  tasksrecord.Properties{OriginModelName: "alias", UpstreamModelName: "declared-model"},
+				PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "t1"},
 			},
 			want: "/tasks/alias/declared-model/t1",
 		},
 		{
 			name: "unmapped model falls back to the origin name",
 			task: &model.Task{
-				Properties:  model.Properties{OriginModelName: "alias"},
-				PrivateData: model.TaskPrivateData{UpstreamTaskID: "t1"},
+				Properties:  tasksrecord.Properties{OriginModelName: "alias"},
+				PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "t1"},
 			},
 			want: "/tasks/alias/alias/t1",
 		},
@@ -1335,12 +1335,12 @@ export function parseTaskResult(ctx, body, response){
 	task := &model.Task{
 		TaskID: "task_public",
 		Action: constant.TaskActionImageToVideo,
-		Properties: model.Properties{
+		Properties: tasksrecord.Properties{
 			OriginModelName:   "alias",
 			UpstreamModelName: "declared",
 		},
 		Data: []byte(`{"snapshot":true}`),
-		PrivateData: model.TaskPrivateData{
+		PrivateData: tasksrecord.TaskPrivateData{
 			UpstreamTaskID: "upstream-1",
 			PluginState:    []byte(`{"req_key":"kept"}`),
 		},
@@ -1430,8 +1430,8 @@ export function parseBatchResult(){return [];}
 	require.NoError(t, err)
 	adaptor := New(plugin)
 	tasks := []*model.Task{
-		{Properties: model.Properties{OriginModelName: "model-a"}, PrivateData: model.TaskPrivateData{UpstreamTaskID: "task-a"}},
-		{Properties: model.Properties{OriginModelName: "model-b"}, PrivateData: model.TaskPrivateData{UpstreamTaskID: "task-b"}},
+		{Properties: tasksrecord.Properties{OriginModelName: "model-a"}, PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "task-a"}},
+		{Properties: tasksrecord.Properties{OriginModelName: "model-b"}, PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "task-b"}},
 	}
 	resp, err := adaptor.FetchBatchTasks(server.URL, "secret", tasks, "")
 	require.NoError(t, err)
@@ -1537,7 +1537,7 @@ func TestOpenRouterVideoConfiguredReservation(t *testing.T) {
 			assert.InDelta(t, tc.want, info.OpenRouterCost.Basis.EstimatedUSD, 1e-12)
 			assert.Equal(t, float64(2), info.OpenRouterCost.Basis.EffectiveGroupRatio)
 			assert.Nil(t, info.TieredBillingSnapshot, "local expression must not become final billing")
-			assert.Equal(t, model.TaskSettlementOpenRouterCostV2, info.OpenRouterCost.Basis.Version)
+			assert.Equal(t, tasksrecord.TaskSettlementOpenRouterCostV2, info.OpenRouterCost.Basis.Version)
 			facts, ok := c.Get("openrouter_video_order_facts")
 			require.True(t, ok)
 			if tc.measuredMedia {
@@ -1574,17 +1574,17 @@ export function parseTaskResult(){return {status:"SUCCESS"};}
 		name, mode, usage  string
 		present, confirmed bool
 	}{
-		{"legacy BYOK holds", model.TaskSettlementOpenRouterCostV1, `{"cost":0.002,"is_byok":true}`, true, false},
-		{"legacy unknown BYOK holds", model.TaskSettlementOpenRouterCostV1, `{"cost":0.002}`, true, false},
-		{"v2 BYOK fee is account cost", model.TaskSettlementOpenRouterCostV2, `{"cost":0.002,"is_byok":true}`, true, true},
-		{"v2 account cost no BYOK flag", model.TaskSettlementOpenRouterCostV2, `{"cost":0.002}`, true, true},
-		{"v2 zero valid", model.TaskSettlementOpenRouterCostV2, `{"cost":0}`, true, true},
-		{"v2 null unknown", model.TaskSettlementOpenRouterCostV2, `{"cost":null}`, false, false},
-		{"v2 string invalid", model.TaskSettlementOpenRouterCostV2, `{"cost":"0"}`, false, false},
-		{"v2 negative invalid", model.TaskSettlementOpenRouterCostV2, `{"cost":-1}`, false, false},
+		{"legacy BYOK holds", tasksrecord.TaskSettlementOpenRouterCostV1, `{"cost":0.002,"is_byok":true}`, true, false},
+		{"legacy unknown BYOK holds", tasksrecord.TaskSettlementOpenRouterCostV1, `{"cost":0.002}`, true, false},
+		{"v2 BYOK fee is account cost", tasksrecord.TaskSettlementOpenRouterCostV2, `{"cost":0.002,"is_byok":true}`, true, true},
+		{"v2 account cost no BYOK flag", tasksrecord.TaskSettlementOpenRouterCostV2, `{"cost":0.002}`, true, true},
+		{"v2 zero valid", tasksrecord.TaskSettlementOpenRouterCostV2, `{"cost":0}`, true, true},
+		{"v2 null unknown", tasksrecord.TaskSettlementOpenRouterCostV2, `{"cost":null}`, false, false},
+		{"v2 string invalid", tasksrecord.TaskSettlementOpenRouterCostV2, `{"cost":"0"}`, false, false},
+		{"v2 negative invalid", tasksrecord.TaskSettlementOpenRouterCostV2, `{"cost":-1}`, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{SettlementMode: tc.mode}}}
+			task := &model.Task{PrivateData: tasksrecord.TaskPrivateData{BillingContext: &tasksrecord.TaskBillingContext{SettlementMode: tc.mode}}}
 			result, err := adaptor.ParseTaskResult(task, &http.Response{StatusCode: 200, Header: make(http.Header)}, []byte(`{"usage":`+tc.usage+`}`))
 			require.NoError(t, err)
 			assert.Equal(t, tc.present, result.UpstreamCostUSD != nil)

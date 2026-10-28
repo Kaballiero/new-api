@@ -4,9 +4,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/internal/payments/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {

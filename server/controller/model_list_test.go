@@ -1,19 +1,6 @@
 package controller
 
 import (
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
-	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
 	"context"
 	"fmt"
 	"net/http"
@@ -25,15 +12,22 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
-
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"

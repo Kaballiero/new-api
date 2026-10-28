@@ -1,15 +1,6 @@
 package app
 
 import (
-	"github.com/QuantumNous/new-api/internal/app/identitycore"
-	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
-
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
-	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
@@ -36,24 +27,25 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/update_account"
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
 	"github.com/QuantumNous/new-api/internal/accounts/update_profile"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"github.com/QuantumNous/new-api/internal/app/accountscore"
-	"github.com/QuantumNous/new-api/internal/app/patstorage"
-
 	accountsadapter "github.com/QuantumNous/new-api/internal/adapter/accounts"
-
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts"
-
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	identityadapter "github.com/QuantumNous/new-api/internal/adapter/identity/accounts"
-
 	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
-
 	checkinsettings "github.com/QuantumNous/new-api/internal/adapter/settings/checkin"
-
+	"github.com/QuantumNous/new-api/internal/app/accountscore"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
+	"github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+	"github.com/QuantumNous/new-api/internal/app/patstorage"
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -154,7 +146,7 @@ func NewAccountsHTTP(effects AccountsEffects) AccountsHTTP {
 		ProvisionAccount:              provision_account.NewHTTP(accountscore.NewProvision(effects.Sidebar), effects.GetAPIError),
 		InitializePAT:                 initialize_pat.NewHTTP(accountscore.InitializePAT(), effects.GetAPIError),
 		CheckIn: check_in.NewHTTP(check_in.NewUsecase(accountscore.NewCheckinStore(), checkinsettings.Current), checkinsettings.Current, func(id, quota int, lang string) {
-			usagestorage.Writer().RecordLog(id, model.LogTypeSystem, i18n.Translate(lang, i18n.MsgAccountCheckinLog, map[string]any{"Quota": logger.LogQuota(quota)}))
+			usagestorage.Writer().RecordLog(id, usagerecord.LogTypeSystem, i18n.Translate(lang, i18n.MsgAccountCheckinLog, map[string]any{"Quota": logger.LogQuota(quota)}))
 		}),
 		GetCheckinStatus: get_checkin_status.NewHTTP(get_checkin_status.NewUsecase(accountscore.NewCheckinStore()), checkinsettings.Current),
 	}

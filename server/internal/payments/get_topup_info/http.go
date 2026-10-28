@@ -1,10 +1,10 @@
 package get_topup_info
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ usecase Usecase }

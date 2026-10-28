@@ -1,9 +1,6 @@
 package taskruntime
 
 import (
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
 	gormtasks "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	"github.com/QuantumNous/new-api/internal/adapter/http/taskmedia"
@@ -23,6 +20,9 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type HTTP struct {

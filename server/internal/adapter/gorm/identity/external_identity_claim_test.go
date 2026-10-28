@@ -1,12 +1,13 @@
 package identity_test
 
 import (
+	"testing"
+
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
 	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	model "github.com/QuantumNous/new-api/model"
-	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

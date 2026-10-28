@@ -1,9 +1,11 @@
 package count_consumption_test
 
 import (
-	"github.com/QuantumNous/new-api/internal/usage/count_consumption"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/QuantumNous/new-api/internal/usage/count_consumption"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type counter struct {

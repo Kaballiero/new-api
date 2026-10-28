@@ -1,14 +1,13 @@
 package model
 
 import (
-	"github.com/QuantumNous/new-api/internal/contracttest/fxfixture"
 	"os"
-
-	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
-
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxfixture"
+	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

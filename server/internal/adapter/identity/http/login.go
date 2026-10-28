@@ -2,22 +2,21 @@ package identityhttp
 
 import (
 	"errors"
-	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
-	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	"github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 	"github.com/QuantumNous/new-api/internal/adapter/identity/logincompletion"
 	"github.com/QuantumNous/new-api/internal/identity/complete_primary_login"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/internal/identity/transport"
 
 	"github.com/gin-gonic/gin"
-
-	"github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	"github.com/QuantumNous/new-api/internal/identity/dto"
 )
 
 func LoginMethodFromContext(c *gin.Context) string {

@@ -1,11 +1,11 @@
 package get_own_log_stats
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/usage/dto"
 	"github.com/QuantumNous/new-api/internal/usage/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {

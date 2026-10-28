@@ -1,10 +1,12 @@
 package get_ratio_config
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct{ usecase Usecase }

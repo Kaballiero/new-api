@@ -1,10 +1,10 @@
 package list_key_logs
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/usage/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {

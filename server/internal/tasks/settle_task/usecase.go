@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/shopspring/decimal"
-
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
+
+	"github.com/shopspring/decimal"
 )
 
 type Input struct {

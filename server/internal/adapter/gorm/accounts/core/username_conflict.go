@@ -2,10 +2,11 @@ package core
 
 import (
 	"errors"
+	"strings"
+
 	sqlitedriver "github.com/glebarez/go-sqlite"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
-	"strings"
 )
 
 func IsUsernameUniqueViolation(err error) bool {

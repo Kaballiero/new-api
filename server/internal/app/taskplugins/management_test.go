@@ -18,14 +18,14 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
-
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -105,7 +105,7 @@ func TestDeleteThirdPartyPluginReportsAssociatedChannelsAndInFlightTasks(t *test
 		BaseURL: &baseURL,
 		Setting: &setting}
 	require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
-	require.NoError(t, model.DB.Create(&model.Task{Platform: "lifecycle-only", Status: model.TaskStatusInProgress}).Error)
+	require.NoError(t, model.DB.Create(&model.Task{Platform: "lifecycle-only", Status: tasksrecord.TaskStatusInProgress}).Error)
 
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
@@ -139,7 +139,7 @@ func TestDisableThirdPartyPluginSupportsCascadeAndForce(t *testing.T) {
 		BaseURL: &baseURL,
 		Setting: &setting}
 	require.NoError(t, channelstore.NewChannelPersistence().Insert(&(channel)))
-	require.NoError(t, model.DB.Create(&model.Task{Platform: "lifecycle-only", Status: model.TaskStatusSubmitted}).Error)
+	require.NoError(t, model.DB.Create(&model.Task{Platform: "lifecycle-only", Status: tasksrecord.TaskStatusSubmitted}).Error)
 
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)

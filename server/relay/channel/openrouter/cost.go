@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -24,6 +22,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ReserveCost establishes the hold from a freshly prepared monetary estimate.

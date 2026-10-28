@@ -1,10 +1,6 @@
 package pricingfx_test
 
 import (
-	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"context"
 	"fmt"
 	"net/http"
@@ -15,11 +11,15 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	"github.com/QuantumNous/new-api/internal/app"
 	pricingfx "github.com/QuantumNous/new-api/internal/app/pricingfx"
 	"github.com/QuantumNous/new-api/internal/app/systemruntime"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

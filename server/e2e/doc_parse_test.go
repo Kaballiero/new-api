@@ -8,15 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	taskruntime "github.com/QuantumNous/new-api/internal/app/taskruntime"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -25,8 +20,13 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 const docParsePluginSource = `export const meta = {apiVersion:1,key:"doc-parse",name:"Document Parser",version:"1.0.0",author:{name:"Test"},models:["doc-parse-v1"],fetchMode:"batch"};
@@ -104,12 +104,12 @@ func TestDocumentPluginRunsGenericBatchArtifactChain(t *testing.T) {
 	require.Equal(t, "doc-upstream-1", parsed.UpstreamTaskID)
 	task := model.Task{
 		TaskID: info.PublicTaskID, Platform: "doc-parse", UserId: 7, ChannelId: channel.Id,
-		Status: model.TaskStatusInProgress, Data: parsed.TaskData,
-		PrivateData: model.TaskPrivateData{
+		Status: tasksrecord.TaskStatusInProgress, Data: parsed.TaskData,
+		PrivateData: tasksrecord.TaskPrivateData{
 			UpstreamTaskID: parsed.UpstreamTaskID,
-			Execution: &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{
+			Execution: &tasksrecord.TaskExecutionSnapshot{TaskPlugin: &tasksrecord.TaskPluginSnapshot{
 				Key: "doc-parse", Name: "Document Parser", Version: "1.0.0",
-				Author: &model.TaskPluginAuthorSnapshot{Name: "Test"}, APIVersion: 1,
+				Author: &tasksrecord.TaskPluginAuthorSnapshot{Name: "Test"}, APIVersion: 1,
 			}},
 		},
 	}
@@ -120,7 +120,7 @@ func TestDocumentPluginRunsGenericBatchArtifactChain(t *testing.T) {
 	t.Cleanup(func() { constant.TaskTimeoutMinutes, constant.TaskQueryLimit = originalTimeout, originalQueryLimit })
 	taskruntime.NewPolling().RunTasks(context.Background(), nil)
 	require.NoError(t, database.First(&task, task.ID).Error)
-	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), task.Status)
+	assert.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusSuccess), task.Status)
 
 	queryRecorder := httptest.NewRecorder()
 	queryContext, _ := gin.CreateTestContext(queryRecorder)

@@ -3,11 +3,12 @@ package upstream
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/pricing/fetch_upstream_ratios"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/pricing/fetch_upstream_ratios"
 )
 
 type RatioClients struct {

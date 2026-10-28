@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
+
+	"github.com/shopspring/decimal"
 )
 
 func (u Usecase) Prepare(task *domain.Task) {

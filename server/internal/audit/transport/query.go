@@ -4,11 +4,11 @@ import (
 	"errors"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/audit/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 func ReadQuery(c *gin.Context, page, size, offset int) (domain.Query, error) {

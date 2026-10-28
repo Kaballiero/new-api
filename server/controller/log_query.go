@@ -3,6 +3,7 @@ package controller
 import (
 	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/QuantumNous/new-api/internal/usage/admin_query_user_logs"
+
 	"github.com/gin-gonic/gin"
 )
 

@@ -1,10 +1,10 @@
 package purchase_with_balance
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/subscriptions/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type SubscriptionBalancePayRequest struct {

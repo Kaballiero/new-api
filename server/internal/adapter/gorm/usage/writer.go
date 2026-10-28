@@ -3,14 +3,15 @@ package usage
 import (
 	"fmt"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
+	auditrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func ensureLogRequestId(log *model.Log) {
@@ -25,7 +26,7 @@ func (w Writer) createLog(log *model.Log) error {
 }
 
 func (w Writer) RecordLog(userId int, logType int, content string) {
-	if logType == model.LogTypeConsume && !common.LogConsumeEnabled {
+	if logType == record.LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
 	username, _ := w.env.GetUsernameById(userId, false)
@@ -44,8 +45,8 @@ func (w Writer) RecordLog(userId int, logType int, content string) {
 
 // RecordLogWithAdminInfo stores operator metadata under other.admin_info and
 // an optional, user-visible operation descriptor under other.op for localization.
-func (w Writer) RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo *model.AuditAdminInfo, operation *model.AuditOperation, request ...*gin.Context) {
-	if logType == model.LogTypeConsume && !common.LogConsumeEnabled {
+func (w Writer) RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo *auditrecord.AuditAdminInfo, operation *auditrecord.AuditOperation, request ...*gin.Context) {
+	if logType == record.LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
 	username, _ := w.env.GetUsernameById(userId, false)
@@ -60,7 +61,7 @@ func (w Writer) RecordLogWithAdminInfo(userId int, logType int, content string, 
 		log.RequestId = request[0].GetString(common.RequestIdKey)
 	}
 	if adminInfo != nil || operation != nil {
-		data, err := common.Marshal(model.AuditOther{AdminInfo: adminInfo, Op: operation})
+		data, err := common.Marshal(auditrecord.AuditOther{AdminInfo: adminInfo, Op: operation})
 		if err != nil {
 			common.SysError("failed to encode log admin info: " + err.Error())
 			return
@@ -74,7 +75,7 @@ func (w Writer) RecordLogWithAdminInfo(userId int, logType int, content string, 
 
 func (w Writer) RecordTopupLog(userId int, content string, callerIp string, paymentMethod string, callbackPaymentMethod string) {
 	username, _ := w.env.GetUsernameById(userId, false)
-	other := new(model.LogOther)
+	other := new(record.LogOther)
 	other.MergeAdmin(map[string]any{
 		"server_ip":               common.GetIp(),
 		"node_name":               common.NodeName,
@@ -87,7 +88,7 @@ func (w Writer) RecordTopupLog(userId int, content string, callerIp string, paym
 		UserId:    userId,
 		Username:  username,
 		CreatedAt: common.GetTimestamp(),
-		Type:      model.LogTypeTopup,
+		Type:      record.LogTypeTopup,
 		Content:   content,
 		Ip:        callerIp,
 		Other:     other.JSONString(),
@@ -100,7 +101,7 @@ func (w Writer) RecordTopupLog(userId int, content string, callerIp string, paym
 
 // WriteErrorLog is the plain technical writer shared with usage recording.
 func (w Writer) WriteErrorLog(observation LogObservation, userId int, channelId int, modelName, tokenName, content string,
-	tokenId, useTimeSeconds int, isStream bool, group string, other *model.LogOther) {
+	tokenId, useTimeSeconds int, isStream bool, group string, other *record.LogOther) {
 	logger.LogInfo(observation.Context, fmt.Sprintf(
 		"record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s",
 		userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
@@ -117,7 +118,7 @@ func (w Writer) WriteErrorLog(observation LogObservation, userId int, channelId 
 		UserId:           userId,
 		Username:         username,
 		CreatedAt:        common.GetTimestamp(),
-		Type:             model.LogTypeError,
+		Type:             record.LogTypeError,
 		Content:          content,
 		PromptTokens:     0,
 		CompletionTokens: 0,
@@ -146,18 +147,18 @@ func (w Writer) WriteErrorLog(observation LogObservation, userId int, channelId 
 }
 
 type RecordConsumeLogParams struct {
-	ChannelId        int             `json:"channel_id"`
-	PromptTokens     int             `json:"prompt_tokens"`
-	CompletionTokens int             `json:"completion_tokens"`
-	ModelName        string          `json:"model_name"`
-	TokenName        string          `json:"token_name"`
-	Quota            int             `json:"quota"`
-	Content          string          `json:"content"`
-	TokenId          int             `json:"token_id"`
-	UseTimeSeconds   int             `json:"use_time_seconds"`
-	IsStream         bool            `json:"is_stream"`
-	Group            string          `json:"group"`
-	Other            *model.LogOther `json:"other"`
+	ChannelId        int              `json:"channel_id"`
+	PromptTokens     int              `json:"prompt_tokens"`
+	CompletionTokens int              `json:"completion_tokens"`
+	ModelName        string           `json:"model_name"`
+	TokenName        string           `json:"token_name"`
+	Quota            int              `json:"quota"`
+	Content          string           `json:"content"`
+	TokenId          int              `json:"token_id"`
+	UseTimeSeconds   int              `json:"use_time_seconds"`
+	IsStream         bool             `json:"is_stream"`
+	Group            string           `json:"group"`
+	Other            *record.LogOther `json:"other"`
 }
 
 func (w Writer) RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
@@ -185,7 +186,7 @@ func (w Writer) WriteConsumeLog(observation LogObservation, userId int, params R
 		UserId:           userId,
 		Username:         username,
 		CreatedAt:        createdAt,
-		Type:             model.LogTypeConsume,
+		Type:             record.LogTypeConsume,
 		Content:          params.Content,
 		PromptTokens:     params.PromptTokens,
 		CompletionTokens: params.CompletionTokens,
@@ -236,12 +237,12 @@ type RecordTaskBillingLogParams struct {
 	Quota     int
 	TokenId   int
 	Group     string
-	Other     *model.LogOther
+	Other     *record.LogOther
 	NodeName  string // The originating task node; fall back to the current node when empty.
 }
 
 func (w Writer) RecordTaskBillingLog(params RecordTaskBillingLogParams) {
-	if params.LogType == model.LogTypeConsume && !common.LogConsumeEnabled {
+	if params.LogType == record.LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
 	if err := w.RecordTaskBillingLogWithError(params); err != nil {
@@ -280,7 +281,7 @@ func (w Writer) RecordTaskBillingLogWithError(params RecordTaskBillingLogParams)
 	if err != nil {
 		return err
 	}
-	if params.LogType == model.LogTypeConsume && common.DataExportEnabled {
+	if params.LogType == record.LogTypeConsume && common.DataExportEnabled {
 		nodeName := params.NodeName
 		if nodeName == "" {
 			nodeName = common.NodeName

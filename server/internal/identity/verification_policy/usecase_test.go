@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"github.com/stretchr/testify/assert"
 )
 

@@ -3,22 +3,22 @@ package webauthn
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	"github.com/QuantumNous/new-api/internal/adapter/identity/login"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
 	webauthnlib "github.com/go-webauthn/webauthn/webauthn"
-	"net/http"
-	"strconv"
-	"time"
-
-	"github.com/QuantumNous/new-api/internal/adapter/identity/login"
-	"github.com/gin-gonic/gin"
 )
 
 type Ceremony struct {

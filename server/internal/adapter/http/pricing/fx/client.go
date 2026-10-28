@@ -6,11 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	refresh "github.com/QuantumNous/new-api/internal/pricing/refresh_cost_fx"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	refresh "github.com/QuantumNous/new-api/internal/pricing/refresh_cost_fx"
 )
 
 const (

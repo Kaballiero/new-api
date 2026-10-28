@@ -1,18 +1,6 @@
 package batchtickfixture
 
 import (
-	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
-	"github.com/QuantumNous/new-api/internal/app/httpapi"
-
-	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
-	account "github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
-	core "github.com/QuantumNous/new-api/internal/app/batch"
-	runtime "github.com/QuantumNous/new-api/internal/app/batchruntime"
-	. "github.com/QuantumNous/new-api/internal/app/system"
-	"github.com/QuantumNous/new-api/internal/batch/domain"
-	. "github.com/QuantumNous/new-api/internal/system/domain"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
 	"context"
 	"errors"
 	"flag"
@@ -25,10 +13,21 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	account "github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
+	core "github.com/QuantumNous/new-api/internal/app/batch"
+	runtime "github.com/QuantumNous/new-api/internal/app/batchruntime"
+	"github.com/QuantumNous/new-api/internal/app/httpapi"
+	. "github.com/QuantumNous/new-api/internal/app/system"
+	"github.com/QuantumNous/new-api/internal/batch/domain"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	. "github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/batch"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

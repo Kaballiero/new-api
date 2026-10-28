@@ -1,8 +1,6 @@
 package transport
 
 import (
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
 	"context"
 	"errors"
 	"flag"
@@ -15,19 +13,17 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
-
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/pluginfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
-
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
-
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -303,8 +299,8 @@ renderEvents:function(){return {events:[],done:false};}}};`
 	if variant == "stream_timeout" {
 		deps.heartbeatInterval = time.Hour
 	}
-	task := &model.Task{ID: 1, UserId: 71, TaskID: "task_seed_observer", Platform: "contract-observer", Status: model.TaskStatusSuccess,
-		CreatedAt: taskfixture.Epoch, UpdatedAt: taskfixture.Epoch, Properties: model.Properties{OriginModelName: "video-model"}}
+	task := &model.Task{ID: 1, UserId: 71, TaskID: "task_seed_observer", Platform: "contract-observer", Status: tasksrecord.TaskStatusSuccess,
+		CreatedAt: taskfixture.Epoch, UpdatedAt: taskfixture.Epoch, Properties: tasksrecord.Properties{OriginModelName: "video-model"}}
 	require.NoError(t, model.DB.Create(task).Error)
 	submits, loads := 0, 0
 	calls := []string{}
@@ -354,12 +350,12 @@ renderEvents:function(){return {events:[],done:false};}}};`
 		}
 		copy := *task
 		if variant == "sync_failure" || variant == "stream_failure" {
-			copy.Status = model.TaskStatusFailure
+			copy.Status = tasksrecord.TaskStatusFailure
 			copy.FailReason = "private failure"
 		}
 		if variant == "sync_timeout" || variant == "stream_timeout" || variant == "stream_heartbeat" || loads == 1 &&
 			(variant == "stream_state_null" || variant == "stream_state_absent") {
-			copy.Status = model.TaskStatusInProgress
+			copy.Status = tasksrecord.TaskStatusInProgress
 		}
 		return &copy, true, nil
 	}

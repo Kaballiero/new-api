@@ -2,10 +2,15 @@ package common_test
 
 import (
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/httpclient"
-
 	cl "github.com/QuantumNous/new-api/relay/channel/claude"
 	ge "github.com/QuantumNous/new-api/relay/channel/gemini"
 	oa "github.com/QuantumNous/new-api/relay/channel/openai"
@@ -14,17 +19,11 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/tidwall/gjson"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestProjectClientResponseSanitizesProtocolMetadata(t *testing.T) {

@@ -2,7 +2,6 @@ package model
 
 import (
 	"github.com/QuantumNous/new-api/common"
-
 	"github.com/QuantumNous/new-api/internal/accounts/provision_account"
 
 	"gorm.io/gorm"

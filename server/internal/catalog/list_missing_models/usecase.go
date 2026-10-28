@@ -1,8 +1,6 @@
 package list_missing_models
 
-import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
-)
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 type Store interface {
 	EnabledModels() []string

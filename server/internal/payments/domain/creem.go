@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"context"
-)
+import "context"
 
 type CreemProduct struct {
 	ProductId, Name string

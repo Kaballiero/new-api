@@ -14,9 +14,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -735,10 +737,10 @@ func TestProductionPluginNativeQueryTraversesInnerRouter(t *testing.T) {
 		TaskID:    "task_native_router",
 		Platform:  constant.TaskPlatform("kling"),
 		UserId:    91,
-		Status:    model.TaskStatusSuccess,
+		Status:    tasksrecord.TaskStatusSuccess,
 		Progress:  "100%",
 		ChannelId: 17,
-		PrivateData: model.TaskPrivateData{
+		PrivateData: tasksrecord.TaskPrivateData{
 			UpstreamTaskID: "private_upstream_id",
 			ResultURL:      "https://secret.example/video.mp4",
 		},

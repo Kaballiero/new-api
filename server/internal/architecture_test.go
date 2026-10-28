@@ -431,3 +431,74 @@ func TestPricingConstantAliasLeafBoundary(t *testing.T) {
 		})
 	}
 }
+
+// TestLegacyArchitectureClosure keeps the completed legacy boundary closed.
+func TestLegacyArchitectureClosure(t *testing.T) {
+	require.Empty(t, knownViolations, "the completed architecture has no allowlist")
+	serverDir, err := filepath.Abs("..")
+	require.NoError(t, err)
+	tables := strings.Fields("Ability AuditLog AuthFlow AuthzRole BatchItem BatchJob BatchLogEvent BatchLogReceipt BatchQuotaEvent CasbinRule CatalogDocument CatalogRevision CatalogSource Channel Checkin CustomOAuthProvider ExternalIdentityClaim Log LoginEncryptionKey Midjourney Model ModelCostFXRow Option PasskeyCredential PerfMetric PrefillGroup QuotaData Redemption Setup SubscriptionOrder SubscriptionPlan SubscriptionPreConsumeRecord SystemInstance SystemTask SystemTaskLock Task TaskPlugin Token TopUp TwoFA TwoFABackupCode User UserOAuthBinding UserSession UserSubscription Vendor")
+	bootstrap := strings.Fields("audit_log.go batch_migration.go external_identity_claim_migration.go frontend_option_migration.go gorm_logger.go main.go migration_dialector.go option_primary_key_migration.go prefill_group_migration.go token_migration.go user_auth_migration.go")
+	aliases := map[string]string{}
+	consumers := map[string]bool{}
+	err = filepath.WalkDir(serverDir, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		rel, err := filepath.Rel(serverDir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		assert.False(t, strings.HasPrefix(rel, "service/"), "service must contain fixtures only: %s", rel)
+		if strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ParseComments|parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		for _, group := range file.Comments {
+			for _, comment := range group.List {
+				assert.False(t, strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(comment.Text, "//")), "BRIDGE"), "remaining bridge in %s", rel)
+			}
+		}
+		if !strings.HasPrefix(rel, "model/") {
+			return nil
+		}
+		if slices.Contains(bootstrap, filepath.Base(path)) {
+			ast.Inspect(file, func(node ast.Node) bool {
+				if id, ok := node.(*ast.Ident); ok {
+					consumers[id.Name] = true
+				}
+				return true
+			})
+			return nil
+		}
+		if !assert.True(t, isRecordAliasFile(file), "model only permits bootstrap/migrations or table aliases: %s", rel) {
+			return nil
+		}
+		for _, decl := range file.Decls {
+			group := decl.(*ast.GenDecl)
+			if group.Tok == token.IMPORT {
+				continue
+			}
+			if !assert.Equal(t, token.TYPE, group.Tok, "legacy constants are forbidden: %s", rel) {
+				continue
+			}
+			for _, spec := range group.Specs {
+				name := spec.(*ast.TypeSpec).Name.Name
+				assert.Contains(t, tables, name, "non-table model alias in %s", rel)
+				aliases[name] = rel
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	for name, path := range aliases {
+		assert.True(t, consumers[name], "model alias has no migration/bootstrap consumer: %s (%s)", name, path)
+	}
+}

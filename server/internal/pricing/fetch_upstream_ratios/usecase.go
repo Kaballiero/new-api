@@ -2,16 +2,13 @@ package fetch_upstream_ratios
 
 import (
 	"context"
-
+	"errors"
 	"fmt"
-
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	"errors"
 )
 
 type Channel struct {

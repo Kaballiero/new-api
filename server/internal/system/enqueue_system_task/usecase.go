@@ -1,8 +1,6 @@
 package enqueue_system_task
 
-import (
-	"github.com/QuantumNous/new-api/internal/system/domain"
-)
+import "github.com/QuantumNous/new-api/internal/system/domain"
 
 type Store interface {
 	GetActiveSystemTask(string) (*domain.SystemTask, error)

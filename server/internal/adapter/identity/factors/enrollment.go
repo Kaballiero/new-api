@@ -1,6 +1,8 @@
 package factors
 
 import (
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
@@ -9,7 +11,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 
 	"github.com/pquerna/otp"
-	"time"
 )
 
 type StartTwoFASetupOperation struct {

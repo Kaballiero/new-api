@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
@@ -22,6 +20,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/tasks/record_sync_receipt"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+
+	"github.com/gin-gonic/gin"
 )
 
 var syncTasks = sync.OnceValue(tasksapp.NewReconciler)

@@ -4,9 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/constant"
 	taskplugins "github.com/QuantumNous/new-api/internal/adapter/gateway/taskplugins"
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
@@ -19,6 +16,9 @@ import (
 	"github.com/QuantumNous/new-api/internal/tasks/poll_tasks"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
+
+	"github.com/bytedance/gopkg/util/gopool"
+	"gorm.io/gorm"
 )
 
 // Polling assembles the same one-pass scenarios for scheduled handlers and

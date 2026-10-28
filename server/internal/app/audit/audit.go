@@ -2,16 +2,13 @@
 package audit
 
 import (
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-	"sync"
-
 	"context"
 	"fmt"
-
-	"gorm.io/gorm"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/audit"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/audit/admin_list_events"
 	"github.com/QuantumNous/new-api/internal/audit/domain"
 	"github.com/QuantumNous/new-api/internal/audit/list_own_events"
@@ -19,6 +16,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/audit/transport"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 type diagnostics struct{}

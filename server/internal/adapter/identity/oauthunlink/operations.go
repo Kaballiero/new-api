@@ -6,7 +6,6 @@ import (
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
-
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )

@@ -1,8 +1,9 @@
 package get_tag_models
 
 import (
-	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 type Store interface {

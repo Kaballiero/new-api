@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"

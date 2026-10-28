@@ -3,9 +3,10 @@ package systemmetrics
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/system/domain"
-	"time"
 )
 
 func Record(key domain.MetricBucketKey, sample domain.Sample) {

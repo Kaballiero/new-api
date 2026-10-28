@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/pkg/errors"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 )
 
 const KeyRequestBody = "key_request_body"

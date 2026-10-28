@@ -6,6 +6,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	"github.com/QuantumNous/new-api/internal/system/domain"
+
 	"gorm.io/gorm"
 )
 

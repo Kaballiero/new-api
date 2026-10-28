@@ -1,11 +1,11 @@
 package routing
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
+
+	"github.com/gin-gonic/gin"
 )
 
 // GetRequestAutoGroups resolves the ordered Auto groups for the current token.

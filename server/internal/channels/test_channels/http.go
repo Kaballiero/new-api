@@ -1,10 +1,12 @@
 package test_channels
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/channels/transport"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct{ scenario Usecase }

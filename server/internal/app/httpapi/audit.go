@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
+
 	"github.com/gin-gonic/gin"
 )
 

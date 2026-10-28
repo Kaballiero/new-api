@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
 	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/QuantumNous/new-api/internal/identity/password_login"
+
 	"github.com/gin-gonic/gin"
 )
 

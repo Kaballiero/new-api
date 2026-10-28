@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"sync"
+
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	gatewayprobe "github.com/QuantumNous/new-api/internal/adapter/gateway/channels"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
@@ -16,8 +18,8 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/modelcatalog"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
 	"github.com/gin-gonic/gin"
-	"sync"
 )
 
 var modelUpdateNotifications channeladapter.ModelUpdateNotifications

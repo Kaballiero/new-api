@@ -3,9 +3,9 @@ package get_rankings
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/internal/usage/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {

@@ -7,15 +7,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/samber/lo"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	legacy "github.com/QuantumNous/new-api/model"
+
+	"github.com/samber/lo"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func GetGroupEnabledModels(group string) []string {

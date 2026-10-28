@@ -3,8 +3,9 @@ package update_pricing_config
 import (
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 type Store interface {

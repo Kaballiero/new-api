@@ -1,11 +1,11 @@
 package payments
 
 import (
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/payments/record"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
+
+	"gorm.io/gorm"
 )
 
 // Read preserves Begin/Commit errors and rollback-only panic recovery.

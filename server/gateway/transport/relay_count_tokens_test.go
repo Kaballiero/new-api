@@ -1,9 +1,6 @@
 package transport
 
 import (
-	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relay/helper"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +8,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

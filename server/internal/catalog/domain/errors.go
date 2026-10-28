@@ -25,8 +25,8 @@ var (
 	ErrVendorNameEmpty  = errors.New("vendor name is empty")
 	ErrVendorNameExists = errors.New("vendor name already exists")
 
-	// Texts are shared with the legacy model.ErrVendorConflict and
-	// model.ErrMetadataSyncConflict aliases and reach clients as is.
+	// Vendor and metadata conflicts retain the existing message bytes
+	// and reach clients unchanged.
 	ErrVendorConflict       = errors.New("vendor data changed; preview again before applying")
 	ErrMetadataSyncConflict = errors.New("metadata changed; preview again before applying")
 

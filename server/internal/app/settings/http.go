@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/settings/get_status"
 	"github.com/QuantumNous/new-api/internal/settings/get_user_agreement"
 	"github.com/QuantumNous/new-api/internal/settings/update_option"
+
 	"github.com/gin-gonic/gin"
 )
 

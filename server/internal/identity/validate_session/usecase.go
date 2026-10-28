@@ -2,8 +2,9 @@ package validate_session
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type ValidateOperation interface {

@@ -4,6 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/transport"
+
 	"github.com/gin-gonic/gin"
 )
 

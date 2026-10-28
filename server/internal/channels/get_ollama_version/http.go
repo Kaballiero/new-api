@@ -1,10 +1,12 @@
 package get_ollama_version
 
 import (
-	"github.com/QuantumNous/new-api/internal/channels/transport"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strconv"
+
+	"github.com/QuantumNous/new-api/internal/channels/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ usecase func(*gin.Context) Usecase }

@@ -2,6 +2,7 @@ package finish_twofa_setup
 
 import (
 	"errors"
+
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 

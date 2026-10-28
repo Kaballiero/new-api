@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/internal/batch/domain"
+
 	"github.com/shopspring/decimal"
 )
 

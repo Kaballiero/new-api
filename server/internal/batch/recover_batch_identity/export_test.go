@@ -2,6 +2,7 @@ package recover_batch_identity
 
 import (
 	"context"
+
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 )
 

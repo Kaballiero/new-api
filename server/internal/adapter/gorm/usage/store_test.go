@@ -7,6 +7,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
+	accountsql "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
+	"github.com/QuantumNous/new-api/internal/usage/domain"
+	"github.com/QuantumNous/new-api/model"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
@@ -15,16 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
-	accountsql "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
-	accountsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
-	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
-	"github.com/QuantumNous/new-api/internal/usage/domain"
-	"github.com/QuantumNous/new-api/model"
 )
 
 func usagePostgres(t *testing.T, dsn string) *gorm.DB {
@@ -101,9 +102,9 @@ func TestUsageAdapterPostgres(t *testing.T) {
 	var rows []model.Log
 	require.NoError(t, logDB.Order("id").Find(&rows).Error)
 	require.Len(t, rows, 2)
-	assert.Equal(t, model.LogTypeConsume, rows[0].Type)
+	assert.Equal(t, usagerecord.LogTypeConsume, rows[0].Type)
 	assert.Equal(t, 7, rows[0].Quota)
-	assert.Equal(t, model.LogTypeError, rows[1].Type)
+	assert.Equal(t, usagerecord.LogTypeError, rows[1].Type)
 	assert.Zero(t, rows[1].Quota)
 	assert.Equal(t, rows[0].Other, rows[1].Other)
 	assert.Equal(t, "usage-pg-request", rows[0].RequestId)
@@ -257,7 +258,7 @@ func TestStoredFXUsesBillingValidationAndCapturedMetadata(t *testing.T) {
 		{name: "missing capture time", fx: domain.FX{Rate: 200, Factor: 2, Source: "fixture", EffectiveAt: 1}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			other := new(model.LogOther)
+			other := new(usagerecord.LogOther)
 			appendBillingFX(other, &domain.RequestFacts{FX: tc.fx}, domain.PriceFacts{}, "request")
 			admin, _ := other.Snapshot()["admin_info"].(map[string]any)
 			assert.Equal(t, tc.present, admin["billing_fx"] != nil)

@@ -3,13 +3,13 @@ package channels
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	legacy "github.com/QuantumNous/new-api/model"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	legacy "github.com/QuantumNous/new-api/model"
 )
 
 func openChannelStateSnapshotTestDB(t *testing.T) *gorm.DB {

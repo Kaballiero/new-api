@@ -2,10 +2,11 @@ package webauthn
 
 import (
 	"fmt"
-	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"strconv"
 	"strings"
+
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 
 	webauthn "github.com/go-webauthn/webauthn/webauthn"
 )

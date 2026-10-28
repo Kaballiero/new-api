@@ -17,14 +17,10 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
@@ -34,6 +30,11 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 var taskTickManifest = flag.Bool("tasks-tick-manifest", false, "list task policy cases")
@@ -87,7 +88,7 @@ func taskTickCases() []taskTickCase {
 		}
 		result = append(result, taskTickCase{Name: "completion_raw_" + variant, Kind: "completion", Source: "wallet", Variant: variant, Target: target})
 	}
-	for _, mode := range []string{model.TaskSettlementOpenRouterCostV1, model.TaskSettlementOpenRouterCostV2} {
+	for _, mode := range []string{tasksrecord.TaskSettlementOpenRouterCostV1, tasksrecord.TaskSettlementOpenRouterCostV2} {
 		for _, source := range []string{"wallet", "subscription"} {
 			for _, variant := range []string{"lower",
 				"higher",
@@ -342,17 +343,17 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 			Group:     "default",
 			Quota:     50,
 
-			Status:     model.TaskStatusInProgress,
+			Status:     tasksrecord.TaskStatusInProgress,
 			Progress:   "30%",
 			SubmitTime: now,
 			Data:       []byte(`{"keep":true}`),
-			Properties: model.Properties{OriginModelName: "task-policy-model"},
+			Properties: tasksrecord.Properties{OriginModelName: "task-policy-model"},
 
-			PrivateData: model.TaskPrivateData{UpstreamTaskID: "upstream-policy",
+			PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "upstream-policy",
 				BillingSource: tc.Source,
 				TokenId:       11,
 				NodeName:      "tasks-contract-node",
-				BillingContext: &model.TaskBillingContext{OriginModelName: "task-policy-model",
+				BillingContext: &tasksrecord.TaskBillingContext{OriginModelName: "task-policy-model",
 					GroupRatio: 1}}}
 		if tc.Source == "subscription" {
 			task.PrivateData.SubscriptionId = 21
@@ -378,10 +379,10 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 		if tc.Kind == "cost" {
 			bc.SettlementMode = tc.Mode
 			bc.GroupRatio = 4
-			bc.BillingFX = &model.TaskBillingFX{SchemaVersion: 1, Source: "cbr-xml-daily.ru", Rate: 200, PublicationVersion: 1, EffectiveAt: 1, FetchedAt: 1}
-			bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 2}
+			bc.BillingFX = &tasksrecord.TaskBillingFX{SchemaVersion: 1, Source: "cbr-xml-daily.ru", Rate: 200, PublicationVersion: 1, EffectiveAt: 1, FetchedAt: 1}
+			bc.SubmitGroup = &tasksrecord.TaskBillingSubmitGroup{PureRatio: 2}
 			bc.TieredSnapshot = &billingexpr.BillingSnapshot{GroupRatio: 4, QuotaPerUnit: 500000}
-			if tc.Mode == model.TaskSettlementOpenRouterCostV2 {
+			if tc.Mode == tasksrecord.TaskSettlementOpenRouterCostV2 {
 				bc.TieredSnapshot = nil
 				bc.OpenRouterCost = &common.OpenRouterCostBasis{Version: tc.Mode, EffectiveGroupRatio: 4, QuotaPerUnit: 500000, EstimatedUSD: 0.000025}
 			}
@@ -395,7 +396,7 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 			if tc.Variant == "negative" {
 				cost = -1
 			}
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50,
+			task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservedQuota: 50,
 				HasUpstreamCost:       tc.Variant != "missing",
 				UpstreamCostConfirmed: tc.Variant != "unconfirmed",
 				UpstreamCostUSD:       cost}
@@ -410,7 +411,7 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 			task.Platform = "sunoapi"
 		}
 		if tc.Kind == "completion" {
-			task.Status = model.TaskStatusSuccess
+			task.Status = tasksrecord.TaskStatusSuccess
 			adaptor.result.TotalTokens = 30
 			switch tc.Variant {
 			case "per_call":
@@ -429,11 +430,11 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 					GroupRatio:   1,
 					UsageFacts:   map[string]any{"seconds": float64(8)}}
 				if tc.Variant == "tiered_failure" {
-					task.Status = model.TaskStatusFailure
+					task.Status = tasksrecord.TaskStatusFailure
 				}
 			case "modern_fx", "invalid_fx":
-				bc.BillingFX = &model.TaskBillingFX{SchemaVersion: 1, Source: "cbr-xml-daily.ru", Rate: 200, PublicationVersion: 1, EffectiveAt: 1, FetchedAt: 1}
-				bc.SubmitGroup = &model.TaskBillingSubmitGroup{PureRatio: 1}
+				bc.BillingFX = &tasksrecord.TaskBillingFX{SchemaVersion: 1, Source: "cbr-xml-daily.ru", Rate: 200, PublicationVersion: 1, EffectiveAt: 1, FetchedAt: 1}
+				bc.SubmitGroup = &tasksrecord.TaskBillingSubmitGroup{PureRatio: 1}
 				bc.GroupRatio = 2
 				if tc.Variant == "invalid_fx" {
 					bc.BillingFX.Rate = 0
@@ -458,7 +459,7 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 		case "state":
 			task.PrivateData.PluginState = []byte(`{"preserve":true}`)
 		case "pending":
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservationPending: true, ReservedQuota: 50}
+			task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservationPending: true, ReservedQuota: 50}
 		case "null_id":
 			task.PrivateData.UpstreamTaskID = ""
 		case "missing_channel":
@@ -493,17 +494,17 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 			require.NoError(t, db.First(task, 81).Error)
 		}
 		if tc.Variant == "pending_cursor" {
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservationPending: true, ReservedQuota: 50}
+			task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservationPending: true, ReservedQuota: 50}
 			require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache()).UpdateTask(task))
 			later := *task
 			later.ID = 82
 			later.TaskID = "task_later"
 			later.Quota = 0
-			later.PrivateData = model.TaskPrivateData{UpstreamTaskID: "upstream-later"}
+			later.PrivateData = tasksrecord.TaskPrivateData{UpstreamTaskID: "upstream-later"}
 			require.NoError(t, db.Create(&later).Error)
 		}
 		if tc.Variant == "provisional_zero" || tc.Variant == "terminal_zero" {
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, Required: true, HasUpstreamCost: true, UpstreamCostConfirmed: true}
+			task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservedQuota: 50, Required: true, HasUpstreamCost: true, UpstreamCostConfirmed: true}
 			adaptor.result.Status = "FAILURE"
 			if tc.Variant == "terminal_zero" {
 				zero := 0.0
@@ -513,9 +514,9 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 			require.NoError(t, taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache()).UpdateTask(task))
 		}
 		if tc.Kind == "cost" {
-			task.Status = model.TaskStatusSuccess
+			task.Status = tasksrecord.TaskStatusSuccess
 			prepareOpenRouterCostSettlement(task)
-			won, err := taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache()).UpdateTaskWithStatus(task, model.TaskStatusInProgress)
+			won, err := taskstore.NewStore(func() *gorm.DB { return model.DB }, accountstorage.Cache()).UpdateTaskWithStatus(task, tasksrecord.TaskStatusInProgress)
 			require.NoError(t, err)
 			require.True(t, won)
 		}
@@ -576,13 +577,13 @@ func runTaskTickContract(t *testing.T, tc taskTickCase, updating bool) {
 			case "delta":
 				RecalculateTaskQuota(t.Context(), task, tc.Actual, "fixture delta")
 			case "refund":
-				task.Status = model.TaskStatusFailure
+				task.Status = tasksrecord.TaskStatusFailure
 				summary = RefundTaskQuota(t.Context(), task, "fixture refund")
 			case "completion":
 				var handled bool
 				handled, err = settleTaskBillingOnComplete(t.Context(), adaptor, task, &adaptor.result)
 				summary = handled
-				if task.Status == model.TaskStatusFailure && !handled {
+				if task.Status == tasksrecord.TaskStatusFailure && !handled {
 					RefundTaskQuota(t.Context(), task, "fixture failure")
 				}
 			case "cost":
@@ -722,7 +723,7 @@ func runSyncMetadataContract(t *testing.T, tc taskTickCase, updating bool) {
 			RequestId:       "sync-request-fixture",
 			ForcePreConsume: true,
 
-			OpenRouterCost: &relaycommon.OpenRouterCostState{Basis: common.OpenRouterCostBasis{Version: model.TaskSettlementOpenRouterCostV1,
+			OpenRouterCost: &relaycommon.OpenRouterCostState{Basis: common.OpenRouterCostBasis{Version: tasksrecord.TaskSettlementOpenRouterCostV1,
 				EffectiveGroupRatio: 1,
 				QuotaPerUnit:        1000,
 				EstimatedUSD:        0.05}}}

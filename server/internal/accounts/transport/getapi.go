@@ -2,9 +2,11 @@ package transport
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 type GetAPIErrors struct{ IsMissing func(error) bool }

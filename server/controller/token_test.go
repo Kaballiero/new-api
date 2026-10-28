@@ -1,26 +1,6 @@
 package controller
 
 import (
-	delete_owned_key "github.com/QuantumNous/new-api/internal/apikeys/delete_owned_key"
-
-	keyrepository "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys"
-
-	operation_setting "github.com/QuantumNous/new-api/setting/operation_setting"
-
-	search_keys "github.com/QuantumNous/new-api/internal/apikeys/search_keys"
-
-	disable_model_limits "github.com/QuantumNous/new-api/internal/apikeys/disable_model_limits"
-
-	keydomain "github.com/QuantumNous/new-api/internal/apikeys/domain"
-
-	keyrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
-
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
-
 	"bytes"
 	"database/sql"
 	"encoding/json"
@@ -34,6 +14,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	keyrepository "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys"
+	keyrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/audittest"
+	auditrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	delete_owned_key "github.com/QuantumNous/new-api/internal/apikeys/delete_owned_key"
+	disable_model_limits "github.com/QuantumNous/new-api/internal/apikeys/disable_model_limits"
+	keydomain "github.com/QuantumNous/new-api/internal/apikeys/domain"
+	search_keys "github.com/QuantumNous/new-api/internal/apikeys/search_keys"
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	operation_setting "github.com/QuantumNous/new-api/setting/operation_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -41,15 +40,6 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/audittest"
-	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
-
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type tokenAPIResponse struct {
@@ -796,11 +786,11 @@ func verifyAPITokenAudit(t *testing.T) {
 			require.Len(t, events, expectedEvents)
 			var operation *model.AuditLog
 			for i := range events {
-				if events[i].Category == model.AuditCategorySecurity {
+				if events[i].Category == auditrecord.AuditCategorySecurity {
 					require.Nil(t, operation, "one operation event per request")
 					operation = &events[i]
 				} else {
-					assert.Equal(t, model.AuditCategoryAccessToken, events[i].Category)
+					assert.Equal(t, auditrecord.AuditCategoryAccessToken, events[i].Category)
 					assert.Equal(t, patdomain.Fingerprint(pat), events[i].TokenRef)
 				}
 			}
@@ -909,7 +899,7 @@ func verifyAPITokenAudit(t *testing.T) {
 	})
 
 	t.Run("self audit excludes other owners", func(t *testing.T) {
-		audittest.Seed(t, model.AuditLog{UserId: other.Id, Username: other.Username, ActorRole: common.RoleCommonUser, Category: model.AuditCategorySecurity, Action: "token.delete", Content: "other-user-audit", Success: true})
+		audittest.Seed(t, model.AuditLog{UserId: other.Id, Username: other.Username, ActorRole: common.RoleCommonUser, Category: auditrecord.AuditCategorySecurity, Action: "token.delete", Content: "other-user-audit", Success: true})
 		response := auditRequest(router, "GET", "/api/audit/self?category=security&page_size=100", jwt)
 		assert.Equal(t, http.StatusOK, response.Code)
 		assert.Contains(t, response.Body.String(), "token.create")

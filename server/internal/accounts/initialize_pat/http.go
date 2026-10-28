@@ -2,13 +2,15 @@ package initialize_pat
 
 import (
 	"encoding/json"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {

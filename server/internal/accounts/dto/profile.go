@@ -1,8 +1,6 @@
 package dto
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 // SelfUserData builds the safe profile response of the dashboard, login and session.
 func SelfUserData(profile domain.SelfProfile, sidebarModules string, permissions map[string]any) map[string]any {

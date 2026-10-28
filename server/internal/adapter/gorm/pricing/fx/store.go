@@ -1,19 +1,20 @@
 package fx
 
 import (
-	locking "github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
-
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
+	locking "github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
 	state "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
-	"math"
-	"strings"
 )
 
 // LoadModelCostFX loads the durable publication and publishes it to RAM only

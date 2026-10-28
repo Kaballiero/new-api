@@ -2,9 +2,10 @@ package domain
 
 import (
 	"fmt"
-	"github.com/samber/lo"
 	"regexp"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
 type ModelMappingErrors struct{ ErrModelNameEmpty, ErrModelMappingCycle, ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty, ErrModelMappingConflict error }

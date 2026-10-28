@@ -4,17 +4,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/QuantumNous/new-api/constant"
-	catalogdomain "github.com/QuantumNous/new-api/internal/catalog/domain"
-	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
-	"github.com/expr-lang/expr/ast"
-	"github.com/expr-lang/expr/parser"
-	"math"
-
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/QuantumNous/new-api/constant"
+	catalogdomain "github.com/QuantumNous/new-api/internal/catalog/domain"
+	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
+
+	"github.com/expr-lang/expr/ast"
+	"github.com/expr-lang/expr/parser"
 )
 
 type BuildModel = catalogdomain.Model

@@ -12,10 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
-
 	common2 "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
@@ -25,8 +21,11 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/types"
-
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 // ApplyUpstreamBodyMetadata restores metadata that net/http cannot infer from

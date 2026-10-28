@@ -1,8 +1,6 @@
 package dto
 
-import (
-	"strings"
-)
+import "strings"
 
 // MergeUsageNonZero overlays usage snapshots: a later non-zero field
 // overwrites the current value, while a later zero value never erases an

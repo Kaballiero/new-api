@@ -1,8 +1,6 @@
 package enable_channel
 
-import (
-	"github.com/QuantumNous/new-api/constant"
-)
+import "github.com/QuantumNous/new-api/constant"
 
 // Notifier tells the administrators about a re-enabled channel.
 type Notifier interface {

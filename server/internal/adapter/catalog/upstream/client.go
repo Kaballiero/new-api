@@ -10,13 +10,12 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
-
-	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	catalogcodec "github.com/QuantumNous/new-api/internal/adapter/catalog"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 )
 

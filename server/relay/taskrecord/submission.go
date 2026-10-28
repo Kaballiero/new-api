@@ -1,12 +1,6 @@
 package taskrecord
 
 import (
-	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
-
-	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -15,15 +9,20 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/internal/tasks/record_task_submission"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskview"
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -52,7 +51,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 			logContent = texts.Phrase(info.UserId, i18n.MsgTasksParameters, map[string]any{"Content": logContent, "Parameters": strings.Join(contents, ", ")})
 		}
 	}
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	other.SetPublic("is_task", true)
 	usagegateway.AppendTaskBillingFX(other, info, info.PriceData, "submit")
 	other.SetPublic("request_path", c.Request.URL.Path)
@@ -79,7 +78,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 	usageadapter.AppendTaskIdentity(other, task)
 	usagegateway.AppendTaskQuotaSaturation(c, info, other)
 	var logErr error
-	if bc := task.PrivateData.BillingContext; bc != nil && (bc.SettlementMode == model.TaskSettlementOpenRouterCostV1 || bc.SettlementMode == model.TaskSettlementOpenRouterCostV2) {
+	if bc := task.PrivateData.BillingContext; bc != nil && (bc.SettlementMode == record.TaskSettlementOpenRouterCostV1 || bc.SettlementMode == record.TaskSettlementOpenRouterCostV2) {
 		other.SetPublic("settlement_mode", bc.SettlementMode)
 		other.SetPublic("reserved_quota", task.Quota)
 		if bc.OpenRouterCost != nil {
@@ -87,7 +86,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 			other.SetAdmin("openrouter_order_facts", bc.OpenRouterOrderFacts)
 		}
 		logErr = usagestorage.Writer().RecordTaskBillingLogWithError(usageadapter.RecordTaskBillingLogParams{
-			UserId: info.UserId, LogType: model.LogTypeConsume, ChannelId: info.ChannelId, ModelName: info.OriginModelName,
+			UserId: info.UserId, LogType: usagerecord.LogTypeConsume, ChannelId: info.ChannelId, ModelName: info.OriginModelName,
 			TokenId: info.TokenId, Quota: info.PriceData.Quota, Content: logContent, Group: info.UsingGroup, Other: other, NodeName: task.PrivateData.NodeName,
 		})
 	} else {
@@ -117,7 +116,7 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 		ratio := relayInfo.PriceData.GroupRatioInfo.GroupSpecialRatio
 		specialRatio = &ratio
 	}
-	task.PrivateData.BillingContext = &model.TaskBillingContext{
+	task.PrivateData.BillingContext = &record.TaskBillingContext{
 		ModelPrice:      relayInfo.PriceData.ModelPrice,
 		GroupRatio:      relayInfo.PriceData.EffectiveGroupRatio(),
 		ModelRatio:      relayInfo.PriceData.ModelRatio,
@@ -125,7 +124,7 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 		OriginModelName: relayInfo.OriginModelName,
 		PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
 		TieredSnapshot:  relayInfo.TieredBillingSnapshot,
-		BillingFX: &model.TaskBillingFX{
+		BillingFX: &record.TaskBillingFX{
 			SchemaVersion:      1,
 			Source:             relayInfo.BillingFXSource,
 			Rate:               relayInfo.BillingFXRate,
@@ -133,7 +132,7 @@ func InitTaskSubmission(c *gin.Context, platform constant.TaskPlatform, relayInf
 			EffectiveAt:        relayInfo.BillingFXEffectiveAt,
 			FetchedAt:          relayInfo.BillingFXFetchedAt,
 		},
-		SubmitGroup: &model.TaskBillingSubmitGroup{
+		SubmitGroup: &record.TaskBillingSubmitGroup{
 			PureRatio:       relayInfo.PriceData.GroupRatioInfo.GroupRatio,
 			HasSpecialRatio: relayInfo.PriceData.GroupRatioInfo.HasSpecialRatio,
 			SpecialRatio:    specialRatio,

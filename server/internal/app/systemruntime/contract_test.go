@@ -2,10 +2,6 @@
 package systemruntime_test
 
 import (
-	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
-	metricsstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics"
-	metricsdomain "github.com/QuantumNous/new-api/internal/system/domain"
-
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -26,25 +22,28 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	metricsstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 	perfmetrics "github.com/QuantumNous/new-api/internal/app/systemmetrics"
 	"github.com/QuantumNous/new-api/internal/app/systemruntime"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	sf "github.com/QuantumNous/new-api/internal/contracttest/systemfixture"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	metricsdomain "github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/console_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type systemCase struct {

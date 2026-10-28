@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
@@ -23,7 +24,7 @@ type TaskBilling struct {
 	ChannelUsedQuota func(int, int)
 }
 
-func Plugin(p *model.TaskPluginSnapshot) *usagedomain.Plugin {
+func Plugin(p *record.TaskPluginSnapshot) *usagedomain.Plugin {
 	if p == nil {
 		return nil
 	}
@@ -40,7 +41,7 @@ func (b TaskBilling) Refund(task *domain.Task, quota int, reason string) {
 	other := taskBillingOther(t)
 	other.SetPublic("task_id", t.TaskID)
 	other.SetPublic("reason", reason)
-	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{UserId: t.UserId, LogType: model.LogTypeRefund, Content: "", ChannelId: t.ChannelId, ModelName: domain.TaskModelName(task), Quota: quota, TokenId: t.PrivateData.TokenId, Group: t.Group, Other: other})
+	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{UserId: t.UserId, LogType: usagerecord.LogTypeRefund, Content: "", ChannelId: t.ChannelId, ModelName: domain.TaskModelName(task), Quota: quota, TokenId: t.PrivateData.TokenId, Group: t.Group, Other: other})
 }
 func (b TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota int, reason string, projection *domain.BillingProjection, clamps []*billingdomain.Clamp) {
 	t := record.FromDomain(task)
@@ -48,10 +49,10 @@ func (b TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota
 	var logType int
 	var logQuota int
 	if quotaDelta > 0 {
-		logType = model.LogTypeConsume
+		logType = usagerecord.LogTypeConsume
 		logQuota = quotaDelta
 	} else {
-		logType = model.LogTypeRefund
+		logType = usagerecord.LogTypeRefund
 		logQuota = -quotaDelta
 	}
 	other := taskBillingOtherWithProjection(t, projection)
@@ -104,12 +105,12 @@ func (b TaskBilling) Adjustment(task *domain.Task, actualQuota, preConsumedQuota
 		NodeName:  t.PrivateData.NodeName,
 	})
 }
-func taskBillingOther(task *model.Task) *model.LogOther {
+func taskBillingOther(task *model.Task) *usagerecord.LogOther {
 	return taskBillingOtherWithProjection(task, nil)
 }
 
-func taskBillingOtherWithProjection(task *model.Task, projection *domain.BillingProjection) *model.LogOther {
-	other := new(model.LogOther)
+func taskBillingOtherWithProjection(task *model.Task, projection *domain.BillingProjection) *usagerecord.LogOther {
+	other := new(usagerecord.LogOther)
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other.SetPublic("model_price", bc.ModelPrice)
 		if bc.ModelRatio > 0 {
@@ -164,7 +165,7 @@ func taskBillingOtherWithProjection(task *model.Task, projection *domain.Billing
 	return other
 }
 
-func AppendTaskIdentity(other *model.LogOther, task *model.Task) {
+func AppendTaskIdentity(other *usagerecord.LogOther, task *model.Task) {
 	if task == nil || other == nil {
 		return
 	}
@@ -175,7 +176,7 @@ func AppendTaskIdentity(other *model.LogOther, task *model.Task) {
 	usageMetadata.TaskIdentity(other, usagedomain.TaskIdentity{TaskID: task.TaskID, UpstreamTaskID: task.PrivateData.UpstreamTaskID, NodeName: task.PrivateData.NodeName, Plugin: plugin})
 }
 
-func taskBillingContextPriceData(bc *model.TaskBillingContext) *types.PriceData {
+func taskBillingContextPriceData(bc *record.TaskBillingContext) *types.PriceData {
 	if bc == nil || len(bc.OtherRatios) == 0 {
 		return nil
 	}
@@ -189,7 +190,7 @@ func taskBillingContextPriceData(bc *model.TaskBillingContext) *types.PriceData 
 func (b TaskBilling) Durable(value *domain.Task, delta int) error {
 	task := record.FromDomain(value)
 	r := task.PrivateData.Reconciliation
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	AppendTaskIdentity(other, task)
 	other.SetPublic("settlement_mode", task.PrivateData.BillingContext.SettlementMode)
 	other.SetPublic("pre_consumed_quota", r.ReservedQuota)
@@ -213,9 +214,9 @@ func (b TaskBilling) Durable(value *domain.Task, delta int) error {
 	} else if bc.TieredSnapshot != nil {
 		other.SetAdmin("effective_group_ratio", bc.TieredSnapshot.GroupRatio)
 	}
-	logType, quota := model.LogTypeConsume, delta
+	logType, quota := usagerecord.LogTypeConsume, delta
 	if delta < 0 {
-		logType, quota = model.LogTypeRefund, -delta
+		logType, quota = usagerecord.LogTypeRefund, -delta
 	}
 	if err := b.Writer.RecordTaskBillingLogWithError(RecordTaskBillingLogParams{
 		UserId: task.UserId, ChannelId: task.ChannelId, ModelName: domain.TaskModelName(value), TokenId: task.PrivateData.TokenId,
@@ -228,8 +229,8 @@ func (b TaskBilling) Durable(value *domain.Task, delta int) error {
 }
 
 func (b TaskBilling) RefundMidjourney(task *domain.Midjourney, quota int, reason string) {
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	other.SetPublic("task_id", task.MjId)
 	other.SetPublic("reason", reason)
-	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{UserId: task.UserId, LogType: model.LogTypeRefund, Content: "", ChannelId: task.GetBillingChannelId(), ModelName: domain.MidjourneyModelName(task.Action), Quota: quota, TokenId: task.TokenId, Other: other})
+	b.Writer.RecordTaskBillingLog(RecordTaskBillingLogParams{UserId: task.UserId, LogType: usagerecord.LogTypeRefund, Content: "", ChannelId: task.GetBillingChannelId(), ModelName: domain.MidjourneyModelName(task.Action), Quota: quota, TokenId: task.TokenId, Other: other})
 }

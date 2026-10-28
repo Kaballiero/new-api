@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"time"
-)
+import "time"
 
 type Deployment struct {
 	ID                      string    `json:"id"`

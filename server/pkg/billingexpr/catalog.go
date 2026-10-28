@@ -1,9 +1,10 @@
 package billingexpr
 
 import (
+	"slices"
+
 	"github.com/expr-lang/expr/ast"
 	"github.com/expr-lang/expr/parser"
-	"slices"
 )
 
 func CatalogPrices(expression string) [][]DisplayPrice {

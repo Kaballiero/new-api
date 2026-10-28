@@ -11,6 +11,7 @@ import (
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"

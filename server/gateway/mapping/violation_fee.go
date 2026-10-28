@@ -1,8 +1,9 @@
 package mapping
 
 import (
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"strings"
+
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 const (

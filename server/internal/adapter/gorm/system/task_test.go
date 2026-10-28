@@ -5,19 +5,18 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
-	"github.com/glebarez/sqlite"
-	"gorm.io/driver/postgres"
-
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/model"
-	"gorm.io/gorm"
 
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type testSystemTaskPayload struct {

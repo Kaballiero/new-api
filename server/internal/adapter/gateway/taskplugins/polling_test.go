@@ -3,12 +3,12 @@ package taskplugins
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type completionFactsAdaptor struct{ channel.TaskAdaptor }

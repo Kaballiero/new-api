@@ -7,16 +7,17 @@ import (
 	"sort"
 	"time"
 
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/taskplugins/record"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type TaskPlugin = record.TaskPlugin
@@ -226,7 +227,7 @@ func (s Store) GetTaskPluginUsage(key string) ([]domain.ChannelRef, int64, error
 	var inFlight int64
 	err := s.db().Model(&model.Task{}).Where("platform = ? AND status NOT IN ?",
 		key,
-		[]model.TaskStatus{model.TaskStatusSuccess,
-			model.TaskStatusFailure}).Count(&inFlight).Error
+		[]tasksrecord.TaskStatus{tasksrecord.TaskStatusSuccess,
+			tasksrecord.TaskStatusFailure}).Count(&inFlight).Error
 	return refs, inFlight, err
 }

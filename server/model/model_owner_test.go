@@ -6,12 +6,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	catalogstore "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
-	catalogstore "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
-
 	legacy "github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )

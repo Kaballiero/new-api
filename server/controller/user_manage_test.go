@@ -1,14 +1,6 @@
 package controller
 
 import (
-	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	adjust_quota "github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,20 +13,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	adjust_quota "github.com/QuantumNous/new-api/internal/accounts/adjust_quota"
+	auditrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
+	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
-	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
-	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
 )
 
 func setupManageUserTestDB(t *testing.T) *gorm.DB {
@@ -242,7 +240,7 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 			assert.Equal(t, ManageUserResponse{Action: "add_quota", UserId: user.Id, Role: user.Role, Status: user.Status, Quota: tc.wantQuota}, response.Data)
 
-			logs, total, err := (usageadapter.Store{}).ListAdminLogs(usagedomain.LogQuery{Kind: model.LogTypeTopup,
+			logs, total, err := (usageadapter.Store{}).ListAdminLogs(usagedomain.LogQuery{Kind: usagerecord.LogTypeTopup,
 				StartTimestamp: 0, EndTimestamp: 0, ModelName: "", Username: "", TokenName: "", Start: 0,
 				Count: 20, Channel: 0, Group: "", RequestID: "", UpstreamRequestID: ""}, usagedomain.LogVisibility(usagedomain.AudienceAdmin))
 			require.NoError(t, err)
@@ -251,25 +249,25 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 			assert.Equal(t, user.Id, logs[0].UserId)
 			assert.Equal(t, user.Username, logs[0].Username)
 			assert.Equal(t, tc.content, logs[0].Content)
-			var other model.AuditOther
+			var other auditrecord.AuditOther
 			require.NoError(t, common.UnmarshalJsonStr(logs[0].Other, &other))
-			assert.Equal(t, &model.AuditAdminInfo{AdminID: 9999, AdminUsername: "root-operator", AdminRole: common.RoleRootUser, AuthMethod: "session"}, other.AdminInfo)
+			assert.Equal(t, &auditrecord.AuditAdminInfo{AdminID: 9999, AdminUsername: "root-operator", AdminRole: common.RoleRootUser, AuthMethod: "session"}, other.AdminInfo)
 
 			logs, total, err = (usageadapter.Store{}).ListOwnLogs(usagedomain.LogQuery{CountLimit: usagedomain.MaxLogSearchCount,
-				UserID: user.Id, Kind: model.LogTypeTopup, StartTimestamp: 0, EndTimestamp: 0, ModelName: "",
+				UserID: user.Id, Kind: usagerecord.LogTypeTopup, StartTimestamp: 0, EndTimestamp: 0, ModelName: "",
 				TokenName: "", Start: 0, Count: 20, Group: "", RequestID: "", UpstreamRequestID: ""},
 				usagedomain.LogVisibility(usagedomain.AudienceUser))
 			require.NoError(t, err)
 			assert.EqualValues(t, 1, total)
 			require.Len(t, logs, 1)
-			other = model.AuditOther{}
+			other = auditrecord.AuditOther{}
 			require.NoError(t, common.UnmarshalJsonStr(logs[0].Other, &other))
 			assert.Nil(t, other.AdminInfo)
 			require.NotNil(t, other.Op)
 			assert.Equal(t, tc.action, other.Op.Action)
 			params, err := common.Marshal(other.Op.Params)
 			require.NoError(t, err)
-			expectedParams := model.AuditFields{"target_user_id": user.Id, "target_username": user.Username, "mode": tc.mode, "requested_quota": tc.value, "from": 1000, "to": tc.wantQuota}
+			expectedParams := auditrecord.AuditFields{"target_user_id": user.Id, "target_username": user.Username, "mode": tc.mode, "requested_quota": tc.value, "from": 1000, "to": tc.wantQuota}
 			if tc.mode != "override" {
 				expectedParams["quota"] = tc.value
 			}
@@ -280,7 +278,7 @@ func TestManageUserQuotaRecordsTopupAndAudit(t *testing.T) {
 			assert.Empty(t, logs[0].Ip, "recipient logs must not disclose the administrator IP")
 
 			logs, total, err = (usageadapter.Store{}).ListOwnLogs(usagedomain.LogQuery{CountLimit: usagedomain.MaxLogSearchCount,
-				UserID: 9999, Kind: model.LogTypeTopup, StartTimestamp: 0, EndTimestamp: 0, ModelName: "",
+				UserID: 9999, Kind: usagerecord.LogTypeTopup, StartTimestamp: 0, EndTimestamp: 0, ModelName: "",
 				TokenName: "", Start: 0, Count: 20, Group: "", RequestID: "", UpstreamRequestID: ""},
 				usagedomain.LogVisibility(usagedomain.AudienceUser))
 			require.NoError(t, err)
@@ -440,7 +438,7 @@ func TestManageUserQuotaTargetsAndWalletBounds(t *testing.T) {
 			assert.False(t, audits[0].Success)
 			params, err := common.Marshal(audits[0].Other.Op.Params)
 			require.NoError(t, err)
-			expected, err := common.Marshal(model.AuditFields{"target_user_id": tc.targetID, "mode": tc.mode, "requested_quota": tc.value, "failure_reason": tc.reason})
+			expected, err := common.Marshal(auditrecord.AuditFields{"target_user_id": tc.targetID, "mode": tc.mode, "requested_quota": tc.value, "failure_reason": tc.reason})
 			require.NoError(t, err)
 			assert.JSONEq(t, string(expected), string(params))
 			assert.NotContains(t, audits[0].Content, user.Username)
@@ -486,7 +484,7 @@ func TestManageUserQuotaMiddlewareKeepsOneOperationPerRequest(t *testing.T) {
 		require.Len(t, audits, 2, "one operation audit and one PAT request audit")
 		for _, audit := range audits {
 			assert.Equal(t, tc.success, audit.Success)
-			if audit.Category != model.AuditCategoryOperation {
+			if audit.Category != auditrecord.AuditCategoryOperation {
 				continue
 			}
 			assert.Equal(t, tc.action, audit.Action)

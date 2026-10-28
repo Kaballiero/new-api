@@ -3,10 +3,6 @@ package transport
 import (
 	"context"
 	"errors"
-	mapping "github.com/QuantumNous/new-api/gateway/mapping"
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
-	settingsdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,9 +14,12 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	"github.com/QuantumNous/new-api/i18n"
 	taskstore "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks"
 	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	runtimetechnical "github.com/QuantumNous/new-api/internal/adapter/taskruntime"
+	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
@@ -32,6 +31,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
+	settingsdto "github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
@@ -234,7 +234,7 @@ func TestServeTaskPluginProtocolDisconnectBeforeDurableBarrierPersistsAndSettles
 	assert.Zero(t, billing.refunds)
 	var persisted model.Task
 	require.NoError(t, database.Where("task_id = ?", "task_disconnect_persisted").First(&persisted).Error)
-	assert.Equal(t, model.TaskStatus(model.TaskStatusNotStart), persisted.Status)
+	assert.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusNotStart), persisted.Status)
 	assert.Equal(t, 7, persisted.Quota)
 	assert.Equal(t, "upstream_disconnect_persisted", persisted.PrivateData.UpstreamTaskID)
 	assert.Empty(t, recorder.Header().Get("Content-Type"))
@@ -281,8 +281,8 @@ func TestServeTaskPluginProtocolDisconnectDuringTerminalSettlementStopsOnlyObser
 		UserId:    71,
 		ChannelId: channel.Id,
 		Quota:     10,
-		Status:    model.TaskStatusSubmitted,
-		PrivateData: model.TaskPrivateData{
+		Status:    tasksrecord.TaskStatusSubmitted,
+		PrivateData: tasksrecord.TaskPrivateData{
 			UpstreamTaskID: "upstream-terminal",
 		},
 	}
@@ -365,7 +365,7 @@ func TestServeTaskPluginProtocolDisconnectDuringTerminalSettlementStopsOnlyObser
 
 	var persisted model.Task
 	require.NoError(t, database.Where("task_id = ?", task.TaskID).First(&persisted).Error)
-	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), persisted.Status)
+	assert.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusSuccess), persisted.Status)
 	assert.Equal(t, "100%", persisted.Progress)
 	assert.Equal(t, 10, persisted.Quota)
 	assert.True(t, adaptor.completed)
@@ -395,7 +395,7 @@ func (a *terminalSettlementPollingAdaptor) FetchTask(string, string, *domain.Tas
 
 func (a *terminalSettlementPollingAdaptor) ParseTaskResult(*domain.Task, *poll_tasks.Response, []byte) (*domain.TaskInfo, error) {
 	return &domain.TaskInfo{
-		Status:   model.TaskStatusSuccess,
+		Status:   tasksrecord.TaskStatusSuccess,
 		Progress: "100%",
 	}, nil
 }
@@ -496,9 +496,9 @@ func TestServeTaskPluginProtocolStreamsPinnedGenerationWithHostFraming(t *testin
 		assert.Equal(t, 71, userID)
 		assert.Equal(t, constant.TaskPlatform(oldPinned.Plugin.Meta.Key), platform)
 		assert.Equal(t, "task_generation", taskID)
-		status := model.TaskStatus(model.TaskStatusInProgress)
+		status := tasksrecord.TaskStatus(tasksrecord.TaskStatusInProgress)
 		if loadCount == 2 {
-			status = model.TaskStatus(model.TaskStatusSuccess)
+			status = tasksrecord.TaskStatus(tasksrecord.TaskStatusSuccess)
 		}
 		return &model.Task{
 			TaskID:   taskID,
@@ -533,10 +533,10 @@ func TestServeTaskPluginProtocolStreamsPinnedGenerationWithHostFraming(t *testin
 func TestServeTaskPluginProtocolStreamMissingRenderEventsUsesFailureEnvelope(t *testing.T) {
 	tests := []struct {
 		name   string
-		status model.TaskStatus
+		status tasksrecord.TaskStatus
 	}{
-		{name: "success", status: model.TaskStatusSuccess},
-		{name: "failure", status: model.TaskStatusFailure},
+		{name: "success", status: tasksrecord.TaskStatusSuccess},
+		{name: "failure", status: tasksrecord.TaskStatusFailure},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -594,7 +594,7 @@ func TestServeTaskPluginProtocolStreamInjectsHostArtifactCapabilities(t *testing
 		TaskID:   "task_stream_artifact",
 		Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key),
 		UserId:   71,
-		Status:   model.TaskStatusSuccess,
+		Status:   tasksrecord.TaskStatusSuccess,
 	}
 	task.SetData(map[string]any{
 		"output": map[string]any{
@@ -612,7 +612,7 @@ func TestServeTaskPluginProtocolStreamInjectsHostArtifactCapabilities(t *testing
 
 	serveTaskPluginProtocol(c, pinned, deps)
 
-	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), task.Status)
+	assert.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusSuccess), task.Status)
 	assert.Equal(t, []string{
 		"response.created",
 		"response.output_item.added",
@@ -686,7 +686,7 @@ func TestServeTaskPluginProtocolNonStreamUsesFinalHookAndHostEnvelope(t *testing
 			TaskID:   "task_final",
 			Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key),
 			UserId:   71,
-			Status:   model.TaskStatusSuccess,
+			Status:   tasksrecord.TaskStatusSuccess,
 		}
 		task.SetData(map[string]any{"value": "plugin-semantic-result"})
 		return task, true, nil
@@ -756,7 +756,7 @@ func TestServeTaskPluginProtocolNonStreamInjectsHostArtifactCapabilities(t *test
 		TaskID:   "task_final_artifact",
 		Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key),
 		UserId:   71,
-		Status:   model.TaskStatusSuccess,
+		Status:   tasksrecord.TaskStatusSuccess,
 	}
 	deps.loadTask = func(context.Context, int, constant.TaskPlatform, string) (*model.Task, bool, error) {
 		return task, true, nil
@@ -769,7 +769,7 @@ func TestServeTaskPluginProtocolNonStreamInjectsHostArtifactCapabilities(t *test
 
 	serveTaskPluginProtocol(c, pinned, deps)
 
-	assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), task.Status)
+	assert.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusSuccess), task.Status)
 	var response dto.PluginResponsesResponse
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	assert.Equal(t, "completed", response.Status)
@@ -806,7 +806,7 @@ func TestServeTaskPluginProtocolArtifactURLFailureOnlyFailsCurrentRendering(t *t
 				TaskID:   "task_capability_failure",
 				Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key),
 				UserId:   71,
-				Status:   model.TaskStatusSuccess,
+				Status:   tasksrecord.TaskStatusSuccess,
 			}
 			deps.loadTask = func(context.Context, int, constant.TaskPlatform, string) (*model.Task, bool, error) {
 				return task, true, nil
@@ -817,7 +817,7 @@ func TestServeTaskPluginProtocolArtifactURLFailureOnlyFailsCurrentRendering(t *t
 
 			serveTaskPluginProtocol(c, pinned, deps)
 
-			assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), task.Status)
+			assert.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusSuccess), task.Status)
 			assert.NotContains(t, recorder.Body.String(), "must-not-render")
 			assert.NotContains(t, recorder.Body.String(), "public address")
 			if stream {
@@ -866,7 +866,7 @@ func TestServeTaskPluginProtocolNonStreamTaskFailureSkipsFinalHook(t *testing.T)
 			TaskID:     "task_failed",
 			Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 			UserId:     71,
-			Status:     model.TaskStatusFailure,
+			Status:     tasksrecord.TaskStatusFailure,
 			FailReason: "upstream credential at https://secret.invalid/",
 		}
 		task.SetData(map[string]any{"secret": "database-secret"})
@@ -914,7 +914,7 @@ func TestServeTaskPluginProtocolStreamTaskFailureSuppressesPluginAndDatabaseDeta
 			TaskID:     "task_stream_failed",
 			Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 			UserId:     71,
-			Status:     model.TaskStatusFailure,
+			Status:     tasksrecord.TaskStatusFailure,
 			FailReason: "database-secret https://database.invalid/?token=hidden",
 		}
 		task.SetData(map[string]any{"secret": "private-result"})
@@ -1057,7 +1057,7 @@ func TestServeTaskPluginProtocolBackgroundStreamEntersObservation(t *testing.T) 
 			TaskID:   "task_background_stream",
 			Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key),
 			UserId:   71,
-			Status:   model.TaskStatusSuccess,
+			Status:   tasksrecord.TaskStatusSuccess,
 		}, true, nil
 	}
 
@@ -1092,11 +1092,11 @@ func TestRetrieveTaskPluginResponsePendingSkipsRenderFinal(t *testing.T) {
 		TaskID:   "task_retrieve_pending",
 		Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key),
 		UserId:   71,
-		Status:   model.TaskStatusInProgress,
-		PrivateData: model.TaskPrivateData{
+		Status:   tasksrecord.TaskStatusInProgress,
+		PrivateData: tasksrecord.TaskPrivateData{
 			ResponsesBackground: true,
 		},
-		Properties: model.Properties{OriginModelName: "video-model"},
+		Properties: tasksrecord.Properties{OriginModelName: "video-model"},
 		CreatedAt:  1_710_000_000,
 	}, true, nil)
 
@@ -1129,8 +1129,8 @@ func TestRetrieveTaskPluginResponseEchoesOriginModelName(t *testing.T) {
 		TaskID:     "task_retrieve_alias",
 		Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 		UserId:     71,
-		Status:     model.TaskStatusInProgress,
-		Properties: model.Properties{OriginModelName: "alias-model"},
+		Status:     tasksrecord.TaskStatusInProgress,
+		Properties: tasksrecord.Properties{OriginModelName: "alias-model"},
 		CreatedAt:  1_710_000_000,
 	}, true, nil)
 
@@ -1165,8 +1165,8 @@ func TestRetrieveTaskPluginResponseSuccessRendersFinal(t *testing.T) {
 		TaskID:     "task_retrieve_success",
 		Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 		UserId:     71,
-		Status:     model.TaskStatusSuccess,
-		Properties: model.Properties{OriginModelName: "video-model"},
+		Status:     tasksrecord.TaskStatusSuccess,
+		Properties: tasksrecord.Properties{OriginModelName: "video-model"},
 		CreatedAt:  1_710_000_000,
 	}, true, nil)
 
@@ -1201,8 +1201,8 @@ func TestRetrieveTaskPluginResponseStreamOnlySuccessSynthesizesFromEvents(t *tes
 		TaskID:     "task_retrieve_stream",
 		Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 		UserId:     71,
-		Status:     model.TaskStatusSuccess,
-		Properties: model.Properties{OriginModelName: "video-model"},
+		Status:     tasksrecord.TaskStatusSuccess,
+		Properties: tasksrecord.Properties{OriginModelName: "video-model"},
 		CreatedAt:  1_710_000_000,
 	}, true, nil)
 
@@ -1234,8 +1234,8 @@ func TestRetrieveTaskPluginResponseStreamOnlyPendingAndFailureStayHostEnvelopes(
 			TaskID:     "task_retrieve_stream_pending",
 			Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 			UserId:     71,
-			Status:     model.TaskStatusInProgress,
-			Properties: model.Properties{OriginModelName: "video-model"},
+			Status:     tasksrecord.TaskStatusInProgress,
+			Properties: tasksrecord.Properties{OriginModelName: "video-model"},
 			CreatedAt:  1_710_000_000,
 		}, true, nil)
 		retrieveTaskPluginResponse(c, deps)
@@ -1254,8 +1254,8 @@ func TestRetrieveTaskPluginResponseStreamOnlyPendingAndFailureStayHostEnvelopes(
 			TaskID:     "task_retrieve_stream_failure",
 			Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 			UserId:     71,
-			Status:     model.TaskStatusFailure,
-			Properties: model.Properties{OriginModelName: "video-model"},
+			Status:     tasksrecord.TaskStatusFailure,
+			Properties: tasksrecord.Properties{OriginModelName: "video-model"},
 		}, true, nil)
 		retrieveTaskPluginResponse(c, deps)
 		assert.Empty(t, logs)
@@ -1281,8 +1281,8 @@ func TestRetrieveTaskPluginResponseStreamOnlyRenderErrorUsesFailureEnvelope(t *t
 		TaskID:     "task_retrieve_stream_throw",
 		Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 		UserId:     71,
-		Status:     model.TaskStatusSuccess,
-		Properties: model.Properties{OriginModelName: "video-model"},
+		Status:     tasksrecord.TaskStatusSuccess,
+		Properties: tasksrecord.Properties{OriginModelName: "video-model"},
 		CreatedAt:  1_710_000_000,
 	}, true, nil)
 
@@ -1314,8 +1314,8 @@ func TestRetrieveTaskPluginResponseFailureUsesFailedEnvelope(t *testing.T) {
 		TaskID:     "task_retrieve_failure",
 		Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 		UserId:     71,
-		Status:     model.TaskStatusFailure,
-		Properties: model.Properties{OriginModelName: "video-model"},
+		Status:     tasksrecord.TaskStatusFailure,
+		Properties: tasksrecord.Properties{OriginModelName: "video-model"},
 	}, true, nil)
 
 	retrieveTaskPluginResponse(c, deps)
@@ -1340,8 +1340,8 @@ func TestRetrieveTaskPluginResponseNotFound(t *testing.T) {
 		TaskID:     "task_owned",
 		Platform:   constant.TaskPlatform(pinned.Plugin.Meta.Key),
 		UserId:     71,
-		Status:     model.TaskStatusInProgress,
-		Properties: model.Properties{OriginModelName: "video-model"},
+		Status:     tasksrecord.TaskStatusInProgress,
+		Properties: tasksrecord.Properties{OriginModelName: "video-model"},
 	}
 
 	tests := []struct {
@@ -1533,7 +1533,7 @@ func pluginProtocolTestOutcome(
 			TaskID:    taskID,
 			Platform:  constant.TaskPlatform(pluginKey),
 			UserId:    info.UserId,
-			Status:    model.TaskStatusSubmitted,
+			Status:    tasksrecord.TaskStatusSubmitted,
 			CreatedAt: 1_710_000_000,
 		},
 		RelayInfo: info,
@@ -1628,7 +1628,7 @@ func TestClientPrivacyTaskRenderers(t *testing.T) {
 				return pluginProtocolTestOutcome(info, pinned.Plugin.Meta.Key, "task_privacy"), nil
 			}
 			deps.loadTask = func(context.Context, int, constant.TaskPlatform, string) (*model.Task, bool, error) {
-				return &model.Task{TaskID: "task_privacy", Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key), UserId: 71, Status: model.TaskStatusSuccess}, true, nil
+				return &model.Task{TaskID: "task_privacy", Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key), UserId: 71, Status: tasksrecord.TaskStatusSuccess}, true, nil
 			}
 			serveTaskPluginProtocol(c, pinned, deps)
 			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
@@ -1660,10 +1660,10 @@ func TestClientPrivacyTaskRenderers(t *testing.T) {
 		})
 	}
 	for _, origin := range []string{"public:modifier", ""} {
-		for _, status := range []model.TaskStatus{model.TaskStatusSuccess, model.TaskStatusSubmitted} {
+		for _, status := range []tasksrecord.TaskStatus{tasksrecord.TaskStatusSuccess, tasksrecord.TaskStatusSubmitted} {
 			t.Run("retrieve-"+origin+"-"+string(status), func(t *testing.T) {
 				c, recorder := newPluginProtocolRetrieveContext("resp_privacy")
-				task := &model.Task{TaskID: "task_privacy", Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key), UserId: 71, Status: status, Properties: model.Properties{OriginModelName: origin, UpstreamModelName: "mapped-private"}, Data: []byte(`{"model":"raw-private","billing_usage":{"source":"private"}}`)}
+				task := &model.Task{TaskID: "task_privacy", Platform: constant.TaskPlatform(pinned.Plugin.Meta.Key), UserId: 71, Status: status, Properties: tasksrecord.Properties{OriginModelName: origin, UpstreamModelName: "mapped-private"}, Data: []byte(`{"model":"raw-private","billing_usage":{"source":"private"}}`)}
 				before, err := common.Marshal(task)
 				require.NoError(t, err)
 				retrieveTaskPluginResponse(c, pluginProtocolRetrieveDeps(pinned, task, true, nil))
@@ -1681,7 +1681,7 @@ func TestClientPrivacyTaskRenderers(t *testing.T) {
 				after, err := common.Marshal(task)
 				require.NoError(t, err)
 				assert.Equal(t, string(before), string(after))
-				if status == model.TaskStatusSuccess {
+				if status == tasksrecord.TaskStatusSuccess {
 					assert.Equal(t, `{"model":"artifact","cost":7}`, gjson.Get(recorder.Body.String(), "output.0.content.0.text").String())
 				}
 			})
@@ -1702,7 +1702,7 @@ func TestClientPrivacyTaskFetchDashboardAndLegacyOrigin(t *testing.T) {
 	require.NoError(t, database.Create(&model.Channel{Id: 1, Type: 1, Status: common.ChannelStatusEnabled, Key: "synthetic-key"}).Error)
 	raw := []byte(`{"model":"raw-private","provider":"kept","fallback":"kept","usage":{"prompt_tokens":1,"cost":7,"billing_usage":{"source":"private"}},"result":{"cost":7,"billing_usage":{"source":"private"}},"artifact":{"cost":7,"model":"artifact"}}`)
 	for _, origin := range []string{"public:modifier", ""} {
-		task := &model.Task{TaskID: "task_privacy_" + strconv.Itoa(len(origin)), ChannelId: 1, UserId: 71, Status: model.TaskStatusSuccess, Properties: model.Properties{OriginModelName: origin, UpstreamModelName: "fallback-private"}, Data: raw}
+		task := &model.Task{TaskID: "task_privacy_" + strconv.Itoa(len(origin)), ChannelId: 1, UserId: 71, Status: tasksrecord.TaskStatusSuccess, Properties: tasksrecord.Properties{OriginModelName: origin, UpstreamModelName: "fallback-private"}, Data: raw}
 		require.NoError(t, database.Create(task).Error)
 		recorder := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(recorder)

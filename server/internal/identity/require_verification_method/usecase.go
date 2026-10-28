@@ -1,8 +1,6 @@
 package require_verification_method
 
-import (
-	"github.com/QuantumNous/new-api/internal/identity/domain"
-)
+import "github.com/QuantumNous/new-api/internal/identity/domain"
 
 type MethodOptions interface {
 	MethodCount() int

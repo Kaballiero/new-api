@@ -1,10 +1,6 @@
 package controller
 
 import (
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -15,12 +11,14 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type passkeyTestBody struct {

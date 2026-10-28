@@ -1,8 +1,6 @@
 package accountsadapter
 
-import (
-	core "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
-)
+import core "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 
 type ModelAvailabilityPreferences struct{ SQL core.Store }
 

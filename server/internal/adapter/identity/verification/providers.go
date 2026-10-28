@@ -1,12 +1,11 @@
 package verification
 
 import (
-	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"sort"
 
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/identity/get_verification_requirements"
-
 	"github.com/QuantumNous/new-api/oauth"
 )
 

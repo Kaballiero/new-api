@@ -3,6 +3,7 @@ package controller
 import (
 	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/QuantumNous/new-api/internal/identity/get_oauth_bindings"
+
 	"github.com/gin-gonic/gin"
 )
 

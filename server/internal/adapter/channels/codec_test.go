@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/channels/update_channel"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

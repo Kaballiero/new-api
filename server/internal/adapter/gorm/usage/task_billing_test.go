@@ -5,12 +5,12 @@ import (
 	"math"
 	"testing"
 
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	"github.com/QuantumNous/new-api/pkg/billingexpr"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/billingexpr"
 )
 
 func TestTaskBillingOtherFiltersHistoricalOtherRatios(t *testing.T) {
@@ -87,12 +87,12 @@ func TestTaskBillingOtherSeparatesPluginAndRootDiagnostics(t *testing.T) {
 	task.TaskID = "task_public"
 	task.PrivateData.UpstreamTaskID = "upstream-private"
 	task.PrivateData.NodeName = "node-a"
-	task.PrivateData.Execution = &model.TaskExecutionSnapshot{
-		TaskPlugin: &model.TaskPluginSnapshot{
+	task.PrivateData.Execution = &tasksrecord.TaskExecutionSnapshot{
+		TaskPlugin: &tasksrecord.TaskPluginSnapshot{
 			Key:     "document-parser",
 			Name:    "Document Parser",
 			Version: "1.2.3",
-			Author: &model.TaskPluginAuthorSnapshot{
+			Author: &tasksrecord.TaskPluginAuthorSnapshot{
 				Name: "Community Author",
 				URL:  "https://plugins.example/author",
 			},
@@ -126,7 +126,7 @@ func TestTaskBillingOtherSeparatesPluginAndRootDiagnostics(t *testing.T) {
 }
 
 func TestTaskBillingContextPriceDataFiltersMultiplier(t *testing.T) {
-	priceData := taskBillingContextPriceData(&model.TaskBillingContext{
+	priceData := taskBillingContextPriceData(&tasksrecord.TaskBillingContext{
 		OtherRatios: map[string]float64{
 			"seconds":  2,
 			"size":     3,

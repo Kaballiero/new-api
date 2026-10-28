@@ -2,13 +2,11 @@ package domain
 
 import (
 	"bytes"
-
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-
 	"net/url"
 	"sort"
 	"strconv"

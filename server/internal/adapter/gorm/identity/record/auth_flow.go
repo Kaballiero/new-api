@@ -1,8 +1,6 @@
 package model
 
-import (
-	"time"
-)
+import "time"
 
 // AuthFlow stores one-time, short-lived state for authentication ceremonies.
 // TokenHash is an HMAC of the opaque token; the token itself is never persisted.

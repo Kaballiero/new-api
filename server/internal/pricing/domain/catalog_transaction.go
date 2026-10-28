@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"context"
-)
+import "context"
 
 type CatalogTransaction interface {
 	UpdateHead(CatalogSource, string, string, string, int64) (bool, error)

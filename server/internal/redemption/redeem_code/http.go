@@ -1,10 +1,10 @@
 package redeem_code
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+
+	"github.com/gin-gonic/gin"
 )
 
 // Admission holds a process-local user lock across binding, the transaction and post-commit effects.

@@ -19,12 +19,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
-	_ "golang.org/x/image/webp"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-
 	"github.com/QuantumNous/new-api/logger"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel"
@@ -33,6 +29,9 @@ import (
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+
+	"github.com/gin-gonic/gin"
+	_ "golang.org/x/image/webp"
 )
 
 // ImageAdaptor uses OpenRouter's dedicated /images protocol. Embedding the

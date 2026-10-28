@@ -8,7 +8,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/internal/identity/get_verification_requirements"
-
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )

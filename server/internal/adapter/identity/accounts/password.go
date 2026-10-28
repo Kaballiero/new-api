@@ -5,14 +5,13 @@ import (
 	cacheaccounts "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
 	"github.com/QuantumNous/new-api/internal/identity/change_self_password"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
 	"github.com/QuantumNous/new-api/middleware"
 
 	"github.com/gin-gonic/gin"
-
-	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
-	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
 )
 
 type PasswordCapabilities struct {

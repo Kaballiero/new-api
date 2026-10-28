@@ -1,17 +1,17 @@
 package oauthadapter
 
 import (
-	"github.com/QuantumNous/new-api/common"
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-	"github.com/QuantumNous/new-api/internal/identity/start_oauth_flow"
-	"github.com/QuantumNous/new-api/middleware"
-
-	"github.com/QuantumNous/new-api/oauth"
-	"github.com/gin-gonic/gin"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/adapter/identity/verification"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/QuantumNous/new-api/internal/identity/start_oauth_flow"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/oauth"
+
+	"github.com/gin-gonic/gin"
 )
 
 type FlowPayload struct {

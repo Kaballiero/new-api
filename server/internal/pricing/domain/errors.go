@@ -29,11 +29,11 @@ var (
 	ErrChannelQueryFailed       = errors.New("failed to query channels")
 	ErrUpstreamDataUnrecognized = errors.New("upstream data format is not recognized")
 
-	// ErrModelPricingConflict is shared with the legacy
-	// model.ErrModelPricingConflict alias and reaches clients as is.
+	// ErrModelPricingConflict is returned directly to consumers.
+	// Its message reaches clients unchanged.
 	ErrModelPricingConflict = errors.New("model pricing changed; reload before saving")
-	// ErrCatalogSourceChanged is shared with the legacy
-	// model.ErrCatalogSourceChanged alias.
+	// ErrCatalogSourceChanged rejects a stale source snapshot
+	// before publication.
 	ErrCatalogSourceChanged = errors.New("catalog source changed before publication")
 )
 

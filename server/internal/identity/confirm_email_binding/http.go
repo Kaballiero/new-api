@@ -1,10 +1,12 @@
 package confirm_email_binding
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type Completion interface {

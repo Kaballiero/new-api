@@ -1,9 +1,9 @@
 package dbclock
 
 import (
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
+
+	"gorm.io/gorm"
 )
 
 // GetDBTimestamp returns a UNIX timestamp from database time.

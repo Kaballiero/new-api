@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )

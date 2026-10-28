@@ -1,8 +1,6 @@
 package clear_user_permissions
 
-import (
-	"github.com/QuantumNous/new-api/internal/authorization/domain"
-)
+import "github.com/QuantumNous/new-api/internal/authorization/domain"
 
 type Writer interface {
 	RemoveFilteredPolicy(int, ...string) (bool, error)

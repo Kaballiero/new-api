@@ -1,11 +1,6 @@
 package transport
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -21,27 +16,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/gorilla/websocket"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	usagedomain "github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/gorilla/websocket"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // Initialize translations for this test binary, which does not run main.
@@ -117,7 +116,7 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	assert.Equal(t, []any{"101"}, adminInfo["use_channel"])
 
 	logs, total, err := (usageadapter.Store{}).ListOwnLogs(usagedomain.LogQuery{CountLimit: usagedomain.MaxLogSearchCount,
-		UserID: 7, Kind: model.LogTypeError, StartTimestamp: 0, EndTimestamp: 0, ModelName: "",
+		UserID: 7, Kind: usagerecord.LogTypeError, StartTimestamp: 0, EndTimestamp: 0, ModelName: "",
 		TokenName: "", Start: 0, Count: 10, Group: "", RequestID: "", UpstreamRequestID: ""},
 		usagedomain.LogVisibility(usagedomain.AudienceUser))
 	require.NoError(t, err)
@@ -492,10 +491,10 @@ func TestOpenRouterNativeImageRelayAccounting(t *testing.T) {
 			if tc.unknown {
 				assert.Equal(t, "unknown", admin["image_financial_outcome"])
 				assert.Equal(t, "refund_without_retry", admin["image_error_policy"])
-				assert.Equal(t, model.LogTypeError, logs[0].Type)
+				assert.Equal(t, usagerecord.LogTypeError, logs[0].Type)
 			} else if tc.status == http.StatusOK {
 				assert.Contains(t, admin, "image_actual_cost_usd")
-				assert.Equal(t, model.LogTypeConsume, logs[0].Type)
+				assert.Equal(t, usagerecord.LogTypeConsume, logs[0].Type)
 				assert.NotContains(t, admin, "image_financial_outcome")
 			}
 		})

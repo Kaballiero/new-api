@@ -3,11 +3,11 @@ package usage
 import (
 	"strings"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/internal/usage/dto"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 var quotaBucketDimensions = map[domain.QuotaBucketGrouping]struct{ columns, order string }{

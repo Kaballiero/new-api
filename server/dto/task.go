@@ -1,8 +1,6 @@
 package dto
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
 type TaskError struct {
 	Code       string `json:"code"`

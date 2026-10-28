@@ -2,10 +2,6 @@
 package taskfixture
 
 import (
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	dbclock "github.com/QuantumNous/new-api/internal/app/dbclock"
-
 	"crypto/sha256"
 	"database/sql/driver"
 	"encoding/json"
@@ -21,18 +17,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	dbclock "github.com/QuantumNous/new-api/internal/app/dbclock"
+	"github.com/QuantumNous/new-api/model"
 
 	sqliteclock "github.com/glebarez/go-sqlite"
-
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 )
 
 const Origin = "6b0f439a432ab129817e4e41ce323e6bd3c3c0c3"

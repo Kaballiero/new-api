@@ -1,19 +1,19 @@
 package fx_test
 
 import (
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	state "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	"github.com/QuantumNous/new-api/internal/contracttest/fxfixture"
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/glebarez/sqlite"
-
 	"context"
 	"math"
 	"sync"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	state "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxfixture"
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/model"
+
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

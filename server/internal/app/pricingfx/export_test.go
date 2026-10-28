@@ -1,9 +1,9 @@
 package pricingfx
 
 import (
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"testing"
+
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 func SystemContractFXEndpoint(t *testing.T, endpoint string) {

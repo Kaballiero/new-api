@@ -1,16 +1,6 @@
 package audit_test
 
 import (
-	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
-
-	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
-
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"context"
 	"errors"
 	"fmt"
@@ -21,31 +11,37 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
 	auditstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/audit"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/audittest"
+	auditrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
 	auditdto "github.com/QuantumNous/new-api/internal/audit/dto"
 	authzdomain "github.com/QuantumNous/new-api/internal/authorization/domain"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/get_status"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/revoke_token"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func setupAccessTokenAudit(t *testing.T) (*model.User, string) {
@@ -174,7 +170,7 @@ func TestAccessTokenAuditsResultsAndExcludesBrowserSessions(t *testing.T) {
 		response := auditRequest(router, tc.method, tc.path, pat)
 		require.Equal(t, tc.status, response.Code)
 		var access model.AuditLog
-		require.NoError(t, model.LOG_DB.Where("request_id = ? AND category = ?", response.Header().Get(common.RequestIdKey), model.AuditCategoryAccessToken).First(&access).Error)
+		require.NoError(t, model.LOG_DB.Where("request_id = ? AND category = ?", response.Header().Get(common.RequestIdKey), auditrecord.AuditCategoryAccessToken).First(&access).Error)
 		assert.Equal(t, tc.success, access.Success)
 		assert.Equal(t, tc.status, access.Status)
 		assert.Equal(t, user.Id, access.UserId)
@@ -183,7 +179,7 @@ func TestAccessTokenAuditsResultsAndExcludesBrowserSessions(t *testing.T) {
 		assert.NotContains(t, access.Route, "sensitive-id")
 	}
 	var operationCount int64
-	require.NoError(t, model.LOG_DB.Model(&model.AuditLog{}).Where("category = ?", model.AuditCategoryOperation).Count(&operationCount).Error)
+	require.NoError(t, model.LOG_DB.Model(&model.AuditLog{}).Where("category = ?", auditrecord.AuditCategoryOperation).Count(&operationCount).Error)
 	assert.EqualValues(t, 2, operationCount, "manual operation must not be duplicated by fallback")
 	now := time.Now().Unix()
 	session := &identityrecord.UserSession{SID: "audit-session", UserID: user.Id, Version: 1, UserAuthVersion: 1, Status: identityrecord.UserSessionStatusActive, RefreshHash: "refresh-placeholder", LoginMethod: "password", LastActiveAt: now, ExpiresAt: now + 3600}
@@ -192,7 +188,7 @@ func TestAccessTokenAuditsResultsAndExcludesBrowserSessions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 200, auditRequest(router, "GET", "/read/123", jwt).Code)
 	assert.Equal(t, 401, auditRequest(router, "GET", "/read/123", "unknown-token").Code)
-	entries, total, err := readAuditEvents(auditFilter{Category: model.AuditCategoryAccessToken}, 0, 20, common.RoleRootUser)
+	entries, total, err := readAuditEvents(auditFilter{Category: auditrecord.AuditCategoryAccessToken}, 0, 20, common.RoleRootUser)
 	require.NoError(t, err)
 	assert.EqualValues(t, 7, total)
 	encoded, err := common.Marshal(entries)
@@ -204,13 +200,13 @@ func TestAccessTokenAuditsResultsAndExcludesBrowserSessions(t *testing.T) {
 
 func TestAuditIsolationVisibilityAndFailureContracts(t *testing.T) {
 	user, pat := setupAccessTokenAudit(t)
-	metadata := model.AuditOther{
-		Op:        &model.AuditOperation{Action: "generic"},
-		AdminInfo: &model.AuditAdminInfo{AdminID: 1},
-		RootInfo:  model.AuditFields{"private": "root-only"},
+	metadata := auditrecord.AuditOther{
+		Op:        &auditrecord.AuditOperation{Action: "generic"},
+		AdminInfo: &auditrecord.AuditAdminInfo{AdminID: 1},
+		RootInfo:  auditrecord.AuditFields{"private": "root-only"},
 	}
 	for _, owner := range []int{user.Id, user.Id + 1} {
-		audittest.Seed(t, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: owner, Username: fmt.Sprint(owner), Category: model.AuditCategorySecurity, Success: false, Other: metadata})
+		audittest.Seed(t, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: owner, Username: fmt.Sprint(owner), Category: auditrecord.AuditCategorySecurity, Success: false, Other: metadata})
 	}
 	router := gin.New()
 	router.Use(middleware.RequestId(), middleware.AccessTokenAudit())
@@ -271,14 +267,14 @@ func TestAuditRoleVisibilityAndPermissions(t *testing.T) {
 	rootToken := "root-audit-token"
 	root := &model.User{Username: "root-audit", Role: common.RoleRootUser, Status: common.UserStatusEnabled, AuthVersion: 1, AccessToken: &rootToken, AffCode: "root-audit"}
 	require.NoError(t, model.DB.Create(root).Error)
-	metadata := model.AuditOther{
-		AdminInfo: &model.AuditAdminInfo{AdminID: 1},
-		RootInfo:  model.AuditFields{"private": "root-only"},
+	metadata := auditrecord.AuditOther{
+		AdminInfo: &auditrecord.AuditAdminInfo{AdminID: 1},
+		RootInfo:  auditrecord.AuditFields{"private": "root-only"},
 	}
 	for i, role := range []int{1, 10, 100, 0, -1, 99} {
-		audittest.Seed(t, model.AuditLog{ActorRole: map[int]int{1: 1, 10: 10, 100: 100, 0: 0, -1: 0, 99: 0}[role], UserId: admin.Id, Username: admin.Username, Category: model.AuditCategorySecurity, RequestId: fmt.Sprintf("role-%d", role), CreatedAt: int64(100 + i), Other: metadata})
+		audittest.Seed(t, model.AuditLog{ActorRole: map[int]int{1: 1, 10: 10, 100: 100, 0: 0, -1: 0, 99: 0}[role], UserId: admin.Id, Username: admin.Username, Category: auditrecord.AuditCategorySecurity, RequestId: fmt.Sprintf("role-%d", role), CreatedAt: int64(100 + i), Other: metadata})
 	}
-	audittest.Seed(t, model.AuditLog{ActorRole: 100, UserId: root.Id, Username: root.Username, Category: model.AuditCategorySecurity, RequestId: "root-owned", Other: metadata})
+	audittest.Seed(t, model.AuditLog{ActorRole: 100, UserId: root.Id, Username: root.Username, Category: auditrecord.AuditCategorySecurity, RequestId: "root-owned", Other: metadata})
 	router := gin.New()
 	router.Use(middleware.RequestId(), middleware.AccessTokenAudit())
 	router.GET("/api/audit", middleware.AdminAuth(), middleware.RequirePermission(authz.AuditRead), controller.GetAuditLogs)
@@ -406,9 +402,9 @@ func (releasedAuditLog) TableName() string {
 func verifyAuditRoleStorage(t *testing.T) {
 	t.Helper()
 	for i, role := range []int{1, 10, 100, 0, 99} {
-		audittest.Seed(t, model.AuditLog{ActorRole: map[int]int{1: 1, 10: 10, 100: 100, 0: 0, 99: 0}[role], UserId: 1, Username: "role-owner", CreatedAt: int64(200 + i), Category: model.AuditCategoryOperation, RequestId: fmt.Sprintf("matrix-role-%d", role)})
+		audittest.Seed(t, model.AuditLog{ActorRole: map[int]int{1: 1, 10: 10, 100: 100, 0: 0, 99: 0}[role], UserId: 1, Username: "role-owner", CreatedAt: int64(200 + i), Category: auditrecord.AuditCategoryOperation, RequestId: fmt.Sprintf("matrix-role-%d", role)})
 	}
-	filter := auditFilter{Category: model.AuditCategoryOperation}
+	filter := auditFilter{Category: auditrecord.AuditCategoryOperation}
 	visible, total, err := readAuditEvents(filter, 0, 1, common.RoleAdminUser)
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, total)
@@ -443,16 +439,16 @@ func verifyAuditJSONStorage(t *testing.T) {
 	}
 	assert.Equal(t, "json", otherType)
 
-	metadata := model.AuditOther{
-		Op: &model.AuditOperation{Action: "channel.update", Params: model.AuditFields{
+	metadata := auditrecord.AuditOther{
+		Op: &auditrecord.AuditOperation{Action: "channel.update", Params: auditrecord.AuditFields{
 			"id": 42, "name": "\u6e20\u9053", "changed_fields": []string{}, "large_id": uint64(9007199254740993),
 			"extra": map[string]any{"attempts": 0, "permitted": false, "ratio": 1.25, "targets": []int{1, 2}},
 		}},
-		AdminInfo: &model.AuditAdminInfo{AdminID: 1},
-		AuditInfo: &model.AuditRequestInfo{Method: "PUT", Route: "/api/channel/", Path: "/api/channel/", Status: 200, Success: false},
-		RootInfo:  model.AuditFields{"private": "root-only"},
+		AdminInfo: &auditrecord.AuditAdminInfo{AdminID: 1},
+		AuditInfo: &auditrecord.AuditRequestInfo{Method: "PUT", Route: "/api/channel/", Path: "/api/channel/", Status: 200, Success: false},
+		RootInfo:  auditrecord.AuditFields{"private": "root-only"},
 	}
-	audittest.Seed(t, model.AuditLog{ActorRole: common.RoleCommonUser, UserId: 1, Username: "json-owner", Category: model.AuditCategorySecurity, RequestId: "matrix-json", Other: metadata})
+	audittest.Seed(t, model.AuditLog{ActorRole: common.RoleCommonUser, UserId: 1, Username: "json-owner", Category: auditrecord.AuditCategorySecurity, RequestId: "matrix-json", Other: metadata})
 	filter := auditFilter{RequestId: "matrix-json"}
 	entries, total, err := readAuditEvents(filter, 0, 20, common.RoleRootUser)
 	require.NoError(t, err)
@@ -489,7 +485,7 @@ func verifyAuditJSONStorage(t *testing.T) {
 			assert.NotNil(t, entries[0].Other.AuditInfo)
 		}
 	}
-	audittest.Seed(t, model.AuditLog{ActorRole: common.RoleCommonUser, UserId: 1, Username: "json-owner", RequestId: "matrix-json-empty", Other: model.AuditOther{}})
+	audittest.Seed(t, model.AuditLog{ActorRole: common.RoleCommonUser, UserId: 1, Username: "json-owner", RequestId: "matrix-json-empty", Other: auditrecord.AuditOther{}})
 	entries, _, err = readAuditEvents(auditFilter{RequestId: "matrix-json-empty"}, 0, 20, common.RoleRootUser)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
@@ -556,7 +552,7 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 						require.NoError(t, db.AutoMigrate(&releasedAuditUser{}, &releasedAuditLog{}))
 						legacy := "released-token"
 						require.NoError(t, db.Create(&releasedAuditUser{Username: "released-owner", Password: "placeholder", AccessToken: &legacy, AffCode: "released-aff", Quota: 1234}).Error)
-						require.NoError(t, db.Create(&releasedAuditLog{UserId: 1, Type: model.LogTypeLogin, Content: "historical login", CreatedAt: 100, RequestId: "legacy-request"}).Error)
+						require.NoError(t, db.Create(&releasedAuditLog{UserId: 1, Type: usagerecord.LogTypeLogin, Content: "historical login", CreatedAt: 100, RequestId: "legacy-request"}).Error)
 					}
 					for range 2 {
 						require.NoError(t, model.InitDB())
@@ -593,7 +589,7 @@ func TestAuditDatabaseMatrix(t *testing.T) {
 					require.NoError(t, patstorage.Persistence().Update(1, "matrix-token"))
 					require.Error(t, db.Create(&model.User{Username: "duplicate", Password: "placeholder", AffCode: "duplicate-aff", AccessToken: common.GetPointer("matrix-token")}).Error, "PAT uniqueness must survive upgrade")
 					for _, timestamp := range []int64{101, 102, 103} {
-						audittest.Seed(t, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "owner", CreatedAt: timestamp, Category: model.AuditCategoryAccessToken, TokenRef: patdomain.Fingerprint("matrix-token"), Ip: "192.0.2.1", Success: timestamp != 102})
+						audittest.Seed(t, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "owner", CreatedAt: timestamp, Category: auditrecord.AuditCategoryAccessToken, TokenRef: patdomain.Fingerprint("matrix-token"), Ip: "192.0.2.1", Success: timestamp != 102})
 					}
 					first, total, err := readAuditEvents(auditFilter{UserId: 1}, 0, 2, common.RoleCommonUser)
 					require.NoError(t, err)
@@ -664,7 +660,7 @@ func TestIndependentAuditLogStores(t *testing.T) {
 					} else {
 						require.NoError(t, logDB.AutoMigrate(&releasedAuditLog{}))
 					}
-					require.NoError(t, logDB.Create(&releasedAuditLog{UserId: 1, Username: "legacy", CreatedAt: time.Now().Unix(), Type: model.LogTypeLogin, Content: "retained historical login", RequestId: "legacy-split-request"}).Error)
+					require.NoError(t, logDB.Create(&releasedAuditLog{UserId: 1, Username: "legacy", CreatedAt: time.Now().Unix(), Type: usagerecord.LogTypeLogin, Content: "retained historical login", RequestId: "legacy-split-request"}).Error)
 				}
 				t.Setenv("LOG_SQL_DSN", isolatedDSN)
 				t.Setenv("LOG_SQL_CLICKHOUSE_TTL_DAYS", "7")
@@ -676,7 +672,7 @@ func TestIndependentAuditLogStores(t *testing.T) {
 					assert.Equal(t, "retained historical login", old.Content)
 				}
 				require.NoError(t, patstorage.Persistence().Update(1, "independent-pat"))
-				audittest.Seed(t, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "independent", Category: model.AuditCategoryAccessToken, TokenRef: patdomain.Fingerprint("independent-pat"), Ip: "192.0.2.8", Success: false, Status: 403})
+				audittest.Seed(t, model.AuditLog{ActorRole: common.RoleAdminUser, UserId: 1, Username: "independent", Category: auditrecord.AuditCategoryAccessToken, TokenRef: patdomain.Fingerprint("independent-pat"), Ip: "192.0.2.8", Success: false, Status: 403})
 				entries, total, err := readAuditEvents(auditFilter{UserId: 1}, 0, 20, common.RoleAdminUser)
 				require.NoError(t, err)
 				assert.EqualValues(t, 1, total)
@@ -686,7 +682,7 @@ func TestIndependentAuditLogStores(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, status.LastUsedAt)
 				assert.Equal(t, "192.0.2.8", status.LastUsedIp)
-				usagestorage.Writer().RecordLog(1, model.LogTypeTopup, "independent business")
+				usagestorage.Writer().RecordLog(1, usagerecord.LogTypeTopup, "independent business")
 				_, err = (usagecleanup.Cleanup{DB: func() *gorm.DB { return model.LOG_DB }}).DeleteOldLogBatch(context.Background(), time.Now().Unix()+1, 100)
 				require.NoError(t, err)
 				_, total, err = readAuditEvents(auditFilter{UserId: 1}, 0, 20, 1)

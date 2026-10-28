@@ -10,18 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/go-redis/redis/v8"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-	"gorm.io/gorm/schema"
-
 	"github.com/QuantumNous/new-api/common"
 	billingmath "github.com/QuantumNous/new-api/internal/adapter/billing"
 	keycache "github.com/QuantumNous/new-api/internal/adapter/cache/apikeys"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/batch"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	rediscache "github.com/QuantumNous/new-api/internal/adapter/redis/batch"
 	"github.com/QuantumNous/new-api/internal/app/accountscore"
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
@@ -31,6 +25,13 @@ import (
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
 	model "github.com/QuantumNous/new-api/model"
 	batchstate "github.com/QuantumNous/new-api/pkg/batchstate"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/go-redis/redis/v8"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 func TestBatchDurableAccounting(t *testing.T) {
@@ -130,7 +131,7 @@ func TestBatchDurableAccounting(t *testing.T) {
 			require.NoError(t, db.Model(&model.BatchLogEvent{}).Where("1 = 1").Update("state", "pending").Error)
 			require.NoError(t, testStore().SyncBatchConsumeLogs(100))
 			var consumeCount int64
-			require.NoError(t, db.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume).Count(&consumeCount).Error)
+			require.NoError(t, db.Model(&model.Log{}).Where("type = ?", usagerecord.LogTypeConsume).Count(&consumeCount).Error)
 			assert.EqualValues(t, 2, consumeCount, "outbox replay must not duplicate expense history")
 			var paidLog model.Log
 			require.NoError(t, db.Where("quota = ?", 200).First(&paidLog).Error)

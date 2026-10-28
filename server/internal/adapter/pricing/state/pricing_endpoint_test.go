@@ -2,25 +2,21 @@ package pricingstate_test
 
 import (
 	"fmt"
-	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
-
 	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func resetPricingEndpointTestTables(t *testing.T) {

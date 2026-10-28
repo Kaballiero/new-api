@@ -4,9 +4,8 @@ import (
 	"sort"
 
 	"github.com/QuantumNous/new-api/common"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/settings/domain"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"

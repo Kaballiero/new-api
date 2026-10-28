@@ -2,7 +2,6 @@ package batchfixture
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/i18n"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,8 +10,10 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"

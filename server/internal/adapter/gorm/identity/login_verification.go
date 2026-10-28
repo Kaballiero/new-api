@@ -1,13 +1,15 @@
 package identity
 
 import (
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	locking "github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"gorm.io/gorm"
-	"time"
 )
 
 // UserVerificationState is an authoritative, credential-free projection for

@@ -3,12 +3,14 @@ package record
 import (
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
+
 	"github.com/samber/lo"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"strings"
 )
 
 type Environment struct {

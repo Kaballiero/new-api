@@ -2,10 +2,6 @@
 package contract
 
 import (
-	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,16 +12,18 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	f "github.com/QuantumNous/new-api/internal/contracttest/managementfixture"
-
 	h "github.com/QuantumNous/new-api/internal/contracttest/managementhttp"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

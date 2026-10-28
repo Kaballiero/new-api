@@ -1,30 +1,7 @@
 package controller
 
 import (
-	get_checkin_status "github.com/QuantumNous/new-api/internal/accounts/get_checkin_status"
-	"github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
-
-	checkinsettings "github.com/QuantumNous/new-api/internal/adapter/settings/checkin"
-
-	check_in "github.com/QuantumNous/new-api/internal/accounts/check_in"
-
-	provision_account "github.com/QuantumNous/new-api/internal/accounts/provision_account"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	batchstate "github.com/QuantumNous/new-api/pkg/batchstate"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
-	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
-
-	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
-
 	"errors"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
 	"net/http"
 	"os"
 	"strconv"
@@ -33,11 +10,26 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	check_in "github.com/QuantumNous/new-api/internal/accounts/check_in"
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
+	get_checkin_status "github.com/QuantumNous/new-api/internal/accounts/get_checkin_status"
+	"github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
+	provision_account "github.com/QuantumNous/new-api/internal/accounts/provision_account"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	checkinsettings "github.com/QuantumNous/new-api/internal/adapter/settings/checkin"
+	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	batchstate "github.com/QuantumNous/new-api/pkg/batchstate"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 

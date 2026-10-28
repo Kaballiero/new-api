@@ -2,8 +2,6 @@
 package contract
 
 import (
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"context"
 	"crypto"
 	"crypto/hmac"
@@ -33,6 +31,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/contracttest"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -41,15 +49,6 @@ import (
 	waffonet "github.com/waffo-com/waffo-go/net"
 	waffoutils "github.com/waffo-com/waffo-go/utils"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/contracttest"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 const originCommit = "6b0f439a432ab129817e4e41ce323e6bd3c3c0c3"

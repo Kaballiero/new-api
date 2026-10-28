@@ -1,9 +1,10 @@
 package systemmetrics
 
 import (
-	"github.com/QuantumNous/new-api/internal/system/domain"
 	"sync"
 	"sync/atomic"
+
+	"github.com/QuantumNous/new-api/internal/system/domain"
 )
 
 type Buckets struct{ sync.Map }

@@ -5,26 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/QuantumNous/new-api/common"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"gorm.io/gorm"
-
-	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
-
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
-	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
-	"github.com/QuantumNous/new-api/model"
-
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
+	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
+
+	"gorm.io/gorm"
 )
 
 type NativeChannel struct{ channel *model.Channel }

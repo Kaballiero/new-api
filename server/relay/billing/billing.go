@@ -5,20 +5,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
-	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-	"github.com/QuantumNous/new-api/internal/app/accountstorage"
-	"github.com/QuantumNous/new-api/internal/app/usagestorage"
-	"github.com/QuantumNous/new-api/model"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/gateway/mapping"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	app "github.com/QuantumNous/new-api/internal/app/billing"
+	"github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/internal/billing/apply_quota_delta"
 	"github.com/QuantumNous/new-api/internal/billing/create_reservation"
 	"github.com/QuantumNous/new-api/internal/billing/domain"
@@ -26,8 +24,11 @@ import (
 	"github.com/QuantumNous/new-api/internal/billing/notify_quota"
 	"github.com/QuantumNous/new-api/internal/billing/settle_reservation"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Gateway struct {
@@ -292,7 +293,7 @@ func recordViolationFee(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, feeQ
 	tokenName := ctx.GetString("token_name")
 	oai := apiErr.ToOpenAIError()
 
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	other.MergePublic(map[string]any{
 		"violation_fee":        true,
 		"violation_fee_code":   string(types.ErrorCodeViolationFeeGrokCSAM),

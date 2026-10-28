@@ -1,15 +1,14 @@
 package app
 
 import (
-	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
-	"gorm.io/gorm"
-
 	"time"
 
-	"github.com/bytedance/gopkg/util/gopool"
-
 	"github.com/QuantumNous/new-api/common"
+	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
 	"github.com/QuantumNous/new-api/model"
+
+	"github.com/bytedance/gopkg/util/gopool"
+	"gorm.io/gorm"
 )
 
 // StartBatchUpdater schedules the shared user/token/channel counter queue.

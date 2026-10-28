@@ -1,8 +1,6 @@
 package model
 
-import (
-	"time"
-)
+import "time"
 
 // UserOAuthBinding stores the binding relationship between users and custom OAuth providers
 type UserOAuthBinding struct {

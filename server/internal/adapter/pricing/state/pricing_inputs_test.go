@@ -9,24 +9,19 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
-
 	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
-
 	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func pricingInputFixture(t *testing.T) *gorm.DB {

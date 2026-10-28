@@ -1,14 +1,9 @@
 package systemmetrics
 
 import (
-	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics"
-	aggregation "github.com/QuantumNous/new-api/internal/adapter/runtime/systemmetrics"
-	"github.com/QuantumNous/new-api/internal/system/domain"
-
 	"context"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
 	"os"
 	"slices"
 	"strings"
@@ -17,11 +12,16 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics"
+	aggregation "github.com/QuantumNous/new-api/internal/adapter/runtime/systemmetrics"
+	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
 	sf "github.com/QuantumNous/new-api/internal/contracttest/systemfixture"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	"github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
+
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

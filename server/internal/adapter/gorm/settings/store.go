@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/settings/record"
 	"github.com/QuantumNous/new-api/internal/settings/domain"
+
 	"gorm.io/gorm"
 )
 

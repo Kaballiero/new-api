@@ -15,7 +15,7 @@ package dto
 // `code` and with HTTP 200 — those paths are being migrated wave-by-wave. The
 // schema here describes the *target* shape; older endpoints conform partially.
 type ApiErrorResponse struct {
-	Success bool   `json:"success"`           // always false for error responses
-	Code    string `json:"code,omitempty"`    // stable snake_case error id (e.g. "user_not_found")
-	Message string `json:"message"`           // i18n-translated human-readable message
+	Success bool   `json:"success"`        // always false for error responses
+	Code    string `json:"code,omitempty"` // stable snake_case error id (e.g. "user_not_found")
+	Message string `json:"message"`        // i18n-translated human-readable message
 }

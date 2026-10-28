@@ -2,9 +2,11 @@ package personal_access_tokens
 
 import (
 	"errors"
+
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/revoke_token"
+
 	"gorm.io/gorm"
 )
 

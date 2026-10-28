@@ -7,16 +7,15 @@ import (
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-	"github.com/QuantumNous/new-api/internal/identity/dto"
-	"github.com/QuantumNous/new-api/middleware"
-
-	"github.com/QuantumNous/new-api/oauth"
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-
 	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
 	"github.com/QuantumNous/new-api/internal/adapter/identity/verification"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/QuantumNous/new-api/internal/identity/dto"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/oauth"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type Callback struct {

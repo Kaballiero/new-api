@@ -2,8 +2,10 @@ package model
 
 import (
 	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/change_group"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 )

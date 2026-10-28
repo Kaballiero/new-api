@@ -2,12 +2,6 @@
 package contract
 
 import (
-	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
-
-	dbclock "github.com/QuantumNous/new-api/internal/app/dbclock"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"context"
 	"crypto"
 	"crypto/hmac"
@@ -15,6 +9,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"database/sql/driver"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -36,7 +31,18 @@ import (
 	"testing"
 	"time"
 
-	"database/sql/driver"
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	dbclock "github.com/QuantumNous/new-api/internal/app/dbclock"
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
+	"github.com/QuantumNous/new-api/internal/contracttest"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/Calcium-Ion/go-epay/epay"
 	sqliteclock "github.com/glebarez/go-sqlite"
 	"github.com/glebarez/sqlite"
@@ -45,15 +51,6 @@ import (
 	"github.com/stripe/stripe-go/v81"
 	waffoutils "github.com/waffo-com/waffo-go/utils"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/contracttest"
-	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting"
-	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 const originCommit = "6b0f439a432ab129817e4e41ce323e6bd3c3c0c3"

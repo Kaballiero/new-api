@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/shopspring/decimal"
-
 	payments "github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
+
+	"github.com/shopspring/decimal"
 )
 
 type Diagnostics interface {

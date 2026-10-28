@@ -21,23 +21,21 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/ai360"
 	"github.com/QuantumNous/new-api/relay/channel/lingyiwanwu"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
-	"github.com/QuantumNous/new-api/relay/provider"
-	"github.com/QuantumNous/new-api/relay/taskrecord"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
-
-	//"github.com/QuantumNous/new-api/relay/channel/minimax"
-	"github.com/gin-gonic/gin"
-	"github.com/samber/lo"
-
 	"github.com/QuantumNous/new-api/relay/channel/xinference"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/common_handler"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relay/provider"
+	"github.com/QuantumNous/new-api/relay/taskrecord"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
-
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/reasoning"
+
+	//"github.com/QuantumNous/new-api/relay/channel/minimax"
+	"github.com/gin-gonic/gin"
+	"github.com/samber/lo"
 )
 
 type Adaptor struct {

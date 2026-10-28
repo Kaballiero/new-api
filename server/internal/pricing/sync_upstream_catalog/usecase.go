@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
-	"golang.org/x/sync/errgroup"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type CatalogSyncResult struct {

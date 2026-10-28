@@ -14,7 +14,6 @@ import (
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 )
 

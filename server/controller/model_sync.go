@@ -4,6 +4,7 @@ import (
 	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/catalog/preview_metadata_sync"
+
 	"github.com/gin-gonic/gin"
 )
 

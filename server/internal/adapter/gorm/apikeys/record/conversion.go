@@ -2,6 +2,7 @@ package model
 
 import (
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
+
 	"gorm.io/gorm"
 )
 

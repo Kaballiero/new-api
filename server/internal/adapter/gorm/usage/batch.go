@@ -4,17 +4,17 @@ import (
 	"encoding/json"
 
 	"github.com/QuantumNous/new-api/common"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	batch "github.com/QuantumNous/new-api/internal/batch/domain"
 	billing "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
-	"github.com/QuantumNous/new-api/model"
 )
 
 type BatchMetadata struct{}
 
 func (BatchMetadata) ItemCost(s batch.BillingSnapshot, reserved int64, quota int, cost float64,
 	raw map[string]json.RawMessage, clamp *billing.Clamp) ([]byte, error) {
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	other.SetPublic("settlement_mode", s.SettlementMode)
 	other.SetPublic("reserved_quota", reserved)
 	other.SetPublic("actual_quota", quota)
@@ -30,7 +30,7 @@ func (BatchMetadata) ItemCost(s batch.BillingSnapshot, reserved int64, quota int
 	return common.Marshal(other)
 }
 func (BatchMetadata) Tiered(s batch.BillingSnapshot, result billing.TieredResult) ([]byte, error) {
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	actual := &domain.TieredResult{MatchedTier: result.MatchedTier, BillingUnit: result.BillingUnit,
 		FixedPrice: result.FixedPrice, RequestRules: result.RequestRules}
 	(Metadata{}).Tiered(other, &domain.Tiered{ExprString: s.Client.ExprString, EstimatedTier: s.Client.EstimatedTier,

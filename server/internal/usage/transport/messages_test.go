@@ -6,12 +6,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/usage/domain"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/QuantumNous/new-api/internal/usage/domain"
 )
 
 func TestUsageMessageLocalesAndDirectBoundary(t *testing.T) {

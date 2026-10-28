@@ -1,13 +1,14 @@
 package catalog
 
 import (
+	"errors"
+
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"github.com/QuantumNous/new-api/internal/catalog/apply_metadata_sync"
 	"github.com/QuantumNous/new-api/internal/catalog/create_model"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/catalog/update_model"
 
-	"errors"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"gorm.io/gorm"
 )
 

@@ -3,10 +3,10 @@ package record_test
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
 )
 
 func TestAuditOtherDatabaseEncoding(t *testing.T) {

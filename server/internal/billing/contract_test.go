@@ -1,15 +1,6 @@
 package billing_test
 
 import (
-	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
-	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
-
-	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-
 	"bytes"
 	"context"
 	"flag"
@@ -28,31 +19,33 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"github.com/alicebob/miniredis/v2"
-	"github.com/go-redis/redis/v8"
-
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	apikeystorage "github.com/QuantumNous/new-api/internal/app/apikeystorage"
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
+	service "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-
-	service "github.com/QuantumNous/new-api/relay/billing"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-
 	hosttypes "github.com/QuantumNous/new-api/types"
+
+	"github.com/alicebob/miniredis/v2"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -279,7 +272,7 @@ func runBillingHTTPContract(t *testing.T, tc billingCase, useRedis bool, golden 
 		require.Empty(t, records)
 	}
 	var logs []model.Log
-	require.NoError(t, model.LOG_DB.Where("type IN ?", []int{model.LogTypeConsume, model.LogTypeError}).Order("id").Find(&logs).Error)
+	require.NoError(t, model.LOG_DB.Where("type IN ?", []int{usagerecord.LogTypeConsume, usagerecord.LogTypeError}).Order("id").Find(&logs).Error)
 	wantLogs, wantErrors := 0, 0
 	if tc.status == http.StatusOK {
 		wantLogs = 1
@@ -291,7 +284,7 @@ func runBillingHTTPContract(t *testing.T, tc billingCase, useRedis bool, golden 
 	consumeCount, errorCount := 0, 0
 	logValues := make([]any, 0, len(logs))
 	for _, row := range logs {
-		if row.Type == model.LogTypeConsume {
+		if row.Type == usagerecord.LogTypeConsume {
 			consumeCount++
 			assert.Equal(t, tc.actual, row.Quota)
 		} else {
@@ -306,7 +299,7 @@ func runBillingHTTPContract(t *testing.T, tc billingCase, useRedis bool, golden 
 		require.NoError(t, common.Unmarshal(raw, &value))
 		var other map[string]any
 		require.NoError(t, common.UnmarshalJsonStr(row.Other, &other))
-		if row.Type == model.LogTypeConsume {
+		if row.Type == usagerecord.LogTypeConsume {
 			frt, ok := other["frt"].(float64)
 			require.True(t, ok, "frt must be a numeric duration")
 			require.False(t, math.IsNaN(frt) || math.IsInf(frt, 0))
@@ -933,7 +926,7 @@ func runBillingCostRelayContract(t *testing.T, tc billingCostCase) {
 func billingCostLogSnapshot(t *testing.T, tc billingCostCase) []any {
 	t.Helper()
 	var rows []model.Log
-	require.NoError(t, model.LOG_DB.Where("type IN ?", []int{model.LogTypeConsume, model.LogTypeError}).Order("id").Find(&rows).Error)
+	require.NoError(t, model.LOG_DB.Where("type IN ?", []int{usagerecord.LogTypeConsume, usagerecord.LogTypeError}).Order("id").Find(&rows).Error)
 	// These admission failures return before processChannelError; they have no
 	// persisted error row. Successful requests log even a zero charge.
 	wantRows := 1
@@ -944,10 +937,10 @@ func billingCostLogSnapshot(t *testing.T, tc billingCostCase) []any {
 	values := make([]any, 0, len(rows))
 	for _, row := range rows {
 		if tc.status == http.StatusOK {
-			require.Equal(t, model.LogTypeConsume, row.Type)
+			require.Equal(t, usagerecord.LogTypeConsume, row.Type)
 			require.Equal(t, tc.quota, row.Quota)
 		} else {
-			require.Equal(t, model.LogTypeError, row.Type)
+			require.Equal(t, usagerecord.LogTypeError, row.Type)
 			require.Zero(t, row.Quota)
 		}
 		require.GreaterOrEqual(t, row.UseTime, 0)
@@ -960,7 +953,7 @@ func billingCostLogSnapshot(t *testing.T, tc billingCostCase) []any {
 		for key, expected := range tc.other {
 			assert.Equal(t, expected, other[key], "consume other.%s", key)
 		}
-		if row.Type == model.LogTypeConsume {
+		if row.Type == usagerecord.LogTypeConsume {
 			frt, ok := other["frt"].(float64)
 			require.True(t, ok, "frt is a numeric duration")
 			require.False(t, math.IsNaN(frt) || math.IsInf(frt, 0))

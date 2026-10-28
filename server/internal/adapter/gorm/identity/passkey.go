@@ -4,13 +4,15 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	locking "github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"github.com/go-webauthn/webauthn/webauthn"
 	"gorm.io/gorm"
-	"time"
 )
 
 // ErrFriendlyPasskeyNotFound hides storage failures of a passkey lookup. It

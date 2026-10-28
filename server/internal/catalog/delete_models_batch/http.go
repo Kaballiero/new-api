@@ -3,6 +3,7 @@ package delete_models_batch
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/catalog/transport"
+
 	"github.com/gin-gonic/gin"
 )
 

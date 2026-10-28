@@ -1,8 +1,6 @@
 package common
 
-import (
-	"time"
-)
+import "time"
 
 func SafeSendBool(ch chan bool, value bool) (closed bool) {
 	defer func() {

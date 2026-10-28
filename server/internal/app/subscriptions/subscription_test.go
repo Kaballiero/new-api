@@ -12,21 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/go-redis/redis/v8"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	paymentsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/payments/record"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
+	subscriptionsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
 	"github.com/QuantumNous/new-api/internal/app/dbclock"
@@ -40,6 +31,17 @@ import (
 	"github.com/QuantumNous/new-api/internal/subscriptions/reset_subscriptions"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func subscriptionFixture(t *testing.T) storage.Store {
@@ -96,19 +98,19 @@ func TestAdminResetUserSubscriptionsByPlanResetsAllActiveMatchesAndAdvancesTime(
 		Id:               9101,
 		Title:            "Pro",
 		PriceAmount:      10,
-		DurationUnit:     model.SubscriptionDurationMonth,
+		DurationUnit:     subscriptionsrecord.SubscriptionDurationMonth,
 		DurationValue:    1,
 		TotalAmount:      1000,
-		QuotaResetPeriod: model.SubscriptionResetDaily,
+		QuotaResetPeriod: subscriptionsrecord.SubscriptionResetDaily,
 	}
 	otherPlan := &model.SubscriptionPlan{
 		Id:               9102,
 		Title:            "Basic",
 		PriceAmount:      1,
-		DurationUnit:     model.SubscriptionDurationMonth,
+		DurationUnit:     subscriptionsrecord.SubscriptionDurationMonth,
 		DurationValue:    1,
 		TotalAmount:      100,
-		QuotaResetPeriod: model.SubscriptionResetDaily,
+		QuotaResetPeriod: subscriptionsrecord.SubscriptionResetDaily,
 	}
 	seedSubscriptionResetPlan(t, plan)
 	seedSubscriptionResetPlan(t, otherPlan)
@@ -156,10 +158,10 @@ func TestAdminResetUserSubscriptionsByPlanKeepsResetTimes(t *testing.T) {
 		Id:               9301,
 		Title:            "Team",
 		PriceAmount:      20,
-		DurationUnit:     model.SubscriptionDurationMonth,
+		DurationUnit:     subscriptionsrecord.SubscriptionDurationMonth,
 		DurationValue:    1,
 		TotalAmount:      2000,
-		QuotaResetPeriod: model.SubscriptionResetMonthly,
+		QuotaResetPeriod: subscriptionsrecord.SubscriptionResetMonthly,
 	}
 	seedSubscriptionResetPlan(t, plan)
 
@@ -185,7 +187,7 @@ func TestAdminResetUserSubscriptionsByPlanNoActiveMatchReturnsError(t *testing.T
 		Id:            9401,
 		Title:         "Expired",
 		PriceAmount:   10,
-		DurationUnit:  model.SubscriptionDurationMonth,
+		DurationUnit:  subscriptionsrecord.SubscriptionDurationMonth,
 		DurationValue: 1,
 		TotalAmount:   1000,
 	}
@@ -207,10 +209,10 @@ func TestAdminResetPlanSubscriptionsResetsAllActiveUsers(t *testing.T) {
 		Id:               9501,
 		Title:            "Business",
 		PriceAmount:      30,
-		DurationUnit:     model.SubscriptionDurationMonth,
+		DurationUnit:     subscriptionsrecord.SubscriptionDurationMonth,
 		DurationValue:    1,
 		TotalAmount:      3000,
-		QuotaResetPeriod: model.SubscriptionResetNever,
+		QuotaResetPeriod: subscriptionsrecord.SubscriptionResetNever,
 	}
 	seedSubscriptionResetPlan(t, plan)
 
@@ -246,7 +248,7 @@ func TestAdminResetPlanSubscriptionsNoMatchSucceeds(t *testing.T) {
 		Id:            9601,
 		Title:         "Empty",
 		PriceAmount:   10,
-		DurationUnit:  model.SubscriptionDurationMonth,
+		DurationUnit:  subscriptionsrecord.SubscriptionDurationMonth,
 		DurationValue: 1,
 		TotalAmount:   1000,
 	}
@@ -294,7 +296,7 @@ func TestSubscriptionGroupTransitionsPreserveAuthVersionAndSessions(t *testing.T
 	require.NoError(t, err)
 	plan := &model.SubscriptionPlan{
 		Title:         "Upgraded",
-		DurationUnit:  model.SubscriptionDurationMonth,
+		DurationUnit:  subscriptionsrecord.SubscriptionDurationMonth,
 		DurationValue: 1,
 		TotalAmount:   100,
 		UpgradeGroup:  "pro",
@@ -365,7 +367,7 @@ func TestSubscriptionGroupCacheRefreshFailureDoesNotChangeCommittedResult(t *tes
 	require.NoError(t, model.DB.Create(&user).Error)
 	plan := &model.SubscriptionPlan{
 		Title:         "Cache failure plan",
-		DurationUnit:  model.SubscriptionDurationMonth,
+		DurationUnit:  subscriptionsrecord.SubscriptionDurationMonth,
 		DurationValue: 1,
 		TotalAmount:   100,
 		UpgradeGroup:  "pro",
@@ -427,7 +429,7 @@ func insertSubscriptionPlanForPaymentGuardTest(t *testing.T, id int) *model.Subs
 		Title:         "Guard Plan",
 		PriceAmount:   9.99,
 		Currency:      "USD",
-		DurationUnit:  model.SubscriptionDurationMonth,
+		DurationUnit:  subscriptionsrecord.SubscriptionDurationMonth,
 		DurationValue: 1,
 		Enabled:       true,
 		TotalAmount:   1000,
@@ -463,9 +465,9 @@ func TestCompleteSubscriptionOrder_RejectsMismatchedPaymentProvider(t *testing.T
 
 	insertUserForPaymentGuardTest(t, 202, 0)
 	plan := insertSubscriptionPlanForPaymentGuardTest(t, 301)
-	insertSubscriptionOrderForPaymentGuardTest(t, "sub-guard-order", 202, plan.Id, model.PaymentProviderStripe)
+	insertSubscriptionOrderForPaymentGuardTest(t, "sub-guard-order", 202, plan.Id, paymentsrecord.PaymentProviderStripe)
 
-	err := subscriptionsapp.NewOrders().Complete(complete_order.Input{TradeNo: "sub-guard-order", ProviderPayload: `{"provider":"epay"}`, ExpectedProvider: model.PaymentProviderEpay, ActualMethod: "alipay"})
+	err := subscriptionsapp.NewOrders().Complete(complete_order.Input{TradeNo: "sub-guard-order", ProviderPayload: `{"provider":"epay"}`, ExpectedProvider: paymentsrecord.PaymentProviderEpay, ActualMethod: "alipay"})
 	require.ErrorIs(t, err, domain.ErrProviderMismatch)
 
 	order := subscriptionsapp.NewOrders().Find("sub-guard-order")
@@ -483,9 +485,9 @@ func TestExpireSubscriptionOrder_RejectsMismatchedPaymentProvider(t *testing.T) 
 
 	insertUserForPaymentGuardTest(t, 303, 0)
 	plan := insertSubscriptionPlanForPaymentGuardTest(t, 401)
-	insertSubscriptionOrderForPaymentGuardTest(t, "sub-expire-guard", 303, plan.Id, model.PaymentProviderStripe)
+	insertSubscriptionOrderForPaymentGuardTest(t, "sub-expire-guard", 303, plan.Id, paymentsrecord.PaymentProviderStripe)
 
-	err := subscriptionsapp.NewOrders().Expire("sub-expire-guard", model.PaymentProviderCreem)
+	err := subscriptionsapp.NewOrders().Expire("sub-expire-guard", paymentsrecord.PaymentProviderCreem)
 	require.ErrorIs(t, err, domain.ErrProviderMismatch)
 
 	order := subscriptionsapp.NewOrders().Find("sub-expire-guard")
@@ -555,13 +557,13 @@ func TestSubscriptionsPersistence(t *testing.T) {
 			require.NoError(t, i18n.Init())
 			user := model.User{Username: "subscription-matrix", AffCode: "matrix-first", Password: "hash", Group: "default", Quota: 30, Status: common.UserStatusEnabled, AuthVersion: 1}
 			require.NoError(t, model.DB.Create(&user).Error)
-			plan := model.SubscriptionPlan{Title: "Matrix", PriceAmount: 2.01, Enabled: true, DurationUnit: model.SubscriptionDurationMonth, DurationValue: 1, TotalAmount: 100, QuotaResetPeriod: model.SubscriptionResetDaily, UpgradeGroup: "pro", MaxPurchasePerUser: 2}
+			plan := model.SubscriptionPlan{Title: "Matrix", PriceAmount: 2.01, Enabled: true, DurationUnit: subscriptionsrecord.SubscriptionDurationMonth, DurationValue: 1, TotalAmount: 100, QuotaResetPeriod: subscriptionsrecord.SubscriptionResetDaily, UpgradeGroup: "pro", MaxPurchasePerUser: 2}
 			require.NoError(t, model.DB.Create(&plan).Error)
 			subscriptionstorage.Cache().InvalidateSubscriptionPlanCache(plan.Id)
-			order := model.SubscriptionOrder{UserId: user.Id, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: "matrix-order", PaymentMethod: "wechat", PaymentProvider: model.PaymentProviderEpay, Status: common.TopUpStatusPending, CreateTime: common.GetTimestamp()}
+			order := model.SubscriptionOrder{UserId: user.Id, PlanId: plan.Id, Money: plan.PriceAmount, TradeNo: "matrix-order", PaymentMethod: "wechat", PaymentProvider: paymentsrecord.PaymentProviderEpay, Status: common.TopUpStatusPending, CreateTime: common.GetTimestamp()}
 			require.NoError(t, model.DB.Create(&order).Error)
 			orders := subscriptionsapp.NewOrders()
-			input := complete_order.Input{TradeNo: order.TradeNo, ExpectedProvider: model.PaymentProviderEpay, ActualMethod: "alipay"}
+			input := complete_order.Input{TradeNo: order.TradeNo, ExpectedProvider: paymentsrecord.PaymentProviderEpay, ActualMethod: "alipay"}
 			require.NoError(t, orders.Complete(input))
 			require.NoError(t, orders.Complete(input))
 			var subs []model.UserSubscription
@@ -627,11 +629,11 @@ func TestSubscriptionsPersistence(t *testing.T) {
 			// A conflicting existing history method rolls back grant and group changes together.
 			other := model.User{Username: "subscription-matrix-rollback", AffCode: "matrix-second", Password: "hash", Group: "default", Status: common.UserStatusEnabled}
 			require.NoError(t, model.DB.Create(&other).Error)
-			failed := model.SubscriptionOrder{UserId: other.Id, PlanId: plan.Id, Money: 2.01, TradeNo: "matrix-conflict", PaymentMethod: "wechat", PaymentProvider: model.PaymentProviderEpay, Status: common.TopUpStatusPending}
+			failed := model.SubscriptionOrder{UserId: other.Id, PlanId: plan.Id, Money: 2.01, TradeNo: "matrix-conflict", PaymentMethod: "wechat", PaymentProvider: paymentsrecord.PaymentProviderEpay, Status: common.TopUpStatusPending}
 			require.NoError(t, model.DB.Create(&failed).Error)
 			conflict := model.TopUp{UserId: other.Id, TradeNo: failed.TradeNo, PaymentMethod: "stripe", Status: common.TopUpStatusPending}
 			require.NoError(t, model.DB.Create(&conflict).Error)
-			require.ErrorIs(t, orders.Complete(complete_order.Input{TradeNo: failed.TradeNo, ExpectedProvider: model.PaymentProviderEpay}), domain.ErrProviderMismatch)
+			require.ErrorIs(t, orders.Complete(complete_order.Input{TradeNo: failed.TradeNo, ExpectedProvider: paymentsrecord.PaymentProviderEpay}), domain.ErrProviderMismatch)
 			var grants int64
 			require.NoError(t, model.DB.Model(&model.UserSubscription{}).Where("user_id = ?", other.Id).Count(&grants).Error)
 			assert.Zero(t, grants)

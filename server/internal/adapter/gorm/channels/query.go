@@ -3,6 +3,7 @@ package channels
 import (
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	legacy "github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
 )
 

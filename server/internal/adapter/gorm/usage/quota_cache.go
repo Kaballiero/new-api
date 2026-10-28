@@ -3,11 +3,11 @@ package usage
 import (
 	"fmt"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 func (Store) SaveQuotaDataCache() {

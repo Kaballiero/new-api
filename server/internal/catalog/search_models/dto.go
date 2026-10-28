@@ -1,8 +1,6 @@
 package search_models
 
-import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
-)
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 type Input struct {
 	Keyword, Vendor, Status, SyncOfficial, SquareState string

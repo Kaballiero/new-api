@@ -5,6 +5,7 @@ import (
 
 	model "github.com/QuantumNous/new-api/internal/adapter/gorm/authorization/record"
 	"github.com/QuantumNous/new-api/internal/authorization/domain"
+
 	casbinmodel "github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
 	"gorm.io/gorm"

@@ -1,11 +1,11 @@
 package search_codes
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/redemption/dto"
 	"github.com/QuantumNous/new-api/internal/redemption/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {

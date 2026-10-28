@@ -1,12 +1,12 @@
 package redemption
 
 import (
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/redemption/record"
 	"github.com/QuantumNous/new-api/internal/redemption/domain"
 	"github.com/QuantumNous/new-api/internal/redemption/redeem_code"
+
+	"gorm.io/gorm"
 )
 
 // Transaction keeps locked lookup, consumption and injected wallet credit in one database transaction.

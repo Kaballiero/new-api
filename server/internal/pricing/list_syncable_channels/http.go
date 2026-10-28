@@ -1,8 +1,9 @@
 package list_syncable_channels
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ usecase Usecase }

@@ -2,8 +2,6 @@ package controller
 
 import (
 	"fmt"
-	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
-	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,15 +13,18 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -305,7 +306,7 @@ func TestSystemOneRelay(t *testing.T) {
 			assert.Equal(t, tc.quota, token.UsedQuota)
 			assert.Equal(t, int64(tc.quota), ch.UsedQuota)
 			var logs []model.Log
-			require.NoError(t, database.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+			require.NoError(t, database.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 			if tc.quota > 0 || tc.status == 200 {
 				require.Len(t, logs, 1)
 				assert.Equal(t, tc.quota, logs[0].Quota)

@@ -1,16 +1,14 @@
 package middleware
 
 import (
-	"github.com/QuantumNous/new-api/internal/app/authentication"
-
-	"github.com/gin-gonic/gin"
-
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
+	"github.com/QuantumNous/new-api/internal/app/authentication"
 	"github.com/QuantumNous/new-api/internal/audit/domain"
 	"github.com/QuantumNous/new-api/internal/audit/transport"
 	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	"github.com/gin-gonic/gin"
 )
 
 type auditResponseWriter = transport.ResponseWriter

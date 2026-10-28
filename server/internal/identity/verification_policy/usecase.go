@@ -1,8 +1,6 @@
 package verification_policy
 
-import (
-	"github.com/QuantumNous/new-api/internal/identity/domain"
-)
+import "github.com/QuantumNous/new-api/internal/identity/domain"
 
 type FactorPolicyState struct{ HasPassword, HasTwoFA, TwoFALocked, HasPasskey bool }
 type VerificationPolicyOperation interface {

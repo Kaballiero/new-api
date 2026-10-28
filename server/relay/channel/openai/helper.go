@@ -16,9 +16,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
-	"github.com/samber/lo"
-
 	"github.com/gin-gonic/gin"
+	"github.com/samber/lo"
 )
 
 func hasOpenAIErrorContent(openAIError *types.OpenAIError) bool {

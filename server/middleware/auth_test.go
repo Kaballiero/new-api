@@ -1,10 +1,6 @@
 package middleware
 
 import (
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
 	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
@@ -16,17 +12,19 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 func setupDashboardAuthMiddlewareTest(t *testing.T) {

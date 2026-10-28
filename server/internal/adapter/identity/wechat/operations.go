@@ -3,20 +3,20 @@ package wechat
 import (
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/common"
-	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
-	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-	"github.com/QuantumNous/new-api/internal/identity/domain"
-
-	"gorm.io/gorm"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
+	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
+	"github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type loginResponse struct {

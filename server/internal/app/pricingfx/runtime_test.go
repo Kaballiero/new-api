@@ -1,10 +1,6 @@
 package pricingfx
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"context"
 	"errors"
 	"fmt"
@@ -15,7 +11,10 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/stretchr/testify/assert"

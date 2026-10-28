@@ -1,8 +1,6 @@
 package set_user_permissions_in_tx
 
-import (
-	"github.com/QuantumNous/new-api/internal/authorization/domain"
-)
+import "github.com/QuantumNous/new-api/internal/authorization/domain"
 
 type Writer interface {
 	RemoveResource(int, string) error

@@ -1,9 +1,10 @@
 package poll_batches_test
 
 import (
+	"testing"
+
 	runtime "github.com/QuantumNous/new-api/internal/app/batchruntime"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchtickfixture"
-	"testing"
 )
 
 func TestBatchTickContract(t *testing.T) {

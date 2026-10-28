@@ -6,18 +6,17 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"github.com/golang-jwt/jwt/v5"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 
 	"github.com/bytedance/gopkg/cache/asynccache"
-
-	"fmt"
-	"time"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Credentials struct {

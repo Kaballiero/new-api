@@ -3,11 +3,11 @@ package relay
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/QuantumNous/new-api/constant"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TaskPlatformUnavailableError feeds the client-facing rejection when no

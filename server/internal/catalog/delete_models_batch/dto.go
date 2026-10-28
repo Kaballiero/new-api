@@ -1,8 +1,6 @@
 package delete_models_batch
 
-import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
-)
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 type Input struct {
 	ModelIDs           []int `json:"model_ids"`

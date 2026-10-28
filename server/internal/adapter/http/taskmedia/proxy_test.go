@@ -10,18 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/tasks/domain"
+	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
+	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/tasks/domain"
-	"github.com/QuantumNous/new-api/model"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
-	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 func allowPrivateTaskMediaTest(t *testing.T) {

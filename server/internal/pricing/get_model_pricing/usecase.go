@@ -2,6 +2,7 @@ package get_model_pricing
 
 import (
 	"fmt"
+
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 

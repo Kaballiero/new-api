@@ -1,8 +1,6 @@
 package systemruntime
 
 import (
-	"github.com/QuantumNous/new-api/internal/app/systemmetrics"
-
 	"runtime"
 	"time"
 
@@ -12,6 +10,7 @@ import (
 	technical "github.com/QuantumNous/new-api/internal/adapter/runtime/system"
 	settings "github.com/QuantumNous/new-api/internal/app/settings"
 	core "github.com/QuantumNous/new-api/internal/app/system"
+	"github.com/QuantumNous/new-api/internal/app/systemmetrics"
 	"github.com/QuantumNous/new-api/internal/system/check_setup"
 	"github.com/QuantumNous/new-api/internal/system/clear_disk_cache"
 	"github.com/QuantumNous/new-api/internal/system/complete_setup"

@@ -3,13 +3,13 @@ package channels
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	legacy "github.com/QuantumNous/new-api/model"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveCanonicalModelName(t *testing.T) {

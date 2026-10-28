@@ -5,12 +5,12 @@ import (
 	"math"
 	"sync"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	accountsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	keysrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	channelsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+
+	"gorm.io/gorm"
 )
 
 const (

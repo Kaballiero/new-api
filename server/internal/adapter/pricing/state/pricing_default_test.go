@@ -3,12 +3,12 @@ package pricingstate_test
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	legacy "github.com/QuantumNous/new-api/model"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultPricingVendorsRemainVisibleWithoutStoredMetadata(t *testing.T) {

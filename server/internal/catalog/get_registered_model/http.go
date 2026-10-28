@@ -2,6 +2,7 @@ package get_registered_model
 
 import (
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
+
 	"github.com/gin-gonic/gin"
 )
 

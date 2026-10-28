@@ -1,8 +1,6 @@
 package channels
 
-import (
-	routing "github.com/QuantumNous/new-api/gateway/routing"
-)
+import routing "github.com/QuantumNous/new-api/gateway/routing"
 
 type AffinityCache struct{}
 

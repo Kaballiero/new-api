@@ -4,8 +4,6 @@ package usagestorage
 import (
 	"sync"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
@@ -13,6 +11,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/app/apikeystorage"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 var writerOnce = sync.OnceValue(func() storage.Writer {

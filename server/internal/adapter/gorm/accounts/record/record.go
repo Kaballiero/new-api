@@ -3,6 +3,7 @@ package model
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
 	"gorm.io/gorm"
 )
 

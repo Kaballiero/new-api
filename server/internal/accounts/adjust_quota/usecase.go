@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
+
 	"github.com/shopspring/decimal"
 )
 

@@ -2,8 +2,6 @@
 package managementhttp
 
 import (
-	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
-
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,15 +10,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	routing "github.com/QuantumNous/new-api/gateway/routing"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	f "github.com/QuantumNous/new-api/internal/contracttest/managementfixture"
 	tf "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-	"github.com/stretchr/testify/require"
 
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/stretchr/testify/require"
 )
 
 type Fixture struct {

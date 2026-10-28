@@ -2,9 +2,11 @@ package model
 
 import (
 	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/delete_account"
 	"github.com/QuantumNous/new-api/internal/accounts/domain"
+
 	"gorm.io/gorm"
 )
 

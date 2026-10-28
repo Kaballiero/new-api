@@ -3,6 +3,7 @@ package authorization
 import (
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/authorization/record"
 	"github.com/QuantumNous/new-api/internal/authorization/domain"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

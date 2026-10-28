@@ -3,11 +3,11 @@ package list_own_usage_data
 import (
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/internal/usage/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {

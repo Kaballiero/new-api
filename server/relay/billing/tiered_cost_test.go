@@ -1,8 +1,6 @@
 package billing_test
 
 import (
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"errors"
 	"fmt"
 	"math"
@@ -12,6 +10,8 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -19,6 +19,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/types"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,7 +86,7 @@ func TestPostAudioConsumeQuotaUsesEffectiveBillingGroupRatio(t *testing.T) {
 	assert.Equal(t, 2, token.UsedQuota)
 	assert.EqualValues(t, 2, channel.UsedQuota)
 	var logs []model.Log
-	require.NoError(t, model.LOG_DB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+	require.NoError(t, model.LOG_DB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 	require.Len(t, logs, 1)
 	assert.Equal(t, 2, logs[0].Quota)
 	assert.Contains(t, logs[0].Content, "group ratio 1.00")

@@ -1,8 +1,9 @@
 package identity
 
 import (
-	record "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"time"
+
+	record "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 )
 
 type TestUserSessionCacheEntry = userSessionCacheEntry

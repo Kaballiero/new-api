@@ -2,8 +2,9 @@ package domain
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/constant"
 	"strings"
+
+	"github.com/QuantumNous/new-api/constant"
 )
 
 type ModelIdentityErrors struct{ ErrCanonicalModelCollision, ErrModelAliasCycle, ErrModelMappingConflict, ErrModelMappingCycle, ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty, ErrModelNameEmpty error }

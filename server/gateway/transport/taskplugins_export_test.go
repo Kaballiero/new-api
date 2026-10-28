@@ -7,6 +7,7 @@ import (
 
 	pluginsapp "github.com/QuantumNous/new-api/internal/app/taskplugins"
 	"github.com/QuantumNous/new-api/internal/taskplugins/domain"
+
 	"github.com/stretchr/testify/require"
 )
 

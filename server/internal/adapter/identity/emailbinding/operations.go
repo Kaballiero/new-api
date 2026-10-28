@@ -1,6 +1,8 @@
 package emailbinding
 
 import (
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
@@ -8,8 +10,6 @@ import (
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/identity/dto"
-
-	"time"
 )
 
 type Codes struct {

@@ -1,8 +1,6 @@
 package ionet
 
-import (
-	"time"
-)
+import "time"
 
 // Client represents the IO.NET API client
 type Client struct {

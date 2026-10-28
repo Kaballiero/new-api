@@ -3,8 +3,10 @@ package identity
 import (
 	"errors"
 	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

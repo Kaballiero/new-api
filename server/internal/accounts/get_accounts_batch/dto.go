@@ -1,8 +1,9 @@
 package get_accounts_batch
 
 import (
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 
 type Result struct {

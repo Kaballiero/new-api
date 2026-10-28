@@ -3,12 +3,14 @@ package identity
 import (
 	"crypto/hmac"
 	"errors"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	locking "github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"gorm.io/gorm"
-	"time"
 )
 
 type twoFAEnrollmentPayload struct {

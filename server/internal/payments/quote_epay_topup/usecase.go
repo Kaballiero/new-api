@@ -1,8 +1,6 @@
 package quote_epay_topup
 
-import (
-	"github.com/QuantumNous/new-api/internal/payments/domain"
-)
+import "github.com/QuantumNous/new-api/internal/payments/domain"
 
 type Input struct {
 	UserID int

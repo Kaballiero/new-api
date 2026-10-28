@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"github.com/QuantumNous/new-api/common"
+
+	"github.com/google/uuid"
 )
 
 func FetchCodexWhamUsage(

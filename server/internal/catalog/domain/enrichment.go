@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"sort"
-)
+import "sort"
 
 func fillConfiguredCounts(models []*Model, configured map[string][]int) {
 	for _, metadata := range models {

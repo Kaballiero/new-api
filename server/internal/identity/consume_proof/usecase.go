@@ -2,6 +2,7 @@ package consume_proof
 
 import (
 	"errors"
+
 	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 

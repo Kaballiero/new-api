@@ -3,18 +3,18 @@ package oauthadapter
 import (
 	"errors"
 	"fmt"
+	"strconv"
+
 	"github.com/QuantumNous/new-api/common"
 	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/internal/identity/complete_oauth"
-
 	"github.com/QuantumNous/new-api/oauth"
+
 	"gorm.io/gorm"
-	"strconv"
 )
 
 type Account struct {

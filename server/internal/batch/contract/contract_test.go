@@ -2,8 +2,6 @@
 package contract
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,22 +17,23 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
 	"github.com/QuantumNous/new-api/internal/app/batchruntime"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 var batchManifest = flag.Bool("batch-manifest", false, "list Batch HTTP cases without fixtures")

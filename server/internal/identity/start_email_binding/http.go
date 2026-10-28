@@ -3,6 +3,7 @@ package start_email_binding
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"github.com/gin-gonic/gin"
 )
 

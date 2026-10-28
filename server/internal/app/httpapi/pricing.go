@@ -1,8 +1,9 @@
 package httpapi
 
 import (
-	"github.com/QuantumNous/new-api/internal/app"
 	"sync"
+
+	"github.com/QuantumNous/new-api/internal/app"
 )
 
 // Pricing builds the pricing handlers once; settings, the catalog snapshot

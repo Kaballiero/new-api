@@ -2,9 +2,9 @@ package record
 
 import (
 	"github.com/QuantumNous/new-api/internal/catalog/create_model"
+	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/catalog/update_model"
 
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"gorm.io/gorm"
 )
 

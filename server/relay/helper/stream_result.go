@@ -1,8 +1,6 @@
 package helper
 
-import (
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
-)
+import relaycommon "github.com/QuantumNous/new-api/relay/common"
 
 // StreamResult is passed to each dataHandler invocation, providing methods
 // to record soft errors, signal fatal stops, or mark normal completion.

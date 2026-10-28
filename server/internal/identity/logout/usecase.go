@@ -1,8 +1,9 @@
 package logout
 
 import (
-	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Operation interface {

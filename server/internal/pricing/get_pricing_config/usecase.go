@@ -1,8 +1,9 @@
 package get_pricing_config
 
 import (
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"sort"
+
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 type Store interface {

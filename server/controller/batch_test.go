@@ -1,6 +1,14 @@
 package controller
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	batchmath "github.com/QuantumNous/new-api/internal/adapter/billing"
@@ -10,20 +18,13 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relay/batch"
-
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"os/exec"
-	"strings"
-	"testing"
 )
 
 func TestBatchAdmissionFreezesFinalEnvelopeProvider(t *testing.T) {

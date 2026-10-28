@@ -1,11 +1,13 @@
 package get_verification_requirements
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct {

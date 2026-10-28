@@ -1,10 +1,10 @@
 package systemmetrics
 
 import (
-	systemmetrics "github.com/QuantumNous/new-api/internal/adapter/runtime/system"
 	"net/http"
 
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	systemmetrics "github.com/QuantumNous/new-api/internal/adapter/runtime/system"
 )
 
 func NewChannelStateMetricsHandler() http.Handler {

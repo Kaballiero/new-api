@@ -1,8 +1,6 @@
 package controller
 
 import (
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,8 +9,10 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

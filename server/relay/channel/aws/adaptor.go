@@ -15,9 +15,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
-	"github.com/pkg/errors"
-
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 )
 
 type ClientMode int

@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
-	"github.com/QuantumNous/new-api/internal/app/httpapi"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -18,20 +16,20 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/QuantumNous/new-api/internal/system/enqueue_system_task"
-
-	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-
+	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	"github.com/QuantumNous/new-api/internal/app/httpapi"
 	core "github.com/QuantumNous/new-api/internal/app/system"
 	"github.com/QuantumNous/new-api/internal/app/systemruntime"
 	sf "github.com/QuantumNous/new-api/internal/contracttest/systemfixture"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/internal/system/domain"
+	"github.com/QuantumNous/new-api/internal/system/enqueue_system_task"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

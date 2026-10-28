@@ -10,10 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/common"
 	app "github.com/QuantumNous/new-api/internal/app/usage"
 	aggregate "github.com/QuantumNous/new-api/internal/usage/aggregate_usage_data"
@@ -21,6 +17,10 @@ import (
 	"github.com/QuantumNous/new-api/internal/usage/transport"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type flowQuotaResponse struct {

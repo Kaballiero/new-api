@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/stripe/stripe-go/v81"
-	"github.com/stripe/stripe-go/v81/checkout/session"
-	"github.com/stripe/stripe-go/v81/webhook"
-
 	"github.com/QuantumNous/new-api/common"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/setting"
+
+	"github.com/stripe/stripe-go/v81"
+	"github.com/stripe/stripe-go/v81/checkout/session"
+	"github.com/stripe/stripe-go/v81/webhook"
 )
 
 type Client struct{}

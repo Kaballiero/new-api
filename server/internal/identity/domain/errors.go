@@ -1,14 +1,12 @@
 package domain
 
-import (
-	"errors"
-)
+import "errors"
 
-// Business errors of identity scenarios. The texts are the existing messages:
-// several of them reach clients unchanged through the transport, and legacy
-// names in model and service alias these values.
+// Business errors of identity scenarios retain the existing message bytes.
+// Several messages reach clients unchanged through transport.
+// Callers use these domain values directly.
 var (
-	// Server-side sessions (model.ErrUserSession*).
+	// Server-side sessions.
 	ErrSessionInvalid        = errors.New("user session is invalid")
 	ErrSessionInactive       = errors.New("user session is inactive")
 	ErrSessionRefreshInvalid = errors.New("user session refresh token is invalid")
@@ -17,14 +15,14 @@ var (
 	ErrSessionLimit          = errors.New("active user session limit reached")
 	ErrSessionIssuanceLimit  = errors.New("user session issuance limit reached")
 
-	// Login sessions and refresh tokens (service.ErrLoginSession*, ErrRefresh*).
+	// Login sessions and refresh tokens.
 	ErrLoginSessionInvalid  = errors.New("login session is invalid")
 	ErrLoginSessionRevoked  = errors.New("login session is revoked")
 	ErrLoginSessionMismatch = errors.New("login session does not match the expected session")
 	ErrRefreshTokenInvalid  = errors.New("refresh token is invalid")
 	ErrRefreshRace          = errors.New("refresh token was already rotated")
 
-	// Access tokens and security proofs (service.ErrAuthToken*, ErrProof*).
+	// Access tokens and security proofs.
 	ErrAuthTokenInvalid = errors.New("authentication token is invalid")
 	ErrAuthTokenExpired = errors.New("authentication token has expired")
 	ErrProofScope       = errors.New("security proof scope mismatch")
@@ -32,12 +30,12 @@ var (
 	ErrProofContext     = errors.New("security proof context mismatch")
 	ErrProofConsumed    = errors.New("security proof has already been consumed")
 
-	// One-time authentication flows (model.ErrAuthFlow*).
+	// One-time authentication flows.
 	ErrAuthFlowInvalid  = errors.New("auth flow is invalid")
 	ErrAuthFlowExpired  = errors.New("auth flow has expired")
 	ErrAuthFlowConsumed = errors.New("auth flow has already been consumed")
 
-	// Security verification (service.ErrVerification*, ErrOAuthAccountMismatch).
+	// Security verification.
 	ErrVerificationFailed         = errors.New("Verification failed. Please try again.")
 	ErrVerificationUnavailable    = errors.New("This verification method is currently unavailable.")
 	ErrVerificationLocked         = errors.New("Two-factor authentication is temporarily locked.")
@@ -46,15 +44,15 @@ var (
 	ErrVerificationForbidden      = errors.New("You do not have permission to perform this action.")
 	ErrOAuthAccountMismatch       = errors.New("The OAuth account does not match the account linked to your profile.")
 
-	// Factors (model.ErrTwoFA*, ErrPasskeyNotFound).
+	// Factors.
 	ErrTwoFASetupInvalid   = errors.New("The two-factor setup has expired or changed. Start setup again.")
 	ErrTwoFACodeInvalid    = errors.New("The authenticator code is incorrect.")
 	ErrTwoFANotEnabled     = errors.New("2fa not enabled")
 	ErrTwoFAAlreadyEnabled = errors.New("2fa already enabled")
 	ErrPasskeyNotFound     = errors.New("passkey credential not found")
 
-	// Email binding (service.ErrAccountEmail*, ErrEmailBindingDelivery,
-	// model.ErrEmailBinding*).
+	// Email binding and delivery.
+	// Invalid, expired, and rate-limited binding operations retain distinct errors.
 	ErrEmailInvalid            = errors.New("Please enter a valid email address")
 	ErrEmailRestricted         = errors.New("This email address is not allowed by the administrator's email policy.")
 	ErrEmailBindingDelivery    = errors.New("Verification email could not be sent. Start email verification again.")
@@ -62,8 +60,8 @@ var (
 	ErrEmailBindingLocked      = errors.New("Too many incorrect codes. Start email verification again.")
 	ErrEmailBindingResendWait  = errors.New("Please wait before requesting another verification code.")
 
-	// Account security state (model/account_security.go,
-	// model.ErrExternalIdentityAlreadyClaimed).
+	// Account security state and external identity claims.
+	// Password changes and binding conflicts retain separate sentinels.
 	ErrCurrentPasswordInvalid = errors.New("Current password is incorrect.")
 	ErrPasswordSame           = errors.New("New password must be different from current password")
 	ErrPasswordState          = errors.New("Password settings have changed. Reload the page and try again.")
@@ -71,7 +69,7 @@ var (
 	ErrBindingChanged         = errors.New("Account bindings have changed. Start this operation again.")
 	ErrIdentityClaimed        = errors.New("external identity is already claimed")
 
-	// Telegram login (oauth.ErrTelegram*).
+	// Telegram login.
 	ErrTelegramOAuthNotConfigured = errors.New("Telegram OAuth is not configured or enabled. Please contact your administrator.")
 	ErrTelegramOAuthConflict      = errors.New("The telegram OAuth provider name is reserved. Ask your administrator to rename the conflicting custom provider.")
 	ErrTelegramOAuthFailed        = errors.New("Telegram authorization failed. Please try again.")

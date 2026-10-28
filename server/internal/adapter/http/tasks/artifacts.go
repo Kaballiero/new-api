@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gin-gonic/gin"
-
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
+
+	"github.com/gin-gonic/gin"
 )
 
 type ArtifactStorage struct{}

@@ -1,8 +1,6 @@
 package initialize_authorization
 
-import (
-	"github.com/QuantumNous/new-api/internal/authorization/domain"
-)
+import "github.com/QuantumNous/new-api/internal/authorization/domain"
 
 type Store interface {
 	UpsertRole(domain.RoleSpec) error

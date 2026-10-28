@@ -3,11 +3,11 @@ package epay
 import (
 	"net/url"
 
-	"github.com/Calcium-Ion/go-epay/epay"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/Calcium-Ion/go-epay/epay"
 )
 
 type Factory struct{}

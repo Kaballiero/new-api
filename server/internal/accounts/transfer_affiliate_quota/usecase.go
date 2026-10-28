@@ -1,8 +1,6 @@
 package transfer_affiliate_quota
 
-import (
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-)
+import "github.com/QuantumNous/new-api/internal/accounts/domain"
 
 // AffiliateAccountLoader loads the account before the transfer request is read.
 type AffiliateAccountLoader interface {

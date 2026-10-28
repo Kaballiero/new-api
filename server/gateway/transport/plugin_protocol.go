@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/QuantumNous/new-api/i18n"
-	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
-	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
 	"net/http"
 	"strings"
 	"time"
@@ -14,12 +11,15 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
+	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	taskrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	pluginsruntime "github.com/QuantumNous/new-api/internal/app/taskpluginsruntime"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/internal/taskplugins/observe_plugin_task"
 	"github.com/QuantumNous/new-api/internal/taskplugins/retrieve_plugin_response"
+	plugintransport "github.com/QuantumNous/new-api/internal/taskplugins/transport"
 	tasksdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -551,7 +551,7 @@ func writeTaskPluginProtocolFailureResponse(
 	machine *relay.PluginResponsesMachine,
 	taskStatus string,
 ) {
-	if taskStatus == string(model.TaskStatusFailure) {
+	if taskStatus == string(taskrecord.TaskStatusFailure) {
 		response, err := machine.FinalResponse(nil, taskStatus)
 		if err != nil {
 			logger.LogError(c, "task protocol terminal failure response failed: "+err.Error())
@@ -612,7 +612,7 @@ func taskPluginProtocolRendererContext(
 	artifactContentURL func(taskID, artifactKey string) (string, error),
 ) (map[string]any, error) {
 	rendererContext := request.JSValue()
-	if task == nil || task.Status != model.TaskStatusSuccess {
+	if task == nil || task.Status != taskrecord.TaskStatusSuccess {
 		return rendererContext, nil
 	}
 	if pinned.Plugin == nil {

@@ -2,6 +2,7 @@ package change_channel_state
 
 import (
 	"fmt"
+
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 )

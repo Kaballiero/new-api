@@ -13,23 +13,11 @@ import (
 	"testing/iotest"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/go-redis/redis/v8"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/shopspring/decimal"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/adapter/admission"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/payments"
+	paymentsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/payments/record"
 	settings "github.com/QuantumNous/new-api/internal/adapter/settings/payments"
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/payments/admin_list_topups"
@@ -42,6 +30,19 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func isolatedDatabase(t *testing.T, kind string) *gorm.DB {
@@ -234,7 +235,7 @@ func testRechargeEpayCreditsQuotaExactlyOnce(t *testing.T, kind string) {
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 
 	user := insertUserForPaymentGuardTest(t, 501, 0)
-	order := createEpayTestOrder(t, user.Id, "EPAYTESTONCE", model.PaymentProviderEpay, common.TopUpStatusPending)
+	order := createEpayTestOrder(t, user.Id, "EPAYTESTONCE", paymentsrecord.PaymentProviderEpay, common.TopUpStatusPending)
 
 	alreadyDone, err := completionForTest().Complete(domain.CompletionInput{TradeNo: order.TradeNo, Provider: domain.PaymentProviderEpay, Method: "alipay", CallerIP: "127.0.0.1"})
 	require.NoError(t, err)
@@ -263,7 +264,7 @@ func TestRechargeEpayKeepsRedisAndDatabaseCreditInSync(t *testing.T) {
 	user := insertUserForPaymentGuardTest(t, 502, 7)
 	_, cacheErr := accountstorage.Cache().GetUserCache(user.Id)
 	require.NoError(t, cacheErr)
-	order := createEpayTestOrder(t, user.Id, "EPAYTESTREDISSYNC", model.PaymentProviderEpay, common.TopUpStatusPending)
+	order := createEpayTestOrder(t, user.Id, "EPAYTESTREDISSYNC", paymentsrecord.PaymentProviderEpay, common.TopUpStatusPending)
 
 	alreadyDone, err := completionForTest().Complete(domain.CompletionInput{TradeNo: order.TradeNo, Provider: domain.PaymentProviderEpay, Method: "alipay", CallerIP: "127.0.0.1"})
 	require.NoError(t, err)
@@ -297,7 +298,7 @@ func testRechargeEpayUpdatesPaymentMethodToActual(t *testing.T, kind string) {
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 
 	user := insertUserForPaymentGuardTest(t, 503, 0)
-	order := createEpayTestOrder(t, user.Id, "EPAYTESTMETHOD", model.PaymentProviderEpay, common.TopUpStatusPending)
+	order := createEpayTestOrder(t, user.Id, "EPAYTESTMETHOD", paymentsrecord.PaymentProviderEpay, common.TopUpStatusPending)
 
 	alreadyDone, err := completionForTest().Complete(domain.CompletionInput{TradeNo: order.TradeNo, Provider: domain.PaymentProviderEpay, Method: "wxpay", CallerIP: "127.0.0.1"})
 	require.NoError(t, err)
@@ -327,7 +328,7 @@ func testRechargeEpayRejectsForeignAndNonPendingOrders(t *testing.T, kind string
 	t.Run(
 		"order from another payment provider",
 		func(t *testing.T) {
-			order := createEpayTestOrder(t, user.Id, "EPAYTESTSTRIPE", model.PaymentProviderStripe, common.TopUpStatusPending)
+			order := createEpayTestOrder(t, user.Id, "EPAYTESTSTRIPE", paymentsrecord.PaymentProviderStripe, common.TopUpStatusPending)
 			_, err := completionForTest().Complete(domain.CompletionInput{TradeNo: order.TradeNo, Provider: domain.PaymentProviderEpay, Method: "alipay", CallerIP: "127.0.0.1"})
 			assert.ErrorIs(t, err, domain.ErrProviderMismatch)
 			assert.Equal(t, 7, getUserQuotaForPaymentGuardTest(t, user.Id))
@@ -337,7 +338,7 @@ func testRechargeEpayRejectsForeignAndNonPendingOrders(t *testing.T, kind string
 	t.Run(
 		"order that is not pending",
 		func(t *testing.T) {
-			order := createEpayTestOrder(t, user.Id, "EPAYTESTEXPIRED", model.PaymentProviderEpay, common.TopUpStatusExpired)
+			order := createEpayTestOrder(t, user.Id, "EPAYTESTEXPIRED", paymentsrecord.PaymentProviderEpay, common.TopUpStatusExpired)
 			_, err := completionForTest().Complete(domain.CompletionInput{TradeNo: order.TradeNo, Provider: domain.PaymentProviderEpay, Method: "alipay", CallerIP: "127.0.0.1"})
 			assert.ErrorIs(t, err, domain.ErrNotPending)
 			assert.Equal(t, 7, getUserQuotaForPaymentGuardTest(t, user.Id))
@@ -367,7 +368,7 @@ func testRechargeEpayRejectsQuotaOverflowBeforeCompletingOrder(t *testing.T, kin
 	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
 
 	user := insertUserForPaymentGuardTest(t, 505, 3)
-	order := createEpayTestOrder(t, user.Id, "EPAYTESTOVERFLOW", model.PaymentProviderEpay, common.TopUpStatusPending)
+	order := createEpayTestOrder(t, user.Id, "EPAYTESTOVERFLOW", paymentsrecord.PaymentProviderEpay, common.TopUpStatusPending)
 
 	_, err := completionForTest().Complete(domain.CompletionInput{TradeNo: order.TradeNo, Provider: domain.PaymentProviderEpay, Method: "alipay", CallerIP: "127.0.0.1"})
 	require.Error(t, err)
@@ -414,7 +415,7 @@ func testRechargeEpayEnforcesFinalWalletQuotaLimit(t *testing.T, kind string) {
 			func(t *testing.T) {
 				newPersistence(t, kind)
 				user := insertUserForPaymentGuardTest(t, 506, tc.currentQuota)
-				order := createEpayTestOrder(t, user.Id, "EPAYTESTWALLETLIMIT", model.PaymentProviderEpay, common.TopUpStatusPending)
+				order := createEpayTestOrder(t, user.Id, "EPAYTESTWALLETLIMIT", paymentsrecord.PaymentProviderEpay, common.TopUpStatusPending)
 
 				_, err := completionForTest().Complete(domain.CompletionInput{TradeNo: order.TradeNo, Provider: domain.PaymentProviderEpay, Method: "alipay", CallerIP: "127.0.0.1"})
 				if tc.wantErr {
@@ -454,7 +455,7 @@ func testRechargeWaffoPancake_RejectsMismatchedPaymentMethod(t *testing.T, kind 
 	newPersistence(t, kind)
 
 	insertUserForPaymentGuardTest(t, 101, 0)
-	insertTopUpForPaymentGuardTest(t, "waffo-pancake-guard", 101, model.PaymentProviderStripe)
+	insertTopUpForPaymentGuardTest(t, "waffo-pancake-guard", 101, paymentsrecord.PaymentProviderStripe)
 
 	_, err := completionForTest().Complete(domain.CompletionInput{TradeNo: "waffo-pancake-guard", Provider: domain.PaymentProviderWaffoPancake})
 	require.Error(t, err)
@@ -482,15 +483,15 @@ func testUpdatePendingTopUpStatus_RejectsMismatchedPaymentProvider(t *testing.T,
 		{
 			name:                    "stripe expire",
 			tradeNo:                 "stripe-expire-guard",
-			storedPaymentProvider:   model.PaymentProviderCreem,
-			expectedPaymentProvider: model.PaymentProviderStripe,
+			storedPaymentProvider:   paymentsrecord.PaymentProviderCreem,
+			expectedPaymentProvider: paymentsrecord.PaymentProviderStripe,
 			targetStatus:            common.TopUpStatusExpired,
 		},
 		{
 			name:                    "waffo failed",
 			tradeNo:                 "waffo-failed-guard",
-			storedPaymentProvider:   model.PaymentProviderStripe,
-			expectedPaymentProvider: model.PaymentProviderWaffo,
+			storedPaymentProvider:   paymentsrecord.PaymentProviderStripe,
+			expectedPaymentProvider: paymentsrecord.PaymentProviderWaffo,
 			targetStatus:            common.TopUpStatusFailed,
 		},
 	}

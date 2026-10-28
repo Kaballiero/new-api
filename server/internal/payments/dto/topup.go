@@ -1,8 +1,6 @@
 package dto
 
-import (
-	"github.com/QuantumNous/new-api/internal/payments/domain"
-)
+import "github.com/QuantumNous/new-api/internal/payments/domain"
 
 type TopUp struct {
 	Id              int     `json:"id"`

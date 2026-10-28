@@ -2,12 +2,14 @@ package identity
 
 import (
 	"errors"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"gorm.io/gorm"
-	"time"
 )
 
 const (

@@ -2,10 +2,12 @@ package clear_affinity_cache
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/i18n"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strings"
+
+	"github.com/QuantumNous/new-api/i18n"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ scenario Usecase }

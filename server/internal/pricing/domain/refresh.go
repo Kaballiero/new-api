@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"github.com/QuantumNous/new-api/constant"
-)
+import "github.com/QuantumNous/new-api/constant"
 
 type CatalogRefreshSummary struct {
 	NewDocuments      int                     `json:"new_documents,omitempty"`

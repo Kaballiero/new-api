@@ -2,6 +2,7 @@ package transport
 
 import (
 	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
@@ -10,6 +11,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/relaykit/types"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 )

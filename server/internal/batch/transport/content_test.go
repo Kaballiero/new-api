@@ -2,6 +2,9 @@ package transport_test
 
 import (
 	"errors"
+	"net/http/httptest"
+	"testing"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
@@ -11,11 +14,10 @@ import (
 	"github.com/QuantumNous/new-api/internal/batch/transport"
 	billing "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"net/http/httptest"
-	"testing"
 )
 
 func TestBatchContentUsesRequestAndRecipientLanguage(t *testing.T) {

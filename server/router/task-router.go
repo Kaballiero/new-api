@@ -4,6 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/controller"
 	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
 	"github.com/QuantumNous/new-api/middleware"
+
 	"github.com/gin-gonic/gin"
 )
 

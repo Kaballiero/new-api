@@ -2,6 +2,9 @@ package counters_test
 
 import (
 	"errors"
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
 	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
 	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
 	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
@@ -9,14 +12,11 @@ import (
 	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
 	cachefixture "github.com/QuantumNous/new-api/internal/contracttest/cachefixture"
 	model "github.com/QuantumNous/new-api/model"
-	"testing"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 func setupUserUpdateTestState(t *testing.T) {

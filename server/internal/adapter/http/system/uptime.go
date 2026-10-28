@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/system/domain"
+
 	"golang.org/x/sync/errgroup"
 )
 

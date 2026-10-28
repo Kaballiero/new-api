@@ -2,6 +2,7 @@ package batch
 
 import (
 	"github.com/QuantumNous/new-api/internal/batch/domain"
+
 	"gorm.io/gorm"
 )
 

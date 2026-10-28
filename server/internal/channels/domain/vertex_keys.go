@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"strings"
-)
+import "strings"
 
 // VertexArrayKeys splits a JSON array of Vertex AI service account keys into
 // one key per element.

@@ -2,10 +2,6 @@
 package contract
 
 import (
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,17 +24,17 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
 	routing "github.com/QuantumNous/new-api/gateway/routing"
-
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	"github.com/QuantumNous/new-api/internal/contracttest"
-
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
@@ -46,12 +42,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 var manifest = flag.Bool("settings-manifest", false, "list settings cases without fixtures")

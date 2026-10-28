@@ -3,8 +3,6 @@ package relay
 import (
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/constant"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay/channel"
@@ -45,6 +43,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/zhipu"
 	"github.com/QuantumNous/new-api/relay/channel/zhipu_4v"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
+
+	"github.com/gin-gonic/gin"
 )
 
 func GetAdaptor(apiType int) channel.Adaptor {

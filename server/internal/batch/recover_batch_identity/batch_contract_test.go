@@ -2,13 +2,14 @@ package recover_batch_identity_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/QuantumNous/new-api/constant"
 	gateway "github.com/QuantumNous/new-api/internal/adapter/gateway/batch"
 	core "github.com/QuantumNous/new-api/internal/app/batch"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	"github.com/QuantumNous/new-api/internal/batch/recover_batch_identity"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/batchtickfixture"
-	"testing"
 )
 
 func TestBatchTickContract(t *testing.T) {

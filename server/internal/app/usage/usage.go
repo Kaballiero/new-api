@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/app/usagestorage"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/count_consumption"
@@ -13,18 +14,17 @@ import (
 	"github.com/QuantumNous/new-api/internal/usage/record_consumption"
 	"github.com/QuantumNous/new-api/internal/usage/record_failure"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 // TaskMetadata exposes the single usage serializer to task gateway mapping.
 type TaskMetadata interface {
-	TaskIdentity(*model.LogOther, domain.TaskIdentity)
-	BillingFX(*model.LogOther, domain.RequestFacts, domain.PriceFacts, string)
-	Clamp(*model.LogOther, *billingdomain.Clamp)
-	Tiered(*model.LogOther, *domain.Tiered)
-	Plugin(*model.LogOther, *domain.Plugin)
-	MidjourneyOther(domain.RequestFacts, domain.Prices) *model.LogOther
+	TaskIdentity(*usagerecord.LogOther, domain.TaskIdentity)
+	BillingFX(*usagerecord.LogOther, domain.RequestFacts, domain.PriceFacts, string)
+	Clamp(*usagerecord.LogOther, *billingdomain.Clamp)
+	Tiered(*usagerecord.LogOther, *domain.Tiered)
+	Plugin(*usagerecord.LogOther, *domain.Plugin)
+	MidjourneyOther(domain.RequestFacts, domain.Prices) *usagerecord.LogOther
 }
 
 type Usecases struct {

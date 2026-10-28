@@ -2,13 +2,14 @@ package core_test
 
 import (
 	"fmt"
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	cachefixture "github.com/QuantumNous/new-api/internal/contracttest/cachefixture"
 	model "github.com/QuantumNous/new-api/model"
-	"testing"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

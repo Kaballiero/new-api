@@ -14,16 +14,16 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/app/dbclock"
+	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
+	"github.com/QuantumNous/new-api/model"
+
 	sqliteclock "github.com/glebarez/go-sqlite"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/app/dbclock"
-	"github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
-	"github.com/QuantumNous/new-api/model"
 )
 
 const subscriptionTickOrigin = "6b0f439a432ab129817e4e41ce323e6bd3c3c0c3"

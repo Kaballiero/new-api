@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
@@ -16,6 +14,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/recordutil"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 // Store executes task queries and mutations against the current primary database.

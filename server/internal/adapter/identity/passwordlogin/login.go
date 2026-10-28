@@ -3,6 +3,7 @@ package passwordlogin
 import (
 	"errors"
 	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
 	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"

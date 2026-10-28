@@ -3,9 +3,9 @@ package create_stripe_topup
 import (
 	"context"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/QuantumNous/new-api/internal/payments/domain"
+
+	"github.com/shopspring/decimal"
 )
 
 type Input struct {

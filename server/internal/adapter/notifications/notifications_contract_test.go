@@ -22,30 +22,25 @@ import (
 	"testing/synctest"
 	"time"
 
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"github.com/go-redis/redis/v8"
-
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	routing "github.com/QuantumNous/new-api/gateway/routing"
-
+	"github.com/QuantumNous/new-api/i18n"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	notificationadapter "github.com/QuantumNous/new-api/internal/adapter/notifications"
-
 	redisnotification "github.com/QuantumNous/new-api/internal/adapter/redis/notifications"
 	"github.com/QuantumNous/new-api/internal/app/channelruntime"
 	"github.com/QuantumNous/new-api/internal/app/notifications"
 	"github.com/QuantumNous/new-api/internal/channels/disable_channel"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/i18n"
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
 	f "github.com/QuantumNous/new-api/internal/contracttest/managementfixture"
-
 	tf "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

@@ -1,6 +1,8 @@
 package passkeyflow
 
 import (
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
@@ -8,7 +10,6 @@ import (
 
 	webauthn "github.com/go-webauthn/webauthn/webauthn"
 	"gorm.io/gorm"
-	"time"
 )
 
 type Payload struct {

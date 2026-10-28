@@ -3,10 +3,11 @@ package usage
 import (
 	"crypto/sha256"
 	"fmt"
-	"github.com/QuantumNous/new-api/i18n"
 	"math"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	batch "github.com/QuantumNous/new-api/internal/batch/domain"
 	billing "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/model"
@@ -35,7 +36,7 @@ func (BatchLogs) Item(job batch.Job, account batch.LogAccount, customID string, 
 	requestID := fmt.Sprintf("%x", sha256.Sum256([]byte(job.PublicID+":"+customID)))
 	log := model.Log{UserId: account.UserID, Username: account.Username, TokenName: account.TokenName,
 		TokenId: account.TokenID, ChannelId: job.ChannelID, ModelName: job.Model, Group: job.UsingGroup,
-		Quota: quota, Type: model.LogTypeConsume, CreatedAt: common.GetTimestamp(), RequestId: requestID,
+		Quota: quota, Type: usagerecord.LogTypeConsume, CreatedAt: common.GetTimestamp(), RequestId: requestID,
 		Other: string(otherJSON), Content: i18n.Translate(i18n.ParseAcceptLanguage(account.Language), i18n.MsgBatchRequestLog)}
 	if facts.Usage != nil {
 		log.PromptTokens = facts.Usage.PromptTokens
@@ -48,7 +49,7 @@ func (BatchLogs) Item(job batch.Job, account batch.LogAccount, customID string, 
 	return string(payload), nil
 }
 func (BatchLogs) Aggregate(job batch.Job, account batch.LogAccount, quota int, cost float64, basis billing.ProviderBasis) (string, error) {
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	other.SetPublic("batch_id", job.PublicID)
 	other.SetPublic("settlement_scope", "job")
 	other.SetPublic("settlement_mode", batch.BatchSettlementOpenRouterJobCostV2)
@@ -62,7 +63,7 @@ func (BatchLogs) Aggregate(job batch.Job, account batch.LogAccount, quota int, c
 	requestID := fmt.Sprintf("%x", sha256.Sum256([]byte(job.PublicID+":aggregate:v2")))
 	log := model.Log{UserId: account.UserID, Username: account.Username, TokenName: account.TokenName,
 		TokenId: account.TokenID, ChannelId: job.ChannelID, ModelName: job.Model, Group: job.UsingGroup,
-		Quota: quota, Type: model.LogTypeConsume, CreatedAt: common.GetTimestamp(), RequestId: requestID,
+		Quota: quota, Type: usagerecord.LogTypeConsume, CreatedAt: common.GetTimestamp(), RequestId: requestID,
 		Other: string(otherJSON), Content: i18n.Translate(i18n.ParseAcceptLanguage(account.Language), i18n.MsgBatchAggregateLog)}
 	var tokens struct {
 		Prompt     *int `json:"prompt_tokens"`

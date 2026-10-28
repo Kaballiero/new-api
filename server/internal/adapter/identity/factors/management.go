@@ -2,6 +2,8 @@ package factors
 
 import (
 	"errors"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
@@ -10,7 +12,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/identity/dto"
 
 	"gorm.io/gorm"
-	"time"
 )
 
 type TwoFAStatus struct{ SQL identitystore.Store }

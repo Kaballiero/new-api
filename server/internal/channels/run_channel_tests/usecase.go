@@ -2,11 +2,12 @@ package run_channel_tests
 
 import (
 	"context"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 type Store interface {

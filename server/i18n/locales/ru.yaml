@@ -741,7 +741,7 @@ system.database_failed: "Не удалось подключиться к баз�
 system.running: "Сервер работает"
 system.target_required: "Необходимо указать целевую временную метку"
 system.type_required: "Необходимо указать тип"
-system.task_i_d_required: "Необходимо указать ID задачи"
+system.task_id_required: "Необходимо указать ID задачи"
 system.task_not_found: "Задача не найдена"
 system.node_required: "Необходимо указать имя узла"
 system.instance_not_stale: "Инстанс ещё актуален или больше не существует"

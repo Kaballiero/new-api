@@ -3,14 +3,14 @@ package payments
 import (
 	"errors"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/payments/record"
 	"github.com/QuantumNous/new-api/internal/adapter/wallet"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 type Store struct{ db func() *gorm.DB }

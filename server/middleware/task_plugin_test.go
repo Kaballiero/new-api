@@ -16,10 +16,12 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	appI18n "github.com/QuantumNous/new-api/i18n"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -946,7 +948,7 @@ export function parseTaskResult() { return {status: "SUCCESS"}; }
 `)
 	insertTaskPluginRouteTask(t, &model.Task{
 		TaskID: "task-a", UserId: 7, Platform: constant.TaskPlatform("route-query-test"),
-		Status: model.TaskStatusSuccess, Progress: "100%", CreatedAt: 10,
+		Status: tasksrecord.TaskStatusSuccess, Progress: "100%", CreatedAt: 10,
 	})
 	taskData, err := common.Marshal(map[string]any{
 		"task_id": "private-upstream-id",
@@ -955,8 +957,8 @@ export function parseTaskResult() { return {status: "SUCCESS"}; }
 	require.NoError(t, err)
 	insertTaskPluginRouteTask(t, &model.Task{
 		TaskID: "task-b", UserId: 7, Platform: constant.TaskPlatform("route-query-test"),
-		Status: model.TaskStatusInProgress, Progress: "50%", CreatedAt: 20, Data: taskData,
-		ChannelId: 999, Quota: 12345, PrivateData: model.TaskPrivateData{UpstreamTaskID: "private-upstream-id", Key: "secret"},
+		Status: tasksrecord.TaskStatusInProgress, Progress: "50%", CreatedAt: 20, Data: taskData,
+		ChannelId: 999, Quota: 12345, PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: "private-upstream-id", Key: "secret"},
 	})
 
 	nextHandlerCalled := false

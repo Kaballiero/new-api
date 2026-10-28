@@ -1,11 +1,6 @@
 package main
 
 import (
-	"github.com/QuantumNous/new-api/internal/app/httpapi"
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"bytes"
 	"context"
 	"embed"
@@ -22,14 +17,16 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/i18n"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/app"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
+	"github.com/QuantumNous/new-api/internal/app/httpapi"
 	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	pricingfx "github.com/QuantumNous/new-api/internal/app/pricingfx"
 	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"

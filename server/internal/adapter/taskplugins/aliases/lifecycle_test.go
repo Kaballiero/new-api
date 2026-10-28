@@ -3,13 +3,13 @@ package aliases_test
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/common"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	aliases "github.com/QuantumNous/new-api/internal/adapter/taskplugins/aliases"
 	legacy "github.com/QuantumNous/new-api/model"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPricingInputsNoMemorySyncWithoutDatabaseClearsAliases(t *testing.T) {

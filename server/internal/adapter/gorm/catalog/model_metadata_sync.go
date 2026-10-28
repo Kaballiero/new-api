@@ -1,13 +1,13 @@
 package catalog
 
 import (
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"sync"
+
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
+	legacy "github.com/QuantumNous/new-api/model"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-
-	legacy "github.com/QuantumNous/new-api/model"
 )
 
 var MetadataMutationMu sync.Mutex

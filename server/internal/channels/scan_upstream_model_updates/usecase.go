@@ -3,10 +3,11 @@ package scan_upstream_model_updates
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"reflect"
 	"time"
+
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 type Store interface {

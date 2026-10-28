@@ -1,13 +1,11 @@
 package pricingruntime
 
 import (
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"sync"
-
-	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	store "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing"
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
@@ -21,6 +19,8 @@ import (
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
+	"gorm.io/gorm"
 )
 
 func NewPricingOptionsPersistence() store.Options {

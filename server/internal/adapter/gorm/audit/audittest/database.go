@@ -8,6 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
+	"github.com/QuantumNous/new-api/model"
+
 	"github.com/glebarez/sqlite"
 	sqlmysql "github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/require"
@@ -15,10 +19,6 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
-	"github.com/QuantumNous/new-api/model"
 )
 
 // NewDatabase isolates each fixture: PostgreSQL uses a private schema and startup search_path.

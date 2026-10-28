@@ -1,8 +1,6 @@
 package fetch_upstream_models
 
-import (
-	"github.com/QuantumNous/new-api/internal/channels/domain"
-)
+import "github.com/QuantumNous/new-api/internal/channels/domain"
 
 type Store interface {
 	Get(int, bool) (*domain.Channel, error)

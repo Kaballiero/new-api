@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/transport"
+
 	"github.com/gin-gonic/gin"
 )
 

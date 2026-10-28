@@ -3,6 +3,7 @@ package controller
 import (
 	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/QuantumNous/new-api/internal/identity/finish_twofa_setup"
+
 	"github.com/gin-gonic/gin"
 )
 

@@ -17,14 +17,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
@@ -39,11 +31,18 @@ import (
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
-
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type errorStreamWriter struct {
@@ -2138,7 +2137,7 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 				task, exists, err = tasksapp.NewStore().GetUniqueByOnlyTaskId(task.TaskID)
 				require.NoError(t, err)
 				require.True(t, exists)
-				assert.Equal(t, TaskStatus(TaskStatusFailure), task.Status)
+				assert.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusFailure), task.Status)
 				assert.True(t, task.PrivateData.Reconciliation.Required)
 				assert.Zero(t, posts)
 				var user User

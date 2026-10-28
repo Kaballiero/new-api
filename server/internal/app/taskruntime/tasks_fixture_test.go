@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/common"
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	billingadapter "github.com/QuantumNous/new-api/internal/adapter/billing"
@@ -24,6 +22,8 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
+	"github.com/stretchr/testify/require"
 )
 
 const (

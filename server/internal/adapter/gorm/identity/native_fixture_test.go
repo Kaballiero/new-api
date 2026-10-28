@@ -1,14 +1,16 @@
 package identity_test
 
 import (
+	"os"
+	"testing"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/contracttest/cachefixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-	"os"
-	"testing"
 )
 
 // nativeFixture retains private SQLite by default; PostgreSQL is an explicit isolated acceptance mode.

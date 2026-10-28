@@ -5,8 +5,6 @@
 package contracttest
 
 import (
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"context"
 	"flag"
 	"net/http"
@@ -20,15 +18,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/router"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
 )
 
 // Same convention as relaykit/relayconvert golden tests.

@@ -2,14 +2,15 @@ package provision_account
 
 import (
 	"encoding/json"
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-
-	"github.com/QuantumNous/new-api/internal/accounts/dto"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
+	"github.com/QuantumNous/new-api/internal/accounts/dto"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {

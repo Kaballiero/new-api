@@ -1,8 +1,9 @@
 package initialize_pat
 
 import (
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
 	"strings"
+
+	"github.com/QuantumNous/new-api/internal/accounts/domain"
 )
 
 type Account interface {

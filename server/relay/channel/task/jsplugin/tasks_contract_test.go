@@ -16,10 +16,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/common"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
@@ -27,6 +25,9 @@ import (
 	"github.com/QuantumNous/new-api/plugins"
 	vertexcore "github.com/QuantumNous/new-api/relay/channel/vertex"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var taskOAuthManifest = flag.Bool("tasks-oauth-manifest", false, "list OAuth fixture cases")
@@ -116,9 +117,9 @@ func runTaskOAuthContract(t *testing.T, name string, updating bool) {
 		adaptor.Init(&relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://203.0.113.10", ApiKey: string(raw)}})
 		operation := "projects/test-project/locations/us-central1/publishers/google/models/veo-3.0-generate-001/operations/upstream-fixture"
 		task := &model.Task{TaskID: "task_vertex",
-			Properties: model.Properties{OriginModelName: "veo-3.0-generate-001",
+			Properties: tasksrecord.Properties{OriginModelName: "veo-3.0-generate-001",
 				UpstreamModelName: "veo-3.0-generate-001"},
-			PrivateData: model.TaskPrivateData{UpstreamTaskID: base64.RawURLEncoding.EncodeToString([]byte(operation))}}
+			PrivateData: tasksrecord.TaskPrivateData{UpstreamTaskID: base64.RawURLEncoding.EncodeToString([]byte(operation))}}
 		transport := &oauthContractTransport{calls: []map[string]any{}}
 		httpclient.GetHttpClient().Transport = transport
 		results := []any{}

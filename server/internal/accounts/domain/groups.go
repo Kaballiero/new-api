@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"strings"
-)
+import "strings"
 
 // GroupLabels are the texts of the generated group entries: the description of
 // the user's own group missing from the usable groups and the ratio of "auto".

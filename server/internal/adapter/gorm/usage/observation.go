@@ -3,9 +3,9 @@ package usage
 import (
 	"context"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
+
+	"github.com/gin-gonic/gin"
 )
 
 // LogObservation is technical request data. Identity and IP are read lazily in

@@ -1,10 +1,8 @@
 package settings
 
 import (
-	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
-
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
-
+	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"

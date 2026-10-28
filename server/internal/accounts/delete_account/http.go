@@ -1,12 +1,14 @@
 package delete_account
 
 import (
+	"net/http"
+	"strconv"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/accounts/transport"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
-	"strconv"
 )
 
 type HTTP struct{ factory func(*gin.Context) Operation }

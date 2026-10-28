@@ -8,44 +8,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
-	"github.com/glebarez/sqlite"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
+	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	ensure_catalog_source "github.com/QuantumNous/new-api/internal/pricing/ensure_catalog_source"
+	get_pricing_config "github.com/QuantumNous/new-api/internal/pricing/get_pricing_config"
+	publish_catalog_selection "github.com/QuantumNous/new-api/internal/pricing/publish_catalog_selection"
+	update_pricing_config "github.com/QuantumNous/new-api/internal/pricing/update_pricing_config"
+	legacy "github.com/QuantumNous/new-api/model"
+	config "github.com/QuantumNous/new-api/setting/config"
+	ratio_setting "github.com/QuantumNous/new-api/setting/ratio_setting"
 
+	"github.com/glebarez/sqlite"
 	assert "github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	schema "gorm.io/gorm/schema"
-
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
-	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
-
-	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
-
-	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
-
-	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
-
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	ensure_catalog_source "github.com/QuantumNous/new-api/internal/pricing/ensure_catalog_source"
-
-	get_pricing_config "github.com/QuantumNous/new-api/internal/pricing/get_pricing_config"
-
-	publish_catalog_selection "github.com/QuantumNous/new-api/internal/pricing/publish_catalog_selection"
-
-	update_pricing_config "github.com/QuantumNous/new-api/internal/pricing/update_pricing_config"
-
-	legacy "github.com/QuantumNous/new-api/model"
-
-	config "github.com/QuantumNous/new-api/setting/config"
-
-	ratio_setting "github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 func pricingCatalogOptionFixture(t *testing.T) (*gorm.DB, *legacy.Channel, pricingdomain.PricingCatalogEntry) {

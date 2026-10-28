@@ -2,9 +2,10 @@ package refresh_session
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type RefreshOperation interface {

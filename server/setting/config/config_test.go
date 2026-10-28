@@ -1,8 +1,6 @@
 package config
 
-import (
-	"testing"
-)
+import "testing"
 
 type testConfigWithMap struct {
 	Modes map[string]string `json:"modes"`

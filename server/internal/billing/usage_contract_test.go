@@ -1,8 +1,6 @@
 package billing_test
 
 import (
-	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-
 	"context"
 	"errors"
 	"fmt"
@@ -18,22 +16,20 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/model"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
+	service "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-
-	service "github.com/QuantumNous/new-api/relay/billing"
 	relaytypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-
 	hosttypes "github.com/QuantumNous/new-api/types"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -151,7 +147,7 @@ func runUsageHTTPContract(t *testing.T, tc usageHTTPCase) {
 		ledger, err := readBillingLedger(env.DB, tc.subscription)
 		logTypes := make([]int, 0)
 		if err == nil {
-			err = model.LOG_DB.Model(&model.Log{}).Where("type IN ?", []int{model.LogTypeConsume, model.LogTypeError}).Order("id").Pluck("type", &logTypes).Error
+			err = model.LOG_DB.Model(&model.Log{}).Where("type IN ?", []int{usagerecord.LogTypeConsume, usagerecord.LogTypeError}).Order("id").Pluck("type", &logTypes).Error
 		}
 		if err == nil && (request.Method != http.MethodPost || request.URL.Path != "/v1/chat/completions" || request.Header.Get("Authorization") != "Bearer contract-upstream-key") {
 			err = fmt.Errorf("unexpected provider request %s %s", request.Method, request.URL.Path)
@@ -247,7 +243,7 @@ func runUsageHTTPContract(t *testing.T, tc usageHTTPCase) {
 			}
 			require.Equal(t, hold, observation.Ledger)
 			if index == 1 {
-				require.Equal(t, []int{model.LogTypeError}, observation.LogTypes, "error recording precedes the retry")
+				require.Equal(t, []int{usagerecord.LogTypeError}, observation.LogTypes, "error recording precedes the retry")
 			} else {
 				require.Empty(t, observation.LogTypes)
 			}
@@ -272,10 +268,10 @@ func runUsageHTTPContract(t *testing.T, tc usageHTTPCase) {
 	waitForUsageLedger(t, env, tc.subscription, expected)
 	wantTypes := make([]int, 0, 2)
 	if (tc.upstreamError || tc.retry) && !tc.disableErrors {
-		wantTypes = append(wantTypes, model.LogTypeError)
+		wantTypes = append(wantTypes, usagerecord.LogTypeError)
 	}
 	if !tc.upstreamError && !tc.disableConsume {
-		wantTypes = append(wantTypes, model.LogTypeConsume)
+		wantTypes = append(wantTypes, usagerecord.LogTypeConsume)
 	}
 	logs := usageLogSnapshot(t, wantTypes, actual, tc.channelTest)
 	for _, row := range logs {
@@ -297,7 +293,7 @@ func runUsageHTTPContract(t *testing.T, tc usageHTTPCase) {
 	}
 	if tc.separateLog {
 		var count int64
-		require.NoError(t, env.DB.Model(&model.Log{}).Where("type IN ?", []int{model.LogTypeConsume, model.LogTypeError}).Count(&count).Error)
+		require.NoError(t, env.DB.Model(&model.Log{}).Where("type IN ?", []int{usagerecord.LogTypeConsume, usagerecord.LogTypeError}).Count(&count).Error)
 		require.Zero(t, count, "recording must not fall back to the primary database")
 	}
 	wantExport := 0
@@ -430,7 +426,7 @@ func runUsageBoundaryContract(t *testing.T, name string) {
 	require.Equal(t, expectedBefore, before)
 
 	quota, wantCount := 5, 1
-	wantTypes := []int{model.LogTypeConsume}
+	wantTypes := []int{usagerecord.LogTypeConsume}
 	settlementFailed := name == "boundary_realtime_settle_failure"
 	if realtime {
 		usage := &dto.RealtimeUsage{InputTokens: 5, OutputTokens: 3, TotalTokens: 8,
@@ -489,18 +485,18 @@ func runUsageBoundaryContract(t *testing.T, name string) {
 			info.IsStream, info.StreamStatus = true, relaycommon.NewStreamStatus()
 			info.FirstResponseTime = start
 			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, errors.New("fixture delivery closed"))
-			wantTypes = append(wantTypes, model.LogTypeError)
+			wantTypes = append(wantTypes, usagerecord.LogTypeError)
 			if name == "boundary_delivery_error_disabled" {
-				constant.ErrorLogEnabled, wantTypes = false, []int{model.LogTypeConsume}
+				constant.ErrorLogEnabled, wantTypes = false, []int{usagerecord.LogTypeConsume}
 			}
 			if name == "boundary_delivery_consume_disabled" {
-				common.LogConsumeEnabled, wantTypes = false, []int{model.LogTypeError}
+				common.LogConsumeEnabled, wantTypes = false, []int{usagerecord.LogTypeError}
 			}
 		case "boundary_delivery_canceled":
 			requestContext, cancel := context.WithCancel(ctx.Request.Context())
 			ctx.Request = ctx.Request.WithContext(requestContext)
 			cancel()
-			wantTypes = append(wantTypes, model.LogTypeError)
+			wantTypes = append(wantTypes, usagerecord.LogTypeError)
 		case "boundary_no_request":
 			ctx.Request = nil
 		case "boundary_rich_metadata":
@@ -571,12 +567,12 @@ func waitForUsageJobs(t *testing.T) {
 func usageLogSnapshot(t *testing.T, types []int, quota int, generatedRequestID bool) []map[string]any {
 	t.Helper()
 	var rows []model.Log
-	require.NoError(t, model.LOG_DB.Where("type IN ?", []int{model.LogTypeConsume, model.LogTypeError}).Order("id").Find(&rows).Error)
+	require.NoError(t, model.LOG_DB.Where("type IN ?", []int{usagerecord.LogTypeConsume, usagerecord.LogTypeError}).Order("id").Find(&rows).Error)
 	require.Len(t, rows, len(types))
 	result := make([]map[string]any, 0, len(rows))
 	for index, row := range rows {
 		require.Equal(t, types[index], row.Type)
-		if row.Type == model.LogTypeConsume {
+		if row.Type == usagerecord.LogTypeConsume {
 			assert.Equal(t, quota, row.Quota)
 		} else {
 			assert.Zero(t, row.Quota)
@@ -591,7 +587,7 @@ func usageLogSnapshot(t *testing.T, types []int, quota int, generatedRequestID b
 		var other map[string]any
 		require.NoError(t, common.UnmarshalJsonStr(row.Other, &other))
 		firstResponse, hasFirstResponse := other["frt"]
-		if row.Type == model.LogTypeConsume {
+		if row.Type == usagerecord.LogTypeConsume {
 			require.True(t, hasFirstResponse, "consumption rows retain their first-response duration")
 		}
 		if hasFirstResponse {

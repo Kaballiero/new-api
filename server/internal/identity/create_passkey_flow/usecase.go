@@ -2,8 +2,9 @@ package create_passkey_flow
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type Operation interface {

@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/require"
 )
 

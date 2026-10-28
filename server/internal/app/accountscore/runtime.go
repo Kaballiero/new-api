@@ -3,17 +3,16 @@ package accountscore
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/common"
-	clearbinding "github.com/QuantumNous/new-api/internal/accounts/clear_binding"
-	"github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
-	"github.com/QuantumNous/new-api/internal/accounts/provision_account"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"sync"
 
+	"github.com/QuantumNous/new-api/common"
 	bindemail "github.com/QuantumNous/new-api/internal/accounts/bind_email"
+	clearbinding "github.com/QuantumNous/new-api/internal/accounts/clear_binding"
 	"github.com/QuantumNous/new-api/internal/accounts/delete_account"
 	domain "github.com/QuantumNous/new-api/internal/accounts/domain"
+	"github.com/QuantumNous/new-api/internal/accounts/initialize_pat"
 	persist "github.com/QuantumNous/new-api/internal/accounts/persist_account"
+	"github.com/QuantumNous/new-api/internal/accounts/provision_account"
 	register "github.com/QuantumNous/new-api/internal/accounts/register_account"
 	"github.com/QuantumNous/new-api/internal/accounts/transfer_affiliate_quota"
 	accountcore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
@@ -22,6 +21,7 @@ import (
 	batchadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/batch"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/app/apikeystorage"
 	"github.com/QuantumNous/new-api/internal/app/identitystorage"
@@ -31,10 +31,12 @@ import (
 	resetpassword "github.com/QuantumNous/new-api/internal/identity/reset_password"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/batchstate"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"gorm.io/gorm"
 )
 
-// 根据用户角色生成默认的边栏配置
+// GenerateDefaultSidebarConfigForRole builds the default sidebar for the user role.
 func GenerateDefaultSidebarConfigForRole(userRole int) string {
 	configBytes, err := common.Marshal(domain.DashboardSidebarConfig(userRole, domain.AdminRoles{Admin: common.RoleAdminUser, Root: common.RoleRootUser}))
 	if err != nil {
@@ -96,7 +98,7 @@ func ResetUserPasswordByEmail(email string, password string) error {
 }
 
 func RecordSystemLog(id int, message string) {
-	usagestorage.Writer().RecordLog(id, model.LogTypeSystem, message)
+	usagestorage.Writer().RecordLog(id, usagerecord.LogTypeSystem, message)
 }
 
 // Insert registers the user; lang is the language of the acting request for

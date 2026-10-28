@@ -1,11 +1,11 @@
 package list_own_tasks
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct{ usecase Usecase }

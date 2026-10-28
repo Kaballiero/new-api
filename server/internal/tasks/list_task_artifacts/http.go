@@ -3,10 +3,10 @@ package list_task_artifacts
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/tasks/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {

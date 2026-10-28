@@ -1,8 +1,9 @@
 package get_affinity_cache_stats
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct{ scenario Usecase }

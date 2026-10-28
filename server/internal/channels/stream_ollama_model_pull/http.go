@@ -3,11 +3,13 @@ package stream_ollama_model_pull
 import (
 	"errors"
 	"fmt"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/channels/transport"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct {

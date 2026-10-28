@@ -1,10 +1,12 @@
 package get_personal_pricing
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/transport"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type HTTP struct {

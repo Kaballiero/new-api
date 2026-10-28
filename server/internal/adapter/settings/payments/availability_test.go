@@ -3,10 +3,10 @@ package payments
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/stretchr/testify/require"
 )
 
 func confirmPaymentComplianceForTest(t *testing.T) {

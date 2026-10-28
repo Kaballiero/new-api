@@ -11,11 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
@@ -25,6 +20,11 @@ import (
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestPricingCatalogOptionsPersistReloadAndRevision(t *testing.T) {

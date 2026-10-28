@@ -2,6 +2,7 @@ package record
 
 import (
 	"database/sql/driver"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 )

@@ -21,6 +21,7 @@ import (
 	pluginsdomain "github.com/QuantumNous/new-api/internal/taskplugins/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+
 	"github.com/stretchr/testify/require"
 )
 

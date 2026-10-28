@@ -1,10 +1,10 @@
 package admin_list_events
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/audit/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {

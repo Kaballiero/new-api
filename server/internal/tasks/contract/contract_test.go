@@ -2,12 +2,6 @@
 package contract
 
 import (
-	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-
 	"bytes"
 	"context"
 	"crypto"
@@ -39,33 +33,26 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	"github.com/bytedance/gopkg/util/gopool"
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
-
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
 	taskruntime "github.com/QuantumNous/new-api/internal/app/taskruntime"
-
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/internal/contracttest"
-
 	fixture "github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/internal/contracttest/tasklog"
 	"github.com/QuantumNous/new-api/internal/contracttest/taskmultipart"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
@@ -77,8 +64,12 @@ import (
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/QuantumNous/new-api/types"
 
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 var tasksManifest = flag.Bool("tasks-manifest", false, "list task cases without fixtures")
@@ -925,11 +916,11 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 			ChannelId:   71,
 			Platform:    "kling",
 			Action:      constant.TaskActionTextToVideo,
-			Status:      model.TaskStatusSuccess,
+			Status:      tasksrecord.TaskStatusSuccess,
 			Progress:    "100%",
 			SubmitTime:  100,
 			FinishTime:  101,
-			PrivateData: model.TaskPrivateData{ResultURL: baseURL + "/video"}}).Error)
+			PrivateData: tasksrecord.TaskPrivateData{ResultURL: baseURL + "/video"}}).Error)
 	require.NoError(t,
 		env.DB.Create(&model.Task{ID: 82,
 			TaskID:     "task_foreign",
@@ -938,7 +929,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 			UserId:     2,
 			ChannelId:  72,
 			Platform:   "suno",
-			Status:     model.TaskStatusFailure,
+			Status:     tasksrecord.TaskStatusFailure,
 			Progress:   "100%",
 			SubmitTime: 101,
 			FailReason: "provider failure"}).Error)
@@ -996,7 +987,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 		require.NoError(t,
 			env.DB.Create(&model.Task{TaskID: "task_own",
 				UserId:    2,
-				Status:    model.TaskStatusSuccess,
+				Status:    tasksrecord.TaskStatusSuccess,
 				CreatedAt: fixture.Epoch,
 				UpdatedAt: fixture.Epoch}).Error)
 	}
@@ -1050,7 +1041,7 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 		require.NoError(t, err)
 		require.True(t, exists)
 		task.Platform = "artifact-fixture"
-		task.PrivateData.Execution = &model.TaskExecutionSnapshot{TaskPlugin: &model.TaskPluginSnapshot{Key: "artifact-fixture"}}
+		task.PrivateData.Execution = &tasksrecord.TaskExecutionSnapshot{TaskPlugin: &tasksrecord.TaskPluginSnapshot{Key: "artifact-fixture"}}
 		require.NoError(t, tasksapp.NewStore().UpdateTask(task))
 	}
 	if strings.HasPrefix(tc.Variant, "provenance") || tc.Variant == "reconciliation" {
@@ -1058,39 +1049,39 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 		require.NoError(t, err)
 		require.True(t, exists)
 		if strings.HasPrefix(tc.Variant, "provenance") {
-			task.Properties = model.Properties{OriginModelName: "client-model", UpstreamModelName: "provider-model"}
+			task.Properties = tasksrecord.Properties{OriginModelName: "client-model", UpstreamModelName: "provider-model"}
 			task.Data = []byte(`{"model":"provider-model","status":"ok"}`)
 			task.PrivateData.UpstreamTaskID = "upstream-private"
 			task.PrivateData.NodeName = "tasks-contract-node"
 			task.PrivateData.Key = "private-fixture-key"
-			task.PrivateData.Execution = &model.TaskExecutionSnapshot{RequestID: "fixture-request",
+			task.PrivateData.Execution = &tasksrecord.TaskExecutionSnapshot{RequestID: "fixture-request",
 				RequestPath: "/v1/tasks/kling",
-				TaskPlugin: &model.TaskPluginSnapshot{Key: "kling",
+				TaskPlugin: &tasksrecord.TaskPluginSnapshot{Key: "kling",
 					Name:       "Kling",
 					Version:    "1.0.2",
 					APIVersion: 1,
 					Generation: 7,
-					Author:     &model.TaskPluginAuthorSnapshot{Name: "Fixture author"}}}
+					Author:     &tasksrecord.TaskPluginAuthorSnapshot{Name: "Fixture author"}}}
 			if tc.Variant == "provenance_self_root" {
 				task.UserId = 3
 			}
 		} else {
 			task.Platform = constant.TaskPlatformOpenRouterAudio
 			task.Action = "audio"
-			task.Status = model.TaskStatusInProgress
+			task.Status = tasksrecord.TaskStatusInProgress
 			task.Progress = "30%"
 			task.Quota = 50
 			task.PrivateData.UpstreamTaskID = "gen-fixture"
 			task.PrivateData.Key = "private-fixture-key"
 			task.PrivateData.ResultURL = ""
-			task.PrivateData.OpenRouterAudio = &model.OpenRouterSyncTask{RequestID: "private-request",
+			task.PrivateData.OpenRouterAudio = &tasksrecord.OpenRouterSyncTask{RequestID: "private-request",
 				NextPoll:       fixture.Epoch + 60,
 				Deadline:       fixture.Epoch + 86400,
 				ResultReady:    true,
 				ResultMimeType: "audio/pcm",
 				MetadataURL:    "https://private.invalid/v1/generation",
 				Headers:        map[string][]string{"Authorization": {"Bearer private-fixture-key"}}}
-			task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, Required: true}
+			task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservedQuota: 50, Required: true}
 		}
 		require.NoError(t, tasksapp.NewStore().UpdateTask(task))
 		require.NoError(t, env.DB.Model(&model.Task{}).Where("id=81").UpdateColumn("updated_at", fixture.Epoch).Error)
@@ -1123,14 +1114,14 @@ func newHTTPFixture(t *testing.T, tc taskCase) *httpFixture {
 			strings.NewReader("fixture audio"))
 		require.NoError(t, err)
 		task.Platform = constant.TaskPlatformOpenRouterAudio
-		task.Status = model.TaskStatusInProgress
+		task.Status = tasksrecord.TaskStatusInProgress
 		task.Progress = "30%"
 		task.PrivateData.ResultURL = ""
-		task.PrivateData.OpenRouterAudio = &model.OpenRouterSyncTask{ResultReady: true,
+		task.PrivateData.OpenRouterAudio = &tasksrecord.OpenRouterSyncTask{ResultReady: true,
 			ResultMimeType: reference.MimeType,
 			ResultSize:     reference.Size,
 			ResultSHA256:   reference.SHA256}
-		task.PrivateData.Reconciliation = &model.TaskReconciliation{ReservedQuota: 50, Required: true}
+		task.PrivateData.Reconciliation = &tasksrecord.TaskReconciliation{ReservedQuota: 50, Required: true}
 		require.True(t, filepath.IsLocal(reference.ObjectKey))
 		blob := filepath.Join(root, reference.ObjectKey)
 		switch tc.Variant {
@@ -1454,15 +1445,15 @@ func runProviderPollContract(t *testing.T, f *httpFixture, tc taskCase, updating
 	require.NoError(t, err)
 	require.True(t, found)
 	task.Platform = constant.TaskPlatform(tc.Plugin)
-	task.Status = model.TaskStatusInProgress
+	task.Status = tasksrecord.TaskStatusInProgress
 	task.Progress = "30%"
 	task.Quota = 50
 	task.SubmitTime = time.Now().Unix()
-	task.Properties = model.Properties{OriginModelName: tc.Model, UpstreamModelName: tc.Model}
-	task.PrivateData = model.TaskPrivateData{UpstreamTaskID: "upstream-fixture",
+	task.Properties = tasksrecord.Properties{OriginModelName: tc.Model, UpstreamModelName: tc.Model}
+	task.PrivateData = tasksrecord.TaskPrivateData{UpstreamTaskID: "upstream-fixture",
 		BillingSource: "wallet",
 		TokenId:       101,
-		BillingContext: &model.TaskBillingContext{OriginModelName: tc.Model,
+		BillingContext: &tasksrecord.TaskBillingContext{OriginModelName: tc.Model,
 			PerCallBilling: true}}
 	if tc.Plugin == "google" {
 		task.PrivateData.UpstreamTaskID = base64.RawURLEncoding.EncodeToString([]byte("operations/upstream-fixture"))
@@ -1481,7 +1472,7 @@ func runProviderPollContract(t *testing.T, f *httpFixture, tc taskCase, updating
 		events = append(events, map[string]any{"state": fixture.State(t), "summary": summary, "outbound": append([]outgoing{}, f.provider.calls...)})
 	}
 	require.NoError(t, f.env.DB.First(task, 81).Error)
-	require.Equal(t, model.TaskStatus(model.TaskStatusSuccess), task.Status)
+	require.Equal(t, tasksrecord.TaskStatus(tasksrecord.TaskStatusSuccess), task.Status)
 	require.Equal(t, 50, task.Quota)
 	require.Len(t, f.provider.calls, tc.Calls)
 	fixture.Compare(t, "testdata/golden", tc.Name, fixture.StableRequestIDs(t, events), *tasksPreflight, updating)

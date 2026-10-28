@@ -3,8 +3,6 @@ package batch
 import (
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	diagnostics "github.com/QuantumNous/new-api/internal/adapter/batchruntime"
@@ -21,6 +19,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/batch/poll_batches"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 func NewStore() storage.Store {

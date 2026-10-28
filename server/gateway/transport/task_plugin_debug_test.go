@@ -8,9 +8,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,8 +58,8 @@ func TestTaskPluginSubmitDiagnosticsArePluginOnlyAndDoNotLogPayloads(t *testing.
 	task := &model.Task{
 		TaskID:   "public-task-id",
 		Platform: constant.TaskPlatform("debug-plugin"),
-		Status:   model.TaskStatus("https://private-status.invalid/?key=hidden"),
-		PrivateData: model.TaskPrivateData{
+		Status:   tasksrecord.TaskStatus("https://private-status.invalid/?key=hidden"),
+		PrivateData: tasksrecord.TaskPrivateData{
 			UpstreamTaskID: "private-task-record-canary",
 			ResultURL:      "https://private-url.invalid/result",
 		},

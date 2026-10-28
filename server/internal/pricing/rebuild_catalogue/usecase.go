@@ -3,13 +3,14 @@ package rebuild_catalogue
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/constant"
-	catalogdomain "github.com/QuantumNous/new-api/internal/catalog/domain"
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"maps"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/constant"
+	catalogdomain "github.com/QuantumNous/new-api/internal/catalog/domain"
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 type ChannelCodec interface {

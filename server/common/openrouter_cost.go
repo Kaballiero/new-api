@@ -3,8 +3,9 @@ package common
 import (
 	"bytes"
 	"errors"
-	"github.com/shopspring/decimal"
 	"math"
+
+	"github.com/shopspring/decimal"
 )
 
 // OpenRouterCostBasis freezes the only multipliers applied to the amount

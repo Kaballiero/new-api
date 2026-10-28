@@ -1,8 +1,6 @@
 package update_channels_balances
 
-import (
-	"github.com/QuantumNous/new-api/internal/channels/domain"
-)
+import "github.com/QuantumNous/new-api/internal/channels/domain"
 
 type Store interface {
 	All() ([]*domain.Channel, error)

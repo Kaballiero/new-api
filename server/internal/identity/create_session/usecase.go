@@ -1,8 +1,9 @@
 package create_session
 
 import (
-	"github.com/QuantumNous/new-api/internal/identity/domain"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type CreateOperation interface {

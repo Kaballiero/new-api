@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 
@@ -9,11 +11,10 @@ import (
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"net/http"
-	"net/http/httptest"
 )
 
 func TestPricingSyncExpressionPriority(t *testing.T) {

@@ -1,8 +1,6 @@
 package domain
 
-import (
-	"strings"
-)
+import "strings"
 
 type Availability struct {
 	Compliance                                      bool

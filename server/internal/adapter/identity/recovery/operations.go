@@ -4,15 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
 	accountstore "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
-	"github.com/QuantumNous/new-api/logger"
-
-	"github.com/QuantumNous/new-api/setting/system_setting"
-
 	emailadapter "github.com/QuantumNous/new-api/internal/adapter/identity/emailbinding"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
 type EmailVerification struct{ Accounts accountstore.Store }

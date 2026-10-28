@@ -1,8 +1,6 @@
 package validate_authorization
 
-import (
-	"github.com/QuantumNous/new-api/internal/identity/domain"
-)
+import "github.com/QuantumNous/new-api/internal/identity/domain"
 
 type FlowAuthorizationOperation interface {
 	AuthorizationValid() bool

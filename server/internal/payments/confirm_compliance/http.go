@@ -3,11 +3,11 @@ package confirm_compliance
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/internal/payments/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type PaymentComplianceRequest struct {

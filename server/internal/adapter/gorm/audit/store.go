@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 
-	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/audit/record"
 	"github.com/QuantumNous/new-api/internal/audit/domain"
 	"github.com/QuantumNous/new-api/internal/audit/dto"
+
+	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
+	"gorm.io/gorm"
 )
 
 type Store struct {

@@ -1,10 +1,10 @@
 package record
 
 import (
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
+
+	"gorm.io/gorm"
 )
 
 type SubscriptionPlan struct {

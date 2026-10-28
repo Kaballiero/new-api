@@ -3,13 +3,15 @@ package patstorage
 
 import (
 	"errors"
+	"sync"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/transport"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/personal_access_tokens"
 	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
-	"sync"
 )
 
 var shared = sync.OnceValue(func() repository.Store {

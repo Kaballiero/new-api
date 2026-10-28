@@ -1,8 +1,6 @@
 package preview_vendor_operation
 
-import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
-)
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 type Store interface {
 	IsMissing(error) bool

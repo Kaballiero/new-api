@@ -2,9 +2,11 @@ package model
 
 import (
 	"database/sql/driver"
+	"testing"
+
 	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-	"testing"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,12 +28,12 @@ func TestJSONColumnValuersReturnString(t *testing.T) {
 		},
 		{
 			name:   "Properties",
-			valuer: Properties{Input: "hello"},
+			valuer: tasksrecord.Properties{Input: "hello"},
 			want:   `{"input":"hello"}`,
 		},
 		{
 			name:   "TaskPrivateData",
-			valuer: TaskPrivateData{Key: "k"},
+			valuer: tasksrecord.TaskPrivateData{Key: "k"},
 			want:   `{"key":"k"}`,
 		},
 		{
@@ -55,8 +57,8 @@ func TestJSONColumnValuersReturnString(t *testing.T) {
 // 空值仍返回 nil,保持列的 NULL 语义。
 func TestJSONColumnValuersZeroValueIsNil(t *testing.T) {
 	for name, valuer := range map[string]driver.Valuer{
-		"Properties":      Properties{},
-		"TaskPrivateData": TaskPrivateData{},
+		"Properties":      tasksrecord.Properties{},
+		"TaskPrivateData": tasksrecord.TaskPrivateData{},
 		"JSONValue":       catalogrecord.JSONValue(nil),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -84,11 +86,11 @@ func TestJSONColumnScannersAcceptStringAndBytes(t *testing.T) {
 			assert.True(t, info.IsMultiKey)
 			assert.Equal(t, 2, info.MultiKeySize)
 
-			var props Properties
+			var props tasksrecord.Properties
 			require.NoError(t, props.Scan(toInput(kind, `{"input":"hello"}`)))
 			assert.Equal(t, "hello", props.Input)
 
-			var private TaskPrivateData
+			var private tasksrecord.TaskPrivateData
 			require.NoError(t, private.Scan(toInput(kind, `{"key":"k"}`)))
 			assert.Equal(t, "k", private.Key)
 		})

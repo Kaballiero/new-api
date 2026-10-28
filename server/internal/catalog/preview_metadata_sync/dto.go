@@ -1,8 +1,6 @@
 package preview_metadata_sync
 
-import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
-)
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 type Input struct{ Locale string }
 type SyncUpstreamPreviewResponse struct {

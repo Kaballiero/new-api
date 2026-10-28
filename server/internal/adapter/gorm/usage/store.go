@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	keyrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 )
 
 type Store struct {
@@ -70,11 +70,11 @@ func (s Store) WriteFailure(ctx context.Context, in domain.Failure) error {
 	if err != nil {
 		return err
 	}
-	var other *model.LogOther
+	var other *usagerecord.LogOther
 	if in.Consumption != nil {
 		other = consumptionOther(*in.Consumption, metadata)
 	} else {
-		other = new(model.LogOther)
+		other = new(usagerecord.LogOther)
 		if in.Request.URLPresent {
 			other.SetPublic("request_path", in.Request.Path)
 		}

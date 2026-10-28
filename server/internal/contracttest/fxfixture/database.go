@@ -2,16 +2,18 @@
 package fxfixture
 
 import (
+	"os"
+	"path/filepath"
+	"testing"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"os"
-	"path/filepath"
-	"testing"
 )
 
 func Open(t *testing.T, dialect string) *gorm.DB {

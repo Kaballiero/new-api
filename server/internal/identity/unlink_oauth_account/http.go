@@ -1,12 +1,14 @@
 package unlink_oauth_account
 
 import (
+	"net/http"
+	"strconv"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
-	"strconv"
 )
 
 type Completion interface {

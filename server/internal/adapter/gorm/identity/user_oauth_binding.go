@@ -2,10 +2,12 @@ package identity
 
 import (
 	"errors"
+	"time"
+
 	accountrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+
 	"gorm.io/gorm"
-	"time"
 )
 
 // GetUserOAuthBindingsByUserId returns all OAuth bindings for a user

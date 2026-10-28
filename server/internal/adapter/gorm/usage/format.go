@@ -5,12 +5,12 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
-	"github.com/QuantumNous/new-api/model"
 )
 
-func appendRelayAdmin(other *model.LogOther, relayInfo *domain.RequestFacts, metadata logMetadata) {
+func appendRelayAdmin(other *usagerecord.LogOther, relayInfo *domain.RequestFacts, metadata logMetadata) {
 	if relayInfo == nil || !relayInfo.ContextPresent || other == nil {
 		return
 	}
@@ -77,8 +77,8 @@ func appendRelayAdmin(other *model.LogOther, relayInfo *domain.RequestFacts, met
 	}
 }
 
-func baseOther(relayInfo domain.RequestFacts, p domain.Prices, metadata logMetadata) *model.LogOther {
-	other := new(model.LogOther)
+func baseOther(relayInfo domain.RequestFacts, p domain.Prices, metadata logMetadata) *usagerecord.LogOther {
+	other := new(usagerecord.LogOther)
 	appendBillingFX(other, &relayInfo, relayInfo.PriceData, "request")
 	other.SetPublic("model_ratio", p.ModelRatio)
 	other.SetPublic("group_ratio", p.GroupRatio)
@@ -125,7 +125,7 @@ func baseOther(relayInfo domain.RequestFacts, p domain.Prices, metadata logMetad
 // appendBillingFX adds the captured basis and its pure/effective group
 // projection only to the existing admin scope. Public log fields keep their
 // historical pure group meaning.
-func appendBillingFX(other *model.LogOther, relayInfo *domain.RequestFacts, priceData domain.PriceFacts, stage string) {
+func appendBillingFX(other *usagerecord.LogOther, relayInfo *domain.RequestFacts, priceData domain.PriceFacts, stage string) {
 	if other == nil || relayInfo == nil {
 		return
 	}
@@ -160,7 +160,7 @@ func appendBillingFX(other *model.LogOther, relayInfo *domain.RequestFacts, pric
 	other.SetAdmin("billing_applied_group", group)
 }
 
-func appendSubscriptionUsage(relayInfo *domain.RequestFacts, other *model.LogOther) {
+func appendSubscriptionUsage(relayInfo *domain.RequestFacts, other *usagerecord.LogOther) {
 	if relayInfo == nil || other == nil {
 		return
 	}
@@ -203,7 +203,7 @@ func appendSubscriptionUsage(relayInfo *domain.RequestFacts, other *model.LogOth
 	}
 }
 
-func appendStreamStatus(relayInfo *domain.RequestFacts, other *model.LogOther) {
+func appendStreamStatus(relayInfo *domain.RequestFacts, other *usagerecord.LogOther) {
 	if relayInfo == nil || other == nil || !relayInfo.IsStream || relayInfo.Stream == nil {
 		return
 	}
@@ -228,7 +228,7 @@ func appendStreamStatus(relayInfo *domain.RequestFacts, other *model.LogOther) {
 	other.SetPublic("stream_status", streamInfo)
 }
 
-func appendTiered(other *model.LogOther, in *domain.Tiered) {
+func appendTiered(other *usagerecord.LogOther, in *domain.Tiered) {
 	if other == nil {
 		return
 	}
@@ -262,7 +262,7 @@ func appendTiered(other *model.LogOther, in *domain.Tiered) {
 	}
 }
 
-func consumptionOther(in domain.Consumption, metadata logMetadata) *model.LogOther {
+func consumptionOther(in domain.Consumption, metadata logMetadata) *usagerecord.LogOther {
 	other := baseOther(in.Request, in.Prices, metadata)
 	switch in.Kind {
 	case domain.TextConsumption:
@@ -280,7 +280,7 @@ func consumptionOther(in domain.Consumption, metadata logMetadata) *model.LogOth
 	return other
 }
 
-func appendTextConsumption(other *model.LogOther, request domain.RequestFacts, text *domain.TextFacts) {
+func appendTextConsumption(other *usagerecord.LogOther, request domain.RequestFacts, text *domain.TextFacts) {
 	if text == nil {
 		return
 	}
@@ -348,7 +348,7 @@ func appendTextConsumption(other *model.LogOther, request domain.RequestFacts, t
 	}
 }
 
-func appendOpenRouterConsumption(other *model.LogOther, request domain.RequestFacts, outcome *billingdomain.Outcome) {
+func appendOpenRouterConsumption(other *usagerecord.LogOther, request domain.RequestFacts, outcome *billingdomain.Outcome) {
 	if state := request.OpenRouterCost; state != nil {
 		other.SetPublic("settlement_mode", "openrouter_actual_cost")
 		other.SetAdmin("openrouter_cost_basis", storedCostBasis(state.Basis))
@@ -392,7 +392,7 @@ func appendOpenRouterConsumption(other *model.LogOther, request domain.RequestFa
 	}
 }
 
-func appendAudioConsumption(other *model.LogOther, request domain.RequestFacts, a *domain.AudioFacts) {
+func appendAudioConsumption(other *usagerecord.LogOther, request domain.RequestFacts, a *domain.AudioFacts) {
 	if a == nil {
 		return
 	}
@@ -415,7 +415,7 @@ func appendAudioConsumption(other *model.LogOther, request domain.RequestFacts, 
 	}
 }
 
-func appendClamp(other *model.LogOther, clamp *billingdomain.Clamp) {
+func appendClamp(other *usagerecord.LogOther, clamp *billingdomain.Clamp) {
 	if other != nil && clamp != nil {
 		checked := common.QuotaClamp{
 			Op: clamp.Op, Kind: common.QuotaClampKind(clamp.Kind), Original: clamp.Original, Clamped: clamp.Clamped,
@@ -424,7 +424,7 @@ func appendClamp(other *model.LogOther, clamp *billingdomain.Clamp) {
 	}
 }
 
-func appendPlugin(other *model.LogOther, in *domain.Plugin) {
+func appendPlugin(other *usagerecord.LogOther, in *domain.Plugin) {
 	if other == nil || in == nil || in.Key == "" {
 		return
 	}
@@ -461,24 +461,24 @@ type storedRule struct {
 // Metadata serves the remaining Task/Batch/MJ consumers through app composition.
 type Metadata struct{}
 
-func (Metadata) BillingFX(other *model.LogOther, facts domain.RequestFacts, prices domain.PriceFacts, stage string) {
+func (Metadata) BillingFX(other *usagerecord.LogOther, facts domain.RequestFacts, prices domain.PriceFacts, stage string) {
 	appendBillingFX(other, &facts, prices, stage)
 }
 
-func (Metadata) Clamp(other *model.LogOther, clamp *billingdomain.Clamp) {
+func (Metadata) Clamp(other *usagerecord.LogOther, clamp *billingdomain.Clamp) {
 	appendClamp(other, clamp)
 }
 
-func (Metadata) Tiered(other *model.LogOther, tiered *domain.Tiered) {
+func (Metadata) Tiered(other *usagerecord.LogOther, tiered *domain.Tiered) {
 	appendTiered(other, tiered)
 }
 
-func (Metadata) Plugin(other *model.LogOther, plugin *domain.Plugin) {
+func (Metadata) Plugin(other *usagerecord.LogOther, plugin *domain.Plugin) {
 	appendPlugin(other, plugin)
 }
 
-func (Metadata) MidjourneyOther(facts domain.RequestFacts, prices domain.Prices) *model.LogOther {
-	other := new(model.LogOther)
+func (Metadata) MidjourneyOther(facts domain.RequestFacts, prices domain.Prices) *usagerecord.LogOther {
+	other := new(usagerecord.LogOther)
 	appendBillingFX(other, &facts, facts.PriceData, "submit")
 	other.SetPublic("model_price", prices.ModelPrice)
 	other.SetPublic("group_ratio", prices.GroupRatio)
@@ -515,7 +515,7 @@ type storedCostBasis struct {
 	EstimatedUSD        float64 `json:"estimated_usd"`
 }
 
-func (m Metadata) TaskIdentity(other *model.LogOther, identity domain.TaskIdentity) {
+func (m Metadata) TaskIdentity(other *usagerecord.LogOther, identity domain.TaskIdentity) {
 	if other == nil {
 		return
 	}

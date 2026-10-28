@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
-
 	"github.com/QuantumNous/new-api/internal/payments/domain"
 	"github.com/QuantumNous/new-api/setting"
+
+	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
 )
 
 type Client struct{}

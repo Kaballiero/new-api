@@ -8,8 +8,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/QuantumNous/new-api/common"
+
+	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	sqlitedriver "github.com/glebarez/go-sqlite"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"

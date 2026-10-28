@@ -53,7 +53,7 @@ var modelDeadKeywords = []string{
 // built by RelayErrorHandler ("bad response status code %d, ...").
 //
 // testChannel overwrites NewAPIError.StatusCode with 500 on any non-200
-// upstream response (controller/channel-test.go), so the original status survives
+// upstream response (adapter/gateway/channels/probe.go), so the original status survives
 // only inside the error text — parse it from there, never trust StatusCode.
 var upstreamStatusRe = regexp.MustCompile(`bad response status code (\d{3})`)
 

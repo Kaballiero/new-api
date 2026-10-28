@@ -1,8 +1,6 @@
 package verify_security_input
 
-import (
-	"github.com/QuantumNous/new-api/internal/identity/domain"
-)
+import "github.com/QuantumNous/new-api/internal/identity/domain"
 
 type SecurityInputOperation interface {
 	BindOperation() error

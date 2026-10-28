@@ -1,19 +1,6 @@
 package controller
 
 import (
-	"github.com/fxamacker/cbor/v2"
-	"github.com/golang-jwt/jwt/v5"
-
-	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
-
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"bytes"
 	"context"
 	"crypto/ecdsa"
@@ -28,7 +15,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -38,25 +24,31 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/internal/app/authentication"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
+	verify_security_input "github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 	patdomain "github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/setting/system_setting"
-	"github.com/gin-gonic/gin"
 
+	"github.com/fxamacker/cbor/v2"
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
-	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
-	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
-	verify_security_input "github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 )
 
 func setupSecurityEnrollmentTest(t *testing.T) (*model.User, identitydomain.AuthIdentity) {

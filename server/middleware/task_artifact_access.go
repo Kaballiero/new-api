@@ -9,6 +9,7 @@ import (
 
 	artifacts "github.com/QuantumNous/new-api/internal/adapter/artifacts"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
 	"github.com/gin-gonic/gin"
 )
 

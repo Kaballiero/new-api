@@ -2,9 +2,10 @@ package record
 
 import (
 	"encoding/json"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"strings"
 )
 
 func (channel *Channel) GetModels() []string {

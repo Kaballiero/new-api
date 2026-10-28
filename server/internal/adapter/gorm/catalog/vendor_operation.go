@@ -1,8 +1,6 @@
 package catalog
 
-import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
-)
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 type VendorOperationStore struct{ Store }
 

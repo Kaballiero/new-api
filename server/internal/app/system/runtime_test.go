@@ -2,18 +2,17 @@ package system
 
 import (
 	"context"
-	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	"testing"
 	"time"
 
-	"github.com/QuantumNous/new-api/internal/system/enqueue_system_task"
-
-	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
-
 	"github.com/QuantumNous/new-api/common"
 	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	"github.com/QuantumNous/new-api/internal/contracttest/taskfixture"
 	"github.com/QuantumNous/new-api/internal/system/domain"
+	"github.com/QuantumNous/new-api/internal/system/enqueue_system_task"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

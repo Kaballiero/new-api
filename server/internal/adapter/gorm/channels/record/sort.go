@@ -1,9 +1,10 @@
 package record
 
 import (
+	"strings"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"strings"
 )
 
 type ChannelSortOptions struct {

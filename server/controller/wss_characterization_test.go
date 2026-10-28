@@ -1,14 +1,6 @@
 package controller
 
 import (
-	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
-	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
-
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-	billinggatewayfx "github.com/QuantumNous/new-api/relay/billing"
-
 	"bytes"
 	"context"
 	"errors"
@@ -26,23 +18,28 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
+	gatewaytransport "github.com/QuantumNous/new-api/gateway/transport"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	subscriptionsrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions/record"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	subscriptionstorage "github.com/QuantumNous/new-api/internal/app/subscriptionstorage"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
-
+	billinggatewayfx "github.com/QuantumNous/new-api/relay/billing"
+	service "github.com/QuantumNous/new-api/relay/billing"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
-
-	service "github.com/QuantumNous/new-api/relay/billing"
 	relaykittypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/websocket"
@@ -239,7 +236,7 @@ func TestWssCharacterization(t *testing.T) {
 			assert.Equal(t, before, readLedger(t, db))
 			assertWssCounters(t, db, 0, 0)
 			var logs []model.Log
-			require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+			require.NoError(t, logDB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 			assert.Empty(t, logs)
 		})
 		t.Run("negative_final_transport/"+expr, func(t *testing.T) {
@@ -511,12 +508,12 @@ func TestWssCharacterization(t *testing.T) {
 		default:
 		}
 		var logs []model.Log
-		require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+		require.NoError(t, logDB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 		require.Len(t, logs, 1)
 		assert.Equal(t, 3, logs[0].PromptTokens)
 		assert.Equal(t, 3, logs[0].Quota)
 		var errorLogs []model.Log
-		require.NoError(t, logDB.Where("type = ?", model.LogTypeError).Find(&errorLogs).Error)
+		require.NoError(t, logDB.Where("type = ?", usagerecord.LogTypeError).Find(&errorLogs).Error)
 		require.Len(t, errorLogs, 1)
 		assert.Contains(t, errorLogs[0].Content, "token quota is not enough")
 		logOutput := output.String()
@@ -548,7 +545,7 @@ func TestWssCharacterization(t *testing.T) {
 		assert.EqualValues(t, 1, record.PreConsumed)
 		assert.Equal(t, "consumed", record.Status)
 		var logs []model.Log
-		require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+		require.NoError(t, logDB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 		require.Len(t, logs, 1)
 		assert.Equal(t, 2, logs[0].Quota)
 
@@ -618,7 +615,7 @@ func TestWssCharacterization(t *testing.T) {
 					assert.Equal(t, tc.wantSubFinal, subscriptionAmountUsed(t, db, subscription.Id))
 				}
 				var logs []model.Log
-				require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+				require.NoError(t, logDB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 				require.Len(t, logs, 1)
 				assert.Equal(t, 3, logs[0].Quota)
 				require.NoError(t, service.New().SettleWss(c, info, 3))
@@ -654,7 +651,7 @@ func TestWssCharacterization(t *testing.T) {
 		assert.Equal(t, int32(1), hits.Load())
 		assert.Equal(t, ledger{wallet: 9_999_999_998, token: 8_799_999_998, tokenUsed: 1_200_000_002}, readLedger(t, db))
 		var logs []model.Log
-		require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+		require.NoError(t, logDB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 		assert.Empty(t, logs)
 
 		require.NoError(t, service.New().SettleWss(c, info, 2))
@@ -689,7 +686,7 @@ func TestWssCharacterization(t *testing.T) {
 		require.NoError(t, service.PostWssConsumeQuota(c, info, info.OriginModelName, providerUsage(2), ""))
 		assert.Equal(t, ledger{wallet: 9_999_999_996, token: 9_999_999_996, tokenUsed: 4}, readLedger(t, db))
 		var logs []model.Log
-		require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+		require.NoError(t, logDB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 		require.Len(t, logs, 1)
 		assert.Equal(t, 4, logs[0].Quota)
 	})
@@ -770,7 +767,7 @@ func TestWssCharacterization(t *testing.T) {
 		// the remaining unit before the injected token leg fails.
 		assert.Equal(t, ledger{wallet: 98, token: 99, tokenUsed: 1}, readLedger(t, db))
 		var logs []model.Log
-		require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+		require.NoError(t, logDB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 		assert.Empty(t, logs)
 
 		require.NoError(t, service.New().SettleWss(c, info, 2))
@@ -792,7 +789,7 @@ func TestWssCharacterization(t *testing.T) {
 		// funding and must not synthesize a token debit.
 		assert.Equal(t, ledger{wallet: 98, token: 100, tokenUsed: 0}, readLedger(t, db))
 		var logs []model.Log
-		require.NoError(t, logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error)
+		require.NoError(t, logDB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error)
 		require.Len(t, logs, 1)
 		assert.Equal(t, 2, logs[0].Quota)
 
@@ -1247,7 +1244,7 @@ func newWssRunEventsConfigured(t *testing.T, db, logDB *gorm.DB, wallet, token i
 			return
 		}
 		var logs []model.Log
-		if err := logDB.Where("type = ?", model.LogTypeConsume).Find(&logs).Error; err != nil {
+		if err := logDB.Where("type = ?", usagerecord.LogTypeConsume).Find(&logs).Error; err != nil {
 			r.recordPeerErr(err)
 			return
 		}
@@ -1408,7 +1405,7 @@ func seedWssSubscription(t *testing.T, db *gorm.DB, userID int, amountTotal int6
 		Title:               "wss-characterization",
 		Enabled:             true,
 		TotalAmount:         amountTotal,
-		QuotaResetPeriod:    model.SubscriptionResetNever,
+		QuotaResetPeriod:    subscriptionsrecord.SubscriptionResetNever,
 		AllowWalletOverflow: common.GetPointer(false),
 	}
 	require.NoError(t, db.Create(&plan).Error)

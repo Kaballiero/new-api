@@ -8,14 +8,12 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
-	taskdto "github.com/QuantumNous/new-api/dto"
-
 	"github.com/QuantumNous/new-api/constant"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/i18n"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -23,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

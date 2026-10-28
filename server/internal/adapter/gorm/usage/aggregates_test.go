@@ -7,16 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/usage/aggregate_logs"
 	"github.com/QuantumNous/new-api/internal/usage/aggregate_usage_data"
 	"github.com/QuantumNous/new-api/internal/usage/domain"
 	"github.com/QuantumNous/new-api/model"
+
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestUsageAggregateDatabaseMatrix(t *testing.T) {
@@ -165,12 +166,12 @@ func TestLogAggregateUsesSeparateLogDatabase(t *testing.T) {
 	require.NoError(t, model.DB.Create(&model.User{Id: 1, Username: "selected", AffCode: "selected"}).Error)
 	start, end := int64(100), int64(200)
 	for _, row := range []model.Log{
-		{UserId: 1, CreatedAt: start, Type: model.LogTypeConsume, Quota: 2147483648},
-		{UserId: 1, CreatedAt: end, Type: model.LogTypeConsume, Quota: 7},
-		{UserId: 1, CreatedAt: 150, Type: model.LogTypeConsume, Quota: 0},
-		{UserId: 1, CreatedAt: end, Type: model.LogTypeRefund, Quota: 99},
-		{UserId: 2, CreatedAt: end, Type: model.LogTypeConsume, Quota: 99999},
-		{UserId: 1, CreatedAt: end + 1, Type: model.LogTypeConsume, Quota: 99999},
+		{UserId: 1, CreatedAt: start, Type: usagerecord.LogTypeConsume, Quota: 2147483648},
+		{UserId: 1, CreatedAt: end, Type: usagerecord.LogTypeConsume, Quota: 7},
+		{UserId: 1, CreatedAt: 150, Type: usagerecord.LogTypeConsume, Quota: 0},
+		{UserId: 1, CreatedAt: end, Type: usagerecord.LogTypeRefund, Quota: 99},
+		{UserId: 2, CreatedAt: end, Type: usagerecord.LogTypeConsume, Quota: 99999},
+		{UserId: 1, CreatedAt: end + 1, Type: usagerecord.LogTypeConsume, Quota: 99999},
 	} {
 		require.NoError(t, logDB.Create(&row).Error)
 	}
@@ -219,9 +220,9 @@ func TestLogAggregateDatabaseMatrix(t *testing.T) {
 			require.NoError(t, model.LOG_DB.Exec(ddl).Error)
 			require.NoError(t, model.DB.Create(&model.User{Id: 1, Username: "aggregate-log", AffCode: "agg-log"}).Error)
 			for _, row := range []struct{ user, created, kind, quota int64 }{
-				{1, 100, model.LogTypeConsume, 2147483648}, {1, 200, model.LogTypeConsume, 7}, {1, 150, model.LogTypeConsume, 0},
-				{1, 200, model.LogTypeRefund, 99}, {2, 200, model.LogTypeConsume, 99999},
-				{1, 201, model.LogTypeConsume, 99999}, {1, 99, model.LogTypeConsume, 99999},
+				{1, 100, usagerecord.LogTypeConsume, 2147483648}, {1, 200, usagerecord.LogTypeConsume, 7}, {1, 150, usagerecord.LogTypeConsume, 0},
+				{1, 200, usagerecord.LogTypeRefund, 99}, {2, 200, usagerecord.LogTypeConsume, 99999},
+				{1, 201, usagerecord.LogTypeConsume, 99999}, {1, 99, usagerecord.LogTypeConsume, 99999},
 			} {
 				require.NoError(t, model.LOG_DB.Exec("INSERT INTO logs (user_id, created_at, type, quota) VALUES (?, ?, ?, ?)",
 					row.user, row.created, row.kind, row.quota).Error)
@@ -240,12 +241,12 @@ func TestLogAggregateDatabaseMatrix(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, domain.LogAggregate{}, empty)
 			require.NoError(t, model.LOG_DB.Exec("INSERT INTO logs (user_id, created_at, type, quota) VALUES (?, ?, ?, ?)",
-				1, start, model.LogTypeConsume, domain.MaxAggregateInteger).Error)
+				1, start, usagerecord.LogTypeConsume, domain.MaxAggregateInteger).Error)
 			_, err = readLogAggregate(scope)
 			assert.ErrorIs(t, err, domain.ErrAggregateOverflow)
 			for range 2 {
 				require.NoError(t, model.LOG_DB.Exec("INSERT INTO logs (user_id, created_at, type, quota) VALUES (?, ?, ?, ?)",
-					1, start, model.LogTypeConsume, int64(1<<63-1)).Error)
+					1, start, usagerecord.LogTypeConsume, int64(1<<63-1)).Error)
 			}
 			_, err = readLogAggregate(scope)
 			assert.Error(t, err)

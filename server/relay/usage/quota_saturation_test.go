@@ -3,12 +3,12 @@ package usage
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
 )
 
 // TestAttachQuotaSaturationNestsUnderAdminInfo verifies the saturation marker
@@ -29,7 +29,7 @@ func TestAttachQuotaSaturationNestsUnderAdminInfo(t *testing.T) {
 		},
 	}
 
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	other.SetPublic("model_price", 0.004)
 	AppendTaskQuotaSaturation(ctx, relayInfo, other)
 
@@ -49,7 +49,7 @@ func TestAttachQuotaSaturationPreservesExistingAdminInfo(t *testing.T) {
 	relayInfo := &relaycommon.RelayInfo{
 		QuotaClamp: &common.QuotaClamp{Op: "QuotaFromFloat", Kind: common.QuotaClampUnderflow, Clamped: common.MinQuota},
 	}
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	other.SetAdmin("admin_username", "root")
 	AppendTaskQuotaSaturation(ctx, relayInfo, other)
 
@@ -65,7 +65,7 @@ func TestAttachQuotaSaturationNoClampNoMarker(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(nil)
 
 	relayInfo := &relaycommon.RelayInfo{QuotaClamp: nil}
-	other := new(model.LogOther)
+	other := new(usagerecord.LogOther)
 	other.SetPublic("model_price", 0.004)
 	AppendTaskQuotaSaturation(ctx, relayInfo, other)
 

@@ -1,10 +1,10 @@
 package redemption
 
 import (
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/redemption/record"
 	"github.com/QuantumNous/new-api/internal/redemption/domain"
+
+	"gorm.io/gorm"
 )
 
 // Store implements scenario persistence using the supplied database and transaction callbacks.

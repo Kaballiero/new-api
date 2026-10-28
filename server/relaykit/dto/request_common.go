@@ -1,8 +1,9 @@
 package dto
 
 import (
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"net/http"
+
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 type Request interface {

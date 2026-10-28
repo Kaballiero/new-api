@@ -3,14 +3,14 @@ package batch
 import (
 	"errors"
 
-	"gorm.io/gorm"
-
 	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	keyrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/apikeys/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/batch/record"
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	billing "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 type LogBuilder interface {

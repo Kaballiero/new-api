@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/shopspring/decimal"
-
 	"github.com/QuantumNous/new-api/common"
 	billingmath "github.com/QuantumNous/new-api/internal/adapter/billing"
 	accountsql "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
@@ -17,6 +15,8 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
+
+	"github.com/shopspring/decimal"
 )
 
 type TokenReader interface {

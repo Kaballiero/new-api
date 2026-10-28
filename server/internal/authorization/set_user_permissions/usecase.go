@@ -1,8 +1,6 @@
 package set_user_permissions
 
-import (
-	"github.com/QuantumNous/new-api/internal/authorization/domain"
-)
+import "github.com/QuantumNous/new-api/internal/authorization/domain"
 
 type Policy interface {
 	domain.PolicyReader

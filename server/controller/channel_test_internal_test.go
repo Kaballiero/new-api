@@ -5,14 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
-
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
-	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
-
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,10 +15,15 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

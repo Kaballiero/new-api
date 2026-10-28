@@ -1,11 +1,6 @@
 package controller
 
 import (
-	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
-	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
-
 	"bytes"
 	"context"
 	"errors"
@@ -19,11 +14,15 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
+	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
 	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"

@@ -1,9 +1,10 @@
 package pricing
 
 import (
+	"sync"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
-	"sync"
 )
 
 type Reader struct {

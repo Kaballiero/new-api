@@ -1,8 +1,6 @@
 package search_vendors
 
-import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
-)
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 type Input struct {
 	Keyword, Association string

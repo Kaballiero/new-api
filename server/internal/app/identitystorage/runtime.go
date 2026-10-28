@@ -2,13 +2,15 @@
 package identitystorage
 
 import (
+	"sync"
+
 	cacheaccounts "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
-	"sync"
 )
 
 var shared = sync.OnceValue(func() identitystore.Store {

@@ -1,10 +1,6 @@
 package contract_test
 
 import (
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -20,15 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/controller"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	authzdomain "github.com/QuantumNous/new-api/internal/authorization/domain"
@@ -36,7 +29,11 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 
-	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 const originCommit = "6b0f439a432ab129817e4e41ce323e6bd3c3c0c3"

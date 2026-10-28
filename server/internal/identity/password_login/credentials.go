@@ -2,8 +2,9 @@ package password_login
 
 import (
 	"errors"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"strings"
+
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 )
 
 type CredentialLookup interface {

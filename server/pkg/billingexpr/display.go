@@ -1,9 +1,10 @@
 package billingexpr
 
 import (
-	"github.com/expr-lang/expr/ast"
 	"math"
 	"slices"
+
+	"github.com/expr-lang/expr/ast"
 )
 
 type DisplayPrice struct {

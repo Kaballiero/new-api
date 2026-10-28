@@ -1,8 +1,9 @@
 package domain
 
 import (
-	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"strings"
+
+	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 )
 
 func DeliveryFailure(requestError string, stream *Stream) string {

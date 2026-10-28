@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
-
 	"errors"
 	"net/http"
 
@@ -11,8 +9,8 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/i18n"
+	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
-
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"

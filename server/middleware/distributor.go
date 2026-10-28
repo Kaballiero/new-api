@@ -12,29 +12,24 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
-	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
-	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
-
 	taskdto "github.com/QuantumNous/new-api/dto"
-
 	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/i18n"
-
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
 	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-
 	mjgateway "github.com/QuantumNous/new-api/relay/midjourney"
 	"github.com/QuantumNous/new-api/relay/provider"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 type ModelRequest struct {

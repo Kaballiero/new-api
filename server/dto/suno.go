@@ -1,8 +1,6 @@
 package dto
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
 type SunoSubmitReq struct {
 	GptDescriptionPrompt string  `json:"gpt_description_prompt,omitempty"`

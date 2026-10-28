@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
+	"sync"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
@@ -12,6 +15,7 @@ import (
 	oauthadapter "github.com/QuantumNous/new-api/internal/adapter/identity/oauth"
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	upstream "github.com/QuantumNous/new-api/internal/adapter/pricing/upstream"
+	"github.com/QuantumNous/new-api/internal/apikeys/get_key_status"
 	"github.com/QuantumNous/new-api/internal/app"
 	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
@@ -29,9 +33,8 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+
 	"github.com/gin-gonic/gin"
-	"net/url"
-	"sync"
 )
 
 func writeAuthSessionError(c *gin.Context, err error) { identityErrors.WriteSessionError(c, err) }
@@ -558,4 +561,4 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	return channeladapter.FetchChannelUpstreamModelIDs(channel, channelcore.FetchCodexChannelModels)
 }
 
-func GetTokenStatus(c *gin.Context) { httpapi.APIKeys().GetKeyStatus.Handle(c) }
+func GetTokenStatus(c *gin.Context) { get_key_status.NewHTTP(tokenStoreFixture()).Handle(c) }

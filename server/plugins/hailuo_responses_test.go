@@ -5,12 +5,14 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	tasksrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	builtinplugins "github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay/channel"
 	taskplugin "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -56,7 +58,7 @@ func TestHailuoArtifactContentProxy(t *testing.T) {
 	})
 	data, err := common.Marshal(map[string]any{"file_id": "file/with space"})
 	require.NoError(t, err)
-	task := &model.Task{TaskID: "task-public", Status: model.TaskStatusSuccess, Data: data}
+	task := &model.Task{TaskID: "task-public", Status: tasksrecord.TaskStatusSuccess, Data: data}
 
 	artifacts, err := adaptor.ListArtifacts(task)
 	require.NoError(t, err)
@@ -477,7 +479,7 @@ func TestHailuoH3ArtifactContentProxy(t *testing.T) {
 	})
 	task := &model.Task{
 		TaskID: "task-public",
-		Status: model.TaskStatusSuccess,
+		Status: tasksrecord.TaskStatusSuccess,
 		Data:   []byte(`{"task":{"id":"1","status":"succeeded","content":{"url":"https://cdn.example/h3.mp4"}}}`),
 	}
 
@@ -491,7 +493,7 @@ func TestHailuoH3ArtifactContentProxy(t *testing.T) {
 	assert.Equal(t, "https://cdn.example/h3.mp4", descriptor.URL)
 	assert.True(t, descriptor.Credentialless)
 
-	pending := &model.Task{TaskID: "task-public", Status: model.TaskStatusInProgress, Data: task.Data}
+	pending := &model.Task{TaskID: "task-public", Status: tasksrecord.TaskStatusInProgress, Data: task.Data}
 	pendingArtifacts, err := adaptor.ListArtifacts(pending)
 	require.NoError(t, err)
 	assert.Empty(t, pendingArtifacts)

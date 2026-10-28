@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/settings/record"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

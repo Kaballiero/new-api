@@ -3,8 +3,6 @@ package subscriptions
 import (
 	"errors"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	history "github.com/QuantumNous/new-api/internal/adapter/gorm/payments"
 	storage "github.com/QuantumNous/new-api/internal/adapter/gorm/subscriptions"
@@ -13,6 +11,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/subscriptions/complete_order"
 	"github.com/QuantumNous/new-api/internal/subscriptions/domain"
 	"github.com/QuantumNous/new-api/internal/subscriptions/expire_order"
+
+	"gorm.io/gorm"
 )
 
 type Orders struct {

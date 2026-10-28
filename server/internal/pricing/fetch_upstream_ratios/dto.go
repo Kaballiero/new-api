@@ -1,8 +1,6 @@
 package fetch_upstream_ratios
 
-import (
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
-)
+import "github.com/QuantumNous/new-api/internal/pricing/domain"
 
 type RatioUpstream struct {
 	ID       int    `json:"id,omitempty"`

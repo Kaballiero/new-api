@@ -3,10 +3,10 @@ package transport
 import (
 	"bytes"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/audit/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ResponseWriter observes only a bounded response copy. Bodies are never persisted.

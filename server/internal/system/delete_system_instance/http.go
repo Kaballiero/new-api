@@ -3,10 +3,10 @@ package delete_system_instance
 import (
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/system/transport"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
 )
 

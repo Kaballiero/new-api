@@ -1,8 +1,6 @@
 package read_catalogue
 
-import (
-	"errors"
-)
+import "errors"
 
 type Snapshot interface {
 	Generation() uint64

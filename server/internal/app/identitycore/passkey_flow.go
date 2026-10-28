@@ -1,11 +1,12 @@
 package identitycore
 
 import (
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"time"
 
 	"github.com/QuantumNous/new-api/internal/adapter/identity/passkeyflow"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"github.com/QuantumNous/new-api/internal/identity/domain"
+
 	webauthn "github.com/go-webauthn/webauthn/webauthn"
 )
 

@@ -4,13 +4,15 @@ package fxseed
 import (
 	"context"
 	"errors"
+	"testing"
+
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-	"testing"
 )
 
 func SeedNativeRouteFX(t *testing.T, db *gorm.DB) {

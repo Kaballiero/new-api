@@ -5,12 +5,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/internal/tasks/domain"
 
 	"github.com/gin-gonic/gin"
-
-	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/internal/tasks/domain"
 )
 
 func MediaClientHeaders(headers http.Header) map[string]string {

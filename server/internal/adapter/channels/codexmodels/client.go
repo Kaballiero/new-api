@@ -2,9 +2,10 @@ package codexmodels
 
 import (
 	"context"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/internal/channels/discover_codex_models"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"net/http"
 )
 
 type Version func(context.Context, *http.Client) (string, error)

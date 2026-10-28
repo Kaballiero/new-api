@@ -2,12 +2,14 @@ package model
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/common"
-	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"strconv"
 	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	accountdomain "github.com/QuantumNous/new-api/internal/accounts/domain"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var userSortColumns = map[string]string{

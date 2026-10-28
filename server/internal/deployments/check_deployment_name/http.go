@@ -3,11 +3,11 @@ package check_deployment_name
 import (
 	"strings"
 
-	"github.com/QuantumNous/new-api/i18n"
-
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/deployments/domain"
 	"github.com/QuantumNous/new-api/internal/deployments/transport"
+
 	"github.com/gin-gonic/gin"
 )
 

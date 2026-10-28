@@ -1,8 +1,9 @@
 package preview_pricing
 
 import (
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"slices"
+
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 type Reader interface {

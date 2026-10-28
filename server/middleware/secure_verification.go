@@ -8,10 +8,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
-	"github.com/gin-gonic/gin"
-
 	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+
+	"github.com/gin-gonic/gin"
 )
 
 // SecureVerificationRequired protects channel key disclosure. Other sensitive

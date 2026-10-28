@@ -3,9 +3,10 @@ package refresh_codex_credentials
 import (
 	"context"
 	"fmt"
-	"github.com/QuantumNous/new-api/internal/channels/domain"
 	"strings"
 	"time"
+
+	"github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 type Store interface {

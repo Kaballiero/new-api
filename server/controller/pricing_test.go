@@ -1,45 +1,10 @@
 package controller
 
 import (
-	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	billingappfx "github.com/QuantumNous/new-api/internal/app/billing"
-	billingdomainfx "github.com/QuantumNous/new-api/internal/billing/domain"
-	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
-	"github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	ensure_catalog_source "github.com/QuantumNous/new-api/internal/pricing/ensure_catalog_source"
-
-	get_pricing_config "github.com/QuantumNous/new-api/internal/pricing/get_pricing_config"
-
-	publish_catalog_selection "github.com/QuantumNous/new-api/internal/pricing/publish_catalog_selection"
-
-	sync_upstream_catalog "github.com/QuantumNous/new-api/internal/pricing/sync_upstream_catalog"
-
-	update_pricing_config "github.com/QuantumNous/new-api/internal/pricing/update_pricing_config"
-
-	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
-
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
-
-	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
-
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-
-	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
-
-	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
-	"github.com/QuantumNous/new-api/internal/app"
-
 	"io"
 	"math"
 	"net/http"
@@ -56,21 +21,40 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
+	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
+	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
+	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
+	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
+	"github.com/QuantumNous/new-api/internal/app"
+	billingappfx "github.com/QuantumNous/new-api/internal/app/billing"
+	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
-
+	billingdomainfx "github.com/QuantumNous/new-api/internal/billing/domain"
+	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
+	"github.com/QuantumNous/new-api/internal/pricing/domain"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
+	ensure_catalog_source "github.com/QuantumNous/new-api/internal/pricing/ensure_catalog_source"
+	get_pricing_config "github.com/QuantumNous/new-api/internal/pricing/get_pricing_config"
+	publish_catalog_selection "github.com/QuantumNous/new-api/internal/pricing/publish_catalog_selection"
+	sync_upstream_catalog "github.com/QuantumNous/new-api/internal/pricing/sync_upstream_catalog"
 	pricinghttp "github.com/QuantumNous/new-api/internal/pricing/transport"
+	update_pricing_config "github.com/QuantumNous/new-api/internal/pricing/update_pricing_config"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
-
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

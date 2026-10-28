@@ -1,17 +1,6 @@
 package relay
 
 import (
-	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
-	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
-
-	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-
-	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
-	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
-
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -22,37 +11,35 @@ import (
 	"strings"
 	"time"
 
-	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
-
-	mapping "github.com/QuantumNous/new-api/gateway/mapping"
-	"github.com/QuantumNous/new-api/i18n"
-
-	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
-
-	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
-	usagegateway "github.com/QuantumNous/new-api/relay/usage"
-	"github.com/gin-gonic/gin"
-
+	mapping "github.com/QuantumNous/new-api/gateway/mapping"
+	mappingfx "github.com/QuantumNous/new-api/gateway/mapping"
+	"github.com/QuantumNous/new-api/i18n"
+	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	counters "github.com/QuantumNous/new-api/internal/adapter/gorm/counters"
+	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
+	"github.com/QuantumNous/new-api/internal/app/taskbillingruntime"
+	tasksapp "github.com/QuantumNous/new-api/internal/app/tasks"
+	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	taskdomain "github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
-
 	mjgateway "github.com/QuantumNous/new-api/relay/midjourney"
 	"github.com/QuantumNous/new-api/relay/taskrecord"
+	usagegateway "github.com/QuantumNous/new-api/relay/usage"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
+	"github.com/gin-gonic/gin"
 )
 
 func RelayMidjourneyImage(c *gin.Context) {

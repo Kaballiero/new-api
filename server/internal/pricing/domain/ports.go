@@ -2,8 +2,9 @@ package domain
 
 import (
 	"encoding/json"
-	"github.com/QuantumNous/new-api/constant"
 	"io"
+
+	"github.com/QuantumNous/new-api/constant"
 )
 
 // JSONCodec preserves the configured host serializer, including partial decoding.

@@ -2,9 +2,8 @@ package billing
 
 import (
 	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"github.com/QuantumNous/new-api/internal/billing/domain"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 
 func ReadFX() (domain.FXPublication, error) {

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/internal/redemption/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type HTTP struct {

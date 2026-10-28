@@ -1,10 +1,10 @@
 package fetch_task_artifact
 
 import (
-	"github.com/gin-gonic/gin"
-
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/internal/tasks/transport"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Delivery struct {

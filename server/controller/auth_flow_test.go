@@ -1,14 +1,6 @@
 package controller
 
 import (
-	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
-
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
-
-	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-
-	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
-
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -17,7 +9,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/fxamacker/cbor/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,20 +17,25 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
+	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
+	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
+	verify_security_input "github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+
+	"github.com/fxamacker/cbor/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	identitycore "github.com/QuantumNous/new-api/internal/app/identitycore"
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
-	identitydto "github.com/QuantumNous/new-api/internal/identity/dto"
-	verify_security_input "github.com/QuantumNous/new-api/internal/identity/verify_security_input"
 )
 
 func newSecurityLoginPasskey(t *testing.T, userID int) *ecdsa.PrivateKey {

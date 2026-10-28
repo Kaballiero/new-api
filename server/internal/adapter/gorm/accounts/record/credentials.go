@@ -4,6 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	bindemail "github.com/QuantumNous/new-api/internal/accounts/bind_email"
 	resetpassword "github.com/QuantumNous/new-api/internal/identity/reset_password"
+
 	"gorm.io/gorm"
 )
 

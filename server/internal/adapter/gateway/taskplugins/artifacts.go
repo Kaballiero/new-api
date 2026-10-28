@@ -7,9 +7,7 @@ import (
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
 	"github.com/QuantumNous/new-api/internal/tasks/domain"
-
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
-
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/taskregistry"
 )

@@ -2,10 +2,10 @@ package update_channel
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"strings"
 )
 
 type Store interface {

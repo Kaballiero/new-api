@@ -1,8 +1,6 @@
 package get_deployment_logs
 
-import (
-	"time"
-)
+import "time"
 
 type GetLogsOptions struct {
 	StartTime *time.Time `json:"start_time,omitempty"`

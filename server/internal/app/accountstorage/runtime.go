@@ -2,13 +2,15 @@
 package accountstorage
 
 import (
+	"sync"
+
 	cache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/core"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts/record"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/model"
+
 	"gorm.io/gorm"
-	"sync"
 )
 
 type runtime struct {

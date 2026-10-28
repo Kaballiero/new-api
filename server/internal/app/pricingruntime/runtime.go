@@ -4,13 +4,10 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	catalogstore "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
-
 	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
-
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/read_catalogue"
 )
 

@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
 	legacy "github.com/QuantumNous/new-api/model"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

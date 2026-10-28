@@ -1,12 +1,14 @@
 package authorization
 
 import (
+	"sync"
+
 	"github.com/QuantumNous/new-api/internal/authorization/domain"
 	"github.com/QuantumNous/new-api/internal/authorization/initialize_authorization"
+
 	"github.com/casbin/casbin/v2"
 	casbinmodel "github.com/casbin/casbin/v2/model"
 	"github.com/casbin/casbin/v2/persist"
-	"sync"
 )
 
 const modelText = `

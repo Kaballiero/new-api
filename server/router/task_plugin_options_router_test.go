@@ -1,9 +1,6 @@
 package router
 
 import (
-	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
-	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
-
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -13,13 +10,15 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/controller"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
-
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
+	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"

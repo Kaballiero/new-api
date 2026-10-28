@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	keycache "github.com/QuantumNous/new-api/internal/adapter/cache/apikeys"
@@ -17,6 +15,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/batch/domain"
 	billingdomain "github.com/QuantumNous/new-api/internal/billing/domain"
 	"github.com/QuantumNous/new-api/model"
+
+	"gorm.io/gorm"
 )
 
 // SettleBatchItem commits the wallet debit, token counters, usage counters and

@@ -2,8 +2,8 @@ package record
 
 import (
 	"github.com/QuantumNous/new-api/internal/catalog/apply_metadata_sync"
-
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
+
 	"gorm.io/gorm"
 )
 

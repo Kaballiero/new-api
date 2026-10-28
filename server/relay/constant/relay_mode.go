@@ -1,8 +1,6 @@
 package constant
 
-import (
-	"strings"
-)
+import "strings"
 
 const (
 	RelayModeUnknown = iota

@@ -13,8 +13,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/contracttest"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-
 	"github.com/QuantumNous/new-api/setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )

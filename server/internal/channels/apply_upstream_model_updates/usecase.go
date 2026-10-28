@@ -1,9 +1,10 @@
 package apply_upstream_model_updates
 
 import (
+	"reflect"
+
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/channels/domain"
-	"reflect"
 )
 
 type Store interface {

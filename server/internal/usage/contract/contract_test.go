@@ -1,8 +1,6 @@
 package contract_test
 
 import (
-	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
-
 	"context"
 	"errors"
 	"flag"
@@ -24,18 +22,18 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	appusage "github.com/QuantumNous/new-api/internal/app/usage"
+	"github.com/QuantumNous/new-api/internal/contracttest"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-
-	usagecleanup "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
-
-	appusage "github.com/QuantumNous/new-api/internal/app/usage"
-	"github.com/QuantumNous/new-api/internal/contracttest"
-	"github.com/QuantumNous/new-api/middleware"
-	"github.com/QuantumNous/new-api/model"
 )
 
 const (
@@ -452,7 +450,7 @@ func newReadEnvironment(t *testing.T) *contracttest.Env {
 	model.LOG_DB = logDB
 	t.Cleanup(func() { model.LOG_DB = previousLog })
 	require.NoError(t, logDB.AutoMigrate(&model.Log{}, &model.AuditLog{}))
-	require.NoError(t, env.DB.Create(&model.Log{Id: 9001, UserId: 1, Type: model.LogTypeConsume,
+	require.NoError(t, env.DB.Create(&model.Log{Id: 9001, UserId: 1, Type: usagerecord.LogTypeConsume,
 		CreatedAt: readStart, Quota: 999999, ModelName: "wrong-main-db", RequestId: "main-sentinel"}).Error)
 	for _, channel := range []model.Channel{
 		{Id: 11, Name: "read-channel", Key: "fixture", Type: 1, Status: 1},
@@ -493,17 +491,17 @@ func seedReadLogs(t *testing.T) {
 	}
 	for i, item := range metadata {
 		row := model.Log{Id: 101 + i, UserId: 1, Username: "contract-user", CreatedAt: readStart + int64(i%2),
-			Type: model.LogTypeConsume, TokenId: 11, TokenName: "read-token", ChannelId: 11,
+			Type: usagerecord.LogTypeConsume, TokenId: 11, TokenName: "read-token", ChannelId: 11,
 			ModelName: "Model", Group: "paid", Quota: i + 1, PromptTokens: 10 + i, CompletionTokens: 2,
 			RequestId: item.name, UpstreamRequestId: fmt.Sprintf("upstream-%d", 101+i), Other: item.other}
 		require.NoError(t, model.LOG_DB.Create(&row).Error)
 	}
 	for _, row := range []model.Log{
-		{Id: 201, UserId: 1, Username: "contract-user", CreatedAt: readEnd, Type: model.LogTypeError,
+		{Id: 201, UserId: 1, Username: "contract-user", CreatedAt: readEnd, Type: usagerecord.LogTypeError,
 			ModelName: "model", TokenId: 13, TokenName: "deleted-token", ChannelId: 999, RequestId: "read-101"},
-		{Id: 202, UserId: 2, Username: "contract-admin", CreatedAt: readStart - 1, Type: model.LogTypeConsume,
+		{Id: 202, UserId: 2, Username: "contract-admin", CreatedAt: readStart - 1, Type: usagerecord.LogTypeConsume,
 			ModelName: "Model", TokenId: 12, TokenName: "foreign-token", ChannelId: 12, Quota: 17, RequestId: "admin-row"},
-		{Id: 203, UserId: 1, Username: "contract-user", CreatedAt: readEnd + 1, Type: model.LogTypeConsume,
+		{Id: 203, UserId: 1, Username: "contract-user", CreatedAt: readEnd + 1, Type: usagerecord.LogTypeConsume,
 			ModelName: "Model_%!\\suffix", TokenId: 11, TokenName: "read-token", Quota: 31, RequestId: "literal-row"},
 	} {
 		require.NoError(t, model.LOG_DB.Create(&row).Error)
@@ -722,7 +720,7 @@ func configureReadGroup(t *testing.T, env *contracttest.Env, group string) {
 	if group == "stats" {
 		row := model.Log{Id: 301, UserId: 1, Username: "contract-user", ModelName: "Model", TokenName: "read-token",
 			TokenId: 11, ChannelId: 11, Group: "paid", CreatedAt: time.Now().Unix() - 5,
-			Type: model.LogTypeConsume, Quota: 41, PromptTokens: 43, CompletionTokens: 47, RequestId: "recent-stat"}
+			Type: usagerecord.LogTypeConsume, Quota: 41, PromptTokens: 43, CompletionTokens: 47, RequestId: "recent-stat"}
 		require.NoError(t, model.LOG_DB.Create(&row).Error)
 	}
 	if strings.HasPrefix(group, "nav_") {

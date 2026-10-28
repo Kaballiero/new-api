@@ -4,11 +4,11 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/i18n"
+	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	usagestorage "github.com/QuantumNous/new-api/internal/app/usagestorage"
 	"github.com/QuantumNous/new-api/internal/redemption/domain"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
@@ -35,7 +35,7 @@ func (receipts) Record(user int, code domain.Code) {
 	lang := receiptLanguage(user)
 	content := i18n.Translate(lang, i18n.MsgRedemptionCreditLog,
 		map[string]any{"Quota": quotaText(code.Quota, lang), "ID": code.ID})
-	usagestorage.Writer().RecordLog(user, model.LogTypeTopup, content)
+	usagestorage.Writer().RecordLog(user, usagerecord.LogTypeTopup, content)
 }
 
 // Receipt language comes from the beneficiary; both Chinese variants retain the legacy persisted bytes.

@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
@@ -17,6 +15,8 @@ import (
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
+	"gorm.io/gorm"
 )
 
 func PricingBuildChannel(c *legacy.Channel) *domain.BuildChannel {

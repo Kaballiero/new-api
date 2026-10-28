@@ -2,6 +2,7 @@ package record
 
 import (
 	"github.com/QuantumNous/new-api/common"
+
 	"gorm.io/gorm"
 )
 

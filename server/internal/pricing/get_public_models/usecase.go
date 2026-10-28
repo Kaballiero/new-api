@@ -2,6 +2,7 @@ package get_public_models
 
 import (
 	"fmt"
+
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
 

@@ -2,18 +2,18 @@ package channels
 
 import (
 	"errors"
-	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"math/rand"
 	"sync"
-
-	"gorm.io/gorm"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	record "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/logger"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
+
+	"gorm.io/gorm"
 )
 
 func NewChannelSortOptions(by, order string, id bool) record.ChannelSortOptions {

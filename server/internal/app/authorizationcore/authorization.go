@@ -1,6 +1,9 @@
 package authorizationcore
 
 import (
+	"sync"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	casbinadapter "github.com/QuantumNous/new-api/internal/adapter/casbin/authorization"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/authorization"
@@ -13,9 +16,8 @@ import (
 	"github.com/QuantumNous/new-api/internal/authorization/set_user_permissions"
 	"github.com/QuantumNous/new-api/internal/authorization/set_user_permissions_in_tx"
 	"github.com/QuantumNous/new-api/internal/authorization/sync_policy"
+
 	"gorm.io/gorm"
-	"sync"
-	"time"
 )
 
 type Permission = domain.Permission

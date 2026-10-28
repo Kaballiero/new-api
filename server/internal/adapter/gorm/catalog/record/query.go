@@ -1,10 +1,12 @@
 package record
 
 import (
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/catalog/domain"
+
 	"gorm.io/gorm"
-	"strings"
 )
 
 func (store Store) AllModelValues() ([]domain.Model, error) {

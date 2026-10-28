@@ -2,13 +2,14 @@ package identitycore
 
 import (
 	"errors"
-	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	authtoken "github.com/QuantumNous/new-api/internal/adapter/identity/authtoken"
+	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

@@ -4,6 +4,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"iter"
+	"maps"
+	"math"
+	"regexp"
+	"slices"
+	"sort"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf16"
 
 	"github.com/QuantumNous/new-api/constant"
 
@@ -12,18 +22,6 @@ import (
 	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
 	"golang.org/x/text/unicode/norm"
-	"iter"
-
-	"maps"
-	"math"
-
-	"regexp"
-	"slices"
-	"sort"
-	"strconv"
-	"strings"
-	"unicode"
-	"unicode/utf16"
 )
 
 type EffectivePricingResponse struct {

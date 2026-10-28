@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )

@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
 )
 
 func catalogTypeSchema() map[string]any {
@@ -491,7 +492,7 @@ func buildSchemas() map[string]interface{} {
 	out["EffectivePricingOverviewResponse"].(map[string]any)["required"] = []string{"success", "data"}
 
 	// /api/log/{,self/}stat → ApiResponseOfStat (data = {quota, rpm, tpm}).
-	// Stat type lives in model/log.go and is auto-discovered by parseModels.
+	// Stat type lives in internal/usage/dto/stat.go and is auto-discovered by parseModels.
 	// (Legacy synthetic LogStatRow {day, quota} schema removed — endpoint
 	// returns aggregate object, not per-day array.)
 

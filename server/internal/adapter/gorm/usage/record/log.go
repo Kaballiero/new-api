@@ -26,7 +26,7 @@ type Log struct {
 	Other             string `json:"other"`
 }
 
-// Re-export the domain kinds for model compatibility aliases; values have one owner.
+// Re-export domain kinds for SQL and gateway consumers; values have one owner.
 const (
 	LogTypeUnknown = domain.LogTypeUnknown
 	LogTypeTopup   = domain.LogTypeTopup

@@ -1,8 +1,6 @@
 package get_model
 
-import (
-	"github.com/QuantumNous/new-api/internal/catalog/domain"
-)
+import "github.com/QuantumNous/new-api/internal/catalog/domain"
 
 type Store interface {
 	Model(int) (*domain.Model, error)

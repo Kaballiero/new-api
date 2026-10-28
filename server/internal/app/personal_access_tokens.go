@@ -1,17 +1,16 @@
 package app
 
 import (
-	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
-
 	"github.com/QuantumNous/new-api/common"
+	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
+	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/domain"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/generate_token"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/get_status"
 	"github.com/QuantumNous/new-api/internal/personal_access_tokens/revoke_token"
 	"github.com/QuantumNous/new-api/middleware"
-	"github.com/gin-gonic/gin"
 
-	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
+	"github.com/gin-gonic/gin"
 )
 
 type PersonalAccessTokensHTTP struct {

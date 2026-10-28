@@ -3,9 +3,10 @@ package identity
 import (
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
-	"strings"
 )
 
 type accessPolicyPayload struct {

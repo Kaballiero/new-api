@@ -1,8 +1,6 @@
 package model
 
-import (
-	"time"
-)
+import "time"
 
 // CustomOAuthProvider stores configuration for custom OAuth providers
 type CustomOAuthProvider struct {

@@ -1,8 +1,9 @@
 package domain
 
 import (
-	"github.com/QuantumNous/new-api/constant"
 	"strings"
+
+	"github.com/QuantumNous/new-api/constant"
 )
 
 // ChannelFailure describes a failed channel request in gateway-neutral terms.

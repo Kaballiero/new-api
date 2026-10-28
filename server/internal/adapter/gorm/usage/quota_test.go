@@ -9,14 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
-	sqlmysql "github.com/go-sql-driver/mysql"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gorm.io/driver/clickhouse"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
 	"github.com/QuantumNous/new-api/internal/usage/admin_get_usage_flow"
@@ -26,6 +18,14 @@ import (
 	"github.com/QuantumNous/new-api/internal/usage/dto"
 	"github.com/QuantumNous/new-api/internal/usage/get_own_usage_flow"
 	"github.com/QuantumNous/new-api/model"
+
+	"github.com/glebarez/sqlite"
+	sqlmysql "github.com/go-sql-driver/mysql"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/clickhouse"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 func seedFlowQuotaData(t *testing.T, quotaData model.QuotaData) {

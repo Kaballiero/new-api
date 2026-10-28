@@ -3,11 +3,11 @@ package publication
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUpstreamCatalogPassThroughInvalidatesPricing(t *testing.T) {

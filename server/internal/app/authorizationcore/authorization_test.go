@@ -2,8 +2,6 @@ package authorizationcore
 
 import (
 	"errors"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
 	"os"
 	"testing"
 
@@ -15,9 +13,12 @@ import (
 	"github.com/QuantumNous/new-api/internal/authorization/get_user_overrides"
 	"github.com/QuantumNous/new-api/internal/contracttest/pgfixture"
 	"github.com/QuantumNous/new-api/model"
+
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 

@@ -4,6 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
 	cacheaccounts "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
 	identityrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/identity/record"
@@ -12,11 +17,7 @@ import (
 	cachefixture "github.com/QuantumNous/new-api/internal/contracttest/cachefixture"
 	identitydomain "github.com/QuantumNous/new-api/internal/identity/domain"
 	model "github.com/QuantumNous/new-api/model"
-	"strings"
-	"testing"
-	"time"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
