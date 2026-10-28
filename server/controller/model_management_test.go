@@ -1,6 +1,7 @@
 package controller
 
 import (
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
@@ -174,16 +175,16 @@ export function parseTaskResult() { return {}; }
 					{ModelName: "square-hidden", Status: 0},
 					{ModelName: "square-catalog", Status: 1},
 					{ModelName: "square-hidden-catalog", Status: 0},
-					{ModelName: "square-partial-", NameRule: model.NameRulePrefix, Status: 1},
+					{ModelName: "square-partial-", NameRule: catalogrecord.NameRulePrefix, Status: 1},
 					{ModelName: "square-partial-hidden", Status: 0},
-					{ModelName: "square-hidden-", NameRule: model.NameRulePrefix, Status: 0},
+					{ModelName: "square-hidden-", NameRule: catalogrecord.NameRulePrefix, Status: 0},
 					{ModelName: "square-hidden-override", Status: 1},
-					{ModelName: "square-off-", NameRule: model.NameRulePrefix, Status: 0},
-					{ModelName: "square-empty", NameRule: model.NameRulePrefix, Status: 1},
-					{ModelName: "square-empty-hidden", NameRule: model.NameRulePrefix, Status: 0},
-					{ModelName: "-ending", NameRule: model.NameRuleSuffix, Status: 1},
-					{ModelName: "square-prefix-", NameRule: model.NameRulePrefix, Status: 0},
-					{ModelName: "square-contains", NameRule: model.NameRuleContains, Status: 0},
+					{ModelName: "square-off-", NameRule: catalogrecord.NameRulePrefix, Status: 0},
+					{ModelName: "square-empty", NameRule: catalogrecord.NameRulePrefix, Status: 1},
+					{ModelName: "square-empty-hidden", NameRule: catalogrecord.NameRulePrefix, Status: 0},
+					{ModelName: "-ending", NameRule: catalogrecord.NameRuleSuffix, Status: 1},
+					{ModelName: "square-prefix-", NameRule: catalogrecord.NameRulePrefix, Status: 0},
+					{ModelName: "square-contains", NameRule: catalogrecord.NameRuleContains, Status: 0},
 				}
 				ids := make([]int, 0, len(records))
 				for i := range records {
@@ -218,35 +219,35 @@ export function parseTaskResult() { return {}; }
 				for _, row := range pricingruntime.GetPricing() {
 					catalog[row.ModelName] = true
 				}
-				expected := map[string]model.ModelSquareState{
-					"square-visible":         model.ModelSquareVisible,
-					"square-hidden":          model.ModelSquareHidden,
-					"square-catalog":         model.ModelSquareUnavailable,
-					"square-hidden-catalog":  model.ModelSquareHidden,
-					"square-bare":            model.ModelSquareVisible,
-					"square-disabled":        model.ModelSquareUnavailable,
-					"square-partial-":        model.ModelSquarePartial,
-					"square-partial-hidden":  model.ModelSquareHidden,
-					"square-partial-on":      model.ModelSquareVisible,
-					"square-partial-off":     model.ModelSquareUnavailable,
-					"square-hidden-":         model.ModelSquarePartial,
-					"square-hidden-child":    model.ModelSquareHidden,
-					"square-hidden-override": model.ModelSquareVisible,
-					"square-off-":            model.ModelSquareHidden,
-					"square-off-child":       model.ModelSquareHidden,
-					"square-empty":           model.ModelSquareUnavailable,
-					"square-empty-hidden":    model.ModelSquareHidden,
-					"square-prefix-ending":   model.ModelSquareHidden,
-					"square-contains-ending": model.ModelSquareVisible,
-					"square-contains":        model.ModelSquareVisible,
-					"square-prefix-":         model.ModelSquareHidden,
+				expected := map[string]catalogrecord.ModelSquareState{
+					"square-visible":         catalogrecord.ModelSquareVisible,
+					"square-hidden":          catalogrecord.ModelSquareHidden,
+					"square-catalog":         catalogrecord.ModelSquareUnavailable,
+					"square-hidden-catalog":  catalogrecord.ModelSquareHidden,
+					"square-bare":            catalogrecord.ModelSquareVisible,
+					"square-disabled":        catalogrecord.ModelSquareUnavailable,
+					"square-partial-":        catalogrecord.ModelSquarePartial,
+					"square-partial-hidden":  catalogrecord.ModelSquareHidden,
+					"square-partial-on":      catalogrecord.ModelSquareVisible,
+					"square-partial-off":     catalogrecord.ModelSquareUnavailable,
+					"square-hidden-":         catalogrecord.ModelSquarePartial,
+					"square-hidden-child":    catalogrecord.ModelSquareHidden,
+					"square-hidden-override": catalogrecord.ModelSquareVisible,
+					"square-off-":            catalogrecord.ModelSquareHidden,
+					"square-off-child":       catalogrecord.ModelSquareHidden,
+					"square-empty":           catalogrecord.ModelSquareUnavailable,
+					"square-empty-hidden":    catalogrecord.ModelSquareHidden,
+					"square-prefix-ending":   catalogrecord.ModelSquareHidden,
+					"square-contains-ending": catalogrecord.ModelSquareVisible,
+					"square-contains":        catalogrecord.ModelSquareVisible,
+					"square-prefix-":         catalogrecord.ModelSquareHidden,
 				}
 				for name, state := range expected {
 					row, exists := byName[name]
 					require.True(t, exists, name)
 					assert.Equal(t, state, row.SquareState, name)
-					if row.NameRule == model.NameRuleExact {
-						assert.Equal(t, state == model.ModelSquareVisible, catalog[name], name)
+					if row.NameRule == catalogrecord.NameRuleExact {
+						assert.Equal(t, state == catalogrecord.ModelSquareVisible, catalog[name], name)
 					}
 				}
 				assert.Zero(t, byName["square-bare"].Id)
@@ -259,7 +260,7 @@ export function parseTaskResult() { return {}; }
 							Total int
 						}
 					}
-					for _, state := range []model.ModelSquareState{model.ModelSquareVisible, model.ModelSquareUnavailable, model.ModelSquareHidden, model.ModelSquarePartial} {
+					for _, state := range []catalogrecord.ModelSquareState{catalogrecord.ModelSquareVisible, catalogrecord.ModelSquareUnavailable, catalogrecord.ModelSquareHidden, catalogrecord.ModelSquarePartial} {
 						t.Run(string(state), func(t *testing.T) {
 							expectedNames := []string{}
 							for name, expectedState := range expected {
@@ -337,12 +338,12 @@ export function parseTaskResult() { return {}; }
 					GetModelMeta(c)
 				}, "GET", "/api/models/"+strconv.Itoa(records[4].Id), nil, &detail)
 				require.True(t, detail.Success)
-				assert.Equal(t, model.ModelSquarePartial, detail.Data.SquareState)
+				assert.Equal(t, catalogrecord.ModelSquarePartial, detail.Data.SquareState)
 			})
 			t.Run("channel_model_listing", func(t *testing.T) {
 				exact := model.Model{ModelName: "listing-exact", Status: 1, SyncOfficial: 1}
 				catalog := model.Model{ModelName: "listing-catalog", Status: 1}
-				rule := model.Model{ModelName: "listing-rule-", NameRule: model.NameRulePrefix, Status: 1}
+				rule := model.Model{ModelName: "listing-rule-", NameRule: catalogrecord.NameRulePrefix, Status: 1}
 				for _, item := range []*model.Model{&exact, &catalog, &rule} {
 					require.NoError(t, insertModelRecord(item))
 				}
@@ -655,10 +656,10 @@ export function parseTaskResult() { return {}; }
 				}).Error)
 				exact := &model.Model{ModelName: "matrix-hidden-unpriced", Status: 0, SyncOfficial: 0}
 				require.NoError(t, insertModelRecord(exact))
-				rule := &model.Model{ModelName: "matrix-hidden-", NameRule: model.NameRulePrefix}
+				rule := &model.Model{ModelName: "matrix-hidden-", NameRule: catalogrecord.NameRulePrefix}
 				require.NoError(t, enrichModels([]*model.Model{exact, rule}))
 				assert.Equal(t, []string{"available"}, exact.EnableGroups)
-				assert.Equal(t, []model.BoundChannel{{Name: "Active route", Type: 1}}, exact.BoundChannels)
+				assert.Equal(t, []catalogrecord.BoundChannel{{Name: "Active route", Type: 1}}, exact.BoundChannels)
 				assert.Equal(t, []string{"matrix-hidden-unpriced"}, rule.MatchedModels)
 				assert.Empty(t, exact.Endpoints, "inferred endpoints must not become stored configuration")
 				priceBefore, err := getModelPricingSnapshot([]string{"matrix-hidden-unpriced"})
@@ -865,7 +866,7 @@ func TestVendorManagementDatabaseMatrix(t *testing.T) {
 				assert.ErrorIs(t, updateVendorRecord(&(edit)), domain.ErrVendorConflict)
 
 				one := model.Model{ModelName: "vendor-model-one", VendorID: source.Id, Icon: "Custom", Description: "Preserve description", Status: 0, SyncOfficial: 0}
-				rule := model.Model{ModelName: "vendor-rule-", VendorID: source.Id, NameRule: model.NameRulePrefix, Status: 1, SyncOfficial: 1}
+				rule := model.Model{ModelName: "vendor-rule-", VendorID: source.Id, NameRule: catalogrecord.NameRulePrefix, Status: 1, SyncOfficial: 1}
 				require.NoError(t, insertModelRecord(&(one)))
 				require.NoError(t, insertModelRecord(&(rule)))
 				priceBefore, err := getModelPricingSnapshot([]string{one.ModelName})
@@ -1081,7 +1082,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 			require.NoError(t, db.Model(&channelrecord.Ability{}).Where("channel_id = ?", channel.Id).Count(&count).Error)
 			assert.EqualValues(t, 1, count)
 
-			for _, rule := range []int{model.NameRuleExact, model.NameRulePrefix, model.NameRuleContains, model.NameRuleSuffix} {
+			for _, rule := range []int{catalogrecord.NameRuleExact, catalogrecord.NameRulePrefix, catalogrecord.NameRuleContains, catalogrecord.NameRuleSuffix} {
 				t.Run(fmt.Sprintf("rule_%d_exact_names_only_atomic_and_cached", rule), func(t *testing.T) {
 					name := fmt.Sprintf("delete-rule-%d", rule)
 					first := model.Model{ModelName: name, NameRule: rule, Status: 1}
@@ -1110,7 +1111,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 					require.NoError(t, updateModelPricing([]pricingdomain.ModelPricingChange{{ModelName: name, ExpectedVersion: baseline.EmptyVersion, Pricing: pricingdomain.PricingValues{"ModelPrice": float64(2)}}}))
 					pricingBefore, err := getModelPricingSnapshot([]string{name, second.ModelName})
 					require.NoError(t, err)
-					if rule != model.NameRuleExact {
+					if rule != catalogrecord.NameRuleExact {
 						_, err := deleteCatalogModels([]int{first.Id, second.Id}, true, true)
 						require.EqualError(t, err, "only exact-match models can be removed from channels")
 						after, err := getModelPricingSnapshot([]string{name, second.ModelName})
@@ -1189,7 +1190,7 @@ func TestModelDeletionDatabaseMatrix(t *testing.T) {
 			for _, removeChannels := range []bool{false, true} {
 				t.Run(fmt.Sprintf("pricing_removal_channels_%t", removeChannels), func(t *testing.T) {
 					name := fmt.Sprintf("remove-pricing-%t", removeChannels)
-					metadata := model.Model{ModelName: name, NameRule: model.NameRuleExact, Status: 1}
+					metadata := model.Model{ModelName: name, NameRule: catalogrecord.NameRuleExact, Status: 1}
 					require.NoError(t, insertModelRecord(&(metadata)))
 					keep := name + "-keep"
 					channel := model.Channel{Name: "Independent pricing removal", Type: 1, Models: name + "," + keep, Group: "pricing-removal", Status: common.ChannelStatusEnabled}
@@ -1283,7 +1284,7 @@ func TestCatalogStorageUpgradeCompatibility(t *testing.T) {
 	if phase == "baseline" {
 		vendor := model.Vendor{Name: "Persisted catalog vendor", Description: "Описание", Icon: "icon", Status: 0}
 		require.NoError(t, insertVendorRecord(&(vendor)))
-		metadata := model.Model{ModelName: "persisted-catalog-", Description: "metadata", VendorID: vendor.Id, Endpoints: `["openai","anthropic"]`, Status: 0, SyncOfficial: 0, NameRule: model.NameRulePrefix, Tags: "tag"}
+		metadata := model.Model{ModelName: "persisted-catalog-", Description: "metadata", VendorID: vendor.Id, Endpoints: `["openai","anthropic"]`, Status: 0, SyncOfficial: 0, NameRule: catalogrecord.NameRulePrefix, Tags: "tag"}
 		require.NoError(t, insertModelRecord(&(metadata)))
 		retired := model.Model{ModelName: "persisted-retired", Status: 1}
 		require.NoError(t, insertModelRecord(&(retired)))
@@ -1295,7 +1296,7 @@ func TestCatalogStorageUpgradeCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, metadata.Status)
 	assert.Equal(t, 0, metadata.SyncOfficial)
-	assert.Equal(t, model.NameRulePrefix, metadata.NameRule)
+	assert.Equal(t, catalogrecord.NameRulePrefix, metadata.NameRule)
 	assert.Equal(t, `["openai","anthropic"]`, metadata.Endpoints)
 	assert.Equal(t, "Описание", vendor.Description)
 	assert.Equal(t, 1, vendor.Status)

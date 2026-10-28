@@ -1,21 +1,20 @@
 package controller
 
 import (
-	"github.com/gin-gonic/gin"
-
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/QuantumNous/new-api/internal/usage/transport"
+	"github.com/gin-gonic/gin"
 )
 
-// BRIDGE: unchanged router/api-router.go entrypoints until routing moves to usage.
-func GetAllLogs(c *gin.Context) { usageHTTP().AdminLogs.Handle(c) }
+func GetAllLogs(c *gin.Context) { httpapi.Usage().AdminLogs.Handle(c) }
 
-func GetUserLogs(c *gin.Context) { usageHTTP().OwnLogs.Handle(c) }
+func GetUserLogs(c *gin.Context) { httpapi.Usage().OwnLogs.Handle(c) }
 
-func GetLogByKey(c *gin.Context) { usageHTTP().KeyLogs.Handle(c) }
+func GetLogByKey(c *gin.Context) { httpapi.Usage().KeyLogs.Handle(c) }
 
-func GetLogsStat(c *gin.Context) { usageHTTP().AdminStats.Handle(c) }
+func GetLogsStat(c *gin.Context) { httpapi.Usage().AdminStats.Handle(c) }
 
-func GetLogsSelfStat(c *gin.Context) { usageHTTP().OwnStats.Handle(c) }
+func GetLogsSelfStat(c *gin.Context) { httpapi.Usage().OwnStats.Handle(c) }
 
 func SearchAllLogs(c *gin.Context) { transport.Deprecated(c) }
 

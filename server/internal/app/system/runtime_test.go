@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	"testing"
 	"time"
 
@@ -89,7 +90,7 @@ func TestSystemTaskSchedulerCreatesWhenDueAndDedups(t *testing.T) {
 	_, claimed, err := systemStoreSystemTaskTest.ClaimSystemTask(latest.ID, handler.taskType, "runner-a", common.GetTimestamp()+60)
 	require.NoError(t, err)
 	require.True(t, claimed)
-	require.NoError(t, systemStoreSystemTaskTest.FinishSystemTask(latest.TaskID, "runner-a", model.SystemTaskStatusSucceeded, nil, ""))
+	require.NoError(t, systemStoreSystemTaskTest.FinishSystemTask(latest.TaskID, "runner-a", systemrecord.SystemTaskStatusSucceeded, nil, ""))
 
 	_ = Default().Schedule.Execute()
 	require.Equal(t, int64(1), countSystemTasks(t, handler.taskType))
@@ -124,7 +125,7 @@ func TestSystemTaskClaimPassDispatchesByType(t *testing.T) {
 		onRun: func(_ context.Context, task *domain.SystemTask, runnerID string) {
 			ran <- stubSystemTaskRunResult{
 				taskType: task.Type,
-				err:      systemStoreSystemTaskTest.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, nil, ""),
+				err:      systemStoreSystemTaskTest.FinishSystemTask(task.TaskID, runnerID, systemrecord.SystemTaskStatusSucceeded, nil, ""),
 			}
 		},
 	}
@@ -145,7 +146,7 @@ func TestSystemTaskClaimPassDispatchesByType(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		latest, err := latestTask(handler.taskType)
-		return err == nil && latest != nil && latest.Status == model.SystemTaskStatusSucceeded
+		return err == nil && latest != nil && latest.Status == systemrecord.SystemTaskStatusSucceeded
 	}, 2*time.Second, 20*time.Millisecond)
 }
 
@@ -160,7 +161,7 @@ func TestSystemTaskClaimPassDispatchesEarliestPendingByType(t *testing.T) {
 		onRun: func(_ context.Context, task *domain.SystemTask, runnerID string) {
 			ran <- stubSystemTaskRunResult{
 				taskID: task.TaskID,
-				err:    systemStoreSystemTaskTest.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, nil, ""),
+				err:    systemStoreSystemTaskTest.FinishSystemTask(task.TaskID, runnerID, systemrecord.SystemTaskStatusSucceeded, nil, ""),
 			}
 		},
 	}
@@ -171,7 +172,7 @@ func TestSystemTaskClaimPassDispatchesEarliestPendingByType(t *testing.T) {
 		onRun: func(_ context.Context, task *domain.SystemTask, runnerID string) {
 			ran <- stubSystemTaskRunResult{
 				taskID: task.TaskID,
-				err:    systemStoreSystemTaskTest.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, nil, ""),
+				err:    systemStoreSystemTaskTest.FinishSystemTask(task.TaskID, runnerID, systemrecord.SystemTaskStatusSucceeded, nil, ""),
 			}
 		},
 	}
@@ -184,7 +185,7 @@ func TestSystemTaskClaimPassDispatchesEarliestPendingByType(t *testing.T) {
 	secondA := &model.SystemTask{
 		TaskID: secondTaskID,
 		Type:   handlerA.taskType,
-		Status: model.SystemTaskStatusPending,
+		Status: systemrecord.SystemTaskStatusPending,
 	}
 	require.NoError(t, model.DB.Create(secondA).Error)
 	firstB, err := systemStoreSystemTaskTest.CreateSystemTask(handlerB.taskType, nil, nil)
@@ -209,7 +210,7 @@ func TestSystemTaskClaimPassDispatchesEarliestPendingByType(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		reloaded, err := systemStoreSystemTaskTest.GetSystemTaskByTaskID(secondA.TaskID)
-		return err == nil && reloaded != nil && reloaded.Status == model.SystemTaskStatusPending
+		return err == nil && reloaded != nil && reloaded.Status == systemrecord.SystemTaskStatusPending
 	}, 2*time.Second, 20*time.Millisecond)
 }
 
@@ -232,7 +233,7 @@ func TestEnqueueSystemTaskReportsCreatedAndExistingActive(t *testing.T) {
 	_, claimed, err := systemStoreSystemTaskTest.ClaimSystemTask(first.ID, first.Type, "runner-a", common.GetTimestamp()+60)
 	require.NoError(t, err)
 	require.True(t, claimed)
-	require.NoError(t, systemStoreSystemTaskTest.FinishSystemTask(first.TaskID, "runner-a", model.SystemTaskStatusSucceeded, nil, ""))
+	require.NoError(t, systemStoreSystemTaskTest.FinishSystemTask(first.TaskID, "runner-a", systemrecord.SystemTaskStatusSucceeded, nil, ""))
 
 	next, err := Default().Enqueue.Execute(enqueue_system_task.Input{Type: "test_enqueue"})
 	second, created := next.Task, next.Created

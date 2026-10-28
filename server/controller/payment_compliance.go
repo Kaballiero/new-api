@@ -1,5 +1,8 @@
 package controller
 
-import "github.com/gin-gonic/gin"
+import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
+	"github.com/gin-gonic/gin"
+)
 
-func ConfirmPaymentCompliance(c *gin.Context) { paymentsHTTP().Compliance.Handle(c) }
+func ConfirmPaymentCompliance(c *gin.Context) { httpapi.Payments().Compliance.Handle(c) }

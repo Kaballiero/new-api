@@ -55,7 +55,7 @@ func postAddChannel(t *testing.T, userID, role int, body string) *httptest.Respo
 	context.Set("role", role)
 	context.Request = httptest.NewRequest(http.MethodPost, "/api/channel", strings.NewReader(body))
 	context.Request.Header.Set("Content-Type", "application/json")
-	AddChannel(context)
+	channelsHTTP().CreateChannel.Handle(context)
 	return recorder
 }
 
@@ -128,7 +128,7 @@ export function parseTaskResult() { return {}; }
 	context.Set("role", common.RoleAdminUser)
 	context.Request = httptest.NewRequest(http.MethodPut, "/api/channel", strings.NewReader(payload))
 	context.Request.Header.Set("Content-Type", "application/json")
-	UpdateChannel(context)
+	channelsHTTP().UpdateChannel.Handle(context)
 	assert.Contains(t, recorder.Body.String(), "task plugin channels require the task_plugin.bind permission")
 	assert.Contains(t, recorder.Body.String(), `"success":false`)
 }

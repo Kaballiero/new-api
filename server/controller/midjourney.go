@@ -1,9 +1,10 @@
 package controller
 
 import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/gin-gonic/gin"
 )
 
-// BRIDGE: dashboard MJ router entrypoints; removed when router binds task handlers directly.
-func GetAllMidjourney(c *gin.Context)  { taskHTTP().GetAllMidjourney(c) }
-func GetUserMidjourney(c *gin.Context) { taskHTTP().GetUserMidjourney(c) }
+func GetAllMidjourney(c *gin.Context) { httpapi.Tasks().GetAllMidjourney(c) }
+
+func GetUserMidjourney(c *gin.Context) { httpapi.Tasks().GetUserMidjourney(c) }

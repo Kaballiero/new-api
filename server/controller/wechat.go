@@ -1,6 +1,10 @@
 package controller
 
-import "github.com/gin-gonic/gin"
+import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
+	"github.com/gin-gonic/gin"
+)
 
-func WeChatAuth(c *gin.Context) { identityHTTP().LoginWeChat.Handle(c) }
-func WeChatBind(c *gin.Context) { identityHTTP().BindWeChat.Handle(c) }
+func WeChatAuth(c *gin.Context) { httpapi.Identity().LoginWeChat.Handle(c) }
+
+func WeChatBind(c *gin.Context) { httpapi.Identity().BindWeChat.Handle(c) }

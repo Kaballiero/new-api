@@ -110,7 +110,7 @@ func TestGetChannel_NotFound_404(t *testing.T) {
 	openChannelControllerTestDB(t)
 	ctx, rec := newRestContext(t, http.MethodGet, "/api/channel/9999", nil,
 		gin.Params{{Key: "id", Value: "9999"}}, common.RoleAdminUser)
-	GetChannel(ctx)
+	channelsHTTP().GetChannel.Handle(ctx)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status got %d want 404 body=%s", rec.Code, rec.Body.String())
 	}
@@ -123,7 +123,7 @@ func TestGetChannel_BadId_400(t *testing.T) {
 	openChannelControllerTestDB(t)
 	ctx, rec := newRestContext(t, http.MethodGet, "/api/channel/abc", nil,
 		gin.Params{{Key: "id", Value: "abc"}}, common.RoleAdminUser)
-	GetChannel(ctx)
+	channelsHTTP().GetChannel.Handle(ctx)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status got %d want 400", rec.Code)
 	}
@@ -136,7 +136,7 @@ func TestDeleteChannel_BadId_400(t *testing.T) {
 	openChannelControllerTestDB(t)
 	ctx, rec := newRestContext(t, http.MethodDelete, "/api/channel/xx", nil,
 		gin.Params{{Key: "id", Value: "xx"}}, common.RoleAdminUser)
-	DeleteChannel(ctx)
+	channelsHTTP().DeleteChannel.Handle(ctx)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status got %d want 400", rec.Code)
 	}
@@ -149,7 +149,7 @@ func TestGetChannelKey_BadId_400(t *testing.T) {
 	openChannelControllerTestDB(t)
 	ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/x/key", nil,
 		gin.Params{{Key: "id", Value: "x"}}, common.RoleAdminUser)
-	GetChannelKey(ctx)
+	channelsHTTP().RevealChannelKey.Handle(ctx)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status got %d want 400", rec.Code)
 	}
@@ -162,7 +162,7 @@ func TestGetChannelKey_NotFound_404(t *testing.T) {
 	openChannelControllerTestDB(t)
 	ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/9999/key", nil,
 		gin.Params{{Key: "id", Value: "9999"}}, common.RoleAdminUser)
-	GetChannelKey(ctx)
+	channelsHTTP().RevealChannelKey.Handle(ctx)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status got %d want 404 body=%s", rec.Code, rec.Body.String())
 	}
@@ -175,7 +175,7 @@ func TestFetchUpstreamModels_BadId_400(t *testing.T) {
 	openChannelControllerTestDB(t)
 	ctx, rec := newRestContext(t, http.MethodGet, "/api/channel/fetch_models/x", nil,
 		gin.Params{{Key: "id", Value: "x"}}, common.RoleAdminUser)
-	FetchUpstreamModels(ctx)
+	channelsHTTP().FetchUpstreamModels.Handle(ctx)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status got %d want 400", rec.Code)
 	}
@@ -188,7 +188,7 @@ func TestFetchUpstreamModels_NotFound_404(t *testing.T) {
 	openChannelControllerTestDB(t)
 	ctx, rec := newRestContext(t, http.MethodGet, "/api/channel/fetch_models/9999", nil,
 		gin.Params{{Key: "id", Value: "9999"}}, common.RoleAdminUser)
-	FetchUpstreamModels(ctx)
+	channelsHTTP().FetchUpstreamModels.Handle(ctx)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status got %d want 404", rec.Code)
 	}
@@ -204,7 +204,7 @@ func TestFetchModels_BadBody_400(t *testing.T) {
 	// truly malformed: send a non-object to trigger bind error via raw bytes.
 	ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/fetch_models",
 		"not-an-object", nil, common.RoleAdminUser)
-	FetchModels(ctx)
+	channelsHTTP().PreviewChannelModels.Handle(ctx)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status got %d want 400 body=%s", rec.Code, rec.Body.String())
 	}
@@ -214,7 +214,7 @@ func TestAddChannel_BadJson_400(t *testing.T) {
 	openChannelControllerTestDB(t)
 	ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/", "not-an-object",
 		nil, common.RoleAdminUser)
-	AddChannel(ctx)
+	channelsHTTP().CreateChannel.Handle(ctx)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status got %d want 400 body=%s", rec.Code, rec.Body.String())
 	}
@@ -234,7 +234,7 @@ func TestAddChannel_RejectsMissingChannel(t *testing.T) {
 			ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/", body,
 				nil, common.RoleAdminUser)
 
-			AddChannel(ctx)
+			channelsHTTP().CreateChannel.Handle(ctx)
 
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 			assert.Equal(t, "channel_validation_failed", decodeRestError(t, rec).Code)
@@ -257,7 +257,7 @@ func TestAddChannel_CanonicalizesModels(t *testing.T) {
 	}
 
 	ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/", body, nil, common.RoleRootUser)
-	AddChannel(ctx)
+	channelsHTTP().CreateChannel.Handle(ctx)
 
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	var channel model.Channel
@@ -291,7 +291,7 @@ func TestAddChannel_RejectsCanonicalCollision(t *testing.T) {
 	}
 
 	ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/", body, nil, common.RoleRootUser)
-	AddChannel(ctx)
+	channelsHTTP().CreateChannel.Handle(ctx)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	assert.Equal(t, "channel_validation_failed", decodeRestError(t, rec).Code)
@@ -354,7 +354,7 @@ func TestUpdateChannel_RejectsSensitivePointerChangesForChannelWriteRole(t *test
 				tt.field: tt.value,
 			}, nil, common.RoleAdminUser)
 
-			UpdateChannel(ctx)
+			channelsHTTP().UpdateChannel.Handle(ctx)
 
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 			assert.False(t, decodeRestError(t, rec).Success, rec.Body.String())
@@ -403,7 +403,7 @@ func TestUpdateChannel_PreservesStoredChannelInfo(t *testing.T) {
 		"multi_key_mode": constant.MultiKeyModePolling,
 	}, nil, common.RoleRootUser)
 
-	UpdateChannel(ctx)
+	channelsHTTP().UpdateChannel.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.True(t, decodeRestError(t, rec).Success, rec.Body.String())
@@ -484,7 +484,7 @@ func TestUpdateChannel_PreservesModelConfig(t *testing.T) {
 			channel := seedChannelForUpdate(t, db)
 			ctx, rec := newRestContext(t, http.MethodPut, "/api/channel/", tt.body(channel.Id), nil, common.RoleRootUser)
 
-			UpdateChannel(ctx)
+			channelsHTTP().UpdateChannel.Handle(ctx)
 
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 			assertStoredChannelModelConfig(t, db, channel.Id, constant.ChannelTypeOpenRouter, "claude-fable-5", map[string]string{
@@ -505,7 +505,7 @@ func TestUpdateChannel_CanonicalizesModels(t *testing.T) {
 	}
 	ctx, rec := newRestContext(t, http.MethodPut, "/api/channel/", body, nil, common.RoleRootUser)
 
-	UpdateChannel(ctx)
+	channelsHTTP().UpdateChannel.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assertStoredChannelModelConfig(t, db, channel.Id, constant.ChannelTypeOpenRouter, "claude-fable-5,qwen3.7-max", map[string]string{
@@ -527,7 +527,7 @@ func TestUpdateChannel_PatchModelConfig(t *testing.T) {
 		}
 		ctx, rec := newRestContext(t, http.MethodPut, "/api/channel/", body, nil, common.RoleRootUser)
 
-		UpdateChannel(ctx)
+		channelsHTTP().UpdateChannel.Handle(ctx)
 
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		assertStoredChannelModelConfig(t, db, channel.Id, constant.ChannelTypeOpenRouter, "claude-fable-5", map[string]string{
@@ -546,7 +546,7 @@ func TestUpdateChannel_PatchModelConfig(t *testing.T) {
 		}
 		ctx, rec := newRestContext(t, http.MethodPut, "/api/channel/", body, nil, common.RoleRootUser)
 
-		UpdateChannel(ctx)
+		channelsHTTP().UpdateChannel.Handle(ctx)
 
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		assertStoredChannelModelConfig(t, db, channel.Id, constant.ChannelTypeOpenRouter, "claude-fable-5", map[string]string{
@@ -562,7 +562,7 @@ func TestUpdateChannel_PatchModelConfig(t *testing.T) {
 			"models": "   ",
 		}, nil, common.RoleRootUser)
 
-		UpdateChannel(ctx)
+		channelsHTTP().UpdateChannel.Handle(ctx)
 
 		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 		assert.Equal(t, "channel_validation_failed", decodeRestError(t, rec).Code)

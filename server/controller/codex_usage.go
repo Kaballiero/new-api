@@ -1,17 +1,14 @@
 package controller
 
 import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/gin-gonic/gin"
 )
 
-func GetCodexChannelUsage(c *gin.Context) {
-	channelsHTTP().GetCodexUsage.Handle(c)
-}
+func GetCodexChannelUsage(c *gin.Context) { httpapi.Channels().GetCodexUsage.Handle(c) }
 
 func GetCodexChannelRateLimitResetCredits(c *gin.Context) {
-	channelsHTTP().GetCodexResetCredits.Handle(c)
+	httpapi.Channels().GetCodexResetCredits.Handle(c)
 }
 
-func ResetCodexChannelUsage(c *gin.Context) {
-	channelsHTTP().ResetCodexUsage.Handle(c)
-}
+func ResetCodexChannelUsage(c *gin.Context) { httpapi.Channels().ResetCodexUsage.Handle(c) }

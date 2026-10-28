@@ -1,6 +1,7 @@
 package pricingfx_test
 
 import (
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
 
@@ -41,8 +42,8 @@ func TestModelCostFXTaskRunSuccessAndFailure(t *testing.T) {
 		body   string
 		want   domain.SystemTaskStatus
 	}{
-		{"success", http.StatusOK, `{"Date":"%s","Valute":{"USD":{"CharCode":"USD","Value":92,"Nominal":1}}}`, model.SystemTaskStatusSucceeded},
-		{"failure", http.StatusBadGateway, `{}`, model.SystemTaskStatusFailed},
+		{"success", http.StatusOK, `{"Date":"%s","Valute":{"USD":{"CharCode":"USD","Value":92,"Nominal":1}}}`, systemrecord.SystemTaskStatusSucceeded},
+		{"failure", http.StatusBadGateway, `{}`, systemrecord.SystemTaskStatusFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			seed := pricingfx.ModelCostFXTestSeed(t)
@@ -68,7 +69,7 @@ func TestModelCostFXTaskRunSuccessAndFailure(t *testing.T) {
 			current, err := fxstate.CurrentModelCostFX(pricingdomainfx.ModelCostFXSource)
 			require.NoError(t, err)
 			wantRate := 90.0
-			if tc.want == model.SystemTaskStatusSucceeded {
+			if tc.want == systemrecord.SystemTaskStatusSucceeded {
 				wantRate = 92
 			}
 			assert.Equal(t, wantRate, current.Rates["USD"])
@@ -124,7 +125,7 @@ func TestModelCostFXTaskKeepsCommittedFXWhenFinishLosesLease(t *testing.T) {
 	assert.Equal(t, 93.0, current.Rates["USD"])
 	var latest model.SystemTask
 	require.NoError(t, model.DB.Where("task_id = ?", task.TaskID).First(&latest).Error)
-	assert.NotEqual(t, model.SystemTaskStatusSucceeded, latest.Status)
+	assert.NotEqual(t, systemrecord.SystemTaskStatusSucceeded, latest.Status)
 }
 
 var systemStoreSystemTaskTest = systemstorage.Store{DB: func() *gorm.DB { return model.DB }}

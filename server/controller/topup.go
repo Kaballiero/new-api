@@ -1,25 +1,20 @@
 package controller
 
 import (
-	"sync"
-
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/gin-gonic/gin"
-
-	paymentsapp "github.com/QuantumNous/new-api/internal/app/payments"
 )
 
-var paymentsHTTP = sync.OnceValue(paymentsapp.NewHTTP)
+func GetTopUpInfo(c *gin.Context) { httpapi.Payments().Info.Handle(c) }
 
-func GetTopUpInfo(c *gin.Context) { paymentsHTTP().Info.Handle(c) }
+func RequestEpay(c *gin.Context) { httpapi.Payments().CreateEpay.Handle(c) }
 
-func RequestEpay(c *gin.Context) { paymentsHTTP().CreateEpay.Handle(c) }
+func EpayNotify(c *gin.Context) { httpapi.Payments().EpayNotify.Handle(c) }
 
-func EpayNotify(c *gin.Context) { paymentsHTTP().EpayNotify.Handle(c) }
+func RequestAmount(c *gin.Context) { httpapi.Payments().QuoteEpay.Handle(c) }
 
-func RequestAmount(c *gin.Context) { paymentsHTTP().QuoteEpay.Handle(c) }
+func GetUserTopUps(c *gin.Context) { httpapi.Payments().ListOwn.Handle(c) }
 
-func GetUserTopUps(c *gin.Context) { paymentsHTTP().ListOwn.Handle(c) }
+func GetAllTopUps(c *gin.Context) { httpapi.Payments().ListAll.Handle(c) }
 
-func GetAllTopUps(c *gin.Context) { paymentsHTTP().ListAll.Handle(c) }
-
-func AdminCompleteTopUp(c *gin.Context) { paymentsHTTP().Complete.Handle(c) }
+func AdminCompleteTopUp(c *gin.Context) { httpapi.Payments().Complete.Handle(c) }

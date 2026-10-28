@@ -1,10 +1,14 @@
 package controller
 
-import "github.com/gin-gonic/gin"
+import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
+	"github.com/gin-gonic/gin"
+)
 
 func CreateWaffoPancakeSubscriptionProduct(c *gin.Context) {
-	subscriptionProviders().CreateProduct.Handle(c)
+	httpapi.SubscriptionProviders().CreateProduct.Handle(c)
 }
+
 func ListWaffoPancakeSubscriptionProductOptions(c *gin.Context) {
-	subscriptionProviders().Products.Handle(c)
+	httpapi.SubscriptionProviders().Products.Handle(c)
 }

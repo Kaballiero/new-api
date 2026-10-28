@@ -1,28 +1,22 @@
 package controller
 
 import (
-	"sync"
-
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/gin-gonic/gin"
-
-	redemptionapp "github.com/QuantumNous/new-api/internal/app/redemption"
 )
 
-// BRIDGE: existing redemption router entrypoints; dependencies are assembled once with late database readers.
-var redemptionHTTP = sync.OnceValue(redemptionapp.NewHTTP)
+func GetAllRedemptions(c *gin.Context) { httpapi.Redemption().List.Handle(c) }
 
-func GetAllRedemptions(c *gin.Context) { redemptionHTTP().List.Handle(c) }
+func SearchRedemptions(c *gin.Context) { httpapi.Redemption().Search.Handle(c) }
 
-func SearchRedemptions(c *gin.Context) { redemptionHTTP().Search.Handle(c) }
+func GetRedemption(c *gin.Context) { httpapi.Redemption().Get.Handle(c) }
 
-func GetRedemption(c *gin.Context) { redemptionHTTP().Get.Handle(c) }
+func AddRedemption(c *gin.Context) { httpapi.Redemption().Create.Handle(c) }
 
-func AddRedemption(c *gin.Context) { redemptionHTTP().Create.Handle(c) }
+func DeleteRedemption(c *gin.Context) { httpapi.Redemption().Delete.Handle(c) }
 
-func DeleteRedemption(c *gin.Context) { redemptionHTTP().Delete.Handle(c) }
+func UpdateRedemption(c *gin.Context) { httpapi.Redemption().Update.Handle(c) }
 
-func UpdateRedemption(c *gin.Context) { redemptionHTTP().Update.Handle(c) }
+func DeleteInvalidRedemption(c *gin.Context) { httpapi.Redemption().DeleteInvalid.Handle(c) }
 
-func DeleteInvalidRedemption(c *gin.Context) { redemptionHTTP().DeleteInvalid.Handle(c) }
-
-func DeleteRedemptionBatch(c *gin.Context) { redemptionHTTP().DeleteBatch.Handle(c) }
+func DeleteRedemptionBatch(c *gin.Context) { httpapi.Redemption().DeleteBatch.Handle(c) }

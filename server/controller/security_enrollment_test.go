@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"github.com/fxamacker/cbor/v2"
+	"github.com/golang-jwt/jwt/v5"
+
 	patstorage "github.com/QuantumNous/new-api/internal/app/patstorage"
 
 	identitystore "github.com/QuantumNous/new-api/internal/adapter/gorm/identity"
@@ -25,7 +28,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/fxamacker/cbor/v2"
+
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -42,7 +45,7 @@ import (
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -880,7 +883,7 @@ func TestSecurityEnrollmentPasskeyProofProtectsChannelKeyRead(t *testing.T) {
 	assert.Equal(t, "channel.key.read", proof.Scope, "finish cannot replace the operation approved at begin")
 
 	router := gin.New()
-	router.POST("/api/channel/:id/key", middleware.RootAuth(), middleware.SecureVerificationRequired(), GetChannelKey)
+	router.POST("/api/channel/:id/key", middleware.RootAuth(), middleware.SecureVerificationRequired(), channelsHTTP().RevealChannelKey.Handle)
 	for _, test := range []struct {
 		name, path, proof, code, key string
 		status                       int
@@ -1241,7 +1244,7 @@ func TestSecurityEnrollmentDatabaseErrorsAreNotReturned(t *testing.T) {
 		{"oauth state", "POST", "/api/oauth/state", `{"provider":"enrollment-oauth","intent":"verify","scope":"2fa.setup"}`, "users", false, GenerateOAuthCode},
 		{"channel key", "POST", "/api/channel/1/key", "", "channels", false, func(c *gin.Context) {
 			c.Params = gin.Params{{Key: "id", Value: "1"}}
-			GetChannelKey(c)
+			channelsHTTP().RevealChannelKey.Handle(c)
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -1556,7 +1559,7 @@ func TestSecurityEnrollmentMissingTargetsAreBusinessErrors(t *testing.T) {
 		handler                       gin.HandlerFunc
 		notFoundStatus, invalidStatus int
 	}{
-		{"/api/channel/999/key", i18n.MsgChannelNotExists, GetChannelKey, http.StatusNotFound, http.StatusBadRequest},
+		{"/api/channel/999/key", i18n.MsgChannelNotExists, channelsHTTP().RevealChannelKey.Handle, http.StatusNotFound, http.StatusBadRequest},
 		{"/api/user/999/2fa", i18n.MsgUserNotExists, AdminDisable2FA, http.StatusOK, http.StatusOK},
 	} {
 		var expectedMessage string

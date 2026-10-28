@@ -2,6 +2,7 @@ package middleware
 
 import (
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"github.com/QuantumNous/new-api/internal/app/authentication"
 
 	accountcache "github.com/QuantumNous/new-api/internal/adapter/cache/accounts"
 
@@ -171,7 +172,7 @@ func classifyDashboardCredential(c *gin.Context) (*accountcache.UserBase, identi
 		}
 		return user, identity, dashboardCredentialInternal, nil
 	}
-	patUser, err := personalAccessTokenAuth().Execute(raw)
+	patUser, err := authentication.PersonalAccessTokenAuth().Execute(raw)
 	if err != nil {
 		return nil, identitydomain.AuthIdentity{}, dashboardCredentialPAT, err
 	}
@@ -294,7 +295,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 			key = strings.TrimSpace(key[7:])
 		}
 		key = strings.Split(strings.TrimPrefix(key, "sk-"), "-")[0]
-		caller, err := gatewayKeyAuth().Execute(c, validate_key.Input{Key: key, ReadOnly: true})
+		caller, err := authentication.GatewayKeyAuth().Execute(c, validate_key.Input{Key: key, ReadOnly: true})
 		if err != nil {
 			writeGatewayKeyError(c, err, true)
 			return
@@ -367,7 +368,7 @@ func TokenAuth() func(c *gin.Context) {
 		if len(parts) > 1 {
 			channel = &parts[1]
 		}
-		caller, err := gatewayKeyAuth().Execute(c, validate_key.Input{Key: key, ClientIP: c.ClientIP(), Channel: channel})
+		caller, err := authentication.GatewayKeyAuth().Execute(c, validate_key.Input{Key: key, ClientIP: c.ClientIP(), Channel: channel})
 		writeGatewayCaller(c, caller)
 		if err != nil {
 			writeGatewayKeyError(c, err, false)
@@ -377,13 +378,12 @@ func TokenAuth() func(c *gin.Context) {
 	}
 }
 
-// BRIDGE: controller/playground.go and legacy context tests use a trusted key.
 func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) error {
 	var channel *string
 	if len(parts) > 1 {
 		channel = &parts[1]
 	}
-	result, err := gatewayKeyAuth().PrepareContext(validate_key.ContextInput{Token: record.ToDomain((*record.Token)(token)), Channel: channel})
+	result, err := authentication.GatewayKeyAuth().PrepareContext(validate_key.ContextInput{Token: record.ToDomain((*record.Token)(token)), Channel: channel})
 	if result != nil {
 		writeGatewayTokenContext(c, result)
 	}

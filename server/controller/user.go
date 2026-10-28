@@ -1,94 +1,55 @@
 package controller
 
 import (
-	accountscore "github.com/QuantumNous/new-api/internal/app/accountscore"
-
-	"github.com/gin-gonic/gin"
-
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/internal/accounts/change_group"
-	"github.com/QuantumNous/new-api/internal/accounts/domain"
-	profiledto "github.com/QuantumNous/new-api/internal/accounts/dto"
 	"github.com/QuantumNous/new-api/internal/accounts/get_accounts_batch"
 	"github.com/QuantumNous/new-api/internal/accounts/manage_account"
 	"github.com/QuantumNous/new-api/internal/accounts/transfer_affiliate_quota"
 	"github.com/QuantumNous/new-api/internal/accounts/update_notification_preferences"
-	accountsadapter "github.com/QuantumNous/new-api/internal/adapter/accounts"
-	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/accounts"
-	identityhttp "github.com/QuantumNous/new-api/internal/adapter/identity/http"
-	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
-	auditdomain "github.com/QuantumNous/new-api/internal/audit/domain"
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/QuantumNous/new-api/internal/identity/password_login"
-	"github.com/QuantumNous/new-api/model"
+	"github.com/gin-gonic/gin"
 )
 
 type LoginRequest = password_login.LoginRequest
 
-func GetPasswordEncryptionKey(c *gin.Context) { identityHTTP().PasswordEncryptionKey.Handle(c) }
+func GetPasswordEncryptionKey(c *gin.Context) { httpapi.Identity().PasswordEncryptionKey.Handle(c) }
 
-func Login(c *gin.Context) { identityHTTP().PasswordLogin.Handle(c) }
+func Login(c *gin.Context) { httpapi.Identity().PasswordLogin.Handle(c) }
 
-// loginMethodFromContext 根据请求路径推导登录方式，用于登录审计日志。
-func loginMethodFromContext(c *gin.Context) string { return identityhttp.LoginMethodFromContext(c) }
+func Register(c *gin.Context) { httpapi.Identity().RegisterPassword.Handle(c) }
 
-// BRIDGE: successful login callbacks from identity workflows.
-func recordLoginAudit(user *model.User, c *gin.Context) {
-	auditRecording().Login(c, auditdomain.Actor{ID: user.Id, Username: user.Username, Role: user.Role}, loginMethodFromContext(c))
-}
+func GetAllUsers(c *gin.Context) { httpapi.Accounts().ListAccounts.Handle(c) }
 
-// setupLogin evaluates the shared login policy after primary authentication.
-// Only a completed Passkey ceremony may go directly to session issuance.
-func setupLogin(user *model.User, c *gin.Context) { identityHTTP().PrimaryLogin.Start(user, c) }
-
-func setupLoginAtAuthVersion(user *model.User, version int64, c *gin.Context) {
-	identityHTTP().PrimaryLogin.AtVersion(user, version, c)
-}
-
-func Register(c *gin.Context) { identityHTTP().RegisterPassword.Handle(c) }
-
-func GetAllUsers(c *gin.Context) { accountsHTTP().ListAccounts.Handle(c) }
-
-func SearchUsers(c *gin.Context) { accountsHTTP().SearchAccounts.Handle(c) }
+func SearchUsers(c *gin.Context) { httpapi.Accounts().SearchAccounts.Handle(c) }
 
 type GetUsersBatchResponse = get_accounts_batch.GetUsersBatchResponse
 
-func GetUsersBatch(c *gin.Context) { accountsHTTP().GetAccountsBatch.Handle(c) }
+func GetUsersBatch(c *gin.Context) { httpapi.Accounts().GetAccountsBatch.Handle(c) }
 
-func GetUser(c *gin.Context) { accountsHTTP().GetAccount.Handle(c) }
+func GetUser(c *gin.Context) { httpapi.Accounts().GetAccount.Handle(c) }
 
 type TransferAffQuotaRequest = transfer_affiliate_quota.TransferAffQuotaRequest
 
-func TransferAffQuota(c *gin.Context) { accountsHTTP().TransferAffiliateQuota.Handle(c) }
+func TransferAffQuota(c *gin.Context) { httpapi.Accounts().TransferAffiliateQuota.Handle(c) }
 
-func GetAffCode(c *gin.Context) { accountsHTTP().GetAffiliateCode.Handle(c) }
+func GetAffCode(c *gin.Context) { httpapi.Accounts().GetAffiliateCode.Handle(c) }
 
-func GetSelf(c *gin.Context) { accountsHTTP().GetProfile.Handle(c) }
+func GetSelf(c *gin.Context) { httpapi.Accounts().GetProfile.Handle(c) }
 
-// buildSelfUserData is the single safe dashboard-user DTO used by GetSelf,
-// login and refresh. It intentionally excludes password, management PAT and
-// administrator-only remarks.
-func buildSelfUserData(user *model.User) map[string]any {
-	return profiledto.BuildSelfUserData(repository.ProfileData(user), accountsadapter.SidebarModules, func(id, role int) any { return authz.Capabilities(id, role) }, domain.AdminRoles{Admin: common.RoleAdminUser, Root: common.RoleRootUser})
-}
+func GetUserModels(c *gin.Context) { httpapi.Accounts().GetAccountModels.Handle(c) }
 
-// 根据用户角色生成默认的边栏配置
-func generateDefaultSidebarConfig(userRole int) string {
-	return accountscore.GenerateDefaultSidebarConfigForRole(userRole)
-}
+func UpdateUser(c *gin.Context) { httpapi.Accounts().UpdateAccount.Handle(c) }
 
-func GetUserModels(c *gin.Context) { accountsHTTP().GetAccountModels.Handle(c) }
+func AdminClearUserBinding(c *gin.Context) { httpapi.Accounts().ClearBinding.Handle(c) }
 
-func UpdateUser(c *gin.Context) { accountsHTTP().UpdateAccount.Handle(c) }
+func UpdateSelf(c *gin.Context) { httpapi.Accounts().UpdateProfile.Handle(c) }
 
-func AdminClearUserBinding(c *gin.Context) { accountsHTTP().ClearBinding.Handle(c) }
+func DeleteUser(c *gin.Context) { httpapi.Accounts().DeleteAccount.Handle(c) }
 
-func UpdateSelf(c *gin.Context) { accountsHTTP().UpdateProfile.Handle(c) }
+func DeleteSelf(c *gin.Context) { httpapi.Identity().DeleteAccount.Handle(c) }
 
-func DeleteUser(c *gin.Context) { accountsHTTP().DeleteAccount.Handle(c) }
-
-func DeleteSelf(c *gin.Context) { identityHTTP().DeleteAccount.Handle(c) }
-
-func CreateUser(c *gin.Context) { accountsHTTP().CreateAccount.Handle(c) }
+func CreateUser(c *gin.Context) { httpapi.Accounts().CreateAccount.Handle(c) }
 
 type ManageRequest = manage_account.ManageRequest
 
@@ -99,15 +60,13 @@ type ManageRequest = manage_account.ManageRequest
 // should switch on Action to know which fields are meaningful.
 type ManageUserResponse = manage_account.ManageUserResponse
 
-// ManageUser Only admin user can do this
-func ManageUser(c *gin.Context) { accountsHTTP().ManageAccount.Handle(c) }
+func ManageUser(c *gin.Context) { httpapi.Accounts().ManageAccount.Handle(c) }
 
-// BRIDGE: the existing user top-up route redeems a code.
-func TopUp(c *gin.Context) { redemptionHTTP().Redeem.Handle(c) }
+func TopUp(c *gin.Context) { httpapi.Redemption().Redeem.Handle(c) }
 
 type UpdateUserSettingRequest = update_notification_preferences.UpdateUserSettingRequest
 
-func UpdateUserSetting(c *gin.Context) { accountsHTTP().UpdateNotificationPreferences.Handle(c) }
+func UpdateUserSetting(c *gin.Context) { httpapi.Accounts().UpdateNotificationPreferences.Handle(c) }
 
 // BulkUpdateUserGroupRequest is the request body for POST /api/user/group/batch.
 type BulkUpdateUserGroupRequest = change_group.BulkUpdateUserGroupRequest
@@ -115,10 +74,4 @@ type BulkUpdateUserGroupRequest = change_group.BulkUpdateUserGroupRequest
 // BulkUpdateUserGroupResponse summarizes the outcome of a bulk group update.
 type BulkUpdateUserGroupResponse = change_group.BulkUpdateUserGroupResponse
 
-// BulkUpdateUserGroup handles POST /api/user/group/batch — bulk update the `group` field
-// of multiple users at once. Admin-only. Returns:
-//   - 400 on empty input, oversize batch, or unknown target group
-//   - 403 if every requested id is forbidden by the caller's role
-//   - 404 if every requested id does not exist
-//   - 200 with BulkUpdateUserGroupResponse on success (including partial: skipped/not_found are reported in the body)
-func BulkUpdateUserGroup(c *gin.Context) { accountsHTTP().ChangeGroup.Handle(c) }
+func BulkUpdateUserGroup(c *gin.Context) { httpapi.Accounts().ChangeGroup.Handle(c) }

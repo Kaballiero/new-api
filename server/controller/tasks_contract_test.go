@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -316,7 +317,7 @@ func runTaskScheduleContract(t *testing.T, name string, updating bool) {
 		require.Equal(t, variant == "active", handler.Enabled())
 		require.Equal(t, 15*time.Second, handler.Interval())
 		require.Nil(t, handler.NewPayload())
-		task := &model.SystemTask{ID: 1, TaskID: "systask_fixture", Type: handler.Type(), Status: model.SystemTaskStatusRunning, LockedBy: "fixture-runner"}
+		task := &model.SystemTask{ID: 1, TaskID: "systask_fixture", Type: handler.Type(), Status: systemrecord.SystemTaskStatusRunning, LockedBy: "fixture-runner"}
 		require.NoError(t, db.Create(task).Error)
 		until := time.Now().Unix() + 60
 		if variant == "lease_lost" {
@@ -334,9 +335,9 @@ func runTaskScheduleContract(t *testing.T, name string, updating bool) {
 		handler.Run(ctx, claimed, task.LockedBy)
 		var saved model.SystemTask
 		require.NoError(t, db.First(&saved, 1).Error)
-		expected := model.SystemTaskStatusSucceeded
+		expected := systemrecord.SystemTaskStatusSucceeded
 		if variant == "lease_lost" {
-			expected = model.SystemTaskStatusRunning
+			expected = systemrecord.SystemTaskStatusRunning
 		}
 		require.Equal(t, expected, saved.Status)
 		fixture.Compare(t,

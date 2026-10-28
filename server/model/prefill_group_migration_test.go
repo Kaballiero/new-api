@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"os"
 	"strings"
 	"testing"
@@ -26,7 +27,7 @@ func testPrefillGroupMigrationNonPostgreSQL(t *testing.T, db *gorm.DB) {
 	require.NoError(t, tableDB.Create(&PrefillGroup{
 		Name:        "preserved-name",
 		Type:        "model",
-		Items:       JSONValue(`["gpt-test"]`),
+		Items:       catalogrecord.JSONValue(`["gpt-test"]`),
 		Description: "preserve me",
 	}).Error)
 
@@ -204,7 +205,7 @@ func TestMigratePrefillGroupUniquenessPostgreSQL(t *testing.T) {
 			original := PrefillGroup{
 				Name:        "shared-name",
 				Type:        "model",
-				Items:       JSONValue(`["gpt-test"]`),
+				Items:       catalogrecord.JSONValue(`["gpt-test"]`),
 				Description: "preserve me",
 			}
 			require.NoError(t, tx.Create(&original).Error)
@@ -283,7 +284,7 @@ WHERE schemaname = current_schema()
 				return duplicateTx.Create(&PrefillGroup{
 					Name:  original.Name,
 					Type:  "model",
-					Items: JSONValue(`[]`),
+					Items: catalogrecord.JSONValue(`[]`),
 				}).Error
 			})
 			require.Error(t, duplicateError)
@@ -292,7 +293,7 @@ WHERE schemaname = current_schema()
 			require.NoError(t, tx.Create(&PrefillGroup{
 				Name:  original.Name,
 				Type:  "model",
-				Items: JSONValue(`[]`),
+				Items: catalogrecord.JSONValue(`[]`),
 			}).Error)
 
 			var totalRows int64

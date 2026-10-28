@@ -1,13 +1,12 @@
-package controller
+package httpapi
 
 import (
-	"sync"
-
 	"github.com/QuantumNous/new-api/internal/app"
+	"sync"
 )
 
-// pricingHTTP builds the pricing handlers once; settings, the catalog snapshot
+// Pricing builds the pricing handlers once; settings, the catalog snapshot
 // and the database are read per request by the injected functions.
-var pricingHTTP = sync.OnceValue(func() app.PricingHTTP {
+var Pricing = sync.OnceValue(func() app.PricingHTTP {
 	return app.NewPricingHTTP(app.PricingEffects{Audit: recordManageAudit})
 })

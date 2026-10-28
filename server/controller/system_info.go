@@ -1,12 +1,12 @@
 package controller
 
-import "github.com/gin-gonic/gin"
+import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
+	"github.com/gin-gonic/gin"
+)
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func ListSystemInstances(c *gin.Context) { systemHTTP().Instances.Handle(c) }
+func ListSystemInstances(c *gin.Context) { httpapi.System().Instances.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func DeleteStaleSystemInstances(c *gin.Context) { systemHTTP().DeleteInstances.Handle(c) }
+func DeleteStaleSystemInstances(c *gin.Context) { httpapi.System().DeleteInstances.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func DeleteStaleSystemInstance(c *gin.Context) { systemHTTP().DeleteInstance.Handle(c) }
+func DeleteStaleSystemInstance(c *gin.Context) { httpapi.System().DeleteInstance.Handle(c) }

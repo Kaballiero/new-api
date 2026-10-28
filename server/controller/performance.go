@@ -1,21 +1,18 @@
 package controller
 
-import "github.com/gin-gonic/gin"
+import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
+	"github.com/gin-gonic/gin"
+)
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func GetPerformanceStats(c *gin.Context) { systemHTTP().Stats.Handle(c) }
+func GetPerformanceStats(c *gin.Context) { httpapi.System().Stats.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func ClearDiskCache(c *gin.Context) { systemHTTP().ClearCache.Handle(c) }
+func ClearDiskCache(c *gin.Context) { httpapi.System().ClearCache.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func ResetPerformanceStats(c *gin.Context) { systemHTTP().ResetStats.Handle(c) }
+func ResetPerformanceStats(c *gin.Context) { httpapi.System().ResetStats.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func ForceGC(c *gin.Context) { systemHTTP().GC.Handle(c) }
+func ForceGC(c *gin.Context) { httpapi.System().GC.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func GetLogFiles(c *gin.Context) { systemHTTP().LogFiles.Handle(c) }
+func GetLogFiles(c *gin.Context) { httpapi.System().LogFiles.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func CleanupLogFiles(c *gin.Context) { systemHTTP().CleanupFiles.Handle(c) }
+func CleanupLogFiles(c *gin.Context) { httpapi.System().CleanupFiles.Handle(c) }

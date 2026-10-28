@@ -3,6 +3,7 @@ package audit
 
 import (
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
+	"sync"
 
 	"context"
 	"fmt"
@@ -49,3 +50,6 @@ func NewRecording() transport.Recording {
 	return transport.NewRecording(usecase.Execute, func(ctx context.Context, err error) { logger.LogError(ctx, err.Error()) },
 		common.GetTimestamp, common.NewRequestId)
 }
+
+// Recording assembles the shared audit writer with late storage readers.
+var Recording = sync.OnceValue(NewRecording)

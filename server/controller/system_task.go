@@ -1,15 +1,14 @@
 package controller
 
-import "github.com/gin-gonic/gin"
+import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
+	"github.com/gin-gonic/gin"
+)
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func CreateLogCleanupSystemTask(c *gin.Context) { systemHTTP().StartCleanup.Handle(c) }
+func CreateLogCleanupSystemTask(c *gin.Context) { httpapi.System().StartCleanup.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func GetCurrentSystemTask(c *gin.Context) { systemHTTP().CurrentTask.Handle(c) }
+func GetCurrentSystemTask(c *gin.Context) { httpapi.System().CurrentTask.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func ListSystemTasks(c *gin.Context) { systemHTTP().ListTasks.Handle(c) }
+func ListSystemTasks(c *gin.Context) { httpapi.System().ListTasks.Handle(c) }
 
-// BRIDGE: existing router registration; remove when router assembles the system handler directly.
-func GetSystemTask(c *gin.Context) { systemHTTP().GetTask.Handle(c) }
+func GetSystemTask(c *gin.Context) { httpapi.System().GetTask.Handle(c) }

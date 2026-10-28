@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 
@@ -165,7 +166,7 @@ func TestCopyChannelRejectsInvalidLegacyProxySettings(t *testing.T) {
 	ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprintf("%d", origin.Id)}}
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/copy", nil)
 
-	CopyChannel(ctx)
+	channelsHTTP().CopyChannel.Handle(ctx)
 
 	assert.Contains(t, recorder.Body.String(), "invalid channel settings")
 	var channelCount int64
@@ -188,7 +189,7 @@ func TestDeleteChannelResetsProxyCacheWhenPreReadFails(t *testing.T) {
 	ctx.Params = gin.Params{{Key: "id", Value: "999999"}}
 	ctx.Request = httptest.NewRequest(http.MethodDelete, "/api/channel/999999", nil)
 
-	DeleteChannel(ctx)
+	channelsHTTP().DeleteChannel.Handle(ctx)
 
 	assert.Contains(t, recorder.Body.String(), `"success":true`)
 	afterDelete, err := httpclient.GetHttpClientWithProxy(proxyURL)
@@ -209,7 +210,7 @@ func TestDeleteChannelBatchReportsAndAuditsActualDeletedCount(t *testing.T) {
 	ctx.Request = httptest.NewRequest(http.MethodDelete, "/api/channel/batch", bytes.NewReader(requestBody))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	DeleteChannelBatch(ctx)
+	channelsHTTP().DeleteChannelsBatch.Handle(ctx)
 
 	var response struct {
 		Success bool  `json:"success"`
@@ -386,7 +387,7 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
 
-	existing, err := systemStoreChannelTestInternalTest.CreateSystemTask(model.SystemTaskTypeChannelTest, nil, nil)
+	existing, err := systemStoreChannelTestInternalTest.CreateSystemTask(systemrecord.SystemTaskTypeChannelTest, nil, nil)
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
@@ -395,7 +396,7 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 	ctx.Request.Header.Set("Accept-Language", "zh-CN")
 	require.NoError(t, i18n.Init())
 
-	TestAllChannels(ctx)
+	channelsHTTP().TestChannels.Handle(ctx)
 
 	require.Equal(t, http.StatusConflict, recorder.Code)
 	require.Contains(t, recorder.Body.String(), existing.TaskID)
@@ -416,7 +417,7 @@ func TestChannelProbePreservesUnsupportedResponses(t *testing.T) {
 		ctx.Set("id", user.Id)
 		ctx.Params = gin.Params{{Key: "id", Value: fmt.Sprint(channel.Id)}}
 		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/"+fmt.Sprint(channel.Id), nil)
-		require.NotPanics(t, func() { TestChannel(ctx) })
+		require.NotPanics(t, func() { channelsHTTP().TestChannel.Handle(ctx) })
 		assert.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
 		var response struct {
 			Success bool
@@ -438,7 +439,7 @@ func TestChannelProbePreservesUnsupportedResponses(t *testing.T) {
 		ctx.Set("id", user.Id)
 		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/validate_models", strings.NewReader(string(body)))
 		ctx.Request.Header.Set("Content-Type", "application/json")
-		require.NotPanics(t, func() { ValidateModels(ctx) })
+		require.NotPanics(t, func() { channelsHTTP().ValidateModels.Handle(ctx) })
 		require.Equal(t, http.StatusOK, recorder.Code)
 		var response struct {
 			Success bool
@@ -576,7 +577,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	tag := "native-tag"
 	base := "https://unused.example"
 	request := AddChannelRequest{Mode: "batch", BatchAddSetKeyPrefix2Name: true, Channel: &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "native", Key: "one\ntwo", Models: "gpt-4o", Group: "default", BaseURL: &base, Tag: &tag}}
-	response := channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel", request, AddChannel)
+	response := channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel", request, channelsHTTP().CreateChannel.Handle)
 	require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
 	var channels []model.Channel
 	require.NoError(t, db.Order("id asc").Find(&channels).Error)
@@ -585,7 +586,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	assert.Equal(t, "native one two", channels[1].Name)
 	id := channels[0].Id
 	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", id).Updates(map[string]any{"used_quota": 123, "balance": 37.5, "created_time": 42}).Error)
-	response = channelMatrixRequest(t, user.Id, http.MethodPut, "/api/channel", map[string]any{"id": id, "name": "edited", "priority": 9, "models": "gpt-4o,gpt-4o-mini", "used_quota": 999, "balance": 0, "created_time": 99}, UpdateChannel)
+	response = channelMatrixRequest(t, user.Id, http.MethodPut, "/api/channel", map[string]any{"id": id, "name": "edited", "priority": 9, "models": "gpt-4o,gpt-4o-mini", "used_quota": 999, "balance": 0, "created_time": 99}, channelsHTTP().UpdateChannel.Handle)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	var result struct {
 		Success bool
@@ -600,7 +601,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	assert.EqualValues(t, 123, current.UsedQuota)
 	assert.Equal(t, 37.5, current.Balance)
 	assert.EqualValues(t, 42, current.CreatedTime)
-	response = channelMatrixRequest(t, user.Id, http.MethodGet, "/api/channel/?group=default&tag_mode=true", nil, GetAllChannels)
+	response = channelMatrixRequest(t, user.Id, http.MethodGet, "/api/channel/?group=default&tag_mode=true", nil, channelsHTTP().ListChannels.Handle)
 	require.Equal(t, http.StatusOK, response.Code)
 	var page struct {
 		Success bool
@@ -616,40 +617,40 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	for _, channel := range page.Data.Items {
 		assert.Empty(t, channel.Key)
 	}
-	response = channelMatrixRequest(t, user.Id, http.MethodGet, "/api/channel/search?keyword=edited&group=default", nil, SearchChannels)
+	response = channelMatrixRequest(t, user.Id, http.MethodGet, "/api/channel/search?keyword=edited&group=default", nil, channelsHTTP().SearchChannels.Handle)
 	require.Equal(t, http.StatusOK, response.Code)
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &page))
 	require.True(t, page.Success, response.Body.String())
 	assert.EqualValues(t, 1, page.Data.Total)
-	response = channelMatrixRequest(t, user.Id, http.MethodPost, fmt.Sprintf("/api/channel/status?channel_id=%d", id), ChannelStatusRequest{Status: common.ChannelStatusManuallyDisabled}, UpdateChannelStatus)
+	response = channelMatrixRequest(t, user.Id, http.MethodPost, fmt.Sprintf("/api/channel/status?channel_id=%d", id), ChannelStatusRequest{Status: common.ChannelStatusManuallyDisabled}, channelsHTTP().UpdateChannelStatus.Handle)
 	require.Equal(t, http.StatusOK, response.Code)
 	assert.Contains(t, response.Body.String(), `"data":true`)
 	var ability channelrecord.Ability
 	require.NoError(t, db.Where("channel_id = ?", id).First(&ability).Error)
 	assert.False(t, ability.Enabled)
-	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/status/batch", ChannelStatusBatchRequest{Ids: []int{id}, Status: common.ChannelStatusEnabled}, BatchUpdateChannelStatus)
+	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/status/batch", ChannelStatusBatchRequest{Ids: []int{id}, Status: common.ChannelStatusEnabled}, channelsHTTP().UpdateChannelStatusBatch.Handle)
 	require.Equal(t, http.StatusOK, response.Code)
 	assert.Contains(t, response.Body.String(), `"data":1`)
 	require.NoError(t, db.Where("channel_id = ?", id).First(&ability).Error)
 	assert.True(t, ability.Enabled)
-	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/batch/tag", ChannelBatch{Ids: []int{id}, Tag: nil}, BatchSetChannelTag)
+	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/batch/tag", ChannelBatch{Ids: []int{id}, Tag: nil}, channelsHTTP().SetChannelTagsBatch.Handle)
 	require.Equal(t, http.StatusOK, response.Code)
 	current, err = channelstore.GetChannelById(id, true)
 	require.NoError(t, err)
 	assert.Nil(t, current.Tag)
-	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel", AddChannelRequest{Mode: "multi_to_single", MultiKeyMode: constant.MultiKeyModePolling, Channel: &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "multi", Key: "first\nsecond", Models: "gpt-4o", Group: "default"}}, AddChannel)
+	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel", AddChannelRequest{Mode: "multi_to_single", MultiKeyMode: constant.MultiKeyModePolling, Channel: &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "multi", Key: "first\nsecond", Models: "gpt-4o", Group: "default"}}, channelsHTTP().CreateChannel.Handle)
 	require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
 	var multi model.Channel
 	require.NoError(t, db.Where("name = ?", "multi").First(&multi).Error)
 	index := 0
-	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/multi_key/manage", MultiKeyManageRequest{ChannelId: multi.Id, Action: "disable_key", KeyIndex: &index}, ManageMultiKeys)
+	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/multi_key/manage", MultiKeyManageRequest{ChannelId: multi.Id, Action: "disable_key", KeyIndex: &index}, channelsHTTP().ManageMultiKeys.Handle)
 	require.Equal(t, http.StatusOK, response.Code)
 	current, err = channelstore.GetChannelById(multi.Id, true)
 	require.NoError(t, err)
 	assert.True(t, current.ChannelInfo.IsMultiKey)
 	assert.Equal(t, 2, current.ChannelInfo.MultiKeySize)
 	assert.Equal(t, 2, current.ChannelInfo.MultiKeyStatusList[0])
-	for _, handler := range []gin.HandlerFunc{DisableTagChannels, EnableTagChannels} {
+	for _, handler := range []gin.HandlerFunc{channelsHTTP().DisableTagChannels.Handle, channelsHTTP().EnableTagChannels.Handle} {
 		response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/tag", map[string]any{"tag": tag, "priority": "invalid"}, handler)
 		require.Equal(t, http.StatusOK, response.Code)
 		assert.Contains(t, response.Body.String(), `"success":false`)
@@ -662,7 +663,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 		}
 	}))
 	t.Cleanup(func() { db.Callback().Create().Remove("channels_matrix_ability_failure") })
-	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel", AddChannelRequest{Mode: "single", Channel: &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "rollback", Key: "key", Models: "gpt-4o", Group: "default"}}, AddChannel)
+	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel", AddChannelRequest{Mode: "single", Channel: &model.Channel{Type: constant.ChannelTypeOpenAI, Name: "rollback", Key: "key", Models: "gpt-4o", Group: "default"}}, channelsHTTP().CreateChannel.Handle)
 	require.Equal(t, http.StatusInternalServerError, response.Code)
 	afterCount, err := channelstore.NewChannelPersistence().CountAllChannels()
 	require.NoError(t, err)
@@ -671,7 +672,7 @@ func TestChannelsNativeCompatibility(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}))
 	assert.True(t, db.Migrator().HasIndex(&model.Channel{}, "Name"))
 	assert.True(t, db.Migrator().HasIndex(&model.Channel{}, "Tag"))
-	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/batch", ChannelBatch{Ids: []int{id, 999999}}, DeleteChannelBatch)
+	response = channelMatrixRequest(t, user.Id, http.MethodPost, "/api/channel/batch", ChannelBatch{Ids: []int{id, 999999}}, channelsHTTP().DeleteChannelsBatch.Handle)
 	require.Equal(t, http.StatusOK, response.Code)
 	assert.Contains(t, response.Body.String(), `"data":1`)
 	var remaining int64

@@ -2,6 +2,7 @@ package model
 
 import (
 	"database/sql/driver"
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	"testing"
 
@@ -35,7 +36,7 @@ func TestJSONColumnValuersReturnString(t *testing.T) {
 		},
 		{
 			name:   "JSONValue",
-			valuer: JSONValue(`[{"k":"v"}]`),
+			valuer: catalogrecord.JSONValue(`[{"k":"v"}]`),
 			want:   `[{"k":"v"}]`,
 		},
 	}
@@ -56,7 +57,7 @@ func TestJSONColumnValuersZeroValueIsNil(t *testing.T) {
 	for name, valuer := range map[string]driver.Valuer{
 		"Properties":      Properties{},
 		"TaskPrivateData": TaskPrivateData{},
-		"JSONValue":       JSONValue(nil),
+		"JSONValue":       catalogrecord.JSONValue(nil),
 	} {
 		t.Run(name, func(t *testing.T) {
 			value, err := valuer.Value()

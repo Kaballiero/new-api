@@ -68,7 +68,7 @@ func New() Runtime {
 	}
 }
 
-// SystemHandler is registered through controller.RegisterScheduledSystemTasks in every scheduler binary.
+// SystemHandler is registered through httpapi.RegisterScheduledSystemTasks in every scheduler binary.
 type SystemHandler struct{ poll poll_batches.Usecase }
 
 func NewSystemHandler(poll poll_batches.Usecase) SystemHandler { return SystemHandler{poll} }

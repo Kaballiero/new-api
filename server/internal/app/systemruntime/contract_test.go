@@ -2,6 +2,7 @@
 package systemruntime_test
 
 import (
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	metricsstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/systemmetrics"
 	metricsdomain "github.com/QuantumNous/new-api/internal/system/domain"
 
@@ -551,15 +552,15 @@ func tasksCase(t *testing.T, tc systemCase, request func(string, string, string)
 		for i, kind := range []string{"log_cleanup", "channel_test", "model_update",
 			"midjourney_poll", "async_task_poll", "provider_batch_poll", "pricing_catalog",
 			"model_cost_fx", "unknown"} {
-			status := model.SystemTaskStatusSucceeded
+			status := systemrecord.SystemTaskStatusSucceeded
 			active := (*string)(nil)
 			if tc.Variant == "current_pending" {
-				status = model.SystemTaskStatusPending
+				status = systemrecord.SystemTaskStatusPending
 				key := kind
 				active = &key
 			}
 			if tc.Variant == "current_running" {
-				status = model.SystemTaskStatusRunning
+				status = systemrecord.SystemTaskStatusRunning
 				key := kind
 				active = &key
 			}

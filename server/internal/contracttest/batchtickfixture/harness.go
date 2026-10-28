@@ -1,7 +1,9 @@
 package batchtickfixture
 
 import (
-	"github.com/QuantumNous/new-api/controller"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	"github.com/QuantumNous/new-api/internal/app/httpapi"
+
 	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
 	account "github.com/QuantumNous/new-api/internal/adapter/http/batchaccount"
 	core "github.com/QuantumNous/new-api/internal/app/batch"
@@ -594,7 +596,7 @@ func (h harness) runBatchDurable(t *testing.T, tc Case, job *model.BatchJob, sta
 		require.NoError(t, model.DB.Model(&model.SystemTask{}).Count(&count).Error)
 		require.Zero(t, count, "once is consumed on the follower as in production")
 	case "registration", "scheduler_off", "scheduler_due", "handler_history", "handler_cancelled":
-		controller.RegisterScheduledSystemTasks()
+		httpapi.RegisterScheduledSystemTasks()
 		var handler ScheduledSystemTaskHandler
 		for _, candidate := range h.Handlers() {
 			if candidate.Type() == "provider_batch_poll" {
@@ -622,9 +624,9 @@ func (h harness) runBatchDurable(t *testing.T, tc Case, job *model.BatchJob, sta
 			var stored model.SystemTask
 			require.NoError(t, model.DB.First(&stored, task.ID).Error)
 			if tc.Variant == "handler_cancelled" {
-				require.Equal(t, model.SystemTaskStatusFailed, stored.Status)
+				require.Equal(t, systemrecord.SystemTaskStatusFailed, stored.Status)
 			} else {
-				require.Equal(t, model.SystemTaskStatusSucceeded, stored.Status)
+				require.Equal(t, systemrecord.SystemTaskStatusSucceeded, stored.Status)
 			}
 			*states = append(*states, fixture.State(t))
 			return

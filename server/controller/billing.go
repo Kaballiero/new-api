@@ -1,15 +1,10 @@
 package controller
 
 import (
-	"github.com/QuantumNous/new-api/internal/app"
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/gin-gonic/gin"
-	"sync"
 )
 
-var billingCompatibilityHTTP = sync.OnceValue(app.NewBillingCompatibilityHTTP)
+func GetSubscription(c *gin.Context) { httpapi.BillingCompatibility().Subscription.Handle(c) }
 
-// BRIDGE: dashboard subscription routes retain their handler name; remove when the router binds the owning HTTP handler directly.
-func GetSubscription(c *gin.Context) { billingCompatibilityHTTP().Subscription.Handle(c) }
-
-// BRIDGE: dashboard usage routes retain their handler name; remove when the router binds the owning HTTP handler directly.
-func GetUsage(c *gin.Context) { billingCompatibilityHTTP().Usage.Handle(c) }
+func GetUsage(c *gin.Context) { httpapi.BillingCompatibility().Usage.Handle(c) }

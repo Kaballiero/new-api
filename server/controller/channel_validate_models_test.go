@@ -11,7 +11,7 @@ func TestValidateModels_BadBody_400(t *testing.T) {
 	openChannelControllerTestDB(t)
 	ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/validate_models",
 		"not-an-object", nil, common.RoleRootUser)
-	ValidateModels(ctx)
+	channelsHTTP().ValidateModels.Handle(ctx)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status got %d want 400 body=%s", rec.Code, rec.Body.String())
 	}
@@ -25,7 +25,7 @@ func TestValidateModels_ChannelNotFound_404(t *testing.T) {
 	ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/validate_models",
 		ValidateModelsRequest{ChannelId: 9999, Models: []string{"gpt-4o-mini"}},
 		nil, common.RoleRootUser)
-	ValidateModels(ctx)
+	channelsHTTP().ValidateModels.Handle(ctx)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status got %d want 404 body=%s", rec.Code, rec.Body.String())
 	}
@@ -40,7 +40,7 @@ func TestValidateModels_NoModels_400(t *testing.T) {
 	ctx, rec := newRestContext(t, http.MethodPost, "/api/channel/validate_models",
 		ValidateModelsRequest{Type: 1, Key: "sk-test", BaseURL: "https://example.com"},
 		nil, common.RoleRootUser)
-	ValidateModels(ctx)
+	channelsHTTP().ValidateModels.Handle(ctx)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status got %d want 400 body=%s", rec.Code, rec.Body.String())
 	}

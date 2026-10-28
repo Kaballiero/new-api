@@ -1,6 +1,8 @@
 package controller
 
-import "github.com/gin-gonic/gin"
+import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
+	"github.com/gin-gonic/gin"
+)
 
-// BRIDGE: router/api-router.go until the usage controller entrypoints are removed.
-func GetRankings(c *gin.Context) { usageHTTP().Rankings.Handle(c) }
+func GetRankings(c *gin.Context) { httpapi.Usage().Rankings.Handle(c) }

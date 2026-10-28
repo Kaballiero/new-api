@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/QuantumNous/new-api/internal/app/httpapi"
 	identitystorage "github.com/QuantumNous/new-api/internal/app/identitystorage"
 
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
@@ -21,7 +22,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/controller"
+
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
 	"github.com/QuantumNous/new-api/i18n"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
@@ -144,7 +145,7 @@ func main() {
 		if err != nil {
 			common.FatalLog("failed to parse CHANNEL_UPDATE_FREQUENCY: " + err.Error())
 		}
-		go controller.AutomaticallyUpdateChannels(frequency)
+		go httpapi.AutomaticallyUpdateChannels(frequency)
 	}
 
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
@@ -162,7 +163,7 @@ func main() {
 	// (DB-lease dedup across masters + run history), then start the runner that
 	// schedules and executes them. Master-only execution and the UpdateTask
 	// switch are enforced inside the runner and each handler's Enabled().
-	controller.RegisterScheduledSystemTasks()
+	httpapi.RegisterScheduledSystemTasks()
 	pricingfx.StartModelCostFX()
 	systemcore.StartSystemTaskRunner()
 

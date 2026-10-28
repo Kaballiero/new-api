@@ -2,6 +2,7 @@
 package contract
 
 import (
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
 
@@ -218,8 +219,8 @@ func seedCatalog(t *testing.T) {
 		require.NoError(t, model.DB.Model(&model.Model{}).Where("id=?", value.Id).Updates(map[string]any{"status": status, "sync_official": syncOfficial}).Error)
 	}
 	for _, value := range []model.PrefillGroup{{Id: 1, Name: "group-one", Type: "model",
-		Items: model.JSONValue(`["alpha"]`), CreatedTime: 1, UpdatedTime: 2}, {Id: 2, Name: "group-two",
-		Type: "tag", Items: model.JSONValue(`[]`), CreatedTime: 1, UpdatedTime: 3}} {
+		Items: catalogrecord.JSONValue(`["alpha"]`), CreatedTime: 1, UpdatedTime: 2}, {Id: 2, Name: "group-two",
+		Type: "tag", Items: catalogrecord.JSONValue(`[]`), CreatedTime: 1, UpdatedTime: 3}} {
 		require.NoError(t, model.DB.Create(&value).Error)
 	}
 	for _, channel := range []model.Channel{{Id: 21, Name: "enabled", Type: 1, Key: "fixture",

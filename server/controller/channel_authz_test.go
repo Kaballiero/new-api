@@ -140,7 +140,7 @@ func TestUpdateChannelRejectsStatusField(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	UpdateChannel(ctx)
+	channelsHTTP().UpdateChannel.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response struct {

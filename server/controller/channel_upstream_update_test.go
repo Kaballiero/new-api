@@ -1,7 +1,9 @@
 package controller
 
 import (
+	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 
 	"bytes"
@@ -42,19 +44,9 @@ func stubChannelUpstreamModelFetch(t *testing.T, fetch func(*model.Channel) ([]s
 func preserveChannelUpstreamModelNotifyState(t *testing.T) {
 	t.Helper()
 
-	channelUpstreamModelUpdateNotifyState.Lock()
-	originalLastNotifiedAt := channelUpstreamModelUpdateNotifyState.lastNotifiedAt
-	originalChangedChannels := channelUpstreamModelUpdateNotifyState.lastChangedChannels
-	originalFailedChannels := channelUpstreamModelUpdateNotifyState.lastFailedChannels
-	channelUpstreamModelUpdateNotifyState.Unlock()
-
-	t.Cleanup(func() {
-		channelUpstreamModelUpdateNotifyState.Lock()
-		channelUpstreamModelUpdateNotifyState.lastNotifiedAt = originalLastNotifiedAt
-		channelUpstreamModelUpdateNotifyState.lastChangedChannels = originalChangedChannels
-		channelUpstreamModelUpdateNotifyState.lastFailedChannels = originalFailedChannels
-		channelUpstreamModelUpdateNotifyState.Unlock()
-	})
+	original := channelUpstreamModelUpdateNotifyState
+	channelUpstreamModelUpdateNotifyState = &channeladapter.ModelUpdateNotifications{}
+	t.Cleanup(func() { channelUpstreamModelUpdateNotifyState = original })
 }
 
 func setupChannelUpstreamUpdateTestDB(t *testing.T) *gorm.DB {
@@ -350,7 +342,7 @@ func TestFetchModelsAdvancedCustomCreatePreview(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", bytes.NewReader(body))
 	ctx.Request.Header.Set("Content-Type", "application/json")
-	FetchModels(ctx)
+	channelsHTTP().PreviewChannelModels.Handle(ctx)
 
 	var response struct {
 		Success bool     `json:"success"`
@@ -433,7 +425,7 @@ func TestFetchModelsAdvancedCustomEditPreviewUsesSavedKeyAndExplicitClears(t *te
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", bytes.NewReader(body))
 	ctx.Request.Header.Set("Content-Type", "application/json")
-	FetchModels(ctx)
+	channelsHTTP().PreviewChannelModels.Handle(ctx)
 
 	var response struct {
 		Success bool     `json:"success"`
@@ -510,7 +502,7 @@ func TestFetchModelsUsesSharedChannelFetchBehavior(t *testing.T) {
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", bytes.NewReader(body))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	FetchModels(ctx)
+	channelsHTTP().PreviewChannelModels.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.JSONEq(t, `{"success":true,"message":"","data":["claude-sonnet"]}`, recorder.Body.String())
@@ -1216,11 +1208,7 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledAutoSyncIsAddOnly(t 
 	})
 
 	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState.Lock()
-	channelUpstreamModelUpdateNotifyState.lastNotifiedAt = common.GetTimestamp()
-	channelUpstreamModelUpdateNotifyState.lastChangedChannels = 1
-	channelUpstreamModelUpdateNotifyState.lastFailedChannels = 0
-	channelUpstreamModelUpdateNotifyState.Unlock()
+	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 1, 0)
 
 	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 	require.Equal(t, 1, summary.AutoAddedModels)
@@ -1336,7 +1324,7 @@ func TestDetectChannelUpstreamModelUpdatesInspectsDisabledChannel(t *testing.T) 
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/detect", bytes.NewReader(body))
 	ctx.Request.Header.Set("Content-Type", "application/json")
-	DetectChannelUpstreamModelUpdates(ctx)
+	channelsHTTP().DetectUpstreamModels.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response struct {
@@ -1378,11 +1366,7 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledSameNameReplacementF
 		return []string{"foo"}, nil
 	})
 	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState.Lock()
-	channelUpstreamModelUpdateNotifyState.lastNotifiedAt = common.GetTimestamp()
-	channelUpstreamModelUpdateNotifyState.lastChangedChannels = 0
-	channelUpstreamModelUpdateNotifyState.lastFailedChannels = 1
-	channelUpstreamModelUpdateNotifyState.Unlock()
+	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 0, 1)
 
 	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
@@ -1412,11 +1396,7 @@ func TestScheduledUpstreamModelUpdateMalformedSettingsDoNotOverwritePartialRow(t
 		return nil, nil
 	})
 	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState.Lock()
-	channelUpstreamModelUpdateNotifyState.lastNotifiedAt = common.GetTimestamp()
-	channelUpstreamModelUpdateNotifyState.lastChangedChannels = 0
-	channelUpstreamModelUpdateNotifyState.lastFailedChannels = 1
-	channelUpstreamModelUpdateNotifyState.Unlock()
+	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 0, 1)
 
 	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
@@ -1521,7 +1501,7 @@ func TestApplyAllChannelUpstreamModelUpdatesFetchesFreshPending(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/apply_all", nil)
-	ApplyAllChannelUpstreamModelUpdates(ctx)
+	channelsHTTP().ApplyAllUpstreamModels.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response struct {
@@ -1560,7 +1540,7 @@ func TestApplyAllChannelUpstreamModelUpdatesRejectsStaleFetchSnapshot(t *testing
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/apply_all", nil)
-	ApplyAllChannelUpstreamModelUpdates(ctx)
+	channelsHTTP().ApplyAllUpstreamModels.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response struct {
@@ -1603,7 +1583,7 @@ func TestApplyAllChannelUpstreamModelUpdatesSameNameReplacementFailsAtomically(t
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/apply_all", nil)
-	ApplyAllChannelUpstreamModelUpdates(ctx)
+	channelsHTTP().ApplyAllUpstreamModels.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response struct {
@@ -1645,7 +1625,7 @@ func TestApplyAllChannelUpstreamModelUpdatesSkipsFreshlyDisabledChannel(t *testi
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/apply_all", nil)
-	ApplyAllChannelUpstreamModelUpdates(ctx)
+	channelsHTTP().ApplyAllUpstreamModels.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response struct {
@@ -1690,7 +1670,7 @@ func TestApplyChannelUpstreamModelUpdatesReturnsFreshIgnoredModels(t *testing.T)
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/apply", bytes.NewReader(body))
 	ctx.Request.Header.Set("Content-Type", "application/json")
-	ApplyChannelUpstreamModelUpdates(ctx)
+	channelsHTTP().ApplyUpstreamModels.Handle(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var response struct {
@@ -1710,11 +1690,7 @@ func TestApplyChannelUpstreamModelUpdatesReturnsFreshIgnoredModels(t *testing.T)
 
 func TestShouldSendUpstreamModelUpdateNotification(t *testing.T) {
 	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState.Lock()
-	channelUpstreamModelUpdateNotifyState.lastNotifiedAt = 0
-	channelUpstreamModelUpdateNotifyState.lastChangedChannels = 0
-	channelUpstreamModelUpdateNotifyState.lastFailedChannels = 0
-	channelUpstreamModelUpdateNotifyState.Unlock()
+	channelUpstreamModelUpdateNotifyState = &channeladapter.ModelUpdateNotifications{}
 
 	baseTime := int64(2000000)
 
@@ -1733,7 +1709,7 @@ func TestDetectAllChannelUpstreamModelUpdatesRejectsExistingActiveTask(t *testin
 	db := setupChannelUpstreamUpdateTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
 
-	existing, err := systemStoreChannelUpstreamUpdateTest.CreateSystemTask(model.SystemTaskTypeModelUpdate, nil, nil)
+	existing, err := systemStoreChannelUpstreamUpdateTest.CreateSystemTask(systemrecord.SystemTaskTypeModelUpdate, nil, nil)
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
@@ -1742,7 +1718,7 @@ func TestDetectAllChannelUpstreamModelUpdatesRejectsExistingActiveTask(t *testin
 	ctx.Request.Header.Set("Accept-Language", "zh-CN")
 	require.NoError(t, i18n.Init())
 
-	DetectAllChannelUpstreamModelUpdates(ctx)
+	channelsHTTP().DetectAllUpstreamModels.Handle(ctx)
 
 	require.Equal(t, http.StatusConflict, recorder.Code)
 	require.Contains(t, recorder.Body.String(), existing.TaskID)

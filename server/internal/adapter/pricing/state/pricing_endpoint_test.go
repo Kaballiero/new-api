@@ -2,6 +2,7 @@ package pricingstate_test
 
 import (
 	"fmt"
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -136,7 +137,7 @@ func TestPricingModelMetadataEndpointsMergeWithAdvancedCustomInference(t *testin
 			"openai": "/v1/chat/completions"
 		}`,
 		Status:   1,
-		NameRule: legacy.NameRuleExact,
+		NameRule: catalogrecord.NameRuleExact,
 	}).Error)
 
 	byModel := pricingEndpointTypesByModel(t)
@@ -165,7 +166,7 @@ func TestPricingModelMetadataEndpointsCanProvideEndpointWithoutChannelInference(
 			"openai": "/v1/chat/completions"
 		}`,
 		Status:   1,
-		NameRule: legacy.NameRuleExact,
+		NameRule: catalogrecord.NameRuleExact,
 	}).Error)
 
 	byModel := pricingEndpointTypesByModel(t)

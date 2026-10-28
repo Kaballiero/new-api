@@ -5,7 +5,6 @@ import (
 
 	"errors"
 	"net/http"
-	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -13,17 +12,11 @@ import (
 	routing "github.com/QuantumNous/new-api/gateway/routing"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
-	"github.com/QuantumNous/new-api/internal/app/authentication"
+
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
 )
-
-// BRIDGE: existing router middleware factories and the playground use one wiring.
-var gatewayKeyAuth = sync.OnceValue(authentication.NewGatewayKeyAuth)
-
-// BRIDGE: dashboard authentication and AccessTokenAudit share PAT validation.
-var personalAccessTokenAuth = sync.OnceValue(authentication.NewPATAuth)
 
 func writeGatewayCaller(c *gin.Context, caller domain.Caller) {
 	if caller.Token != nil && c.GetInt("id") == 0 {

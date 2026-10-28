@@ -1,6 +1,7 @@
 package app
 
 import (
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
@@ -47,7 +48,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/update_pricing_config"
 	"github.com/QuantumNous/new-api/internal/system/enqueue_system_task"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
+
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
@@ -194,7 +195,7 @@ func NewRefreshPricingCatalogue() refresh_catalogue.Usecase {
 
 func NewEnqueuePricingCatalogueRefresh() enqueue_catalogue_refresh.Usecase {
 	return enqueue_catalogue_refresh.NewUsecase(func() bool { return common.GetEnvOrDefaultBool("PRICING_CATALOG_TASK_ENABLED", true) }, func() error {
-		_, err := systemcore.Default().Enqueue.Execute(enqueue_system_task.Input{Type: model.SystemTaskTypePricingCatalog})
+		_, err := systemcore.Default().Enqueue.Execute(enqueue_system_task.Input{Type: systemrecord.SystemTaskTypePricingCatalog})
 		return err
 	}, common.SysLog)
 }

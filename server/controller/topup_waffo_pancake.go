@@ -1,10 +1,18 @@
 package controller
 
-import "github.com/gin-gonic/gin"
+import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
+	"github.com/gin-gonic/gin"
+)
 
-func RequestWaffoPancakeAmount(c *gin.Context) { paymentsHTTP().QuotePancake.Handle(c) }
-func RequestWaffoPancakePay(c *gin.Context)    { paymentsHTTP().CreatePancake.Handle(c) }
-func WaffoPancakeWebhook(c *gin.Context)       { paymentsHTTP().PancakeWebhook.Handle(c) }
-func ListWaffoPancakeCatalog(c *gin.Context)   { paymentsHTTP().Catalog.Handle(c) }
-func CreateWaffoPancakePair(c *gin.Context)    { paymentsHTTP().Pair.Handle(c) }
-func SaveWaffoPancake(c *gin.Context)          { paymentsHTTP().SavePancake.Handle(c) }
+func RequestWaffoPancakeAmount(c *gin.Context) { httpapi.Payments().QuotePancake.Handle(c) }
+
+func RequestWaffoPancakePay(c *gin.Context) { httpapi.Payments().CreatePancake.Handle(c) }
+
+func WaffoPancakeWebhook(c *gin.Context) { httpapi.Payments().PancakeWebhook.Handle(c) }
+
+func ListWaffoPancakeCatalog(c *gin.Context) { httpapi.Payments().Catalog.Handle(c) }
+
+func CreateWaffoPancakePair(c *gin.Context) { httpapi.Payments().Pair.Handle(c) }
+
+func SaveWaffoPancake(c *gin.Context) { httpapi.Payments().SavePancake.Handle(c) }

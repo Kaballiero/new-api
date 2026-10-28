@@ -3,6 +3,7 @@ package middleware
 import (
 	"encoding/json"
 	"errors"
+	auditapp "github.com/QuantumNous/new-api/internal/app/audit"
 	"net/http"
 	"os"
 
@@ -24,7 +25,7 @@ type getAPIIntegration struct {
 func GetAPIAuth(capability string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
-		defer recordGetAPIAudit(c, capability)
+		defer func() { auditapp.Recording().Integration(c, capability) }()
 		user, identity, useAccessToken, err := authenticateDashboardRequest(c)
 		if err != nil && !errors.Is(err, identitydomain.ErrAuthTokenInvalid) && !errors.Is(err, identitydomain.ErrAuthTokenExpired) && !errors.Is(err, identitydomain.ErrLoginSessionRevoked) && !errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "code": "GETAPI_CREDENTIAL_UNAVAILABLE", "message": "Credential unavailable"})
@@ -84,9 +85,4 @@ func getAPIIntegrationForPrincipal(principalID int, capability string) string {
 		}
 	}
 	return matched
-}
-
-// BRIDGE: integration authentication records its existing completion event.
-func recordGetAPIAudit(c *gin.Context, action string) {
-	auditRecording().Integration(c, action)
 }

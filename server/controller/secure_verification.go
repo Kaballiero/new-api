@@ -1,11 +1,10 @@
 package controller
 
 import (
+	httpapi "github.com/QuantumNous/new-api/internal/app/httpapi"
 	"github.com/gin-gonic/gin"
 )
 
-func GetVerificationMethods(c *gin.Context) { identityHTTP().VerificationRequirements.Handle(c) }
-func UniversalVerify(c *gin.Context)        { identityHTTP().VerifySecurityInput.Handle(c) }
-func writeSecurityOperationError(c *gin.Context, err error) {
-	identityErrors.WriteError(c, err)
-}
+func GetVerificationMethods(c *gin.Context) { httpapi.Identity().VerificationRequirements.Handle(c) }
+
+func UniversalVerify(c *gin.Context) { httpapi.Identity().VerifySecurityInput.Handle(c) }

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	catalogrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog/record"
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	billingappfx "github.com/QuantumNous/new-api/internal/app/billing"
@@ -1996,7 +1997,7 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	channel := &model.Channel{Id: 990, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "secret-fixture", Models: "provider/model", Group: "default"}
 	require.NoError(t, db.Create(channel).Error)
 	require.NoError(t, db.Create(&channelrecord.Ability{Group: "default", Model: "provider/model", ChannelId: channel.Id, Enabled: true}).Error)
-	require.NoError(t, db.Create(&model.Model{ModelName: "provider/model", Tags: "top text", Status: 1, NameRule: model.NameRuleExact}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "provider/model", Tags: "top text", Status: 1, NameRule: catalogrecord.NameRuleExact}).Error)
 	client := httpclient.GetHttpClient()
 	if client == nil {
 		client = http.DefaultClient
@@ -2066,7 +2067,7 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	imageChannel := &model.Channel{Id: 992, Type: constant.ChannelTypeOpenRouter, Status: common.ChannelStatusEnabled, Key: "fixture", Models: "google/gemini-image", Group: "default"}
 	require.NoError(t, db.Create(imageChannel).Error)
 	require.NoError(t, db.Create(&channelrecord.Ability{Group: "default", Model: "google/gemini-image", ChannelId: 992, Enabled: true}).Error)
-	require.NoError(t, db.Create(&model.Model{ModelName: "google/gemini-image", Tags: "top image", Status: 1, NameRule: model.NameRuleExact}).Error)
+	require.NoError(t, db.Create(&model.Model{ModelName: "google/gemini-image", Tags: "top image", Status: 1, NameRule: catalogrecord.NameRuleExact}).Error)
 	textOffers, err := normalizeEndpointPricing("google/gemini-image", "text", "output", []byte(`{"data":{"id":"google/gemini-image","architecture":{"input_modalities":["text","image"],"output_modalities":["text","image"]},"endpoints":[{"tag":"studio","pricing":{"prompt":"0.0000005","completion":"0.000003","image_output":"0.00006"}}]}}`))
 	require.NoError(t, err)
 	imageOffers, err := normalizeImagePricing("google/gemini-image", []byte(`{"id":"google/gemini-image","endpoints":[{"provider_tag":"studio","pricing":[{"billable":"output_image","unit":"token","cost_usd":0.00006}]}]}`))
@@ -3319,7 +3320,7 @@ func TestCatalogConsumerAuditCandidate534(t *testing.T) {
 		require.NoError(t, db.Create(&channelrecord.Ability{Model: name, Group: "default", ChannelId: fixture.Channel.Id, Enabled: true}).Error)
 	}
 	for _, meta := range fixture.Metadata {
-		require.NoError(t, db.Create(&model.Model{ModelName: meta.ModelName, Description: meta.Description, Icon: meta.Icon, Tags: meta.Tags, VendorID: meta.VendorID, Status: 1, NameRule: model.NameRuleExact}).Error)
+		require.NoError(t, db.Create(&model.Model{ModelName: meta.ModelName, Description: meta.Description, Icon: meta.Icon, Tags: meta.Tags, VendorID: meta.VendorID, Status: 1, NameRule: catalogrecord.NameRuleExact}).Error)
 	}
 	for _, vendor := range fixture.Vendors {
 		require.NoError(t, db.Create(&model.Vendor{Id: vendor.ID, Name: vendor.Name, Description: vendor.Description, Icon: vendor.Icon}).Error)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	"github.com/QuantumNous/new-api/internal/app/httpapi"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -22,7 +24,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/controller"
+
 	core "github.com/QuantumNous/new-api/internal/app/system"
 	"github.com/QuantumNous/new-api/internal/app/systemruntime"
 	sf "github.com/QuantumNous/new-api/internal/contracttest/systemfixture"
@@ -143,9 +145,9 @@ func runSystemRuntime(t *testing.T, name string, hooks Hooks) any {
 		ctx := context.Background()
 		switch {
 		case name == "registration" || name == "registration_replace":
-			controller.RegisterScheduledSystemTasks()
+			httpapi.RegisterScheduledSystemTasks()
 			if name == "registration_replace" {
-				controller.RegisterScheduledSystemTasks()
+				httpapi.RegisterScheduledSystemTasks()
 			}
 			types := []string{}
 			for _, handler := range hooks.Handlers() {
@@ -168,7 +170,7 @@ func runSystemRuntime(t *testing.T, name string, hooks Hooks) any {
 			if variant == "disabled" {
 				constant.UpdateTask = false
 			}
-			controller.RegisterScheduledSystemTasks()
+			httpapi.RegisterScheduledSystemTasks()
 			var handler domain.SystemTaskHandler
 			for _, h := range hooks.Handlers() {
 				if h.Type() == kind {
@@ -297,13 +299,13 @@ func runSystemRuntime(t *testing.T, name string, hooks Hooks) any {
 					at--
 				}
 				require.NoError(t, model.DB.Create(&model.SystemTask{TaskID: "prior-task",
-					Type: h.kind, Status: model.SystemTaskStatusSucceeded, UpdatedAt: at, CreatedAt: at}).Error)
+					Type: h.kind, Status: systemrecord.SystemTaskStatusSucceeded, UpdatedAt: at, CreatedAt: at}).Error)
 			}
 			hooks.Schedule()
 			hooks.Schedule()
 		case strings.HasPrefix(name, "claim_"):
 			complete := func(_ context.Context, task *domain.SystemTask, runner string) {
-				require.NoError(t, systemStoreSystemContractTest.FinishSystemTask(task.TaskID, runner, model.SystemTaskStatusSucceeded, map[string]int{"done": 1}, ""))
+				require.NoError(t, systemStoreSystemContractTest.FinishSystemTask(task.TaskID, runner, systemrecord.SystemTaskStatusSucceeded, map[string]int{"done": 1}, ""))
 			}
 			first, second := complete, complete
 			if name == "claim_concurrent_types" {
@@ -322,7 +324,7 @@ func runSystemRuntime(t *testing.T, name string, hooks Hooks) any {
 			hooks.Registry(t, systemScheduled{kind: "a", enabled: true, run: first}, systemScheduled{kind: "b", enabled: true, run: second})
 			for i, kind := range []string{"a", "a", "b"} {
 				require.NoError(t, model.DB.Create(&model.SystemTask{ID: int64(i + 1), TaskID: fmt.Sprintf("pending-%d",
-					i), Type: kind, Status: model.SystemTaskStatusPending}).Error)
+					i), Type: kind, Status: systemrecord.SystemTaskStatusPending}).Error)
 			}
 			if name == "claim_lock_busy" {
 				require.NoError(t, model.DB.Create(&model.SystemTaskLock{Type: "a", TaskID: "other", LockedBy: "other", LockedUntil: fixture.Epoch + 60}).Error)
@@ -371,7 +373,7 @@ func runSystemRuntime(t *testing.T, name string, hooks Hooks) any {
 			var ran atomic.Int64
 			h := systemScheduled{kind: "fixture", enabled: false, run: func(_ context.Context, task *domain.SystemTask, runner string) {
 				ran.Add(1)
-				require.NoError(t, systemStoreSystemContractTest.FinishSystemTask(task.TaskID, runner, model.SystemTaskStatusSucceeded, nil, ""))
+				require.NoError(t, systemStoreSystemContractTest.FinishSystemTask(task.TaskID, runner, systemrecord.SystemTaskStatusSucceeded, nil, ""))
 			}}
 			hooks.Registry(t, h)
 			var passes atomic.Int64
