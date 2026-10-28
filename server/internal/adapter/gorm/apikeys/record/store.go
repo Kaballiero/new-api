@@ -40,14 +40,14 @@ func (store Store) InsertWithUniqueName(token *Token) error {
 	})
 }
 
-// UpdateWithUniqueName is Update with the name rule of InsertWithUniqueName;
-// the key itself does not occupy its name.
+// UpdateWithUniqueName is Update that also writes the name, with the name rule
+// of InsertWithUniqueName; the key itself does not occupy its name.
 func (store Store) UpdateWithUniqueName(token *Token) error {
 	return store.lockOwner(token.UserId, func(tx Store) error {
 		if err := tx.requireUniqueName(token.UserId, token.Id, token.Name); err != nil {
 			return err
 		}
-		return tx.Update(token)
+		return tx.update(token, true)
 	})
 }
 
@@ -83,14 +83,22 @@ func (store Store) requireUniqueName(userID, exceptID int, name string) error {
 	return nil
 }
 
-func (store Store) Update(token *Token) (err error) {
+// Update writes the editable fields of token except its name: only
+// UpdateWithUniqueName renames, so a concurrent edit cannot restore a stale
+// name past the uniqueness check.
+func (store Store) Update(token *Token) error { return store.update(token, false) }
+
+func (store Store) update(token *Token, rename bool) error {
 	// Invalidate the cache and set the fence before writing so that concurrent
 	// readers cannot write a stale snapshot back into the cache.
 	if cacheErr := store.invalidate(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}
-	return store.db().Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
+	fields := []any{"expired_time", "remain_quota", "unlimited_quota", "model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups"}
+	if rename {
+		fields = append(fields, "name")
+	}
+	return store.db().Model(token).Select("status", fields...).Updates(token).Error
 }
 
 func (store Store) UpdateStatus(token *Token) (err error) {

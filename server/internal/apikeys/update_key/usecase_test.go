@@ -200,3 +200,23 @@ func TestUpdateKeyStatusOnlyIgnoresNameRule(t *testing.T) {
 	assert.Equal(t, "owned", token.Name)
 	assert.Equal(t, domain.StatusEnabled, token.Status)
 }
+
+// Spaces around a stored name do not make an edit a rename, so an existing
+// near-duplicate stays editable and keeps its stored name.
+func TestUpdateKeyStoredNameWithSpacesIsNotARename(t *testing.T) {
+	for _, statusOnly := range []string{"", "true"} {
+		store := &fakeStore{stored: owned(), others: []string{"Prod"}}
+		store.stored.Name = " prod "
+		r := newRun(store)
+		empty := ""
+		token, err := r.usecase.Execute(Input{UserID: 7, StatusOnly: statusOnly, Token: domain.Token{Id: 5, Name: "prod", Status: domain.StatusEnabled, ExpiredTime: -1, RemainQuota: 500, UnlimitedQuota: true, Group: "auto", CrossGroupRetry: true, AllowIps: &empty}})
+		require.NoError(t, err, statusOnly)
+		assert.False(t, store.nameRule, statusOnly)
+		assert.Same(t, store.updated, token)
+		assert.Equal(t, " prod ", token.Name, statusOnly)
+		assert.Equal(t, " prod ", r.params["name"], statusOnly)
+		if statusOnly == "" {
+			assert.Equal(t, []string{"remain_quota"}, r.params["changed_fields"])
+		}
+	}
+}

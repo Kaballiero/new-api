@@ -158,6 +158,37 @@ func TestStoreKeepsKeyNamesUniquePerUser(t *testing.T) {
 	}
 }
 
+// An edit that read the key before a concurrent rename must not write the old
+// name back: plain Update leaves the name to UpdateWithUniqueName.
+func TestStoreUpdateDoesNotRestoreStaleName(t *testing.T) {
+	for _, kind := range databases {
+		t.Run(kind, func(t *testing.T) {
+			db := openStoreDatabase(t, kind)
+			store := newStore(db)
+			owner := createUser(t, db, "stale-owner")
+			key := record.Token{UserId: owner, Name: "A", Key: "stale-key", Status: 1}
+			require.NoError(t, store.InsertWithUniqueName(&key))
+			stale := key // a pause read the key with name "A"
+
+			renamed := key
+			renamed.Name = "B"
+			require.NoError(t, store.UpdateWithUniqueName(&renamed))
+			fresh := record.Token{UserId: owner, Name: "A", Key: "fresh-key"}
+			require.NoError(t, store.InsertWithUniqueName(&fresh), "the old name is free after the rename")
+
+			stale.Status = 2
+			require.NoError(t, store.Update(&stale))
+			var stored record.Token
+			require.NoError(t, db.First(&stored, key.Id).Error)
+			assert.Equal(t, "B", stored.Name, "the rename survives")
+			assert.Equal(t, 2, stored.Status, "the other fields are written")
+			var names []string
+			require.NoError(t, db.Model(&record.Token{}).Where("user_id = ?", owner).Order("id").Pluck("name", &names).Error)
+			assert.Equal(t, []string{"B", "A"}, names)
+		})
+	}
+}
+
 // Both transactions are held at the name read until the other one arrives
 // there too. With a working owner lock the second one cannot arrive before
 // the first commits, so the first proceeds after the wait and the second sees

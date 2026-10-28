@@ -75,10 +75,13 @@ func (usecase Usecase) Execute(input Input) (*domain.Token, error) {
 			}
 		}
 	}
-	// Only a rename checks the name, so existing duplicates stay editable.
+	// Only a rename writes and checks the name, so existing duplicates stay
+	// editable. Surrounding spaces of a stored name do not make an edit a rename.
 	save := usecase.store.Update
-	if cleanToken.Name != previous.Name {
+	if input.StatusOnly == "" && token.Name != strings.TrimSpace(previous.Name) {
 		save = usecase.store.UpdateWithUniqueName
+	} else {
+		cleanToken.Name = previous.Name
 	}
 	if err := save(cleanToken); err != nil {
 		if errors.Is(err, domain.ErrNameDuplicate) {
