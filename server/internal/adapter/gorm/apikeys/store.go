@@ -42,13 +42,16 @@ func (s Store) List(userID, start, limit int) ([]*domain.Token, error) {
 func (s Store) OpenSearch(userID int) search_keys.Query { return s.persistence.OpenSearch(userID) }
 
 func (s Store) Count(userID int) (int64, error) { return s.persistence.Count(userID) }
-func (s Store) Insert(t *domain.Token) error {
+func (s Store) InsertWithUniqueName(t *domain.Token) error {
 	value := record.FromDomain(t)
-	err := s.persistence.Insert(value)
+	err := s.persistence.InsertWithUniqueName(value)
 	*t = *record.ToDomain(value)
 	return err
 }
 func (s Store) Update(t *domain.Token) error { return s.persistence.Update(record.FromDomain(t)) }
+func (s Store) UpdateWithUniqueName(t *domain.Token) error {
+	return s.persistence.UpdateWithUniqueName(record.FromDomain(t))
+}
 func (s Store) Delete(t *domain.Token) error { return s.persistence.Delete(record.FromDomain(t)) }
 func (s Store) SetAutoGroups(t *domain.Token, groups []string) error {
 	if len(groups) == 0 {

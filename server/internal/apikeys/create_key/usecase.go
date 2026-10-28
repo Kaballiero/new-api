@@ -1,15 +1,23 @@
 package create_key
 
-import "github.com/QuantumNous/new-api/internal/apikeys/domain"
+import (
+	"errors"
+	"strings"
+
+	"github.com/QuantumNous/new-api/internal/apikeys/domain"
+)
 
 type Store interface {
 	Count(int) (int64, error)
-	Insert(*domain.Token) error
+	// InsertWithUniqueName returns domain.ErrNameDuplicate when another key of
+	// the user that is not deleted has the same name.
+	InsertWithUniqueName(*domain.Token) error
 	SetAutoGroups(*domain.Token, []string) error
 }
 
 func (usecase Usecase) Execute(input Input) (*domain.Token, error) {
 	token := input.Token
+	token.Name = strings.TrimSpace(token.Name)
 	if len(token.Name) > 50 {
 		return nil, domain.ErrNameTooLong
 	}
@@ -63,7 +71,10 @@ func (usecase Usecase) Execute(input Input) (*domain.Token, error) {
 		CrossGroupRetry:    token.CrossGroupRetry,
 		AutoGroups:         token.AutoGroups,
 	}
-	if err := usecase.store.Insert(&cleanToken); err != nil {
+	if err := usecase.store.InsertWithUniqueName(&cleanToken); err != nil {
+		if errors.Is(err, domain.ErrNameDuplicate) {
+			return nil, domain.ErrNameDuplicate
+		}
 		return nil, domain.Internal(err)
 	}
 	params["id"] = cleanToken.Id

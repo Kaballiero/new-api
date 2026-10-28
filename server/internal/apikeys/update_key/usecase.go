@@ -1,16 +1,25 @@
 package update_key
 
-import "github.com/QuantumNous/new-api/internal/apikeys/domain"
+import (
+	"errors"
+	"strings"
+
+	"github.com/QuantumNous/new-api/internal/apikeys/domain"
+)
 
 type Store interface {
 	Get(int, int) (*domain.Token, error)
 	IsMissing(error) bool
 	Update(*domain.Token) error
+	// UpdateWithUniqueName returns domain.ErrNameDuplicate when another key of
+	// the user that is not deleted has the same name.
+	UpdateWithUniqueName(*domain.Token) error
 	SetAutoGroups(*domain.Token, []string) error
 }
 
 func (usecase Usecase) Execute(input Input) (*domain.Token, error) {
 	token := input.Token
+	token.Name = strings.TrimSpace(token.Name)
 	params := usecase.audit()
 	if token.Id > 0 {
 		params["id"] = token.Id
@@ -66,7 +75,18 @@ func (usecase Usecase) Execute(input Input) (*domain.Token, error) {
 			}
 		}
 	}
-	if err := usecase.store.Update(cleanToken); err != nil {
+	// Only a rename writes and checks the name, so existing duplicates stay
+	// editable. Surrounding spaces of a stored name do not make an edit a rename.
+	save := usecase.store.Update
+	if input.StatusOnly == "" && token.Name != strings.TrimSpace(previous.Name) {
+		save = usecase.store.UpdateWithUniqueName
+	} else {
+		cleanToken.Name = previous.Name
+	}
+	if err := save(cleanToken); err != nil {
+		if errors.Is(err, domain.ErrNameDuplicate) {
+			return nil, domain.ErrNameDuplicate
+		}
 		return nil, domain.Internal(err)
 	}
 	params["name"] = cleanToken.Name

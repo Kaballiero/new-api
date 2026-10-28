@@ -24,7 +24,7 @@ var shared = sync.OnceValue(func() runtime {
 	db := func() *gorm.DB { return model.DB }
 	key := func() string { return model.KeyColumn }
 	quota := repository.NewQuotaStore(repository.QuotaEnvironment{DB: db, KeyColumn: key})
-	persistence := record.NewStore(db, key, cache.InvalidateTokenCacheForMutation, quota.InvalidateTokensCache)
+	persistence := record.NewStore(db, key, cache.InvalidateTokenCacheForMutation, quota.InvalidateTokensCache, locking.LockForUpdate)
 	reader := record.NewKeyReader(db, key, locking.LockForUpdate, record.KeyCache{
 		Enabled: func() bool { return common.RedisEnabled }, Get: cache.CacheGetTokenByKey, Initialize: cache.CacheInitToken,
 	}, common.SysLog)

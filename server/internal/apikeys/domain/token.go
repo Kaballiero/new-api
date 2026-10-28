@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"slices"
 	"strings"
 	"time"
 )
@@ -47,6 +48,14 @@ func MaskKey(key string) string {
 		return key[:2] + "****" + key[len(key)-2:]
 	}
 	return key[:4] + "**********" + key[len(key)-4:]
+}
+
+// NameTaken reports whether name equals one of names, ignoring surrounding
+// whitespace and Unicode case. A key name is unique among the keys of its user
+// that are not deleted.
+func NameTaken(names []string, name string) bool {
+	name = strings.TrimSpace(name)
+	return slices.ContainsFunc(names, func(other string) bool { return strings.EqualFold(strings.TrimSpace(other), name) })
 }
 
 func (t *Token) GetModelLimits() []string {

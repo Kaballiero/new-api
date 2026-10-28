@@ -14,10 +14,11 @@ type Store struct {
 	keyColumn      func() string
 	invalidate     func(string) error
 	invalidateMany func([]Token) error
+	lockForUpdate  func(*gorm.DB) *gorm.DB
 }
 
-func NewStore(db func() *gorm.DB, keyColumn func() string, invalidate func(string) error, invalidateMany func([]Token) error) Store {
-	return Store{db: db, keyColumn: keyColumn, invalidate: invalidate, invalidateMany: invalidateMany}
+func NewStore(db func() *gorm.DB, keyColumn func() string, invalidate func(string) error, invalidateMany func([]Token) error, lockForUpdate func(*gorm.DB) *gorm.DB) Store {
+	return Store{db: db, keyColumn: keyColumn, invalidate: invalidate, invalidateMany: invalidateMany, lockForUpdate: lockForUpdate}
 }
 
 func (store Store) Insert(token *Token) error {
@@ -26,14 +27,78 @@ func (store Store) Insert(token *Token) error {
 	return err
 }
 
-func (store Store) Update(token *Token) (err error) {
+// InsertWithUniqueName inserts token unless another key of the same user that
+// is not deleted has the same name (domain.NameTaken); then it returns
+// domain.ErrNameDuplicate. The check and the insert share one transaction
+// that holds the owner lock.
+func (store Store) InsertWithUniqueName(token *Token) error {
+	return store.lockOwner(token.UserId, func(tx Store) error {
+		if err := tx.requireUniqueName(token.UserId, 0, token.Name); err != nil {
+			return err
+		}
+		return tx.Insert(token)
+	})
+}
+
+// UpdateWithUniqueName is Update that also writes the name, with the name rule
+// of InsertWithUniqueName; the key itself does not occupy its name.
+func (store Store) UpdateWithUniqueName(token *Token) error {
+	return store.lockOwner(token.UserId, func(tx Store) error {
+		if err := tx.requireUniqueName(token.UserId, token.Id, token.Name); err != nil {
+			return err
+		}
+		return tx.update(token, true)
+	})
+}
+
+// lockOwner calls run in a transaction that serializes it with every other
+// lockOwner transaction of the same user.
+func (store Store) lockOwner(userID int, run func(Store) error) error {
+	return store.db().Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "sqlite" {
+			// SQLite has no row locks: take the database-wide write lock before the first read.
+			if err := tx.Model(&Token{}).Where("1 = 0").Update("id", gorm.Expr("id")).Error; err != nil {
+				return err
+			}
+		} else {
+			var ids []int
+			if err := store.lockForUpdate(tx.Table("users")).Where("id = ?", userID).Pluck("id", &ids).Error; err != nil {
+				return err
+			}
+		}
+		scoped := store
+		scoped.db = func() *gorm.DB { return tx }
+		return run(scoped)
+	})
+}
+
+func (store Store) requireUniqueName(userID, exceptID int, name string) error {
+	var names []string
+	if err := store.db().Model(&Token{}).Where("user_id = ? AND id <> ?", userID, exceptID).Pluck("name", &names).Error; err != nil {
+		return err
+	}
+	if domain.NameTaken(names, name) {
+		return domain.ErrNameDuplicate
+	}
+	return nil
+}
+
+// Update writes the editable fields of token except its name: only
+// UpdateWithUniqueName renames, so a concurrent edit cannot restore a stale
+// name past the uniqueness check.
+func (store Store) Update(token *Token) error { return store.update(token, false) }
+
+func (store Store) update(token *Token, rename bool) error {
 	// Invalidate the cache and set the fence before writing so that concurrent
 	// readers cannot write a stale snapshot back into the cache.
 	if cacheErr := store.invalidate(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}
-	return store.db().Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
+	fields := []any{"expired_time", "remain_quota", "unlimited_quota", "model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups"}
+	if rename {
+		fields = append(fields, "name")
+	}
+	return store.db().Model(token).Select("status", fields...).Updates(token).Error
 }
 
 func (store Store) UpdateStatus(token *Token) (err error) {

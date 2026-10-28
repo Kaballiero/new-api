@@ -38,6 +38,7 @@ func TestWriteErrorKeepsLegacyResponses(t *testing.T) {
 		{"plain", errors.New("lookup failed"), `{"success":false,"message":"lookup failed"}`, http.StatusOK},
 		{"usage", domain.ErrUsageUnavailable, `{"success":false,"message":"Failed to get token info, please try again later"}`, http.StatusOK},
 		{"name", domain.ErrNameTooLong, `{"success":false,"code":"token_name_too_long","message":"Token name is too long"}`, http.StatusBadRequest},
+		{"name duplicate", domain.ErrNameDuplicate, `{"success":false,"code":"token_name_duplicate","message":"A token with this name already exists"}`, http.StatusConflict},
 		{"quota negative", domain.ErrQuotaNegative, `{"success":false,"code":"token_quota_negative","message":"Quota value cannot be negative"}`, http.StatusBadRequest},
 		{"quota exceed", &domain.LimitError{Err: domain.ErrQuotaExceedMax, Max: 1000}, `{"success":false,"code":"token_quota_exceed_max","message":"Quota value exceeds valid range, maximum is 1000"}`, http.StatusBadRequest},
 		{"count", &domain.LimitError{Err: domain.ErrKeyCountLimit, Max: 3}, `{"success":false,"code":"token_count_limit","message":"Maximum token count reached (3)"}`, http.StatusConflict},
@@ -65,13 +66,25 @@ func TestWriteErrorKeepsLegacyResponses(t *testing.T) {
 func TestWriteErrorLocalizesMessage(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	gin.SetMode(gin.TestMode)
-	for lang, want := range map[string]string{"ru": "Не удалось выполнить поиск токенов", "zh-CN": "搜索令牌失败"} {
+	cases := []struct {
+		lang, want string
+		err        error
+		status     int
+		code       string
+	}{
+		{"ru", "Не удалось выполнить поиск токенов", domain.ErrSearchFailed, http.StatusInternalServerError, "internal_error"},
+		{"zh-CN", "搜索令牌失败", domain.ErrSearchFailed, http.StatusInternalServerError, "internal_error"},
+		{"ru", "Токен с таким названием уже существует", domain.ErrNameDuplicate, http.StatusConflict, "token_name_duplicate"},
+		{"zh-CN", "已存在同名令牌", domain.ErrNameDuplicate, http.StatusConflict, "token_name_duplicate"},
+		{"zh-TW", "已存在同名令牌", domain.ErrNameDuplicate, http.StatusConflict, "token_name_duplicate"},
+	}
+	for _, tc := range cases {
 		recorder := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(recorder)
 		c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-		c.Set(string(constant.ContextKeyLanguage), lang)
-		WriteError(c, domain.ErrSearchFailed)
-		assert.Equal(t, http.StatusInternalServerError, recorder.Code)
-		assert.JSONEq(t, `{"success":false,"code":"internal_error","message":"`+want+`"}`, recorder.Body.String(), lang)
+		c.Set(string(constant.ContextKeyLanguage), tc.lang)
+		WriteError(c, tc.err)
+		assert.Equal(t, tc.status, recorder.Code)
+		assert.JSONEq(t, `{"success":false,"code":"`+tc.code+`","message":"`+tc.want+`"}`, recorder.Body.String(), tc.lang)
 	}
 }

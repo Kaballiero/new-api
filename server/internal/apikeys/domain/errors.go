@@ -7,6 +7,7 @@ import "errors"
 var (
 	ErrKeyNotFound           = errors.New("api key not found")
 	ErrNameTooLong           = errors.New("api key name is too long")
+	ErrNameDuplicate         = errors.New("api key name is already used by another key of the user")
 	ErrQuotaNegative         = errors.New("api key quota is negative")
 	ErrQuotaExceedMax        = errors.New("api key quota exceeds the maximum")
 	ErrKeyCountLimit         = errors.New("api key count limit reached")
