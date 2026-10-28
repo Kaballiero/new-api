@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_request_invalid\",\"message\":\"plugin alibaba@1.2.0 hook buildSubmitRequest failed: Error: wan2.6-t2v duration must be an integer between 2 and 15 at convert (alibaba.js:256:13(622))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_request_invalid\",\"message\":\"wan2.6-t2v duration must be an integer between 2 and 15\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"

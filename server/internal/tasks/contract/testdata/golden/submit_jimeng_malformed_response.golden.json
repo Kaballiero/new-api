@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"plugin jimeng@1.0.2 hook parseSubmitResponse failed: Error: jimeng submit failed at parseSubmitResponse (jimeng.js:353:34(16))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"jimeng submit failed\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"

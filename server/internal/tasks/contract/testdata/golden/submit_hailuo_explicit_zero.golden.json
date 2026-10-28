@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_request_invalid\",\"message\":\"plugin hailuo@1.1.3 hook buildSubmitRequest failed: Error: MiniMax-H3 duration must be an integer between 4 and 15 seconds at h3Duration (hailuo.js:144:11(48))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_request_invalid\",\"message\":\"MiniMax-H3 duration must be an integer between 4 and 15 seconds\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"

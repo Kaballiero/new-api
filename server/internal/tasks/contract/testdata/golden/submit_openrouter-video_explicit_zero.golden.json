@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_request_invalid\",\"message\":\"plugin openrouter-video@1.0.0 hook buildSubmitRequest failed: Error: seconds must be an integer between 1 and 3600 at videoOrder (openrouter-video.js:1778:76(248))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_request_invalid\",\"message\":\"seconds must be an integer between 1 and 3600\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"

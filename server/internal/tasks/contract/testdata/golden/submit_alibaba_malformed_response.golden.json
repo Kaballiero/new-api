@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"plugin alibaba@1.2.0 hook parseSubmitResponse failed: Error: task_id is empty at parseSubmitResponse (alibaba.js:393:51(32))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"task_id is empty\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"

@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"plugin sora@1.0.3 hook parseSubmitResponse failed: Error: task_id is empty at parseSubmitResponse (sora.js:126:22(17))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"task_id is empty\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"

@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"plugin google@1.0.2 hook parseSubmitResponse failed: Error: missing operation name at parseSubmitResponse (google.js:176:46(18))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"missing operation name\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"

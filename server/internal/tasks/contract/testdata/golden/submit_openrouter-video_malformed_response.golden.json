@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"plugin openrouter-video@1.0.0 hook parseSubmitResponse failed: Error: OpenRouter did not return a video job ID; submission requires reconciliation at parseSubmitResponse (openrouter-video.js:1906:71(22))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"OpenRouter did not return a video job ID; submission requires reconciliation\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"

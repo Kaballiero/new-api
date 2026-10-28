@@ -22,7 +22,7 @@
       "id": 1,
       "locked_by": "fixture-runner",
       "payload": "",
-      "result": "{\"sources\":0,\"published\":0,\"failed\":0}",
+      "result": "{\"hidden_public_models_count\":0,\"hidden_public_models_error\":\"model cost FX is unavailable\",\"sources\":0,\"published\":0,\"failed\":0}",
       "state": "",
       "status": "succeeded",
       "task_id": "systask_\u003c1\u003e",

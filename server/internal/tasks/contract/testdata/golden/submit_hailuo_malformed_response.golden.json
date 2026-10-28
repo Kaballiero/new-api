@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"plugin hailuo@1.1.3 hook parseSubmitResponse failed: Error: missing task_id at parseSubmitResponse (hailuo.js:428:28(61))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"missing task_id\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"

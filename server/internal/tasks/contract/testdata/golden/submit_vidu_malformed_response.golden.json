@@ -1,6 +1,6 @@
 {
   "http": {
-    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"plugin vidu@1.0.2 hook parseSubmitResponse failed: Error: missing task_id at parseSubmitResponse (vidu.js:255:33(22))\",\"data\":null}",
+    "body": "{\"code\":\"plugin_submit_response_failed\",\"message\":\"missing task_id\",\"data\":null}",
     "headers": {
       "Content-Type": [
         "application/json; charset=utf-8"
