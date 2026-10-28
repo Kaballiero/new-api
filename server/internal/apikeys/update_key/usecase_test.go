@@ -16,6 +16,9 @@ type fakeStore struct {
 	stored    *domain.Token
 	updateErr error
 	updated   *domain.Token
+	// others are the names of the other keys of the user that are not deleted.
+	others   []string
+	nameRule bool
 }
 
 func (s *fakeStore) Get(id, userID int) (*domain.Token, error) {
@@ -32,6 +35,13 @@ func (s *fakeStore) Update(t *domain.Token) error {
 	}
 	s.updated = t
 	return nil
+}
+func (s *fakeStore) UpdateWithUniqueName(t *domain.Token) error {
+	s.nameRule = true
+	if domain.NameTaken(s.others, t.Name) {
+		return domain.ErrNameDuplicate
+	}
+	return s.Update(t)
 }
 func (s *fakeStore) SetAutoGroups(t *domain.Token, groups []string) error {
 	t.AutoGroups = ""
@@ -142,4 +152,51 @@ func TestUpdateKeyAppliesAutoGroupsOnlyWhenSet(t *testing.T) {
 	token, err = newRun(store).usecase.Execute(Input{UserID: 7, Token: domain.Token{Id: 5, Name: "owned", UnlimitedQuota: true, Group: "auto"}})
 	require.NoError(t, err)
 	assert.Equal(t, `["default"]`, token.AutoGroups, "absent auto_groups keeps stored groups")
+}
+
+func TestUpdateKeyRenameKeepsNameUnique(t *testing.T) {
+	cases := []struct {
+		name     string
+		others   []string
+		input    string
+		err      error
+		saved    string
+		nameRule bool
+	}{
+		{name: "duplicate", others: []string{"Prod"}, input: "Prod", err: domain.ErrNameDuplicate, nameRule: true},
+		{name: "duplicate in another case", others: []string{"Prod"}, input: "pROD", err: domain.ErrNameDuplicate, nameRule: true},
+		{name: "duplicate after trimming", others: []string{" prod "}, input: "  Prod\t", err: domain.ErrNameDuplicate, nameRule: true},
+		{name: "unique name is trimmed", others: []string{"Prod"}, input: "  staging  ", saved: "staging", nameRule: true},
+		{name: "own name skips the rule", others: []string{"owned"}, input: " owned ", saved: "owned"},
+		{name: "own name in another case", others: []string{"other"}, input: "OWNED", saved: "OWNED", nameRule: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{stored: owned(), others: tc.others}
+			r := newRun(store)
+			token, err := r.usecase.Execute(Input{UserID: 7, Token: domain.Token{Id: 5, Name: tc.input, ExpiredTime: -1, UnlimitedQuota: true, Group: "auto"}})
+			assert.Equal(t, tc.nameRule, store.nameRule)
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+				assert.NotErrorIs(t, err, domain.ErrInternal)
+				assert.Nil(t, store.updated)
+				assert.False(t, r.succeeded)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.saved, token.Name)
+			assert.Equal(t, tc.saved, r.params["name"])
+			assert.True(t, r.succeeded)
+		})
+	}
+}
+
+func TestUpdateKeyStatusOnlyIgnoresNameRule(t *testing.T) {
+	store := &fakeStore{stored: owned(), others: []string{"taken"}}
+	store.stored.Status = domain.StatusDisabled
+	token, err := newRun(store).usecase.Execute(Input{UserID: 7, StatusOnly: "true", Token: domain.Token{Id: 5, Status: domain.StatusEnabled, Name: "taken"}})
+	require.NoError(t, err)
+	assert.False(t, store.nameRule)
+	assert.Equal(t, "owned", token.Name)
+	assert.Equal(t, domain.StatusEnabled, token.Status)
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/apikeys/domain"
 
 	"gorm.io/gorm"
@@ -24,6 +25,62 @@ func (store Store) Insert(token *Token) error {
 	var err error
 	err = store.db().Create(token).Error
 	return err
+}
+
+// InsertWithUniqueName inserts token unless another key of the same user that
+// is not deleted has the same name (domain.NameTaken); then it returns
+// domain.ErrNameDuplicate. The check and the insert share one transaction
+// that holds the owner lock.
+func (store Store) InsertWithUniqueName(token *Token) error {
+	return store.lockOwner(token.UserId, func(tx Store) error {
+		if err := tx.requireUniqueName(token.UserId, 0, token.Name); err != nil {
+			return err
+		}
+		return tx.Insert(token)
+	})
+}
+
+// UpdateWithUniqueName is Update with the name rule of InsertWithUniqueName;
+// the key itself does not occupy its name.
+func (store Store) UpdateWithUniqueName(token *Token) error {
+	return store.lockOwner(token.UserId, func(tx Store) error {
+		if err := tx.requireUniqueName(token.UserId, token.Id, token.Name); err != nil {
+			return err
+		}
+		return tx.Update(token)
+	})
+}
+
+// lockOwner calls run in a transaction that serializes it with every other
+// lockOwner transaction of the same user.
+func (store Store) lockOwner(userID int, run func(Store) error) error {
+	return store.db().Transaction(func(tx *gorm.DB) error {
+		if tx.Dialector.Name() == "sqlite" {
+			// SQLite has no row locks: take the database-wide write lock before the first read.
+			if err := tx.Model(&Token{}).Where("1 = 0").Update("id", gorm.Expr("id")).Error; err != nil {
+				return err
+			}
+		} else {
+			var ids []int
+			if err := locking.LockForUpdate(tx.Table("users")).Where("id = ?", userID).Pluck("id", &ids).Error; err != nil {
+				return err
+			}
+		}
+		scoped := store
+		scoped.db = func() *gorm.DB { return tx }
+		return run(scoped)
+	})
+}
+
+func (store Store) requireUniqueName(userID, exceptID int, name string) error {
+	var names []string
+	if err := store.db().Model(&Token{}).Where("user_id = ? AND id <> ?", userID, exceptID).Pluck("name", &names).Error; err != nil {
+		return err
+	}
+	if domain.NameTaken(names, name) {
+		return domain.ErrNameDuplicate
+	}
+	return nil
 }
 
 func (store Store) Update(token *Token) (err error) {
@@ -55,6 +112,25 @@ func (store Store) List(userId int, startIdx int, num int) ([]*Token, error) {
 	var tokens []*Token
 	var err error
 	err = store.db().Where("user_id = ?", userId).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
+	return tokens, err
+}
+
+// ListAfter returns up to limit keys of the user, newest first, with ids below
+// afterID; afterID 0 starts from the newest key.
+func (store Store) ListAfter(userId, afterID, limit int) ([]*Token, error) {
+	query := store.db().Where("user_id = ?", userId)
+	if afterID > 0 {
+		query = query.Where("id < ?", afterID)
+	}
+	var tokens []*Token
+	err := query.Order("id desc").Limit(limit).Find(&tokens).Error
+	return tokens, err
+}
+
+// ListByIDs returns the keys with the given ids of any user, newest first.
+func (store Store) ListByIDs(ids []int) ([]*Token, error) {
+	var tokens []*Token
+	err := store.db().Where("id IN (?)", ids).Order("id desc").Find(&tokens).Error
 	return tokens, err
 }
 

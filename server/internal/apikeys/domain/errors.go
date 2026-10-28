@@ -7,6 +7,7 @@ import "errors"
 var (
 	ErrKeyNotFound           = errors.New("api key not found")
 	ErrNameTooLong           = errors.New("api key name is too long")
+	ErrNameDuplicate         = errors.New("api key name is already used by another key of the user")
 	ErrQuotaNegative         = errors.New("api key quota is negative")
 	ErrQuotaExceedMax        = errors.New("api key quota exceeds the maximum")
 	ErrKeyCountLimit         = errors.New("api key count limit reached")
@@ -20,6 +21,7 @@ var (
 	ErrBatchTooLarge         = errors.New("api key batch is too large")
 	ErrUsageUnavailable      = errors.New("api key usage is unavailable")
 	ErrKeyIDRequired         = errors.New("api key id or user id is empty")
+	ErrListQueryInvalid      = errors.New("api key list query is invalid")
 
 	// Search errors are shared with usage and payment search through SanitizeSearchPattern.
 	ErrSearchConsecutiveWildcards = errors.New("search pattern must not contain consecutive % wildcards")

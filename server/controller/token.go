@@ -30,6 +30,8 @@ func GetTokenKeysBatch(c *gin.Context) { httpapi.APIKeys().RevealKeysBatch.Handl
 
 func GetTokenAutoGroups(c *gin.Context) { httpapi.APIKeys().GetKeyGroups.Handle(c) }
 
+func ListGetAPITokens(c *gin.Context) { httpapi.APIKeys().ListGetAPIKeys.Handle(c) }
+
 type TokenKeyResponse = reveal_key.TokenKeyResponse
 
 type TokenBatch = delete_keys_batch.Request

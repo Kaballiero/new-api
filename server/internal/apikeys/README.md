@@ -5,7 +5,8 @@
 Модуль владеет API-ключами (`tokens`), с которыми клиенты ходят в шлюз: имя, ключ, статус, срок действия, остаток и расход квоты, ограничения по моделям и IP, группа и auto-группы, повтор в другой группе.
 
 Модуль отвечает за инварианты ключа:
-- имя не длиннее 50 байт;
+- имя не длиннее 50 байт и хранится без пробелов по краям (`strings.TrimSpace`);
+- имя уникально среди неудалённых ключей пользователя без учёта регистра и пробелов по краям (`domain.NameTaken`, Unicode-сравнение в Go, поэтому работает и для кириллицы на SQLite). Проверяется только при создании и переименовании: `create_key` и `update_key` (кроме `status_only`) сохраняют ключ через `InsertWithUniqueName` / `UpdateWithUniqueName`, где проверка и запись идут в одной транзакции с блокировкой пользователя (`SELECT id FROM users WHERE id = ? FOR UPDATE` на MySQL/PostgreSQL, на SQLite — запись (`UPDATE tokens … WHERE 1 = 0`) до первого чтения, она берёт блокировку записи всей БД). Удалённые ключи имя не занимают; существующие дубли не исправляются. Нарушение — `ErrNameDuplicate`;
 - квота ограниченного ключа лежит в диапазоне `0..MaxQuota`;
 - число ключей пользователя ограничено `operation_setting.GetMaxUserTokens`;
 - `cross_group_retry` и auto-группы есть только у группы `auto`;
@@ -20,7 +21,7 @@
 
 ## Возможности
 
-Все маршруты `/api/token/*` идут через `UserAuth` (сессия панели или PAT владельца) и `TokenOperationAudit`. Пользователь видит и меняет только свои ключи.
+Все маршруты `/api/token/*` идут через `UserAuth` (сессия панели или PAT владельца) и `TokenOperationAudit`. Пользователь видит и меняет только свои ключи. Исключение — `GET /api/getapi/tokens`: только чтение для admin/root-принципала интеграции с capability `getapi.tokens.read` в `GETAPI_INTEGRATIONS`.
 
 | Сценарий | Что делает | Маршрут |
 |---|---|---|
@@ -34,6 +35,7 @@
 | `delete_key` | удаление ключа, аудит `token.delete` | `DELETE /api/token/:id` |
 | `delete_keys_batch` | пакетное удаление, аудит `token.delete_batch` | `POST /api/token/batch` |
 | `reveal_keys_batch` | полные ключи пачкой (до 100 id), аудит `token.key_view_batch` | `POST /api/token/batch/keys` + `CriticalRateLimit`, `DisableCache` |
+| `list_getapi_keys` | ключи с маской для интеграции GetAPI, ровно один режим: `user_id` (+ `after_id`, `limit` 1..100, по умолчанию 100) — неудалённые ключи пользователя по убыванию id, keyset `{items, next_after_id, total}`; `ids` — до 100 уникальных id любых пользователей, `{items}`. Полный ключ не отдаётся | `GET /api/getapi/tokens` + `GetAPIAuth("getapi.tokens.read")` |
 | `get_key_usage` | остаток и расход квоты по самому ключу из `Authorization: Bearer sk-…` | `GET /api/usage/token/` + `CORS`, `CriticalRateLimit`, `TokenAuthReadOnly` |
 | `get_key_status` | сводка `credit_summary` по ключу | HTTP-маршрута нет; native fixture вызывает owning HTTP напрямую, а OpenAPI parser читает его AST |
 | `validate_key` | проверка ключа и владельца, срока/квоты с прежней записью статуса, IP, группы, ограничений моделей и pin канала; возвращает типизированный `Caller` | `TokenAuth`, ключевая ветка `TokenOrUserAuth`; `TokenAuthReadOnly` допускает expired/exhausted, но отклоняет disabled |
@@ -43,6 +45,8 @@
 
 Ошибки сценариев — значения из `domain/errors.go`. Их переводит в HTTP общий `transport.WriteError`:
 - `ErrKeyNotFound` → 404 `token_not_found`;
+- `ErrNameDuplicate` → 409 `token_name_duplicate`;
+- `ErrListQueryInvalid` → 400 `invalid_params` с i18n-сообщением о режимах `list_getapi_keys`;
 - `domain.Internal(err)` → 500 `internal_error` с текстом причины;
 - ошибки поиска и `ErrKeyIDRequired` → 500 `internal_error` с i18n-сообщением (статус и код как в `origin/main`, текст раньше был захардкожен на китайском);
 - остальные бизнес-ошибки → свои статус, код и i18n-сообщение;

@@ -30,25 +30,29 @@ func (s Store) ByKey(key string) (*domain.Token, error) {
 }
 func (s Store) List(userID, start, limit int) ([]*domain.Token, error) {
 	ts, e := s.persistence.List(userID, start, limit)
-	if ts == nil {
-		return nil, e
-	}
-	r := make([]*domain.Token, len(ts))
-	for i, t := range ts {
-		r[i] = record.ToDomain(t)
-	}
-	return r, e
+	return toDomainList(ts), e
+}
+func (s Store) ListAfter(userID, afterID, limit int) ([]*domain.Token, error) {
+	ts, e := s.persistence.ListAfter(userID, afterID, limit)
+	return toDomainList(ts), e
+}
+func (s Store) ListByIDs(ids []int) ([]*domain.Token, error) {
+	ts, e := s.persistence.ListByIDs(ids)
+	return toDomainList(ts), e
 }
 func (s Store) OpenSearch(userID int) search_keys.Query { return s.persistence.OpenSearch(userID) }
 
 func (s Store) Count(userID int) (int64, error) { return s.persistence.Count(userID) }
-func (s Store) Insert(t *domain.Token) error {
+func (s Store) InsertWithUniqueName(t *domain.Token) error {
 	value := record.FromDomain(t)
-	err := s.persistence.Insert(value)
+	err := s.persistence.InsertWithUniqueName(value)
 	*t = *record.ToDomain(value)
 	return err
 }
 func (s Store) Update(t *domain.Token) error { return s.persistence.Update(record.FromDomain(t)) }
+func (s Store) UpdateWithUniqueName(t *domain.Token) error {
+	return s.persistence.UpdateWithUniqueName(record.FromDomain(t))
+}
 func (s Store) Delete(t *domain.Token) error { return s.persistence.Delete(record.FromDomain(t)) }
 func (s Store) SetAutoGroups(t *domain.Token, groups []string) error {
 	if len(groups) == 0 {
@@ -83,4 +87,15 @@ func (s Store) GetByID(id int) (*domain.Token, error) {
 func (s Store) GetForDeletion(id, userID int) (*domain.Token, error) {
 	t, err := s.persistence.GetForDeletion(id, userID)
 	return record.ToDomain(t), err
+}
+
+func toDomainList(ts []*record.Token) []*domain.Token {
+	if ts == nil {
+		return nil
+	}
+	r := make([]*domain.Token, len(ts))
+	for i, t := range ts {
+		r[i] = record.ToDomain(t)
+	}
+	return r
 }

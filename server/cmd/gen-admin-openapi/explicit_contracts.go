@@ -234,6 +234,9 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 		if route.HandlerName == "InitializeGetAPIPAT" {
 			enrichGetAPIInitializeContract(op)
 		}
+		if route.HandlerName == "ListGetAPITokens" {
+			enrichGetAPITokensContract(op)
+		}
 		if route.HandlerName == "GetAllLogs" || route.HandlerName == "GetUserLogs" {
 			parameters, _ := op["parameters"].([]any)
 			parameters = slices.DeleteFunc(slices.Clone(parameters), func(parameter any) bool {
@@ -699,4 +702,54 @@ func enrichGetAPIQuotaCreditSchemas(schemas map[string]any) {
 	schemas["GetAPIQuotaCreditResult"] = result
 	schemas["GetAPIQuotaCreditResponse"] = wrapResponse(map[string]any{"$ref": "#/components/schemas/GetAPIQuotaCreditResult"})
 	schemas["GetAPIQuotaCreditResponse"].(map[string]any)["required"] = []string{"success", "data"}
+}
+
+func enrichGetAPITokensContract(op map[string]any) {
+	responses := map[string]any{}
+	for _, status := range []string{"200", "400", "401", "403", "500", "503"} {
+		schema := "GetApiErrorResponse"
+		switch status {
+		case "200":
+			schema = "GetAPITokenListResponse"
+		case "400", "500":
+			schema = "ApiErrorResponse"
+		}
+		response := buildResponse(respSpec{Custom: schema})["200"].(map[string]any)
+		response["headers"] = map[string]any{"Cache-Control": map[string]any{"schema": map[string]any{"type": "string", "enum": []string{"no-store"}}}}
+		responses[status] = response
+	}
+	op["responses"] = responses
+	declareErrorCodes(op, "400", "invalid_params")
+	declareErrorCodes(op, "500", "internal_error")
+	op["operationId"] = "listGetApiTokens"
+	op["summary"] = "List API keys with masked values"
+	op["description"] = "Requires an enabled admin/root principal with getapi.tokens.read in GETAPI_INTEGRATIONS. Exactly one mode: user_id (optional after_id and limit) returns the user's keys that are not deleted, newest first, as a keyset page {items, next_after_id, total}; next_after_id is the id of the last item when the page is full, otherwise null; an unknown user_id returns an empty page. ids returns {items} with the keys that are not deleted among 1..100 unique positive ids of any user; unknown ids are absent. masked_key is the only key value: the full key is never returned. Invalid or mixed parameters return 400 invalid_params. No-store responses."
+	pageOnly := "User mode only."
+	op["parameters"] = []any{
+		map[string]any{"name": "user_id", "in": "query", "required": false, "description": "User mode: owner of the keys.", "schema": map[string]any{"type": "integer", "minimum": 1}},
+		map[string]any{"name": "after_id", "in": "query", "required": false, "description": pageOnly + " Return keys with ids below this one (next_after_id of the previous page).", "schema": map[string]any{"type": "integer", "minimum": 1}},
+		map[string]any{"name": "limit", "in": "query", "required": false, "description": pageOnly + " Page size.", "schema": map[string]any{"type": "integer", "minimum": 1, "maximum": 100, "default": 100}},
+		map[string]any{"name": "ids", "in": "query", "required": false, "description": "Ids mode: comma-separated unique positive key ids, 1..100.", "style": "form", "explode": false, "schema": map[string]any{"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": map[string]any{"type": "integer", "minimum": 1}}},
+	}
+}
+
+func enrichGetAPITokensSchemas(schemas map[string]any) {
+	key := structToSchema(modelTypes["GetAPITokenKey"])
+	key["required"] = []string{"id", "user_id", "name", "masked_key", "status", "created_time", "accessed_time", "expired_time", "remain_quota", "used_quota", "unlimited_quota"}
+	schemas["GetAPITokenKey"] = key
+	items := map[string]any{"type": "array", "items": map[string]any{"$ref": "#/components/schemas/GetAPITokenKey"}}
+	schemas["GetAPITokenPage"] = map[string]any{
+		"type": "object", "required": []string{"items", "next_after_id", "total"},
+		"properties": map[string]any{
+			"items":         items,
+			"next_after_id": map[string]any{"type": "integer", "nullable": true},
+			"total":         map[string]any{"type": "integer", "format": "int64"},
+		},
+	}
+	schemas["GetAPITokenBatch"] = map[string]any{"type": "object", "required": []string{"items"}, "properties": map[string]any{"items": items}}
+	schemas["GetAPITokenListResponse"] = wrapResponse(map[string]any{"anyOf": []any{
+		map[string]any{"$ref": "#/components/schemas/GetAPITokenPage"},
+		map[string]any{"$ref": "#/components/schemas/GetAPITokenBatch"},
+	}})
+	schemas["GetAPITokenListResponse"].(map[string]any)["required"] = []string{"success", "data"}
 }

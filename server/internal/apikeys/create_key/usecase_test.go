@@ -15,10 +15,15 @@ type fakeStore struct {
 	countErr  error
 	insertErr error
 	inserted  *domain.Token
+	// names are the names of the keys of the user that are not deleted.
+	names []string
 }
 
 func (s *fakeStore) Count(int) (int64, error) { return s.count, s.countErr }
-func (s *fakeStore) Insert(t *domain.Token) error {
+func (s *fakeStore) InsertWithUniqueName(t *domain.Token) error {
+	if domain.NameTaken(s.names, t.Name) {
+		return domain.ErrNameDuplicate
+	}
 	if s.insertErr != nil {
 		return s.insertErr
 	}
@@ -124,4 +129,39 @@ func TestCreateKeyStoresAutoGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, `["default"]`, token.AutoGroups)
 	assert.True(t, token.CrossGroupRetry)
+}
+
+func TestCreateKeyKeepsNameUnique(t *testing.T) {
+	cases := []struct {
+		name  string
+		names []string
+		input string
+		err   error
+		saved string
+	}{
+		{name: "duplicate", names: []string{"Prod"}, input: "Prod", err: domain.ErrNameDuplicate},
+		{name: "duplicate in another case", names: []string{"Prod"}, input: "prod", err: domain.ErrNameDuplicate},
+		{name: "duplicate in another case non-ASCII", names: []string{"Прод"}, input: "пРОД", err: domain.ErrNameDuplicate},
+		{name: "duplicate after trimming", names: []string{" prod "}, input: "\tPROD  ", err: domain.ErrNameDuplicate},
+		{name: "unique name is trimmed", names: []string{"Prod"}, input: "  staging  ", saved: "staging"},
+		{name: "prefix is not a duplicate", names: []string{"Prod"}, input: "Prod-2", saved: "Prod-2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{names: tc.names}
+			r := newRun(store, generateKey)
+			token, err := r.usecase.Execute(Input{UserID: func() int { return 7 }, Token: domain.Token{Name: tc.input, UnlimitedQuota: true}})
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+				assert.NotErrorIs(t, err, domain.ErrInternal)
+				assert.Nil(t, store.inserted)
+				assert.False(t, r.succeeded)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.saved, token.Name)
+			assert.Equal(t, map[string]any{"name": tc.saved, "id": 41}, r.params)
+			assert.True(t, r.succeeded)
+		})
+	}
 }

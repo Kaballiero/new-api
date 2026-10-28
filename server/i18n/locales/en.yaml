@@ -35,6 +35,7 @@ auth.insufficient_privilege: "Unauthorized, insufficient privileges"
 
 # Token messages
 token.name_too_long: "Token name is too long"
+token.name_duplicate: "A token with this name already exists"
 token.quota_negative: "Quota value cannot be negative"
 token.quota_exceed_max: "Quota value exceeds valid range, maximum is {{.Max}}"
 token.generate_failed: "Failed to generate token"
@@ -59,6 +60,7 @@ token.search_keyword_too_short: "The keyword must be at least 2 characters long 
 token.search_count_failed: "Failed to count tokens"
 token.fuzzy_search_limit: "Too many tokens: only exact search is allowed, do not use the % wildcard"
 token.search_failed: "Failed to search tokens"
+token.list_query_invalid: "Specify either user_id (with optional after_id and limit from 1 to 100) or ids with 1 to 100 unique positive IDs"
 
 # Redemption messages
 redemption.name_length: "Redemption code name length must be between 1-20"

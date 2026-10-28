@@ -43,6 +43,7 @@ const (
 // Token related messages
 const (
 	MsgTokenNameTooLong                = "token.name_too_long"
+	MsgTokenNameDuplicate              = "token.name_duplicate"
 	MsgTokenQuotaNegative              = "token.quota_negative"
 	MsgTokenQuotaExceedMax             = "token.quota_exceed_max"
 	MsgTokenGenerateFailed             = "token.generate_failed"
@@ -67,6 +68,7 @@ const (
 	MsgTokenSearchCountFailed          = "token.search_count_failed"
 	MsgTokenFuzzySearchLimit           = "token.fuzzy_search_limit"
 	MsgTokenSearchFailed               = "token.search_failed"
+	MsgTokenListQueryInvalid           = "token.list_query_invalid"
 )
 
 // Redemption related messages

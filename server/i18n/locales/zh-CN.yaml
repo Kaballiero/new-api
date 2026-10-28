@@ -36,6 +36,7 @@ auth.insufficient_privilege: "无权进行此操作，权限不足"
 
 # Token messages
 token.name_too_long: "令牌名称过长"
+token.name_duplicate: "已存在同名令牌"
 token.quota_negative: "额度值不能为负数"
 token.quota_exceed_max: "额度值超出有效范围，最大值为 {{.Max}}"
 token.generate_failed: "生成令牌失败"
@@ -60,6 +61,7 @@ token.search_keyword_too_short: "使用模糊搜索时，关键词长度至少�
 token.search_count_failed: "获取令牌数量失败"
 token.fuzzy_search_limit: "令牌数量超过上限，仅允许精确搜索，请勿使用 % 通配符"
 token.search_failed: "搜索令牌失败"
+token.list_query_invalid: "请指定 user_id（可选 after_id 和 1 到 100 的 limit）或 ids（1 到 100 个不重复的正整数 ID）之一"
 
 # Redemption messages
 redemption.name_length: "兑换码名称长度必须在1-20之间"

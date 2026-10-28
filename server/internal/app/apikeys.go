@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/apikeys/get_key"
 	"github.com/QuantumNous/new-api/internal/apikeys/get_key_groups"
 	"github.com/QuantumNous/new-api/internal/apikeys/get_key_usage"
+	"github.com/QuantumNous/new-api/internal/apikeys/list_getapi_keys"
 	"github.com/QuantumNous/new-api/internal/apikeys/list_keys"
 	"github.com/QuantumNous/new-api/internal/apikeys/reveal_key"
 	"github.com/QuantumNous/new-api/internal/apikeys/reveal_keys_batch"
@@ -43,6 +44,7 @@ type APIKeysHTTP struct {
 	DeleteKeysBatch delete_keys_batch.HTTP
 	RevealKeysBatch reveal_keys_batch.HTTP
 	GetKeyGroups    get_key_groups.HTTP
+	ListGetAPIKeys  list_getapi_keys.HTTP
 }
 
 func NewAPIKeysHTTP(effects APIKeyEffects) APIKeysHTTP {
@@ -59,6 +61,7 @@ func NewAPIKeysHTTP(effects APIKeyEffects) APIKeysHTTP {
 		CreateKey:       create_key.NewHTTP(store, groups, settings.MaxQuota, operation_setting.GetMaxUserTokens, common.GetTimestamp, common.GenerateKey, effects.Audit),
 		UpdateKey:       update_key.NewHTTP(store, groups, settings.MaxQuota, common.GetTimestamp, effects.Audit),
 		DeleteKeysBatch: delete_keys_batch.NewHTTP(store, effects.BatchAudit), RevealKeysBatch: reveal_keys_batch.NewHTTP(store, effects.BatchAudit),
+		ListGetAPIKeys: list_getapi_keys.NewHTTP(store),
 		GetKeyGroups: get_key_groups.NewHTTP(func(c *gin.Context) get_key_groups.Reader {
 			return keyGroupSource{read: func() (string, error) { return transport.RequestGroup(c, lookup) }, list: accountssettings.GetUserAutoGroup, limit: setting.GetMaxTokenAutoGroups}
 		}),

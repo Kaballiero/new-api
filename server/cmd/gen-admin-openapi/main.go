@@ -261,6 +261,7 @@ func run(locale string) error {
 	enrichMetadataSelectionSchema(schemas)
 	enrichGetAPIInitializeSchemas(schemas)
 	enrichGetAPIQuotaCreditSchemas(schemas)
+	enrichGetAPITokensSchemas(schemas)
 	schemas["GetApiCreateCredentialResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/GetAPICreateCredential"})
 	schemas["GetApiCreateCredentialResponse"].(map[string]interface{})["required"] = []string{"success", "data"}
 	schemas["GetAPICreateCredential"] = structToSchema(modelTypes["GetAPICreateCredential"])

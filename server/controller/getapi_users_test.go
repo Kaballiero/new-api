@@ -667,3 +667,68 @@ func TestGetAPIQuotaCredits(t *testing.T) {
 		})
 	}
 }
+
+func TestGetAPITokensList(t *testing.T) {
+	principal, pat := setupAccessTokenAudit(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Token{}))
+	owner := model.User{Username: "tokens-owner", Password: "placeholder", AffCode: "tokens-owner"}
+	require.NoError(t, model.DB.Create(&owner).Error)
+	const fullKey = "abcdSECRETfullKEYvalue"
+	live := model.Token{UserId: owner.Id, Name: "prod", Key: fullKey, Status: common.TokenStatusEnabled, CreatedTime: 10, AccessedTime: 20, ExpiredTime: -1, RemainQuota: 30, UsedQuota: 40}
+	deleted := model.Token{UserId: owner.Id, Name: "old", Key: "deletedSECRETkeyvalue1", Status: common.TokenStatusEnabled}
+	require.NoError(t, model.DB.Create(&live).Error)
+	require.NoError(t, model.DB.Create(&deleted).Error)
+	require.NoError(t, model.DB.Delete(&deleted).Error)
+	setCapabilities := func(capabilities ...string) {
+		cfg, err := common.Marshal([]map[string]any{{"integration_id": "test", "principal_user_id": principal.Id, "capabilities": capabilities}})
+		require.NoError(t, err)
+		t.Setenv("GETAPI_INTEGRATIONS", string(cfg))
+	}
+	r := gin.New()
+	r.GET("/api/getapi/tokens", middleware.GetAPIAuth("getapi.tokens.read"), ListGetAPITokens)
+	get := func(query, token string) *httptest.ResponseRecorder {
+		q := httptest.NewRequest(http.MethodGet, "/api/getapi/tokens?"+query, nil)
+		if token != "" {
+			q.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, q)
+		return w
+	}
+	userQuery := fmt.Sprintf("user_id=%d", owner.Id)
+
+	setCapabilities("getapi.users.provision")
+	denied := get(userQuery, pat)
+	assert.Equal(t, http.StatusForbidden, denied.Code)
+	assert.Contains(t, denied.Body.String(), "GETAPI_CAPABILITY_DENIED")
+	assert.Equal(t, http.StatusUnauthorized, get(userQuery, "").Code)
+
+	setCapabilities("getapi.tokens.read")
+	item := fmt.Sprintf(`{"id":%d,"user_id":%d,"name":"prod","masked_key":"abcd**********alue","status":1,"created_time":10,"accessed_time":20,"expired_time":-1,"remain_quota":30,"used_quota":40,"unlimited_quota":false}`, live.Id, owner.Id)
+	page := get(userQuery, pat)
+	require.Equal(t, http.StatusOK, page.Code, page.Body.String())
+	assert.Equal(t, "no-store", page.Header().Get("Cache-Control"))
+	assert.JSONEq(t, `{"success":true,"message":"","data":{"items":[`+item+`],"next_after_id":null,"total":1}}`, page.Body.String())
+	full := get(userQuery+"&limit=1", pat)
+	require.Equal(t, http.StatusOK, full.Code, full.Body.String())
+	assert.JSONEq(t, fmt.Sprintf(`{"success":true,"message":"","data":{"items":[%s],"next_after_id":%d,"total":1}}`, item, live.Id), full.Body.String())
+	batch := get(fmt.Sprintf("ids=%d,%d,999999", deleted.Id, live.Id), pat)
+	require.Equal(t, http.StatusOK, batch.Code, batch.Body.String())
+	assert.JSONEq(t, `{"success":true,"message":"","data":{"items":[`+item+`]}}`, batch.Body.String())
+	for _, w := range []*httptest.ResponseRecorder{page, full, batch} {
+		assert.NotContains(t, w.Body.String(), "SECRET")
+	}
+
+	tooMany := make([]string, 101)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprint(i + 1)
+	}
+	for _, invalid := range []string{
+		"", userQuery + "&ids=1", "user_id=abc", "user_id=0", userQuery + "&limit=0", userQuery + "&limit=101",
+		userQuery + "&after_id=x", "ids=", "ids=1,,2", "ids=1,1", "ids=1&limit=5", "ids=" + strings.Join(tooMany, ","),
+	} {
+		w := get(invalid, pat)
+		assert.Equal(t, http.StatusBadRequest, w.Code, invalid)
+		assert.Contains(t, w.Body.String(), `"code":"invalid_params"`, invalid)
+	}
+}
