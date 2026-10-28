@@ -55,7 +55,7 @@ Task identity/plugin mapping имеет одно тело в adapter/gorm/usage 
 ## Сборка и технические адаптеры
 
 app/tasks собирает gateway-independent storage/billing/sync capabilities. app/taskruntime подключает
-provider factory, HTTP/media adapters и HTTP/poll handlers; controller bridges используют sync.OnceValue.
+provider factory, HTTP/media adapters и HTTP/poll handlers; controller содержит однострочные bindings, once-сборка находится в app/httpapi.
 Фабрика relay/taskregistry — единственный leaf owner platform→plugin resolution. main-only factory,
 service.GetTaskAdaptorFunc и новый global locator отсутствуют; tests/binaries получают ту же сборку.
 

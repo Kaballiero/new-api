@@ -24,7 +24,7 @@
 
 Модуль использует только собственный domain; зависимости на domain других бизнес-модулей нет. Read-сценарии объявляют узкий Reader.List, record_event — Store.Append/Username и Diagnostics.InvalidRole. GORM adapter реализует чтение/запись и username lookup через инжектированный callback, app — диагностику через logger. Transport получает Execute/error callbacks, часы и генератор ID; зависимости собирает internal/app/audit.
 
-`transport.Recording` захватывает plain request facts и ограниченный response buffer; PAT actor/time/event ID и actor API-key операции фиксируются до handler. В usecase нет Begin/Complete или Stage. Предварительные решения — named domain functions IsWriteMethod/TokenAction. `internal/app/audit` собирает зависимости без middleware/parent app; controller и middleware держат независимые sync.OnceValue bridges с поздним чтением DB.
+`transport.Recording` захватывает plain request facts и ограниченный response buffer; PAT actor/time/event ID и actor API-key операции фиксируются до handler. В usecase нет Begin/Complete или Stage. Предварительные решения — named domain functions IsWriteMethod/TokenAction. `internal/app/audit` собирает зависимости без middleware/parent app; app/audit.Recording держит единую once-сборку с поздним чтением DB; callbacks подключает app/httpapi.
 
 Storage всегда использует LOG_DB. Count и Find остаются отдельными запросами; сортировка created_at DESC, event_id DESC, прежние offset/limit и ClickHouse settings. Переданный visibility policy определяет SQL actor roles и DTO projection. SQLite/MySQL/PostgreSQL/ClickHouse ветви, таблица, индексы, JSON порядок, raw integer precision и null/empty форма сохранены.
 
@@ -38,17 +38,11 @@ PAT last-use reader остаётся в PAT adapter с прежним read-only 
 
 Новых исключений архитектурного теста нет: model/audit_records.go разрешён общим строгим AST-правилом alias-only файлов, allowlist не расширялся. Migration helper остаётся техническим остатком с прежним DDL. Best-effort запись без атомарности/repair — #42; Count/Find без общей snapshot transaction — #43.
 
-Мосты на стороне потребителей:
-
-| Файл | Оставшиеся потребители |
-|---|---|
-| `controller/access_token.go` | GetAuditLogs → transport dispatcher → два read handler |
-| `controller/audit.go` | manual/security callbacks, shared token params, channel suppression; legacy operator DTO/content только для quota recipient |
-| `controller/user.go` | successful-login callback из identity |
-| `controller/user_quota.go` | quota operator → audit, recipient → прежний usage/top-up writer |
-| `controller/subscription.go` | domain operator напрямую в audit; legacy row shape и workflow/content сохранены |
-| `middleware/audit.go` | authentication fallback, PAT credential lookup и router middleware entrypoints |
-| `middleware/getapi_auth.go` | integration completion callback |
+HTTP и middleware используют один app/audit.Recording с поздними storage readers.
+Callback-сборка login/security/manage/quota находится в app/httpapi.
+Quota recipient сохраняет прежний usage/top-up writer, operation content и operator envelope.
+Controller содержит однострочные router bindings; временных audit callbacks в нём нет.
+Middleware сохраняет прежние begin/finish и defer-порядок записи integration completion.
 
 Проверки: 257 неизменных audit HTTP/state goldens и отдельный locale baseline; прежние 501 billing/usage goldens; record_event policy/nil-request/error-identity regressions; codec integer precision; existing controller callers и API-key middleware matrix. Audit storage/migration integration tests находятся в app/audit, codec — рядом с record; оставшиеся controller tests проверяют внешние вызовы. Общая test fixture `internal/adapter/gorm/audit/audittest` выделяет PostgreSQL schema + startup search_path для каждого пула, отдельный LOG_DB получает свою схему. Внешние MySQL/ClickHouse tests запускаются только с DSN; отсутствие DSN — SKIP, а не подтверждение совместимости.
 

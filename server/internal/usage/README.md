@@ -12,7 +12,7 @@
 | `record_consumption` | Записать consume row через прежний writer; text, audio, realtime и channel test. Disabled consume не отключает counters/settlement |
 | `record_failure` | Записать upstream-attempt или delivery-failure row; сценарий владеет early upstream admission и late delivery gate |
 
-Запись вызывают relay endpoints, playground и channel-test handler; общий upstream writer используется также task-submission error path. HTTP read handlers находятся рядом со сценариями. Пути, middleware и полномочия не меняются; controller сохраняет тонкие entrypoints через sync.OnceValue(app.NewHTTP). Фоновые циклы собирает internal/app/usage, а запускает main в прежних точках.
+Запись вызывают relay endpoints, playground и channel-test handler; общий upstream writer используется также task-submission error path. HTTP read handlers находятся рядом со сценариями. Пути, middleware и полномочия не меняются; controller сохраняет однострочные bindings; once-сборка находится в app/httpapi. Фоновые циклы собирает internal/app/usage, а запускает main в прежних точках.
 
 ## Зависимости и сборка
 

@@ -77,7 +77,7 @@ map traversal/partial count до failed commit; reset re-lock проверяет
   использует отдельную owner-checked capability на том же tx. model/subscription_quota.go удалён, nested refund #27 сохранён.
 - `adapter/cache/accounts.Store` владеет guarded quota debit и auth fence; shared locking adapter
   сохраняет прежнюю dialect ветку. Model forwarders отсутствуют.
-- controller/subscription*.go: прежние router entrypoints → sync.OnceValue app handlers.
+- controller/subscription*.go: однострочные router bindings → once-сборка app/httpapi.
 
 Сохраняются TECH_DEBT60–66; #63 и #65 — financial/resource candidates. Structural перенос сохраняет все
 тексты, включая15 operational events и purchase/reset receipts. English default/en + ru и English logs

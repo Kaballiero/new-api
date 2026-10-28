@@ -86,15 +86,15 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/channels.go`) читает DT
 
 - Чужие `domain` модуль не импортирует.
 - Шлюз модулю не виден: тест канала, загрузка моделей, политика ошибок и настройки шлюза (`setting`, `settings`) приходят через узкие интерфейсы.
-- Сборка — `internal/app/channels.go`: `NewChannelsHTTP` один раз через `sync.OnceValue` в `controller/channel_scenarios.go`; фоновые прогоны собираются на каждый запуск (`NewChannelTestTaskUsecase`, `NewScanChannelModelsUsecase`, `NewChannelBalancesUsecase`). Usecase, который читает каналы, создаётся на каждый запрос: `adapter/gorm/channels.Store` хранит записи, загруженные в рамках одного запроса, чтобы изменения попадали в объект кэша каналов.
+- Сборка — `internal/app/channels.go`: `NewChannelsHTTP` один раз через `sync.OnceValue` в `app/httpapi`; фоновые прогоны собираются на каждый запуск (`NewChannelTestTaskUsecase`, `NewScanChannelModelsUsecase`, `NewChannelBalancesUsecase`). Usecase, который читает каналы, создаётся на каждый запрос: `adapter/gorm/channels.Store` хранит записи, загруженные в рамках одного запроса, чтобы изменения попадали в объект кэша каналов.
 - Хранение: `internal/adapter/gorm/channels` (`Store`) поверх `internal/adapter/gorm/channels/record` (GORM-запись `channels`, abilities, теги, настройки шлюза в DTO relaykit).
 - Шлюз: `internal/adapter/channels` — проверка канала (`ProbeEngine`, `ProbeOutcome`, `TestFailures`), загрузка моделей, баланс, Ollama, Codex, кэш привязки, тексты уведомления об обновлении моделей; сама проверка — `internal/adapter/gateway/channels`, failure orchestration — `gateway/transport`.
-- Права: `app/authorizationcore` (`ChannelSensitiveWrite`, `TaskPluginBind`); аудит — `recordManageAudit`, `markAuditLogged` из `controller`.
+- Права: `app/authorizationcore` (`ChannelSensitiveWrite`, `TaskPluginBind`); аудит — callbacks app/httpapi и audit/transport.MarkLogged.
 - Потребители: `controller/channel*.go`, `controller/codex_usage.go`, `controller/model.go` (HTTP), `app/channelruntime`, `app/channelcore`, gateway и taskplugins через технические ports.
 
 ## Границы и долг
 
-- Выбор канала при запросе остаётся в gateway/middleware. Единственный cache, polling/status mutex и ability SQL принадлежат `adapter/gorm/channels`; счётчик `used_quota` пока обслуживает общий counter owner в `model/utils.go` вместе с user/token очередями. `model.Channel` и `model.Ability` — строгие aliases записей.
+- Выбор канала при запросе остаётся в gateway/middleware. Единственный cache, polling/status mutex и ability SQL принадлежат `adapter/gorm/channels`; счётчик used_quota обслуживает adapter/gorm/counters вместе с user/token очередями. `model.Channel` и `model.Ability` — строгие aliases записей.
 - Удаление модели из каталога переписывает abilities через channels adapter на переданном tx. Pricing получает технические channel/ability facts через свой store; бизнес-правила не копируются.
 - `app/channelcore` собирает смену статуса, Codex discovery/refresh и прежние расписания. `app/channelruntime` собирает enable/disable/root notifications; `adapter/channels` отображает gateway errors в failure policy, а `adapter/channels/codex` обслуживает прежние HTTP clients/cache.
 - Gateway probe engine перенесён в adapter/gateway/channels; controller хранит только HTTP delegates, а private worker/select conveniences — только в *_test.go. Новых model/service мостов нет.
@@ -103,3 +103,8 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/channels.go`) читает DT
 - Mapping sentinels объявлены только в `channels/domain`; прежняя injected Errors граница использует те же значения без aliases в model.
 - `detect_upstream_model_updates` и `scan_upstream_model_updates` (метод `Check`), `apply_upstream_model_updates` и `apply_all_upstream_model_updates` (метод `Apply`) содержат одинаковый код: сценарии не вызывают друг друга, а общий шаг зависит от хранилища.
 - Конструктор `run_channel_tests` и `scan_upstream_model_updates` принимает больше трёх функций без группировки.
+
+Сборка channel effects, HTTP и scheduler находится в app/httpapi; один technical
+adapter/channels.ModelUpdateNotifications хранит прежнюю suppression state. Balance loop
+также запускается из app, сохраняя sleep-first/minutes. На каждом узле его включает
+CHANNEL_UPDATE_FREQUENCY, без нового master/once gate.

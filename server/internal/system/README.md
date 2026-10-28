@@ -39,7 +39,7 @@ idle/wakeup 15s, scheduler 15s, stale sweep 30s, lease TTL 60s, heartbeat 20s. �
 идёт отдельно, Run сам завершает task. Progress writes сохраняют throttle 2s и first/final updates.
 
 `app/systemruntime` собирает HTTP/setup/reporter и handlers восьми task types. Существующий
-`controller.RegisterScheduledSystemTasks` явно регистрирует все handlers до запуска runner;
+`app/httpapi.RegisterScheduledSystemTasks` явно регистрирует все handlers до запуска runner;
 повторная регистрация заменяет type. FX регистрируется явно вместе с остальными handlers.
 Channels получают ChannelEffects и отдельную сборку stateful store на каждый run;
 Midjourney/async tasks, Batch и pricing вызывают своих владельцев.

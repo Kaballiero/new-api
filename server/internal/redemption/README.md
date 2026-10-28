@@ -44,7 +44,7 @@ model/redemption.go — строгий same-name type alias. Schema, AutoMigrate
 Scenarios объявляют consumer-owned Reader/Store/Tx/Receipt/Admission; общие PageReader/Query принадлежат
 двум read scenarios. GORM adapter содержит SQL, transaction и projection. App/redemption связывает
 поздние DB getters, часы/UUID/задержку, compliance, process-local admission и audit app. Constructors
-не зависят от main, middleware или скрытой регистрации. Controller использует sync.OnceValue.
+не зависят от main, middleware или скрытой регистрации. Once-сборка HTTP handlers находится в app/httpapi; controller содержит однострочные bindings.
 
 Wallet credit и post-commit cache sync подключаются через общий technical adapter `internal/adapter/wallet`.
 Wallet владеет единственным credit body и capacity guard; redemption передаёт тот же tx. Чужие account workflows не вызываются.

@@ -51,7 +51,7 @@ Raw storage/SDK/bind ошибки не распознаются по текст�
 
 SQL, records и projection — adapter/gorm/payments; исходящие API/signature codecs — adapter/http/payments
 с отдельными epay/stripe/creem/waffo/pancake. Настройки читаются поздно через adapter/settings/payments.
-Сборка — app/payments, controller singleton — sync.OnceValue. Она работает в любом linked binary и не
+Сборка — app/payments, HTTP singleton через sync.OnceValue находится в app/httpapi. Она работает в любом linked binary и не
 требует main-only регистрации. Диагностика получает request context явно и выдерживает nil Gin/Request.
 
 Completion выбирает порядок lookup/provider/status/quota/Save/credit; adapter выполняет их в одном tx.

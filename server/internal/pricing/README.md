@@ -33,7 +33,7 @@
 | `get_ratio_config` | открытые коэффициенты для синхронизации другими инстансами | `GET /api/ratio_config`, `CriticalRateLimit` |
 | `list_syncable_channels` | каналы с `base_url` и два пресета (официальный, models.dev) | `GET /api/ratio_sync/channels`, `RootAuth` |
 | `fetch_upstream_ratios` | загрузка коэффициентов upstream и расхождения с локальными | `POST /api/ratio_sync/fetch`, `RootAuth` |
-| `refresh_catalogue` | прогон фоновой задачи обновления нативных цен upstream и публикации каталога | системная задача `pricing_catalog` (`controller/pricing_catalog_refresh.go`) |
+| `refresh_catalogue` | прогон фоновой задачи обновления нативных цен upstream и публикации каталога | системная задача `pricing_catalog` (`app/systemruntime`) |
 | `enqueue_catalogue_refresh` | постановка задачи обновления (`PRICING_CATALOG_TASK_ENABLED`) | без HTTP, `app.NewEnqueuePricingCatalogueRefresh` |
 | `sync_upstream_catalog` | синхронизация upstream-каталога в неизменяемые записи | без HTTP, `refresh_catalogue` и outer `app/pricing.go` |
 | `ensure_catalog_source`, `publish_catalog_selection` | источник upstream-каталога и публикация выбранных записей | без HTTP, native characterization; persistence API у `adapter/gorm/pricing` |
@@ -64,7 +64,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/pricing.go`) читает DTO
 ## Зависимости
 
 - `catalog/domain` (`Model`, `Vendor`, метаданные) — цена строится поверх модели; `channels/domain` — поверх канала (`domain/catalogue.go`).
-- Сборка — `internal/app/pricing.go` (`NewPricingHTTP`), один раз через `sync.OnceValue` в `controller/pricing_scenarios.go`; аудит — `recordManageAudit` из `controller/audit.go`.
+- Сборка — `internal/app/pricing.go` (`NewPricingHTTP`), один раз через `sync.OnceValue` в `app/httpapi/pricing.go`; аудит — callback app/httpapi к app/audit.Recording.
 - Адаптеры: `adapter/pricing` (`Reader`, `ConsumerCache`, `RatioSettings`, `RatioChannels`, плагины), `adapter/pricing/upstream` (HTTP-клиенты ratio sync и нативных цен, override, нормализация), `adapter/gorm/pricing` (опции, каталог, неизменяемые записи, наблюдения).
 - Настройки: `setting/ratio_setting`, `setting/billing_setting`, account group policy в settings/accounts. Leaf `app/pricingruntime` собирает статические сценарии once; `adapter/pricing/state` владеет единым опубликованным snapshot, revision/generation/observation state и lock order. DB, колонки, настройки, registry и clock читаются поздно.
 - Потребители: `controller/pricing*.go`, `ratio_sync.go`, `ratio_config.go`, `model_pricing_config.go` (HTTP и алиасы типов для тестов); `app/pricingruntime` и технические adapters (сценарии без HTTP).

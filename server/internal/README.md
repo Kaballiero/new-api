@@ -71,4 +71,7 @@ quotaruntime,subscriptionstorage,usagestorage}` явно собирают capabi
 
 Gateway ingress находится вне business modules в `gateway/transport`, probe — в `adapter/gateway/channels`.
 Tasks владеет confirmation marker, billing — violation fee policy. Callers используют реальные owners;
-production service и mutable BillingGateway registry удалены. Controller residue остаётся отдельной границей.
+production service и mutable BillingGateway registry удалены. HTTP-сборка, audit/login callbacks и startup channel effects находятся в app/httpapi;
+controller сохраняет только однострочные router bindings и wire-декларации OpenAPI.
+Тестовые helpers находятся в *_test.go. В production нет BRIDGE comments или service Go files;
+architecture allowlist пуст. Строгие table aliases/bootstrap/migrations остаются в model.

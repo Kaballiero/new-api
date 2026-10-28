@@ -44,7 +44,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/authorization.go`) читае
 ## Зависимости
 
 - Чужие `domain` модуль не импортирует.
-- Сборка обработчика каталога — `internal/app/authorization.go`, один раз через `sync.OnceValue` в `controller/authz.go`.
+- Сборка обработчика каталога — `internal/app/authorization.go`, один раз через `sync.OnceValue` в `app/httpapi/handlers.go`.
 - Leaf `internal/app/authorizationcore` собирает проверки, capabilities, запись загруженной политики и reload/sync один раз через `sync.OnceValue`; каталог и встроенные роли общие. Он не импортирует parent app, middleware или gateway, поэтому middleware и accounts используют одну сборку без цикла. Init получает текущую БД, операции in-tx — транзакцию вызывающего; эти адаптеры создаются на соответствующей границе вызова.
 - Адаптеры:
   - `internal/adapter/casbin/authorization` — модель Casbin, единственное состояние enforcer и его `RWMutex`, публикация и перечитывание (`Engine`, `State`, `Policy`);

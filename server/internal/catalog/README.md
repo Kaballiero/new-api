@@ -51,9 +51,10 @@ MetadataMutation принадлежит apply_metadata_sync; create_model и upd
 
 ## Мосты и остатки
 
-Controller delegates обслуживают существующие router registrations; удалить при прямой router
-assembly. `model.Model`, `Vendor`, `PrefillGroup` и сопутствующие constants/codecs — record aliases
-для migrations и pricing readers, без исполнительных metadata фасадов.
+Controller содержит однострочные router bindings; HTTP callbacks собираются в app/httpapi.
+model.Model, Vendor, PrefillGroup — строгие table aliases для bootstrap/migrations.
+Constants, JSONValue, BoundChannel и ModelSquareState consumers используют у record owner,
+без non-table re-exports в model.
 
 `adapter/gorm/catalog` владеет единственными metadata mutex, transaction и option-row anchor.
 Leaf `app/pricingruntime` передаёт техническую PricingMutation capability: deletion и правки pricing

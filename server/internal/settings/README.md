@@ -53,7 +53,7 @@ defaults, codecs, validators, editor и late status readers; `adapter/gateway/se
 ## Границы и долг
 
 - `controller/option.go` и delegates в `controller/misc.go` связывают существующие router registrations
-  с settings handlers; удалить при сборке handlers непосредственно в router.
+  с settings handlers, собранными once в app/httpapi.
 - `adapter/settings/publication` владеет общим group-ratio mutex, alias map и единственным `PublishOption`. Settings single/bulk/reload и native pricing используют этот же publisher. PricingCatalog публикуется до общего OptionMap lock, как и раньше.
 - Leaf `app/pricingruntime` собирает pricing/options/catalog capabilities без импорта parent app/settings. Reset writer связан со settings во внешнем app; `SyncOptions` после reload вызывает общий observer.
 - `model.Option` остаётся строгим record alias для bootstrap/migrations.

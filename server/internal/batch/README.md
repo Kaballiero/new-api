@@ -60,7 +60,7 @@ adapter/redis/batch — единственные Batch Lua bodies; namespaces, m
 принадлежат adapter/cache/accounts и adapter/cache/apikeys (волна7j). App/batch передаёт
 ReadCapabilities явно. Raw cache readers под locks не заменены hydration.
 
-provider_batch_poll регистрируется явно из controller.RegisterScheduledSystemTasks. Root server
+provider_batch_poll регистрируется явно из app/httpapi.RegisterScheduledSystemTasks. Root server
 и Electron достигают этого существующего entrypoint; тест регистрации вызывает его же. Голый импорт
 service больше не регистрирует Batch. UpdateTask, 15s interval, master/once, lease/heartbeat и history
 принадлежат app/system runner; SystemHandler использует его finish/fail capability. Direct poll собирается без main.

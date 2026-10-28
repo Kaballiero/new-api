@@ -53,21 +53,21 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/apikeys.go`) берёт ко�
 ## Зависимости
 
 - Чужие `domain` модуль не импортирует. `domain.Caller`, `Owner`, `KeyContext` не содержат Gin/ORM/relay-типы.
-- Gateway-сборка — `internal/app/authentication/apikeys.go`; узкий пакет сборки не импортирует middleware и предотвращает цикл с прежним `app`. `middleware.gatewayKeyAuth` держит её один раз через `sync.OnceValue`; настройки/БД читаются при запросе.
+- Gateway-сборка — `internal/app/authentication/apikeys.go`; узкий пакет сборки не импортирует middleware и предотвращает цикл с прежним `app`. app/authentication.GatewayKeyAuth держит её один раз через `sync.OnceValue`; настройки/БД читаются при запросе.
 - `internal/adapter/apikeys.Authentication` адаптирует прежние кэш/хранилище, снимок владельца, admin-проверку и декодирование auto-групп; бизнес-проверки находятся в сценарии.
-- Сборка — `internal/app/apikeys.go`, один раз через `sync.OnceValue` в `controller/token.go`.
+- Сборка — `internal/app/apikeys.go`, один раз через `sync.OnceValue` в `app/httpapi/handlers.go`.
 - Хранение: `internal/adapter/gorm/apikeys` (`Store`) поверх `internal/adapter/gorm/apikeys/record` (GORM-запись `tokens`, кэш-fence при записи, чтение по ключу через Redis-кэш).
 - Настройки: `internal/adapter/settings/apikeys` (`MaxQuota`), `operation_setting.GetMaxUserTokens`, `setting.GetMaxTokenAutoGroups`.
 - Группы: settings adapters групп и `app/accountstorage.Cache`.
-- Аудит: функции `tokenAuditParams` / `tokenBatchAuditParams` из `controller/audit.go`; запись события делает middleware `TokenOperationAudit`.
-- Потребители: `controller/token.go` (HTTP), gateway и app assembly через явные capabilities.
+- Аудит: audit/transport.TokenParameters и BatchParameters, собранные в app/httpapi; запись события делает middleware `TokenOperationAudit`.
+- Потребители: `app/httpapi/handlers.go` (HTTP), gateway и app assembly через явные capabilities.
 
 ## Границы и долг
 
 - `model.Token` — строгий alias `adapter/gorm/apikeys/record.Token`. Record хранит таблицу и codec; `record.Store` выполняет mutations, `KeyReader` — чтение. Старые model factories и test-only facades удалены.
 - `adapter/cache/apikeys` владеет token hash/fence/init/delta; `adapter/gorm/apikeys.QuotaStore` — SQL и прежним enqueue. Единственные пять counter maps и flush принадлежат `adapter/gorm/counters`, reserve orchestration — billing adapter. Redis keys, Lua и TTL сохранены.
 - `app/apikeystorage` собирает persistence/reader/quota один раз, с поздними DB/key-column getters. Gateway credential adapter и Batch получают реальные reader/quota capabilities.
-- Сохраняются consumer-owned `middleware.gatewayKeyAuth` и `middleware.SetupContextForToken` для router/playground. Удаление этих transport bridges — следующий gateway slice; model forwarding layers отсутствуют.
+- Gateway key checks собирает app/authentication.GatewayKeyAuth; middleware.SetupContextForToken выполняет реальную context projection для router/playground. Временных transport bridges и model forwarding layers нет.
 - Ограничения моделей передаются сценарием в контекст; фактический запрошенный model по-прежнему проверяет `middleware.Distribute` до выбора канала.
 - HTTP goldens `gateway_*` записаны на `origin/main` `6b0f439a4`; тест не обращается к upstream. Это проверка контракта, не подтверждение работы провайдера.
 - Ошибки шаблона поиска (`ErrSearch*Wildcards`, `ErrSearchKeywordTooShort`) возвращает и `model.sanitizeLikePattern`, который используют поиск логов и пополнений. Там они уходят клиенту английским текстом ошибки без перевода, пока эти модули не перенесены.

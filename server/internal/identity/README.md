@@ -67,7 +67,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/identity.go`) читает `h
 ## Зависимости
 
 - `accounts/domain` — правило управления ролью цели (`CanManageTargetRole`) в админских сценариях.
-- HTTP-сборка — `internal/app/identity.go`, один раз через `sync.OnceValue` в `controller/identity.go`; custom OAuth — `app/custom_oauth.go` и собственный once в `controller/custom_oauth.go`. Leaf `app/identitycore` один раз собирает session/proof/login/email/passkey-flow usecases и зависимости; каждый запрос получает отдельные operation adapters. `app.NewIdentityErrors` также используют `personal_access_tokens` и `controller.writeSecurityOperationError` (accounts, channels).
+- HTTP-сборка — `internal/app/identity.go`, один раз через `sync.OnceValue` в `app/httpapi/identity.go`; custom OAuth — `app/custom_oauth.go` и собственный once в `app/httpapi/handlers.go`. Leaf `app/identitycore` один раз собирает session/proof/login/email/passkey-flow usecases и зависимости; каждый запрос получает отдельные operation adapters. `app.NewIdentityErrors` также используют `personal_access_tokens` и app/httpapi для accounts и channels.
 - Адаптеры: `internal/adapter/identity/*` поверх injected `adapter/gorm/identity.Store` и record capabilities (сессии, факторы, WebAuthn SDK, OAuth, e-mail, восстановление, регистрация). `authtoken` сохраняет JWT/HMAC и выпуск proof; `session` — record/bundle mapping и refresh crypto; `http` — cookie flags/сроки, `PrimaryLogin`, загрузка текущего пользователя и ошибки провайдеров. Исходящий discovery HTTP — `adapter/http/identity`; SQL/custom registry — `adapter/identity/customoauth`.
 - Потребители: `controller/` (HTTP), `middleware` (проверка сессии и доказательств через leaf core и token adapter), `model` (сохранённые error/table aliases). Сценарии не получают SDK/ORM types; HTTP passkey/OAuth/WeChat использует минимальные `PasskeyAccount` facts и `domain.FlowAuthorization`. Bound factory сохраняет первоначальный user record внутри технической сборки, без дополнительного SQL или whole-user DTO.
 
@@ -75,7 +75,8 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/identity.go`) читает `h
 
 - Модулю не принадлежат профиль и e-mail аккаунта как данные (accounts), права администраторов (authorization), PAT (personal_access_tokens).
 - Session/token/proof/login/email/passkey service facades удалены; соответствующие 56 allowlist entries сняты. Middleware и оставшиеся controller delegates используют настоящих владельцев, новых model/service forwarding layers нет.
-- Controller callbacks login audit/profile и HTTP delegates сохраняются до перехода router на owning handlers. Identity core не зависит от parent app, middleware или HTTP adapters.
+- Login audit/profile/completion callbacks собираются в app/httpapi; controller содержит однострочные router bindings. Identity core не зависит от parent app, middleware или HTTP adapters.
+- Ответ удалённых legacy Telegram endpoints принадлежит identity/transport; прежние status/body bytes сохранены.
 - `password_login.Authenticate` получает значения ошибок через `adapter/gorm/accounts/record.PasswordLoginLookup` (адаптер accounts) — граница с accounts не тронута.
 - Сообщения об успехе и письма восстановления и подтверждения e-mail переводятся на язык запроса (zh-CN — прежние тексты). AST-генератор OpenAPI не выводит тип `common.TranslateMessage`, поэтому схема `message: string` этих ответов зафиксирована в `preserveIdentityHandlerContract`.
 

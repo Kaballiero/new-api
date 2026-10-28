@@ -70,13 +70,13 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/accounts.go`) берёт ст
 ## Зависимости
 
 - `domain` модуля чистый: не импортирует Gin, GORM, Redis и `common`; роли передаются через `AdminRoles`.
-- Сборка — `internal/app/accounts.go`, один раз через `sync.OnceValue` в `controller/accounts.go`.
+- Сборка — `internal/app/accounts.go`, один раз через `sync.OnceValue` в `app/httpapi/accounts.go`.
 - Хранение: `internal/adapter/gorm/accounts` (административные операции, запросы, профиль) поверх `internal/adapter/gorm/accounts/record` (GORM-запись `users`, `checkins`, транзакции).
 - Настройки: `internal/adapter/settings/accounts` (группы), `internal/adapter/settings/checkin` (отметка), `ratio_setting.ContainsGroupRatio`.
-- Права администраторов: `service/authz` (`SetUserPermissionsInTx`, `ClearUserAuthorizationInTx`, `ReloadPolicy`, `Capabilities`).
+- Права администраторов: `app/authorizationcore` (`SetUserPermissionsInTx`, `ClearUserAuthorizationInTx`, `ReloadPolicy`, `Capabilities`).
 - Смена пароля: `internal/adapter/identity/accounts` реализует `update_profile.PasswordChanger` через сценарий `identity/change_self_password`.
-- Аудит и ошибки безопасности: функции `controller` (`recordManageAuditFor`, `recordUserSecurityAudit`, `writeSecurityOperationError`, `accountQuotaAudit`), передаются через `app.AccountsEffects`.
-- Потребители: `controller/user.go`, `checkin.go`, `group.go`, `getapi_users.go`, `user_quota.go` (HTTP); `app/accountscore` (регистрация, сохранение, удаление, отметка, перевод реферальной квоты); `identity` использует `accounts/domain`.
+- Аудит и ошибки безопасности: callbacks app/httpapi, передаваемые через app.AccountsEffects.
+- Потребители: `controller/user.go`, `checkin.go`, `group.go`, `getapi_users.go` (HTTP); `app/accountscore` (регистрация, сохранение, удаление, отметка, перевод реферальной квоты); `identity` использует `accounts/domain`.
 
 ## Границы и долг
 

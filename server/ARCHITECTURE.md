@@ -135,8 +135,8 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 | перечитывание настроек | `internal/app/settings.SyncOptions` (сначала sleep, затем reload и pricing observation, каждый узел) | settings |
 | синхронизация политики прав | `authz.StartPolicySync` | authorization |
 | агрегаты для дашборда | `internal/app/usage.StartQuotaData` | usage |
-| обновление баланса каналов | `controller.AutomaticallyUpdateChannels` (если задан `CHANNEL_UPDATE_FREQUENCY`) | channels |
-| периодические системные задачи: тест каналов, модели upstream, опрос Midjourney и асинхронных задач, сборка каталога цен | `controller.RegisterScheduledSystemTasks` + `internal/app/system.StartSystemTaskRunner` | channels, tasks, pricing; запуск — system |
+| обновление баланса каналов | `internal/app/httpapi.AutomaticallyUpdateChannels` (если задан `CHANNEL_UPDATE_FREQUENCY`) | channels |
+| периодические системные задачи: тест каналов, модели upstream, опрос Midjourney и асинхронных задач, сборка каталога цен | `internal/app/httpapi.RegisterScheduledSystemTasks` + `internal/app/system.StartSystemTaskRunner` | channels, tasks, pricing; запуск — system |
 | плагины задач | `internal/app/taskplugins.StartSync` (первый pass сразу, затем 30s, каждый узел) | taskplugins |
 | обновление Codex-учётных данных | `service.StartCodexCredentialAutoRefreshTask` | channels |
 | сброс квоты подписок | `app/subscriptions.StartSubscriptionQuotaResetTask` | subscriptions |
@@ -169,7 +169,7 @@ Refund: синхронный terminal gate и прежняя async job; subscrip
 ### Usage read side (3a)
 
 Action-local HTTP handlers и узкие consumer-owned ports собираются в internal/app/usage.
-Controller bridge использует sync.OnceValue; routers/middleware не меняются.
+Once-сборка usage handlers находится в app/httpapi; controller содержит однострочные router bindings.
 Log/QuotaData records и общий raw-preserving metadata codec принадлежат gorm/usage/record;
 HTTP DTO и domain.VisibilityPolicy не зависят от хранимой JSON формы. Domain/scenarios выбирают
 visibility, identity scope, validation, grouping, count limits, ranking windows и TTL; adapters
@@ -253,7 +253,7 @@ Usage строит log payload внутри money transaction. Shared hash/stati
 leaf owner adapter/http/batchaccount для Batch и tasksync; shared cache hydration/key/fence owner
 остаётся model, Batch-only Lua — adapter/redis/batch.
 
-provider_batch_poll подключён через прежний controller.RegisterScheduledSystemTasks с UpdateTask
+provider_batch_poll подключён через прежний internal/app/httpapi.RegisterScheduledSystemTasks с UpdateTask
 и interval15s; import-time service registration удалена. Direct poll не зависит от main. Маршруты,
 middleware, permissions, native protocol requests и схема БД сохранены. Текстовый content package
 отделён от структурного переноса; фактический host/PG acceptance — отдельное доказательство.
@@ -334,3 +334,12 @@ KeyColumn сохраняют единственные state cells и поздн�
 
 
 Notifications владеет delivery/limiter/root/watchers, аккаунты — recipient records, billing — шаблонами и eligibility. `app/notifications` — независимая once-сборка; RAM state и lazy memory cleanup принадлежат `adapter/notifications`, app выбирает RAM/Redis counter; `app/channelruntime` собирает channel enable/disable/root notifier для relay и background consumers. Общие HTTP/worker/SSRF primitives принадлежат pkg/httpclient, channel failure projection — adapter/channels; runtime callbacks передаются из app. Нет main-only регистрации и обратных service→app notification мостов.
+
+### Controller bindings и HTTP composition
+
+app/httpapi собирает handlers once, login/profile/audit callbacks и startup channel effects.
+Controller содержит только однострочные router bindings и прежние wire-декларации для OpenAPI.
+Shared audit assembly — app/audit, credential assembly — app/authentication; middleware
+сохраняет собственные context projections, порядок проверок и записи completion events.
+Native convenience helpers находятся только в *_test.go. Temporary BRIDGE comments отсутствуют;
+production service пуст и architecture allowlist остаётся пустым.
