@@ -43,8 +43,6 @@ func WriteError(c *gin.Context, err error) {
 		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "token_name_too_long", i18n.MsgTokenNameTooLong)
 	case errors.Is(err, domain.ErrNameDuplicate):
 		common.ApiErrorI18nStatusCode(c, http.StatusConflict, "token_name_duplicate", i18n.MsgTokenNameDuplicate)
-	case errors.Is(err, domain.ErrListQueryInvalid):
-		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "invalid_params", i18n.MsgTokenListQueryInvalid)
 	case errors.Is(err, domain.ErrQuotaNegative):
 		common.ApiErrorI18nStatusCode(c, http.StatusBadRequest, "token_quota_negative", i18n.MsgTokenQuotaNegative)
 	case errors.Is(err, domain.ErrQuotaExceedMax):

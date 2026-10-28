@@ -123,25 +123,6 @@ func (store Store) List(userId int, startIdx int, num int) ([]*Token, error) {
 	return tokens, err
 }
 
-// ListAfter returns up to limit keys of the user, newest first, with ids below
-// afterID; afterID 0 starts from the newest key.
-func (store Store) ListAfter(userId, afterID, limit int) ([]*Token, error) {
-	query := store.db().Where("user_id = ?", userId)
-	if afterID > 0 {
-		query = query.Where("id < ?", afterID)
-	}
-	var tokens []*Token
-	err := query.Order("id desc").Limit(limit).Find(&tokens).Error
-	return tokens, err
-}
-
-// ListByIDs returns the keys with the given ids of any user, newest first.
-func (store Store) ListByIDs(ids []int) ([]*Token, error) {
-	var tokens []*Token
-	err := store.db().Where("id IN (?)", ids).Order("id desc").Find(&tokens).Error
-	return tokens, err
-}
-
 func (store Store) Get(id int, userId int) (*Token, error) {
 	if id == 0 || userId == 0 {
 		return nil, domain.ErrKeyIDRequired

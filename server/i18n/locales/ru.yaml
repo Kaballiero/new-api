@@ -60,7 +60,6 @@ token.search_keyword_too_short: "Для нечёткого поиска ключ
 token.search_count_failed: "Не удалось подсчитать токены"
 token.fuzzy_search_limit: "Токенов слишком много: доступен только точный поиск, не используйте символ %"
 token.search_failed: "Не удалось выполнить поиск токенов"
-token.list_query_invalid: "Укажите либо user_id (с необязательными after_id и limit от 1 до 100), либо ids — от 1 до 100 уникальных положительных ID"
 
 # Redemption messages
 redemption.name_length: "Длина названия кода погашения должна быть от 1 до 20 символов"

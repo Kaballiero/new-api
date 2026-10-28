@@ -68,7 +68,6 @@ const (
 	MsgTokenSearchCountFailed          = "token.search_count_failed"
 	MsgTokenFuzzySearchLimit           = "token.fuzzy_search_limit"
 	MsgTokenSearchFailed               = "token.search_failed"
-	MsgTokenListQueryInvalid           = "token.list_query_invalid"
 )
 
 // Redemption related messages

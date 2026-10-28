@@ -21,7 +21,6 @@ var (
 	ErrBatchTooLarge         = errors.New("api key batch is too large")
 	ErrUsageUnavailable      = errors.New("api key usage is unavailable")
 	ErrKeyIDRequired         = errors.New("api key id or user id is empty")
-	ErrListQueryInvalid      = errors.New("api key list query is invalid")
 
 	// Search errors are shared with usage and payment search through SanitizeSearchPattern.
 	ErrSearchConsecutiveWildcards = errors.New("search pattern must not contain consecutive % wildcards")

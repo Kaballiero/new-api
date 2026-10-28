@@ -61,7 +61,6 @@ token.search_keyword_too_short: "使用模糊搜索时，关键词长度至少�
 token.search_count_failed: "获取令牌数量失败"
 token.fuzzy_search_limit: "令牌数量超过上限，仅允许精确搜索，请勿使用 % 通配符"
 token.search_failed: "搜索令牌失败"
-token.list_query_invalid: "請指定 user_id（可選 after_id 和 1 到 100 的 limit）或 ids（1 到 100 個不重複的正整數 ID）之一"
 
 # Redemption messages
 redemption.name_length: "兌換碼名稱長度必須在1-20之間"

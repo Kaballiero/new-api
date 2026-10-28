@@ -66,53 +66,6 @@ func createUser(t *testing.T, db *gorm.DB, name string) int {
 
 var databases = []string{"sqlite", "mysql", "postgres"}
 
-func TestStoreListsKeysThatAreNotDeleted(t *testing.T) {
-	for _, kind := range databases {
-		t.Run(kind, func(t *testing.T) {
-			db := openStoreDatabase(t, kind)
-			store := newStore(db)
-			owner, other := createUser(t, db, "list-owner"), createUser(t, db, "list-other")
-			var ownerIDs, otherIDs []int
-			for i := range 5 {
-				token := record.Token{UserId: owner, Name: "owner", Key: "owner-key-" + string(rune('a'+i))}
-				require.NoError(t, store.Insert(&token))
-				ownerIDs = append(ownerIDs, token.Id)
-				foreign := record.Token{UserId: other, Name: "other", Key: "other-key-" + string(rune('a'+i))}
-				require.NoError(t, store.Insert(&foreign))
-				otherIDs = append(otherIDs, foreign.Id)
-			}
-			require.NoError(t, db.Delete(&record.Token{Id: ownerIDs[2]}).Error)
-
-			ids := func(tokens []*record.Token) []int {
-				result := []int{}
-				for _, token := range tokens {
-					result = append(result, token.Id)
-				}
-				return result
-			}
-			first, err := store.ListAfter(owner, 0, 2)
-			require.NoError(t, err)
-			assert.Equal(t, []int{ownerIDs[4], ownerIDs[3]}, ids(first))
-			second, err := store.ListAfter(owner, ownerIDs[3], 2)
-			require.NoError(t, err)
-			assert.Equal(t, []int{ownerIDs[1], ownerIDs[0]}, ids(second), "the deleted key is skipped")
-			rest, err := store.ListAfter(owner, ownerIDs[0], 2)
-			require.NoError(t, err)
-			assert.Empty(t, rest)
-			unknown, err := store.ListAfter(999999, 0, 100)
-			require.NoError(t, err)
-			assert.Empty(t, unknown)
-			total, err := store.Count(owner)
-			require.NoError(t, err)
-			assert.EqualValues(t, 4, total)
-
-			byIDs, err := store.ListByIDs([]int{ownerIDs[0], otherIDs[1], ownerIDs[2], 999999})
-			require.NoError(t, err)
-			assert.Equal(t, []int{otherIDs[1], ownerIDs[0]}, ids(byIDs), "any user, newest first, without deleted or unknown keys")
-		})
-	}
-}
-
 func TestStoreKeepsKeyNamesUniquePerUser(t *testing.T) {
 	for _, kind := range databases {
 		t.Run(kind, func(t *testing.T) {

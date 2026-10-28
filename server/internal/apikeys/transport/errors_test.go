@@ -39,7 +39,6 @@ func TestWriteErrorKeepsLegacyResponses(t *testing.T) {
 		{"usage", domain.ErrUsageUnavailable, `{"success":false,"message":"Failed to get token info, please try again later"}`, http.StatusOK},
 		{"name", domain.ErrNameTooLong, `{"success":false,"code":"token_name_too_long","message":"Token name is too long"}`, http.StatusBadRequest},
 		{"name duplicate", domain.ErrNameDuplicate, `{"success":false,"code":"token_name_duplicate","message":"A token with this name already exists"}`, http.StatusConflict},
-		{"list query", domain.ErrListQueryInvalid, `{"success":false,"code":"invalid_params","message":"Specify either user_id (with optional after_id and limit from 1 to 100) or ids with 1 to 100 unique positive IDs"}`, http.StatusBadRequest},
 		{"quota negative", domain.ErrQuotaNegative, `{"success":false,"code":"token_quota_negative","message":"Quota value cannot be negative"}`, http.StatusBadRequest},
 		{"quota exceed", &domain.LimitError{Err: domain.ErrQuotaExceedMax, Max: 1000}, `{"success":false,"code":"token_quota_exceed_max","message":"Quota value exceeds valid range, maximum is 1000"}`, http.StatusBadRequest},
 		{"count", &domain.LimitError{Err: domain.ErrKeyCountLimit, Max: 3}, `{"success":false,"code":"token_count_limit","message":"Maximum token count reached (3)"}`, http.StatusConflict},
@@ -78,7 +77,6 @@ func TestWriteErrorLocalizesMessage(t *testing.T) {
 		{"ru", "Токен с таким названием уже существует", domain.ErrNameDuplicate, http.StatusConflict, "token_name_duplicate"},
 		{"zh-CN", "已存在同名令牌", domain.ErrNameDuplicate, http.StatusConflict, "token_name_duplicate"},
 		{"zh-TW", "已存在同名令牌", domain.ErrNameDuplicate, http.StatusConflict, "token_name_duplicate"},
-		{"ru", "Укажите либо user_id (с необязательными after_id и limit от 1 до 100), либо ids — от 1 до 100 уникальных положительных ID", domain.ErrListQueryInvalid, http.StatusBadRequest, "invalid_params"},
 	}
 	for _, tc := range cases {
 		recorder := httptest.NewRecorder()

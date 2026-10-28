@@ -30,7 +30,6 @@ func SetApiRouter(router *gin.Engine) {
 	apiRouter.POST("/getapi/users", middleware.GetAPIAuth("getapi.users.provision"), controller.ProvisionGetAPIUser)
 	apiRouter.POST("/getapi/users/:user_id/quota-credits", middleware.GetAPIAuth("getapi.users.credit-quota"), controller.CreditGetAPIUserQuota)
 	apiRouter.POST("/getapi/users/:user_id/pat", middleware.GetAPIAuth("getapi.users.initialize-pat"), controller.InitializeGetAPIPAT)
-	apiRouter.GET("/getapi/tokens", middleware.GetAPIAuth("getapi.tokens.read"), controller.ListGetAPITokens)
 	{
 		apiRouter.GET("/setup", controller.GetSetup)
 		apiRouter.POST("/setup", anonymousRequestBodyLimit, controller.PostSetup)

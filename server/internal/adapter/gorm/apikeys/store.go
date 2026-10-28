@@ -30,15 +30,14 @@ func (s Store) ByKey(key string) (*domain.Token, error) {
 }
 func (s Store) List(userID, start, limit int) ([]*domain.Token, error) {
 	ts, e := s.persistence.List(userID, start, limit)
-	return toDomainList(ts), e
-}
-func (s Store) ListAfter(userID, afterID, limit int) ([]*domain.Token, error) {
-	ts, e := s.persistence.ListAfter(userID, afterID, limit)
-	return toDomainList(ts), e
-}
-func (s Store) ListByIDs(ids []int) ([]*domain.Token, error) {
-	ts, e := s.persistence.ListByIDs(ids)
-	return toDomainList(ts), e
+	if ts == nil {
+		return nil, e
+	}
+	r := make([]*domain.Token, len(ts))
+	for i, t := range ts {
+		r[i] = record.ToDomain(t)
+	}
+	return r, e
 }
 func (s Store) OpenSearch(userID int) search_keys.Query { return s.persistence.OpenSearch(userID) }
 
@@ -87,15 +86,4 @@ func (s Store) GetByID(id int) (*domain.Token, error) {
 func (s Store) GetForDeletion(id, userID int) (*domain.Token, error) {
 	t, err := s.persistence.GetForDeletion(id, userID)
 	return record.ToDomain(t), err
-}
-
-func toDomainList(ts []*record.Token) []*domain.Token {
-	if ts == nil {
-		return nil
-	}
-	r := make([]*domain.Token, len(ts))
-	for i, t := range ts {
-		r[i] = record.ToDomain(t)
-	}
-	return r
 }

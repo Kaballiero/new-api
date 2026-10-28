@@ -106,14 +106,6 @@ func parseAPIKeyHandlers() error {
 		}
 		modelTypes, modelAliases, fieldTypes = savedTypes, savedAliases, savedFields
 	}
-	// GET /api/getapi/tokens has an explicit contract; only its item type is parsed.
-	savedTypes, savedAliases, savedFields = maps.Clone(modelTypes), maps.Clone(modelAliases), maps.Clone(fieldTypes)
-	if err := parseModels("internal/apikeys/list_getapi_keys"); err != nil {
-		return err
-	}
-	key := modelTypes["Key"]
-	modelTypes, modelAliases, fieldTypes = savedTypes, savedAliases, savedFields
-	modelTypes["GetAPITokenKey"] = key
 	return nil
 }
 

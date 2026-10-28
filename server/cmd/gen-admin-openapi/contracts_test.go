@@ -73,7 +73,6 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	schemas := buildSchemas()
 	enrichGetAPIInitializeSchemas(schemas)
 	enrichGetAPIQuotaCreditSchemas(schemas)
-	enrichGetAPITokensSchemas(schemas)
 	schemas["GetApiCreateCredentialResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/GetAPICreateCredential"})
 	schemas["GetApiCreateCredential"] = structToSchema(modelTypes["GetAPICreateCredential"])
 	schemas["GetAPICreateCredential"].(map[string]interface{})["required"] = []string{"user_id", "access_token"}
@@ -113,21 +112,6 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 			assert.Equal(t, expected, extractContentSchema(response)["$ref"])
 		}
 	}
-	tokens := operation("/api/getapi/tokens", "get")
-	assert.Equal(t, "listGetApiTokens", tokens["operationId"])
-	assert.Equal(t, defaultSecurity(), tokens["security"])
-	tokenResponses := tokens["responses"].(map[string]interface{})
-	assert.Len(t, tokenResponses, 6)
-	for status, schema := range map[string]string{"200": "GetAPITokenListResponse", "400": "ApiErrorResponse", "401": "GetApiErrorResponse", "403": "GetApiErrorResponse", "500": "ApiErrorResponse", "503": "GetApiErrorResponse"} {
-		require.Contains(t, tokenResponses, status)
-		assert.Equal(t, "#/components/schemas/"+schema, extractContentSchema(tokenResponses[status].(map[string]interface{}))["$ref"], status)
-	}
-	assert.Equal(t, []interface{}{"invalid_params"}, tokenResponses["400"].(map[string]interface{})["x-error-codes"])
-	tokenKey := components["schemas"].(map[string]interface{})["GetAPITokenKey"].(map[string]interface{})
-	tokenKeyProperties := tokenKey["properties"].(map[string]interface{})
-	assert.Len(t, tokenKeyProperties, 11)
-	assert.Contains(t, tokenKeyProperties, "masked_key")
-	assert.NotContains(t, tokenKeyProperties, "key", "the full key is never part of the contract")
 	for _, path := range []string{"/api/token/"} {
 		responses := operation(path, "post")["responses"].(map[string]interface{})
 		assert.NotContains(t, responses, "200")
