@@ -1959,7 +1959,6 @@ func TestPricingPortParity(t *testing.T) {
 		name               string
 		native, mapped     any
 		expression, decode string
-		originalError      string
 		originalType       reflect.Type
 		binding            string
 	}{
@@ -1987,22 +1986,19 @@ func TestPricingPortParity(t *testing.T) {
 		{name: "decode-bad-offer", decode: `{"version":1,"entries":{"x":{"offers":[{"prices":[{"amount_usd":"bad"}]}]}}}`},
 		{name: "decode-bad-array", decode: `{"entries":{"x":{"offers":"bad"}}}`},
 		{
-			name:          "decode-root-type",
-			decode:        `[]`,
-			originalError: "json: cannot unmarshal array into Go value of type domain.PricingCatalogSnapshot",
-			originalType:  reflect.TypeFor[pricingdomain.PricingCatalogSnapshot](),
+			name:         "decode-root-type",
+			decode:       `[]`,
+			originalType: reflect.TypeFor[pricingdomain.PricingCatalogSnapshot](),
 		},
 		{
-			name:          "decode-map-type",
-			decode:        `{"entries":1}`,
-			originalError: "json: cannot unmarshal number into Go struct field PricingCatalogSnapshot.entries of type map[string]domain.PricingCatalogEntry",
-			originalType:  reflect.TypeFor[map[string]pricingdomain.PricingCatalogEntry](),
+			name:         "decode-map-type",
+			decode:       `{"entries":1}`,
+			originalType: reflect.TypeFor[map[string]pricingdomain.PricingCatalogEntry](),
 		},
 		{
-			name:          "decode-entry-type",
-			decode:        `{"entries":{"x":1}}`,
-			originalError: "json: cannot unmarshal number into Go struct field PricingCatalogSnapshot.entries.x of type domain.PricingCatalogEntry",
-			originalType:  reflect.TypeFor[pricingdomain.PricingCatalogEntry](),
+			name:         "decode-entry-type",
+			decode:       `{"entries":{"x":1}}`,
+			originalType: reflect.TypeFor[pricingdomain.PricingCatalogEntry](),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2043,11 +2039,13 @@ func TestPricingPortParity(t *testing.T) {
 				originalErr := common.UnmarshalJsonStr(tc.decode, &original)
 				var converted pricingdomain.PricingCatalogSnapshot
 				convertedErr := deps.Codec.DecodeCatalogSnapshot(tc.decode, &converted)
-				if tc.originalError != "" {
-					require.EqualError(t, convertedErr, tc.originalError)
+				if tc.originalType != nil {
+					// The wording of encoding/json errors differs between Go releases; compare with the
+					// error the same toolchain returns for the original facts type.
 					var originalFacts pricingdomain.PricingCatalogSnapshot
 					baselineError := common.UnmarshalJsonStr(tc.decode, &originalFacts)
-					require.EqualError(t, baselineError, tc.originalError)
+					require.Error(t, baselineError)
+					require.EqualError(t, convertedErr, baselineError.Error())
 					var gotTypeError, wantTypeError *json.UnmarshalTypeError
 					require.ErrorAs(t, convertedErr, &gotTypeError)
 					require.ErrorAs(t, baselineError, &wantTypeError)
