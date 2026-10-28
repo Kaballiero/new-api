@@ -1,8 +1,0 @@
-{
-  "body": {
-    "message": "Invalid token",
-    "success": false
-  },
-  "headers": {},
-  "status": 401
-}

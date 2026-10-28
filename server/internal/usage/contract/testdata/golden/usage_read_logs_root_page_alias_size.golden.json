@@ -1,7 +1,0 @@
-{
-  "body": "{\"data\":{\"page\":1,\"page_size\":2,\"total\":9,\"items\":[{\"id\":203,\"user_id\":1,\"created_at\":1706832001,\"type\":2,\"content\":\"\",\"username\":\"contract-user\",\"token_name\":\"read-token\",\"model_name\":\"Model_%!\\\\suffix\",\"quota\":31,\"prompt_tokens\":0,\"completion_tokens\":0,\"use_time\":0,\"is_stream\":false,\"channel\":0,\"channel_name\":\"\",\"token_id\":11,\"group\":\"\",\"ip\":\"\",\"request_id\":\"literal-row\",\"other\":\"\"},{\"id\":201,\"user_id\":1,\"created_at\":1706832000,\"type\":5,\"content\":\"\",\"username\":\"contract-user\",\"token_name\":\"deleted-token\",\"model_name\":\"model\",\"quota\":0,\"prompt_tokens\":0,\"completion_tokens\":0,\"use_time\":0,\"is_stream\":false,\"channel\":999,\"channel_name\":\"\",\"token_id\":13,\"group\":\"\",\"ip\":\"\",\"request_id\":\"read-101\",\"other\":\"\"}]},\"message\":\"\",\"success\":true}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 200
-}

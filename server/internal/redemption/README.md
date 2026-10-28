@@ -67,4 +67,4 @@ Persisted receipt и quota display fragment audit.create используют я
 (redaction применён); retained admission entries #48; post-commit cache/log #49.
 Новые guards, retries, repair и очищение lock map не добавлялись.
 
-Контрактные fixtures — `contract/`, сценарные и SQL-регрессии — у владельцев.
+Сценарные и SQL-регрессии — у владельцев. Snapshot suite удалена по решению владельца; расширение покрытия — TECH_DEBT #99.

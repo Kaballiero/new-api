@@ -83,6 +83,6 @@ map traversal/partial count до failed commit; reset re-lock проверяет
 
 ## Тестовые fixtures
 
-HTTP/state/outbound контракты находятся в `contract`, maintenance — в `app/subscriptions`.
-Неизменяемые maintenance oracles остаются в `service/testdata/subscription-maintenance`;
-это каталог данных без Go package. PostgreSQL fixtures используют private schemas и startup search_path.
+Snapshot HTTP/state/outbound и maintenance suite удалена по решению владельца после приёмки.
+Собственных business/usecase-тестов в subscriptions пока нет; постепенное покрытие — TECH_DEBT #99.
+PostgreSQL fixtures оставшихся adapter-тестов используют private schemas и startup search_path.

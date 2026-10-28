@@ -1,9 +1,0 @@
-{
-  "body": {
-    "code": "invalid_params",
-    "message": "Invalid parameters",
-    "success": false
-  },
-  "headers": {},
-  "status": 400
-}

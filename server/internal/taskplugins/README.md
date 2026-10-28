@@ -24,7 +24,7 @@ master/follower gating не добавляется. SQL, транзакции и
 Provider execution и wire protocol принадлежат шлюзу;
 денежная политика и durable Task принадлежат billing/tasks. Общие option writes подключены через app к settings; собственные taskplugins guards и RAM-before-persist порядок сохранены. Общий publisher/lock принадлежит adapter/settings/publication.
 
-Контрактные fixtures находятся в `contract/testdata`; сценарные тесты — рядом с владельцами.
+Сценарные тесты находятся рядом с владельцами; snapshot suite удалена по решению владельца.
 
 
 ## Возможности и доступ

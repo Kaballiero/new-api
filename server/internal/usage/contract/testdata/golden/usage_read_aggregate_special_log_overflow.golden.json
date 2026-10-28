@@ -1,7 +1,0 @@
-{
-  "body": "{\"code\":\"aggregate_overflow\",\"message\":\"aggregate exceeds the exact JSON integer range\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 500
-}

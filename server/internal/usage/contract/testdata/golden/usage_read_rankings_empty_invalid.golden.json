@@ -1,7 +1,0 @@
-{
-  "body": "{\"message\":\"invalid ranking period: invalid\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 400
-}

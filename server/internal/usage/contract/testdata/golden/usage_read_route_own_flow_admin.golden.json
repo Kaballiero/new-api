@@ -1,7 +1,0 @@
-{
-  "body": "{\"data\":[{\"token_id\":12,\"token_name\":\"foreign-token\",\"use_group\":\"free\",\"model_name\":\"Model \",\"token_used\":29,\"count\":3,\"quota\":23}],\"message\":\"\",\"success\":true}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 200
-}

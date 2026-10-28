@@ -36,7 +36,7 @@ server/internal/
     identity.go
     pricing.go
 
-  contracttest/     # общая заготовка контрактных HTTP-тестов (не модуль)
+  contracttest/     # общие DB/Redis/FX fixtures для регрессий (не модуль)
 ```
 
 - Модуль объединяет самостоятельную бизнес-область: `accounts`, `identity`, `pricing`.
@@ -140,7 +140,7 @@ Usecase определяет, что должно выполниться ато�
   Request context передаётся операции. Channel store с request-local maps создаётся на операцию.
 - `controller` содержит только однострочные router bindings и реальные wire declarations OpenAPI.
   Constructors/state/helpers/callbacks в production controller не добавляем.
-- Production `service` отсутствует; `service/testdata` — fixtures без Go package. Пустые packages для старых test paths не оставляем.
+- Production `service` отсутствует. Пустые packages для старых test paths не оставляем.
 - `model` содержит только migration-used table aliases и существующий DB bootstrap/migrations/backfills.
   Runtime helpers, const/error re-exports и вспомогательные type aliases туда не возвращаем.
 - Новые временные мосты и `// BRIDGE` запрещены. Потребители переходят к владельцу в том же изменении.
@@ -159,13 +159,10 @@ Usecase определяет, что должно выполниться ато�
 
 ## Тесты
 
-- Основа — контрактный HTTP-тест модуля (`internal/<module>/contract_test.go`): маршрут → статус и JSON, включая ответы без авторизации и с недостаточными правами (401/403). Он пишется на старом коде как baseline и остаётся зелёным после переноса.
-  - Существующие immutable corpora модулей сохраняются; новые cases добавляются только при конкретном contract gap и записываются до изменения поведения на утверждённом baseline.
-  - Заготовка — `internal/contracttest`: `contracttest.New(t)` поднимает БД через production `model.InitDB`/`InitLogDB`, production-лимиты, middleware `RequestId`/`I18n`, настоящий `router.SetApiRouter` и пользователей с живыми сессиями (`env.User`, `env.Admin`, `env.Root`, `env.UserPAT`, `contracttest.Anonymous`); `env.Do(...)` отправляет запрос; `contracttest.Golden(t, name, recorder, dynamicKeys...)` сравнивает статус, `Cache-Control`/`Retry-After` и тело с `testdata/golden/<name>.golden.json`; `contracttest.GoldenValue(t, name, env.AuditLog(t), ...)` фиксирует побочные эффекты аудита.
-  - Эталоны записываются на коде **до** переноса флагом `-update` (как в `relaykit`): для уже перенесённого модуля — во временном worktree `origin/main`, куда копируются `internal/contracttest` и `contract_test.go`; затем эталоны копируются в ветку и тест без `-update` должен быть зелёным. Расхождение — изменение поведения переносом, его разбираем. При дальнейшей работе эталоны не перезаписываются и не правятся; изменение эталона — это изменение контракта, его обсуждаем отдельно.
-  - Меняющиеся значения перечисляются в `dynamicKeys` и маскируются с сохранением формы: буквы и цифры строки → `x` (длина и разделители сохраняются, поэтому маска ключа и полный ключ различаются), числа → `__number__`, булевы → `__bool__`; объекты и массивы сохраняют структуру.
-  - Контрактные тесты запускаются с `-count=1`: in-memory rate limiter общий для процесса.
-  - Ограничения заготовки: только SQLite (после неё в том же пакете не запускать тесты на других диалектах — колонки диалекта не пересчитываются); production `CustomRecovery` из `main.go` не подключён, поэтому паника в обработчике роняет тест, а не фиксируется как ответ 500.
+- Проверяем бизнес-правила и сценарии прямыми assertions: входы, результаты, ошибки и побочные эффекты. HTTP-регрессии проверяют маршрут, статус, JSON и права доступа без записи снимков.
+- Добавленная при рефакторинге snapshot suite удалена по решению владельца после приёмки. Эталоны не записываем; пробелы постепенно закрываем usecase-тестами (TECH_DEBT #99).
+- Сохраняем унаследованные из `origin/main` тесты и `testdata`, а также независимые domain/usecase, security, adapter, DB matrix и architecture регрессии.
+- `internal/contracttest` содержит только используемые общие DB/Redis/FX fixtures; `contracttest.New(t)` поднимает SQLite через production migrations для billing-регрессий. Собственного HTTP snapshot harness нет.
 - Тест usecase на подставных реализациях узких интерфейсов. Сценарии и ожидания берём из тестов того же поведения в `origin/main` (controller/service/model): те же входы и те же выходы, ошибки и побочные эффекты, но на уровне usecase. Логика и выходные данные совпадают — значит, поведение сохранено. Тривиальные сценарии (чтение без правил) отдельного теста не требуют.
 - Тесты `adapter/gorm` — на реальном PostgreSQL, когда затронуто хранение.
 - Старые тесты `controller/` / `service/` переезжают вместе с логикой, а не копируются.
@@ -203,7 +200,7 @@ Usecase определяет, что должно выполниться ато�
 - `go -C server test ./...` — зелёный;
 - `go -C server run ./cmd/gen-admin-openapi -check` — зелёный;
 - `go -C server run ./cmd/gen-admin-openapi` не меняет `server/docs/openapi/` (`git status` чистый): `openapi-check` только валидирует и с закоммиченными файлами не сравнивает;
-- контрактный HTTP-тест модуля написан и зелёный на старом коде.
+- существующие тесты переносимого поведения зелёные на старом коде; новые регрессии используют прямые assertions без файлов снимков.
 
 **После переноса:**
 - `go -C server vet ./...` и `go -C server test ./...`;

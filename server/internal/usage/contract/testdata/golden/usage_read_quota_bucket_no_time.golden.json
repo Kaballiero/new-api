@@ -1,7 +1,0 @@
-{
-  "body": "{\"code\":\"invalid_params\",\"message\":\"start_timestamp and end_timestamp must be positive\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 400
-}

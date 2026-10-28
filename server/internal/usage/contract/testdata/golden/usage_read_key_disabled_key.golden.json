@@ -1,9 +1,0 @@
-{
-  "body": "{\"message\":\"该令牌状态不可用\",\"success\":false}",
-  "headers": {
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Origin": "*",
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 401
-}

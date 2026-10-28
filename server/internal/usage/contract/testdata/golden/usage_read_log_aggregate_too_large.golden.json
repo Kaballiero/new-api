@@ -1,7 +1,0 @@
-{
-  "body": "{\"code\":\"aggregate_request_too_large\",\"message\":\"aggregate request exceeds 16 KiB\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 413
-}

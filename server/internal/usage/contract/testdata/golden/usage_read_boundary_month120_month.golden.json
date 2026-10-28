@@ -1,7 +1,0 @@
-{
-  "body": "{\"data\":[{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model\",\"created_at\":1704067200,\"token_used\":66,\"count\":6,\"quota\":42},{\"user_id\":0,\"username\":\"\",\"model_name\":\"legacy\",\"created_at\":1704067200,\"token_used\":103,\"count\":97,\"quota\":101},{\"user_id\":0,\"username\":\"\",\"model_name\":\"model\",\"created_at\":1704067200,\"token_used\":19,\"count\":2,\"quota\":17},{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model\",\"created_at\":1706745600,\"token_used\":330,\"count\":30,\"quota\":210},{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model \",\"created_at\":1706745600,\"token_used\":29,\"count\":3,\"quota\":23},{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model\",\"created_at\":1709251200,\"token_used\":330,\"count\":30,\"quota\":210},{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model\",\"created_at\":1733011200,\"token_used\":132,\"count\":12,\"quota\":84},{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model\",\"created_at\":1735689600,\"token_used\":143,\"count\":13,\"quota\":91}],\"message\":\"\",\"success\":true}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 200
-}

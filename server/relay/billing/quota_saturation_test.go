@@ -41,6 +41,20 @@ func TestCalcOpenRouterCacheCreateTokensDoesNotWrap(t *testing.T) {
 	require.Equal(t, -1, got)
 }
 
+func TestCalcOpenRouterCacheCreateTokensInfersLegacyCacheWrites(t *testing.T) {
+	oldQuotaPerUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500_000
+	t.Cleanup(func() { common.QuotaPerUnit = oldQuotaPerUnit })
+
+	price := hosttypes.PriceData{ModelRatio: 1, CompletionRatio: 1, CacheRatio: 0.1, CacheCreationRatio: 1.25}
+	usage := dto.Usage{PromptTokens: 100, CompletionTokens: 20, Cost: 0.000196, PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 30}}
+	require.Equal(t, 20, CalcOpenRouterCacheCreateTokens(usage, price))
+	usage.Cost = math.Inf(1)
+	require.Equal(t, -1, CalcOpenRouterCacheCreateTokens(usage, price))
+	price.CacheCreationRatio = 1
+	require.Zero(t, CalcOpenRouterCacheCreateTokens(usage, price))
+}
+
 // TestAttachQuotaSaturationPreservesExistingAdminInfo verifies the marker is
 // merged into a pre-existing admin_info map without clobbering it.
 func TestPreConsumeBillingRejectsSaturatedQuotaBeforeDeduction(t *testing.T) {

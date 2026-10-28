@@ -60,6 +60,6 @@ Nested subscription refund #27, notification snapshot #28 и webhook renderer #2
 Text/audio accounting требует ненулевой Gin context; отсутствие Context.Request допустимо.
 Nil Gin context поддержан только прежними lifecycle/error entrypoints.
 
-Контрактные fixtures находятся в `contract_test.go`, `usage_contract_test.go` и `testdata`;
-чистые decision/failure-order регрессии — рядом со сценариями, gateway mapping — в relay/billing.
+Чистые decision/failure-order регрессии находятся рядом со сценариями, gateway mapping — в relay/billing.
+Добавленная snapshot suite удалена по решению владельца; новые проверки используют прямые assertions.
 Production service facades и BillingGateway registry отсутствуют.

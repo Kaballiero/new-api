@@ -1,7 +1,0 @@
-{
-  "body": "{\"data\":[{\"user_id\":0,\"username\":\"\",\"model_name\":\"Model\",\"created_at\":1735516800,\"token_used\":275,\"count\":25,\"quota\":175}],\"message\":\"\",\"success\":true}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 200
-}

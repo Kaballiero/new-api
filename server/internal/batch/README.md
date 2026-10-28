@@ -83,7 +83,8 @@ provider_batch_poll регистрируется явно из app/httpapi.Regis
 
 ## Контракты и тексты
 
-HTTP/state/outbound fixtures находятся в `contract`, polling/recovery — рядом со сценариями,
-регистрация scheduler — в `app/system`. Immutable fixtures в `service/testdata` не образуют Go package.
+Сценарные и accounting-регрессии находятся рядом с владельцами; DB matrix fixtures — в
+`internal/contracttest/batchfixture`. Snapshot HTTP/state/outbound и scheduler suite удалена
+по решению владельца после приёмки.
 HTTP status/code/default mapping принадлежит transport. Persisted bulk reasons используют English default;
 персональная локализация одного bulk UPDATE требует отдельного решения, без изменения порядка SQL (#75).

@@ -131,6 +131,7 @@
 | 57 | Remote checkout / local order boundary | Stripe remote-first, Creem local-first; failed Save Waffo/Pancake игнорируется | Orphan/ambiguous orders; reconciliation без auto replay отдельно. Postcommit evidence/cache — также #49 |
 | 58 | Compliance option publication | Пять отдельных UpdateOption, map order и ignored SQL errors; bulk save DB-first/runtime-second | Возможны ложное подтверждение и расхождение runtime/DB; shared settings policy отдельно |
 | 59 | Payment concurrency on SQLite | FOR UPDATE пропускается, top-up status transition без CAS | Межпроцессная/crash exactly-once гарантия не доказана; отдельная durable state-transition policy |
+| 99 | Покрытие бизнес-сценариев после удаления snapshot suite | Контрактные снимки, goldens и locale/log baselines удалены по решению владельца после приёмки; унаследованные тесты сохранены. Число оставшихся функций Test* внутри бизнес-модулей: payments — 0, subscriptions — 0, settings — 0, system — 0, deployments — 0, notifications — 0; audit — 6, redemption — 1, accounts — 28, apikeys — 20, authorization — 4, batch — 9, billing — 62, catalog — 9, channels — 6, identity — 25, personal_access_tokens — 7, pricing — 15, taskplugins — 8, tasks — 14, usage — 14. Тесты adapter/app/controller в эти числа не входят | Шесть модулей без собственных business/usecase-тестов; наличие domain-тестов в остальных не означает полноту покрытия. Постепенно добавить прямые usecase-регрессии бизнес-правил, ошибок и побочных эффектов без восстановления snapshot suite |
 
 ## Архитектурные границы и оставшийся долг
 

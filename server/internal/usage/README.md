@@ -55,7 +55,7 @@ Counters, settlement, consume rows и export не atomic (#35); export clear-on-
 queue не durable и не requeue-ит failed writes (#38). Stats/rankings semantics и order/cache gaps — #39–40;
 LOG_DB/ClickHouse LIMIT и cleanup consistency — #41. Nil context не расширяет прежний writer contract.
 Исторические persisted texts не мигрируются; renderer использует текущие i18n templates.
-Контрактные fixtures чтения находятся в contract/, billing usage — в billing/usage_contract_test.go;
-metadata codec и SQL-регрессии — рядом с owning adapter.
+Domain/usecase-регрессии находятся рядом с владельцами; metadata codec и SQL-регрессии — рядом с owning adapter.
+Добавленная snapshot suite чтения и billing usage удалена по решению владельца.
 
 Логи поддерживают `types` (1..7, comma-separated GET или массив POST); он заменяет одиночный `type`. Статистика возвращает gross `quota` и отдельный `refund_quota`; rpm/tpm считают только consume. Коррекции settlement и возвраты меняют quota_data без нового request count; refund имеет отрицательную quota и сохраняет исходный node. `/api/status` публикует `usage_refund_accounting: true`.

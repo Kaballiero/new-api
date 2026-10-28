@@ -1,7 +1,0 @@
-{
-  "body": "{\"code\":\"invalid_params\",\"message\":\"invalid aggregate request: granularity month supports at most 120 months per request\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 400
-}

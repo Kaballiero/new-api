@@ -19,7 +19,7 @@
 4. **Проверки**: gofmt, `go vet ./...`, полный `go test ./...` (`TMPDIR=/dev/shm`), архитектурный тест, сборка `relaykit`, OpenAPI без изменений (`GOWORK=off go run ./cmd/gen-admin-openapi && git status --short docs`), нет новых находок `staticcheck -checks U1000`.
 5. **PR** с пометкой: проверено только на PostgreSQL, SQLite и MySQL не проверялись.
 
-Для модулей с деньгами (billing, платежи) — контрактные тесты с эталонами, записанными на `origin/main` (как для apikeys, identity, pricing). Требует подтверждения перед волной.
+Для модулей с деньгами (billing, платежи) — прямые проверки сумм, резервирования, settlement/refund, ошибок и порядка побочных эффектов. Покрытие дополняем usecase-тестами без записи снимков (TECH_DEBT #99).
 
 ## Статус
 
@@ -232,6 +232,13 @@ Optional Waves 8/9 не являются условием source closure Wave 7.
 - [x] Host: приёмка слияния PASS; на итоговом дереве vet, `go test ./...` с real Redis и relaykit PASS.
 - [x] PostgreSQL 15: набор падений совпадает с 7m, checks PASS, 27/27 owning jobs; новые SKIP — только
   `/mysql`-варианты тестов из upstream. **SQLite/MySQL не проверялись.**
+
+## Удаление snapshot suite после приёмки
+
+По решению владельца добавленные контрактные snapshot-тесты, goldens и locale/log baselines
+удалены после приёмки. Сведения о проверках выше остаются историческими свидетельствами,
+а не описанием текущего набора тестов. Унаследованные тесты и testdata из `origin/main`
+сохранены; пробелы постепенно закрываются usecase-тестами (TECH_DEBT #99).
 
 ## Волна 8 — раскладка внутри шлюза (по желанию) ⬜
 

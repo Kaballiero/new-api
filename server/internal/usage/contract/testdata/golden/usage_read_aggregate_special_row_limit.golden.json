@@ -1,7 +1,0 @@
-{
-  "body": "{\"code\":\"aggregate_response_too_large\",\"message\":\"aggregate response exceeds the limit\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 422
-}

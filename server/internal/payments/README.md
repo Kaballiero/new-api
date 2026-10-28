@@ -97,21 +97,11 @@ Operational events сохраняют уровни и места вызова; �
 
 ## Тестовые fixtures
 
-Контрактные HTTP/state/outbound fixtures находятся в `contract/`; PostgreSQL fixtures создают
-собственные main/log schemas и startup search_path каждого pool connection.
+Snapshot HTTP/state/outbound suite и Waffo SDK overlay удалены по решению владельца после приёмки.
+Собственных business/usecase-тестов в payments пока нет; постепенное покрытие — TECH_DEBT #99.
+Общие PostgreSQL fixtures оставшихся adapter-тестов создают собственные main/log schemas
+и задают startup search_path для каждого pool connection.
 
-Waffo contract fixture использует **подставленный SDK transport**: byte-identical SDK mirror,
-alternate modfile и overlay заменяют только три Transport bindings. Serialization/signatures/response
-verification прежние. Fake закрыт для неизвестных destinations; реальная сеть/provider payment не нужны.
-Обычный full suite без этих artifacts явно SKIP-ит payments contract; он не заменяет dedicated run:
-
-```sh
-go test -mod=readonly -modfile="$PAYMENTS_CONTRACT_MODFILE" \
-  -overlay="$PAYMENTS_CONTRACT_OVERLAY" ./internal/payments/contract \
-  -run '^TestPaymentsContract$' -count=1 -update=false
-```
-
-Транспортные artifacts проверяются guard по hashes и точному diff; production SDK не подменяется.
 Process-local admission не даёт durable exactly-once после crash.
 
 Raw bind/GORM/SDK errors сохраняют прежнюю raw форму. В частности, data.error у Pancake pair —

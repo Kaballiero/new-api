@@ -1,7 +1,0 @@
-{
-  "body": "{\"code\":\"invalid_params\",\"message\":\"无效的参数\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 400
-}

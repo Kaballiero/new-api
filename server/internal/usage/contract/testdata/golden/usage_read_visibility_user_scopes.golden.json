@@ -1,7 +1,0 @@
-{
-  "body": "{\"data\":{\"page\":1,\"page_size\":10,\"total\":1,\"items\":[{\"id\":1,\"user_id\":1,\"created_at\":1706742000,\"type\":2,\"content\":\"\",\"username\":\"contract-user\",\"token_name\":\"read-token\",\"model_name\":\"Model\",\"quota\":1,\"prompt_tokens\":10,\"completion_tokens\":2,\"use_time\":0,\"is_stream\":false,\"channel\":11,\"channel_name\":\"\",\"token_id\":11,\"group\":\"paid\",\"ip\":\"\",\"request_id\":\"scopes\",\"upstream_request_id\":\"upstream-101\",\"other\":\"{\\\"public_id\\\":9007199254740993}\"}]},\"message\":\"\",\"success\":true}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 200
-}

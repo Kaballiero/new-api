@@ -103,6 +103,6 @@ GetAPI initialization находится в `initialize_pat`: transport сохр
 4096-byte body limit и audit context; usecase сохраняет порядок role/username/status/reuse/dry-run/write.
 SQL читает пользователя под row lock и пишет PAT в той же транзакции. `provision_account` использует прямые
 domain sentinels, общий `transport.GetAPIErrors` получает только техническую классификацию missing record.
-Контрактные fixtures находятся в `contract/compatibility_test.go`; persistence-регрессии — рядом с SQL adapters и в `controller/user_manage_test.go`.
+Domain/usecase-регрессии находятся рядом со сценариями; persistence-регрессии — рядом с SQL adapters и в `controller/user_manage_test.go`.
 
 GetAPI quota receipts хранятся в `adapter/gorm/accounts/record.GetAPIQuotaCredit`; SQL lock/unique retry — `accounts/core`, транзакцией и проверками лимита управляет `credit_getapi_quota`. Redis получает delta только после commit; replay после soft delete не зачисляет повторно.

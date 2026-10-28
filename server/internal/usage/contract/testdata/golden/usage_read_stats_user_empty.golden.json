@@ -1,7 +1,0 @@
-{
-  "body": "{\"data\":{\"quota\":0,\"refund_quota\":0,\"rpm\":0,\"tpm\":0},\"message\":\"\",\"success\":true}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 200
-}

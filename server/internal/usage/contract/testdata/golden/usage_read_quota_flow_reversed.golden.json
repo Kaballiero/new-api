@@ -1,7 +1,0 @@
-{
-  "body": "{\"message\":\"invalid time range\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 200
-}

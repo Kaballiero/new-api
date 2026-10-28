@@ -1,7 +1,0 @@
-{
-  "body": "{\"data\":[{\"user_id\":1,\"username\":\"contract-user\",\"node_name\":\"read-node\",\"token_id\":11,\"token_name\":\"read-token\",\"use_group\":\"paid\",\"channel_id\":11,\"channel_name\":\"read-channel\",\"model_name\":\"Model\",\"token_used\":154,\"count\":14,\"quota\":98},{\"user_id\":2,\"username\":\"contract-admin\",\"node_name\":\"other-node\",\"token_id\":12,\"token_name\":\"foreign-token\",\"use_group\":\"free\",\"channel_id\":12,\"channel_name\":\"other-channel\",\"model_name\":\"Model \",\"token_used\":29,\"count\":3,\"quota\":23},{\"user_id\":1,\"username\":\"contract-user\",\"node_name\":\"other-node\",\"token_id\":13,\"use_group\":\"paid\",\"channel_id\":999,\"channel_name\":\"channel-999\",\"model_name\":\"model\",\"token_used\":19,\"count\":2,\"quota\":17}],\"message\":\"\",\"success\":true}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 200
-}

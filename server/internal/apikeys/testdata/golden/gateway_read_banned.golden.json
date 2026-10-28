@@ -1,8 +1,0 @@
-{
-  "body": {
-    "message": "User has been banned",
-    "success": false
-  },
-  "headers": {},
-  "status": 403
-}

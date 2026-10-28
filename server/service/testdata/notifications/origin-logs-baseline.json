@@ -1,4 +1,0 @@
-{
-  "root_channel_disabled": "[SYS] 2000/01/01 - 00:00:00 | 通道「fixture channel」（#21）发生错误，准备禁用，原因：fixture reason \n",
-  "root_channel_autoban_off": "[SYS] 2000/01/01 - 00:00:00 | 通道「fixture channel」（#21）发生错误，准备禁用，原因：fixture reason \n[SYS] 2000/01/01 - 00:00:00 | 通道「fixture channel」（#21）未启用自动禁用功能，跳过禁用操作 \n"
-}

@@ -1,8 +1,0 @@
-{
-  "body": {
-    "message": "This token status is unavailable",
-    "success": false
-  },
-  "headers": {},
-  "status": 401
-}

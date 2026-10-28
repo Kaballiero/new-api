@@ -1,7 +1,0 @@
-{
-  "body": "{\"code\":\"invalid_params\",\"message\":\"invalid aggregate request: user_ids must be positive safe integers\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 400
-}

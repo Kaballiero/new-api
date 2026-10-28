@@ -1,8 +1,0 @@
-{
-  "body": {
-    "message": "Token not provided",
-    "success": false
-  },
-  "headers": {},
-  "status": 401
-}

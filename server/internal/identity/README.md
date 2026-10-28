@@ -92,4 +92,4 @@ Email/WebAuthn/OAuth adapters получают нужные операции я�
 
 Native SQL tests перемещены к владельцу. Private SQLite fixture остаётся default; PostgreSQL включается
 только `WAVE7J_IDENTITY_POSTGRES=1` + `TEST_POSTGRES_DSN`, с private schema/startup search_path и двумя pool probes.
-Rollback-регрессии находятся рядом с identity SQL adapter; HTTP-контракты — в `contract/`.
+Rollback-регрессии находятся рядом с identity SQL adapter; domain/usecase и HTTP-регрессии — рядом с владельцами и в `controller/`.

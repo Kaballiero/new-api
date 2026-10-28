@@ -89,7 +89,7 @@ record pointer, ID/timestamps/hooks и прежний status predicate; новы
 Filesystem artifact backend принадлежит adapter/artifacts; plugin CRUD — taskplugins, protocol/runtime — gateway.
 
 TECH_DEBT #69–75 описывают сохранённые financial/security/resource риски.
-Контрактные fixtures находятся в `contract/` и у owning runtime/scenario packages.
+Сценарные регрессии находятся у owning runtime/scenario packages; snapshot suite удалена по решению владельца.
 
 Persisted bulk reasons: общие bulk fail_reason получают English default, без выбора языка root или владельца.
 Один UPDATE и порядок SQL неизменны; per-owner локализация требует отдельного DB-изменения (#75).

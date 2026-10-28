@@ -1,9 +1,0 @@
-{
-  "body": {
-    "code": "token_not_found",
-    "message": "Token not found",
-    "success": false
-  },
-  "headers": {},
-  "status": 404
-}

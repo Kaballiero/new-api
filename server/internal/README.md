@@ -47,7 +47,7 @@
   сохраняя metadata anchor и same-tx pricing mutation.
 - `adapter/taskplugins/aliases` — один TTL/generation view с channels SQL reader.
 - `app/pricingfx` собирает FX refresh/replica; `app/systemmetrics` — metrics core/loop над runtime/SQL/Redis adapters.
-- `contracttest/` содержит общие тестовые fixtures; неизменяемые testdata могут оставаться по прежним путям.
+- `contracttest/` содержит используемые DB/Redis/FX fixtures для обычных регрессий. Добавленная snapshot suite удалена по решению владельца; сохранены только унаследованные `origin/main` testdata. Покрытие сценариев расширяется постепенно (TECH_DEBT #99).
 
 ## Границы
 

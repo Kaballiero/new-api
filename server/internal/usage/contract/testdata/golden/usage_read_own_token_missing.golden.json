@@ -1,7 +1,0 @@
-{
-  "body": "{\"code\":\"token_not_found\",\"message\":\"令牌不存在\",\"success\":false}",
-  "headers": {
-    "Content-Type": "application/json; charset=utf-8"
-  },
-  "status": 404
-}
