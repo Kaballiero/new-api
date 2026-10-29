@@ -804,3 +804,5 @@ deployment.management.container_not_found: "Сведения о контейне
 catalog.management.prefill_name_type: "Необходимо указать название и тип группы"
 catalog.management.prefill_duplicate: "Группа с таким названием уже существует"
 catalog.management.prefill_id_required: "Необходимо указать ID группы"
+
+usage.getapi_unsupported: "Чтение логов GetAPI не поддерживается с ClickHouse"

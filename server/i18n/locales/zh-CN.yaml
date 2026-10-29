@@ -795,3 +795,5 @@ deployment.management.container_not_found: "container details not found"
 catalog.management.prefill_name_type: "组名称和类型不能为空"
 catalog.management.prefill_duplicate: "组名称已存在"
 catalog.management.prefill_id_required: "缺少组 ID"
+
+usage.getapi_unsupported: "ClickHouse 不支持 GetAPI 使用日志"

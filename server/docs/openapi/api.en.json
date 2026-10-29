@@ -4755,6 +4755,370 @@
         ],
         "type": "object"
       },
+      "GetAPIUsageAggregateRequest": {
+        "properties": {
+          "end_timestamp": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "granularity": {
+            "description": "Required for time/time_model, forbidden for model/token. Hour requires a window of at most 7 days.",
+            "enum": [
+              "hour",
+              "day",
+              "week",
+              "month"
+            ],
+            "type": "string"
+          },
+          "group_by": {
+            "enum": [
+              "model",
+              "time",
+              "time_model",
+              "token"
+            ],
+            "type": "string"
+          },
+          "start_timestamp": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "token_id": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "user_ids": {
+            "items": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "user_ids",
+          "start_timestamp",
+          "end_timestamp",
+          "group_by"
+        ],
+        "type": "object"
+      },
+      "GetAPIUsageAggregateResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GetAPIUsageAggregateResult"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "type": "object"
+      },
+      "GetAPIUsageAggregateResult": {
+        "properties": {
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/GetAPIUsageRecent"
+            },
+            "type": "array"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/GetAPIUsageAggregateRow"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rows"
+        ],
+        "type": "object"
+      },
+      "GetAPIUsageAggregateRow": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "integer"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "quota": {
+            "type": "integer"
+          },
+          "token_deleted": {
+            "type": "boolean"
+          },
+          "token_id": {
+            "type": "integer"
+          },
+          "token_name": {
+            "type": "string"
+          },
+          "token_used": {
+            "type": "integer"
+          },
+          "user_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "quota",
+          "count",
+          "token_used"
+        ],
+        "type": "object"
+      },
+      "GetAPIUsageErrorResponse": {
+        "properties": {
+          "code": {
+            "enum": [
+              "GETAPI_USAGE_INVALID_QUERY",
+              "GETAPI_USAGE_TOO_LARGE",
+              "GETAPI_USAGE_UNAVAILABLE",
+              "GETAPI_USAGE_UNSUPPORTED",
+              "AUTH_UNAUTHORIZED",
+              "GETAPI_CAPABILITY_DENIED",
+              "GETAPI_CREDENTIAL_UNAVAILABLE"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "enum": [
+              false
+            ],
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "GetAPIUsageLog": {
+        "properties": {
+          "completion_tokens": {
+            "type": "integer"
+          },
+          "content": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer"
+          },
+          "group": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "is_stream": {
+            "type": "boolean"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "other": {
+            "type": "string"
+          },
+          "prompt_tokens": {
+            "type": "integer"
+          },
+          "quota": {
+            "type": "integer"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "token_id": {
+            "type": "integer"
+          },
+          "token_name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "integer"
+          },
+          "upstream_request_id": {
+            "type": "string"
+          },
+          "use_time": {
+            "type": "integer"
+          },
+          "user_id": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "type",
+          "content",
+          "username",
+          "token_name",
+          "token_id",
+          "model_name",
+          "quota",
+          "prompt_tokens",
+          "completion_tokens",
+          "use_time",
+          "is_stream",
+          "group",
+          "request_id",
+          "upstream_request_id",
+          "other",
+          "user_id"
+        ],
+        "type": "object"
+      },
+      "GetAPIUsageLogsRequest": {
+        "properties": {
+          "after_id": {
+            "description": "Exclusive newer-page cursor; mutually exclusive with before_id.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "before_id": {
+            "description": "Exclusive older-page cursor; mutually exclusive with after_id.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "end_timestamp": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "start_timestamp": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "token_id": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "types": {
+            "default": [
+              2,
+              6
+            ],
+            "items": {
+              "enum": [
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7
+              ],
+              "type": "integer"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "user_id": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "with_total": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "user_id",
+          "start_timestamp",
+          "end_timestamp",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "GetAPIUsageLogsResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GetAPIUsageLogsResult"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ],
+        "type": "object"
+      },
+      "GetAPIUsageLogsResult": {
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GetAPIUsageLog"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "type": "object"
+      },
+      "GetAPIUsageRecent": {
+        "properties": {
+          "rpm": {
+            "type": "integer"
+          },
+          "tpm": {
+            "type": "integer"
+          },
+          "user_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id",
+          "rpm",
+          "tpm"
+        ],
+        "type": "object"
+      },
       "GetApiCreateCredentialResponse": {
         "properties": {
           "data": {
@@ -20369,6 +20733,452 @@
         "summary": "put /api/deployments/{id}/name",
         "tags": [
           "Deployment"
+        ]
+      }
+    },
+    "/api/getapi/usage/aggregate": {
+      "post": {
+        "deprecated": false,
+        "description": "Requires GetAPI integration capability getapi.usage.read. Inclusive UTC timestamps, start \u003c= end, maximum window 93 days.",
+        "operationId": "getapiUsageAggregate",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetAPIUsageAggregateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageAggregateResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "GETAPI_USAGE_INVALID_QUERY": {
+                    "summary": "GETAPI_USAGE_INVALID_QUERY",
+                    "value": {
+                      "code": "GETAPI_USAGE_INVALID_QUERY",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "GETAPI_USAGE_INVALID_QUERY"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "AUTH_UNAUTHORIZED": {
+                    "summary": "AUTH_UNAUTHORIZED",
+                    "value": {
+                      "code": "AUTH_UNAUTHORIZED",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_UNAUTHORIZED"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "GETAPI_CAPABILITY_DENIED": {
+                    "summary": "GETAPI_CAPABILITY_DENIED",
+                    "value": {
+                      "code": "GETAPI_CAPABILITY_DENIED",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "GETAPI_CAPABILITY_DENIED"
+            ]
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "GETAPI_USAGE_TOO_LARGE": {
+                    "summary": "GETAPI_USAGE_TOO_LARGE",
+                    "value": {
+                      "code": "GETAPI_USAGE_TOO_LARGE",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "GETAPI_USAGE_TOO_LARGE"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "GETAPI_CREDENTIAL_UNAVAILABLE": {
+                    "summary": "GETAPI_CREDENTIAL_UNAVAILABLE",
+                    "value": {
+                      "code": "GETAPI_CREDENTIAL_UNAVAILABLE",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  },
+                  "GETAPI_USAGE_UNAVAILABLE": {
+                    "summary": "GETAPI_USAGE_UNAVAILABLE",
+                    "value": {
+                      "code": "GETAPI_USAGE_UNAVAILABLE",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "GETAPI_USAGE_UNAVAILABLE",
+              "GETAPI_CREDENTIAL_UNAVAILABLE"
+            ]
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "post /api/getapi/usage/aggregate",
+        "tags": [
+          "Uncategorized"
+        ]
+      }
+    },
+    "/api/getapi/usage/logs": {
+      "post": {
+        "deprecated": false,
+        "description": "Requires GetAPI integration capability getapi.usage.read. Inclusive UTC timestamps, start \u003c= end, maximum window 93 days.",
+        "operationId": "getapiUsageLogs",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetAPIUsageLogsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageLogsResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "GETAPI_USAGE_INVALID_QUERY": {
+                    "summary": "GETAPI_USAGE_INVALID_QUERY",
+                    "value": {
+                      "code": "GETAPI_USAGE_INVALID_QUERY",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "GETAPI_USAGE_INVALID_QUERY"
+            ]
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "AUTH_UNAUTHORIZED": {
+                    "summary": "AUTH_UNAUTHORIZED",
+                    "value": {
+                      "code": "AUTH_UNAUTHORIZED",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "AUTH_UNAUTHORIZED"
+            ]
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "GETAPI_CAPABILITY_DENIED": {
+                    "summary": "GETAPI_CAPABILITY_DENIED",
+                    "value": {
+                      "code": "GETAPI_CAPABILITY_DENIED",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "GETAPI_CAPABILITY_DENIED"
+            ]
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "GETAPI_USAGE_UNSUPPORTED": {
+                    "summary": "GETAPI_USAGE_UNSUPPORTED",
+                    "value": {
+                      "code": "GETAPI_USAGE_UNSUPPORTED",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "GETAPI_USAGE_UNSUPPORTED"
+            ]
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "GETAPI_CREDENTIAL_UNAVAILABLE": {
+                    "summary": "GETAPI_CREDENTIAL_UNAVAILABLE",
+                    "value": {
+                      "code": "GETAPI_CREDENTIAL_UNAVAILABLE",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  },
+                  "GETAPI_USAGE_UNAVAILABLE": {
+                    "summary": "GETAPI_USAGE_UNAVAILABLE",
+                    "value": {
+                      "code": "GETAPI_USAGE_UNAVAILABLE",
+                      "message": "\u003clocalized message\u003e",
+                      "success": false
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/GetAPIUsageErrorResponse"
+                }
+              }
+            },
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "x-error-codes": [
+              "GETAPI_USAGE_UNAVAILABLE",
+              "GETAPI_CREDENTIAL_UNAVAILABLE"
+            ]
+          }
+        },
+        "security": [
+          {
+            "AccessToken1": []
+          }
+        ],
+        "summary": "post /api/getapi/usage/logs",
+        "tags": [
+          "Uncategorized"
         ]
       }
     },

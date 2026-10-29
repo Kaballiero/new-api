@@ -804,3 +804,5 @@ deployment.management.container_not_found: "container details not found"
 catalog.management.prefill_name_type: "Group name and type are required"
 catalog.management.prefill_duplicate: "Group name already exists"
 catalog.management.prefill_id_required: "Group ID is required"
+
+usage.getapi_unsupported: "GetAPI usage logs are not supported with ClickHouse"
