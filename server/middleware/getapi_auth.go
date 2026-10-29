@@ -75,7 +75,7 @@ func getAPIIntegrationForPrincipal(principalID int, capability string) string {
 		}
 		principals[integration.PrincipalUserID] = true
 		for _, granted := range integration.Capabilities {
-			if granted != "getapi.users.provision" && granted != "getapi.users.initialize-pat" && granted != "getapi.users.credit-quota" {
+			if granted != "getapi.users.provision" && granted != "getapi.users.initialize-pat" && granted != "getapi.users.credit-quota" && granted != "getapi.usage.read" {
 				return ""
 			}
 			if granted == capability && integration.PrincipalUserID == principalID {

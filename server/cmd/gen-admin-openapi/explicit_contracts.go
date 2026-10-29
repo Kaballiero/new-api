@@ -225,6 +225,9 @@ func enrichExplicitContracts(paths map[string]interface{}) {
 				response["content"].(map[string]any)["application/json"].(map[string]any)["schema"] = schema
 			}
 		}
+		if route.HandlerName == "GetAPIUsageAggregate" || route.HandlerName == "GetAPIUsageLogs" {
+			enrichGetAPIUsageContract(op, route.HandlerName == "GetAPIUsageAggregate")
+		}
 		if route.HandlerName == "ProvisionGetAPIUser" {
 			enrichGetAPIContract(op, true)
 		}
@@ -699,4 +702,91 @@ func enrichGetAPIQuotaCreditSchemas(schemas map[string]any) {
 	schemas["GetAPIQuotaCreditResult"] = result
 	schemas["GetAPIQuotaCreditResponse"] = wrapResponse(map[string]any{"$ref": "#/components/schemas/GetAPIQuotaCreditResult"})
 	schemas["GetAPIQuotaCreditResponse"].(map[string]any)["required"] = []string{"success", "data"}
+}
+
+func enrichGetAPIUsageContract(op map[string]any, aggregate bool) {
+	name, operation := "Logs", "getapiUsageLogs"
+	if aggregate {
+		name, operation = "Aggregate", "getapiUsageAggregate"
+	}
+	op["operationId"] = operation
+	op["parameters"] = []any{}
+	op["description"] = "Requires GetAPI integration capability getapi.usage.read. Inclusive UTC timestamps, start <= end, maximum window 93 days."
+	responses := map[string]any{}
+	statuses := []string{"200", "400", "401", "403", "503"}
+	if aggregate {
+		statuses = append(statuses, "422")
+	} else {
+		statuses = append(statuses, "501")
+	}
+	for _, status := range statuses {
+		schema := "GetAPIUsageErrorResponse"
+		if status == "200" {
+			schema = "GetAPIUsage" + name + "Response"
+		}
+		response := buildResponse(respSpec{Custom: schema})["200"].(map[string]any)
+		response["headers"] = map[string]any{"Cache-Control": map[string]any{"schema": map[string]any{"type": "string", "enum": []string{"no-store"}}}}
+		responses[status] = response
+	}
+	op["responses"] = responses
+	op["requestBody"] = map[string]any{"required": true, "content": map[string]any{"application/json": map[string]any{"schema": map[string]any{"$ref": "#/components/schemas/GetAPIUsage" + name + "Request"}}}}
+	declareErrorCodes(op, "400", "GETAPI_USAGE_INVALID_QUERY")
+	declareErrorCodes(op, "401", "AUTH_UNAUTHORIZED")
+	declareErrorCodes(op, "403", "GETAPI_CAPABILITY_DENIED")
+	declareErrorCodes(op, "503", "GETAPI_USAGE_UNAVAILABLE", "GETAPI_CREDENTIAL_UNAVAILABLE")
+	if aggregate {
+		declareErrorCodes(op, "422", "GETAPI_USAGE_TOO_LARGE")
+	} else {
+		declareErrorCodes(op, "501", "GETAPI_USAGE_UNSUPPORTED")
+	}
+}
+
+func enrichGetAPIUsageSchemas(schemas map[string]any) {
+	schemas["GetAPIUsageErrorResponse"] = map[string]any{
+		"type": "object", "required": []string{"success", "code", "message"},
+		"properties": map[string]any{
+			"success": map[string]any{"type": "boolean", "enum": []bool{false}},
+			"code":    map[string]any{"type": "string", "enum": []string{"GETAPI_USAGE_INVALID_QUERY", "GETAPI_USAGE_TOO_LARGE", "GETAPI_USAGE_UNAVAILABLE", "GETAPI_USAGE_UNSUPPORTED", "AUTH_UNAUTHORIZED", "GETAPI_CAPABILITY_DENIED", "GETAPI_CREDENTIAL_UNAVAILABLE"}},
+			"message": map[string]any{"type": "string"},
+		},
+	}
+
+	required := map[string][]string{
+		"GetAPIUsageAggregateRequest": {"user_ids", "start_timestamp", "end_timestamp", "group_by"},
+		"GetAPIUsageAggregateRow":     {"user_id", "quota", "count", "token_used"},
+		"GetAPIUsageRecent":           {"user_id", "rpm", "tpm"},
+		"GetAPIUsageAggregateResult":  {"rows"},
+		"GetAPIUsageLogsRequest":      {"user_id", "start_timestamp", "end_timestamp", "limit"},
+		"GetAPIUsageLogsResult":       {"items", "has_more"},
+		"GetAPIUsageLog":              {"id", "created_at", "type", "content", "username", "token_name", "token_id", "model_name", "quota", "prompt_tokens", "completion_tokens", "use_time", "is_stream", "group", "request_id", "upstream_request_id", "other", "user_id"},
+	}
+	for name, fields := range required {
+		schema := structToSchema(modelTypes[name])
+		schema["required"] = fields
+		schemas[name] = schema
+	}
+	for _, name := range []string{"Aggregate", "Logs"} {
+		response := wrapResponse(map[string]any{"$ref": "#/components/schemas/GetAPIUsage" + name + "Result"})
+		response["required"] = []string{"success", "data"}
+		schemas["GetAPIUsage"+name+"Response"] = response
+		props := schemas["GetAPIUsage"+name+"Request"].(map[string]any)["properties"].(map[string]any)
+		for _, field := range []string{"start_timestamp", "end_timestamp", "token_id", "before_id", "after_id", "user_id", "limit"} {
+			if prop, ok := props[field].(map[string]any); ok {
+				delete(prop, "nullable")
+				prop["minimum"] = 1
+				if field == "start_timestamp" || field == "end_timestamp" || name == "Logs" && field == "token_id" {
+					prop["minimum"] = 0
+				}
+			}
+		}
+	}
+	agg := schemas["GetAPIUsageAggregateRequest"].(map[string]any)["properties"].(map[string]any)
+	agg["user_ids"] = map[string]any{"type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true, "items": map[string]any{"type": "integer", "minimum": 1}}
+	agg["group_by"] = map[string]any{"type": "string", "enum": []string{"model", "time", "time_model", "token"}}
+	agg["granularity"] = map[string]any{"type": "string", "enum": []string{"hour", "day", "week", "month"}, "description": "Required for time/time_model, forbidden for model/token. Hour requires a window of at most 7 days."}
+	logs := schemas["GetAPIUsageLogsRequest"].(map[string]any)["properties"].(map[string]any)
+	logs["limit"].(map[string]any)["maximum"] = 100
+	logs["types"] = map[string]any{"type": "array", "minItems": 1, "default": []int{2, 6}, "items": map[string]any{"type": "integer", "enum": []int{1, 2, 3, 4, 5, 6, 7}}}
+	logs["before_id"].(map[string]any)["description"] = "Exclusive older-page cursor; mutually exclusive with after_id."
+	logs["after_id"].(map[string]any)["description"] = "Exclusive newer-page cursor; mutually exclusive with before_id."
 }

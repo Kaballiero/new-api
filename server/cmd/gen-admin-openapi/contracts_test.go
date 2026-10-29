@@ -73,6 +73,7 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 	schemas := buildSchemas()
 	enrichGetAPIInitializeSchemas(schemas)
 	enrichGetAPIQuotaCreditSchemas(schemas)
+	enrichGetAPIUsageSchemas(schemas)
 	schemas["GetApiCreateCredentialResponse"] = wrapResponse(map[string]interface{}{"$ref": "#/components/schemas/GetAPICreateCredential"})
 	schemas["GetApiCreateCredential"] = structToSchema(modelTypes["GetAPICreateCredential"])
 	schemas["GetAPICreateCredential"].(map[string]interface{})["required"] = []string{"user_id", "access_token"}
@@ -88,6 +89,8 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 		path, method, operationID string
 		statuses                  []string
 	}{
+		{"/api/getapi/usage/aggregate", "post", "getapiUsageAggregate", []string{"200", "400", "401", "403", "422", "503"}},
+		{"/api/getapi/usage/logs", "post", "getapiUsageLogs", []string{"200", "400", "401", "403", "501", "503"}},
 		{"/api/getapi/users", "post", "provisionGetApiUser", []string{"201", "400", "401", "403", "404", "409", "503"}},
 		{"/api/getapi/users/{user_id}/pat", "post", "initializeGetApiPat", []string{"200", "201", "400", "401", "403", "404", "409", "503"}},
 		{"/api/getapi/users/{user_id}/quota-credits", "post", "creditGetApiUserQuota", []string{"200", "400", "401", "403", "404", "409", "503"}},
@@ -108,6 +111,21 @@ func TestGeneratedAdminContractsMatchResolvedHandlers(t *testing.T) {
 			}
 			if custom.path == "/api/getapi/users/{user_id}/quota-credits" && status == "200" {
 				expected = "#/components/schemas/GetAPIQuotaCreditResponse"
+			}
+			if strings.HasPrefix(custom.path, "/api/getapi/usage/") {
+				expected = "#/components/schemas/GetAPIUsageErrorResponse"
+				if status == "200" {
+					expected = "#/components/schemas/GetAPIUsageAggregateResponse"
+					if custom.path == "/api/getapi/usage/logs" {
+						expected = "#/components/schemas/GetAPIUsageLogsResponse"
+					}
+				}
+				if status != "200" {
+					codes := schemas["GetAPIUsageErrorResponse"].(map[string]any)["properties"].(map[string]any)["code"].(map[string]any)["enum"]
+					for _, code := range response["x-error-codes"].([]any) {
+						assert.Contains(t, codes, code)
+					}
+				}
 			}
 			assert.Equal(t, expected, extractContentSchema(response)["$ref"])
 		}

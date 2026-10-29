@@ -511,6 +511,7 @@ const (
 // Usage read-side messages.
 const (
 	MsgUsageDeprecated            = "usage.deprecated"
+	MsgUsageGetAPIUnsupported     = "usage.getapi_unsupported"
 	MsgUsageInvalidToken          = "usage.invalid_token"
 	MsgUsageQueryFailed           = "usage.query_failed"
 	MsgUsageStatsFailed           = "usage.stats_failed"

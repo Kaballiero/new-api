@@ -36,11 +36,14 @@ wildcard модели, subscription display и selection/finalization notes. Out
 
 | Сценарии | Правила | База |
 |---|---|---|
+| getapi_aggregate / getapi_logs | `POST /api/getapi/usage/aggregate` — пачка пользователей, нетто по моделям/времени/ключам; `POST /api/getapi/usage/logs` — история с keyset по настоящему id; GetAPI capability `getapi.usage.read` | main DB / LOG_DB |
 | admin_list_logs / list_own_logs | роль/owner, filters, pagination, admin metadata projection | LOG_DB |
 | admin_get_log_stats / get_own_log_stats | consume-only; own username из authenticated context, clock после filters | LOG_DB |
 | admin_list_usage_data / admin_list_user_usage_data / list_own_usage_data | quota_data, owner/filter/period policy | main DB |
 | admin_get_usage_flow / get_own_usage_flow / get_rankings | intervals, grouping, ranking windows и TTL | main DB и runtime cache |
 | get_billing_usage | `/v1/dashboard/billing/usage`, прежний account/token read order и error overwrite, integer sum до float | main DB |
+
+GetAPI-ручки читают расход по `user_id` без PAT владельца; capability выдаётся доверенной серверной интеграции. Логи сохраняют настоящие id, скрывают channel и привилегированные metadata; при ClickHouse возвращают `501 GETAPI_USAGE_UNSUPPORTED`.
 
 Точные пакеты read-сценариев находятся в модуле; HTTP использует dto и transport без ORM.
 Handlers собирает app/usage, compatibility — app.NewBillingCompatibilityHTTP, bindings — controller.

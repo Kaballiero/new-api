@@ -19,14 +19,18 @@ import (
 	"github.com/QuantumNous/new-api/internal/usage/get_own_log_stats"
 	"github.com/QuantumNous/new-api/internal/usage/get_own_usage_flow"
 	"github.com/QuantumNous/new-api/internal/usage/get_rankings"
+	"github.com/QuantumNous/new-api/internal/usage/getapi_aggregate"
+	"github.com/QuantumNous/new-api/internal/usage/getapi_logs"
 	"github.com/QuantumNous/new-api/internal/usage/list_key_logs"
 	"github.com/QuantumNous/new-api/internal/usage/list_own_logs"
 	"github.com/QuantumNous/new-api/internal/usage/list_own_usage_data"
 )
 
 type HTTP struct {
-	LogAggregate   aggregate_logs.Handler
-	UsageAggregate aggregate_usage_data.Handler
+	GetAPIAggregate getapi_aggregate.Handler
+	GetAPILogs      getapi_logs.Handler
+	LogAggregate    aggregate_logs.Handler
+	UsageAggregate  aggregate_usage_data.Handler
 
 	AdminQuota admin_list_usage_data.Handler
 	UserQuota  admin_list_user_usage_data.Handler
@@ -51,13 +55,15 @@ func NewHTTP() HTTP {
 		return vendors, prices
 	}
 	return HTTP{
-		LogAggregate:   aggregate_logs.NewHandler(aggregate_logs.NewUsecase(store)),
-		UsageAggregate: aggregate_usage_data.NewHandler(aggregate_usage_data.NewUsecase(store)),
-		AdminQuota:     admin_list_usage_data.NewHandler(admin_list_usage_data.NewUsecase(store)),
-		UserQuota:      admin_list_user_usage_data.NewHandler(admin_list_user_usage_data.NewUsecase(store)),
-		OwnQuota:       list_own_usage_data.NewHandler(list_own_usage_data.NewUsecase(store)),
-		AdminFlow:      admin_get_usage_flow.NewHandler(admin_get_usage_flow.NewUsecase(store)),
-		OwnFlow:        get_own_usage_flow.NewHandler(get_own_usage_flow.NewUsecase(store)),
+		GetAPIAggregate: getapi_aggregate.NewHandler(getapi_aggregate.NewUsecase(store, func() int64 { return time.Now().Unix() })),
+		GetAPILogs:      getapi_logs.NewHandler(getapi_logs.NewUsecase(store)),
+		LogAggregate:    aggregate_logs.NewHandler(aggregate_logs.NewUsecase(store)),
+		UsageAggregate:  aggregate_usage_data.NewHandler(aggregate_usage_data.NewUsecase(store)),
+		AdminQuota:      admin_list_usage_data.NewHandler(admin_list_usage_data.NewUsecase(store)),
+		UserQuota:       admin_list_user_usage_data.NewHandler(admin_list_user_usage_data.NewUsecase(store)),
+		OwnQuota:        list_own_usage_data.NewHandler(list_own_usage_data.NewUsecase(store)),
+		AdminFlow:       admin_get_usage_flow.NewHandler(admin_get_usage_flow.NewUsecase(store)),
+		OwnFlow:         get_own_usage_flow.NewHandler(get_own_usage_flow.NewUsecase(store)),
 
 		AdminLogs:     admin_list_logs.NewHandler(admin_list_logs.NewUsecase(store)),
 		OwnLogs:       list_own_logs.NewHandler(list_own_logs.NewUsecase(store)),
