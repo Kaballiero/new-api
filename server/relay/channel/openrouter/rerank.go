@@ -52,10 +52,16 @@ func RerankResponse(c *gin.Context, resp *http.Response, info *relaycommon.Relay
 	if err != nil {
 		return nil, CostError("OpenRouter rerank response projection failed")
 	}
-	if err := taskrecord.CompleteOpenRouterSyncTask(c, info, body, "application/json"); err != nil {
-		return nil, CostError(err.Error())
+	if info.IsChannelTest {
+		if !state.Final {
+			return nil, CostError("OpenRouter terminal usage.cost is missing or invalid")
+		}
+	} else {
+		if err := taskrecord.CompleteOpenRouterSyncTask(c, info, body, "application/json"); err != nil {
+			return nil, CostError(err.Error())
+		}
+		c.Header("X-Task-Id", state.TaskID)
 	}
-	c.Header("X-Task-Id", state.TaskID)
 	c.Data(http.StatusOK, "application/json", body)
 	return &dto.Usage{Cost: state.CostUSD}, nil
 }

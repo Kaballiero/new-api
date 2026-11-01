@@ -62,7 +62,22 @@ func ResolveProbeUserID(c *gin.Context) (int, error) {
 	return channelstore.NewStore().RootProbeUserID()
 }
 
-func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
+func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) (outcome testResult) {
+	stage := "setup"
+	var info *relaycommon.RelayInfo
+	defer func() {
+		if channel.Type != constant.ChannelTypeOpenRouter || outcome.localErr == nil {
+			return
+		}
+		reason, status := "local_error", 0
+		if outcome.newAPIError != nil {
+			reason, status = string(outcome.newAPIError.GetErrorCode()), outcome.newAPIError.StatusCode
+		}
+		if info != nil && info.OpenRouterCost != nil && info.OpenRouterCost.UnknownReason != "" {
+			reason = info.OpenRouterCost.UnknownReason
+		}
+		common.SysError(fmt.Sprintf("OpenRouter channel test failed: channel_id=%d stage=%s reason=%s status=%d err=%v", channel.Id, stage, reason, status, outcome.localErr))
+	}()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -222,7 +237,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	request := buildTestRequest(testModel, endpointType, channel, isStream)
 
-	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
+	info, err = relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
 	if err != nil {
 		return testResult{
@@ -287,6 +302,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	//logInfo.ApiKey = ""
 	common.SysLog(fmt.Sprintf("testing channel %d with model %s , info %+v ", channel.Id, testModel, info.ToString()))
 
+	stage = "pricing"
 	priceData, err := helper.ModelPriceHelper(c, info, 0, request.GetTokenCountMeta())
 	if err != nil {
 		return testResult{
@@ -298,6 +314,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	adaptor.Init(info)
 
+	stage = "conversion"
 	var convertedRequest any
 	// Pick the conversion by RelayMode.
 	switch info.RelayMode {
@@ -426,6 +443,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	requestBody := bytes.NewBuffer(jsonData)
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+	stage = "prepare_or_dispatch"
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return testResult{
@@ -438,6 +456,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	if resp != nil {
 		httpResp = resp.(*http.Response)
 		if httpResp.StatusCode != http.StatusOK {
+			stage = "upstream_status"
 			err := mapping.RelayErrorHandler(c.Request.Context(), httpResp, true)
 			common.SysError(fmt.Sprintf(
 				"channel test bad response: channel_id=%d name=%s type=%d model=%s endpoint_type=%s status=%d err=%v",
@@ -449,13 +468,18 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				httpResp.StatusCode,
 				err,
 			))
+			apiErr := types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			if channel.Type == constant.ChannelTypeOpenRouter {
+				apiErr = err
+			}
 			return testResult{
 				context:     c,
 				localErr:    err,
-				newAPIError: types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError),
+				newAPIError: apiErr,
 			}
 		}
 	}
+	stage = "response"
 	usageA, respErr := adaptor.DoResponse(c, httpResp, info)
 	if respErr != nil {
 		return testResult{
@@ -464,6 +488,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			newAPIError: respErr,
 		}
 	}
+	stage = "usage"
 	usage, usageErr := coerceTestUsage(usageA, isStream, info.GetEstimatePromptTokens())
 	if usageErr != nil {
 		return testResult{
@@ -472,6 +497,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			newAPIError: types.NewOpenAIError(usageErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError),
 		}
 	}
+	stage = "response_body"
 	result := w.Result()
 	respBody, err := readTestResponseBody(result.Body, isStream)
 	if err != nil {
@@ -490,7 +516,11 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 	info.SetEstimatePromptTokens(usage.PromptTokens)
 
-	quota, tieredResult := settleTestQuota(info, priceData, usage)
+	stage = "cost_projection"
+	quota, tieredResult, err := settleTestQuota(info, priceData, usage)
+	if err != nil {
+		return testResult{context: c, localErr: err, newAPIError: types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)}
+	}
 	tok := time.Now()
 	milliseconds := tok.Sub(tik).Milliseconds()
 	consumedTime := float64(milliseconds) / 1000.0
@@ -519,12 +549,24 @@ func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Requ
 	return nil
 }
 
-func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult) {
+func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult, error) {
+	if info != nil && info.IsChannelTest && info.OpenRouterCost != nil {
+		state := info.OpenRouterCost
+		if !state.Final || !state.Valid {
+			return 0, nil, errors.New("OpenRouter terminal usage.cost is missing or invalid")
+		}
+		quota, clamp, err := state.Basis.Quota(state.CostUSD)
+		if err != nil {
+			return 0, nil, err
+		}
+		info.QuotaClamp = clamp
+		return quota, nil, nil
+	}
 	if usage != nil && info != nil && info.TieredBillingSnapshot != nil {
 		isClaudeUsageSemantic := usage.UsageSemantic == "anthropic" || info.GetFinalRequestRelayFormat() == types.RelayFormatClaude
 		usedVars := billingexpr.UsedVars(info.TieredBillingSnapshot.ExprString)
 		if ok, quota, result := billinggateway.TryTieredSettle(info, billinggateway.BuildTieredTokenParams(usage, isClaudeUsageSemantic, usedVars)); ok {
-			return quota, result
+			return quota, result, nil
 		}
 	}
 
@@ -536,10 +578,10 @@ func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData,
 		if priceData.ModelRatio != 0 && quota <= 0 {
 			quota = 1
 		}
-		return quota, nil
+		return quota, nil, nil
 	}
 
-	return common.QuotaFromFloat(priceData.ModelPrice * common.QuotaPerUnit), nil
+	return common.QuotaFromFloat(priceData.ModelPrice * common.QuotaPerUnit), nil, nil
 }
 
 func coerceTestUsage(usageAny any, isStream bool, estimatePromptTokens int) (*dto.Usage, error) {

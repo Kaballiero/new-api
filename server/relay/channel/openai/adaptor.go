@@ -896,7 +896,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		}()
 		if !info.IsStream {
 			if costErr := openrouter.ValidateResponse(resp, info); costErr != nil {
-				if !info.OpenRouterCost.ChatText {
+				if info.IsChannelTest || !info.OpenRouterCost.ChatText {
 					return nil, costErr
 				}
 				if info.OpenRouterCost.UnknownReason == "upstream_error" {
@@ -921,7 +921,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		// a chat hold: it settles only a confirmed cost, otherwise awaits lookup
 		// or manual reconciliation.
 		defer func() {
-			if !info.OpenRouterCost.Final && info.IsStream && info.OpenRouterCost.ChatText {
+			if !info.IsChannelTest && !info.OpenRouterCost.Final && info.IsStream && info.OpenRouterCost.ChatText {
 				if info.OpenRouterCost.UnknownReason == "upstream_error" {
 					// Output delivered before the error keeps its hold in a Task.
 					if deferErr := openrouter.DeferCostToGeneration(c, info, a); deferErr != nil && relaycommon.HasOpenRouterSyncTask(info) {
@@ -935,8 +935,12 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 						info.OpenRouterCost.UnknownReason, info.ChannelId, info.FinalPreConsumedQuota, info.OpenRouterCost.TaskID, info.OpenRouterCost.GenerationID != "", deferErr))
 				}
 			}
-			if !info.OpenRouterCost.Final && !info.OpenRouterCost.ChatImage && !relaycommon.HasOpenRouterSyncTask(info) {
+			if !info.OpenRouterCost.Final && (info.IsChannelTest || !info.OpenRouterCost.ChatImage) && !relaycommon.HasOpenRouterSyncTask(info) {
 				usage = nil
+				if info.IsChannelTest && info.OpenRouterCost.UnknownReason == "upstream_error" {
+					err = openrouter.RejectUpstreamError(c, info, err)
+					return
+				}
 				err = openrouter.CostError("OpenRouter terminal usage.cost is missing or invalid")
 				return
 			}
