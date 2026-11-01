@@ -14,7 +14,7 @@ func NewChannelStateMetricsHandler() http.Handler {
 		if rows != nil {
 			snapshots = make([]systemmetrics.ChannelStateSnapshot, len(rows))
 			for i, row := range rows {
-				snapshots[i] = systemmetrics.ChannelStateSnapshot{ID: row.ID, Type: row.Type, Status: row.Status}
+				snapshots[i] = systemmetrics.ChannelStateSnapshot{ID: row.ID, Type: row.Type, Status: row.Status, Name: row.Name, OtherInfo: row.OtherInfo}
 			}
 		}
 		return snapshots, err
