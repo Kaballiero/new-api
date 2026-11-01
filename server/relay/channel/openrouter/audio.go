@@ -189,10 +189,16 @@ func AudioResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 			return nil, CostError("OpenRouter speech response is not audio")
 		}
 	}
-	if err := taskrecord.CompleteOpenRouterSyncTask(c, info, body, mimeType); err != nil {
-		return nil, CostError(err.Error())
+	if info.IsChannelTest {
+		if !state.Final {
+			return nil, CostError("OpenRouter terminal usage.cost is missing or invalid")
+		}
+	} else {
+		if err := taskrecord.CompleteOpenRouterSyncTask(c, info, body, mimeType); err != nil {
+			return nil, CostError(err.Error())
+		}
+		c.Header("X-Task-Id", state.TaskID)
 	}
-	c.Header("X-Task-Id", state.TaskID)
 	// Preserve the gateway's existing response/header policy while
 	// retaining audio fields even if ForceFormat/ThinkingToContent are enabled.
 	httpclient.IOCopyOpaqueBytesGracefully(c, resp, body)

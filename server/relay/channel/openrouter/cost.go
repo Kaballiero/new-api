@@ -43,6 +43,10 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 		info.OpenRouterCost = &relaycommon.OpenRouterCostState{}
 	}
 	info.OpenRouterCost.Basis = basis
+	// Operator-funded probes retain cost accounting but never own a client hold.
+	if info.IsChannelTest {
+		return nil
+	}
 	durable := info.NativeImage != nil && info.NativeImage.ReserveUSD > 0 || info.RelayMode == relayconstant.RelayModeRerank || info.OpenRouterCost.ChatImage || info.OpenRouterCost.BufferedAudio || info.RelayMode == relayconstant.RelayModeAudioSpeech || info.RelayMode == relayconstant.RelayModeAudioTranscription
 	if durable {
 		info.PriceData.Quota = quota
@@ -265,6 +269,9 @@ func configureGenerationLookup(c *gin.Context, info *relaycommon.RelayInfo, adap
 // generation identity; the Task then requires manual reconciliation. A stream
 // that delivered nothing is never deferred.
 func DeferCostToGeneration(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel.Adaptor) error {
+	if info.IsChannelTest {
+		return errors.New("OpenRouter channel tests cannot defer cost to a financial task")
+	}
 	state := info.OpenRouterCost
 	if state == nil || !state.ChatText || info.Billing == nil {
 		return errors.New("OpenRouter cost deferral requires a chat text reservation")
