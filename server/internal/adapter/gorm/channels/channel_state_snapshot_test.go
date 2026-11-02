@@ -50,7 +50,7 @@ func openChannelStateSnapshotTestDB(t *testing.T) *gorm.DB {
 func TestListChannelStateSnapshots(t *testing.T) {
 	db := openChannelStateSnapshotTestDB(t)
 	channels := []legacy.Channel{
-		{Name: "second", Key: "secret-two", Type: 14, Status: common.ChannelStatusAutoDisabled, OtherInfo: `{"status_reason":"status_code=402, insufficient credits","status_time":1700000000}`},
+		{Name: "second", Key: "secret-two", Type: 14, Status: common.ChannelStatusAutoDisabled, Balance: 12.34, OtherInfo: `{"status_reason":"status_code=402, insufficient credits","status_time":1700000000}`},
 		{Name: "first", Key: "secret-one", Type: 1, Status: common.ChannelStatusEnabled},
 	}
 	for index := range channels {
@@ -61,7 +61,7 @@ func TestListChannelStateSnapshots(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []ChannelStateSnapshot{
-		{ID: channels[0].Id, Type: 14, Status: common.ChannelStatusAutoDisabled, Name: "second", OtherInfo: channels[0].OtherInfo},
+		{ID: channels[0].Id, Type: 14, Status: common.ChannelStatusAutoDisabled, Name: "second", OtherInfo: channels[0].OtherInfo, Balance: 12.34},
 		{ID: channels[1].Id, Type: 1, Status: common.ChannelStatusEnabled, Name: "first"},
 	}, got)
 	var columns []string
