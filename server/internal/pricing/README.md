@@ -21,7 +21,7 @@
 | Сценарий | Что делает | Маршрут и доступ |
 |---|---|---|
 | `get_pricing` | классический список цен `/api/pricing` с группами, эндпоинтами и `pricing_version` | `GET /api/pricing`, `HeaderNavModuleAuth("pricing")` |
-| `get_personal_pricing` | тариф текущего пользователя: полный каталог или страница (`limit`, `offset`, фильтры) | `GET /api/user/effective-pricing`, `UserAuth`, `DisableCache` |
+| `get_personal_pricing` | тариф текущего пользователя: полный каталог или страница (`limit`, `offset`, фильтры); страницы с вкладкой единиц или сортировкой по цене строятся из кэшированного списка (см. «Кэш проекций») | `GET /api/user/effective-pricing`, `UserAuth`, `DisableCache` |
 | `get_model_pricing` | карточка одной модели для текущего пользователя (`model_name`) | `GET /api/user/effective-pricing/model`, `UserAuth`, `DisableCache` |
 | `get_group_pricing` | тариф заданной группы (`group`, `using_group`), полный или постранично; анонимный полный каталог кэшируется по группе, страницы строятся из кэшированного списка тарифа (см. «Кэш проекций») | `GET /api/pricing/effective`, `RootAuth`, `DisableCache` |
 | `get_pricing_overview` | обзор по модальностям (по 4 модели в секции по умолчанию) | `GET /api/pricing/effective/overview`, `RootAuth`, `DisableCache` |
@@ -92,23 +92,38 @@ Pricing/catalog composition принадлежит leaf app; техническ�
 ## Кэш проекций
 
 Проекция всего каталога (цены провайдеров upstream, минимумы, дедупликация) — самая дорогая часть
-чтения цен. Страницы `get_group_pricing` и `get_public_models` строятся из готового списка тарифа:
-`domain.EffectivePricingList` / `domain.PublicPricingModelsList` содержат спроецированные модели
-в порядке имён, а страница только фильтрует, сортирует и режет их. JSON страницы совпадает с прежним.
+чтения цен. Страницы `get_group_pricing`, `get_public_models` и `get_personal_pricing` строятся из
+готового списка тарифа: `domain.EffectivePricingList` / `domain.PublicPricingModelsList` содержат
+спроецированные модели в порядке имён, а страница только фильтрует, сортирует и режет их. JSON
+страницы совпадает с прежним.
 
 - Ключ — пара (группа пользователя, using group); на ключ хранится только последний список.
   Публичный каталог — один ключ `default`/`default`.
+- Персональные списки — отдельный кэш: в них все модели тарифа, без фильтра подтверждённых цен,
+  и каждая спроецирована (`EffectivePricingList.Projected`). Пользователь входит в проекцию только
+  через условия `user_id` в param override каналов (`CatalogProviderAllowed`); группа пользователя
+  уже в ключе. Есть ли такие условия, `Projection.CatalogOverridesReadUserID` проверяет один раз на
+  отпечаток тарифа (`ProjectionCache.LoadUserDependence`). Без них пользователи тарифа делят один
+  список, с ними у каждого пользователя свой. Личных списков не больше 8 на процесс
+  (`UserListLimit`), лишний вытесняет давнее всего читавшийся.
+- Персональная страница с сортировкой по имени без вкладки единиц берёт готовый список, а если его
+  ещё нет, не ждёт: проецирует только свои модели, как раньше. Вкладка или сортировка по цене
+  ждёт первого построения списка.
 - Отпечаток входов `domain.PricingProjectionInputs`: ревизия потребительского каталога
   (`ConsumerPricingRevision`: снимок, группы, auto/usable groups, коэффициенты групп, FX) и
   набор billable-моделей (читается отдельно, кэш 1 минута, ревизию не меняет; `nil` в self-use
-  отличается от пустого набора).
+  отличается от пустого набора). Персональные списки billable-модели не фильтруют, их отпечаток —
+  только ревизия.
 - Изменился отпечаток — отдаётся прежний список (с его ревизией: `expected_revision` сверяется с
   отданным списком), а один фоновый пересчёт на ключ строит новый. Ждёт только запрос к ключу без
   списка; одновременные такие запросы делят одно построение (singleflight).
 - Кэш — `adapter/pricing.ProjectionCache`; фоновые построения запускает `app/pricing.go`
   (`runPricingProjectionBuild`: recover и лог), прогрев тарифа `default` — `StartPricingProjectionWarmup`
-  после первой загрузки FX (`pricingfx.StartModelCostFX`), не блокируя старт.
-- Персональные страницы, overview и полный каталог этим кэшем не пользуются.
+  после первой загрузки FX (`pricingfx.StartModelCostFX`), не блокируя старт. Там же
+  `get_personal_pricing.Usecase.WarmUp` строит общий персональный список группы `default` тем же
+  путём, что и запрос (ключ `default`/пустой using group: персональные страницы using group не
+  принимают). Если проекция зависит от `user_id`, общего списка нет и прогрев ничего не строит.
+- Overview, карточка модели и полный каталог этим кэшем не пользуются.
 
 ## Курсы валют для стоимости
 

@@ -66,6 +66,7 @@ func NewPricingProjection() *domain.Projection {
 var pricingConsumerCache pricingadapter.ConsumerCache
 var effectivePricingLists = pricingadapter.ProjectionCache[domain.EffectivePricingList]{Rebuild: runPricingProjectionBuild}
 var publicPricingModelsLists = pricingadapter.ProjectionCache[domain.PublicPricingModelsList]{Rebuild: runPricingProjectionBuild}
+var personalPricingLists = pricingadapter.ProjectionCache[domain.EffectivePricingList]{Rebuild: runPricingProjectionBuild, UserListLimit: 8}
 
 // runPricingProjectionBuild builds a cached pricing projection off the request
 // path. A panic is logged; the next request that notices stale inputs retries.
@@ -83,8 +84,9 @@ func runPricingProjectionBuild(build func()) {
 }
 
 // StartPricingProjectionWarmup builds the cached projections of the default
-// tariff in the background, so the first effective pricing and public catalogue
-// pages after startup do not wait for the whole catalogue to be projected.
+// tariff in the background, so the first effective pricing, personal and public
+// catalogue pages after startup do not wait for the whole catalogue to be
+// projected.
 func StartPricingProjectionWarmup() {
 	runPricingProjectionBuild(func() {
 		reader, projection := newPricingReader(), NewPricingProjection()
@@ -95,11 +97,18 @@ func StartPricingProjectionWarmup() {
 		if _, err := newPublicModelsUsecase(reader, projection).Execute(get_public_models.Input{Page: 1, PageSize: 1}); err != nil {
 			common.SysError("public pricing models warm-up failed: " + err.Error())
 		}
+		if err := newPersonalPricingUsecase(reader, projection).WarmUp("default"); err != nil {
+			common.SysError("personal pricing warm-up failed: " + err.Error())
+		}
 	})
 }
 
 func newGroupPricingUsecase(reader pricingadapter.Reader, projection *domain.Projection) get_group_pricing.Usecase {
 	return get_group_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, &effectivePricingLists, reader)
+}
+
+func newPersonalPricingUsecase(reader pricingadapter.Reader, projection *domain.Projection) get_personal_pricing.Usecase {
+	return get_personal_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, &personalPricingLists, reader)
 }
 
 func newPublicModelsUsecase(reader pricingadapter.Reader, projection *domain.Projection) get_public_models.Usecase {
@@ -159,7 +168,7 @@ func NewPricingHTTP(effects PricingEffects) PricingHTTP {
 	return PricingHTTP{
 		ListUnbillableModels: list_unbillable_models.NewHTTP(list_unbillable_models.NewUsecase(pricingadapter.Capabilities(), reader, projection)),
 		GetPricing:           get_pricing.NewHTTP(get_pricing.NewUsecase(reader)),
-		GetPersonalPricing:   get_personal_pricing.NewHTTP(get_personal_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, reader), catalogsync.ModelTypes),
+		GetPersonalPricing:   get_personal_pricing.NewHTTP(newPersonalPricingUsecase(reader, projection), catalogsync.ModelTypes),
 		GetGroupPricing:      get_group_pricing.NewHTTP(newGroupPricingUsecase(reader, projection), catalogsync.ModelTypes),
 		GetModelPricing:      get_model_pricing.NewHTTP(get_model_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, reader)),
 		GetPublicModels:      get_public_models.NewHTTP(newPublicModelsUsecase(reader, projection), catalogsync.ModelTypes),
