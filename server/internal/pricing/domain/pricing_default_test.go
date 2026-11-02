@@ -140,3 +140,117 @@ func TestWithCatalogContextTagFormatsCatalogWindow(t *testing.T) {
 		})
 	}
 }
+
+func TestCatalogDetailPricesDedupesIdenticalRatesInPlace(t *testing.T) {
+	type rate struct{ key, component, componentID, unit, quantity, amountUSD, amountRub, conditions, variant string }
+	tokens := rate{component: "input", unit: "token", quantity: "1000000", amountUSD: "0.5", conditions: `{"tier":"standard","context":{"min":0,"max":200000}}`, variant: `{"mode":"batch"}`}
+	with := func(base rate, change func(*rate)) rate {
+		change(&base)
+		return base
+	}
+	for _, tc := range []struct {
+		name  string
+		rates []rate
+		want  []string
+	}{
+		{
+			name: "condition and variant JSON order and whitespace do not matter",
+			rates: []rate{
+				with(tokens, func(r *rate) { r.key = "first" }),
+				with(tokens, func(r *rate) {
+					r.key, r.conditions, r.variant = "reordered", ` { "context" : {"max":200000, "min":0}, "tier":"standard" } `, `{ "mode": "batch" }`
+				}),
+			},
+			want: []string{"first"},
+		},
+		{
+			name: "quantity and amount compare as decimals",
+			rates: []rate{
+				with(tokens, func(r *rate) { r.key = "first" }),
+				with(tokens, func(r *rate) { r.key, r.quantity, r.amountUSD = "scaled", "1e6", "0.50" }),
+			},
+			want: []string{"first"},
+		},
+		{
+			name: "absent, null and empty conditions are the same slot",
+			rates: []rate{
+				with(tokens, func(r *rate) { r.key, r.conditions = "absent", "" }),
+				with(tokens, func(r *rate) { r.key, r.conditions = "null", "null" }),
+				with(tokens, func(r *rate) { r.key, r.conditions = "empty", "{}" }),
+			},
+			want: []string{"absent"},
+		},
+		{
+			name: "different slot or amount stays separate in source order",
+			rates: []rate{
+				with(tokens, func(r *rate) { r.key = "base" }),
+				with(tokens, func(r *rate) { r.key, r.variant = "variant", `{"mode":"flex"}` }),
+				with(tokens, func(r *rate) { r.key, r.conditions = "conditions", `{"tier":"priority"}` }),
+				with(tokens, func(r *rate) { r.key, r.conditions = "no conditions", "" }),
+				with(tokens, func(r *rate) { r.key, r.amountUSD = "amount", "0.6" }),
+				with(tokens, func(r *rate) { r.key, r.unit = "unit", "request" }),
+				with(tokens, func(r *rate) { r.key, r.quantity = "quantity", "1000" }),
+				with(tokens, func(r *rate) { r.key, r.component = "component", "output" }),
+			},
+			want: []string{"base", "variant", "conditions", "no conditions", "amount", "unit", "quantity", "component"},
+		},
+		{
+			name: "unknown components differ by component id",
+			rates: []rate{
+				with(tokens, func(r *rate) { r.key, r.component, r.componentID = "first", "unknown", "a" }),
+				with(tokens, func(r *rate) { r.key, r.component, r.componentID = "same id", "unknown", "a" }),
+				with(tokens, func(r *rate) { r.key, r.component, r.componentID = "other id", "unknown", "b" }),
+			},
+			want: []string{"first", "other id"},
+		},
+		{
+			name: "unpriced or unreadable rates are never merged",
+			rates: []rate{
+				with(tokens, func(r *rate) { r.key, r.amountUSD = "no amount", "" }),
+				with(tokens, func(r *rate) { r.key, r.amountUSD = "no amount again", "" }),
+				with(tokens, func(r *rate) { r.key, r.unit = "source defined", "source_defined" }),
+				with(tokens, func(r *rate) { r.key, r.unit = "source defined again", "source_defined" }),
+				with(tokens, func(r *rate) { r.key, r.conditions = "broken conditions", `{"tier":` }),
+				with(tokens, func(r *rate) { r.key, r.conditions = "broken conditions again", `{"tier":` }),
+				with(tokens, func(r *rate) { r.key, r.conditions = "array conditions", `["tier"]` }),
+				with(tokens, func(r *rate) { r.key, r.conditions = "array conditions again", `["tier"]` }),
+				with(tokens, func(r *rate) { r.key, r.quantity = "bad quantity", "many" }),
+				with(tokens, func(r *rate) { r.key, r.quantity = "bad quantity again", "many" }),
+				with(tokens, func(r *rate) { r.key, r.amountUSD = "bad amount", "free" }),
+				with(tokens, func(r *rate) { r.key, r.amountUSD = "bad amount again", "free" }),
+			},
+			want: []string{"no amount", "no amount again", "source defined", "source defined again", "broken conditions", "broken conditions again", "array conditions", "array conditions again", "bad quantity", "bad quantity again", "bad amount", "bad amount again"},
+		},
+		{
+			name: "a later rouble copy replaces the kept rate at its position",
+			rates: []rate{
+				with(tokens, func(r *rate) { r.key = "usd only" }),
+				with(tokens, func(r *rate) { r.key, r.component = "output", "output" }),
+				with(tokens, func(r *rate) { r.key, r.amountRub = "rouble copy", "4500" }),
+				with(tokens, func(r *rate) { r.key, r.amountRub = "second rouble copy", "4500" }),
+			},
+			want: []string{"rouble copy", "output"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prices := make([]ConsumerProviderPrice, 0, len(tc.rates))
+			for _, r := range tc.rates {
+				price := ConsumerProviderPrice{Component: r.component}
+				price.Source.Key, price.ComponentID, price.Unit, price.Quantity = r.key, r.componentID, r.unit, r.quantity
+				price.Conditions, price.Variant = json.RawMessage(r.conditions), json.RawMessage(r.variant)
+				if r.amountUSD != "" {
+					price.AmountUSD = &r.amountUSD
+				}
+				if r.amountRub != "" {
+					price.AmountRub = &r.amountRub
+				}
+				prices = append(prices, price)
+			}
+			kept := []string{}
+			for _, price := range CatalogDetailPrices(Capabilities{Codec: JSONCodec{Marshal: common.Marshal, Unmarshal: common.Unmarshal}}, prices) {
+				kept = append(kept, price.Source.Key)
+			}
+			assert.Equal(t, tc.want, kept)
+		})
+	}
+}
