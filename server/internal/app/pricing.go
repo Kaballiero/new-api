@@ -64,6 +64,48 @@ func NewPricingProjection() *domain.Projection {
 }
 
 var pricingConsumerCache pricingadapter.ConsumerCache
+var effectivePricingLists = pricingadapter.ProjectionCache[domain.EffectivePricingList]{Rebuild: runPricingProjectionBuild}
+var publicPricingModelsLists = pricingadapter.ProjectionCache[domain.PublicPricingModelsList]{Rebuild: runPricingProjectionBuild}
+
+// runPricingProjectionBuild builds a cached pricing projection off the request
+// path. A panic is logged; the next request that notices stale inputs retries.
+func runPricingProjectionBuild(build func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				common.SysError(fmt.Sprintf("pricing projection build panicked: %v", r))
+			}
+		}()
+		started := time.Now()
+		build()
+		common.SysLog(fmt.Sprintf("pricing projection built in %s", time.Since(started)))
+	}()
+}
+
+// StartPricingProjectionWarmup builds the cached projections of the default
+// tariff in the background, so the first effective pricing and public catalogue
+// pages after startup do not wait for the whole catalogue to be projected.
+func StartPricingProjectionWarmup() {
+	runPricingProjectionBuild(func() {
+		reader, projection := newPricingReader(), NewPricingProjection()
+		// Any valid page builds the tariff's list; the page itself is discarded.
+		if _, err := newGroupPricingUsecase(reader, projection).Execute(get_group_pricing.Input{Group: "default", Page: true, Query: domain.EffectivePricingPageQuery{Limit: 1, OrderBy: "NAME"}}); err != nil {
+			common.SysError("effective pricing warm-up failed: " + err.Error())
+		}
+		if _, err := newPublicModelsUsecase(reader, projection).Execute(get_public_models.Input{Page: 1, PageSize: 1}); err != nil {
+			common.SysError("public pricing models warm-up failed: " + err.Error())
+		}
+	})
+}
+
+func newGroupPricingUsecase(reader pricingadapter.Reader, projection *domain.Projection) get_group_pricing.Usecase {
+	return get_group_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, &effectivePricingLists, reader)
+}
+
+func newPublicModelsUsecase(reader pricingadapter.Reader, projection *domain.Projection) get_public_models.Usecase {
+	return get_public_models.NewUsecase(pricingadapter.Capabilities(), reader, projection, &publicPricingModelsLists)
+}
+
 var pricingBillableCache = pricingadapter.BillableCache{SelfUse: func() bool { return operation_setting.SelfUseModeEnabled }, Filter: func(names, groups []string) []string {
 	store := catalogstore.NewAvailabilityStore(func() *gorm.DB { return model.DB }, pricingruntime.NewCatalogPersistence().GroupColumn)
 	return filter_billable_models.NewUsecase(store, cataloggateway.Models{}.Configured, common.SysLog).Execute(names, groups)
@@ -118,9 +160,9 @@ func NewPricingHTTP(effects PricingEffects) PricingHTTP {
 		ListUnbillableModels: list_unbillable_models.NewHTTP(list_unbillable_models.NewUsecase(pricingadapter.Capabilities(), reader, projection)),
 		GetPricing:           get_pricing.NewHTTP(get_pricing.NewUsecase(reader)),
 		GetPersonalPricing:   get_personal_pricing.NewHTTP(get_personal_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, reader), catalogsync.ModelTypes),
-		GetGroupPricing:      get_group_pricing.NewHTTP(get_group_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, reader), catalogsync.ModelTypes),
+		GetGroupPricing:      get_group_pricing.NewHTTP(newGroupPricingUsecase(reader, projection), catalogsync.ModelTypes),
 		GetModelPricing:      get_model_pricing.NewHTTP(get_model_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, reader)),
-		GetPublicModels:      get_public_models.NewHTTP(get_public_models.NewUsecase(pricingadapter.Capabilities(), reader, projection), catalogsync.ModelTypes),
+		GetPublicModels:      get_public_models.NewHTTP(newPublicModelsUsecase(reader, projection), catalogsync.ModelTypes),
 		GetPricingOverview:   get_pricing_overview.NewHTTP(get_pricing_overview.NewUsecase(pricingadapter.Capabilities(), reader, projection, reader), catalogsync.ModelTypes),
 		PreviewPricing:       preview_pricing.NewHTTP(preview_pricing.NewUsecase(reader, projection)),
 		GetRatioConfig: get_ratio_config.NewHTTP(get_ratio_config.NewUsecase(pricingadapter.RatioSettings{Expose: ratio_setting.IsExposeRatioEnabled, Data: func() map[string]any {

@@ -42,10 +42,12 @@ var modelCostFXStartupOnce sync.Once
 
 // StartModelCostFX loads the durable snapshot on every node and keeps replicas
 // current without putting database or network work on request paths.
-func StartModelCostFX() {
+// afterFirstLoad starts work that needs the snapshot loaded at startup.
+func StartModelCostFX(afterFirstLoad func()) {
 	modelCostFXStartupOnce.Do(func() {
 		go func() {
 			loadModelCostFXFromDatabase()
+			afterFirstLoad()
 			ticker := time.NewTicker(modelCostFXReloadPeriod)
 			defer ticker.Stop()
 			for range ticker.C {

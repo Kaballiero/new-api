@@ -23,10 +23,10 @@
 | `get_pricing` | классический список цен `/api/pricing` с группами, эндпоинтами и `pricing_version` | `GET /api/pricing`, `HeaderNavModuleAuth("pricing")` |
 | `get_personal_pricing` | тариф текущего пользователя: полный каталог или страница (`limit`, `offset`, фильтры) | `GET /api/user/effective-pricing`, `UserAuth`, `DisableCache` |
 | `get_model_pricing` | карточка одной модели для текущего пользователя (`model_name`) | `GET /api/user/effective-pricing/model`, `UserAuth`, `DisableCache` |
-| `get_group_pricing` | тариф заданной группы (`group`, `using_group`), полный или постранично; анонимный полный каталог кэшируется по группе | `GET /api/pricing/effective`, `RootAuth`, `DisableCache` |
+| `get_group_pricing` | тариф заданной группы (`group`, `using_group`), полный или постранично; анонимный полный каталог кэшируется по группе, страницы строятся из кэшированного списка тарифа (см. «Кэш проекций») | `GET /api/pricing/effective`, `RootAuth`, `DisableCache` |
 | `get_pricing_overview` | обзор по модальностям (по 4 модели в секции по умолчанию) | `GET /api/pricing/effective/overview`, `RootAuth`, `DisableCache` |
 | `list_unbillable_models` | диагностика моделей группы default без billing-конфигурации или подтверждённой публичной цены; рекомендации reserve для OpenRouter | `GET /api/models/unbillable`, AdminAuth |
-| `get_public_models` | публичный каталог тарифа `default` по тегам (`tag`, `p`, `page_size`) | `GET /api/pricing/effective/models`, без авторизации, `DisableCache` |
+| `get_public_models` | публичный каталог тарифа `default` по тегам (`tag`, `p`, `page_size`) из кэшированного списка (см. «Кэш проекций») | `GET /api/pricing/effective/models`, без авторизации, `DisableCache` |
 | `preview_pricing` | предпросмотр тарифа выбранной группы (`user_group`) без смены группы | `GET /api/option/effective_pricing`, `RootAuth`, `DisableCache` |
 | `get_pricing_config` | конфигурация цен моделей с версиями и схемами usage плагинов | `GET /api/option/model_pricing`, `RootAuth` |
 | `update_pricing_config` | изменение цен моделей по версиям; аудит `model.pricing.update` | `PATCH /api/option/model_pricing`, `RootAuth` |
@@ -66,7 +66,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/pricing.go`) читает DTO
 
 - `catalog/domain` (`Model`, `Vendor`, метаданные) — цена строится поверх модели; `channels/domain` — поверх канала (`domain/catalogue.go`).
 - Сборка — `internal/app/pricing.go` (`NewPricingHTTP`), один раз через `sync.OnceValue` в `app/httpapi/pricing.go`; аудит — callback app/httpapi к app/audit.Recording.
-- Адаптеры: `adapter/pricing` (`Reader`, `ConsumerCache`, `RatioSettings`, `RatioChannels`, плагины), `adapter/pricing/upstream` (HTTP-клиенты ratio sync и нативных цен, override, нормализация), `adapter/gorm/pricing` (опции, каталог, неизменяемые записи, наблюдения).
+- Адаптеры: `adapter/pricing` (`Reader`, `ConsumerCache`, `ProjectionCache`, `RatioSettings`, `RatioChannels`, плагины), `adapter/pricing/upstream` (HTTP-клиенты ratio sync и нативных цен, override, нормализация), `adapter/gorm/pricing` (опции, каталог, неизменяемые записи, наблюдения).
 - Настройки: `setting/ratio_setting`, `setting/billing_setting`, account group policy в settings/accounts. Leaf `app/pricingruntime` собирает статические сценарии once; `adapter/pricing/state` владеет единым опубликованным snapshot, revision/generation/observation state и lock order. DB, колонки, настройки, registry и clock читаются поздно.
 - Потребители: `controller/pricing*.go`, `ratio_sync.go`, `ratio_config.go`, `model_pricing_config.go` (HTTP bindings и wire-декларации OpenAPI); `app/pricingruntime` и технические adapters (сценарии без HTTP).
 
@@ -88,6 +88,27 @@ ResetModelRatios пишет через settings owner из app, сохраняя
 Pricing/catalog composition принадлежит leaf app; технические records/cache/publication state находятся
 в adapters. Одноразовая request-specific SQL mutation capability передаётся shared mutation usecase
 при Execute, без отдельного postcommit вызова и без общего изменяемого request state.
+
+## Кэш проекций
+
+Проекция всего каталога (цены провайдеров upstream, минимумы, дедупликация) — самая дорогая часть
+чтения цен. Страницы `get_group_pricing` и `get_public_models` строятся из готового списка тарифа:
+`domain.EffectivePricingList` / `domain.PublicPricingModelsList` содержат спроецированные модели
+в порядке имён, а страница только фильтрует, сортирует и режет их. JSON страницы совпадает с прежним.
+
+- Ключ — пара (группа пользователя, using group); на ключ хранится только последний список.
+  Публичный каталог — один ключ `default`/`default`.
+- Отпечаток входов `domain.PricingProjectionInputs`: ревизия потребительского каталога
+  (`ConsumerPricingRevision`: снимок, группы, auto/usable groups, коэффициенты групп, FX) и
+  набор billable-моделей (читается отдельно, кэш 1 минута, ревизию не меняет; `nil` в self-use
+  отличается от пустого набора).
+- Изменился отпечаток — отдаётся прежний список (с его ревизией: `expected_revision` сверяется с
+  отданным списком), а один фоновый пересчёт на ключ строит новый. Ждёт только запрос к ключу без
+  списка; одновременные такие запросы делят одно построение (singleflight).
+- Кэш — `adapter/pricing.ProjectionCache`; фоновые построения запускает `app/pricing.go`
+  (`runPricingProjectionBuild`: recover и лог), прогрев тарифа `default` — `StartPricingProjectionWarmup`
+  после первой загрузки FX (`pricingfx.StartModelCostFX`), не блокируя старт.
+- Персональные страницы, overview и полный каталог этим кэшем не пользуются.
 
 ## Курсы валют для стоимости
 
