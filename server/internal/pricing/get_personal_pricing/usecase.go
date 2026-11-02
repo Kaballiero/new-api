@@ -62,14 +62,10 @@ func (u Usecase) Execute(input Input) (Output, error) {
 	ctx.UserID = input.UserID
 
 	if input.Page {
-		inputs := domain.PricingProjectionInputs{CatalogRevision: ctx.Metadata.CatalogRevision}
-		userDependent := u.lists.LoadUserDependence(group, usingGroup, inputs, func() bool { return u.projection.CatalogOverridesReadUserID(ctx.Pricing) })
+		inputs, userDependent, build := u.listSource(ctx)
 		listUser := 0
 		if userDependent {
 			listUser = ctx.UserID
-		}
-		build := func() domain.EffectivePricingList {
-			return u.projection.BuildEffectivePricingList(ctx, false, ctx.Project).Projected()
 		}
 		effectivePricingList, cached := u.lists.Cached(group, usingGroup, listUser, inputs, build)
 		// A name page projects only its own models, so it does not wait for a list.
@@ -103,6 +99,32 @@ func (u Usecase) Execute(input Input) (Output, error) {
 		u.cache.Put(group, response)
 	}
 	return Output{Full: &response}, nil
+}
+
+// WarmUp builds the list the users of userGroup share, so their first price
+// page does not wait for it. When their projections depend on the user there
+// is no shared list, and nothing is built.
+func (u Usecase) WarmUp(userGroup string) error {
+	ctx, err := u.consumerContext(userGroup, "")
+	if err != nil {
+		return err
+	}
+	inputs, userDependent, build := u.listSource(ctx)
+	if !userDependent {
+		u.lists.LoadForUser(userGroup, "", 0, inputs, build)
+	}
+	return nil
+}
+
+// listSource returns the inputs of the context's fully projected list, whether
+// the list differs between users of the tariff, and how to build it.
+func (u Usecase) listSource(ctx domain.EffectivePricingPageContext) (domain.PricingProjectionInputs, bool, func() domain.EffectivePricingList) {
+	inputs := domain.PricingProjectionInputs{CatalogRevision: ctx.Metadata.CatalogRevision}
+	userDependent := u.lists.LoadUserDependence(ctx.Metadata.UserGroup, ctx.UsingGroup, inputs, func() bool { return u.projection.CatalogOverridesReadUserID(ctx.Pricing) })
+	build := func() domain.EffectivePricingList {
+		return u.projection.BuildEffectivePricingList(ctx, false, ctx.Project).Projected()
+	}
+	return inputs, userDependent, build
 }
 func (u Usecase) consumerContext(userGroup, usingGroup string) (domain.EffectivePricingPageContext, error) {
 	ctx := domain.EffectivePricingPageContext{Policy: u.projection, Metadata: domain.ConsumerPricingResponse{SchemaVersion: "v2", UserGroup: userGroup, Currency: "RUB", AutoGroups: u.reader.AutoGroups(userGroup), Data: []domain.ConsumerPricingModel{}}, UsableGroups: u.reader.UsableGroups(userGroup), GroupRatios: make(map[string]float64), UsingGroup: usingGroup}

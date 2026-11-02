@@ -119,8 +119,10 @@ Pricing/catalog composition принадлежит leaf app; техническ�
   списка; одновременные такие запросы делят одно построение (singleflight).
 - Кэш — `adapter/pricing.ProjectionCache`; фоновые построения запускает `app/pricing.go`
   (`runPricingProjectionBuild`: recover и лог), прогрев тарифа `default` — `StartPricingProjectionWarmup`
-  после первой загрузки FX (`pricingfx.StartModelCostFX`), не блокируя старт. Персональные списки не
-  прогреваются.
+  после первой загрузки FX (`pricingfx.StartModelCostFX`), не блокируя старт. Там же
+  `get_personal_pricing.Usecase.WarmUp` строит общий персональный список группы `default` тем же
+  путём, что и запрос (ключ `default`/пустой using group: персональные страницы using group не
+  принимают). Если проекция зависит от `user_id`, общего списка нет и прогрев ничего не строит.
 - Overview, карточка модели и полный каталог этим кэшем не пользуются.
 
 ## Курсы валют для стоимости

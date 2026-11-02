@@ -273,3 +273,27 @@ func TestPagesOfDifferentGroupsNeverShareLists(t *testing.T) {
 	assert.Equal(t, 100.0, *defaultPage.Data[0].GroupPrices[0].Operations[0].Prices[0].AmountRub, "gamma: 1 USD x 100 x 1")
 	assert.Equal(t, 50.0, *vipPage.Data[0].GroupPrices[0].Operations[0].Prices[0].AmountRub, "gamma: 1 USD x 100 x 0.5")
 }
+
+func TestWarmUpBuildsOnlyTheSharedList(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		pricing     []domain.Pricing
+		projections int64
+	}{
+		{"shared list", nil, 1},
+		{"user_id condition", []domain.Pricing{routedModel("routed", userOverride)}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newPricingFixture(tc.pricing...)
+			conversionsPerProjection := int64(len(fixture.reader.pricing))
+
+			require.NoError(t, fixture.usecase.WarmUp("default"))
+			assert.Equal(t, tc.projections*conversionsPerProjection, fixture.conversions.Load(), "warm-up")
+
+			fixture.conversions.Store(0)
+			page := fixture.page(t, 2, priceQuery)
+			assert.Equal(t, (1-tc.projections)*conversionsPerProjection, fixture.conversions.Load(), "first price page")
+			assert.Equal(t, fixture.uncachedPage(t, 2, "default", priceQuery), page)
+		})
+	}
+}
