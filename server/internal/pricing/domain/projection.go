@@ -1501,18 +1501,22 @@ func CatalogShadowedModelPrices(deps Capabilities, prices []ConsumerProviderPric
 func CatalogDetailPrices(deps Capabilities, prices []ConsumerProviderPrice) []ConsumerProviderPrice {
 	shadowed := CatalogShadowedModelPrices(deps, prices)
 	result := make([]ConsumerProviderPrice, 0, len(prices))
+	keptByIdentity := make(map[catalogPriceIdentity]int, len(prices))
 	for index, price := range prices {
 		if shadowed[index] {
 			continue
 		}
-		duplicate := slices.IndexFunc(result, func(kept ConsumerProviderPrice) bool { return CatalogSamePrice(deps, kept, price) })
-		if duplicate < 0 {
-			result = append(result, price)
+		identity, identified := catalogPriceIdentityOf(deps, price)
+		if duplicate, exists := keptByIdentity[identity]; identified && exists {
+			if CatalogPreferredDuplicate(deps, price, result[duplicate]) {
+				result[duplicate] = price
+			}
 			continue
 		}
-		if CatalogPreferredDuplicate(deps, price, result[duplicate]) {
-			result[duplicate] = price
+		if identified {
+			keptByIdentity[identity] = len(result)
 		}
+		result = append(result, price)
 	}
 	return result
 }
@@ -1535,44 +1539,82 @@ func CatalogPricedRate(price ConsumerProviderPrice) bool {
 	return price.AmountUSD != nil && price.Unit != "" && price.Unit != "unknown" && price.Unit != "source_defined"
 }
 
+// catalogPriceSlot is the canonical form of the slot a rate bills: decimal
+// quantity and re-encoded conditions and variant, so equal slots do not depend
+// on number spelling, key order or whitespace.
+type catalogPriceSlot struct {
+	component, componentID, unit, quantity, conditions, variant string
+}
+
+// catalogPriceIdentity is a priced rate's slot plus its decimal USD amount.
+type catalogPriceIdentity struct {
+	slot      catalogPriceSlot
+	amountUSD string
+}
+
+// catalogPriceSlotOf reports false for a rate whose quantity, conditions or
+// variant cannot be read; such a rate shares its slot with no other rate.
+func catalogPriceSlotOf(deps Capabilities, price ConsumerProviderPrice) (catalogPriceSlot, bool) {
+	quantity, err := decimal.NewFromString(price.Quantity)
+	if err != nil {
+		return catalogPriceSlot{}, false
+	}
+	slot := catalogPriceSlot{component: price.Component, unit: price.Unit, quantity: quantity.String()}
+	if price.Component == "unknown" {
+		slot.componentID = price.ComponentID
+	}
+	for _, field := range []struct {
+		raw       json.RawMessage
+		canonical *string
+	}{{price.Conditions, &slot.conditions}, {price.Variant, &slot.variant}} {
+		var values map[string]any
+		if len(field.raw) > 0 && deps.Codec.Unmarshal(field.raw, &values) != nil {
+			return catalogPriceSlot{}, false
+		}
+		if len(values) == 0 {
+			continue
+		}
+		encoded, err := deps.Codec.Marshal(values)
+		if err != nil {
+			return catalogPriceSlot{}, false
+		}
+		*field.canonical = string(encoded)
+	}
+	return slot, true
+}
+
+// catalogPriceIdentityOf reports false for a rate that is not priced or not
+// readable; such a rate is identical to no other rate.
+func catalogPriceIdentityOf(deps Capabilities, price ConsumerProviderPrice) (catalogPriceIdentity, bool) {
+	if !CatalogPricedRate(price) {
+		return catalogPriceIdentity{}, false
+	}
+	amount, err := decimal.NewFromString(*price.AmountUSD)
+	if err != nil {
+		return catalogPriceIdentity{}, false
+	}
+	slot, readable := catalogPriceSlotOf(deps, price)
+	return catalogPriceIdentity{slot: slot, amountUSD: amount.String()}, readable
+}
+
 // CatalogSamePriceSlot reports whether two rates bill the same component, unit,
 // quantity, conditions and variant, regardless of amount and source labels.
 func CatalogSamePriceSlot(deps Capabilities, a, b ConsumerProviderPrice) bool {
-	if a.Component != b.Component || a.Unit != b.Unit || a.Component == "unknown" && a.ComponentID != b.ComponentID {
+	if a.Component != b.Component || a.Unit != b.Unit {
 		return false
 	}
-	quantityA, errA := decimal.NewFromString(a.Quantity)
-	quantityB, errB := decimal.NewFromString(b.Quantity)
-	if errA != nil || errB != nil || !quantityA.Equal(quantityB) {
-		return false
-	}
-	for _, pair := range [][2]json.RawMessage{{a.Conditions, b.Conditions}, {a.Variant, b.Variant}} {
-		var left, right map[string]any
-		if len(pair[0]) > 0 && deps.Codec.Unmarshal(pair[0], &left) != nil || len(pair[1]) > 0 && deps.Codec.Unmarshal(pair[1], &right) != nil {
-			return false
-		}
-		if len(left) == 0 || len(right) == 0 {
-			if len(left) != len(right) {
-				return false
-			}
-			continue
-		}
-		leftRaw, errL := deps.Codec.Marshal(left)
-		rightRaw, errR := deps.Codec.Marshal(right)
-		if errL != nil || errR != nil || string(leftRaw) != string(rightRaw) {
-			return false
-		}
-	}
-	return true
+	slotA, readableA := catalogPriceSlotOf(deps, a)
+	slotB, readableB := catalogPriceSlotOf(deps, b)
+	return readableA && readableB && slotA == slotB
 }
 
 func CatalogSamePrice(deps Capabilities, a, b ConsumerProviderPrice) bool {
-	if !CatalogPricedRate(a) || !CatalogPricedRate(b) || !CatalogSamePriceSlot(deps, a, b) {
+	if a.Component != b.Component || a.Unit != b.Unit {
 		return false
 	}
-	amountA, errA := decimal.NewFromString(*a.AmountUSD)
-	amountB, errB := decimal.NewFromString(*b.AmountUSD)
-	return errA == nil && errB == nil && amountA.Equal(amountB)
+	identityA, identifiedA := catalogPriceIdentityOf(deps, a)
+	identityB, identifiedB := catalogPriceIdentityOf(deps, b)
+	return identifiedA && identifiedB && identityA == identityB
 }
 
 // CatalogProviderDisplayOffers folds a model-scope offer into the provider
