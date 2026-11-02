@@ -461,7 +461,7 @@ func parsePublicPricingModelsQuery(raw string) (publicPricingModelsQuery, error)
 
 func buildPublicPricingModelsPage(context effectivePricingPageContext, query publicPricingModelsQuery) publicPricingModelsPage {
 	context.Policy = app.NewPricingProjection()
-	return app.NewPricingProjection().BuildPublicPricingModelsPage(pricingdomain.EffectivePricingPageContext(context), query)
+	return app.NewPricingProjection().BuildPublicPricingModelsList(pricingdomain.EffectivePricingPageContext(context)).Page(query)
 }
 
 func publicPricingGuard(guard billingexpr.TierCondition, units ...map[string]string) publicPricingCondition {

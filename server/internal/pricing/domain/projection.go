@@ -508,19 +508,36 @@ func (candidate EffectivePricingPageCandidate) Tariff(pricing []Pricing, project
 	}
 	return project(pricing[candidate.Index])
 }
+
+// EffectivePricingList is the query-independent part of the effective pricing
+// pages of one tariff: the consumer catalogue in name order with the modality
+// and creator of every model and, when the pages list confirmed prices only,
+// its projected tariff. Pages filter, order and slice it without projecting
+// the catalogue again.
+type EffectivePricingList struct {
+	Metadata   ConsumerPricingResponse
+	pricing    []Pricing
+	candidates []EffectivePricingPageCandidate
+	project    func(Pricing) ConsumerPricingModel
+}
+
 func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePricingPageContext, query EffectivePricingPageQuery, Project func(Pricing) ConsumerPricingModel) EffectivePricingPageData {
-	context.Pricing = ConsumerPricingCatalogue(context.Pricing, context.UsableGroups)
-	response := EffectivePricingPageData{ConsumerPricingResponse: context.Metadata, Offset: query.Offset, Limit: query.Limit, Creators: []EffectivePricingCreator{}, Data: []EffectivePricingPageItem{}}
+	return pricingPolicy.BuildEffectivePricingList(context, !query.Personal && !query.Overview, Project).Page(query)
+}
+
+// BuildEffectivePricingList prepares the pages of the context's tariff. With
+// confirmedOnly it projects every model and keeps only billable models with a
+// confirmed price; otherwise models are projected lazily by the page.
+func (pricingPolicy *Projection) BuildEffectivePricingList(context EffectivePricingPageContext, confirmedOnly bool, Project func(Pricing) ConsumerPricingModel) EffectivePricingList {
+	pricing := ConsumerPricingCatalogue(context.Pricing, context.UsableGroups)
+	list := EffectivePricingList{Metadata: context.Metadata, pricing: pricing, candidates: make([]EffectivePricingPageCandidate, 0, len(pricing)), project: Project}
 	creators := make(map[int]*EffectivePricingCreator, len(context.Vendors))
 	for _, vendor := range context.Vendors {
 		if name := TrimPricingText(vendor.Name); name != "" {
 			creators[vendor.ID] = &EffectivePricingCreator{ID: vendor.ID, Name: name}
 		}
 	}
-	usedCreators := make(map[int]bool)
-	candidates := make([]EffectivePricingPageCandidate, 0, len(context.Pricing))
-	search := NormalizeModelSearch(query.Search)
-	for index, item := range context.Pricing {
+	for index, item := range pricing {
 		if len(EffectivePricingGroups(item.EnableGroup, context.UsableGroups)) == 0 {
 			continue
 		}
@@ -529,11 +546,8 @@ func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePric
 				continue
 			}
 		}
-		if query.CatalogTypeMissing && item.CatalogType != "" || query.CatalogType != "" && item.CatalogType != query.CatalogType {
-			continue
-		}
 		var projected *ConsumerPricingModel
-		if !query.Personal && !query.Overview {
+		if confirmedOnly {
 			if context.Billable != nil && !context.Billable[item.ModelName] {
 				continue
 			}
@@ -547,24 +561,43 @@ func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePric
 		if item.VendorID == 0 {
 			creator = nil
 		}
+		list.candidates = append(list.candidates, EffectivePricingPageCandidate{Index: index, Creator: creator, Modality: EffectivePricingModality(item), Projected: projected})
+	}
+	slices.SortStableFunc(list.candidates, func(left, right EffectivePricingPageCandidate) int {
+		return CompareEffectivePricingNames(pricing[left.Index].ModelName, pricing[right.Index].ModelName)
+	})
+	return list
+}
+
+// Page filters, orders and slices the list. It never changes the list, so one
+// list serves concurrent pages.
+func (list EffectivePricingList) Page(query EffectivePricingPageQuery) EffectivePricingPageData {
+	response := EffectivePricingPageData{ConsumerPricingResponse: list.Metadata, Offset: query.Offset, Limit: query.Limit, Creators: []EffectivePricingCreator{}, Data: []EffectivePricingPageItem{}}
+	usedCreators := make(map[int]bool)
+	candidates := make([]EffectivePricingPageCandidate, 0, len(list.candidates))
+	search := NormalizeModelSearch(query.Search)
+	for _, candidate := range list.candidates {
+		item := list.pricing[candidate.Index]
+		if query.CatalogTypeMissing && item.CatalogType != "" || query.CatalogType != "" && item.CatalogType != query.CatalogType {
+			continue
+		}
+		creator := candidate.Creator
 		if creator != nil && !usedCreators[creator.ID] {
 			response.Creators = append(response.Creators, *creator)
 			usedCreators[creator.ID] = true
 		}
-		modality := EffectivePricingModality(item)
 		if search != "" && !strings.Contains(NormalizeModelSearch(item.ModelName), search) && !strings.Contains(NormalizeModelSearch(item.DisplayName), search) {
 			continue
 		}
-		if query.Modality != "" && modality != query.Modality {
+		if query.Modality != "" && candidate.Modality != query.Modality {
 			continue
 		}
 		if query.CreatorID != nil && (creator == nil || creator.ID != *query.CreatorID) {
 			continue
 		}
-		candidate := EffectivePricingPageCandidate{Index: index, Creator: creator, Modality: modality, Projected: projected}
 		if query.PricingUnit != "" || query.OrderBy != "NAME" {
 			if candidate.Projected == nil {
-				value := Project(item)
+				value := list.project(item)
 				candidate.Projected = &value
 			}
 			unit, price := EffectivePricingPageKeys(*candidate.Projected, query.OrderBy)
@@ -601,7 +634,7 @@ func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePric
 				return order
 			}
 		}
-		order := CompareEffectivePricingNames(context.Pricing[left.Index].ModelName, context.Pricing[right.Index].ModelName)
+		order := CompareEffectivePricingNames(list.pricing[left.Index].ModelName, list.pricing[right.Index].ModelName)
 		if query.OrderBy == "NAME" && query.Direction == "desc" {
 			return -order
 		}
@@ -613,7 +646,7 @@ func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePric
 		for _, candidate := range candidates {
 			response.SectionCounts[candidate.Modality]++
 			if response.SectionCounts[candidate.Modality] <= query.Limit {
-				response.Data = append(response.Data, EffectivePricingPageItem{ConsumerPricingModel: candidate.Tariff(context.Pricing, Project), Modality: candidate.Modality, Creator: candidate.Creator})
+				response.Data = append(response.Data, EffectivePricingPageItem{ConsumerPricingModel: candidate.Tariff(list.pricing, list.project), Modality: candidate.Modality, Creator: candidate.Creator})
 			}
 		}
 		return response
@@ -621,7 +654,7 @@ func (pricingPolicy *Projection) BuildEffectivePricingPage(context EffectivePric
 	start := min(query.Offset, len(candidates))
 	end := start + min(query.Limit, len(candidates)-start)
 	for _, candidate := range candidates[start:end] {
-		response.Data = append(response.Data, EffectivePricingPageItem{ConsumerPricingModel: candidate.Tariff(context.Pricing, Project), Modality: candidate.Modality, Creator: candidate.Creator})
+		response.Data = append(response.Data, EffectivePricingPageItem{ConsumerPricingModel: candidate.Tariff(list.pricing, list.project), Modality: candidate.Modality, Creator: candidate.Creator})
 	}
 	return response
 }
@@ -776,49 +809,70 @@ func PublicTariffConfirmed(tariff PublicModelTariff) bool {
 	})
 }
 
-func (pricingPolicy *Projection) BuildPublicPricingModelsPage(context EffectivePricingPageContext, query PublicPricingModelsQuery) PublicPricingModelsPage {
-	response := PublicPricingModelsPage{SchemaVersion: "v1", CatalogRevision: context.Metadata.CatalogRevision, Currency: "RUB", Page: query.Page, PageSize: query.PageSize, Data: []PublicPricingModel{}}
+// PublicPricingModelsList is the query-independent part of the public catalogue
+// pages: billable models of the default tariff with a confirmed price and their
+// tariffs, in name order.
+type PublicPricingModelsList struct {
+	CatalogRevision string
+	models          []publicPricedModel
+	creators        map[int]*EffectivePricingCreator
+}
+type publicPricedModel struct {
+	item   Pricing
+	tariff PublicModelTariff
+}
+
+func (pricingPolicy *Projection) BuildPublicPricingModelsList(context EffectivePricingPageContext) PublicPricingModelsList {
 	// The public catalog always projects the default tariff, independently of the user's usable groups.
 	context.UsableGroups = map[string]string{"default": "default"}
 	pricing := ConsumerPricingCatalogue(context.Pricing, context.UsableGroups)
-	type pricedModel struct {
-		item   Pricing
-		tariff PublicModelTariff
-	}
-	candidates := make([]pricedModel, 0, len(pricing))
+	list := PublicPricingModelsList{CatalogRevision: context.Metadata.CatalogRevision, models: make([]publicPricedModel, 0, len(pricing)), creators: make(map[int]*EffectivePricingCreator, len(context.Vendors))}
 	for _, item := range pricing {
-		if query.CatalogTypeMissing && item.CatalogType != "" || query.CatalogType != "" && item.CatalogType != query.CatalogType {
+		if context.Billable != nil && !context.Billable[item.ModelName] {
 			continue
 		}
-		if context.Billable != nil && !context.Billable[item.ModelName] {
+		// Models without a single confirmed price are not offered publicly; a zero price still counts.
+		tariff := pricingPolicy.BuildPublicModelTariff(context, item)
+		if PublicTariffConfirmed(tariff) {
+			list.models = append(list.models, publicPricedModel{item: item, tariff: tariff})
+		}
+	}
+	slices.SortFunc(list.models, func(a, b publicPricedModel) int {
+		return CompareEffectivePricingNames(a.item.ModelName, b.item.ModelName)
+	})
+	for _, vendor := range context.Vendors {
+		if name := TrimPricingText(vendor.Name); vendor.ID != 0 && name != "" {
+			list.creators[vendor.ID] = &EffectivePricingCreator{ID: vendor.ID, Name: name}
+		}
+	}
+	return list
+}
+
+// Page filters and slices the list. It never changes the list, so one list
+// serves concurrent pages.
+func (list PublicPricingModelsList) Page(query PublicPricingModelsQuery) PublicPricingModelsPage {
+	response := PublicPricingModelsPage{SchemaVersion: "v1", CatalogRevision: list.CatalogRevision, Currency: "RUB", Page: query.Page, PageSize: query.PageSize, Data: []PublicPricingModel{}}
+	candidates := make([]publicPricedModel, 0, len(list.models))
+	for _, candidate := range list.models {
+		item := candidate.item
+		if query.CatalogTypeMissing && item.CatalogType != "" || query.CatalogType != "" && item.CatalogType != query.CatalogType {
 			continue
 		}
 		tags := PricingTags(item.Tags)
 		if slices.ContainsFunc(query.Tags, func(tag string) bool { return !slices.Contains(tags, tag) }) {
 			continue
 		}
-		// Models without a single confirmed price are not offered publicly; a zero price still counts.
-		tariff := pricingPolicy.BuildPublicModelTariff(context, item)
-		if PublicTariffConfirmed(tariff) {
-			candidates = append(candidates, pricedModel{item: item, tariff: tariff})
-		}
+		candidates = append(candidates, candidate)
 	}
-	slices.SortFunc(candidates, func(a, b pricedModel) int { return CompareEffectivePricingNames(a.item.ModelName, b.item.ModelName) })
 	response.TotalCount = len(candidates)
 	start := len(candidates)
 	if query.Page-1 <= len(candidates)/query.PageSize {
 		start = min((query.Page-1)*query.PageSize, len(candidates))
 	}
 	end := start + min(query.PageSize, len(candidates)-start)
-	creators := make(map[int]*EffectivePricingCreator, len(context.Vendors))
-	for _, vendor := range context.Vendors {
-		if name := TrimPricingText(vendor.Name); vendor.ID != 0 && name != "" {
-			creators[vendor.ID] = &EffectivePricingCreator{ID: vendor.ID, Name: name}
-		}
-	}
 	for _, candidate := range candidates[start:end] {
 		item := candidate.item
-		response.Data = append(response.Data, PublicPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: PricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: creators[item.VendorID], Tariff: candidate.tariff})
+		response.Data = append(response.Data, PublicPricingModel{CatalogType: item.CatalogType, DisplayName: item.DisplayName, ModelName: item.ModelName, Description: item.Description, Icon: item.Icon, Tags: PricingTags(item.Tags), OwnerBy: item.OwnerBy, SupportedEndpointTypes: append([]constant.EndpointType{}, item.SupportedEndpointTypes...), Creator: list.creators[item.VendorID], Tariff: candidate.tariff})
 	}
 	return response
 }
@@ -2282,4 +2336,19 @@ func ConsumerPricingRevision(deps Capabilities, source string, context Effective
 	}
 	digest := sha256.Sum256(value)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+// PricingProjectionInputs identifies what a projected pricing list was built
+// from. The consumer catalogue revision covers the snapshot, the user and using
+// groups, the usable and auto groups, the group ratios and the FX factor; the
+// billable models are read separately and change without a new revision.
+type PricingProjectionInputs struct {
+	CatalogRevision string
+	Billable        map[string]bool
+}
+
+// Equal reports whether both lists come from the same inputs. A nil billable
+// set (every model billable) differs from an empty one (none billable).
+func (inputs PricingProjectionInputs) Equal(other PricingProjectionInputs) bool {
+	return inputs.CatalogRevision == other.CatalogRevision && (inputs.Billable == nil) == (other.Billable == nil) && maps.Equal(inputs.Billable, other.Billable)
 }

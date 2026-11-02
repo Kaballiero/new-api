@@ -1850,19 +1850,20 @@ func TestConsumerAudioPricingPersonalAndPublicFullAndPage(t *testing.T) {
 	var expected []consumerPricingModel
 	for _, handler := range []gin.HandlerFunc{GetEffectivePricing, GetEffectivePricingByGroup} {
 		for _, query := range []string{"", "?limit=100"} {
-			recorder := httptest.NewRecorder()
-			ctx, _ := gin.CreateTestContext(recorder)
-			ctx.Request = httptest.NewRequest(http.MethodGet, "/pricing"+query, nil)
-			ctx.Set("id", 2198)
-			handler(ctx)
-			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 			var envelope struct {
 				Data struct {
 					Data []consumerPricingModel `json:"data"`
 				} `json:"data"`
 			}
-			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &envelope))
-			require.Len(t, envelope.Data.Data, 4)
+			// Group pages serve the list cached by earlier tests until its background rebuild finishes.
+			require.Eventually(t, func() bool {
+				recorder := httptest.NewRecorder()
+				ctx, _ := gin.CreateTestContext(recorder)
+				ctx.Request = httptest.NewRequest(http.MethodGet, "/pricing"+query, nil)
+				ctx.Set("id", 2198)
+				handler(ctx)
+				return recorder.Code == http.StatusOK && common.Unmarshal(recorder.Body.Bytes(), &envelope) == nil && len(envelope.Data.Data) == 4
+			}, 10*time.Second, 10*time.Millisecond)
 			if expected == nil {
 				expected = envelope.Data.Data
 			} else {
@@ -2153,15 +2154,25 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	require.NoError(t, publishPricingCatalogEntry(entry))
 	channelstore.InitChannelCache()
 	pricingruntime.RefreshPricing()
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?tag=top&tag=text", nil)
-	GetPublicPricingModels(ctx)
-	require.Equal(t, 200, recorder.Code, recorder.Body.String())
-	var wire struct {
+	type publicModelsResponse struct {
 		Data publicPricingModelsPage `json:"data"`
 	}
-	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &wire))
+	// The public catalogue keeps serving the previous list until its
+	// background rebuild finishes, so each read waits for the expected content.
+	freshPublicModels := func(query string, fresh func(publicPricingModelsPage) bool) publicModelsResponse {
+		var response publicModelsResponse
+		require.Eventually(t, func() bool {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?"+query, nil)
+			GetPublicPricingModels(ctx)
+			return recorder.Code == http.StatusOK && common.Unmarshal(recorder.Body.Bytes(), &response) == nil && fresh(response.Data)
+		}, 10*time.Second, 10*time.Millisecond)
+		return response
+	}
+	wire := freshPublicModels("tag=top&tag=text", func(page publicPricingModelsPage) bool {
+		return len(page.Data) == 1 && page.Data[0].ModelName == "provider/model" && len(page.Data[0].Tariff.Operations) == 1 && len(page.Data[0].Tariff.Operations[0].Tiers) == 2
+	})
 	require.Len(t, wire.Data.Data, 1)
 	operations := wire.Data.Data[0].Tariff.Operations
 	require.Len(t, operations, 1)
@@ -2182,16 +2193,9 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	require.NoError(t, db.Model(&model.Model{}).Where("model_name = ?", "provider/model").Update("tags", "top video").Error)
 	pricingruntime.RefreshPricing()
 	for _, category := range []string{"text", "video"} {
-		recorder := httptest.NewRecorder()
-		ctx, _ := gin.CreateTestContext(recorder)
-		ctx.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?tag=top&tag="+category, nil)
-		GetPublicPricingModels(ctx)
-		require.Equal(t, 200, recorder.Code, recorder.Body.String())
-		var updated struct {
-			Data publicPricingModelsPage `json:"data"`
-		}
-		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &updated))
-		assert.NotEqual(t, revision, updated.Data.CatalogRevision)
+		updated := freshPublicModels("tag=top&tag="+category, func(page publicPricingModelsPage) bool {
+			return page.CatalogRevision != revision && (category == "text") == (len(page.Data) == 0)
+		})
 		if category == "text" {
 			assert.Empty(t, updated.Data.Data)
 		} else {
@@ -2214,12 +2218,9 @@ func TestPublicNativeFreshCatalogThroughFetchAndSnapshot(t *testing.T) {
 	}
 	channelstore.InitChannelCache()
 	pricingruntime.RefreshPricing()
-	imageRecorder := httptest.NewRecorder()
-	imageContext, _ := gin.CreateTestContext(imageRecorder)
-	imageContext.Request = httptest.NewRequest(http.MethodGet, "/api/pricing/effective/models?tag=top&tag=image", nil)
-	GetPublicPricingModels(imageContext)
-	require.Equal(t, http.StatusOK, imageRecorder.Code, imageRecorder.Body.String())
-	require.NoError(t, common.Unmarshal(imageRecorder.Body.Bytes(), &wire))
+	wire = freshPublicModels("tag=top&tag=image", func(page publicPricingModelsPage) bool {
+		return len(page.Data) == 1 && page.Data[0].ModelName == "google/gemini-image"
+	})
 	require.Len(t, wire.Data.Data, 1)
 	var imagePrices []consumerUnitPrice
 	for _, operation := range wire.Data.Data[0].Tariff.Operations {

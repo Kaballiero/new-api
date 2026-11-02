@@ -19,16 +19,24 @@ type Cache interface {
 	Get(string) (domain.ConsumerPricingResponse, bool)
 	Put(string, domain.ConsumerPricingResponse)
 }
+
+// EffectivePricingLists keeps the latest projected list of every tariff.
+// A list built from other inputs is returned while build replaces it in the
+// background; the request runs build only when the tariff has no list yet.
+type EffectivePricingLists interface {
+	Load(userGroup, usingGroup string, inputs domain.PricingProjectionInputs, build func() domain.EffectivePricingList) domain.EffectivePricingList
+}
 type Usecase struct {
 	deps       domain.Capabilities
 	reader     Reader
 	projection *domain.Projection
 	cache      Cache
+	lists      EffectivePricingLists
 	groups     Groups
 }
 
-func NewUsecase(deps domain.Capabilities, reader Reader, projection *domain.Projection, cache Cache, groups Groups) Usecase {
-	return Usecase{deps: deps, reader: reader, projection: projection, cache: cache, groups: groups}
+func NewUsecase(deps domain.Capabilities, reader Reader, projection *domain.Projection, cache Cache, lists EffectivePricingLists, groups Groups) Usecase {
+	return Usecase{deps: deps, reader: reader, projection: projection, cache: cache, lists: lists, groups: groups}
 }
 func (u Usecase) Execute(input Input) (Output, error) {
 	group := input.Group
@@ -55,11 +63,16 @@ func (u Usecase) Execute(input Input) (Output, error) {
 	}
 
 	if input.Page {
-		if err := domain.CheckRevision(input.Query.ExpectedRevision, ctx.Metadata.CatalogRevision); err != nil {
+		ctx.Billable = u.reader.Billable(ctx.Pricing, ctx.UsingGroup, ctx.Metadata.CatalogRevision)
+		inputs := domain.PricingProjectionInputs{CatalogRevision: ctx.Metadata.CatalogRevision, Billable: ctx.Billable}
+		effectivePricingList := u.lists.Load(group, usingGroup, inputs, func() domain.EffectivePricingList {
+			return u.projection.BuildEffectivePricingList(ctx, true, ctx.Project)
+		})
+		// A list kept while its rebuild is pending carries its own revision.
+		if err := domain.CheckRevision(input.Query.ExpectedRevision, effectivePricingList.Metadata.CatalogRevision); err != nil {
 			return Output{}, err
 		}
-		ctx.Billable = u.reader.Billable(ctx.Pricing, ctx.UsingGroup, ctx.Metadata.CatalogRevision)
-		page := u.projection.BuildEffectivePricingPage(ctx, input.Query, ctx.Project)
+		page := effectivePricingList.Page(input.Query)
 		return Output{Page: &page}, nil
 	}
 	cacheable := ctx.UserID == 0

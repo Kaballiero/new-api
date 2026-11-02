@@ -15,25 +15,37 @@ type Reader interface {
 	Billable([]domain.Pricing, string, string) map[string]bool
 }
 
+// PublicPricingModelsLists keeps the latest projected list of every tariff.
+// A list built from other inputs is returned while build replaces it in the
+// background; the request runs build only when the tariff has no list yet.
+type PublicPricingModelsLists interface {
+	Load(userGroup, usingGroup string, inputs domain.PricingProjectionInputs, build func() domain.PublicPricingModelsList) domain.PublicPricingModelsList
+}
 type Usecase struct {
 	deps       domain.Capabilities
 	reader     Reader
 	projection *domain.Projection
+	lists      PublicPricingModelsLists
 }
 
-func NewUsecase(deps domain.Capabilities, reader Reader, projection *domain.Projection) Usecase {
-	return Usecase{deps: deps, reader: reader, projection: projection}
+func NewUsecase(deps domain.Capabilities, reader Reader, projection *domain.Projection, lists PublicPricingModelsLists) Usecase {
+	return Usecase{deps: deps, reader: reader, projection: projection, lists: lists}
 }
 func (u Usecase) Execute(input Input) (Output, error) {
 	ctx, err := u.consumerContext("default", "default")
 	if err != nil {
 		return Output{}, domain.ErrPublicPricingUnavailable
 	}
-	if err = domain.CheckRevision(input.ExpectedRevision, ctx.Metadata.CatalogRevision); err != nil {
+	ctx.Billable = u.reader.Billable(ctx.Pricing, "default", ctx.Metadata.CatalogRevision)
+	inputs := domain.PricingProjectionInputs{CatalogRevision: ctx.Metadata.CatalogRevision, Billable: ctx.Billable}
+	publicModels := u.lists.Load("default", "default", inputs, func() domain.PublicPricingModelsList {
+		return u.projection.BuildPublicPricingModelsList(ctx)
+	})
+	// A catalogue kept while its rebuild is pending carries its own revision.
+	if err = domain.CheckRevision(input.ExpectedRevision, publicModels.CatalogRevision); err != nil {
 		return Output{}, err
 	}
-	ctx.Billable = u.reader.Billable(ctx.Pricing, "default", ctx.Metadata.CatalogRevision)
-	return u.projection.BuildPublicPricingModelsPage(ctx, input), nil
+	return publicModels.Page(input), nil
 }
 func (u Usecase) consumerContext(userGroup, usingGroup string) (domain.EffectivePricingPageContext, error) {
 	ctx := domain.EffectivePricingPageContext{Policy: u.projection, Metadata: domain.ConsumerPricingResponse{SchemaVersion: "v2", UserGroup: userGroup, Currency: "RUB", AutoGroups: u.reader.AutoGroups(userGroup), Data: []domain.ConsumerPricingModel{}}, UsableGroups: u.reader.UsableGroups(userGroup), GroupRatios: make(map[string]float64), UsingGroup: usingGroup}
