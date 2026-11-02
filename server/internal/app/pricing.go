@@ -66,6 +66,7 @@ func NewPricingProjection() *domain.Projection {
 var pricingConsumerCache pricingadapter.ConsumerCache
 var effectivePricingLists = pricingadapter.ProjectionCache[domain.EffectivePricingList]{Rebuild: runPricingProjectionBuild}
 var publicPricingModelsLists = pricingadapter.ProjectionCache[domain.PublicPricingModelsList]{Rebuild: runPricingProjectionBuild}
+var personalPricingLists = pricingadapter.ProjectionCache[domain.EffectivePricingList]{Rebuild: runPricingProjectionBuild, UserListLimit: 8}
 
 // runPricingProjectionBuild builds a cached pricing projection off the request
 // path. A panic is logged; the next request that notices stale inputs retries.
@@ -159,7 +160,7 @@ func NewPricingHTTP(effects PricingEffects) PricingHTTP {
 	return PricingHTTP{
 		ListUnbillableModels: list_unbillable_models.NewHTTP(list_unbillable_models.NewUsecase(pricingadapter.Capabilities(), reader, projection)),
 		GetPricing:           get_pricing.NewHTTP(get_pricing.NewUsecase(reader)),
-		GetPersonalPricing:   get_personal_pricing.NewHTTP(get_personal_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, reader), catalogsync.ModelTypes),
+		GetPersonalPricing:   get_personal_pricing.NewHTTP(get_personal_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, &pricingConsumerCache, &personalPricingLists, reader), catalogsync.ModelTypes),
 		GetGroupPricing:      get_group_pricing.NewHTTP(newGroupPricingUsecase(reader, projection), catalogsync.ModelTypes),
 		GetModelPricing:      get_model_pricing.NewHTTP(get_model_pricing.NewUsecase(pricingadapter.Capabilities(), reader, projection, reader)),
 		GetPublicModels:      get_public_models.NewHTTP(newPublicModelsUsecase(reader, projection), catalogsync.ModelTypes),

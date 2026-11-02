@@ -569,6 +569,26 @@ func (pricingPolicy *Projection) BuildEffectivePricingList(context EffectivePric
 	return list
 }
 
+// Projected projects every model of the list once, so its pages never project
+// again and the list keeps nothing of the request that built it.
+func (list EffectivePricingList) Projected() EffectivePricingList {
+	list.candidates = slices.Clone(list.candidates)
+	for index, candidate := range list.candidates {
+		if candidate.Projected == nil {
+			value := list.project(list.pricing[candidate.Index])
+			list.candidates[index].Projected = &value
+		}
+	}
+	list.project = nil
+	return list
+}
+
+// UsesPriceKeys reports whether the page filters by pricing unit or orders by
+// price, which needs every matching model projected.
+func (query EffectivePricingPageQuery) UsesPriceKeys() bool {
+	return query.PricingUnit != "" || query.OrderBy != "NAME"
+}
+
 // Page filters, orders and slices the list. It never changes the list, so one
 // list serves concurrent pages.
 func (list EffectivePricingList) Page(query EffectivePricingPageQuery) EffectivePricingPageData {
@@ -595,7 +615,7 @@ func (list EffectivePricingList) Page(query EffectivePricingPageQuery) Effective
 		if query.CreatorID != nil && (creator == nil || creator.ID != *query.CreatorID) {
 			continue
 		}
-		if query.PricingUnit != "" || query.OrderBy != "NAME" {
+		if query.UsesPriceKeys() {
 			if candidate.Projected == nil {
 				value := list.project(item)
 				candidate.Projected = &value
@@ -1306,23 +1326,8 @@ func (pricingPolicy *Projection) CatalogProviderAllowed(route UpstreamCatalogRou
 			if operation["mode"] != "set" && operation["mode"] != "delete" {
 				return true, false, false
 			}
-			paths := []string{}
-			switch conditions := operation["conditions"].(type) {
-			case nil:
-			case map[string]any:
-				for path := range conditions {
-					paths = append(paths, path)
-				}
-			case []any:
-				for _, raw := range conditions {
-					condition, ok := raw.(map[string]any)
-					if !ok {
-						return true, false, false
-					}
-					path, _ := condition["path"].(string)
-					paths = append(paths, path)
-				}
-			default:
+			paths, ok := catalogOverrideConditionPaths(operation)
+			if !ok {
 				return true, false, false
 			}
 			for _, path := range paths {
@@ -1408,6 +1413,62 @@ func (pricingPolicy *Projection) CatalogProviderAllowed(route UpstreamCatalogRou
 		return false, true, false
 	}
 	return preferences.AllowFallbacks == nil || *preferences.AllowFallbacks || len(preferences.Order) == 0 || slices.ContainsFunc(preferences.Order, matches), certain, tierAllowed
+}
+
+// catalogOverrideConditionPaths lists the paths the conditions of an override
+// operation read; false when the conditions are malformed.
+func catalogOverrideConditionPaths(operation map[string]any) ([]string, bool) {
+	paths := []string{}
+	switch conditions := operation["conditions"].(type) {
+	case nil:
+	case map[string]any:
+		for path := range conditions {
+			paths = append(paths, path)
+		}
+	case []any:
+		for _, raw := range conditions {
+			condition, ok := raw.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			path, _ := condition["path"].(string)
+			paths = append(paths, path)
+		}
+	default:
+		return nil, false
+	}
+	return paths, true
+}
+
+// CatalogOverridesReadUserID reports whether a channel parameter override in
+// the catalogue has a condition on user_id. The user ID reaches a projection
+// only through such conditions (CatalogProviderAllowed); the user group is the
+// tariff's own, so without them every user of a tariff gets the same prices.
+func (pricingPolicy *Projection) CatalogOverridesReadUserID(pricing []Pricing) bool {
+	checked := make(map[string]bool)
+	for _, item := range pricing {
+		for _, routes := range item.UpstreamCatalogRoutesByGroup {
+			for _, route := range routes {
+				if route.ParamOverride == nil || checked[*route.ParamOverride] {
+					continue
+				}
+				checked[*route.ParamOverride] = true
+				var overrides map[string]any
+				if pricingPolicy.runtime.Capabilities.Codec.UnmarshalJsonStr(*route.ParamOverride, &overrides) != nil {
+					continue
+				}
+				operations, _ := overrides["operations"].([]any)
+				for _, entry := range operations {
+					operation, _ := entry.(map[string]any)
+					paths, _ := catalogOverrideConditionPaths(operation)
+					if slices.ContainsFunc(paths, func(path string) bool { return strings.TrimSpace(path) == "user_id" }) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 func (pricingPolicy *Projection) UpstreamProviderOffers(item Pricing, group string, ratio float64, validRatio bool, user PricingUserContext) []ConsumerProviderOffer {
 	result := []ConsumerProviderOffer{}
