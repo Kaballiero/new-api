@@ -20,8 +20,8 @@ func TestChannelStateMetricsExportsOneCurrentSamplePerChannel(t *testing.T) {
 		queryCalls++
 		return []ChannelStateSnapshot{
 			{ID: 1, Type: 1, Status: common.ChannelStatusEnabled},
-			{ID: 2, Type: 14, Status: common.ChannelStatusManuallyDisabled},
-			{ID: 3, Type: 18, Status: common.ChannelStatusAutoDisabled},
+			{ID: 2, Type: 14, Status: common.ChannelStatusManuallyDisabled, Balance: -1.5},
+			{ID: 3, Type: 20, Status: common.ChannelStatusAutoDisabled, Balance: 12.34},
 			{ID: 4, Type: 0, Status: 99},
 		}, nil
 	})
@@ -34,10 +34,17 @@ func TestChannelStateMetricsExportsOneCurrentSamplePerChannel(t *testing.T) {
 # TYPE new_api_channel_state gauge
 new_api_channel_state{channel_id="1",channel_type="1",state="enabled"} 1
 new_api_channel_state{channel_id="2",channel_type="14",state="manually_disabled"} 1
-new_api_channel_state{channel_id="3",channel_type="18",state="auto_disabled"} 1
+new_api_channel_state{channel_id="3",channel_type="20",state="auto_disabled"} 1
 new_api_channel_state{channel_id="4",channel_type="0",state="unknown"} 1
 `)
 	assert.Equal(t, 4, strings.Count(recorder.Body.String(), "new_api_channel_state{"))
+	assert.Contains(t, recorder.Body.String(), `# HELP new_api_channel_balance Last persisted upstream balance of an AI channel in the provider's currency (USD for OpenRouter).
+# TYPE new_api_channel_balance gauge
+new_api_channel_balance{channel_id="1",channel_type="1"} 0
+new_api_channel_balance{channel_id="2",channel_type="14"} -1.5
+new_api_channel_balance{channel_id="3",channel_type="20"} 12.34
+new_api_channel_balance{channel_id="4",channel_type="0"} 0
+`)
 }
 
 func TestChannelStateMetricsExposeOnlyBoundedStateContext(t *testing.T) {
@@ -107,6 +114,7 @@ func TestChannelStateMetricsReturnsRedacted500OnQueryError(t *testing.T) {
 	assert.NotContains(t, recorder.Body.String(), "secret")
 	assert.NotContains(t, recorder.Body.String(), "postgres://")
 	assert.NotContains(t, recorder.Body.String(), "new_api_channel_state{")
+	assert.NotContains(t, recorder.Body.String(), "new_api_channel_balance{")
 }
 
 func TestChannelStateMetricsHandlersUseIsolatedRegistries(t *testing.T) {

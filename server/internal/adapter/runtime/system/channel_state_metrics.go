@@ -18,11 +18,12 @@ import (
 const channelStateMetricName = "new_api_channel_state"
 
 type channelStateCollector struct {
-	desc       *prometheus.Desc
-	infoDesc   *prometheus.Desc
-	reasonDesc *prometheus.Desc
-	timeDesc   *prometheus.Desc
-	query      func() ([]ChannelStateSnapshot, error)
+	desc        *prometheus.Desc
+	infoDesc    *prometheus.Desc
+	reasonDesc  *prometheus.Desc
+	timeDesc    *prometheus.Desc
+	balanceDesc *prometheus.Desc
+	query       func() ([]ChannelStateSnapshot, error)
 }
 
 func newChannelStateCollector(query func() ([]ChannelStateSnapshot, error)) *channelStateCollector {
@@ -36,7 +37,13 @@ func newChannelStateCollector(query func() ([]ChannelStateSnapshot, error)) *cha
 		infoDesc:   prometheus.NewDesc("new_api_channel_info", "Current channel name and configured provider (1 = current metadata).", []string{"channel_id", "channel_type", "channel_name", "provider"}, nil),
 		reasonDesc: prometheus.NewDesc("new_api_channel_state_reason", "Bounded explanation of the current persisted channel state (1 = current explanation).", []string{"channel_id", "channel_type", "state", "reason_category", "upstream_status"}, nil),
 		timeDesc:   prometheus.NewDesc("new_api_channel_state_changed_timestamp_seconds", "Persisted channels.other_info.status_time in Unix seconds; omitted when missing or invalid. Legacy paths may retain an earlier timestamp.", []string{"channel_id", "channel_type"}, nil),
-		query:      query,
+		balanceDesc: prometheus.NewDesc(
+			"new_api_channel_balance",
+			"Last persisted upstream balance of an AI channel in the provider's currency (USD for OpenRouter).",
+			[]string{"channel_id", "channel_type"},
+			nil,
+		),
+		query: query,
 	}
 }
 
@@ -45,13 +52,16 @@ func (collector *channelStateCollector) Describe(metrics chan<- *prometheus.Desc
 	metrics <- collector.infoDesc
 	metrics <- collector.reasonDesc
 	metrics <- collector.timeDesc
+	metrics <- collector.balanceDesc
 }
 
 func (collector *channelStateCollector) Collect(metrics chan<- prometheus.Metric) {
 	snapshots, err := collector.query()
 	if err != nil {
 		common.SysError(fmt.Sprintf("failed to collect channel state metrics: %v", err))
-		metrics <- prometheus.NewInvalidMetric(collector.desc, errors.New("channel state snapshot unavailable"))
+		unavailable := errors.New("channel state snapshot unavailable")
+		metrics <- prometheus.NewInvalidMetric(collector.desc, unavailable)
+		metrics <- prometheus.NewInvalidMetric(collector.balanceDesc, unavailable)
 		return
 	}
 	for _, snapshot := range snapshots {
@@ -70,6 +80,7 @@ func (collector *channelStateCollector) Collect(metrics chan<- prometheus.Metric
 		if timestamp > 0 {
 			metrics <- prometheus.MustNewConstMetric(collector.timeDesc, prometheus.GaugeValue, float64(timestamp), id, channelType)
 		}
+		metrics <- prometheus.MustNewConstMetric(collector.balanceDesc, prometheus.GaugeValue, snapshot.Balance, id, channelType)
 	}
 }
 
@@ -169,4 +180,5 @@ type ChannelStateSnapshot struct {
 	Status    int
 	Name      string
 	OtherInfo string
+	Balance   float64
 }
