@@ -1,13 +1,16 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 )
 
 const (
 	batchProviderWindow          = 24 * time.Hour
 	batchProviderGrace           = 2 * time.Hour
+	batchTerminalZeroSettleAfter = time.Hour
 	batchUnknownAutoReleaseAfter = 24 * time.Hour
 	batchUnknownAlertAfter       = 48 * time.Hour
 )
@@ -34,6 +37,85 @@ func ProviderWindowExceeded(job *Job, now time.Time, kinds ChannelKinds) bool {
 		return false
 	}
 	return job.UpstreamID != "" && !State(job.Status).Terminal() && now.Unix() >= job.CreatedAt+int64((batchProviderWindow+batchProviderGrace)/time.Second)
+}
+
+// unfinishedTerminalStates are the provider states of a Batch that ended
+// without completing its work.
+var unfinishedTerminalStates = []State{Failed, Expired, Cancelled}
+
+// TerminalWithoutCostCode marks the diagnostic and the zero receipts of a
+// Batch that ended without results or provider cost.
+const TerminalWithoutCostCode = "terminal_without_cost"
+
+// ZeroSettleAllowed reports an aggregate-cost Batch the provider ended
+// unfinished with no results that may be settled with unbilled zero receipts:
+// it has no provider cost, or its zero settlement has already begun, which a
+// later cost does not undo. The adapter applies it under the job row lock.
+func ZeroSettleAllowed(job Job, cost json.RawMessage) bool {
+	endedEmpty := slices.Contains(unfinishedTerminalStates, State(job.Status)) && job.UpstreamID != "" &&
+		job.ResultCount == 0 && job.FinancialDetails == ""
+	costMissing := len(cost) == 0 || string(cost) == "null"
+	zeroSettleBegun := job.SettledCount > 0 && job.ChargedQuota == 0
+	return endedEmpty && (costMissing || zeroSettleBegun)
+}
+
+// TerminalZeroSettle is the poller's next step for an aggregate-cost Batch
+// that may have ended without cost.
+type TerminalZeroSettle string
+
+const (
+	TerminalZeroSettleNone    TerminalZeroSettle = "none"
+	TerminalZeroSettleObserve TerminalZeroSettle = "observe"
+	TerminalZeroSettleWait    TerminalZeroSettle = "wait"
+	TerminalZeroSettleRun     TerminalZeroSettle = "settle"
+	TerminalZeroSettleForget  TerminalZeroSettle = "forget"
+)
+
+// ToTerminalZeroSettle decides the step from the stored job, its settlement
+// mode and provider cost, and when the poller first observed it ended without
+// cost: store that observation, wait an hour, settle at zero, or forget the
+// observation once the job no longer qualifies (for example, a cost settled it).
+func ToTerminalZeroSettle(job Job, mode string, cost json.RawMessage, observedAt int64, now time.Time) TerminalZeroSettle {
+	allowed := mode == BatchSettlementOpenRouterJobCostV2 && ZeroSettleAllowed(job, cost)
+	switch {
+	case allowed && job.BillingStatus == "settled":
+		// The zero settlement is complete; it is never repeated or logged again.
+		return TerminalZeroSettleNone
+	case !allowed && observedAt != 0:
+		return TerminalZeroSettleForget
+	case !allowed:
+		return TerminalZeroSettleNone
+	case job.SettledCount > 0:
+		return TerminalZeroSettleRun
+	case observedAt == 0:
+		return TerminalZeroSettleObserve
+	case now.Unix()-observedAt < int64(batchTerminalZeroSettleAfter/time.Second):
+		return TerminalZeroSettleWait
+	default:
+		return TerminalZeroSettleRun
+	}
+}
+
+// TerminalObservedAt returns when the poller first observed the Batch ended
+// without cost, stored in its diagnostic like AlertedAt; zero until observed.
+func TerminalObservedAt(job *Job, codec Codec) int64 {
+	var failure Failure
+	if codec.UnmarshalJsonStr(job.LastError, &failure) != nil {
+		return 0
+	}
+	return failure.TerminalObservedAt
+}
+
+// diagnosticSubmitStates are submit states whose stored diagnostic a poll tick
+// keeps.
+var diagnosticSubmitStates = []string{"submission_unknown", "rejected"}
+
+// KeepsDiagnostic reports a job whose stored diagnostic a poll tick must not
+// overwrite: an unknown or rejected submission, or a Batch awaiting its zero
+// settlement after the poller observed it ended without cost.
+func KeepsDiagnostic(job *Job, codec Codec) bool {
+	awaitingZeroSettle := job.BillingStatus != "settled" && TerminalObservedAt(job, codec) != 0
+	return slices.Contains(diagnosticSubmitStates, job.SubmitState) || awaitingZeroSettle
 }
 
 func ReconciliationReason(job *Job, now time.Time, kinds ChannelKinds, codec Codec) string {

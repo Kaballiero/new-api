@@ -20,7 +20,7 @@ type Store interface {
 	FinishClaim(job *domain.Job, owner string, now int64, message *string) error
 	DeleteLocal(job *domain.Job, now int64) error
 	RequireReconciliation(job *domain.Job) error
-	SaveUnknownDiagnostic(*domain.Job, string, string, bool) (bool, error)
+	SaveDiagnostic(*domain.Job, string, string, bool) (bool, error)
 	FlagProviderWindow(*domain.Job) (bool, error)
 	MarkTerminalIncomplete(job *domain.Job) error
 	MarkCancelSent(job *domain.Job) error
@@ -108,7 +108,7 @@ func (u Usecase) Execute(ctx context.Context, runnerID string) error {
 			u.diagnostics.Error(fmt.Sprintf("batch %s: %v", job.PublicID, err))
 		}
 		var lastError *string
-		if job.SubmitState != "submission_unknown" && job.SubmitState != "rejected" && (job.Status != "failed" || (err != nil && job.LastError == "")) {
+		if !domain.KeepsDiagnostic(&job, u.codec) && (job.Status != "failed" || (err != nil && job.LastError == "")) {
 			lastError = &message
 		}
 		if err := u.store.FinishClaim(&job, runnerID, u.now().Unix(), lastError); err != nil {
@@ -176,7 +176,7 @@ func (u Usecase) processBatchJob(ctx context.Context, job *domain.Job, runnerID 
 		if err != nil {
 			return err
 		}
-		changed, err := u.store.SaveUnknownDiagnostic(job, runnerID, string(encoded), false)
+		changed, err := u.store.SaveDiagnostic(job, runnerID, string(encoded), false)
 		if err != nil {
 			return err
 		}
@@ -217,8 +217,15 @@ func (u Usecase) processBatchJob(ctx context.Context, job *domain.Job, runnerID 
 	if u.now().Unix() < job.ExpiresAt {
 		pollErr = u.pollBatch(ctx, job, adapter, runnerID)
 	}
-	if err := u.settleResults(job); err != nil {
-		return err
+	settleErr := u.settleResults(job)
+	if settleErr != nil && !errors.Is(settleErr, domain.ErrBatchConflict) {
+		return settleErr
+	}
+	// A conflict may be a Batch ended without cost; a stored observation may be stale.
+	if settleErr != nil || domain.TerminalObservedAt(job, u.codec) != 0 {
+		if err := u.settleTerminalWithoutCost(job, runnerID, settleErr); err != nil {
+			return err
+		}
 	}
 	if domain.ProviderWindowExceeded(job, u.now(), u.kinds) {
 		changed, err := u.store.FlagProviderWindow(job)
@@ -422,8 +429,8 @@ func (u Usecase) pollBatch(ctx context.Context, job *domain.Job, adapter domain.
 	}
 	update := domain.PollUpdate{State: snapshot.State, OutputFileID: snapshot.OutputFileID,
 		ErrorFileID: snapshot.ErrorFileID, Usage: string(snapshot.Usage)}
-	if snapshot.State == domain.Failed && (job.Status != "failed" || job.LastError == "" ||
-		(len(snapshot.Error) > 0 && string(snapshot.Error) != "null")) {
+	providerErrorChanged := job.Status != "failed" || job.LastError == "" || (len(snapshot.Error) > 0 && string(snapshot.Error) != "null")
+	if snapshot.State == domain.Failed && providerErrorChanged && !domain.KeepsDiagnostic(job, u.codec) {
 		job.LastError = u.gateway.Failure("poll", response.StatusCode, response.RequestID, snapshot.Error)
 		update.LastError = &job.LastError
 	}
@@ -527,7 +534,7 @@ func (u Usecase) cleanupBatch(ctx context.Context, job *domain.Job, adapter doma
 
 func (u Usecase) recordAmbiguousCreation(job *domain.Job, runnerID, code string, status int, requestID string, body []byte) {
 	diagnostic := u.gateway.AmbiguousFailure(code, status, requestID, body)
-	changed, err := u.store.SaveUnknownDiagnostic(job, runnerID, diagnostic, true)
+	changed, err := u.store.SaveDiagnostic(job, runnerID, diagnostic, true)
 	if err != nil {
 		u.diagnostics.Error(fmt.Sprintf("Batch %s: cannot store creation diagnostic: %v", job.PublicID, err))
 		return

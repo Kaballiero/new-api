@@ -870,6 +870,208 @@ func TestBatchAutoReleaseUnsubmitted(t *testing.T) {
 	}
 }
 
+func TestBatchTerminalWithoutCostZeroSettle(t *testing.T) {
+	general := operation_setting.GetGeneralSetting()
+	previousRate := general.CustomCurrencyExchangeRate
+	general.CustomCurrencyExchangeRate = 100
+	t.Cleanup(func() { general.CustomCurrencyExchangeRate = previousRate })
+	const cost = `{"cost":0.000004,"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}`
+	for _, tc := range []struct {
+		name string
+		// observedAgo is the age of the stored terminal observation; zero stores none.
+		observedAgo time.Duration
+		status      string
+		usage       string
+		results     bool
+		items       int
+		// zeroSettledItems: a previous zero settlement wrote this many receipts.
+		zeroSettledItems int
+		// costUnderLock: the provider cost is stored after the poller decided to
+		// settle at zero, before its first receipt; the next poll returns it.
+		costUnderLock bool
+		// operatorLease: an operator action holds the lease during the tick.
+		operatorLease bool
+		zeroSettled   bool
+		costSettled   bool
+	}{
+		{name: "first observation failed", status: "failed"},
+		{name: "first observation expired", status: "expired"},
+		{name: "first observation cancelled", status: "cancelled"},
+		{name: "before 1h", observedAgo: 59 * time.Minute, status: "failed"},
+		{name: "failed after 1h", observedAgo: 61 * time.Minute, status: "failed", zeroSettled: true},
+		{name: "expired after 1h", observedAgo: 61 * time.Minute, status: "expired", zeroSettled: true},
+		{name: "cancelled after 1h", observedAgo: 61 * time.Minute, status: "cancelled", usage: `{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}`, zeroSettled: true},
+		{name: "partial zero settlement resumes", observedAgo: 61 * time.Minute, status: "failed", items: 2, zeroSettledItems: 1, zeroSettled: true},
+		{name: "cost after partial zero settlement", observedAgo: 61 * time.Minute, status: "failed", usage: cost, items: 2, zeroSettledItems: 1, zeroSettled: true},
+		{name: "cost arrives", observedAgo: 30 * time.Minute, status: "failed", usage: cost, costSettled: true},
+		{name: "cost under lock", observedAgo: 61 * time.Minute, status: "failed", items: 2, costUnderLock: true, costSettled: true},
+		{name: "results received", observedAgo: 61 * time.Minute, status: "failed", results: true},
+		{name: "operator holds lease", observedAgo: 61 * time.Minute, status: "failed", operatorLease: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			oldDB, oldLogDB, oldRedis, oldMemory := model.DB, model.LOG_DB, common.RedisEnabled, common.MemoryCacheEnabled
+			model.DB, model.LOG_DB, common.RedisEnabled, common.MemoryCacheEnabled = db, db, false, false
+			t.Cleanup(func() {
+				model.DB, model.LOG_DB, common.RedisEnabled, common.MemoryCacheEnabled = oldDB, oldLogDB, oldRedis, oldMemory
+				_ = sqlDB.Close()
+			})
+			require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}, &model.BatchLogEvent{}, &model.BatchLogReceipt{}, &model.Log{}))
+			seedFX(t)
+			var nativeCustomID string
+			var polls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				usage, results := "null", "null"
+				if tc.usage != "" {
+					usage = tc.usage
+				}
+				if tc.costUnderLock && polls.Add(1) > 1 {
+					usage = cost
+				}
+				if tc.results {
+					results = fmt.Sprintf(`[{"custom_id":%q,"error":{"code":"server_error","message":"m"}}]`, nativeCustomID)
+				}
+				_, _ = fmt.Fprintf(w, `{"id":"native-1","status":%q,"usage":%s,"results":%s,"error":{"code":"invalid_request","message":"specific upstream rejection"}}`, tc.status, usage, results)
+			}))
+			t.Cleanup(server.Close)
+			base := server.URL + "/api"
+			channel := model.Channel{Type: constant.ChannelTypeOpenRouter, Key: "test-key", BaseURL: &base}
+			require.NoError(t, db.Create(&channel).Error)
+			user := model.User{Username: "zero-settle-user", Password: "unused", Quota: 1000, AuthVersion: 1}
+			require.NoError(t, db.Create(&user).Error)
+			token := model.Token{UserId: user.Id, Key: "zero-settle-token", RemainQuota: 1000}
+			require.NoError(t, db.Create(&token).Error)
+			snapshot, err := openRouterSnapshot()
+			require.NoError(t, err)
+			encoded, err := common.Marshal(snapshot)
+			require.NoError(t, err)
+			configHash, err := account.BatchChannelConfigHash(&channel)
+			require.NoError(t, err)
+			itemCount := max(tc.items, 1)
+			job := model.BatchJob{PublicID: "batch_zero_settle", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, ChannelType: channel.Type, CredentialHash: fmt.Sprintf("%x", sha256.Sum256([]byte(channel.Key))), ChannelConfigHash: configHash, Model: "test-model", UpstreamModel: "test-model", Endpoint: "/v1/chat/completions", Status: "validating", BillingStatus: "reserved", SubmitState: "queued", BillingSnapshot: string(encoded), RequestCount: itemCount, ReservedQuota: int64(100 * itemCount), ExpiresAt: time.Now().Add(time.Hour).Unix()}
+			items := make([]model.BatchItem, itemCount)
+			for i := range items {
+				items[i] = model.BatchItem{CustomID: fmt.Sprintf("client-id-%d", i), Body: `{"max_tokens":8}`, UpstreamBody: `{"max_tokens":8}`, BillingStatus: "reserved", ReservedQuota: 100}
+			}
+			require.NoError(t, reserve(&job, items))
+			var item model.BatchItem
+			require.NoError(t, db.Where("batch_id = ?", job.ID).Order("id").First(&item).Error)
+			nativeCustomID = item.ProviderCustomID
+			updates := map[string]any{"submit_state": "submitted", "upstream_id": "native-1", "status": "in_progress"}
+			var observedAt int64
+			if tc.observedAgo != 0 {
+				observedAt = time.Now().Add(-tc.observedAgo).Unix()
+				updates["status"], updates["billing_status"] = tc.status, "reconciliation_required"
+				updates["last_error"] = fmt.Sprintf(`{"version":1,"phase":"poll","code":"invalid_request","category":"invalid_request","message":"m","terminal_observed_at":%d}`, observedAt)
+			}
+			require.NoError(t, db.Model(&job).Updates(updates).Error)
+			for i := range tc.zeroSettledItems {
+				require.NoError(t, testStore().SettleBatchItem(job.ID, fmt.Sprintf("client-id-%d", i), 0, `{"purchase_status":"unbilled","purchase_usd":0,"reason":"terminal_without_cost"}`))
+			}
+			if tc.costUnderLock {
+				// The zero settlement reads its unsettled items first; the cost lands right after.
+				const hook = "batch_test_cost_under_lock"
+				var stored atomic.Bool
+				require.NoError(t, db.Callback().Query().After("gorm:query").Register(hook, func(tx *gorm.DB) {
+					if tx.Statement.Table == "batch_items" && stored.CompareAndSwap(false, true) {
+						tx.AddError(db.Model(&model.BatchJob{}).Where("id = ?", job.ID).Update("upstream_usage", cost).Error)
+					}
+				}))
+				t.Cleanup(func() { _ = db.Callback().Query().Remove(hook) })
+			}
+			if tc.operatorLease {
+				claimed, err := testStore().ClaimBatchJob(job.ID, "operator-runner")
+				require.NoError(t, err)
+				require.True(t, claimed)
+			}
+
+			require.NoError(t, runtime.New().Poll.Execute(context.Background(), "poll-worker"))
+			if tc.costUnderLock {
+				require.NoError(t, db.First(&job, job.ID).Error)
+				assert.Zero(t, job.SettledCount, "no zero receipt once the cost is stored")
+				assert.EqualValues(t, 200, job.ReservedQuota)
+				require.NoError(t, runtime.New().Poll.Execute(context.Background(), "poll-worker"))
+			}
+			require.NoError(t, db.First(&job, job.ID).Error)
+			require.NoError(t, db.First(&user, user.Id).Error)
+			require.NoError(t, db.First(&token, token.Id).Error)
+			var diagnostic domain.Failure
+			require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic))
+			switch {
+			case tc.zeroSettled:
+				assert.Equal(t, "settled", job.BillingStatus)
+				assert.Equal(t, "settled", job.PurchaseStatus)
+				assert.Equal(t, tc.status, job.Status)
+				assert.Zero(t, job.ChargedQuota)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Equal(t, itemCount, job.SettledCount)
+				assert.Equal(t, 1000, user.Quota, "zero settlement never charges")
+				assert.Zero(t, user.BatchHeldQuota)
+				assert.Zero(t, token.BatchHeldQuota)
+				var settled []model.BatchItem
+				require.NoError(t, db.Where("batch_id = ?", job.ID).Find(&settled).Error)
+				for _, item := range settled {
+					assert.Equal(t, "settled", item.BillingStatus)
+					assert.Equal(t, "unbilled", item.PurchaseStatus)
+					assert.Zero(t, item.ChargedQuota)
+				}
+
+				var events int64
+				require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&events).Error)
+				require.NoError(t, runtime.New().Poll.Execute(context.Background(), "poll-worker"))
+				var after int64
+				require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&after).Error)
+				assert.Equal(t, events, after, "the Batch is settled once")
+				require.NoError(t, db.First(&user, user.Id).Error)
+				assert.Equal(t, 1000, user.Quota)
+				assert.Zero(t, user.BatchHeldQuota)
+			case tc.costSettled:
+				assert.Equal(t, "settled", job.BillingStatus, "a provider cost settles normally")
+				assert.NotEmpty(t, job.FinancialDetails)
+				assert.Positive(t, job.ChargedQuota)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Equal(t, int(1000-job.ChargedQuota), user.Quota)
+				require.NoError(t, db.First(&item, item.ID).Error)
+				assert.Equal(t, "settled_at_batch", item.BillingStatus)
+				assert.Zero(t, diagnostic.TerminalObservedAt, "the observation is forgotten once a cost settles the job")
+				assert.Equal(t, "invalid_request", diagnostic.Code)
+			default:
+				assert.Equal(t, "reconciliation_required", job.BillingStatus)
+				assert.Zero(t, job.ChargedQuota)
+				assert.Zero(t, job.SettledCount)
+				assert.EqualValues(t, 100, job.ReservedQuota)
+				assert.Equal(t, 1000, user.Quota)
+				assert.EqualValues(t, 100, user.BatchHeldQuota)
+				assert.EqualValues(t, 100, token.BatchHeldQuota)
+				if tc.results {
+					assert.Zero(t, diagnostic.TerminalObservedAt, "a job with results no longer awaits a zero settlement")
+					return
+				}
+				if tc.observedAgo != 0 {
+					assert.Equal(t, observedAt, diagnostic.TerminalObservedAt)
+					return
+				}
+				assert.Equal(t, tc.status, job.Status)
+				if tc.status == "failed" {
+					assert.Equal(t, "invalid_request", diagnostic.Code, "the observation keeps the provider diagnostic")
+				} else {
+					assert.Equal(t, domain.TerminalWithoutCostCode, diagnostic.Code)
+				}
+				assert.InDelta(t, time.Now().Unix(), diagnostic.TerminalObservedAt, 5)
+				stored := job.LastError
+				require.NoError(t, runtime.New().Poll.Execute(context.Background(), "poll-worker"))
+				require.NoError(t, db.First(&job, job.ID).Error)
+				assert.Equal(t, stored, job.LastError, "later ticks keep the first observation")
+			}
+		})
+	}
+}
+
 func testKinds() domain.ChannelKinds {
 	return domain.ChannelKinds{OpenAI: constant.ChannelTypeOpenAI, Anthropic: constant.ChannelTypeAnthropic, Google: constant.ChannelTypeGemini, OpenRouter: constant.ChannelTypeOpenRouter}
 }

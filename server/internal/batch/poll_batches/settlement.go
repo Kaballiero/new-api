@@ -3,6 +3,7 @@ package poll_batches
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/QuantumNous/new-api/internal/batch/domain"
@@ -123,6 +124,84 @@ func (u Usecase) settleResults(job *domain.Job) error {
 			return err
 		}
 	}
+}
+
+// settleTerminalWithoutCost handles an aggregate-cost Batch the provider ended
+// without results or cost: it stores when the poller first observed that, an
+// hour later settles it with unbilled zero receipts and releases the hold, and
+// forgets the observation once the job no longer qualifies. Until the zero
+// settlement runs, settleErr is returned unchanged.
+func (u Usecase) settleTerminalWithoutCost(job *domain.Job, runnerID string, settleErr error) error {
+	current, err := u.store.ReloadClaim(job.ID, runnerID)
+	if err != nil {
+		return errors.Join(settleErr, err)
+	}
+	*job = current
+	snapshot, err := u.codec.Snapshot(job.BillingSnapshot)
+	if err != nil {
+		return errors.Join(settleErr, err)
+	}
+	var usage map[string]json.RawMessage
+	if job.UpstreamUsage != "" {
+		if err := u.codec.UnmarshalJsonStr(job.UpstreamUsage, &usage); err != nil {
+			return errors.Join(settleErr, err)
+		}
+	}
+	cost := usage["cost"]
+	switch domain.ToTerminalZeroSettle(*job, snapshot.SettlementMode, cost, domain.TerminalObservedAt(job, u.codec), u.now()) {
+	case domain.TerminalZeroSettleNone, domain.TerminalZeroSettleWait:
+		return settleErr
+	case domain.TerminalZeroSettleObserve:
+		return errors.Join(settleErr, u.saveTerminalObservation(job, runnerID, u.now().Unix()))
+	case domain.TerminalZeroSettleForget:
+		return errors.Join(settleErr, u.saveTerminalObservation(job, runnerID, 0))
+	}
+	held := job.ReservedQuota
+	if err := domain.SettleUnbilled(u.store, u.diagnostics.Error, job.ID, domain.TerminalWithoutCostCode); err != nil {
+		return err
+	}
+	reloaded, err := u.store.ByID(job.ID)
+	if err != nil {
+		return err
+	}
+	*job = *reloaded
+	// A hold awaiting cache confirmation is released, and logged, on a later tick.
+	if job.BillingStatus != "settled" || job.ReservedQuota != 0 {
+		return nil
+	}
+	message := fmt.Sprintf("Batch %s: %s without results or provider cost; settled at zero, released quota %d", job.PublicID, job.Status, held)
+	if len(cost) != 0 && string(cost) != "null" {
+		message += fmt.Sprintf("; provider cost %s arrived after the zero settlement began and is not charged", cost)
+	}
+	u.diagnostics.Info(message)
+	return nil
+}
+
+// saveTerminalObservation stores in the job diagnostic when the poller first
+// observed the Batch ended without cost, or clears it when observedAt is zero.
+func (u Usecase) saveTerminalObservation(job *domain.Job, runnerID string, observedAt int64) error {
+	var failure domain.Failure
+	if u.codec.UnmarshalJsonStr(job.LastError, &failure) != nil || failure.Version != 1 {
+		failure = domain.Failure{Version: 1, Phase: "poll", Code: domain.TerminalWithoutCostCode, Message: "The provider Batch ended without results or a cost."}
+	}
+	failure.TerminalObservedAt = observedAt
+	diagnostic := ""
+	// A cleared observation that was the whole diagnostic leaves none.
+	if observedAt != 0 || failure.Code != domain.TerminalWithoutCostCode {
+		encoded, err := u.codec.Marshal(failure)
+		if err != nil {
+			return err
+		}
+		diagnostic = string(encoded)
+	}
+	changed, err := u.store.SaveDiagnostic(job, runnerID, diagnostic, false)
+	if err != nil {
+		return err
+	}
+	if changed {
+		job.LastError = diagnostic
+	}
+	return nil
 }
 
 func (u Usecase) purchaseUSD(job *domain.Job, result domain.Result, usage *billingdomain.Usage,

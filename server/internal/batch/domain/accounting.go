@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -32,9 +33,20 @@ func DispatchRevoked(a Accounts, now int64, userEnabled, tokenEnabled int) bool 
 func CanMarkSubmissionUnknown(job Job, runner string, now int64) bool {
 	return job.SubmitState == "preparing" && job.UpstreamID == "" && job.LeaseOwner == runner && job.LeaseUntil > now
 }
-func ValidateItemSettlement(job Job, mode, purchase string, quota int) error {
-	if job.FinancialDetails != "" || (mode == BatchSettlementOpenRouterJobCostV2 && !(job.UpstreamID == "" &&
-		job.SubmitState == "rejected" && quota == 0 && purchase == "unbilled")) {
+
+// ValidateItemSettlement allows an aggregate-cost Batch only unbilled zero
+// item receipts: for a Batch never submitted, or one ZeroSettleAllowed with the
+// provider cost read under the same lock.
+func ValidateItemSettlement(job Job, mode, purchase string, quota int, cost json.RawMessage) error {
+	if job.FinancialDetails != "" {
+		return ErrBatchConflict
+	}
+	if mode != BatchSettlementOpenRouterJobCostV2 {
+		return nil
+	}
+	unbilledZero := quota == 0 && purchase == "unbilled"
+	unsubmitted := job.UpstreamID == "" && job.SubmitState == "rejected"
+	if !unbilledZero || !(unsubmitted || ZeroSettleAllowed(job, cost)) {
 		return ErrBatchConflict
 	}
 	return nil

@@ -22,7 +22,7 @@ Batch не использует subscription funding и request-local Reservatio
 | release_unsubmitted_batch | POST /api/batches/:id/release-unsubmitted: root evidence, lease, отсутствие provider identity/results/charges, возврат hold через прежний rejection/outbox path; повтор безопасен |
 | list_batch_reconciliation | GET /api/batches/reconciliation: root queue с keyset cursor, normalized diagnostics и точными recovery/release predicates |
 | confirm_batch_purchase | POST /api/batches/:id/purchase: bounded decimal/evidence, terminal immutable procurement receipt |
-| poll_batches | provider_batch_poll: один последовательный pass, submit/poll/results/settlement/outboxes/reconcile/release/cleanup; автоматический release unknown creation без provider identity через 24h |
+| poll_batches | provider_batch_poll: один последовательный pass, submit/poll/results/settlement/outboxes/reconcile/release/cleanup; автоматический release unknown creation без provider identity через 24h; нулевой расчёт OpenRouter v2 job, завершённой без results и cost, через 1h |
 
 Первые шесть registrations используют прежние TokenAuth/ModelRequestRateLimit; create сохраняет
 Prepare → Distribute → Create. Root management registrations сохраняют RootAuth,
@@ -43,6 +43,12 @@ Per-item settlement атомарно пишет wallet/token/channel counters, i
 outbox и cache events. Hold освобождается после acknowledgement. OpenRouter v2 использует один
 подтверждённый total/receipt на job; сумма не распределяется между output rows. Legacy v1 остаётся
 per-item. Unknown/null/invalid cost не становится нулём; explicit zero остаётся допустимым.
+Исключение — OpenRouter v2 job, завершённая провайдером как failed/expired/cancelled без results и без
+cost: poll сохраняет в diagnostic момент, когда впервые увидел такое состояние (terminal_observed_at),
+и через 1h закрывает job нулевыми unbilled receipts и освобождает hold. Право на нулевой receipt
+проверяется под lock job (ZeroSettleAllowed). Cost, пришедший до первого receipt, рассчитывается
+обычным путём, и метка снимается; cost, пришедший после начала нулевого расчёта, не списывается и
+пишется в лог.
 Unknown creation хранит первую normalized cause. Через 24h после CreatedAt poll освобождает hold
 такой job тем же release path, что и root release-unsubmitted, если выполняется ReleaseEligible
 (нет provider identity, results, charges и touched items); иначе после 48h поднимает один operator alert.
