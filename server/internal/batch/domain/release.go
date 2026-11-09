@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 type ReleaseStore interface {
@@ -10,14 +11,14 @@ type ReleaseStore interface {
 	ReleaseEligibilityStore
 	ReloadClaim(int64, string) (Job, error)
 	ByID(int64) (*Job, error)
-	MarkOperatorReleased(*Job, string, string) error
+	MarkUnsubmittedReleased(*Job, string, string) error
 }
 type ReleaseDiagnostics interface {
 	Error(string)
 	Info(string)
 }
 
-func ReleaseUnsubmitted(store ReleaseStore, codec Codec, diagnostics ReleaseDiagnostics, job *Job, runnerID string, operatorID int) (result ReleaseResult, err error) {
+func ReleaseUnsubmitted(store ReleaseStore, codec Codec, diagnostics ReleaseDiagnostics, job *Job, runnerID string, release HoldRelease) (result ReleaseResult, err error) {
 	defer func() {
 		outcome := "released"
 		switch {
@@ -28,7 +29,7 @@ func ReleaseUnsubmitted(store ReleaseStore, codec Codec, diagnostics ReleaseDiag
 		case result.AlreadyReleased:
 			outcome = "already released"
 		}
-		diagnostics.Info(fmt.Sprintf("Batch %s: root user %d unsubmitted hold release %s; released quota %d", job.PublicID, operatorID, outcome, result.ReleasedQuota))
+		diagnostics.Info(fmt.Sprintf("Batch %s: %s unsubmitted hold release %s; released quota %d", job.PublicID, release.Actor, outcome, result.ReleasedQuota))
 	}()
 	current, loadErr := store.ReloadClaim(job.ID, runnerID)
 	if loadErr != nil {
@@ -41,7 +42,7 @@ func ReleaseUnsubmitted(store ReleaseStore, codec Codec, diagnostics ReleaseDiag
 
 	result.PreviousLastError = job.LastError
 	var previous Failure
-	if job.SubmitState == "rejected" && job.UpstreamID == "" && codec.UnmarshalJsonStr(job.LastError, &previous) == nil && previous.Code == OperatorReleasedCode {
+	if job.SubmitState == "rejected" && job.UpstreamID == "" && codec.UnmarshalJsonStr(job.LastError, &previous) == nil && slices.Contains(releasedUnsubmittedCodes, previous.Code) {
 		result.AlreadyReleased = true
 		if job.BillingStatus != "settled" {
 			if err = RejectUnsubmitted(store, diagnostics.Error, job, job.LastError); err != nil {
@@ -64,11 +65,11 @@ func ReleaseUnsubmitted(store ReleaseStore, codec Codec, diagnostics ReleaseDiag
 		return result, ErrBatchReleaseIneligible
 	}
 	held := job.ReservedQuota
-	encoded, err := codec.Marshal(Failure{Version: 1, Phase: "reconciliation", Code: OperatorReleasedCode, Message: "Operator confirmed no provider Batch exists; hold released."})
+	encoded, err := codec.Marshal(Failure{Version: 1, Phase: "reconciliation", Code: release.Code, Message: release.Message})
 	if err != nil {
 		return result, err
 	}
-	if err := store.MarkOperatorReleased(job, runnerID, string(encoded)); err != nil {
+	if err := store.MarkUnsubmittedReleased(job, runnerID, string(encoded)); err != nil {
 		return result, err
 	}
 	job.SubmitState, job.LastError = "rejected", string(encoded)

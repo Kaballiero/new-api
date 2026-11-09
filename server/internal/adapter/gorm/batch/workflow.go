@@ -266,7 +266,7 @@ func (s Store) CountTouchedItems(id int64) (int64, error) {
 	err := s.db().Model(&BatchItem{}).Where("batch_id = ? AND (result_hash <> '' OR billing_status IN ?)", id, []string{"settled", "settled_at_batch"}).Count(&touched).Error
 	return touched, err
 }
-func (s Store) MarkOperatorReleased(job *domain.Job, owner, diagnostic string) error {
+func (s Store) MarkUnsubmittedReleased(job *domain.Job, owner, diagnostic string) error {
 	return changed(s.db().Model(&BatchJob{}).Where("id = ? AND submit_state = ? AND upstream_id = '' AND result_count = 0 AND lease_owner = ?", job.ID, "submission_unknown", owner).Updates(map[string]any{"submit_state": "rejected", "last_error": diagnostic}))
 }
 

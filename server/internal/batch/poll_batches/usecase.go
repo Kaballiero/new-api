@@ -47,6 +47,8 @@ type Store interface {
 	SettleBatchItem(int64, string, int, string) error
 	StoreBatchResult(int64, string, string, string) error
 	SettleBatchJobCost(int64) error
+	CountTouchedItems(int64) (int64, error)
+	MarkUnsubmittedReleased(*domain.Job, string, string) error
 }
 type Gateway interface {
 	domain.Gateway
@@ -56,6 +58,7 @@ type Gateway interface {
 }
 type Diagnostics interface {
 	Error(string)
+	Info(string)
 	Saturation(*domain.Job, string, error)
 }
 type Usecase struct {
@@ -146,6 +149,18 @@ func (u Usecase) processBatchJob(ctx context.Context, job *domain.Job, runnerID 
 			return err
 		}
 		job.BillingStatus = "reconciliation_required"
+		if domain.AutoReleaseDue(job, u.now()) {
+			eligible, err := domain.ReleaseEligible(u.store, job)
+			if err != nil {
+				return err
+			}
+			if eligible {
+				// Ineligible jobs skip the release so it does not log a rejection every
+				// tick; the release itself re-checks eligibility on the reloaded row.
+				_, err := domain.ReleaseUnsubmitted(u.store, u.codec, u.diagnostics, job, runnerID, domain.AutoHoldRelease())
+				return err
+			}
+		}
 		if !domain.SubmissionOverdue(job, u.now()) {
 			return nil
 		}

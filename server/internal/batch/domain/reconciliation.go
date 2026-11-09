@@ -1,12 +1,22 @@
 package domain
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 const (
-	batchProviderWindow    = 24 * time.Hour
-	batchProviderGrace     = 2 * time.Hour
-	batchUnknownAlertAfter = 48 * time.Hour
+	batchProviderWindow          = 24 * time.Hour
+	batchProviderGrace           = 2 * time.Hour
+	batchUnknownAutoReleaseAfter = 24 * time.Hour
+	batchUnknownAlertAfter       = 48 * time.Hour
 )
+
+// AutoReleaseDue reports an unknown creation old enough for the poller to
+// release its hold; ReleaseEligible decides whether the release is allowed.
+func AutoReleaseDue(job *Job, now time.Time) bool {
+	return job.SubmitState == "submission_unknown" && now.Unix()-job.CreatedAt >= int64(batchUnknownAutoReleaseAfter/time.Second)
+}
 
 // SubmissionOverdue reports an unknown creation old enough that the
 // provider would have finished it; only an operator may recover or release it.
@@ -62,7 +72,25 @@ func ReleaseEligible(store ReleaseEligibilityStore, job *Job) (bool, error) {
 	return touched == 0, err
 }
 
-const OperatorReleasedCode = "operator_released_unsubmitted"
+const (
+	OperatorReleasedCode = "operator_released_unsubmitted"
+	AutoReleasedCode     = "auto_released_unsubmitted"
+)
+
+var releasedUnsubmittedCodes = []string{OperatorReleasedCode, AutoReleasedCode}
+
+// HoldRelease names who releases an unsubmitted hold and the diagnostic it stores.
+type HoldRelease struct {
+	Actor, Code, Message string
+}
+
+func OperatorHoldRelease(operatorID int) HoldRelease {
+	return HoldRelease{Actor: fmt.Sprintf("root user %d", operatorID), Code: OperatorReleasedCode, Message: "Operator confirmed no provider Batch exists; hold released."}
+}
+
+func AutoHoldRelease() HoldRelease {
+	return HoldRelease{Actor: "batch poller", Code: AutoReleasedCode, Message: "No provider Batch identity appeared within the release window; hold released automatically."}
+}
 
 type ReleaseResult struct {
 	AlreadyReleased   bool
