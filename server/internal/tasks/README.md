@@ -23,7 +23,7 @@
 | complete_sync_task / fail_sync_task / reconcile_sync_task | Независимые delivery и financial outcome, revision CAS, metadata-only reconciliation |
 | hold_sync_task | Сохранение резерва за недоставленный chat-result до ручного решения |
 | apply_sync_operator_decision | POST /api/task/:task_id/openrouter-sync/release и /openrouter-sync/settle; RootAuth, подтверждённая нулевая/явная стоимость и аудит каждой попытки |
-| release_unidentified_sync_holds | Фоновый прогон в async_task_poll (master-only): через час после submit_time освобождает по нулевой стоимости hold с неизвестным исходом отправки и без generation id, если он доступен release оператора |
+| release_unidentified_sync_holds | Фоновый прогон в async_task_poll (master-only): через час после submit_time освобождает по нулевой стоимости hold с неизвестным исходом отправки и без generation id, если он доступен release оператора. Hold, который не подходит или не может быть рассчитан, один раз помечается `auto_release_unavailable` и остаётся root; если после записи решения не прошёл расчёт, root повторяет тот же release (`cost_usd=0`) |
 | poll_tasks / poll_midjourney_tasks | Один отменяемый прогон, без собственного scheduler/ticker |
 
 Router и порядок middleware сохранены. Dashboard допускает прежние session/PAT; API-ключи не становятся

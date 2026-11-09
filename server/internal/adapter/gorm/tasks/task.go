@@ -256,11 +256,20 @@ func (s Store) HasUnknownSubmissionHolds(submittedBefore int64) bool {
 	return err == nil && id != 0
 }
 
+// ParkUnknownSubmissionHold re-parks a hold the automatic release may not
+// resolve, so it is selected once; a concurrent decision already changed the
+// reason and is left untouched.
+func (s Store) ParkUnknownSubmissionHold(id int64) error {
+	return s.db().Model(&record.Task{}).
+		Where("id = ? AND fail_reason = ?", id, domain.SyncManualFailReason(domain.SyncReasonSubmissionOutcomeUnknown)).
+		Update("fail_reason", domain.SyncManualFailReason(domain.SyncReasonAutoReleaseUnavailable)).Error
+}
+
 func (s Store) unknownSubmissionHolds(submittedBefore int64) *gorm.DB {
 	return s.db().Model(&record.Task{}).
 		Where("status = ?", record.TaskStatusFailure).
 		Where("platform IN ?", openRouterSyncPlatforms).
-		Where("fail_reason = ?", domain.SyncManualFailReason("submission_outcome_unknown")).
+		Where("fail_reason = ?", domain.SyncManualFailReason(domain.SyncReasonSubmissionOutcomeUnknown)).
 		Where("submit_time <= ?", submittedBefore)
 }
 

@@ -30,6 +30,10 @@ func (s SyncStore) UnknownSubmissionHolds(submittedBefore, afterID int64, limit 
 	return tasks, err
 }
 
+func (s SyncStore) ParkUnknownSubmissionHold(task *domain.Task) error {
+	return s.Store.ParkUnknownSubmissionHold(task.ID)
+}
+
 type SyncProjection struct{}
 
 func (SyncProjection) Project(task *domain.Task) {

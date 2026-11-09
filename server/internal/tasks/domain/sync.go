@@ -57,6 +57,13 @@ func ValidOpenRouterImageCorrelation(id, apiKey string, limit int) bool {
 	}) == -1
 }
 
+// Manual hold reasons of the automatic release: it selects holds parked for an
+// unknown submission and re-parks those it may not release, leaving them to root.
+const (
+	SyncReasonSubmissionOutcomeUnknown = "submission_outcome_unknown"
+	SyncReasonAutoReleaseUnavailable   = "auto_release_unavailable"
+)
+
 // SyncManualFailReason is the stored failure text of a manual hold for reason.
 func SyncManualFailReason(reason string) string {
 	return "OpenRouter synchronous manual reconciliation required: " + reason

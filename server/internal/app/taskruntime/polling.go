@@ -55,8 +55,9 @@ func NewPolling() *Polling {
 // HasTasks also schedules a pass when an unknown-submission hold has outlived
 // the auto-release delay, so an otherwise idle system still releases it.
 func (p *Polling) HasTasks() bool {
-	return p.store.HasUnfinishedSyncTasks() ||
-		p.store.HasUnknownSubmissionHolds(time.Now().Add(-domain.OpenRouterSyncAutoReleaseDelay).Unix())
+	unfinished := p.store.HasUnfinishedSyncTasks()
+	dueHolds := p.store.HasUnknownSubmissionHolds(time.Now().Add(-domain.OpenRouterSyncAutoReleaseDelay).Unix())
+	return unfinished || dueHolds
 }
 func (p *Polling) HasMidjourney() bool { return p.store.HasUnfinishedMidjourneyTasks() }
 
