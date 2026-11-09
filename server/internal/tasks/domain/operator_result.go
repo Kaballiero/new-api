@@ -1,9 +1,18 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
-// OpenRouterSyncOperatorMaxCostUSD bounds one operator cost settlement.
-const OpenRouterSyncOperatorMaxCostUSD = 50
+const (
+	// OpenRouterSyncOperatorMaxCostUSD bounds one operator cost settlement.
+	OpenRouterSyncOperatorMaxCostUSD = 50
+	// OpenRouterSyncAutoReleaseDelay is how long, counted from submission, an
+	// unknown submission without an upstream identity keeps its reserve before
+	// the operator release applies automatically.
+	OpenRouterSyncAutoReleaseDelay = time.Hour
+)
 
 var (
 	// ErrOpenRouterSyncOperatorInvalid marks a malformed or out-of-bounds decision.

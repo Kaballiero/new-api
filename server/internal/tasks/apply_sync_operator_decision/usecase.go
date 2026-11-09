@@ -100,25 +100,18 @@ func (u Usecase) Execute(_ context.Context, input Input) (domain.OpenRouterSyncO
 	if !task.OpenRouterSyncOperatorEligible(action) {
 		return result, fmt.Errorf("%w: task is not eligible for %s", domain.ErrOpenRouterSyncOperatorConflict, action)
 	}
-	r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, costValue
-	u.settlement.Prepare(task)
-	if r.QuotaSaturation != "" {
-		return result, fmt.Errorf("%w: cost saturates the quota range", domain.ErrOpenRouterSyncOperatorInvalid)
-	}
-	if !r.SettlementPending {
-		return result, fmt.Errorf("%w: settlement basis is unavailable", domain.ErrOpenRouterSyncOperatorConflict)
+	if err := task.PriceOpenRouterSyncDecision(costValue, u.settlement.Prepare); err != nil {
+		return result, err
 	}
 	// A recorded decision is irreversible, so refuse one that cannot settle.
 	if err := u.store.Feasible(task); err != nil {
 		return result, fmt.Errorf("%w: settlement is not feasible: %v", domain.ErrOpenRouterSyncOperatorConflict, err)
 	}
-	a.OperatorDecision = &domain.OpenRouterSyncOperatorDecision{Action: action, CostUSD: result.CostUSD, OperatorID: operatorID, Evidence: evidence, DecidedAt: u.now().Unix()}
+	decision := domain.OpenRouterSyncOperatorDecision{Action: action, CostUSD: result.CostUSD, OperatorID: operatorID, Evidence: evidence, DecidedAt: u.now().Unix()}
 	if action == domain.OpenRouterSyncOperatorRelease {
-		a.LastError = "operator_released"
-		task.FailReason = "OpenRouter reservation released by operator"
+		task.RecordOpenRouterSyncDecision(decision, "operator_released", "OpenRouter reservation released by operator")
 	} else {
-		a.LastError = "operator_settled"
-		task.FailReason = "OpenRouter cost settled by operator"
+		task.RecordOpenRouterSyncDecision(decision, "operator_settled", "OpenRouter cost settled by operator")
 	}
 	result.TargetQuota = r.TargetQuota
 	u.projection.Project(task)

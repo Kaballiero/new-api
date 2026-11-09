@@ -27,7 +27,7 @@ func OpenRouterSyncReconciliation(task *Task) map[string]any {
 		billing = "manual_reconciliation"
 	}
 	switch a.LastError {
-	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected", "operator_released", "operator_settled":
+	case "missing_generation_identity", "interrupted_reservation_or_submission", "generation_identity_unverified", "cost_lookup_deadline_or_attempt_limit", "auth", "account_binding_changed", "identity_or_invalid_cost", "incomplete_metadata", "temporary_http_error", "transport_error", "transport_unavailable", "permanent_http_error", "submission_outcome_unknown", "upstream_rejected", "operator_released", "operator_settled", "auto_released":
 		reason = a.LastError
 	default:
 		if billing == "manual_reconciliation" {

@@ -1,6 +1,10 @@
 package domain
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+	"time"
+)
 
 // openRouterSyncUndeliveredReasons are result reasons recorded before any
 // output reached the client, so a zero-cost release cannot hide a delivery.
@@ -39,4 +43,37 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 		return r.ReservedQuota >= 0
 	}
 	return false
+}
+
+// OpenRouterSyncAutoReleaseDue reports a hold root could release whose
+// submission outcome stayed unknown without an upstream identity for the
+// auto-release delay. A Task with an identity keeps the cost lookup flow.
+func (t *Task) OpenRouterSyncAutoReleaseDue(now time.Time) bool {
+	return t.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorRelease) &&
+		t.PrivateData.OpenRouterSyncState().ResultReason == SyncReasonSubmissionOutcomeUnknown &&
+		t.PrivateData.UpstreamTaskID == "" &&
+		!now.Before(time.Unix(t.SubmitTime, 0).Add(OpenRouterSyncAutoReleaseDelay))
+}
+
+// PriceOpenRouterSyncDecision confirms the cost a decision asserts and prices
+// it on the frozen basis; a decision that cannot settle exactly is refused.
+func (t *Task) PriceOpenRouterSyncDecision(costUSD float64, prepare func(*Task)) error {
+	r := t.PrivateData.Reconciliation
+	r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, costUSD
+	prepare(t)
+	if r.QuotaSaturation != "" {
+		return fmt.Errorf("%w: cost saturates the quota range", ErrOpenRouterSyncOperatorInvalid)
+	}
+	if !r.SettlementPending {
+		return fmt.Errorf("%w: settlement basis is unavailable", ErrOpenRouterSyncOperatorConflict)
+	}
+	return nil
+}
+
+// RecordOpenRouterSyncDecision stores the irreversible decision with its
+// public reason code; the revision claim then admits exactly this decision.
+func (t *Task) RecordOpenRouterSyncDecision(decision OpenRouterSyncOperatorDecision, reasonCode, failReason string) {
+	a := t.PrivateData.OpenRouterSyncState()
+	a.OperatorDecision, a.LastError = &decision, reasonCode
+	t.FailReason = failReason
 }

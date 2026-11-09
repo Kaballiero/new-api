@@ -13,11 +13,16 @@ import (
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/locking"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/recordutil"
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/tasks/record"
+	"github.com/QuantumNous/new-api/internal/tasks/domain"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
+
+// openRouterSyncPlatforms are the platforms whose Tasks follow the OpenRouter
+// synchronous reservation lifecycle instead of provider polling.
+var openRouterSyncPlatforms = []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank, constant.TaskPlatformOpenRouterImage, constant.TaskPlatformOpenRouterChatImage}
 
 // Store executes task queries and mutations against the current primary database.
 type Store struct {
@@ -197,7 +202,7 @@ func (s Store) GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*record
 	var tasks []*record.Task
 	err := s.db().Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{record.TaskStatusFailure, record.TaskStatusSuccess}).
-		Where("(platform IS NULL OR platform NOT IN ?)", []constant.TaskPlatform{constant.TaskPlatformOpenRouterAudio, constant.TaskPlatformOpenRouterRerank, constant.TaskPlatformOpenRouterImage, constant.TaskPlatformOpenRouterChatImage}).
+		Where("(platform IS NULL OR platform NOT IN ?)", openRouterSyncPlatforms).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
@@ -234,6 +239,38 @@ func (s Store) HasUnfinishedSyncTasks() bool {
 		Limit(1).
 		Pluck("id", &id).Error
 	return err == nil && id != 0
+}
+
+// GetUnknownSubmissionHolds pages OpenRouter synchronous tasks parked in manual
+// reconciliation after an unknown submission outcome, submitted before the cutoff.
+func (s Store) GetUnknownSubmissionHolds(submittedBefore, afterID int64, limit int) ([]*record.Task, error) {
+	var tasks []*record.Task
+	err := s.unknownSubmissionHolds(submittedBefore).Where("id > ?", afterID).Order("id").Limit(limit).Find(&tasks).Error
+	return tasks, err
+}
+
+// HasUnknownSubmissionHolds is the LIMIT 1 existence form of GetUnknownSubmissionHolds.
+func (s Store) HasUnknownSubmissionHolds(submittedBefore int64) bool {
+	var id int64
+	err := s.unknownSubmissionHolds(submittedBefore).Limit(1).Pluck("id", &id).Error
+	return err == nil && id != 0
+}
+
+// ParkUnknownSubmissionHold re-parks a hold the automatic release may not
+// resolve, so it is selected once; a concurrent decision already changed the
+// reason and is left untouched.
+func (s Store) ParkUnknownSubmissionHold(id int64) error {
+	return s.db().Model(&record.Task{}).
+		Where("id = ? AND fail_reason = ?", id, domain.SyncManualFailReason(domain.SyncReasonSubmissionOutcomeUnknown)).
+		Update("fail_reason", domain.SyncManualFailReason(domain.SyncReasonAutoReleaseUnavailable)).Error
+}
+
+func (s Store) unknownSubmissionHolds(submittedBefore int64) *gorm.DB {
+	return s.db().Model(&record.Task{}).
+		Where("status = ?", record.TaskStatusFailure).
+		Where("platform IN ?", openRouterSyncPlatforms).
+		Where("fail_reason = ?", domain.SyncManualFailReason(domain.SyncReasonSubmissionOutcomeUnknown)).
+		Where("submit_time <= ?", submittedBefore)
 }
 
 func (s Store) GetByOnlyTaskId(taskId string) (*record.Task, bool, error) {
