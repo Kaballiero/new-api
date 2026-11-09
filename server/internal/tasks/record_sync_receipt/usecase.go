@@ -81,7 +81,7 @@ func (u Usecase) Execute(_ context.Context, input Input) error {
 	if image && task.Status == domain.TaskStatusFailure {
 		return u.store.UpdateRevision(task, a.Revision)
 	}
-	if !image && !input.RequestError && input.ResponsePresent && input.Status >= 400 && input.Status < 500 && input.Status != 408 && input.Status != 429 && task.PrivateData.UpstreamTaskID == "" {
+	if !image && !input.RequestError && input.ResponsePresent && input.Status >= 400 && input.Status < 500 && input.Status != 408 && task.PrivateData.UpstreamTaskID == "" {
 		r := task.PrivateData.Reconciliation
 		r.SubmissionPending = false
 		r.HasUpstreamCost, r.UpstreamCostConfirmed, r.UpstreamCostUSD = true, true, 0
