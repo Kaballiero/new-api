@@ -291,6 +291,8 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				assert.Equal(t, "unsettled_items", domain.ReconciliationReason((*domain.Job)(&anthropic), time.Now(), testKinds(), math.BatchCodec{}), "only 24h completion-window adapters have the provider window")
 			}
 			if mode == "ambiguous_overdue" {
+				// A received result makes the job ineligible for automatic release.
+				require.NoError(t, testStore().StoreBatchResult(job.ID, "client-id", `{"custom_id":"client-id"}`, "result"))
 				// Legacy unknown creations reached production with an erased cause,
 				// stored as NULL by older rows.
 				require.NoError(t, db.Model(&job).Update("last_error", gorm.Expr("NULL")).Error)
@@ -636,7 +638,7 @@ func TestBatchReleaseUnsubmitted(t *testing.T) {
 			var events int64
 			require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&events).Error)
 			if tc.halfApplied {
-				result, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", 1)
+				result, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", domain.OperatorHoldRelease(1))
 				require.NoError(t, err)
 				assert.True(t, result.AlreadyReleased)
 				assert.False(t, result.Pending)
@@ -647,7 +649,7 @@ func TestBatchReleaseUnsubmitted(t *testing.T) {
 				assert.Equal(t, 1000, user.Quota)
 				var released int64
 				require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&released).Error)
-				repeat, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", 1)
+				repeat, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", domain.OperatorHoldRelease(1))
 				require.NoError(t, err)
 				assert.True(t, repeat.AlreadyReleased)
 				var after int64
@@ -665,7 +667,7 @@ func TestBatchReleaseUnsubmitted(t *testing.T) {
 					}
 				}))
 				t.Cleanup(func() { _ = db.Callback().Update().Remove(hook) })
-				result, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", 1)
+				result, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", domain.OperatorHoldRelease(1))
 				require.NoError(t, err)
 				assert.True(t, result.AlreadyReleased)
 				assert.False(t, result.Pending)
@@ -681,7 +683,7 @@ func TestBatchReleaseUnsubmitted(t *testing.T) {
 				return
 			}
 
-			result, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", 1)
+			result, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", domain.OperatorHoldRelease(1))
 			require.NoError(t, db.First(&user, user.Id).Error)
 			require.NoError(t, db.First(&token, token.Id).Error)
 			if !tc.eligible {
@@ -725,13 +727,124 @@ func TestBatchReleaseUnsubmitted(t *testing.T) {
 			require.NoError(t, err)
 			assert.Empty(t, entries)
 
-			repeat, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", 1)
+			repeat, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", domain.OperatorHoldRelease(1))
 			require.NoError(t, err)
 			assert.True(t, repeat.AlreadyReleased)
 			assert.Zero(t, repeat.ReleasedQuota)
 			var after int64
 			require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&after).Error)
 			assert.EqualValues(t, int(events)+len(released), after, "a repeated release adds no outbox events")
+			require.NoError(t, db.First(&user, user.Id).Error)
+			assert.Zero(t, user.BatchHeldQuota)
+			assert.Equal(t, 1000, user.Quota)
+		})
+	}
+}
+
+func TestBatchAutoReleaseUnsubmitted(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		age  time.Duration
+		// results: a late provider result reached the job before the tick.
+		results bool
+		// operatorFirst: root released the hold before the tick.
+		operatorFirst bool
+		// operatorLease: a root release holds the lease during the tick.
+		operatorLease bool
+		released      bool
+	}{
+		{name: "before 24h", age: 23 * time.Hour},
+		{name: "after 24h", age: 25 * time.Hour, released: true},
+		{name: "results received", age: 25 * time.Hour, results: true},
+		{name: "operator released first", age: 25 * time.Hour, operatorFirst: true, released: true},
+		{name: "operator holds lease", age: 25 * time.Hour, operatorLease: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			oldDB, oldLogDB, oldRedis, oldMemory := model.DB, model.LOG_DB, common.RedisEnabled, common.MemoryCacheEnabled
+			model.DB, model.LOG_DB, common.RedisEnabled, common.MemoryCacheEnabled = db, db, false, false
+			t.Cleanup(func() {
+				model.DB, model.LOG_DB, common.RedisEnabled, common.MemoryCacheEnabled = oldDB, oldLogDB, oldRedis, oldMemory
+				_ = sqlDB.Close()
+			})
+			require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}, &model.BatchLogEvent{}, &model.BatchLogReceipt{}, &model.Log{}))
+			channel := model.Channel{Type: constant.ChannelTypeOpenRouter, Key: "test-key"}
+			require.NoError(t, db.Create(&channel).Error)
+			user := model.User{Username: "auto-release-user", Password: "unused", Quota: 1000, AuthVersion: 1}
+			require.NoError(t, db.Create(&user).Error)
+			token := model.Token{UserId: user.Id, Key: "auto-release-token", RemainQuota: 1000}
+			require.NoError(t, db.Create(&token).Error)
+			job := model.BatchJob{PublicID: "batch_auto_release", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, ChannelType: channel.Type, Model: "test-model", UpstreamModel: "test-model", Endpoint: "/v1/chat/completions", Status: "validating", BillingStatus: "reserved", SubmitState: "queued", BillingSnapshot: fmt.Sprintf(`{"settlement_mode":%q}`, domain.BatchSettlementOpenRouterJobCostV2), RequestCount: 1, ReservedQuota: 100, ExpiresAt: time.Now().Add(time.Hour).Unix()}
+			require.NoError(t, reserve(&job, []model.BatchItem{{CustomID: "client-id", Body: `{}`, UpstreamBody: `{}`, BillingStatus: "reserved", ReservedQuota: 100}}))
+			require.NoError(t, db.Model(&job).Updates(map[string]any{"submit_state": "submission_unknown", "billing_status": "reconciliation_required", "created_at": time.Now().Add(-tc.age).Unix(),
+				"last_error": `{"version":1,"phase":"create","code":"transport_error","category":"ambiguous","message":"m"}`}).Error)
+			if tc.results {
+				require.NoError(t, testStore().StoreBatchResult(job.ID, "client-id", `{"custom_id":"client-id"}`, "result"))
+			}
+			if tc.operatorFirst || tc.operatorLease {
+				claimed, err := testStore().ClaimBatchJob(job.ID, "release-runner")
+				require.NoError(t, err)
+				require.True(t, claimed)
+			}
+			if tc.operatorFirst {
+				result, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", domain.OperatorHoldRelease(1))
+				require.NoError(t, err)
+				require.EqualValues(t, 100, result.ReleasedQuota)
+				require.NoError(t, testStore().ReleaseClaim(job.ID, "release-runner"))
+			}
+			var events int64
+			require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&events).Error)
+
+			require.NoError(t, runtime.New().Poll.Execute(context.Background(), "poll-worker"))
+			require.NoError(t, db.First(&job, job.ID).Error)
+			require.NoError(t, db.First(&user, user.Id).Error)
+			require.NoError(t, db.First(&token, token.Id).Error)
+			assert.Equal(t, 1000, user.Quota, "release never charges")
+			assert.Zero(t, job.ChargedQuota)
+			if !tc.released {
+				assert.Equal(t, "submission_unknown", job.SubmitState)
+				assert.Equal(t, "reconciliation_required", job.BillingStatus)
+				assert.EqualValues(t, 100, job.ReservedQuota)
+				assert.EqualValues(t, 100, user.BatchHeldQuota)
+				assert.EqualValues(t, 100, token.BatchHeldQuota)
+				return
+			}
+			assert.Equal(t, "rejected", job.SubmitState)
+			assert.Equal(t, "failed", job.Status)
+			assert.Equal(t, "settled", job.BillingStatus)
+			assert.Zero(t, job.ReservedQuota)
+			assert.Zero(t, user.BatchHeldQuota)
+			assert.Zero(t, token.BatchHeldQuota)
+			var diagnostic domain.Failure
+			require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic))
+			if tc.operatorFirst {
+				assert.Equal(t, domain.OperatorReleasedCode, diagnostic.Code)
+				var after int64
+				require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&after).Error)
+				assert.Equal(t, events, after, "the poller does not release an operator-released hold again")
+				return
+			}
+			assert.Equal(t, domain.AutoReleasedCode, diagnostic.Code)
+			var released int64
+			require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&released).Error)
+			require.Greater(t, released, events)
+
+			claimed, err := testStore().ClaimBatchJob(job.ID, "release-runner")
+			require.NoError(t, err)
+			require.True(t, claimed)
+			repeat, err := domain.ReleaseUnsubmitted(testStore(), math.BatchCodec{}, diagnostics.Diagnostics{}, (*domain.Job)(&job), "release-runner", domain.OperatorHoldRelease(1))
+			require.NoError(t, err)
+			assert.True(t, repeat.AlreadyReleased, "a later operator release sees the automatic release")
+			assert.Zero(t, repeat.ReleasedQuota)
+			require.NoError(t, testStore().ReleaseClaim(job.ID, "release-runner"))
+			require.NoError(t, runtime.New().Poll.Execute(context.Background(), "poll-worker"))
+			var after int64
+			require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&after).Error)
+			assert.Equal(t, released, after, "the hold is released once")
 			require.NoError(t, db.First(&user, user.Id).Error)
 			assert.Zero(t, user.BatchHeldQuota)
 			assert.Equal(t, 1000, user.Quota)

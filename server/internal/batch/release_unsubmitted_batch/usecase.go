@@ -15,7 +15,7 @@ type Store interface {
 	ClaimBatchJob(int64, string) (bool, error)
 	ReleaseClaim(int64, string) error
 	ReloadClaim(int64, string) (domain.Job, error)
-	MarkOperatorReleased(*domain.Job, string, string) error
+	MarkUnsubmittedReleased(*domain.Job, string, string) error
 }
 type Diagnostics interface {
 	Error(string)
@@ -62,7 +62,7 @@ func (u Usecase) Execute(in Input) (result Result, err error) {
 		return result, &domain.RuleError{Kind: domain.ReleaseBusy}
 	}
 	defer u.store.ReleaseClaim(job.ID, owner)
-	release, err := domain.ReleaseUnsubmitted(u.store, u.codec, u.diagnostics, job, owner, in.OperatorID)
+	release, err := domain.ReleaseUnsubmitted(u.store, u.codec, u.diagnostics, job, owner, domain.OperatorHoldRelease(in.OperatorID))
 	result.Job = *job
 	result.Release = release
 	switch {
