@@ -54,7 +54,7 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 	previousRate := general.CustomCurrencyExchangeRate
 	general.CustomCurrencyExchangeRate = 100
 	t.Cleanup(func() { general.CustomCurrencyExchangeRate = previousRate })
-	for _, mode := range []string{"dispatch_revoked_cache_hold", "dispatch_revoked", "dispatch_expired", "dispatch_deleted", "dispatch_revoked_after_preflight", "dispatch_revoked_after_marker", "success", "provider_routing", "corrupt_contract", "ambiguous", "ambiguous_transport", "ambiguous_overdue", "foreign_identity", "rejected", "malicious_rejected", "endpoint_rejected", "oversized_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld", "v2_window"} {
+	for _, mode := range []string{"dispatch_revoked_cache_hold", "dispatch_revoked", "dispatch_expired", "dispatch_deleted", "dispatch_revoked_after_preflight", "dispatch_revoked_after_marker", "success", "provider_routing", "corrupt_contract", "ambiguous", "ambiguous_timeout", "ambiguous_transport", "ambiguous_overdue", "foreign_identity", "rejected", "malicious_rejected", "endpoint_rejected", "oversized_rejected", "rate_limited_rejected", "provider_failed", "provider_failed_settlement_error", "aggregate_without_item_cost", "v2_aggregate", "v2_foreign_identity", "v2_null_counts", "v2_bad_counts", "v2_missing_cost", "v2_withheld", "v2_window"} {
 		t.Run(mode, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 			require.NoError(t, err)
@@ -96,6 +96,13 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 						}
 					}
 
+					if mode == "rate_limited_rejected" {
+						// OpenRouter reports a provider that refused the Batch without creating it.
+						w.Header().Set("X-Request-Id", "req-123")
+						w.WriteHeader(429)
+						_, _ = w.Write([]byte(`{"error":{"code":429,"message":"The provider could not process the Batch operation"}}`))
+						return
+					}
 					if mode == "rejected" || mode == "malicious_rejected" || mode == "endpoint_rejected" || mode == "oversized_rejected" {
 						w.Header().Set("X-Request-Id", "req-123")
 						w.WriteHeader(400)
@@ -117,6 +124,10 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 					}
 					if mode == "ambiguous" || mode == "ambiguous_overdue" {
 						w.WriteHeader(502)
+						return
+					}
+					if mode == "ambiguous_timeout" {
+						w.WriteHeader(408)
 						return
 					}
 					if mode == "ambiguous_transport" {
@@ -416,12 +427,16 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				}
 				return
 			}
-			if mode == "rejected" || mode == "malicious_rejected" || mode == "endpoint_rejected" || mode == "oversized_rejected" {
+			if mode == "rejected" || mode == "malicious_rejected" || mode == "endpoint_rejected" || mode == "oversized_rejected" || mode == "rate_limited_rejected" {
 				var diagnostic map[string]any
 				require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic))
 				assert.EqualValues(t, 1, diagnostic["version"])
 				assert.Equal(t, "create", diagnostic["phase"])
-				assert.EqualValues(t, 400, diagnostic["http_status"])
+				if mode == "rate_limited_rejected" {
+					assert.EqualValues(t, 429, diagnostic["http_status"])
+				} else {
+					assert.EqualValues(t, 400, diagnostic["http_status"])
+				}
 				assert.Equal(t, "req-123", diagnostic["request_id"])
 				if mode == "endpoint_rejected" {
 					assert.Equal(t, "batch_endpoint_unavailable", diagnostic["code"])
@@ -448,16 +463,19 @@ func TestBatchWorkerLifecycle(t *testing.T) {
 				assert.Zero(t, job.ReservedQuota)
 				return
 			}
-			if mode == "ambiguous" || mode == "ambiguous_transport" {
+			if mode == "ambiguous" || mode == "ambiguous_timeout" || mode == "ambiguous_transport" {
 				require.NoError(t, db.First(&job, job.ID).Error)
 				assert.Equal(t, "submission_unknown", job.SubmitState)
 				var diagnostic domain.Failure
 				require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic), "the first creation cause survives later ticks")
 				assert.Equal(t, "create", diagnostic.Phase)
-				if mode == "ambiguous" {
+				switch mode {
+				case "ambiguous":
 					assert.Equal(t, "provider_error", diagnostic.Code)
 					assert.Equal(t, 502, diagnostic.HTTPStatus)
-				} else {
+				case "ambiguous_timeout":
+					assert.Equal(t, 408, diagnostic.HTTPStatus)
+				default:
 					assert.Equal(t, "transport_error", diagnostic.Code)
 					assert.Equal(t, "ambiguous", diagnostic.Category)
 					assert.Zero(t, diagnostic.HTTPStatus)

@@ -3027,7 +3027,7 @@ func TestOpenRouterAudioSubmissionRejectionReleasesHold(t *testing.T) {
 		{name: "provider format rejection", status: http.StatusBadRequest, released: true},
 		{name: "forbidden", status: http.StatusForbidden, released: true},
 		{name: "request timeout", status: http.StatusRequestTimeout},
-		{name: "rate limit", status: http.StatusTooManyRequests},
+		{name: "rate limit", status: http.StatusTooManyRequests, released: true},
 		{name: "server error", status: http.StatusBadGateway},
 		{name: "transport error", requestErr: fmt.Errorf("connection reset")},
 	} {

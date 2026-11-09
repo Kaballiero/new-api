@@ -290,7 +290,7 @@ func (u Usecase) submitBatch(ctx context.Context, job *domain.Job, adapter domai
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		switch response.StatusCode {
-		case 400, 401, 403, 404, 413, 422:
+		case 400, 401, 403, 404, 413, 422, 429:
 			if err := u.store.RejectCreate(job); err != nil {
 				return err
 			}
