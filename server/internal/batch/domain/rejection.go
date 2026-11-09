@@ -1,13 +1,20 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
-type UnsubmittedStore interface {
-	RejectUnsubmitted(*Job, string) error
+type UnbilledStore interface {
 	UnsettledIdentities(int64) ([]Item, error)
 	SettleBatchItem(int64, string, int, string) error
 	SyncBatchQuotaEvents(int) error
 	ReleaseSettledBatchHolds(int64) error
+}
+
+type UnsubmittedStore interface {
+	UnbilledStore
+	RejectUnsubmitted(*Job, string) error
 }
 
 func RejectUnsubmitted(store UnsubmittedStore, diagnostics func(string), job *Job, reason string) error {
@@ -18,17 +25,25 @@ func RejectUnsubmitted(store UnsubmittedStore, diagnostics func(string), job *Jo
 		return err
 	}
 	job.Status, job.LastError = "failed", reason
-	items, err := store.UnsettledIdentities(job.ID)
+	return SettleUnbilled(store, diagnostics, job.ID, "batch_not_submitted")
+}
+
+// SettleUnbilled settles every unsettled item of a Batch with an unbilled zero
+// receipt naming reason, then releases the hold once its cache events apply.
+// Replaying it is safe: settled items are skipped and receipts are identical.
+func SettleUnbilled(store UnbilledStore, diagnostics func(string), batchID int64, reason string) error {
+	items, err := store.UnsettledIdentities(batchID)
 	if err != nil {
 		return err
 	}
+	receipt := fmt.Sprintf(`{"purchase_status":"unbilled","purchase_usd":0,"reason":%q}`, reason)
 	for _, item := range items {
-		if err := store.SettleBatchItem(job.ID, item.CustomID, 0, `{"purchase_status":"unbilled","purchase_usd":0,"reason":"batch_not_submitted"}`); err != nil {
+		if err := store.SettleBatchItem(batchID, item.CustomID, 0, receipt); err != nil {
 			return err
 		}
 	}
 	if err := store.SyncBatchQuotaEvents(1000); err != nil {
 		diagnostics("Batch outbox: " + err.Error())
 	}
-	return store.ReleaseSettledBatchHolds(job.ID)
+	return store.ReleaseSettledBatchHolds(batchID)
 }

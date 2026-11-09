@@ -1,10 +1,10 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 
 	billing "github.com/QuantumNous/new-api/internal/billing/domain"
 )
@@ -35,8 +35,9 @@ func CanMarkSubmissionUnknown(job Job, runner string, now int64) bool {
 }
 
 // ValidateItemSettlement allows an aggregate-cost Batch only unbilled zero
-// item receipts: for a Batch never submitted, or one that ended without results.
-func ValidateItemSettlement(job Job, mode, purchase string, quota int) error {
+// item receipts: for a Batch never submitted, or one ZeroSettleAllowed with the
+// provider cost read under the same lock.
+func ValidateItemSettlement(job Job, mode, purchase string, quota int, cost json.RawMessage) error {
 	if job.FinancialDetails != "" {
 		return ErrBatchConflict
 	}
@@ -45,8 +46,7 @@ func ValidateItemSettlement(job Job, mode, purchase string, quota int) error {
 	}
 	unbilledZero := quota == 0 && purchase == "unbilled"
 	unsubmitted := job.UpstreamID == "" && job.SubmitState == "rejected"
-	endedEmpty := slices.Contains(unfinishedTerminalStates, State(job.Status)) && job.ResultCount == 0
-	if !unbilledZero || !(unsubmitted || endedEmpty) {
+	if !unbilledZero || !(unsubmitted || ZeroSettleAllowed(job, cost)) {
 		return ErrBatchConflict
 	}
 	return nil

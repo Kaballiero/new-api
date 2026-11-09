@@ -1,6 +1,7 @@
 package poll_batches
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -205,6 +206,130 @@ func TestBatchPurchaseUsesFrozenProviderBase(t *testing.T) {
 	assert.InDelta(t, 0.00015, *purchase, 1e-12, "existing batches retain their frozen procurement basis")
 	snapshot.PurchaseExpression = ""
 	assert.Nil(t, testPolling().purchaseUSD((*domain.Job)(job), domain.Result(result), usage, pureSnapshot(t, snapshot), []byte(`{}`)), "missing legacy procurement must not be reinterpreted")
+}
+
+type zeroSettleStore struct {
+	Store
+	job          domain.Job
+	diagnostics  []string
+	receipts     []string
+	released     bool
+	settledItems int
+}
+
+func (s *zeroSettleStore) ReloadClaim(int64, string) (domain.Job, error) { return s.job, nil }
+func (s *zeroSettleStore) SaveDiagnostic(_ *domain.Job, _ string, diagnostic string, _ bool) (bool, error) {
+	s.diagnostics = append(s.diagnostics, diagnostic)
+	return true, nil
+}
+func (s *zeroSettleStore) UnsettledIdentities(int64) ([]domain.Item, error) {
+	items := make([]domain.Item, s.job.RequestCount-s.job.SettledCount)
+	for i := range items {
+		items[i] = domain.Item{CustomID: fmt.Sprintf("item-%d", s.job.SettledCount+i)}
+	}
+	return items, nil
+}
+func (s *zeroSettleStore) SettleBatchItem(_ int64, customID string, quota int, details string) error {
+	s.receipts = append(s.receipts, fmt.Sprintf("%s:%d:%s", customID, quota, details))
+	return nil
+}
+func (s *zeroSettleStore) SyncBatchQuotaEvents(int) error { return nil }
+func (s *zeroSettleStore) ReleaseSettledBatchHolds(int64) error {
+	s.released = true
+	return nil
+}
+func (s *zeroSettleStore) ByID(int64) (*domain.Job, error) {
+	job := s.job
+	job.BillingStatus, job.ReservedQuota, job.SettledCount = "settled", 0, job.RequestCount
+	return &job, nil
+}
+
+type zeroSettleDiagnostics struct{ info []string }
+
+func (d *zeroSettleDiagnostics) Error(string)                          {}
+func (d *zeroSettleDiagnostics) Info(message string)                   { d.info = append(d.info, message) }
+func (d *zeroSettleDiagnostics) Saturation(*domain.Job, string, error) {}
+
+func TestSettleTerminalWithoutCost(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	conflict := domain.ErrBatchConflict
+	observed := func(ago time.Duration) string {
+		return fmt.Sprintf(`{"version":1,"phase":"poll","code":"invalid_request","message":"m","terminal_observed_at":%d}`, now.Add(-ago).Unix())
+	}
+	const receipt = `{"purchase_status":"unbilled","purchase_usd":0,"reason":"terminal_without_cost"}`
+	for _, tc := range []struct {
+		name      string
+		mode      string
+		lastError string
+		usage     string
+		settled   int
+		results   int
+		billing   string
+		settleErr error
+		// diagnostics are the stored diagnostics; an empty one clears it.
+		diagnostics []string
+		receipts    []string
+		info        string
+		err         error
+	}{
+		{name: "legacy mode", mode: domain.BatchSettlementOpenRouterCostV1, settleErr: conflict, err: conflict},
+		{name: "first observation", settleErr: conflict, err: conflict,
+			diagnostics: []string{fmt.Sprintf(`{"version":1,"phase":"poll","code":"terminal_without_cost","message":"The provider Batch ended without results or a cost.","terminal_observed_at":%d}`, now.Unix())}},
+		{name: "first observation keeps provider diagnostic", lastError: `{"version":1,"phase":"poll","code":"invalid_request","message":"m"}`, settleErr: conflict, err: conflict,
+			diagnostics: []string{fmt.Sprintf(`{"version":1,"phase":"poll","code":"invalid_request","message":"m","terminal_observed_at":%d}`, now.Unix())}},
+		{name: "before 1h", lastError: observed(59 * time.Minute), settleErr: conflict, err: conflict},
+		{name: "after 1h", lastError: observed(time.Hour), usage: `{"prompt_tokens":0}`, settleErr: conflict,
+			receipts: []string{"item-0:0:" + receipt, "item-1:0:" + receipt},
+			info:     "Batch batch_fake: failed without results or provider cost; settled at zero, released quota 200"},
+		{name: "cost after zero settlement began", lastError: observed(time.Hour), usage: `{"cost":0.5}`, settled: 1, settleErr: conflict,
+			receipts: []string{"item-1:0:" + receipt},
+			info:     "Batch batch_fake: failed without results or provider cost; settled at zero, released quota 200; provider cost 0.5 arrived after the zero settlement began and is not charged"},
+		{name: "zero settlement complete", lastError: observed(2 * time.Hour), settled: 2, billing: "settled"},
+		{name: "cost settled the job", lastError: observed(30 * time.Minute), usage: `{"cost":0.5}`,
+			diagnostics: []string{`{"version":1,"phase":"poll","code":"invalid_request","message":"m"}`}},
+		{name: "results arrived", lastError: fmt.Sprintf(`{"version":1,"phase":"poll","code":"terminal_without_cost","message":"m","terminal_observed_at":%d}`, now.Unix()), results: 1, settleErr: conflict, err: conflict,
+			diagnostics: []string{""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mode := tc.mode
+			if mode == "" {
+				mode = domain.BatchSettlementOpenRouterJobCostV2
+			}
+			billing := tc.billing
+			if billing == "" {
+				billing = "reconciliation_required"
+			}
+			store := &zeroSettleStore{job: domain.Job{ID: 7, PublicID: "batch_fake", Status: "failed", SubmitState: "submitted", UpstreamID: "native-1",
+				BillingStatus: billing, BillingSnapshot: fmt.Sprintf(`{"settlement_mode":%q}`, mode), UpstreamUsage: tc.usage,
+				LastError: tc.lastError, RequestCount: 2, SettledCount: tc.settled, ResultCount: tc.results, ReservedQuota: 200}}
+			diagnostics := &zeroSettleDiagnostics{}
+			usecase := NewUsecase(store, gateway.Gateway{}, math.BatchCodec{}, math.BatchMath{}, usageadapter.BatchMetadata{}, diagnostics, func() time.Time { return now }, domain.ChannelKinds{})
+			job := store.job
+
+			err := usecase.settleTerminalWithoutCost(&job, "runner", tc.settleErr)
+
+			if tc.err == nil {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, tc.err)
+			}
+			require.Len(t, store.diagnostics, len(tc.diagnostics))
+			for i, want := range tc.diagnostics {
+				if want == "" {
+					assert.Empty(t, store.diagnostics[i], "a synthesized observation is cleared entirely")
+					continue
+				}
+				assert.JSONEq(t, want, store.diagnostics[i])
+			}
+			assert.Equal(t, tc.receipts, store.receipts)
+			assert.Equal(t, tc.receipts != nil, store.released)
+			if tc.info == "" {
+				assert.Empty(t, diagnostics.info)
+			} else {
+				assert.Equal(t, []string{tc.info}, diagnostics.info)
+			}
+		})
+	}
 }
 
 func testPolling() Usecase {

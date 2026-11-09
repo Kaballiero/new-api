@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"time"
 
 	"github.com/QuantumNous/new-api/internal/batch/domain"
@@ -108,10 +107,8 @@ func (u Usecase) Execute(ctx context.Context, runnerID string) error {
 			message = "batch requires retry or reconciliation"
 			u.diagnostics.Error(fmt.Sprintf("batch %s: %v", job.PublicID, err))
 		}
-		// Unknown and rejected submissions and observed ended Batches keep their stored diagnostic.
-		keepsDiagnostic := slices.Contains([]string{"submission_unknown", "rejected"}, job.SubmitState) || domain.TerminalObservedAt(&job, u.codec) != 0
 		var lastError *string
-		if !keepsDiagnostic && (job.Status != "failed" || (err != nil && job.LastError == "")) {
+		if !domain.KeepsDiagnostic(&job, u.codec) && (job.Status != "failed" || (err != nil && job.LastError == "")) {
 			lastError = &message
 		}
 		if err := u.store.FinishClaim(&job, runnerID, u.now().Unix(), lastError); err != nil {
@@ -220,11 +217,13 @@ func (u Usecase) processBatchJob(ctx context.Context, job *domain.Job, runnerID 
 	if u.now().Unix() < job.ExpiresAt {
 		pollErr = u.pollBatch(ctx, job, adapter, runnerID)
 	}
-	if err := u.settleResults(job); err != nil {
-		if !errors.Is(err, domain.ErrBatchConflict) {
-			return err
-		}
-		if err := u.settleTerminalWithoutCost(job, runnerID, err); err != nil {
+	settleErr := u.settleResults(job)
+	if settleErr != nil && !errors.Is(settleErr, domain.ErrBatchConflict) {
+		return settleErr
+	}
+	// A conflict may be a Batch ended without cost; a stored observation may be stale.
+	if settleErr != nil || domain.TerminalObservedAt(job, u.codec) != 0 {
+		if err := u.settleTerminalWithoutCost(job, runnerID, settleErr); err != nil {
 			return err
 		}
 	}
@@ -430,9 +429,8 @@ func (u Usecase) pollBatch(ctx context.Context, job *domain.Job, adapter domain.
 	}
 	update := domain.PollUpdate{State: snapshot.State, OutputFileID: snapshot.OutputFileID,
 		ErrorFileID: snapshot.ErrorFileID, Usage: string(snapshot.Usage)}
-	// The observation of an ended Batch keeps its diagnostic; its provider error no longer changes.
 	providerErrorChanged := job.Status != "failed" || job.LastError == "" || (len(snapshot.Error) > 0 && string(snapshot.Error) != "null")
-	if snapshot.State == domain.Failed && providerErrorChanged && domain.TerminalObservedAt(job, u.codec) == 0 {
+	if snapshot.State == domain.Failed && providerErrorChanged && !domain.KeepsDiagnostic(job, u.codec) {
 		job.LastError = u.gateway.Failure("poll", response.StatusCode, response.RequestID, snapshot.Error)
 		update.LastError = &job.LastError
 	}

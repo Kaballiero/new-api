@@ -59,7 +59,13 @@ func (s Store) SettleBatchItem(batchID int64, customID string, quota int, detail
 				return err
 			}
 		}
-		if err := domain.ValidateItemSettlement(domain.Job(job), settlement.Mode, receipt.PurchaseStatus, quota); err != nil {
+		var usage map[string]json.RawMessage
+		if settlement.Mode == domain.BatchSettlementOpenRouterJobCostV2 && job.UpstreamUsage != "" {
+			if err := common.UnmarshalJsonStr(job.UpstreamUsage, &usage); err != nil {
+				return fmt.Errorf("%w: invalid aggregate usage", domain.ErrBatchConflict)
+			}
+		}
+		if err := domain.ValidateItemSettlement(domain.Job(job), settlement.Mode, receipt.PurchaseStatus, quota, usage["cost"]); err != nil {
 			return err
 		}
 		var item BatchItem
