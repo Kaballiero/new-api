@@ -870,6 +870,149 @@ func TestBatchAutoReleaseUnsubmitted(t *testing.T) {
 	}
 }
 
+func TestBatchTerminalWithoutCostZeroSettle(t *testing.T) {
+	general := operation_setting.GetGeneralSetting()
+	previousRate := general.CustomCurrencyExchangeRate
+	general.CustomCurrencyExchangeRate = 100
+	t.Cleanup(func() { general.CustomCurrencyExchangeRate = previousRate })
+	for _, tc := range []struct {
+		name string
+		// observedAgo is the age of the stored terminal observation; zero stores none.
+		observedAgo time.Duration
+		status      string
+		usage       string
+		results     bool
+		// operatorLease: an operator action holds the lease during the tick.
+		operatorLease bool
+		zeroSettled   bool
+	}{
+		{name: "first observation", status: "failed"},
+		{name: "before 1h", observedAgo: 59 * time.Minute, status: "failed"},
+		{name: "failed after 1h", observedAgo: 61 * time.Minute, status: "failed", zeroSettled: true},
+		{name: "expired after 1h", observedAgo: 61 * time.Minute, status: "expired", zeroSettled: true},
+		{name: "cancelled after 1h", observedAgo: 61 * time.Minute, status: "cancelled", usage: `{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}`, zeroSettled: true},
+		{name: "cost arrives", observedAgo: 61 * time.Minute, status: "failed", usage: `{"cost":0.000004,"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}`},
+		{name: "results received", observedAgo: 61 * time.Minute, status: "failed", results: true},
+		{name: "operator holds lease", observedAgo: 61 * time.Minute, status: "failed", operatorLease: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			oldDB, oldLogDB, oldRedis, oldMemory := model.DB, model.LOG_DB, common.RedisEnabled, common.MemoryCacheEnabled
+			model.DB, model.LOG_DB, common.RedisEnabled, common.MemoryCacheEnabled = db, db, false, false
+			t.Cleanup(func() {
+				model.DB, model.LOG_DB, common.RedisEnabled, common.MemoryCacheEnabled = oldDB, oldLogDB, oldRedis, oldMemory
+				_ = sqlDB.Close()
+			})
+			require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.BatchJob{}, &model.BatchItem{}, &model.BatchQuotaEvent{}, &model.BatchLogEvent{}, &model.BatchLogReceipt{}, &model.Log{}))
+			seedFX(t)
+			var nativeCustomID string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				usage, results := "null", "null"
+				if tc.usage != "" {
+					usage = tc.usage
+				}
+				if tc.results {
+					results = fmt.Sprintf(`[{"custom_id":%q,"error":{"code":"server_error","message":"m"}}]`, nativeCustomID)
+				}
+				_, _ = fmt.Fprintf(w, `{"id":"native-1","status":%q,"usage":%s,"results":%s,"error":{"code":"invalid_request","message":"specific upstream rejection"}}`, tc.status, usage, results)
+			}))
+			t.Cleanup(server.Close)
+			base := server.URL + "/api"
+			channel := model.Channel{Type: constant.ChannelTypeOpenRouter, Key: "test-key", BaseURL: &base}
+			require.NoError(t, db.Create(&channel).Error)
+			user := model.User{Username: "zero-settle-user", Password: "unused", Quota: 1000, AuthVersion: 1}
+			require.NoError(t, db.Create(&user).Error)
+			token := model.Token{UserId: user.Id, Key: "zero-settle-token", RemainQuota: 1000}
+			require.NoError(t, db.Create(&token).Error)
+			snapshot, err := openRouterSnapshot()
+			require.NoError(t, err)
+			encoded, err := common.Marshal(snapshot)
+			require.NoError(t, err)
+			configHash, err := account.BatchChannelConfigHash(&channel)
+			require.NoError(t, err)
+			job := model.BatchJob{PublicID: "batch_zero_settle", UserID: user.Id, TokenID: token.Id, ChannelID: channel.Id, ChannelType: channel.Type, CredentialHash: fmt.Sprintf("%x", sha256.Sum256([]byte(channel.Key))), ChannelConfigHash: configHash, Model: "test-model", UpstreamModel: "test-model", Endpoint: "/v1/chat/completions", Status: "validating", BillingStatus: "reserved", SubmitState: "queued", BillingSnapshot: string(encoded), RequestCount: 1, ReservedQuota: 100, ExpiresAt: time.Now().Add(time.Hour).Unix()}
+			require.NoError(t, reserve(&job, []model.BatchItem{{CustomID: "client-id", Body: `{"max_tokens":8}`, UpstreamBody: `{"max_tokens":8}`, BillingStatus: "reserved", ReservedQuota: 100}}))
+			var item model.BatchItem
+			require.NoError(t, db.Where("batch_id = ?", job.ID).First(&item).Error)
+			nativeCustomID = item.ProviderCustomID
+			updates := map[string]any{"submit_state": "submitted", "upstream_id": "native-1", "status": "in_progress"}
+			var observedAt int64
+			if tc.observedAgo != 0 {
+				observedAt = time.Now().Add(-tc.observedAgo).Unix()
+				updates["status"], updates["billing_status"] = tc.status, "reconciliation_required"
+				updates["last_error"] = fmt.Sprintf(`{"version":1,"phase":"poll","code":"invalid_request","category":"invalid_request","message":"m","terminal_observed_at":%d}`, observedAt)
+			}
+			require.NoError(t, db.Model(&job).Updates(updates).Error)
+			if tc.operatorLease {
+				claimed, err := testStore().ClaimBatchJob(job.ID, "operator-runner")
+				require.NoError(t, err)
+				require.True(t, claimed)
+			}
+
+			require.NoError(t, runtime.New().Poll.Execute(context.Background(), "poll-worker"))
+			require.NoError(t, db.First(&job, job.ID).Error)
+			require.NoError(t, db.First(&user, user.Id).Error)
+			require.NoError(t, db.First(&token, token.Id).Error)
+			var diagnostic domain.Failure
+			require.NoError(t, common.UnmarshalJsonStr(job.LastError, &diagnostic))
+			switch {
+			case tc.zeroSettled:
+				assert.Equal(t, "settled", job.BillingStatus)
+				assert.Equal(t, "settled", job.PurchaseStatus)
+				assert.Equal(t, tc.status, job.Status)
+				assert.Zero(t, job.ChargedQuota)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Equal(t, 1, job.SettledCount)
+				assert.Equal(t, 1000, user.Quota, "zero settlement never charges")
+				assert.Zero(t, user.BatchHeldQuota)
+				assert.Zero(t, token.BatchHeldQuota)
+				assert.Equal(t, observedAt, diagnostic.TerminalObservedAt)
+				require.NoError(t, db.First(&item, item.ID).Error)
+				assert.Equal(t, "settled", item.BillingStatus)
+				assert.Equal(t, "unbilled", item.PurchaseStatus)
+				assert.Zero(t, item.ChargedQuota)
+
+				var events int64
+				require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&events).Error)
+				require.NoError(t, runtime.New().Poll.Execute(context.Background(), "poll-worker"))
+				var after int64
+				require.NoError(t, db.Model(&model.BatchQuotaEvent{}).Count(&after).Error)
+				assert.Equal(t, events, after, "the Batch is settled once")
+				require.NoError(t, db.First(&user, user.Id).Error)
+				assert.Equal(t, 1000, user.Quota)
+				assert.Zero(t, user.BatchHeldQuota)
+			case tc.usage != "" && strings.Contains(tc.usage, "cost"):
+				assert.Equal(t, "settled", job.BillingStatus, "a late provider cost settles normally")
+				assert.NotEmpty(t, job.FinancialDetails)
+				assert.Zero(t, job.ReservedQuota)
+				assert.Equal(t, int(1000-job.ChargedQuota), user.Quota)
+				require.NoError(t, db.First(&item, item.ID).Error)
+				assert.Equal(t, "settled_at_batch", item.BillingStatus)
+			default:
+				assert.Equal(t, "reconciliation_required", job.BillingStatus)
+				assert.Zero(t, job.ChargedQuota)
+				assert.Zero(t, job.SettledCount)
+				assert.EqualValues(t, 100, job.ReservedQuota)
+				assert.Equal(t, 1000, user.Quota)
+				assert.EqualValues(t, 100, user.BatchHeldQuota)
+				assert.EqualValues(t, 100, token.BatchHeldQuota)
+				if tc.observedAgo == 0 {
+					assert.Equal(t, "failed", job.Status)
+					assert.Equal(t, "invalid_request", diagnostic.Code, "the observation keeps the provider diagnostic")
+					assert.InDelta(t, time.Now().Unix(), diagnostic.TerminalObservedAt, 5)
+				} else {
+					assert.Equal(t, observedAt, diagnostic.TerminalObservedAt)
+				}
+			}
+		})
+	}
+}
+
 func testKinds() domain.ChannelKinds {
 	return domain.ChannelKinds{OpenAI: constant.ChannelTypeOpenAI, Anthropic: constant.ChannelTypeAnthropic, Google: constant.ChannelTypeGemini, OpenRouter: constant.ChannelTypeOpenRouter}
 }

@@ -229,7 +229,7 @@ func (s Store) ReconcilePurchase(job *domain.Job, cost, evidence string) error {
 	return e
 }
 
-func (s Store) SaveUnknownDiagnostic(job *domain.Job, owner, diagnostic string, first bool) (bool, error) {
+func (s Store) SaveDiagnostic(job *domain.Job, owner, diagnostic string, first bool) (bool, error) {
 	q := s.db().Model(&BatchJob{}).Where("id = ? AND lease_owner = ?", job.ID, owner)
 	if first {
 		q = q.Where("submit_state = ? AND (last_error = '' OR last_error IS NULL)", "submission_unknown")

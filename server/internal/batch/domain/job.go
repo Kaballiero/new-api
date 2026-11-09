@@ -53,4 +53,7 @@ type Failure struct {
 	HTTPStatus int    `json:"http_status,omitempty"`
 	RequestID  string `json:"request_id,omitempty"`
 	AlertedAt  int64  `json:"alerted_at,omitempty"`
+	// TerminalObservedAt is when the poller first observed the Batch ended
+	// without results or provider cost.
+	TerminalObservedAt int64 `json:"terminal_observed_at,omitempty"`
 }

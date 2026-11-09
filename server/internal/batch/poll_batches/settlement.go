@@ -3,6 +3,7 @@ package poll_batches
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/QuantumNous/new-api/internal/batch/domain"
@@ -123,6 +124,70 @@ func (u Usecase) settleResults(job *domain.Job) error {
 			return err
 		}
 	}
+}
+
+// settleTerminalWithoutCost settles at zero an aggregate-cost Batch that ended
+// without results or provider cost, and releases its hold, once an hour has
+// passed since the poller first observed it. Until then the settlement conflict
+// stands and the first observation is stored in the diagnostic.
+func (u Usecase) settleTerminalWithoutCost(job *domain.Job, runnerID string, conflict error) error {
+	current, err := u.store.ReloadClaim(job.ID, runnerID)
+	if err != nil {
+		return errors.Join(conflict, err)
+	}
+	*job = current
+	if !domain.TerminalWithoutCost(job, u.codec) {
+		return conflict
+	}
+	observedAt := domain.TerminalObservedAt(job, u.codec)
+	if observedAt == 0 {
+		var failure domain.Failure
+		if u.codec.UnmarshalJsonStr(job.LastError, &failure) != nil || failure.Version != 1 {
+			failure = domain.Failure{Version: 1, Phase: "poll", Code: "terminal_without_cost", Message: "The provider Batch ended without results or a cost."}
+		}
+		failure.TerminalObservedAt = u.now().Unix()
+		encoded, err := u.codec.Marshal(failure)
+		if err != nil {
+			return errors.Join(conflict, err)
+		}
+		changed, err := u.store.SaveDiagnostic(job, runnerID, string(encoded), false)
+		if err != nil {
+			return errors.Join(conflict, err)
+		}
+		if changed {
+			job.LastError = string(encoded)
+		}
+		return conflict
+	}
+	if !domain.TerminalZeroSettleDue(observedAt, u.now()) {
+		return conflict
+	}
+	held := job.ReservedQuota
+	items, err := u.store.UnsettledIdentities(job.ID)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if err := u.store.SettleBatchItem(job.ID, item.CustomID, 0, `{"purchase_status":"unbilled","purchase_usd":0,"reason":"terminal_without_cost"}`); err != nil {
+			return err
+		}
+	}
+	if err := u.store.SyncBatchQuotaEvents(1000); err != nil {
+		u.diagnostics.Error("Batch outbox: " + err.Error())
+	}
+	if err := u.store.ReleaseSettledBatchHolds(job.ID); err != nil {
+		return err
+	}
+	reloaded, err := u.store.ByID(job.ID)
+	if err != nil {
+		return err
+	}
+	*job = *reloaded
+	// A hold awaiting cache confirmation is released, and logged, on a later tick.
+	if job.BillingStatus == "settled" && job.ReservedQuota == 0 {
+		u.diagnostics.Info(fmt.Sprintf("Batch %s: %s without results or provider cost; settled at zero, released quota %d", job.PublicID, job.Status, held))
+	}
+	return nil
 }
 
 func (u Usecase) purchaseUSD(job *domain.Job, result domain.Result, usage *billingdomain.Usage,

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	billing "github.com/QuantumNous/new-api/internal/billing/domain"
 )
@@ -32,9 +33,20 @@ func DispatchRevoked(a Accounts, now int64, userEnabled, tokenEnabled int) bool 
 func CanMarkSubmissionUnknown(job Job, runner string, now int64) bool {
 	return job.SubmitState == "preparing" && job.UpstreamID == "" && job.LeaseOwner == runner && job.LeaseUntil > now
 }
+
+// ValidateItemSettlement allows an aggregate-cost Batch only unbilled zero
+// item receipts: for a Batch never submitted, or one that ended without results.
 func ValidateItemSettlement(job Job, mode, purchase string, quota int) error {
-	if job.FinancialDetails != "" || (mode == BatchSettlementOpenRouterJobCostV2 && !(job.UpstreamID == "" &&
-		job.SubmitState == "rejected" && quota == 0 && purchase == "unbilled")) {
+	if job.FinancialDetails != "" {
+		return ErrBatchConflict
+	}
+	if mode != BatchSettlementOpenRouterJobCostV2 {
+		return nil
+	}
+	unbilledZero := quota == 0 && purchase == "unbilled"
+	unsubmitted := job.UpstreamID == "" && job.SubmitState == "rejected"
+	endedEmpty := slices.Contains(unfinishedTerminalStates, State(job.Status)) && job.ResultCount == 0
+	if !unbilledZero || !(unsubmitted || endedEmpty) {
 		return ErrBatchConflict
 	}
 	return nil

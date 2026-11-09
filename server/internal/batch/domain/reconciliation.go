@@ -1,13 +1,16 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 )
 
 const (
 	batchProviderWindow          = 24 * time.Hour
 	batchProviderGrace           = 2 * time.Hour
+	batchTerminalZeroSettleAfter = time.Hour
 	batchUnknownAutoReleaseAfter = 24 * time.Hour
 	batchUnknownAlertAfter       = 48 * time.Hour
 )
@@ -34,6 +37,48 @@ func ProviderWindowExceeded(job *Job, now time.Time, kinds ChannelKinds) bool {
 		return false
 	}
 	return job.UpstreamID != "" && !State(job.Status).Terminal() && now.Unix() >= job.CreatedAt+int64((batchProviderWindow+batchProviderGrace)/time.Second)
+}
+
+// unfinishedTerminalStates are the provider states of a Batch that ended
+// without completing its work.
+var unfinishedTerminalStates = []State{Failed, Expired, Cancelled}
+
+// TerminalWithoutCost reports an aggregate-cost Batch that ended unfinished
+// with no results and no provider cost; the poller settles it at zero once
+// TerminalZeroSettleDue.
+func TerminalWithoutCost(job *Job, codec Codec) bool {
+	var snapshot struct {
+		Mode string `json:"settlement_mode"`
+	}
+	if codec.UnmarshalJsonStr(job.BillingSnapshot, &snapshot) != nil || snapshot.Mode != BatchSettlementOpenRouterJobCostV2 {
+		return false
+	}
+	var usage struct {
+		Cost json.RawMessage `json:"cost"`
+	}
+	// An absent usage object carries no cost either.
+	if job.UpstreamUsage != "" && codec.UnmarshalJsonStr(job.UpstreamUsage, &usage) != nil {
+		return false
+	}
+	costMissing := len(usage.Cost) == 0 || string(usage.Cost) == "null"
+	endedEmpty := slices.Contains(unfinishedTerminalStates, State(job.Status)) && job.UpstreamID != "" && job.ResultCount == 0
+	return endedEmpty && costMissing && job.FinancialDetails == ""
+}
+
+// TerminalObservedAt returns when the poller first observed the Batch ended
+// without cost, stored in its diagnostic like AlertedAt; zero until observed.
+func TerminalObservedAt(job *Job, codec Codec) int64 {
+	var failure Failure
+	if codec.UnmarshalJsonStr(job.LastError, &failure) != nil {
+		return 0
+	}
+	return failure.TerminalObservedAt
+}
+
+// TerminalZeroSettleDue reports a Batch observed ended without cost long
+// enough ago to settle it at zero and release its hold.
+func TerminalZeroSettleDue(observedAt int64, now time.Time) bool {
+	return observedAt != 0 && now.Unix()-observedAt >= int64(batchTerminalZeroSettleAfter/time.Second)
 }
 
 func ReconciliationReason(job *Job, now time.Time, kinds ChannelKinds, codec Codec) string {
