@@ -57,9 +57,14 @@ func ValidOpenRouterImageCorrelation(id, apiKey string, limit int) bool {
 	}) == -1
 }
 
+// SyncManualFailReason is the stored failure text of a manual hold for reason.
+func SyncManualFailReason(reason string) string {
+	return "OpenRouter synchronous manual reconciliation required: " + reason
+}
+
 func MarkSyncManual(task *Task, reason string, now int64) {
 	task.Status, task.Progress, task.FinishTime = TaskStatusFailure, "100%", now
-	task.FailReason = "OpenRouter synchronous manual reconciliation required: " + reason
+	task.FailReason = SyncManualFailReason(reason)
 	task.PrivateData.OpenRouterSyncState().LastError = reason
 	task.PrivateData.Reconciliation.Required = true
 }

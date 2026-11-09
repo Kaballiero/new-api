@@ -1,6 +1,9 @@
 package domain
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // openRouterSyncUndeliveredReasons are result reasons recorded before any
 // output reached the client, so a zero-cost release cannot hide a delivery.
@@ -39,4 +42,14 @@ func (t *Task) OpenRouterSyncOperatorEligible(action string) bool {
 		return r.ReservedQuota >= 0
 	}
 	return false
+}
+
+// OpenRouterSyncAutoReleaseDue reports a hold root could release whose
+// submission outcome stayed unknown without an upstream identity for the
+// auto-release delay. A Task with an identity keeps the cost lookup flow.
+func (t *Task) OpenRouterSyncAutoReleaseDue(now time.Time) bool {
+	return t.OpenRouterSyncOperatorEligible(OpenRouterSyncOperatorRelease) &&
+		t.PrivateData.OpenRouterSyncState().ResultReason == "submission_outcome_unknown" &&
+		t.PrivateData.UpstreamTaskID == "" &&
+		!now.Before(time.Unix(t.SubmitTime, 0).Add(OpenRouterSyncAutoReleaseDelay))
 }

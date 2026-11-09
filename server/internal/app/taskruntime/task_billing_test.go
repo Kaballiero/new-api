@@ -3375,6 +3375,75 @@ func TestOpenRouterSyncOperatorDecisionResolvesManualHolds(t *testing.T) {
 	})
 }
 
+func TestOpenRouterSyncUnknownSubmissionAutoRelease(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		age              time.Duration
+		generationID     string
+		operatorReleased bool
+		autoReleased     bool
+	}{
+		{name: "hold younger than the delay is kept", age: taskdomain.OpenRouterSyncAutoReleaseDelay - time.Minute},
+		{name: "hold reaching the delay is released", age: taskdomain.OpenRouterSyncAutoReleaseDelay, autoReleased: true},
+		{name: "hold with a generation id keeps the lookup flow", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, generationID: "gen-known"},
+		{name: "operator release is not repeated", age: taskdomain.OpenRouterSyncAutoReleaseDelay + time.Minute, operatorReleased: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, info := newOpenRouterAudioReservation(t)
+			require.NoError(t, ConfigureOpenRouterSyncSubmission(info, "https://metadata.invalid/generation", nil))
+			require.NoError(t, RecordOpenRouterSyncSubmission(info, nil, fmt.Errorf("connection reset")))
+			task, err := openRouterSyncTask(info)
+			require.NoError(t, err)
+			require.True(t, task.OpenRouterSyncOperatorEligible(record.OpenRouterSyncOperatorRelease))
+			task.PrivateData.UpstreamTaskID = tc.generationID
+			require.NoError(t, model.DB.Model(&model.Task{}).Where("id = ?", task.ID).Updates(map[string]any{
+				"submit_time": time.Now().Add(-tc.age).Unix(), "private_data": task.PrivateData,
+			}).Error)
+			if tc.operatorReleased {
+				_, err := ApplyOpenRouterSyncOperatorDecision(info.OpenRouterCost.TaskID, record.OpenRouterSyncOperatorRelease, "", "evidence", 1)
+				require.NoError(t, err)
+			}
+
+			polling := NewPolling()
+			if tc.generationID == "" {
+				assert.Equal(t, tc.autoReleased, polling.HasTasks(), "only a due unknown-submission hold schedules a pass")
+			}
+			polling.RunTasks(t.Context(), nil)
+			polling.RunTasks(t.Context(), nil)
+
+			task, err = openRouterSyncTask(info)
+			require.NoError(t, err)
+			var refunds []model.Log
+			require.NoError(t, model.LOG_DB.Where("type = ?", usagerecord.LogTypeRefund).Find(&refunds).Error)
+			reconciliation := OpenRouterSyncReconciliation(task)
+			if !tc.autoReleased && !tc.operatorReleased {
+				assert.Equal(t, "manual_reconciliation", reconciliation["billing_state"])
+				assert.Nil(t, task.PrivateData.OpenRouterAudio.OperatorDecision)
+				assert.Equal(t, 9950, getUserQuota(t, info.UserId))
+				assert.Empty(t, refunds)
+				return
+			}
+			assert.Equal(t, "settled", reconciliation["billing_state"])
+			assert.True(t, task.PrivateData.Reconciliation.Finalized)
+			assert.Zero(t, task.Quota)
+			assert.Equal(t, 10000, getUserQuota(t, info.UserId))
+			assert.Equal(t, 10000, getTokenRemainQuota(t, info.TokenId))
+			require.Len(t, refunds, 1, "the reserve is released exactly once")
+			assert.Equal(t, 50, refunds[0].Quota)
+			decision := task.PrivateData.OpenRouterAudio.OperatorDecision
+			require.NotNil(t, decision)
+			if tc.operatorReleased {
+				assert.Equal(t, "operator_released", reconciliation["reason_code"])
+				assert.Equal(t, 1, decision.OperatorID)
+				return
+			}
+			assert.Equal(t, "auto_released", reconciliation["reason_code"])
+			assert.Zero(t, decision.OperatorID)
+			assert.Equal(t, "0", decision.CostUSD)
+		})
+	}
+}
+
 func TestOpenRouterAudioConcurrentPollersSettleOnce(t *testing.T) {
 	c, info := newOpenRouterAudioReservation(t)
 	entered, release := make(chan struct{}, 2), make(chan struct{})

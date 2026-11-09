@@ -21,6 +21,15 @@ func (s SyncStore) Unique(taskID string) (*domain.Task, bool, error) {
 	return record.ToDomain(row), found, err
 }
 
+func (s SyncStore) UnknownSubmissionHolds(submittedBefore, afterID int64, limit int) ([]*domain.Task, error) {
+	rows, err := s.Store.GetUnknownSubmissionHolds(submittedBefore, afterID, limit)
+	tasks := make([]*domain.Task, len(rows))
+	for i := range rows {
+		tasks[i] = record.ToDomain(rows[i])
+	}
+	return tasks, err
+}
+
 type SyncProjection struct{}
 
 func (SyncProjection) Project(task *domain.Task) {

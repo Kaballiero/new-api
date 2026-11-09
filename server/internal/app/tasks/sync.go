@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/tasks/reconcile_sync_task"
 	"github.com/QuantumNous/new-api/internal/tasks/record_sync_generation"
 	"github.com/QuantumNous/new-api/internal/tasks/record_sync_receipt"
+	"github.com/QuantumNous/new-api/internal/tasks/release_unidentified_sync_holds"
 )
 
 // Reconciler assembles durable synchronous-task actions without a gateway dependency.
@@ -34,6 +35,7 @@ type Reconciler struct {
 	complete   complete_sync_task.Usecase
 	fail       fail_sync_task.Usecase
 	poll       reconcile_sync_task.Usecase
+	release    release_unidentified_sync_holds.Usecase
 }
 
 func NewReconciler() *Reconciler {
@@ -53,6 +55,7 @@ func NewReconciler() *Reconciler {
 		complete:   complete_sync_task.NewUsecase(store, projection, billing, runtime.Diagnostics{}, time.Now),
 		fail:       fail_sync_task.NewUsecase(store, projection, billing, time.Now),
 		poll:       reconcile_sync_task.NewUsecase(store, projection, billing, httpadapter.Metadata{}, time.Now),
+		release:    release_unidentified_sync_holds.NewUsecase(store, billing, projection, runtime.Diagnostics{}, time.Now),
 	}
 }
 func (r *Reconciler) Begin(ctx context.Context, input begin_sync_task.Input) (*domain.Task, error) {
@@ -88,4 +91,7 @@ func (r *Reconciler) Operator(ctx context.Context, input apply_sync_operator_dec
 }
 func (r *Reconciler) Hold(ctx context.Context, input hold_sync_task.Input) error {
 	return r.hold.Execute(ctx, input)
+}
+func (r *Reconciler) ReleaseUnidentified(ctx context.Context) error {
+	return r.release.Execute(ctx)
 }
