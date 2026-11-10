@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -164,6 +165,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
+	}
+
+	if constant.NonStreamPingInterval > 0 && !relayInfo.IsStream && slices.Contains(nonStreamPingRelayFormats, relayFormat) {
+		stopPing := startNonStreamPing(c, time.Duration(constant.NonStreamPingInterval)*time.Second)
+		defer stopPing()
 	}
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
