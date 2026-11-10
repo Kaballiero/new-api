@@ -329,6 +329,7 @@ docker run --name new-api -d --restart always \
 | `RELAY_IDLE_CONN_TIMEOUT` | Idle keep-alive timeout for relay HTTP clients, seconds. Defaults to Go standard library behavior; set `0` to disable | `90` |
 | `RELAY_RESPONSE_HEADER_TIMEOUT` | How long the relay waits for upstream **response headers**, seconds; set `0` to disable. Only bounds the header wait -- streaming after the headers arrive is unaffected. Note that non-streaming upstreams usually send headers only once generation finishes, so leave headroom | `1800` |
 | `STREAMING_TIMEOUT` | Streaming timeout (seconds) | `300` |
+| `NON_STREAM_PING_INTERVAL` | Keep-alive for non-stream JSON responses behind proxies that drop idle connections, seconds; `0` disables. If the response is not ready within the interval, the gateway sends `200` with `Content-Type: application/json` and one space per interval, then the body; an error after the pings is sent as a `200` JSON error body. Audio and Realtime are not pinged | `0` |
 | `STREAM_SCANNER_MAX_BUFFER_MB` | Max per-line buffer (MB) for the stream scanner; increase when upstream sends huge image/base64 payloads | `64` |
 | `MAX_REQUEST_BODY_MB` | Max request body size (MB, counted **after decompression**; prevents huge requests/zip bombs from exhausting memory). Exceeding it returns `413` | `32` |
 | `AZURE_DEFAULT_API_VERSION` | Azure API version | `2025-04-01-preview` |
