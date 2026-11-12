@@ -125,8 +125,10 @@ func Capabilities() domain.Capabilities {
 // check rewrites and that does not affect prices.
 func channelOtherSettingsIdentity(raw string) string {
 	var settings dto.ChannelOtherSettings
-	if err := common.UnmarshalJsonStr(raw, &settings); err != nil {
-		return raw
+	if raw != "" {
+		if err := common.UnmarshalJsonStr(raw, &settings); err != nil {
+			return raw
+		}
 	}
 	settings.UpstreamModelUpdateLastCheckTime = 0
 	settings.UpstreamModelUpdateLastDetectedModels = nil

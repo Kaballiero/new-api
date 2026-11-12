@@ -146,6 +146,15 @@ func TestPricingCatalogSourceIgnoresUpstreamModelUpdateTracking(t *testing.T) {
 	assert.True(t, known, "detected model changes must not hide the stored price")
 	require.NoError(t, publishPricingCatalogEntry(entry), "a model update check must not reject in-flight publication")
 
+	unset, manuallyChecked := checked, checked
+	unset.OtherSettings = ""
+	manuallyChecked.SetOtherSettings(dto.ChannelOtherSettings{UpstreamModelUpdateLastCheckTime: 1762900000})
+	assert.Equal(t,
+		pricingstate.PricingCatalogSourceFingerprint(&unset, entry.UpstreamModel, entry.Endpoint),
+		pricingstate.PricingCatalogSourceFingerprint(&manuallyChecked, entry.UpstreamModel, entry.Endpoint),
+		"a model update check of a channel without other settings keeps the fingerprint",
+	)
+
 	unparseable := checked
 	unparseable.OtherSettings = "{"
 	assert.Equal(t,
