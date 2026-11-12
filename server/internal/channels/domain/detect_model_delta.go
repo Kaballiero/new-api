@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpdateState, upstreamModels []string, allowAutoApply bool) (configChanged bool, autoAdded int, err error) {
+func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpdateState, upstreamModels UpstreamModels, allowAutoApply bool) (configChanged bool, autoAdded int, err error) {
 
 	modelMapping, mappingErr := rules.NormalizeChannelModelMapping(channel)
 	if mappingErr != nil {

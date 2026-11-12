@@ -336,13 +336,14 @@ func NewChannelModelUpdateRules(store repository.Store) channeldomain.ModelUpdat
 }
 
 // channelModelFetcher fetches the upstream models of a channel through the
-// gateway and reloads the channel the fetch may have refreshed.
-func channelModelFetcher(store repository.Store, effects ChannelEffects) func(*channeldomain.Channel) ([]string, error) {
-	return func(channel *channeldomain.Channel) ([]string, error) {
+// gateway and reloads the channel the fetch may have refreshed. Every model
+// the upstream lists may be added to the channel.
+func channelModelFetcher(store repository.Store, effects ChannelEffects) func(*channeldomain.Channel) (channeldomain.UpstreamModels, error) {
+	return func(channel *channeldomain.Channel) (channeldomain.UpstreamModels, error) {
 		record := store.Record(channel)
 		models, err := effects.FetchModels(record)
 		*channel = *repository.ToDomain(record)
-		return models, err
+		return channeldomain.UpstreamModels{Listed: models, Addable: models}, err
 	}
 }
 

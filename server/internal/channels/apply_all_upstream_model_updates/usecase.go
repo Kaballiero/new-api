@@ -17,12 +17,12 @@ type Store interface {
 type Usecase struct {
 	store   Store
 	rules   domain.ModelUpdateRules
-	fetch   func(*domain.Channel) ([]string, error)
+	fetch   func(*domain.Channel) (domain.UpstreamModels, error)
 	refresh func()
 	audit   func(map[string]any)
 }
 
-func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(*domain.Channel) ([]string, error), refresh func(), audit func(map[string]any)) Usecase {
+func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(*domain.Channel) (domain.UpstreamModels, error), refresh func(), audit func(map[string]any)) Usecase {
 	return Usecase{store: store, rules: rules, fetch: fetch, refresh: refresh, audit: audit}
 }
 func (usecase Usecase) Apply(

@@ -85,6 +85,14 @@ type ModelUpdateState struct {
 	IgnoredModels      []string
 }
 
+// UpstreamModels are the models of a channel's upstream: Listed are the models
+// the upstream reports, Addable are those of them that may be added to the
+// channel. A channel model missing from Listed is a removal candidate.
+type UpstreamModels struct {
+	Listed  []string
+	Addable []string
+}
+
 func CollectPendingApplyUpstreamModelChanges(state ModelUpdateState) (pendingAddModels []string, pendingRemoveModels []string) {
 	return NormalizeModelNames(state.LastDetectedModels), NormalizeModelNames(state.LastRemovedModels)
 }
@@ -152,7 +160,7 @@ func (rules ModelUpdateRules) ValidateChannelModelMappingEntries(modelMapping ma
 }
 func (rules ModelUpdateRules) CollectPendingUpstreamModelChangesFromModels(
 	localModels []string,
-	upstreamModels []string,
+	upstreamModels UpstreamModels,
 	ignoredModels []string,
 	modelMapping map[string]string,
 ) (pendingAddModels []string, pendingRemoveModels []string, err error) {
@@ -160,10 +168,10 @@ func (rules ModelUpdateRules) CollectPendingUpstreamModelChangesFromModels(
 		return nil, nil, err
 	}
 	localModels = NormalizeModelNames(localModels)
-	upstreamModels = NormalizeModelNames(upstreamModels)
-	upstreamSet := make(map[string]struct{}, len(upstreamModels))
-	for _, modelName := range upstreamModels {
-		upstreamSet[modelName] = struct{}{}
+	listedModels := NormalizeModelNames(upstreamModels.Listed)
+	listedSet := make(map[string]struct{}, len(listedModels))
+	for _, modelName := range listedModels {
+		listedSet[modelName] = struct{}{}
 	}
 
 	normalizedIgnoredModels := NormalizeModelNames(ignoredModels)
@@ -174,12 +182,12 @@ func (rules ModelUpdateRules) CollectPendingUpstreamModelChangesFromModels(
 			return nil, nil, resolveErr
 		}
 		coveredUpstreamSet[terminalTarget] = struct{}{}
-		if _, ok := upstreamSet[terminalTarget]; !ok {
+		if _, ok := listedSet[terminalTarget]; !ok {
 			pendingRemoveModels = append(pendingRemoveModels, modelName)
 		}
 	}
 
-	pendingAdd := lo.Filter(upstreamModels, func(modelName string, _ int) bool {
+	pendingAdd := lo.Filter(NormalizeModelNames(upstreamModels.Addable), func(modelName string, _ int) bool {
 		if _, ok := coveredUpstreamSet[modelName]; ok {
 			return false
 		}

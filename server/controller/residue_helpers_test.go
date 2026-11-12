@@ -132,7 +132,7 @@ func normalizeChannelModelMapping(channel *model.Channel) (map[string]string, er
 }
 
 func collectPendingUpstreamModelChangesFromModels(local, upstream, ignored []string, mapping map[string]string) ([]string, []string, error) {
-	return app.NewChannelModelUpdateRules(repository.NewStore()).CollectPendingUpstreamModelChangesFromModels(local, upstream, ignored, mapping)
+	return app.NewChannelModelUpdateRules(repository.NewStore()).CollectPendingUpstreamModelChangesFromModels(local, domain.UpstreamModels{Listed: upstream, Addable: upstream}, ignored, mapping)
 }
 
 func parseOpenAIModelIDs(body []byte) ([]string, error) {

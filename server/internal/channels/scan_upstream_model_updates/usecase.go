@@ -21,7 +21,7 @@ type Store interface {
 type Usecase struct {
 	store            Store
 	rules            domain.ModelUpdateRules
-	fetch            func(*domain.Channel) ([]string, error)
+	fetch            func(*domain.Channel) (domain.UpstreamModels, error)
 	refresh          func()
 	now, minInterval func() int64
 	interval         func() time.Duration
@@ -31,7 +31,7 @@ type Usecase struct {
 	notify           func(domain.ModelUpdateReport)
 }
 
-func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(*domain.Channel) ([]string, error), refresh func(), now, minInterval func() int64, interval func() time.Duration, debug func() bool, log func(string), throttle func(int64, int, int) bool, notify func(domain.ModelUpdateReport)) Usecase {
+func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(*domain.Channel) (domain.UpstreamModels, error), refresh func(), now, minInterval func() int64, interval func() time.Duration, debug func() bool, log func(string), throttle func(int64, int, int) bool, notify func(domain.ModelUpdateReport)) Usecase {
 	return Usecase{store: store, rules: rules, fetch: fetch, refresh: refresh, now: now, minInterval: minInterval, interval: interval, debug: debug, log: log, throttle: throttle, notify: notify}
 }
 func (usecase Usecase) Check(

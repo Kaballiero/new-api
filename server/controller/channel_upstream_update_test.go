@@ -19,6 +19,7 @@ import (
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
 	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
+	"github.com/QuantumNous/new-api/internal/app"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -765,6 +766,22 @@ func TestCollectPendingUpstreamModelChangesFromModels_Canonical(t *testing.T) {
 			require.Equal(t, tt.wantRemove, pendingRemove)
 		})
 	}
+}
+
+func TestCollectPendingUpstreamModelChangesFromModels_AddableSubsetOfListed(t *testing.T) {
+	pendingAddModels, pendingRemoveModels, err := app.NewChannelModelUpdateRules(channelstore.NewStore()).CollectPendingUpstreamModelChangesFromModels(
+		[]string{"gpt-4o", "listed-only-channel-model", "stale-model"},
+		channeldomain.UpstreamModels{
+			Listed:  []string{"gpt-4o", "gpt-4.1", "listed-only-channel-model", "listed-only-new-model"},
+			Addable: []string{"gpt-4o", "gpt-4.1"},
+		},
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"gpt-4.1"}, pendingAddModels)
+	require.Equal(t, []string{"stale-model"}, pendingRemoveModels)
 }
 
 func TestBuildChannelUpstreamModelFetchFingerprintExcludesPollingIndex(t *testing.T) {
