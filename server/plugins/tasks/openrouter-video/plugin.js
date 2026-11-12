@@ -1,8 +1,160 @@
 // The catalog is refreshed outside synchronous hooks by update-catalog.py.
 // BEGIN VIDEO CATALOG
 const catalog = {
-  "fetched_at": "2026-10-13T13:41:19.105487+00:00",
+  "fetched_at": "2026-11-12T11:19:23.152297+00:00",
   "models": [
+    {
+      "id": "google/gemini-omni-1.2-flash",
+      "canonical_slug": "google/gemini-omni-1.2-flash-20261105",
+      "supported_durations": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "supported_resolutions": [
+        "720p",
+        "1080p",
+        "4K",
+        "360p"
+      ],
+      "supported_aspect_ratios": [
+        "16:9",
+        "9:16"
+      ],
+      "supported_sizes": [
+        "1280x720",
+        "720x1280",
+        "1920x1080",
+        "1080x1920",
+        "3840x2160",
+        "2160x3840",
+        "640x360",
+        "360x640"
+      ],
+      "supported_frame_images": [
+        "first_frame",
+        "last_frame"
+      ],
+      "generate_audio": true,
+      "seed": true,
+      "upscale_factor": null,
+      "creativity": null,
+      "allowed_passthrough_parameters": [
+        "task"
+      ],
+      "pricing_skus": {
+        "duration_seconds_with_audio": "0.104256",
+        "duration_seconds_with_audio_4k": "0.208512",
+        "duration_seconds_with_audio_360p": "0.023172",
+        "duration_seconds_with_audio_720p": "0.069504"
+      },
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ]
+    },
+    {
+      "id": "google/gemini-omni-1.1-flash",
+      "canonical_slug": "google/gemini-omni-1.1-flash-20260911",
+      "supported_durations": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "supported_resolutions": [
+        "720p",
+        "1080p",
+        "4K",
+        "360p"
+      ],
+      "supported_aspect_ratios": [
+        "16:9",
+        "9:16"
+      ],
+      "supported_sizes": [
+        "1280x720",
+        "720x1280",
+        "1920x1080",
+        "1080x1920",
+        "3840x2160",
+        "2160x3840",
+        "640x360",
+        "360x640"
+      ],
+      "supported_frame_images": [
+        "first_frame",
+        "last_frame"
+      ],
+      "generate_audio": true,
+      "seed": true,
+      "upscale_factor": null,
+      "creativity": null,
+      "allowed_passthrough_parameters": [
+        "task"
+      ],
+      "pricing_skus": {
+        "duration_seconds_with_audio": "0.15204",
+        "duration_seconds_with_audio_4k": "0.30408",
+        "duration_seconds_with_audio_360p": "0.0337925",
+        "duration_seconds_with_audio_720p": "0.10136"
+      },
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ]
+    },
+    {
+      "id": "tbc/mischief-1",
+      "canonical_slug": "tbc/mischief-1-20261023",
+      "supported_durations": [
+        3,
+        5
+      ],
+      "supported_resolutions": [
+        "480p",
+        "720p"
+      ],
+      "supported_aspect_ratios": [
+        "16:9"
+      ],
+      "supported_sizes": [
+        "854x480",
+        "1280x720"
+      ],
+      "supported_frame_images": [
+        "first_frame"
+      ],
+      "generate_audio": false,
+      "seed": true,
+      "upscale_factor": null,
+      "creativity": null,
+      "allowed_passthrough_parameters": [],
+      "pricing_skus": {
+        "cents_per_video_output_second_480p": "0.5",
+        "cents_per_video_output_second_720p": "1"
+      },
+      "input_modalities": [
+        "text",
+        "image"
+      ]
+    },
     {
       "id": "x-ai/grok-imagine-video-1.5-lite",
       "canonical_slug": "x-ai/grok-imagine-video-1.5-lite-20261001",
@@ -71,11 +223,27 @@ const catalog = {
         12,
         13,
         14,
-        15
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
       ],
       "supported_resolutions": [
         "480p",
         "768p",
+        "1080p",
         "2K"
       ],
       "supported_aspect_ratios": [
@@ -101,10 +269,16 @@ const catalog = {
         "duration_seconds_2k": "0.1",
         "duration_seconds_480p": "0.02",
         "duration_seconds_768p": "0.036",
+        "duration_seconds_1080p": "0.1",
         "reference_input_images": "0.04",
+        "long_duration_seconds_2k": "0.105",
+        "long_duration_seconds_480p": "0.045",
+        "long_duration_seconds_768p": "0.075",
+        "long_duration_seconds_1080p": "0.105",
         "reference_duration_seconds_2k": "0.18",
         "reference_duration_seconds_480p": "0.07",
-        "reference_duration_seconds_768p": "0.1"
+        "reference_duration_seconds_768p": "0.1",
+        "reference_duration_seconds_1080p": "0.18"
       },
       "input_modalities": [
         "text",
@@ -234,7 +408,8 @@ const catalog = {
       ],
       "supported_sizes": null,
       "supported_frame_images": [
-        "first_frame"
+        "first_frame",
+        "last_frame"
       ],
       "generate_audio": true,
       "seed": true,
@@ -248,7 +423,9 @@ const catalog = {
       },
       "input_modalities": [
         "text",
-        "image"
+        "image",
+        "video",
+        "audio"
       ]
     },
     {
@@ -299,7 +476,8 @@ const catalog = {
       ],
       "supported_sizes": null,
       "supported_frame_images": [
-        "first_frame"
+        "first_frame",
+        "last_frame"
       ],
       "generate_audio": true,
       "seed": true,
@@ -313,7 +491,9 @@ const catalog = {
       },
       "input_modalities": [
         "text",
-        "image"
+        "image",
+        "video",
+        "audio"
       ]
     },
     {
@@ -377,8 +557,8 @@ const catalog = {
         "safety_tolerance"
       ],
       "pricing_skus": {
-        "cents_per_megapixel_second_precise": "7.5",
-        "cents_per_megapixel_second_creative": "10.5"
+        "cents_per_megapixel_second_precise": "3.5",
+        "cents_per_megapixel_second_creative": "5"
       },
       "input_modalities": [
         "text",
@@ -561,7 +741,9 @@ const catalog = {
       ],
       "supported_resolutions": [
         "720p",
-        "1080p"
+        "1080p",
+        "2K",
+        "4K"
       ],
       "supported_aspect_ratios": [
         "21:9",
@@ -582,12 +764,17 @@ const catalog = {
       "creativity": null,
       "allowed_passthrough_parameters": [
         "safety_tolerance",
-        "version"
+        "version",
+        "draft"
       ],
       "pricing_skus": {
         "cents_per_second_output": "17",
+        "cents_per_second_output_2k": "28",
+        "cents_per_second_output_4k": "41",
         "cents_per_second_output_720p": "17",
         "cents_per_second_output_1080p": "29",
+        "cents_per_second_video_continuation_2k": "31",
+        "cents_per_second_video_continuation_4k": "45",
         "cents_per_second_video_continuation_720p": "41",
         "cents_per_second_video_continuation_1080p": "53"
       },
@@ -1264,6 +1451,69 @@ const catalog = {
       ]
     },
     {
+      "id": "alibaba/wan-2.7",
+      "canonical_slug": "alibaba/wan-2.7-20260414",
+      "supported_durations": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "supported_resolutions": [
+        "720p",
+        "1080p"
+      ],
+      "supported_aspect_ratios": [
+        "16:9",
+        "9:16",
+        "1:1",
+        "4:3",
+        "3:4"
+      ],
+      "supported_sizes": [
+        "1280x720",
+        "720x1280",
+        "1920x1080",
+        "1080x1920",
+        "720x720",
+        "1080x1080",
+        "960x720",
+        "720x960",
+        "1440x1080",
+        "1080x1440"
+      ],
+      "supported_frame_images": [
+        "first_frame",
+        "last_frame"
+      ],
+      "generate_audio": true,
+      "seed": true,
+      "upscale_factor": null,
+      "creativity": null,
+      "allowed_passthrough_parameters": [
+        "negative_prompt",
+        "prompt_extend",
+        "audio",
+        "ratio",
+        "last_image",
+        "video",
+        "videos",
+        "images"
+      ],
+      "pricing_skus": {
+        "duration_seconds": "0.1"
+      },
+      "input_modalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
       "id": "bytedance/seedance-2.0",
       "canonical_slug": "bytedance/seedance-2.0-20260414",
       "supported_durations": [
@@ -1420,69 +1670,6 @@ const catalog = {
       ]
     },
     {
-      "id": "alibaba/wan-2.7",
-      "canonical_slug": "alibaba/wan-2.7-20260414",
-      "supported_durations": [
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10
-      ],
-      "supported_resolutions": [
-        "720p",
-        "1080p"
-      ],
-      "supported_aspect_ratios": [
-        "16:9",
-        "9:16",
-        "1:1",
-        "4:3",
-        "3:4"
-      ],
-      "supported_sizes": [
-        "1280x720",
-        "720x1280",
-        "1920x1080",
-        "1080x1920",
-        "720x720",
-        "1080x1080",
-        "960x720",
-        "720x960",
-        "1440x1080",
-        "1080x1440"
-      ],
-      "supported_frame_images": [
-        "first_frame",
-        "last_frame"
-      ],
-      "generate_audio": true,
-      "seed": true,
-      "upscale_factor": null,
-      "creativity": null,
-      "allowed_passthrough_parameters": [
-        "negative_prompt",
-        "prompt_extend",
-        "audio",
-        "ratio",
-        "last_image",
-        "video",
-        "videos",
-        "images"
-      ],
-      "pricing_skus": {
-        "duration_seconds": "0.1"
-      },
-      "input_modalities": [
-        "text",
-        "image"
-      ]
-    },
-    {
       "id": "alibaba/wan-2.6",
       "canonical_slug": "alibaba/wan-2.6-20260327",
       "supported_durations": [
@@ -1523,78 +1710,6 @@ const catalog = {
         "image_to_video_duration_seconds_720p": "0.10",
         "text_to_video_duration_seconds_1080p": "0.12",
         "image_to_video_duration_seconds_1080p": "0.15"
-      },
-      "input_modalities": [
-        "text",
-        "image"
-      ]
-    },
-    {
-      "id": "bytedance/seedance-1-5-pro",
-      "canonical_slug": "bytedance/seedance-1-5-pro-20260320",
-      "supported_durations": [
-        4,
-        5,
-        6,
-        7,
-        8,
-        9,
-        10,
-        11,
-        12
-      ],
-      "supported_resolutions": [
-        "480p",
-        "720p",
-        "1080p"
-      ],
-      "supported_aspect_ratios": [
-        "1:1",
-        "3:4",
-        "9:16",
-        "9:21",
-        "4:3",
-        "16:9",
-        "21:9"
-      ],
-      "supported_sizes": [
-        "480x480",
-        "480x640",
-        "480x854",
-        "480x1120",
-        "640x480",
-        "720x720",
-        "720x960",
-        "720x1280",
-        "720x1680",
-        "854x480",
-        "960x720",
-        "1080x1080",
-        "1080x1440",
-        "1080x1920",
-        "1080x2520",
-        "1120x480",
-        "1280x720",
-        "1440x1080",
-        "1680x720",
-        "1920x1080",
-        "2520x1080"
-      ],
-      "supported_frame_images": [
-        "first_frame",
-        "last_frame"
-      ],
-      "generate_audio": true,
-      "seed": true,
-      "upscale_factor": null,
-      "creativity": null,
-      "allowed_passthrough_parameters": [
-        "watermark",
-        "req_key"
-      ],
-      "pricing_skus": {
-        "video_tokens": "0.0000024",
-        "video_tokens_without_audio": "0.0000012"
       },
       "input_modalities": [
         "text",
@@ -1658,7 +1773,7 @@ const catalog = {
 
 function videoPriceCatalog() {
   const models = {};
-  const pattern = /^(?:(text_to_video|image_to_video)_)?(duration_seconds|reference_duration_seconds|video_tokens|cents_per_video_output_second|cents_per_second_output|cents_per_second_video_continuation|cents_per_megapixel_second)(?:_(with_audio|without_audio))?(?:_(480p|720p|768p|1080p|2k|4k))?(?:_(with_video_input))?(?:_(precise|creative))?$/;
+  const pattern = /^(?:(text_to_video|image_to_video)_)?(duration_seconds|long_duration_seconds|reference_duration_seconds|video_tokens|cents_per_video_output_second|cents_per_second_output|cents_per_second_video_continuation|cents_per_megapixel_second)(?:_(with_audio|without_audio))?(?:_(360p|480p|720p|768p|1080p|2k|4k))?(?:_(with_video_input))?(?:_(precise|creative))?$/;
   catalog.models.forEach(function (model) {
     const offers = [];
     const skus = model.pricing_skus || {};
