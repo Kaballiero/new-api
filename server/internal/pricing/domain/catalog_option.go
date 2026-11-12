@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -29,6 +30,9 @@ const pricingCatalogMaxBytes = 8 << 20
 const pricingCatalogMaxEntries = 2048
 
 func PricingCatalogSourceFingerprint(deps Capabilities, channel *BuildChannel, upstream string, endpoint constant.EndpointType) string {
+	return pricingCatalogRouteFingerprint(deps, channel, upstream, endpoint, deps.Codec.ChannelOtherSettingsIdentity(channel.OtherSettings))
+}
+func pricingCatalogRouteFingerprint(deps Capabilities, channel *BuildChannel, upstream string, endpoint constant.EndpointType, otherSettings string) string {
 	var mapping map[string]string
 	if raw := strings.TrimSpace(channel.GetModelMapping()); raw != "" {
 		if err := deps.Codec.UnmarshalJsonStr(raw, &mapping); err != nil {
@@ -43,16 +47,16 @@ func PricingCatalogSourceFingerprint(deps Capabilities, channel *BuildChannel, u
 			break
 		}
 	}
-	return PricingCatalogFingerprint(deps, channel, upstream, endpoint, []any{"route-v2", routed})
+	return PricingCatalogFingerprint(deps, channel, upstream, endpoint, []any{"route-v2", routed}, otherSettings)
 }
-func PricingCatalogFingerprint(deps Capabilities, channel *BuildChannel, upstream string, endpoint constant.EndpointType, routeIdentity []any) string {
+func PricingCatalogFingerprint(deps Capabilities, channel *BuildChannel, upstream string, endpoint constant.EndpointType, routeIdentity []any, otherSettings string) string {
 	baseURL := channel.GetBaseURL()
 	if baseURL == "" {
 		baseURL = constant.GetChannelBaseURL(channel.Type)
 	}
 	basis := []any{channel.Id, channel.Type, channel.Status, strings.TrimRight(baseURL, "/"), channel.Group}
 	basis = append(basis, routeIdentity...)
-	basis = append(basis, channel.Key, channel.Setting, channel.OtherSettings, channel.ParamOverride, channel.HeaderOverride, upstream, endpoint)
+	basis = append(basis, channel.Key, channel.Setting, otherSettings, channel.ParamOverride, channel.HeaderOverride, upstream, endpoint)
 	data, err := deps.Codec.Marshal(basis)
 	if err != nil {
 		return ""
@@ -69,8 +73,12 @@ func PricingCatalogSourceMatches(deps Capabilities, entry PricingCatalogEntry, c
 		return true
 	}
 
-	legacy := PricingCatalogFingerprint(deps, channel, entry.UpstreamModel, entry.Endpoint, []any{channel.Models, channel.GetModelMapping()})
-	return entry.Fingerprint == legacy
+	// Entries published with an earlier fingerprint cover the raw other settings.
+	legacy := []string{
+		pricingCatalogRouteFingerprint(deps, channel, entry.UpstreamModel, entry.Endpoint, channel.OtherSettings),
+		PricingCatalogFingerprint(deps, channel, entry.UpstreamModel, entry.Endpoint, []any{channel.Models, channel.GetModelMapping()}, channel.OtherSettings),
+	}
+	return slices.Contains(legacy, entry.Fingerprint)
 }
 func PricingCatalogEntryKey(entry PricingCatalogEntry) string {
 	return fmt.Sprintf("%d:%s:%s", entry.ChannelID, entry.Endpoint, entry.UpstreamModel)

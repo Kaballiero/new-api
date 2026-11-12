@@ -113,9 +113,31 @@ func Capabilities() domain.Capabilities {
 			UnmarshalJsonStr:      common.UnmarshalJsonStr,
 			DecodeJson:            common.DecodeJson,
 			GetJsonType:           common.GetJsonType,
+
+			ChannelOtherSettingsIdentity: channelOtherSettingsIdentity,
 		},
 		Expressions: Expressions{}, Catalog: Catalog{}, Endpoints: Endpoints{},
 	}
+}
+
+// channelOtherSettingsIdentity serialises the other channel settings as the
+// gateway reads them, without the upstream model update tracking that every
+// check rewrites and that does not affect prices.
+func channelOtherSettingsIdentity(raw string) string {
+	var settings dto.ChannelOtherSettings
+	if raw != "" {
+		if err := common.UnmarshalJsonStr(raw, &settings); err != nil {
+			return raw
+		}
+	}
+	settings.UpstreamModelUpdateLastCheckTime = 0
+	settings.UpstreamModelUpdateLastDetectedModels = nil
+	settings.UpstreamModelUpdateLastRemovedModels = nil
+	identity, err := common.Marshal(settings)
+	if err != nil {
+		return raw
+	}
+	return string(identity)
 }
 
 type ChannelCodec struct{}
