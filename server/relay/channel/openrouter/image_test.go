@@ -369,8 +369,12 @@ func TestHeyGenVideoReservation(t *testing.T) {
 		{name: "reference tariff counts output seconds", order: `{"duration":5,"resolution":"480p","input_references":[{"type":"video_url"}]}`, want: 0.35},
 		{name: "uppercase capability matches SKU", order: `{"duration":5,"resolution":"2K"}`, want: 0.50},
 		{name: "uppercase reference resolution", order: `{"duration":5,"resolution":"2K"}`, images: 3, want: 0.94},
-		{name: "omitted duration and resolution reserve maximum", order: `{}`, want: 1.50},
+		{name: "omitted duration and resolution reserve maximum", order: `{}`, want: 3.15},
 		{name: "omitted reference defaults reserve maximum plus inputs", order: `{}`, images: 3, want: 2.74},
+		{name: "threshold duration keeps ordinary output", order: `{"duration":15,"resolution":"480p"}`, want: 0.30},
+		{name: "long text output", order: `{"duration":16,"resolution":"480p"}`, want: 0.72},
+		{name: "long first frame output", order: `{"duration":30,"resolution":"768p","frame_images":[{"type":"image_url"}]}`, want: 2.25},
+		{name: "reference mode stops at 15 seconds", order: `{"duration":16,"resolution":"480p"}`, images: 1, errorText: "HeyGen reference mode supports 5–15 seconds"},
 		{name: "explicit zero image tariff", order: `{"duration":5,"resolution":"480p"}`, images: 3, tariffKey: "reference_input_images", value: "0", want: 0.35},
 		{name: "missing image tariff with paid references", order: `{}`, images: 3, tariffKey: "reference_input_images", errorText: "missing reference image tariff"},
 		{name: "missing image tariff with free references", order: `{"duration":5,"resolution":"480p"}`, images: 2, tariffKey: "reference_input_images", want: 0.35},
@@ -383,10 +387,11 @@ func TestHeyGenVideoReservation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			model := VideoModelPricing{
-				ID: "heygen/heygen-video-1", SupportedDurations: []int{5, 15}, SupportedResolutions: []string{"480p", "768p", "2K"},
+				ID: "heygen/heygen-video-1", SupportedDurations: []int{5, 15, 16, 30}, SupportedResolutions: []string{"480p", "768p", "1080p", "2K"},
 				PricingSKUs: map[string]string{
-					"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036", "duration_seconds_2k": "0.1",
-					"reference_duration_seconds_480p": "0.07", "reference_duration_seconds_768p": "0.1", "reference_duration_seconds_2k": "0.18",
+					"duration_seconds_480p": "0.02", "duration_seconds_768p": "0.036", "duration_seconds_1080p": "0.1", "duration_seconds_2k": "0.1",
+					"long_duration_seconds_480p": "0.045", "long_duration_seconds_768p": "0.075", "long_duration_seconds_1080p": "0.105", "long_duration_seconds_2k": "0.105",
+					"reference_duration_seconds_480p": "0.07", "reference_duration_seconds_768p": "0.1", "reference_duration_seconds_1080p": "0.18", "reference_duration_seconds_2k": "0.18",
 					"reference_input_images": "0.04",
 				},
 			}
@@ -441,11 +446,13 @@ func TestVideoQuantityContractsWithoutModelFamilies(t *testing.T) {
 		errorText                  string
 	}{
 		{"USD seconds", "catalog/new-seconds-model", `{"duration_seconds_480p":"0.02"}`, `{"resolution":"480p"}`, 0.1, ""},
+		{"USD seconds at 360p", "catalog/new-seconds-model", `{"duration_seconds_with_audio_360p":"0.023172"}`, `{}`, 0.11586, ""},
 		{"cents seconds", "catalog/new-cents-model", `{"cents_per_second_output":"28"}`, `{}`, 1.4, ""},
 		{"minimum is a floor", "catalog/new-cents-model", `{"cents_per_second_output":"10","minimum_cents_per_generation":"56"}`, `{}`, 0.56, ""},
 		{"higher output exceeds minimum", "catalog/new-cents-model", `{"cents_per_second_output":"28","minimum_cents_per_generation":"56"}`, `{}`, 1.4, ""},
 		{"zero remains zero", "catalog/new-zero-model", `{"duration_seconds":"0","minimum_cents_per_generation":"0"}`, `{}`, 0, ""},
 		{"unknown image allowance is not guessed", "catalog/new-reference-model", `{"duration_seconds":"0.1","reference_input_images":"0.04"}`, `{}`, 0, "unknown video pricing SKU"},
+		{"unknown long duration threshold is not guessed", "catalog/new-seconds-model", `{"duration_seconds":"0.1","long_duration_seconds":"0.2"}`, `{}`, 0, "unknown video pricing SKU"},
 		{"unknown SKU remains closed", "catalog/new-seconds-model", `{"duration_seconds":"0.1","extra_charge":"1"}`, `{}`, 0, "unknown video pricing SKU"},
 		{"different output units cannot be max alternatives", "bytedance/seedance-2.0", `{"duration_seconds":"0.1","video_tokens":"0.001"}`, `{}`, 0, "incompatible video output quantity units"},
 		{"token price does not define a pixel meter", "catalog/new-token-model", `{"video_tokens":"0.001"}`, `{}`, 0, "video token quantity contract is unavailable"},

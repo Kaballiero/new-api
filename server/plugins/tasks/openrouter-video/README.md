@@ -7,7 +7,7 @@
 
 ## Возможности и метаданные
 
-Снимок публичного каталога содержит 30 моделей. Длительности, размеры,
+Снимок публичного каталога содержит 32 модели. Длительности, размеры,
 разрешения, пропорции, кадры, audio, seed и upscale проверяются по записи
 выбранной модели. Поддержка каталога не доказывает доступность модели по ключу.
 Матрица сочетаний параметров и ограничения содержимого входных медиа не
@@ -39,8 +39,9 @@ go test ./plugins ./pkg/jsplugin ./relay/channel/task/jsplugin ./relay
 этот расчёт. Неизвестные SKU и отсутствующие оплачиваемые количества блокируют
 отправку. Выбор расчёта основан на SKU и доступных количествах, без списка
 модельных семейств. В коде остаются совместимости, которых нет в discovery:
-free-image allowances HeyGen/Hailuo, обязательная доплата Grok за image input
-и опубликованный 15-секундный output bound FLUX Video Edit.
+free-image allowances HeyGen/Hailuo, порог 15 секунд для `long_duration_seconds`
+HeyGen, обязательная доплата Grok за image input и опубликованный 15-секундный
+output bound FLUX Video Edit.
 Для video tokens также нужен подтверждённый meter: формула Seedance
 `pixels × seconds × 24 / 1024` не распространяется на неизвестные модели.
 Смешанные token/second output SKU отклоняются, поскольку максимум тарифов
@@ -116,6 +117,12 @@ HTTPS URL/uploaded asset, а OR inline upload пока не подтверждё
 
 Для `heygen/heygen-video-1` first-frame использует обычный output tariff,
 а `input_references` — reference output tariff за секунды результата.
+SKU `long_duration_seconds_*` («Video Output (over 15 s)» в прайсе OpenRouter) —
+тариф за секунду результата text/first-frame клипа длиннее 15 секунд. Резерв
+такого клипа равен большему из обычного и long тарифов × все секунды; до
+15 секунд включительно SKU не применяется. Для другой модели SKU неизвестен.
+Reference mode поддерживает 5–15 секунд: явная длительность больше отклоняется,
+при пропущенной резервируется 15 секунд.
 SKU `reference_input_images` добавляет стоимость только изображений после
 первых двух: `rate × max(reference_images - 2, 0)`. При отсутствии references
 доплата равна нулю. Лимиты: 9 изображений, 3 видео, 3 аудио, 12 references
@@ -124,8 +131,7 @@ SKU `reference_input_images` добавляет стоимость только 
 Публичный price catalog сохраняет доплату как неизвестную: его плоская схема
 не выражает первые два бесплатных изображения. Полный резерв считает estimator.
 Промоскидки не применяются к резерву самостоятельно; окончательная сумма
-определяется `usage.cost`. Запись HeyGen обновлена из каталога 2026-10-18;
-общая дата snapshot оставлена прежней, поскольку другие записи не обновлялись.
+определяется `usage.cost`.
 Источники: [OpenRouter pricing](https://openrouter.ai/heygen/heygen-video-1),
 [HeyGen reference limits](https://developers.heygen.com/docs/models/heygen-video).
 

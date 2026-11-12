@@ -162,7 +162,11 @@ func EstimateVideo(c *gin.Context, info *relaycommon.RelayInfo, body []byte) (fl
 	return 0, errors.New("OpenRouter reservation unavailable: model absent from fresh video catalog")
 }
 
-var videoSKUVariant = regexp.MustCompile(`^(?:(text_to_video|image_to_video)_)?(duration_seconds|reference_duration_seconds|video_tokens|cents_per_video_output_second|cents_per_second_output|cents_per_second_video_continuation)(?:_(with_audio|without_audio))?(?:_(480p|720p|768p|1080p|2k|4k))?(?:_(with_video_input))?$`)
+var videoSKUVariant = regexp.MustCompile(`^(?:(text_to_video|image_to_video)_)?(duration_seconds|long_duration_seconds|reference_duration_seconds|video_tokens|cents_per_video_output_second|cents_per_second_output|cents_per_second_video_continuation)(?:_(with_audio|without_audio))?(?:_(360p|480p|720p|768p|1080p|2k|4k))?(?:_(with_video_input))?$`)
+
+// heyGenLongDurationThresholdSeconds is the output length above which OpenRouter
+// bills heygen/heygen-video-1 at long_duration_seconds ("Video Output (over 15 s)").
+const heyGenLongDurationThresholdSeconds = 15
 
 // EstimateVideoOrder implements only documented monetary SKU families. Unknown
 // quantities and SKU units fail admission instead of falling back to a tariff.
@@ -271,6 +275,16 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 	if duration <= 0 || duration > relaycommon.MaxTaskDurationSeconds {
 		return fail("bounded output duration is unavailable: source media quantity is required")
 	}
+	// HeyGen reference mode supports 5–15 seconds, while discovery lists the
+	// longer durations without the generation mode.
+	heyGenReferenceMode := model.ID == "heygen/heygen-video-1" && len(order.InputReferences) > 0
+	explicitLongDuration := order.Duration != nil && duration > heyGenLongDurationThresholdSeconds
+	if heyGenReferenceMode && explicitLongDuration {
+		return fail("HeyGen reference mode supports 5–15 seconds")
+	}
+	if heyGenReferenceMode {
+		duration = min(duration, heyGenLongDurationThresholdSeconds)
+	}
 	if order.Resolution != "" && !slices.Contains(model.SupportedResolutions, order.Resolution) {
 		return fail("resolution absent from fresh capabilities")
 	}
@@ -318,6 +332,16 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 			return fail("unknown video pricing SKU: " + key)
 		}
 		mode, unit, audio, resolution, source := variant[1], variant[2], variant[3], variant[4], variant[5]
+		if unit == "long_duration_seconds" {
+			// The threshold is absent from discovery, so the SKU stays unknown
+			// for any other model.
+			if model.ID != "heygen/heygen-video-1" {
+				return fail("unknown video pricing SKU: " + key)
+			}
+			if duration <= heyGenLongDurationThresholdSeconds {
+				continue
+			}
+		}
 		if mode == "text_to_video" && images > 0 || mode == "image_to_video" && images == 0 {
 			continue
 		}

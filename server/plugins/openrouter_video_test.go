@@ -45,6 +45,12 @@ func TestOpenRouterVideoNativeEditingPriceUnits(t *testing.T) {
 	catalog := plugin.Meta.PriceCatalog
 	require.NotNil(t, catalog)
 	require.NoError(t, catalog.Validate(plugin.Meta.Models))
+	// An SKU the catalogue does not recognise leaves a model without prices.
+	for model, offers := range catalog.Models {
+		for _, offer := range offers {
+			assert.NotEmpty(t, offer.Prices, "%s %s", model, offer.ID)
+		}
+	}
 	for _, scenario := range []struct {
 		model     string
 		operation string
@@ -52,7 +58,7 @@ func TestOpenRouterVideoNativeEditingPriceUnits(t *testing.T) {
 		rates     []float64
 	}{
 		{"runway/aleph-2", "video_editing", "second", []float64{0.28}},
-		{"black-forest-labs/flux-video-upscale", "video_upscaling", "megapixel_second", []float64{0.105, 0.075}},
+		{"black-forest-labs/flux-video-upscale", "video_upscaling", "megapixel_second", []float64{0.05, 0.035}},
 	} {
 		t.Run(scenario.model, func(t *testing.T) {
 			offers := catalog.Models[scenario.model]
@@ -163,8 +169,15 @@ func TestOpenRouterHeyGenReferences(t *testing.T) {
 	// Publish the ordinary first-frame rate, but do not turn the reference
 	// surcharge (first two free) into an unconditional price per input image.
 	offers := plugin.Meta.PriceCatalog.Models["heygen/heygen-video-1"]
-	var haveFrame, haveReference bool
+	var haveFrame, haveLong, haveReference bool
 	for _, offer := range offers {
+		if offer.ID == "long_duration_seconds_480p:image_to_video" {
+			haveLong = true
+			require.Len(t, offer.Prices, 1)
+			assert.Equal(t, "second", offer.Prices[0].Unit)
+			require.NotNil(t, offer.Prices[0].AmountUSD)
+			assert.Equal(t, 0.045, *offer.Prices[0].AmountUSD)
+		}
 		if offer.ID == "duration_seconds_480p:image_to_video" {
 			haveFrame = true
 			require.Len(t, offer.Prices, 1)
@@ -179,6 +192,7 @@ func TestOpenRouterHeyGenReferences(t *testing.T) {
 		}
 	}
 	assert.True(t, haveFrame)
+	assert.True(t, haveLong)
 	assert.True(t, haveReference)
 }
 

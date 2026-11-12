@@ -1357,7 +1357,7 @@ func TestConsumerPricingNativeVideoOperationsMatchBoundSourceDescriptors(t *test
 			require.Contains(t, operations, "video_upscaling")
 			require.Len(t, operations["video_upscaling"].Prices, 1)
 			assert.Equal(t, "megapixel_second", operations["video_upscaling"].Prices[0].Unit)
-			assert.InDelta(t, 7.5, *operations["video_upscaling"].Prices[0].AmountRub, 1e-9)
+			assert.InDelta(t, 3.5, *operations["video_upscaling"].Prices[0].AmountRub, 1e-9)
 		case "avatar-alias":
 			require.Len(t, operations, 1)
 			require.Contains(t, operations, "image_to_video")
