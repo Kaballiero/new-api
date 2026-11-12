@@ -365,13 +365,14 @@ func NewDetectChannelModelsUsecase(effects ChannelEffects) detect_upstream_model
 }
 
 // NewScanChannelModelsUsecase checks the upstream models of all enabled
-// channels; the notification goes to the watching administrators in the root
-// user's language.
+// channels; the notification goes to the watching administrators and the
+// Telegram chat in the root user's language.
 func NewScanChannelModelsUsecase(effects ChannelEffects) scan_upstream_model_updates.Usecase {
 	store := repository.NewStore()
 	return scan_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), channelModelFetcher(store, effects), effects.RefreshRuntime, common.GetTimestamp, ChannelModelCheckInterval, func() time.Duration { return common.RequestInterval }, func() bool { return common.DebugEnabled }, common.SysLog, effects.ModelUpdateThrottle, func(report channeldomain.ModelUpdateReport) {
 		subject, content := channeladapter.ModelUpdateNotification(channelruntime.RootUserLanguage(), report)
 		notifications.ModelUpdateWatchers(subject, content)
+		notifications.TelegramChat(subject, content)
 	})
 }
 

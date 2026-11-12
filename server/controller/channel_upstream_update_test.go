@@ -1425,6 +1425,35 @@ func TestScheduledUpstreamModelUpdateMalformedSettingsDoNotOverwritePartialRow(t
 	require.Equal(t, "gpt-4o", persisted.Models)
 }
 
+func TestScheduledUpstreamModelUpdateSendsReportToTelegramGateway(t *testing.T) {
+	db := setupChannelUpstreamUpdateTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, i18n.Init())
+	createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
+	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
+		return []string{"gpt-4o", "gpt-4.1"}, nil
+	})
+	preserveChannelUpstreamModelNotifyState(t)
+	var requests []string
+	var payload map[string]string
+	gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		assert.NoError(t, common.DecodeJson(r.Body, &payload))
+	}))
+	defer gateway.Close()
+	t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
+	t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
+
+	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
+
+	require.Equal(t, 1, summary.ChangedChannels)
+	require.Equal(t, []string{"POST /send"}, requests)
+	assert.Equal(t, map[string]string{"text": "Upstream model check notification\n\n" +
+		"Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 0 auto-synced additions, 0 failed." +
+		"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)" +
+		"\n\nAdded model samples (showing 1/1): gpt-4.1"}, payload)
+}
+
 func TestFetchChannelUpstreamModelIDsDoesNotPersistPollingSelection(t *testing.T) {
 	db := setupChannelUpstreamUpdateTestDB(t)
 

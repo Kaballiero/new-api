@@ -12,7 +12,7 @@
 |---|---|---|---|
 | `system` | setup, task registry/lease/history/cleanup, instances и runtime maintenance и performance metrics | 25 | [README](system/README.md) |
 | `deployments` | управление io.net deployments, настройки и технические provider reads | 19 | [README](deployments/README.md) |
-| `notifications` | доставка, event limiter, root и upstream model watchers | 3 | [README](notifications/README.md) |
+| `notifications` | доставка, event limiter, root, upstream model watchers и Telegram-чат | 4 | [README](notifications/README.md) |
 | `settings` | общий options lifecycle, root editor, reload и публичная конфигурация; общий publication adapter и leaf pricing runtime | 11 | [README](settings/README.md) |
 | `accounts` | GetAPI PAT initialization и аккаунты пользователей: создание и регистрация, профиль, группы, квота, привязки email, реферальный код и перевод реферальной квоты, ежедневный check-in, админское управление аккаунтами | 26 | [README](accounts/README.md) |
 | `identity` | вход и доказательство личности: пароль, сессии и их отзыв, 2FA и резервные коды, passkey (WebAuthn), OAuth и WeChat, подтверждение email, восстановление пароля, повторная проверка для чувствительных действий | 72 | [README](identity/README.md) |
