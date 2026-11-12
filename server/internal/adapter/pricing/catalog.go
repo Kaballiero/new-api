@@ -19,6 +19,21 @@ func (c CatalogClient) Manifest(ctx context.Context) (domain.SourceManifest, err
 	value, err := c.Client.Manifest(ctx)
 	return ToSourceManifest(value), err
 }
+func (c CatalogClient) Index(ctx context.Context) (domain.SourceIndex, error) {
+	value, err := c.Client.Index(ctx)
+	if err != nil {
+		return domain.SourceIndex{}, err
+	}
+	result := domain.SourceIndex{Revision: value.Revision, Models: make([]domain.SourceIndexModel, len(value.Models))}
+	for i, model := range value.Models {
+		result.Models[i] = domain.SourceIndexModel{ID: model.ID, Hash: model.Hash, Type: model.Type, Modalities: ToSourceModalities(model.Modalities), Endpoints: model.Endpoints}
+		if model.Alias != nil {
+			alias := ToSourceAlias(*model.Alias)
+			result.Models[i].Alias = &alias
+		}
+	}
+	return result, nil
+}
 func (c CatalogClient) Document(ctx context.Context, ref domain.SourceReference) ([]byte, *domain.SourceDocument, error) {
 	raw, value, err := c.Client.Document(ctx, nativeSourceReference(ref))
 	if value == nil {

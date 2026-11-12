@@ -17,6 +17,7 @@
 - проверка канала (`ValidateChannel`) и ключей Vertex AI (`VertexArrayKeys`);
 - модели upstream (`UpstreamModels`): перечисленные upstream (`Listed`) и та их часть, которую можно добавить в канал (`Addable`); модель канала, которой нет среди перечисленных, — кандидат на удаление;
 - состояние обновления моделей upstream (`ModelUpdateState`), правила его расчёта (`ModelUpdateRules`) и отпечаток конфигурации загрузки (`ModelFetchFingerprint`);
+- источник моделей upstream: у канала с синхронизацией по upstream-каталогу (`ModelUpdateState.CatalogSyncEnabled`, настройка `upstream_model_update_catalog_sync_enabled`; только канал OpenRouter и только вместе с проверкой обновлений) — upstream-каталог, у остальных — список моделей провайдера; плановая проверка добавляет модели, а кандидаты на удаление только накапливает в `LastRemovedModels`;
 - политика отключения и включения по ошибкам (`FailurePolicy`, `ChannelFailure`), проверка канала через шлюз (`Probe`, `ProbeOutcome`), классификация живости модели (`ClassifyModelValidation`);
 - ошибки (`errors.go`).
 
@@ -87,6 +88,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/channels.go`) читает DT
 
 - Чужие `domain` модуль не импортирует.
 - Шлюз модулю не виден: тест канала, загрузка моделей, политика ошибок и настройки шлюза (`setting`, `settings`) приходят через узкие интерфейсы.
+- Модели upstream-каталога для канала с `CatalogSyncEnabled` `app/channels.go` (`channelModelFetcher`) берёт у сценария `pricing/list_upstream_catalog_models` один раз на usecase — прогон фоновой задачи или запрос — и общий для всех каналов; ошибка каталога оставляет канал без изменений, как ошибка загрузки моделей.
 - Сборка — `internal/app/channels.go`: `NewChannelsHTTP` один раз через `sync.OnceValue` в `app/httpapi`; фоновые прогоны собираются на каждый запуск (`NewChannelTestTaskUsecase`, `NewScanChannelModelsUsecase`, `NewChannelBalancesUsecase`). Usecase, который читает каналы, создаётся на каждый запрос: `adapter/gorm/channels.Store` хранит записи, загруженные в рамках одного запроса, чтобы изменения попадали в объект кэша каналов.
 - Хранение: `internal/adapter/gorm/channels` (`Store`) поверх `internal/adapter/gorm/channels/record` (GORM-запись `channels`, abilities, теги, настройки шлюза в DTO relaykit).
 - Шлюз: `internal/adapter/channels` — проверка канала (`ProbeEngine`, `ProbeOutcome`, `TestFailures`), загрузка моделей, баланс, Ollama, Codex, кэш привязки, тексты уведомления об обновлении моделей; сама проверка — `internal/adapter/gateway/channels`, failure orchestration — `gateway/transport`.

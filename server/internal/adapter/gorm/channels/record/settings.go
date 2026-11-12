@@ -9,8 +9,8 @@ import (
 )
 
 // ValidateSettings checks the gateway settings stored in the channel: proxy,
-// OpenRouter reserves, HTTP transport, tool loss policy and advanced custom
-// routes.
+// OpenRouter reserves, HTTP transport, tool loss policy, advanced custom
+// routes and the upstream catalog sync of upstream model updates.
 func (channel *Channel) ValidateSettings() error {
 	channelParams := &dto.ChannelSettings{}
 	if channel.Setting != nil && *channel.Setting != "" {
@@ -51,6 +51,14 @@ func (channel *Channel) ValidateSettings() error {
 	if channel.Type == constant.ChannelTypeAdvancedCustom && channelOtherSettings.UpstreamModelUpdateCheckEnabled {
 		if _, ok := channelOtherSettings.AdvancedCustom.ModelListRoute(); !ok {
 			return fmt.Errorf("advanced custom channels require a %s route when upstream model update checks are enabled", dto.AdvancedCustomModelListPath)
+		}
+	}
+	if channelOtherSettings.UpstreamModelUpdateCatalogSyncEnabled {
+		if channel.Type != constant.ChannelTypeOpenRouter {
+			return fmt.Errorf("upstream catalog sync is only available for OpenRouter channels")
+		}
+		if !channelOtherSettings.UpstreamModelUpdateCheckEnabled {
+			return fmt.Errorf("upstream catalog sync requires upstream model update checks")
 		}
 	}
 	return nil

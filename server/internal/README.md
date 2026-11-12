@@ -20,7 +20,7 @@
 | `personal_access_tokens` | персональные токены доступа к панели управления (PAT): выпуск, статус, отзыв и проверка | 4 | [README](personal_access_tokens/README.md) |
 | `authorization` | права администраторов (Casbin): каталог разрешений, проверка, переопределения для пользователя, загрузка политики | 11 | [README](authorization/README.md) |
 | `catalog` | модели/вендоры, metadata sync, доступность моделей шлюза, presets и prefill groups | 26 | [README](catalog/README.md) |
-| `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream | 27 | [README](pricing/README.md) |
+| `pricing` | цены для клиентов: публичная и персональная страница цен, конфигурация цен и коэффициентов, сборка и публикация каталога цен из upstream, модели upstream-каталога для обновления моделей каналов | 28 | [README](pricing/README.md) |
 | `channels` | администрирование каналов к провайдерам: CRUD, теги, ключи, баланс, проверка каналов, обновление моделей upstream, Codex-учётные данные, Ollama | 51 | [README](channels/README.md) |
 | `billing` | request-local hold, funding wallet/subscription, token quota, settle/refund и notification eligibility; text/audio/realtime cost, tiered и FX; durable Task/Batch остаются снаружи | 12 | [README](billing/README.md) |
 | `batch` | native Batch admission holds, execution, results, settlement/release, procurement и polling; provider wire остаётся в relay/batch | 12 | [README](batch/README.md) |

@@ -44,6 +44,7 @@ func (Store) ModelUpdateState(channel *domain.Channel) (domain.ModelUpdateState,
 	return domain.ModelUpdateState{
 		CheckEnabled:       settings.UpstreamModelUpdateCheckEnabled,
 		AutoSyncEnabled:    settings.UpstreamModelUpdateAutoSyncEnabled,
+		CatalogSyncEnabled: settings.UpstreamModelUpdateCatalogSyncEnabled,
 		LastCheckTime:      settings.UpstreamModelUpdateLastCheckTime,
 		LastDetectedModels: settings.UpstreamModelUpdateLastDetectedModels,
 		LastRemovedModels:  settings.UpstreamModelUpdateLastRemovedModels,
@@ -133,6 +134,7 @@ func (store Store) WithLockedModelState(id int, apply func(*domain.Channel, func
 			}
 			settings.UpstreamModelUpdateCheckEnabled = state.CheckEnabled
 			settings.UpstreamModelUpdateAutoSyncEnabled = state.AutoSyncEnabled
+			settings.UpstreamModelUpdateCatalogSyncEnabled = state.CatalogSyncEnabled
 			settings.UpstreamModelUpdateLastCheckTime = state.LastCheckTime
 			settings.UpstreamModelUpdateLastDetectedModels = state.LastDetectedModels
 			settings.UpstreamModelUpdateLastRemovedModels = state.LastRemovedModels

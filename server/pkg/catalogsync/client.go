@@ -15,6 +15,7 @@ import (
 
 const MaxDocumentBytes = 8 << 20
 const maxManifestBytes = 4 << 20
+const maxIndexBytes = 16 << 20
 const requestTimeout = 30 * time.Second
 
 type Client struct {
@@ -94,6 +95,23 @@ func (c *Client) Manifest(ctx context.Context) (Manifest, error) {
 		return Manifest{}, err
 	}
 	return manifest, nil
+}
+func (c *Client) Index(ctx context.Context) (Index, error) {
+	raw, err := c.read(ctx, "/v1/catalog/index", maxIndexBytes)
+	if err != nil {
+		return Index{}, err
+	}
+	if err := validateIndexShape(raw); err != nil {
+		return Index{}, err
+	}
+	var index Index
+	if err := common.Unmarshal(raw, &index); err != nil {
+		return Index{}, fmt.Errorf("invalid catalog index JSON: %w", err)
+	}
+	if err := index.Validate(); err != nil {
+		return Index{}, err
+	}
+	return index, nil
 }
 func (c *Client) Document(ctx context.Context, ref Reference) ([]byte, *Document, error) {
 	if ref.ID == "" || !ValidHash(ref.Hash) {

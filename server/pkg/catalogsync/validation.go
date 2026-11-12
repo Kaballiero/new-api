@@ -168,3 +168,63 @@ func validateDocumentShape(raw []byte) error {
 	}
 	return nil
 }
+func validateIndexShape(raw []byte) error {
+	root, err := wireObject(raw, nil, "schemaVersion", "normalizationVersion", "revision", "models")
+	if err != nil {
+		return err
+	}
+	if common.GetJsonType(root["models"]) != "array" {
+		return fmt.Errorf("catalog index models array required")
+	}
+	var models []json.RawMessage
+	if err := common.Unmarshal(root["models"], &models); err != nil {
+		return err
+	}
+	for _, rawModel := range models {
+		model, err := wireObject(rawModel, []string{"alias", "endpoints"}, "id", "hash", "type", "modalities", "alias", "endpoints", "offers")
+		if err != nil {
+			return err
+		}
+		modalities, err := wireObject(model["modalities"], nil, "input", "output")
+		if err != nil {
+			return err
+		}
+		for _, key := range []string{"input", "output"} {
+			if err := wireStringArray(modalities[key]); err != nil {
+				return err
+			}
+		}
+		if common.GetJsonType(model["alias"]) != "null" {
+			if _, err := wireObject(model["alias"], nil, "targetId"); err != nil {
+				return err
+			}
+		}
+		if common.GetJsonType(model["endpoints"]) != "null" {
+			if err := wireStringArray(model["endpoints"]); err != nil {
+				return err
+			}
+		}
+		if common.GetJsonType(model["offers"]) != "array" {
+			return fmt.Errorf("catalog index offers array required")
+		}
+		var offers []json.RawMessage
+		if err := common.Unmarshal(model["offers"], &offers); err != nil {
+			return err
+		}
+		for _, rawOffer := range offers {
+			offer, err := wireObject(rawOffer, []string{"mode", "eligibility"}, "scope", "variant", "mode", "eligibility")
+			if err != nil {
+				return err
+			}
+			if common.GetJsonType(offer["variant"]) != "object" {
+				return fmt.Errorf("catalog index offer variant must be an object")
+			}
+			if common.GetJsonType(offer["eligibility"]) != "null" {
+				if _, err := wireObject(offer["eligibility"], nil, "eligible"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}

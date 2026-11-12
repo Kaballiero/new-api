@@ -3,7 +3,10 @@ package domain
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"strings"
+
+	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 )
 
 type CatalogSource struct {
@@ -55,4 +58,34 @@ func ValidCatalogHash(value string) bool {
 	}
 	_, err := hex.DecodeString(value)
 	return err == nil
+}
+
+// UpstreamCatalogModels are the models of the upstream catalog: Listed are the
+// models of its manifest and Addable the part of them a channel may add now.
+type UpstreamCatalogModels struct {
+	Listed  []string
+	Addable []string
+}
+
+// openRouterRoutingSuffixes select how OpenRouter routes a model. The catalog
+// lists the model without them.
+var openRouterRoutingSuffixes = []string{":nitro", ":floor"}
+
+// ChannelUpstreamModels are the catalog models as the upstream models of a
+// channel. A channel target that routes a listed model with an OpenRouter
+// routing suffix is listed too, so it is not a removal candidate.
+func (models UpstreamCatalogModels) ChannelUpstreamModels(deps Capabilities, channel *BuildChannel) channeldomain.UpstreamModels {
+	listed := slices.Clone(models.Listed)
+	for _, model := range channeldomain.NormalizeModelNames(channel.GetModels()) {
+		target, resolved := ResolvePricingUpstreamModel(deps, channel, model)
+		if !resolved {
+			continue
+		}
+		for _, suffix := range openRouterRoutingSuffixes {
+			if base, routed := strings.CutSuffix(target, suffix); routed && slices.Contains(models.Listed, base) {
+				listed = append(listed, target)
+			}
+		}
+	}
+	return channeldomain.UpstreamModels{Listed: listed, Addable: models.Addable}
 }

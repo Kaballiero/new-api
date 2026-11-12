@@ -75,10 +75,13 @@ func ApplySelectedModelChanges(originModels []string, addModels []string, remove
 }
 
 // ModelUpdateState is the upstream model update tracking of a channel. The
-// gateway stores it among the other channel settings.
+// gateway stores it among the other channel settings. CatalogSyncEnabled takes
+// the upstream models from the upstream catalog instead of the provider model
+// list.
 type ModelUpdateState struct {
 	CheckEnabled       bool
 	AutoSyncEnabled    bool
+	CatalogSyncEnabled bool
 	LastCheckTime      int64
 	LastDetectedModels []string
 	LastRemovedModels  []string
