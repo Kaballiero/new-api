@@ -19,6 +19,7 @@ import (
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	legacy "github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/glebarez/sqlite"
@@ -88,7 +89,7 @@ func TestPricingCatalogSourceSurvivesUnrelatedRoutes(t *testing.T) {
 }
 
 func TestPricingCatalogLegacyFingerprintCompatibility(t *testing.T) {
-	_, channel, entry := pricingCatalogOptionFixture(t)
+	db, channel, entry := pricingCatalogOptionFixture(t)
 	entry.Fingerprint = pricingstate.TestPricingCatalogFingerprint(
 		channel,
 		entry.UpstreamModel,
@@ -105,6 +106,71 @@ func TestPricingCatalogLegacyFingerprintCompatibility(t *testing.T) {
 	changed.Models += ",neighbor"
 	_, known = pricingstate.GetPricingCatalogEntry(&changed, entry.UpstreamModel, entry.Endpoint)
 	assert.False(t, known, "stale legacy fingerprints require fresh metadata")
+
+	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateLastCheckTime: 1762900000}
+	channel.SetOtherSettings(settings)
+	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", channel.Id).Update("settings", channel.OtherSettings).Error)
+	entry.Fingerprint = pricingstate.TestPricingCatalogFingerprint(channel, entry.UpstreamModel, entry.Endpoint, []any{"route-v2", true})
+	require.NoError(t, publishPricingCatalogEntry(entry))
+	_, known = pricingstate.GetPricingCatalogEntry(channel, entry.UpstreamModel, entry.Endpoint)
+	assert.True(t, known, "fingerprints over the raw other settings stay valid")
+	checked := *channel
+	settings.UpstreamModelUpdateLastCheckTime += 1800
+	checked.SetOtherSettings(settings)
+	_, known = pricingstate.GetPricingCatalogEntry(&checked, entry.UpstreamModel, entry.Endpoint)
+	assert.False(t, known, "fingerprints over the raw other settings keep their original terms")
+}
+
+func TestPricingCatalogSourceIgnoresUpstreamModelUpdateTracking(t *testing.T) {
+	db, channel, entry := pricingCatalogOptionFixture(t)
+	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateLastCheckTime: 1762900000}
+	channel.SetOtherSettings(settings)
+	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", channel.Id).Update("settings", channel.OtherSettings).Error)
+	entry.Fingerprint = pricingstate.PricingCatalogSourceFingerprint(channel, entry.UpstreamModel, entry.Endpoint)
+	require.NoError(t, publishPricingCatalogEntry(entry))
+
+	checked := *channel
+	settings.UpstreamModelUpdateLastCheckTime += 1800
+	checked.SetOtherSettings(settings)
+	assert.Equal(t, entry.Fingerprint, pricingstate.PricingCatalogSourceFingerprint(&checked, entry.UpstreamModel, entry.Endpoint))
+	_, known := pricingstate.GetPricingCatalogEntry(&checked, entry.UpstreamModel, entry.Endpoint)
+	assert.True(t, known, "a model update check must not hide the stored price")
+
+	settings.UpstreamModelUpdateLastDetectedModels = []string{"upstream/added"}
+	settings.UpstreamModelUpdateLastRemovedModels = []string{"upstream/removed"}
+	checked.SetOtherSettings(settings)
+	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", channel.Id).Update("settings", checked.OtherSettings).Error)
+	_, known = pricingstate.GetPricingCatalogEntry(&checked, entry.UpstreamModel, entry.Endpoint)
+	assert.True(t, known, "detected model changes must not hide the stored price")
+	require.NoError(t, publishPricingCatalogEntry(entry), "a model update check must not reject in-flight publication")
+
+	unparseable := checked
+	unparseable.OtherSettings = "{"
+	assert.Equal(t,
+		pricingstate.TestPricingCatalogFingerprint(&unparseable, entry.UpstreamModel, entry.Endpoint, []any{"route-v2", true}),
+		pricingstate.PricingCatalogSourceFingerprint(&unparseable, entry.UpstreamModel, entry.Endpoint),
+		"unparseable other settings are fingerprinted as stored",
+	)
+
+	checkDisabled, autoSyncEnabled, modelIgnored := settings, settings, settings
+	checkDisabled.UpstreamModelUpdateCheckEnabled = false
+	autoSyncEnabled.UpstreamModelUpdateAutoSyncEnabled = true
+	modelIgnored.UpstreamModelUpdateIgnoredModels = []string{"upstream/added"}
+	for _, change := range []struct {
+		name     string
+		settings dto.ChannelOtherSettings
+	}{
+		{"check disabled", checkDisabled},
+		{"auto sync enabled", autoSyncEnabled},
+		{"model ignored", modelIgnored},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			replaced := checked
+			replaced.SetOtherSettings(change.settings)
+			_, known := pricingstate.GetPricingCatalogEntry(&replaced, entry.UpstreamModel, entry.Endpoint)
+			assert.False(t, known)
+		})
+	}
 }
 
 func TestPricingCatalogOptionsRejectInvalidAndRetainSiblings(t *testing.T) {

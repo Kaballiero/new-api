@@ -140,6 +140,31 @@ func TestPricingInputsPollObservesMetadataVendorsAndRoutes(t *testing.T) {
 	assert.Greater(t, (*pricingstate.TestPricingInputsGeneration).Load(), generation)
 }
 
+func TestPricingInputsUpstreamModelUpdateTrackingDoesNotRebuild(t *testing.T) {
+	db := pricingInputFixture(t)
+	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", 970).Update("settings", `{"upstream_model_update_check_enabled":true}`).Error)
+	channelstore.InitChannelCache()
+	pricingruntime.SyncPricingCatalogueInputs()
+	pricingruntime.GetPricing()
+	generation := (*pricingstate.TestPricingInputsGeneration).Load()
+	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", 970).Update("settings", `{"upstream_model_update_check_enabled":true,"upstream_model_update_last_check_time":1762900000}`).Error)
+	channelstore.InitChannelCache()
+	pricingruntime.SyncPricingCatalogueInputs()
+	assert.Equal(t, generation, (*pricingstate.TestPricingInputsGeneration).Load(), "a model update check does not dirty the projection")
+	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", 970).Update("settings", `{"upstream_model_update_check_enabled":true,"upstream_model_update_last_check_time":1762901800,"upstream_model_update_last_detected_models":["cache-model-added"],"upstream_model_update_last_removed_models":["cache-model-removed"]}`).Error)
+	channelstore.InitChannelCache()
+	pricingruntime.SyncPricingCatalogueInputs()
+	assert.Equal(t, generation, (*pricingstate.TestPricingInputsGeneration).Load(), "detected model changes do not dirty the projection")
+	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", 970).Update("settings", `{"upstream_model_update_check_enabled":true,"upstream_model_update_auto_sync_enabled":true,"upstream_model_update_last_check_time":1762901800}`).Error)
+	channelstore.InitChannelCache()
+	assert.Greater(t, (*pricingstate.TestPricingInputsGeneration).Load(), generation, "a changed model update setting is observed by the channel sync")
+	pricingruntime.GetPricing()
+	generation = (*pricingstate.TestPricingInputsGeneration).Load()
+	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", 970).Update("settings", `{"upstream_model_update_check_enabled":true,"upstream_model_update_auto_sync_enabled":true,"upstream_model_update_ignored_models":["cache-model-added"]}`).Error)
+	pricingruntime.SyncPricingCatalogueInputs()
+	assert.Greater(t, (*pricingstate.TestPricingInputsGeneration).Load(), generation, "a changed model update setting is observed by the source poll")
+}
+
 func TestPricingInputsLegacyOptionsAndAbilityStatusInvalidateOnlyChanges(t *testing.T) {
 	pricingInputFixture(t)
 	for _, key := range pricingstate.ModelPricingOptionKeys[:8] {

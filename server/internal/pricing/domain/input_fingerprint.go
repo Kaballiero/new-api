@@ -70,7 +70,7 @@ func PersistedInputFingerprint(deps Capabilities, metadata []BuildModel, vendors
 func ChannelInputIdentity(deps Capabilities, channel *BuildChannel) (string, error) {
 	if channel.Status == constant.ChannelStatusEnabled {
 
-		return PricingCatalogFingerprint(deps, channel, "", "", []any{channel.Models, channel.GetModelMapping()}), nil
+		return PricingCatalogFingerprint(deps, channel, "", "", []any{channel.Models, channel.GetModelMapping()}, deps.Codec.ChannelOtherSettingsIdentity(channel.OtherSettings)), nil
 	}
 	value, err := deps.Codec.Marshal(struct {
 		ID, Type, Status int

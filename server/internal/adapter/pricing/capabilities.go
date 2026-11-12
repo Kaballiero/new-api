@@ -1,6 +1,8 @@
 package pricing
 
 import (
+	"encoding/json"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -113,9 +115,34 @@ func Capabilities() domain.Capabilities {
 			UnmarshalJsonStr:      common.UnmarshalJsonStr,
 			DecodeJson:            common.DecodeJson,
 			GetJsonType:           common.GetJsonType,
+
+			ChannelOtherSettingsIdentity: channelOtherSettingsIdentity,
 		},
 		Expressions: Expressions{}, Catalog: Catalog{}, Endpoints: Endpoints{},
 	}
+}
+
+// upstreamModelUpdateTrackingKeys are the other channel settings that every
+// upstream model update check rewrites; they do not affect prices.
+var upstreamModelUpdateTrackingKeys = []string{
+	"upstream_model_update_last_check_time",
+	"upstream_model_update_last_detected_models",
+	"upstream_model_update_last_removed_models",
+}
+
+func channelOtherSettingsIdentity(raw string) string {
+	var settings map[string]json.RawMessage
+	if err := common.UnmarshalJsonStr(raw, &settings); err != nil {
+		return raw
+	}
+	for _, key := range upstreamModelUpdateTrackingKeys {
+		delete(settings, key)
+	}
+	identity, err := common.Marshal(settings)
+	if err != nil {
+		return raw
+	}
+	return string(identity)
 }
 
 type ChannelCodec struct{}

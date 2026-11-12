@@ -15,6 +15,9 @@ type JSONCodec struct {
 	UnmarshalJsonStr      func(string, any) error
 	DecodeJson            func(io.Reader, any) error
 	GetJsonType           func(json.RawMessage) string
+	// ChannelOtherSettingsIdentity returns the stored other channel settings
+	// without the upstream model update tracking.
+	ChannelOtherSettingsIdentity func(string) string
 }
 
 // ExpressionReader exposes display facts from the existing expression engine.

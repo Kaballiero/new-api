@@ -13,7 +13,7 @@ import (
 var pricingCatalogState atomic.Pointer[pricingdomain.PricingCatalogSnapshot]
 
 func pricingCatalogFingerprint(channel *legacy.Channel, upstream string, endpoint constant.EndpointType, routeIdentity []any) string {
-	return pricingdomain.PricingCatalogFingerprint(pricingCapabilities(), PricingBuildChannel(channel), upstream, endpoint, routeIdentity)
+	return pricingdomain.PricingCatalogFingerprint(pricingCapabilities(), PricingBuildChannel(channel), upstream, endpoint, routeIdentity, channel.OtherSettings)
 }
 
 func pricingCatalogSourceMatches(entry pricingdomain.PricingCatalogEntry, channel *legacy.Channel) bool {
