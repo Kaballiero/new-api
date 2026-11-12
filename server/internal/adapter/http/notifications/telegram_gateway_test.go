@@ -59,6 +59,20 @@ func TestTelegramGatewaySend(t *testing.T) {
 	}
 }
 
+func TestTelegramGatewaySendDoesNotFollowRedirects(t *testing.T) {
+	redirected := false
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { redirected = true }))
+	defer target.Close()
+	server := httptest.NewServer(http.RedirectHandler(target.URL+"/send", http.StatusTemporaryRedirect))
+	defer server.Close()
+	gateway := NewTelegramGateway(func() string { return server.URL }, func() string { return "gateway-token" })
+
+	err := gateway.Send("summary")
+
+	require.EqualError(t, err, "telegram gateway request failed with status code: 307")
+	assert.False(t, redirected)
+}
+
 func TestTelegramGatewaySendWithoutURL(t *testing.T) {
 	gateway := NewTelegramGateway(func() string { return "" }, func() string { return "" })
 

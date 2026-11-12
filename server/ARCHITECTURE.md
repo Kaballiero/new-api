@@ -94,7 +94,7 @@ Gateway ingress, plugin session, playground и debug принадлежат `gat
 | Пять counter maps и flush | gorm/counters, app/background.go |
 | Shared row lock / SQL clock / plan cache | gorm/locking, gorm/dbclock, cache/subscriptions |
 | Audit policy/recording | audit; app/audit.Recording, callbacks app/httpapi |
-| Notification delivery/limiter/root/watchers | notifications; app/notifications, adapter/notifications RAM counter |
+| Notification delivery/limiter/root/watchers/Telegram chat | notifications; app/notifications, adapter/notifications RAM counter, adapter/http/notifications Telegram gateway client |
 | Setup/system task registry/leases/history | system; app/system/systemruntime, gorm/system |
 | Metrics core/loop, aggregation/SQL/Redis | app/systemmetrics, runtime/gorm/redis adapters; gateway/metrics projection |
 | HTTP pools/proxy/protected fetch / media / text filter | pkg/httpclient / pkg/media / pkg/textfilter |

@@ -23,7 +23,8 @@ type TelegramGateway struct {
 }
 
 func NewTelegramGateway(url func() string, apiToken func() string) TelegramGateway {
-	return TelegramGateway{url: url, apiToken: apiToken, client: &http.Client{Timeout: 12 * time.Second}}
+	client := &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return TelegramGateway{url: url, apiToken: apiToken, client: client}
 }
 
 func (g TelegramGateway) Send(text string) error {
