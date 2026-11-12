@@ -123,14 +123,16 @@ func TestPricingCatalogLegacyFingerprintCompatibility(t *testing.T) {
 
 func TestPricingCatalogSourceIgnoresUpstreamModelUpdateTracking(t *testing.T) {
 	db, channel, entry := pricingCatalogOptionFixture(t)
-	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateLastCheckTime: 1762900000}
-	channel.SetOtherSettings(settings)
+	// The admin client saves explicit zero values; a model update check saves the settings structure.
+	channel.OtherSettings = `{"disable_task_polling_sleep":false,"upstream_model_update_check_enabled":true,"upstream_model_update_auto_sync_enabled":false,"upstream_model_update_ignored_models":[],"upstream_model_update_last_detected_models":[],"upstream_model_update_last_check_time":0}`
 	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", channel.Id).Update("settings", channel.OtherSettings).Error)
 	entry.Fingerprint = pricingstate.PricingCatalogSourceFingerprint(channel, entry.UpstreamModel, entry.Endpoint)
 	require.NoError(t, publishPricingCatalogEntry(entry))
 
 	checked := *channel
-	settings.UpstreamModelUpdateLastCheckTime += 1800
+	var settings dto.ChannelOtherSettings
+	require.NoError(t, common.UnmarshalJsonStr(channel.OtherSettings, &settings))
+	settings.UpstreamModelUpdateLastCheckTime = 1762900000
 	checked.SetOtherSettings(settings)
 	assert.Equal(t, entry.Fingerprint, pricingstate.PricingCatalogSourceFingerprint(&checked, entry.UpstreamModel, entry.Endpoint))
 	_, known := pricingstate.GetPricingCatalogEntry(&checked, entry.UpstreamModel, entry.Endpoint)
@@ -171,6 +173,11 @@ func TestPricingCatalogSourceIgnoresUpstreamModelUpdateTracking(t *testing.T) {
 			assert.False(t, known)
 		})
 	}
+	reserved := checked
+	reserve := `{"openrouter_model_reserve_usd":{"upstream/model":0.5}}`
+	reserved.Setting = &reserve
+	_, known = pricingstate.GetPricingCatalogEntry(&reserved, entry.UpstreamModel, entry.Endpoint)
+	assert.False(t, known, "an OpenRouter reserve value must invalidate source prices")
 }
 
 func TestPricingCatalogOptionsRejectInvalidAndRetainSiblings(t *testing.T) {

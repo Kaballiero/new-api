@@ -142,7 +142,8 @@ func TestPricingInputsPollObservesMetadataVendorsAndRoutes(t *testing.T) {
 
 func TestPricingInputsUpstreamModelUpdateTrackingDoesNotRebuild(t *testing.T) {
 	db := pricingInputFixture(t)
-	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", 970).Update("settings", `{"upstream_model_update_check_enabled":true}`).Error)
+	// The admin client saves explicit zero values; a model update check saves the settings structure.
+	require.NoError(t, db.Model(&legacy.Channel{}).Where("id = ?", 970).Update("settings", `{"disable_task_polling_sleep":false,"upstream_model_update_check_enabled":true,"upstream_model_update_auto_sync_enabled":false,"upstream_model_update_ignored_models":[],"upstream_model_update_last_detected_models":[],"upstream_model_update_last_check_time":0}`).Error)
 	channelstore.InitChannelCache()
 	pricingruntime.SyncPricingCatalogueInputs()
 	pricingruntime.GetPricing()
