@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpdateState, upstreamModels, addModelsInput, ignoreModelsInput, removeModelsInput []string, applyAll bool) (result AppliedModelUpdates, err error) {
+func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpdateState, upstreamModels UpstreamModels, addModelsInput, ignoreModelsInput, removeModelsInput []string, applyAll bool) (result AppliedModelUpdates, err error) {
 
 	modelMapping, mappingErr := rules.NormalizeChannelModelMapping(channel)
 	if mappingErr != nil {
