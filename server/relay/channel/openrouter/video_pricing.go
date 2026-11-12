@@ -275,10 +275,15 @@ func EstimateVideoOrder(model VideoModelPricing, order VideoPriceOrder) (float64
 	if duration <= 0 || duration > relaycommon.MaxTaskDurationSeconds {
 		return fail("bounded output duration is unavailable: source media quantity is required")
 	}
-	// OpenRouter publishes a long-duration rate for ordinary output only, while
-	// discovery lists the longer durations without the generation mode.
-	if model.ID == "heygen/heygen-video-1" && len(order.InputReferences) > 0 && order.Duration != nil && duration > heyGenLongDurationThresholdSeconds {
-		return fail("long HeyGen reference output has no published tariff")
+	// HeyGen reference mode supports 5–15 seconds, while discovery lists the
+	// longer durations without the generation mode.
+	heyGenReferenceMode := model.ID == "heygen/heygen-video-1" && len(order.InputReferences) > 0
+	explicitLongDuration := order.Duration != nil && duration > heyGenLongDurationThresholdSeconds
+	if heyGenReferenceMode && explicitLongDuration {
+		return fail("HeyGen reference mode supports 5–15 seconds")
+	}
+	if heyGenReferenceMode {
+		duration = min(duration, heyGenLongDurationThresholdSeconds)
 	}
 	if order.Resolution != "" && !slices.Contains(model.SupportedResolutions, order.Resolution) {
 		return fail("resolution absent from fresh capabilities")
