@@ -85,9 +85,11 @@ type ModelUpdateState struct {
 	IgnoredModels      []string
 }
 
-// UpstreamModels are the models of a channel's upstream: Listed are the models
-// the upstream reports, Addable are those of them that may be added to the
-// channel. A channel model missing from Listed is a removal candidate.
+// UpstreamModels are the models of a channel's upstream. Listed are the models
+// the upstream lists; Addable is the subset of Listed that may be added to the
+// channel. A channel model missing from Listed is a removal candidate, so an
+// empty Listed means the upstream lists no models and every channel model is
+// a removal candidate.
 type UpstreamModels struct {
 	Listed  []string
 	Addable []string

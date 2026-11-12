@@ -780,8 +780,8 @@ func TestCollectPendingUpstreamModelChangesFromModels_AddableSubsetOfListed(t *t
 	)
 
 	require.NoError(t, err)
-	require.Equal(t, []string{"gpt-4.1"}, pendingAddModels)
-	require.Equal(t, []string{"stale-model"}, pendingRemoveModels)
+	assert.Equal(t, []string{"gpt-4.1"}, pendingAddModels)
+	assert.Equal(t, []string{"stale-model"}, pendingRemoveModels)
 }
 
 func TestBuildChannelUpstreamModelFetchFingerprintExcludesPollingIndex(t *testing.T) {

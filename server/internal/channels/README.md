@@ -15,7 +15,7 @@
 Понятия и бизнес-ошибки описаны в `domain/`:
 - `Channel`, `ChannelInfo` (режим нескольких ключей), фильтры и сортировка списка;
 - проверка канала (`ValidateChannel`) и ключей Vertex AI (`VertexArrayKeys`);
-- модели upstream (`UpstreamModels`): перечисленные upstream (`Listed`) и допустимые к добавлению в канал (`Addable`); модель канала, которой нет среди перечисленных, — кандидат на удаление;
+- модели upstream (`UpstreamModels`): перечисленные upstream (`Listed`) и та их часть, которую можно добавить в канал (`Addable`); модель канала, которой нет среди перечисленных, — кандидат на удаление;
 - состояние обновления моделей upstream (`ModelUpdateState`), правила его расчёта (`ModelUpdateRules`) и отпечаток конфигурации загрузки (`ModelFetchFingerprint`);
 - политика отключения и включения по ошибкам (`FailurePolicy`, `ChannelFailure`), проверка канала через шлюз (`Probe`, `ProbeOutcome`), классификация живости модели (`ClassifyModelValidation`);
 - ошибки (`errors.go`).
