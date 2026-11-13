@@ -33,7 +33,8 @@ interface UpstreamUpdateDialogProps {
   open: boolean
   addModels: string[]
   removeModels: string[]
-  preferredTab: 'add' | 'remove'
+  conflictModels: string[]
+  preferredTab: 'add' | 'remove' | 'needs-decision'
   confirmLoading: boolean
   onConfirm: (data: { addModels: string[]; removeModels: string[] }) => void
   onCancel: () => void
@@ -97,8 +98,8 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
   const handleConfirm = () => {
     const hasAdd = props.addModels.length > 0
     const hasRemove = props.removeModels.length > 0
-    const selectedAddArr = Array.from(selectedAdd)
-    const selectedRemoveArr = Array.from(selectedRemove)
+    const selectedAddArr = [...selectedAdd]
+    const selectedRemoveArr = [...selectedRemove]
     const anyAdd = selectedAddArr.length > 0
     const anyRemove = selectedRemoveArr.length > 0
 
@@ -147,9 +148,11 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
         </p>
         <Tabs
           value={activeTab}
-          onValueChange={(v) => setActiveTab(v as 'add' | 'remove')}
+          onValueChange={(v) =>
+            setActiveTab(v as 'add' | 'remove' | 'needs-decision')
+          }
         >
-          <TabsList className='grid w-full grid-cols-2'>
+          <TabsList className='grid w-full grid-cols-3'>
             <TabsTrigger value='add' className='gap-1'>
               {t('Add Models')}
               <StatusBadge variant='neutral' className='ml-1' copyable={false}>
@@ -160,6 +163,12 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
               {t('Remove Models')}
               <StatusBadge variant='neutral' className='ml-1' copyable={false}>
                 {selectedRemove.size}/{props.removeModels.length}
+              </StatusBadge>
+            </TabsTrigger>
+            <TabsTrigger value='needs-decision' className='gap-1'>
+              {t('Needs decision')}
+              <StatusBadge variant='neutral' className='ml-1' copyable={false}>
+                {props.conflictModels.length}
               </StatusBadge>
             </TabsTrigger>
           </TabsList>
@@ -269,6 +278,29 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
               )}
             </ScrollArea>
           </TabsContent>
+
+          <TabsContent value='needs-decision' className='space-y-3'>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'These upstream models were not offered: their name is already used by a model with another target. Edit the channel model mapping to resolve the conflict.'
+              )}
+            </p>
+            <ScrollArea className='h-[280px] rounded-md border p-2'>
+              {props.conflictModels.length > 0 ? (
+                <ul className='space-y-1'>
+                  {props.conflictModels.map((model) => (
+                    <li key={model} className='truncate px-2 py-1.5 text-sm'>
+                      {model}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className='text-muted-foreground py-8 text-center text-sm'>
+                  {t('Nothing needs a decision')}
+                </p>
+              )}
+            </ScrollArea>
+          </TabsContent>
         </Tabs>
       </Dialog>
 
@@ -282,8 +314,8 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
         handleConfirm={() => {
           setPartialConfirmOpen(false)
           props.onConfirm({
-            addModels: Array.from(selectedAdd),
-            removeModels: Array.from(selectedRemove),
+            addModels: [...selectedAdd],
+            removeModels: [...selectedRemove],
           })
         }}
       />

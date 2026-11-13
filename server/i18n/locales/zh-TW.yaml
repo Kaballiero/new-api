@@ -420,6 +420,7 @@ channel.model_update_channels: "變更渠道明細（展示 {{.Shown}}/{{.Total}
 channel.model_update_channels_omitted: "其餘 {{.Count}} 個渠道已省略"
 channel.model_update_add_samples: "新增模型範例（展示 {{.Shown}}/{{.Total}}）：{{.Models}}"
 channel.model_update_remove_samples: "刪除模型範例（展示 {{.Shown}}/{{.Total}}）：{{.Models}}"
+channel.model_update_conflict_samples: "需要決定——名稱已被其他目標的模型佔用（展示 {{.Shown}}/{{.Total}}）：{{.Models}}"
 channel.model_update_failed_ids: "失敗渠道 ID（展示 {{.Shown}}/{{.Total}}）：{{.IDs}}"
 channel.model_update_omitted: "（其餘 {{.Count}} 個已省略）"
 

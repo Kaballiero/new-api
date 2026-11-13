@@ -12,6 +12,7 @@ type Output struct {
 	ChannelName     string   `json:"channel_name"`
 	AddModels       []string `json:"add_models"`
 	RemoveModels    []string `json:"remove_models"`
+	ConflictModels  []string `json:"conflict_models"`
 	LastCheckTime   int64    `json:"last_check_time"`
 	AutoAddedModels int      `json:"auto_added_models"`
 }

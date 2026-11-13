@@ -419,6 +419,7 @@ channel.model_update_channels: "Изменённые каналы (показа�
 channel.model_update_channels_omitted: "ещё {{.Count}} каналов не показано"
 channel.model_update_add_samples: "Примеры добавленных моделей (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_remove_samples: "Примеры удалённых моделей (показано {{.Shown}}/{{.Total}}): {{.Models}}"
+channel.model_update_conflict_samples: "Требует решения — имя уже занято моделью с другой целью (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_failed_ids: "ID каналов с ошибками (показано {{.Shown}}/{{.Total}}): {{.IDs}}"
 channel.model_update_omitted: " (ещё {{.Count}} не показано)"
 

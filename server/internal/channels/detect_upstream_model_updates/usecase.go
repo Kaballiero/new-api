@@ -127,5 +127,5 @@ func (usecase Usecase) Execute(ctx context.Context, input Input) (Output, error)
 	if changed {
 		usecase.refresh()
 	}
-	return Output{ChannelID: channel.Id, ChannelName: channel.Name, AddModels: domain.NormalizeModelNames(settings.LastDetectedModels), RemoveModels: domain.NormalizeModelNames(settings.LastRemovedModels), LastCheckTime: settings.LastCheckTime, AutoAddedModels: added}, nil
+	return Output{ChannelID: channel.Id, ChannelName: channel.Name, AddModels: domain.NormalizeModelNames(settings.LastDetectedModels), RemoveModels: domain.NormalizeModelNames(settings.LastRemovedModels), ConflictModels: domain.NormalizeModelNames(settings.LastConflictModels), LastCheckTime: settings.LastCheckTime, AutoAddedModels: added}, nil
 }

@@ -419,6 +419,7 @@ channel.model_update_channels: "Changed channels (showing {{.Shown}}/{{.Total}})
 channel.model_update_channels_omitted: "{{.Count}} more channels omitted"
 channel.model_update_add_samples: "Added model samples (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_remove_samples: "Removed model samples (showing {{.Shown}}/{{.Total}}): {{.Models}}"
+channel.model_update_conflict_samples: "Needs decision — name already used by a model with another target (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_failed_ids: "Failed channel IDs (showing {{.Shown}}/{{.Total}}): {{.IDs}}"
 channel.model_update_omitted: " ({{.Count}} more omitted)"
 

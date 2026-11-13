@@ -128,6 +128,7 @@ func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply b
 	channelSummaries := make([]domain.ModelUpdateChannelSummary, 0)
 	addModelSamples := make([]string, 0)
 	removeModelSamples := make([]string, 0)
+	conflictModelSamples := make([]string, 0)
 	refreshNeeded := false
 
 	// Count the enabled channels up front so progress can be reported as a
@@ -207,6 +208,7 @@ scanLoop:
 			}
 			addModelSamples = domain.MergeModelNames(addModelSamples, currentAddModels)
 			removeModelSamples = domain.MergeModelNames(removeModelSamples, currentRemoveModels)
+			conflictModelSamples = domain.MergeModelNames(conflictModelSamples, settings.LastConflictModels)
 			if configChanged {
 				refreshNeeded = true
 			}
@@ -278,6 +280,7 @@ scanLoop:
 			Channels:             channelSummaries,
 			AddModelSamples:      addModelSamples,
 			RemoveModelSamples:   removeModelSamples,
+			ConflictModelSamples: conflictModelSamples,
 		})
 	}
 	return summary

@@ -93,6 +93,7 @@ export function ChannelsDialogs() {
         open={upstream.showModal}
         addModels={upstream.addModels}
         removeModels={upstream.removeModels}
+        conflictModels={upstream.conflictModels}
         preferredTab={upstream.preferredTab}
         confirmLoading={upstream.applyLoading}
         onConfirm={upstream.applyUpdates}

@@ -1388,7 +1388,7 @@ func TestDetectChannelUpstreamModelUpdatesInspectsDisabledChannel(t *testing.T) 
 	channel := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{})
 	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("status", common.ChannelStatusManuallyDisabled).Error)
 	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
-		return []string{"gpt-4o", "anthropic/fresh-model"}, nil
+		return []string{"gpt-4o", "anthropic/fresh-model", "acme/gpt-4o"}, nil
 	})
 
 	body := []byte(fmt.Sprintf(`{"id":%d}`, channel.Id))
@@ -1402,13 +1402,15 @@ func TestDetectChannelUpstreamModelUpdatesInspectsDisabledChannel(t *testing.T) 
 	var response struct {
 		Success bool `json:"success"`
 		Data    struct {
-			AddModels     []string `json:"add_models"`
-			LastCheckTime int64    `json:"last_check_time"`
+			AddModels      []string `json:"add_models"`
+			ConflictModels []string `json:"conflict_models"`
+			LastCheckTime  int64    `json:"last_check_time"`
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.True(t, response.Success)
 	require.Equal(t, []string{"anthropic/fresh-model"}, response.Data.AddModels)
+	require.Equal(t, []string{"acme/gpt-4o"}, response.Data.ConflictModels)
 	require.NotZero(t, response.Data.LastCheckTime)
 
 	persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
@@ -1486,7 +1488,7 @@ func TestScheduledUpstreamModelUpdateSendsReportToTelegramGateway(t *testing.T) 
 	require.NoError(t, i18n.Init())
 	createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
 	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
-		return []string{"gpt-4o", "gpt-4.1"}, nil
+		return []string{"gpt-4o", "gpt-4.1", "acme/gpt-4o"}, nil
 	})
 	preserveChannelUpstreamModelNotifyState(t)
 	var requests []string
@@ -1506,7 +1508,8 @@ func TestScheduledUpstreamModelUpdateSendsReportToTelegramGateway(t *testing.T) 
 	assert.Equal(t, map[string]string{"text": "Upstream model check notification\n\n" +
 		"Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 0 auto-synced additions, 0 failed." +
 		"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)" +
-		"\n\nAdded model samples (showing 1/1): gpt-4.1"}, payload)
+		"\n\nAdded model samples (showing 1/1): gpt-4.1" +
+		"\n\nNeeds decision — name already used by a model with another target (showing 1/1): acme/gpt-4o"}, payload)
 }
 
 func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t *testing.T) {

@@ -18,6 +18,7 @@ type ModelUpdateReport struct {
 	Channels             []ModelUpdateChannelSummary
 	AddModelSamples      []string
 	RemoveModelSamples   []string
+	ConflictModelSamples []string
 }
 
 type ModelUpdateSummary struct {

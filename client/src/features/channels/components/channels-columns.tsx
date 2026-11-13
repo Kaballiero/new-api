@@ -149,6 +149,7 @@ function UpstreamUpdateTags({ channel }: { channel: Channel }) {
               channel,
               meta.pendingAddModels,
               meta.pendingRemoveModels,
+              meta.conflictModels,
               'add'
             )
           }}
@@ -168,6 +169,7 @@ function UpstreamUpdateTags({ channel }: { channel: Channel }) {
               channel,
               meta.pendingAddModels,
               meta.pendingRemoveModels,
+              meta.conflictModels,
               'remove'
             )
           }}

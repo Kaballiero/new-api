@@ -37,6 +37,7 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAddSamples, report.AddModelSamples)
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemoveSamples, report.RemoveModelSamples)
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, report.ConflictModelSamples)
 
 	if failedChannels > 0 {
 		displayCount := min(failedChannels, 10)
