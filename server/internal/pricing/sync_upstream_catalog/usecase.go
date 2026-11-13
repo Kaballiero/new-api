@@ -22,9 +22,12 @@ type Store interface {
 	Documents(context.Context, string, []string) (map[string]domain.CatalogDocument, error)
 	Transaction(context.Context, func(domain.CatalogTransaction) error) error
 }
+
+// Client reads the remote manifest and downloads documents whose raw bytes are
+// verified against their hash and shape (domain.CatalogDocumentClient).
 type Client interface {
 	Manifest(context.Context) (domain.SourceManifest, error)
-	Document(context.Context, domain.SourceReference) ([]byte, *domain.SourceDocument, error)
+	domain.CatalogDocumentClient
 }
 type Usecase struct {
 	deps       domain.Capabilities
@@ -111,7 +114,7 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	// The published documents are stored now; the next readers take them
 	// decoded instead of decoding them from the database again.
 	for _, doc := range fresh {
-		u.documents.Store(doc.Hash, decoded[doc.ModelID])
+		u.documents.Store(doc.SourceID, doc.Hash, decoded[doc.ModelID])
 	}
 	result.ImportedModels = len(requested) - len(result.MissingModels)
 	result.Publication = publication
@@ -169,8 +172,7 @@ func (u Usecase) publishSelection(ctx context.Context, expected domain.CatalogSo
 	revision := domain.CatalogHash(payload)
 	candidates := make(map[string]domain.CatalogDocument, len(documents))
 	for _, doc := range documents {
-		// The catalog client verified the hash and the JSON shape of each
-		// downloaded document, so its payload is not hashed or parsed again.
+		// The client verified the payload against its hash and shape.
 		if doc.SourceID != expected.ID || byHash[doc.Hash] != doc.ModelID || doc.ModelID == "" || !utf8.ValidString(doc.Payload) {
 			return result, fmt.Errorf("catalog document identity or integrity mismatch")
 		}

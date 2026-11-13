@@ -17,8 +17,9 @@ type Store interface {
 // DocumentCache keeps the decoded documents of the published revision.
 type DocumentCache interface {
 	domain.CatalogDocumentCache
-	// Retain releases the documents of all other hashes.
-	Retain(hashes []string)
+	// Retain releases all documents except those of the source with these
+	// hashes.
+	Retain(sourceID string, hashes []string)
 }
 type Usecase struct {
 	deps      domain.Capabilities
@@ -58,14 +59,14 @@ func (u Usecase) Execute(ctx context.Context) (map[string]*domain.SourceDocument
 		hashes[i] = ref.Hash
 		byID[ref.ID] = ref.Hash
 	}
-	models, unstored, err := domain.LoadStoredCatalogDocuments(ctx, u.deps, u.store, u.documents, source.ID, refs)
+	models, missing, err := domain.LoadStoredCatalogDocuments(ctx, u.deps, u.store, u.documents, source.ID, refs)
 	if err != nil {
 		return nil, nil, true, err
 	}
-	if len(unstored) > 0 {
+	if len(missing) > 0 {
 		return nil, nil, true, errors.New("published catalog document missing")
 	}
-	u.documents.Retain(hashes)
+	u.documents.Retain(source.ID, hashes)
 	resolveAlias := u.deps.Catalog.Aliases(models)
 	for id := range models {
 		if _, err := resolveAlias(id); err != nil {

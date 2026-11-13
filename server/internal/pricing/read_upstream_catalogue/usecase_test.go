@@ -47,10 +47,15 @@ func TestExecuteKeepsDocumentsOfPublishedRevision(t *testing.T) {
 	next := domain.CatalogModelReference{ID: "acme/next", Hash: domain.CatalogHash([]byte("acme/next"))}
 	deps := pricingadapter.Capabilities()
 	deps.Catalog = fakeCatalog{CatalogReader: deps.Catalog}
+	source := domain.CatalogHash([]byte("source"))
+	otherSource := domain.CatalogHash([]byte("other source"))
 	store := &fakeStore{}
 	documents := &pricingadapter.UpstreamCatalogDocumentsCache{}
+	// Documents are stored per source: another source's document of the same
+	// hash is not taken as stored.
+	documents.Store(otherSource, first.Hash, &domain.SourceDocument{ID: first.ID})
 	usecase := NewUsecase(deps, store, documents, func() (domain.CatalogSource, bool, error) {
-		return domain.CatalogSource{ID: domain.CatalogHash([]byte("source"))}, true, nil
+		return domain.CatalogSource{ID: source}, true, nil
 	})
 
 	store.selection = domain.CatalogSelection{NormalizationVersion: "1", Models: []domain.CatalogModelReference{first, shared}}
@@ -67,8 +72,10 @@ func TestExecuteKeepsDocumentsOfPublishedRevision(t *testing.T) {
 	assert.Equal(t, [][]string{{first.Hash, shared.Hash}, {next.Hash}}, store.read)
 	assert.Same(t, previous[shared.ID], current[shared.ID])
 	// A document the published revision no longer references is released.
-	_, cached := documents.Load(first.Hash)
+	_, cached := documents.Load(source, first.Hash)
 	assert.False(t, cached)
-	_, cached = documents.Load(next.Hash)
+	_, cached = documents.Load(otherSource, first.Hash)
+	assert.False(t, cached)
+	_, cached = documents.Load(source, next.Hash)
 	assert.True(t, cached)
 }

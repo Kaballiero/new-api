@@ -37,36 +37,40 @@ func (cache *UpstreamCatalogModelsCache) Store(revision string, models channeldo
 }
 
 // UpstreamCatalogDocumentsCache keeps the decoded stored documents of the
-// upstream catalog in the process by hash.
+// upstream catalog in the process by source and hash.
 type UpstreamCatalogDocumentsCache struct {
 	mutex     sync.Mutex
-	documents map[string]*domain.SourceDocument
+	documents map[catalogDocumentKey]*domain.SourceDocument
 }
 
-func (cache *UpstreamCatalogDocumentsCache) Load(hash string) (*domain.SourceDocument, bool) {
+// catalogDocumentKey is a stored document: documents are stored per source.
+type catalogDocumentKey struct{ sourceID, hash string }
+
+func (cache *UpstreamCatalogDocumentsCache) Load(sourceID, hash string) (*domain.SourceDocument, bool) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
-	document, cached := cache.documents[hash]
+	document, cached := cache.documents[catalogDocumentKey{sourceID, hash}]
 	return document, cached
 }
-func (cache *UpstreamCatalogDocumentsCache) Store(hash string, document *domain.SourceDocument) {
+func (cache *UpstreamCatalogDocumentsCache) Store(sourceID, hash string, document *domain.SourceDocument) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	if cache.documents == nil {
-		cache.documents = make(map[string]*domain.SourceDocument)
+		cache.documents = make(map[catalogDocumentKey]*domain.SourceDocument)
 	}
-	cache.documents[hash] = document
+	cache.documents[catalogDocumentKey{sourceID, hash}] = document
 }
 
-// Retain releases the documents of all other hashes. The cache is rebuilt
-// rather than trimmed, because a Go map does not shrink.
-func (cache *UpstreamCatalogDocumentsCache) Retain(hashes []string) {
+// Retain releases all documents except those of the source with these hashes.
+// The cache is rebuilt rather than trimmed, because a Go map does not shrink.
+func (cache *UpstreamCatalogDocumentsCache) Retain(sourceID string, hashes []string) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
-	retained := make(map[string]*domain.SourceDocument, len(hashes))
+	retained := make(map[catalogDocumentKey]*domain.SourceDocument, len(hashes))
 	for _, hash := range hashes {
-		if document, cached := cache.documents[hash]; cached {
-			retained[hash] = document
+		key := catalogDocumentKey{sourceID, hash}
+		if document, cached := cache.documents[key]; cached {
+			retained[key] = document
 		}
 	}
 	cache.documents = retained

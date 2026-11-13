@@ -2953,7 +2953,7 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 	for hash, row := range stored {
 		assert.Equal(t, wire["/v1/catalog/documents/"+hash], row.Payload)
 		// A published document is shared decoded with the next readers.
-		document, cached := documents.Load(hash)
+		document, cached := documents.Load(source.ID, hash)
 		require.True(t, cached)
 		assert.Equal(t, row.ModelID, document.ID)
 	}
@@ -2986,7 +2986,7 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 		defer failDirect.Store(false)
 		_, err = syncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, pricingadapter.Capabilities(), documents, pricingadapter.CatalogClient{Client: client})
 		require.ErrorContains(t, err, "catalog HTTP status 503")
-		_, cached := documents.Load(manifest.Models[0].Hash)
+		_, cached := documents.Load(source.ID, manifest.Models[0].Hash)
 		assert.False(t, cached)
 		after, err := ensureCatalogSource(ctx, source)
 		require.NoError(t, err)
