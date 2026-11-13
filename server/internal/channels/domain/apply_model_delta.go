@@ -76,9 +76,10 @@ func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpda
 	return result, nil
 }
 
-// releaseRemovedModelMappings drops the mapping entry of each removed model,
-// so its name no longer holds a target. An entry stays when a kept model
-// resolves through it.
+// releaseRemovedModelMappings drops the mapping entries of each removed
+// model's chain, so their names no longer hold a target: a mapping entry that
+// no channel model needs is not kept. The chain is kept from the first entry
+// a kept model resolves through.
 func releaseRemovedModelMappings(modelMapping map[string]string, removedModels, keptModels []string) map[string]string {
 	routedModels := make(map[string]struct{}, len(keptModels))
 	for _, modelName := range keptModels {
@@ -96,10 +97,21 @@ func releaseRemovedModelMappings(modelMapping map[string]string, removedModels, 
 		}
 	}
 
+	// A deleted entry ends the walk when the chain comes back to it, so a
+	// cycle cannot loop.
 	releasedMapping := maps.Clone(modelMapping)
 	for _, modelName := range removedModels {
-		if _, routed := routedModels[modelName]; !routed {
-			delete(releasedMapping, modelName)
+		currentModel := modelName
+		for {
+			if _, routed := routedModels[currentModel]; routed {
+				break
+			}
+			mappedModel, mapped := releasedMapping[currentModel]
+			if !mapped {
+				break
+			}
+			delete(releasedMapping, currentModel)
+			currentModel = mappedModel
 		}
 	}
 	return releasedMapping

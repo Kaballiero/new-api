@@ -1013,32 +1013,90 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalRemovesMissingMappedTerminal(
 	assert.Empty(t, detectedSettings.UpstreamModelUpdateLastConflictModels)
 }
 
-// A kept model that resolves through the removed model's mapping entry keeps
-// that entry.
-func TestApplyChannelUpstreamModelUpdates_RemovalKeepsMappingOfKeptChain(t *testing.T) {
-	db := setupChannelUpstreamUpdateTestDB(t)
-	channel := createChannelUpstreamUpdateTestChannel(
-		t,
-		db,
-		"claude-fable,claude-fable-5",
-		map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"},
-		dto.ChannelOtherSettings{},
-	)
-	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
-		return []string{"gpt-4o"}, nil
-	})
+// A removal releases the mapping entries of the removed model's chain that no
+// kept channel model resolves through.
+func TestApplyChannelUpstreamModelUpdates_RemovalReleasesUnneededMappings(t *testing.T) {
+	tests := []struct {
+		name            string
+		models          string
+		mapping         map[string]string
+		remove          []string
+		remainingRemove []string
+		keptModels      string
+		releasedMapping map[string]string
+	}{
+		{
+			name:            "chain intermediate released",
+			models:          "claude-fable,gpt-4o",
+			mapping:         map[string]string{"claude-fable": "fable-step", "fable-step": "anthropic/claude-fable-5"},
+			remove:          []string{"claude-fable"},
+			keptModels:      "gpt-4o",
+			releasedMapping: map[string]string{},
+		},
+		{
+			name:            "intermediate kept for a kept model",
+			models:          "claude-fable,claude-alias",
+			mapping:         map[string]string{"claude-fable": "fable-step", "claude-alias": "fable-step", "fable-step": "anthropic/claude-fable-5"},
+			remove:          []string{"claude-fable"},
+			remainingRemove: []string{"claude-alias"},
+			keptModels:      "claude-alias",
+			releasedMapping: map[string]string{"claude-alias": "fable-step", "fable-step": "anthropic/claude-fable-5"},
+		},
+		{
+			name:            "removed model kept as a kept model's intermediate",
+			models:          "claude-fable,claude-fable-5",
+			mapping:         map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"},
+			remove:          []string{"claude-fable-5"},
+			remainingRemove: []string{"claude-fable"},
+			keptModels:      "claude-fable",
+			releasedMapping: map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"},
+		},
+		{
+			name:            "chain ending in a self mapping",
+			models:          "claude-fable,gpt-4o",
+			mapping:         map[string]string{"claude-fable": "fable-step", "fable-step": "fable-step"},
+			remove:          []string{"claude-fable"},
+			keptModels:      "gpt-4o",
+			releasedMapping: map[string]string{},
+		},
+		{
+			name:            "removed models sharing an intermediate",
+			models:          "claude-fable,claude-alias,gpt-4o",
+			mapping:         map[string]string{"claude-fable": "fable-step", "claude-alias": "fable-step", "fable-step": "anthropic/claude-fable-5", "manual-alias": "manual-target"},
+			remove:          []string{"claude-fable", "claude-alias"},
+			keptModels:      "gpt-4o",
+			releasedMapping: map[string]string{"manual-alias": "manual-target"},
+		},
+		{
+			name:            "chain through another removed model",
+			models:          "claude-fable,claude-fable-5,gpt-4o",
+			mapping:         map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "fable-step", "fable-step": "anthropic/claude-fable-5"},
+			remove:          []string{"claude-fable", "claude-fable-5"},
+			keptModels:      "gpt-4o",
+			releasedMapping: map[string]string{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupChannelUpstreamUpdateTestDB(t)
+			channel := createChannelUpstreamUpdateTestChannel(t, db, tc.models, tc.mapping, dto.ChannelOtherSettings{})
+			stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
+				return []string{"gpt-4o"}, nil
+			})
 
-	_, removed, _, remainingRemove, changed, err := applyChannelUpstreamModelUpdates(channel, nil, nil, []string{"claude-fable-5"})
+			_, removed, _, remainingRemove, changed, err := applyChannelUpstreamModelUpdates(channel, nil, nil, tc.remove)
 
-	require.NoError(t, err)
-	require.True(t, changed)
-	assert.Equal(t, []string{"claude-fable-5"}, removed)
-	assert.Equal(t, []string{"claude-fable"}, remainingRemove)
-	persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
-	assert.Equal(t, "claude-fable", persisted.Models)
-	persistedMapping := map[string]string{}
-	require.NoError(t, common.UnmarshalJsonStr(persisted.GetModelMapping(), &persistedMapping))
-	assert.Equal(t, map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"}, persistedMapping)
+			require.NoError(t, err)
+			require.True(t, changed)
+			assert.Equal(t, tc.remove, removed)
+			assert.ElementsMatch(t, tc.remainingRemove, remainingRemove)
+			persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
+			assert.Equal(t, tc.keptModels, persisted.Models)
+			persistedMapping := map[string]string{}
+			require.NoError(t, common.UnmarshalJsonStr(persisted.GetModelMapping(), &persistedMapping))
+			assert.Equal(t, tc.releasedMapping, persistedMapping)
+		})
+	}
 }
 
 func TestApplyChannelUpstreamModelUpdates_MalformedSettingsDoNotWrite(t *testing.T) {
