@@ -1021,6 +1021,7 @@ func TestApplyChannelUpstreamModelUpdates_RemovalReleasesUnneededMappings(t *tes
 		models          string
 		mapping         map[string]string
 		remove          []string
+		remainingRemove []string
 		keptModels      string
 		releasedMapping map[string]string
 	}{
@@ -1037,6 +1038,7 @@ func TestApplyChannelUpstreamModelUpdates_RemovalReleasesUnneededMappings(t *tes
 			models:          "claude-fable,claude-alias",
 			mapping:         map[string]string{"claude-fable": "fable-step", "claude-alias": "fable-step", "fable-step": "anthropic/claude-fable-5"},
 			remove:          []string{"claude-fable"},
+			remainingRemove: []string{"claude-alias"},
 			keptModels:      "claude-alias",
 			releasedMapping: map[string]string{"claude-alias": "fable-step", "fable-step": "anthropic/claude-fable-5"},
 		},
@@ -1045,6 +1047,7 @@ func TestApplyChannelUpstreamModelUpdates_RemovalReleasesUnneededMappings(t *tes
 			models:          "claude-fable,claude-fable-5",
 			mapping:         map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"},
 			remove:          []string{"claude-fable-5"},
+			remainingRemove: []string{"claude-fable"},
 			keptModels:      "claude-fable",
 			releasedMapping: map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"},
 		},
@@ -1053,6 +1056,22 @@ func TestApplyChannelUpstreamModelUpdates_RemovalReleasesUnneededMappings(t *tes
 			models:          "claude-fable,gpt-4o",
 			mapping:         map[string]string{"claude-fable": "fable-step", "fable-step": "fable-step"},
 			remove:          []string{"claude-fable"},
+			keptModels:      "gpt-4o",
+			releasedMapping: map[string]string{},
+		},
+		{
+			name:            "removed models sharing an intermediate",
+			models:          "claude-fable,claude-alias,gpt-4o",
+			mapping:         map[string]string{"claude-fable": "fable-step", "claude-alias": "fable-step", "fable-step": "anthropic/claude-fable-5", "manual-alias": "manual-target"},
+			remove:          []string{"claude-fable", "claude-alias"},
+			keptModels:      "gpt-4o",
+			releasedMapping: map[string]string{"manual-alias": "manual-target"},
+		},
+		{
+			name:            "chain through another removed model",
+			models:          "claude-fable,claude-fable-5,gpt-4o",
+			mapping:         map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "fable-step", "fable-step": "anthropic/claude-fable-5"},
+			remove:          []string{"claude-fable", "claude-fable-5"},
 			keptModels:      "gpt-4o",
 			releasedMapping: map[string]string{},
 		},
@@ -1065,11 +1084,12 @@ func TestApplyChannelUpstreamModelUpdates_RemovalReleasesUnneededMappings(t *tes
 				return []string{"gpt-4o"}, nil
 			})
 
-			_, removed, _, _, changed, err := applyChannelUpstreamModelUpdates(channel, nil, nil, tc.remove)
+			_, removed, _, remainingRemove, changed, err := applyChannelUpstreamModelUpdates(channel, nil, nil, tc.remove)
 
 			require.NoError(t, err)
 			require.True(t, changed)
 			assert.Equal(t, tc.remove, removed)
+			assert.ElementsMatch(t, tc.remainingRemove, remainingRemove)
 			persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
 			assert.Equal(t, tc.keptModels, persisted.Models)
 			persistedMapping := map[string]string{}
