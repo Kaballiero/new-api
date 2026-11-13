@@ -310,6 +310,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
                     channel,
                     meta.pendingAddModels,
                     meta.pendingRemoveModels,
+                    meta.conflictModels,
                     meta.pendingAddModels.length > 0 ? 'add' : 'remove'
                   )
                 } else {

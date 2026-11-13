@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -39,6 +41,14 @@ func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpda
 	originModels := NormalizeModelNames(channel.GetModels())
 	nextModels := ApplySelectedModelChanges(originModels, result.AddedModels, result.RemovedModels)
 	if !slices.Equal(originModels, nextModels) {
+		releasedMapping := releaseRemovedModelMappings(modelMapping, result.RemovedModels, nextModels)
+		if len(releasedMapping) != len(modelMapping) {
+			mappingJSON, encodeErr := rules.Codec.EncodeModelMapping(releasedMapping)
+			if encodeErr != nil {
+				return result, fmt.Errorf("marshal model mapping: %w", encodeErr)
+			}
+			channel.ModelMapping = &mappingJSON
+		}
 		channel.Models = strings.Join(nextModels, ",")
 		if canonicalizeErr := rules.Canonicalize(channel); canonicalizeErr != nil {
 			return result, canonicalizeErr
@@ -64,4 +74,33 @@ func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpda
 	state.LastCheckTime = rules.Now()
 
 	return result, nil
+}
+
+// releaseRemovedModelMappings drops the mapping entry of each removed model,
+// so its name no longer holds a target. An entry stays when a kept model
+// resolves through it.
+func releaseRemovedModelMappings(modelMapping map[string]string, removedModels, keptModels []string) map[string]string {
+	routedModels := make(map[string]struct{}, len(keptModels))
+	for _, modelName := range keptModels {
+		currentModel := modelName
+		for {
+			if _, routed := routedModels[currentModel]; routed {
+				break
+			}
+			routedModels[currentModel] = struct{}{}
+			mappedModel, mapped := modelMapping[currentModel]
+			if !mapped {
+				break
+			}
+			currentModel = mappedModel
+		}
+	}
+
+	releasedMapping := maps.Clone(modelMapping)
+	for _, modelName := range removedModels {
+		if _, routed := routedModels[modelName]; !routed {
+			delete(releasedMapping, modelName)
+		}
+	}
+	return releasedMapping
 }

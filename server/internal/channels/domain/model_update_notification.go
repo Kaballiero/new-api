@@ -18,6 +18,14 @@ type ModelUpdateReport struct {
 	Channels             []ModelUpdateChannelSummary
 	AddModelSamples      []string
 	RemoveModelSamples   []string
+	ConflictModels       []ModelUpdateConflict
+}
+
+// ModelUpdateConflict is an upstream model of a channel that was not offered
+// for addition because its canonical name is taken by another target.
+type ModelUpdateConflict struct {
+	ChannelName string
+	Model       string
 }
 
 type ModelUpdateSummary struct {

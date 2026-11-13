@@ -484,6 +484,7 @@ const (
 	MsgChannelModelUpdateChannelsOmitted = "channel.model_update_channels_omitted"
 	MsgChannelModelUpdateAddSamples      = "channel.model_update_add_samples"
 	MsgChannelModelUpdateRemoveSamples   = "channel.model_update_remove_samples"
+	MsgChannelModelUpdateConflictSamples = "channel.model_update_conflict_samples"
 	MsgChannelModelUpdateFailedIDs       = "channel.model_update_failed_ids"
 	MsgChannelModelUpdateOmitted         = "channel.model_update_omitted"
 )

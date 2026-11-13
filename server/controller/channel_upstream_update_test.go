@@ -997,6 +997,48 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalRemovesMissingMappedTerminal(
 	require.Equal(t, "gpt-4o", persisted.Models)
 	require.Len(t, abilities, 1)
 	require.Equal(t, "gpt-4o", abilities[0].Model)
+	require.JSONEq(t, `{}`, persisted.GetModelMapping())
+
+	// The released name is offered again when the model returns under
+	// another vendor instead of being reported as a conflict.
+	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
+		return []string{"gpt-4o", "newvendor/claude-fable-5"}, nil
+	})
+	settings := channelstore.NewChannelPersistence().GetOtherSettings(persisted)
+	_, _, err = checkAndPersistChannelUpstreamModelUpdates(persisted, &settings, true, false, false)
+	require.NoError(t, err)
+	detected, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
+	detectedSettings := channelstore.NewChannelPersistence().GetOtherSettings(detected)
+	assert.Equal(t, []string{"newvendor/claude-fable-5"}, detectedSettings.UpstreamModelUpdateLastDetectedModels)
+	assert.Empty(t, detectedSettings.UpstreamModelUpdateLastConflictModels)
+}
+
+// A kept model that resolves through the removed model's mapping entry keeps
+// that entry.
+func TestApplyChannelUpstreamModelUpdates_RemovalKeepsMappingOfKeptChain(t *testing.T) {
+	db := setupChannelUpstreamUpdateTestDB(t)
+	channel := createChannelUpstreamUpdateTestChannel(
+		t,
+		db,
+		"claude-fable,claude-fable-5",
+		map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"},
+		dto.ChannelOtherSettings{},
+	)
+	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
+		return []string{"gpt-4o"}, nil
+	})
+
+	_, removed, _, remainingRemove, changed, err := applyChannelUpstreamModelUpdates(channel, nil, nil, []string{"claude-fable-5"})
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	assert.Equal(t, []string{"claude-fable-5"}, removed)
+	assert.Equal(t, []string{"claude-fable"}, remainingRemove)
+	persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
+	assert.Equal(t, "claude-fable", persisted.Models)
+	persistedMapping := map[string]string{}
+	require.NoError(t, common.UnmarshalJsonStr(persisted.GetModelMapping(), &persistedMapping))
+	assert.Equal(t, map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"}, persistedMapping)
 }
 
 func TestApplyChannelUpstreamModelUpdates_MalformedSettingsDoNotWrite(t *testing.T) {
@@ -1346,7 +1388,7 @@ func TestDetectChannelUpstreamModelUpdatesInspectsDisabledChannel(t *testing.T) 
 	channel := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{})
 	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("status", common.ChannelStatusManuallyDisabled).Error)
 	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
-		return []string{"gpt-4o", "anthropic/fresh-model"}, nil
+		return []string{"gpt-4o", "anthropic/fresh-model", "acme/gpt-4o"}, nil
 	})
 
 	body := []byte(fmt.Sprintf(`{"id":%d}`, channel.Id))
@@ -1360,13 +1402,15 @@ func TestDetectChannelUpstreamModelUpdatesInspectsDisabledChannel(t *testing.T) 
 	var response struct {
 		Success bool `json:"success"`
 		Data    struct {
-			AddModels     []string `json:"add_models"`
-			LastCheckTime int64    `json:"last_check_time"`
+			AddModels      []string `json:"add_models"`
+			ConflictModels []string `json:"conflict_models"`
+			LastCheckTime  int64    `json:"last_check_time"`
 		} `json:"data"`
 	}
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 	require.True(t, response.Success)
 	require.Equal(t, []string{"anthropic/fresh-model"}, response.Data.AddModels)
+	require.Equal(t, []string{"acme/gpt-4o"}, response.Data.ConflictModels)
 	require.NotZero(t, response.Data.LastCheckTime)
 
 	persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
@@ -1438,33 +1482,59 @@ func TestScheduledUpstreamModelUpdateMalformedSettingsDoNotOverwritePartialRow(t
 	require.Equal(t, "gpt-4o", persisted.Models)
 }
 
+// The report lists each conflict with its channel. Conflicts need a decision,
+// so a scan that found only conflicts still sends a report.
 func TestScheduledUpstreamModelUpdateSendsReportToTelegramGateway(t *testing.T) {
-	db := setupChannelUpstreamUpdateTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}))
-	require.NoError(t, i18n.Init())
-	createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
-	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
-		return []string{"gpt-4o", "gpt-4.1"}, nil
-	})
-	preserveChannelUpstreamModelNotifyState(t)
-	var requests []string
-	var payload map[string]string
-	gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r.Method+" "+r.URL.Path)
-		assert.NoError(t, common.DecodeJson(r.Body, &payload))
-	}))
-	defer gateway.Close()
-	t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
-	t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
+	tests := []struct {
+		name           string
+		upstreamModels []string
+		changed        int
+		report         string
+	}{
+		{
+			name:           "changes and conflicts",
+			upstreamModels: []string{"gpt-4o", "gpt-4.1", "acme/gpt-4o"},
+			changed:        1,
+			report: "Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 0 auto-synced additions, 0 failed." +
+				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)" +
+				"\n\nAdded model samples (showing 1/1): gpt-4.1" +
+				"\n\nNeeds decision — name already used by a model with another target (showing 1/1): acme/gpt-4o (upstream-sync-test)",
+		},
+		{
+			name:           "only conflicts",
+			upstreamModels: []string{"gpt-4o", "acme/gpt-4o"},
+			changed:        0,
+			report: "Upstream model check summary: checked 1 channels, 0 changed, 0 added, 0 removed, 0 auto-synced additions, 0 failed." +
+				"\n\nNeeds decision — name already used by a model with another target (showing 1/1): acme/gpt-4o (upstream-sync-test)",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupChannelUpstreamUpdateTestDB(t)
+			require.NoError(t, db.AutoMigrate(&model.User{}))
+			require.NoError(t, i18n.Init())
+			createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
+			stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
+				return tc.upstreamModels, nil
+			})
+			preserveChannelUpstreamModelNotifyState(t)
+			var requests []string
+			var payload map[string]string
+			gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r.Method+" "+r.URL.Path)
+				assert.NoError(t, common.DecodeJson(r.Body, &payload))
+			}))
+			defer gateway.Close()
+			t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
+			t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
 
-	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
+			summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
-	require.Equal(t, 1, summary.ChangedChannels)
-	require.Equal(t, []string{"POST /send"}, requests)
-	assert.Equal(t, map[string]string{"text": "Upstream model check notification\n\n" +
-		"Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 0 auto-synced additions, 0 failed." +
-		"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)" +
-		"\n\nAdded model samples (showing 1/1): gpt-4.1"}, payload)
+			require.Equal(t, tc.changed, summary.ChangedChannels)
+			require.Equal(t, []string{"POST /send"}, requests)
+			assert.Equal(t, map[string]string{"text": "Upstream model check notification\n\n" + tc.report}, payload)
+		})
+	}
 }
 
 func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t *testing.T) {

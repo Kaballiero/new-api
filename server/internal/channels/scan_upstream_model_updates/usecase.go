@@ -128,6 +128,7 @@ func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply b
 	channelSummaries := make([]domain.ModelUpdateChannelSummary, 0)
 	addModelSamples := make([]string, 0)
 	removeModelSamples := make([]string, 0)
+	conflictModels := make([]domain.ModelUpdateConflict, 0)
 	refreshNeeded := false
 
 	// Count the enabled channels up front so progress can be reported as a
@@ -207,6 +208,9 @@ scanLoop:
 			}
 			addModelSamples = domain.MergeModelNames(addModelSamples, currentAddModels)
 			removeModelSamples = domain.MergeModelNames(removeModelSamples, currentRemoveModels)
+			for _, conflictModel := range domain.NormalizeModelNames(settings.LastConflictModels) {
+				conflictModels = append(conflictModels, domain.ModelUpdateConflict{ChannelName: channel.Name, Model: conflictModel})
+			}
 			if configChanged {
 				refreshNeeded = true
 			}
@@ -258,7 +262,9 @@ scanLoop:
 			autoAddedModels,
 		))
 	}
-	if changedChannels > 0 || failedChannels > 0 {
+	// Conflicts need an admin decision, so they are reported even when the
+	// scan found nothing else.
+	if changedChannels > 0 || failedChannels > 0 || len(conflictModels) > 0 {
 		now := usecase.now()
 		if !usecase.throttle(now, changedChannels, failedChannels) {
 			usecase.log(fmt.Sprintf(
@@ -278,6 +284,7 @@ scanLoop:
 			Channels:             channelSummaries,
 			AddModelSamples:      addModelSamples,
 			RemoveModelSamples:   removeModelSamples,
+			ConflictModels:       conflictModels,
 		})
 	}
 	return summary

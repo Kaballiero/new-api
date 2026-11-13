@@ -24,6 +24,7 @@ import { api, type ApiRequestConfig } from '@/lib/api'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { normalizeModelList } from '../lib/upstream-update-utils'
+import type { UpstreamUpdateTab } from '../types'
 
 const upstreamUpdateRequestConfig = {
   skipBusinessError: true,
@@ -57,7 +58,8 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
   } | null>(null)
   const [addModels, setAddModels] = useState<string[]>([])
   const [removeModels, setRemoveModels] = useState<string[]>([])
-  const [preferredTab, setPreferredTab] = useState<'add' | 'remove'>('add')
+  const [conflictModels, setConflictModels] = useState<string[]>([])
+  const [preferredTab, setPreferredTab] = useState<UpstreamUpdateTab>('add')
   const [applyLoading, setApplyLoading] = useState(false)
   const [detectAllLoading, setDetectAllLoading] = useState(false)
   const [applyAllLoading, setApplyAllLoading] = useState(false)
@@ -72,17 +74,22 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
       record: { id: number; [key: string]: unknown } | null,
       pendingAdd: string[] = [],
       pendingRemove: string[] = [],
-      tab: 'add' | 'remove' = 'add'
+      conflicts: string[] = [],
+      tab: UpstreamUpdateTab = 'add'
     ) => {
       const normAdd = normalizeModelList(pendingAdd)
       const normRemove = normalizeModelList(pendingRemove)
-      if (!record?.id || (normAdd.length === 0 && normRemove.length === 0)) {
+      const normConflicts = normalizeModelList(conflicts)
+      const hasModels =
+        normAdd.length > 0 || normRemove.length > 0 || normConflicts.length > 0
+      if (!record?.id || !hasModels) {
         toast.info(t('No processable upstream model updates for this channel'))
         return
       }
       setChannel(record)
       setAddModels(normAdd)
       setRemoveModels(normRemove)
+      setConflictModels(normConflicts)
       setPreferredTab(tab)
       setShowModal(true)
     },
@@ -94,6 +101,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
     setChannel(null)
     setAddModels([])
     setRemoveModels([])
+    setConflictModels([])
     setPreferredTab('add')
   }, [])
 
@@ -215,13 +223,24 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
           })
         )
         await refresh()
+        // Conflicts have no badge in the channel table, so the dialog shows
+        // them right after detection.
+        if (data?.conflict_models?.length > 0) {
+          openModal(
+            ch,
+            data.add_models,
+            data.remove_models,
+            data.conflict_models,
+            'needs-decision'
+          )
+        }
       } catch (e: unknown) {
         handleServerError(e, t('Detection failed'))
       } finally {
         detectRef.current = false
       }
     },
-    [refresh, t]
+    [openModal, refresh, t]
   )
 
   const detectAllUpdates = useCallback(async () => {
@@ -263,6 +282,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
       channel,
       addModels,
       removeModels,
+      conflictModels,
       preferredTab,
       applyLoading,
       detectAllLoading,
@@ -279,6 +299,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
       channel,
       addModels,
       removeModels,
+      conflictModels,
       preferredTab,
       applyLoading,
       detectAllLoading,

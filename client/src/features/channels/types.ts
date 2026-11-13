@@ -118,6 +118,8 @@ export interface ChannelOtherSettings {
   advanced_custom?: AdvancedCustomConfig
 }
 
+export type UpstreamUpdateTab = 'add' | 'remove' | 'needs-decision'
+
 export interface AdvancedCustomConfig {
   advanced_routes?: AdvancedCustomRoute[]
 }
