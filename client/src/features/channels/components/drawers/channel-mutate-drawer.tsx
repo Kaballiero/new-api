@@ -366,7 +366,6 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
-    values.upstream_model_update_catalog_sync_enabled ||
     values.upstream_model_update_ignored_models?.trim()
   )
 }
@@ -744,9 +743,6 @@ export function ChannelMutateDrawer({
   const currentUpstreamModelUpdateAutoSyncEnabled = form.watch(
     'upstream_model_update_auto_sync_enabled'
   )
-  const currentUpstreamModelUpdateCatalogSyncEnabled = form.watch(
-    'upstream_model_update_catalog_sync_enabled'
-  )
   const currentUpstreamModelUpdateIgnoredModels = form.watch(
     'upstream_model_update_ignored_models'
   )
@@ -1053,7 +1049,6 @@ export function ChannelMutateDrawer({
   const upstreamModelDetectionConfigured = Boolean(
     upstreamModelUpdateCheckEnabled ||
     currentUpstreamModelUpdateAutoSyncEnabled ||
-    currentUpstreamModelUpdateCatalogSyncEnabled ||
     currentUpstreamModelUpdateIgnoredModels?.trim()
   )
   const advancedConfigured = Boolean(

@@ -30,7 +30,10 @@ import { ChannelMutateDrawer } from '../channel-mutate-drawer'
 
 const CATALOG_SYNC_LABEL = 'Use the GetAPI catalog as the model source'
 
-async function renderChannelDrawer(type: number) {
+async function renderChannelDrawer(
+  type: number,
+  settings: Record<string, boolean>
+) {
   const channel = channelSchema.parse({
     id: 71,
     type,
@@ -43,10 +46,7 @@ async function renderChannelDrawer(type: number) {
     balance_updated_time: 0,
     models: 'openai/gpt-5-mini',
     group: 'default',
-    settings: JSON.stringify({
-      upstream_model_update_check_enabled: true,
-      upstream_model_update_catalog_sync_enabled: type === 20,
-    }),
+    settings: JSON.stringify(settings),
   })
   useAuthStore.getState().auth.setUser({ id: 1, username: 'admin', role: 100 })
   vi.spyOn(api, 'get').mockImplementation(async (url) => {
@@ -82,7 +82,10 @@ afterEach(() => {
 
 describe('channel drawer upstream catalog sync', () => {
   test('OpenRouter switch is available only while upstream checks are on', async () => {
-    await renderChannelDrawer(20)
+    await renderChannelDrawer(20, {
+      upstream_model_update_check_enabled: true,
+      upstream_model_update_catalog_sync_enabled: true,
+    })
     const catalogSync = screen.getByRole('switch', { name: CATALOG_SYNC_LABEL })
     expect(catalogSync).toBeChecked()
     expect(catalogSync).not.toHaveAttribute('aria-disabled', 'true')
@@ -95,7 +98,9 @@ describe('channel drawer upstream catalog sync', () => {
   })
 
   test('other channel types do not show the switch', async () => {
-    await renderChannelDrawer(1)
+    await renderChannelDrawer(1, {
+      upstream_model_update_check_enabled: true,
+    })
     expect(
       screen.getByRole('switch', { name: 'Upstream Model Update Check' })
     ).toBeVisible()
