@@ -5,15 +5,36 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 )
 
 type CatalogClient struct{ Client *catalogsync.Client }
+
+// UpstreamCatalogModelsCache keeps the upstream models of the last upstream
+// catalog revision in the process.
+type UpstreamCatalogModelsCache struct {
+	mutex    sync.Mutex
+	revision string
+	models   channeldomain.UpstreamModels
+}
+
+func (cache *UpstreamCatalogModelsCache) Load(revision string) (channeldomain.UpstreamModels, bool) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+	return cache.models, cache.revision == revision
+}
+func (cache *UpstreamCatalogModelsCache) Store(revision string, models channeldomain.UpstreamModels) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+	cache.revision, cache.models = revision, models
+}
 
 func (c CatalogClient) Manifest(ctx context.Context) (domain.SourceManifest, error) {
 	value, err := c.Client.Manifest(ctx)

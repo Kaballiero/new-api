@@ -132,7 +132,8 @@ func normalizeChannelModelMapping(channel *model.Channel) (map[string]string, er
 }
 
 func collectPendingUpstreamModelChangesFromModels(local, upstream, ignored []string, mapping map[string]string) ([]string, []string, error) {
-	return app.NewChannelModelUpdateRules(repository.NewStore()).CollectPendingUpstreamModelChangesFromModels(local, domain.UpstreamModels{Listed: upstream, Addable: upstream}, ignored, mapping)
+	pendingAdd, pendingRemove, _, err := app.NewChannelModelUpdateRules(repository.NewStore()).CollectPendingUpstreamModelChangesFromModels(constant.ChannelTypeOpenRouter, local, domain.UpstreamModels{Listed: upstream, Addable: upstream}, ignored, mapping)
+	return pendingAdd, pendingRemove, err
 }
 
 func parseOpenAIModelIDs(body []byte) ([]string, error) {
@@ -154,7 +155,7 @@ func buildChannelUpstreamModelFetchFingerprint(channel *model.Channel) (channelU
 func checkAndPersistChannelUpstreamModelUpdates(channel *model.Channel, settings *dto.ChannelOtherSettings, force, auto, enabled bool) (bool, int, error) {
 	value := repository.ToDomain(channel)
 	state := modelUpdateState(*settings)
-	changed, added, err := app.NewDetectChannelModelsUsecase(channelEffects()).Check(value, &state, force, auto, enabled)
+	changed, added, err := app.NewDetectChannelModelsUsecase(channelEffects()).Check(context.Background(), value, &state, force, auto, enabled)
 	*channel = *repository.FromDomain(value)
 	settings.UpstreamModelUpdateCheckEnabled = state.CheckEnabled
 	settings.UpstreamModelUpdateAutoSyncEnabled = state.AutoSyncEnabled
@@ -176,7 +177,7 @@ func buildUpstreamModelUpdateTaskNotificationContent(lang string, checked, chang
 
 func applyChannelUpstreamModelUpdatesWithMode(channel *model.Channel, add, ignore, remove []string, all, enabled bool) (appliedChannelUpstreamModelUpdates, error) {
 	value := repository.ToDomain(channel)
-	result, err := app.NewApplyChannelModelsUsecase(channelEffects(), nil).Apply(value, add, ignore, remove, all, enabled)
+	result, err := app.NewApplyChannelModelsUsecase(channelEffects(), nil).Apply(context.Background(), value, add, ignore, remove, all, enabled)
 	*channel = *repository.FromDomain(value)
 	return result, err
 }

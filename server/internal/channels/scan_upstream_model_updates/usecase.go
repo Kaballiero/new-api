@@ -21,7 +21,7 @@ type Store interface {
 type Usecase struct {
 	store            Store
 	rules            domain.ModelUpdateRules
-	fetch            func(*domain.Channel) (domain.UpstreamModels, error)
+	fetch            func(context.Context, *domain.Channel) (domain.UpstreamModels, error)
 	refresh          func()
 	now, minInterval func() int64
 	interval         func() time.Duration
@@ -31,10 +31,11 @@ type Usecase struct {
 	notify           func(domain.ModelUpdateReport)
 }
 
-func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(*domain.Channel) (domain.UpstreamModels, error), refresh func(), now, minInterval func() int64, interval func() time.Duration, debug func() bool, log func(string), throttle func(int64, int, int) bool, notify func(domain.ModelUpdateReport)) Usecase {
+func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(context.Context, *domain.Channel) (domain.UpstreamModels, error), refresh func(), now, minInterval func() int64, interval func() time.Duration, debug func() bool, log func(string), throttle func(int64, int, int) bool, notify func(domain.ModelUpdateReport)) Usecase {
 	return Usecase{store: store, rules: rules, fetch: fetch, refresh: refresh, now: now, minInterval: minInterval, interval: interval, debug: debug, log: log, throttle: throttle, notify: notify}
 }
 func (usecase Usecase) Check(
+	ctx context.Context,
 	channel *domain.Channel,
 	settings *domain.ModelUpdateState,
 	force bool,
@@ -54,7 +55,7 @@ func (usecase Usecase) Check(
 	if err != nil {
 		return false, 0, err
 	}
-	upstreamModels, fetchErr := usecase.fetch(channel)
+	upstreamModels, fetchErr := usecase.fetch(ctx, channel)
 
 	var freshChannel *domain.Channel
 	var freshSettings domain.ModelUpdateState
@@ -180,12 +181,15 @@ scanLoop:
 			}
 
 			checkedChannels++
-			configChanged, autoAdded, err := usecase.Check(channel, &settings, force, allowAutoApply, true)
+			configChanged, autoAdded, err := usecase.Check(ctx, channel, &settings, force, allowAutoApply, true)
 			if err != nil {
 				failedChannels++
 				failedChannelIDs = append(failedChannelIDs, channel.Id)
 				usecase.log(fmt.Sprintf("upstream model update check failed: channel_id=%d channel_name=%s err=%v", channel.Id, channel.Name, err))
 				continue
+			}
+			if len(settings.LastConflictModels) > 0 {
+				usecase.log(fmt.Sprintf("upstream model update conflicts: channel_id=%d channel_name=%s models=%v", channel.Id, channel.Name, settings.LastConflictModels))
 			}
 			currentAddModels := domain.NormalizeModelNames(settings.LastDetectedModels)
 			currentRemoveModels := domain.NormalizeModelNames(settings.LastRemovedModels)

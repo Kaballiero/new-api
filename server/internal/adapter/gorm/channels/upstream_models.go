@@ -48,6 +48,7 @@ func (Store) ModelUpdateState(channel *domain.Channel) (domain.ModelUpdateState,
 		LastCheckTime:      settings.UpstreamModelUpdateLastCheckTime,
 		LastDetectedModels: settings.UpstreamModelUpdateLastDetectedModels,
 		LastRemovedModels:  settings.UpstreamModelUpdateLastRemovedModels,
+		LastConflictModels: settings.UpstreamModelUpdateLastConflictModels,
 		IgnoredModels:      settings.UpstreamModelUpdateIgnoredModels,
 	}, nil
 }
@@ -113,7 +114,9 @@ func (store Store) FetchFingerprint(channel *domain.Channel) (domain.ModelFetchF
 		MultiKeyMode:       channel.ChannelInfo.MultiKeyMode,
 	}
 	record := store.MutableRecord(channel)
-	fingerprint.AdvancedCustom = NewChannelPersistence().GetOtherSettings(record).AdvancedCustom
+	otherSettings := NewChannelPersistence().GetOtherSettings(record)
+	fingerprint.AdvancedCustom = otherSettings.AdvancedCustom
+	fingerprint.CatalogSyncEnabled = otherSettings.UpstreamModelUpdateCatalogSyncEnabled
 	*channel = *ToDomain(record)
 	return fingerprint, nil
 }
@@ -138,6 +141,7 @@ func (store Store) WithLockedModelState(id int, apply func(*domain.Channel, func
 			settings.UpstreamModelUpdateLastCheckTime = state.LastCheckTime
 			settings.UpstreamModelUpdateLastDetectedModels = state.LastDetectedModels
 			settings.UpstreamModelUpdateLastRemovedModels = state.LastRemovedModels
+			settings.UpstreamModelUpdateLastConflictModels = state.LastConflictModels
 			settings.UpstreamModelUpdateIgnoredModels = state.IgnoredModels
 			record := store.MutableRecord(channel)
 			record.SetOtherSettings(settings)

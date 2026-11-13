@@ -1,6 +1,7 @@
 package apply_all_upstream_model_updates
 
 import (
+	"context"
 	"reflect"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -17,15 +18,16 @@ type Store interface {
 type Usecase struct {
 	store   Store
 	rules   domain.ModelUpdateRules
-	fetch   func(*domain.Channel) (domain.UpstreamModels, error)
+	fetch   func(context.Context, *domain.Channel) (domain.UpstreamModels, error)
 	refresh func()
 	audit   func(map[string]any)
 }
 
-func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(*domain.Channel) (domain.UpstreamModels, error), refresh func(), audit func(map[string]any)) Usecase {
+func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(context.Context, *domain.Channel) (domain.UpstreamModels, error), refresh func(), audit func(map[string]any)) Usecase {
 	return Usecase{store: store, rules: rules, fetch: fetch, refresh: refresh, audit: audit}
 }
 func (usecase Usecase) Apply(
+	ctx context.Context,
 	channel *domain.Channel,
 	addModelsInput []string,
 	ignoreModelsInput []string,
@@ -40,7 +42,7 @@ func (usecase Usecase) Apply(
 	if err != nil {
 		return result, err
 	}
-	upstreamModels, err := usecase.fetch(channel)
+	upstreamModels, err := usecase.fetch(ctx, channel)
 	if err != nil {
 		return result, err
 	}
@@ -80,7 +82,7 @@ func (usecase Usecase) Apply(
 	return result, nil
 }
 
-func (usecase Usecase) Execute() (Output, error) {
+func (usecase Usecase) Execute(ctx context.Context) (Output, error) {
 	results := make([]Result, 0)
 	failed := make([]int, 0)
 	refreshNeeded := false
@@ -113,6 +115,7 @@ func (usecase Usecase) Execute() (Output, error) {
 			}
 
 			result, err := usecase.Apply(
+				ctx,
 				channel,
 				nil,
 				nil,

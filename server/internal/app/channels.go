@@ -12,7 +12,6 @@ import (
 	codex "github.com/QuantumNous/new-api/internal/adapter/channels/codex"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
-	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
@@ -66,7 +65,6 @@ import (
 	"github.com/QuantumNous/new-api/internal/channels/update_channel_status_batch"
 	"github.com/QuantumNous/new-api/internal/channels/update_channels_balances"
 	"github.com/QuantumNous/new-api/internal/channels/validate_models"
-	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/model"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -335,29 +333,26 @@ func NewChannelTestTaskUsecase(effects ChannelEffects) run_channel_tests.Usecase
 func NewChannelModelUpdateRules(store repository.Store) channeldomain.ModelUpdateRules {
 	return channeldomain.ModelUpdateRules{Codec: store, Errors: func() channeldomain.ModelMappingErrors {
 		return channeldomain.ModelMappingErrors{ErrModelNameEmpty: channeldomain.ErrModelNameEmpty, ErrModelMappingCycle: channeldomain.ErrModelMappingCycle, ErrModelMappingSourceEmpty: channeldomain.ErrModelMappingSourceEmpty, ErrModelMappingTargetEmpty: channeldomain.ErrModelMappingTargetEmpty, ErrModelMappingConflict: channeldomain.ErrModelMappingConflict}
-	}, Canonicalize: store.Canonicalize, Now: common.GetTimestamp}
+	}, Canonicalize: store.Canonicalize, CanonicalModel: store.CanonicalModel, Now: common.GetTimestamp}
 }
 
 // channelModelFetcher fetches the upstream models of a channel. A channel with
 // upstream catalog sync takes them from the upstream catalog, read once for
-// all channels of the usecase. Otherwise the gateway fetches them, every model
-// the upstream lists may be added, and the channel the fetch may have
-// refreshed is reloaded.
-func channelModelFetcher(store repository.Store, effects ChannelEffects) func(*channeldomain.Channel) (channeldomain.UpstreamModels, error) {
-	upstreamCatalogModels := sync.OnceValues(func() (pricingdomain.UpstreamCatalogModels, error) {
-		return NewListUpstreamCatalogModelsUsecase().Execute(context.Background())
-	})
-	return func(channel *channeldomain.Channel) (channeldomain.UpstreamModels, error) {
+// all channels of the usecase: its calls share one run or request context.
+// Otherwise the gateway fetches them, every model the upstream lists may be
+// added, and the channel the fetch may have refreshed is reloaded.
+func channelModelFetcher(store repository.Store, effects ChannelEffects) func(context.Context, *channeldomain.Channel) (channeldomain.UpstreamModels, error) {
+	var catalogRead sync.Once
+	var catalogModels channeldomain.UpstreamModels
+	var catalogErr error
+	return func(ctx context.Context, channel *channeldomain.Channel) (channeldomain.UpstreamModels, error) {
 		state, err := store.ModelUpdateState(channel)
 		if err != nil {
 			return channeldomain.UpstreamModels{}, err
 		}
 		if state.CatalogSyncEnabled {
-			catalogModels, err := upstreamCatalogModels()
-			if err != nil {
-				return channeldomain.UpstreamModels{}, err
-			}
-			return catalogModels.ChannelUpstreamModels(pricingadapter.Capabilities(), (*pricingdomain.BuildChannel)(channel)), nil
+			catalogRead.Do(func() { catalogModels, catalogErr = NewListUpstreamCatalogModelsUsecase().Execute(ctx) })
+			return catalogModels, catalogErr
 		}
 		record := store.Record(channel)
 		models, err := effects.FetchModels(record)

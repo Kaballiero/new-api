@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/samber/lo"
@@ -13,7 +14,10 @@ type ModelUpdateRules struct {
 	Errors       func() ModelMappingErrors
 	Codec        ModelMappingCodec
 	Canonicalize func(*Channel) error
-	Now          func() int64
+	// CanonicalModel is the canonical channel name of an upstream model
+	// of a channel type (ModelIdentity.NormalizeChannelModel).
+	CanonicalModel func(channelType int, upstreamModel string) (string, error)
+	Now            func() int64
 }
 type AppliedModelUpdates struct {
 	AddedModels           []string
@@ -77,7 +81,8 @@ func ApplySelectedModelChanges(originModels []string, addModels []string, remove
 // ModelUpdateState is the upstream model update tracking of a channel. The
 // gateway stores it among the other channel settings. CatalogSyncEnabled takes
 // the upstream models from the upstream catalog instead of the provider model
-// list.
+// list. LastConflictModels are the upstream models that were not offered for
+// addition because their canonical name is taken by another target.
 type ModelUpdateState struct {
 	CheckEnabled       bool
 	AutoSyncEnabled    bool
@@ -85,17 +90,20 @@ type ModelUpdateState struct {
 	LastCheckTime      int64
 	LastDetectedModels []string
 	LastRemovedModels  []string
+	LastConflictModels []string
 	IgnoredModels      []string
 }
 
 // UpstreamModels are the models of a channel's upstream. Listed are the models
 // the upstream lists; Addable is the subset of Listed that may be added to the
-// channel. A channel model missing from Listed is a removal candidate, so an
-// empty Listed means the upstream lists no models and every channel model is
-// a removal candidate.
+// channel. Shortcuts are model id suffixes that route a listed model: a target
+// with one of them is listed when the target without it is. A channel model
+// whose target is not listed is a removal candidate, so an empty Listed means
+// the upstream lists no models and every channel model is a removal candidate.
 type UpstreamModels struct {
-	Listed  []string
-	Addable []string
+	Listed    []string
+	Addable   []string
+	Shortcuts []string
 }
 
 func CollectPendingApplyUpstreamModelChanges(state ModelUpdateState) (pendingAddModels []string, pendingRemoveModels []string) {
@@ -163,14 +171,22 @@ func (rules ModelUpdateRules) ValidateChannelModelMappingEntries(modelMapping ma
 	}
 	return nil
 }
+
+// CollectPendingUpstreamModelChangesFromModels finds the upstream models to add
+// and the channel models to remove. An addable model whose canonical channel
+// name is held by a mapping source or a kept channel model with another target
+// is not offered for addition: it is returned among the conflicts. A name held
+// only by a removal candidate is not a conflict, because removing that model
+// frees the name.
 func (rules ModelUpdateRules) CollectPendingUpstreamModelChangesFromModels(
+	channelType int,
 	localModels []string,
 	upstreamModels UpstreamModels,
 	ignoredModels []string,
 	modelMapping map[string]string,
-) (pendingAddModels []string, pendingRemoveModels []string, err error) {
+) (pendingAddModels []string, pendingRemoveModels []string, conflictModels []string, err error) {
 	if err := rules.ValidateResolvableChannelModelMapping(modelMapping); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	localModels = NormalizeModelNames(localModels)
 	listedModels := NormalizeModelNames(upstreamModels.Listed)
@@ -181,20 +197,40 @@ func (rules ModelUpdateRules) CollectPendingUpstreamModelChangesFromModels(
 
 	normalizedIgnoredModels := NormalizeModelNames(ignoredModels)
 	coveredUpstreamSet := make(map[string]struct{}, len(localModels))
+	heldNames := make(map[string]string, len(modelMapping)+len(localModels))
+	for source := range modelMapping {
+		heldNames[source], err = rules.ResolveExactChannelModelTarget(source, modelMapping)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
 	for _, modelName := range localModels {
 		terminalTarget, resolveErr := rules.ResolveExactChannelModelTarget(modelName, modelMapping)
 		if resolveErr != nil {
-			return nil, nil, resolveErr
+			return nil, nil, nil, resolveErr
 		}
 		coveredUpstreamSet[terminalTarget] = struct{}{}
-		if _, ok := listedSet[terminalTarget]; !ok {
+		_, listed := listedSet[terminalTarget]
+		if !listed && !slices.ContainsFunc(upstreamModels.Shortcuts, func(shortcut string) bool {
+			base, routed := strings.CutSuffix(terminalTarget, shortcut)
+			_, baseListed := listedSet[base]
+			return routed && baseListed
+		}) {
 			pendingRemoveModels = append(pendingRemoveModels, modelName)
+			continue
+		}
+		canonicalModel, canonicalErr := rules.canonicalChannelModel(channelType, modelName, modelMapping)
+		if canonicalErr != nil {
+			return nil, nil, nil, canonicalErr
+		}
+		if _, held := heldNames[canonicalModel]; !held {
+			heldNames[canonicalModel] = terminalTarget
 		}
 	}
 
-	pendingAdd := lo.Filter(NormalizeModelNames(upstreamModels.Addable), func(modelName string, _ int) bool {
+	for _, modelName := range NormalizeModelNames(upstreamModels.Addable) {
 		if _, ok := coveredUpstreamSet[modelName]; ok {
-			return false
+			continue
 		}
 		if lo.ContainsBy(normalizedIgnoredModels, func(ignoredModel string) bool {
 			if regexBody, ok := strings.CutPrefix(ignoredModel, "regex:"); ok {
@@ -203,12 +239,53 @@ func (rules ModelUpdateRules) CollectPendingUpstreamModelChangesFromModels(
 			}
 			return ignoredModel == modelName
 		}) {
-			return false
+			continue
 		}
-		return true
-	})
-	return NormalizeModelNames(pendingAdd), NormalizeModelNames(pendingRemoveModels), nil
+		terminalTarget, resolveErr := rules.ResolveExactChannelModelTarget(modelName, modelMapping)
+		if resolveErr != nil {
+			return nil, nil, nil, resolveErr
+		}
+		canonicalModel, canonicalErr := rules.canonicalChannelModel(channelType, modelName, modelMapping)
+		if canonicalErr != nil {
+			return nil, nil, nil, canonicalErr
+		}
+		if heldTarget, held := heldNames[canonicalModel]; held && heldTarget != terminalTarget {
+			conflictModels = append(conflictModels, modelName)
+			continue
+		}
+		heldNames[canonicalModel] = terminalTarget
+		pendingAddModels = append(pendingAddModels, modelName)
+	}
+	return NormalizeModelNames(pendingAddModels), NormalizeModelNames(pendingRemoveModels), NormalizeModelNames(conflictModels), nil
 }
+
+// SameNameReplacements are the pending additions whose canonical channel name
+// is a pending removal: such an addition replaces that model under its name,
+// so it can be added only together with the removal.
+func (rules ModelUpdateRules) SameNameReplacements(channelType int, pendingAddModels, pendingRemoveModels []string, modelMapping map[string]string) ([]string, error) {
+	replacements := []string{}
+	for _, modelName := range pendingAddModels {
+		canonicalModel, err := rules.canonicalChannelModel(channelType, modelName, modelMapping)
+		if err != nil {
+			return nil, err
+		}
+		if slices.Contains(pendingRemoveModels, canonicalModel) {
+			replacements = append(replacements, modelName)
+		}
+	}
+	return replacements, nil
+}
+
+// canonicalChannelModel is the name a channel model takes after
+// canonicalization: a mapping source keeps its name, any other model takes the
+// canonical name of the upstream model.
+func (rules ModelUpdateRules) canonicalChannelModel(channelType int, modelName string, modelMapping map[string]string) (string, error) {
+	if _, mapped := modelMapping[modelName]; mapped {
+		return modelName, nil
+	}
+	return rules.CanonicalModel(channelType, modelName)
+}
+
 func (rules ModelUpdateRules) RejectSameNameModelMappingReplacement(pendingAddModels []string, pendingRemoveModels []string) error {
 	conflictingModels := IntersectModelNames(pendingAddModels, pendingRemoveModels)
 	if len(conflictingModels) == 0 {

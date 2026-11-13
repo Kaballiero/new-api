@@ -462,9 +462,6 @@ func TestUpstreamCatalogWireContract(t *testing.T) {
 	}
 	assert.Nil(t, index.Models[0].Endpoints)
 	assert.Equal(t, []string{"text"}, index.Models[0].Modalities.Input)
-	require.Len(t, index.Models[1].Offers, 2)
-	assert.Equal(t, "batch", *index.Models[1].Offers[1].Mode)
-	assert.True(t, index.Models[1].Offers[1].Eligibility.Eligible)
 	assert.Equal(t, "router/aggregated", index.Models[2].Alias.TargetID)
 	assert.Equal(t, 5, requests)
 	fetched.Revision = strings.Repeat("0", 64)
@@ -560,11 +557,9 @@ func TestUpstreamCatalogWireContractRejectsInvalidIndexes(t *testing.T) {
 		{"missing_endpoints", `"endpoints":null,"hash":"87aa`, `"hash":"87aa`, "missing or unknown fields"},
 		{"null_offers", `"offers":[],`, `"offers":null,`, "null catalog field offers"},
 		{"unknown_offer_field", `"mode":null,"scope"`, `"mode":null,"provider":null,"scope"`, "missing or unknown fields"},
-		{"eligibility_reasons", `"eligibility":{"eligible":true}`, `"eligibility":{"eligible":true,"reasons":[]}`, "missing or unknown fields"},
 		{"non_string_endpoint", `"endpoints":null,"hash":"87aa`, `"endpoints":[1],"hash":"87aa`, "string array contains non-string"},
-		{"invalid_scope", `"scope":"endpoint"`, `"scope":"provider"`, "invalid catalog index offer"},
 		{"unsorted_models", `"id":"acme/direct"`, `"id":"zeta/direct"`, "unsorted catalog index model"},
-		{"alias_with_offers", `"id":"router/latest","modalities":{"input":["text"],"output":[]},"offers":[]`, `"id":"router/latest","modalities":{"input":["text"],"output":[]},"offers":[{"eligibility":null,"mode":null,"scope":"model","variant":{}}]`, "invalid catalog index alias"},
+		{"self_alias", `"targetId":"router/aggregated"`, `"targetId":"router/latest"`, "invalid catalog index alias"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Contains(t, string(fixture), tc.before)

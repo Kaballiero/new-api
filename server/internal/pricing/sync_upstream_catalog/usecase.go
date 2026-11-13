@@ -4,15 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
-
-	"golang.org/x/sync/errgroup"
 )
 
 type CatalogSyncResult struct {
@@ -70,46 +68,15 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	decoded := map[string]*domain.SourceDocument{}
 	fresh := []domain.CatalogDocument{}
 	for len(pending) > 0 {
-		hashes := make([]string, 0, len(pending))
 		for _, ref := range pending {
-			hashes = append(hashes, ref.Hash)
 			selected[ref.ID] = ref
 		}
-		cached, err := u.store.Documents(ctx, source.ID, hashes)
+		loaded, downloaded, err := domain.LoadCatalogDocuments(ctx, u.deps, u.store, client, source.ID, pending)
 		if err != nil {
 			return result, err
 		}
-		var mutex sync.Mutex
-		workers, workerCtx := errgroup.WithContext(ctx)
-		workers.SetLimit(5)
-		for _, ref := range pending {
-			workers.Go(func() error {
-				var doc *domain.SourceDocument
-				if row, exists := cached[ref.Hash]; exists {
-					var decodeErr error
-					doc, decodeErr = u.deps.Catalog.DecodeDocument([]byte(row.Payload), ref)
-					if decodeErr != nil {
-						return decodeErr
-					}
-				} else {
-					raw, fetched, fetchErr := client.Document(workerCtx, ref)
-					if fetchErr != nil {
-						return fetchErr
-					}
-					doc = fetched
-					mutex.Lock()
-					fresh = append(fresh, domain.CatalogDocument{SourceID: source.ID, Hash: ref.Hash, ModelID: ref.ID, Payload: string(raw)})
-					mutex.Unlock()
-				}
-				mutex.Lock()
-				decoded[ref.ID] = doc
-				mutex.Unlock()
-				return nil
-			})
-		}
-		if err := workers.Wait(); err != nil {
-			return result, err
-		}
+		maps.Copy(decoded, loaded)
+		fresh = append(fresh, downloaded...)
 		pending = nil
 		for _, doc := range decoded {
 			if doc.Alias == nil {

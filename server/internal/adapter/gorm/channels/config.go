@@ -68,6 +68,12 @@ func (store Store) Canonicalize(channel *domain.Channel) error {
 	*channel = *ToDomain(record)
 	return err
 }
+
+// CanonicalModel is the canonical channel name of an upstream model.
+func (Store) CanonicalModel(channelType int, upstreamModel string) (string, error) {
+	canonicalModel, _, err := channelModelIdentity().NormalizeChannelModel(channelType, upstreamModel)
+	return canonicalModel, err
+}
 func (store Store) Insert(channel *domain.Channel) error {
 	record := store.MutableRecord(channel)
 	err := NewChannelPersistence().Insert(record)

@@ -20,4 +20,7 @@ type ModelFetchFingerprint struct {
 	DisabledReason     map[int]string
 	DisabledTime       map[int]int64
 	MultiKeyMode       constant.MultiKeyMode
+	// CatalogSyncEnabled takes the models from the upstream catalog instead
+	// of the provider.
+	CatalogSyncEnabled bool
 }

@@ -12,7 +12,8 @@ func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpd
 	if mappingErr != nil {
 		return false, 0, mappingErr
 	}
-	pendingAddModels, pendingRemoveModels, collectErr := rules.CollectPendingUpstreamModelChangesFromModels(
+	pendingAddModels, pendingRemoveModels, conflictModels, collectErr := rules.CollectPendingUpstreamModelChangesFromModels(
+		channel.Type,
 		channel.GetModels(),
 		upstreamModels,
 		state.IgnoredModels,
@@ -22,12 +23,19 @@ func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpd
 		return false, 0, collectErr
 	}
 
-	if allowAutoApply && state.AutoSyncEnabled && len(pendingAddModels) > 0 {
-		if conflictErr := rules.RejectSameNameModelMappingReplacement(pendingAddModels, pendingRemoveModels); conflictErr != nil {
-			return false, 0, conflictErr
+	// A scheduled sync only adds models, so an addition that replaces a
+	// pending removal under its name stays pending for a manual apply.
+	autoAddModels := []string{}
+	if allowAutoApply && state.AutoSyncEnabled {
+		replacements, replacementErr := rules.SameNameReplacements(channel.Type, pendingAddModels, pendingRemoveModels, modelMapping)
+		if replacementErr != nil {
+			return false, 0, replacementErr
 		}
+		autoAddModels = SubtractModelNames(pendingAddModels, replacements)
+	}
+	if len(autoAddModels) > 0 {
 		originModels := NormalizeModelNames(channel.GetModels())
-		channel.Models = strings.Join(MergeModelNames(originModels, pendingAddModels), ",")
+		channel.Models = strings.Join(MergeModelNames(originModels, autoAddModels), ",")
 		if canonicalizeErr := rules.Canonicalize(channel); canonicalizeErr != nil {
 			return false, 0, canonicalizeErr
 		}
@@ -42,10 +50,11 @@ func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpd
 		if modelsChanged {
 			autoAdded = len(nextModels) - len(originModels)
 		}
-		state.LastDetectedModels = []string{}
+		state.LastDetectedModels = SubtractModelNames(pendingAddModels, autoAddModels)
 	} else {
 		state.LastDetectedModels = pendingAddModels
 	}
 	state.LastRemovedModels = pendingRemoveModels
+	state.LastConflictModels = conflictModels
 	return configChanged, autoAdded, nil
 }

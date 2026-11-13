@@ -41,7 +41,8 @@ type Manifest struct {
 }
 
 // Index is the projection of the documents of one manifest: it selects models
-// without downloading their documents and adds no facts.
+// without downloading their documents and adds no facts. The offers it
+// projects are checked only for their closed shape.
 type Index struct {
 	SchemaVersion        int          `json:"schemaVersion"`
 	NormalizationVersion string       `json:"normalizationVersion"`
@@ -49,22 +50,12 @@ type Index struct {
 	Models               []IndexModel `json:"models"`
 }
 type IndexModel struct {
-	ID         string       `json:"id"`
-	Hash       string       `json:"hash"`
-	Type       string       `json:"type"`
-	Modalities Modalities   `json:"modalities"`
-	Alias      *Alias       `json:"alias"`
-	Endpoints  []string     `json:"endpoints"`
-	Offers     []IndexOffer `json:"offers"`
-}
-
-// IndexOffer is a document offer reduced to its scope, variant, mode and
-// eligibility; an index eligibility carries no reasons.
-type IndexOffer struct {
-	Scope       string          `json:"scope"`
-	Variant     json.RawMessage `json:"variant"`
-	Mode        *string         `json:"mode"`
-	Eligibility *Eligibility    `json:"eligibility"`
+	ID         string     `json:"id"`
+	Hash       string     `json:"hash"`
+	Type       string     `json:"type"`
+	Modalities Modalities `json:"modalities"`
+	Alias      *Alias     `json:"alias"`
+	Endpoints  []string   `json:"endpoints"`
 }
 type Coverage struct {
 	Offers          string   `json:"offers"`
@@ -246,13 +237,8 @@ func (index Index) Validate() error {
 		if model.ID == "" || len(model.ID) > 1024 || !ValidHash(model.Hash) || i > 0 && CompareIDs(index.Models[i-1].ID, model.ID) >= 0 {
 			return fmt.Errorf("invalid, duplicate or unsorted catalog index model")
 		}
-		if model.Alias != nil && (model.Alias.TargetID == "" || model.Alias.TargetID == model.ID || len(model.Offers) != 0) {
+		if model.Alias != nil && (model.Alias.TargetID == "" || model.Alias.TargetID == model.ID) {
 			return fmt.Errorf("invalid catalog index alias")
-		}
-		for _, offer := range model.Offers {
-			if !slices.Contains([]string{"model", "endpoint"}, offer.Scope) {
-				return fmt.Errorf("invalid catalog index offer")
-			}
 		}
 	}
 	return nil

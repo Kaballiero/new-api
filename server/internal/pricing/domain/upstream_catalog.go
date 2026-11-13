@@ -1,12 +1,13 @@
 package domain
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"slices"
 	"strings"
+	"sync"
 
-	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
+	"golang.org/x/sync/errgroup"
 )
 
 type CatalogSource struct {
@@ -60,32 +61,62 @@ func ValidCatalogHash(value string) bool {
 	return err == nil
 }
 
-// UpstreamCatalogModels are the models of the upstream catalog: Listed are the
-// models of its manifest and Addable the part of them a channel may add now.
-type UpstreamCatalogModels struct {
-	Listed  []string
-	Addable []string
+// OpenRouterShortcuts are the OpenRouter provider routing shortcuts: a model
+// id with one of these suffixes routes the listed model without it.
+var OpenRouterShortcuts = []string{":nitro", ":floor"}
+
+// CatalogDocumentReader reads stored catalog documents by hash.
+type CatalogDocumentReader interface {
+	Documents(context.Context, string, []string) (map[string]CatalogDocument, error)
 }
 
-// openRouterRoutingSuffixes select how OpenRouter routes a model. The catalog
-// lists the model without them.
-var openRouterRoutingSuffixes = []string{":nitro", ":floor"}
+// CatalogDocumentClient downloads one catalog document.
+type CatalogDocumentClient interface {
+	Document(context.Context, SourceReference) ([]byte, *SourceDocument, error)
+}
 
-// ChannelUpstreamModels are the catalog models as the upstream models of a
-// channel. A channel target that routes a listed model with an OpenRouter
-// routing suffix is listed too, so it is not a removal candidate.
-func (models UpstreamCatalogModels) ChannelUpstreamModels(deps Capabilities, channel *BuildChannel) channeldomain.UpstreamModels {
-	listed := slices.Clone(models.Listed)
-	for _, model := range channeldomain.NormalizeModelNames(channel.GetModels()) {
-		target, resolved := ResolvePricingUpstreamModel(deps, channel, model)
-		if !resolved {
-			continue
-		}
-		for _, suffix := range openRouterRoutingSuffixes {
-			if base, routed := strings.CutSuffix(target, suffix); routed && slices.Contains(models.Listed, base) {
-				listed = append(listed, target)
-			}
-		}
+// LoadCatalogDocuments reads the documents of refs by model id: a document
+// already stored for the source is decoded from the database, the others are
+// downloaded from the catalog. Fresh are the downloaded documents.
+func LoadCatalogDocuments(ctx context.Context, deps Capabilities, store CatalogDocumentReader, client CatalogDocumentClient, sourceID string, refs []SourceReference) (map[string]*SourceDocument, []CatalogDocument, error) {
+	hashes := make([]string, len(refs))
+	for i, ref := range refs {
+		hashes[i] = ref.Hash
 	}
-	return channeldomain.UpstreamModels{Listed: listed, Addable: models.Addable}
+	stored, err := store.Documents(ctx, sourceID, hashes)
+	if err != nil {
+		return nil, nil, err
+	}
+	documents := make(map[string]*SourceDocument, len(refs))
+	fresh := []CatalogDocument{}
+	var mutex sync.Mutex
+	workers, workerCtx := errgroup.WithContext(ctx)
+	workers.SetLimit(5)
+	for _, ref := range refs {
+		workers.Go(func() error {
+			if row, exists := stored[ref.Hash]; exists {
+				document, err := deps.Catalog.DecodeDocument([]byte(row.Payload), ref)
+				if err != nil {
+					return err
+				}
+				mutex.Lock()
+				documents[ref.ID] = document
+				mutex.Unlock()
+				return nil
+			}
+			raw, document, err := client.Document(workerCtx, ref)
+			if err != nil {
+				return err
+			}
+			mutex.Lock()
+			documents[ref.ID] = document
+			fresh = append(fresh, CatalogDocument{SourceID: sourceID, Hash: ref.Hash, ModelID: ref.ID, Payload: string(raw)})
+			mutex.Unlock()
+			return nil
+		})
+	}
+	if err := workers.Wait(); err != nil {
+		return nil, nil, err
+	}
+	return documents, fresh, nil
 }

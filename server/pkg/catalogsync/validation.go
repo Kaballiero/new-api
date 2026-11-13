@@ -212,17 +212,8 @@ func validateIndexShape(raw []byte) error {
 			return err
 		}
 		for _, rawOffer := range offers {
-			offer, err := wireObject(rawOffer, []string{"mode", "eligibility"}, "scope", "variant", "mode", "eligibility")
-			if err != nil {
+			if _, err := wireObject(rawOffer, []string{"mode", "eligibility"}, "scope", "variant", "mode", "eligibility"); err != nil {
 				return err
-			}
-			if common.GetJsonType(offer["variant"]) != "object" {
-				return fmt.Errorf("catalog index offer variant must be an object")
-			}
-			if common.GetJsonType(offer["eligibility"]) != "null" {
-				if _, err := wireObject(offer["eligibility"], nil, "eligible"); err != nil {
-					return err
-				}
 			}
 		}
 	}
