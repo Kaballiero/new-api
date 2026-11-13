@@ -411,13 +411,17 @@ func TestUpstreamCatalogWireContract(t *testing.T) {
 		require.NoError(t, err)
 		fixtures[catalogsync.Hash(doc)] = doc
 	}
+	rawIndex, err := os.ReadFile("../../../../model/testdata/upstream_catalog/index.json")
+	require.NoError(t, err)
 	requests := 0
 	client, err := catalogsync.NewClient(
 		"https://catalog.example",
 		&http.Client{Transport: catalogContractTransport(func(req *http.Request) (*http.Response, error) {
 			requests++
 			body := raw
-			if req.URL.Path != "/v1/catalog/manifest" {
+			if req.URL.Path == "/v1/catalog/index" {
+				body = rawIndex
+			} else if req.URL.Path != "/v1/catalog/manifest" {
 				var exists bool
 				body, exists = fixtures[strings.TrimPrefix(req.URL.Path, "/v1/catalog/documents/")]
 				require.True(t, exists)
@@ -448,7 +452,18 @@ func TestUpstreamCatalogWireContract(t *testing.T) {
 		_, err = catalogsync.DecodeDocument(append(exact, ' '), ref)
 		require.ErrorContains(t, err, "hash mismatch")
 	}
-	assert.Equal(t, 4, requests)
+	index, err := client.Index(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, manifest.Revision, index.Revision)
+	require.Len(t, index.Models, len(manifest.Models))
+	for i, model := range index.Models {
+		assert.Equal(t, manifest.Models[i].ID, model.ID)
+		assert.Equal(t, manifest.Models[i].Hash, model.Hash)
+	}
+	assert.Nil(t, index.Models[0].Endpoints)
+	assert.Equal(t, []string{"text"}, index.Models[0].Modalities.Input)
+	assert.Equal(t, "router/aggregated", index.Models[2].Alias.TargetID)
+	assert.Equal(t, 5, requests)
 	fetched.Revision = strings.Repeat("0", 64)
 	require.ErrorContains(t, fetched.Validate(), "revision mismatch")
 }
@@ -530,6 +545,35 @@ func TestUpstreamCatalogWireContractRejectsInvalidManifests(t *testing.T) {
 			_, err = client.Manifest(context.Background())
 			require.Error(t, err)
 			assert.NotContains(t, err.Error(), "revision mismatch", "wire shape must fail before semantic revision validation")
+		})
+	}
+}
+
+func TestUpstreamCatalogWireContractRejectsInvalidIndexes(t *testing.T) {
+	fixture, err := os.ReadFile("../../../../model/testdata/upstream_catalog/index.json")
+	require.NoError(t, err)
+	for _, tc := range []struct{ name, before, after, errorText string }{
+		{"unknown_field", `"schemaVersion":1`, `"unexpected":null,"schemaVersion":1`, "missing or unknown fields"},
+		{"missing_endpoints", `"endpoints":null,"hash":"87aa`, `"hash":"87aa`, "missing or unknown fields"},
+		{"null_offers", `"offers":[],`, `"offers":null,`, "null catalog field offers"},
+		{"unknown_offer_field", `"mode":null,"scope"`, `"mode":null,"provider":null,"scope"`, "missing or unknown fields"},
+		{"non_string_endpoint", `"endpoints":null,"hash":"87aa`, `"endpoints":[1],"hash":"87aa`, "string array contains non-string"},
+		{"unsorted_models", `"id":"acme/direct"`, `"id":"zeta/direct"`, "unsorted catalog index model"},
+		{"self_alias", `"targetId":"router/aggregated"`, `"targetId":"router/latest"`, "invalid catalog index alias"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Contains(t, string(fixture), tc.before)
+			raw := strings.Replace(string(fixture), tc.before, tc.after, 1)
+			client, err := catalogsync.NewClient(
+				"https://catalog.example",
+				&http.Client{Transport: catalogContractTransport(func(req *http.Request) (*http.Response, error) {
+					assert.Equal(t, "/v1/catalog/index", req.URL.Path)
+					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(raw))}, nil
+				})},
+			)
+			require.NoError(t, err)
+			_, err = client.Index(context.Background())
+			require.ErrorContains(t, err, tc.errorText)
 		})
 	}
 }

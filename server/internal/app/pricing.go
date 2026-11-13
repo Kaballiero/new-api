@@ -36,6 +36,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/get_ratio_config"
 	"github.com/QuantumNous/new-api/internal/pricing/list_syncable_channels"
 	"github.com/QuantumNous/new-api/internal/pricing/list_unbillable_models"
+	"github.com/QuantumNous/new-api/internal/pricing/list_upstream_catalog_models"
 	"github.com/QuantumNous/new-api/internal/pricing/preview_pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/refresh_catalogue"
 	"github.com/QuantumNous/new-api/internal/pricing/reset_model_ratios"
@@ -245,6 +246,24 @@ func NewRefreshPricingCatalogue() refresh_catalogue.Usecase {
 		v, err := sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), pricingstate.NewImmutableCatalogPersistence(), time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, source, requested, pricingadapter.CatalogClient{Client: client})
 		return domain.CatalogSyncSummary(v), err
 	}, pricingruntime.PublishPricingCatalogContext, NewPricingNativeNormalizer(), billing_setting.GetBatchBillingExpr, time.Now)
+}
+
+var upstreamCatalogModels pricingadapter.UpstreamCatalogModelsCache
+
+// NewListUpstreamCatalogModelsUsecase lists the models of the configured
+// upstream catalog; documents already imported are read from the database and
+// the models of the last revision are kept in the process.
+func NewListUpstreamCatalogModelsUsecase() list_upstream_catalog_models.Usecase {
+	return list_upstream_catalog_models.NewUsecase(pricingadapter.Capabilities(), NewPricingProjection(), pricingstate.NewImmutableCatalogPersistence(), &upstreamCatalogModels, func() (domain.CatalogSource, bool, error) {
+		v, on, err := pricingstate.ConfiguredCatalogSource()
+		return domain.CatalogSource(v), on, err
+	}, func(source domain.CatalogSource) (list_upstream_catalog_models.Client, error) {
+		client, err := catalogsync.NewClient(source.BaseURL, httpclient.GetHttpClient())
+		if err != nil {
+			return nil, err
+		}
+		return pricingadapter.CatalogClient{Client: client}, nil
+	})
 }
 
 func NewEnqueuePricingCatalogueRefresh() enqueue_catalogue_refresh.Usecase {

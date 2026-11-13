@@ -1,6 +1,7 @@
 package detect_upstream_model_updates
 
 import (
+	"context"
 	"reflect"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -16,15 +17,16 @@ type Store interface {
 type Usecase struct {
 	store            Store
 	rules            domain.ModelUpdateRules
-	fetch            func(*domain.Channel) (domain.UpstreamModels, error)
+	fetch            func(context.Context, *domain.Channel) (domain.UpstreamModels, error)
 	refresh          func()
 	now, minInterval func() int64
 }
 
-func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(*domain.Channel) (domain.UpstreamModels, error), refresh func(), now, minInterval func() int64) Usecase {
+func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(context.Context, *domain.Channel) (domain.UpstreamModels, error), refresh func(), now, minInterval func() int64) Usecase {
 	return Usecase{store: store, rules: rules, fetch: fetch, refresh: refresh, now: now, minInterval: minInterval}
 }
 func (usecase Usecase) Check(
+	ctx context.Context,
 	channel *domain.Channel,
 	settings *domain.ModelUpdateState,
 	force bool,
@@ -44,7 +46,7 @@ func (usecase Usecase) Check(
 	if err != nil {
 		return false, 0, err
 	}
-	upstreamModels, fetchErr := usecase.fetch(channel)
+	upstreamModels, fetchErr := usecase.fetch(ctx, channel)
 
 	var freshChannel *domain.Channel
 	var freshSettings domain.ModelUpdateState
@@ -106,7 +108,7 @@ func (usecase Usecase) Check(
 	return configChanged, autoAdded, nil
 }
 
-func (usecase Usecase) Execute(input Input) (Output, error) {
+func (usecase Usecase) Execute(ctx context.Context, input Input) (Output, error) {
 	if input.ID <= 0 {
 		return Output{}, domain.ErrChannelIDInvalid
 	}
@@ -118,7 +120,7 @@ func (usecase Usecase) Execute(input Input) (Output, error) {
 	if err != nil {
 		return Output{}, err
 	}
-	changed, added, err := usecase.Check(channel, &settings, true, false, false)
+	changed, added, err := usecase.Check(ctx, channel, &settings, true, false, false)
 	if err != nil {
 		return Output{}, err
 	}

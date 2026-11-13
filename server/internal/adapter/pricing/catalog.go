@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -15,9 +17,43 @@ import (
 
 type CatalogClient struct{ Client *catalogsync.Client }
 
+// UpstreamCatalogModelsCache keeps the upstream models of the last upstream
+// catalog revision in the process.
+type UpstreamCatalogModelsCache struct {
+	mutex    sync.Mutex
+	revision string
+	models   channeldomain.UpstreamModels
+}
+
+func (cache *UpstreamCatalogModelsCache) Load(revision string) (channeldomain.UpstreamModels, bool) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+	return cache.models, cache.revision == revision
+}
+func (cache *UpstreamCatalogModelsCache) Store(revision string, models channeldomain.UpstreamModels) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+	cache.revision, cache.models = revision, models
+}
+
 func (c CatalogClient) Manifest(ctx context.Context) (domain.SourceManifest, error) {
 	value, err := c.Client.Manifest(ctx)
 	return ToSourceManifest(value), err
+}
+func (c CatalogClient) Index(ctx context.Context) (domain.SourceIndex, error) {
+	value, err := c.Client.Index(ctx)
+	if err != nil {
+		return domain.SourceIndex{}, err
+	}
+	result := domain.SourceIndex{Revision: value.Revision, Models: make([]domain.SourceIndexModel, len(value.Models))}
+	for i, model := range value.Models {
+		result.Models[i] = domain.SourceIndexModel{ID: model.ID, Hash: model.Hash, Type: model.Type, Modalities: ToSourceModalities(model.Modalities), Endpoints: model.Endpoints}
+		if model.Alias != nil {
+			alias := ToSourceAlias(*model.Alias)
+			result.Models[i].Alias = &alias
+		}
+	}
+	return result, nil
 }
 func (c CatalogClient) Document(ctx context.Context, ref domain.SourceReference) ([]byte, *domain.SourceDocument, error) {
 	raw, value, err := c.Client.Document(ctx, nativeSourceReference(ref))

@@ -133,6 +133,7 @@ func channelOtherSettingsIdentity(raw string) string {
 	settings.UpstreamModelUpdateLastCheckTime = 0
 	settings.UpstreamModelUpdateLastDetectedModels = nil
 	settings.UpstreamModelUpdateLastRemovedModels = nil
+	settings.UpstreamModelUpdateLastConflictModels = nil
 	identity, err := common.Marshal(settings)
 	if err != nil {
 		return raw

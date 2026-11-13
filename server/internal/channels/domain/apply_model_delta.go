@@ -12,7 +12,8 @@ func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpda
 	if mappingErr != nil {
 		return result, mappingErr
 	}
-	pendingAddModels, pendingRemoveModels, collectErr := rules.CollectPendingUpstreamModelChangesFromModels(
+	pendingAddModels, pendingRemoveModels, conflictModels, collectErr := rules.CollectPendingUpstreamModelChangesFromModels(
+		channel.Type,
 		channel.GetModels(),
 		upstreamModels,
 		state.IgnoredModels,
@@ -59,6 +60,7 @@ func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpda
 	result.RemainingRemoveModels = SubtractModelNames(pendingRemoveModels, result.RemovedModels)
 	state.LastDetectedModels = result.RemainingModels
 	state.LastRemovedModels = result.RemainingRemoveModels
+	state.LastConflictModels = conflictModels
 	state.LastCheckTime = rules.Now()
 
 	return result, nil

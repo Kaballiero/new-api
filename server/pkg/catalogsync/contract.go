@@ -39,6 +39,24 @@ type Manifest struct {
 	FetchedAt            string      `json:"fetchedAt"`
 	Models               []Reference `json:"models"`
 }
+
+// Index is the projection of the documents of one manifest: it selects models
+// without downloading their documents and adds no facts. The offers it
+// projects are checked only for their closed shape.
+type Index struct {
+	SchemaVersion        int          `json:"schemaVersion"`
+	NormalizationVersion string       `json:"normalizationVersion"`
+	Revision             string       `json:"revision"`
+	Models               []IndexModel `json:"models"`
+}
+type IndexModel struct {
+	ID         string     `json:"id"`
+	Hash       string     `json:"hash"`
+	Type       string     `json:"type"`
+	Modalities Modalities `json:"modalities"`
+	Alias      *Alias     `json:"alias"`
+	Endpoints  []string   `json:"endpoints"`
+}
 type Coverage struct {
 	Offers          string   `json:"offers"`
 	Normalization   string   `json:"normalization"`
@@ -207,6 +225,21 @@ func (m Manifest) Validate() error {
 	canonical.WriteByte('\n')
 	if Hash(canonical.Bytes()) != m.Revision {
 		return fmt.Errorf("catalog manifest revision mismatch")
+	}
+	return nil
+}
+
+func (index Index) Validate() error {
+	if index.SchemaVersion != SchemaVersion || index.NormalizationVersion == "" || len(index.NormalizationVersion) > 128 || !ValidHash(index.Revision) || len(index.Models) > MaxModels || index.Models == nil {
+		return fmt.Errorf("invalid catalog index identity")
+	}
+	for i, model := range index.Models {
+		if model.ID == "" || len(model.ID) > 1024 || !ValidHash(model.Hash) || i > 0 && CompareIDs(index.Models[i-1].ID, model.ID) >= 0 {
+			return fmt.Errorf("invalid, duplicate or unsorted catalog index model")
+		}
+		if model.Alias != nil && (model.Alias.TargetID == "" || model.Alias.TargetID == model.ID) {
+			return fmt.Errorf("invalid catalog index alias")
+		}
 	}
 	return nil
 }

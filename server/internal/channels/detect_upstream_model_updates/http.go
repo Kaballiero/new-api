@@ -18,7 +18,7 @@ func (h HTTP) Handle(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	output, err := h.usecase(c).Execute(input)
+	output, err := h.usecase(c).Execute(c.Request.Context(), input)
 	if err != nil {
 		transport.WriteError(c, err)
 		return

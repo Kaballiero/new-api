@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -17,11 +18,14 @@ import (
 	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
+	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
 	systemstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/system"
 	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	"github.com/QuantumNous/new-api/internal/app"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/catalogsync"
+	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/gin-gonic/gin"
@@ -769,7 +773,8 @@ func TestCollectPendingUpstreamModelChangesFromModels_Canonical(t *testing.T) {
 }
 
 func TestCollectPendingUpstreamModelChangesFromModels_AddableSubsetOfListed(t *testing.T) {
-	pendingAddModels, pendingRemoveModels, err := app.NewChannelModelUpdateRules(channelstore.NewStore()).CollectPendingUpstreamModelChangesFromModels(
+	pendingAddModels, pendingRemoveModels, _, err := app.NewChannelModelUpdateRules(channelstore.NewStore()).CollectPendingUpstreamModelChangesFromModels(
+		constant.ChannelTypeOpenRouter,
 		[]string{"gpt-4o", "listed-only-channel-model", "stale-model"},
 		channeldomain.UpstreamModels{
 			Listed:  []string{"gpt-4o", "gpt-4.1", "listed-only-channel-model", "listed-only-new-model"},
@@ -810,6 +815,12 @@ func TestBuildChannelUpstreamModelFetchFingerprintExcludesPollingIndex(t *testin
 	afterStableChange, err := buildChannelUpstreamModelFetchFingerprint(channel)
 	require.NoError(t, err)
 	require.NotEqual(t, before, afterStableChange)
+
+	// The source of the models is part of the fetch configuration.
+	channel.OtherSettings = `{"upstream_model_update_catalog_sync_enabled":true}`
+	afterSourceChange, err := buildChannelUpstreamModelFetchFingerprint(channel)
+	require.NoError(t, err)
+	require.NotEqual(t, afterStableChange, afterSourceChange)
 }
 
 func TestApplyChannelUpstreamModelUpdates_CanonicalAddAndRemove(t *testing.T) {
@@ -1013,7 +1024,7 @@ func TestApplyChannelUpstreamModelUpdates_MalformedSettingsDoNotWrite(t *testing
 	require.Equal(t, "gpt-4o", abilities[0].Model)
 }
 
-func TestApplyChannelUpstreamModelUpdates_CanonicalConflictDoesNotWrite(t *testing.T) {
+func TestApplyChannelUpstreamModelUpdates_CanonicalConflictIsReportedNotAdded(t *testing.T) {
 	db := setupChannelUpstreamUpdateTestDB(t)
 	settings := dto.ChannelOtherSettings{
 		UpstreamModelUpdateLastDetectedModels: []string{"anthropic/claude-fable-5"},
@@ -1025,26 +1036,29 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalConflictDoesNotWrite(t *testi
 		map[string]string{"claude-fable-5": "manual/claude-fable-5"},
 		settings,
 	)
-	originalSettings := channel.OtherSettings
 	originalMapping := channel.GetModelMapping()
 	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
 		return []string{"gpt-4o", "anthropic/claude-fable-5"}, nil
 	})
 
-	_, _, _, _, _, err := applyChannelUpstreamModelUpdates(
+	added, _, remainingAdd, _, modelsChanged, err := applyChannelUpstreamModelUpdates(
 		channel,
 		[]string{"anthropic/claude-fable-5"},
 		nil,
 		nil,
 	)
-	require.ErrorIs(t, err, channeldomain.ErrModelMappingConflict)
+	require.NoError(t, err)
+	assert.Empty(t, added)
+	assert.Empty(t, remainingAdd)
+	assert.False(t, modelsChanged)
 
 	persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
 	require.Equal(t, "gpt-4o", persisted.Models)
 	require.Equal(t, originalMapping, persisted.GetModelMapping())
-	require.JSONEq(t, originalSettings, persisted.OtherSettings)
 	require.Len(t, abilities, 1)
-	require.Equal(t, "gpt-4o", abilities[0].Model)
+	persistedSettings := channelstore.NewChannelPersistence().GetOtherSettings(persisted)
+	assert.Equal(t, []string{"anthropic/claude-fable-5"}, persistedSettings.UpstreamModelUpdateLastConflictModels)
+	assert.Empty(t, persistedSettings.UpstreamModelUpdateLastDetectedModels)
 }
 
 func TestApplyChannelUpstreamModelUpdates_CanonicalSameNameReplacementConflictsAtomically(t *testing.T) {
@@ -1363,7 +1377,7 @@ func TestDetectChannelUpstreamModelUpdatesInspectsDisabledChannel(t *testing.T) 
 	require.Equal(t, "gpt-4o", abilities[0].Model)
 }
 
-func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledSameNameReplacementFailsAtomically(t *testing.T) {
+func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledSameNameReplacementStaysPending(t *testing.T) {
 	db := setupChannelUpstreamUpdateTestDB(t)
 	settings := dto.ChannelOtherSettings{
 		UpstreamModelUpdateCheckEnabled:    true,
@@ -1376,26 +1390,25 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledSameNameReplacementF
 		map[string]string{"foo": "anthropic/foo"},
 		settings,
 	)
-	originalSettings := channel.OtherSettings
 	originalMapping := channel.GetModelMapping()
 	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
 		return []string{"foo"}, nil
 	})
 	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 0, 1)
+	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 1, 0)
 
 	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
 	require.Equal(t, 1, summary.CheckedChannels)
-	require.Equal(t, 1, summary.FailedChannels)
-	require.Zero(t, summary.ChangedChannels)
+	require.Zero(t, summary.FailedChannels)
 	require.Zero(t, summary.AutoAddedModels)
 	persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
 	require.Equal(t, "foo", persisted.Models)
 	require.Equal(t, originalMapping, persisted.GetModelMapping())
-	require.JSONEq(t, originalSettings, persisted.OtherSettings)
 	require.Len(t, abilities, 1)
-	require.Equal(t, "foo", abilities[0].Model)
+	persistedSettings := channelstore.NewChannelPersistence().GetOtherSettings(persisted)
+	assert.Equal(t, []string{"foo"}, persistedSettings.UpstreamModelUpdateLastDetectedModels)
+	assert.Equal(t, []string{"foo"}, persistedSettings.UpstreamModelUpdateLastRemovedModels)
 }
 
 func TestScheduledUpstreamModelUpdateMalformedSettingsDoNotOverwritePartialRow(t *testing.T) {
@@ -1452,6 +1465,101 @@ func TestScheduledUpstreamModelUpdateSendsReportToTelegramGateway(t *testing.T) 
 		"Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 0 auto-synced additions, 0 failed." +
 		"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)" +
 		"\n\nAdded model samples (showing 1/1): gpt-4.1"}, payload)
+}
+
+func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t *testing.T) {
+	coverage := `{"expectedSources":[],"missingSources":[],"normalization":"complete","offers":"complete","reasons":[]}`
+	component := `{"amountUSD":"0.8","billable":"input_text","componentId":"input","conditions":{},"direction":"input","modality":"text","normalization":{"appliedDiscount":null,"comparable":true,"discountBasis":"net","effective":true,"reasons":[]},"parameter":"prompt","provenance":{"source":"generic"},"quantity":"1","source":{"amount":null,"currency":null,"key":"prompt","unit":null},"unit":"million_tokens","variant":{}}`
+	offer := `{"capabilities":{},"components":[` + component + `],"coverage":` + coverage + `,"eligibility":{"eligible":true,"reasons":[]},"facts":{},"id":"offer","identity":{},"limitations":[],"limits":{},"mode":null,"operation":null,"provider":null,"scope":"endpoint","variant":{"variant":"standard"}}`
+	document := `{"alias":null,"author":null,"capabilities":{},"coverage":` + coverage + `,"description":null,"id":"acme/chat","limitations":[],"limits":{},"metadata":{},"modalities":{"input":["text"],"output":["text"]},"name":"acme/chat","offers":[` + offer + `],"provenance":{},"schemaVersion":1,"type":"text"}`
+	hash := catalogsync.Hash([]byte(document))
+	ref := `{"hash":"` + hash + `","id":"acme/chat"}`
+	revision := catalogsync.Hash([]byte(`{"models":[` + ref + `],"normalizationVersion":"1","schemaVersion":1}` + "\n"))
+
+	for _, tc := range []struct {
+		name            string
+		catalogStatus   int
+		wantFailed      int
+		wantFirstModels string
+		wantRemoved     []string
+	}{
+		// Both channels share one catalog read; the routed target stays and
+		// the retired model is only staged for removal.
+		{name: "catalog published", catalogStatus: http.StatusOK, wantFirstModels: "chat:nitro,retired-model,chat", wantRemoved: []string{"retired-model"}},
+		// A catalog error leaves every channel as it was.
+		{name: "catalog unavailable", catalogStatus: http.StatusServiceUnavailable, wantFailed: 2, wantFirstModels: "acme/chat:nitro,retired-model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupChannelUpstreamUpdateTestDB(t)
+			require.NoError(t, db.AutoMigrate(&pricingrecord.CatalogDocument{}))
+			httpclient.InitHttpClient()
+			stubChannelUpstreamModelFetch(t, func(*model.Channel) ([]string, error) {
+				t.Error("a catalog sync channel must not list the provider models")
+				return nil, nil
+			})
+			preserveChannelUpstreamModelNotifyState(t)
+			channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 1, 0)
+			var manifestReads atomic.Int32
+			catalog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.catalogStatus != http.StatusOK {
+					w.WriteHeader(tc.catalogStatus)
+					return
+				}
+				switch r.URL.Path {
+				case "/v1/catalog/manifest":
+					manifestReads.Add(1)
+					_, _ = w.Write([]byte(`{"fetchedAt":"2026-11-12T00:00:00.000Z","models":[` + ref + `],"normalizationVersion":"1","revision":"` + revision + `","schemaVersion":1,"sourceRevision":"` + revision + `"}`))
+				case "/v1/catalog/index":
+					_, _ = w.Write([]byte(`{"models":[{"alias":null,"endpoints":["/api/v1/chat/completions"],"hash":"` + hash + `","id":"acme/chat","modalities":{"input":["text"],"output":["text"]},"offers":[],"type":"text"}],"normalizationVersion":"1","revision":"` + revision + `","schemaVersion":1}`))
+				default:
+					_, _ = w.Write([]byte(document))
+				}
+			}))
+			defer catalog.Close()
+			t.Setenv("PRICING_CATALOG_API_URL", catalog.URL)
+			settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true, UpstreamModelUpdateCatalogSyncEnabled: true}
+			first := createChannelUpstreamUpdateTestChannel(t, db, "acme/chat:nitro,retired-model", nil, settings)
+			second := createChannelUpstreamUpdateTestChannel(t, db, "acme/chat", nil, settings)
+
+			summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
+
+			assert.Equal(t, tc.wantFailed, summary.FailedChannels)
+			persisted, _ := loadChannelUpstreamUpdateTestState(t, db, first.Id)
+			assert.Equal(t, tc.wantFirstModels, persisted.Models)
+			assert.Equal(t, tc.wantRemoved, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
+			persisted, _ = loadChannelUpstreamUpdateTestState(t, db, second.Id)
+			assert.Equal(t, "acme/chat", persisted.Models)
+			assert.Empty(t, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
+			if tc.catalogStatus == http.StatusOK {
+				assert.Equal(t, int32(1), manifestReads.Load())
+			}
+		})
+	}
+}
+
+// A canonical name taken by another target, as when the catalog renames a
+// vendor, keeps that addition out and lets the other additions apply.
+func TestScheduledUpstreamModelUpdateReportsCanonicalNameConflicts(t *testing.T) {
+	db := setupChannelUpstreamUpdateTestDB(t)
+	channel := createChannelUpstreamUpdateTestChannel(t, db, "voyage-4,gemini-2.5-pro-preview", map[string]string{
+		"voyage-4":               "voyageai/voyage-4",
+		"gemini-2.5-pro-preview": "google/gemini-2.5-pro",
+	}, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true})
+	stubChannelUpstreamModelFetch(t, func(*model.Channel) ([]string, error) {
+		return []string{"mongodb/voyage-4", "google/gemini-2.5-pro", "google/gemini-2.5-pro-preview", "acme/new-model"}, nil
+	})
+	preserveChannelUpstreamModelNotifyState(t)
+	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 1, 0)
+
+	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
+
+	require.Equal(t, 0, summary.FailedChannels)
+	assert.Equal(t, 1, summary.AutoAddedModels)
+	persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
+	assert.Equal(t, "voyage-4,gemini-2.5-pro-preview,new-model", persisted.Models)
+	settings := channelstore.NewChannelPersistence().GetOtherSettings(persisted)
+	assert.Equal(t, []string{"mongodb/voyage-4", "google/gemini-2.5-pro-preview"}, settings.UpstreamModelUpdateLastConflictModels)
+	assert.Equal(t, []string{"voyage-4"}, settings.UpstreamModelUpdateLastRemovedModels)
 }
 
 func TestFetchChannelUpstreamModelIDsDoesNotPersistPollingSelection(t *testing.T) {

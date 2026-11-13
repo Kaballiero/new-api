@@ -12,7 +12,7 @@ type HTTP struct{ usecase func(*gin.Context) Usecase }
 
 func NewHTTP(usecase func(*gin.Context) Usecase) HTTP { return HTTP{usecase: usecase} }
 func (h HTTP) Handle(c *gin.Context) {
-	output, err := h.usecase(c).Execute()
+	output, err := h.usecase(c).Execute(c.Request.Context())
 	if err != nil {
 		transport.WriteError(c, err)
 		return

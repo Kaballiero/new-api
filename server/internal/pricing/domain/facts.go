@@ -15,6 +15,23 @@ type SourceManifest struct {
 	FetchedAt            string            `json:"fetchedAt"`
 	Models               []SourceReference `json:"models"`
 }
+
+// SourceIndex is the part of the catalog index that selects models without
+// their documents. Its revision equals the revision of the manifest it
+// projects.
+type SourceIndex struct {
+	Revision string
+	Models   []SourceIndexModel
+}
+type SourceIndexModel struct {
+	ID         string
+	Hash       string
+	Type       string
+	Modalities SourceModalities
+	Alias      *SourceAlias
+	// Endpoints are the request paths the source declares; nil is unknown.
+	Endpoints []string
+}
 type SourceCoverage struct {
 	Offers          string   `json:"offers"`
 	Normalization   string   `json:"normalization"`

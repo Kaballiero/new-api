@@ -39,6 +39,7 @@
 | `sync_upstream_catalog` | синхронизация upstream-каталога в неизменяемые записи | без HTTP, `refresh_catalogue` и outer `app/pricing.go` |
 | `ensure_catalog_source`, `publish_catalog_selection` | источник upstream-каталога и публикация выбранных записей | без HTTP, native characterization; persistence API у `adapter/gorm/pricing` |
 | `read_upstream_catalogue` | проекция upstream-каталога | без HTTP, `app/pricingruntime` |
+| `list_upstream_catalog_models` | модели опубликованного upstream-каталога как `channels/domain.UpstreamModels` канала OpenRouter: `Listed` — модели manifest, `Addable` — те из них, что не alias, без суффикса `:free` и `:batch`, с операцией текста, эмбеддингов или генерации изображений по типу (`CatalogConsumerProfile`) и пути запроса из index, и с подтверждённой ценой синхронного предложения (`IterateUpstreamProviderOffers` → `CatalogMinimumOperations` → `ConfirmedConsumerPrices`); `Shortcuts` — shortcuts маршрутизации OpenRouter (`OpenRouterShortcuts`: `:nitro`, `:floor`). Manifest и index читаются одной ревизии (при расхождении — одна повторная попытка, затем ошибка). Документы кандидатов загружает `LoadCatalogDocuments` (общий с `sync_upstream_catalog`: из БД по hash, недостающие — из каталога, без сохранения); результат ревизии хранится в процессе (`adapter/pricing.UpstreamCatalogModelsCache`), поэтому документы ревизии читаются один раз | без HTTP, `channelModelFetcher` в `app/channels.go` |
 | `rebuild_catalogue` | сборка снимка каталога цен | без HTTP, `app/pricingruntime` + `adapter/pricing/state` |
 | `read_catalogue` | ревизия опубликованного каталога | без HTTP, `app/pricingruntime` + `adapter/pricing/state` |
 | `publish_native_catalogue` | публикация нативных цен в опции | без HTTP, `app/pricingruntime` + `adapter/settings/publication` |
@@ -68,6 +69,7 @@ OpenAPI-генератор (`cmd/gen-admin-openapi/pricing.go`) читает DTO
 - Сборка — `internal/app/pricing.go` (`NewPricingHTTP`), один раз через `sync.OnceValue` в `app/httpapi/pricing.go`; аудит — callback app/httpapi к app/audit.Recording.
 - Адаптеры: `adapter/pricing` (`Reader`, `ConsumerCache`, `ProjectionCache`, `RatioSettings`, `RatioChannels`, плагины), `adapter/pricing/upstream` (HTTP-клиенты ratio sync и нативных цен, override, нормализация), `adapter/gorm/pricing` (опции, каталог, неизменяемые записи, наблюдения).
 - Настройки: `setting/ratio_setting`, `setting/billing_setting`, account group policy в settings/accounts. Leaf `app/pricingruntime` собирает статические сценарии once; `adapter/pricing/state` владеет единым опубликованным snapshot, revision/generation/observation state и lock order. DB, колонки, настройки, registry и clock читаются поздно.
+- Модели upstream-каталога (`list_upstream_catalog_models`) возвращаются как `channels/domain.UpstreamModels`; сценарий собирает `app/pricing.go`, вызывает обновление моделей каналов через `app/channels.go`.
 - Потребители: `controller/pricing*.go`, `ratio_sync.go`, `ratio_config.go`, `model_pricing_config.go` (HTTP bindings и wire-декларации OpenAPI); `app/pricingruntime` и технические adapters (сценарии без HTTP).
 
 ## Границы и долг

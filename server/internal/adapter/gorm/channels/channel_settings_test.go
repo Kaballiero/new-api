@@ -100,3 +100,30 @@ func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(
 		})
 	}
 }
+
+func TestUpstreamCatalogSyncRequiresOpenRouterChannelWithUpdateChecks(t *testing.T) {
+	tests := []struct {
+		name          string
+		channelType   int
+		checksEnabled bool
+		wantErr       string
+	}{
+		{name: "OpenRouter channel with checks", channelType: constant.ChannelTypeOpenRouter, checksEnabled: true},
+		{name: "OpenRouter channel without checks", channelType: constant.ChannelTypeOpenRouter, wantErr: "upstream catalog sync requires upstream model update checks"},
+		{name: "other channel type", channelType: constant.ChannelTypeOpenAI, checksEnabled: true, wantErr: "upstream catalog sync is only available for OpenRouter channels"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channel := &legacy.Channel{Type: tt.channelType}
+			channel.SetOtherSettings(dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: tt.checksEnabled, UpstreamModelUpdateCatalogSyncEnabled: true})
+
+			err := channel.ValidateSettings()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+}
