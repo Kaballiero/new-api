@@ -44,24 +44,8 @@ func ToSourceCoverage(value catalogsync.Coverage) domain.SourceCoverage {
 	result.MissingSources = value.MissingSources
 	return result
 }
-func nativeSourceCoverage(value domain.SourceCoverage) catalogsync.Coverage {
-	var result catalogsync.Coverage
-	result.Offers = value.Offers
-	result.Normalization = value.Normalization
-	result.Reasons = value.Reasons
-	result.ExpectedSources = value.ExpectedSources
-	result.MissingSources = value.MissingSources
-	return result
-}
 func ToSourceProvider(value catalogsync.Provider) domain.SourceProvider {
 	var result domain.SourceProvider
-	result.ID = value.ID
-	result.Name = value.Name
-	result.Tag = value.Tag
-	return result
-}
-func nativeSourceProvider(value domain.SourceProvider) catalogsync.Provider {
-	var result catalogsync.Provider
 	result.ID = value.ID
 	result.Name = value.Name
 	result.Tag = value.Tag
@@ -82,19 +66,8 @@ func ToSourceAuthor(value catalogsync.Author) domain.SourceAuthor {
 	result.Namespace = value.Namespace
 	return result
 }
-func nativeSourceAuthor(value domain.SourceAuthor) catalogsync.Author {
-	var result catalogsync.Author
-	result.Namespace = value.Namespace
-	return result
-}
 func ToSourceModalities(value catalogsync.Modalities) domain.SourceModalities {
 	var result domain.SourceModalities
-	result.Input = value.Input
-	result.Output = value.Output
-	return result
-}
-func nativeSourceModalities(value domain.SourceModalities) catalogsync.Modalities {
-	var result catalogsync.Modalities
 	result.Input = value.Input
 	result.Output = value.Output
 	return result
@@ -129,44 +102,8 @@ func ToSourceDocument(value catalogsync.Document) domain.SourceDocument {
 	result.Provenance = value.Provenance
 	return result
 }
-func nativeSourceDocument(value domain.SourceDocument) catalogsync.Document {
-	var result catalogsync.Document
-	result.SchemaVersion = value.SchemaVersion
-	result.ID = value.ID
-	result.Name = value.Name
-	result.Description = value.Description
-	if value.Author != nil {
-		mapped := nativeSourceAuthor(*value.Author)
-		result.Author = &mapped
-	}
-	result.Type = value.Type
-	result.Modalities = nativeSourceModalities(value.Modalities)
-	result.Metadata = value.Metadata
-	result.Capabilities = value.Capabilities
-	result.Limits = value.Limits
-	if value.Alias != nil {
-		mapped := nativeSourceAlias(*value.Alias)
-		result.Alias = &mapped
-	}
-	if value.Offers != nil {
-		result.Offers = make([]catalogsync.Offer, len(value.Offers))
-		for i4 := range value.Offers {
-			result.Offers[i4] = nativeSourceOffer(value.Offers[i4])
-		}
-	}
-	result.Coverage = nativeSourceCoverage(value.Coverage)
-	result.Limitations = value.Limitations
-	result.Provenance = value.Provenance
-	return result
-}
 func ToSourceEligibility(value catalogsync.Eligibility) domain.SourceEligibility {
 	var result domain.SourceEligibility
-	result.Eligible = value.Eligible
-	result.Reasons = value.Reasons
-	return result
-}
-func nativeSourceEligibility(value domain.SourceEligibility) catalogsync.Eligibility {
-	var result catalogsync.Eligibility
 	result.Eligible = value.Eligible
 	result.Reasons = value.Reasons
 	return result
@@ -200,54 +137,8 @@ func ToSourceOffer(value catalogsync.Offer) domain.SourceOffer {
 	result.Facts = value.Facts
 	return result
 }
-func nativeSourceOffer(value domain.SourceOffer) catalogsync.Offer {
-	var result catalogsync.Offer
-	result.ID = value.ID
-	result.Scope = value.Scope
-	result.Identity = value.Identity
-	if value.Provider != nil {
-		mapped := nativeSourceProvider(*value.Provider)
-		result.Provider = &mapped
-	}
-	result.Operation = value.Operation
-	result.Mode = value.Mode
-	result.Variant = value.Variant
-	result.Capabilities = value.Capabilities
-	result.Limits = value.Limits
-	if value.Eligibility != nil {
-		mapped := nativeSourceEligibility(*value.Eligibility)
-		result.Eligibility = &mapped
-	}
-	if value.Components != nil {
-		result.Components = make([]catalogsync.Component, len(value.Components))
-		for i6 := range value.Components {
-			result.Components[i6] = nativeSourceRate(value.Components[i6])
-		}
-	}
-	result.Coverage = nativeSourceCoverage(value.Coverage)
-	result.Limitations = value.Limitations
-	result.Facts = value.Facts
-	return result
-}
 func ToSourceRate(value catalogsync.Component) domain.SourceRate {
 	var result domain.SourceRate
-	result.Parameter = value.Parameter
-	result.ComponentID = value.ComponentID
-	result.Billable = value.Billable
-	result.Direction = value.Direction
-	result.Modality = value.Modality
-	result.AmountUSD = value.AmountUSD
-	result.Unit = value.Unit
-	result.Quantity = value.Quantity
-	result.Variant = value.Variant
-	result.Conditions = value.Conditions
-	result.Source = value.Source
-	result.Provenance = value.Provenance
-	result.Normalization = value.Normalization
-	return result
-}
-func nativeSourceRate(value domain.SourceRate) catalogsync.Component {
-	var result catalogsync.Component
 	result.Parameter = value.Parameter
 	result.ComponentID = value.ComponentID
 	result.Billable = value.Billable

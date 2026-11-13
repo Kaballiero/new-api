@@ -73,9 +73,15 @@ func (Catalog) Aliases(documents map[string]*domain.SourceDocument) func(string)
 			native[key] = nil
 			continue
 		}
-		value := nativeSourceDocument(*document)
-		native[key] = &value
-		originals[&value] = document
+		// ResolveAlias reads only the alias declaration, so the offers of a
+		// document are not copied.
+		value := &catalogsync.Document{}
+		if document.Alias != nil {
+			alias := nativeSourceAlias(*document.Alias)
+			value.Alias = &alias
+		}
+		native[key] = value
+		originals[value] = document
 	}
 	return func(id string) (*domain.SourceDocument, error) {
 		resolved, err := catalogsync.ResolveAlias(native, id)

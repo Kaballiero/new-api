@@ -46,13 +46,14 @@ type Usecase struct {
 	deps       domain.Capabilities
 	projection *domain.Projection
 	store      domain.CatalogDocumentReader
+	documents  domain.CatalogDocumentCache
 	cache      Cache
 	source     func() (domain.CatalogSource, bool, error)
 	connect    func(domain.CatalogSource) (Client, error)
 }
 
-func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store domain.CatalogDocumentReader, cache Cache, source func() (domain.CatalogSource, bool, error), connect func(domain.CatalogSource) (Client, error)) Usecase {
-	return Usecase{deps: deps, projection: projection, store: store, cache: cache, source: source, connect: connect}
+func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store domain.CatalogDocumentReader, documents domain.CatalogDocumentCache, cache Cache, source func() (domain.CatalogSource, bool, error), connect func(domain.CatalogSource) (Client, error)) Usecase {
+	return Usecase{deps: deps, projection: projection, store: store, documents: documents, cache: cache, source: source, connect: connect}
 }
 
 // Execute lists the models of the published upstream catalog as the upstream
@@ -121,7 +122,7 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 		operations[ref.ID] = profile
 	}
 
-	documents, _, err := domain.LoadCatalogDocuments(ctx, u.deps, u.store, client, source.ID, candidates)
+	documents, _, err := domain.LoadCatalogDocuments(ctx, u.deps, u.store, u.documents, client, source.ID, candidates)
 	if err != nil {
 		return channeldomain.UpstreamModels{}, err
 	}

@@ -243,7 +243,7 @@ func NewRefreshPricingCatalogue() refresh_catalogue.Usecase {
 		if err != nil {
 			return domain.CatalogSyncSummary{}, err
 		}
-		v, err := sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), pricingstate.NewImmutableCatalogPersistence(), time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, source, requested, pricingadapter.CatalogClient{Client: client})
+		v, err := sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), pricingstate.NewImmutableCatalogPersistence(), &pricingruntime.UpstreamCatalogDocuments, time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, source, requested, pricingadapter.CatalogClient{Client: client})
 		return domain.CatalogSyncSummary(v), err
 	}, pricingruntime.PublishPricingCatalogContext, NewPricingNativeNormalizer(), billing_setting.GetBatchBillingExpr, time.Now)
 }
@@ -251,10 +251,11 @@ func NewRefreshPricingCatalogue() refresh_catalogue.Usecase {
 var upstreamCatalogModels pricingadapter.UpstreamCatalogModelsCache
 
 // NewListUpstreamCatalogModelsUsecase lists the models of the configured
-// upstream catalog; documents already imported are read from the database and
-// the models of the last revision are kept in the process.
+// upstream catalog; documents already imported are read decoded from the
+// process or from the database and the models of the last revision are kept in
+// the process.
 func NewListUpstreamCatalogModelsUsecase() list_upstream_catalog_models.Usecase {
-	return list_upstream_catalog_models.NewUsecase(pricingadapter.Capabilities(), NewPricingProjection(), pricingstate.NewImmutableCatalogPersistence(), &upstreamCatalogModels, func() (domain.CatalogSource, bool, error) {
+	return list_upstream_catalog_models.NewUsecase(pricingadapter.Capabilities(), NewPricingProjection(), pricingstate.NewImmutableCatalogPersistence(), &pricingruntime.UpstreamCatalogDocuments, &upstreamCatalogModels, func() (domain.CatalogSource, bool, error) {
 		v, on, err := pricingstate.ConfiguredCatalogSource()
 		return domain.CatalogSource(v), on, err
 	}, func(source domain.CatalogSource) (list_upstream_catalog_models.Client, error) {

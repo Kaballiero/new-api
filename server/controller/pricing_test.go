@@ -2935,7 +2935,8 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 	client := newClient(nil)
 	source := pricingrecord.CatalogSource{ID: pricingstate.CatalogHash([]byte(t.Name())), Kind: "openrouter", BaseURL: client.BaseURL()}
 	requestedAlias := map[string]bool{"router/latest": true}
-	initial, err := syncUpstreamCatalog(ctx, source, requestedAlias, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
+	documents := &pricingadapter.UpstreamCatalogDocumentsCache{}
+	initial, err := syncUpstreamCatalog(ctx, source, requestedAlias, pricingadapter.Capabilities(), documents, pricingadapter.CatalogClient{Client: client})
 	require.NoError(t, err)
 	assert.True(t, initial.Publication.Changed)
 	assert.Equal(t, 1, initial.ImportedModels)
@@ -2951,12 +2952,16 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 	require.Len(t, stored, 2)
 	for hash, row := range stored {
 		assert.Equal(t, wire["/v1/catalog/documents/"+hash], row.Payload)
+		// A published document is shared decoded with the next readers.
+		document, cached := documents.Load(source.ID, hash)
+		require.True(t, cached)
+		assert.Equal(t, row.ModelID, document.ID)
 	}
 
 	t.Run("unchanged_selection_fetches_only_manifest", func(t *testing.T) {
 		before, err := ensureCatalogSource(ctx, source)
 		require.NoError(t, err)
-		result, err := syncUpstreamCatalog(ctx, source, requestedAlias, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
+		result, err := syncUpstreamCatalog(ctx, source, requestedAlias, pricingadapter.Capabilities(), documents, pricingadapter.CatalogClient{Client: client})
 		require.NoError(t, err)
 		assert.False(t, result.Publication.Changed)
 		assert.Equal(t, initial.Publication.Revision, result.Publication.Revision)
@@ -2979,8 +2984,10 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 		require.NoError(t, err)
 		failDirect.Store(true)
 		defer failDirect.Store(false)
-		_, err = syncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
+		_, err = syncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, pricingadapter.Capabilities(), documents, pricingadapter.CatalogClient{Client: client})
 		require.ErrorContains(t, err, "catalog HTTP status 503")
+		_, cached := documents.Load(source.ID, manifest.Models[0].Hash)
+		assert.False(t, cached)
 		after, err := ensureCatalogSource(ctx, source)
 		require.NoError(t, err)
 		assert.Equal(t, before, after)
@@ -3006,7 +3013,7 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 		})
 		staleResult := make(chan error, 1)
 		go func() {
-			_, err := syncUpstreamCatalog(ctx, source, requestedAlias, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: staleClient})
+			_, err := syncUpstreamCatalog(ctx, source, requestedAlias, pricingadapter.Capabilities(), documents, pricingadapter.CatalogClient{Client: staleClient})
 			staleResult <- err
 		}()
 		select {
@@ -3016,7 +3023,7 @@ func TestSyncUpstreamCatalogAcquisitionAndGenerationFence(t *testing.T) {
 		}
 		// The older acquisition is still inside Manifest GET. A complete newer
 		// selection must win even though the older response arrives afterwards.
-		newer, err := syncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
+		newer, err := syncUpstreamCatalog(ctx, source, map[string]bool{"acme/direct": true}, pricingadapter.Capabilities(), documents, pricingadapter.CatalogClient{Client: client})
 		require.NoError(t, err)
 		require.True(t, newer.Publication.Changed)
 		require.NotEqual(t, initial.Publication.Revision, newer.Publication.Revision)
@@ -3066,11 +3073,12 @@ func TestUpstreamCatalogLiveIntegration(t *testing.T) {
 	client, err := catalogsync.NewClient(base, http.DefaultClient)
 	require.NoError(t, err)
 	requested := map[string]bool{"google/gemini-2.5-flash": true}
-	first, err := syncUpstreamCatalog(context.Background(), source, requested, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
+	documents := &pricingadapter.UpstreamCatalogDocumentsCache{}
+	first, err := syncUpstreamCatalog(context.Background(), source, requested, pricingadapter.Capabilities(), documents, pricingadapter.CatalogClient{Client: client})
 	require.NoError(t, err)
 	assert.Equal(t, 1, first.ImportedModels)
 	assert.Equal(t, 1, first.Publication.NewDocuments)
-	second, err := syncUpstreamCatalog(context.Background(), source, requested, pricingadapter.Capabilities(), pricingadapter.CatalogClient{Client: client})
+	second, err := syncUpstreamCatalog(context.Background(), source, requested, pricingadapter.Capabilities(), documents, pricingadapter.CatalogClient{Client: client})
 	require.NoError(t, err)
 	assert.Equal(t, first.Publication.Revision, second.Publication.Revision)
 	assert.Zero(t, second.Publication.NewDocuments)
@@ -4035,8 +4043,8 @@ func pricingTestDocument(value *catalogsync.Document) *domain.SourceDocument {
 	return &result
 }
 
-func syncUpstreamCatalog(ctx context.Context, source pricingrecord.CatalogSource, requested map[string]bool, deps domain.Capabilities, client sync_upstream_catalog.Client) (sync_upstream_catalog.CatalogSyncResult, error) {
-	return sync_upstream_catalog.NewUsecase(deps, pricingstate.NewImmutableCatalogPersistence(), time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, domain.CatalogSource(source), requested, client)
+func syncUpstreamCatalog(ctx context.Context, source pricingrecord.CatalogSource, requested map[string]bool, deps domain.Capabilities, documents domain.CatalogDocumentCache, client sync_upstream_catalog.Client) (sync_upstream_catalog.CatalogSyncResult, error) {
+	return sync_upstream_catalog.NewUsecase(deps, pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, domain.CatalogSource(source), requested, client)
 }
 
 func selectCatalogOffer(offers []domain.CatalogOffer) *domain.CatalogOffer {

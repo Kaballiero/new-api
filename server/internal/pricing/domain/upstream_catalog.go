@@ -70,40 +70,72 @@ type CatalogDocumentReader interface {
 	Documents(context.Context, string, []string) (map[string]CatalogDocument, error)
 }
 
-// CatalogDocumentClient downloads one catalog document.
+// CatalogDocumentClient downloads one catalog document. Document returns the
+// raw bytes of the document only after verifying them against the reference
+// hash and the document shape; the decoded document is decoded from them.
 type CatalogDocumentClient interface {
 	Document(context.Context, SourceReference) ([]byte, *SourceDocument, error)
 }
 
-// LoadCatalogDocuments reads the documents of refs by model id: a document
-// already stored for the source is decoded from the database, the others are
-// downloaded from the catalog. Fresh are the downloaded documents.
-func LoadCatalogDocuments(ctx context.Context, deps Capabilities, store CatalogDocumentReader, client CatalogDocumentClient, sourceID string, refs []SourceReference) (map[string]*SourceDocument, []CatalogDocument, error) {
-	hashes := make([]string, len(refs))
-	for i, ref := range refs {
-		hashes[i] = ref.Hash
+// CatalogDocumentCache keeps decoded stored catalog documents by source and
+// hash. A catalog document is immutable and a stored one is never deleted, so a
+// cached document is the document the source stores under its hash.
+type CatalogDocumentCache interface {
+	Load(sourceID, hash string) (*SourceDocument, bool)
+	Store(sourceID, hash string, document *SourceDocument)
+}
+
+// LoadStoredCatalogDocuments reads the stored documents of refs by model id: a
+// cached document is taken from the cache, the others are decoded from the
+// database and cached. Missing are the refs the source has no stored document
+// for.
+func LoadStoredCatalogDocuments(ctx context.Context, deps Capabilities, store CatalogDocumentReader, cache CatalogDocumentCache, sourceID string, refs []SourceReference) (map[string]*SourceDocument, []SourceReference, error) {
+	documents := make(map[string]*SourceDocument, len(refs))
+	uncached := []SourceReference{}
+	hashes := []string{}
+	for _, ref := range refs {
+		if document, cached := cache.Load(sourceID, ref.Hash); cached {
+			documents[ref.ID] = document
+			continue
+		}
+		uncached = append(uncached, ref)
+		hashes = append(hashes, ref.Hash)
 	}
 	stored, err := store.Documents(ctx, sourceID, hashes)
 	if err != nil {
 		return nil, nil, err
 	}
-	documents := make(map[string]*SourceDocument, len(refs))
+	missing := []SourceReference{}
+	for _, ref := range uncached {
+		row, exists := stored[ref.Hash]
+		if !exists {
+			missing = append(missing, ref)
+			continue
+		}
+		document, err := deps.Catalog.DecodeDocument([]byte(row.Payload), ref)
+		if err != nil {
+			return nil, nil, err
+		}
+		cache.Store(sourceID, ref.Hash, document)
+		documents[ref.ID] = document
+	}
+	return documents, missing, nil
+}
+
+// LoadCatalogDocuments reads the documents of refs by model id: a document
+// already stored for the source is read by LoadStoredCatalogDocuments, the
+// others are downloaded from the catalog. Fresh are the downloaded documents.
+func LoadCatalogDocuments(ctx context.Context, deps Capabilities, store CatalogDocumentReader, cache CatalogDocumentCache, client CatalogDocumentClient, sourceID string, refs []SourceReference) (map[string]*SourceDocument, []CatalogDocument, error) {
+	documents, missing, err := LoadStoredCatalogDocuments(ctx, deps, store, cache, sourceID, refs)
+	if err != nil {
+		return nil, nil, err
+	}
 	fresh := []CatalogDocument{}
 	var mutex sync.Mutex
 	workers, workerCtx := errgroup.WithContext(ctx)
 	workers.SetLimit(5)
-	for _, ref := range refs {
+	for _, ref := range missing {
 		workers.Go(func() error {
-			if row, exists := stored[ref.Hash]; exists {
-				document, err := deps.Catalog.DecodeDocument([]byte(row.Payload), ref)
-				if err != nil {
-					return err
-				}
-				mutex.Lock()
-				documents[ref.ID] = document
-				mutex.Unlock()
-				return nil
-			}
 			raw, document, err := client.Document(workerCtx, ref)
 			if err != nil {
 				return err
