@@ -315,6 +315,7 @@ const SENSITIVE_FORM_FIELDS = [
   'disable_task_polling_sleep',
   'upstream_model_update_check_enabled',
   'upstream_model_update_auto_sync_enabled',
+  'upstream_model_update_catalog_sync_enabled',
   'upstream_model_update_ignored_models',
 ] satisfies (keyof ChannelFormValues)[]
 
@@ -4846,6 +4847,37 @@ export function ChannelMutateDrawer({
                                     </FormItem>
                                   )}
                                 />
+                                {currentType === 20 && (
+                                  <FormField
+                                    control={form.control}
+                                    name='upstream_model_update_catalog_sync_enabled'
+                                    render={({ field }) => (
+                                      <FormItem className='flex items-center justify-between px-4 py-3'>
+                                        <div className='space-y-0.5'>
+                                          <FormLabel>
+                                            {t(
+                                              'Use the GetAPI catalog as the model source'
+                                            )}
+                                          </FormLabel>
+                                          <FormDescription>
+                                            {t(
+                                              'Models to add and remove are taken from the GetAPI catalog instead of OpenRouter /v1/models. Requires PRICING_CATALOG_API_URL to be configured.'
+                                            )}
+                                          </FormDescription>
+                                        </div>
+                                        <FormControl>
+                                          <Switch
+                                            checked={field.value}
+                                            disabled={
+                                              !upstreamModelUpdateCheckEnabled
+                                            }
+                                            onCheckedChange={field.onChange}
+                                          />
+                                        </FormControl>
+                                      </FormItem>
+                                    )}
+                                  />
+                                )}
                               </div>
                               <FormField
                                 control={form.control}
