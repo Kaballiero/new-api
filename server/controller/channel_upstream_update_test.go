@@ -997,6 +997,48 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalRemovesMissingMappedTerminal(
 	require.Equal(t, "gpt-4o", persisted.Models)
 	require.Len(t, abilities, 1)
 	require.Equal(t, "gpt-4o", abilities[0].Model)
+	require.JSONEq(t, `{}`, persisted.GetModelMapping())
+
+	// The released name is offered again when the model returns under
+	// another vendor instead of being reported as a conflict.
+	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
+		return []string{"gpt-4o", "newvendor/claude-fable-5"}, nil
+	})
+	settings := channelstore.NewChannelPersistence().GetOtherSettings(persisted)
+	_, _, err = checkAndPersistChannelUpstreamModelUpdates(persisted, &settings, true, false, false)
+	require.NoError(t, err)
+	detected, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
+	detectedSettings := channelstore.NewChannelPersistence().GetOtherSettings(detected)
+	assert.Equal(t, []string{"newvendor/claude-fable-5"}, detectedSettings.UpstreamModelUpdateLastDetectedModels)
+	assert.Empty(t, detectedSettings.UpstreamModelUpdateLastConflictModels)
+}
+
+// A kept model that resolves through the removed model's mapping entry keeps
+// that entry.
+func TestApplyChannelUpstreamModelUpdates_RemovalKeepsMappingOfKeptChain(t *testing.T) {
+	db := setupChannelUpstreamUpdateTestDB(t)
+	channel := createChannelUpstreamUpdateTestChannel(
+		t,
+		db,
+		"claude-fable,claude-fable-5",
+		map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"},
+		dto.ChannelOtherSettings{},
+	)
+	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
+		return []string{"gpt-4o"}, nil
+	})
+
+	_, removed, _, remainingRemove, changed, err := applyChannelUpstreamModelUpdates(channel, nil, nil, []string{"claude-fable-5"})
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	assert.Equal(t, []string{"claude-fable-5"}, removed)
+	assert.Equal(t, []string{"claude-fable"}, remainingRemove)
+	persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
+	assert.Equal(t, "claude-fable", persisted.Models)
+	persistedMapping := map[string]string{}
+	require.NoError(t, common.UnmarshalJsonStr(persisted.GetModelMapping(), &persistedMapping))
+	assert.Equal(t, map[string]string{"claude-fable": "claude-fable-5", "claude-fable-5": "anthropic/claude-fable-5"}, persistedMapping)
 }
 
 func TestApplyChannelUpstreamModelUpdates_MalformedSettingsDoNotWrite(t *testing.T) {
