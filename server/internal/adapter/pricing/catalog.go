@@ -36,6 +36,42 @@ func (cache *UpstreamCatalogModelsCache) Store(revision string, models channeldo
 	cache.revision, cache.models = revision, models
 }
 
+// UpstreamCatalogDocumentsCache keeps the decoded stored documents of the
+// upstream catalog in the process by hash.
+type UpstreamCatalogDocumentsCache struct {
+	mutex     sync.Mutex
+	documents map[string]*domain.SourceDocument
+}
+
+func (cache *UpstreamCatalogDocumentsCache) Load(hash string) (*domain.SourceDocument, bool) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+	document, cached := cache.documents[hash]
+	return document, cached
+}
+func (cache *UpstreamCatalogDocumentsCache) Store(hash string, document *domain.SourceDocument) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+	if cache.documents == nil {
+		cache.documents = make(map[string]*domain.SourceDocument)
+	}
+	cache.documents[hash] = document
+}
+
+// Retain releases the documents of all other hashes. The cache is rebuilt
+// rather than trimmed, because a Go map does not shrink.
+func (cache *UpstreamCatalogDocumentsCache) Retain(hashes []string) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+	retained := make(map[string]*domain.SourceDocument, len(hashes))
+	for _, hash := range hashes {
+		if document, cached := cache.documents[hash]; cached {
+			retained[hash] = document
+		}
+	}
+	cache.documents = retained
+}
+
 func (c CatalogClient) Manifest(ctx context.Context) (domain.SourceManifest, error) {
 	value, err := c.Client.Manifest(ctx)
 	return ToSourceManifest(value), err

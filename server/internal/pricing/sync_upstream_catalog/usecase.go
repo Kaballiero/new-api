@@ -2,7 +2,6 @@ package sync_upstream_catalog
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -30,12 +29,13 @@ type Client interface {
 type Usecase struct {
 	deps       domain.Capabilities
 	store      Store
+	documents  domain.CatalogDocumentCache
 	now        func() time.Time
 	invalidate func()
 }
 
-func NewUsecase(deps domain.Capabilities, store Store, now func() time.Time, invalidate func()) Usecase {
-	return Usecase{deps: deps, store: store, now: now, invalidate: invalidate}
+func NewUsecase(deps domain.Capabilities, store Store, documents domain.CatalogDocumentCache, now func() time.Time, invalidate func()) Usecase {
+	return Usecase{deps: deps, store: store, documents: documents, now: now, invalidate: invalidate}
 }
 
 // SyncUpstreamCatalog acquires one immutable remote manifest and its requested
@@ -71,7 +71,7 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 		for _, ref := range pending {
 			selected[ref.ID] = ref
 		}
-		loaded, downloaded, err := domain.LoadCatalogDocuments(ctx, u.deps, u.store, client, source.ID, pending)
+		loaded, downloaded, err := domain.LoadCatalogDocuments(ctx, u.deps, u.store, u.documents, client, source.ID, pending)
 		if err != nil {
 			return result, err
 		}
@@ -107,6 +107,11 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	publication, err := u.publishSelection(ctx, current, selection, manifest.Revision, manifest.FetchedAt, fresh)
 	if err != nil {
 		return result, err
+	}
+	// The published documents are stored now; the next readers take them
+	// decoded instead of decoding them from the database again.
+	for _, doc := range fresh {
+		u.documents.Store(doc.Hash, decoded[doc.ModelID])
 	}
 	result.ImportedModels = len(requested) - len(result.MissingModels)
 	result.Publication = publication
@@ -164,15 +169,13 @@ func (u Usecase) publishSelection(ctx context.Context, expected domain.CatalogSo
 	revision := domain.CatalogHash(payload)
 	candidates := make(map[string]domain.CatalogDocument, len(documents))
 	for _, doc := range documents {
-		if doc.SourceID != expected.ID || byHash[doc.Hash] != doc.ModelID || doc.ModelID == "" || domain.CatalogHash([]byte(doc.Payload)) != doc.Hash || !utf8.ValidString(doc.Payload) {
+		// The catalog client verified the hash and the JSON shape of each
+		// downloaded document, so its payload is not hashed or parsed again.
+		if doc.SourceID != expected.ID || byHash[doc.Hash] != doc.ModelID || doc.ModelID == "" || !utf8.ValidString(doc.Payload) {
 			return result, fmt.Errorf("catalog document identity or integrity mismatch")
 		}
 		if _, exists := candidates[doc.Hash]; exists {
 			return result, fmt.Errorf("duplicate catalog document")
-		}
-		var raw json.RawMessage
-		if u.deps.Codec.GetJsonType([]byte(doc.Payload)) != "object" || u.deps.Codec.UnmarshalJsonStr(doc.Payload, &raw) != nil {
-			return result, fmt.Errorf("catalog document must be a valid JSON object")
 		}
 		candidates[doc.Hash] = doc
 	}

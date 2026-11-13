@@ -96,14 +96,14 @@ func newClient(revision string, models ...catalogModel) *fakeClient {
 	return client
 }
 
-func newUsecase(store fakeStore, cache Cache, client *fakeClient, stored ...catalogModel) Usecase {
+func newUsecase(store fakeStore, documents domain.CatalogDocumentCache, cache Cache, client *fakeClient, stored ...catalogModel) Usecase {
 	deps := pricingadapter.Capabilities()
 	catalog := fakeCatalog{CatalogReader: deps.Catalog, documents: map[string]*domain.SourceDocument{}}
 	for _, model := range stored {
 		catalog.documents[model.index.ID] = model.document
 	}
 	deps.Catalog = catalog
-	return NewUsecase(deps, domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps}), store, cache, func() (domain.CatalogSource, bool, error) {
+	return NewUsecase(deps, domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps}), store, documents, cache, func() (domain.CatalogSource, bool, error) {
 		return domain.CatalogSource{ID: strings.Repeat("a", 64)}, true, nil
 	}, func(domain.CatalogSource) (Client, error) { return client, nil })
 }
@@ -129,7 +129,7 @@ func TestExecuteSelectsAddableModels(t *testing.T) {
 	store := fakeStore{imported.index.Hash: {Hash: imported.index.Hash, ModelID: imported.index.ID, Payload: "stored"}}
 	delete(client.documents, imported.index.ID)
 
-	models, err := newUsecase(store, &pricingadapter.UpstreamCatalogModelsCache{}, client, imported).Execute(context.Background())
+	models, err := newUsecase(store, &pricingadapter.UpstreamCatalogDocumentsCache{}, &pricingadapter.UpstreamCatalogModelsCache{}, client, imported).Execute(context.Background())
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"acme/latest", "acme/chat:batch", "acme/chat:free", "acme/chat", "acme/imported", "acme/ineligible", "acme/request-dependent", "acme/responses-only", "acme/unknown-endpoints", "acme/voice"}, models.Listed)
@@ -157,7 +157,7 @@ func TestExecuteRequiresOneRevision(t *testing.T) {
 				client.manifests = append(client.manifests, manifest)
 			}
 
-			models, err := newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogModelsCache{}, client).Execute(context.Background())
+			models, err := newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, &pricingadapter.UpstreamCatalogModelsCache{}, client).Execute(context.Background())
 			if tc.err != "" {
 				require.EqualError(t, err, tc.err)
 				assert.Equal(t, 2, client.manifestReads)
@@ -175,12 +175,12 @@ func TestExecuteFailsWithoutCatalog(t *testing.T) {
 	projection := domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps})
 	connect := func(domain.CatalogSource) (Client, error) { return nil, errors.New("unexpected connection") }
 
-	_, err := NewUsecase(deps, projection, fakeStore{}, &pricingadapter.UpstreamCatalogModelsCache{}, func() (domain.CatalogSource, bool, error) { return domain.CatalogSource{}, false, nil }, connect).Execute(context.Background())
+	_, err := NewUsecase(deps, projection, fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, &pricingadapter.UpstreamCatalogModelsCache{}, func() (domain.CatalogSource, bool, error) { return domain.CatalogSource{}, false, nil }, connect).Execute(context.Background())
 	require.EqualError(t, err, "upstream catalog source is not configured")
 
 	client := newClient(strings.Repeat("1", 64), textModel("acme/chat", []string{chatPath}, nil))
 	client.index.Models[0].Hash = strings.Repeat("2", 64)
-	_, err = newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogModelsCache{}, client).Execute(context.Background())
+	_, err = newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, &pricingadapter.UpstreamCatalogModelsCache{}, client).Execute(context.Background())
 	require.EqualError(t, err, "upstream catalog index does not match manifest")
 }
 
@@ -188,18 +188,42 @@ func TestExecuteReusesModelsOfSameRevision(t *testing.T) {
 	model := textModel("acme/chat", []string{chatPath}, &domain.SourceEligibility{Eligible: true})
 	cache := &pricingadapter.UpstreamCatalogModelsCache{}
 	first := newClient(strings.Repeat("1", 64), model)
-	firstModels, err := newUsecase(fakeStore{}, cache, first).Execute(context.Background())
+	firstModels, err := newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, cache, first).Execute(context.Background())
 	require.NoError(t, err)
 
 	second := newClient(strings.Repeat("1", 64), model)
-	secondModels, err := newUsecase(fakeStore{}, cache, second).Execute(context.Background())
+	secondModels, err := newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, cache, second).Execute(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, firstModels, secondModels)
 	assert.Equal(t, channeldomain.UpstreamModels{Listed: []string{"acme/chat"}, Addable: []string{"acme/chat"}, Shortcuts: []string{":nitro", ":floor"}}, secondModels)
 	assert.Empty(t, second.downloaded)
 
 	republished := newClient(strings.Repeat("2", 64), model)
-	_, err = newUsecase(fakeStore{}, cache, republished).Execute(context.Background())
+	_, err = newUsecase(fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, cache, republished).Execute(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, []string{"acme/chat"}, republished.downloaded)
+}
+
+func TestExecuteReusesDecodedStoredDocuments(t *testing.T) {
+	eligible := &domain.SourceEligibility{Eligible: true}
+	imported := textModel("acme/imported", []string{chatPath}, eligible)
+	fresh := textModel("acme/chat", []string{chatPath}, eligible)
+	documents := &pricingadapter.UpstreamCatalogDocumentsCache{}
+	// The second revision reads no stored document: a document decoded from
+	// the database before is shared, a downloaded one is not kept.
+	for _, tc := range []struct {
+		revision string
+		store    fakeStore
+	}{
+		{revision: "1", store: fakeStore{imported.index.Hash: {Hash: imported.index.Hash, ModelID: imported.index.ID, Payload: "stored"}}},
+		{revision: "2", store: fakeStore{}},
+	} {
+		client := newClient(strings.Repeat(tc.revision, 64), fresh, imported)
+		delete(client.documents, imported.index.ID)
+
+		models, err := newUsecase(tc.store, documents, &pricingadapter.UpstreamCatalogModelsCache{}, client, imported).Execute(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"acme/chat", "acme/imported"}, models.Addable)
+		assert.Equal(t, []string{"acme/chat"}, client.downloaded)
+	}
 }
