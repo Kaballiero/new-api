@@ -88,8 +88,10 @@ export function ChannelsDialogs() {
         onOpenChange={(v) => !v && setOpen(null)}
       />
 
-      {/* Upstream Model Update Dialog */}
+      {/* Upstream Model Update Dialog, remounted per channel so its tab and
+          selections start from the updates it opens with */}
       <UpstreamUpdateDialog
+        key={upstream.channel?.id ?? 'closed'}
         open={upstream.showModal}
         addModels={upstream.addModels}
         removeModels={upstream.removeModels}

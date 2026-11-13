@@ -37,7 +37,11 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAddSamples, report.AddModelSamples)
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemoveSamples, report.RemoveModelSamples)
-	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, report.ConflictModelSamples)
+	conflictSamples := make([]string, len(report.ConflictModels))
+	for i, conflict := range report.ConflictModels {
+		conflictSamples[i] = fmt.Sprintf("%s (%s)", conflict.Model, conflict.ChannelName)
+	}
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, conflictSamples)
 
 	if failedChannels > 0 {
 		displayCount := min(failedChannels, 10)

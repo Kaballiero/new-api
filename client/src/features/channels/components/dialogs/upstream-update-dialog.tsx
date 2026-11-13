@@ -29,12 +29,14 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+import type { UpstreamUpdateTab } from '../../types'
+
 interface UpstreamUpdateDialogProps {
   open: boolean
   addModels: string[]
   removeModels: string[]
   conflictModels: string[]
-  preferredTab: 'add' | 'remove' | 'needs-decision'
+  preferredTab: UpstreamUpdateTab
   confirmLoading: boolean
   onConfirm: (data: { addModels: string[]; removeModels: string[] }) => void
   onCancel: () => void
@@ -148,9 +150,7 @@ export function UpstreamUpdateDialog(props: UpstreamUpdateDialogProps) {
         </p>
         <Tabs
           value={activeTab}
-          onValueChange={(v) =>
-            setActiveTab(v as 'add' | 'remove' | 'needs-decision')
-          }
+          onValueChange={(v) => setActiveTab(v as UpstreamUpdateTab)}
         >
           <TabsList className='grid w-full grid-cols-3'>
             <TabsTrigger value='add' className='gap-1'>

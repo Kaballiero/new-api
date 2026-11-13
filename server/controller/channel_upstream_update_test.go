@@ -1482,34 +1482,59 @@ func TestScheduledUpstreamModelUpdateMalformedSettingsDoNotOverwritePartialRow(t
 	require.Equal(t, "gpt-4o", persisted.Models)
 }
 
+// The report lists each conflict with its channel. Conflicts need a decision,
+// so a scan that found only conflicts still sends a report.
 func TestScheduledUpstreamModelUpdateSendsReportToTelegramGateway(t *testing.T) {
-	db := setupChannelUpstreamUpdateTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.User{}))
-	require.NoError(t, i18n.Init())
-	createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
-	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
-		return []string{"gpt-4o", "gpt-4.1", "acme/gpt-4o"}, nil
-	})
-	preserveChannelUpstreamModelNotifyState(t)
-	var requests []string
-	var payload map[string]string
-	gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		requests = append(requests, r.Method+" "+r.URL.Path)
-		assert.NoError(t, common.DecodeJson(r.Body, &payload))
-	}))
-	defer gateway.Close()
-	t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
-	t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
+	tests := []struct {
+		name           string
+		upstreamModels []string
+		changed        int
+		report         string
+	}{
+		{
+			name:           "changes and conflicts",
+			upstreamModels: []string{"gpt-4o", "gpt-4.1", "acme/gpt-4o"},
+			changed:        1,
+			report: "Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 0 auto-synced additions, 0 failed." +
+				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)" +
+				"\n\nAdded model samples (showing 1/1): gpt-4.1" +
+				"\n\nNeeds decision — name already used by a model with another target (showing 1/1): acme/gpt-4o (upstream-sync-test)",
+		},
+		{
+			name:           "only conflicts",
+			upstreamModels: []string{"gpt-4o", "acme/gpt-4o"},
+			changed:        0,
+			report: "Upstream model check summary: checked 1 channels, 0 changed, 0 added, 0 removed, 0 auto-synced additions, 0 failed." +
+				"\n\nNeeds decision — name already used by a model with another target (showing 1/1): acme/gpt-4o (upstream-sync-test)",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupChannelUpstreamUpdateTestDB(t)
+			require.NoError(t, db.AutoMigrate(&model.User{}))
+			require.NoError(t, i18n.Init())
+			createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
+			stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
+				return tc.upstreamModels, nil
+			})
+			preserveChannelUpstreamModelNotifyState(t)
+			var requests []string
+			var payload map[string]string
+			gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r.Method+" "+r.URL.Path)
+				assert.NoError(t, common.DecodeJson(r.Body, &payload))
+			}))
+			defer gateway.Close()
+			t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
+			t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
 
-	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
+			summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
-	require.Equal(t, 1, summary.ChangedChannels)
-	require.Equal(t, []string{"POST /send"}, requests)
-	assert.Equal(t, map[string]string{"text": "Upstream model check notification\n\n" +
-		"Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 0 auto-synced additions, 0 failed." +
-		"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)" +
-		"\n\nAdded model samples (showing 1/1): gpt-4.1" +
-		"\n\nNeeds decision — name already used by a model with another target (showing 1/1): acme/gpt-4o"}, payload)
+			require.Equal(t, tc.changed, summary.ChangedChannels)
+			require.Equal(t, []string{"POST /send"}, requests)
+			assert.Equal(t, map[string]string{"text": "Upstream model check notification\n\n" + tc.report}, payload)
+		})
+	}
 }
 
 func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t *testing.T) {

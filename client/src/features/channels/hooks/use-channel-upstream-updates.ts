@@ -24,6 +24,7 @@ import { api, type ApiRequestConfig } from '@/lib/api'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { normalizeModelList } from '../lib/upstream-update-utils'
+import type { UpstreamUpdateTab } from '../types'
 
 const upstreamUpdateRequestConfig = {
   skipBusinessError: true,
@@ -58,9 +59,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
   const [addModels, setAddModels] = useState<string[]>([])
   const [removeModels, setRemoveModels] = useState<string[]>([])
   const [conflictModels, setConflictModels] = useState<string[]>([])
-  const [preferredTab, setPreferredTab] = useState<
-    'add' | 'remove' | 'needs-decision'
-  >('add')
+  const [preferredTab, setPreferredTab] = useState<UpstreamUpdateTab>('add')
   const [applyLoading, setApplyLoading] = useState(false)
   const [detectAllLoading, setDetectAllLoading] = useState(false)
   const [applyAllLoading, setApplyAllLoading] = useState(false)
@@ -76,7 +75,7 @@ export function useChannelUpstreamUpdates(refresh: () => Promise<void>) {
       pendingAdd: string[] = [],
       pendingRemove: string[] = [],
       conflicts: string[] = [],
-      tab: 'add' | 'remove' | 'needs-decision' = 'add'
+      tab: UpstreamUpdateTab = 'add'
     ) => {
       const normAdd = normalizeModelList(pendingAdd)
       const normRemove = normalizeModelList(pendingRemove)

@@ -3527,6 +3527,12 @@
           "channel_name": {
             "type": "string"
           },
+          "conflict_models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "last_check_time": {
             "type": "integer"
           },
