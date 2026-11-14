@@ -500,6 +500,10 @@ const (
 const (
 	MsgBillingWalletInsufficient       = "billing.wallet_insufficient"
 	MsgBillingWalletBelowReserve       = "billing.wallet_below_reserve"
+	MsgBillingWalletReserveShortfall   = "billing.wallet_reserve_shortfall"
+	MsgBillingWalletOutputCapShortfall = "billing.wallet_output_cap_shortfall"
+	MsgBillingTokenReserveShortfall    = "billing.token_reserve_shortfall"
+	MsgBillingTokenOutputCapShortfall  = "billing.token_output_cap_shortfall"
 	MsgBillingSubscriptionInsufficient = "billing.subscription_insufficient"
 	MsgBillingQuotaNegative            = "billing.quota_negative"
 	MsgBillingWalletWarning            = "billing.wallet_warning"

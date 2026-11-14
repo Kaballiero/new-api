@@ -2,9 +2,12 @@ package common
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+
+	"github.com/shopspring/decimal"
 )
 
 type OpenRouterCostBasis = common.OpenRouterCostBasis
@@ -47,6 +50,47 @@ type OpenRouterCostState struct {
 	ConfiguredReserveUSD          *float64
 	ConfiguredReserveModel        string
 	ConfiguredReserveExprHash     string
+	// OutputReserve is set for a text reserve priced from endpoint tariffs.
+	OutputReserve *OpenRouterOutputReserve
+}
+
+// OpenRouterOutputReserve bounds a text reserve over its eligible endpoints:
+// an output limit M costs at most InputUSD + OutputPriceUSD*M, plus the
+// prompt tokens its LimitField adds at PromptPriceUSD.
+type OpenRouterOutputReserve struct {
+	// ExplicitLimit records that the client sent an output limit. Without it
+	// the reserve covers the default output cap.
+	ExplicitLimit bool
+	// LimitField is the protocol field that carries the client's output limit.
+	LimitField string
+	// OutputTokens is the largest output cap the reserve covers.
+	OutputTokens int
+	// InputUSD is the largest cost apart from output.
+	InputUSD decimal.Decimal
+	// PromptPriceUSD is the largest price of one prompt token.
+	PromptPriceUSD decimal.Decimal
+	// OutputPriceUSD is the largest price of one output token for all responses.
+	OutputPriceUSD decimal.Decimal
+}
+
+// AffordableMaxTokens is the largest output limit whose reserve fits the
+// available quota under basis, or zero when none does.
+func (r OpenRouterOutputReserve) AffordableMaxTokens(basis OpenRouterCostBasis, available int) int {
+	quotaPerUSD := decimal.NewFromFloat(basis.EffectiveGroupRatio).Mul(decimal.NewFromFloat(basis.QuotaPerUnit))
+	outputQuota := r.OutputPriceUSD.Mul(quotaPerUSD)
+	if !outputQuota.IsPositive() {
+		return 0
+	}
+	// The limit enters the counted prompt as `,"field":digits`; a text token
+	// is at least one byte, so its byte length bounds the added tokens. The
+	// suggested limit never has more digits than OutputTokens.
+	limitPromptTokens := len(`,"":`) + len(r.LimitField) + len(strconv.Itoa(r.OutputTokens))
+	fixedUSD := r.InputUSD.Add(r.PromptPriceUSD.Mul(decimal.NewFromInt(int64(limitPromptTokens))))
+	tokens, _ := decimal.NewFromInt(int64(available)).Sub(fixedUSD.Mul(quotaPerUSD)).QuoRem(outputQuota, 0)
+	if !tokens.IsPositive() {
+		return 0
+	}
+	return common.QuotaFromDecimal(tokens)
 }
 
 func NewOpenRouterCostBasis(info *RelayInfo, estimatedUSD float64) common.OpenRouterCostBasis {

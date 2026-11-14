@@ -8,6 +8,7 @@ import (
 
 type Store interface {
 	domain.TokenReserver
+	WalletBalance(int) (int, error)
 	ReserveWallet(int, int) (bool, error)
 	DebitWallet(int, int) error
 	CreditWallet(int, int) error
@@ -45,7 +46,11 @@ func (u Usecase) Execute(input Input) error {
 				return &domain.Failure{Kind: domain.UpdateFailed, Cause: err}
 			}
 			if !reserved {
-				return &domain.Failure{Kind: domain.WalletReserveRejected}
+				balance, err := u.store.WalletBalance(r.Account.UserID)
+				if err != nil {
+					balance = 0
+				}
+				return &domain.Failure{Kind: domain.WalletReserveRejected, Remaining: balance, Required: delta}
 			}
 		} else if err := u.store.DebitWallet(r.Account.UserID, delta); err != nil {
 			return &domain.Failure{Kind: domain.UpdateFailed, Cause: err}

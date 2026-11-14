@@ -22,6 +22,7 @@ import (
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -100,7 +101,7 @@ func TestBillingErrorLocales(t *testing.T) {
 			{"subscription", i18n.MsgBillingSubscriptionInsufficient, "Insufficient subscription quota or no subscription configured: no active subscription", "Недостаточно квоты подписки или подписка не настроена: no active subscription", &domain.Failure{Kind: domain.SubscriptionUnavailable, Cause: errors.New("no active subscription")}},
 		} {
 			t.Run(language+"/"+tc.name, func(t *testing.T) {
-				err := mapError(language, tc.failure)
+				err := mapError(language, tc.failure, nil, relaycommon.OpenRouterCostBasis{}, 0)
 				assert.Equal(t, 403, err.StatusCode)
 				assert.Equal(t, types.ErrorCodeInsufficientUserQuota, err.GetErrorCode())
 				assert.True(t, types.IsSkipRetryError(err))
@@ -113,6 +114,110 @@ func TestBillingErrorLocales(t *testing.T) {
 				translated := i18n.Translate(language, tc.key, map[string]any{"Remaining": "5", "Required": "10", "Reason": "no active subscription"})
 				assert.NotEqual(t, tc.key, translated)
 				assert.Equal(t, translated, err.Error())
+			})
+		}
+	}
+}
+
+// An OpenRouter text reserve the funds do not cover explains itself, on the
+// first reservation and on a top-up of a held one; without a client output
+// limit it suggests the limit field and a value whose reserve fits.
+func TestOpenRouterReserveShortfallMessages(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	previous := operation_setting.GetGeneralSetting().QuotaDisplayType
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
+	t.Cleanup(func() { operation_setting.GetGeneralSetting().QuotaDisplayType = previous })
+	// One USD is 1e6 quota: input costs 100, one prompt token 1, one output
+	// token 0.2. The limit field `,"max_tokens":8192` adds at most 18 prompt
+	// tokens, so 1000 available affords (1000-100-18)/0.2 = 4410 output tokens.
+	textReserve := func(field string, explicit bool, input string) *relaycommon.OpenRouterOutputReserve {
+		return &relaycommon.OpenRouterOutputReserve{ExplicitLimit: explicit, LimitField: field, OutputTokens: 8192,
+			InputUSD: decimal.RequireFromString(input), PromptPriceUSD: decimal.RequireFromString("0.000001"), OutputPriceUSD: decimal.RequireFromString("0.0000002")}
+	}
+	type ledger interface {
+		create_reservation.Store
+		increase_reservation.Store
+	}
+	for _, tc := range []struct {
+		name    string
+		reserve *relaycommon.OpenRouterOutputReserve
+		store   ledger
+		held    int
+		quota   int
+		code    types.ErrorCode
+		en, ru  string
+	}{
+		{"wallet without limit", textReserve("max_tokens", false, "0.0001"), &admissionStore{balance: 1000}, 0, 1738, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the reserve covers an answer of up to 8192 tokens (1738), the balance is 1000. Set max_tokens to 4410 or less, top up the balance, or choose another model",
+			"Недостаточно средств: резерв рассчитан на ответ до 8192 токенов (1738), баланс 1000. Укажите max_tokens не больше 4410, пополните баланс или выберите другую модель"},
+		{"Responses names its limit field", textReserve("max_output_tokens", false, "0.0001"), &admissionStore{balance: 1000}, 0, 1738, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the reserve covers an answer of up to 8192 tokens (1738), the balance is 1000. Set max_output_tokens to 4375 or less, top up the balance, or choose another model",
+			"Недостаточно средств: резерв рассчитан на ответ до 8192 токенов (1738), баланс 1000. Укажите max_output_tokens не больше 4375, пополните баланс или выберите другую модель"},
+		{"Gemini names its limit field", textReserve("generationConfig.maxOutputTokens", false, "0.0001"), &admissionStore{balance: 1000}, 0, 1738, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the reserve covers an answer of up to 8192 tokens (1738), the balance is 1000. Set generationConfig.maxOutputTokens to 4300 or less, top up the balance, or choose another model",
+			"Недостаточно средств: резерв рассчитан на ответ до 8192 токенов (1738), баланс 1000. Укажите generationConfig.maxOutputTokens не больше 4300, пополните баланс или выберите другую модель"},
+		{"wallet with limit", textReserve("max_tokens", true, "0.0001"), &admissionStore{balance: 1000}, 0, 4100, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the request needs 4100, the balance is 1000",
+			"Недостаточно средств: для запроса нужно 4100, баланс 1000"},
+		{"wallet below input cost", textReserve("max_tokens", false, "0.002"), &admissionStore{balance: 1000}, 0, 3638, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the request needs 3638, the balance is 1000",
+			"Недостаточно средств: для запроса нужно 3638, баланс 1000"},
+		{"wallet non-text reserve", nil, &admissionStore{balance: 1000}, 0, 1738, types.ErrorCodeInsufficientUserQuota,
+			"Failed to reserve quota, remaining user quota: 1000, required quota: 1738",
+			"Не удалось зарезервировать квоту, осталось у пользователя: 1000, требуется: 1738"},
+		{"token without limit", textReserve("max_tokens", false, "0.0001"), &tokenRejectingStore{admissionStore{balance: 100000}}, 0, 1738, types.ErrorCodePreConsumeTokenQuotaFailed,
+			"Insufficient token quota: the reserve covers an answer of up to 8192 tokens (1738), the token has 1000 left. Set max_tokens to 4410 or less, raise the token quota, or choose another model",
+			"Недостаточно квоты токена: резерв рассчитан на ответ до 8192 токенов (1738), у токена осталось 1000. Укажите max_tokens не больше 4410, увеличьте квоту токена или выберите другую модель"},
+		{"token with limit", textReserve("max_tokens", true, "0.0001"), &tokenRejectingStore{admissionStore{balance: 100000}}, 0, 4100, types.ErrorCodePreConsumeTokenQuotaFailed,
+			"Insufficient token quota: the request needs 4100, the token has 1000 left",
+			"Недостаточно квоты токена: для запроса нужно 4100, у токена осталось 1000"},
+		{"token non-text reserve", nil, &tokenRejectingStore{admissionStore{balance: 100000}}, 0, 1738, types.ErrorCodePreConsumeTokenQuotaFailed,
+			"token quota is not enough, token remain quota: 1000, need quota: 1738",
+			"token quota is not enough, token remain quota: 1000, need quota: 1738"},
+		// A top-up counts the 300 already held: 700 left in the wallet is 1000
+		// available for the whole 1738 reserve.
+		{"wallet top-up without limit", textReserve("max_tokens", false, "0.0001"), &walletRejectingStore{admissionStore{balance: 700}}, 300, 1738, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the reserve covers an answer of up to 8192 tokens (1738), the balance is 1000. Set max_tokens to 4410 or less, top up the balance, or choose another model",
+			"Недостаточно средств: резерв рассчитан на ответ до 8192 токенов (1738), баланс 1000. Укажите max_tokens не больше 4410, пополните баланс или выберите другую модель"},
+		{"wallet top-up non-text reserve", nil, &walletRejectingStore{admissionStore{balance: 700}}, 300, 1738, types.ErrorCodeInsufficientUserQuota,
+			"wallet quota insufficient",
+			"wallet quota insufficient"},
+		// 1000 left on the token plus the 300 held: (1300-118)/0.2 = 5910.
+		{"token top-up without limit", textReserve("max_tokens", false, "0.0001"), &tokenRejectingStore{admissionStore{balance: 100000}}, 300, 1738, types.ErrorCodePreConsumeTokenQuotaFailed,
+			"Insufficient token quota: the reserve covers an answer of up to 8192 tokens (1738), the token has 1300 left. Set max_tokens to 5910 or less, raise the token quota, or choose another model",
+			"Недостаточно квоты токена: резерв рассчитан на ответ до 8192 токенов (1738), у токена осталось 1300. Укажите max_tokens не больше 5910, увеличьте квоту токена или выберите другую модель"},
+	} {
+		for _, language := range []string{"en", "ru"} {
+			t.Run(tc.name+"/"+language, func(t *testing.T) {
+				g := &Gateway{}
+				g.usecases.Create = create_reservation.NewUsecase(tc.store, func() int { return 0 }, quiet)
+				g.usecases.Increase = increase_reservation.NewUsecase(tc.store, quiet)
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+				c.Request.Header.Set("Accept-Language", language)
+				info := &relaycommon.RelayInfo{OpenRouterCost: &relaycommon.OpenRouterCostState{
+					Basis:         common.OpenRouterCostBasis{EffectiveGroupRatio: 2, QuotaPerUnit: 500000},
+					OutputReserve: tc.reserve,
+				}}
+				info.UserSetting.BillingPreference = "wallet_only"
+
+				var err *types.NewAPIError
+				if tc.held == 0 {
+					err = g.PreConsume(c, tc.quota, info)
+				} else {
+					session := &Session{gateway: g, info: info, language: func() string { return language },
+						reservation: &domain.Reservation{Source: domain.Wallet, PreConsumed: tc.held, WalletConsumed: tc.held, TokenConsumed: tc.held}}
+					require.ErrorAs(t, session.Reserve(tc.quota), &err)
+				}
+
+				require.NotNil(t, err)
+				assert.Equal(t, 403, err.StatusCode)
+				assert.Equal(t, tc.code, err.GetErrorCode())
+				want := tc.en
+				if language == "ru" {
+					want = tc.ru
+				}
+				assert.Equal(t, want, err.Error())
 			})
 		}
 	}
@@ -161,6 +266,16 @@ func (*admissionStore) ReserveSubscription(_ string, _ int, _ string, amount int
 func (f *admissionStore) DebitWallet(int, int) error          { return f.increaseErr }
 func (*admissionStore) CreditWallet(int, int) error           { return nil }
 func (f *admissionStore) AdjustSubscription(int, int64) error { return f.increaseErr }
+
+// tokenRejectingStore holds funds but rejects the token reserve.
+type tokenRejectingStore struct{ admissionStore }
+
+func (*tokenRejectingStore) ReserveToken(domain.Account, int) (bool, error) { return false, nil }
+
+// walletRejectingStore rejects an additional wallet reserve.
+type walletRejectingStore struct{ admissionStore }
+
+func (*walletRejectingStore) ReserveWallet(int, int) (bool, error) { return false, nil }
 
 func TestPreConsumeWithoutRequest(t *testing.T) {
 	require.NoError(t, i18n.Init())

@@ -89,7 +89,8 @@ func (g *Gateway) PreConsume(c *gin.Context, quota int, info *relaycommon.RelayI
 	r, err := g.usecases.Create.Execute(create_reservation.Input{Account: account(info), RequestID: info.RequestId, ModelName: info.GetBillingModelName(), Preference: info.UserSetting.BillingPreference, Quota: quota, UserQuota: info.UserQuota, TokenQuota: tokenQuota, Force: info.ForcePreConsume})
 	info.UserQuota = r.UserQuota
 	if err != nil {
-		return mapError(captureErrorLanguage(c)(), err)
+		reserve, basis := openRouterTextReserve(info)
+		return mapError(captureErrorLanguage(c)(), err, reserve, basis, 0)
 	}
 	session := &Session{gateway: g, info: info, reservation: r, language: captureErrorLanguage(c)}
 	session.syncRelayInfo()
@@ -129,7 +130,8 @@ func (s *Session) Reserve(target int) error {
 	previous := s.reservation.PreConsumed
 	err := s.gateway.usecases.Increase.Execute(increase_reservation.Input{Reservation: s.reservation, Target: target, AtomicWallet: s.info.OpenRouterCost != nil})
 	if err != nil {
-		return mapError(s.language(), err)
+		reserve, basis := openRouterTextReserve(s.info)
+		return mapError(s.language(), err, reserve, basis, previous)
 	}
 	if s.reservation.PreConsumed != previous {
 		s.syncRelayInfo()
@@ -242,7 +244,19 @@ func (g *Gateway) NotifyQuota(info *relaycommon.RelayInfo, delta, preConsumed in
 	}})
 }
 
-func mapError(language string, err error) *types.NewAPIError {
+// openRouterTextReserve returns the OpenRouter text reserve of the request and
+// the basis that converts it to quota; the reserve is nil for other requests.
+func openRouterTextReserve(info *relaycommon.RelayInfo) (*relaycommon.OpenRouterOutputReserve, relaycommon.OpenRouterCostBasis) {
+	if info.OpenRouterCost == nil {
+		return nil, relaycommon.OpenRouterCostBasis{}
+	}
+	return info.OpenRouterCost.OutputReserve, info.OpenRouterCost.Basis
+}
+
+// reserve is the OpenRouter text reserve, nil for other requests. held is the
+// quota the reservation already holds; a text reserve shortfall counts it in
+// both the available and the required quota.
+func mapError(language string, err error, reserve *relaycommon.OpenRouterOutputReserve, basis relaycommon.OpenRouterCostBasis, held int) *types.NewAPIError {
 	var failure *domain.Failure
 	if !errors.As(err, &failure) {
 		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
@@ -257,9 +271,17 @@ func mapError(language string, err error) *types.NewAPIError {
 	case domain.WalletEmpty:
 		return types.NewErrorWithStatusCode(errors.New(i18n.Translate(language, i18n.MsgBillingWalletInsufficient, map[string]any{"Remaining": logger.FormatQuota(failure.Remaining)})), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, skip, noLog)
 	case domain.WalletBelowEstimate:
-		return types.NewErrorWithStatusCode(errors.New(i18n.Translate(language, i18n.MsgBillingWalletBelowReserve, map[string]any{"Remaining": logger.FormatQuota(failure.Remaining), "Required": logger.FormatQuota(failure.Required)})), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, skip, noLog)
+		message := i18n.Translate(language, i18n.MsgBillingWalletBelowReserve, map[string]any{"Remaining": logger.FormatQuota(failure.Remaining), "Required": logger.FormatQuota(failure.Required)})
+		if reserve != nil {
+			message = openRouterShortfallMessage(language, reserve, basis, failure.Remaining+held, failure.Required+held, i18n.MsgBillingWalletReserveShortfall, i18n.MsgBillingWalletOutputCapShortfall)
+		}
+		return types.NewErrorWithStatusCode(errors.New(message), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, skip, noLog)
 	case domain.WalletReserveRejected:
-		return types.NewErrorWithStatusCode(errors.New("wallet quota insufficient"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, skip)
+		message := "wallet quota insufficient"
+		if reserve != nil {
+			message = openRouterShortfallMessage(language, reserve, basis, failure.Remaining+held, failure.Required+held, i18n.MsgBillingWalletReserveShortfall, i18n.MsgBillingWalletOutputCapShortfall)
+		}
+		return types.NewErrorWithStatusCode(errors.New(message), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, skip)
 	case domain.SubscriptionUnavailable:
 		return types.NewErrorWithStatusCode(errors.New(i18n.Translate(language, i18n.MsgBillingSubscriptionInsufficient, map[string]any{"Reason": failure.Cause.Error()})), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, skip, noLog)
 	case domain.TokenReserveFailed:
@@ -268,6 +290,9 @@ func mapError(language string, err error) *types.NewAPIError {
 		if errors.As(cause, &tokenFailure) {
 			if tokenFailure.Kind == domain.TokenInsufficient {
 				cause = fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(tokenFailure.Remaining), logger.FormatQuota(tokenFailure.Required))
+				if reserve != nil {
+					cause = errors.New(openRouterShortfallMessage(language, reserve, basis, tokenFailure.Remaining+held, tokenFailure.Required+held, i18n.MsgBillingTokenReserveShortfall, i18n.MsgBillingTokenOutputCapShortfall))
+				}
 			} else if tokenFailure.Kind == domain.NegativeQuota {
 				cause = errors.New(i18n.Translate(language, i18n.MsgBillingQuotaNegative))
 			}
@@ -276,6 +301,22 @@ func mapError(language string, err error) *types.NewAPIError {
 	default:
 		return types.NewError(err, types.ErrorCodeUpdateDataError, skip)
 	}
+}
+
+// openRouterShortfallMessage explains an OpenRouter text reserve the available
+// quota does not cover. A reserve that covers the default output cap also
+// suggests the largest output limit the available quota affords.
+func openRouterShortfallMessage(language string, reserve *relaycommon.OpenRouterOutputReserve, basis relaycommon.OpenRouterCostBasis, available, required int, reserveKey, outputCapKey string) string {
+	args := map[string]any{"Remaining": logger.FormatQuota(available), "Required": logger.FormatQuota(required)}
+	maxTokens := 0
+	if !reserve.ExplicitLimit {
+		maxTokens = reserve.AffordableMaxTokens(basis, available)
+	}
+	if maxTokens == 0 {
+		return i18n.Translate(language, reserveKey, args)
+	}
+	args["OutputTokens"], args["MaxTokens"], args["Field"] = reserve.OutputTokens, maxTokens, reserve.LimitField
+	return i18n.Translate(language, outputCapKey, args)
 }
 
 func PreConsumeBilling(c *gin.Context, quota int, info *relaycommon.RelayInfo) *types.NewAPIError {
