@@ -567,6 +567,149 @@ func TestOpenRouterStreamRequiresTerminalCost(t *testing.T) {
 	}
 }
 
+// disconnectAfterContentWriter models a client that closes the connection
+// once the given content was flushed to it.
+type disconnectAfterContentWriter struct {
+	gin.ResponseWriter
+	content  string
+	cancel   context.CancelFunc
+	received bool
+}
+
+func (w *disconnectAfterContentWriter) Write(data []byte) (int, error) {
+	w.received = w.received || bytes.Contains(data, []byte(w.content))
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *disconnectAfterContentWriter) WriteString(data string) (int, error) {
+	return w.Write([]byte(data))
+}
+
+func (w *disconnectAfterContentWriter) Flush() {
+	w.ResponseWriter.Flush()
+	if w.received {
+		w.cancel()
+	}
+}
+
+func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
+	setStreamTestTimeout(t)
+	const metadata = `{"data":{"id":"vendor/provider-test","endpoints":[{"tag":"openai","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`
+	const chatBody = `{"model":"vendor/provider-test","messages":[{"role":"user","content":"OK"}],"max_tokens":8}`
+	chunk := func(delta string) string {
+		return `data: {"id":"gen-text-abort","object":"chat.completion.chunk","model":"vendor/provider-test","choices":[{"index":0,"delta":` + delta + `}]}` + "\n\n"
+	}
+	chatFrames := map[string]string{
+		"abort after content":  chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
+		"abort before content": chunk(`{"role":"assistant","content":""}`),
+		"completed": chunk(`{"role":"assistant","content":"partial"}`) +
+			`data: {"id":"gen-text-abort","object":"chat.completion.chunk","model":"vendor/provider-test","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"cost":0.004}}` + "\n\ndata: [DONE]\n\n",
+	}
+	responseEvent := func(event string) string { return "data: " + event + "\n\n" }
+	created := responseEvent(`{"type":"response.created","response":{"id":"gen-text-abort","object":"response","status":"in_progress","output":[]}}`)
+	delta := func(text string) string {
+		return responseEvent(`{"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"` + text + `"}`)
+	}
+	responsesFrames := map[string]string{
+		"abort after content":  created + delta("partial") + delta(" more"),
+		"abort before content": created,
+		"completed": created + delta("partial") +
+			responseEvent(`{"type":"response.completed","response":{"id":"gen-text-abort","object":"response","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5,"cost":0.004}}}`),
+	}
+	for _, format := range []struct {
+		name, path, body string
+		mode             int
+		relayFormat      types.RelayFormat
+		frames           map[string]string
+	}{
+		{"messages", "/v1/messages", chatBody, relayconstant.RelayModeUnknown, types.RelayFormatClaude, chatFrames},
+		{"gemini", "/v1beta/models/vendor/provider-test:streamGenerateContent", chatBody, relayconstant.RelayModeGemini, types.RelayFormatGemini, chatFrames},
+		{"responses", "/v1/responses", `{"model":"vendor/provider-test","input":"OK","max_output_tokens":8}`, relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses, responsesFrames},
+	} {
+		for _, tc := range []struct {
+			name string
+			// stream=false only checks that the nonstream contract is unchanged.
+			stream, disconnect bool
+			// deferred means the hold moved into a chat Task awaiting generation cost.
+			deferred bool
+			cost     float64
+		}{
+			{name: "nonstream keeps requiring terminal cost"},
+			{name: "abort after content", stream: true, disconnect: true, deferred: true},
+			{name: "abort before content", stream: true},
+			{name: "completed", stream: true, cost: .004},
+		} {
+			t.Run(format.name+"/"+tc.name, func(t *testing.T) {
+				c, recorder, _, info, billing := newOpenRouterChatTextRequest(t, "")
+				frames := format.frames[tc.name]
+				transport := &sonarAdmissionTransport{metadata: metadata, response: frames, responseHeaders: http.Header{"Content-Type": []string{"text/event-stream"}}}
+				client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+				require.NoError(t, err)
+				previous := client.Transport
+				client.Transport = transport
+				t.Cleanup(func() { client.Transport = previous })
+				ctx, cancel := context.WithCancel(context.Background())
+				t.Cleanup(cancel)
+				c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, format.path, strings.NewReader(format.body))
+				c.Request.Header.Set("Content-Type", "application/json")
+				t.Cleanup(func() { common.CleanupBodyStorage(c) })
+				info.OpenRouterCost = nil
+				info.RelayMode, info.RelayFormat, info.RequestURLPath = format.mode, format.relayFormat, format.path
+				info.IsStream, info.DisablePing = tc.stream, true
+				info.UpstreamModelName, info.OriginModelName = "vendor/provider-test", "vendor/provider-test"
+				info.PriceData.BillingGroupRatio = 1
+				switch format.relayFormat {
+				case types.RelayFormatClaude:
+					info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
+				case types.RelayFormatGemini:
+					info.Request = &dto.GeminiChatRequest{}
+				}
+
+				response, err := (&Adaptor{}).DoRequest(c, info, strings.NewReader(format.body))
+				require.NoError(t, err)
+				assert.Equal(t, tc.stream, info.OpenRouterCost.ChatText, "Messages, Gemini and Responses defer a missing cost only for streams")
+				if !tc.stream {
+					require.NoError(t, response.(*http.Response).Body.Close())
+					return
+				}
+				hold := billing.reserved
+				if tc.disconnect {
+					c.Writer = &disconnectAfterContentWriter{ResponseWriter: c.Writer, content: "partial", cancel: cancel}
+				}
+				usage, apiErr := (&Adaptor{}).DoResponse(c, response.(*http.Response), info)
+
+				assert.Equal(t, tc.deferred, relaycommon.HasOpenRouterSyncTask(info), "only a deferred Task keeps the hold; otherwise the controller refunds")
+				switch {
+				case tc.deferred:
+					assert.Contains(t, recorder.Body.String(), "partial")
+					assert.NotContains(t, recorder.Body.String(), "lost")
+					assert.Equal(t, []int{hold}, billing.settled, "the session hold moves into the Task unchanged")
+					task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+					require.NoError(t, err)
+					require.True(t, exists)
+					assert.Equal(t, constant.TaskPlatformOpenRouterChatImage, task.Platform)
+					assert.Equal(t, "chat", task.Action)
+					assert.Equal(t, hold, task.Quota)
+					assert.Equal(t, "gen-text-abort", task.PrivateData.UpstreamTaskID)
+					assert.Equal(t, "https://openrouter.test/api/v1/generation", task.PrivateData.OpenRouterSync.MetadataURL)
+					assert.Equal(t, "awaiting_cost", taskdomain.OpenRouterSyncReconciliation(tasksrecord.ToDomain(task))["billing_state"])
+				case tc.cost > 0:
+					require.Nil(t, apiErr)
+					require.NotNil(t, usage)
+					assert.Equal(t, tc.cost, usage.(*dto.Usage).Cost)
+					assert.True(t, info.OpenRouterCost.Final)
+					assert.Empty(t, billing.settled, "the controller settles the terminal cost")
+				default:
+					require.NotNil(t, apiErr)
+					assert.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+					assert.Equal(t, "OpenRouter terminal usage.cost is missing or invalid", apiErr.Error())
+					assert.Empty(t, billing.settled)
+				}
+			})
+		}
+	}
+}
+
 func TestOpenRouterResponsesBillableTerminals(t *testing.T) {
 	setStreamTestTimeout(t)
 	for _, tc := range []struct {
