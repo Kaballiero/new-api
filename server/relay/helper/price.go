@@ -42,10 +42,11 @@ func modelPriceNotConfiguredError(modelName string, userId int) error {
 // https://docs.claude.com/en/docs/build-with-claude/prompt-caching#1-hour-cache-duration
 const claudeCacheCreation1hMultiplier = 6 / 3.75
 
-// defaultTieredPreConsumeMaxTokens is the fallback completion-token estimate
+// DefaultTieredPreConsumeMaxTokens is the fallback completion-token estimate
 // used for tiered expression pre-consume when the client omits max_tokens, so
 // the pre-consumed quota still reflects a plausible output cost in paid groups.
-const defaultTieredPreConsumeMaxTokens = 8192
+// The OpenRouter reserve caps its output side with the same estimate.
+const DefaultTieredPreConsumeMaxTokens = 8192
 
 // HandleGroupRatio checks for "auto_group" in the context and updates the group ratio and relayInfo.UsingGroup if present
 func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) hosttypes.GroupRatioInfo {
@@ -426,7 +427,7 @@ func EstimateConfiguredModelReservation(modelName string, promptTokens, completi
 	}
 	if billing_setting.GetBillingMode(modelName) == billing_setting.BillingModeTieredExpr {
 		if completionTokens == 0 {
-			completionTokens = defaultTieredPreConsumeMaxTokens
+			completionTokens = DefaultTieredPreConsumeMaxTokens
 		}
 		expression, ok := billing_setting.GetConfiguredBillingExpr(modelName)
 		if !ok || strings.TrimSpace(expression) == "" {
@@ -495,7 +496,7 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 
 	estimatedCompletionTokens := meta.MaxTokens
 	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 {
-		estimatedCompletionTokens = defaultTieredPreConsumeMaxTokens
+		estimatedCompletionTokens = DefaultTieredPreConsumeMaxTokens
 	}
 
 	requestInput, err := ResolveIncomingBillingExprRequestInput(c, info)

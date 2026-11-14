@@ -2089,6 +2089,59 @@ func TestOpenRouterGeminiNativeAdmission(t *testing.T) {
 		_, err = (&Adaptor{}).ConvertGeminiRequest(c, info, &hosted)
 		assert.NoError(t, err)
 	})
+
+	t.Run("maxOutputTokens bounds the reserve and a missing limit stays missing upstream", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, generationConfig string
+			explicit               bool
+			output                 int
+		}{
+			{"maxOutputTokens", `,"generationConfig":{"maxOutputTokens":8}`, true, 8},
+			{"no limit", "", false, 8192},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				transport := &sonarAdmissionTransport{metadata: `{"data":{"id":"vendor/provider-test","endpoints":[{"tag":"openai","context_length":1048576,"max_completion_tokens":65535,"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`}
+				client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+				require.NoError(t, err)
+				previous := client.Transport
+				client.Transport = transport
+				t.Cleanup(func() { client.Transport = previous })
+				body := `{"contents":[{"role":"user","parts":[{"text":"hi"}]}]` + tc.generationConfig + `}`
+				var request dto.GeminiChatRequest
+				require.NoError(t, common.UnmarshalJsonStr(body, &request))
+				const path = "/v1beta/models/vendor/provider-test:generateContent"
+				c, _, _, info := newEmbeddedErrorTestRequest("", http.StatusOK)
+				c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+				c.Request.Header.Set("Content-Type", "application/json")
+				t.Cleanup(func() { common.CleanupBodyStorage(c) })
+				info.ChannelType, info.RelayMode, info.RelayFormat = constant.ChannelTypeOpenRouter, relayconstant.RelayModeGemini, types.RelayFormatGemini
+				info.ChannelBaseUrl, info.RequestURLPath = "https://openrouter.test/api", path
+				info.UpstreamModelName, info.OriginModelName = model, model
+				info.Request = &request
+				info.Billing = &sonarAdmissionBilling{}
+				converted, err := (&Adaptor{}).ConvertGeminiRequest(c, info, &request)
+				require.NoError(t, err)
+				chatBody, err := common.Marshal(converted)
+				require.NoError(t, err)
+
+				_, err = (&Adaptor{}).DoRequest(c, info, bytes.NewReader(chatBody))
+
+				require.NoError(t, err)
+				require.NotNil(t, info.OpenRouterCost.OutputReserve)
+				assert.Equal(t, tc.explicit, info.OpenRouterCost.OutputReserve.ExplicitLimit)
+				assert.Equal(t, tc.output, info.OpenRouterCost.OutputReserve.OutputTokens)
+				var sent map[string]any
+				require.NoError(t, common.Unmarshal(transport.body, &sent))
+				if tc.explicit {
+					assert.EqualValues(t, 8, sent["max_tokens"])
+					return
+				}
+				for _, key := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
+					assert.NotContains(t, sent, key)
+				}
+			})
+		}
+	})
 }
 
 func TestOpenRouterRerankProviderRequiresReservationContract(t *testing.T) {

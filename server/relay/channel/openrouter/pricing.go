@@ -87,6 +87,9 @@ type RequestEstimator struct {
 	// by the last successful estimate.
 	ReserveUse   ReserveUse
 	ReserveModel string
+	// OutputReserve bounds the last successful estimate when it is a text
+	// reserve priced from endpoint tariffs; nil otherwise.
+	OutputReserve *relaycommon.OpenRouterOutputReserve
 }
 
 func NewRequestEstimator() *RequestEstimator {
@@ -430,12 +433,17 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			return 0, errors.New("OpenRouter audio output remains unsupported by configured price reserve")
 		}
 	}
+	outputLimit := cmp.Or(request.MaxOutputTokens, request.MaxCompletionTokens, request.MaxTokens)
+	textOutput := operation != "embeddings" && !dedicatedAudio && !decisions && !rerank
+	var outputReserve *relaycommon.OpenRouterOutputReserve
+	if textOutput && !approximateReserve {
+		outputReserve = &relaycommon.OpenRouterOutputReserve{ExplicitLimit: outputLimit != nil}
+	}
 	type reservationCandidate struct {
-		tariff        PricedEndpoint
-		output        int
-		outputUnknown bool
-		pricingErr    error
-		flexFallback  bool
+		tariff       PricedEndpoint
+		output       int
+		pricingErr   error
+		flexFallback bool
 	}
 	var maximum decimal.Decimal
 	maximumIncludesReserve := false
@@ -549,25 +557,18 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				continue
 			}
 			output := 0
-			outputUnknown := false
-			if operation != "embeddings" && !dedicatedAudio && !decisions && !rerank {
-				cap := request.MaxOutputTokens
-				if cap == nil {
-					cap = request.MaxCompletionTokens
-				}
-				if cap == nil {
-					cap = request.MaxTokens
-				}
-				if cap != nil {
-					output = *cap
+			if textOutput {
+				if outputLimit != nil {
+					output = *outputLimit
 					if output < 0 || output > helper.MaxTokensLimit {
 						return 0, errors.New("invalid OpenRouter output cap")
 					}
 				} else {
-					output = endpoint.MaxCompletionTokens
-					if output <= 0 {
-						output = 0
-						outputUnknown = true
+					// Without a client limit the reserve covers a bounded answer.
+					// The upstream request keeps no limit and settles at usage.cost.
+					output = helper.DefaultTieredPreConsumeMaxTokens
+					if endpoint.MaxCompletionTokens > 0 {
+						output = min(output, endpoint.MaxCompletionTokens)
 					}
 				}
 				if endpoint.MaxCompletionTokens > 0 && output > endpoint.MaxCompletionTokens {
@@ -575,7 +576,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				}
 				if endpoint.ContextLength > 0 {
 					available := max(0, endpoint.ContextLength-prompt)
-					if cap != nil && output > available {
+					if outputLimit != nil && output > available {
 						continue
 					}
 					output = min(output, available)
@@ -646,7 +647,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 					continue
 				}
 				candidates = append(candidates, reservationCandidate{
-					tariff: tariff, output: output, outputUnknown: outputUnknown, pricingErr: pricingErr,
+					tariff: tariff, output: output, pricingErr: pricingErr,
 					flexFallback: requestedTier == "flex" && tier == "default" && !explicitTier,
 				})
 				if requestedTier == "flex" && tier == "flex" {
@@ -661,9 +662,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 			if candidate.flexFallback && !flexPriceUnknown && exceedsFlexPriceBounds(candidate.tariff, flexTariffs) {
 				continue
 			}
-			tariff, output := candidate.tariff, candidate.output
-			outputUnknown, pricingErr := candidate.outputUnknown, candidate.pricingErr
-			var cost decimal.Decimal
+			tariff, output, pricingErr := candidate.tariff, candidate.output, candidate.pricingErr
+			var cost, outputPrice decimal.Decimal
 			var estimateErr error
 			includesReserve := false
 			if rerank {
@@ -678,10 +678,8 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter audio monetary quantity is unmeasured")}
 			} else if pricingErr != nil {
 				estimateErr = &EstimateUnavailableError{Cause: pricingErr}
-			} else if outputUnknown {
-				estimateErr = &EstimateUnavailableError{Cause: errors.New("OpenRouter endpoint lacks a finite default completion cap")}
 			} else {
-				cost, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, endpointReserveUSD, imageOutput)
+				cost, outputPrice, estimateErr = estimateEndpointCost(tariff, model, prompt, output, count, imageCount, endpointReserveUSD, imageOutput)
 				if raw, ok := tariff.Pricing["web_search"]; ok && estimateErr == nil && addOnReserve {
 					searchRate, err := readRate(raw)
 					if err != nil {
@@ -709,6 +707,12 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				found = true
 				continue
 			}
+			if outputReserve != nil {
+				responsesOutputPrice := outputPrice.Mul(decimal.NewFromInt(int64(count)))
+				outputReserve.InputUSD = decimal.Max(outputReserve.InputUSD, cost.Sub(responsesOutputPrice.Mul(decimal.NewFromInt(int64(output)))))
+				outputReserve.OutputPriceUSD = decimal.Max(outputReserve.OutputPriceUSD, responsesOutputPrice)
+				outputReserve.OutputTokens = max(outputReserve.OutputTokens, output)
+			}
 			if !found || cost.GreaterThan(maximum) {
 				maximum = cost
 				maximumIncludesReserve = includesReserve
@@ -733,6 +737,9 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	}
 	if searchReserveUSD != nil {
 		maximum = maximum.Add(decimal.NewFromFloat(*searchReserveUSD))
+		if outputReserve != nil {
+			outputReserve.InputUSD = outputReserve.InputUSD.Add(decimal.NewFromFloat(*searchReserveUSD))
+		}
 	}
 	if approximateReserve {
 		maximum = decimal.Max(maximum, decimal.NewFromFloat(*reserveUSD))
@@ -742,6 +749,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		return 0, errors.New("OpenRouter estimate overflow")
 	}
 	e.ReserveUse, e.ReserveModel = ReserveNotApplied, ""
+	e.OutputReserve = outputReserve
 	if approximateReserve {
 		e.ReserveUse, e.ReserveModel = ReserveWholeHold, request.Model
 	} else if addOnReserve && (searchReserveUSD != nil || maximumIncludesReserve) {
@@ -777,7 +785,8 @@ func exceedsFlexPriceBounds(endpoint PricedEndpoint, flexTariffs []PricedEndpoin
 
 // estimateEndpointCost contains monetary metadata/quantity evaluation only.
 // Eligibility is established by the caller before any failure can become fallback.
-func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output, count, imageCount int, reserveUSD *float64, imageOutput bool) (result decimal.Decimal, err error) {
+// outputPrice is the price of one output token, zero when output is zero.
+func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output, count, imageCount int, reserveUSD *float64, imageOutput bool) (result, outputPrice decimal.Decimal, err error) {
 	defer func() {
 		if err != nil {
 			err = &EstimateUnavailableError{Cause: err}
@@ -792,31 +801,31 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 			}
 			rate, err := readRate(endpoint.Pricing[key])
 			if err != nil {
-				return decimal.Zero, err
+				return decimal.Zero, decimal.Zero, err
 			}
 			if *reserveUSD == 0 && (key == "internal_reasoning" || key == "web_search") && !rate.IsZero() {
-				return decimal.Zero, errors.New("OpenRouter unknown billable quantity requires a positive reserve")
+				return decimal.Zero, decimal.Zero, errors.New("OpenRouter unknown billable quantity requires a positive reserve")
 			}
 		}
 	}
 	if imageOutput {
 		rate, err := readRate(endpoint.Pricing["image_output"])
 		if err != nil {
-			return decimal.Zero, fmt.Errorf("OpenRouter image output tariff: %w", err)
+			return decimal.Zero, decimal.Zero, fmt.Errorf("OpenRouter image output tariff: %w", err)
 		}
 		if !rate.IsZero() && *reserveUSD == 0 {
-			return decimal.Zero, errors.New("OpenRouter unknown image output quantity requires a positive reserve")
+			return decimal.Zero, decimal.Zero, errors.New("OpenRouter unknown image output quantity requires a positive reserve")
 		}
 	}
 	promptRate, err := readRate(endpoint.Pricing["prompt"])
 	if err != nil {
-		return decimal.Zero, err
+		return decimal.Zero, decimal.Zero, err
 	}
 	for _, key := range []string{"input_cache_read", "input_cache_write", "input_cache_write_1h"} {
 		if raw, ok := endpoint.Pricing[key]; ok {
 			rate, err := readRate(raw)
 			if err != nil {
-				return decimal.Zero, err
+				return decimal.Zero, decimal.Zero, err
 			}
 			if rate.GreaterThan(promptRate) {
 				promptRate = rate
@@ -827,23 +836,24 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 	if output > 0 {
 		rate, err := readRate(endpoint.Pricing["completion"])
 		if err != nil {
-			return decimal.Zero, err
+			return decimal.Zero, decimal.Zero, err
 		}
 		if raw, ok := endpoint.Pricing["internal_reasoning"]; ok && strings.HasPrefix(model, "google/gemini-") {
 			reasoningRate, err := readRate(raw)
 			if err != nil {
-				return decimal.Zero, err
+				return decimal.Zero, decimal.Zero, err
 			}
 			if reasoningRate.GreaterThan(rate) {
 				rate = reasoningRate
 			}
 		}
 		cost = cost.Add(rate.Mul(decimal.NewFromInt(int64(output))).Mul(decimal.NewFromInt(int64(count))))
+		outputPrice = rate
 	}
 	if raw, ok := endpoint.Pricing["request"]; ok {
 		rate, err := readRate(raw)
 		if err != nil {
-			return decimal.Zero, err
+			return decimal.Zero, decimal.Zero, err
 		}
 		cost = cost.Add(rate)
 	}
@@ -851,7 +861,7 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 		if raw, ok := endpoint.Pricing["image"]; ok {
 			rate, err := readRate(raw)
 			if err != nil {
-				return decimal.Zero, err
+				return decimal.Zero, decimal.Zero, err
 			}
 			cost = cost.Add(rate.Mul(decimal.NewFromInt(int64(imageCount))))
 		}
@@ -862,7 +872,7 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 			// inferred from a text token cap. Audio input/output is absent in
 			// this admitted protocol; still validate published inactive rates.
 			if _, err := readRate(raw); err != nil {
-				return decimal.Zero, err
+				return decimal.Zero, decimal.Zero, err
 			}
 			continue
 		}
@@ -875,7 +885,7 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 			// requestInputMediaQuantities rejects every audio input block before
 			// estimation, so these published input rates are inactive here.
 			if _, err := readRate(raw); err != nil {
-				return decimal.Zero, err
+				return decimal.Zero, decimal.Zero, err
 			}
 			continue
 		}
@@ -885,7 +895,7 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 		}
 		if !approximateReserve && (key == "audio" || key == "input_audio_cache" || key == "internal_reasoning" && strings.HasPrefix(model, "google/gemini-")) {
 			if _, err := readRate(raw); err != nil {
-				return decimal.Zero, err
+				return decimal.Zero, decimal.Zero, err
 			}
 			continue
 		}
@@ -893,22 +903,22 @@ func estimateEndpointCost(endpoint PricedEndpoint, model string, prompt, output,
 			continue
 		}
 		if key == "overrides" {
-			return decimal.Zero, errors.New("OpenRouter endpoint has unsupported request-dependent pricing overrides")
+			return decimal.Zero, decimal.Zero, errors.New("OpenRouter endpoint has unsupported request-dependent pricing overrides")
 		}
 		rate, err := readRate(raw)
 		if err != nil {
-			return decimal.Zero, err
+			return decimal.Zero, decimal.Zero, err
 		}
 		if !rate.IsZero() {
-			return decimal.Zero, fmt.Errorf("OpenRouter endpoint has unsupported billable dimension %s", key)
+			return decimal.Zero, decimal.Zero, fmt.Errorf("OpenRouter endpoint has unsupported billable dimension %s", key)
 		}
 	}
 	result = cost
 	value, _ := result.Float64()
 	if math.IsNaN(value) || math.IsInf(value, 0) {
-		return decimal.Zero, errors.New("OpenRouter estimate overflow")
+		return decimal.Zero, decimal.Zero, errors.New("OpenRouter estimate overflow")
 	}
-	return result, nil
+	return result, outputPrice, nil
 }
 
 // ModelsFromRequest returns every possible model rather than assuming the

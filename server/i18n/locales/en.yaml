@@ -431,6 +431,10 @@ gateway.channel_forbidden: "Specifying a channel is not supported for regular us
 
 billing.wallet_insufficient: "Insufficient user quota, remaining quota: {{.Remaining}}"
 billing.wallet_below_reserve: "Failed to reserve quota, remaining user quota: {{.Remaining}}, required quota: {{.Required}}"
+billing.wallet_reserve_shortfall: "Insufficient balance: the request needs {{.Required}}, the balance is {{.Remaining}}"
+billing.wallet_output_cap_shortfall: "Insufficient balance: the reserve is computed for the model's maximum answer of {{.OutputTokens}} tokens ({{.Required}}), the balance is {{.Remaining}}. Set max_tokens to {{.MaxTokens}} or less, top up the balance, or choose another model"
+billing.token_reserve_shortfall: "Insufficient token quota: the request needs {{.Required}}, the token has {{.Remaining}} left"
+billing.token_output_cap_shortfall: "Insufficient token quota: the reserve is computed for the model's maximum answer of {{.OutputTokens}} tokens ({{.Required}}), the token has {{.Remaining}} left. Set max_tokens to {{.MaxTokens}} or less, raise the token quota, or choose another model"
 billing.subscription_insufficient: "Insufficient subscription quota or no subscription configured: {{.Reason}}"
 billing.quota_negative: "quota must not be negative!"
 billing.wallet_warning: "Your quota is running low"

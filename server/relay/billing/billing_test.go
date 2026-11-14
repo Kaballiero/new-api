@@ -22,6 +22,7 @@ import (
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -100,7 +101,7 @@ func TestBillingErrorLocales(t *testing.T) {
 			{"subscription", i18n.MsgBillingSubscriptionInsufficient, "Insufficient subscription quota or no subscription configured: no active subscription", "Недостаточно квоты подписки или подписка не настроена: no active subscription", &domain.Failure{Kind: domain.SubscriptionUnavailable, Cause: errors.New("no active subscription")}},
 		} {
 			t.Run(language+"/"+tc.name, func(t *testing.T) {
-				err := mapError(language, tc.failure)
+				err := mapError(language, tc.failure, nil)
 				assert.Equal(t, 403, err.StatusCode)
 				assert.Equal(t, types.ErrorCodeInsufficientUserQuota, err.GetErrorCode())
 				assert.True(t, types.IsSkipRetryError(err))
@@ -113,6 +114,80 @@ func TestBillingErrorLocales(t *testing.T) {
 				translated := i18n.Translate(language, tc.key, map[string]any{"Remaining": "5", "Required": "10", "Reason": "no active subscription"})
 				assert.NotEqual(t, tc.key, translated)
 				assert.Equal(t, translated, err.Error())
+			})
+		}
+	}
+}
+
+// An OpenRouter text reserve the funds do not cover explains itself; without
+// a client output limit it suggests a max_tokens whose reserve fits.
+func TestOpenRouterReserveShortfallMessages(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	previous := operation_setting.GetGeneralSetting().QuotaDisplayType
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
+	t.Cleanup(func() { operation_setting.GetGeneralSetting().QuotaDisplayType = previous })
+	// One USD is 1e6 quota: input costs 100, one output token 0.2, so 1000
+	// remaining affords (1000-100)/0.2 = 4500 output tokens.
+	defaultCap := &relaycommon.OpenRouterOutputReserve{OutputTokens: 8192, InputUSD: decimal.RequireFromString("0.0001"), OutputPriceUSD: decimal.RequireFromString("0.0000002")}
+	explicitLimit := &relaycommon.OpenRouterOutputReserve{ExplicitLimit: true, OutputTokens: 20000, InputUSD: decimal.RequireFromString("0.0001"), OutputPriceUSD: decimal.RequireFromString("0.0000002")}
+	inputAboveRemaining := &relaycommon.OpenRouterOutputReserve{OutputTokens: 8192, InputUSD: decimal.RequireFromString("0.002"), OutputPriceUSD: decimal.RequireFromString("0.0000002")}
+	for _, tc := range []struct {
+		name          string
+		reserve       *relaycommon.OpenRouterOutputReserve
+		quota         int
+		tokenRejected bool
+		code          types.ErrorCode
+		en, ru        string
+	}{
+		{"wallet without limit", defaultCap, 1738, false, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the reserve is computed for the model's maximum answer of 8192 tokens (1738), the balance is 1000. Set max_tokens to 4500 or less, top up the balance, or choose another model",
+			"Недостаточно средств: резерв рассчитан на максимальный ответ модели в 8192 токенов (1738), баланс 1000. Укажите max_tokens не больше 4500, пополните баланс или выберите другую модель"},
+		{"wallet with limit", explicitLimit, 4100, false, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the request needs 4100, the balance is 1000",
+			"Недостаточно средств: для запроса нужно 4100, баланс 1000"},
+		{"wallet below input cost", inputAboveRemaining, 3638, false, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the request needs 3638, the balance is 1000",
+			"Недостаточно средств: для запроса нужно 3638, баланс 1000"},
+		{"wallet non-text reserve", nil, 1738, false, types.ErrorCodeInsufficientUserQuota,
+			"Failed to reserve quota, remaining user quota: 1000, required quota: 1738",
+			"Не удалось зарезервировать квоту, осталось у пользователя: 1000, требуется: 1738"},
+		{"token without limit", defaultCap, 1738, true, types.ErrorCodePreConsumeTokenQuotaFailed,
+			"Insufficient token quota: the reserve is computed for the model's maximum answer of 8192 tokens (1738), the token has 1000 left. Set max_tokens to 4500 or less, raise the token quota, or choose another model",
+			"Недостаточно квоты токена: резерв рассчитан на максимальный ответ модели в 8192 токенов (1738), у токена осталось 1000. Укажите max_tokens не больше 4500, увеличьте квоту токена или выберите другую модель"},
+		{"token with limit", explicitLimit, 4100, true, types.ErrorCodePreConsumeTokenQuotaFailed,
+			"Insufficient token quota: the request needs 4100, the token has 1000 left",
+			"Недостаточно квоты токена: для запроса нужно 4100, у токена осталось 1000"},
+		{"token non-text reserve", nil, 1738, true, types.ErrorCodePreConsumeTokenQuotaFailed,
+			"token quota is not enough, token remain quota: 1000, need quota: 1738",
+			"token quota is not enough, token remain quota: 1000, need quota: 1738"},
+	} {
+		for _, language := range []string{"en", "ru"} {
+			t.Run(tc.name+"/"+language, func(t *testing.T) {
+				var store create_reservation.Store = &admissionStore{balance: 1000}
+				if tc.tokenRejected {
+					store = &tokenRejectingStore{admissionStore{balance: 100000}}
+				}
+				g := &Gateway{}
+				g.usecases.Create = create_reservation.NewUsecase(store, func() int { return 0 }, quiet)
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+				c.Request.Header.Set("Accept-Language", language)
+				info := &relaycommon.RelayInfo{OpenRouterCost: &relaycommon.OpenRouterCostState{
+					Basis:         common.OpenRouterCostBasis{EffectiveGroupRatio: 2, QuotaPerUnit: 500000},
+					OutputReserve: tc.reserve,
+				}}
+				info.UserSetting.BillingPreference = "wallet_only"
+
+				err := g.PreConsume(c, tc.quota, info)
+
+				require.NotNil(t, err)
+				assert.Equal(t, 403, err.StatusCode)
+				assert.Equal(t, tc.code, err.GetErrorCode())
+				want := tc.en
+				if language == "ru" {
+					want = tc.ru
+				}
+				assert.Equal(t, want, err.Error())
 			})
 		}
 	}
@@ -161,6 +236,11 @@ func (*admissionStore) ReserveSubscription(_ string, _ int, _ string, amount int
 func (f *admissionStore) DebitWallet(int, int) error          { return f.increaseErr }
 func (*admissionStore) CreditWallet(int, int) error           { return nil }
 func (f *admissionStore) AdjustSubscription(int, int64) error { return f.increaseErr }
+
+// tokenRejectingStore holds funds but rejects the token reserve.
+type tokenRejectingStore struct{ admissionStore }
+
+func (*tokenRejectingStore) ReserveToken(domain.Account, int) (bool, error) { return false, nil }
 
 func TestPreConsumeWithoutRequest(t *testing.T) {
 	require.NoError(t, i18n.Init())

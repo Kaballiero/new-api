@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+
+	"github.com/shopspring/decimal"
 )
 
 type OpenRouterCostBasis = common.OpenRouterCostBasis
@@ -47,6 +49,37 @@ type OpenRouterCostState struct {
 	ConfiguredReserveUSD          *float64
 	ConfiguredReserveModel        string
 	ConfiguredReserveExprHash     string
+	// OutputReserve is set for a text reserve priced from endpoint tariffs.
+	OutputReserve *OpenRouterOutputReserve
+}
+
+// OpenRouterOutputReserve bounds a text reserve over its eligible endpoints:
+// any output limit M costs at most InputUSD + OutputPriceUSD*M.
+type OpenRouterOutputReserve struct {
+	// ExplicitLimit records that the client sent an output limit. Without it
+	// the reserve covers the default output cap.
+	ExplicitLimit bool
+	// OutputTokens is the largest output cap the reserve covers.
+	OutputTokens int
+	// InputUSD is the largest cost apart from output.
+	InputUSD decimal.Decimal
+	// OutputPriceUSD is the largest price of one output token for all responses.
+	OutputPriceUSD decimal.Decimal
+}
+
+// AffordableMaxTokens is the largest output limit whose reserve fits the
+// available quota under basis, or zero when none does.
+func (r OpenRouterOutputReserve) AffordableMaxTokens(basis OpenRouterCostBasis, available int) int {
+	quotaPerUSD := decimal.NewFromFloat(basis.EffectiveGroupRatio).Mul(decimal.NewFromFloat(basis.QuotaPerUnit))
+	outputQuota := r.OutputPriceUSD.Mul(quotaPerUSD)
+	if !outputQuota.IsPositive() {
+		return 0
+	}
+	tokens, _ := decimal.NewFromInt(int64(available)).Sub(r.InputUSD.Mul(quotaPerUSD)).QuoRem(outputQuota, 0)
+	if !tokens.IsPositive() {
+		return 0
+	}
+	return common.QuotaFromDecimal(tokens)
 }
 
 func NewOpenRouterCostBasis(info *RelayInfo, estimatedUSD float64) common.OpenRouterCostBasis {

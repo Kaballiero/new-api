@@ -431,6 +431,10 @@ gateway.channel_forbidden: "Обычные пользователи не мог�
 
 billing.wallet_insufficient: "Недостаточно квоты пользователя, осталось: {{.Remaining}}"
 billing.wallet_below_reserve: "Не удалось зарезервировать квоту, осталось у пользователя: {{.Remaining}}, требуется: {{.Required}}"
+billing.wallet_reserve_shortfall: "Недостаточно средств: для запроса нужно {{.Required}}, баланс {{.Remaining}}"
+billing.wallet_output_cap_shortfall: "Недостаточно средств: резерв рассчитан на максимальный ответ модели в {{.OutputTokens}} токенов ({{.Required}}), баланс {{.Remaining}}. Укажите max_tokens не больше {{.MaxTokens}}, пополните баланс или выберите другую модель"
+billing.token_reserve_shortfall: "Недостаточно квоты токена: для запроса нужно {{.Required}}, у токена осталось {{.Remaining}}"
+billing.token_output_cap_shortfall: "Недостаточно квоты токена: резерв рассчитан на максимальный ответ модели в {{.OutputTokens}} токенов ({{.Required}}), у токена осталось {{.Remaining}}. Укажите max_tokens не больше {{.MaxTokens}}, увеличьте квоту токена или выберите другую модель"
 billing.subscription_insufficient: "Недостаточно квоты подписки или подписка не настроена: {{.Reason}}"
 billing.quota_negative: "Квота не может быть отрицательной!"
 billing.wallet_warning: "Ваша квота скоро закончится"

@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,7 +130,6 @@ func TestEndpointStatusRetainedGuards(t *testing.T) {
 		{"context", `"context_length":999,`, `,"max_tokens":10`, "chat/completions", false},
 		{"completion limit", `"max_completion_tokens":9,`, `,"max_tokens":10`, "chat/completions", false},
 		{"invalid output cap", "", `,"max_tokens":2147483647`, "chat/completions", false},
-		{"missing cap", "", "", "chat/completions", false},
 		{"parameter", "", `,"max_tokens":10,"temperature":1,"provider":{"require_parameters":true}`, "chat/completions", false},
 		{"quantization", "", `,"max_tokens":10,"provider":{"quantizations":["fp8"]}`, "chat/completions", false},
 		{"unknown model", "", `,"models":["other/model"],"max_tokens":10`, "chat/completions", false},
@@ -162,6 +162,50 @@ func TestEndpointStatusRetainedGuards(t *testing.T) {
 				_, err = e.Estimate(info, body, tc.operation)
 			}
 			require.Error(t, err)
+		})
+	}
+}
+
+// Without a client output limit the reserve covers min(endpoint cap, 8192)
+// output tokens; an explicit limit of any format is reserved as given.
+func TestEndpointDefaultOutputCap(t *testing.T) {
+	for _, tc := range []struct {
+		name, limits, extra, operation string
+		format                         types.RelayFormat
+		explicit                       bool
+		output, responses              int
+	}{
+		{"no limit with endpoint cap 128000 uses 8192", `"context_length":200000,"max_completion_tokens":128000,`, "", "chat/completions", types.RelayFormatOpenAI, false, 8192, 1},
+		{"no limit with endpoint cap 4096 uses 4096", `"context_length":200000,"max_completion_tokens":4096,`, "", "chat/completions", types.RelayFormatOpenAI, false, 4096, 1},
+		{"no endpoint cap uses 8192", "", "", "chat/completions", types.RelayFormatOpenAI, false, 8192, 1},
+		{"context left after the prompt bounds the default cap", `"context_length":5000,"max_completion_tokens":128000,`, "", "chat/completions", types.RelayFormatOpenAI, false, 4000, 1},
+		{"n multiplies the output price", `"max_completion_tokens":128000,`, `,"n":2`, "chat/completions", types.RelayFormatOpenAI, false, 8192, 2},
+		{"explicit max_tokens is used as given", `"max_completion_tokens":128000,`, `,"max_tokens":20000`, "chat/completions", types.RelayFormatOpenAI, true, 20000, 1},
+		{"explicit max_completion_tokens is used as given", `"max_completion_tokens":128000,`, `,"max_completion_tokens":100`, "chat/completions", types.RelayFormatOpenAI, true, 100, 1},
+		{"Responses max_output_tokens is respected", `"max_completion_tokens":128000,`, `,"input":"hi","max_output_tokens":100`, "responses", types.RelayFormatOpenAIResponses, true, 100, 1},
+		{"Responses without a limit uses 8192", `"max_completion_tokens":128000,`, `,"input":"hi"`, "responses", types.RelayFormatOpenAIResponses, false, 8192, 1},
+		{"batch item without a limit is capped", `"max_completion_tokens":128000,`, "", "batch_chat/completions", types.RelayFormatOpenAI, false, 8192, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var endpoint PricedEndpoint
+			require.NoError(t, common.UnmarshalJsonStr(`{"tag":"provider","model_id":"test/model",`+tc.limits+`"pricing":{"prompt":"0.000001","completion":"0.000002"}}`, &endpoint))
+			e := NewRequestEstimator()
+			e.Models["test/model"] = []PricedEndpoint{endpoint}
+			info := &relaycommon.RelayInfo{RelayFormat: tc.format}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+			info.SetEstimatePromptTokens(1000)
+
+			cost, err := e.Estimate(info, []byte(`{"model":"test/model"`+tc.extra+`}`), tc.operation)
+
+			require.NoError(t, err)
+			outputPrice := decimal.RequireFromString("0.000002").Mul(decimal.NewFromInt(int64(tc.responses)))
+			want, _ := decimal.RequireFromString("0.001").Add(outputPrice.Mul(decimal.NewFromInt(int64(tc.output)))).Float64()
+			assert.InDelta(t, want, cost, 1e-12)
+			require.NotNil(t, e.OutputReserve)
+			assert.Equal(t, tc.explicit, e.OutputReserve.ExplicitLimit)
+			assert.Equal(t, tc.output, e.OutputReserve.OutputTokens)
+			assert.Equal(t, "0.001", e.OutputReserve.InputUSD.String())
+			assert.Equal(t, outputPrice.String(), e.OutputReserve.OutputPriceUSD.String())
 		})
 	}
 }
