@@ -96,6 +96,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Stop(err)
 			return
 		}
+		// Text, reasoning and tool-call output each arrive as a non-empty delta.
+		if info.OpenRouterCost != nil && streamResponse.Delta != "" {
+			info.OpenRouterCost.ContentDelivered = true
+		}
 		switch streamResponse.Type {
 		case "response.completed", "response.done":
 			if streamResponse.Response != nil {

@@ -858,7 +858,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		// exists (chat image, or chat text whose cost was deferred), only the
 		// Task owns money, even when a valid result has no terminal usage.cost.
 		defer func() {
-			if info.RelayMode != relayconstant.RelayModeChatCompletions || !relaycommon.HasOpenRouterSyncTask(info) {
+			if !info.OpenRouterCost.ChatImage && !info.OpenRouterCost.ChatText || !relaycommon.HasOpenRouterSyncTask(info) {
 				return
 			}
 			chatImage := info.OpenRouterCost.ChatImage
