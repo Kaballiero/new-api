@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -54,15 +55,20 @@ type OpenRouterCostState struct {
 }
 
 // OpenRouterOutputReserve bounds a text reserve over its eligible endpoints:
-// any output limit M costs at most InputUSD + OutputPriceUSD*M.
+// an output limit M costs at most InputUSD + OutputPriceUSD*M, plus the
+// prompt tokens its LimitField adds at PromptPriceUSD.
 type OpenRouterOutputReserve struct {
 	// ExplicitLimit records that the client sent an output limit. Without it
 	// the reserve covers the default output cap.
 	ExplicitLimit bool
+	// LimitField is the protocol field that carries the client's output limit.
+	LimitField string
 	// OutputTokens is the largest output cap the reserve covers.
 	OutputTokens int
 	// InputUSD is the largest cost apart from output.
 	InputUSD decimal.Decimal
+	// PromptPriceUSD is the largest price of one prompt token.
+	PromptPriceUSD decimal.Decimal
 	// OutputPriceUSD is the largest price of one output token for all responses.
 	OutputPriceUSD decimal.Decimal
 }
@@ -75,7 +81,12 @@ func (r OpenRouterOutputReserve) AffordableMaxTokens(basis OpenRouterCostBasis, 
 	if !outputQuota.IsPositive() {
 		return 0
 	}
-	tokens, _ := decimal.NewFromInt(int64(available)).Sub(r.InputUSD.Mul(quotaPerUSD)).QuoRem(outputQuota, 0)
+	// The limit enters the counted prompt as `,"field":digits`; a text token
+	// is at least one byte, so its byte length bounds the added tokens. The
+	// suggested limit never has more digits than OutputTokens.
+	limitPromptTokens := len(`,"":`) + len(r.LimitField) + len(strconv.Itoa(r.OutputTokens))
+	fixedUSD := r.InputUSD.Add(r.PromptPriceUSD.Mul(decimal.NewFromInt(int64(limitPromptTokens))))
+	tokens, _ := decimal.NewFromInt(int64(available)).Sub(fixedUSD.Mul(quotaPerUSD)).QuoRem(outputQuota, 0)
 	if !tokens.IsPositive() {
 		return 0
 	}

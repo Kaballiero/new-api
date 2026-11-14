@@ -498,7 +498,7 @@ func TestEndpointRequestReservation(t *testing.T) {
 		{"ignore variant", `{"model":"test/model","max_tokens":10,"provider":{"ignore":["expensive"]}}`, 1.02, false},
 		{"order retains fallbacks", `{"model":"test/model","max_tokens":10,"provider":{"order":["cheap"]}}`, 3.04, false},
 		{"fallback disabled", `{"model":"test/model","max_tokens":10,"provider":{"order":["cheap"],"allow_fallbacks":false}}`, 1.02, false},
-		{"omitted cap uses endpoint caps below the default", `{"model":"test/model"}`, 3.8, false},
+		{"omitted cap uses finite metadata", `{"model":"test/model"}`, 3.8, false},
 		{"explicit zero cap", `{"model":"test/model","max_tokens":0}`, 3, false},
 		{"unpriced hosted tool", `{"model":"test/model","tools":[{"type":"web_search"}]}`, 0, true},
 		{"unresolved preset", `{"model":"test/model","preset":"private"}`, 0, true},
@@ -514,11 +514,6 @@ func TestEndpointRequestReservation(t *testing.T) {
 			}
 		})
 	}
-	// An endpoint without a published cap reserves the default output cap.
-	estimator.Models["test/model"][0].MaxCompletionTokens = 0
-	value, err := estimator.Estimate(info, []byte(`{"model":"test/model"}`), "chat/completions")
-	require.NoError(t, err)
-	assert.InDelta(t, 1+0.002*8192, value, 1e-9)
 }
 
 func TestSharedImageChannelReserve(t *testing.T) {

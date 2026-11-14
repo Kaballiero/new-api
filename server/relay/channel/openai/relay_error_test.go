@@ -2130,6 +2130,7 @@ func TestOpenRouterGeminiNativeAdmission(t *testing.T) {
 				require.NotNil(t, info.OpenRouterCost.OutputReserve)
 				assert.Equal(t, tc.explicit, info.OpenRouterCost.OutputReserve.ExplicitLimit)
 				assert.Equal(t, tc.output, info.OpenRouterCost.OutputReserve.OutputTokens)
+				assert.Equal(t, "generationConfig.maxOutputTokens", info.OpenRouterCost.OutputReserve.LimitField)
 				var sent map[string]any
 				require.NoError(t, common.Unmarshal(transport.body, &sent))
 				if tc.explicit {
