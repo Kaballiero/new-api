@@ -2455,6 +2455,8 @@ func TestModelUpdateReportFingerprintFollowsAutoApplyBlock(t *testing.T) {
 // pending removals of a channel over the auto removal limit. Applied changes
 // are always reported; the exceeded limit is reported once, also when a
 // detect-all check or a scheduled run within the check interval comes between.
+// A removal a same-name replacement takes does not count toward the limit in
+// either check.
 func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 	db := setupChannelUpstreamUpdateTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}))
@@ -2465,6 +2467,7 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 	serveUpstreamCatalog(t, db, catalog)
 	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true, UpstreamModelUpdateCatalogSyncEnabled: true}
 	channel := createChannelUpstreamUpdateTestChannel(t, db, "kept,"+strings.Join(gone, ","), nil, settings)
+	var replacement *model.Channel
 	var reports []string
 	gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		var payload map[string]string
@@ -2506,8 +2509,19 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 			wantRemaining: "kept," + strings.Join(gone, ","),
 		},
 		{
-			name:          "a detect-all check keeps the exceeded limit",
-			run:           detectAllModelUpdateRun,
+			// A second channel stages a same-name replacement of its model
+			// kept beside 20 removals: the replaced removal stays out of the
+			// auto removals, so they do not exceed the limit.
+			name: "a detect-all check keeps the exceeded limit",
+			prepare: func() {
+				replacement = createChannelUpstreamUpdateTestChannel(t, db, "kept,"+strings.Join(gone[:20], ","), map[string]string{"kept": "anthropic/kept"}, settings)
+				require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", replacement.Id).Update("name", "replacement-test").Error)
+			},
+			run: detectAllModelUpdateRun,
+			wantReports: []string{subject + "Upstream model check summary: checked 2 channels, 2 changed, 1 added, 42 removed, 0 auto-synced additions, 0 failed.\n\nChanged channels (showing 2/2):\n- upstream-sync-test (+0 / -21)\n- replacement-test (+1 / -21)" +
+				"\n\nAdded model samples (showing 1/1): kept" +
+				"\n\nRemoved model samples (showing 12/22): gone-01, gone-02, gone-03, gone-04, gone-05, gone-06, gone-07, gone-08, gone-09, gone-10, gone-11, gone-12 (10 more omitted)" +
+				"\n\nNeeds decision — more than 20 models to remove, nothing removed: upstream-sync-test (21)"},
 			wantRemaining: "kept," + strings.Join(gone, ","),
 		},
 		{
@@ -2520,6 +2534,7 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 			prepare: func() {
 				t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "0")
 				catalog.models = []string{"kept", "gone-01"}
+				require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", replacement.Id).Update("status", common.ChannelStatusManuallyDisabled).Error)
 			},
 			wantReports: []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 0 added, 20 removed, 0 auto-synced additions, 0 failed.\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+0 / -20)" +
 				"\n\nRemoved by auto sync (showing 12/20): gone-02 (upstream-sync-test), gone-03 (upstream-sync-test), gone-04 (upstream-sync-test), gone-05 (upstream-sync-test), gone-06 (upstream-sync-test), gone-07 (upstream-sync-test), gone-08 (upstream-sync-test), gone-09 (upstream-sync-test), gone-10 (upstream-sync-test), gone-11 (upstream-sync-test), gone-12 (upstream-sync-test), gone-13 (upstream-sync-test) (8 more omitted)"},
@@ -2557,6 +2572,11 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 	}
 }
 
+// An OpenRouter channel whose model mapping does not resolve, by invalid JSON
+// or a cycle, leaves the published catalog models unknown: a scheduled run
+// applies no change of a catalog channel, and the report names the channels
+// with such a mapping once. A detect and an apply-all still work; fixed
+// mappings unblock the auto-apply.
 func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testing.T) {
 	db := setupChannelUpstreamUpdateTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}))
