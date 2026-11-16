@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+// ModelUpdateChannelSummary is a channel with pending changes; AutoApplyBlocked
+// marks a channel whose upstream models a scheduled run does not apply.
 type ModelUpdateChannelSummary struct {
 	ChannelID           int
 	ChannelName         string
@@ -15,6 +17,7 @@ type ModelUpdateChannelSummary struct {
 	RemoveCount         int
 	PendingAddModels    []string
 	PendingRemoveModels []string
+	AutoApplyBlocked    bool
 }
 
 // ModelUpdateReport is the content of the upstream model update notification
@@ -50,9 +53,10 @@ type ModelUpdateSummary struct {
 }
 
 // ModelUpdateReportFingerprint identifies the decisions a report asks for:
-// the pending additions, removals and conflicts of each channel and the failed
-// channels, in any order. Applied changes are not part of it: the run that
-// applies a change reports it once.
+// the pending additions, removals and conflicts of each channel, whether its
+// changes are blocked from auto-apply, and the failed channels, in any order.
+// Applied changes are not part of it: the run that applies a change reports it
+// once.
 func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
 	var lines []string
 	for _, channel := range report.Channels {
@@ -62,6 +66,9 @@ func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
 		}
 		for _, model := range channel.PendingRemoveModels {
 			lines = append(lines, channelID+" remove "+model)
+		}
+		if channel.AutoApplyBlocked {
+			lines = append(lines, channelID+" auto_apply_blocked")
 		}
 	}
 	for _, conflict := range report.ConflictModels {

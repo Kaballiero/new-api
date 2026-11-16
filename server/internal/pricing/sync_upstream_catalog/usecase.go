@@ -20,6 +20,7 @@ type CatalogSyncResult struct {
 type Store interface {
 	EnsureSource(context.Context, domain.CatalogSource) (domain.CatalogSource, error)
 	Documents(context.Context, string, []string) (map[string]domain.CatalogDocument, error)
+	ReadSelection(context.Context, string, string) (domain.CatalogSelection, error)
 	Transaction(context.Context, func(domain.CatalogTransaction) error) error
 }
 
@@ -43,6 +44,11 @@ func NewUsecase(deps domain.Capabilities, store Store, documents domain.CatalogD
 
 // SyncUpstreamCatalog acquires one immutable remote manifest and its requested
 // alias closure. Only a complete, validated selection is allowed to move the head.
+// A manifest that lost more than domain.MaxCatalogModelLossPercent of the
+// published models (domain.CatalogModelLoss) is rejected with
+// domain.CatalogModelLossError and leaves the head. Models the channels no
+// longer request are not compared, so removing the lost models from the
+// channels lets the next revision through.
 func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, requested map[string]bool, client Client) (CatalogSyncResult, error) {
 	result := CatalogSyncResult{}
 	current, err := u.ensureSource(ctx, source)
@@ -52,6 +58,15 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	manifest, err := client.Manifest(ctx)
 	if err != nil {
 		return result, err
+	}
+	if current.Revision != "" {
+		head, err := u.store.ReadSelection(ctx, current.ID, current.Revision)
+		if err != nil {
+			return result, err
+		}
+		if lost, published, exceeded := domain.CatalogModelLoss(head, requested, manifest); exceeded {
+			return result, domain.CatalogModelLossError{RemoteRevision: manifest.Revision, HeadRemoteRevision: current.RemoteRevision, Lost: lost, Published: published}
+		}
 	}
 	refs := make(map[string]domain.SourceReference, len(manifest.Models))
 	for _, ref := range manifest.Models {

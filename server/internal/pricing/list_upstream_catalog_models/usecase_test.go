@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 
+	"github.com/QuantumNous/new-api/constant"
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -28,6 +30,61 @@ func (store fakeStore) Documents(_ context.Context, _ string, hashes []string) (
 		}
 	}
 	return result, nil
+}
+
+var errNoHead = errors.New("no published head")
+
+// The fake store publishes no head, and no channel requests a model.
+func (fakeStore) Head(context.Context, string) (domain.CatalogSource, error) {
+	return domain.CatalogSource{}, errNoHead
+}
+func (fakeStore) IsMissing(err error) bool { return errors.Is(err, errNoHead) }
+func (fakeStore) ReadSelection(context.Context, string, string) (domain.CatalogSelection, error) {
+	return domain.CatalogSelection{}, errNoHead
+}
+func (fakeStore) Abilities() ([]domain.BuildAbility, error) { return nil, nil }
+func (fakeStore) BuildChannel(int) (*domain.BuildChannel, error) {
+	return nil, errors.New("unexpected channel read")
+}
+
+// headStore publishes a head selection of the head models, and one enabled
+// OpenRouter channel requests the requested models.
+type headStore struct {
+	fakeStore
+	head, requested       []string
+	headErr, selectionErr error
+	channelDisabled       bool
+}
+
+func (store headStore) Head(context.Context, string) (domain.CatalogSource, error) {
+	return domain.CatalogSource{Revision: strings.Repeat("f", 64)}, store.headErr
+}
+func (store headStore) ReadSelection(context.Context, string, string) (domain.CatalogSelection, error) {
+	selection := domain.CatalogSelection{}
+	for _, id := range store.head {
+		selection.Models = append(selection.Models, domain.CatalogModelReference{ID: id})
+	}
+	return selection, store.selectionErr
+}
+func (store headStore) Abilities() ([]domain.BuildAbility, error) {
+	abilities := []domain.BuildAbility{}
+	for _, model := range store.requested {
+		abilities = append(abilities, domain.BuildAbility{Model: model, Group: "default", ChannelId: 1, ChannelType: constant.ChannelTypeOpenRouter})
+	}
+	return abilities, nil
+}
+func (store headStore) BuildChannel(int) (*domain.BuildChannel, error) {
+	channel := &domain.BuildChannel{Id: 1, Type: constant.ChannelTypeOpenRouter, Status: constant.ChannelStatusEnabled}
+	if store.channelDisabled {
+		channel.Status = constant.ChannelStatusManuallyDisabled
+	}
+	return channel, nil
+}
+
+// testStore is the store and the channels of a test usecase.
+type testStore interface {
+	Store
+	domain.CatalogChannels
 }
 
 // fakeCatalog decodes a stored document by its model id.
@@ -96,14 +153,14 @@ func newClient(revision string, models ...catalogModel) *fakeClient {
 	return client
 }
 
-func newUsecase(store fakeStore, documents domain.CatalogDocumentCache, cache Cache, client *fakeClient, stored ...catalogModel) Usecase {
+func newUsecase(store testStore, documents domain.CatalogDocumentCache, cache Cache, client *fakeClient, stored ...catalogModel) Usecase {
 	deps := pricingadapter.Capabilities()
 	catalog := fakeCatalog{CatalogReader: deps.Catalog, documents: map[string]*domain.SourceDocument{}}
 	for _, model := range stored {
 		catalog.documents[model.index.ID] = model.document
 	}
 	deps.Catalog = catalog
-	return NewUsecase(deps, domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps}), store, documents, cache, func() (domain.CatalogSource, bool, error) {
+	return NewUsecase(deps, domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps}), store, documents, cache, store, func() (domain.CatalogSource, bool, error) {
 		return domain.CatalogSource{ID: strings.Repeat("a", 64)}, true, nil
 	}, func(domain.CatalogSource) (Client, error) { return client, nil })
 }
@@ -175,7 +232,7 @@ func TestExecuteFailsWithoutCatalog(t *testing.T) {
 	projection := domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps})
 	connect := func(domain.CatalogSource) (Client, error) { return nil, errors.New("unexpected connection") }
 
-	_, err := NewUsecase(deps, projection, fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, &pricingadapter.UpstreamCatalogModelsCache{}, func() (domain.CatalogSource, bool, error) { return domain.CatalogSource{}, false, nil }, connect).Execute(context.Background())
+	_, err := NewUsecase(deps, projection, fakeStore{}, &pricingadapter.UpstreamCatalogDocumentsCache{}, &pricingadapter.UpstreamCatalogModelsCache{}, fakeStore{}, func() (domain.CatalogSource, bool, error) { return domain.CatalogSource{}, false, nil }, connect).Execute(context.Background())
 	require.EqualError(t, err, "upstream catalog source is not configured")
 
 	client := newClient(strings.Repeat("1", 64), textModel("acme/chat", []string{chatPath}, nil))
@@ -225,5 +282,61 @@ func TestExecuteReusesDecodedStoredDocuments(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"acme/chat", "acme/imported"}, models.Addable)
 		assert.Equal(t, []string{"acme/chat"}, client.downloaded)
+	}
+}
+
+// A manifest that lost more than 30% of the published models (the head models
+// the channels request) blocks the auto-apply of its models; they are still
+// listed and addable. Alias targets and models no channel requests are not
+// compared. The flag follows the current head, also for the models of a cached
+// revision, and an unreadable head is an error, not an unblocked catalog.
+func TestExecuteBlocksAutoApplyAfterPublishedModelLoss(t *testing.T) {
+	eligible := &domain.SourceEligibility{Eligible: true}
+	var listed []catalogModel
+	var listedIDs []string
+	for _, id := range []string{"acme/m4", "acme/m5", "acme/m6", "acme/m7", "acme/m8", "acme/m9", "acme/m10"} {
+		listed = append(listed, textModel(id, []string{chatPath}, eligible))
+		listedIDs = append(listedIDs, id)
+	}
+	lostThree := append([]string{"acme/m1", "acme/m2", "acme/m3"}, listedIDs...)
+	lostFour := append([]string{"acme/m0"}, lostThree[:len(lostThree)-1]...)
+	// Ten unrequested alias targets the manifest still lists would make the
+	// loss of four requested models 4/20 of the whole head.
+	targets := []string{"acme/t0", "acme/t1", "acme/t2", "acme/t3", "acme/t4", "acme/t5", "acme/t6", "acme/t7", "acme/t8", "acme/t9"}
+	for _, id := range targets {
+		listed = append(listed, textModel(id, []string{chatPath}, eligible))
+	}
+	listedIDs = append(listedIDs, targets...)
+	readFailure := errors.New("catalog head unreadable")
+	cachedRevision := &pricingadapter.UpstreamCatalogModelsCache{}
+	for _, tc := range []struct {
+		name    string
+		store   testStore
+		blocked bool
+		err     error
+	}{
+		{name: "no published head", store: fakeStore{}},
+		{name: "lost 3 of 10 published models", store: headStore{head: lostThree, requested: lostThree}},
+		{name: "lost 4 of 10 published models", store: headStore{head: lostFour, requested: lostFour}, blocked: true},
+		{name: "lost 4 of 10 requested models beside 10 alias targets", store: headStore{head: append(slices.Clone(lostFour), targets...), requested: lostFour}, blocked: true},
+		{name: "lost models no channel requests", store: headStore{head: lostFour, requested: lostFour[4:]}},
+		{name: "lost models of a disabled channel", store: headStore{head: lostFour, requested: lostFour, channelDisabled: true}},
+		{name: "head without the lost models", store: headStore{head: listedIDs, requested: listedIDs}},
+		{name: "head unreadable", store: headStore{head: lostFour, requested: lostFour, headErr: readFailure}, err: readFailure},
+		{name: "head selection unreadable", store: headStore{head: lostFour, requested: lostFour, selectionErr: readFailure}, err: readFailure},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, cache := range []Cache{&pricingadapter.UpstreamCatalogModelsCache{}, cachedRevision} {
+				models, err := newUsecase(tc.store, &pricingadapter.UpstreamCatalogDocumentsCache{}, cache, newClient(strings.Repeat("1", 64), listed...)).Execute(context.Background())
+				if tc.err != nil {
+					require.ErrorIs(t, err, tc.err)
+					continue
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tc.blocked, models.AutoApplyBlocked)
+				assert.Equal(t, listedIDs, models.Listed)
+				assert.Equal(t, listedIDs, models.Addable)
+			}
+		})
 	}
 }

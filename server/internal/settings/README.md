@@ -40,6 +40,8 @@ Cache-Control, Vary и ответ 304. GET редактора исключает
 - Setup: `app/systemruntime` записывает SelfUseModeEnabled и DemoSiteEnabled через `Default().Write`.
 - Channels: `app/channels.go` передаёт `adapter/gorm/settings.Store` плановой проверке моделей upstream как хранилище
   отпечатка последнего доставленного отчёта (`ReadOption`, `SaveBulk`, строка `channel_model_update_report_fingerprint`).
+- Pricing: `app/pricing.go` передаёт `adapter/gorm/settings.Store` обновлению каталога цен (`refresh_catalogue`) как хранилище
+  ревизии каталога, о которой уже ушёл алерт (`ReadOption`, `SaveBulk`, строка `pricing_catalog_rejected_revision`).
 
 Порты Store сценариев реализует `adapter/gorm/settings`: Option record, чтение всех строк,
 чтение одной строки (`ReadOption`; нет строки — пустое значение), legacy FirstOrCreate/Save и checked batch transaction. Single path игнорирует SQL errors

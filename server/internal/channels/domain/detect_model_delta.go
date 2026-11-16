@@ -26,7 +26,7 @@ func (rules ModelUpdateRules) DetectModelDelta(channel *Channel, state *ModelUpd
 	// A scheduled sync only adds models, so an addition that replaces a
 	// pending removal under its name stays pending for a manual apply.
 	autoAddModels := []string{}
-	if allowAutoApply && state.AutoSyncEnabled {
+	if allowAutoApply && state.AutoSyncEnabled && !upstreamModels.AutoApplyBlocked {
 		replacements, replacementErr := rules.SameNameReplacements(channel.Type, pendingAddModels, pendingRemoveModels, modelMapping)
 		if replacementErr != nil {
 			return false, 0, replacementErr

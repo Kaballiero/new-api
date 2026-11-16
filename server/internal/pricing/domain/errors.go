@@ -1,6 +1,9 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Business errors of pricing scenarios. The transport maps each of them to the
 // status, code and message of the HTTP response; the texts reach clients as is
@@ -36,6 +39,20 @@ var (
 	// before publication.
 	ErrCatalogSourceChanged = errors.New("catalog source changed before publication")
 )
+
+// CatalogModelLossError rejects an upstream catalog revision that lost more
+// than MaxCatalogModelLossPercent of the published models: the head stays at
+// HeadRemoteRevision.
+type CatalogModelLossError struct {
+	RemoteRevision     string
+	HeadRemoteRevision string
+	Lost               []string
+	Published          int
+}
+
+func (e CatalogModelLossError) Error() string {
+	return fmt.Sprintf("upstream catalog revision lost too many published models: remote_revision=%s lost=%d published=%d head=%s", e.RemoteRevision, len(e.Lost), e.Published, e.HeadRemoteRevision)
+}
 
 // InvalidQuery marks cause as a rejected pricing query: errors.Is(err,
 // ErrInvalidQuery) holds, errors.Unwrap returns cause and the message is the

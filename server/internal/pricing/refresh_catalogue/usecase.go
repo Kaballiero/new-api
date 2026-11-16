@@ -28,10 +28,25 @@ type Source struct {
 	Fingerprint string
 }
 type Store interface {
-	Abilities() ([]domain.BuildAbility, error)
+	domain.CatalogChannels
 	Pricing() []domain.Pricing
 	Channel(int) (Channel, error)
 }
+
+// CatalogAlerts tells the administrators about a rejected upstream catalog
+// revision.
+type CatalogAlerts interface {
+	ModelLoss(domain.CatalogModelLossError) error
+}
+
+// SentAlerts keeps the remote revision of the last delivered model loss alert.
+type SentAlerts interface {
+	ReadOption(ctx context.Context, key string) (string, error)
+	SaveBulk(ctx context.Context, keys []string, values map[string]string) error
+}
+
+const rejectedRevisionKey = "pricing_catalog_rejected_revision"
+
 type Usecase struct {
 	deps            domain.Capabilities
 	store           Store
@@ -41,10 +56,12 @@ type Usecase struct {
 	normalizer      *domain.NativeNormalizer
 	batchExpression func(string) (string, bool)
 	now             func() time.Time
+	alerts          CatalogAlerts
+	sentAlerts      SentAlerts
 }
 
-func NewUsecase(deps domain.Capabilities, store Store, source func() (domain.CatalogSource, bool, error), sync func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error), publish func(context.Context, []domain.PricingCatalogEntry) (int, error), normalizer *domain.NativeNormalizer, batchExpression func(string) (string, bool), now func() time.Time) Usecase {
-	return Usecase{deps: deps, store: store, source: source, sync: sync, publish: publish, normalizer: normalizer, batchExpression: batchExpression, now: now}
+func NewUsecase(deps domain.Capabilities, store Store, source func() (domain.CatalogSource, bool, error), sync func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error), publish func(context.Context, []domain.PricingCatalogEntry) (int, error), normalizer *domain.NativeNormalizer, batchExpression func(string) (string, bool), now func() time.Time, alerts CatalogAlerts, sentAlerts SentAlerts) Usecase {
+	return Usecase{deps: deps, store: store, source: source, sync: sync, publish: publish, normalizer: normalizer, batchExpression: batchExpression, now: now, alerts: alerts, sentAlerts: sentAlerts}
 }
 func (u Usecase) DiscoverSources(ctx context.Context) ([]Source, error) {
 	abilities, err := u.store.Abilities()
@@ -307,38 +324,20 @@ func (u Usecase) FetchSource(ctx context.Context, source Source) (domain.Pricing
 // channel policy remain NewAPI-owned; the upstream supplies only model facts.
 func (u Usecase) RefreshUpstream(ctx context.Context, source domain.CatalogSource) (domain.CatalogRefreshSummary, error) {
 	summary := domain.CatalogRefreshSummary{}
-	abilities, err := u.store.Abilities()
+	requested, err := domain.CatalogRequestedModels(u.deps, u.store)
 	if err != nil {
 		return summary, err
-	}
-	channels := map[int]Channel{}
-	requested := map[string]bool{}
-	for _, ability := range abilities {
-		if ability.ChannelType != constant.ChannelTypeOpenRouter {
-			continue
-		}
-		channel, exists := channels[ability.ChannelId]
-		if !exists {
-			channel, err = u.store.Channel(ability.ChannelId)
-			if err != nil {
-				return summary, err
-			}
-			channels[ability.ChannelId] = channel
-		}
-		if channel.Value().Status != constant.ChannelStatusEnabled || !domain.IsOpenRouterCatalogChannel(channel.Value()) {
-			continue
-		}
-		upstream, resolved := domain.ResolvePricingUpstreamModel(u.deps, channel.Value(), ability.Model)
-		if !resolved {
-			return summary, fmt.Errorf("catalog channel model mapping is unresolved")
-		}
-		requested[upstream] = true
 	}
 	summary.Sources = len(requested)
 	if len(requested) == 0 {
 		return summary, nil
 	}
 	result, err := u.sync(ctx, source, requested)
+	var lossErr domain.CatalogModelLossError
+	if errors.As(err, &lossErr) {
+		summary.LostModels = lossErr.Lost
+		return summary, errors.Join(err, u.alertModelLoss(ctx, lossErr))
+	}
 	if err != nil {
 		return summary, err
 	}
@@ -348,4 +347,22 @@ func (u Usecase) RefreshUpstream(ctx context.Context, source domain.CatalogSourc
 	summary.ReusedDocuments = result.Publication.ReusedDocuments
 	summary.Revision = result.Publication.Revision
 	return summary, nil
+}
+
+// alertModelLoss sends the model loss alert once per rejected remote revision:
+// the task runs more often than the catalog publishes. An unreadable record of
+// the last alert sends it again; an undelivered alert is not recorded, so the
+// next run sends it. The returned error only reports these failures.
+func (u Usecase) alertModelLoss(ctx context.Context, lossErr domain.CatalogModelLossError) error {
+	alertedRevision, readErr := u.sentAlerts.ReadOption(ctx, rejectedRevisionKey)
+	if alertedRevision == lossErr.RemoteRevision {
+		return nil
+	}
+	if err := u.alerts.ModelLoss(lossErr); err != nil {
+		return errors.Join(readErr, fmt.Errorf("catalog model loss alert failed: %w", err))
+	}
+	if err := u.sentAlerts.SaveBulk(ctx, []string{rejectedRevisionKey}, map[string]string{rejectedRevisionKey: lossErr.RemoteRevision}); err != nil {
+		return errors.Join(readErr, fmt.Errorf("catalog model loss alert record failed: %w", err))
+	}
+	return readErr
 }

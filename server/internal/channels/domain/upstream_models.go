@@ -100,10 +100,13 @@ type ModelUpdateState struct {
 // with one of them is listed when the target without it is. A channel model
 // whose target is not listed is a removal candidate, so an empty Listed means
 // the upstream lists no models and every channel model is a removal candidate.
+// AutoApplyBlocked marks models of a source that lost too many published
+// models: their changes are detected, but a scheduled run applies none of them.
 type UpstreamModels struct {
-	Listed    []string
-	Addable   []string
-	Shortcuts []string
+	Listed           []string
+	Addable          []string
+	Shortcuts        []string
+	AutoApplyBlocked bool
 }
 
 func CollectPendingApplyUpstreamModelChanges(state ModelUpdateState) (pendingAddModels []string, pendingRemoveModels []string) {
