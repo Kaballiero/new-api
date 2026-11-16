@@ -1,9 +1,20 @@
 package domain
 
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"slices"
+	"strconv"
+	"strings"
+)
+
 type ModelUpdateChannelSummary struct {
-	ChannelName string
-	AddCount    int
-	RemoveCount int
+	ChannelID           int
+	ChannelName         string
+	AddCount            int
+	RemoveCount         int
+	PendingAddModels    []string
+	PendingRemoveModels []string
 }
 
 // ModelUpdateReport is the content of the upstream model update notification
@@ -24,6 +35,7 @@ type ModelUpdateReport struct {
 // ModelUpdateConflict is an upstream model of a channel that was not offered
 // for addition because its canonical name is taken by another target.
 type ModelUpdateConflict struct {
+	ChannelID   int
 	ChannelName string
 	Model       string
 }
@@ -37,6 +49,28 @@ type ModelUpdateSummary struct {
 	AutoAddedModels      int `json:"auto_added_models"`
 }
 
-func RepeatedModelUpdateNotification(now int64, changed, failed int, last int64, lastChanged, lastFailed int, window int64) bool {
-	return last > 0 && now-last < window && lastChanged == changed && lastFailed == failed
+// ModelUpdateReportFingerprint identifies the decisions a report asks for:
+// the pending additions, removals and conflicts of each channel and the failed
+// channels, in any order. Applied changes are not part of it: the run that
+// applies a change reports it once.
+func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
+	var lines []string
+	for _, channel := range report.Channels {
+		channelID := strconv.Itoa(channel.ChannelID)
+		for _, model := range channel.PendingAddModels {
+			lines = append(lines, channelID+" add "+model)
+		}
+		for _, model := range channel.PendingRemoveModels {
+			lines = append(lines, channelID+" remove "+model)
+		}
+	}
+	for _, conflict := range report.ConflictModels {
+		lines = append(lines, strconv.Itoa(conflict.ChannelID)+" conflict "+conflict.Model)
+	}
+	for _, channelID := range report.FailedChannelIDs {
+		lines = append(lines, strconv.Itoa(channelID)+" failed")
+	}
+	slices.Sort(lines)
+	fingerprint := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(fingerprint[:])
 }

@@ -22,12 +22,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var modelUpdateNotifications channeladapter.ModelUpdateNotifications
-
 var Channels = sync.OnceValue(func() app.ChannelsHTTP { return app.NewChannelsHTTP(ChannelEffects()) })
 
 func ChannelEffects() app.ChannelEffects {
-	return app.ChannelEffects{ModelUpdateThrottle: modelUpdateNotifications.Allow, EnqueueModelUpdate: func() (detect_all_upstream_model_updates.Task, bool, error) {
+	return app.ChannelEffects{EnqueueModelUpdate: func() (detect_all_upstream_model_updates.Task, bool, error) {
 		queued, err := systemcore.Default().Enqueue.Execute(enqueue_system_task.Input{Type: systemrecord.SystemTaskTypeModelUpdate, Payload: map[string]bool{"manual": true}})
 		task, created := queued.Task, queued.Created
 		if task == nil {

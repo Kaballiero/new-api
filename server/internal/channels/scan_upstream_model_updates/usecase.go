@@ -18,6 +18,15 @@ type Store interface {
 	CountEnabled() (int64, error)
 	NextEnabled(int) ([]*domain.Channel, int, bool, error)
 }
+
+// SentReports keeps the fingerprint of the last delivered report.
+type SentReports interface {
+	ReadOption(ctx context.Context, key string) (string, error)
+	SaveBulk(ctx context.Context, keys []string, values map[string]string) error
+}
+
+const sentReportFingerprintKey = "channel_model_update_report_fingerprint"
+
 type Usecase struct {
 	store            Store
 	rules            domain.ModelUpdateRules
@@ -27,12 +36,12 @@ type Usecase struct {
 	interval         func() time.Duration
 	debug            func() bool
 	log              func(string)
-	throttle         func(int64, int, int) bool
-	notify           func(domain.ModelUpdateReport)
+	sentReports      SentReports
+	notify           func(domain.ModelUpdateReport) error
 }
 
-func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(context.Context, *domain.Channel) (domain.UpstreamModels, error), refresh func(), now, minInterval func() int64, interval func() time.Duration, debug func() bool, log func(string), throttle func(int64, int, int) bool, notify func(domain.ModelUpdateReport)) Usecase {
-	return Usecase{store: store, rules: rules, fetch: fetch, refresh: refresh, now: now, minInterval: minInterval, interval: interval, debug: debug, log: log, throttle: throttle, notify: notify}
+func NewUsecase(store Store, rules domain.ModelUpdateRules, fetch func(context.Context, *domain.Channel) (domain.UpstreamModels, error), refresh func(), now, minInterval func() int64, interval func() time.Duration, debug func() bool, log func(string), sentReports SentReports, notify func(domain.ModelUpdateReport) error) Usecase {
+	return Usecase{store: store, rules: rules, fetch: fetch, refresh: refresh, now: now, minInterval: minInterval, interval: interval, debug: debug, log: log, sentReports: sentReports, notify: notify}
 }
 func (usecase Usecase) Check(
 	ctx context.Context,
@@ -130,6 +139,7 @@ func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply b
 	removeModelSamples := make([]string, 0)
 	conflictModels := make([]domain.ModelUpdateConflict, 0)
 	refreshNeeded := false
+	channelQueryFailed := false
 
 	// Count the enabled channels up front so progress can be reported as a
 	// percentage; a count error is non-fatal (progress just won't show a %).
@@ -150,6 +160,7 @@ scanLoop:
 
 		if err != nil {
 			usecase.log(fmt.Sprintf("upstream model update task query failed: %v", err))
+			channelQueryFailed = true
 			break
 		}
 		if len(channels) == 0 {
@@ -201,15 +212,18 @@ scanLoop:
 			if currentAddCount > 0 || currentRemoveCount > 0 {
 				changedChannels++
 				channelSummaries = append(channelSummaries, domain.ModelUpdateChannelSummary{
-					ChannelName: channel.Name,
-					AddCount:    currentAddCount,
-					RemoveCount: currentRemoveCount,
+					ChannelID:           channel.Id,
+					ChannelName:         channel.Name,
+					AddCount:            currentAddCount,
+					RemoveCount:         currentRemoveCount,
+					PendingAddModels:    currentAddModels,
+					PendingRemoveModels: currentRemoveModels,
 				})
 			}
 			addModelSamples = domain.MergeModelNames(addModelSamples, currentAddModels)
 			removeModelSamples = domain.MergeModelNames(removeModelSamples, currentRemoveModels)
 			for _, conflictModel := range domain.NormalizeModelNames(settings.LastConflictModels) {
-				conflictModels = append(conflictModels, domain.ModelUpdateConflict{ChannelName: channel.Name, Model: conflictModel})
+				conflictModels = append(conflictModels, domain.ModelUpdateConflict{ChannelID: channel.Id, ChannelName: channel.Name, Model: conflictModel})
 			}
 			if configChanged {
 				refreshNeeded = true
@@ -262,30 +276,54 @@ scanLoop:
 			autoAddedModels,
 		))
 	}
-	// Conflicts need an admin decision, so they are reported even when the
-	// scan found nothing else.
-	if changedChannels > 0 || failedChannels > 0 || len(conflictModels) > 0 {
-		now := usecase.now()
-		if !usecase.throttle(now, changedChannels, failedChannels) {
-			usecase.log(fmt.Sprintf(
-				"upstream model update notification skipped in 24h window: changed_channels=%d failed_channels=%d",
-				changedChannels,
-				failedChannels,
-			))
-			return summary
-		}
-		usecase.notify(domain.ModelUpdateReport{
-			CheckedChannels:      checkedChannels,
-			ChangedChannels:      changedChannels,
-			DetectedAddModels:    detectedAddModels,
-			DetectedRemoveModels: detectedRemoveModels,
-			AutoAddedModels:      autoAddedModels,
-			FailedChannelIDs:     failedChannelIDs,
-			Channels:             channelSummaries,
-			AddModelSamples:      addModelSamples,
-			RemoveModelSamples:   removeModelSamples,
-			ConflictModels:       conflictModels,
-		})
+	// A scan that stopped early, cancelled or on a failed channel query, has
+	// not seen every channel: its report is not sent and the fingerprint of the
+	// last delivered report stays.
+	if channelQueryFailed || (ctx != nil && ctx.Err() != nil) {
+		return summary
 	}
+	sentFingerprint, err := usecase.sentReports.ReadOption(ctx, sentReportFingerprintKey)
+	if err != nil {
+		usecase.log(fmt.Sprintf("upstream model update report fingerprint read failed, the report is sent: %v", err))
+	}
+	// Conflicts need an admin decision, so they are reported even when the
+	// scan found nothing else. A scan without findings clears the fingerprint,
+	// so a problem that comes back is reported again.
+	if changedChannels == 0 && failedChannels == 0 && len(conflictModels) == 0 {
+		if sentFingerprint != "" {
+			usecase.saveSentReportFingerprint(ctx, "")
+		}
+		return summary
+	}
+	modelUpdateReport := domain.ModelUpdateReport{
+		CheckedChannels:      checkedChannels,
+		ChangedChannels:      changedChannels,
+		DetectedAddModels:    detectedAddModels,
+		DetectedRemoveModels: detectedRemoveModels,
+		AutoAddedModels:      autoAddedModels,
+		FailedChannelIDs:     failedChannelIDs,
+		Channels:             channelSummaries,
+		AddModelSamples:      addModelSamples,
+		RemoveModelSamples:   removeModelSamples,
+		ConflictModels:       conflictModels,
+	}
+	// A report with applied changes is always sent: the fingerprint holds only
+	// what waits for a decision, and an applied change does not repeat.
+	reportFingerprint := domain.ModelUpdateReportFingerprint(modelUpdateReport)
+	if autoAddedModels == 0 && reportFingerprint == sentFingerprint {
+		usecase.log(fmt.Sprintf("upstream model update notification skipped: report unchanged fingerprint=%s", reportFingerprint[:12]))
+		return summary
+	}
+	if err := usecase.notify(modelUpdateReport); err != nil {
+		return summary
+	}
+	usecase.saveSentReportFingerprint(ctx, reportFingerprint)
 	return summary
+}
+
+func (usecase Usecase) saveSentReportFingerprint(ctx context.Context, fingerprint string) {
+	err := usecase.sentReports.SaveBulk(ctx, []string{sentReportFingerprintKey}, map[string]string{sentReportFingerprintKey: fingerprint})
+	if err != nil {
+		usecase.log(fmt.Sprintf("upstream model update report fingerprint save failed: %v", err))
+	}
 }

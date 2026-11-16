@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 
 	"github.com/QuantumNous/new-api/internal/adapter/gorm/settings/record"
 	"github.com/QuantumNous/new-api/internal/settings/domain"
@@ -20,6 +21,16 @@ func (s Store) All() ([]domain.Option, error) {
 		options = append(options, domain.Option{Key: row.Key, Value: row.Value})
 	}
 	return options, err
+}
+
+// ReadOption returns the stored value of key, or "" when no row holds it.
+func (s Store) ReadOption(ctx context.Context, key string) (string, error) {
+	var option record.Option
+	err := s.db().WithContext(ctx).Take(&option, record.Option{Key: key}).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil
+	}
+	return option.Value, err
 }
 
 // SaveLegacy preserves the ignored FirstOrCreate and Save errors (TECH_DEBT #58).

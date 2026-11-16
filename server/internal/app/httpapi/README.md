@@ -11,9 +11,8 @@ projection и completion callbacks: primary login, Passkey с auth version и ve
 login сохраняют прежние точки входа. Audit writer собирается единожды в app/audit.
 
 Channels получает gateway probe/fetch, audit, security errors, refresh и system-task
-enqueue capabilities. Состояние подавления повторных model-update notifications
-принадлежит adapter/channels.ModelUpdateNotifications; HTTP и scheduler используют
-один экземпляр. Request-local stores и usecases по-прежнему создаются своим app owner.
+enqueue capabilities. Повторы model-update notifications подавляет отпечаток последнего
+доставленного отчёта в таблице `options`; хранилище подключает app/channels.go. Request-local stores и usecases по-прежнему создаются своим app owner.
 
 RegisterScheduledSystemTasks передаёт те же channel effects в app/systemruntime;
 main вызывает его на каждом узле перед system runner; прежний master gate находится
@@ -22,6 +21,6 @@ AutomaticallyUpdateChannels сохраняет бесконечный sleep-firs
 позднее выполнение balance usecase и прежние logs, без нового master/once gate.
 
 Тестовые convenience helpers находятся только в controller *_test.go.
-Они вызывают настоящих владельцев; native channel fixtures передают fetch/throttle
+Они вызывают настоящих владельцев; native channel fixtures передают fetch
 через явный app.ChannelEffects, без изменяемого production hook.
 Пакет не владеет бизнес-решениями, SQL, credential protocol или состоянием аудита.
