@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/QuantumNous/new-api/constant"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -66,20 +69,67 @@ func ValidCatalogHash(value string) bool {
 // revision may lose and still be applied.
 const MaxCatalogModelLossPercent = 30
 
-// CatalogModelLoss returns the published models the manifest no longer lists
-// and whether their share of published exceeds MaxCatalogModelLossPercent.
-func CatalogModelLoss(published []string, manifest SourceManifest) (lost []string, exceeded bool) {
+// CatalogChannels reads the enabled abilities and the channels they belong to.
+type CatalogChannels interface {
+	Abilities() ([]BuildAbility, error)
+	BuildChannel(int) (*BuildChannel, error)
+}
+
+// CatalogRequestedModels are the upstream catalog models the channels request:
+// the upstream model each ability of an enabled OpenRouter catalog channel
+// resolves to.
+func CatalogRequestedModels(deps Capabilities, channels CatalogChannels) (map[string]bool, error) {
+	abilities, err := channels.Abilities()
+	if err != nil {
+		return nil, err
+	}
+	loaded := map[int]*BuildChannel{}
+	requested := map[string]bool{}
+	for _, ability := range abilities {
+		if ability.ChannelType != constant.ChannelTypeOpenRouter {
+			continue
+		}
+		channel, exists := loaded[ability.ChannelId]
+		if !exists {
+			channel, err = channels.BuildChannel(ability.ChannelId)
+			if err != nil {
+				return nil, err
+			}
+			loaded[ability.ChannelId] = channel
+		}
+		if channel.Status != constant.ChannelStatusEnabled || !IsOpenRouterCatalogChannel(channel) {
+			continue
+		}
+		upstream, resolved := ResolvePricingUpstreamModel(deps, channel, ability.Model)
+		if !resolved {
+			return nil, fmt.Errorf("catalog channel model mapping is unresolved")
+		}
+		requested[upstream] = true
+	}
+	return requested, nil
+}
+
+// CatalogModelLoss compares a manifest with the published models: the models
+// of the head selection the channels request. The head also holds alias
+// targets and models no channel requests any more; they are not compared.
+// Lost are the published models the manifest no longer lists; exceeded tells
+// whether their share of published exceeds MaxCatalogModelLossPercent.
+func CatalogModelLoss(head CatalogSelection, requested map[string]bool, manifest SourceManifest) (lost []string, published int, exceeded bool) {
 	listed := make(map[string]bool, len(manifest.Models))
 	for _, ref := range manifest.Models {
 		listed[ref.ID] = true
 	}
-	for _, id := range published {
-		if !listed[id] {
-			lost = append(lost, id)
+	for _, ref := range head.Models {
+		if !requested[ref.ID] {
+			continue
+		}
+		published++
+		if !listed[ref.ID] {
+			lost = append(lost, ref.ID)
 		}
 	}
 	slices.Sort(lost)
-	return lost, len(lost)*100 > MaxCatalogModelLossPercent*len(published)
+	return lost, published, len(lost)*100 > MaxCatalogModelLossPercent*published
 }
 
 // OpenRouterShortcuts are the OpenRouter provider routing shortcuts: a model

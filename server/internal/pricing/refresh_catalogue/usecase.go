@@ -28,7 +28,7 @@ type Source struct {
 	Fingerprint string
 }
 type Store interface {
-	Abilities() ([]domain.BuildAbility, error)
+	domain.CatalogChannels
 	Pricing() []domain.Pricing
 	Channel(int) (Channel, error)
 }
@@ -324,32 +324,9 @@ func (u Usecase) FetchSource(ctx context.Context, source Source) (domain.Pricing
 // channel policy remain NewAPI-owned; the upstream supplies only model facts.
 func (u Usecase) RefreshUpstream(ctx context.Context, source domain.CatalogSource) (domain.CatalogRefreshSummary, error) {
 	summary := domain.CatalogRefreshSummary{}
-	abilities, err := u.store.Abilities()
+	requested, err := domain.CatalogRequestedModels(u.deps, u.store)
 	if err != nil {
 		return summary, err
-	}
-	channels := map[int]Channel{}
-	requested := map[string]bool{}
-	for _, ability := range abilities {
-		if ability.ChannelType != constant.ChannelTypeOpenRouter {
-			continue
-		}
-		channel, exists := channels[ability.ChannelId]
-		if !exists {
-			channel, err = u.store.Channel(ability.ChannelId)
-			if err != nil {
-				return summary, err
-			}
-			channels[ability.ChannelId] = channel
-		}
-		if channel.Value().Status != constant.ChannelStatusEnabled || !domain.IsOpenRouterCatalogChannel(channel.Value()) {
-			continue
-		}
-		upstream, resolved := domain.ResolvePricingUpstreamModel(u.deps, channel.Value(), ability.Model)
-		if !resolved {
-			return summary, fmt.Errorf("catalog channel model mapping is unresolved")
-		}
-		requested[upstream] = true
 	}
 	summary.Sources = len(requested)
 	if len(requested) == 0 {
@@ -384,5 +361,8 @@ func (u Usecase) alertModelLoss(ctx context.Context, lossErr domain.CatalogModel
 	if err := u.alerts.ModelLoss(lossErr); err != nil {
 		return errors.Join(readErr, fmt.Errorf("catalog model loss alert failed: %w", err))
 	}
-	return errors.Join(readErr, u.sentAlerts.SaveBulk(ctx, []string{rejectedRevisionKey}, map[string]string{rejectedRevisionKey: lossErr.RemoteRevision}))
+	if err := u.sentAlerts.SaveBulk(ctx, []string{rejectedRevisionKey}, map[string]string{rejectedRevisionKey: lossErr.RemoteRevision}); err != nil {
+		return errors.Join(readErr, fmt.Errorf("catalog model loss alert record failed: %w", err))
+	}
+	return readErr
 }

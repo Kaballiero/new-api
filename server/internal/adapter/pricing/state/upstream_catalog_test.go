@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/internal/pricing/list_upstream_catalog_models"
 	"github.com/QuantumNous/new-api/internal/pricing/sync_upstream_catalog"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
@@ -395,15 +397,51 @@ func TestUpstreamCatalogStorage(t *testing.T) {
 	}
 }
 
-// lossGuardClient serves one manifest; the payload of a model document is its
-// id, and the manifest references each model by the hash of that payload.
-type lossGuardClient struct{ manifest pricingdomain.SourceManifest }
+// lossGuardClient serves one manifest and its index; the payload of a model
+// document is its id, the manifest references each model by the hash of that
+// payload, and aliases maps an alias model to its target.
+type lossGuardClient struct {
+	manifest pricingdomain.SourceManifest
+	aliases  map[string]string
+}
 
+func lossGuardManifest(revision string, ids []string) pricingdomain.SourceManifest {
+	manifest := pricingdomain.SourceManifest{SchemaVersion: 1, NormalizationVersion: "1", Revision: strings.Repeat(revision, 64), FetchedAt: "2026-11-16T00:00:00Z"}
+	for _, id := range ids {
+		manifest.Models = append(manifest.Models, pricingdomain.SourceReference{ID: id, Hash: pricingstate.CatalogHash([]byte(id))})
+	}
+	return manifest
+}
 func (client lossGuardClient) Manifest(context.Context) (pricingdomain.SourceManifest, error) {
 	return client.manifest, nil
 }
-func (lossGuardClient) Document(_ context.Context, ref pricingdomain.SourceReference) ([]byte, *pricingdomain.SourceDocument, error) {
-	return []byte(ref.ID), &pricingdomain.SourceDocument{ID: ref.ID}, nil
+func (client lossGuardClient) Index(context.Context) (pricingdomain.SourceIndex, error) {
+	index := pricingdomain.SourceIndex{Revision: client.manifest.Revision}
+	for _, ref := range client.manifest.Models {
+		index.Models = append(index.Models, pricingdomain.SourceIndexModel{ID: ref.ID, Hash: ref.Hash})
+	}
+	return index, nil
+}
+func (client lossGuardClient) Document(_ context.Context, ref pricingdomain.SourceReference) ([]byte, *pricingdomain.SourceDocument, error) {
+	document := &pricingdomain.SourceDocument{ID: ref.ID}
+	if target, alias := client.aliases[ref.ID]; alias {
+		document.Alias = &pricingdomain.SourceAlias{TargetID: target}
+	}
+	return []byte(ref.ID), document, nil
+}
+
+// lossGuardChannels is one enabled OpenRouter channel with the models.
+type lossGuardChannels []string
+
+func (models lossGuardChannels) Abilities() ([]pricingdomain.BuildAbility, error) {
+	abilities := []pricingdomain.BuildAbility{}
+	for _, model := range models {
+		abilities = append(abilities, pricingdomain.BuildAbility{Model: model, Group: "default", ChannelId: 1, ChannelType: constant.ChannelTypeOpenRouter})
+	}
+	return abilities, nil
+}
+func (lossGuardChannels) BuildChannel(int) (*pricingdomain.BuildChannel, error) {
+	return &pricingdomain.BuildChannel{Id: 1, Type: constant.ChannelTypeOpenRouter, Status: constant.ChannelStatusEnabled}, nil
 }
 
 // A revision that lost more than 30% of the requested models the head
@@ -431,10 +469,7 @@ func TestSyncUpstreamCatalogRejectsRevisionThatLostPublishedModels(t *testing.T)
 				{name: "lost 3 of 10 published models", revision: "3", listed: ten[3:], requested: ten},
 				{name: "lost models the channels no longer request", revision: "4", listed: ten[7:], requested: ten[7:]},
 			} {
-				manifest := pricingdomain.SourceManifest{SchemaVersion: 1, NormalizationVersion: "1", Revision: strings.Repeat(step.revision, 64), FetchedAt: "2026-11-16T00:00:00Z"}
-				for _, id := range step.listed {
-					manifest.Models = append(manifest.Models, pricingdomain.SourceReference{ID: id, Hash: pricingstate.CatalogHash([]byte(id))})
-				}
+				manifest := lossGuardManifest(step.revision, step.listed)
 				requested := map[string]bool{}
 				for _, id := range step.requested {
 					requested[id] = true
@@ -455,6 +490,7 @@ func TestSyncUpstreamCatalogRejectsRevisionThatLostPublishedModels(t *testing.T)
 					assert.Equal(t, "Каталог upstream: ревизия не применена", subject)
 					assert.Equal(t, "Ревизия каталога "+strings.Repeat("2", 64)+" потеряла 4 из 10 опубликованных моделей (40%, допустимо не больше 30%). "+
 						"Цены остаются по ревизии "+strings.Repeat("1", 64)+", модели каналов автоматически не меняются."+
+						"\n\nЧтобы ревизия применилась, уберите пропавшие модели из включённых каналов OpenRouter (из всех, в том числе модели, которые ведут к ним через маппинг) или отключите эти каналы. Полный список — в lost_models задачи pricing_catalog."+
 						"\n\nПропавшие модели (показано 4/4): acme/m01, acme/m02, acme/m03, acme/m04", content)
 					continue
 				}
@@ -473,6 +509,93 @@ func TestSyncUpstreamCatalogRejectsRevisionThatLostPublishedModels(t *testing.T)
 			assert.EqualValues(t, 3, revisions, "the rejected revision is not stored")
 		})
 	}
+}
+
+// The prices and the channels decide on the same published models: the head
+// models the channels request. Here the head also holds the targets of the
+// requested aliases, so a loss of 2 of the 5 requested aliases is 2 of 10 head
+// models and still rejects the revision on both sides; an unreadable head
+// fails both.
+func TestUpstreamCatalogLossAgreesForPricesAndChannels(t *testing.T) {
+	aliases := map[string]string{"acme/a1": "acme/t1", "acme/a2": "acme/t2", "acme/a3": "acme/t3", "acme/a4": "acme/t4", "acme/a5": "acme/t5"}
+	targets := []string{"acme/t1", "acme/t2", "acme/t3", "acme/t4", "acme/t5"}
+	channels := lossGuardChannels{"acme/a1", "acme/a2", "acme/a3", "acme/a4", "acme/a5"}
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := upstreamCatalogTestDB(t, dialect, false)
+			ctx := context.Background()
+			source := pricingdomain.CatalogSource{ID: pricingstate.CatalogHash([]byte("loss-agreement")), Kind: "openrouter", BaseURL: "https://catalog.example"}
+			deps := pricingadapter.Capabilities()
+			documents := &pricingadapter.UpstreamCatalogDocumentsCache{}
+			requested, err := pricingdomain.CatalogRequestedModels(deps, channels)
+			require.NoError(t, err)
+			for _, step := range []struct {
+				name          string
+				revision      string
+				listed        []string
+				corruptHead   bool
+				wantRejected  bool
+				wantPublished int
+			}{
+				{name: "aliases and their targets are published", revision: "1", listed: append(slices.Clone(channels), targets...)},
+				{name: "lost 2 of 5 requested aliases", revision: "2", listed: append(slices.Clone(channels[2:]), targets...), wantRejected: true, wantPublished: 5},
+				{name: "lost 1 of 5 requested aliases", revision: "3", listed: append(slices.Clone(channels[1:]), targets...)},
+				{name: "unreadable head", revision: "4", listed: channels, corruptHead: true},
+			} {
+				manifest := lossGuardManifest(step.revision, step.listed)
+				client := lossGuardClient{manifest: manifest, aliases: aliases}
+				before, err := ensureCatalogSource(ctx, pricingrecord.CatalogSource(source))
+				require.NoError(t, err)
+				if step.corruptHead {
+					require.NoError(t, db.Model(&pricingrecord.CatalogRevision{}).Where("hash = ?", before.Revision).Update("manifest", "{}").Error)
+				}
+
+				models, listErr := list_upstream_catalog_models.NewUsecase(deps, pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), documents, &pricingadapter.UpstreamCatalogModelsCache{}, channels, func() (pricingdomain.CatalogSource, bool, error) {
+					return source, true, nil
+				}, func(pricingdomain.CatalogSource) (list_upstream_catalog_models.Client, error) { return client, nil }).Execute(ctx)
+				_, syncErr := sync_upstream_catalog.NewUsecase(deps, pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, func() {}).Execute(ctx, source, requested, client)
+
+				if step.corruptHead {
+					require.ErrorContains(t, listErr, "stored catalog revision integrity mismatch", step.name)
+					require.ErrorContains(t, syncErr, "stored catalog revision integrity mismatch", step.name)
+					after, err := ensureCatalogSource(ctx, pricingrecord.CatalogSource(source))
+					require.NoError(t, err)
+					assert.Equal(t, before, after, step.name)
+					continue
+				}
+				require.NoError(t, listErr, step.name)
+				assert.Equal(t, step.wantRejected, models.AutoApplyBlocked, step.name)
+				var lossErr pricingdomain.CatalogModelLossError
+				if !step.wantRejected {
+					require.NoError(t, syncErr, step.name)
+					continue
+				}
+				require.ErrorAs(t, syncErr, &lossErr, step.name)
+				head, err := pricingstate.ReadCatalogSelection(ctx, source.ID, before.Revision)
+				require.NoError(t, err)
+				assert.Len(t, head.Models, 10, step.name)
+				assert.Equal(t, step.wantPublished, lossErr.Published, step.name)
+				assert.Equal(t, []string{"acme/a1", "acme/a2"}, lossErr.Lost, step.name)
+			}
+		})
+	}
+}
+
+// The alert rounds the lost share up and lists at most 12 lost models.
+func TestCatalogModelLossNotification(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	var lost []string
+	for i := range 61 {
+		lost = append(lost, fmt.Sprintf("acme/m%02d", i+1))
+	}
+	head := strings.Repeat("1", 64)
+	revision := strings.Repeat("2", 64)
+	subject, content := pricingadapter.CatalogModelLossNotification(i18n.LangEn, pricingdomain.CatalogModelLossError{RemoteRevision: revision, HeadRemoteRevision: head, Lost: lost, Published: 200})
+	assert.Equal(t, "Upstream catalog: revision not applied", subject)
+	assert.Equal(t, "Upstream catalog revision "+revision+" lost 61 of 200 published models (31%, at most 30% allowed). "+
+		"Prices stay at revision "+head+"; channel models are not changed automatically."+
+		"\n\nTo apply the revision, remove the lost models from the enabled OpenRouter channels (all of them, including models that map to them) or disable those channels. The full list is in lost_models of the pricing_catalog task."+
+		"\n\nLost models (showing 12/61): acme/m01, acme/m02, acme/m03, acme/m04, acme/m05, acme/m06, acme/m07, acme/m08, acme/m09, acme/m10, acme/m11, acme/m12", content)
 }
 
 type catalogContractTransport func(*http.Request) (*http.Response, error)

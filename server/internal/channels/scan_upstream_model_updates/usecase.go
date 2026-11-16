@@ -56,7 +56,15 @@ func (usecase Usecase) Check(
 		minInterval := usecase.minInterval()
 		if settings.LastCheckTime > 0 &&
 			now-settings.LastCheckTime < minInterval {
-			return false, 0, false, nil
+			// A recent check keeps its pending changes; a catalog channel
+			// still reports whether its catalog blocks auto-apply, so the
+			// report does not change between the checks. The catalog is read
+			// once per run.
+			if !settings.CatalogSyncEnabled {
+				return false, 0, false, nil
+			}
+			upstreamModels, err := usecase.fetch(ctx, channel)
+			return false, 0, upstreamModels.AutoApplyBlocked, err
 		}
 	}
 

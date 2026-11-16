@@ -45,7 +45,7 @@ func NewUsecase(deps domain.Capabilities, store Store, documents domain.CatalogD
 // SyncUpstreamCatalog acquires one immutable remote manifest and its requested
 // alias closure. Only a complete, validated selection is allowed to move the head.
 // A manifest that lost more than domain.MaxCatalogModelLossPercent of the
-// requested models the head publishes is rejected with
+// published models (domain.CatalogModelLoss) is rejected with
 // domain.CatalogModelLossError and leaves the head. Models the channels no
 // longer request are not compared, so removing the lost models from the
 // channels lets the next revision through.
@@ -64,14 +64,8 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 		if err != nil {
 			return result, err
 		}
-		published := []string{}
-		for _, ref := range head.Models {
-			if requested[ref.ID] {
-				published = append(published, ref.ID)
-			}
-		}
-		if lost, exceeded := domain.CatalogModelLoss(published, manifest); exceeded {
-			return result, domain.CatalogModelLossError{RemoteRevision: manifest.Revision, HeadRemoteRevision: current.RemoteRevision, Lost: lost, Published: len(published)}
+		if lost, published, exceeded := domain.CatalogModelLoss(head, requested, manifest); exceeded {
+			return result, domain.CatalogModelLossError{RemoteRevision: manifest.Revision, HeadRemoteRevision: current.RemoteRevision, Lost: lost, Published: published}
 		}
 	}
 	refs := make(map[string]domain.SourceReference, len(manifest.Models))

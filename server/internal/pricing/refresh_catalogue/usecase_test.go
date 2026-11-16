@@ -29,6 +29,9 @@ type catalogStore struct{}
 func (catalogStore) Abilities() ([]domain.BuildAbility, error) {
 	return []domain.BuildAbility{{Model: "acme/chat", Group: "default", ChannelId: 1, ChannelType: constant.ChannelTypeOpenRouter}}, nil
 }
+func (catalogStore) BuildChannel(int) (*domain.BuildChannel, error) {
+	return catalogChannel{}.Value(), nil
+}
 func (catalogStore) Pricing() []domain.Pricing    { return nil }
 func (catalogStore) Channel(int) (Channel, error) { return catalogChannel{}, nil }
 
@@ -43,8 +46,8 @@ func (alerts *recordedAlerts) ModelLoss(lossErr domain.CatalogModelLossError) er
 }
 
 type optionRows struct {
-	values  map[string]string
-	readErr error
+	values           map[string]string
+	readErr, saveErr error
 }
 
 func (rows *optionRows) ReadOption(_ context.Context, key string) (string, error) {
@@ -54,6 +57,9 @@ func (rows *optionRows) ReadOption(_ context.Context, key string) (string, error
 	return rows.values[key], nil
 }
 func (rows *optionRows) SaveBulk(_ context.Context, keys []string, values map[string]string) error {
+	if rows.saveErr != nil {
+		return rows.saveErr
+	}
 	for _, key := range keys {
 		rows.values[key] = values[key]
 	}
@@ -78,6 +84,7 @@ func TestRefreshUpstreamAlertsRejectedRevisionOnce(t *testing.T) {
 		rejected    string
 		alertErr    error
 		readErr     error
+		saveErr     error
 		wantAlerts  []string
 		wantErr     string
 		wantAlerted string
@@ -88,11 +95,13 @@ func TestRefreshUpstreamAlertsRejectedRevisionOnce(t *testing.T) {
 		{name: "undelivered alert is not recorded", rejected: "c", alertErr: errors.New("gateway unavailable"), wantAlerts: []string{"c"}, wantErr: "catalog model loss alert failed: gateway unavailable", wantAlerted: "b"},
 		{name: "undelivered alert is sent by the next run", rejected: "c", wantAlerts: []string{"c"}, wantAlerted: "c"},
 		{name: "unreadable record still alerts", rejected: "c", readErr: errors.New("options unavailable"), wantAlerts: []string{"c"}, wantErr: "options unavailable", wantAlerted: "c"},
-		{name: "accepted revision is not alerted", wantAlerted: "c"},
+		{name: "unrecorded alert is reported", rejected: "d", saveErr: errors.New("options read-only"), wantAlerts: []string{"d"}, wantErr: "catalog model loss alert record failed: options read-only", wantAlerted: "c"},
+		{name: "unrecorded alert is sent again", rejected: "d", wantAlerts: []string{"d"}, wantAlerted: "d"},
+		{name: "accepted revision is not alerted", wantAlerted: "d"},
 	} {
 		rejected = step.rejected
 		alerts.sent, alerts.err = nil, step.alertErr
-		rows.readErr = step.readErr
+		rows.readErr, rows.saveErr = step.readErr, step.saveErr
 
 		summary, err := usecase.RefreshUpstream(context.Background(), domain.CatalogSource{})
 

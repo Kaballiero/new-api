@@ -1609,9 +1609,10 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 		{name: "catalog unavailable", catalogStatus: http.StatusServiceUnavailable, wantFailed: 2, wantFirstModels: "acme/chat:nitro,retired-model",
 			wantReport: "Upstream model check summary: checked 2 channels, 0 changed, 0 added, 0 removed, 0 auto-synced additions, 2 failed." +
 				"\n\nFailed channel IDs (showing 2/2): 1, 2"},
-		// A revision that lost 2 of the 3 published models is not applied:
-		// the changes are only staged and the report names the channel.
-		{name: "catalog lost published models", catalogStatus: http.StatusOK, published: []string{"acme/chat", "acme/lost-1", "acme/lost-2"}, wantFirstModels: "acme/chat:nitro,retired-model", wantDetected: []string{"acme/chat"}, wantRemoved: []string{"retired-model"},
+		// A revision that lost 1 of the 2 published models (the head models
+		// the channels request) is not applied: the changes are only staged
+		// and the report names the channel.
+		{name: "catalog lost published models", catalogStatus: http.StatusOK, published: []string{"acme/chat", "retired-model"}, wantFirstModels: "acme/chat:nitro,retired-model", wantDetected: []string{"acme/chat"}, wantRemoved: []string{"retired-model"},
 			wantReport: "Upstream model check summary: checked 2 channels, 1 changed, 1 added, 1 removed, 0 auto-synced additions, 0 failed." +
 				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
 				"\n\nAdded model samples (showing 1/1): acme/chat" +
@@ -1671,6 +1672,8 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 			settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true, UpstreamModelUpdateCatalogSyncEnabled: true}
 			first := createChannelUpstreamUpdateTestChannel(t, db, "acme/chat:nitro,retired-model", nil, settings)
 			second := createChannelUpstreamUpdateTestChannel(t, db, "acme/chat", nil, settings)
+			// The catalog publishes the models of OpenRouter channels.
+			require.NoError(t, db.Model(&model.Channel{}).Where("id IN ?", []int{first.Id, second.Id}).Update("base_url", "https://openrouter.ai/api").Error)
 
 			summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
@@ -1680,11 +1683,19 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 			assert.Equal(t, tc.wantDetected, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastDetectedModels)
 			assert.Equal(t, tc.wantRemoved, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
 			assert.Equal(t, []string{"Upstream model check notification\n\n" + tc.wantReport}, reports)
+
+			// The next run comes within the minimum check interval: the
+			// channels keep their pending changes, a catalog channel still
+			// reports the catalog block, and the report does not change.
+			summary = runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
+			assert.Equal(t, tc.wantFailed, summary.FailedChannels)
+			assert.Len(t, reports, 1)
 			persisted, _ = loadChannelUpstreamUpdateTestState(t, db, second.Id)
 			assert.Equal(t, "acme/chat", persisted.Models)
 			assert.Empty(t, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
 			if tc.catalogStatus == http.StatusOK {
-				assert.Equal(t, int32(1), manifestReads.Load())
+				// Each run reads the catalog once for both channels.
+				assert.Equal(t, int32(2), manifestReads.Load())
 			}
 		})
 	}

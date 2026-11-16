@@ -267,7 +267,7 @@ var upstreamCatalogModels pricingadapter.UpstreamCatalogModelsCache
 // process or from the database and the models of the last revision are kept in
 // the process.
 func NewListUpstreamCatalogModelsUsecase() list_upstream_catalog_models.Usecase {
-	return list_upstream_catalog_models.NewUsecase(pricingadapter.Capabilities(), NewPricingProjection(), pricingstate.NewImmutableCatalogPersistence(), &pricingruntime.UpstreamCatalogDocuments, &upstreamCatalogModels, func() (domain.CatalogSource, bool, error) {
+	return list_upstream_catalog_models.NewUsecase(pricingadapter.Capabilities(), NewPricingProjection(), pricingstate.NewImmutableCatalogPersistence(), &pricingruntime.UpstreamCatalogDocuments, &upstreamCatalogModels, pricingupstream.NativeStore{ReadPricing: pricingruntime.GetPricing}, func() (domain.CatalogSource, bool, error) {
 		v, on, err := pricingstate.ConfiguredCatalogSource()
 		return domain.CatalogSource(v), on, err
 	}, func(source domain.CatalogSource) (list_upstream_catalog_models.Client, error) {

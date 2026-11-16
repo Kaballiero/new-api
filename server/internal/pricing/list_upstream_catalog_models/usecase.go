@@ -57,12 +57,13 @@ type Usecase struct {
 	store      Store
 	documents  domain.CatalogDocumentCache
 	cache      Cache
+	channels   domain.CatalogChannels
 	source     func() (domain.CatalogSource, bool, error)
 	connect    func(domain.CatalogSource) (Client, error)
 }
 
-func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store Store, documents domain.CatalogDocumentCache, cache Cache, source func() (domain.CatalogSource, bool, error), connect func(domain.CatalogSource) (Client, error)) Usecase {
-	return Usecase{deps: deps, projection: projection, store: store, documents: documents, cache: cache, source: source, connect: connect}
+func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store Store, documents domain.CatalogDocumentCache, cache Cache, channels domain.CatalogChannels, source func() (domain.CatalogSource, bool, error), connect func(domain.CatalogSource) (Client, error)) Usecase {
+	return Usecase{deps: deps, projection: projection, store: store, documents: documents, cache: cache, channels: channels, source: source, connect: connect}
 }
 
 // Execute lists the models of the published upstream catalog as the upstream
@@ -70,7 +71,8 @@ func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store S
 // free or batch model, serves an operation the gateway supports by its type
 // and declared request path, and has a confirmed price of a synchronous offer.
 // The models are AutoApplyBlocked when the manifest lost more than
-// domain.MaxCatalogModelLossPercent of the models the head publishes.
+// domain.MaxCatalogModelLossPercent of the published models
+// (domain.CatalogModelLoss), the same comparison that keeps the head.
 func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, error) {
 	source, enabled, err := u.source()
 	if err != nil {
@@ -106,17 +108,18 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 	if err != nil && !u.store.IsMissing(err) {
 		return channeldomain.UpstreamModels{}, err
 	}
-	published := []string{}
+	autoApplyBlocked := false
 	if head.Revision != "" {
 		selection, err := u.store.ReadSelection(ctx, source.ID, head.Revision)
 		if err != nil {
 			return channeldomain.UpstreamModels{}, err
 		}
-		for _, ref := range selection.Models {
-			published = append(published, ref.ID)
+		requested, err := domain.CatalogRequestedModels(u.deps, u.channels)
+		if err != nil {
+			return channeldomain.UpstreamModels{}, err
 		}
+		_, _, autoApplyBlocked = domain.CatalogModelLoss(selection, requested, manifest)
 	}
-	_, autoApplyBlocked := domain.CatalogModelLoss(published, manifest)
 
 	if models, cached := u.cache.Load(manifest.Revision); cached {
 		models.AutoApplyBlocked = autoApplyBlocked

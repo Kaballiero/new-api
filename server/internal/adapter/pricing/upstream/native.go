@@ -85,6 +85,13 @@ func (NativeStore) Channel(id int) (refresh_catalogue.Channel, error) {
 	}
 	return NewNativeChannel(row), nil
 }
+func (NativeStore) BuildChannel(id int) (*domain.BuildChannel, error) {
+	row, err := channelstore.GetChannelById(id, true)
+	if err != nil {
+		return nil, err
+	}
+	return NewNativeChannel(row).Value(), nil
+}
 func NativePricedEndpoint(value openrouter.PricedEndpoint) domain.NativePricedEndpoint {
 	return domain.NativePricedEndpoint(value)
 }
