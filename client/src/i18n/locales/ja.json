@@ -17,6 +17,8 @@
     "Set a tiered billing expression for the batch model.": "Set a tiered billing expression for the batch model.",
     "Suggested reserve: {{amount}} USD": "Suggested reserve: {{amount}} USD",
     "The catalog has no price for this model: disable it or check the provider.": "The catalog has no price for this model: disable it or check the provider.",
+    "Auto Remove Upstream Models": "上流モデルを自動削除",
+    "Auto sync also removes the channel models the GetAPI catalog no longer lists, at most 20 per check; with more, nothing is removed. Requires auto sync and the GetAPI catalog.": "自動同期で、GetAPI カタログに存在しなくなったチャネルモデルも削除します（1 回のチェックで最大 20 件。それを超える場合は何も削除しません）。自動同期と GetAPI カタログが必要です。",
     "Use the GetAPI catalog as the model source": "GetAPI カタログをモデルソースとして使用",
     "Without tariff: {{count}}": "Without tariff: {{count}}",
     "，": "、",
