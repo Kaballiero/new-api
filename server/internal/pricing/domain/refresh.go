@@ -7,6 +7,7 @@ type CatalogRefreshSummary struct {
 	ReusedDocuments         int                     `json:"reused_documents,omitempty"`
 	Revision                string                  `json:"revision,omitempty"`
 	MissingModels           []string                `json:"missing_models,omitempty"`
+	LostModels              []string                `json:"lost_models,omitempty"`
 	HiddenPublicModels      []string                `json:"hidden_public_models,omitempty"`
 	HiddenPublicModelsCount int                     `json:"hidden_public_models_count"`
 	HiddenPublicModelsError string                  `json:"hidden_public_models_error,omitempty"`

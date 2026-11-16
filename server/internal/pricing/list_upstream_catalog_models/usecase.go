@@ -17,6 +17,15 @@ type Client interface {
 	domain.CatalogDocumentClient
 }
 
+// Store reads the stored catalog documents and the selection the head
+// publishes.
+type Store interface {
+	domain.CatalogDocumentReader
+	Head(context.Context, string) (domain.CatalogSource, error)
+	IsMissing(error) bool
+	ReadSelection(context.Context, string, string) (domain.CatalogSelection, error)
+}
+
 // Cache keeps the upstream models of the last catalog revision, so a
 // revision's documents are read and its prices confirmed once.
 type Cache interface {
@@ -45,14 +54,14 @@ var unaddableSuffixes = []string{":free", ":batch"}
 type Usecase struct {
 	deps       domain.Capabilities
 	projection *domain.Projection
-	store      domain.CatalogDocumentReader
+	store      Store
 	documents  domain.CatalogDocumentCache
 	cache      Cache
 	source     func() (domain.CatalogSource, bool, error)
 	connect    func(domain.CatalogSource) (Client, error)
 }
 
-func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store domain.CatalogDocumentReader, documents domain.CatalogDocumentCache, cache Cache, source func() (domain.CatalogSource, bool, error), connect func(domain.CatalogSource) (Client, error)) Usecase {
+func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store Store, documents domain.CatalogDocumentCache, cache Cache, source func() (domain.CatalogSource, bool, error), connect func(domain.CatalogSource) (Client, error)) Usecase {
 	return Usecase{deps: deps, projection: projection, store: store, documents: documents, cache: cache, source: source, connect: connect}
 }
 
@@ -60,6 +69,8 @@ func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store d
 // models of an OpenRouter channel. A model is addable when it is not an alias,
 // free or batch model, serves an operation the gateway supports by its type
 // and declared request path, and has a confirmed price of a synchronous offer.
+// The models are AutoApplyBlocked when the manifest lost more than
+// domain.MaxCatalogModelLossPercent of the models the head publishes.
 func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, error) {
 	source, enabled, err := u.source()
 	if err != nil {
@@ -91,7 +102,24 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 		}
 	}
 
+	head, err := u.store.Head(ctx, source.ID)
+	if err != nil && !u.store.IsMissing(err) {
+		return channeldomain.UpstreamModels{}, err
+	}
+	published := []string{}
+	if head.Revision != "" {
+		selection, err := u.store.ReadSelection(ctx, source.ID, head.Revision)
+		if err != nil {
+			return channeldomain.UpstreamModels{}, err
+		}
+		for _, ref := range selection.Models {
+			published = append(published, ref.ID)
+		}
+	}
+	_, autoApplyBlocked := domain.CatalogModelLoss(published, manifest)
+
 	if models, cached := u.cache.Load(manifest.Revision); cached {
+		models.AutoApplyBlocked = autoApplyBlocked
 		return models, nil
 	}
 
@@ -99,7 +127,7 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 	for _, model := range index.Models {
 		indexModels[model.ID] = model
 	}
-	result := channeldomain.UpstreamModels{Listed: make([]string, 0, len(manifest.Models)), Addable: []string{}, Shortcuts: domain.OpenRouterShortcuts}
+	result := channeldomain.UpstreamModels{Listed: make([]string, 0, len(manifest.Models)), Addable: []string{}, Shortcuts: domain.OpenRouterShortcuts, AutoApplyBlocked: autoApplyBlocked}
 	candidates := []domain.SourceReference{}
 	operations := map[string]domain.PricingOperation{}
 	for _, ref := range manifest.Models {

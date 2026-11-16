@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"strings"
 	"sync"
 
@@ -59,6 +60,26 @@ func ValidCatalogHash(value string) bool {
 	}
 	_, err := hex.DecodeString(value)
 	return err == nil
+}
+
+// MaxCatalogModelLossPercent is the share of the published models a catalog
+// revision may lose and still be applied.
+const MaxCatalogModelLossPercent = 30
+
+// CatalogModelLoss returns the published models the manifest no longer lists
+// and whether their share of published exceeds MaxCatalogModelLossPercent.
+func CatalogModelLoss(published []string, manifest SourceManifest) (lost []string, exceeded bool) {
+	listed := make(map[string]bool, len(manifest.Models))
+	for _, ref := range manifest.Models {
+		listed[ref.ID] = true
+	}
+	for _, id := range published {
+		if !listed[id] {
+			lost = append(lost, id)
+		}
+	}
+	slices.Sort(lost)
+	return lost, len(lost)*100 > MaxCatalogModelLossPercent*len(published)
 }
 
 // OpenRouterShortcuts are the OpenRouter provider routing shortcuts: a model

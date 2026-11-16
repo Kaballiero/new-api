@@ -30,6 +30,34 @@ func (store fakeStore) Documents(_ context.Context, _ string, hashes []string) (
 	return result, nil
 }
 
+var errNoHead = errors.New("no published head")
+
+// The fake store publishes no head.
+func (fakeStore) Head(context.Context, string) (domain.CatalogSource, error) {
+	return domain.CatalogSource{}, errNoHead
+}
+func (fakeStore) IsMissing(err error) bool { return errors.Is(err, errNoHead) }
+func (fakeStore) ReadSelection(context.Context, string, string) (domain.CatalogSelection, error) {
+	return domain.CatalogSelection{}, errNoHead
+}
+
+// headStore publishes a head selection of the published models.
+type headStore struct {
+	fakeStore
+	published []string
+}
+
+func (headStore) Head(context.Context, string) (domain.CatalogSource, error) {
+	return domain.CatalogSource{Revision: strings.Repeat("f", 64)}, nil
+}
+func (store headStore) ReadSelection(context.Context, string, string) (domain.CatalogSelection, error) {
+	selection := domain.CatalogSelection{}
+	for _, id := range store.published {
+		selection.Models = append(selection.Models, domain.CatalogModelReference{ID: id})
+	}
+	return selection, nil
+}
+
 // fakeCatalog decodes a stored document by its model id.
 type fakeCatalog struct {
 	domain.CatalogReader
@@ -96,7 +124,7 @@ func newClient(revision string, models ...catalogModel) *fakeClient {
 	return client
 }
 
-func newUsecase(store fakeStore, documents domain.CatalogDocumentCache, cache Cache, client *fakeClient, stored ...catalogModel) Usecase {
+func newUsecase(store Store, documents domain.CatalogDocumentCache, cache Cache, client *fakeClient, stored ...catalogModel) Usecase {
 	deps := pricingadapter.Capabilities()
 	catalog := fakeCatalog{CatalogReader: deps.Catalog, documents: map[string]*domain.SourceDocument{}}
 	for _, model := range stored {
@@ -225,5 +253,41 @@ func TestExecuteReusesDecodedStoredDocuments(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"acme/chat", "acme/imported"}, models.Addable)
 		assert.Equal(t, []string{"acme/chat"}, client.downloaded)
+	}
+}
+
+// A manifest that lost more than 30% of the models the head publishes blocks
+// the auto-apply of its models; they are still listed and addable. The flag
+// follows the current head, also for the models of a cached revision.
+func TestExecuteBlocksAutoApplyAfterPublishedModelLoss(t *testing.T) {
+	eligible := &domain.SourceEligibility{Eligible: true}
+	var listed []catalogModel
+	var listedIDs []string
+	for _, id := range []string{"acme/m4", "acme/m5", "acme/m6", "acme/m7", "acme/m8", "acme/m9", "acme/m10"} {
+		listed = append(listed, textModel(id, []string{chatPath}, eligible))
+		listedIDs = append(listedIDs, id)
+	}
+	lostThree := append([]string{"acme/m1", "acme/m2", "acme/m3"}, listedIDs...)
+	lostFour := append([]string{"acme/m0"}, lostThree[:len(lostThree)-1]...)
+	cachedRevision := &pricingadapter.UpstreamCatalogModelsCache{}
+	for _, tc := range []struct {
+		name    string
+		store   Store
+		blocked bool
+	}{
+		{name: "no published head", store: fakeStore{}},
+		{name: "lost 3 of 10 published models", store: headStore{published: lostThree}},
+		{name: "lost 4 of 10 published models", store: headStore{published: lostFour}, blocked: true},
+		{name: "head without the lost models", store: headStore{published: listedIDs}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, cache := range []Cache{&pricingadapter.UpstreamCatalogModelsCache{}, cachedRevision} {
+				models, err := newUsecase(tc.store, &pricingadapter.UpstreamCatalogDocumentsCache{}, cache, newClient(strings.Repeat("1", 64), listed...)).Execute(context.Background())
+				require.NoError(t, err)
+				assert.Equal(t, tc.blocked, models.AutoApplyBlocked)
+				assert.Equal(t, listedIDs, models.Listed)
+				assert.Equal(t, listedIDs, models.Addable)
+			}
+		})
 	}
 }

@@ -356,6 +356,8 @@ user.log_invitee_reward: "Бонус за использование кода п
 user.log_inviter_reward: "Бонус за приглашённого пользователя {{.Quota}}"
 pricing.request_invalid: "Неверный формат параметров запроса"
 pricing.ratio_config_disabled: "Эндпоинт конфигурации коэффициентов не включён"
+pricing.catalog_model_loss_subject: "Каталог upstream: ревизия не применена"
+pricing.catalog_model_loss: "Ревизия каталога {{.Revision}} потеряла {{.Lost}} из {{.Published}} опубликованных моделей ({{.Percent}}%, допустимо не больше {{.Limit}}%). Цены остаются по ревизии {{.Head}}, модели каналов автоматически не меняются.\n\nПропавшие модели (показано {{.Shown}}/{{.Lost}}): {{.Models}}"
 pricing.upstream_data_unrecognized: "Не удалось разобрать данные ответа вышестоящего источника"
 channel.params_error: "Неверные параметры"
 channel.fetch_models_failed: "Не удалось получить список моделей: {{.Error}}"
@@ -420,6 +422,7 @@ channel.model_update_channels_omitted: "ещё {{.Count}} каналов не п
 channel.model_update_add_samples: "Примеры добавленных моделей (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_remove_samples: "Примеры удалённых моделей (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_conflict_samples: "Требует решения — имя уже занято моделью с другой целью (показано {{.Shown}}/{{.Total}}): {{.Models}}"
+channel.model_update_auto_apply_blocked: "Изменения не применяются автоматически — каталог upstream потерял слишком много опубликованных моделей (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_failed_ids: "ID каналов с ошибками (показано {{.Shown}}/{{.Total}}): {{.IDs}}"
 channel.model_update_omitted: " (ещё {{.Count}} не показано)"
 

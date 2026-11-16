@@ -50,19 +50,19 @@ func (usecase Usecase) Check(
 	force bool,
 	allowAutoApply bool,
 	requireEnabled bool,
-) (configChanged bool, autoAdded int, err error) {
+) (configChanged bool, autoAdded int, autoApplyBlocked bool, err error) {
 	now := usecase.now()
 	if !force {
 		minInterval := usecase.minInterval()
 		if settings.LastCheckTime > 0 &&
 			now-settings.LastCheckTime < minInterval {
-			return false, 0, nil
+			return false, 0, false, nil
 		}
 	}
 
 	fetchFingerprint, err := usecase.store.FetchFingerprint(channel)
 	if err != nil {
-		return false, 0, err
+		return false, 0, false, err
 	}
 	upstreamModels, fetchErr := usecase.fetch(ctx, channel)
 
@@ -111,19 +111,19 @@ func (usecase Usecase) Check(
 		return persist(freshSettings, configChanged)
 	})
 	if persistErr != nil {
-		return false, 0, persistErr
+		return false, 0, false, persistErr
 	}
 	if freshChannel != nil {
 		*channel = *freshChannel
 		*settings = freshSettings
 	}
 	if freshCheckDisabled {
-		return false, 0, nil
+		return false, 0, false, nil
 	}
 	if fetchErr != nil {
-		return false, 0, fetchErr
+		return false, 0, false, fetchErr
 	}
-	return configChanged, autoAdded, nil
+	return configChanged, autoAdded, upstreamModels.AutoApplyBlocked, nil
 }
 
 func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply bool, report func(processed, total int)) domain.ModelUpdateSummary {
@@ -193,7 +193,7 @@ scanLoop:
 			}
 
 			checkedChannels++
-			configChanged, autoAdded, err := usecase.Check(ctx, channel, &settings, force, allowAutoApply, true)
+			configChanged, autoAdded, autoApplyBlocked, err := usecase.Check(ctx, channel, &settings, force, allowAutoApply, true)
 			if err != nil {
 				failedChannels++
 				failedChannelIDs = append(failedChannelIDs, channel.Id)
@@ -218,6 +218,7 @@ scanLoop:
 					RemoveCount:         currentRemoveCount,
 					PendingAddModels:    currentAddModels,
 					PendingRemoveModels: currentRemoveModels,
+					AutoApplyBlocked:    autoApplyBlocked,
 				})
 			}
 			addModelSamples = domain.MergeModelNames(addModelSamples, currentAddModels)

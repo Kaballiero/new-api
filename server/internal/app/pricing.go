@@ -11,6 +11,7 @@ import (
 	cataloggateway "github.com/QuantumNous/new-api/internal/adapter/gateway/catalog"
 	catalogstore "github.com/QuantumNous/new-api/internal/adapter/gorm/catalog"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	settingsstore "github.com/QuantumNous/new-api/internal/adapter/gorm/settings"
 	systemrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/system/record"
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
@@ -18,6 +19,8 @@ import (
 	accountssettings "github.com/QuantumNous/new-api/internal/adapter/settings/accounts"
 	accountstorage "github.com/QuantumNous/new-api/internal/app/accountstorage"
 	billingapp "github.com/QuantumNous/new-api/internal/app/billing"
+	"github.com/QuantumNous/new-api/internal/app/channelruntime"
+	"github.com/QuantumNous/new-api/internal/app/notifications"
 	pricingruntime "github.com/QuantumNous/new-api/internal/app/pricingruntime"
 	settingsapp "github.com/QuantumNous/new-api/internal/app/settings"
 	systemcore "github.com/QuantumNous/new-api/internal/app/system"
@@ -245,7 +248,16 @@ func NewRefreshPricingCatalogue() refresh_catalogue.Usecase {
 		}
 		v, err := sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), pricingstate.NewImmutableCatalogPersistence(), &pricingruntime.UpstreamCatalogDocuments, time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, source, requested, pricingadapter.CatalogClient{Client: client})
 		return domain.CatalogSyncSummary(v), err
-	}, pricingruntime.PublishPricingCatalogContext, NewPricingNativeNormalizer(), billing_setting.GetBatchBillingExpr, time.Now)
+	}, pricingruntime.PublishPricingCatalogContext, NewPricingNativeNormalizer(), billing_setting.GetBatchBillingExpr, time.Now, catalogAlerts{}, settingsstore.NewStore(func() *gorm.DB { return model.DB }))
+}
+
+// catalogAlerts sends the upstream catalog alerts to the Telegram chat in the
+// root user's language, like the channel model update report.
+type catalogAlerts struct{}
+
+func (catalogAlerts) ModelLoss(lossErr domain.CatalogModelLossError) error {
+	subject, content := pricingadapter.CatalogModelLossNotification(channelruntime.RootUserLanguage(), lossErr)
+	return notifications.TelegramChat(subject, content)
 }
 
 var upstreamCatalogModels pricingadapter.UpstreamCatalogModelsCache

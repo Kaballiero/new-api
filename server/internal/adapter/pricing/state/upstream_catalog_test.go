@@ -14,12 +14,14 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	pricingstate "github.com/QuantumNous/new-api/internal/adapter/pricing/state"
 	publication "github.com/QuantumNous/new-api/internal/adapter/settings/publication"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	"github.com/QuantumNous/new-api/internal/pricing/sync_upstream_catalog"
 	legacy "github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -389,6 +391,86 @@ func TestUpstreamCatalogStorage(t *testing.T) {
 			docs, err = pricingstate.GetCatalogDocuments(ctx, other.ID, []string{first.Hash})
 			require.NoError(t, err)
 			assert.Empty(t, docs)
+		})
+	}
+}
+
+// lossGuardClient serves one manifest; the payload of a model document is its
+// id, and the manifest references each model by the hash of that payload.
+type lossGuardClient struct{ manifest pricingdomain.SourceManifest }
+
+func (client lossGuardClient) Manifest(context.Context) (pricingdomain.SourceManifest, error) {
+	return client.manifest, nil
+}
+func (lossGuardClient) Document(_ context.Context, ref pricingdomain.SourceReference) ([]byte, *pricingdomain.SourceDocument, error) {
+	return []byte(ref.ID), &pricingdomain.SourceDocument{ID: ref.ID}, nil
+}
+
+// A revision that lost more than 30% of the requested models the head
+// publishes leaves the head; the comparison covers only the models the
+// channels still request.
+func TestSyncUpstreamCatalogRejectsRevisionThatLostPublishedModels(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	ten := []string{"acme/m01", "acme/m02", "acme/m03", "acme/m04", "acme/m05", "acme/m06", "acme/m07", "acme/m08", "acme/m09", "acme/m10"}
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := upstreamCatalogTestDB(t, dialect, false)
+			ctx := context.Background()
+			source := pricingrecord.CatalogSource{ID: pricingstate.CatalogHash([]byte("loss-guard")), Kind: "openrouter", BaseURL: "https://catalog.example"}
+			documents := &pricingadapter.UpstreamCatalogDocumentsCache{}
+			for _, step := range []struct {
+				name          string
+				revision      string
+				listed        []string
+				requested     []string
+				wantLost      []string
+				wantPublished int
+			}{
+				{name: "first revision is published", revision: "1", listed: ten, requested: ten},
+				{name: "lost 4 of 10 published models", revision: "2", listed: ten[4:], requested: ten, wantLost: ten[:4], wantPublished: 10},
+				{name: "lost 3 of 10 published models", revision: "3", listed: ten[3:], requested: ten},
+				{name: "lost models the channels no longer request", revision: "4", listed: ten[7:], requested: ten[7:]},
+			} {
+				manifest := pricingdomain.SourceManifest{SchemaVersion: 1, NormalizationVersion: "1", Revision: strings.Repeat(step.revision, 64), FetchedAt: "2026-11-16T00:00:00Z"}
+				for _, id := range step.listed {
+					manifest.Models = append(manifest.Models, pricingdomain.SourceReference{ID: id, Hash: pricingstate.CatalogHash([]byte(id))})
+				}
+				requested := map[string]bool{}
+				for _, id := range step.requested {
+					requested[id] = true
+				}
+				before, err := ensureCatalogSource(ctx, source)
+				require.NoError(t, err)
+
+				_, err = sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, func() {}).Execute(ctx, pricingdomain.CatalogSource(source), requested, lossGuardClient{manifest: manifest})
+
+				after, headErr := ensureCatalogSource(ctx, source)
+				require.NoError(t, headErr)
+				if step.wantLost != nil {
+					var lossErr pricingdomain.CatalogModelLossError
+					require.ErrorAs(t, err, &lossErr, step.name)
+					assert.Equal(t, pricingdomain.CatalogModelLossError{RemoteRevision: manifest.Revision, HeadRemoteRevision: before.RemoteRevision, Lost: step.wantLost, Published: step.wantPublished}, lossErr, step.name)
+					assert.Equal(t, before, after, step.name+": the head and its generation stay")
+					subject, content := pricingadapter.CatalogModelLossNotification(i18n.LangRu, lossErr)
+					assert.Equal(t, "Каталог upstream: ревизия не применена", subject)
+					assert.Equal(t, "Ревизия каталога "+strings.Repeat("2", 64)+" потеряла 4 из 10 опубликованных моделей (40%, допустимо не больше 30%). "+
+						"Цены остаются по ревизии "+strings.Repeat("1", 64)+", модели каналов автоматически не меняются."+
+						"\n\nПропавшие модели (показано 4/4): acme/m01, acme/m02, acme/m03, acme/m04", content)
+					continue
+				}
+				require.NoError(t, err, step.name)
+				assert.Equal(t, manifest.Revision, after.RemoteRevision, step.name)
+				selection, err := pricingstate.ReadCatalogSelection(ctx, source.ID, after.Revision)
+				require.NoError(t, err)
+				var published []string
+				for _, ref := range selection.Models {
+					published = append(published, ref.ID)
+				}
+				assert.Equal(t, step.listed, published, step.name)
+			}
+			var revisions int64
+			require.NoError(t, db.Model(&pricingrecord.CatalogRevision{}).Count(&revisions).Error)
+			assert.EqualValues(t, 3, revisions, "the rejected revision is not stored")
 		})
 	}
 }

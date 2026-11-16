@@ -42,6 +42,13 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 		conflictSamples[i] = fmt.Sprintf("%s (%s)", conflict.Model, conflict.ChannelName)
 	}
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, conflictSamples)
+	blockedChannels := []string{}
+	for _, summary := range report.Channels {
+		if summary.AutoApplyBlocked {
+			blockedChannels = append(blockedChannels, summary.ChannelName)
+		}
+	}
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoApplyBlocked, blockedChannels)
 
 	if failedChannels > 0 {
 		displayCount := min(failedChannels, 10)
