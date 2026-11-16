@@ -145,6 +145,7 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateCheckEnabled       bool                  `json:"upstream_model_update_check_enabled,omitempty"`        // 是否检测上游模型更新
 	UpstreamModelUpdateAutoSyncEnabled    bool                  `json:"upstream_model_update_auto_sync_enabled,omitempty"`    // 是否自动同步上游模型更新
 	UpstreamModelUpdateCatalogSyncEnabled bool                  `json:"upstream_model_update_catalog_sync_enabled,omitempty"` // upstream models come from the upstream catalog instead of the provider model list
+	UpstreamModelUpdateAutoRemoveEnabled  bool                  `json:"upstream_model_update_auto_remove_enabled,omitempty"`  // a scheduled auto sync also removes the models the upstream catalog no longer lists
 	UpstreamModelUpdateLastCheckTime      int64                 `json:"upstream_model_update_last_check_time,omitempty"`      // 上次检测时间
 	UpstreamModelUpdateLastDetectedModels []string              `json:"upstream_model_update_last_detected_models,omitempty"` // 上次检测到的可加入模型
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型

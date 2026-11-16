@@ -11,7 +11,9 @@ import (
 
 // ModelUpdateNotification phrases the upstream model update report in lang.
 // At most 8 channels, 12 model samples of each kind and 10 failed channel IDs
-// are listed.
+// are listed. The models applied by auto sync are listed with their channel,
+// and the channels over the auto removal limit with their number of auto
+// removals.
 func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subject, content string) {
 	var builder strings.Builder
 	failedChannels := len(report.FailedChannelIDs)
@@ -37,17 +39,27 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAddSamples, report.AddModelSamples)
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemoveSamples, report.RemoveModelSamples)
+	var autoAddedSamples, autoRemovedSamples, removalLimitChannels, blockedChannels []string
+	for _, summary := range report.Channels {
+		if summary.AutoApplyBlocked {
+			blockedChannels = append(blockedChannels, summary.ChannelName)
+		}
+		autoAddedSamples = append(autoAddedSamples, channelModelSamples(summary.ChannelName, summary.AutoAddedModels)...)
+		autoRemovedSamples = append(autoRemovedSamples, channelModelSamples(summary.ChannelName, summary.AutoRemovedModels)...)
+		if len(summary.RemovalLimitCandidates) > 0 {
+			removalLimitChannels = append(removalLimitChannels, fmt.Sprintf("%s (%d)", summary.ChannelName, len(summary.RemovalLimitCandidates)))
+		}
+	}
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoAdded, autoAddedSamples)
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoRemoved, autoRemovedSamples)
+	if len(removalLimitChannels) > 0 {
+		builder.WriteString("\n\n" + i18n.Translate(lang, i18n.MsgChannelModelUpdateRemovalLimit, map[string]any{"Limit": domain.MaxAutoRemovedModels, "Channels": strings.Join(removalLimitChannels, ", ")}))
+	}
 	conflictSamples := make([]string, len(report.ConflictModels))
 	for i, conflict := range report.ConflictModels {
 		conflictSamples[i] = fmt.Sprintf("%s (%s)", conflict.Model, conflict.ChannelName)
 	}
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, conflictSamples)
-	blockedChannels := []string{}
-	for _, summary := range report.Channels {
-		if summary.AutoApplyBlocked {
-			blockedChannels = append(blockedChannels, summary.ChannelName)
-		}
-	}
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoApplyBlocked, blockedChannels)
 
 	if failedChannels > 0 {
@@ -62,6 +74,15 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 		}
 	}
 	return i18n.Translate(lang, i18n.MsgChannelModelUpdateSubject), builder.String()
+}
+
+// channelModelSamples are the models of a channel as "model (channel)".
+func channelModelSamples(channelName string, models []string) []string {
+	samples := make([]string, len(models))
+	for i, model := range models {
+		samples[i] = fmt.Sprintf("%s (%s)", model, channelName)
+	}
+	return samples
 }
 
 // writeModelSamples lists at most 12 normalized model names under key.

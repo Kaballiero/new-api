@@ -29,6 +29,7 @@ import { ChannelsProvider } from '../../channels-provider'
 import { ChannelMutateDrawer } from '../channel-mutate-drawer'
 
 const CATALOG_SYNC_LABEL = 'Use the GetAPI catalog as the model source'
+const AUTO_REMOVE_LABEL = 'Auto Remove Upstream Models'
 
 async function renderChannelDrawer(
   type: number,
@@ -97,7 +98,47 @@ describe('channel drawer upstream catalog sync', () => {
     expect(catalogSync).toHaveAttribute('aria-disabled', 'true')
   })
 
-  test('other channel types do not show the switch', async () => {
+  test('OpenRouter auto removal switch is available only with auto sync from the catalog', async () => {
+    await renderChannelDrawer(20, {
+      upstream_model_update_check_enabled: true,
+      upstream_model_update_auto_sync_enabled: true,
+      upstream_model_update_catalog_sync_enabled: true,
+      upstream_model_update_auto_remove_enabled: true,
+    })
+    const autoRemove = screen.getByRole('switch', { name: AUTO_REMOVE_LABEL })
+    expect(autoRemove).toBeChecked()
+    expect(autoRemove).not.toHaveAttribute('aria-disabled', 'true')
+
+    fireEvent.click(screen.getByRole('switch', { name: CATALOG_SYNC_LABEL }))
+    expect(autoRemove).toHaveAttribute('aria-disabled', 'true')
+
+    fireEvent.click(screen.getByRole('switch', { name: CATALOG_SYNC_LABEL }))
+    expect(autoRemove).not.toHaveAttribute('aria-disabled', 'true')
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Auto Sync Upstream Models' })
+    )
+    expect(autoRemove).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  test('OpenRouter auto removal switch is disabled while upstream checks are off', async () => {
+    await renderChannelDrawer(20, {
+      upstream_model_update_check_enabled: true,
+      upstream_model_update_auto_sync_enabled: true,
+      upstream_model_update_catalog_sync_enabled: true,
+      upstream_model_update_auto_remove_enabled: true,
+    })
+    const autoRemove = screen.getByRole('switch', { name: AUTO_REMOVE_LABEL })
+    expect(autoRemove).not.toHaveAttribute('aria-disabled', 'true')
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Upstream Model Update Check' })
+    )
+
+    expect(autoRemove).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  test('other channel types do not show the switches', async () => {
     await renderChannelDrawer(1, {
       upstream_model_update_check_enabled: true,
     })
@@ -106,6 +147,9 @@ describe('channel drawer upstream catalog sync', () => {
     ).toBeVisible()
     expect(
       screen.queryByRole('switch', { name: CATALOG_SYNC_LABEL })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('switch', { name: AUTO_REMOVE_LABEL })
     ).not.toBeInTheDocument()
   })
 })

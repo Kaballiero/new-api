@@ -17,6 +17,8 @@
     "Set a tiered billing expression for the batch model.": "请为批处理模型设置分层计费表达式。",
     "Suggested reserve: {{amount}} USD": "建议预留：{{amount}} USD",
     "The catalog has no price for this model: disable it or check the provider.": "目录中没有该模型的价格：请禁用它或检查供应商。",
+    "Auto Remove Upstream Models": "自动删除上游模型",
+    "Auto sync also removes the channel models the GetAPI catalog no longer lists, at most 20 per check; with more, nothing is removed. Requires auto sync and the GetAPI catalog.": "自动同步时同时删除 GetAPI 目录中已不存在的渠道模型，每次检查最多 20 个；超过则不删除任何模型。需要开启自动同步并使用 GetAPI 目录。",
     "Use the GetAPI catalog as the model source": "使用 GetAPI 目录作为模型来源",
     "Without tariff: {{count}}": "未配置计费：{{count}}",
     "，": "，",

@@ -38,29 +38,10 @@ func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpda
 	}
 	result.RemovedModels = SubtractModelNames(result.RemovedModels, result.AddedModels)
 
-	originModels := NormalizeModelNames(channel.GetModels())
-	nextModels := ApplySelectedModelChanges(originModels, result.AddedModels, result.RemovedModels)
-	if !slices.Equal(originModels, nextModels) {
-		releasedMapping := releaseRemovedModelMappings(modelMapping, result.RemovedModels, nextModels)
-		if len(releasedMapping) != len(modelMapping) {
-			mappingJSON, encodeErr := rules.Codec.EncodeModelMapping(releasedMapping)
-			if encodeErr != nil {
-				return result, fmt.Errorf("marshal model mapping: %w", encodeErr)
-			}
-			channel.ModelMapping = &mappingJSON
-		}
-		channel.Models = strings.Join(nextModels, ",")
-		if canonicalizeErr := rules.Canonicalize(channel); canonicalizeErr != nil {
-			return result, canonicalizeErr
-		}
-		nextModels = NormalizeModelNames(channel.GetModels())
+	result.ModelsChanged, result.MappingChanged, err = rules.applyModelChanges(channel, modelMapping, result.AddedModels, result.RemovedModels)
+	if err != nil {
+		return result, err
 	}
-	result.ModelsChanged = !slices.Equal(originModels, nextModels)
-	nextModelMapping, mappingErr := rules.NormalizeChannelModelMapping(channel)
-	if mappingErr != nil {
-		return result, mappingErr
-	}
-	result.MappingChanged = !reflect.DeepEqual(modelMapping, nextModelMapping)
 
 	state.IgnoredModels = MergeModelNames(state.IgnoredModels, result.IgnoredModels)
 	if len(result.AddedModels) > 0 {
@@ -74,6 +55,34 @@ func (rules ModelUpdateRules) ApplyModelDelta(channel *Channel, state *ModelUpda
 	state.LastCheckTime = rules.Now()
 
 	return result, nil
+}
+
+// applyModelChanges adds and removes channel models, releases the mapping
+// entries the removed models no longer need and canonicalizes the channel.
+// modelMapping is the channel's mapping before the changes.
+func (rules ModelUpdateRules) applyModelChanges(channel *Channel, modelMapping map[string]string, addModels, removeModels []string) (modelsChanged, mappingChanged bool, err error) {
+	originModels := NormalizeModelNames(channel.GetModels())
+	nextModels := ApplySelectedModelChanges(originModels, addModels, removeModels)
+	if !slices.Equal(originModels, nextModels) {
+		releasedMapping := releaseRemovedModelMappings(modelMapping, removeModels, nextModels)
+		if len(releasedMapping) != len(modelMapping) {
+			mappingJSON, encodeErr := rules.Codec.EncodeModelMapping(releasedMapping)
+			if encodeErr != nil {
+				return false, false, fmt.Errorf("marshal model mapping: %w", encodeErr)
+			}
+			channel.ModelMapping = &mappingJSON
+		}
+		channel.Models = strings.Join(nextModels, ",")
+		if canonicalizeErr := rules.Canonicalize(channel); canonicalizeErr != nil {
+			return false, false, canonicalizeErr
+		}
+		nextModels = NormalizeModelNames(channel.GetModels())
+	}
+	nextModelMapping, mappingErr := rules.NormalizeChannelModelMapping(channel)
+	if mappingErr != nil {
+		return false, false, mappingErr
+	}
+	return !slices.Equal(originModels, nextModels), !reflect.DeepEqual(modelMapping, nextModelMapping), nil
 }
 
 // releaseRemovedModelMappings drops the mapping entries of each removed

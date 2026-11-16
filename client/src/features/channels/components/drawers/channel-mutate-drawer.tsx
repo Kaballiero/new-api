@@ -316,6 +316,7 @@ const SENSITIVE_FORM_FIELDS = [
   'upstream_model_update_check_enabled',
   'upstream_model_update_auto_sync_enabled',
   'upstream_model_update_catalog_sync_enabled',
+  'upstream_model_update_auto_remove_enabled',
   'upstream_model_update_ignored_models',
 ] satisfies (keyof ChannelFormValues)[]
 
@@ -742,6 +743,9 @@ export function ChannelMutateDrawer({
   const currentClaudeBetaQuery = form.watch('claude_beta_query')
   const currentUpstreamModelUpdateAutoSyncEnabled = form.watch(
     'upstream_model_update_auto_sync_enabled'
+  )
+  const currentUpstreamModelUpdateCatalogSyncEnabled = form.watch(
+    'upstream_model_update_catalog_sync_enabled'
   )
   const currentUpstreamModelUpdateIgnoredModels = form.watch(
     'upstream_model_update_ignored_models'
@@ -4870,6 +4874,37 @@ export function ChannelMutateDrawer({
                                             checked={field.value}
                                             disabled={
                                               !upstreamModelUpdateCheckEnabled
+                                            }
+                                            onCheckedChange={field.onChange}
+                                          />
+                                        </FormControl>
+                                      </FormItem>
+                                    )}
+                                  />
+                                )}
+                                {currentType === 20 && (
+                                  <FormField
+                                    control={form.control}
+                                    name='upstream_model_update_auto_remove_enabled'
+                                    render={({ field }) => (
+                                      <FormItem className='flex items-center justify-between px-4 py-3'>
+                                        <div className='space-y-0.5'>
+                                          <FormLabel>
+                                            {t('Auto Remove Upstream Models')}
+                                          </FormLabel>
+                                          <FormDescription>
+                                            {t(
+                                              'Auto sync also removes the channel models the GetAPI catalog no longer lists, at most 20 per check; with more, nothing is removed. Requires auto sync and the GetAPI catalog.'
+                                            )}
+                                          </FormDescription>
+                                        </div>
+                                        <FormControl>
+                                          <Switch
+                                            checked={field.value}
+                                            disabled={
+                                              !upstreamModelUpdateCheckEnabled ||
+                                              !currentUpstreamModelUpdateAutoSyncEnabled ||
+                                              !currentUpstreamModelUpdateCatalogSyncEnabled
                                             }
                                             onCheckedChange={field.onChange}
                                           />

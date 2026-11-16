@@ -28,7 +28,15 @@ type AppliedModelUpdates struct {
 	ModelsChanged         bool
 	MappingChanged        bool
 	HadPending            bool
+	// RemovalLimitCandidates are the auto removals of a channel with more than
+	// MaxAutoRemovedModels of them: a scheduled run removes none.
+	RemovalLimitCandidates []string
 }
+
+// MaxAutoRemovedModels is the most models a scheduled run removes from a
+// channel. A run with more removal candidates removes none of them: they stay
+// pending for an admin decision.
+const MaxAutoRemovedModels = 20
 
 func NormalizeModelNames(models []string) []string {
 	return lo.Uniq(lo.FilterMap(models, func(model string, _ int) (string, bool) {
@@ -81,11 +89,14 @@ func ApplySelectedModelChanges(originModels []string, addModels []string, remove
 // ModelUpdateState is the upstream model update tracking of a channel. The
 // gateway stores it among the other channel settings. CatalogSyncEnabled takes
 // the upstream models from the upstream catalog instead of the provider model
-// list. LastConflictModels are the upstream models that were not offered for
-// addition because their canonical name is taken by another target.
+// list. AutoRemoveEnabled lets a scheduled run with auto sync also remove the
+// removal candidates. LastConflictModels are the upstream models that were not
+// offered for addition because their canonical name is taken by another
+// target.
 type ModelUpdateState struct {
 	CheckEnabled       bool
 	AutoSyncEnabled    bool
+	AutoRemoveEnabled  bool
 	CatalogSyncEnabled bool
 	LastCheckTime      int64
 	LastDetectedModels []string
@@ -198,7 +209,6 @@ func (rules ModelUpdateRules) CollectPendingUpstreamModelChangesFromModels(
 		listedSet[modelName] = struct{}{}
 	}
 
-	normalizedIgnoredModels := NormalizeModelNames(ignoredModels)
 	coveredUpstreamSet := make(map[string]struct{}, len(localModels))
 	heldNames := make(map[string]string, len(modelMapping)+len(localModels))
 	for source := range modelMapping {
@@ -235,13 +245,7 @@ func (rules ModelUpdateRules) CollectPendingUpstreamModelChangesFromModels(
 		if _, ok := coveredUpstreamSet[modelName]; ok {
 			continue
 		}
-		if lo.ContainsBy(normalizedIgnoredModels, func(ignoredModel string) bool {
-			if regexBody, ok := strings.CutPrefix(ignoredModel, "regex:"); ok {
-				matched, err := regexp.MatchString(strings.TrimSpace(regexBody), modelName)
-				return err == nil && matched
-			}
-			return ignoredModel == modelName
-		}) {
+		if matchesIgnoredModel(ignoredModels, modelName) {
 			continue
 		}
 		terminalTarget, resolveErr := rules.ResolveExactChannelModelTarget(modelName, modelMapping)
@@ -262,21 +266,33 @@ func (rules ModelUpdateRules) CollectPendingUpstreamModelChangesFromModels(
 	return NormalizeModelNames(pendingAddModels), NormalizeModelNames(pendingRemoveModels), NormalizeModelNames(conflictModels), nil
 }
 
+// matchesIgnoredModel reports whether model is one of the ignored models: an
+// exact name or a "regex:" pattern.
+func matchesIgnoredModel(ignoredModels []string, model string) bool {
+	return slices.ContainsFunc(NormalizeModelNames(ignoredModels), func(ignoredModel string) bool {
+		if regexBody, ok := strings.CutPrefix(ignoredModel, "regex:"); ok {
+			matched, err := regexp.MatchString(strings.TrimSpace(regexBody), model)
+			return err == nil && matched
+		}
+		return ignoredModel == model
+	})
+}
+
 // SameNameReplacements are the pending additions whose canonical channel name
-// is a pending removal: such an addition replaces that model under its name,
-// so it can be added only together with the removal.
-func (rules ModelUpdateRules) SameNameReplacements(channelType int, pendingAddModels, pendingRemoveModels []string, modelMapping map[string]string) ([]string, error) {
-	replacements := []string{}
+// is a pending removal, and those removals: such an addition replaces that
+// model under its name, so it can be applied only together with the removal.
+func (rules ModelUpdateRules) SameNameReplacements(channelType int, pendingAddModels, pendingRemoveModels []string, modelMapping map[string]string) (replacements, replacedRemovals []string, err error) {
 	for _, modelName := range pendingAddModels {
 		canonicalModel, err := rules.canonicalChannelModel(channelType, modelName, modelMapping)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if slices.Contains(pendingRemoveModels, canonicalModel) {
 			replacements = append(replacements, modelName)
+			replacedRemovals = append(replacedRemovals, canonicalModel)
 		}
 	}
-	return replacements, nil
+	return replacements, replacedRemovals, nil
 }
 
 // canonicalChannelModel is the name a channel model takes after
