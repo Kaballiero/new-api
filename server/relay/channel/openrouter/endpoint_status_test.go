@@ -185,7 +185,7 @@ func TestEndpointDefaultOutputCap(t *testing.T) {
 		{"explicit max_completion_tokens is used as given", `"max_completion_tokens":128000,`, `,"max_completion_tokens":100`, "chat/completions", "max_tokens", types.RelayFormatOpenAI, true, 100, 1},
 		{"Responses max_output_tokens is respected", `"max_completion_tokens":128000,`, `,"input":"hi","max_output_tokens":100`, "responses", "max_output_tokens", types.RelayFormatOpenAIResponses, true, 100, 1},
 		{"Responses without a limit uses 8192", `"max_completion_tokens":128000,`, `,"input":"hi"`, "responses", "max_output_tokens", types.RelayFormatOpenAIResponses, false, 8192, 1},
-		{"Gemini without a limit names maxOutputTokens", `"max_completion_tokens":128000,`, "", "chat/completions", "generationConfig.maxOutputTokens", types.RelayFormatGemini, false, 8192, 1},
+		{"Gemini without a limit names maxOutputTokens", `"max_completion_tokens":128000,`, "", "chat/completions", "maxOutputTokens", types.RelayFormatGemini, false, 8192, 1},
 		{"batch item without a limit is capped", `"max_completion_tokens":128000,`, "", "batch_chat/completions", "max_tokens", types.RelayFormatOpenAI, false, 8192, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

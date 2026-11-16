@@ -121,7 +121,8 @@ func TestBillingErrorLocales(t *testing.T) {
 
 // An OpenRouter text reserve the funds do not cover explains itself, on the
 // first reservation and on a top-up of a held one; without a client output
-// limit it suggests the limit field and a value whose reserve fits.
+// limit it suggests the limit field and a value whose reserve fits. The client
+// receives the text as is, the field name untouched by sensitive-info masking.
 func TestOpenRouterReserveShortfallMessages(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	previous := operation_setting.GetGeneralSetting().QuotaDisplayType
@@ -153,9 +154,9 @@ func TestOpenRouterReserveShortfallMessages(t *testing.T) {
 		{"Responses names its limit field", textReserve("max_output_tokens", false, "0.0001"), &admissionStore{balance: 1000}, 0, 1738, types.ErrorCodeInsufficientUserQuota,
 			"Insufficient balance: the reserve covers an answer of up to 8192 tokens (1738), the balance is 1000. Set max_output_tokens to 4375 or less, top up the balance, or choose another model",
 			"Недостаточно средств: резерв рассчитан на ответ до 8192 токенов (1738), баланс 1000. Укажите max_output_tokens не больше 4375, пополните баланс или выберите другую модель"},
-		{"Gemini names its limit field", textReserve("generationConfig.maxOutputTokens", false, "0.0001"), &admissionStore{balance: 1000}, 0, 1738, types.ErrorCodeInsufficientUserQuota,
-			"Insufficient balance: the reserve covers an answer of up to 8192 tokens (1738), the balance is 1000. Set generationConfig.maxOutputTokens to 4300 or less, top up the balance, or choose another model",
-			"Недостаточно средств: резерв рассчитан на ответ до 8192 токенов (1738), баланс 1000. Укажите generationConfig.maxOutputTokens не больше 4300, пополните баланс или выберите другую модель"},
+		{"Gemini names its limit field", textReserve("maxOutputTokens", false, "0.0001"), &admissionStore{balance: 1000}, 0, 1738, types.ErrorCodeInsufficientUserQuota,
+			"Insufficient balance: the reserve covers an answer of up to 8192 tokens (1738), the balance is 1000. Set maxOutputTokens to 4385 or less, top up the balance, or choose another model",
+			"Недостаточно средств: резерв рассчитан на ответ до 8192 токенов (1738), баланс 1000. Укажите maxOutputTokens не больше 4385, пополните баланс или выберите другую модель"},
 		{"wallet with limit", textReserve("max_tokens", true, "0.0001"), &admissionStore{balance: 1000}, 0, 4100, types.ErrorCodeInsufficientUserQuota,
 			"Insufficient balance: the request needs 4100, the balance is 1000",
 			"Недостаточно средств: для запроса нужно 4100, баланс 1000"},
@@ -218,6 +219,7 @@ func TestOpenRouterReserveShortfallMessages(t *testing.T) {
 					want = tc.ru
 				}
 				assert.Equal(t, want, err.Error())
+				assert.Equal(t, want, err.ToGeminiError().Message, "masking must keep the field name the client sends")
 			})
 		}
 	}
