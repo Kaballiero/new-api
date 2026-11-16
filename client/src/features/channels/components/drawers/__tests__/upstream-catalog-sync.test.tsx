@@ -121,6 +121,23 @@ describe('channel drawer upstream catalog sync', () => {
     expect(autoRemove).toHaveAttribute('aria-disabled', 'true')
   })
 
+  test('OpenRouter auto removal switch is disabled while upstream checks are off', async () => {
+    await renderChannelDrawer(20, {
+      upstream_model_update_check_enabled: true,
+      upstream_model_update_auto_sync_enabled: true,
+      upstream_model_update_catalog_sync_enabled: true,
+      upstream_model_update_auto_remove_enabled: true,
+    })
+    const autoRemove = screen.getByRole('switch', { name: AUTO_REMOVE_LABEL })
+    expect(autoRemove).not.toHaveAttribute('aria-disabled', 'true')
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Upstream Model Update Check' })
+    )
+
+    expect(autoRemove).toHaveAttribute('aria-disabled', 'true')
+  })
+
   test('other channel types do not show the switches', async () => {
     await renderChannelDrawer(1, {
       upstream_model_update_check_enabled: true,
