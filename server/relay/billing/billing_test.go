@@ -166,11 +166,11 @@ func TestOpenRouterReserveShortfallMessages(t *testing.T) {
 			"Failed to reserve quota, remaining user quota: 1000, required quota: 1738",
 			"Не удалось зарезервировать квоту, осталось у пользователя: 1000, требуется: 1738"},
 		{"token without limit", textReserve("max_tokens", false, "0.0001"), &tokenRejectingStore{admissionStore{balance: 100000}}, 0, 1738, types.ErrorCodePreConsumeTokenQuotaFailed,
-			"Insufficient token quota: the reserve covers an answer of up to 8192 tokens (1738), the token has 1000 left. Set max_tokens to 4410 or less, raise the token quota, or choose another model",
-			"Недостаточно квоты токена: резерв рассчитан на ответ до 8192 токенов (1738), у токена осталось 1000. Укажите max_tokens не больше 4410, увеличьте квоту токена или выберите другую модель"},
+			"Insufficient API key spending limit: the reserve covers an answer of up to 8192 tokens (1738), the API key has 1000 left. Set max_tokens to 4410 or less, raise the API key spending limit, or choose another model",
+			"Недостаточно лимита расходов API-ключа: резерв рассчитан на ответ до 8192 токенов (1738), у API-ключа осталось 1000. Укажите max_tokens не больше 4410, увеличьте лимит расходов API-ключа или выберите другую модель"},
 		{"token with limit", textReserve("max_tokens", true, "0.0001"), &tokenRejectingStore{admissionStore{balance: 100000}}, 0, 4100, types.ErrorCodePreConsumeTokenQuotaFailed,
-			"Insufficient token quota: the request needs 4100, the token has 1000 left",
-			"Недостаточно квоты токена: для запроса нужно 4100, у токена осталось 1000"},
+			"Insufficient API key spending limit: the request needs 4100, the API key has 1000 left",
+			"Недостаточно лимита расходов API-ключа: для запроса нужно 4100, у API-ключа осталось 1000"},
 		{"token non-text reserve", nil, &tokenRejectingStore{admissionStore{balance: 100000}}, 0, 1738, types.ErrorCodePreConsumeTokenQuotaFailed,
 			"token quota is not enough, token remain quota: 1000, need quota: 1738",
 			"token quota is not enough, token remain quota: 1000, need quota: 1738"},
@@ -184,8 +184,8 @@ func TestOpenRouterReserveShortfallMessages(t *testing.T) {
 			"wallet quota insufficient"},
 		// 1000 left on the token plus the 300 held: (1300-118)/0.2 = 5910.
 		{"token top-up without limit", textReserve("max_tokens", false, "0.0001"), &tokenRejectingStore{admissionStore{balance: 100000}}, 300, 1738, types.ErrorCodePreConsumeTokenQuotaFailed,
-			"Insufficient token quota: the reserve covers an answer of up to 8192 tokens (1738), the token has 1300 left. Set max_tokens to 5910 or less, raise the token quota, or choose another model",
-			"Недостаточно квоты токена: резерв рассчитан на ответ до 8192 токенов (1738), у токена осталось 1300. Укажите max_tokens не больше 5910, увеличьте квоту токена или выберите другую модель"},
+			"Insufficient API key spending limit: the reserve covers an answer of up to 8192 tokens (1738), the API key has 1300 left. Set max_tokens to 5910 or less, raise the API key spending limit, or choose another model",
+			"Недостаточно лимита расходов API-ключа: резерв рассчитан на ответ до 8192 токенов (1738), у API-ключа осталось 1300. Укажите max_tokens не больше 5910, увеличьте лимит расходов API-ключа или выберите другую модель"},
 	} {
 		for _, language := range []string{"en", "ru"} {
 			t.Run(tc.name+"/"+language, func(t *testing.T) {

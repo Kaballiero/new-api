@@ -573,7 +573,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 				} else {
 					// Without a client limit the reserve covers a bounded answer.
 					// The upstream request keeps no limit and settles at usage.cost.
-					output = helper.DefaultTieredPreConsumeMaxTokens
+					output = helper.DefaultPreConsumeMaxTokens
 					if endpoint.MaxCompletionTokens > 0 {
 						output = min(output, endpoint.MaxCompletionTokens)
 					}
