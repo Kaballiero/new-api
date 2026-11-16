@@ -93,8 +93,9 @@ type CatalogPriceChangeReport struct {
 	Changes            []CatalogPriceChange
 }
 
-// rublesPerUSDAtRatioOne is how IterateUpstreamProviderOffers prices one USD
-// at ratio 1 (amountUSD × 100 × ratio).
+// rublesPerUSDAtRatioOne is the roubles one USD of a catalog document costs at
+// ratio 1: IterateUpstreamProviderOffers prices amountUSD ×
+// rublesPerUSDAtRatioOne × ratio.
 const rublesPerUSDAtRatioOne = 100
 
 // CatalogModelMinimumPrices are the minimum prices of the synchronous offers

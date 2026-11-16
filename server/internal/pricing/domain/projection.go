@@ -1518,7 +1518,7 @@ func (pricingPolicy *Projection) IterateUpstreamProviderOffers(item Pricing, gro
 					if validRatio && ratio >= 0 && !math.IsNaN(ratio) && !math.IsInf(ratio, 0) && rate.AmountUSD != nil && rate.Normalization.Comparable && rate.Normalization.Effective && rate.Unit != "" && rate.Unit != "unknown" && rate.Unit != "source_defined" {
 						usd, parseErr := decimal.NewFromString(*rate.AmountUSD)
 						if parseErr == nil && !usd.IsNegative() {
-							rub := usd.Mul(decimal.NewFromInt(100)).Mul(decimal.NewFromFloat(ratio)).String()
+							rub := usd.Mul(decimal.NewFromInt(rublesPerUSDAtRatioOne)).Mul(decimal.NewFromFloat(ratio)).String()
 							price.AmountRub = &rub
 						}
 					}
