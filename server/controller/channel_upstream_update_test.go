@@ -1335,14 +1335,17 @@ const (
 	detectAllModelUpdateRun
 	// detectChannelModelUpdateRun is the detect action of one channel.
 	detectChannelModelUpdateRun
+	// applyChannelModelUpdateRun is the apply action of one channel for its
+	// pending additions.
+	applyChannelModelUpdateRun
 	// applyAllModelUpdateRun is the apply-all action of the pending changes.
 	applyAllModelUpdateRun
 )
 
 // runModelUpdate starts a check of the upstream models, or the apply of the
 // pending changes, through run and returns the summary of the model_update
-// task (zero for a one-channel detect and an apply-all). A detect and an
-// apply-all must succeed for every channel.
+// task (zero for a one-channel detect or apply and an apply-all). A detect,
+// an apply and an apply-all must succeed for every channel.
 func runModelUpdate(t *testing.T, db *gorm.DB, run modelUpdateRun, channelID int) upstreamModelUpdateSummary {
 	t.Helper()
 
@@ -1360,6 +1363,17 @@ func runModelUpdate(t *testing.T, db *gorm.DB, run modelUpdateRun, channelID int
 		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/detect", strings.NewReader(fmt.Sprintf(`{"id":%d}`, channelID)))
 		ctx.Request.Header.Set("Content-Type", "application/json")
 		channelsHTTP().DetectUpstreamModels.Handle(ctx)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		require.True(t, response.Success, recorder.Body.String())
+		return upstreamModelUpdateSummary{}
+	case applyChannelModelUpdateRun:
+		persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channelID)
+		body, err := common.Marshal(map[string]any{"id": channelID, "add_models": channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastDetectedModels})
+		require.NoError(t, err)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/apply", bytes.NewReader(body))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+		channelsHTTP().ApplyUpstreamModels.Handle(ctx)
 		require.Equal(t, http.StatusOK, recorder.Code)
 		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 		require.True(t, response.Success, recorder.Body.String())
@@ -2575,7 +2589,8 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 // An OpenRouter channel whose model mapping does not resolve, by invalid JSON
 // or a cycle, leaves the published catalog models unknown: a scheduled run
 // applies no change of a catalog channel, and the report names the channels
-// with such a mapping once. A detect and an apply-all still work; fixed
+// with such a mapping once, and again when another channel takes the place of
+// a fixed one. A detect, detect-all, apply and apply-all still work; fixed
 // mappings unblock the auto-apply.
 func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testing.T) {
 	db := setupChannelUpstreamUpdateTestDB(t)
@@ -2603,12 +2618,15 @@ func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testi
 		"\n\nAdded model samples (showing 1/1): added" +
 		"\n\nRemoved model samples (showing 1/1): gone" +
 		"\n\nChanges are not applied automatically — unresolved model mapping (invalid JSON or a cycle) in channels "
+	// unresolvedIDs are the channels whose mapping is still unresolved, oldest
+	// first.
 	var unresolvedIDs []int
 	for _, step := range []struct {
 		name              string
+		fixMappings       int
 		unresolvedMapping string
+		catalogModels     []string
 		run               modelUpdateRun
-		fixMappings       bool
 		wantReports       []string
 		wantRemaining     string
 	}{
@@ -2628,10 +2646,27 @@ func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testi
 			wantRemaining: "kept,gone",
 		},
 		{
+			name:          "a detect-all check works",
+			run:           detectAllModelUpdateRun,
+			wantRemaining: "kept,gone",
+		},
+		{
 			name:              "a mapping cycle of a third channel is reported",
 			unresolvedMapping: `{"acme/broken":"acme/loop","acme/loop":"acme/broken"}`,
 			wantReports:       []string{blockedReport + "(showing 2/2): #2 unresolved-mapping, #3 unresolved-mapping"},
 			wantRemaining:     "kept,gone",
+		},
+		{
+			name:              "a fourth channel that breaks as the second is fixed is reported",
+			fixMappings:       1,
+			unresolvedMapping: `{"acme/broken":`,
+			wantReports:       []string{blockedReport + "(showing 2/2): #3 unresolved-mapping, #4 unresolved-mapping"},
+			wantRemaining:     "kept,gone",
+		},
+		{
+			name:          "an apply of the catalog channel applies its pending additions",
+			run:           applyChannelModelUpdateRun,
+			wantRemaining: "kept,gone,added",
 		},
 		{
 			name:          "an apply-all applies the pending changes",
@@ -2639,27 +2674,32 @@ func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testi
 			wantRemaining: "kept,added",
 		},
 		{
-			name:        "fixed mappings unblock the auto-apply",
-			fixMappings: true,
+			name:          "fixed mappings unblock the auto-apply",
+			fixMappings:   2,
+			catalogModels: []string{"kept", "added", "newer"},
 			wantReports: []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 1 auto-synced additions, 0 failed." +
 				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)" +
 				"\n\nAdded by auto sync (showing 1/1): newer (upstream-sync-test)"},
 			wantRemaining: "kept,added,newer",
 		},
 	} {
+		if step.fixMappings > 0 {
+			require.NoError(t, db.Model(&model.Channel{}).Where("id IN ?", unresolvedIDs[:step.fixMappings]).Update("model_mapping", "{}").Error)
+			unresolvedIDs = unresolvedIDs[step.fixMappings:]
+		}
 		if step.unresolvedMapping != "" {
 			unresolved := createChannelUpstreamUpdateTestChannel(t, db, "acme/broken", nil, dto.ChannelOtherSettings{})
 			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", unresolved.Id).Updates(map[string]any{"name": "unresolved-mapping", "base_url": "https://openrouter.ai/api", "model_mapping": step.unresolvedMapping}).Error)
 			unresolvedIDs = append(unresolvedIDs, unresolved.Id)
 		}
-		if step.fixMappings {
-			require.NoError(t, db.Model(&model.Channel{}).Where("id IN ?", unresolvedIDs).Update("model_mapping", "{}").Error)
-			catalog.models = []string{"kept", "added", "newer"}
+		if step.catalogModels != nil {
+			catalog.models = step.catalogModels
 		}
 		reports = nil
 
-		runModelUpdate(t, db, step.run, channel.Id)
+		summary := runModelUpdate(t, db, step.run, channel.Id)
 
+		assert.Zero(t, summary.FailedChannels, step.name)
 		assert.Equal(t, step.wantReports, reports, step.name)
 		persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
 		assert.Equal(t, step.wantRemaining, persisted.Models, step.name)

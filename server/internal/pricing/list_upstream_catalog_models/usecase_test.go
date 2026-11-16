@@ -292,11 +292,12 @@ func TestExecuteReusesDecodedStoredDocuments(t *testing.T) {
 // A manifest that lost more than 30% of the published models (the head models
 // the channels request) blocks the auto-apply of its models; they are still
 // listed and addable. Alias targets and models no channel requests, also of a
-// channel with another base URL, are not compared. A channel whose model
-// mapping does not resolve leaves the published models unknown: it blocks the
-// auto-apply, also without a published head, and is named. The flag follows
-// the current head and channels, also for the models of a cached revision, and
-// an unreadable head or channel is an error, not an unblocked catalog.
+// channel with another base URL, are not compared. An enabled channel whose
+// model mapping does not resolve leaves the published models unknown: it
+// blocks the auto-apply, also without a published head, and is named. The
+// flag follows the current head and channels, also for the models of a
+// cached revision, and an unreadable head or channel is an error, not an
+// unblocked catalog.
 func TestExecuteBlocksAutoApplyAfterPublishedModelLoss(t *testing.T) {
 	eligible := &domain.SourceEligibility{Eligible: true}
 	var listed []catalogModel
@@ -335,6 +336,7 @@ func TestExecuteBlocksAutoApplyAfterPublishedModelLoss(t *testing.T) {
 		{name: "mapping with a cycle", store: headStore{head: listedIDs, requested: listedIDs, modelMapping: `{"acme/m4":"acme/m5","acme/m5":"acme/m4"}`}, blocked: true, unresolved: unresolved},
 		{name: "mapping with a cycle without a published head", store: headStore{requested: listedIDs, modelMapping: `{"acme/m4":"acme/m5","acme/m5":"acme/m4"}`, headErr: errNoHead}, blocked: true, unresolved: unresolved},
 		{name: "unresolved mapping of a channel with another base URL", store: headStore{head: listedIDs, requested: listedIDs, modelMapping: `{"acme/m4":`, baseURL: "https://proxy.example/api"}},
+		{name: "unresolved mapping of a disabled channel", store: headStore{head: listedIDs, requested: listedIDs, modelMapping: `{"acme/m4":`, channelDisabled: true}},
 		{name: "head without the lost models", store: headStore{head: listedIDs, requested: listedIDs}},
 		{name: "head unreadable", store: headStore{head: lostFour, requested: lostFour, headErr: readFailure}, err: readFailure},
 		{name: "head selection unreadable", store: headStore{head: lostFour, requested: lostFour, selectionErr: readFailure}, err: readFailure},
