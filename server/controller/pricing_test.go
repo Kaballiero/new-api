@@ -4044,7 +4044,7 @@ func pricingTestDocument(value *catalogsync.Document) *domain.SourceDocument {
 }
 
 func syncUpstreamCatalog(ctx context.Context, source pricingrecord.CatalogSource, requested map[string]bool, deps domain.Capabilities, documents domain.CatalogDocumentCache, client sync_upstream_catalog.Client) (sync_upstream_catalog.CatalogSyncResult, error) {
-	return sync_upstream_catalog.NewUsecase(deps, pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, domain.CatalogSource(source), requested, client)
+	return sync_upstream_catalog.NewUsecase(deps, domain.NewProjection(domain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, domain.CatalogSource(source), requested, client)
 }
 
 func selectCatalogOffer(offers []domain.CatalogOffer) *domain.CatalogOffer {

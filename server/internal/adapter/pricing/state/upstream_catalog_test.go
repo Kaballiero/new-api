@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -477,7 +478,7 @@ func TestSyncUpstreamCatalogRejectsRevisionThatLostPublishedModels(t *testing.T)
 				before, err := ensureCatalogSource(ctx, source)
 				require.NoError(t, err)
 
-				_, err = sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, func() {}).Execute(ctx, pricingdomain.CatalogSource(source), requested, lossGuardClient{manifest: manifest})
+				_, err = sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: pricingadapter.Capabilities()}), pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, func() {}).Execute(ctx, pricingdomain.CatalogSource(source), requested, lossGuardClient{manifest: manifest})
 
 				after, headErr := ensureCatalogSource(ctx, source)
 				require.NoError(t, headErr)
@@ -553,7 +554,7 @@ func TestUpstreamCatalogLossAgreesForPricesAndChannels(t *testing.T) {
 				models, listErr := list_upstream_catalog_models.NewUsecase(deps, pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), documents, &pricingadapter.UpstreamCatalogModelsCache{}, channels, func() (pricingdomain.CatalogSource, bool, error) {
 					return source, true, nil
 				}, func(pricingdomain.CatalogSource) (list_upstream_catalog_models.Client, error) { return client, nil }).Execute(ctx)
-				_, syncErr := sync_upstream_catalog.NewUsecase(deps, pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, func() {}).Execute(ctx, source, requested, client)
+				_, syncErr := sync_upstream_catalog.NewUsecase(deps, pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), documents, time.Now, func() {}).Execute(ctx, source, requested, client)
 
 				if step.corruptHead {
 					require.ErrorContains(t, listErr, "stored catalog revision integrity mismatch", step.name)
@@ -596,6 +597,183 @@ func TestCatalogModelLossNotification(t *testing.T) {
 		"Prices stay at revision "+head+"; channel models are not changed automatically."+
 		"\n\nTo apply the revision, remove the lost models from the enabled OpenRouter channels (all of them, including models that map to them) or disable those channels. The full list is in lost_models of the pricing_catalog task."+
 		"\n\nLost models (showing 12/61): acme/m01, acme/m02, acme/m03, acme/m04, acme/m05, acme/m06, acme/m07, acme/m08, acme/m09, acme/m10, acme/m11, acme/m12", content)
+}
+
+// priceCatalogClient serves embedding model documents of the reference
+// fixture with every input rate at the price in USD per million tokens; the
+// description changes a document without changing its price.
+type priceCatalogClient struct {
+	template    string
+	revision    string
+	description string
+	prices      map[string]string
+}
+
+func (client priceCatalogClient) payload(id string) []byte {
+	payload := strings.NewReplacer(
+		`"id":"acme/direct"`, `"id":"`+id+`"`,
+		`"output":[]`, `"output":["embeddings"]`,
+		"0.000000000000123456789", client.prices[id],
+		`"amountUSD":"0"`, `"amountUSD":"`+client.prices[id]+`"`,
+		`"amount":"0"`, `"amount":"`+client.prices[id]+`"`,
+		"Пример, не действующий тариф", client.description,
+	).Replace(client.template)
+	return []byte(payload)
+}
+func (client priceCatalogClient) Manifest(context.Context) (pricingdomain.SourceManifest, error) {
+	manifest := pricingdomain.SourceManifest{SchemaVersion: 1, NormalizationVersion: "1", Revision: strings.Repeat(client.revision, 64), FetchedAt: "2026-11-16T00:00:00Z"}
+	for _, id := range slices.Sorted(maps.Keys(client.prices)) {
+		manifest.Models = append(manifest.Models, pricingdomain.SourceReference{ID: id, Hash: catalogsync.Hash(client.payload(id))})
+	}
+	return manifest, nil
+}
+func (client priceCatalogClient) Document(_ context.Context, ref pricingdomain.SourceReference) ([]byte, *pricingdomain.SourceDocument, error) {
+	raw := client.payload(ref.ID)
+	document, err := pricingadapter.Capabilities().Catalog.DecodeDocument(raw, ref)
+	return raw, document, err
+}
+
+// A moved head reports the minimum prices that grew or fell more than twice,
+// in USD, with the remote revisions; the head documents are read back from the
+// database. An unchanged head reports nothing, and an unreadable head document
+// skips the report but not the head.
+func TestSyncUpstreamCatalogReportsPriceChanges(t *testing.T) {
+	template, err := os.ReadFile("../../../../model/testdata/upstream_catalog/direct.json")
+	require.NoError(t, err)
+	requested := map[string]bool{"acme/a": true, "acme/b": true, "acme/c": true}
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			db := upstreamCatalogTestDB(t, dialect, false)
+			ctx := context.Background()
+			source := pricingdomain.CatalogSource{ID: pricingstate.CatalogHash([]byte("price-changes")), Kind: "openrouter", BaseURL: "https://catalog.example"}
+			deps := pricingadapter.Capabilities()
+			for _, step := range []struct {
+				name        string
+				revision    string
+				description string
+				prices      map[string]string
+				corruptHead bool
+				want        pricingdomain.CatalogPriceChangeReport
+				wantErr     string
+			}{
+				{name: "first revision has nothing to compare", revision: "1", description: "v1", prices: map[string]string{"acme/a": "1.25", "acme/b": "1", "acme/c": "0.5"},
+					want: pricingdomain.CatalogPriceChangeReport{RemoteRevision: strings.Repeat("1", 64)}},
+				{name: "a tripled, b grew 1.5 times, c changed the description", revision: "2", description: "v2", prices: map[string]string{"acme/a": "3.75", "acme/b": "1.5", "acme/c": "0.5"},
+					want: pricingdomain.CatalogPriceChangeReport{HeadRemoteRevision: strings.Repeat("1", 64), RemoteRevision: strings.Repeat("2", 64), Changes: []pricingdomain.CatalogPriceChange{{ModelID: "acme/a", Component: "input", Unit: "million_tokens", OldAmountUSD: 1.25, NewAmountUSD: 3.75}}}},
+				{name: "unchanged head", revision: "3", description: "v2", prices: map[string]string{"acme/a": "3.75", "acme/b": "1.5", "acme/c": "0.5"},
+					want: pricingdomain.CatalogPriceChangeReport{HeadRemoteRevision: strings.Repeat("2", 64), RemoteRevision: strings.Repeat("3", 64)}},
+				{name: "a fell 3 times, b and c doubled exactly", revision: "4", description: "v2", prices: map[string]string{"acme/a": "1.25", "acme/b": "3", "acme/c": "1"},
+					want: pricingdomain.CatalogPriceChangeReport{HeadRemoteRevision: strings.Repeat("3", 64), RemoteRevision: strings.Repeat("4", 64), Changes: []pricingdomain.CatalogPriceChange{{ModelID: "acme/a", Component: "input", Unit: "million_tokens", OldAmountUSD: 3.75, NewAmountUSD: 1.25}}}},
+				{name: "unreadable head document", revision: "5", description: "v2", prices: map[string]string{"acme/a": "5", "acme/b": "3", "acme/c": "1"}, corruptHead: true,
+					want: pricingdomain.CatalogPriceChangeReport{HeadRemoteRevision: strings.Repeat("4", 64), RemoteRevision: strings.Repeat("5", 64)}, wantErr: "stored catalog document integrity mismatch"},
+			} {
+				if step.corruptHead {
+					require.NoError(t, db.Model(&pricingrecord.CatalogDocument{}).Where("model_id = ?", "acme/a").Update("payload", "{}").Error)
+				}
+				client := priceCatalogClient{template: string(template), revision: step.revision, description: step.description, prices: step.prices}
+				// A fresh document cache reads the head documents from the database.
+				result, err := sync_upstream_catalog.NewUsecase(deps, pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), &pricingadapter.UpstreamCatalogDocumentsCache{}, time.Now, func() {}).Execute(ctx, source, requested, client)
+
+				require.NoError(t, err, step.name)
+				assert.Equal(t, step.want, result.PriceChanges, step.name)
+				assert.Equal(t, step.wantErr, result.PriceChangesError, step.name)
+				head, err := ensureCatalogSource(ctx, pricingrecord.CatalogSource(source))
+				require.NoError(t, err)
+				assert.Equal(t, strings.Repeat(step.revision, 64), head.RemoteRevision, step.name)
+			}
+		})
+	}
+}
+
+// A price counts when it grows or falls more than twice, a free price that
+// gets an amount and a price that becomes free included; unknown prices, other
+// units, operations and models one side lacks are not compared. The minima are
+// priced at ratio 1, 100 roubles per USD.
+func TestCatalogPriceChanges(t *testing.T) {
+	price := func(component, unit string, amount float64) pricingdomain.ConsumerUnitPrice {
+		return pricingdomain.ConsumerUnitPrice{Component: component, Unit: unit, AmountRub: &amount}
+	}
+	text := func(prices ...pricingdomain.ConsumerUnitPrice) []pricingdomain.ConsumerPricingOperation {
+		return []pricingdomain.ConsumerPricingOperation{{Operation: "text", Mode: "sync", Prices: prices}}
+	}
+	for _, tc := range []struct {
+		name              string
+		previous, current []pricingdomain.ConsumerPricingOperation
+		want              []pricingdomain.CatalogPriceChange
+	}{
+		{name: "doubled", previous: text(price("input", "million_tokens", 100)), current: text(price("input", "million_tokens", 200))},
+		{name: "halved", previous: text(price("input", "million_tokens", 100)), current: text(price("input", "million_tokens", 50))},
+		{name: "grew 2.01 times", previous: text(price("input", "million_tokens", 100)), current: text(price("input", "million_tokens", 201)),
+			want: []pricingdomain.CatalogPriceChange{{ModelID: "acme/m", Component: "input", Unit: "million_tokens", OldAmountUSD: 1, NewAmountUSD: 2.01}}},
+		{name: "fell 2.01 times", previous: text(price("output", "million_tokens", 201)), current: text(price("output", "million_tokens", 100)),
+			want: []pricingdomain.CatalogPriceChange{{ModelID: "acme/m", Component: "output", Unit: "million_tokens", OldAmountUSD: 2.01, NewAmountUSD: 1}}},
+		{name: "free price gets an amount", previous: text(price("cache_read", "million_tokens", 0)), current: text(price("cache_read", "million_tokens", 1)),
+			want: []pricingdomain.CatalogPriceChange{{ModelID: "acme/m", Component: "cache_read", Unit: "million_tokens", OldAmountUSD: 0, NewAmountUSD: 0.01}}},
+		{name: "price becomes free", previous: text(price("input", "million_tokens", 400)), current: text(price("input", "million_tokens", 0)),
+			want: []pricingdomain.CatalogPriceChange{{ModelID: "acme/m", Component: "input", Unit: "million_tokens", OldAmountUSD: 4, NewAmountUSD: 0}}},
+		{name: "stays free", previous: text(price("cache_read", "million_tokens", 0)), current: text(price("cache_read", "million_tokens", 0))},
+		{name: "previous amount unknown", previous: text(pricingdomain.ConsumerUnitPrice{Component: "input", Unit: "million_tokens"}), current: text(price("input", "million_tokens", 300))},
+		{name: "current amount unknown", previous: text(price("input", "million_tokens", 300)), current: text(pricingdomain.ConsumerUnitPrice{Component: "input", Unit: "million_tokens"})},
+		{name: "another unit", previous: text(price("input", "million_tokens", 100)), current: text(price("input", "million_characters", 300))},
+		{name: "another operation", previous: text(price("input", "million_tokens", 100)), current: []pricingdomain.ConsumerPricingOperation{{Operation: "embeddings", Mode: "sync", Prices: []pricingdomain.ConsumerUnitPrice{price("input", "million_tokens", 300)}}}},
+		{name: "only one component changed", previous: text(price("input", "million_tokens", 100), price("output", "million_tokens", 400)), current: text(price("input", "million_tokens", 150), price("output", "million_tokens", 1200)),
+			want: []pricingdomain.CatalogPriceChange{{ModelID: "acme/m", Component: "output", Unit: "million_tokens", OldAmountUSD: 4, NewAmountUSD: 12}}},
+	} {
+		changes := pricingdomain.CatalogPriceChanges(map[string][]pricingdomain.ConsumerPricingOperation{"acme/m": tc.previous}, map[string][]pricingdomain.ConsumerPricingOperation{"acme/m": tc.current})
+		if tc.want == nil {
+			tc.want = []pricingdomain.CatalogPriceChange{}
+		}
+		assert.Equal(t, tc.want, changes, tc.name)
+	}
+	changes := pricingdomain.CatalogPriceChanges(
+		map[string][]pricingdomain.ConsumerPricingOperation{"acme/z": text(price("input", "million_tokens", 100)), "acme/a": text(price("input", "million_tokens", 100)), "acme/gone": text(price("input", "million_tokens", 100))},
+		map[string][]pricingdomain.ConsumerPricingOperation{"acme/z": text(price("input", "million_tokens", 300)), "acme/a": text(price("input", "million_tokens", 300))},
+	)
+	assert.Equal(t, []pricingdomain.CatalogPriceChange{
+		{ModelID: "acme/a", Component: "input", Unit: "million_tokens", OldAmountUSD: 1, NewAmountUSD: 3},
+		{ModelID: "acme/z", Component: "input", Unit: "million_tokens", OldAmountUSD: 1, NewAmountUSD: 3},
+	}, changes, "sorted by model; a model one side lacks is not compared")
+}
+
+// The report names the shortened revisions, shows the amounts in roubles at
+// the FX rate or in USD without one, with 4 significant digits, and lists at
+// most 12 changes; a price that was free changed infinitely.
+func TestCatalogPriceChangesNotification(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	report := pricingdomain.CatalogPriceChangeReport{HeadRemoteRevision: "5c0d77" + strings.Repeat("1", 58), RemoteRevision: "9b41e2" + strings.Repeat("2", 58), Changes: []pricingdomain.CatalogPriceChange{
+		{ModelID: "acme/free", Component: "cache_read", Unit: "million_tokens", OldAmountUSD: 0, NewAmountUSD: 0.05},
+		{ModelID: "acme/tts", Component: "input", Unit: "character", OldAmountUSD: 0.000015, NewAmountUSD: 0.00005},
+		{ModelID: "openai/gpt-5.1", Component: "input", Unit: "million_tokens", OldAmountUSD: 1.25, NewAmountUSD: 3},
+		{ModelID: "openai/o1-pro", Component: "output", Unit: "million_tokens", OldAmountUSD: 600, NewAmountUSD: 150},
+		{ModelID: "vendor/gone-free", Component: "input", Unit: "million_tokens", OldAmountUSD: 4, NewAmountUSD: 0},
+	}}
+
+	subject, content := pricingadapter.CatalogPriceChangesNotification(i18n.LangRu, report, 90, true)
+	assert.Equal(t, "Каталог upstream: цены изменились больше чем в 2 раза", subject)
+	assert.Equal(t, "Применена ревизия каталога upstream 5c0d77111111 → 9b41e2222222. Минимальные синхронные закупочные цены ниже изменились больше чем в 2 раза; суммы в ₽ по курсу 90 ₽ за USD. Полный список в USD — в price_changes задачи pricing_catalog."+
+		"\n\nИзменения (показано 5/5):"+
+		"\n- acme/free, cache_read: 0 → 4.5 ₽ / million_tokens (×∞)"+
+		"\n- acme/tts, input: 0.00135 → 0.0045 ₽ / character (×3.333)"+
+		"\n- openai/gpt-5.1, input: 112.5 → 270 ₽ / million_tokens (×2.4)"+
+		"\n- openai/o1-pro, output: 54000 → 13500 ₽ / million_tokens (×0.25)"+
+		"\n- vendor/gone-free, input: 360 → 0 ₽ / million_tokens (×0)", content)
+
+	for i := range 8 {
+		report.Changes = append(report.Changes, pricingdomain.CatalogPriceChange{ModelID: fmt.Sprintf("acme/m%02d", i+1), Component: "output", Unit: "million_tokens", OldAmountUSD: 1, NewAmountUSD: 1.0 / 3})
+	}
+	subject, content = pricingadapter.CatalogPriceChangesNotification(i18n.LangEn, report, 0, false)
+	assert.Equal(t, "Upstream catalog: prices changed more than 2x", subject)
+	want := "Upstream catalog revision 5c0d77111111 → 9b41e2222222 is applied. These minimum synchronous purchase prices changed more than 2x; amounts in USD: the ₽ rate is unavailable. The full list in USD is in price_changes of the pricing_catalog task." +
+		"\n\nChanges (showing 12/13):" +
+		"\n- acme/free, cache_read: 0 → 0.05 USD / million_tokens (×∞)" +
+		"\n- acme/tts, input: 0.000015 → 0.00005 USD / character (×3.333)" +
+		"\n- openai/gpt-5.1, input: 1.25 → 3 USD / million_tokens (×2.4)" +
+		"\n- openai/o1-pro, output: 600 → 150 USD / million_tokens (×0.25)" +
+		"\n- vendor/gone-free, input: 4 → 0 USD / million_tokens (×0)"
+	for i := range 7 {
+		want += fmt.Sprintf("\n- acme/m%02d, output: 1 → 0.3333 USD / million_tokens (×0.3333)", i+1)
+	}
+	assert.Equal(t, want, content)
 }
 
 type catalogContractTransport func(*http.Request) (*http.Response, error)

@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/QuantumNous/new-api/constant"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 )
@@ -33,18 +32,12 @@ type Cache interface {
 	Store(revision string, models channeldomain.UpstreamModels)
 }
 
-// addableRoute is the consumer operation a model added from the catalog may
-// serve now, with the request path the catalog declares for it and the
-// gateway endpoint that serves it.
-type addableRoute struct {
-	path     string
-	endpoint constant.EndpointType
-}
-
-var addableRoutes = map[string]addableRoute{
-	"text":             {"/api/v1/chat/completions", constant.EndpointTypeOpenAI},
-	"embeddings":       {"/api/v1/embeddings", constant.EndpointTypeEmbeddings},
-	"image_generation": {"/api/v1/images", constant.EndpointTypeImageGeneration},
+// addableRoutes are the consumer operations a model added from the catalog
+// may serve now, with the request path the catalog declares for each.
+var addableRoutes = map[string]string{
+	"text":             "/api/v1/chat/completions",
+	"embeddings":       "/api/v1/embeddings",
+	"image_generation": "/api/v1/images",
 }
 
 // unaddableSuffixes mark catalog models that are not added to a channel: free
@@ -139,7 +132,6 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 	}
 	result := channeldomain.UpstreamModels{Listed: make([]string, 0, len(manifest.Models)), Addable: []string{}, Shortcuts: domain.OpenRouterShortcuts, AutoApplyBlocked: autoApplyBlocked, UnresolvedMappingChannels: unresolvedMappingChannels}
 	candidates := []domain.SourceReference{}
-	operations := map[string]domain.PricingOperation{}
 	for _, ref := range manifest.Models {
 		result.Listed = append(result.Listed, ref.ID)
 		model, exists := indexModels[ref.ID]
@@ -152,12 +144,11 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 		// The consumer profile reads only the type and the output modalities,
 		// which the index carries unchanged.
 		profile, _ := domain.CatalogConsumerProfile(&domain.SourceDocument{Type: model.Type, Modalities: model.Modalities})
-		route, supported := addableRoutes[profile.Operation]
-		if !supported || !slices.Contains(model.Endpoints, route.path) {
+		path, supported := addableRoutes[profile.Operation]
+		if !supported || !slices.Contains(model.Endpoints, path) {
 			continue
 		}
 		candidates = append(candidates, ref)
-		operations[ref.ID] = profile
 	}
 
 	documents, _, err := domain.LoadCatalogDocuments(ctx, u.deps, u.store, u.documents, client, source.ID, candidates)
@@ -165,14 +156,9 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 		return channeldomain.UpstreamModels{}, err
 	}
 	for _, ref := range candidates {
-		profile := operations[ref.ID]
-		item := domain.Pricing{ModelName: ref.ID, UpstreamCatalogRoutesByGroup: map[string][]domain.UpstreamCatalogRoute{"all": {{
-			Operation: profile.Operation, Mode: "sync", Endpoint: addableRoutes[profile.Operation].endpoint,
-			ModelID: ref.ID, DocumentHash: ref.Hash, Document: documents[ref.ID],
-		}}}}
 		// A price is confirmed independently of the tariff, so any valid
 		// group ratio confirms the same offers.
-		minima := domain.CatalogMinimumOperations(u.deps, u.projection.IterateUpstreamProviderOffers(item, "", 1, true, domain.PricingUserContext{}))
+		minima := u.projection.CatalogModelMinimumPrices(ref, documents[ref.ID], 1, true)
 		if slices.ContainsFunc(minima, func(operation domain.ConsumerPricingOperation) bool {
 			return domain.ConfirmedConsumerPrices(operation.Prices, operation.Tiers)
 		}) {
