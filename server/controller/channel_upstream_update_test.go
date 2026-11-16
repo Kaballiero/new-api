@@ -1951,6 +1951,7 @@ func TestApplyChannelUpstreamModelUpdatesReturnsFreshIgnoredModels(t *testing.T)
 // Consecutive scheduled runs send the report only when what waits for a
 // decision changed since the last delivered report. Every run assembles a new
 // usecase, as after a pod restart, so the fingerprint lives in the database.
+// Each step changes one thing against the report delivered before it.
 func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 	db := setupChannelUpstreamUpdateTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}))
@@ -1958,6 +1959,7 @@ func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 	t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "0")
 	pending := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
 	autoSynced := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true})
+	// A channel without upstream models fails its check.
 	upstreamModels := map[int][]string{}
 	stubChannelUpstreamModelFetch(t, func(channel *model.Channel) ([]string, error) {
 		if upstreamModels[channel.Id] == nil {
@@ -1965,6 +1967,12 @@ func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 		}
 		return upstreamModels[channel.Id], nil
 	})
+	failingQueryTable := ""
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("test:failing_query_table", func(tx *gorm.DB) {
+		if failingQueryTable != "" && tx.Statement.Table == failingQueryTable {
+			tx.AddError(errors.New("injected query failure"))
+		}
+	}))
 	gatewayStatus := http.StatusOK
 	var requests []string
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1976,37 +1984,65 @@ func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 	defer gateway.Close()
 	t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
 	t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
 
+	unchanged := []string{"gpt-4o"}
+	addition := []string{"gpt-4o", "gpt-4.1"}
+	otherAddition := []string{"gpt-4o", "gpt-4.5"}
 	for _, step := range []struct {
-		name          string
-		pendingModels []string
-		autoModels    []string
-		gatewayStatus int
-		wantFailed    int
-		wantRequests  int
+		name              string
+		pendingModels     []string
+		autoModels        []string
+		gatewayStatus     int
+		cancelled         bool
+		failingQueryTable string
+		wantChanged       int
+		wantFailed        int
+		wantRequests      int
 	}{
-		{name: "first report is sent", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
-		{name: "unchanged report is not sent again", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 0},
-		{name: "another model with the same counts is sent", pendingModels: []string{"gpt-4o", "gpt-4.5"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
-		{name: "conflict-only report is sent", pendingModels: []string{"gpt-4o", "acme/gpt-4o"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
-		{name: "unchanged conflict-only report is not sent again", pendingModels: []string{"gpt-4o", "acme/gpt-4o"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 0},
-		{name: "rejected delivery is attempted", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusInternalServerError, wantRequests: 1},
-		{name: "rejected report is sent again", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
-		{name: "failed channel is sent", autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantFailed: 1, wantRequests: 1},
-		{name: "unchanged failure is not sent again", autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantFailed: 1, wantRequests: 0},
-		{name: "scan without findings sends nothing", pendingModels: []string{"gpt-4o"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 0},
-		{name: "problem that comes back is sent again", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
-		{name: "applied addition is sent with unchanged pending models", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o", "gpt-5"}, gatewayStatus: http.StatusOK, wantRequests: 1},
-		{name: "applied addition is not part of the next report", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o", "gpt-5"}, gatewayStatus: http.StatusOK, wantRequests: 0},
+		{name: "first report is sent", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "unchanged report is not sent again", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 0},
+		{name: "another model with the same counts is sent", pendingModels: otherAddition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "two pending models are sent", pendingModels: []string{"gpt-4o", "gpt-4.1", "gpt-4.5"}, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "upstream order does not change the report", pendingModels: []string{"gpt-4.5", "gpt-4.1", "gpt-4o"}, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 0},
+		{name: "pending addition is sent", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "added conflict is sent", pendingModels: []string{"gpt-4o", "gpt-4.1", "acme/gpt-4o"}, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "conflict-only report is sent", pendingModels: []string{"gpt-4o", "acme/gpt-4o"}, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 0, wantRequests: 1},
+		{name: "unchanged conflict-only report is not sent again", pendingModels: []string{"gpt-4o", "acme/gpt-4o"}, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 0, wantRequests: 0},
+		{name: "pending addition is sent after conflicts", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "added failed channel is sent", pendingModels: addition, gatewayStatus: http.StatusOK, wantChanged: 1, wantFailed: 1, wantRequests: 1},
+		{name: "unchanged failure is not sent again", pendingModels: addition, gatewayStatus: http.StatusOK, wantChanged: 1, wantFailed: 1, wantRequests: 0},
+		{name: "pending addition is sent after the failure", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "added pending removal is sent", pendingModels: []string{"gpt-4.1"}, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "pending removal of one channel is sent", pendingModels: []string{}, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "same pending removal of another channel is sent", pendingModels: unchanged, autoModels: []string{}, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "rejected delivery is attempted", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusInternalServerError, wantChanged: 1, wantRequests: 1},
+		{name: "rejected report is sent again", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "cancelled scan sends nothing", pendingModels: unchanged, autoModels: unchanged, gatewayStatus: http.StatusOK, cancelled: true, wantRequests: 0},
+		{name: "cancelled scan keeps the fingerprint", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 0},
+		{name: "failed channel query sends nothing", pendingModels: unchanged, autoModels: unchanged, gatewayStatus: http.StatusOK, failingQueryTable: "channels", wantRequests: 0},
+		{name: "failed channel query keeps the fingerprint", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 0},
+		{name: "unreadable fingerprint still sends the report", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, failingQueryTable: "options", wantChanged: 1, wantRequests: 1},
+		{name: "scan without findings sends nothing", pendingModels: unchanged, autoModels: unchanged, gatewayStatus: http.StatusOK, wantRequests: 0},
+		{name: "problem that comes back is sent again", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
+		{name: "applied addition is sent with unchanged pending models", pendingModels: addition, autoModels: []string{"gpt-4o", "gpt-5"}, gatewayStatus: http.StatusOK, wantChanged: 2, wantRequests: 1},
+		{name: "applied addition is not part of the next report", pendingModels: addition, autoModels: []string{"gpt-4o", "gpt-5"}, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 0},
 	} {
 		upstreamModels[pending.Id] = step.pendingModels
 		upstreamModels[autoSynced.Id] = step.autoModels
 		gatewayStatus = step.gatewayStatus
+		failingQueryTable = step.failingQueryTable
+		ctx := context.Background()
+		if step.cancelled {
+			ctx = cancelled
+		}
 		requests = nil
 
-		summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
+		summary := runChannelUpstreamModelUpdateTaskOnce(ctx, false, true, nil)
 
-		require.Equal(t, step.wantFailed, summary.FailedChannels, step.name)
+		assert.Equal(t, step.wantChanged, summary.ChangedChannels, step.name)
+		assert.Equal(t, step.wantFailed, summary.FailedChannels, step.name)
 		assert.Len(t, requests, step.wantRequests, step.name)
 	}
 }
