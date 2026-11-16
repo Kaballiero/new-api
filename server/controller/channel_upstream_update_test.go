@@ -1919,7 +1919,7 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
 				"\n\nAdded model samples (showing 1/1): acme/chat" +
 				"\n\nRemoved model samples (showing 1/1): retired-model" +
-				"\n\nChanges are not applied automatically — broken model mapping in channel (showing 1/1): #4 broken-mapping"},
+				"\n\nChanges are not applied automatically — unresolved model mapping (invalid JSON or a cycle) in channels (showing 1/1): #4 broken-mapping"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupChannelUpstreamUpdateTestDB(t)
@@ -2602,7 +2602,7 @@ func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testi
 		"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
 		"\n\nAdded model samples (showing 1/1): added" +
 		"\n\nRemoved model samples (showing 1/1): gone" +
-		"\n\nChanges are not applied automatically — broken model mapping in channel "
+		"\n\nChanges are not applied automatically — unresolved model mapping (invalid JSON or a cycle) in channels "
 	var unresolvedIDs []int
 	for _, step := range []struct {
 		name              string

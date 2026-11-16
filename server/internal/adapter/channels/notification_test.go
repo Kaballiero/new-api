@@ -79,5 +79,5 @@ func TestModelUpdateNotificationNamesUnresolvedMappingChannelsInRussian(t *testi
 	assert.Equal(t, "Итог проверки моделей upstream: проверено каналов — 2, с изменениями — 2, добавлено — 2, удалено — 0, добавлено автосинхронизацией — 0, ошибок — 0."+
 		"\n\nИзменённые каналы (показано 2/2):\n- OpenRouter (+1 / -0)\n- OpenRouter fast (+1 / -0)"+
 		"\n\nПримеры добавленных моделей (показано 1/1): openai/gpt-5.1"+
-		"\n\nИзменения не применяются автоматически — битый маппинг моделей в канале (показано 2/2): #3 OpenRouter json, #7 OpenRouter cycle", content)
+		"\n\nИзменения не применяются автоматически — маппинг моделей не разрешается (неверный JSON или цикл) в каналах (показано 2/2): #3 OpenRouter json, #7 OpenRouter cycle", content)
 }
