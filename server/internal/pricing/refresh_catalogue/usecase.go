@@ -332,9 +332,12 @@ func (u Usecase) FetchSource(ctx context.Context, source Source) (domain.Pricing
 // compares with it, so an undelivered report is logged and not sent again.
 func (u Usecase) RefreshUpstream(ctx context.Context, source domain.CatalogSource) (domain.CatalogRefreshSummary, error) {
 	summary := domain.CatalogRefreshSummary{}
-	requested, err := domain.CatalogRequestedModels(u.deps, u.store)
+	requested, unresolved, err := domain.CatalogRequestedModels(u.deps, u.store)
 	if err != nil {
 		return summary, err
+	}
+	if len(unresolved) > 0 {
+		return summary, errors.New("catalog channel model mapping is unresolved")
 	}
 	summary.Sources = len(requested)
 	if len(requested) == 0 {

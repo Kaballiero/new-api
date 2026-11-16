@@ -24,14 +24,17 @@ func (catalogChannel) Metadata(context.Context, string) ([]byte, error) {
 	return nil, errors.New("unexpected metadata read")
 }
 
-// catalogStore holds one enabled OpenRouter catalog channel with one model.
-type catalogStore struct{}
+// catalogStore holds one enabled OpenRouter catalog channel with one model and
+// the model mapping.
+type catalogStore struct{ modelMapping string }
 
 func (catalogStore) Abilities() ([]domain.BuildAbility, error) {
 	return []domain.BuildAbility{{Model: "acme/chat", Group: "default", ChannelId: 1, ChannelType: constant.ChannelTypeOpenRouter}}, nil
 }
-func (catalogStore) BuildChannel(int) (*domain.BuildChannel, error) {
-	return catalogChannel{}.Value(), nil
+func (store catalogStore) BuildChannel(int) (*domain.BuildChannel, error) {
+	channel := catalogChannel{}.Value()
+	channel.ModelMapping = &store.modelMapping
+	return channel, nil
 }
 func (catalogStore) Pricing() []domain.Pricing    { return nil }
 func (catalogStore) Channel(int) (Channel, error) { return catalogChannel{}, nil }
@@ -71,6 +74,21 @@ func (rows *optionRows) SaveBulk(_ context.Context, keys []string, values map[st
 		rows.values[key] = values[key]
 	}
 	return nil
+}
+
+// A channel whose model mapping does not resolve leaves the requested models
+// unknown: the task fails before the catalog sync, so the head stays.
+func TestRefreshUpstreamKeepsHeadWithUnresolvedMapping(t *testing.T) {
+	for _, modelMapping := range []string{`{"acme/chat":`, `{"acme/chat":"acme/loop","acme/loop":"acme/chat"}`} {
+		usecase := NewUsecase(pricingadapter.Capabilities(), catalogStore{modelMapping: modelMapping}, nil, func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error) {
+			t.Error("the catalog must not sync")
+			return domain.CatalogSyncSummary{}, nil
+		}, nil, nil, nil, time.Now, &recordedAlerts{}, &optionRows{values: map[string]string{}}, func(string) {})
+
+		_, err := usecase.RefreshUpstream(context.Background(), domain.CatalogSource{})
+
+		require.EqualError(t, err, "catalog channel model mapping is unresolved", modelMapping)
+	}
 }
 
 // A rejected catalog revision fails the task and alerts once per revision; an
