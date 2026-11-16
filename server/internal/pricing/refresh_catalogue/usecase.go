@@ -38,7 +38,7 @@ type Store interface {
 // domain.PriceChangeFactor times.
 type CatalogAlerts interface {
 	ModelLoss(domain.CatalogModelLossError) error
-	PriceChanges([]domain.CatalogPriceChange) error
+	PriceChanges(domain.CatalogPriceChangeReport) error
 }
 
 // SentAlerts keeps the remote revision of the last delivered model loss alert.
@@ -326,9 +326,10 @@ func (u Usecase) FetchSource(ctx context.Context, source Source) (domain.Pricing
 // refreshUpstreamCatalog uses the existing system-task lifecycle. Selection and
 // channel policy remain NewAPI-owned; the upstream supplies only model facts.
 // The prices the applied revision changed more than domain.PriceChangeFactor
-// times go to price_changes and to the administrators. The report only
-// informs: the head has moved and the next run compares with it, so an
-// undelivered report is logged and not sent again.
+// times go to price_changes and to the administrators, and the sending is
+// logged; a comparison the sync skipped goes to price_changes_error and the
+// log. The report only informs: the head has moved and the next run
+// compares with it, so an undelivered report is logged and not sent again.
 func (u Usecase) RefreshUpstream(ctx context.Context, source domain.CatalogSource) (domain.CatalogRefreshSummary, error) {
 	summary := domain.CatalogRefreshSummary{}
 	requested, err := domain.CatalogRequestedModels(u.deps, u.store)
@@ -353,13 +354,24 @@ func (u Usecase) RefreshUpstream(ctx context.Context, source domain.CatalogSourc
 	summary.NewDocuments = result.Publication.NewDocuments
 	summary.ReusedDocuments = result.Publication.ReusedDocuments
 	summary.Revision = result.Publication.Revision
-	summary.PriceChanges = result.PriceChanges
-	if len(result.PriceChanges) == 0 {
+	report := result.PriceChanges
+	summary.PriceChanges = report.Changes
+	summary.PriceChangesError = result.PriceChangesError
+	if result.PriceChangesError != "" {
+		u.log(fmt.Sprintf("pricing: upstream catalog price comparison skipped: revision=%s: %s", report.RemoteRevision, result.PriceChangesError))
+	}
+	if len(report.Changes) == 0 {
 		return summary, nil
 	}
-	if err := u.alerts.PriceChanges(result.PriceChanges); err != nil {
-		u.log(fmt.Sprintf("pricing: upstream catalog price change report failed: revision=%s changes=%d: %v", result.Publication.Revision, len(result.PriceChanges), err))
+	models := map[string]bool{}
+	for _, change := range report.Changes {
+		models[change.ModelID] = true
 	}
+	if err := u.alerts.PriceChanges(report); err != nil {
+		u.log(fmt.Sprintf("pricing: upstream catalog price change report failed: revision=%s models=%d changes=%d: %v", report.RemoteRevision, len(models), len(report.Changes), err))
+		return summary, nil
+	}
+	u.log(fmt.Sprintf("pricing: upstream catalog price changes: revision=%s models=%d changes=%d", report.RemoteRevision, len(models), len(report.Changes)))
 	return summary, nil
 }
 

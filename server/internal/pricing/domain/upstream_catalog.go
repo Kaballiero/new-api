@@ -75,14 +75,27 @@ const MaxCatalogModelLossPercent = 30
 const PriceChangeFactor = 2
 
 // CatalogPriceChange is a minimum price of a catalog model component that
-// changed more than PriceChangeFactor times between two catalog revisions.
+// changed more than PriceChangeFactor times between two catalog revisions, in
+// USD like the catalog.
 type CatalogPriceChange struct {
 	ModelID      string  `json:"model_id"`
 	Component    string  `json:"component"`
 	Unit         string  `json:"unit"`
-	OldAmountRub float64 `json:"old_amount_rub"`
-	NewAmountRub float64 `json:"new_amount_rub"`
+	OldAmountUSD float64 `json:"old_amount_usd"`
+	NewAmountUSD float64 `json:"new_amount_usd"`
 }
+
+// CatalogPriceChangeReport is what an applied catalog revision changed in the
+// prices of the head it replaced (CatalogPriceChanges).
+type CatalogPriceChangeReport struct {
+	HeadRemoteRevision string
+	RemoteRevision     string
+	Changes            []CatalogPriceChange
+}
+
+// rublesPerUSDAtRatioOne is how IterateUpstreamProviderOffers prices one USD
+// at ratio 1 (amountUSD × 100 × ratio).
+const rublesPerUSDAtRatioOne = 100
 
 // CatalogModelMinimumPrices are the minimum prices of the synchronous offers
 // of a catalog model by its document, for the consumer operation of its type
@@ -97,18 +110,19 @@ func (pricingPolicy *Projection) CatalogModelMinimumPrices(ref SourceReference, 
 }
 
 // CatalogPriceChanges compares the minimum prices of catalog models by model
-// id (CatalogModelMinimumPrices of two revisions). A price of the same
-// operation, component and unit counts when one amount exceeds the other more
-// than PriceChangeFactor times, so a free component that gets a price counts
-// too. Unknown amounts and components only one side has are not compared.
+// id (CatalogModelMinimumPrices of two revisions at ratio 1: the factor does
+// not depend on the rate). A price of the same operation, component and unit
+// counts when one amount exceeds the other more than PriceChangeFactor times,
+// so a free component that gets a price counts too. Unknown amounts and
+// components only one side has are not compared.
 func CatalogPriceChanges(previous, current map[string][]ConsumerPricingOperation) []CatalogPriceChange {
-	type priceSlot struct{ modelID, operation, mode, component, unit string }
-	currentAmounts := map[priceSlot]float64{}
+	type priceKey struct{ modelID, operation, mode, component, unit string }
+	currentAmounts := map[priceKey]float64{}
 	for modelID, operations := range current {
 		for _, operation := range operations {
 			for _, price := range operation.Prices {
 				if price.AmountRub != nil {
-					currentAmounts[priceSlot{modelID, operation.Operation, operation.Mode, price.Component, price.Unit}] = *price.AmountRub
+					currentAmounts[priceKey{modelID, operation.Operation, operation.Mode, price.Component, price.Unit}] = *price.AmountRub
 				}
 			}
 		}
@@ -117,7 +131,7 @@ func CatalogPriceChanges(previous, current map[string][]ConsumerPricingOperation
 	for _, modelID := range slices.Sorted(maps.Keys(previous)) {
 		for _, operation := range previous[modelID] {
 			for _, price := range operation.Prices {
-				newAmount, compared := currentAmounts[priceSlot{modelID, operation.Operation, operation.Mode, price.Component, price.Unit}]
+				newAmount, compared := currentAmounts[priceKey{modelID, operation.Operation, operation.Mode, price.Component, price.Unit}]
 				if price.AmountRub == nil || !compared {
 					continue
 				}
@@ -125,7 +139,7 @@ func CatalogPriceChanges(previous, current map[string][]ConsumerPricingOperation
 				if newAmount <= PriceChangeFactor*oldAmount && oldAmount <= PriceChangeFactor*newAmount {
 					continue
 				}
-				changes = append(changes, CatalogPriceChange{ModelID: modelID, Component: price.Component, Unit: price.Unit, OldAmountRub: oldAmount, NewAmountRub: newAmount})
+				changes = append(changes, CatalogPriceChange{ModelID: modelID, Component: price.Component, Unit: price.Unit, OldAmountUSD: oldAmount / rublesPerUSDAtRatioOne, NewAmountUSD: newAmount / rublesPerUSDAtRatioOne})
 			}
 		}
 	}

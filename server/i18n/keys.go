@@ -421,6 +421,8 @@ const (
 	MsgPricingCatalogModelLoss           = "pricing.catalog_model_loss"
 	MsgPricingCatalogPriceChangesSubject = "pricing.catalog_price_changes_subject"
 	MsgPricingCatalogPriceChanges        = "pricing.catalog_price_changes"
+	MsgPricingCatalogPriceChangesRub     = "pricing.catalog_price_changes_rub"
+	MsgPricingCatalogPriceChangesUSD     = "pricing.catalog_price_changes_usd"
 )
 
 // Channel management messages, notifications and persisted channel texts

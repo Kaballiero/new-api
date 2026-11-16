@@ -13,10 +13,11 @@ import (
 )
 
 type CatalogSyncResult struct {
-	Publication    domain.CatalogPublication
-	ImportedModels int
-	MissingModels  []string
-	PriceChanges   []domain.CatalogPriceChange
+	Publication       domain.CatalogPublication
+	ImportedModels    int
+	MissingModels     []string
+	PriceChanges      domain.CatalogPriceChangeReport
+	PriceChangesError string
 }
 type Store interface {
 	EnsureSource(context.Context, domain.CatalogSource) (domain.CatalogSource, error)
@@ -36,13 +37,12 @@ type Usecase struct {
 	projection *domain.Projection
 	store      Store
 	documents  domain.CatalogDocumentCache
-	fx         func() (domain.BillingFXBasis, error)
 	now        func() time.Time
 	invalidate func()
 }
 
-func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store Store, documents domain.CatalogDocumentCache, fx func() (domain.BillingFXBasis, error), now func() time.Time, invalidate func()) Usecase {
-	return Usecase{deps: deps, projection: projection, store: store, documents: documents, fx: fx, now: now, invalidate: invalidate}
+func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store Store, documents domain.CatalogDocumentCache, now func() time.Time, invalidate func()) Usecase {
+	return Usecase{deps: deps, projection: projection, store: store, documents: documents, now: now, invalidate: invalidate}
 }
 
 // SyncUpstreamCatalog acquires one immutable remote manifest and its requested
@@ -127,10 +127,10 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	for _, ref := range selected {
 		selection.Models = append(selection.Models, domain.CatalogModelReference{ID: ref.ID, Hash: ref.Hash})
 	}
-	priceChanges, err := u.priceChanges(ctx, current.ID, head, selection, decoded)
-	if err != nil {
-		return result, err
-	}
+	// The price report only informs, so an unreadable head document skips
+	// the comparison instead of keeping the head; the error is reported in
+	// PriceChangesError.
+	priceChanges, priceErr := u.priceChanges(ctx, current.ID, head, selection, decoded)
 	publication, err := u.publishSelection(ctx, current, selection, manifest.Revision, manifest.FetchedAt, fresh)
 	if err != nil {
 		return result, err
@@ -142,7 +142,10 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	}
 	result.ImportedModels = len(requested) - len(result.MissingModels)
 	result.Publication = publication
-	result.PriceChanges = priceChanges
+	result.PriceChanges = domain.CatalogPriceChangeReport{HeadRemoteRevision: current.RemoteRevision, RemoteRevision: manifest.Revision, Changes: priceChanges}
+	if priceErr != nil {
+		result.PriceChangesError = priceErr.Error()
+	}
 	if publication.Changed {
 		u.invalidate()
 	}
@@ -151,10 +154,10 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 
 // priceChanges compares the minimum prices of the models the head and the
 // selection both publish under different documents (domain.CatalogPriceChanges)
-// in roubles at the current FX rate, the purchase price without a tariff. A
-// changed document changes the revision, so the prices are compared only when
-// the head moves. Without an FX rate the prices are unknown, as in the pricing
-// projection, and none is compared: the comparison only informs.
+// at ratio 1, as the Addable check confirms a price: the factor of a change
+// does not depend on the FX rate. A changed document changes the revision, so
+// the prices are compared only when the head moves. The error is a stored
+// head document that cannot be read.
 func (u Usecase) priceChanges(ctx context.Context, sourceID string, head, selection domain.CatalogSelection, documents map[string]*domain.SourceDocument) ([]domain.CatalogPriceChange, error) {
 	selected := make(map[string]string, len(selection.Models))
 	for _, ref := range selection.Models {
@@ -173,12 +176,11 @@ func (u Usecase) priceChanges(ctx context.Context, sourceID string, head, select
 	if err != nil {
 		return nil, err
 	}
-	fx, fxErr := u.fx()
 	previous := make(map[string][]domain.ConsumerPricingOperation, len(changedModels))
 	current := make(map[string][]domain.ConsumerPricingOperation, len(changedModels))
 	for _, ref := range changedModels {
-		previous[ref.ID] = u.projection.CatalogModelMinimumPrices(ref, headDocuments[ref.ID], fx.Factor, fxErr == nil)
-		current[ref.ID] = u.projection.CatalogModelMinimumPrices(domain.SourceReference{ID: ref.ID, Hash: selected[ref.ID]}, documents[ref.ID], fx.Factor, fxErr == nil)
+		previous[ref.ID] = u.projection.CatalogModelMinimumPrices(ref, headDocuments[ref.ID], 1, true)
+		current[ref.ID] = u.projection.CatalogModelMinimumPrices(domain.SourceReference{ID: ref.ID, Hash: selected[ref.ID]}, documents[ref.ID], 1, true)
 	}
 	return domain.CatalogPriceChanges(previous, current), nil
 }

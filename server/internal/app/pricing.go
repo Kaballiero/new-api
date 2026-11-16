@@ -246,7 +246,7 @@ func NewRefreshPricingCatalogue() refresh_catalogue.Usecase {
 		if err != nil {
 			return domain.CatalogSyncSummary{}, err
 		}
-		v, err := sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), NewPricingProjection(), pricingstate.NewImmutableCatalogPersistence(), &pricingruntime.UpstreamCatalogDocuments, newPricingReader().FX, time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, source, requested, pricingadapter.CatalogClient{Client: client})
+		v, err := sync_upstream_catalog.NewUsecase(pricingadapter.Capabilities(), NewPricingProjection(), pricingstate.NewImmutableCatalogPersistence(), &pricingruntime.UpstreamCatalogDocuments, time.Now, pricingstate.InvalidatePricingCache).Execute(ctx, source, requested, pricingadapter.CatalogClient{Client: client})
 		return domain.CatalogSyncSummary(v), err
 	}, pricingruntime.PublishPricingCatalogContext, NewPricingNativeNormalizer(), billing_setting.GetBatchBillingExpr, time.Now, catalogAlerts{}, settingsstore.NewStore(func() *gorm.DB { return model.DB }), common.SysLog)
 }
@@ -260,8 +260,11 @@ func (catalogAlerts) ModelLoss(lossErr domain.CatalogModelLossError) error {
 	return notifications.TelegramChat(subject, content)
 }
 
-func (catalogAlerts) PriceChanges(changes []domain.CatalogPriceChange) error {
-	subject, content := pricingadapter.CatalogPriceChangesNotification(channelruntime.RootUserLanguage(), changes)
+// PriceChanges shows the amounts in roubles at the current FX rate, or in USD
+// when the rate cannot be read.
+func (catalogAlerts) PriceChanges(report domain.CatalogPriceChangeReport) error {
+	fx, fxErr := newPricingReader().FX()
+	subject, content := pricingadapter.CatalogPriceChangesNotification(channelruntime.RootUserLanguage(), report, fx.USDRate, fxErr == nil)
 	return notifications.TelegramChat(subject, content)
 }
 

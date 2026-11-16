@@ -180,8 +180,14 @@ func TestExecuteSelectsAddableModels(t *testing.T) {
 	unknownEndpoints := textModel("acme/unknown-endpoints", nil, eligible)
 	requestDependent := textModel("acme/request-dependent", []string{chatPath}, nil)
 	ineligible := textModel("acme/ineligible", []string{chatPath}, &domain.SourceEligibility{Eligible: false})
+	// An embedding model is priced for the embeddings operation of its type.
+	embedding := textModel("acme/embed", []string{"/api/v1/embeddings"}, eligible)
+	embedding.index.Type, embedding.document.Type = "embedding", "embedding"
+	embedding.index.Modalities.Output, embedding.document.Modalities.Output = []string{"embeddings"}, []string{"embeddings"}
+	embeddingsOperation := "embeddings"
+	embedding.document.Offers[0].Operation = &embeddingsOperation
 
-	client := newClient(strings.Repeat("1", 64), alias, batch, free, priced, imported, ineligible, requestDependent, withoutChat, unknownEndpoints, speech)
+	client := newClient(strings.Repeat("1", 64), alias, batch, free, priced, imported, ineligible, requestDependent, withoutChat, unknownEndpoints, speech, embedding)
 	// An imported document is read from the database, not downloaded.
 	store := fakeStore{imported.index.Hash: {Hash: imported.index.Hash, ModelID: imported.index.ID, Payload: "stored"}}
 	delete(client.documents, imported.index.ID)
@@ -189,9 +195,9 @@ func TestExecuteSelectsAddableModels(t *testing.T) {
 	models, err := newUsecase(store, &pricingadapter.UpstreamCatalogDocumentsCache{}, &pricingadapter.UpstreamCatalogModelsCache{}, client, imported).Execute(context.Background())
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"acme/latest", "acme/chat:batch", "acme/chat:free", "acme/chat", "acme/imported", "acme/ineligible", "acme/request-dependent", "acme/responses-only", "acme/unknown-endpoints", "acme/voice"}, models.Listed)
-	assert.Equal(t, []string{"acme/chat", "acme/imported"}, models.Addable)
-	assert.ElementsMatch(t, []string{"acme/chat", "acme/ineligible", "acme/request-dependent"}, client.downloaded)
+	assert.Equal(t, []string{"acme/latest", "acme/chat:batch", "acme/chat:free", "acme/chat", "acme/imported", "acme/ineligible", "acme/request-dependent", "acme/responses-only", "acme/unknown-endpoints", "acme/voice", "acme/embed"}, models.Listed)
+	assert.Equal(t, []string{"acme/chat", "acme/imported", "acme/embed"}, models.Addable)
+	assert.ElementsMatch(t, []string{"acme/chat", "acme/ineligible", "acme/request-dependent", "acme/embed"}, client.downloaded)
 }
 
 func TestExecuteRequiresOneRevision(t *testing.T) {

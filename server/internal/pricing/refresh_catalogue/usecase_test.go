@@ -39,7 +39,7 @@ func (catalogStore) Channel(int) (Channel, error) { return catalogChannel{}, nil
 type recordedAlerts struct {
 	sent         []string
 	err          error
-	priceChanges [][]domain.CatalogPriceChange
+	priceChanges []domain.CatalogPriceChangeReport
 	priceErr     error
 }
 
@@ -47,8 +47,8 @@ func (alerts *recordedAlerts) ModelLoss(lossErr domain.CatalogModelLossError) er
 	alerts.sent = append(alerts.sent, lossErr.RemoteRevision)
 	return alerts.err
 }
-func (alerts *recordedAlerts) PriceChanges(changes []domain.CatalogPriceChange) error {
-	alerts.priceChanges = append(alerts.priceChanges, changes)
+func (alerts *recordedAlerts) PriceChanges(report domain.CatalogPriceChangeReport) error {
+	alerts.priceChanges = append(alerts.priceChanges, report)
 	return alerts.priceErr
 }
 
@@ -130,32 +130,46 @@ func TestRefreshUpstreamAlertsRejectedRevisionOnce(t *testing.T) {
 }
 
 // The prices an applied revision changed go to the summary and to the
-// administrators; an undelivered report is logged and does not fail the task,
-// and a revision without such changes sends nothing.
+// administrators with the revisions; a delivered report is logged, an
+// undelivered one is logged and does not fail the task, a revision without
+// such changes sends nothing, and a skipped comparison is logged and kept in
+// the summary.
 func TestRefreshUpstreamReportsPriceChanges(t *testing.T) {
-	changes := []domain.CatalogPriceChange{{ModelID: "acme/chat", Component: "input", Unit: "million_tokens", OldAmountRub: 112.5, NewAmountRub: 337.5}}
+	head, revision := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	changes := []domain.CatalogPriceChange{
+		{ModelID: "acme/chat", Component: "input", Unit: "million_tokens", OldAmountUSD: 1.25, NewAmountUSD: 3.75},
+		{ModelID: "acme/chat", Component: "output", Unit: "million_tokens", OldAmountUSD: 10, NewAmountUSD: 30},
+		{ModelID: "acme/embed", Component: "input", Unit: "million_tokens", OldAmountUSD: 0.02, NewAmountUSD: 0.06},
+	}
+	report := domain.CatalogPriceChangeReport{HeadRemoteRevision: head, RemoteRevision: revision, Changes: changes}
 	for _, tc := range []struct {
-		name     string
-		changes  []domain.CatalogPriceChange
-		alertErr error
-		wantSent [][]domain.CatalogPriceChange
-		wantLogs []string
+		name       string
+		changes    []domain.CatalogPriceChange
+		compareErr string
+		alertErr   error
+		wantSent   []domain.CatalogPriceChangeReport
+		wantLogs   []string
 	}{
-		{name: "changes are reported", changes: changes, wantSent: [][]domain.CatalogPriceChange{changes}},
-		{name: "undelivered report is logged", changes: changes, alertErr: errors.New("gateway unavailable"), wantSent: [][]domain.CatalogPriceChange{changes},
-			wantLogs: []string{"pricing: upstream catalog price change report failed: revision=" + strings.Repeat("e", 64) + " changes=1: gateway unavailable"}},
+		{name: "changes are reported", changes: changes, wantSent: []domain.CatalogPriceChangeReport{report},
+			wantLogs: []string{"pricing: upstream catalog price changes: revision=" + revision + " models=2 changes=3"}},
+		{name: "undelivered report is logged", changes: changes, alertErr: errors.New("gateway unavailable"), wantSent: []domain.CatalogPriceChangeReport{report},
+			wantLogs: []string{"pricing: upstream catalog price change report failed: revision=" + revision + " models=2 changes=3: gateway unavailable"}},
 		{name: "no changes send nothing"},
+		{name: "skipped comparison is logged", compareErr: "stored catalog document integrity mismatch",
+			wantLogs: []string{"pricing: upstream catalog price comparison skipped: revision=" + revision + ": stored catalog document integrity mismatch"}},
 	} {
 		alerts := &recordedAlerts{priceErr: tc.alertErr}
 		var logs []string
 		usecase := NewUsecase(pricingadapter.Capabilities(), catalogStore{}, nil, func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error) {
-			return domain.CatalogSyncSummary{Publication: domain.CatalogPublication{Revision: strings.Repeat("e", 64), Changed: true}, ImportedModels: 1, PriceChanges: tc.changes}, nil
+			return domain.CatalogSyncSummary{Publication: domain.CatalogPublication{Revision: strings.Repeat("e", 64), Changed: true}, ImportedModels: 1,
+				PriceChanges: domain.CatalogPriceChangeReport{HeadRemoteRevision: head, RemoteRevision: revision, Changes: tc.changes}, PriceChangesError: tc.compareErr}, nil
 		}, nil, nil, nil, time.Now, alerts, &optionRows{values: map[string]string{}}, func(line string) { logs = append(logs, line) })
 
 		summary, err := usecase.RefreshUpstream(context.Background(), domain.CatalogSource{})
 
 		require.NoError(t, err, tc.name)
 		assert.Equal(t, tc.changes, summary.PriceChanges, tc.name)
+		assert.Equal(t, tc.compareErr, summary.PriceChangesError, tc.name)
 		assert.Equal(t, tc.wantSent, alerts.priceChanges, tc.name)
 		assert.Equal(t, tc.wantLogs, logs, tc.name)
 		assert.Empty(t, alerts.sent, tc.name)
