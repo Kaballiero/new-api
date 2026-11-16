@@ -442,7 +442,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		case types.RelayFormatOpenAIResponses:
 			limitField = "max_output_tokens"
 		case types.RelayFormatGemini:
-			limitField = "generationConfig.maxOutputTokens"
+			limitField = "maxOutputTokens"
 		}
 		outputReserve = &relaycommon.OpenRouterOutputReserve{ExplicitLimit: outputLimit != nil, LimitField: limitField}
 	}
