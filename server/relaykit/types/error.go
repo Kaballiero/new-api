@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
@@ -418,29 +417,6 @@ func IsChannelError(err *NewAPIError) bool {
 		return false
 	}
 	return strings.HasPrefix(string(err.errorCode), "channel:")
-}
-
-// localErrorCodes name the failures new-api itself decides for the user or the
-// request: a request it cannot read, accept or convert, quota the user or the
-// API key lacks, and billing data it cannot read or write. The channel has no
-// part in them.
-var localErrorCodes = []ErrorCode{
-	ErrorCodeInvalidRequest,
-	ErrorCodeReadRequestBodyFailed,
-	ErrorCodeConvertRequestFailed,
-	ErrorCodeInsufficientUserQuota,
-	ErrorCodePreConsumeTokenQuotaFailed,
-	ErrorCodeQueryDataError,
-	ErrorCodeUpdateDataError,
-}
-
-// IsLocalError reports a failure new-api decided itself, which never counts
-// against a channel. An upstream error that carries the same code is not local.
-func IsLocalError(err *NewAPIError) bool {
-	if err == nil || err.errorType != ErrorTypeNewAPIError {
-		return false
-	}
-	return slices.Contains(localErrorCodes, err.errorCode)
 }
 
 func IsSkipRetryError(err *NewAPIError) bool {
