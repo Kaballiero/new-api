@@ -1959,9 +1959,14 @@ func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 	t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "0")
 	pending := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
 	autoSynced := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true})
-	// A channel without upstream models fails its check.
+	// A channel without upstream models fails its check; cancelScan, when set,
+	// cancels the scan while it checks the pending channel.
 	upstreamModels := map[int][]string{}
+	var cancelScan context.CancelFunc
 	stubChannelUpstreamModelFetch(t, func(channel *model.Channel) ([]string, error) {
+		if cancelScan != nil && channel.Id == pending.Id {
+			cancelScan()
+		}
 		if upstreamModels[channel.Id] == nil {
 			return nil, errors.New("upstream unavailable")
 		}
@@ -1984,8 +1989,6 @@ func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 	defer gateway.Close()
 	t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
 	t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
 
 	unchanged := []string{"gpt-4o"}
 	addition := []string{"gpt-4o", "gpt-4.1"}
@@ -2019,7 +2022,7 @@ func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 		{name: "same pending removal of another channel is sent", pendingModels: unchanged, autoModels: []string{}, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
 		{name: "rejected delivery is attempted", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusInternalServerError, wantChanged: 1, wantRequests: 1},
 		{name: "rejected report is sent again", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 1},
-		{name: "cancelled scan sends nothing", pendingModels: unchanged, autoModels: unchanged, gatewayStatus: http.StatusOK, cancelled: true, wantRequests: 0},
+		{name: "scan cancelled midway sends nothing", pendingModels: otherAddition, autoModels: unchanged, gatewayStatus: http.StatusOK, cancelled: true, wantChanged: 1, wantRequests: 0},
 		{name: "cancelled scan keeps the fingerprint", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 0},
 		{name: "failed channel query sends nothing", pendingModels: unchanged, autoModels: unchanged, gatewayStatus: http.StatusOK, failingQueryTable: "channels", wantRequests: 0},
 		{name: "failed channel query keeps the fingerprint", pendingModels: addition, autoModels: unchanged, gatewayStatus: http.StatusOK, wantChanged: 1, wantRequests: 0},
@@ -2033,13 +2036,15 @@ func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 		upstreamModels[autoSynced.Id] = step.autoModels
 		gatewayStatus = step.gatewayStatus
 		failingQueryTable = step.failingQueryTable
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancelScan = nil
 		if step.cancelled {
-			ctx = cancelled
+			cancelScan = cancel
 		}
 		requests = nil
 
 		summary := runChannelUpstreamModelUpdateTaskOnce(ctx, false, true, nil)
+		cancel()
 
 		assert.Equal(t, step.wantChanged, summary.ChangedChannels, step.name)
 		assert.Equal(t, step.wantFailed, summary.FailedChannels, step.name)
