@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -858,6 +859,243 @@ func TestOpenRouterReserveShortfallAnswersLikeOtherChannels(t *testing.T) {
 			require.NoError(t, database.First(&token, 11).Error)
 			assert.Equal(t, tc.walletQuota, user.Quota, "a refusal holds nothing")
 			assert.Equal(t, tc.tokenQuota, token.RemainQuota, "a refusal holds nothing")
+		})
+	}
+}
+
+// relayErrorLog collects error-level log lines written while a relay runs.
+type relayErrorLog struct {
+	mu    sync.Mutex
+	lines bytes.Buffer
+}
+
+func (l *relayErrorLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.lines.Write(p)
+}
+
+func (l *relayErrorLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.lines.String()
+}
+
+// abandonedStreamBody is an upstream stream whose client disconnects before
+// any content arrives: the first read closes the client request, and the read
+// returns only when the relay closes the body.
+type abandonedStreamBody struct {
+	disconnectClient context.CancelFunc
+	closed           chan struct{}
+	closeOnce        sync.Once
+}
+
+func (b *abandonedStreamBody) Read([]byte) (int, error) {
+	b.disconnectClient()
+	<-b.closed
+	return 0, io.EOF
+}
+
+func (b *abandonedStreamBody) Close() error {
+	b.closeOnce.Do(func() { close(b.closed) })
+	return nil
+}
+
+type openRouterFixtureTransport func(*http.Request) (*http.Response, error)
+
+func (f openRouterFixtureTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// A client abort and a failure new-api decides itself never count against the
+// OpenRouter channel: no channel error is logged or recorded and automatic
+// disabling never sees them, even with their status in the disable ranges.
+// An abort refunds the reservation. Real upstream failures still count.
+func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	httpclient.InitHttpClient()
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMemory, previousRedis, previousBatch := common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled
+	previousConsume, previousError := common.LogConsumeEnabled, constant.ErrorLogEnabled
+	previousCount, previousRetries := constant.CountToken, common.RetryTimes
+	previousAutoDisable, previousDisableRanges := common.AutomaticDisableChannelEnabled, operation_setting.AutomaticDisableStatusCodesToString()
+	previousPrices := ratio_setting.ModelPrice2JSONString()
+	general := operation_setting.GetGeneralSetting()
+	previousRate, previousDisplay := general.CustomCurrencyExchangeRate, general.QuotaDisplayType
+	previousUnit, previousTimeout := common.QuotaPerUnit, constant.StreamingTimeout
+	previousMain, previousLog, previousKey := common.MainDatabaseType(), common.LogDatabaseType(), model.KeyColumn
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { savedConfig[key] = value; return nil }))
+	client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+	require.NoError(t, err)
+	previousTransport := client.Transport
+	common.LogWriterMu.RLock()
+	previousErrorWriter := gin.DefaultErrorWriter
+	common.LogWriterMu.RUnlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = previousErrorWriter
+		common.LogWriterMu.Unlock()
+		client.Transport = previousTransport
+		model.DB, model.LOG_DB, model.KeyColumn = previousDB, previousLogDB, previousKey
+		common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = previousMemory, previousRedis, previousBatch
+		common.LogConsumeEnabled, constant.ErrorLogEnabled = previousConsume, previousError
+		constant.CountToken, common.RetryTimes = previousCount, previousRetries
+		common.AutomaticDisableChannelEnabled = previousAutoDisable
+		require.NoError(t, operation_setting.AutomaticDisableStatusCodesFromString(previousDisableRanges))
+		general.CustomCurrencyExchangeRate, general.QuotaDisplayType = previousRate, previousDisplay
+		common.QuotaPerUnit, constant.StreamingTimeout = previousUnit, previousTimeout
+		common.SetDatabaseTypes(previousMain, previousLog)
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices))
+	})
+	common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = false, false, false
+	common.LogConsumeEnabled, constant.ErrorLogEnabled = true, true
+	constant.CountToken, common.RetryTimes = false, 3
+	common.AutomaticDisableChannelEnabled = true
+	require.NoError(t, operation_setting.AutomaticDisableStatusCodesFromString("401,403,502"))
+	common.QuotaPerUnit, constant.StreamingTimeout = 500000, 30
+	general.CustomCurrencyExchangeRate, general.QuotaDisplayType = 100, operation_setting.QuotaDisplayTypeTokens
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	model.KeyColumn = "`key`"
+	const textModel = "vendor/text-fixture"
+	const funded = 1000000
+	const channelError = "channel error (channel #21"
+	type clientFormat struct {
+		format     types.RelayFormat
+		path, body string
+	}
+	chat := clientFormat{types.RelayFormatOpenAI, "/v1/chat/completions", `{"model":"vendor/text-fixture","messages":[{"role":"user","content":"hi"}],"max_tokens":16,"stream":true}`}
+	messages := clientFormat{types.RelayFormatClaude, "/v1/messages", `{"model":"vendor/text-fixture","max_tokens":16,"stream":true,"messages":[{"role":"user","content":"hi"}]}`}
+	responses := clientFormat{types.RelayFormatOpenAIResponses, "/v1/responses", `{"model":"vendor/text-fixture","input":"hi","max_output_tokens":16,"stream":true}`}
+	gemini := clientFormat{types.RelayFormatGemini, "/v1beta/models/vendor/text-fixture:streamGenerateContent?alt=sse", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":16}}`}
+	unsupportedTool := clientFormat{types.RelayFormatGemini, gemini.path, `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"googleSearch":{}}]}`}
+	for _, tc := range []struct {
+		name                    string
+		client                  clientFormat
+		walletQuota, tokenQuota int
+		// abort disconnects the client before the upstream stream carries content.
+		abort bool
+		// upstreamStatus answers the paid call; discoveryStatus the pricing lookup.
+		upstreamStatus, discoveryStatus int
+		// groupRatio overrides the default group ratio 2.
+		groupRatio string
+		// status and body are what a connected client receives.
+		status       int
+		body         string
+		channelError bool
+		autoDisabled bool
+	}{
+		{name: "chat/client abort before content", client: chat, walletQuota: funded, tokenQuota: funded, abort: true},
+		{name: "messages/client abort before content", client: messages, walletQuota: funded, tokenQuota: funded, abort: true},
+		{name: "responses/client abort before content", client: responses, walletQuota: funded, tokenQuota: funded, abort: true},
+		{name: "gemini/client abort before content", client: gemini, walletQuota: funded, tokenQuota: funded, abort: true},
+		{name: "wallet reserve shortfall", client: chat, walletQuota: 5, tokenQuota: funded, status: http.StatusForbidden},
+		{name: "API key reserve shortfall", client: chat, walletQuota: funded, tokenQuota: 5, status: http.StatusForbidden},
+		{name: "saturated reserve", client: chat, walletQuota: funded, tokenQuota: funded, groupRatio: "1e15", status: http.StatusForbidden,
+			body: `{"error":{"message":"insufficient quota","type":"new_api_error","param":"","code":"insufficient_user_quota"}}`},
+		{name: "request conversion refusal", client: unsupportedTool, walletQuota: funded, tokenQuota: funded, status: http.StatusBadRequest},
+		{name: "upstream 401", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusUnauthorized, status: http.StatusUnauthorized, channelError: true, autoDisabled: true},
+		{name: "upstream 403", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusForbidden, status: http.StatusForbidden, channelError: true, autoDisabled: true},
+		{name: "upstream 502", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusBadGateway, status: http.StatusBadGateway, channelError: true, autoDisabled: true},
+		{name: "pricing discovery 401", client: chat, walletQuota: funded, tokenQuota: funded, discoveryStatus: http.StatusUnauthorized, status: http.StatusBadRequest, channelError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := database.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+			require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Ability{}, &model.Log{}, &model.ModelCostFXRow{}))
+			model.DB, model.LOG_DB = database, database
+			fxseed.SeedNativeRouteFX(t, database)
+			groupRatio := "2"
+			if tc.groupRatio != "" {
+				groupRatio = tc.groupRatio
+			}
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				"billing_setting.billing_mode": `{}`, "billing_setting.billing_expr": `{}`,
+				"group_ratio_setting.group_ratio": `{"default":` + groupRatio + `}`, "group_ratio_setting.group_group_ratio": `{}`,
+			}))
+			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+			require.NoError(t, database.Create(&model.User{Id: 7, Username: "outcome-owner", Group: "default", Quota: tc.walletQuota}).Error)
+			require.NoError(t, database.Create(&model.Token{Id: 11, UserId: 7, Key: "fixture-token", Name: "outcome-token", RemainQuota: tc.tokenQuota}).Error)
+			ctx, disconnectClient := context.WithCancel(context.Background())
+			t.Cleanup(disconnectClient)
+			client.Transport = openRouterFixtureTransport(func(r *http.Request) (*http.Response, error) {
+				response := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Request: r}
+				switch {
+				case r.Method == http.MethodGet && tc.discoveryStatus != 0:
+					response.StatusCode = tc.discoveryStatus
+					response.Body = io.NopCloser(strings.NewReader(`{"error":{"code":401,"message":"No auth credentials found"}}`))
+				case r.Method == http.MethodGet:
+					response.Body = io.NopCloser(strings.NewReader(`{"data":{"id":"vendor/text-fixture","endpoints":[{"tag":"fixture","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`))
+				case tc.abort:
+					response.Header.Set("Content-Type", "text/event-stream")
+					response.Body = &abandonedStreamBody{disconnectClient: disconnectClient, closed: make(chan struct{})}
+				default:
+					response.StatusCode = tc.upstreamStatus
+					response.Body = io.NopCloser(strings.NewReader(fmt.Sprintf(`{"error":{"code":%d,"message":"upstream refused the request"}}`, tc.upstreamStatus)))
+				}
+				return response, nil
+			})
+			errorLog := &relayErrorLog{}
+			common.LogWriterMu.Lock()
+			gin.DefaultErrorWriter = errorLog
+			common.LogWriterMu.Unlock()
+			autoBan := 1
+			baseURL := "https://openrouter.fixture"
+			selected := model.Channel{Id: 21, Type: constant.ChannelTypeOpenRouter, Name: "fixture-channel", Key: "fixture-provider", BaseURL: &baseURL, Status: common.ChannelStatusEnabled, Models: textModel, Group: "default", AutoBan: &autoBan}
+			require.NoError(t, database.Create(&selected).Error)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, tc.client.path, strings.NewReader(tc.client.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			common.SetContextKey(c, common.RequestIdKey, "outcome")
+			common.SetContextKey(c, constant.ContextKeyUserId, 7)
+			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyTokenGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUserQuota, tc.walletQuota)
+			common.SetContextKey(c, constant.ContextKeyUserSetting, dto.UserSetting{BillingPreference: "wallet_only"})
+			common.SetContextKey(c, constant.ContextKeyTokenId, 11)
+			common.SetContextKey(c, constant.ContextKeyTokenKey, "fixture-token")
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, textModel)
+			c.Set("username", "outcome-owner")
+			c.Set("token_name", "outcome-token")
+			require.Nil(t, middleware.SetupContextForSelectedChannel(c, &selected, textModel))
+
+			Relay(c, tc.client.format)
+
+			if tc.status != 0 {
+				require.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			}
+			if tc.body != "" {
+				assert.JSONEq(t, tc.body, recorder.Body.String())
+			}
+			require.Eventually(t, func() bool {
+				var user model.User
+				var token model.Token
+				if database.First(&user, 7).Error != nil || database.First(&token, 11).Error != nil {
+					return false
+				}
+				return user.Quota == tc.walletQuota && token.RemainQuota == tc.tokenQuota
+			}, 5*time.Second, 10*time.Millisecond, "a failed request charges nothing and returns any reservation")
+			var errorLogs int64
+			require.NoError(t, database.Model(&model.Log{}).Where("type = ?", usagerecord.LogTypeError).Count(&errorLogs).Error)
+			assert.Equal(t, tc.channelError, strings.Contains(errorLog.String(), channelError), errorLog.String())
+			if !tc.channelError {
+				assert.Zero(t, errorLogs, "only a channel failure records an error log")
+			}
+			if tc.autoDisabled {
+				require.Eventually(t, func() bool {
+					var channel model.Channel
+					return database.First(&channel, selected.Id).Error == nil && channel.Status == common.ChannelStatusAutoDisabled
+				}, 5*time.Second, 10*time.Millisecond, "a real upstream failure feeds automatic disabling")
+				return
+			}
+			var channel model.Channel
+			require.NoError(t, database.First(&channel, selected.Id).Error)
+			assert.Equal(t, common.ChannelStatusEnabled, channel.Status)
 		})
 	}
 }
