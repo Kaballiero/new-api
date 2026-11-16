@@ -567,146 +567,146 @@ func TestOpenRouterStreamRequiresTerminalCost(t *testing.T) {
 	}
 }
 
-// disconnectAfterContentWriter models a client that closes the connection
-// once the given content was flushed to it.
-type disconnectAfterContentWriter struct {
-	gin.ResponseWriter
-	content  string
-	cancel   context.CancelFunc
-	received bool
-}
-
-func (w *disconnectAfterContentWriter) Write(data []byte) (int, error) {
-	w.received = w.received || bytes.Contains(data, []byte(w.content))
-	return w.ResponseWriter.Write(data)
-}
-
-func (w *disconnectAfterContentWriter) WriteString(data string) (int, error) {
-	return w.Write([]byte(data))
-}
-
-func (w *disconnectAfterContentWriter) Flush() {
-	w.ResponseWriter.Flush()
-	if w.received {
-		w.cancel()
-	}
-}
-
 func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 	setStreamTestTimeout(t)
 	const metadata = `{"data":{"id":"vendor/provider-test","endpoints":[{"tag":"openai","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`
 	const chatBody = `{"model":"vendor/provider-test","messages":[{"role":"user","content":"OK"}],"max_tokens":8}`
+	// generationID has the format OpenRouter sends in Chat chunks and Responses events.
+	const generationID = "gen-1794811920-7v1CVWG5aqzAZwJE4USS"
+	const missingCost = "OpenRouter terminal usage.cost is missing or invalid"
 	chunk := func(delta string) string {
-		return `data: {"id":"gen-text-abort","object":"chat.completion.chunk","model":"vendor/provider-test","choices":[{"index":0,"delta":` + delta + `}]}` + "\n\n"
+		return `data: {"id":"` + generationID + `","object":"chat.completion.chunk","model":"vendor/provider-test","choices":[{"index":0,"delta":` + delta + `}]}` + "\n\n"
 	}
-	chatFrames := map[string]string{
-		"abort after content":  chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
-		"abort before content": chunk(`{"role":"assistant","content":""}`),
-		"completed": chunk(`{"role":"assistant","content":"partial"}`) +
-			`data: {"id":"gen-text-abort","object":"chat.completion.chunk","model":"vendor/provider-test","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"cost":0.004}}` + "\n\ndata: [DONE]\n\n",
-	}
-	responseEvent := func(event string) string { return "data: " + event + "\n\n" }
-	created := responseEvent(`{"type":"response.created","response":{"id":"gen-text-abort","object":"response","status":"in_progress","output":[]}}`)
+	chatCompleted := `data: {"id":"` + generationID + `","object":"chat.completion.chunk","model":"vendor/provider-test","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"cost":0.004}}` + "\n\ndata: [DONE]\n\n"
+	chatNonstream := `{"id":"` + generationID + `","choices":[{"message":{"role":"assistant","content":"partial"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3}}`
+	event := func(payload string) string { return "data: " + payload + "\n\n" }
+	created := event(`{"type":"response.created","response":{"id":"` + generationID + `","object":"response","status":"in_progress","output":[]}}`)
 	delta := func(text string) string {
-		return responseEvent(`{"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"` + text + `"}`)
+		return event(`{"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"` + text + `"}`)
 	}
-	responsesFrames := map[string]string{
-		"abort after content":  created + delta("partial") + delta(" more"),
-		"abort before content": created,
-		"completed": created + delta("partial") +
-			responseEvent(`{"type":"response.completed","response":{"id":"gen-text-abort","object":"response","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5,"cost":0.004}}}`),
+	failed := event(`{"type":"response.failed","response":{"id":"` + generationID + `","object":"response","status":"failed","output":[],"error":{"code":"server_error","message":"Upstream failed"}}}`)
+	responsesCompleted := event(`{"type":"response.completed","response":{"id":"` + generationID + `","object":"response","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5,"cost":0.004}}}`)
+	responsesNonstream := `{"id":"` + generationID + `","object":"response","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}`
+
+	type clientFormat struct {
+		path, body  string
+		mode        int
+		relayFormat types.RelayFormat
 	}
-	for _, format := range []struct {
-		name, path, body string
-		mode             int
-		relayFormat      types.RelayFormat
-		frames           map[string]string
+	messages := clientFormat{"/v1/messages", chatBody, relayconstant.RelayModeUnknown, types.RelayFormatClaude}
+	gemini := clientFormat{"/v1beta/models/vendor/provider-test:streamGenerateContent", chatBody, relayconstant.RelayModeGemini, types.RelayFormatGemini}
+	responses := clientFormat{"/v1/responses", `{"model":"vendor/provider-test","input":"OK","max_output_tokens":8}`, relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses}
+	for _, tc := range []struct {
+		name     string
+		format   clientFormat
+		stream   bool
+		upstream string
+		// disconnectAt is the content during whose write the client disconnects.
+		disconnectAt string
+		// deferred means the hold moved into a chat Task awaiting generation cost;
+		// otherwise the controller settles cost or refunds the hold on wantErr.
+		deferred               bool
+		cost                   float64
+		wantErr                string
+		delivered, undelivered string
 	}{
-		{"messages", "/v1/messages", chatBody, relayconstant.RelayModeUnknown, types.RelayFormatClaude, chatFrames},
-		{"gemini", "/v1beta/models/vendor/provider-test:streamGenerateContent", chatBody, relayconstant.RelayModeGemini, types.RelayFormatGemini, chatFrames},
-		{"responses", "/v1/responses", `{"model":"vendor/provider-test","input":"OK","max_output_tokens":8}`, relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses, responsesFrames},
+		{name: "messages/nonstream keeps requiring terminal cost", format: messages, upstream: chatNonstream, wantErr: missingCost},
+		{name: "messages/abort after content", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
+			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
+		{name: "messages/abort after message_start with content buffered", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"alpha"}`) + chunk(`{"content":"beta"}`),
+			disconnectAt: "message_start", wantErr: missingCost, undelivered: "alpha"},
+		{name: "messages/abort before content", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), wantErr: missingCost},
+		{name: "messages/content in the last chunk without terminal cost", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"partial"}`), deferred: true, delivered: "partial"},
+		{name: "messages/completed", format: messages, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chatCompleted, cost: .004, delivered: "partial"},
+
+		{name: "gemini/nonstream keeps requiring terminal cost", format: gemini, upstream: chatNonstream, wantErr: missingCost},
+		{name: "gemini/abort after content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chunk(`{"content":" more"}`) + chunk(`{"content":" lost"}`),
+			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
+		{name: "gemini/abort before content", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`), wantErr: missingCost},
+		{name: "gemini/content in the last chunk without terminal cost", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":""}`) + chunk(`{"content":"partial"}`), deferred: true, delivered: "partial"},
+		{name: "gemini/completed", format: gemini, stream: true, upstream: chunk(`{"role":"assistant","content":"partial"}`) + chatCompleted, cost: .004, delivered: "partial"},
+
+		{name: "responses/nonstream keeps requiring terminal cost", format: responses, upstream: responsesNonstream, wantErr: missingCost},
+		{name: "responses/abort after content", format: responses, stream: true, upstream: created + delta("partial") + delta(" more"), disconnectAt: " more", deferred: true, delivered: "partial"},
+		{name: "responses/failed after content", format: responses, stream: true, upstream: created + delta("partial") + failed, deferred: true, wantErr: "OpenRouter upstream reported an error", delivered: "partial"},
+		{name: "responses/failed before content", format: responses, stream: true, upstream: created + failed, wantErr: "OpenRouter upstream reported an error"},
+		{name: "responses/empty delta is not content", format: responses, stream: true, upstream: created + delta(""), wantErr: missingCost},
+		{name: "responses/error event without deltas", format: responses, stream: true, upstream: created + event(`{"type":"error","code":"server_error","message":"Upstream failed","param":null}`), wantErr: missingCost},
+		{name: "responses/abort before content", format: responses, stream: true, upstream: created, wantErr: missingCost},
+		{name: "responses/completed", format: responses, stream: true, upstream: created + delta("partial") + responsesCompleted, cost: .004, delivered: "partial"},
 	} {
-		for _, tc := range []struct {
-			name string
-			// stream=false only checks that the nonstream contract is unchanged.
-			stream, disconnect bool
-			// deferred means the hold moved into a chat Task awaiting generation cost.
-			deferred bool
-			cost     float64
-		}{
-			{name: "nonstream keeps requiring terminal cost"},
-			{name: "abort after content", stream: true, disconnect: true, deferred: true},
-			{name: "abort before content", stream: true},
-			{name: "completed", stream: true, cost: .004},
-		} {
-			t.Run(format.name+"/"+tc.name, func(t *testing.T) {
-				c, recorder, _, info, billing := newOpenRouterChatTextRequest(t, "")
-				frames := format.frames[tc.name]
-				transport := &sonarAdmissionTransport{metadata: metadata, response: frames, responseHeaders: http.Header{"Content-Type": []string{"text/event-stream"}}}
-				client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
-				require.NoError(t, err)
-				previous := client.Transport
-				client.Transport = transport
-				t.Cleanup(func() { client.Transport = previous })
-				ctx, cancel := context.WithCancel(context.Background())
-				t.Cleanup(cancel)
-				c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, format.path, strings.NewReader(format.body))
-				c.Request.Header.Set("Content-Type", "application/json")
-				t.Cleanup(func() { common.CleanupBodyStorage(c) })
-				info.OpenRouterCost = nil
-				info.RelayMode, info.RelayFormat, info.RequestURLPath = format.mode, format.relayFormat, format.path
-				info.IsStream, info.DisablePing = tc.stream, true
-				info.UpstreamModelName, info.OriginModelName = "vendor/provider-test", "vendor/provider-test"
-				info.PriceData.BillingGroupRatio = 1
-				switch format.relayFormat {
-				case types.RelayFormatClaude:
-					info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
-				case types.RelayFormatGemini:
-					info.Request = &dto.GeminiChatRequest{}
-				}
+		t.Run(tc.name, func(t *testing.T) {
+			c, recorder, _, info, billing := newOpenRouterChatTextRequest(t, "")
+			contentType := "application/json"
+			if tc.stream {
+				contentType = "text/event-stream"
+			}
+			transport := &sonarAdmissionTransport{metadata: metadata, response: tc.upstream, responseHeaders: http.Header{"Content-Type": []string{contentType}}}
+			client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
+			require.NoError(t, err)
+			previous := client.Transport
+			client.Transport = transport
+			t.Cleanup(func() { client.Transport = previous })
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, tc.format.path, strings.NewReader(tc.format.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			t.Cleanup(func() { common.CleanupBodyStorage(c) })
+			info.OpenRouterCost = nil
+			info.RelayMode, info.RelayFormat, info.RequestURLPath = tc.format.mode, tc.format.relayFormat, tc.format.path
+			info.IsStream, info.DisablePing = tc.stream, true
+			info.UpstreamModelName, info.OriginModelName = "vendor/provider-test", "vendor/provider-test"
+			info.PriceData.BillingGroupRatio = 1
+			switch tc.format.relayFormat {
+			case types.RelayFormatClaude:
+				info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
+			case types.RelayFormatGemini:
+				info.Request = &dto.GeminiChatRequest{}
+			}
 
-				response, err := (&Adaptor{}).DoRequest(c, info, strings.NewReader(format.body))
-				require.NoError(t, err)
-				assert.Equal(t, tc.stream, info.OpenRouterCost.ChatText, "Messages, Gemini and Responses defer a missing cost only for streams")
-				if !tc.stream {
-					require.NoError(t, response.(*http.Response).Body.Close())
-					return
-				}
-				hold := billing.reserved
-				if tc.disconnect {
-					c.Writer = &disconnectAfterContentWriter{ResponseWriter: c.Writer, content: "partial", cancel: cancel}
-				}
-				usage, apiErr := (&Adaptor{}).DoResponse(c, response.(*http.Response), info)
+			response, err := (&Adaptor{}).DoRequest(c, info, strings.NewReader(tc.format.body))
+			require.NoError(t, err)
+			assert.Equal(t, tc.stream, info.OpenRouterCost.ChatText, "Messages, Gemini and Responses defer a missing cost only for streams")
+			hold := billing.reserved
+			if tc.disconnectAt != "" {
+				c.Writer = &cancelAfterWriter{ResponseWriter: c.Writer, needle: tc.disconnectAt, cancel: cancel}
+			}
+			usage, apiErr := (&Adaptor{}).DoResponse(c, response.(*http.Response), info)
 
-				assert.Equal(t, tc.deferred, relaycommon.HasOpenRouterSyncTask(info), "only a deferred Task keeps the hold; otherwise the controller refunds")
-				switch {
-				case tc.deferred:
-					assert.Contains(t, recorder.Body.String(), "partial")
-					assert.NotContains(t, recorder.Body.String(), "lost")
-					assert.Equal(t, []int{hold}, billing.settled, "the session hold moves into the Task unchanged")
-					task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
-					require.NoError(t, err)
-					require.True(t, exists)
-					assert.Equal(t, constant.TaskPlatformOpenRouterChatImage, task.Platform)
-					assert.Equal(t, "chat", task.Action)
-					assert.Equal(t, hold, task.Quota)
-					assert.Equal(t, "gen-text-abort", task.PrivateData.UpstreamTaskID)
-					assert.Equal(t, "https://openrouter.test/api/v1/generation", task.PrivateData.OpenRouterSync.MetadataURL)
-					assert.Equal(t, "awaiting_cost", taskdomain.OpenRouterSyncReconciliation(tasksrecord.ToDomain(task))["billing_state"])
-				case tc.cost > 0:
-					require.Nil(t, apiErr)
-					require.NotNil(t, usage)
-					assert.Equal(t, tc.cost, usage.(*dto.Usage).Cost)
-					assert.True(t, info.OpenRouterCost.Final)
-					assert.Empty(t, billing.settled, "the controller settles the terminal cost")
-				default:
-					require.NotNil(t, apiErr)
-					assert.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
-					assert.Equal(t, "OpenRouter terminal usage.cost is missing or invalid", apiErr.Error())
-					assert.Empty(t, billing.settled)
-				}
-			})
-		}
+			assert.Equal(t, tc.deferred, relaycommon.HasOpenRouterSyncTask(info), "only a deferred Task keeps the hold")
+			if tc.delivered != "" {
+				assert.Contains(t, recorder.Body.String(), tc.delivered)
+			}
+			if tc.undelivered != "" {
+				assert.NotContains(t, recorder.Body.String(), tc.undelivered)
+			}
+			// A client gone mid-stream never reads the error, so aborts assert none.
+			switch {
+			case tc.wantErr != "":
+				require.NotNil(t, apiErr)
+				assert.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+				assert.Equal(t, tc.wantErr, apiErr.Error())
+			case tc.cost > 0:
+				require.Nil(t, apiErr)
+				require.NotNil(t, usage)
+				assert.Equal(t, tc.cost, usage.(*dto.Usage).Cost)
+				assert.True(t, info.OpenRouterCost.Final)
+			}
+			if !tc.deferred {
+				assert.Empty(t, billing.settled, "the controller settles the terminal cost or refunds the hold")
+				return
+			}
+			assert.Equal(t, []int{hold}, billing.settled, "the session hold moves into the Task unchanged")
+			task, exists, err := tasksapp.NewStore().GetUniqueByOnlyTaskId(info.OpenRouterCost.TaskID)
+			require.NoError(t, err)
+			require.True(t, exists)
+			assert.Equal(t, constant.TaskPlatformOpenRouterChatImage, task.Platform)
+			assert.Equal(t, "chat", task.Action)
+			assert.Equal(t, hold, task.Quota)
+			assert.Equal(t, generationID, task.PrivateData.UpstreamTaskID)
+			assert.Equal(t, "https://openrouter.test/api/v1/generation", task.PrivateData.OpenRouterSync.MetadataURL)
+			assert.Equal(t, "awaiting_cost", taskdomain.OpenRouterSyncReconciliation(tasksrecord.ToDomain(task))["billing_state"])
+		})
 	}
 }
 

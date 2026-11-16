@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -247,10 +248,14 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 			common.SysLog(fmt.Sprintf("expected Claude stream responses, got %T", result.Value))
 			return
 		}
+		var writeErr error
 		for _, resp := range claudeResponses {
-			_ = helper.ClaudeData(c, *resp)
+			writeErr = errors.Join(writeErr, helper.ClaudeData(c, *resp))
 		}
 		info.ClaudeConvertInfo.Done = true
+		if writeErr == nil {
+			markOpenRouterContentDelivered(c, info, lastStreamData)
+		}
 
 	case types.RelayFormatGemini:
 		var streamResponse dto.ChatCompletionsStreamResponse
@@ -275,6 +280,7 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 			common.SysLog("error sending final Gemini stream response: " + err.Error())
 			return
 		}
+		markOpenRouterContentDelivered(c, info, lastStreamData)
 
 		results, err = mapping.FinalizeStreamResponse(c, info, state)
 		if err != nil {
