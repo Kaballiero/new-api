@@ -327,7 +327,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			logger.LogInfo(c, fmt.Sprintf("client closed the request on channel #%d: %v", channel.Id, requestErr))
 			break
 		}
-		if !types.IsLocalError(newAPIError) {
+		if !isLocalError(newAPIError) {
 			ProcessChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 		}
 
