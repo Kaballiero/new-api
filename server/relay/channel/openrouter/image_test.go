@@ -514,9 +514,6 @@ func TestEndpointRequestReservation(t *testing.T) {
 			}
 		})
 	}
-	estimator.Models["test/model"][0].MaxCompletionTokens = 0
-	_, err := estimator.Estimate(info, []byte(`{"model":"test/model"}`), "chat/completions")
-	require.Error(t, err)
 }
 
 func TestSharedImageChannelReserve(t *testing.T) {

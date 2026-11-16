@@ -29,6 +29,8 @@ func (f *ledgerFixture) ReserveWallet(_ int, n int) (bool, error) {
 	return true, nil
 }
 
+func (f *ledgerFixture) WalletBalance(int) (int, error) { return f.wallet, nil }
+
 func (f *ledgerFixture) DebitWallet(_ int, n int) error {
 	f.events = append(f.events, "debit wallet")
 	if f.fundingErr != nil {
@@ -82,7 +84,9 @@ func TestOpenRouterTrustedTransitionReservesAtomically(t *testing.T) {
 	u := NewUsecase(f, quiet)
 	require.NoError(t, u.Execute(Input{Reservation: r, Target: 100, AtomicWallet: true}))
 	assert.False(t, r.Trusted)
-	require.Error(t, u.Execute(Input{Reservation: r, Target: 150, AtomicWallet: true}))
+	// A rejected top-up names the wallet balance and the missing delta.
+	err := u.Execute(Input{Reservation: r, Target: 150, AtomicWallet: true})
+	assert.Equal(t, &domain.Failure{Kind: domain.WalletReserveRejected, Remaining: 20, Required: 50}, err)
 	assert.Equal(t, 100, r.PreConsumed)
 	assert.Equal(t, 20, f.wallet)
 	assert.Equal(t, 900, f.token)

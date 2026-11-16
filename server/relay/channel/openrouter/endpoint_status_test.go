@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,7 +130,6 @@ func TestEndpointStatusRetainedGuards(t *testing.T) {
 		{"context", `"context_length":999,`, `,"max_tokens":10`, "chat/completions", false},
 		{"completion limit", `"max_completion_tokens":9,`, `,"max_tokens":10`, "chat/completions", false},
 		{"invalid output cap", "", `,"max_tokens":2147483647`, "chat/completions", false},
-		{"missing cap", "", "", "chat/completions", false},
 		{"parameter", "", `,"max_tokens":10,"temperature":1,"provider":{"require_parameters":true}`, "chat/completions", false},
 		{"quantization", "", `,"max_tokens":10,"provider":{"quantizations":["fp8"]}`, "chat/completions", false},
 		{"unknown model", "", `,"models":["other/model"],"max_tokens":10`, "chat/completions", false},
@@ -162,6 +162,128 @@ func TestEndpointStatusRetainedGuards(t *testing.T) {
 				_, err = e.Estimate(info, body, tc.operation)
 			}
 			require.Error(t, err)
+		})
+	}
+}
+
+// Without a client output limit the reserve covers min(endpoint cap, 8192)
+// output tokens; an explicit limit of any format is reserved as given. The
+// reserve names the limit field of the client's format.
+func TestEndpointDefaultOutputCap(t *testing.T) {
+	for _, tc := range []struct {
+		name, limits, extra, operation, field string
+		format                                types.RelayFormat
+		explicit                              bool
+		output, responses                     int
+	}{
+		{"no limit with endpoint cap 128000 uses 8192", `"context_length":200000,"max_completion_tokens":128000,`, "", "chat/completions", "max_tokens", types.RelayFormatOpenAI, false, 8192, 1},
+		{"no limit with endpoint cap 4096 uses 4096", `"context_length":200000,"max_completion_tokens":4096,`, "", "chat/completions", "max_tokens", types.RelayFormatOpenAI, false, 4096, 1},
+		{"no endpoint cap uses 8192", "", "", "chat/completions", "max_tokens", types.RelayFormatOpenAI, false, 8192, 1},
+		{"context left after the prompt bounds the default cap", `"context_length":5000,"max_completion_tokens":128000,`, "", "chat/completions", "max_tokens", types.RelayFormatOpenAI, false, 4000, 1},
+		{"n multiplies the output price", `"max_completion_tokens":128000,`, `,"n":2`, "chat/completions", "max_tokens", types.RelayFormatOpenAI, false, 8192, 2},
+		{"explicit max_tokens is used as given", `"max_completion_tokens":128000,`, `,"max_tokens":20000`, "chat/completions", "max_tokens", types.RelayFormatOpenAI, true, 20000, 1},
+		{"explicit max_completion_tokens is used as given", `"max_completion_tokens":128000,`, `,"max_completion_tokens":100`, "chat/completions", "max_tokens", types.RelayFormatOpenAI, true, 100, 1},
+		{"Responses max_output_tokens is respected", `"max_completion_tokens":128000,`, `,"input":"hi","max_output_tokens":100`, "responses", "max_output_tokens", types.RelayFormatOpenAIResponses, true, 100, 1},
+		{"Responses without a limit uses 8192", `"max_completion_tokens":128000,`, `,"input":"hi"`, "responses", "max_output_tokens", types.RelayFormatOpenAIResponses, false, 8192, 1},
+		{"Gemini without a limit names maxOutputTokens", `"max_completion_tokens":128000,`, "", "chat/completions", "generationConfig.maxOutputTokens", types.RelayFormatGemini, false, 8192, 1},
+		{"batch item without a limit is capped", `"max_completion_tokens":128000,`, "", "batch_chat/completions", "max_tokens", types.RelayFormatOpenAI, false, 8192, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var endpoint PricedEndpoint
+			require.NoError(t, common.UnmarshalJsonStr(`{"tag":"provider","model_id":"test/model",`+tc.limits+`"pricing":{"prompt":"0.000001","completion":"0.000002"}}`, &endpoint))
+			e := NewRequestEstimator()
+			e.Models["test/model"] = []PricedEndpoint{endpoint}
+			info := &relaycommon.RelayInfo{RelayFormat: tc.format}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+			info.SetEstimatePromptTokens(1000)
+
+			cost, err := e.Estimate(info, []byte(`{"model":"test/model"`+tc.extra+`}`), tc.operation)
+
+			require.NoError(t, err)
+			outputPrice := decimal.RequireFromString("0.000002").Mul(decimal.NewFromInt(int64(tc.responses)))
+			want, _ := decimal.RequireFromString("0.001").Add(outputPrice.Mul(decimal.NewFromInt(int64(tc.output)))).Float64()
+			assert.InDelta(t, want, cost, 1e-12)
+			require.NotNil(t, e.OutputReserve)
+			assert.Equal(t, tc.explicit, e.OutputReserve.ExplicitLimit)
+			assert.Equal(t, tc.field, e.OutputReserve.LimitField)
+			assert.Equal(t, tc.output, e.OutputReserve.OutputTokens)
+			assert.Equal(t, "0.001", e.OutputReserve.InputUSD.String())
+			assert.Equal(t, "0.000001", e.OutputReserve.PromptPriceUSD.String())
+			assert.Equal(t, outputPrice.String(), e.OutputReserve.OutputPriceUSD.String())
+		})
+	}
+}
+
+// A configured price is a minimum hold: the endpoint estimate without a client
+// limit also uses min(endpoint cap, 8192) and may raise the reserve above it.
+func TestEndpointConfiguredPriceDefaultOutputCap(t *testing.T) {
+	for _, tc := range []struct {
+		name, limits string
+		want         float64
+	}{
+		{"capped endpoint below the configured price", `"max_completion_tokens":4096,`, 0.01},
+		{"no endpoint cap counts 8192 above the configured price", "", 0.001 + 0.000002*8192},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var endpoint PricedEndpoint
+			require.NoError(t, common.UnmarshalJsonStr(`{"tag":"provider","model_id":"test/model",`+tc.limits+`"pricing":{"prompt":"0.000001","completion":"0.000002"}}`, &endpoint))
+			e := NewRequestEstimator()
+			e.Models["test/model"] = []PricedEndpoint{endpoint}
+			e.OutputModalities["test/model"] = []string{"text"}
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+			info.SetEstimatePromptTokens(1000)
+
+			cost, err := e.EstimateWithLocalPrice(info, []byte(`{"model":"test/model"}`), "chat/completions", 0.01)
+
+			require.NoError(t, err)
+			assert.InDelta(t, tc.want, cost, 1e-12)
+			assert.Equal(t, ReserveWholeHold, e.ReserveUse)
+		})
+	}
+}
+
+// Sending the suggested limit in the client's field must yield a reserve that
+// fits the quota the suggestion was computed for, although the field itself
+// adds prompt tokens.
+func TestEndpointAffordableLimitFitsReserve(t *testing.T) {
+	const text = "Summarize the history of the Roman Empire from its founding to the fall of Constantinople, with dates."
+	for _, tc := range []struct {
+		name, operation, body, limitField string
+		format                            types.RelayFormat
+	}{
+		{"chat", "chat/completions", `{"model":"test/model","messages":[{"role":"user","content":"` + text + `"}]%s}`, "max_tokens", types.RelayFormatOpenAI},
+		{"Responses", "responses", `{"model":"test/model","input":"` + text + `"%s}`, "max_output_tokens", types.RelayFormatOpenAIResponses},
+		// The estimator prices the converted Chat body, where Gemini's limit is max_tokens.
+		{"Gemini", "chat/completions", `{"model":"test/model","messages":[{"role":"user","content":"` + text + `"}]%s}`, "max_tokens", types.RelayFormatGemini},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var endpoints []PricedEndpoint
+			require.NoError(t, common.UnmarshalJsonStr(`[{"tag":"a","context_length":200000,"max_completion_tokens":128000,"pricing":{"prompt":"0.000003","completion":"0.000015","input_cache_write":"0.00000375"}}]`, &endpoints))
+			info := &relaycommon.RelayInfo{RelayFormat: tc.format}
+			info.ChannelMeta = &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter}
+			basis := common.OpenRouterCostBasis{EffectiveGroupRatio: 1, QuotaPerUnit: 500000}
+			e := NewRequestEstimator()
+			e.Models["test/model"] = endpoints
+			estimate, err := e.Estimate(info, []byte(fmt.Sprintf(tc.body, "")), tc.operation)
+			require.NoError(t, err)
+			required, _, err := basis.Quota(estimate)
+			require.NoError(t, err)
+			reserve := *e.OutputReserve
+			suggestions := 0
+			for available := 0; available < required; available += required/200 + 1 {
+				limit := reserve.AffordableMaxTokens(basis, available)
+				if limit == 0 {
+					continue
+				}
+				suggestions++
+				limited, err := e.Estimate(info, []byte(fmt.Sprintf(tc.body, fmt.Sprintf(`,"%s":%d`, tc.limitField, limit))), tc.operation)
+				require.NoError(t, err)
+				quota, _, err := basis.Quota(limited)
+				require.NoError(t, err)
+				assert.LessOrEqual(t, quota, available, "limit %d", limit)
+			}
+			assert.Greater(t, suggestions, 150)
 		})
 	}
 }
