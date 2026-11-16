@@ -423,6 +423,9 @@ channel.model_update_add_samples: "Added model samples (showing {{.Shown}}/{{.To
 channel.model_update_remove_samples: "Removed model samples (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_conflict_samples: "Needs decision — name already used by a model with another target (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_auto_apply_blocked: "Changes are not applied automatically — the upstream catalog lost too many published models (showing {{.Shown}}/{{.Total}}): {{.Models}}"
+channel.model_update_auto_added: "Added by auto sync (showing {{.Shown}}/{{.Total}}): {{.Models}}"
+channel.model_update_auto_removed: "Removed by auto sync (showing {{.Shown}}/{{.Total}}): {{.Models}}"
+channel.model_update_removal_limit: "Needs decision — more than {{.Limit}} models to remove, nothing removed (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_failed_ids: "Failed channel IDs (showing {{.Shown}}/{{.Total}}): {{.IDs}}"
 channel.model_update_omitted: " ({{.Count}} more omitted)"
 

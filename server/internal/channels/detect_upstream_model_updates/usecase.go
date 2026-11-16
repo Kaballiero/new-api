@@ -85,10 +85,12 @@ func (usecase Usecase) Check(
 			return persist(freshSettings, false)
 		}
 
-		configChanged, autoAdded, err = usecase.rules.DetectModelDelta(freshChannel, &freshSettings, upstreamModels, allowAutoApply)
-		if err != nil {
-			return err
+		applied, detectErr := usecase.rules.DetectModelDelta(freshChannel, &freshSettings, upstreamModels, allowAutoApply)
+		if detectErr != nil {
+			return detectErr
 		}
+		configChanged = applied.ModelsChanged || applied.MappingChanged
+		autoAdded = len(applied.AddedModels)
 
 		return persist(freshSettings, configChanged)
 	})

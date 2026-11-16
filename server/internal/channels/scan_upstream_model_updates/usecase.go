@@ -50,7 +50,7 @@ func (usecase Usecase) Check(
 	force bool,
 	allowAutoApply bool,
 	requireEnabled bool,
-) (configChanged bool, autoAdded int, autoApplyBlocked bool, err error) {
+) (appliedUpdates domain.AppliedModelUpdates, autoApplyBlocked bool, err error) {
 	now := usecase.now()
 	if !force {
 		minInterval := usecase.minInterval()
@@ -61,16 +61,16 @@ func (usecase Usecase) Check(
 			// report does not change between the checks. The catalog is read
 			// once per run.
 			if !settings.CatalogSyncEnabled {
-				return false, 0, false, nil
+				return domain.AppliedModelUpdates{}, false, nil
 			}
 			upstreamModels, err := usecase.fetch(ctx, channel)
-			return false, 0, upstreamModels.AutoApplyBlocked, err
+			return domain.AppliedModelUpdates{}, upstreamModels.AutoApplyBlocked, err
 		}
 	}
 
 	fetchFingerprint, err := usecase.store.FetchFingerprint(channel)
 	if err != nil {
-		return false, 0, false, err
+		return domain.AppliedModelUpdates{}, false, err
 	}
 	upstreamModels, fetchErr := usecase.fetch(ctx, channel)
 
@@ -111,27 +111,27 @@ func (usecase Usecase) Check(
 			return persist(freshSettings, false)
 		}
 
-		configChanged, autoAdded, err = usecase.rules.DetectModelDelta(freshChannel, &freshSettings, upstreamModels, allowAutoApply)
+		appliedUpdates, err = usecase.rules.DetectModelDelta(freshChannel, &freshSettings, upstreamModels, allowAutoApply)
 		if err != nil {
 			return err
 		}
 
-		return persist(freshSettings, configChanged)
+		return persist(freshSettings, appliedUpdates.ModelsChanged || appliedUpdates.MappingChanged)
 	})
 	if persistErr != nil {
-		return false, 0, false, persistErr
+		return domain.AppliedModelUpdates{}, false, persistErr
 	}
 	if freshChannel != nil {
 		*channel = *freshChannel
 		*settings = freshSettings
 	}
 	if freshCheckDisabled {
-		return false, 0, false, nil
+		return domain.AppliedModelUpdates{}, false, nil
 	}
 	if fetchErr != nil {
-		return false, 0, false, fetchErr
+		return domain.AppliedModelUpdates{}, false, fetchErr
 	}
-	return configChanged, autoAdded, upstreamModels.AutoApplyBlocked, nil
+	return appliedUpdates, upstreamModels.AutoApplyBlocked, nil
 }
 
 func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply bool, report func(processed, total int)) domain.ModelUpdateSummary {
@@ -142,6 +142,7 @@ func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply b
 	detectedAddModels := 0
 	detectedRemoveModels := 0
 	autoAddedModels := 0
+	autoRemovedModels := 0
 	channelSummaries := make([]domain.ModelUpdateChannelSummary, 0)
 	addModelSamples := make([]string, 0)
 	removeModelSamples := make([]string, 0)
@@ -201,7 +202,7 @@ scanLoop:
 			}
 
 			checkedChannels++
-			configChanged, autoAdded, autoApplyBlocked, err := usecase.Check(ctx, channel, &settings, force, allowAutoApply, true)
+			appliedUpdates, autoApplyBlocked, err := usecase.Check(ctx, channel, &settings, force, allowAutoApply, true)
 			if err != nil {
 				failedChannels++
 				failedChannelIDs = append(failedChannelIDs, channel.Id)
@@ -213,20 +214,26 @@ scanLoop:
 			}
 			currentAddModels := domain.NormalizeModelNames(settings.LastDetectedModels)
 			currentRemoveModels := domain.NormalizeModelNames(settings.LastRemovedModels)
-			currentAddCount := len(currentAddModels) + autoAdded
-			currentRemoveCount := len(currentRemoveModels)
+			if appliedUpdates.RemovalLimitExceeded {
+				usecase.log(fmt.Sprintf("upstream model update removal limit exceeded: channel_id=%d channel_name=%s pending_remove_models=%d limit=%d", channel.Id, channel.Name, len(currentRemoveModels), domain.MaxAutoRemovedModels))
+			}
+			currentAddCount := len(currentAddModels) + len(appliedUpdates.AddedModels)
+			currentRemoveCount := len(currentRemoveModels) + len(appliedUpdates.RemovedModels)
 			detectedAddModels += currentAddCount
 			detectedRemoveModels += currentRemoveCount
 			if currentAddCount > 0 || currentRemoveCount > 0 {
 				changedChannels++
 				channelSummaries = append(channelSummaries, domain.ModelUpdateChannelSummary{
-					ChannelID:           channel.Id,
-					ChannelName:         channel.Name,
-					AddCount:            currentAddCount,
-					RemoveCount:         currentRemoveCount,
-					PendingAddModels:    currentAddModels,
-					PendingRemoveModels: currentRemoveModels,
-					AutoApplyBlocked:    autoApplyBlocked,
+					ChannelID:            channel.Id,
+					ChannelName:          channel.Name,
+					AddCount:             currentAddCount,
+					RemoveCount:          currentRemoveCount,
+					PendingAddModels:     currentAddModels,
+					PendingRemoveModels:  currentRemoveModels,
+					AutoApplyBlocked:     autoApplyBlocked,
+					AutoAddedModels:      appliedUpdates.AddedModels,
+					AutoRemovedModels:    appliedUpdates.RemovedModels,
+					RemovalLimitExceeded: appliedUpdates.RemovalLimitExceeded,
 				})
 			}
 			addModelSamples = domain.MergeModelNames(addModelSamples, currentAddModels)
@@ -234,10 +241,11 @@ scanLoop:
 			for _, conflictModel := range domain.NormalizeModelNames(settings.LastConflictModels) {
 				conflictModels = append(conflictModels, domain.ModelUpdateConflict{ChannelID: channel.Id, ChannelName: channel.Name, Model: conflictModel})
 			}
-			if configChanged {
+			if appliedUpdates.ModelsChanged || appliedUpdates.MappingChanged {
 				refreshNeeded = true
 			}
-			autoAddedModels += autoAdded
+			autoAddedModels += len(appliedUpdates.AddedModels)
+			autoRemovedModels += len(appliedUpdates.RemovedModels)
 
 			if usecase.interval() > 0 {
 				if ctx == nil {
@@ -272,17 +280,19 @@ scanLoop:
 		DetectedRemoveModels: detectedRemoveModels,
 		FailedChannels:       failedChannels,
 		AutoAddedModels:      autoAddedModels,
+		AutoRemovedModels:    autoRemovedModels,
 	}
 
 	if checkedChannels > 0 || usecase.debug() {
 		usecase.log(fmt.Sprintf(
-			"upstream model update task done: checked_channels=%d changed_channels=%d detected_add_models=%d detected_remove_models=%d failed_channels=%d auto_added_models=%d",
+			"upstream model update task done: checked_channels=%d changed_channels=%d detected_add_models=%d detected_remove_models=%d failed_channels=%d auto_added_models=%d auto_removed_models=%d",
 			checkedChannels,
 			changedChannels,
 			detectedAddModels,
 			detectedRemoveModels,
 			failedChannels,
 			autoAddedModels,
+			autoRemovedModels,
 		))
 	}
 	// A scan that stopped early, cancelled or on a failed channel query, has
@@ -310,6 +320,7 @@ scanLoop:
 		DetectedAddModels:    detectedAddModels,
 		DetectedRemoveModels: detectedRemoveModels,
 		AutoAddedModels:      autoAddedModels,
+		AutoRemovedModels:    autoRemovedModels,
 		FailedChannelIDs:     failedChannelIDs,
 		Channels:             channelSummaries,
 		AddModelSamples:      addModelSamples,
@@ -318,8 +329,9 @@ scanLoop:
 	}
 	// A report with applied changes is always sent: the fingerprint holds only
 	// what waits for a decision, and an applied change does not repeat.
+	appliedChanges := autoAddedModels > 0 || autoRemovedModels > 0
 	reportFingerprint := domain.ModelUpdateReportFingerprint(modelUpdateReport)
-	if autoAddedModels == 0 && reportFingerprint == sentFingerprint {
+	if !appliedChanges && reportFingerprint == sentFingerprint {
 		usecase.log(fmt.Sprintf("upstream model update notification skipped: report unchanged fingerprint=%s", reportFingerprint[:12]))
 		return summary
 	}
