@@ -256,6 +256,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
+		attemptStart := time.Now()
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
@@ -324,7 +325,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// channel errors or automatic disabling. A client that left awaits no
 		// retry.
 		if requestErr := c.Request.Context().Err(); requestErr != nil {
-			logger.LogInfo(c, fmt.Sprintf("client closed the request on channel #%d: %v", channel.Id, requestErr))
+			// The wait stays visible, so an upstream hang the client cut short is
+			// not mistaken for an impatient client.
+			logger.LogInfo(c, fmt.Sprintf("client closed the request on channel #%d after %s (attempt %d): %v", channel.Id, time.Since(attemptStart).Round(100*time.Millisecond), retryParam.GetRetry()+1, requestErr))
 			break
 		}
 		if !isLocalError(newAPIError) {
