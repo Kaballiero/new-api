@@ -15,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
-	channeladapter "github.com/QuantumNous/new-api/internal/adapter/channels"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	channelrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/channels/record"
 	pricingrecord "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/record"
@@ -45,14 +44,6 @@ func stubChannelUpstreamModelFetch(t *testing.T, fetch func(*model.Channel) ([]s
 	})
 }
 
-func preserveChannelUpstreamModelNotifyState(t *testing.T) {
-	t.Helper()
-
-	original := channelUpstreamModelUpdateNotifyState
-	channelUpstreamModelUpdateNotifyState = &channeladapter.ModelUpdateNotifications{}
-	t.Cleanup(func() { channelUpstreamModelUpdateNotifyState = original })
-}
-
 func setupChannelUpstreamUpdateTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -76,7 +67,7 @@ func setupChannelUpstreamUpdateTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	model.DB = db
 	model.LOG_DB = db
-	require.NoError(t, db.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &channelrecord.Ability{}, &model.Option{}))
 
 	t.Cleanup(func() {
 		model.DB = originalDB
@@ -1337,9 +1328,6 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledAutoSyncIsAddOnly(t 
 		return []string{"gpt-4o", "anthropic/claude-fable-5"}, nil
 	})
 
-	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 1, 0)
-
 	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 	require.Equal(t, 1, summary.AutoAddedModels)
 	require.Equal(t, 1, summary.DetectedRemoveModels)
@@ -1496,8 +1484,6 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledSameNameReplacementS
 	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
 		return []string{"foo"}, nil
 	})
-	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 1, 0)
 
 	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
@@ -1526,8 +1512,6 @@ func TestScheduledUpstreamModelUpdateMalformedSettingsDoNotOverwritePartialRow(t
 		t.Fatal("malformed settings must fail before fetching")
 		return nil, nil
 	})
-	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 0, 1)
 
 	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
@@ -1575,7 +1559,6 @@ func TestScheduledUpstreamModelUpdateSendsReportToTelegramGateway(t *testing.T) 
 			stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
 				return tc.upstreamModels, nil
 			})
-			preserveChannelUpstreamModelNotifyState(t)
 			var requests []string
 			var payload map[string]string
 			gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -1625,8 +1608,6 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 				t.Error("a catalog sync channel must not list the provider models")
 				return nil, nil
 			})
-			preserveChannelUpstreamModelNotifyState(t)
-			channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 1, 0)
 			var manifestReads atomic.Int32
 			catalog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if tc.catalogStatus != http.StatusOK {
@@ -1676,8 +1657,6 @@ func TestScheduledUpstreamModelUpdateReportsCanonicalNameConflicts(t *testing.T)
 	stubChannelUpstreamModelFetch(t, func(*model.Channel) ([]string, error) {
 		return []string{"mongodb/voyage-4", "google/gemini-2.5-pro", "google/gemini-2.5-pro-preview", "acme/new-model"}, nil
 	})
-	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState.Allow(common.GetTimestamp(), 1, 0)
 
 	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
@@ -1969,21 +1948,67 @@ func TestApplyChannelUpstreamModelUpdatesReturnsFreshIgnoredModels(t *testing.T)
 	require.Equal(t, []string{"fresh-ignore-model"}, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateIgnoredModels)
 }
 
-func TestShouldSendUpstreamModelUpdateNotification(t *testing.T) {
-	preserveChannelUpstreamModelNotifyState(t)
-	channelUpstreamModelUpdateNotifyState = &channeladapter.ModelUpdateNotifications{}
+// Consecutive scheduled runs send the report only when what waits for a
+// decision changed since the last delivered report. Every run assembles a new
+// usecase, as after a pod restart, so the fingerprint lives in the database.
+func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
+	db := setupChannelUpstreamUpdateTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, i18n.Init())
+	t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "0")
+	pending := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
+	autoSynced := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true})
+	upstreamModels := map[int][]string{}
+	stubChannelUpstreamModelFetch(t, func(channel *model.Channel) ([]string, error) {
+		if upstreamModels[channel.Id] == nil {
+			return nil, errors.New("upstream unavailable")
+		}
+		return upstreamModels[channel.Id], nil
+	})
+	gatewayStatus := http.StatusOK
+	var requests []string
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]string
+		assert.NoError(t, common.DecodeJson(r.Body, &payload))
+		requests = append(requests, payload["text"])
+		w.WriteHeader(gatewayStatus)
+	}))
+	defer gateway.Close()
+	t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
+	t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
 
-	baseTime := int64(2000000)
+	for _, step := range []struct {
+		name          string
+		pendingModels []string
+		autoModels    []string
+		gatewayStatus int
+		wantFailed    int
+		wantRequests  int
+	}{
+		{name: "first report is sent", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
+		{name: "unchanged report is not sent again", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 0},
+		{name: "another model with the same counts is sent", pendingModels: []string{"gpt-4o", "gpt-4.5"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
+		{name: "conflict-only report is sent", pendingModels: []string{"gpt-4o", "acme/gpt-4o"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
+		{name: "unchanged conflict-only report is not sent again", pendingModels: []string{"gpt-4o", "acme/gpt-4o"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 0},
+		{name: "rejected delivery is attempted", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusInternalServerError, wantRequests: 1},
+		{name: "rejected report is sent again", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
+		{name: "failed channel is sent", autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantFailed: 1, wantRequests: 1},
+		{name: "unchanged failure is not sent again", autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantFailed: 1, wantRequests: 0},
+		{name: "scan without findings sends nothing", pendingModels: []string{"gpt-4o"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 0},
+		{name: "problem that comes back is sent again", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o"}, gatewayStatus: http.StatusOK, wantRequests: 1},
+		{name: "applied addition is sent with unchanged pending models", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o", "gpt-5"}, gatewayStatus: http.StatusOK, wantRequests: 1},
+		{name: "applied addition is not part of the next report", pendingModels: []string{"gpt-4o", "gpt-4.1"}, autoModels: []string{"gpt-4o", "gpt-5"}, gatewayStatus: http.StatusOK, wantRequests: 0},
+	} {
+		upstreamModels[pending.Id] = step.pendingModels
+		upstreamModels[autoSynced.Id] = step.autoModels
+		gatewayStatus = step.gatewayStatus
+		requests = nil
 
-	require.True(t, shouldSendUpstreamModelUpdateNotification(baseTime, 6, 0))
-	require.False(t, shouldSendUpstreamModelUpdateNotification(baseTime+3600, 6, 0))
-	require.True(t, shouldSendUpstreamModelUpdateNotification(baseTime+3600, 7, 0))
-	require.False(t, shouldSendUpstreamModelUpdateNotification(baseTime+7200, 7, 0))
-	require.True(t, shouldSendUpstreamModelUpdateNotification(baseTime+8000, 0, 3))
-	require.False(t, shouldSendUpstreamModelUpdateNotification(baseTime+9000, 0, 3))
-	require.True(t, shouldSendUpstreamModelUpdateNotification(baseTime+10000, 0, 4))
-	require.True(t, shouldSendUpstreamModelUpdateNotification(baseTime+90000, 7, 0))
-	require.True(t, shouldSendUpstreamModelUpdateNotification(baseTime+90001, 0, 0))
+		summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
+
+		require.Equal(t, step.wantFailed, summary.FailedChannels, step.name)
+		assert.Len(t, requests, step.wantRequests, step.name)
+	}
 }
 
 func TestDetectAllChannelUpstreamModelUpdatesRejectsExistingActiveTask(t *testing.T) {

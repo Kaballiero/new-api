@@ -37,4 +37,4 @@ func Send(userID int, email string, preferences domain.Preferences, notice domai
 }
 func Root(event, title, content string)         { _ = assembled().root.Execute(event, title, content) }
 func ModelUpdateWatchers(title, content string) { _ = assembled().watchers.Execute(title, content) }
-func TelegramChat(title, content string)        { _ = assembled().telegram.Execute(title, content) }
+func TelegramChat(title, content string) error  { return assembled().telegram.Execute(title, content) }

@@ -543,16 +543,9 @@ var fetchChannelUpstreamModelIDsFn = func(channel *model.Channel) ([]string, err
 	return channeladapter.FetchChannelUpstreamModelIDs(channel, channelcore.FetchCodexChannelModels)
 }
 
-var channelUpstreamModelUpdateNotifyState = &channeladapter.ModelUpdateNotifications{}
-
-func shouldSendUpstreamModelUpdateNotification(now int64, changed, failed int) bool {
-	return channelUpstreamModelUpdateNotifyState.Allow(now, changed, failed)
-}
-
 func channelEffects() app.ChannelEffects {
 	effects := httpapi.ChannelEffects()
 	effects.FetchModels = func(channel *model.Channel) ([]string, error) { return fetchChannelUpstreamModelIDsFn(channel) }
-	effects.ModelUpdateThrottle = shouldSendUpstreamModelUpdateNotification
 	return effects
 }
 

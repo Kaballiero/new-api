@@ -12,6 +12,7 @@ import (
 	codex "github.com/QuantumNous/new-api/internal/adapter/channels/codex"
 	channelstore "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
 	repository "github.com/QuantumNous/new-api/internal/adapter/gorm/channels"
+	settingsstore "github.com/QuantumNous/new-api/internal/adapter/gorm/settings"
 	"github.com/QuantumNous/new-api/internal/app/accountstorage"
 	authz "github.com/QuantumNous/new-api/internal/app/authorizationcore"
 	channelcore "github.com/QuantumNous/new-api/internal/app/channelcore"
@@ -71,11 +72,11 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type ChannelEffects struct {
-	ModelUpdateThrottle func(int64, int, int) bool
-	EnqueueModelUpdate  func() (detect_all_upstream_model_updates.Task, bool, error)
+	EnqueueModelUpdate func() (detect_all_upstream_model_updates.Task, bool, error)
 
 	FetchModels    func(*model.Channel) ([]string, error)
 	RefreshRuntime func()
@@ -380,13 +381,15 @@ func NewDetectChannelModelsUsecase(effects ChannelEffects) detect_upstream_model
 
 // NewScanChannelModelsUsecase checks the upstream models of all enabled
 // channels; the notification goes to the watching administrators and the
-// Telegram chat in the root user's language.
+// Telegram chat in the root user's language. The report counts as delivered
+// when the Telegram chat accepts it; the fingerprint of the last delivered
+// report is an options row.
 func NewScanChannelModelsUsecase(effects ChannelEffects) scan_upstream_model_updates.Usecase {
 	store := repository.NewStore()
-	return scan_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), channelModelFetcher(store, effects), effects.RefreshRuntime, common.GetTimestamp, ChannelModelCheckInterval, func() time.Duration { return common.RequestInterval }, func() bool { return common.DebugEnabled }, common.SysLog, effects.ModelUpdateThrottle, func(report channeldomain.ModelUpdateReport) {
+	return scan_upstream_model_updates.NewUsecase(store, NewChannelModelUpdateRules(store), channelModelFetcher(store, effects), effects.RefreshRuntime, common.GetTimestamp, ChannelModelCheckInterval, func() time.Duration { return common.RequestInterval }, func() bool { return common.DebugEnabled }, common.SysLog, settingsstore.NewStore(func() *gorm.DB { return model.DB }), func(report channeldomain.ModelUpdateReport) error {
 		subject, content := channeladapter.ModelUpdateNotification(channelruntime.RootUserLanguage(), report)
 		notifications.ModelUpdateWatchers(subject, content)
-		notifications.TelegramChat(subject, content)
+		return notifications.TelegramChat(subject, content)
 	})
 }
 
