@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,6 +25,7 @@ import (
 	fxstorage "github.com/QuantumNous/new-api/internal/adapter/gorm/pricing/fx"
 	usageadapter "github.com/QuantumNous/new-api/internal/adapter/gorm/usage"
 	usagerecord "github.com/QuantumNous/new-api/internal/adapter/gorm/usage/record"
+	notificationsadapter "github.com/QuantumNous/new-api/internal/adapter/notifications"
 	fxstate "github.com/QuantumNous/new-api/internal/adapter/pricing/fx"
 	"github.com/QuantumNous/new-api/internal/contracttest/fxseed"
 	pricingdomainfx "github.com/QuantumNous/new-api/internal/pricing/domain"
@@ -36,6 +39,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/websocket"
@@ -908,12 +912,12 @@ func (f openRouterFixtureTransport) RoundTrip(r *http.Request) (*http.Response, 
 // A client abort and a failure new-api decides itself never count against the
 // OpenRouter channel: no channel error is logged or recorded and automatic
 // disabling never sees them, even with their status in the disable ranges.
-// An abort refunds the reservation. Real upstream failures still count.
+// An abort refunds the reservation and, on any channel, is not retried. Real
+// upstream failures still count, even with a code new-api also uses locally.
 func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	httpclient.InitHttpClient()
 	previousDB, previousLogDB := model.DB, model.LOG_DB
-	previousMemory, previousRedis, previousBatch := common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled
 	previousConsume, previousError := common.LogConsumeEnabled, constant.ErrorLogEnabled
 	previousCount, previousRetries := constant.CountToken, common.RetryTimes
 	previousAutoDisable, previousDisableRanges := common.AutomaticDisableChannelEnabled, operation_setting.AutomaticDisableStatusCodesToString()
@@ -921,9 +925,17 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 	general := operation_setting.GetGeneralSetting()
 	previousRate, previousDisplay := general.CustomCurrencyExchangeRate, general.QuotaDisplayType
 	previousUnit, previousTimeout := common.QuotaPerUnit, constant.StreamingTimeout
-	previousMain, previousLog, previousKey := common.MainDatabaseType(), common.LogDatabaseType(), model.KeyColumn
+	previousMain, previousLog, previousKey, previousGroup := common.MainDatabaseType(), common.LogDatabaseType(), model.KeyColumn, model.GroupColumn
+	// Only the keys the cases load are restored: a finished relay may still read
+	// the rest from a background goroutine.
+	changedConfig := []string{"billing_setting.billing_mode", "billing_setting.billing_expr", "group_ratio_setting.group_ratio", "group_ratio_setting.group_group_ratio"}
 	savedConfig := map[string]string{}
-	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { savedConfig[key] = value; return nil }))
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		if slices.Contains(changedConfig, key) {
+			savedConfig[key] = value
+		}
+		return nil
+	}))
 	client, err := httpclient.GetHttpClientWithProxySettings("", dto.ChannelSettings{})
 	require.NoError(t, err)
 	previousTransport := client.Transport
@@ -935,8 +947,7 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 		gin.DefaultErrorWriter = previousErrorWriter
 		common.LogWriterMu.Unlock()
 		client.Transport = previousTransport
-		model.DB, model.LOG_DB, model.KeyColumn = previousDB, previousLogDB, previousKey
-		common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = previousMemory, previousRedis, previousBatch
+		model.DB, model.LOG_DB, model.KeyColumn, model.GroupColumn = previousDB, previousLogDB, previousKey, previousGroup
 		common.LogConsumeEnabled, constant.ErrorLogEnabled = previousConsume, previousError
 		constant.CountToken, common.RetryTimes = previousCount, previousRetries
 		common.AutomaticDisableChannelEnabled = previousAutoDisable
@@ -947,7 +958,20 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
 		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices))
 	})
-	common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = false, false, false
+	for _, cache := range []*bool{&common.MemoryCacheEnabled, &common.RedisEnabled, &common.BatchUpdateEnabled} {
+		if *cache {
+			*cache = false
+			t.Cleanup(func() { *cache = true })
+		}
+	}
+	// A finished relay records its sample in a background goroutine, which must
+	// end before the globals it reads are restored. The notifier of automatic
+	// disabling keeps one worker for good, so it starts before the baseline.
+	notificationsadapter.MemoryCounter{}.Check(0, "relay-outcome-baseline")
+	idleWorkers := gopool.WorkerCount()
+	t.Cleanup(func() {
+		require.Eventually(t, func() bool { return gopool.WorkerCount() <= idleWorkers }, 5*time.Second, 10*time.Millisecond)
+	})
 	common.LogConsumeEnabled, constant.ErrorLogEnabled = true, true
 	constant.CountToken, common.RetryTimes = false, 3
 	common.AutomaticDisableChannelEnabled = true
@@ -955,10 +979,10 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 	common.QuotaPerUnit, constant.StreamingTimeout = 500000, 30
 	general.CustomCurrencyExchangeRate, general.QuotaDisplayType = 100, operation_setting.QuotaDisplayTypeTokens
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
-	model.KeyColumn = "`key`"
+	model.KeyColumn, model.GroupColumn = "`key`", "`group`"
 	const textModel = "vendor/text-fixture"
 	const funded = 1000000
-	const channelError = "channel error (channel #21"
+	const channelError = "channel error (channel #"
 	type clientFormat struct {
 		format     types.RelayFormat
 		path, body string
@@ -968,14 +992,22 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 	responses := clientFormat{types.RelayFormatOpenAIResponses, "/v1/responses", `{"model":"vendor/text-fixture","input":"hi","max_output_tokens":16,"stream":true}`}
 	gemini := clientFormat{types.RelayFormatGemini, "/v1beta/models/vendor/text-fixture:streamGenerateContent?alt=sse", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":16}}`}
 	unsupportedTool := clientFormat{types.RelayFormatGemini, gemini.path, `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"googleSearch":{}}]}`}
+	nonstreamChat := clientFormat{types.RelayFormatOpenAI, "/v1/chat/completions", `{"model":"vendor/text-fixture","messages":[{"role":"user","content":"hi"}],"max_tokens":16}`}
 	for _, tc := range []struct {
 		name                    string
 		client                  clientFormat
 		walletQuota, tokenQuota int
-		// abort disconnects the client before the upstream stream carries content.
-		abort bool
-		// upstreamStatus answers the paid call; discoveryStatus the pricing lookup.
+		// channelType defaults to OpenRouter; another type is priced by modelPrice
+		// and has a second channel in the group to retry on.
+		channelType int
+		modelPrice  string
+		// abort disconnects the client before the upstream stream carries content;
+		// abortBeforeHeaders disconnects it while the paid call awaits headers.
+		abort, abortBeforeHeaders bool
+		// upstreamStatus answers the paid call with upstreamCode, the status by
+		// default; discoveryStatus answers the pricing lookup.
 		upstreamStatus, discoveryStatus int
+		upstreamCode                    string
 		// groupRatio overrides the default group ratio 2.
 		groupRatio string
 		// status and body are what a connected client receives.
@@ -988,6 +1020,7 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 		{name: "messages/client abort before content", client: messages, walletQuota: funded, tokenQuota: funded, abort: true},
 		{name: "responses/client abort before content", client: responses, walletQuota: funded, tokenQuota: funded, abort: true},
 		{name: "gemini/client abort before content", client: gemini, walletQuota: funded, tokenQuota: funded, abort: true},
+		{name: "other channel/client abort is not retried", client: nonstreamChat, channelType: constant.ChannelTypeOpenAI, modelPrice: `{"vendor/text-fixture":0.03}`, walletQuota: funded, tokenQuota: funded, abortBeforeHeaders: true},
 		{name: "wallet reserve shortfall", client: chat, walletQuota: 5, tokenQuota: funded, status: http.StatusForbidden},
 		{name: "API key reserve shortfall", client: chat, walletQuota: funded, tokenQuota: 5, status: http.StatusForbidden},
 		{name: "saturated reserve", client: chat, walletQuota: funded, tokenQuota: funded, groupRatio: "1e15", status: http.StatusForbidden,
@@ -996,6 +1029,7 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 		{name: "upstream 401", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusUnauthorized, status: http.StatusUnauthorized, channelError: true, autoDisabled: true},
 		{name: "upstream 403", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusForbidden, status: http.StatusForbidden, channelError: true, autoDisabled: true},
 		{name: "upstream 502", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusBadGateway, status: http.StatusBadGateway, channelError: true, autoDisabled: true},
+		{name: "upstream 400 with a local error code", client: chat, walletQuota: funded, tokenQuota: funded, upstreamStatus: http.StatusBadRequest, upstreamCode: `"invalid_request"`, status: http.StatusBadRequest, channelError: true},
 		{name: "pricing discovery 401", client: chat, walletQuota: funded, tokenQuota: funded, discoveryStatus: http.StatusUnauthorized, status: http.StatusBadRequest, channelError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1016,12 +1050,28 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 				"billing_setting.billing_mode": `{}`, "billing_setting.billing_expr": `{}`,
 				"group_ratio_setting.group_ratio": `{"default":` + groupRatio + `}`, "group_ratio_setting.group_group_ratio": `{}`,
 			}))
-			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
+			modelPrice, channelType := `{}`, constant.ChannelTypeOpenRouter
+			if tc.channelType != 0 {
+				modelPrice, channelType = tc.modelPrice, tc.channelType
+			}
+			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(modelPrice))
 			require.NoError(t, database.Create(&model.User{Id: 7, Username: "outcome-owner", Group: "default", Quota: tc.walletQuota}).Error)
 			require.NoError(t, database.Create(&model.Token{Id: 11, UserId: 7, Key: "fixture-token", Name: "outcome-token", RemainQuota: tc.tokenQuota}).Error)
 			ctx, disconnectClient := context.WithCancel(context.Background())
 			t.Cleanup(disconnectClient)
+			var paidCalls atomic.Int32
 			client.Transport = openRouterFixtureTransport(func(r *http.Request) (*http.Response, error) {
+				if r.Method == http.MethodPost {
+					paidCalls.Add(1)
+				}
+				if tc.abortBeforeHeaders {
+					disconnectClient()
+					return nil, context.Canceled
+				}
+				upstreamCode := strconv.Itoa(tc.upstreamStatus)
+				if tc.upstreamCode != "" {
+					upstreamCode = tc.upstreamCode
+				}
 				response := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Request: r}
 				switch {
 				case r.Method == http.MethodGet && tc.discoveryStatus != 0:
@@ -1034,7 +1084,7 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 					response.Body = &abandonedStreamBody{disconnectClient: disconnectClient, closed: make(chan struct{})}
 				default:
 					response.StatusCode = tc.upstreamStatus
-					response.Body = io.NopCloser(strings.NewReader(fmt.Sprintf(`{"error":{"code":%d,"message":"upstream refused the request"}}`, tc.upstreamStatus)))
+					response.Body = io.NopCloser(strings.NewReader(fmt.Sprintf(`{"error":{"code":%s,"message":"upstream refused the request"}}`, upstreamCode)))
 				}
 				return response, nil
 			})
@@ -1044,8 +1094,15 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 			common.LogWriterMu.Unlock()
 			autoBan := 1
 			baseURL := "https://openrouter.fixture"
-			selected := model.Channel{Id: 21, Type: constant.ChannelTypeOpenRouter, Name: "fixture-channel", Key: "fixture-provider", BaseURL: &baseURL, Status: common.ChannelStatusEnabled, Models: textModel, Group: "default", AutoBan: &autoBan}
+			selected := model.Channel{Id: 21, Type: channelType, Name: "fixture-channel", Key: "fixture-provider", BaseURL: &baseURL, Status: common.ChannelStatusEnabled, Models: textModel, Group: "default", AutoBan: &autoBan}
 			require.NoError(t, database.Create(&selected).Error)
+			if tc.channelType != 0 {
+				fallback := model.Channel{Id: 22, Type: channelType, Name: "fallback-channel", Key: "fixture-provider", BaseURL: &baseURL, Status: common.ChannelStatusEnabled, Models: textModel, Group: "default", AutoBan: &autoBan}
+				require.NoError(t, database.Create(&fallback).Error)
+				for _, id := range []int{selected.Id, fallback.Id} {
+					require.NoError(t, database.Create(&model.Ability{Group: "default", Model: textModel, ChannelId: id, Enabled: true}).Error)
+				}
+			}
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
 			c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, tc.client.path, strings.NewReader(tc.client.body))
@@ -1071,6 +1128,9 @@ func TestOpenRouterLocalOutcomesAreNotChannelErrors(t *testing.T) {
 			}
 			if tc.body != "" {
 				assert.JSONEq(t, tc.body, recorder.Body.String())
+			}
+			if tc.abortBeforeHeaders {
+				assert.Equal(t, int32(1), paidCalls.Load(), "a client that left is not retried on another channel")
 			}
 			require.Eventually(t, func() bool {
 				var user model.User
