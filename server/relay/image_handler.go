@@ -139,11 +139,13 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		if info.NativeImage != nil {
-			// A billing refusal, such as a wallet or API key shortfall, keeps
-			// the status and code it has on every other channel.
-			var billingErr *types.NewAPIError
-			if errors.As(err, &billingErr) {
-				return billingErr
+			// An error the image request already classified keeps its status
+			// and code: a billing refusal, such as a wallet or API key
+			// shortfall, answers as on every other channel, and a channel
+			// header override error still counts against the channel.
+			var classifiedErr *types.NewAPIError
+			if errors.As(err, &classifiedErr) {
+				return classifiedErr
 			}
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeDoRequestFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 		}

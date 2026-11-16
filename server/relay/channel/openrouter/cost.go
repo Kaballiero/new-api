@@ -36,8 +36,8 @@ func ReserveCost(c *gin.Context, info *relaycommon.RelayInfo, estimate float64) 
 		return err
 	}
 	if clamp != nil {
-		info.QuotaClamp = clamp
-		return clamp
+		// A saturated reserve is refused as insufficient quota, as on other channels.
+		return billinggateway.BillingAdmissionError(c, info, clamp)
 	}
 	if info.OpenRouterCost == nil {
 		info.OpenRouterCost = &relaycommon.OpenRouterCostState{}

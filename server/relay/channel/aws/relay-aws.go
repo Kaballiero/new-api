@@ -299,10 +299,10 @@ streamLoop:
 				}
 			case *bedrockruntimeTypes.UnknownUnionMember:
 				fmt.Println("unknown tag:", v.Tag)
-				return types.NewError(errors.New("unknown response type"), types.ErrorCodeInvalidRequest), nil
+				return types.NewError(errors.New("unknown response type"), types.ErrorCodeBadResponse), nil
 			default:
 				fmt.Println("union is nil or unknown type")
-				return types.NewError(errors.New("nil or unknown response type"), types.ErrorCodeInvalidRequest), nil
+				return types.NewError(errors.New("nil or unknown response type"), types.ErrorCodeBadResponse), nil
 			}
 		}
 	}

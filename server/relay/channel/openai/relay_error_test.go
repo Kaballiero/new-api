@@ -871,6 +871,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		nonOpenRouter                         bool
 		operation                             string
 		wantError                             string
+		saturated                             bool
 		zeroReasoning                         bool
 		reserveUse                            openrouter.ReserveUse
 	}{
@@ -884,7 +885,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		{name: "general exact ID does not match alias", model: "other/reasoner-alias", policyModel: "other/reasoner", general: true, reserve: common.GetPointer(2.0), wantError: "unsupported billable dimension internal_reasoning"},
 		{name: "general channel absent remains closed", model: "other/reasoner", general: true, wantError: "unsupported billable dimension internal_reasoning"},
 		{name: "general invalid reserve", model: "other/reasoner", general: true, reserve: common.GetPointer(0.0), wantError: "invalid OpenRouter"},
-		{name: "general huge reserve", model: "other/reasoner", general: true, reserve: common.GetPointer(1e100), wantError: "quota"},
+		{name: "general huge reserve", model: "other/reasoner", general: true, reserve: common.GetPointer(1e100), wantError: "insufficient quota", saturated: true},
 		{name: "general insufficient reserve", model: "other/reasoner", general: true, reserve: common.GetPointer(2.0), insufficient: true, wantError: "insufficient test quota"},
 		{name: "general known subtotal above minimum", model: "other/reasoner", general: true, reserve: common.GetPointer(2.0), rateKey: "completion", rate: "1", knownAboveReserve: true},
 		{name: "general wrong endpoint model rejected", model: "other/reasoner", endpointModel: "other/different", general: true, reserve: common.GetPointer(2.0), wantError: "endpoint model does not match"},
@@ -908,7 +909,7 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 		{name: "negative reserve rejected", reserve: common.GetPointer(-2.0), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "nan reserve rejected", reserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "infinite reserve rejected", reserve: common.GetPointer(math.Inf(1)), wantError: "invalid OpenRouter approximate reserve"},
-		{name: "oversized reserve rejected", reserve: common.GetPointer(1e100), wantError: "quota"},
+		{name: "oversized reserve rejected", reserve: common.GetPointer(1e100), wantError: "insufficient quota", saturated: true},
 		{name: "insufficient reserve stops before paid post", reserve: common.GetPointer(2.0), insufficient: true, wantError: "insufficient test quota"},
 		{name: "stream rejected", reserve: common.GetPointer(2.0), extra: `,"stream":true`, wantError: "one nonstream text chat response"},
 		{name: "multiple outputs rejected", reserve: common.GetPointer(2.0), extra: `,"n":2`, wantError: "one nonstream text chat response"},
@@ -1009,8 +1010,12 @@ func TestOpenRouterSonarApproximateReserveAdmission(t *testing.T) {
 				require.ErrorContains(t, err, tc.wantError)
 				var apiErr *types.NewAPIError
 				require.ErrorAs(t, err, &apiErr)
-				assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
-				assert.Equal(t, types.ErrorCodeModelPriceError, apiErr.GetErrorCode())
+				wantStatus, wantCode := http.StatusBadRequest, types.ErrorCodeModelPriceError
+				if tc.saturated {
+					wantStatus, wantCode = http.StatusForbidden, types.ErrorCodeInsufficientUserQuota
+				}
+				assert.Equal(t, wantStatus, apiErr.StatusCode)
+				assert.Equal(t, wantCode, apiErr.GetErrorCode())
 				assert.True(t, types.IsSkipRetryError(apiErr))
 				assert.Equal(t, 0, transport.posts)
 				if info.OpenRouterCost != nil {
@@ -1731,7 +1736,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "negative channel reserve rejected", kind: "stt", noSource: true, channelReserve: common.GetPointer(-1.0), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "NaN channel reserve rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "infinite channel reserve rejected", kind: "stt", noSource: true, channelReserve: common.GetPointer(math.Inf(1)), wantError: "invalid OpenRouter approximate reserve"},
-		{name: "oversize channel hold rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(1e20), wantError: "quota conversion"},
+		{name: "oversize channel hold rejected", kind: "tts", noSource: true, channelReserve: common.GetPointer(1e20), wantError: "insufficient quota"},
 		{name: "negative status TTS uses channel reserve", kind: "tts", noSource: true, endpointStatus: -5, channelReserve: common.GetPointer(0.3), cost: "0.04"},
 		{name: "missing capability cannot use channel reserve", kind: "stt", noSource: true, unknownCapability: true, channelReserve: common.GetPointer(0.3), wantError: "capability is missing"},
 		{name: "Chat audio channel reserve without global price", kind: "chat", cost: "3", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
@@ -2523,7 +2528,7 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 		{name: "negative hold", reserve: common.GetPointer(-1.0), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "NaN hold", reserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "infinite hold", reserve: common.GetPointer(math.Inf(1)), wantError: "invalid OpenRouter approximate reserve"},
-		{name: "oversized hold", reserve: common.GetPointer(1e20), wantError: "quota conversion"},
+		{name: "oversized hold", reserve: common.GetPointer(1e20), wantError: "insufficient quota"},
 		{name: "configured override", configured: true, cost: "0.01"},
 		{name: "configured and channel floor", configured: true, reserve: common.GetPointer(.04), cost: "0.01"},
 		{name: "configured source is not waived", configured: true, missingPrice: true, reserve: common.GetPointer(.02), wantError: "no configured reservation price"},

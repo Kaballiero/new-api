@@ -829,11 +829,13 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		}
 		prepared, err := openrouter.PrepareRequest(c, info, a, requestBody, operation)
 		if err != nil {
-			// A billing refusal, such as a wallet or API key shortfall, keeps
-			// the status and code it has on every other channel.
-			var billingErr *types.NewAPIError
-			if errors.As(err, &billingErr) {
-				return nil, billingErr
+			// An error PrepareRequest already classified keeps its status and
+			// code: a billing refusal, such as a wallet or API key shortfall,
+			// answers as on every other channel, and a channel header override
+			// error still counts against the channel.
+			var classifiedErr *types.NewAPIError
+			if errors.As(err, &classifiedErr) {
+				return nil, classifiedErr
 			}
 			return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
