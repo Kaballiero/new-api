@@ -222,9 +222,18 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if info.OpenRouterCost.BufferedAudio {
 		info.OpenRouterCost.ChatImage = false
 	}
-	// Deferral relies on the OpenAI chat stream handler recording real delivery.
-	info.OpenRouterCost.ChatText = operation == "chat/completions" && info.RelayMode == relayconstant.RelayModeChatCompletions && info.RelayFormat == types.RelayFormatOpenAI &&
-		!info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio
+	// Deferral relies on the stream handlers recording real delivery. Messages,
+	// Gemini and Responses clients defer only streams; their nonstream
+	// responses keep requiring a terminal usage.cost.
+	textOutput := !info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio
+	switch info.RelayFormat {
+	case types.RelayFormatOpenAI:
+		info.OpenRouterCost.ChatText = textOutput && operation == "chat/completions" && info.RelayMode == relayconstant.RelayModeChatCompletions
+	case types.RelayFormatClaude, types.RelayFormatGemini:
+		info.OpenRouterCost.ChatText = textOutput && info.IsStream && operation == "chat/completions"
+	case types.RelayFormatOpenAIResponses:
+		info.OpenRouterCost.ChatText = textOutput && info.IsStream && operation == "responses" && info.RelayMode == relayconstant.RelayModeResponses
+	}
 	if info.OpenRouterCost.ChatImage {
 		info.OpenRouterCost.RoutingHash = fmt.Sprintf("%x", sha256.Sum256(routing))
 	}

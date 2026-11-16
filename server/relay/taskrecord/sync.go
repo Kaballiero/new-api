@@ -44,9 +44,10 @@ func openRouterSyncIdentity(info *relaycommon.RelayInfo) (constant.TaskPlatform,
 		if info.OpenRouterCost != nil && info.OpenRouterCost.BufferedAudio {
 			return constant.TaskPlatformOpenRouterAudio, "audio", nil
 		}
-		if info.OpenRouterCost != nil && info.OpenRouterCost.ChatText {
-			return constant.TaskPlatformOpenRouterChatImage, "chat", nil
-		}
+	}
+	// Text of every client format settles through the same chat Task.
+	if info.OpenRouterCost != nil && info.OpenRouterCost.ChatText {
+		return constant.TaskPlatformOpenRouterChatImage, "chat", nil
 	}
 	return "", "", errors.New("unsupported OpenRouter synchronous operation")
 }

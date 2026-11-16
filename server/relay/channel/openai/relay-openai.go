@@ -140,7 +140,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				sr.Stop(err)
 				return
 			}
-			markOpenRouterContentDelivered(info, lastStreamData)
+			markOpenRouterContentDelivered(c, info, lastStreamData)
 		}
 
 		var errorResponse struct {
@@ -226,7 +226,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			if err := sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 			}
-			markOpenRouterContentDelivered(info, lastStreamData)
+			markOpenRouterContentDelivered(c, info, lastStreamData)
 		}
 	}
 
@@ -250,10 +250,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 }
 
 // markOpenRouterContentDelivered records billable output in a chunk that was
-// actually written to an OpenRouter chat text client.
-func markOpenRouterContentDelivered(info *relaycommon.RelayInfo, data string) {
+// actually written to an OpenRouter chat text client. Once the client is gone
+// nothing counts: the Messages writer skips writes to it without an error.
+func markOpenRouterContentDelivered(c *gin.Context, info *relaycommon.RelayInfo, data string) {
 	state := info.OpenRouterCost
-	if state == nil || !state.ChatText || state.ContentDelivered {
+	if state == nil || !state.ChatText || state.ContentDelivered || c.Request.Context().Err() != nil {
 		return
 	}
 	var chunk dto.ChatCompletionsStreamResponse
