@@ -17,6 +17,8 @@
     "Set a tiered billing expression for the batch model.": "Set a tiered billing expression for the batch model.",
     "Suggested reserve: {{amount}} USD": "Suggested reserve: {{amount}} USD",
     "The catalog has no price for this model: disable it or check the provider.": "The catalog has no price for this model: disable it or check the provider.",
+    "Auto Remove Upstream Models": "Tự động xóa mô hình upstream",
+    "Auto sync also removes the channel models the GetAPI catalog no longer lists, at most 20 per check; with more, nothing is removed. Requires auto sync and the GetAPI catalog.": "Đồng bộ tự động cũng xóa các mô hình của kênh không còn trong danh mục GetAPI, tối đa 20 mỗi lần kiểm tra; nếu nhiều hơn thì không xóa gì. Cần bật đồng bộ tự động và danh mục GetAPI.",
     "Use the GetAPI catalog as the model source": "Dùng danh mục GetAPI làm nguồn mô hình",
     "Without tariff: {{count}}": "Without tariff: {{count}}",
     "，": ", ",

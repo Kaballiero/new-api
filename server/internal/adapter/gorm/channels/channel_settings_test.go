@@ -127,3 +127,35 @@ func TestUpstreamCatalogSyncRequiresOpenRouterChannelWithUpdateChecks(t *testing
 		})
 	}
 }
+
+func TestUpstreamModelAutoRemovalRequiresAutoSyncAndCatalogSync(t *testing.T) {
+	tests := []struct {
+		name        string
+		autoSync    bool
+		catalogSync bool
+		wantErr     string
+	}{
+		{name: "with auto sync and catalog sync", autoSync: true, catalogSync: true},
+		{name: "without auto sync", catalogSync: true, wantErr: "upstream model auto removal requires upstream model auto sync"},
+		{name: "without catalog sync", autoSync: true, wantErr: "upstream model auto removal requires upstream catalog sync"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channel := &legacy.Channel{Type: constant.ChannelTypeOpenRouter}
+			channel.SetOtherSettings(dto.ChannelOtherSettings{
+				UpstreamModelUpdateCheckEnabled:       true,
+				UpstreamModelUpdateAutoSyncEnabled:    tt.autoSync,
+				UpstreamModelUpdateCatalogSyncEnabled: tt.catalogSync,
+				UpstreamModelUpdateAutoRemoveEnabled:  true,
+			})
+
+			err := channel.ValidateSettings()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+}

@@ -336,6 +336,7 @@ export const channelFormSchema = z
     upstream_model_update_check_enabled: z.boolean().optional(),
     upstream_model_update_auto_sync_enabled: z.boolean().optional(),
     upstream_model_update_catalog_sync_enabled: z.boolean().optional(), // OpenRouter specific
+    upstream_model_update_auto_remove_enabled: z.boolean().optional(), // OpenRouter specific
     upstream_model_update_ignored_models: z.string().optional(),
   })
   .superRefine((data, ctx) => {
@@ -519,6 +520,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_check_enabled: false,
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_catalog_sync_enabled: false,
+  upstream_model_update_auto_remove_enabled: false,
   upstream_model_update_ignored_models: '',
   advanced_custom: '',
 }
@@ -607,6 +609,7 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateCheckEnabled = false
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateCatalogSyncEnabled = false
+  let upstreamModelUpdateAutoRemoveEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
   let advancedCustom = ''
 
@@ -631,6 +634,8 @@ export function transformChannelToFormDefaults(
         parsed.upstream_model_update_auto_sync_enabled === true
       upstreamModelUpdateCatalogSyncEnabled =
         parsed.upstream_model_update_catalog_sync_enabled === true
+      upstreamModelUpdateAutoRemoveEnabled =
+        parsed.upstream_model_update_auto_remove_enabled === true
       upstreamModelUpdateIgnoredModels = Array.isArray(
         parsed.upstream_model_update_ignored_models
       )
@@ -690,6 +695,8 @@ export function transformChannelToFormDefaults(
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_catalog_sync_enabled:
       upstreamModelUpdateCatalogSyncEnabled,
+    upstream_model_update_auto_remove_enabled:
+      upstreamModelUpdateAutoRemoveEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     advanced_custom: advancedCustom,
   }
@@ -865,13 +872,19 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     }
   }
 
-  // Only OpenRouter channels can take upstream models from the GetAPI catalog.
+  // Only OpenRouter channels can take upstream models from the GetAPI catalog,
+  // and only auto sync from the catalog removes models automatically.
   if (formData.type === 20) {
     settingsObj.upstream_model_update_catalog_sync_enabled =
       formData.upstream_model_update_check_enabled === true &&
       formData.upstream_model_update_catalog_sync_enabled === true
-  } else if ('upstream_model_update_catalog_sync_enabled' in settingsObj) {
+    settingsObj.upstream_model_update_auto_remove_enabled =
+      settingsObj.upstream_model_update_auto_sync_enabled === true &&
+      settingsObj.upstream_model_update_catalog_sync_enabled === true &&
+      formData.upstream_model_update_auto_remove_enabled === true
+  } else {
     delete settingsObj.upstream_model_update_catalog_sync_enabled
+    delete settingsObj.upstream_model_update_auto_remove_enabled
   }
 
   if (formData.type === CHANNEL_TYPE_ADVANCED_CUSTOM) {

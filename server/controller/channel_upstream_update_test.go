@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/app"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	systemdomain "github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
@@ -1313,38 +1315,246 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalRecomputesFromFreshState(t *t
 	require.Empty(t, persistedSettings.UpstreamModelUpdateLastRemovedModels)
 }
 
-func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledAutoSyncIsAddOnly(t *testing.T) {
-	db := setupChannelUpstreamUpdateTestDB(t)
-	channel := createChannelUpstreamUpdateTestChannel(
-		t,
-		db,
-		"gpt-4o,removed-upstream-model",
-		nil,
-		dto.ChannelOtherSettings{
-			UpstreamModelUpdateCheckEnabled:    true,
-			UpstreamModelUpdateAutoSyncEnabled: true,
+// goneModels are count channel models named gone-01, gone-02 and so on.
+func goneModels(count int) []string {
+	models := make([]string, count)
+	for i := range count {
+		models[i] = fmt.Sprintf("gone-%02d", i+1)
+	}
+	return models
+}
+
+// modelUpdateRun is the entry point that starts an upstream model update check.
+type modelUpdateRun int
+
+const (
+	// scheduledModelUpdateRun is the model_update task the scheduler queues.
+	scheduledModelUpdateRun modelUpdateRun = iota
+	// detectAllModelUpdateRun is the model_update task the detect-all action queues.
+	detectAllModelUpdateRun
+	// detectChannelModelUpdateRun is the detect action of one channel.
+	detectChannelModelUpdateRun
+)
+
+// runModelUpdate starts a check of the upstream models through run and returns
+// the summary of the model_update task (zero for a one-channel detect).
+func runModelUpdate(t *testing.T, db *gorm.DB, run modelUpdateRun, channelID int) upstreamModelUpdateSummary {
+	t.Helper()
+
+	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	switch run {
+	case detectChannelModelUpdateRun:
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/detect", strings.NewReader(fmt.Sprintf(`{"id":%d}`, channelID)))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+		channelsHTTP().DetectUpstreamModels.Handle(ctx)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		return upstreamModelUpdateSummary{}
+	case detectAllModelUpdateRun:
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/detect_all", nil)
+		channelsHTTP().DetectAllUpstreamModels.Handle(ctx)
+		require.Equal(t, http.StatusOK, recorder.Code)
+	case scheduledModelUpdateRun:
+		_, err := systemStoreChannelUpstreamUpdateTest.CreateSystemTask(systemrecord.SystemTaskTypeModelUpdate, nil, nil)
+		require.NoError(t, err)
+	}
+	var queued model.SystemTask
+	require.NoError(t, db.Where("type = ?", systemrecord.SystemTaskTypeModelUpdate).Order("id desc").First(&queued).Error)
+	claimed, claimedNow, err := systemStoreChannelUpstreamUpdateTest.ClaimSystemTask(queued.ID, systemrecord.SystemTaskTypeModelUpdate, "test-runner", common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, claimedNow)
+	handlers := scheduledTaskHandlers()
+	handlerIndex := slices.IndexFunc(handlers, func(handler systemdomain.SystemTaskHandler) bool {
+		return handler.Type() == systemrecord.SystemTaskTypeModelUpdate
+	})
+	require.GreaterOrEqual(t, handlerIndex, 0)
+	handlers[handlerIndex].Run(context.Background(), claimed, "test-runner")
+	var finished model.SystemTask
+	require.NoError(t, db.First(&finished, queued.ID).Error)
+	var summary upstreamModelUpdateSummary
+	require.NoError(t, common.UnmarshalJsonStr(finished.Result, &summary))
+	return summary
+}
+
+// A scheduled run of a catalog sync channel with auto sync adds the pending
+// models; with auto removal it also removes up to 20 removal candidates
+// together with their mapping entries, and none when there are more. A manual
+// check applies nothing.
+func TestScheduledUpstreamModelUpdateAutoRemoval(t *testing.T) {
+	autoRemoval := dto.ChannelOtherSettings{
+		UpstreamModelUpdateCheckEnabled:       true,
+		UpstreamModelUpdateAutoSyncEnabled:    true,
+		UpstreamModelUpdateCatalogSyncEnabled: true,
+		UpstreamModelUpdateAutoRemoveEnabled:  true,
+	}
+	addOnly := autoRemoval
+	addOnly.UpstreamModelUpdateAutoRemoveEnabled = false
+	ignoring := autoRemoval
+	ignoring.UpstreamModelUpdateIgnoredModels = []string{"keep-exact", "regex:^keep-re-", "ignored/target", "keep-alias"}
+	withoutCatalogSync := autoRemoval
+	withoutCatalogSync.UpstreamModelUpdateCatalogSyncEnabled = false
+
+	tests := []struct {
+		name            string
+		catalogModels   []string
+		published       []string
+		models          []string
+		mapping         map[string]string
+		settings        dto.ChannelOtherSettings
+		run             modelUpdateRun
+		wantModels      []string
+		wantMapping     map[string]string
+		wantDetected    []string
+		wantRemoved     []string
+		wantAutoAdded   int
+		wantAutoRemoved int
+	}{
+		{
+			name:          "auto removal off only adds",
+			catalogModels: []string{"kept", "added"},
+			models:        []string{"kept", "gone"},
+			settings:      addOnly,
+			wantModels:    []string{"kept", "gone", "added"},
+			wantRemoved:   []string{"gone"},
+			wantAutoAdded: 1,
 		},
-	)
+		{
+			name:            "candidates are removed with their mapping",
+			catalogModels:   []string{"kept", "added"},
+			models:          []string{"kept", "manual-model", "alias"},
+			mapping:         map[string]string{"alias": "retired/target"},
+			settings:        autoRemoval,
+			wantModels:      []string{"kept", "added"},
+			wantMapping:     map[string]string{},
+			wantAutoAdded:   1,
+			wantAutoRemoved: 2,
+		},
+		{
+			name:            "twenty candidates are removed",
+			catalogModels:   []string{"kept"},
+			models:          append([]string{"kept"}, goneModels(20)...),
+			settings:        autoRemoval,
+			wantModels:      []string{"kept"},
+			wantAutoRemoved: 20,
+		},
+		{
+			name:          "more than twenty candidates remove nothing",
+			catalogModels: []string{"kept"},
+			models:        append([]string{"kept"}, goneModels(21)...),
+			settings:      autoRemoval,
+			wantModels:    append([]string{"kept"}, goneModels(21)...),
+			wantRemoved:   goneModels(21),
+		},
+		{
+			name:            "ignored models stay pending outside the limit",
+			catalogModels:   []string{"kept"},
+			models:          append([]string{"kept", "keep-exact", "keep-re-1", "aliased", "keep-alias"}, goneModels(20)...),
+			mapping:         map[string]string{"aliased": "ignored/target", "keep-alias": "retired/alias-target"},
+			settings:        ignoring,
+			wantModels:      []string{"kept", "keep-exact", "keep-re-1", "aliased", "keep-alias"},
+			wantMapping:     map[string]string{"aliased": "ignored/target", "keep-alias": "retired/alias-target"},
+			wantRemoved:     []string{"keep-exact", "keep-re-1", "aliased", "keep-alias"},
+			wantAutoRemoved: 20,
+		},
+		{
+			name:          "same-name replacement stays pending with its removal",
+			catalogModels: []string{"foo"},
+			models:        []string{"foo"},
+			mapping:       map[string]string{"foo": "anthropic/foo"},
+			settings:      autoRemoval,
+			wantModels:    []string{"foo"},
+			wantMapping:   map[string]string{"foo": "anthropic/foo"},
+			wantDetected:  []string{"foo"},
+			wantRemoved:   []string{"foo"},
+		},
+		{
+			name:          "catalog that lost published models removes nothing",
+			catalogModels: []string{"kept"},
+			published:     []string{"kept", "gone-01", "gone-02"},
+			models:        []string{"kept", "gone-01", "gone-02"},
+			settings:      autoRemoval,
+			wantModels:    []string{"kept", "gone-01", "gone-02"},
+			wantRemoved:   []string{"gone-01", "gone-02"},
+		},
+		{
+			name:          "empty upstream list removes nothing",
+			catalogModels: []string{},
+			models:        []string{"kept", "gone"},
+			settings:      autoRemoval,
+			wantModels:    []string{"kept", "gone"},
+			wantRemoved:   []string{"kept", "gone"},
+		},
+		{
+			name:          "same-name replacement under its canonical name stays pending",
+			catalogModels: []string{"anthropic/foo"},
+			models:        []string{"foo"},
+			settings:      autoRemoval,
+			wantModels:    []string{"foo"},
+			wantDetected:  []string{"anthropic/foo"},
+			wantRemoved:   []string{"foo"},
+		},
+		{
+			name:          "auto removal without catalog sync removes nothing",
+			catalogModels: []string{"kept"},
+			models:        []string{"kept", "gone"},
+			settings:      withoutCatalogSync,
+			wantModels:    []string{"kept", "gone"},
+			wantRemoved:   []string{"gone"},
+		},
+		{
+			name:          "detect all removes nothing",
+			catalogModels: []string{"kept"},
+			models:        []string{"kept", "gone"},
+			settings:      autoRemoval,
+			run:           detectAllModelUpdateRun,
+			wantModels:    []string{"kept", "gone"},
+			wantRemoved:   []string{"gone"},
+		},
+		{
+			name:          "detect of one channel removes nothing",
+			catalogModels: []string{"kept"},
+			models:        []string{"kept", "gone"},
+			settings:      autoRemoval,
+			run:           detectChannelModelUpdateRun,
+			wantModels:    []string{"kept", "gone"},
+			wantRemoved:   []string{"gone"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupChannelUpstreamUpdateTestDB(t)
+			serveUpstreamCatalog(t, db, &upstreamCatalogStub{models: tc.catalogModels})
+			stubChannelUpstreamModelFetch(t, func(*model.Channel) ([]string, error) { return tc.catalogModels, nil })
+			if tc.published != nil {
+				publishUpstreamCatalogHead(t, db, tc.published)
+			}
+			channel := createChannelUpstreamUpdateTestChannel(t, db, strings.Join(tc.models, ","), tc.mapping, tc.settings)
+			// The catalog publishes the models of OpenRouter channels.
+			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("base_url", "https://openrouter.ai/api").Error)
 
-	stubChannelUpstreamModelFetch(t, func(_ *model.Channel) ([]string, error) {
-		return []string{"gpt-4o", "anthropic/claude-fable-5"}, nil
-	})
+			summary := runModelUpdate(t, db, tc.run, channel.Id)
 
-	summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
-	require.Equal(t, 1, summary.AutoAddedModels)
-	require.Equal(t, 1, summary.DetectedRemoveModels)
-
-	persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
-	require.Equal(t, "gpt-4o,removed-upstream-model,claude-fable-5", persisted.Models)
-	require.Equal(t, []string{"claude-fable-5", "gpt-4o", "removed-upstream-model"}, []string{
-		abilities[0].Model,
-		abilities[1].Model,
-		abilities[2].Model,
-	})
-	persistedMapping := map[string]string{}
-	require.NoError(t, common.UnmarshalJsonStr(persisted.GetModelMapping(), &persistedMapping))
-	require.Equal(t, "anthropic/claude-fable-5", persistedMapping["claude-fable-5"])
-	require.Equal(t, []string{"removed-upstream-model"}, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
+			require.Zero(t, summary.FailedChannels)
+			assert.Equal(t, tc.wantAutoAdded, summary.AutoAddedModels)
+			assert.Equal(t, tc.wantAutoRemoved, summary.AutoRemovedModels)
+			persisted, abilities := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
+			assert.Equal(t, strings.Join(tc.wantModels, ","), persisted.Models)
+			abilityModels := make([]string, len(abilities))
+			for i, ability := range abilities {
+				abilityModels[i] = ability.Model
+			}
+			assert.ElementsMatch(t, tc.wantModels, abilityModels)
+			if tc.mapping != nil {
+				persistedMapping := map[string]string{}
+				require.NoError(t, common.UnmarshalJsonStr(persisted.GetModelMapping(), &persistedMapping))
+				assert.Equal(t, tc.wantMapping, persistedMapping)
+			}
+			persistedSettings := channelstore.NewChannelPersistence().GetOtherSettings(persisted)
+			assert.Equal(t, tc.wantDetected, persistedSettings.UpstreamModelUpdateLastDetectedModels)
+			assert.Equal(t, tc.wantRemoved, persistedSettings.UpstreamModelUpdateLastRemovedModels)
+		})
+	}
 }
 
 func TestApplyChannelUpstreamModelUpdates_CanonicalScheduledRechecksFreshEnablement(t *testing.T) {
@@ -1580,18 +1790,78 @@ func TestScheduledUpstreamModelUpdateSendsReportToTelegramGateway(t *testing.T) 
 	}
 }
 
-func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t *testing.T) {
+// upstreamCatalogStub is an upstream catalog that publishes models, each
+// with a priced text offer, or answers every request with a failing status.
+type upstreamCatalogStub struct {
+	models        []string
+	failStatus    int
+	manifestReads atomic.Int32
+}
+
+// serveUpstreamCatalog points the upstream catalog source at catalog.
+func serveUpstreamCatalog(t *testing.T, db *gorm.DB, catalog *upstreamCatalogStub) {
+	t.Helper()
+
+	require.NoError(t, db.AutoMigrate(&pricingrecord.CatalogSource{}, &pricingrecord.CatalogRevision{}, &pricingrecord.CatalogDocument{}))
+	httpclient.InitHttpClient()
+	server := httptest.NewServer(catalog)
+	t.Cleanup(server.Close)
+	t.Setenv("PRICING_CATALOG_API_URL", server.URL)
+}
+
+// publishUpstreamCatalogHead makes the head revision of the served upstream
+// catalog publish models.
+func publishUpstreamCatalogHead(t *testing.T, db *gorm.DB, models []string) {
+	t.Helper()
+
+	source, _, err := pricingstate.ConfiguredCatalogSource()
+	require.NoError(t, err)
+	selection := pricingdomain.CatalogSelection{SchemaVersion: 1, NormalizationVersion: "1"}
+	for _, id := range models {
+		selection.Models = append(selection.Models, pricingdomain.CatalogModelReference{ID: id, Hash: catalogsync.Hash([]byte(id))})
+	}
+	manifest, err := common.Marshal(selection)
+	require.NoError(t, err)
+	source.Revision, source.RemoteRevision = catalogsync.Hash(manifest), strings.Repeat("0", 64)
+	require.NoError(t, db.Create(&source).Error)
+	require.NoError(t, db.Create(&pricingrecord.CatalogRevision{SourceID: source.ID, Hash: source.Revision, Manifest: string(manifest), RemoteRevision: source.RemoteRevision}).Error)
+}
+
+func (catalog *upstreamCatalogStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if catalog.failStatus != 0 {
+		w.WriteHeader(catalog.failStatus)
+		return
+	}
 	coverage := `{"expectedSources":[],"missingSources":[],"normalization":"complete","offers":"complete","reasons":[]}`
 	component := `{"amountUSD":"0.8","billable":"input_text","componentId":"input","conditions":{},"direction":"input","modality":"text","normalization":{"appliedDiscount":null,"comparable":true,"discountBasis":"net","effective":true,"reasons":[]},"parameter":"prompt","provenance":{"source":"generic"},"quantity":"1","source":{"amount":null,"currency":null,"key":"prompt","unit":null},"unit":"million_tokens","variant":{}}`
 	offer := `{"capabilities":{},"components":[` + component + `],"coverage":` + coverage + `,"eligibility":{"eligible":true,"reasons":[]},"facts":{},"id":"offer","identity":{},"limitations":[],"limits":{},"mode":null,"operation":null,"provider":null,"scope":"endpoint","variant":{"variant":"standard"}}`
-	document := `{"alias":null,"author":null,"capabilities":{},"coverage":` + coverage + `,"description":null,"id":"acme/chat","limitations":[],"limits":{},"metadata":{},"modalities":{"input":["text"],"output":["text"]},"name":"acme/chat","offers":[` + offer + `],"provenance":{},"schemaVersion":1,"type":"text"}`
-	hash := catalogsync.Hash([]byte(document))
-	ref := `{"hash":"` + hash + `","id":"acme/chat"}`
-	revision := catalogsync.Hash([]byte(`{"models":[` + ref + `],"normalizationVersion":"1","schemaVersion":1}` + "\n"))
+	models := slices.Sorted(slices.Values(catalog.models))
+	documents := map[string]string{}
+	refs := make([]string, len(models))
+	indexModels := make([]string, len(models))
+	for i, id := range models {
+		document := `{"alias":null,"author":null,"capabilities":{},"coverage":` + coverage + `,"description":null,"id":"` + id + `","limitations":[],"limits":{},"metadata":{},"modalities":{"input":["text"],"output":["text"]},"name":"` + id + `","offers":[` + offer + `],"provenance":{},"schemaVersion":1,"type":"text"}`
+		hash := catalogsync.Hash([]byte(document))
+		documents[hash] = document
+		refs[i] = `{"hash":"` + hash + `","id":"` + id + `"}`
+		indexModels[i] = `{"alias":null,"endpoints":["/api/v1/chat/completions"],"hash":"` + hash + `","id":"` + id + `","modalities":{"input":["text"],"output":["text"]},"offers":[],"type":"text"}`
+	}
+	revision := catalogsync.Hash([]byte(`{"models":[` + strings.Join(refs, ",") + `],"normalizationVersion":"1","schemaVersion":1}` + "\n"))
+	switch r.URL.Path {
+	case "/v1/catalog/manifest":
+		catalog.manifestReads.Add(1)
+		_, _ = w.Write([]byte(`{"fetchedAt":"2026-11-12T00:00:00.000Z","models":[` + strings.Join(refs, ",") + `],"normalizationVersion":"1","revision":"` + revision + `","schemaVersion":1,"sourceRevision":"` + revision + `"}`))
+	case "/v1/catalog/index":
+		_, _ = w.Write([]byte(`{"models":[` + strings.Join(indexModels, ",") + `],"normalizationVersion":"1","revision":"` + revision + `","schemaVersion":1}`))
+	default:
+		_, _ = w.Write([]byte(documents[strings.TrimPrefix(r.URL.Path, "/v1/catalog/documents/")]))
+	}
+}
 
+func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
-		catalogStatus   int
+		failStatus      int
 		published       []string
 		wantFailed      int
 		wantFirstModels string
@@ -1601,18 +1871,19 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 	}{
 		// Both channels share one catalog read; the routed target stays and
 		// the retired model is only staged for removal.
-		{name: "catalog published", catalogStatus: http.StatusOK, published: []string{"acme/chat"}, wantFirstModels: "chat:nitro,retired-model,chat", wantRemoved: []string{"retired-model"},
+		{name: "catalog published", published: []string{"acme/chat"}, wantFirstModels: "chat:nitro,retired-model,chat", wantRemoved: []string{"retired-model"},
 			wantReport: "Upstream model check summary: checked 2 channels, 1 changed, 1 added, 1 removed, 1 auto-synced additions, 0 failed." +
 				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
-				"\n\nRemoved model samples (showing 1/1): retired-model"},
+				"\n\nRemoved model samples (showing 1/1): retired-model" +
+				"\n\nAdded by auto sync (showing 1/1): acme/chat (upstream-sync-test)"},
 		// A catalog error leaves every channel as it was.
-		{name: "catalog unavailable", catalogStatus: http.StatusServiceUnavailable, wantFailed: 2, wantFirstModels: "acme/chat:nitro,retired-model",
+		{name: "catalog unavailable", failStatus: http.StatusServiceUnavailable, wantFailed: 2, wantFirstModels: "acme/chat:nitro,retired-model",
 			wantReport: "Upstream model check summary: checked 2 channels, 0 changed, 0 added, 0 removed, 0 auto-synced additions, 2 failed." +
 				"\n\nFailed channel IDs (showing 2/2): 1, 2"},
 		// A revision that lost 1 of the 2 published models (the head models
 		// the channels request) is not applied: the changes are only staged
 		// and the report names the channel.
-		{name: "catalog lost published models", catalogStatus: http.StatusOK, published: []string{"acme/chat", "retired-model"}, wantFirstModels: "acme/chat:nitro,retired-model", wantDetected: []string{"acme/chat"}, wantRemoved: []string{"retired-model"},
+		{name: "catalog lost published models", published: []string{"acme/chat", "retired-model"}, wantFirstModels: "acme/chat:nitro,retired-model", wantDetected: []string{"acme/chat"}, wantRemoved: []string{"retired-model"},
 			wantReport: "Upstream model check summary: checked 2 channels, 1 changed, 1 added, 1 removed, 0 auto-synced additions, 0 failed." +
 				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
 				"\n\nAdded model samples (showing 1/1): acme/chat" +
@@ -1621,44 +1892,16 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupChannelUpstreamUpdateTestDB(t)
-			require.NoError(t, db.AutoMigrate(&model.User{}, &pricingrecord.CatalogSource{}, &pricingrecord.CatalogRevision{}, &pricingrecord.CatalogDocument{}))
+			require.NoError(t, db.AutoMigrate(&model.User{}))
 			require.NoError(t, i18n.Init())
-			httpclient.InitHttpClient()
 			stubChannelUpstreamModelFetch(t, func(*model.Channel) ([]string, error) {
 				t.Error("a catalog sync channel must not list the provider models")
 				return nil, nil
 			})
-			var manifestReads atomic.Int32
-			catalog := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if tc.catalogStatus != http.StatusOK {
-					w.WriteHeader(tc.catalogStatus)
-					return
-				}
-				switch r.URL.Path {
-				case "/v1/catalog/manifest":
-					manifestReads.Add(1)
-					_, _ = w.Write([]byte(`{"fetchedAt":"2026-11-12T00:00:00.000Z","models":[` + ref + `],"normalizationVersion":"1","revision":"` + revision + `","schemaVersion":1,"sourceRevision":"` + revision + `"}`))
-				case "/v1/catalog/index":
-					_, _ = w.Write([]byte(`{"models":[{"alias":null,"endpoints":["/api/v1/chat/completions"],"hash":"` + hash + `","id":"acme/chat","modalities":{"input":["text"],"output":["text"]},"offers":[],"type":"text"}],"normalizationVersion":"1","revision":"` + revision + `","schemaVersion":1}`))
-				default:
-					_, _ = w.Write([]byte(document))
-				}
-			}))
-			defer catalog.Close()
-			t.Setenv("PRICING_CATALOG_API_URL", catalog.URL)
+			catalog := &upstreamCatalogStub{models: []string{"acme/chat"}, failStatus: tc.failStatus}
+			serveUpstreamCatalog(t, db, catalog)
 			if tc.published != nil {
-				// The head publishes a selection of these models.
-				source, _, err := pricingstate.ConfiguredCatalogSource()
-				require.NoError(t, err)
-				selection := pricingdomain.CatalogSelection{SchemaVersion: 1, NormalizationVersion: "1"}
-				for _, id := range tc.published {
-					selection.Models = append(selection.Models, pricingdomain.CatalogModelReference{ID: id, Hash: catalogsync.Hash([]byte(id))})
-				}
-				manifest, err := common.Marshal(selection)
-				require.NoError(t, err)
-				source.Revision, source.RemoteRevision = catalogsync.Hash(manifest), strings.Repeat("0", 64)
-				require.NoError(t, db.Create(&source).Error)
-				require.NoError(t, db.Create(&pricingrecord.CatalogRevision{SourceID: source.ID, Hash: source.Revision, Manifest: string(manifest), RemoteRevision: source.RemoteRevision}).Error)
+				publishUpstreamCatalogHead(t, db, tc.published)
 			}
 			var reports []string
 			gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -1693,9 +1936,9 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 			persisted, _ = loadChannelUpstreamUpdateTestState(t, db, second.Id)
 			assert.Equal(t, "acme/chat", persisted.Models)
 			assert.Empty(t, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
-			if tc.catalogStatus == http.StatusOK {
+			if tc.failStatus == 0 {
 				// Each run reads the catalog once for both channels.
-				assert.Equal(t, int32(2), manifestReads.Load())
+				assert.Equal(t, int32(2), catalog.manifestReads.Load())
 			}
 		})
 	}
@@ -2107,6 +2350,55 @@ func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 	}
 }
 
+// A report whose auto removals over the limit changed, by the ignored models
+// say, is new even when the pending removals stay the same.
+func TestModelUpdateReportFingerprintFollowsRemovalLimitCandidates(t *testing.T) {
+	gone := goneModels(22)
+	report := func(limitCandidates []string) channeldomain.ModelUpdateReport {
+		return channeldomain.ModelUpdateReport{Channels: []channeldomain.ModelUpdateChannelSummary{{ChannelID: 1, PendingRemoveModels: gone, RemovalLimitCandidates: limitCandidates}}}
+	}
+	assert.Equal(t, channeldomain.ModelUpdateReportFingerprint(report(gone[:21])), channeldomain.ModelUpdateReportFingerprint(report(gone[:21])))
+	assert.NotEqual(t, channeldomain.ModelUpdateReportFingerprint(report(gone)), channeldomain.ModelUpdateReportFingerprint(report(gone[:21])))
+	assert.NotEqual(t, channeldomain.ModelUpdateReportFingerprint(report(nil)), channeldomain.ModelUpdateReportFingerprint(report(gone[:21])))
+}
+
+// Every check marks a channel whose auto removals exceed the limit, so a
+// manual check reports it as a scheduled run does; a channel to which auto
+// removal does not apply is not marked.
+func TestDetectModelDeltaMarksAutoRemovalLimit(t *testing.T) {
+	autoRemoval := channeldomain.ModelUpdateState{AutoSyncEnabled: true, AutoRemoveEnabled: true, CatalogSyncEnabled: true}
+	withoutAutoSync, withoutCatalogSync := autoRemoval, autoRemoval
+	withoutAutoSync.AutoSyncEnabled = false
+	withoutCatalogSync.CatalogSyncEnabled = false
+	listed := channeldomain.UpstreamModels{Listed: []string{"kept"}}
+	blocked := channeldomain.UpstreamModels{Listed: []string{"kept"}, AutoApplyBlocked: true}
+	for _, tc := range []struct {
+		name                string
+		state               channeldomain.ModelUpdateState
+		upstreamModels      channeldomain.UpstreamModels
+		allowAutoApply      bool
+		wantLimitCandidates int
+	}{
+		{name: "scheduled run", state: autoRemoval, upstreamModels: listed, allowAutoApply: true, wantLimitCandidates: 21},
+		{name: "manual check", state: autoRemoval, upstreamModels: listed, wantLimitCandidates: 21},
+		{name: "without auto sync", state: withoutAutoSync, upstreamModels: listed, allowAutoApply: true},
+		{name: "without catalog sync", state: withoutCatalogSync, upstreamModels: listed, allowAutoApply: true},
+		{name: "catalog blocked from auto-apply", state: autoRemoval, upstreamModels: blocked, allowAutoApply: true},
+		{name: "empty upstream list", state: autoRemoval, upstreamModels: channeldomain.UpstreamModels{}, allowAutoApply: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			channel := &channeldomain.Channel{Type: constant.ChannelTypeOpenRouter, Models: "kept," + strings.Join(goneModels(21), ",")}
+			state := tc.state
+
+			result, err := app.NewChannelModelUpdateRules(channelstore.NewStore()).DetectModelDelta(channel, &state, tc.upstreamModels, tc.allowAutoApply)
+
+			require.NoError(t, err)
+			assert.Len(t, result.RemovalLimitCandidates, tc.wantLimitCandidates)
+			assert.Empty(t, result.RemovedModels)
+		})
+	}
+}
+
 // A report whose channel became blocked from auto-apply, or was unblocked, is
 // new even when the pending changes stay the same.
 func TestModelUpdateReportFingerprintFollowsAutoApplyBlock(t *testing.T) {
@@ -2115,6 +2407,112 @@ func TestModelUpdateReportFingerprintFollowsAutoApplyBlock(t *testing.T) {
 	}
 	assert.Equal(t, channeldomain.ModelUpdateReportFingerprint(report(true)), channeldomain.ModelUpdateReportFingerprint(report(true)))
 	assert.NotEqual(t, channeldomain.ModelUpdateReportFingerprint(report(false)), channeldomain.ModelUpdateReportFingerprint(report(true)))
+}
+
+// The report lists the models applied by auto sync and, as a decision, the
+// pending removals of a channel over the auto removal limit. Applied changes
+// are always reported; the exceeded limit is reported once, also when a
+// detect-all check or a scheduled run within the check interval comes between.
+func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
+	db := setupChannelUpstreamUpdateTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, i18n.Init())
+	t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "0")
+	gone := goneModels(21)
+	catalog := &upstreamCatalogStub{models: []string{"kept"}}
+	serveUpstreamCatalog(t, db, catalog)
+	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true, UpstreamModelUpdateCatalogSyncEnabled: true}
+	channel := createChannelUpstreamUpdateTestChannel(t, db, "kept,"+strings.Join(gone, ","), nil, settings)
+	var reports []string
+	gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		var payload map[string]string
+		assert.NoError(t, common.DecodeJson(r.Body, &payload))
+		reports = append(reports, payload["text"])
+	}))
+	defer gateway.Close()
+	t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
+	t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
+
+	const subject = "Upstream model check notification\n\n"
+	removalSamples := "Removed model samples (showing 12/21): gone-01, gone-02, gone-03, gone-04, gone-05, gone-06, gone-07, gone-08, gone-09, gone-10, gone-11, gone-12 (9 more omitted)"
+	for _, step := range []struct {
+		name          string
+		prepare       func()
+		run           modelUpdateRun
+		wantReports   []string
+		wantRemaining string
+	}{
+		{
+			name:          "pending removals without auto removal",
+			wantReports:   []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 0 added, 21 removed, 0 auto-synced additions, 0 failed.\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+0 / -21)\n\n" + removalSamples},
+			wantRemaining: "kept," + strings.Join(gone, ","),
+		},
+		{
+			name: "the same removals over the limit with auto removal",
+			prepare: func() {
+				settings.UpstreamModelUpdateAutoRemoveEnabled = true
+				settingsJSON, err := common.Marshal(settings)
+				require.NoError(t, err)
+				require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("settings", string(settingsJSON)).Error)
+			},
+			wantReports: []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 0 added, 21 removed, 0 auto-synced additions, 0 failed.\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+0 / -21)\n\n" + removalSamples +
+				"\n\nNeeds decision — more than 20 models to remove, nothing removed: upstream-sync-test (21)"},
+			wantRemaining: "kept," + strings.Join(gone, ","),
+		},
+		{
+			name:          "the exceeded limit is not reported again",
+			wantRemaining: "kept," + strings.Join(gone, ","),
+		},
+		{
+			name:          "a detect-all check keeps the exceeded limit",
+			run:           detectAllModelUpdateRun,
+			wantRemaining: "kept," + strings.Join(gone, ","),
+		},
+		{
+			name:          "a scheduled run within the check interval keeps the exceeded limit",
+			prepare:       func() { t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "3600") },
+			wantRemaining: "kept," + strings.Join(gone, ","),
+		},
+		{
+			name: "twenty removals are applied",
+			prepare: func() {
+				t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "0")
+				catalog.models = []string{"kept", "gone-01"}
+			},
+			wantReports: []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 0 added, 20 removed, 0 auto-synced additions, 0 failed.\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+0 / -20)" +
+				"\n\nRemoved by auto sync (showing 12/20): gone-02 (upstream-sync-test), gone-03 (upstream-sync-test), gone-04 (upstream-sync-test), gone-05 (upstream-sync-test), gone-06 (upstream-sync-test), gone-07 (upstream-sync-test), gone-08 (upstream-sync-test), gone-09 (upstream-sync-test), gone-10 (upstream-sync-test), gone-11 (upstream-sync-test), gone-12 (upstream-sync-test), gone-13 (upstream-sync-test) (8 more omitted)"},
+			wantRemaining: "kept,gone-01",
+		},
+		{
+			name: "an applied removal with nothing pending is reported",
+			prepare: func() {
+				require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("models", "kept,gone-01,manual-model").Error)
+			},
+			wantReports:   []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 0 added, 1 removed, 0 auto-synced additions, 0 failed.\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+0 / -1)\n\nRemoved by auto sync (showing 1/1): manual-model (upstream-sync-test)"},
+			wantRemaining: "kept,gone-01",
+		},
+		{
+			name:          "a model back in the catalog is added again",
+			prepare:       func() { catalog.models = []string{"kept", "gone-01", "gone-02"} },
+			wantReports:   []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 1 auto-synced additions, 0 failed.\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)\n\nAdded by auto sync (showing 1/1): gone-02 (upstream-sync-test)"},
+			wantRemaining: "kept,gone-01,gone-02",
+		},
+		{
+			name:          "a run without changes sends nothing",
+			wantRemaining: "kept,gone-01,gone-02",
+		},
+	} {
+		if step.prepare != nil {
+			step.prepare()
+		}
+		reports = nil
+
+		runModelUpdate(t, db, step.run, channel.Id)
+
+		assert.Equal(t, step.wantReports, reports, step.name)
+		persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
+		assert.Equal(t, step.wantRemaining, persisted.Models, step.name)
+	}
 }
 
 func TestDetectAllChannelUpstreamModelUpdatesRejectsExistingActiveTask(t *testing.T) {

@@ -44,6 +44,7 @@ func (Store) ModelUpdateState(channel *domain.Channel) (domain.ModelUpdateState,
 	return domain.ModelUpdateState{
 		CheckEnabled:       settings.UpstreamModelUpdateCheckEnabled,
 		AutoSyncEnabled:    settings.UpstreamModelUpdateAutoSyncEnabled,
+		AutoRemoveEnabled:  settings.UpstreamModelUpdateAutoRemoveEnabled,
 		CatalogSyncEnabled: settings.UpstreamModelUpdateCatalogSyncEnabled,
 		LastCheckTime:      settings.UpstreamModelUpdateLastCheckTime,
 		LastDetectedModels: settings.UpstreamModelUpdateLastDetectedModels,

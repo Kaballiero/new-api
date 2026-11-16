@@ -17,6 +17,8 @@
     "Set a tiered billing expression for the batch model.": "Set a tiered billing expression for the batch model.",
     "Suggested reserve: {{amount}} USD": "Suggested reserve: {{amount}} USD",
     "The catalog has no price for this model: disable it or check the provider.": "The catalog has no price for this model: disable it or check the provider.",
+    "Auto Remove Upstream Models": "Auto Remove Upstream Models",
+    "Auto sync also removes the channel models the GetAPI catalog no longer lists, at most 20 per check; with more, nothing is removed. Requires auto sync and the GetAPI catalog.": "Auto sync also removes the channel models the GetAPI catalog no longer lists, at most 20 per check; with more, nothing is removed. Requires auto sync and the GetAPI catalog.",
     "Use the GetAPI catalog as the model source": "Use the GetAPI catalog as the model source",
     "Without tariff: {{count}}": "Without tariff: {{count}}",
     "，": ", ",

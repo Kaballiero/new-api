@@ -1,6 +1,7 @@
 package channels
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/QuantumNous/new-api/i18n"
@@ -35,4 +36,28 @@ func TestModelUpdateNotificationKeepsChineseText(t *testing.T) {
 	subject, content = ModelUpdateNotification(i18n.LangEn, domain.ModelUpdateReport{CheckedChannels: 1, FailedChannelIDs: []int{4}})
 	assert.Equal(t, "Upstream model check notification", subject)
 	assert.Equal(t, "Upstream model check summary: checked 1 channels, 0 changed, 0 added, 0 removed, 0 auto-synced additions, 1 failed.\n\nFailed channel IDs (showing 1/1): 4", content)
+}
+
+// The Russian report lists the models applied by auto sync and, as a
+// decision, the channels over the auto removal limit with their number of auto
+// removals.
+func TestModelUpdateNotificationListsAutoSyncChangesInRussian(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	models := make([]string, 25)
+	for i := range models {
+		models[i] = fmt.Sprintf("a/m%d", i+1)
+	}
+	_, content := ModelUpdateNotification(i18n.LangRu, domain.ModelUpdateReport{
+		CheckedChannels: 3, ChangedChannels: 3, DetectedAddModels: 1, DetectedRemoveModels: 50, AutoAddedModels: 1, AutoRemovedModels: 2,
+		Channels: []domain.ModelUpdateChannelSummary{
+			{ChannelName: "OpenRouter", AddCount: 1, RemoveCount: 2, AutoAddedModels: []string{"openai/gpt-5.1-mini"}, AutoRemovedModels: []string{"x-ai/grok-2", "my-manual-model"}},
+			{ChannelName: "OpenRouter big", RemoveCount: 23, PendingRemoveModels: models[:23], RemovalLimitCandidates: models[:21]},
+			{ChannelName: "OpenRouter huge", RemoveCount: 25, PendingRemoveModels: models, RemovalLimitCandidates: models},
+		},
+	})
+	assert.Equal(t, "Итог проверки моделей upstream: проверено каналов — 3, с изменениями — 3, добавлено — 1, удалено — 50, добавлено автосинхронизацией — 1, ошибок — 0."+
+		"\n\nИзменённые каналы (показано 3/3):\n- OpenRouter (+1 / -2)\n- OpenRouter big (+0 / -23)\n- OpenRouter huge (+0 / -25)"+
+		"\n\nДобавлено автосинхронизацией (показано 1/1): openai/gpt-5.1-mini (OpenRouter)"+
+		"\n\nУдалено автосинхронизацией (показано 2/2): x-ai/grok-2 (OpenRouter), my-manual-model (OpenRouter)"+
+		"\n\nТребует решения — к удалению больше 20 моделей, ничего не удалено: OpenRouter big (21), OpenRouter huge (25)", content)
 }

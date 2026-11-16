@@ -10,7 +10,8 @@ import (
 
 // ValidateSettings checks the gateway settings stored in the channel: proxy,
 // OpenRouter reserves, HTTP transport, tool loss policy, advanced custom
-// routes and the upstream catalog sync of upstream model updates.
+// routes, and the upstream catalog sync and auto removal of upstream model
+// updates.
 func (channel *Channel) ValidateSettings() error {
 	channelParams := &dto.ChannelSettings{}
 	if channel.Setting != nil && *channel.Setting != "" {
@@ -59,6 +60,14 @@ func (channel *Channel) ValidateSettings() error {
 		}
 		if !channelOtherSettings.UpstreamModelUpdateCheckEnabled {
 			return fmt.Errorf("upstream catalog sync requires upstream model update checks")
+		}
+	}
+	if channelOtherSettings.UpstreamModelUpdateAutoRemoveEnabled {
+		if !channelOtherSettings.UpstreamModelUpdateAutoSyncEnabled {
+			return fmt.Errorf("upstream model auto removal requires upstream model auto sync")
+		}
+		if !channelOtherSettings.UpstreamModelUpdateCatalogSyncEnabled {
+			return fmt.Errorf("upstream model auto removal requires upstream catalog sync")
 		}
 	}
 	return nil

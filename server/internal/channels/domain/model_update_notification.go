@@ -8,16 +8,21 @@ import (
 	"strings"
 )
 
-// ModelUpdateChannelSummary is a channel with pending changes; AutoApplyBlocked
-// marks a channel whose upstream models a scheduled run does not apply.
+// ModelUpdateChannelSummary is a changed channel of the report. The counts
+// include the pending and the automatically applied changes. AutoApplyBlocked
+// marks a channel whose upstream models a scheduled run does not apply; with
+// RemovalLimitCandidates a scheduled run removes nothing.
 type ModelUpdateChannelSummary struct {
-	ChannelID           int
-	ChannelName         string
-	AddCount            int
-	RemoveCount         int
-	PendingAddModels    []string
-	PendingRemoveModels []string
-	AutoApplyBlocked    bool
+	ChannelID              int
+	ChannelName            string
+	AddCount               int
+	RemoveCount            int
+	PendingAddModels       []string
+	PendingRemoveModels    []string
+	AutoApplyBlocked       bool
+	AutoAddedModels        []string
+	AutoRemovedModels      []string
+	RemovalLimitCandidates []string
 }
 
 // ModelUpdateReport is the content of the upstream model update notification
@@ -28,6 +33,7 @@ type ModelUpdateReport struct {
 	DetectedAddModels    int
 	DetectedRemoveModels int
 	AutoAddedModels      int
+	AutoRemovedModels    int
 	FailedChannelIDs     []int
 	Channels             []ModelUpdateChannelSummary
 	AddModelSamples      []string
@@ -50,13 +56,14 @@ type ModelUpdateSummary struct {
 	DetectedRemoveModels int `json:"detected_remove_models"`
 	FailedChannels       int `json:"failed_channels"`
 	AutoAddedModels      int `json:"auto_added_models"`
+	AutoRemovedModels    int `json:"auto_removed_models"`
 }
 
 // ModelUpdateReportFingerprint identifies the decisions a report asks for:
 // the pending additions, removals and conflicts of each channel, whether its
-// changes are blocked from auto-apply, and the failed channels, in any order.
-// Applied changes are not part of it: the run that applies a change reports it
-// once.
+// changes are blocked from auto-apply, its auto removals over the limit, and
+// the failed channels, in any order. Applied changes are not part of it: the
+// run that applies a change reports it once.
 func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
 	var lines []string
 	for _, channel := range report.Channels {
@@ -69,6 +76,9 @@ func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
 		}
 		if channel.AutoApplyBlocked {
 			lines = append(lines, channelID+" auto_apply_blocked")
+		}
+		for _, model := range channel.RemovalLimitCandidates {
+			lines = append(lines, channelID+" removal limit candidate "+model)
 		}
 	}
 	for _, conflict := range report.ConflictModels {

@@ -490,6 +490,9 @@ const (
 	MsgChannelModelUpdateRemoveSamples    = "channel.model_update_remove_samples"
 	MsgChannelModelUpdateConflictSamples  = "channel.model_update_conflict_samples"
 	MsgChannelModelUpdateAutoApplyBlocked = "channel.model_update_auto_apply_blocked"
+	MsgChannelModelUpdateAutoAdded        = "channel.model_update_auto_added"
+	MsgChannelModelUpdateAutoRemoved      = "channel.model_update_auto_removed"
+	MsgChannelModelUpdateRemovalLimit     = "channel.model_update_removal_limit"
 	MsgChannelModelUpdateFailedIDs        = "channel.model_update_failed_ids"
 	MsgChannelModelUpdateOmitted          = "channel.model_update_omitted"
 )

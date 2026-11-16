@@ -24,7 +24,12 @@ import {
   transformFormDataToUpdatePayload,
 } from '../channel-form'
 
-function openRouterForm() {
+function openRouterForm(
+  settings: Record<string, boolean> = {
+    upstream_model_update_check_enabled: true,
+    upstream_model_update_catalog_sync_enabled: true,
+  }
+) {
   return transformChannelToFormDefaults(
     channelSchema.parse({
       id: 70,
@@ -37,10 +42,7 @@ function openRouterForm() {
       response_time: 0,
       balance_updated_time: 0,
       models: 'openai/gpt-5-mini',
-      settings: JSON.stringify({
-        upstream_model_update_check_enabled: true,
-        upstream_model_update_catalog_sync_enabled: true,
-      }),
+      settings: JSON.stringify(settings),
     })
   )
 }
@@ -71,6 +73,47 @@ describe('upstream catalog sync channel setting', () => {
     form.type = 1
     expect(savedSettings(form)).not.toHaveProperty(
       'upstream_model_update_catalog_sync_enabled'
+    )
+  })
+})
+
+describe('upstream model auto removal channel setting', () => {
+  const autoRemoval = {
+    upstream_model_update_check_enabled: true,
+    upstream_model_update_auto_sync_enabled: true,
+    upstream_model_update_catalog_sync_enabled: true,
+    upstream_model_update_auto_remove_enabled: true,
+  }
+
+  test('saved auto removal is read and saved unchanged', () => {
+    const form = openRouterForm(autoRemoval)
+    expect(form.upstream_model_update_auto_remove_enabled).toBe(true)
+    expect(savedSettings(form).upstream_model_update_auto_remove_enabled).toBe(
+      true
+    )
+  })
+
+  test('turning off auto sync saves auto removal as off', () => {
+    const form = openRouterForm(autoRemoval)
+    form.upstream_model_update_auto_sync_enabled = false
+    expect(savedSettings(form).upstream_model_update_auto_remove_enabled).toBe(
+      false
+    )
+  })
+
+  test('turning off catalog sync saves auto removal as off', () => {
+    const form = openRouterForm(autoRemoval)
+    form.upstream_model_update_catalog_sync_enabled = false
+    expect(savedSettings(form).upstream_model_update_auto_remove_enabled).toBe(
+      false
+    )
+  })
+
+  test('changing the channel type away from OpenRouter drops auto removal', () => {
+    const form = openRouterForm(autoRemoval)
+    form.type = 1
+    expect(savedSettings(form)).not.toHaveProperty(
+      'upstream_model_update_auto_remove_enabled'
     )
   })
 })
