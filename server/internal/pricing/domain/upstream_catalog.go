@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -77,14 +76,16 @@ type CatalogChannels interface {
 
 // CatalogRequestedModels are the upstream catalog models the channels request:
 // the upstream model each ability of an enabled OpenRouter catalog channel
-// resolves to.
-func CatalogRequestedModels(deps Capabilities, channels CatalogChannels) (map[string]bool, error) {
+// resolves to. Unresolved are the channels whose model mapping does not
+// resolve (invalid JSON or a cycle): while there are any, the requested models
+// are not known.
+func CatalogRequestedModels(deps Capabilities, channels CatalogChannels) (requested map[string]bool, unresolved []*BuildChannel, err error) {
 	abilities, err := channels.Abilities()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	loaded := map[int]*BuildChannel{}
-	requested := map[string]bool{}
+	requested = map[string]bool{}
 	for _, ability := range abilities {
 		if ability.ChannelType != constant.ChannelTypeOpenRouter {
 			continue
@@ -93,7 +94,7 @@ func CatalogRequestedModels(deps Capabilities, channels CatalogChannels) (map[st
 		if !exists {
 			channel, err = channels.BuildChannel(ability.ChannelId)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			loaded[ability.ChannelId] = channel
 		}
@@ -102,11 +103,14 @@ func CatalogRequestedModels(deps Capabilities, channels CatalogChannels) (map[st
 		}
 		upstream, resolved := ResolvePricingUpstreamModel(deps, channel, ability.Model)
 		if !resolved {
-			return nil, fmt.Errorf("catalog channel model mapping is unresolved")
+			if !slices.Contains(unresolved, channel) {
+				unresolved = append(unresolved, channel)
+			}
+			continue
 		}
 		requested[upstream] = true
 	}
-	return requested, nil
+	return requested, unresolved, nil
 }
 
 // CatalogModelLoss compares a manifest with the published models: the models

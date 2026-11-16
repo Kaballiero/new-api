@@ -48,16 +48,20 @@ func (fakeStore) BuildChannel(int) (*domain.BuildChannel, error) {
 }
 
 // headStore publishes a head selection of the head models, and one enabled
-// OpenRouter channel requests the requested models.
+// OpenRouter channel with the model mapping requests the requested models.
 type headStore struct {
 	fakeStore
-	head, requested       []string
-	headErr, selectionErr error
-	channelDisabled       bool
+	head, requested                                 []string
+	headErr, selectionErr, abilitiesErr, channelErr error
+	channelDisabled                                 bool
+	baseURL, modelMapping                           string
 }
 
 func (store headStore) Head(context.Context, string) (domain.CatalogSource, error) {
-	return domain.CatalogSource{Revision: strings.Repeat("f", 64)}, store.headErr
+	if store.headErr != nil {
+		return domain.CatalogSource{}, store.headErr
+	}
+	return domain.CatalogSource{Revision: strings.Repeat("f", 64)}, nil
 }
 func (store headStore) ReadSelection(context.Context, string, string) (domain.CatalogSelection, error) {
 	selection := domain.CatalogSelection{}
@@ -71,14 +75,14 @@ func (store headStore) Abilities() ([]domain.BuildAbility, error) {
 	for _, model := range store.requested {
 		abilities = append(abilities, domain.BuildAbility{Model: model, Group: "default", ChannelId: 1, ChannelType: constant.ChannelTypeOpenRouter})
 	}
-	return abilities, nil
+	return abilities, store.abilitiesErr
 }
 func (store headStore) BuildChannel(int) (*domain.BuildChannel, error) {
-	channel := &domain.BuildChannel{Id: 1, Type: constant.ChannelTypeOpenRouter, Status: constant.ChannelStatusEnabled}
+	channel := &domain.BuildChannel{Id: 1, Name: "openrouter", Type: constant.ChannelTypeOpenRouter, Status: constant.ChannelStatusEnabled, BaseURL: &store.baseURL, ModelMapping: &store.modelMapping}
 	if store.channelDisabled {
 		channel.Status = constant.ChannelStatusManuallyDisabled
 	}
-	return channel, nil
+	return channel, store.channelErr
 }
 
 // testStore is the store and the channels of a test usecase.
@@ -287,9 +291,13 @@ func TestExecuteReusesDecodedStoredDocuments(t *testing.T) {
 
 // A manifest that lost more than 30% of the published models (the head models
 // the channels request) blocks the auto-apply of its models; they are still
-// listed and addable. Alias targets and models no channel requests are not
-// compared. The flag follows the current head, also for the models of a cached
-// revision, and an unreadable head is an error, not an unblocked catalog.
+// listed and addable. Alias targets and models no channel requests, also of a
+// channel with another base URL, are not compared. An enabled channel whose
+// model mapping does not resolve leaves the published models unknown: it
+// blocks the auto-apply, also without a published head, and is named. The
+// flag follows the current head and channels, also for the models of a
+// cached revision, and an unreadable head or channel is an error, not an
+// unblocked catalog.
 func TestExecuteBlocksAutoApplyAfterPublishedModelLoss(t *testing.T) {
 	eligible := &domain.SourceEligibility{Eligible: true}
 	var listed []catalogModel
@@ -308,12 +316,14 @@ func TestExecuteBlocksAutoApplyAfterPublishedModelLoss(t *testing.T) {
 	}
 	listedIDs = append(listedIDs, targets...)
 	readFailure := errors.New("catalog head unreadable")
+	unresolved := []channeldomain.UnresolvedMappingChannel{{ChannelID: 1, ChannelName: "openrouter"}}
 	cachedRevision := &pricingadapter.UpstreamCatalogModelsCache{}
 	for _, tc := range []struct {
-		name    string
-		store   testStore
-		blocked bool
-		err     error
+		name       string
+		store      testStore
+		blocked    bool
+		unresolved []channeldomain.UnresolvedMappingChannel
+		err        error
 	}{
 		{name: "no published head", store: fakeStore{}},
 		{name: "lost 3 of 10 published models", store: headStore{head: lostThree, requested: lostThree}},
@@ -321,9 +331,17 @@ func TestExecuteBlocksAutoApplyAfterPublishedModelLoss(t *testing.T) {
 		{name: "lost 4 of 10 requested models beside 10 alias targets", store: headStore{head: append(slices.Clone(lostFour), targets...), requested: lostFour}, blocked: true},
 		{name: "lost models no channel requests", store: headStore{head: lostFour, requested: lostFour[4:]}},
 		{name: "lost models of a disabled channel", store: headStore{head: lostFour, requested: lostFour, channelDisabled: true}},
+		{name: "lost models of a channel with another base URL", store: headStore{head: lostFour, requested: lostFour, baseURL: "https://proxy.example/api"}},
+		{name: "mapping with invalid JSON", store: headStore{head: listedIDs, requested: listedIDs, modelMapping: `{"acme/m4":`}, blocked: true, unresolved: unresolved},
+		{name: "mapping with a cycle", store: headStore{head: listedIDs, requested: listedIDs, modelMapping: `{"acme/m4":"acme/m5","acme/m5":"acme/m4"}`}, blocked: true, unresolved: unresolved},
+		{name: "mapping with a cycle without a published head", store: headStore{requested: listedIDs, modelMapping: `{"acme/m4":"acme/m5","acme/m5":"acme/m4"}`, headErr: errNoHead}, blocked: true, unresolved: unresolved},
+		{name: "unresolved mapping of a channel with another base URL", store: headStore{head: listedIDs, requested: listedIDs, modelMapping: `{"acme/m4":`, baseURL: "https://proxy.example/api"}},
+		{name: "unresolved mapping of a disabled channel", store: headStore{head: listedIDs, requested: listedIDs, modelMapping: `{"acme/m4":`, channelDisabled: true}},
 		{name: "head without the lost models", store: headStore{head: listedIDs, requested: listedIDs}},
 		{name: "head unreadable", store: headStore{head: lostFour, requested: lostFour, headErr: readFailure}, err: readFailure},
 		{name: "head selection unreadable", store: headStore{head: lostFour, requested: lostFour, selectionErr: readFailure}, err: readFailure},
+		{name: "abilities unreadable", store: headStore{head: listedIDs, requested: listedIDs, abilitiesErr: readFailure}, err: readFailure},
+		{name: "channel unreadable", store: headStore{head: listedIDs, requested: listedIDs, channelErr: readFailure}, err: readFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, cache := range []Cache{&pricingadapter.UpstreamCatalogModelsCache{}, cachedRevision} {
@@ -334,6 +352,7 @@ func TestExecuteBlocksAutoApplyAfterPublishedModelLoss(t *testing.T) {
 				}
 				require.NoError(t, err)
 				assert.Equal(t, tc.blocked, models.AutoApplyBlocked)
+				assert.Equal(t, tc.unresolved, models.UnresolvedMappingChannels)
 				assert.Equal(t, listedIDs, models.Listed)
 				assert.Equal(t, listedIDs, models.Addable)
 			}

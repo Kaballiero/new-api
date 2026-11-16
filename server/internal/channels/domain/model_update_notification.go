@@ -26,19 +26,23 @@ type ModelUpdateChannelSummary struct {
 }
 
 // ModelUpdateReport is the content of the upstream model update notification
-// sent after a scan that found changes or failures.
+// sent after a scan that found changes, failures, conflicts or channels whose
+// unresolved model mapping blocks the upstream catalog
+// (UnresolvedMappingChannels): those block the auto-apply of every catalog
+// channel and are reported also without pending changes.
 type ModelUpdateReport struct {
-	CheckedChannels      int
-	ChangedChannels      int
-	DetectedAddModels    int
-	DetectedRemoveModels int
-	AutoAddedModels      int
-	AutoRemovedModels    int
-	FailedChannelIDs     []int
-	Channels             []ModelUpdateChannelSummary
-	AddModelSamples      []string
-	RemoveModelSamples   []string
-	ConflictModels       []ModelUpdateConflict
+	CheckedChannels           int
+	ChangedChannels           int
+	DetectedAddModels         int
+	DetectedRemoveModels      int
+	AutoAddedModels           int
+	AutoRemovedModels         int
+	FailedChannelIDs          []int
+	Channels                  []ModelUpdateChannelSummary
+	AddModelSamples           []string
+	RemoveModelSamples        []string
+	ConflictModels            []ModelUpdateConflict
+	UnresolvedMappingChannels []UnresolvedMappingChannel
 }
 
 // ModelUpdateConflict is an upstream model of a channel that was not offered
@@ -61,9 +65,10 @@ type ModelUpdateSummary struct {
 
 // ModelUpdateReportFingerprint identifies the decisions a report asks for:
 // the pending additions, removals and conflicts of each channel, whether its
-// changes are blocked from auto-apply, its auto removals over the limit, and
-// the failed channels, in any order. Applied changes are not part of it: the
-// run that applies a change reports it once.
+// changes are blocked from auto-apply, its auto removals over the limit, the
+// failed channels and the channels with an unresolved mapping, in any order.
+// Applied changes are not part of it: the run that applies a change reports it
+// once.
 func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
 	var lines []string
 	for _, channel := range report.Channels {
@@ -86,6 +91,9 @@ func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
 	}
 	for _, channelID := range report.FailedChannelIDs {
 		lines = append(lines, strconv.Itoa(channelID)+" failed")
+	}
+	for _, unresolved := range report.UnresolvedMappingChannels {
+		lines = append(lines, strconv.Itoa(unresolved.ChannelID)+" unresolved mapping")
 	}
 	slices.Sort(lines)
 	fingerprint := sha256.Sum256([]byte(strings.Join(lines, "\n")))

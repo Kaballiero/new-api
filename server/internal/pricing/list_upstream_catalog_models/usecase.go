@@ -72,7 +72,9 @@ func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store S
 // and declared request path, and has a confirmed price of a synchronous offer.
 // The models are AutoApplyBlocked when the manifest lost more than
 // domain.MaxCatalogModelLossPercent of the published models
-// (domain.CatalogModelLoss), the same comparison that keeps the head.
+// (domain.CatalogModelLoss), the same comparison that keeps the head, and
+// when a channel whose model mapping does not resolve leaves the published
+// models unknown: such channels are the UnresolvedMappingChannels.
 func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, error) {
 	source, enabled, err := u.source()
 	if err != nil {
@@ -108,13 +110,17 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 	if err != nil && !u.store.IsMissing(err) {
 		return channeldomain.UpstreamModels{}, err
 	}
-	autoApplyBlocked := false
-	if head.Revision != "" {
+	requested, unresolved, err := domain.CatalogRequestedModels(u.deps, u.channels)
+	if err != nil {
+		return channeldomain.UpstreamModels{}, err
+	}
+	var unresolvedMappingChannels []channeldomain.UnresolvedMappingChannel
+	for _, channel := range unresolved {
+		unresolvedMappingChannels = append(unresolvedMappingChannels, channeldomain.UnresolvedMappingChannel{ChannelID: channel.Id, ChannelName: channel.Name})
+	}
+	autoApplyBlocked := len(unresolved) > 0
+	if !autoApplyBlocked && head.Revision != "" {
 		selection, err := u.store.ReadSelection(ctx, source.ID, head.Revision)
-		if err != nil {
-			return channeldomain.UpstreamModels{}, err
-		}
-		requested, err := domain.CatalogRequestedModels(u.deps, u.channels)
 		if err != nil {
 			return channeldomain.UpstreamModels{}, err
 		}
@@ -123,6 +129,7 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 
 	if models, cached := u.cache.Load(manifest.Revision); cached {
 		models.AutoApplyBlocked = autoApplyBlocked
+		models.UnresolvedMappingChannels = unresolvedMappingChannels
 		return models, nil
 	}
 
@@ -130,7 +137,7 @@ func (u Usecase) Execute(ctx context.Context) (channeldomain.UpstreamModels, err
 	for _, model := range index.Models {
 		indexModels[model.ID] = model
 	}
-	result := channeldomain.UpstreamModels{Listed: make([]string, 0, len(manifest.Models)), Addable: []string{}, Shortcuts: domain.OpenRouterShortcuts, AutoApplyBlocked: autoApplyBlocked}
+	result := channeldomain.UpstreamModels{Listed: make([]string, 0, len(manifest.Models)), Addable: []string{}, Shortcuts: domain.OpenRouterShortcuts, AutoApplyBlocked: autoApplyBlocked, UnresolvedMappingChannels: unresolvedMappingChannels}
 	candidates := []domain.SourceReference{}
 	operations := map[string]domain.PricingOperation{}
 	for _, ref := range manifest.Models {

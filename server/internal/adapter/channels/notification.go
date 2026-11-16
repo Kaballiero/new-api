@@ -12,8 +12,9 @@ import (
 // ModelUpdateNotification phrases the upstream model update report in lang.
 // At most 8 channels, 12 model samples of each kind and 10 failed channel IDs
 // are listed. The models applied by auto sync are listed with their channel,
-// and the channels over the auto removal limit with their number of auto
-// removals.
+// the channels over the auto removal limit with their number of auto
+// removals, and the channels whose unresolved model mapping blocks auto-apply
+// by id and name.
 func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subject, content string) {
 	var builder strings.Builder
 	failedChannels := len(report.FailedChannelIDs)
@@ -39,9 +40,11 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAddSamples, report.AddModelSamples)
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemoveSamples, report.RemoveModelSamples)
+	// An unresolved mapping blocks the catalog before its model loss is
+	// compared, so the blocked channels are listed only without one.
 	var autoAddedSamples, autoRemovedSamples, removalLimitChannels, blockedChannels []string
 	for _, summary := range report.Channels {
-		if summary.AutoApplyBlocked {
+		if summary.AutoApplyBlocked && len(report.UnresolvedMappingChannels) == 0 {
 			blockedChannels = append(blockedChannels, summary.ChannelName)
 		}
 		autoAddedSamples = append(autoAddedSamples, channelModelSamples(summary.ChannelName, summary.AutoAddedModels)...)
@@ -61,6 +64,11 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 	}
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, conflictSamples)
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoApplyBlocked, blockedChannels)
+	unresolvedMappingChannels := make([]string, len(report.UnresolvedMappingChannels))
+	for i, unresolved := range report.UnresolvedMappingChannels {
+		unresolvedMappingChannels[i] = fmt.Sprintf("#%d %s", unresolved.ChannelID, unresolved.ChannelName)
+	}
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateUnresolvedMapping, unresolvedMappingChannels)
 
 	if failedChannels > 0 {
 		displayCount := min(failedChannels, 10)
