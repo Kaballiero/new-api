@@ -1324,7 +1324,8 @@ func goneModels(count int) []string {
 	return models
 }
 
-// modelUpdateRun is the entry point that starts an upstream model update check.
+// modelUpdateRun is the entry point that starts an upstream model update check
+// or applies the pending changes.
 type modelUpdateRun int
 
 const (
@@ -1334,22 +1335,42 @@ const (
 	detectAllModelUpdateRun
 	// detectChannelModelUpdateRun is the detect action of one channel.
 	detectChannelModelUpdateRun
+	// applyAllModelUpdateRun is the apply-all action of the pending changes.
+	applyAllModelUpdateRun
 )
 
-// runModelUpdate starts a check of the upstream models through run and returns
-// the summary of the model_update task (zero for a one-channel detect).
+// runModelUpdate starts a check of the upstream models, or the apply of the
+// pending changes, through run and returns the summary of the model_update
+// task (zero for a one-channel detect and an apply-all). A detect and an
+// apply-all must succeed for every channel.
 func runModelUpdate(t *testing.T, db *gorm.DB, run modelUpdateRun, channelID int) upstreamModelUpdateSummary {
 	t.Helper()
 
 	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
+	var response struct {
+		Success bool `json:"success"`
+		Data    struct {
+			FailedChannelIDs []int `json:"failed_channel_ids"`
+		} `json:"data"`
+	}
 	switch run {
 	case detectChannelModelUpdateRun:
 		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/detect", strings.NewReader(fmt.Sprintf(`{"id":%d}`, channelID)))
 		ctx.Request.Header.Set("Content-Type", "application/json")
 		channelsHTTP().DetectUpstreamModels.Handle(ctx)
 		require.Equal(t, http.StatusOK, recorder.Code)
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		require.True(t, response.Success, recorder.Body.String())
+		return upstreamModelUpdateSummary{}
+	case applyAllModelUpdateRun:
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/apply_all", nil)
+		channelsHTTP().ApplyAllUpstreamModels.Handle(ctx)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		require.True(t, response.Success, recorder.Body.String())
+		require.Empty(t, response.Data.FailedChannelIDs)
 		return upstreamModelUpdateSummary{}
 	case detectAllModelUpdateRun:
 		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/detect_all", nil)
@@ -1860,43 +1881,56 @@ func (catalog *upstreamCatalogStub) ServeHTTP(w http.ResponseWriter, r *http.Req
 
 func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t *testing.T) {
 	for _, tc := range []struct {
-		name            string
-		failStatus      int
-		published       []string
-		wantFailed      int
-		wantFirstModels string
-		wantDetected    []string
-		wantRemoved     []string
-		wantReport      string
+		name              string
+		failStatus        int
+		published         []string
+		unresolvedMapping string
+		wantFailed        int
+		wantFirstModels   string
+		wantDetected      []string
+		wantRemoved       []string
+		wantReport        string
 	}{
-		// Both channels share one catalog read; the routed target stays and
-		// the retired model is only staged for removal.
+		// Both catalog channels share one catalog read; the routed target
+		// stays and the retired model is only staged for removal.
 		{name: "catalog published", published: []string{"acme/chat"}, wantFirstModels: "chat:nitro,retired-model,chat", wantRemoved: []string{"retired-model"},
-			wantReport: "Upstream model check summary: checked 2 channels, 1 changed, 1 added, 1 removed, 1 auto-synced additions, 0 failed." +
+			wantReport: "Upstream model check summary: checked 3 channels, 1 changed, 1 added, 1 removed, 1 auto-synced additions, 0 failed." +
 				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
 				"\n\nRemoved model samples (showing 1/1): retired-model" +
 				"\n\nAdded by auto sync (showing 1/1): acme/chat (upstream-sync-test)"},
 		// A catalog error leaves every channel as it was.
 		{name: "catalog unavailable", failStatus: http.StatusServiceUnavailable, wantFailed: 2, wantFirstModels: "acme/chat:nitro,retired-model",
-			wantReport: "Upstream model check summary: checked 2 channels, 0 changed, 0 added, 0 removed, 0 auto-synced additions, 2 failed." +
+			wantReport: "Upstream model check summary: checked 3 channels, 0 changed, 0 added, 0 removed, 0 auto-synced additions, 2 failed." +
 				"\n\nFailed channel IDs (showing 2/2): 1, 2"},
 		// A revision that lost 1 of the 2 published models (the head models
 		// the channels request) is not applied: the changes are only staged
 		// and the report names the channel.
 		{name: "catalog lost published models", published: []string{"acme/chat", "retired-model"}, wantFirstModels: "acme/chat:nitro,retired-model", wantDetected: []string{"acme/chat"}, wantRemoved: []string{"retired-model"},
-			wantReport: "Upstream model check summary: checked 2 channels, 1 changed, 1 added, 1 removed, 0 auto-synced additions, 0 failed." +
+			wantReport: "Upstream model check summary: checked 3 channels, 1 changed, 1 added, 1 removed, 0 auto-synced additions, 0 failed." +
 				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
 				"\n\nAdded model samples (showing 1/1): acme/chat" +
 				"\n\nRemoved model samples (showing 1/1): retired-model" +
 				"\n\nChanges are not applied automatically — the upstream catalog lost too many published models (showing 1/1): upstream-sync-test"},
+		// The model mapping of another OpenRouter channel does not resolve, so
+		// the published models are unknown: the changes are only staged and
+		// the report names that channel.
+		{name: "model mapping of another channel unresolved", published: []string{"acme/chat"}, unresolvedMapping: `{"acme/broken":`, wantFirstModels: "acme/chat:nitro,retired-model", wantDetected: []string{"acme/chat"}, wantRemoved: []string{"retired-model"},
+			wantReport: "Upstream model check summary: checked 3 channels, 1 changed, 1 added, 1 removed, 0 auto-synced additions, 0 failed." +
+				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
+				"\n\nAdded model samples (showing 1/1): acme/chat" +
+				"\n\nRemoved model samples (showing 1/1): retired-model" +
+				"\n\nChanges are not applied automatically — broken model mapping in channel (showing 1/1): #4 broken-mapping"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupChannelUpstreamUpdateTestDB(t)
 			require.NoError(t, db.AutoMigrate(&model.User{}))
 			require.NoError(t, i18n.Init())
-			stubChannelUpstreamModelFetch(t, func(*model.Channel) ([]string, error) {
-				t.Error("a catalog sync channel must not list the provider models")
-				return nil, nil
+			// Only the channel without catalog sync lists the provider models.
+			providerFetches := 0
+			stubChannelUpstreamModelFetch(t, func(channel *model.Channel) ([]string, error) {
+				assert.Equal(t, "provider", channel.Name, "a catalog sync channel must not list the provider models")
+				providerFetches++
+				return []string{"gpt-4o"}, nil
 			})
 			catalog := &upstreamCatalogStub{models: []string{"acme/chat"}, failStatus: tc.failStatus}
 			serveUpstreamCatalog(t, db, catalog)
@@ -1917,6 +1951,12 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 			second := createChannelUpstreamUpdateTestChannel(t, db, "acme/chat", nil, settings)
 			// The catalog publishes the models of OpenRouter channels.
 			require.NoError(t, db.Model(&model.Channel{}).Where("id IN ?", []int{first.Id, second.Id}).Update("base_url", "https://openrouter.ai/api").Error)
+			provider := createChannelUpstreamUpdateTestChannel(t, db, "gpt-4o", nil, dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true})
+			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", provider.Id).Update("name", "provider").Error)
+			if tc.unresolvedMapping != "" {
+				unresolved := createChannelUpstreamUpdateTestChannel(t, db, "acme/broken", nil, dto.ChannelOtherSettings{})
+				require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", unresolved.Id).Updates(map[string]any{"name": "broken-mapping", "base_url": "https://openrouter.ai/api", "model_mapping": tc.unresolvedMapping}).Error)
+			}
 
 			summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 
@@ -1929,10 +1969,12 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 
 			// The next run comes within the minimum check interval: the
 			// channels keep their pending changes, a catalog channel still
-			// reports the catalog block, and the report does not change.
+			// reports the catalog block, the provider models are not listed
+			// again, and the report does not change.
 			summary = runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
 			assert.Equal(t, tc.wantFailed, summary.FailedChannels)
 			assert.Len(t, reports, 1)
+			assert.Equal(t, 1, providerFetches)
 			persisted, _ = loadChannelUpstreamUpdateTestState(t, db, second.Id)
 			assert.Equal(t, "acme/chat", persisted.Models)
 			assert.Empty(t, channelstore.NewChannelPersistence().GetOtherSettings(persisted).UpstreamModelUpdateLastRemovedModels)
@@ -2504,6 +2546,95 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 	} {
 		if step.prepare != nil {
 			step.prepare()
+		}
+		reports = nil
+
+		runModelUpdate(t, db, step.run, channel.Id)
+
+		assert.Equal(t, step.wantReports, reports, step.name)
+		persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
+		assert.Equal(t, step.wantRemaining, persisted.Models, step.name)
+	}
+}
+
+func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testing.T) {
+	db := setupChannelUpstreamUpdateTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, i18n.Init())
+	t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "0")
+	catalog := &upstreamCatalogStub{models: []string{"kept", "added"}}
+	serveUpstreamCatalog(t, db, catalog)
+	publishUpstreamCatalogHead(t, db, []string{"kept"})
+	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true, UpstreamModelUpdateCatalogSyncEnabled: true, UpstreamModelUpdateAutoRemoveEnabled: true}
+	channel := createChannelUpstreamUpdateTestChannel(t, db, "kept,gone", nil, settings)
+	var reports []string
+	gateway := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		var payload map[string]string
+		assert.NoError(t, common.DecodeJson(r.Body, &payload))
+		reports = append(reports, payload["text"])
+	}))
+	defer gateway.Close()
+	t.Setenv("TELEGRAM_GATEWAY_URL", gateway.URL)
+	t.Setenv("TELEGRAM_GATEWAY_API_TOKEN", "gateway-token")
+
+	const subject = "Upstream model check notification\n\n"
+	blockedReport := subject + "Upstream model check summary: checked 1 channels, 1 changed, 1 added, 1 removed, 0 auto-synced additions, 0 failed." +
+		"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
+		"\n\nAdded model samples (showing 1/1): added" +
+		"\n\nRemoved model samples (showing 1/1): gone" +
+		"\n\nChanges are not applied automatically — broken model mapping in channel "
+	var unresolvedIDs []int
+	for _, step := range []struct {
+		name              string
+		unresolvedMapping string
+		run               modelUpdateRun
+		fixMappings       bool
+		wantReports       []string
+		wantRemaining     string
+	}{
+		{
+			name:              "invalid mapping JSON of another channel blocks the auto-apply",
+			unresolvedMapping: `{"acme/broken":`,
+			wantReports:       []string{blockedReport + "(showing 1/1): #2 unresolved-mapping"},
+			wantRemaining:     "kept,gone",
+		},
+		{
+			name:          "the unchanged block is not reported again",
+			wantRemaining: "kept,gone",
+		},
+		{
+			name:          "a detect of the catalog channel works",
+			run:           detectChannelModelUpdateRun,
+			wantRemaining: "kept,gone",
+		},
+		{
+			name:              "a mapping cycle of a third channel is reported",
+			unresolvedMapping: `{"acme/broken":"acme/loop","acme/loop":"acme/broken"}`,
+			wantReports:       []string{blockedReport + "(showing 2/2): #2 unresolved-mapping, #3 unresolved-mapping"},
+			wantRemaining:     "kept,gone",
+		},
+		{
+			name:          "an apply-all applies the pending changes",
+			run:           applyAllModelUpdateRun,
+			wantRemaining: "kept,added",
+		},
+		{
+			name:        "fixed mappings unblock the auto-apply",
+			fixMappings: true,
+			wantReports: []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 1 added, 0 removed, 1 auto-synced additions, 0 failed." +
+				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -0)" +
+				"\n\nAdded by auto sync (showing 1/1): newer (upstream-sync-test)"},
+			wantRemaining: "kept,added,newer",
+		},
+	} {
+		if step.unresolvedMapping != "" {
+			unresolved := createChannelUpstreamUpdateTestChannel(t, db, "acme/broken", nil, dto.ChannelOtherSettings{})
+			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", unresolved.Id).Updates(map[string]any{"name": "unresolved-mapping", "base_url": "https://openrouter.ai/api", "model_mapping": step.unresolvedMapping}).Error)
+			unresolvedIDs = append(unresolvedIDs, unresolved.Id)
+		}
+		if step.fixMappings {
+			require.NoError(t, db.Model(&model.Channel{}).Where("id IN ?", unresolvedIDs).Update("model_mapping", "{}").Error)
+			catalog.models = []string{"kept", "added", "newer"}
 		}
 		reports = nil
 

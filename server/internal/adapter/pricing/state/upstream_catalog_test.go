@@ -527,7 +527,7 @@ func TestUpstreamCatalogLossAgreesForPricesAndChannels(t *testing.T) {
 			source := pricingdomain.CatalogSource{ID: pricingstate.CatalogHash([]byte("loss-agreement")), Kind: "openrouter", BaseURL: "https://catalog.example"}
 			deps := pricingadapter.Capabilities()
 			documents := &pricingadapter.UpstreamCatalogDocumentsCache{}
-			requested, err := pricingdomain.CatalogRequestedModels(deps, channels)
+			requested, _, err := pricingdomain.CatalogRequestedModels(deps, channels)
 			require.NoError(t, err)
 			for _, step := range []struct {
 				name          string

@@ -423,6 +423,7 @@ channel.model_update_add_samples: "Примеры добавленных мод�
 channel.model_update_remove_samples: "Примеры удалённых моделей (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_conflict_samples: "Требует решения — имя уже занято моделью с другой целью (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_auto_apply_blocked: "Изменения не применяются автоматически — каталог upstream потерял слишком много опубликованных моделей (показано {{.Shown}}/{{.Total}}): {{.Models}}"
+channel.model_update_unresolved_mapping: "Изменения не применяются автоматически — битый маппинг моделей в канале (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_auto_added: "Добавлено автосинхронизацией (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_auto_removed: "Удалено автосинхронизацией (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_removal_limit: "Требует решения — к удалению больше {{.Limit}} моделей, ничего не удалено: {{.Channels}}"

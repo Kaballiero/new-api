@@ -50,7 +50,7 @@ func (usecase Usecase) Check(
 	force bool,
 	allowAutoApply bool,
 	requireEnabled bool,
-) (appliedUpdates domain.AppliedModelUpdates, autoApplyBlocked bool, err error) {
+) (appliedUpdates domain.AppliedModelUpdates, upstreamModels domain.UpstreamModels, err error) {
 	now := usecase.now()
 	if !force {
 		minInterval := usecase.minInterval()
@@ -61,20 +61,20 @@ func (usecase Usecase) Check(
 			// its removals exceed the auto removal limit, so the report does
 			// not change between the checks. The catalog is read once per run.
 			if !settings.CatalogSyncEnabled {
-				return domain.AppliedModelUpdates{}, false, nil
+				return domain.AppliedModelUpdates{}, domain.UpstreamModels{}, nil
 			}
 			upstreamModels, err := usecase.fetch(ctx, channel)
 			if err != nil {
-				return domain.AppliedModelUpdates{}, false, err
+				return domain.AppliedModelUpdates{}, domain.UpstreamModels{}, err
 			}
 			limitCandidates, err := usecase.rules.RemovalLimitCandidates(channel, *settings, upstreamModels)
-			return domain.AppliedModelUpdates{RemovalLimitCandidates: limitCandidates}, upstreamModels.AutoApplyBlocked, err
+			return domain.AppliedModelUpdates{RemovalLimitCandidates: limitCandidates}, upstreamModels, err
 		}
 	}
 
 	fetchFingerprint, err := usecase.store.FetchFingerprint(channel)
 	if err != nil {
-		return domain.AppliedModelUpdates{}, false, err
+		return domain.AppliedModelUpdates{}, domain.UpstreamModels{}, err
 	}
 	upstreamModels, fetchErr := usecase.fetch(ctx, channel)
 
@@ -123,19 +123,19 @@ func (usecase Usecase) Check(
 		return persist(freshSettings, appliedUpdates.ModelsChanged || appliedUpdates.MappingChanged)
 	})
 	if persistErr != nil {
-		return domain.AppliedModelUpdates{}, false, persistErr
+		return domain.AppliedModelUpdates{}, domain.UpstreamModels{}, persistErr
 	}
 	if freshChannel != nil {
 		*channel = *freshChannel
 		*settings = freshSettings
 	}
 	if freshCheckDisabled {
-		return domain.AppliedModelUpdates{}, false, nil
+		return domain.AppliedModelUpdates{}, domain.UpstreamModels{}, nil
 	}
 	if fetchErr != nil {
-		return domain.AppliedModelUpdates{}, false, fetchErr
+		return domain.AppliedModelUpdates{}, domain.UpstreamModels{}, fetchErr
 	}
-	return appliedUpdates, upstreamModels.AutoApplyBlocked, nil
+	return appliedUpdates, upstreamModels, nil
 }
 
 func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply bool, report func(processed, total int)) domain.ModelUpdateSummary {
@@ -206,7 +206,7 @@ scanLoop:
 			}
 
 			checkedChannels++
-			appliedUpdates, autoApplyBlocked, err := usecase.Check(ctx, channel, &settings, force, allowAutoApply, true)
+			appliedUpdates, upstreamModels, err := usecase.Check(ctx, channel, &settings, force, allowAutoApply, true)
 			if err != nil {
 				failedChannels++
 				failedChannelIDs = append(failedChannelIDs, channel.Id)
@@ -228,16 +228,17 @@ scanLoop:
 			if currentAddCount > 0 || currentRemoveCount > 0 {
 				changedChannels++
 				channelSummaries = append(channelSummaries, domain.ModelUpdateChannelSummary{
-					ChannelID:              channel.Id,
-					ChannelName:            channel.Name,
-					AddCount:               currentAddCount,
-					RemoveCount:            currentRemoveCount,
-					PendingAddModels:       currentAddModels,
-					PendingRemoveModels:    currentRemoveModels,
-					AutoApplyBlocked:       autoApplyBlocked,
-					AutoAddedModels:        appliedUpdates.AddedModels,
-					AutoRemovedModels:      appliedUpdates.RemovedModels,
-					RemovalLimitCandidates: appliedUpdates.RemovalLimitCandidates,
+					ChannelID:                 channel.Id,
+					ChannelName:               channel.Name,
+					AddCount:                  currentAddCount,
+					RemoveCount:               currentRemoveCount,
+					PendingAddModels:          currentAddModels,
+					PendingRemoveModels:       currentRemoveModels,
+					AutoApplyBlocked:          upstreamModels.AutoApplyBlocked,
+					UnresolvedMappingChannels: upstreamModels.UnresolvedMappingChannels,
+					AutoAddedModels:           appliedUpdates.AddedModels,
+					AutoRemovedModels:         appliedUpdates.RemovedModels,
+					RemovalLimitCandidates:    appliedUpdates.RemovalLimitCandidates,
 				})
 			}
 			addModelSamples = domain.MergeModelNames(addModelSamples, currentAddModels)

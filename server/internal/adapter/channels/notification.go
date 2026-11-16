@@ -12,8 +12,9 @@ import (
 // ModelUpdateNotification phrases the upstream model update report in lang.
 // At most 8 channels, 12 model samples of each kind and 10 failed channel IDs
 // are listed. The models applied by auto sync are listed with their channel,
-// and the channels over the auto removal limit with their number of auto
-// removals.
+// the channels over the auto removal limit with their number of auto
+// removals, and the channels whose unresolved model mapping blocks auto-apply
+// by id and name.
 func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subject, content string) {
 	var builder strings.Builder
 	failedChannels := len(report.FailedChannelIDs)
@@ -39,10 +40,13 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAddSamples, report.AddModelSamples)
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemoveSamples, report.RemoveModelSamples)
-	var autoAddedSamples, autoRemovedSamples, removalLimitChannels, blockedChannels []string
+	var autoAddedSamples, autoRemovedSamples, removalLimitChannels, blockedChannels, unresolvedMappingChannels []string
 	for _, summary := range report.Channels {
-		if summary.AutoApplyBlocked {
+		if summary.AutoApplyBlocked && len(summary.UnresolvedMappingChannels) == 0 {
 			blockedChannels = append(blockedChannels, summary.ChannelName)
+		}
+		for _, unresolved := range summary.UnresolvedMappingChannels {
+			unresolvedMappingChannels = append(unresolvedMappingChannels, fmt.Sprintf("#%d %s", unresolved.ChannelID, unresolved.ChannelName))
 		}
 		autoAddedSamples = append(autoAddedSamples, channelModelSamples(summary.ChannelName, summary.AutoAddedModels)...)
 		autoRemovedSamples = append(autoRemovedSamples, channelModelSamples(summary.ChannelName, summary.AutoRemovedModels)...)
@@ -61,6 +65,7 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 	}
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, conflictSamples)
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoApplyBlocked, blockedChannels)
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateUnresolvedMapping, unresolvedMappingChannels)
 
 	if failedChannels > 0 {
 		displayCount := min(failedChannels, 10)
