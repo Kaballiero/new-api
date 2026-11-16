@@ -62,8 +62,8 @@ func TestModelUpdateNotificationListsAutoSyncChangesInRussian(t *testing.T) {
 		"\n\nТребует решения — к удалению больше 20 моделей, ничего не удалено: OpenRouter big (21), OpenRouter huge (25)", content)
 }
 
-// The Russian report names once the channels whose unresolved model mapping
-// blocks the auto-apply of every catalog channel, by id and name, instead of a
+// The Russian report names the channels whose unresolved model mapping blocks
+// the auto-apply of every catalog channel, by id and name, instead of a
 // catalog model loss.
 func TestModelUpdateNotificationNamesUnresolvedMappingChannelsInRussian(t *testing.T) {
 	require.NoError(t, i18n.Init())
@@ -71,13 +71,14 @@ func TestModelUpdateNotificationNamesUnresolvedMappingChannelsInRussian(t *testi
 	_, content := ModelUpdateNotification(i18n.LangRu, domain.ModelUpdateReport{
 		CheckedChannels: 2, ChangedChannels: 2, DetectedAddModels: 2,
 		Channels: []domain.ModelUpdateChannelSummary{
-			{ChannelName: "OpenRouter", AddCount: 1, PendingAddModels: []string{"openai/gpt-5.1"}, AutoApplyBlocked: true, UnresolvedMappingChannels: unresolved},
-			{ChannelName: "OpenRouter fast", AddCount: 1, PendingAddModels: []string{"openai/gpt-5.1"}, AutoApplyBlocked: true, UnresolvedMappingChannels: unresolved},
+			{ChannelName: "OpenRouter", AddCount: 1, PendingAddModels: []string{"openai/gpt-5.1"}, AutoApplyBlocked: true},
+			{ChannelName: "OpenRouter fast", AddCount: 1, PendingAddModels: []string{"openai/gpt-5.1"}, AutoApplyBlocked: true},
 		},
-		AddModelSamples: []string{"openai/gpt-5.1"},
+		AddModelSamples:           []string{"openai/gpt-5.1"},
+		UnresolvedMappingChannels: unresolved,
 	})
 	assert.Equal(t, "Итог проверки моделей upstream: проверено каналов — 2, с изменениями — 2, добавлено — 2, удалено — 0, добавлено автосинхронизацией — 0, ошибок — 0."+
 		"\n\nИзменённые каналы (показано 2/2):\n- OpenRouter (+1 / -0)\n- OpenRouter fast (+1 / -0)"+
 		"\n\nПримеры добавленных моделей (показано 1/1): openai/gpt-5.1"+
-		"\n\nИзменения не применяются автоматически — маппинг моделей не разрешается (неверный JSON или цикл) в каналах (показано 2/2): #3 OpenRouter json, #7 OpenRouter cycle", content)
+		"\n\nИзменения не применяются автоматически, а цены каталога не обновляются, пока маппинг не исправлен — маппинг моделей не разрешается (неверный JSON или цикл) в каналах (показано 2/2): #3 OpenRouter json, #7 OpenRouter cycle", content)
 }

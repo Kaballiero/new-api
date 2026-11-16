@@ -151,6 +151,7 @@ func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply b
 	addModelSamples := make([]string, 0)
 	removeModelSamples := make([]string, 0)
 	conflictModels := make([]domain.ModelUpdateConflict, 0)
+	var unresolvedMappingChannels []domain.UnresolvedMappingChannel
 	refreshNeeded := false
 	channelQueryFailed := false
 
@@ -228,18 +229,22 @@ scanLoop:
 			if currentAddCount > 0 || currentRemoveCount > 0 {
 				changedChannels++
 				channelSummaries = append(channelSummaries, domain.ModelUpdateChannelSummary{
-					ChannelID:                 channel.Id,
-					ChannelName:               channel.Name,
-					AddCount:                  currentAddCount,
-					RemoveCount:               currentRemoveCount,
-					PendingAddModels:          currentAddModels,
-					PendingRemoveModels:       currentRemoveModels,
-					AutoApplyBlocked:          upstreamModels.AutoApplyBlocked,
-					UnresolvedMappingChannels: upstreamModels.UnresolvedMappingChannels,
-					AutoAddedModels:           appliedUpdates.AddedModels,
-					AutoRemovedModels:         appliedUpdates.RemovedModels,
-					RemovalLimitCandidates:    appliedUpdates.RemovalLimitCandidates,
+					ChannelID:              channel.Id,
+					ChannelName:            channel.Name,
+					AddCount:               currentAddCount,
+					RemoveCount:            currentRemoveCount,
+					PendingAddModels:       currentAddModels,
+					PendingRemoveModels:    currentRemoveModels,
+					AutoApplyBlocked:       upstreamModels.AutoApplyBlocked,
+					AutoAddedModels:        appliedUpdates.AddedModels,
+					AutoRemovedModels:      appliedUpdates.RemovedModels,
+					RemovalLimitCandidates: appliedUpdates.RemovalLimitCandidates,
 				})
+			}
+			// Every catalog channel of a scan shares one catalog read, so
+			// the first one names the channels with an unresolved mapping.
+			if len(unresolvedMappingChannels) == 0 {
+				unresolvedMappingChannels = upstreamModels.UnresolvedMappingChannels
 			}
 			addModelSamples = domain.MergeModelNames(addModelSamples, currentAddModels)
 			removeModelSamples = domain.MergeModelNames(removeModelSamples, currentRemoveModels)
@@ -310,27 +315,29 @@ scanLoop:
 	if err != nil {
 		usecase.log(fmt.Sprintf("upstream model update report fingerprint read failed, the report is sent: %v", err))
 	}
-	// Conflicts need an admin decision, so they are reported even when the
-	// scan found nothing else. A scan without findings clears the fingerprint,
-	// so a problem that comes back is reported again.
-	if changedChannels == 0 && failedChannels == 0 && len(conflictModels) == 0 {
+	// Conflicts and unresolved mappings need an admin decision, so they are
+	// reported even when the scan found nothing else. A scan without findings
+	// clears the fingerprint, so a problem that comes back is reported again.
+	needsDecision := len(conflictModels) > 0 || len(unresolvedMappingChannels) > 0
+	if changedChannels == 0 && failedChannels == 0 && !needsDecision {
 		if sentFingerprint != "" {
 			usecase.saveSentReportFingerprint(ctx, "")
 		}
 		return summary
 	}
 	modelUpdateReport := domain.ModelUpdateReport{
-		CheckedChannels:      checkedChannels,
-		ChangedChannels:      changedChannels,
-		DetectedAddModels:    detectedAddModels,
-		DetectedRemoveModels: detectedRemoveModels,
-		AutoAddedModels:      autoAddedModels,
-		AutoRemovedModels:    autoRemovedModels,
-		FailedChannelIDs:     failedChannelIDs,
-		Channels:             channelSummaries,
-		AddModelSamples:      addModelSamples,
-		RemoveModelSamples:   removeModelSamples,
-		ConflictModels:       conflictModels,
+		CheckedChannels:           checkedChannels,
+		ChangedChannels:           changedChannels,
+		DetectedAddModels:         detectedAddModels,
+		DetectedRemoveModels:      detectedRemoveModels,
+		AutoAddedModels:           autoAddedModels,
+		AutoRemovedModels:         autoRemovedModels,
+		FailedChannelIDs:          failedChannelIDs,
+		Channels:                  channelSummaries,
+		AddModelSamples:           addModelSamples,
+		RemoveModelSamples:        removeModelSamples,
+		ConflictModels:            conflictModels,
+		UnresolvedMappingChannels: unresolvedMappingChannels,
 	}
 	// A report with applied changes is always sent: the fingerprint holds only
 	// what waits for a decision, and an applied change does not repeat.

@@ -1933,7 +1933,7 @@ func TestScheduledUpstreamModelUpdateTakesCatalogSyncModelsFromUpstreamCatalog(t
 				"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
 				"\n\nAdded model samples (showing 1/1): acme/chat" +
 				"\n\nRemoved model samples (showing 1/1): retired-model" +
-				"\n\nChanges are not applied automatically — unresolved model mapping (invalid JSON or a cycle) in channels (showing 1/1): #4 broken-mapping"},
+				"\n\nChanges are not applied automatically and catalog prices are not updated until fixed — unresolved model mapping (invalid JSON or a cycle) in channels (showing 1/1): #4 broken-mapping"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupChannelUpstreamUpdateTestDB(t)
@@ -2590,8 +2590,9 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 // or a cycle, leaves the published catalog models unknown: a scheduled run
 // applies no change of a catalog channel, and the report names the channels
 // with such a mapping once, and again when another channel takes the place of
-// a fixed one. A detect, detect-all, apply and apply-all still work; fixed
-// mappings unblock the auto-apply.
+// a fixed one, also without pending changes. A detect, detect-all, apply and
+// apply-all still work; fixed mappings unblock the auto-apply and clear the
+// report.
 func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testing.T) {
 	db := setupChannelUpstreamUpdateTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}))
@@ -2617,13 +2618,16 @@ func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testi
 		"\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+1 / -1)" +
 		"\n\nAdded model samples (showing 1/1): added" +
 		"\n\nRemoved model samples (showing 1/1): gone" +
-		"\n\nChanges are not applied automatically — unresolved model mapping (invalid JSON or a cycle) in channels "
+		"\n\nChanges are not applied automatically and catalog prices are not updated until fixed — unresolved model mapping (invalid JSON or a cycle) in channels "
 	// unresolvedIDs are the channels whose mapping is still unresolved, oldest
-	// first.
-	var unresolvedIDs []int
+	// first; fixedIDs are the channels whose mapping was fixed.
+	var unresolvedIDs, fixedIDs []int
+	unresolvedOnlyReport := subject + "Upstream model check summary: checked 1 channels, 0 changed, 0 added, 0 removed, 0 auto-synced additions, 0 failed." +
+		"\n\nChanges are not applied automatically and catalog prices are not updated until fixed — unresolved model mapping (invalid JSON or a cycle) in channels (showing 1/1): "
 	for _, step := range []struct {
 		name              string
 		fixMappings       int
+		breakFixed        bool
 		unresolvedMapping string
 		catalogModels     []string
 		run               modelUpdateRun
@@ -2682,10 +2686,37 @@ func TestScheduledUpstreamModelUpdateBlocksAutoApplyOnUnresolvedMapping(t *testi
 				"\n\nAdded by auto sync (showing 1/1): newer (upstream-sync-test)"},
 			wantRemaining: "kept,added,newer",
 		},
+		{
+			name:              "an unresolved mapping without pending changes is reported",
+			unresolvedMapping: `{"acme/broken":`,
+			wantReports:       []string{unresolvedOnlyReport + "#5 unresolved-mapping"},
+			wantRemaining:     "kept,added,newer",
+		},
+		{
+			name:          "the unchanged report without pending changes is not sent again",
+			wantRemaining: "kept,added,newer",
+		},
+		{
+			name:          "a fixed mapping without pending changes clears the report",
+			fixMappings:   1,
+			wantRemaining: "kept,added,newer",
+		},
+		{
+			name:          "the same mapping broken again is reported again",
+			breakFixed:    true,
+			wantReports:   []string{unresolvedOnlyReport + "#5 unresolved-mapping"},
+			wantRemaining: "kept,added,newer",
+		},
 	} {
 		if step.fixMappings > 0 {
 			require.NoError(t, db.Model(&model.Channel{}).Where("id IN ?", unresolvedIDs[:step.fixMappings]).Update("model_mapping", "{}").Error)
+			fixedIDs = append(fixedIDs, unresolvedIDs[:step.fixMappings]...)
 			unresolvedIDs = unresolvedIDs[step.fixMappings:]
+		}
+		if step.breakFixed {
+			brokenAgain := fixedIDs[len(fixedIDs)-1]
+			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", brokenAgain).Update("model_mapping", `{"acme/broken":`).Error)
+			unresolvedIDs = append(unresolvedIDs, brokenAgain)
 		}
 		if step.unresolvedMapping != "" {
 			unresolved := createChannelUpstreamUpdateTestChannel(t, db, "acme/broken", nil, dto.ChannelOtherSettings{})

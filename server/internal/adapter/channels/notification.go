@@ -40,13 +40,12 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAddSamples, report.AddModelSamples)
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemoveSamples, report.RemoveModelSamples)
-	var autoAddedSamples, autoRemovedSamples, removalLimitChannels, blockedChannels, unresolvedMappingChannels []string
+	// An unresolved mapping blocks the catalog before its model loss is
+	// compared, so the blocked channels are listed only without one.
+	var autoAddedSamples, autoRemovedSamples, removalLimitChannels, blockedChannels []string
 	for _, summary := range report.Channels {
-		if summary.AutoApplyBlocked && len(summary.UnresolvedMappingChannels) == 0 {
+		if summary.AutoApplyBlocked && len(report.UnresolvedMappingChannels) == 0 {
 			blockedChannels = append(blockedChannels, summary.ChannelName)
-		}
-		for _, unresolved := range summary.UnresolvedMappingChannels {
-			unresolvedMappingChannels = append(unresolvedMappingChannels, fmt.Sprintf("#%d %s", unresolved.ChannelID, unresolved.ChannelName))
 		}
 		autoAddedSamples = append(autoAddedSamples, channelModelSamples(summary.ChannelName, summary.AutoAddedModels)...)
 		autoRemovedSamples = append(autoRemovedSamples, channelModelSamples(summary.ChannelName, summary.AutoRemovedModels)...)
@@ -65,6 +64,10 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 	}
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, conflictSamples)
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoApplyBlocked, blockedChannels)
+	unresolvedMappingChannels := make([]string, len(report.UnresolvedMappingChannels))
+	for i, unresolved := range report.UnresolvedMappingChannels {
+		unresolvedMappingChannels[i] = fmt.Sprintf("#%d %s", unresolved.ChannelID, unresolved.ChannelName)
+	}
 	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateUnresolvedMapping, unresolvedMappingChannels)
 
 	if failedChannels > 0 {
