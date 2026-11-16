@@ -1,6 +1,7 @@
 package pricing
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/i18n"
@@ -22,4 +23,21 @@ func CatalogModelLossNotification(lang string, lossErr domain.CatalogModelLossEr
 		"Shown":     shown,
 		"Models":    strings.Join(lossErr.Lost[:shown], ", "),
 	})
+}
+
+// CatalogPriceChangesNotification phrases the prices an applied upstream
+// catalog revision changed more than domain.PriceChangeFactor times in lang.
+// At most 12 changes are listed; a price that was free changed infinitely.
+func CatalogPriceChangesNotification(lang string, changes []domain.CatalogPriceChange) (subject, content string) {
+	shown := min(len(changes), 12)
+	var builder strings.Builder
+	builder.WriteString(i18n.Translate(lang, i18n.MsgPricingCatalogPriceChanges, map[string]any{"Factor": domain.PriceChangeFactor, "Shown": shown, "Total": len(changes)}))
+	for _, change := range changes[:shown] {
+		factor := "∞"
+		if change.OldAmountRub > 0 {
+			factor = fmt.Sprintf("%.2f", change.NewAmountRub/change.OldAmountRub)
+		}
+		builder.WriteString(fmt.Sprintf("\n- %s, %s: %.2f → %.2f ₽ / %s (×%s)", change.ModelID, change.Component, change.OldAmountRub, change.NewAmountRub, change.Unit, factor))
+	}
+	return i18n.Translate(lang, i18n.MsgPricingCatalogPriceChangesSubject, map[string]any{"Factor": domain.PriceChangeFactor}), builder.String()
 }

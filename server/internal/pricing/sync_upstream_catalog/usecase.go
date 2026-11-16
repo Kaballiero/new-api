@@ -16,6 +16,7 @@ type CatalogSyncResult struct {
 	Publication    domain.CatalogPublication
 	ImportedModels int
 	MissingModels  []string
+	PriceChanges   []domain.CatalogPriceChange
 }
 type Store interface {
 	EnsureSource(context.Context, domain.CatalogSource) (domain.CatalogSource, error)
@@ -32,14 +33,16 @@ type Client interface {
 }
 type Usecase struct {
 	deps       domain.Capabilities
+	projection *domain.Projection
 	store      Store
 	documents  domain.CatalogDocumentCache
+	fx         func() (domain.BillingFXBasis, error)
 	now        func() time.Time
 	invalidate func()
 }
 
-func NewUsecase(deps domain.Capabilities, store Store, documents domain.CatalogDocumentCache, now func() time.Time, invalidate func()) Usecase {
-	return Usecase{deps: deps, store: store, documents: documents, now: now, invalidate: invalidate}
+func NewUsecase(deps domain.Capabilities, projection *domain.Projection, store Store, documents domain.CatalogDocumentCache, fx func() (domain.BillingFXBasis, error), now func() time.Time, invalidate func()) Usecase {
+	return Usecase{deps: deps, projection: projection, store: store, documents: documents, fx: fx, now: now, invalidate: invalidate}
 }
 
 // SyncUpstreamCatalog acquires one immutable remote manifest and its requested
@@ -48,7 +51,8 @@ func NewUsecase(deps domain.Capabilities, store Store, documents domain.CatalogD
 // published models (domain.CatalogModelLoss) is rejected with
 // domain.CatalogModelLossError and leaves the head. Models the channels no
 // longer request are not compared, so removing the lost models from the
-// channels lets the next revision through.
+// channels lets the next revision through. PriceChanges are the prices the
+// new head changes more than domain.PriceChangeFactor times (priceChanges).
 func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, requested map[string]bool, client Client) (CatalogSyncResult, error) {
 	result := CatalogSyncResult{}
 	current, err := u.ensureSource(ctx, source)
@@ -59,8 +63,9 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	if err != nil {
 		return result, err
 	}
+	head := domain.CatalogSelection{}
 	if current.Revision != "" {
-		head, err := u.store.ReadSelection(ctx, current.ID, current.Revision)
+		head, err = u.store.ReadSelection(ctx, current.ID, current.Revision)
 		if err != nil {
 			return result, err
 		}
@@ -122,6 +127,10 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	for _, ref := range selected {
 		selection.Models = append(selection.Models, domain.CatalogModelReference{ID: ref.ID, Hash: ref.Hash})
 	}
+	priceChanges, err := u.priceChanges(ctx, current.ID, head, selection, decoded)
+	if err != nil {
+		return result, err
+	}
 	publication, err := u.publishSelection(ctx, current, selection, manifest.Revision, manifest.FetchedAt, fresh)
 	if err != nil {
 		return result, err
@@ -133,11 +142,47 @@ func (u Usecase) Execute(ctx context.Context, source domain.CatalogSource, reque
 	}
 	result.ImportedModels = len(requested) - len(result.MissingModels)
 	result.Publication = publication
+	result.PriceChanges = priceChanges
 	if publication.Changed {
 		u.invalidate()
 	}
 	return result, nil
 }
+
+// priceChanges compares the minimum prices of the models the head and the
+// selection both publish under different documents (domain.CatalogPriceChanges)
+// in roubles at the current FX rate, the purchase price without a tariff. A
+// changed document changes the revision, so the prices are compared only when
+// the head moves. Without an FX rate the prices are unknown, as in the pricing
+// projection, and none is compared: the comparison only informs.
+func (u Usecase) priceChanges(ctx context.Context, sourceID string, head, selection domain.CatalogSelection, documents map[string]*domain.SourceDocument) ([]domain.CatalogPriceChange, error) {
+	selected := make(map[string]string, len(selection.Models))
+	for _, ref := range selection.Models {
+		selected[ref.ID] = ref.Hash
+	}
+	changedModels := []domain.SourceReference{}
+	for _, ref := range head.Models {
+		if hash, exists := selected[ref.ID]; exists && hash != ref.Hash {
+			changedModels = append(changedModels, domain.SourceReference{ID: ref.ID, Hash: ref.Hash})
+		}
+	}
+	if len(changedModels) == 0 {
+		return nil, nil
+	}
+	headDocuments, _, err := domain.LoadStoredCatalogDocuments(ctx, u.deps, u.store, u.documents, sourceID, changedModels)
+	if err != nil {
+		return nil, err
+	}
+	fx, fxErr := u.fx()
+	previous := make(map[string][]domain.ConsumerPricingOperation, len(changedModels))
+	current := make(map[string][]domain.ConsumerPricingOperation, len(changedModels))
+	for _, ref := range changedModels {
+		previous[ref.ID] = u.projection.CatalogModelMinimumPrices(ref, headDocuments[ref.ID], fx.Factor, fxErr == nil)
+		current[ref.ID] = u.projection.CatalogModelMinimumPrices(domain.SourceReference{ID: ref.ID, Hash: selected[ref.ID]}, documents[ref.ID], fx.Factor, fxErr == nil)
+	}
+	return domain.CatalogPriceChanges(previous, current), nil
+}
+
 func (u Usecase) ensureSource(ctx context.Context, source domain.CatalogSource) (domain.CatalogSource, error) {
 	if !domain.ValidCatalogHash(source.ID) || source.Kind == "" || len(source.Kind) > 32 || source.BaseURL == "" {
 		return domain.CatalogSource{}, fmt.Errorf("invalid catalog source")

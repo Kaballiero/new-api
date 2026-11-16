@@ -34,9 +34,11 @@ type Store interface {
 }
 
 // CatalogAlerts tells the administrators about a rejected upstream catalog
-// revision.
+// revision and about the prices an applied revision changed more than
+// domain.PriceChangeFactor times.
 type CatalogAlerts interface {
 	ModelLoss(domain.CatalogModelLossError) error
+	PriceChanges([]domain.CatalogPriceChange) error
 }
 
 // SentAlerts keeps the remote revision of the last delivered model loss alert.
@@ -58,10 +60,11 @@ type Usecase struct {
 	now             func() time.Time
 	alerts          CatalogAlerts
 	sentAlerts      SentAlerts
+	log             func(string)
 }
 
-func NewUsecase(deps domain.Capabilities, store Store, source func() (domain.CatalogSource, bool, error), sync func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error), publish func(context.Context, []domain.PricingCatalogEntry) (int, error), normalizer *domain.NativeNormalizer, batchExpression func(string) (string, bool), now func() time.Time, alerts CatalogAlerts, sentAlerts SentAlerts) Usecase {
-	return Usecase{deps: deps, store: store, source: source, sync: sync, publish: publish, normalizer: normalizer, batchExpression: batchExpression, now: now, alerts: alerts, sentAlerts: sentAlerts}
+func NewUsecase(deps domain.Capabilities, store Store, source func() (domain.CatalogSource, bool, error), sync func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error), publish func(context.Context, []domain.PricingCatalogEntry) (int, error), normalizer *domain.NativeNormalizer, batchExpression func(string) (string, bool), now func() time.Time, alerts CatalogAlerts, sentAlerts SentAlerts, log func(string)) Usecase {
+	return Usecase{deps: deps, store: store, source: source, sync: sync, publish: publish, normalizer: normalizer, batchExpression: batchExpression, now: now, alerts: alerts, sentAlerts: sentAlerts, log: log}
 }
 func (u Usecase) DiscoverSources(ctx context.Context) ([]Source, error) {
 	abilities, err := u.store.Abilities()
@@ -322,6 +325,10 @@ func (u Usecase) FetchSource(ctx context.Context, source Source) (domain.Pricing
 
 // refreshUpstreamCatalog uses the existing system-task lifecycle. Selection and
 // channel policy remain NewAPI-owned; the upstream supplies only model facts.
+// The prices the applied revision changed more than domain.PriceChangeFactor
+// times go to price_changes and to the administrators. The report only
+// informs: the head has moved and the next run compares with it, so an
+// undelivered report is logged and not sent again.
 func (u Usecase) RefreshUpstream(ctx context.Context, source domain.CatalogSource) (domain.CatalogRefreshSummary, error) {
 	summary := domain.CatalogRefreshSummary{}
 	requested, err := domain.CatalogRequestedModels(u.deps, u.store)
@@ -346,6 +353,13 @@ func (u Usecase) RefreshUpstream(ctx context.Context, source domain.CatalogSourc
 	summary.NewDocuments = result.Publication.NewDocuments
 	summary.ReusedDocuments = result.Publication.ReusedDocuments
 	summary.Revision = result.Publication.Revision
+	summary.PriceChanges = result.PriceChanges
+	if len(result.PriceChanges) == 0 {
+		return summary, nil
+	}
+	if err := u.alerts.PriceChanges(result.PriceChanges); err != nil {
+		u.log(fmt.Sprintf("pricing: upstream catalog price change report failed: revision=%s changes=%d: %v", result.Publication.Revision, len(result.PriceChanges), err))
+	}
 	return summary, nil
 }
 

@@ -8,6 +8,7 @@ type CatalogRefreshSummary struct {
 	Revision                string                  `json:"revision,omitempty"`
 	MissingModels           []string                `json:"missing_models,omitempty"`
 	LostModels              []string                `json:"lost_models,omitempty"`
+	PriceChanges            []CatalogPriceChange    `json:"price_changes,omitempty"`
 	HiddenPublicModels      []string                `json:"hidden_public_models,omitempty"`
 	HiddenPublicModelsCount int                     `json:"hidden_public_models_count"`
 	HiddenPublicModelsError string                  `json:"hidden_public_models_error,omitempty"`
@@ -27,4 +28,5 @@ type CatalogSyncSummary struct {
 	Publication    CatalogPublication
 	ImportedModels int
 	MissingModels  []string
+	PriceChanges   []CatalogPriceChange
 }

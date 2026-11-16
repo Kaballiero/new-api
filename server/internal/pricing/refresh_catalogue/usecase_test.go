@@ -3,6 +3,7 @@ package refresh_catalogue
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,13 +37,19 @@ func (catalogStore) Pricing() []domain.Pricing    { return nil }
 func (catalogStore) Channel(int) (Channel, error) { return catalogChannel{}, nil }
 
 type recordedAlerts struct {
-	sent []string
-	err  error
+	sent         []string
+	err          error
+	priceChanges [][]domain.CatalogPriceChange
+	priceErr     error
 }
 
 func (alerts *recordedAlerts) ModelLoss(lossErr domain.CatalogModelLossError) error {
 	alerts.sent = append(alerts.sent, lossErr.RemoteRevision)
 	return alerts.err
+}
+func (alerts *recordedAlerts) PriceChanges(changes []domain.CatalogPriceChange) error {
+	alerts.priceChanges = append(alerts.priceChanges, changes)
+	return alerts.priceErr
 }
 
 type optionRows struct {
@@ -77,7 +84,7 @@ func TestRefreshUpstreamAlertsRejectedRevisionOnce(t *testing.T) {
 			return domain.CatalogSyncSummary{ImportedModels: len(requested)}, nil
 		}
 		return domain.CatalogSyncSummary{}, domain.CatalogModelLossError{RemoteRevision: rejected, Lost: []string{"acme/chat"}, Published: 1}
-	}, nil, nil, nil, time.Now, alerts, rows)
+	}, nil, nil, nil, time.Now, alerts, rows, func(string) {})
 
 	for _, step := range []struct {
 		name        string
@@ -119,5 +126,38 @@ func TestRefreshUpstreamAlertsRejectedRevisionOnce(t *testing.T) {
 		if step.wantErr != "" {
 			assert.ErrorContains(t, err, step.wantErr, step.name)
 		}
+	}
+}
+
+// The prices an applied revision changed go to the summary and to the
+// administrators; an undelivered report is logged and does not fail the task,
+// and a revision without such changes sends nothing.
+func TestRefreshUpstreamReportsPriceChanges(t *testing.T) {
+	changes := []domain.CatalogPriceChange{{ModelID: "acme/chat", Component: "input", Unit: "million_tokens", OldAmountRub: 112.5, NewAmountRub: 337.5}}
+	for _, tc := range []struct {
+		name     string
+		changes  []domain.CatalogPriceChange
+		alertErr error
+		wantSent [][]domain.CatalogPriceChange
+		wantLogs []string
+	}{
+		{name: "changes are reported", changes: changes, wantSent: [][]domain.CatalogPriceChange{changes}},
+		{name: "undelivered report is logged", changes: changes, alertErr: errors.New("gateway unavailable"), wantSent: [][]domain.CatalogPriceChange{changes},
+			wantLogs: []string{"pricing: upstream catalog price change report failed: revision=" + strings.Repeat("e", 64) + " changes=1: gateway unavailable"}},
+		{name: "no changes send nothing"},
+	} {
+		alerts := &recordedAlerts{priceErr: tc.alertErr}
+		var logs []string
+		usecase := NewUsecase(pricingadapter.Capabilities(), catalogStore{}, nil, func(context.Context, domain.CatalogSource, map[string]bool) (domain.CatalogSyncSummary, error) {
+			return domain.CatalogSyncSummary{Publication: domain.CatalogPublication{Revision: strings.Repeat("e", 64), Changed: true}, ImportedModels: 1, PriceChanges: tc.changes}, nil
+		}, nil, nil, nil, time.Now, alerts, &optionRows{values: map[string]string{}}, func(line string) { logs = append(logs, line) })
+
+		summary, err := usecase.RefreshUpstream(context.Background(), domain.CatalogSource{})
+
+		require.NoError(t, err, tc.name)
+		assert.Equal(t, tc.changes, summary.PriceChanges, tc.name)
+		assert.Equal(t, tc.wantSent, alerts.priceChanges, tc.name)
+		assert.Equal(t, tc.wantLogs, logs, tc.name)
+		assert.Empty(t, alerts.sent, tc.name)
 	}
 }
