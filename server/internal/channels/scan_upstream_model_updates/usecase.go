@@ -57,14 +57,18 @@ func (usecase Usecase) Check(
 		if settings.LastCheckTime > 0 &&
 			now-settings.LastCheckTime < minInterval {
 			// A recent check keeps its pending changes; a catalog channel
-			// still reports whether its catalog blocks auto-apply, so the
-			// report does not change between the checks. The catalog is read
-			// once per run.
+			// still reports whether its catalog blocks auto-apply and whether
+			// its removals exceed the auto removal limit, so the report does
+			// not change between the checks. The catalog is read once per run.
 			if !settings.CatalogSyncEnabled {
 				return domain.AppliedModelUpdates{}, false, nil
 			}
 			upstreamModels, err := usecase.fetch(ctx, channel)
-			return domain.AppliedModelUpdates{}, upstreamModels.AutoApplyBlocked, err
+			if err != nil {
+				return domain.AppliedModelUpdates{}, false, err
+			}
+			limitCandidates, err := usecase.rules.RemovalLimitCandidates(channel, *settings, upstreamModels)
+			return domain.AppliedModelUpdates{RemovalLimitCandidates: limitCandidates}, upstreamModels.AutoApplyBlocked, err
 		}
 	}
 
@@ -214,8 +218,8 @@ scanLoop:
 			}
 			currentAddModels := domain.NormalizeModelNames(settings.LastDetectedModels)
 			currentRemoveModels := domain.NormalizeModelNames(settings.LastRemovedModels)
-			if appliedUpdates.RemovalLimitExceeded {
-				usecase.log(fmt.Sprintf("upstream model update removal limit exceeded: channel_id=%d channel_name=%s pending_remove_models=%d limit=%d", channel.Id, channel.Name, len(currentRemoveModels), domain.MaxAutoRemovedModels))
+			if len(appliedUpdates.RemovalLimitCandidates) > 0 {
+				usecase.log(fmt.Sprintf("upstream model update removal limit exceeded: channel_id=%d channel_name=%s candidates=%d limit=%d", channel.Id, channel.Name, len(appliedUpdates.RemovalLimitCandidates), domain.MaxAutoRemovedModels))
 			}
 			currentAddCount := len(currentAddModels) + len(appliedUpdates.AddedModels)
 			currentRemoveCount := len(currentRemoveModels) + len(appliedUpdates.RemovedModels)
@@ -224,16 +228,16 @@ scanLoop:
 			if currentAddCount > 0 || currentRemoveCount > 0 {
 				changedChannels++
 				channelSummaries = append(channelSummaries, domain.ModelUpdateChannelSummary{
-					ChannelID:            channel.Id,
-					ChannelName:          channel.Name,
-					AddCount:             currentAddCount,
-					RemoveCount:          currentRemoveCount,
-					PendingAddModels:     currentAddModels,
-					PendingRemoveModels:  currentRemoveModels,
-					AutoApplyBlocked:     autoApplyBlocked,
-					AutoAddedModels:      appliedUpdates.AddedModels,
-					AutoRemovedModels:    appliedUpdates.RemovedModels,
-					RemovalLimitExceeded: appliedUpdates.RemovalLimitExceeded,
+					ChannelID:              channel.Id,
+					ChannelName:            channel.Name,
+					AddCount:               currentAddCount,
+					RemoveCount:            currentRemoveCount,
+					PendingAddModels:       currentAddModels,
+					PendingRemoveModels:    currentRemoveModels,
+					AutoApplyBlocked:       autoApplyBlocked,
+					AutoAddedModels:        appliedUpdates.AddedModels,
+					AutoRemovedModels:      appliedUpdates.RemovedModels,
+					RemovalLimitCandidates: appliedUpdates.RemovalLimitCandidates,
 				})
 			}
 			addModelSamples = domain.MergeModelNames(addModelSamples, currentAddModels)

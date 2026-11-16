@@ -28,9 +28,9 @@ type AppliedModelUpdates struct {
 	ModelsChanged         bool
 	MappingChanged        bool
 	HadPending            bool
-	// RemovalLimitExceeded marks a scheduled run that removed nothing because
-	// more than MaxAutoRemovedModels models were to be removed.
-	RemovalLimitExceeded bool
+	// RemovalLimitCandidates are the auto removals of a channel with more than
+	// MaxAutoRemovedModels of them: a scheduled run removes none.
+	RemovalLimitCandidates []string
 }
 
 // MaxAutoRemovedModels is the most models a scheduled run removes from a

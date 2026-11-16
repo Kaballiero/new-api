@@ -2,7 +2,6 @@ package channels
 
 import (
 	"fmt"
-	"maps"
 	"strconv"
 	"strings"
 
@@ -12,8 +11,9 @@ import (
 
 // ModelUpdateNotification phrases the upstream model update report in lang.
 // At most 8 channels, 12 model samples of each kind and 10 failed channel IDs
-// are listed. The models applied by auto sync and the pending removals of the
-// channels over the auto removal limit are listed with their channel.
+// are listed. The models applied by auto sync are listed with their channel,
+// and the channels over the auto removal limit with their number of auto
+// removals.
 func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subject, content string) {
 	var builder strings.Builder
 	failedChannels := len(report.FailedChannelIDs)
@@ -37,28 +37,30 @@ func ModelUpdateNotification(lang string, report domain.ModelUpdateReport) (subj
 		}
 	}
 
-	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAddSamples, report.AddModelSamples, nil)
-	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemoveSamples, report.RemoveModelSamples, nil)
-	var autoAddedSamples, autoRemovedSamples, removalLimitSamples, blockedChannels []string
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAddSamples, report.AddModelSamples)
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemoveSamples, report.RemoveModelSamples)
+	var autoAddedSamples, autoRemovedSamples, removalLimitChannels, blockedChannels []string
 	for _, summary := range report.Channels {
 		if summary.AutoApplyBlocked {
 			blockedChannels = append(blockedChannels, summary.ChannelName)
 		}
 		autoAddedSamples = append(autoAddedSamples, channelModelSamples(summary.ChannelName, summary.AutoAddedModels)...)
 		autoRemovedSamples = append(autoRemovedSamples, channelModelSamples(summary.ChannelName, summary.AutoRemovedModels)...)
-		if summary.RemovalLimitExceeded {
-			removalLimitSamples = append(removalLimitSamples, channelModelSamples(summary.ChannelName, summary.PendingRemoveModels)...)
+		if len(summary.RemovalLimitCandidates) > 0 {
+			removalLimitChannels = append(removalLimitChannels, fmt.Sprintf("%s (%d)", summary.ChannelName, len(summary.RemovalLimitCandidates)))
 		}
 	}
-	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoAdded, autoAddedSamples, nil)
-	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoRemoved, autoRemovedSamples, nil)
-	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateRemovalLimit, removalLimitSamples, map[string]any{"Limit": domain.MaxAutoRemovedModels})
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoAdded, autoAddedSamples)
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoRemoved, autoRemovedSamples)
+	if len(removalLimitChannels) > 0 {
+		builder.WriteString("\n\n" + i18n.Translate(lang, i18n.MsgChannelModelUpdateRemovalLimit, map[string]any{"Limit": domain.MaxAutoRemovedModels, "Channels": strings.Join(removalLimitChannels, ", ")}))
+	}
 	conflictSamples := make([]string, len(report.ConflictModels))
 	for i, conflict := range report.ConflictModels {
 		conflictSamples[i] = fmt.Sprintf("%s (%s)", conflict.Model, conflict.ChannelName)
 	}
-	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, conflictSamples, nil)
-	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoApplyBlocked, blockedChannels, nil)
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateConflictSamples, conflictSamples)
+	writeModelSamples(&builder, lang, i18n.MsgChannelModelUpdateAutoApplyBlocked, blockedChannels)
 
 	if failedChannels > 0 {
 		displayCount := min(failedChannels, 10)
@@ -83,17 +85,14 @@ func channelModelSamples(channelName string, models []string) []string {
 	return samples
 }
 
-// writeModelSamples lists at most 12 normalized model names under key; data
-// holds the other values of the key's template.
-func writeModelSamples(builder *strings.Builder, lang, key string, models []string, data map[string]any) {
+// writeModelSamples lists at most 12 normalized model names under key.
+func writeModelSamples(builder *strings.Builder, lang, key string, models []string) {
 	samples := domain.NormalizeModelNames(models)
 	if len(samples) == 0 {
 		return
 	}
 	displayCount := min(len(samples), 12)
-	templateData := map[string]any{"Shown": displayCount, "Total": len(samples), "Models": strings.Join(samples[:displayCount], ", ")}
-	maps.Copy(templateData, data)
-	builder.WriteString("\n\n" + i18n.Translate(lang, key, templateData))
+	builder.WriteString("\n\n" + i18n.Translate(lang, key, map[string]any{"Shown": displayCount, "Total": len(samples), "Models": strings.Join(samples[:displayCount], ", ")}))
 	if len(samples) > displayCount {
 		builder.WriteString(i18n.Translate(lang, i18n.MsgChannelModelUpdateOmitted, map[string]any{"Count": len(samples) - displayCount}))
 	}

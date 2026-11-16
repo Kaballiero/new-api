@@ -425,7 +425,7 @@ channel.model_update_conflict_samples: "Требует решения — имя
 channel.model_update_auto_apply_blocked: "Изменения не применяются автоматически — каталог upstream потерял слишком много опубликованных моделей (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_auto_added: "Добавлено автосинхронизацией (показано {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.model_update_auto_removed: "Удалено автосинхронизацией (показано {{.Shown}}/{{.Total}}): {{.Models}}"
-channel.model_update_removal_limit: "Требует решения — к удалению больше {{.Limit}} моделей, ничего не удалено (показано {{.Shown}}/{{.Total}}): {{.Models}}"
+channel.model_update_removal_limit: "Требует решения — к удалению больше {{.Limit}} моделей, ничего не удалено: {{.Channels}}"
 channel.model_update_failed_ids: "ID каналов с ошибками (показано {{.Shown}}/{{.Total}}): {{.IDs}}"
 channel.model_update_omitted: " (ещё {{.Count}} не показано)"
 

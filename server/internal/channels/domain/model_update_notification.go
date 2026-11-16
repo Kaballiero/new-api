@@ -11,18 +11,18 @@ import (
 // ModelUpdateChannelSummary is a changed channel of the report. The counts
 // include the pending and the automatically applied changes. AutoApplyBlocked
 // marks a channel whose upstream models a scheduled run does not apply; with
-// RemovalLimitExceeded the scheduled run removed nothing.
+// RemovalLimitCandidates a scheduled run removes nothing.
 type ModelUpdateChannelSummary struct {
-	ChannelID            int
-	ChannelName          string
-	AddCount             int
-	RemoveCount          int
-	PendingAddModels     []string
-	PendingRemoveModels  []string
-	AutoApplyBlocked     bool
-	AutoAddedModels      []string
-	AutoRemovedModels    []string
-	RemovalLimitExceeded bool
+	ChannelID              int
+	ChannelName            string
+	AddCount               int
+	RemoveCount            int
+	PendingAddModels       []string
+	PendingRemoveModels    []string
+	AutoApplyBlocked       bool
+	AutoAddedModels        []string
+	AutoRemovedModels      []string
+	RemovalLimitCandidates []string
 }
 
 // ModelUpdateReport is the content of the upstream model update notification
@@ -61,9 +61,9 @@ type ModelUpdateSummary struct {
 
 // ModelUpdateReportFingerprint identifies the decisions a report asks for:
 // the pending additions, removals and conflicts of each channel, whether its
-// changes are blocked from auto-apply, whether its removals exceeded the auto
-// removal limit, and the failed channels, in any order. Applied changes are not
-// part of it: the run that applies a change reports it once.
+// changes are blocked from auto-apply, its auto removals over the limit, and
+// the failed channels, in any order. Applied changes are not part of it: the
+// run that applies a change reports it once.
 func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
 	var lines []string
 	for _, channel := range report.Channels {
@@ -77,8 +77,8 @@ func ModelUpdateReportFingerprint(report ModelUpdateReport) string {
 		if channel.AutoApplyBlocked {
 			lines = append(lines, channelID+" auto_apply_blocked")
 		}
-		if channel.RemovalLimitExceeded {
-			lines = append(lines, channelID+" removal limit exceeded")
+		for _, model := range channel.RemovalLimitCandidates {
+			lines = append(lines, channelID+" removal limit candidate "+model)
 		}
 	}
 	for _, conflict := range report.ConflictModels {

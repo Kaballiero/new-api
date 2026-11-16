@@ -25,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/app"
 	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
+	systemdomain "github.com/QuantumNous/new-api/internal/system/domain"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/catalogsync"
 	httpclient "github.com/QuantumNous/new-api/pkg/httpclient"
@@ -1314,17 +1315,73 @@ func TestApplyChannelUpstreamModelUpdates_CanonicalRecomputesFromFreshState(t *t
 	require.Empty(t, persistedSettings.UpstreamModelUpdateLastRemovedModels)
 }
 
+// goneModels are count channel models named gone-01, gone-02 and so on.
+func goneModels(count int) []string {
+	models := make([]string, count)
+	for i := range count {
+		models[i] = fmt.Sprintf("gone-%02d", i+1)
+	}
+	return models
+}
+
+// modelUpdateRun is the entry point that starts an upstream model update check.
+type modelUpdateRun int
+
+const (
+	// scheduledModelUpdateRun is the model_update task the scheduler queues.
+	scheduledModelUpdateRun modelUpdateRun = iota
+	// detectAllModelUpdateRun is the model_update task the detect-all action queues.
+	detectAllModelUpdateRun
+	// detectChannelModelUpdateRun is the detect action of one channel.
+	detectChannelModelUpdateRun
+)
+
+// runModelUpdate starts a check of the upstream models through run and returns
+// the summary of the model_update task (zero for a one-channel detect).
+func runModelUpdate(t *testing.T, db *gorm.DB, run modelUpdateRun, channelID int) upstreamModelUpdateSummary {
+	t.Helper()
+
+	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	switch run {
+	case detectChannelModelUpdateRun:
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/detect", strings.NewReader(fmt.Sprintf(`{"id":%d}`, channelID)))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+		channelsHTTP().DetectUpstreamModels.Handle(ctx)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		return upstreamModelUpdateSummary{}
+	case detectAllModelUpdateRun:
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/upstream_updates/detect_all", nil)
+		channelsHTTP().DetectAllUpstreamModels.Handle(ctx)
+		require.Equal(t, http.StatusOK, recorder.Code)
+	case scheduledModelUpdateRun:
+		_, err := systemStoreChannelUpstreamUpdateTest.CreateSystemTask(systemrecord.SystemTaskTypeModelUpdate, nil, nil)
+		require.NoError(t, err)
+	}
+	var queued model.SystemTask
+	require.NoError(t, db.Where("type = ?", systemrecord.SystemTaskTypeModelUpdate).Order("id desc").First(&queued).Error)
+	claimed, claimedNow, err := systemStoreChannelUpstreamUpdateTest.ClaimSystemTask(queued.ID, systemrecord.SystemTaskTypeModelUpdate, "test-runner", common.GetTimestamp()+60)
+	require.NoError(t, err)
+	require.True(t, claimedNow)
+	handlers := scheduledTaskHandlers()
+	handlerIndex := slices.IndexFunc(handlers, func(handler systemdomain.SystemTaskHandler) bool {
+		return handler.Type() == systemrecord.SystemTaskTypeModelUpdate
+	})
+	require.GreaterOrEqual(t, handlerIndex, 0)
+	handlers[handlerIndex].Run(context.Background(), claimed, "test-runner")
+	var finished model.SystemTask
+	require.NoError(t, db.First(&finished, queued.ID).Error)
+	var summary upstreamModelUpdateSummary
+	require.NoError(t, common.UnmarshalJsonStr(finished.Result, &summary))
+	return summary
+}
+
 // A scheduled run of a catalog sync channel with auto sync adds the pending
 // models; with auto removal it also removes up to 20 removal candidates
-// together with their mapping entries, and none when there are more.
+// together with their mapping entries, and none when there are more. A manual
+// check applies nothing.
 func TestScheduledUpstreamModelUpdateAutoRemoval(t *testing.T) {
-	numberedModels := func(count int) []string {
-		models := make([]string, count)
-		for i := range count {
-			models[i] = fmt.Sprintf("gone-%02d", i+1)
-		}
-		return models
-	}
 	autoRemoval := dto.ChannelOtherSettings{
 		UpstreamModelUpdateCheckEnabled:       true,
 		UpstreamModelUpdateAutoSyncEnabled:    true,
@@ -1335,6 +1392,8 @@ func TestScheduledUpstreamModelUpdateAutoRemoval(t *testing.T) {
 	addOnly.UpstreamModelUpdateAutoRemoveEnabled = false
 	ignoring := autoRemoval
 	ignoring.UpstreamModelUpdateIgnoredModels = []string{"keep-exact", "regex:^keep-re-", "ignored/target", "keep-alias"}
+	withoutCatalogSync := autoRemoval
+	withoutCatalogSync.UpstreamModelUpdateCatalogSyncEnabled = false
 
 	tests := []struct {
 		name            string
@@ -1343,7 +1402,7 @@ func TestScheduledUpstreamModelUpdateAutoRemoval(t *testing.T) {
 		models          []string
 		mapping         map[string]string
 		settings        dto.ChannelOtherSettings
-		manual          bool
+		run             modelUpdateRun
 		wantModels      []string
 		wantMapping     map[string]string
 		wantDetected    []string
@@ -1374,7 +1433,7 @@ func TestScheduledUpstreamModelUpdateAutoRemoval(t *testing.T) {
 		{
 			name:            "twenty candidates are removed",
 			catalogModels:   []string{"kept"},
-			models:          append([]string{"kept"}, numberedModels(20)...),
+			models:          append([]string{"kept"}, goneModels(20)...),
 			settings:        autoRemoval,
 			wantModels:      []string{"kept"},
 			wantAutoRemoved: 20,
@@ -1382,15 +1441,15 @@ func TestScheduledUpstreamModelUpdateAutoRemoval(t *testing.T) {
 		{
 			name:          "more than twenty candidates remove nothing",
 			catalogModels: []string{"kept"},
-			models:        append([]string{"kept"}, numberedModels(21)...),
+			models:        append([]string{"kept"}, goneModels(21)...),
 			settings:      autoRemoval,
-			wantModels:    append([]string{"kept"}, numberedModels(21)...),
-			wantRemoved:   numberedModels(21),
+			wantModels:    append([]string{"kept"}, goneModels(21)...),
+			wantRemoved:   goneModels(21),
 		},
 		{
 			name:            "ignored models stay pending outside the limit",
 			catalogModels:   []string{"kept"},
-			models:          append([]string{"kept", "keep-exact", "keep-re-1", "aliased", "keep-alias"}, numberedModels(20)...),
+			models:          append([]string{"kept", "keep-exact", "keep-re-1", "aliased", "keep-alias"}, goneModels(20)...),
 			mapping:         map[string]string{"aliased": "ignored/target", "keep-alias": "retired/alias-target"},
 			settings:        ignoring,
 			wantModels:      []string{"kept", "keep-exact", "keep-re-1", "aliased", "keep-alias"},
@@ -1427,11 +1486,37 @@ func TestScheduledUpstreamModelUpdateAutoRemoval(t *testing.T) {
 			wantRemoved:   []string{"kept", "gone"},
 		},
 		{
-			name:          "manual detection removes nothing",
+			name:          "same-name replacement under its canonical name stays pending",
+			catalogModels: []string{"anthropic/foo"},
+			models:        []string{"foo"},
+			settings:      autoRemoval,
+			wantModels:    []string{"foo"},
+			wantDetected:  []string{"anthropic/foo"},
+			wantRemoved:   []string{"foo"},
+		},
+		{
+			name:          "auto removal without catalog sync removes nothing",
+			catalogModels: []string{"kept"},
+			models:        []string{"kept", "gone"},
+			settings:      withoutCatalogSync,
+			wantModels:    []string{"kept", "gone"},
+			wantRemoved:   []string{"gone"},
+		},
+		{
+			name:          "detect all removes nothing",
 			catalogModels: []string{"kept"},
 			models:        []string{"kept", "gone"},
 			settings:      autoRemoval,
-			manual:        true,
+			run:           detectAllModelUpdateRun,
+			wantModels:    []string{"kept", "gone"},
+			wantRemoved:   []string{"gone"},
+		},
+		{
+			name:          "detect of one channel removes nothing",
+			catalogModels: []string{"kept"},
+			models:        []string{"kept", "gone"},
+			settings:      autoRemoval,
+			run:           detectChannelModelUpdateRun,
 			wantModels:    []string{"kept", "gone"},
 			wantRemoved:   []string{"gone"},
 		},
@@ -1440,6 +1525,7 @@ func TestScheduledUpstreamModelUpdateAutoRemoval(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupChannelUpstreamUpdateTestDB(t)
 			serveUpstreamCatalog(t, db, &upstreamCatalogStub{models: tc.catalogModels})
+			stubChannelUpstreamModelFetch(t, func(*model.Channel) ([]string, error) { return tc.catalogModels, nil })
 			if tc.published != nil {
 				publishUpstreamCatalogHead(t, db, tc.published)
 			}
@@ -1447,7 +1533,7 @@ func TestScheduledUpstreamModelUpdateAutoRemoval(t *testing.T) {
 			// The catalog publishes the models of OpenRouter channels.
 			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("base_url", "https://openrouter.ai/api").Error)
 
-			summary := runChannelUpstreamModelUpdateTaskOnce(context.Background(), tc.manual, !tc.manual, nil)
+			summary := runModelUpdate(t, db, tc.run, channel.Id)
 
 			require.Zero(t, summary.FailedChannels)
 			assert.Equal(t, tc.wantAutoAdded, summary.AutoAddedModels)
@@ -2264,6 +2350,55 @@ func TestScheduledUpstreamModelUpdateSendsOnlyChangedReports(t *testing.T) {
 	}
 }
 
+// A report whose auto removals over the limit changed, by the ignored models
+// say, is new even when the pending removals stay the same.
+func TestModelUpdateReportFingerprintFollowsRemovalLimitCandidates(t *testing.T) {
+	gone := goneModels(22)
+	report := func(limitCandidates []string) channeldomain.ModelUpdateReport {
+		return channeldomain.ModelUpdateReport{Channels: []channeldomain.ModelUpdateChannelSummary{{ChannelID: 1, PendingRemoveModels: gone, RemovalLimitCandidates: limitCandidates}}}
+	}
+	assert.Equal(t, channeldomain.ModelUpdateReportFingerprint(report(gone[:21])), channeldomain.ModelUpdateReportFingerprint(report(gone[:21])))
+	assert.NotEqual(t, channeldomain.ModelUpdateReportFingerprint(report(gone)), channeldomain.ModelUpdateReportFingerprint(report(gone[:21])))
+	assert.NotEqual(t, channeldomain.ModelUpdateReportFingerprint(report(nil)), channeldomain.ModelUpdateReportFingerprint(report(gone[:21])))
+}
+
+// Every check marks a channel whose auto removals exceed the limit, so a
+// manual check reports it as a scheduled run does; a channel to which auto
+// removal does not apply is not marked.
+func TestDetectModelDeltaMarksAutoRemovalLimit(t *testing.T) {
+	autoRemoval := channeldomain.ModelUpdateState{AutoSyncEnabled: true, AutoRemoveEnabled: true, CatalogSyncEnabled: true}
+	withoutAutoSync, withoutCatalogSync := autoRemoval, autoRemoval
+	withoutAutoSync.AutoSyncEnabled = false
+	withoutCatalogSync.CatalogSyncEnabled = false
+	listed := channeldomain.UpstreamModels{Listed: []string{"kept"}}
+	blocked := channeldomain.UpstreamModels{Listed: []string{"kept"}, AutoApplyBlocked: true}
+	for _, tc := range []struct {
+		name                string
+		state               channeldomain.ModelUpdateState
+		upstreamModels      channeldomain.UpstreamModels
+		allowAutoApply      bool
+		wantLimitCandidates int
+	}{
+		{name: "scheduled run", state: autoRemoval, upstreamModels: listed, allowAutoApply: true, wantLimitCandidates: 21},
+		{name: "manual check", state: autoRemoval, upstreamModels: listed, wantLimitCandidates: 21},
+		{name: "without auto sync", state: withoutAutoSync, upstreamModels: listed, allowAutoApply: true},
+		{name: "without catalog sync", state: withoutCatalogSync, upstreamModels: listed, allowAutoApply: true},
+		{name: "catalog blocked from auto-apply", state: autoRemoval, upstreamModels: blocked, allowAutoApply: true},
+		{name: "empty upstream list", state: autoRemoval, upstreamModels: channeldomain.UpstreamModels{}, allowAutoApply: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			channel := &channeldomain.Channel{Type: constant.ChannelTypeOpenRouter, Models: "kept," + strings.Join(goneModels(21), ",")}
+			state := tc.state
+
+			result, err := app.NewChannelModelUpdateRules(channelstore.NewStore()).DetectModelDelta(channel, &state, tc.upstreamModels, tc.allowAutoApply)
+
+			require.NoError(t, err)
+			assert.Len(t, result.RemovalLimitCandidates, tc.wantLimitCandidates)
+			assert.Empty(t, result.RemovedModels)
+		})
+	}
+}
+
 // A report whose channel became blocked from auto-apply, or was unblocked, is
 // new even when the pending changes stay the same.
 func TestModelUpdateReportFingerprintFollowsAutoApplyBlock(t *testing.T) {
@@ -2276,16 +2411,14 @@ func TestModelUpdateReportFingerprintFollowsAutoApplyBlock(t *testing.T) {
 
 // The report lists the models applied by auto sync and, as a decision, the
 // pending removals of a channel over the auto removal limit. Applied changes
-// are always reported; the exceeded limit is reported once.
+// are always reported; the exceeded limit is reported once, also when a
+// detect-all check or a scheduled run within the check interval comes between.
 func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 	db := setupChannelUpstreamUpdateTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.User{}))
 	require.NoError(t, i18n.Init())
 	t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "0")
-	gone := make([]string, 21)
-	for i := range gone {
-		gone[i] = fmt.Sprintf("gone-%02d", i+1)
-	}
+	gone := goneModels(21)
 	catalog := &upstreamCatalogStub{models: []string{"kept"}}
 	serveUpstreamCatalog(t, db, catalog)
 	settings := dto.ChannelOtherSettings{UpstreamModelUpdateCheckEnabled: true, UpstreamModelUpdateAutoSyncEnabled: true, UpstreamModelUpdateCatalogSyncEnabled: true}
@@ -2305,6 +2438,7 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 	for _, step := range []struct {
 		name          string
 		prepare       func()
+		run           modelUpdateRun
 		wantReports   []string
 		wantRemaining string
 	}{
@@ -2322,7 +2456,7 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 				require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("settings", string(settingsJSON)).Error)
 			},
 			wantReports: []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 0 added, 21 removed, 0 auto-synced additions, 0 failed.\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+0 / -21)\n\n" + removalSamples +
-				"\n\nNeeds decision — more than 20 models to remove, nothing removed (showing 12/21): gone-01 (upstream-sync-test), gone-02 (upstream-sync-test), gone-03 (upstream-sync-test), gone-04 (upstream-sync-test), gone-05 (upstream-sync-test), gone-06 (upstream-sync-test), gone-07 (upstream-sync-test), gone-08 (upstream-sync-test), gone-09 (upstream-sync-test), gone-10 (upstream-sync-test), gone-11 (upstream-sync-test), gone-12 (upstream-sync-test) (9 more omitted)"},
+				"\n\nNeeds decision — more than 20 models to remove, nothing removed: upstream-sync-test (21)"},
 			wantRemaining: "kept," + strings.Join(gone, ","),
 		},
 		{
@@ -2330,8 +2464,21 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 			wantRemaining: "kept," + strings.Join(gone, ","),
 		},
 		{
-			name:    "twenty removals are applied",
-			prepare: func() { catalog.models = []string{"kept", "gone-01"} },
+			name:          "a detect-all check keeps the exceeded limit",
+			run:           detectAllModelUpdateRun,
+			wantRemaining: "kept," + strings.Join(gone, ","),
+		},
+		{
+			name:          "a scheduled run within the check interval keeps the exceeded limit",
+			prepare:       func() { t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "3600") },
+			wantRemaining: "kept," + strings.Join(gone, ","),
+		},
+		{
+			name: "twenty removals are applied",
+			prepare: func() {
+				t.Setenv("CHANNEL_UPSTREAM_MODEL_UPDATE_MIN_CHECK_INTERVAL_SECONDS", "0")
+				catalog.models = []string{"kept", "gone-01"}
+			},
 			wantReports: []string{subject + "Upstream model check summary: checked 1 channels, 1 changed, 0 added, 20 removed, 0 auto-synced additions, 0 failed.\n\nChanged channels (showing 1/1):\n- upstream-sync-test (+0 / -20)" +
 				"\n\nRemoved by auto sync (showing 12/20): gone-02 (upstream-sync-test), gone-03 (upstream-sync-test), gone-04 (upstream-sync-test), gone-05 (upstream-sync-test), gone-06 (upstream-sync-test), gone-07 (upstream-sync-test), gone-08 (upstream-sync-test), gone-09 (upstream-sync-test), gone-10 (upstream-sync-test), gone-11 (upstream-sync-test), gone-12 (upstream-sync-test), gone-13 (upstream-sync-test) (8 more omitted)"},
 			wantRemaining: "kept,gone-01",
@@ -2360,7 +2507,7 @@ func TestScheduledUpstreamModelUpdateReportsAutoRemoval(t *testing.T) {
 		}
 		reports = nil
 
-		runChannelUpstreamModelUpdateTaskOnce(context.Background(), false, true, nil)
+		runModelUpdate(t, db, step.run, channel.Id)
 
 		assert.Equal(t, step.wantReports, reports, step.name)
 		persisted, _ := loadChannelUpstreamUpdateTestState(t, db, channel.Id)
