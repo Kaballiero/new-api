@@ -2,6 +2,7 @@ package relay
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -138,6 +139,12 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		if info.NativeImage != nil {
+			// A billing refusal, such as a wallet or API key shortfall, keeps
+			// the status and code it has on every other channel.
+			var billingErr *types.NewAPIError
+			if errors.As(err, &billingErr) {
+				return billingErr
+			}
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeDoRequestFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 		}
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
