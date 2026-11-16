@@ -700,3 +700,164 @@ func TestOpenRouterGeminiNativeRelay(t *testing.T) {
 		})
 	}
 }
+
+// An OpenRouter reserve the wallet or the API key does not cover answers every
+// client format as the pre-consume shortfall of any other channel does: 403
+// with the billing code and message, before any paid call and without retry.
+// A genuine pricing failure stays 400 model_price_error.
+func TestOpenRouterReserveShortfallAnswersLikeOtherChannels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	httpclient.InitHttpClient()
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMemory, previousRedis, previousBatch := common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled
+	previousConsume, previousError := common.LogConsumeEnabled, constant.ErrorLogEnabled
+	previousCount, previousRetries := constant.CountToken, common.RetryTimes
+	previousPrices := ratio_setting.ModelPrice2JSONString()
+	general := operation_setting.GetGeneralSetting()
+	previousRate, previousDisplay := general.CustomCurrencyExchangeRate, general.QuotaDisplayType
+	previousUnit := common.QuotaPerUnit
+	previousMain, previousLog, previousKey := common.MainDatabaseType(), common.LogDatabaseType(), model.KeyColumn
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error { savedConfig[key] = value; return nil }))
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB, model.KeyColumn = previousDB, previousLogDB, previousKey
+		common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = previousMemory, previousRedis, previousBatch
+		common.LogConsumeEnabled, constant.ErrorLogEnabled = previousConsume, previousError
+		constant.CountToken, common.RetryTimes = previousCount, previousRetries
+		general.CustomCurrencyExchangeRate, general.QuotaDisplayType = previousRate, previousDisplay
+		common.QuotaPerUnit = previousUnit
+		common.SetDatabaseTypes(previousMain, previousLog)
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices))
+	})
+	common.MemoryCacheEnabled, common.RedisEnabled, common.BatchUpdateEnabled = false, false, false
+	common.LogConsumeEnabled, constant.ErrorLogEnabled = true, false
+	constant.CountToken, common.RetryTimes = false, 3
+	common.QuotaPerUnit = 500000
+	general.CustomCurrencyExchangeRate, general.QuotaDisplayType = 100, operation_setting.QuotaDisplayTypeTokens
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	model.KeyColumn = "`key`"
+	const textModel = "vendor/text-fixture"
+	const imageModel = "black-forest-labs/flux.2-pro"
+	const funded = 1000000
+	type clientFormat struct {
+		format      types.RelayFormat
+		path, body  string
+		model       string
+		channelType int
+	}
+	chat := clientFormat{types.RelayFormatOpenAI, "/v1/chat/completions", `{"model":"vendor/text-fixture","messages":[{"role":"user","content":"hi"}],"max_tokens":16}`, textModel, constant.ChannelTypeOpenRouter}
+	responses := clientFormat{types.RelayFormatOpenAIResponses, "/v1/responses", `{"model":"vendor/text-fixture","input":"hi","max_output_tokens":16}`, textModel, constant.ChannelTypeOpenRouter}
+	messages := clientFormat{types.RelayFormatClaude, "/v1/messages", `{"model":"vendor/text-fixture","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`, textModel, constant.ChannelTypeOpenRouter}
+	gemini := clientFormat{types.RelayFormatGemini, "/v1beta/models/vendor/text-fixture:generateContent", `{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":16}}`, textModel, constant.ChannelTypeOpenRouter}
+	images := clientFormat{types.RelayFormatOpenAIImage, "/v1/images/generations", `{"model":"black-forest-labs/flux.2-pro","prompt":"a red square"}`, imageModel, constant.ChannelTypeOpenRouter}
+	// The same chat request on a fixed-price OpenAI channel is the reference
+	// pre-consume shortfall that OpenRouter must match.
+	otherChannel := clientFormat{types.RelayFormatOpenAI, "/v1/chat/completions", chat.body, textModel, constant.ChannelTypeOpenAI}
+	for _, tc := range []struct {
+		name           string
+		client         clientFormat
+		walletQuota    int
+		tokenQuota     int
+		metadataStatus int
+		status         int
+		body           string
+	}{
+		{name: "chat/wallet", client: chat, walletQuota: 5, tokenQuota: funded, status: 403,
+			body: `{"error":{"message":"Insufficient balance: the request needs 70, the balance is 5 (request id: shortfall)","type":"new_api_error","param":"","code":"insufficient_user_quota"}}`},
+		{name: "chat/token", client: chat, walletQuota: funded, tokenQuota: 5, status: 403,
+			body: `{"error":{"message":"Insufficient API key spending limit: the request needs 70, the API key has 5 left (request id: shortfall)","type":"new_api_error","param":"","code":"pre_consume_token_quota_failed"}}`},
+		{name: "responses/wallet", client: responses, walletQuota: 5, tokenQuota: funded, status: 403,
+			body: `{"error":{"message":"Insufficient balance: the request needs 54, the balance is 5 (request id: shortfall)","type":"new_api_error","param":"","code":"insufficient_user_quota"}}`},
+		{name: "responses/token", client: responses, walletQuota: funded, tokenQuota: 5, status: 403,
+			body: `{"error":{"message":"Insufficient API key spending limit: the request needs 54, the API key has 5 left (request id: shortfall)","type":"new_api_error","param":"","code":"pre_consume_token_quota_failed"}}`},
+		{name: "messages/wallet", client: messages, walletQuota: 5, tokenQuota: funded, status: 403,
+			body: `{"type":"error","error":{"type":"new_api_error","message":"Insufficient balance: the request needs 70, the balance is 5 (request id: shortfall)"}}`},
+		{name: "messages/token", client: messages, walletQuota: funded, tokenQuota: 5, status: 403,
+			body: `{"type":"error","error":{"type":"new_api_error","message":"Insufficient API key spending limit: the request needs 70, the API key has 5 left (request id: shortfall)"}}`},
+		{name: "gemini/wallet", client: gemini, walletQuota: 5, tokenQuota: funded, status: 403,
+			body: `{"error":{"code":403,"message":"Insufficient balance: the request needs 74, the balance is 5 (request id: shortfall)","status":"PERMISSION_DENIED"}}`},
+		{name: "gemini/token", client: gemini, walletQuota: funded, tokenQuota: 5, status: 403,
+			body: `{"error":{"code":403,"message":"Insufficient API key spending limit: the request needs 74, the API key has 5 left (request id: shortfall)","status":"PERMISSION_DENIED"}}`},
+		{name: "images/wallet", client: images, walletQuota: 5, tokenQuota: funded, status: 403,
+			body: `{"error":{"message":"Failed to reserve quota, remaining user quota: 5, required quota: 40000 (request id: shortfall)","type":"new_api_error","param":"","code":"insufficient_user_quota"}}`},
+		{name: "images/token", client: images, walletQuota: funded, tokenQuota: 5, status: 403,
+			body: `{"error":{"message":"token quota is not enough, token remain quota: 5, need quota: 40000 (request id: shortfall)","type":"new_api_error","param":"","code":"pre_consume_token_quota_failed"}}`},
+		{name: "other channel/wallet", client: otherChannel, walletQuota: 5, tokenQuota: funded, status: 403,
+			body: `{"error":{"message":"Failed to reserve quota, remaining user quota: 5, required quota: 30000 (request id: shortfall)","type":"new_api_error","param":"","code":"insufficient_user_quota"}}`},
+		{name: "other channel/token", client: otherChannel, walletQuota: funded, tokenQuota: 5, status: 403,
+			body: `{"error":{"message":"token quota is not enough, token remain quota: 5, need quota: 30000 (request id: shortfall)","type":"new_api_error","param":"","code":"pre_consume_token_quota_failed"}}`},
+		{name: "chat/pricing error", client: chat, walletQuota: funded, tokenQuota: funded, metadataStatus: 404, status: 400,
+			body: `{"error":{"message":"OpenRouter pricing discovery HTTP 404 (request id: shortfall)","type":"new_api_error","param":"","code":"model_price_error"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			require.NoError(t, err)
+			sqlDB, err := database.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+			require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Log{}, &model.ModelCostFXRow{}))
+			model.DB, model.LOG_DB = database, database
+			fxseed.SeedNativeRouteFX(t, database)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				"billing_setting.billing_mode": `{}`, "billing_setting.billing_expr": `{}`,
+				"group_ratio_setting.group_ratio": `{"default":2}`, "group_ratio_setting.group_group_ratio": `{}`,
+			}))
+			require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"vendor/text-fixture":0.03}`))
+			require.NoError(t, database.Create(&model.User{Id: 7, Username: "shortfall-owner", Group: "default", Quota: tc.walletQuota}).Error)
+			require.NoError(t, database.Create(&model.Token{Id: 11, UserId: 7, Key: "fixture-token", Name: "shortfall-token", RemainQuota: tc.tokenQuota}).Error)
+			var posts atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method != http.MethodGet {
+					posts.Add(1)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				if tc.metadataStatus != 0 {
+					w.WriteHeader(tc.metadataStatus)
+					return
+				}
+				if strings.HasPrefix(r.URL.Path, "/v1/images/") {
+					_, _ = fmt.Fprintf(w, `{"id":%q,"endpoints":[{"provider_tag":"fixture","supported_parameters":{"n":{"type":"range","min":1,"max":4}},"pricing":[{"billable":"output_image","unit":"image","cost_usd":0.04}]}]}`, imageModel)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"data":{"id":%q,"endpoints":[{"tag":"fixture","context_length":128000,"max_completion_tokens":128,"pricing":{"prompt":"0.000001","completion":"0.000002"}}]}}`, textModel)
+			}))
+			t.Cleanup(upstream.Close)
+			selected := model.Channel{Id: 21, Type: tc.client.channelType, Name: "fixture-channel", Key: "fixture-provider", BaseURL: &upstream.URL, Status: common.ChannelStatusEnabled, Models: tc.client.model, Group: "default"}
+			require.NoError(t, database.Create(&selected).Error)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, tc.client.path, strings.NewReader(tc.client.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			common.SetContextKey(c, common.RequestIdKey, "shortfall")
+			common.SetContextKey(c, constant.ContextKeyUserId, 7)
+			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUsingGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyTokenGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUserQuota, tc.walletQuota)
+			common.SetContextKey(c, constant.ContextKeyUserSetting, dto.UserSetting{BillingPreference: "wallet_only"})
+			common.SetContextKey(c, constant.ContextKeyTokenId, 11)
+			common.SetContextKey(c, constant.ContextKeyTokenKey, "fixture-token")
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, tc.client.model)
+			c.Set("username", "shortfall-owner")
+			c.Set("token_name", "shortfall-token")
+			require.Nil(t, middleware.SetupContextForSelectedChannel(c, &selected, tc.client.model))
+
+			Relay(c, tc.client.format)
+
+			require.Equal(t, tc.status, recorder.Code, recorder.Body.String())
+			assert.JSONEq(t, tc.body, recorder.Body.String())
+			assert.Zero(t, posts.Load(), "the refusal precedes the paid call")
+			assert.LessOrEqual(t, len(c.GetStringSlice("use_channel")), 1, "a refusal is not retried on another channel")
+			var user model.User
+			var token model.Token
+			require.NoError(t, database.First(&user, 7).Error)
+			require.NoError(t, database.First(&token, 11).Error)
+			assert.Equal(t, tc.walletQuota, user.Quota, "a refusal holds nothing")
+			assert.Equal(t, tc.tokenQuota, token.RemainQuota, "a refusal holds nothing")
+		})
+	}
+}

@@ -829,6 +829,12 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		}
 		prepared, err := openrouter.PrepareRequest(c, info, a, requestBody, operation)
 		if err != nil {
+			// A billing refusal, such as a wallet or API key shortfall, keeps
+			// the status and code it has on every other channel.
+			var billingErr *types.NewAPIError
+			if errors.As(err, &billingErr) {
+				return nil, billingErr
+			}
 			return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		requestBody = prepared
