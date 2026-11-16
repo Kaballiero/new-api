@@ -139,6 +139,7 @@ func (usecase Usecase) Execute(ctx context.Context, force bool, allowAutoApply b
 	removeModelSamples := make([]string, 0)
 	conflictModels := make([]domain.ModelUpdateConflict, 0)
 	refreshNeeded := false
+	channelQueryFailed := false
 
 	// Count the enabled channels up front so progress can be reported as a
 	// percentage; a count error is non-fatal (progress just won't show a %).
@@ -159,6 +160,7 @@ scanLoop:
 
 		if err != nil {
 			usecase.log(fmt.Sprintf("upstream model update task query failed: %v", err))
+			channelQueryFailed = true
 			break
 		}
 		if len(channels) == 0 {
@@ -274,9 +276,10 @@ scanLoop:
 			autoAddedModels,
 		))
 	}
-	// An interrupted scan has not seen every channel: its report is not sent
-	// and the fingerprint of the last delivered report stays.
-	if ctx != nil && ctx.Err() != nil {
+	// A scan that stopped early, cancelled or on a failed channel query, has
+	// not seen every channel: its report is not sent and the fingerprint of the
+	// last delivered report stays.
+	if channelQueryFailed || (ctx != nil && ctx.Err() != nil) {
 		return summary
 	}
 	sentFingerprint, err := usecase.sentReports.ReadOption(ctx, sentReportFingerprintKey)
