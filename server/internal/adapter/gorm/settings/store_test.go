@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,7 +37,12 @@ func TestOptionsPersistence(t *testing.T) {
 				}
 				config, err := sqlmysql.ParseDSN(dsn)
 				require.NoError(t, err)
-				admin, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+				require.Equal(t, "tcp", config.Net)
+				host, _, err := net.SplitHostPort(config.Addr)
+				require.NoError(t, err)
+				require.True(t, net.ParseIP(host).IsLoopback(), "database tests only permit loopback instances")
+				config.DBName = ""
+				admin, err := gorm.Open(mysql.Open(config.FormatDSN()), &gorm.Config{})
 				require.NoError(t, err)
 				config.DBName = fmt.Sprintf("options_%d", time.Now().UnixNano())
 				require.NoError(t, admin.Exec("CREATE DATABASE "+config.DBName+" CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci").Error)
