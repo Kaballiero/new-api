@@ -30,6 +30,7 @@ import (
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/enqueue_catalogue_refresh"
 	"github.com/QuantumNous/new-api/internal/pricing/fetch_upstream_ratios"
+	"github.com/QuantumNous/new-api/internal/pricing/get_catalog_freshness"
 	"github.com/QuantumNous/new-api/internal/pricing/get_group_pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/get_model_pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/get_personal_pricing"
@@ -151,6 +152,7 @@ type PricingEffects struct {
 // configuration and the upstream ratio sync.
 type PricingHTTP struct {
 	ListUnbillableModels list_unbillable_models.HTTP
+	GetCatalogFreshness  get_catalog_freshness.HTTP
 	GetPricing           get_pricing.HTTP
 	GetPersonalPricing   get_personal_pricing.HTTP
 	GetGroupPricing      get_group_pricing.HTTP
@@ -176,6 +178,7 @@ func NewPricingHTTP(effects PricingEffects) PricingHTTP {
 	channels := newPricingRatioChannels()
 	return PricingHTTP{
 		ListUnbillableModels: list_unbillable_models.NewHTTP(list_unbillable_models.NewUsecase(pricingadapter.Capabilities(), reader, projection)),
+		GetCatalogFreshness:  get_catalog_freshness.NewHTTP(get_catalog_freshness.NewUsecase(&pricingruntime.UpstreamCatalogTariffs, time.Now, pricingruntime.CatalogMaxAge)),
 		GetPricing:           get_pricing.NewHTTP(get_pricing.NewUsecase(reader)),
 		GetPersonalPricing:   get_personal_pricing.NewHTTP(newPersonalPricingUsecase(reader, projection), catalogsync.ModelTypes),
 		GetGroupPricing:      get_group_pricing.NewHTTP(newGroupPricingUsecase(reader, projection), catalogsync.ModelTypes),
