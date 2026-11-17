@@ -196,3 +196,31 @@ func TestTaskLogDTOShowsOpenRouterSyncReconciliationToAdminsOnly(t *testing.T) {
 	assert.NotContains(t, string(adminJSON), "gen-private")
 	assert.NotContains(t, string(adminJSON), "credential-hash-canary")
 }
+
+func TestTaskAdminInfoExposesOpenRouterOrderFactsToAdminsOnly(t *testing.T) {
+	facts := map[string]any{
+		"reservation_source": "catalog_stale",
+		"reservation":        map[string]any{"source": "approximate_media", "model": "google/veo-3.1", "usd": 1.5, "hard_bound": false},
+	}
+	task := &domain.Task{
+		TaskID:   "task_openrouter_video",
+		Platform: "openrouter-video",
+		PrivateData: domain.TaskPrivateData{BillingContext: &domain.TaskBillingContext{
+			SettlementMode:       domain.TaskSettlementOpenRouterCostV2,
+			OpenRouterCost:       &billingdomain.ProviderBasis{},
+			OpenRouterOrderFacts: facts,
+		}},
+	}
+
+	adminView := domain.ProjectTaskView(task, domain.Visibility{Admin: true}, nil)
+	require.NotNil(t, adminView.AdminInfo)
+	adminJSON, err := common.Marshal(adminView)
+	require.NoError(t, err)
+	assert.Contains(t, string(adminJSON), `"openrouter_order_facts":{"reservation":{"hard_bound":false,"model":"google/veo-3.1","source":"approximate_media","usd":1.5},"reservation_source":"catalog_stale"}`)
+
+	userView := domain.ProjectTaskView(task, domain.Visibility{}, nil)
+	assert.Nil(t, userView.AdminInfo)
+	userJSON, err := common.Marshal(userView)
+	require.NoError(t, err)
+	assert.NotContains(t, string(userJSON), "reservation_source")
+}

@@ -31,7 +31,7 @@ type liveTariffs struct {
 func (live liveTariffs) Discover(model string) (pricingdomain.NativeEndpointResponse, error) {
 	_, cached := live.estimator.Models[model]
 	if !cached && live.estimator.c == nil {
-		return pricingdomain.NativeEndpointResponse{}, fmt.Errorf("OpenRouter endpoint discovery missing for %s", model)
+		return pricingdomain.NativeEndpointResponse{}, fmt.Errorf("%w for %s", pricingdomain.ErrEndpointDiscoveryMissing, model)
 	}
 	if err := live.estimator.Discover(live.estimator.c, live.info, live.estimator.adaptor, model); err != nil {
 		return pricingdomain.NativeEndpointResponse{}, err
@@ -39,9 +39,19 @@ func (live liveTariffs) Discover(model string) (pricingdomain.NativeEndpointResp
 	discovered := live.estimator.Models[model]
 	endpoints := make([]pricingdomain.NativePricedEndpoint, len(discovered))
 	for i, endpoint := range discovered {
-		endpoints[i] = pricingdomain.NativePricedEndpoint(endpoint)
+		endpoints[i] = endpoint.Tariff()
 	}
 	return pricingdomain.NativeEndpointResponse{ID: model, Endpoints: endpoints, OutputModalities: live.estimator.OutputModalities[model]}, nil
+}
+
+// Tariff is the endpoint tariff of a live endpoint; live publishes no unit
+// prices.
+func (endpoint PricedEndpoint) Tariff() pricingdomain.NativePricedEndpoint {
+	return pricingdomain.NativePricedEndpoint{
+		Status: endpoint.Status, ModelID: endpoint.ModelID, Tag: endpoint.Tag,
+		ContextLength: endpoint.ContextLength, MaxPromptTokens: endpoint.MaxPromptTokens, MaxCompletionTokens: endpoint.MaxCompletionTokens,
+		Quantization: endpoint.Quantization, SupportedParameters: endpoint.SupportedParameters, Pricing: endpoint.Pricing,
+	}
 }
 
 // Bind sets the request and the adaptor the estimates discover the live

@@ -29,6 +29,8 @@ export const modelsQueryKeys = {
   detail: (id: number) => [...modelsQueryKeys.all, 'detail', id] as const,
   missing: () => [...modelsQueryKeys.all, 'missing'] as const,
   unbillable: () => [...modelsQueryKeys.all, 'unbillable'] as const,
+  catalogFreshness: () =>
+    [...modelsQueryKeys.all, 'catalog-freshness'] as const,
 }
 
 /**

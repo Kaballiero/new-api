@@ -37,6 +37,7 @@ import {
 import { useCanEditModelPricing } from '@/features/model-pricing/api'
 
 import { useUnbillableModels } from '../hooks/use-unbillable-models'
+import { CatalogFreshnessBadge } from './catalog-freshness-badge'
 import { useModels } from './models-provider'
 
 export function ModelsPrimaryButtons() {
@@ -65,6 +66,7 @@ export function ModelsPrimaryButtons() {
 
   return (
     <div className='flex flex-wrap items-center gap-2'>
+      <CatalogFreshnessBadge />
       {unbillableCount > 0 && (
         <Button
           onClick={() => setOpen('unbillable-models')}

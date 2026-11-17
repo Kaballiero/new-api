@@ -31,6 +31,7 @@ import type {
   PreviewUpstreamDiffResponse,
   MissingModelsResponse,
   UnbillableModelsResponse,
+  CatalogFreshnessResponse,
   PrefillGroupsResponse,
   SyncLocale,
   SyncSource,
@@ -246,6 +247,14 @@ export async function getMissingModels(): Promise<MissingModelsResponse> {
  */
 export async function getUnbillableModels(): Promise<UnbillableModelsResponse> {
   const res = await api.get('/api/models/unbillable')
+  return res.data
+}
+
+/**
+ * Get the age of the published upstream catalog OpenRouter reserves price from
+ */
+export async function getCatalogFreshness(): Promise<CatalogFreshnessResponse> {
+  const res = await api.get('/api/models/catalog_freshness')
   return res.data
 }
 

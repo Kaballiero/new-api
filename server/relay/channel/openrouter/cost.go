@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	tokenusage "github.com/QuantumNous/new-api/gateway/tokenusage"
+	pricingdomain "github.com/QuantumNous/new-api/internal/pricing/domain"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	billinggateway "github.com/QuantumNous/new-api/relay/billing"
@@ -137,50 +138,7 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	}
 	estimator := NewRequestEstimator()
 	estimator.Bind(c, adaptor)
-	models, err := ModelsFromRequest(body)
-	if err != nil {
-		return nil, err
-	}
-	for _, model := range models {
-		if info.ChannelMeta == nil {
-			continue
-		}
-		source, configured := info.ChannelSetting.OpenRouterReservationSource[model]
-		if configured && source != dto.OpenRouterReservationUpstream && source != dto.OpenRouterReservationConfiguredPrice {
-			return nil, errors.New("invalid OpenRouter reservation source")
-		}
-		if source == dto.OpenRouterReservationConfiguredPrice && len(models) != 1 {
-			return nil, errors.New("OpenRouter configured price reserve only supports one nonstream text chat response")
-		}
-	}
-	var local *helper.ModelReservationEstimate
-	if len(models) == 1 && info.ChannelMeta != nil {
-		source := info.ChannelSetting.OpenRouterReservationSource[models[0]]
-		if source == dto.OpenRouterReservationConfiguredPrice {
-			completionTokens := 0
-			if meta != nil {
-				completionTokens = meta.MaxTokens
-			}
-			input := billingexpr.RequestInput{Body: body, Headers: info.RequestHeaders, EvaluatedAt: time.Now().UTC()}
-			var unavailableVars []string
-			promptTokens := max(info.GetEstimatePromptTokens(), tokenusage.CountTextToken(string(body), models[0]))
-			if operation == "audio/transcriptions" || operation == "decisions" || operation == "rerank" {
-				promptTokens = 0
-				unavailableVars = []string{"p", "c", "len"}
-			}
-			value, err := helper.EstimateConfiguredModelReservation(info.GetBillingModelName(), promptTokens, completionTokens, input, unavailableVars...)
-			if err != nil {
-				return nil, err
-			}
-			local = &value
-		}
-	}
-	var estimate float64
-	if local != nil {
-		estimate, err = estimator.EstimateWithLocalPrice(info, body, operation, local.USD)
-	} else {
-		estimate, err = estimator.Estimate(info, body, operation)
-	}
+	estimate, local, err := EstimateRequestReserve(estimator, info, body, operation, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -190,18 +148,17 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 		info.OpenRouterCost.ConfiguredReserveModel = local.Model
 		info.OpenRouterCost.ConfiguredReserveExprHash = local.ExprHash
 	}
-	if reserve := info.ChannelSetting.OpenRouterReserveUSD(estimator.ReserveModel); reserve != nil {
-		switch estimator.ReserveUse {
-		case ReserveWholeHold:
-			info.OpenRouterCost.ApproximateReserveUSD = reserve
-			info.OpenRouterCost.ApproximateReserveModel = estimator.ReserveModel
-			if estimator.ReserveModel == "perplexity/sonar-deep-research" {
-				info.OpenRouterCost.ApproximateResearchReserveUSD = common.GetPointer(*reserve)
-			}
-		case ReserveAddOn:
-			info.OpenRouterCost.AddOnReserveUSD = reserve
-			info.OpenRouterCost.AddOnReserveModel = estimator.ReserveModel
+	reserve := info.ChannelSetting.OpenRouterReserveUSD(estimator.ReserveModel)
+	switch policy := estimator.AdmissionPolicy(&info.ChannelSetting); policy {
+	case pricingdomain.AdmissionPolicyModelApproximateReserve, pricingdomain.AdmissionPolicySonarResearchApproximateReserve:
+		info.OpenRouterCost.ApproximateReserveUSD = reserve
+		info.OpenRouterCost.ApproximateReserveModel = estimator.ReserveModel
+		if policy == pricingdomain.AdmissionPolicySonarResearchApproximateReserve {
+			info.OpenRouterCost.ApproximateResearchReserveUSD = common.GetPointer(*reserve)
 		}
+	case pricingdomain.AdmissionPolicyModelReserveAddOn:
+		info.OpenRouterCost.AddOnReserveUSD = reserve
+		info.OpenRouterCost.AddOnReserveModel = estimator.ReserveModel
 	}
 	var output struct {
 		Modalities []string `json:"modalities"`
@@ -218,17 +175,17 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	if info.OpenRouterCost.BufferedAudio {
 		info.OpenRouterCost.ChatImage = false
 	}
-	// A chat completion defers a missing cost in every client format. A
-	// Responses client defers only streams; its nonstream response keeps
-	// requiring a terminal usage.cost.
+	// A chat completion defers a missing cost in every client format, as do a
+	// Responses response and a legacy completion, streamed or not.
 	textOutput := !info.OpenRouterCost.ChatImage && !info.OpenRouterCost.BufferedAudio
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		info.OpenRouterCost.ChatText = textOutput && operation == "chat/completions" && info.RelayMode == relayconstant.RelayModeChatCompletions
+		info.OpenRouterCost.ChatText = textOutput && (operation == "chat/completions" && info.RelayMode == relayconstant.RelayModeChatCompletions ||
+			operation == "completions" && info.RelayMode == relayconstant.RelayModeCompletions)
 	case types.RelayFormatClaude, types.RelayFormatGemini:
 		info.OpenRouterCost.ChatText = textOutput && operation == "chat/completions"
 	case types.RelayFormatOpenAIResponses:
-		info.OpenRouterCost.ChatText = textOutput && info.IsStream && operation == "responses" && info.RelayMode == relayconstant.RelayModeResponses
+		info.OpenRouterCost.ChatText = textOutput && operation == "responses" && info.RelayMode == relayconstant.RelayModeResponses
 	}
 	if info.OpenRouterCost.ChatImage {
 		info.OpenRouterCost.RoutingHash = fmt.Sprintf("%x", sha256.Sum256(routing))
@@ -248,6 +205,62 @@ func PrepareRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor channel
 	}
 
 	return bytes.NewReader(originalBody), nil
+}
+
+// EstimateRequestReserve prices the reserve of an OpenRouter request as
+// admission does: it checks the reservation source of every routable model,
+// prices a configured_price source of a single model from its configured price
+// and takes the estimate of the estimator. The configured price estimate is
+// nil without a configured_price source.
+func EstimateRequestReserve(estimator *RequestEstimator, info *relaycommon.RelayInfo, body []byte, operation string, meta *types.TokenCountMeta) (float64, *helper.ModelReservationEstimate, error) {
+	models, err := ModelsFromRequest(body)
+	if err != nil {
+		return 0, nil, err
+	}
+	for _, model := range models {
+		if info.ChannelMeta == nil {
+			continue
+		}
+		source, configured := info.ChannelSetting.OpenRouterReservationSource[model]
+		if configured && source != dto.OpenRouterReservationUpstream && source != dto.OpenRouterReservationConfiguredPrice {
+			return 0, nil, errors.New("invalid OpenRouter reservation source")
+		}
+		if source == dto.OpenRouterReservationConfiguredPrice && len(models) != 1 {
+			return 0, nil, errors.New("OpenRouter configured price reserve only supports one nonstream text chat response")
+		}
+	}
+	var local *helper.ModelReservationEstimate
+	if len(models) == 1 && info.ChannelMeta != nil {
+		source := info.ChannelSetting.OpenRouterReservationSource[models[0]]
+		if source == dto.OpenRouterReservationConfiguredPrice {
+			completionTokens := 0
+			if meta != nil {
+				completionTokens = meta.MaxTokens
+			}
+			input := billingexpr.RequestInput{Body: body, Headers: info.RequestHeaders, EvaluatedAt: time.Now().UTC()}
+			var unavailableVars []string
+			promptTokens := max(info.GetEstimatePromptTokens(), tokenusage.CountTextToken(string(body), models[0]))
+			if operation == "audio/transcriptions" || operation == "decisions" || operation == "rerank" {
+				promptTokens = 0
+				unavailableVars = []string{"p", "c", "len"}
+			}
+			value, err := helper.EstimateConfiguredModelReservation(info.GetBillingModelName(), promptTokens, completionTokens, input, unavailableVars...)
+			if err != nil {
+				return 0, nil, err
+			}
+			local = &value
+		}
+	}
+	var estimate float64
+	if local != nil {
+		estimate, err = estimator.EstimateWithLocalPrice(info, body, operation, local.USD)
+	} else {
+		estimate, err = estimator.Estimate(info, body, operation)
+	}
+	if err != nil {
+		return 0, nil, err
+	}
+	return estimate, local, nil
 }
 
 // configureGenerationLookup binds the Task to this account's generation

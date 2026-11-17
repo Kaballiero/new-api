@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/i18n"
+	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,8 @@ func TestWriteErrorKeepsLegacyResponses(t *testing.T) {
 		{"channel query", domain.ErrChannelQueryFailed, `{"success":false,"message":"Failed to query channel"}`, http.StatusInternalServerError},
 		{"model unavailable", domain.ErrModelPricingUnavailable, `{"success":false,"message":"model pricing is unavailable"}`, http.StatusNotFound},
 		{"no upstreams", domain.ErrNoUpstreams, `{"success":false,"message":"No valid upstream channel"}`, http.StatusOK},
+		{"channel not found", channeldomain.ErrChannelNotFound, `{"success":false,"code":"channel_not_found","message":"Channel does not exist"}`, http.StatusNotFound},
+		{"channel not openrouter", domain.ErrChannelNotOpenRouter, `{"success":false,"message":"The channel is not an OpenRouter channel"}`, http.StatusBadRequest},
 		{"public unavailable", domain.ErrPublicPricingUnavailable, `{"success":false,"message":"failed to resolve public pricing"}`, http.StatusServiceUnavailable},
 		{"plain", fmt.Errorf("failed to resolve pricing catalog revision"), `{"success":false,"message":"failed to resolve pricing catalog revision"}`, http.StatusServiceUnavailable},
 	}

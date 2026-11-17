@@ -3,6 +3,7 @@ package openrouter
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -67,6 +68,10 @@ const (
 	ReserveWholeHold
 	ReserveAddOn
 )
+
+// SonarResearchModel is the model the legacy Sonar research reserve
+// (openrouter_sonar_research_reserve_usd) applies to.
+const SonarResearchModel = "perplexity/sonar-deep-research"
 
 // RequestEstimator is request-scoped discovery, reused for all items in a
 // batch. It deliberately has no global cache or routing lifecycle. Models and
@@ -227,11 +232,14 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if audioOutput && (!request.Stream || !info.IsStream) {
 		return 0, errors.New("OpenRouter Chat audio output requires streaming")
 	}
+	speech := operation == "audio/speech"
 	if dedicatedAudio {
-		if localUSD == nil && reserveUSD == nil || info.RelayFormat != types.RelayFormatOpenAIAudio {
+		// Speech is priced from the catalog unit prices; transcription only by
+		// a configured price or a channel reserve.
+		if localUSD == nil && reserveUSD == nil && !speech || info.RelayFormat != types.RelayFormatOpenAIAudio {
 			return 0, errors.New("OpenRouter audio endpoint requires configured_price or an explicit approximate channel reserve (not a spending limit) and OpenAI Audio format")
 		}
-		if operation == "audio/speech" {
+		if speech {
 			modalities = []string{"speech"}
 		} else {
 			modalities = []string{"transcription"}
@@ -330,7 +338,7 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		}
 		reserveUSD = &minimum
 	}
-	sonarModel := request.Model == "perplexity/sonar-deep-research"
+	sonarModel := request.Model == SonarResearchModel
 	if reserveUSD != nil && (math.IsNaN(*reserveUSD) || math.IsInf(*reserveUSD, 0) || *reserveUSD < 0 || *reserveUSD == 0 && localUSD == nil) {
 		return 0, errors.New("invalid OpenRouter approximate reserve")
 	}
@@ -377,6 +385,13 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if info.ChannelMeta != nil {
 		channelBaseURL = info.ChannelBaseUrl
 	}
+	var units map[pricingdomain.PriceDimension]int64
+	if speech {
+		units, err = speechUnits(body, request.Model)
+		if err != nil {
+			return 0, err
+		}
+	}
 	estimate, err := e.reserve.Execute(estimate_upstream_reserve.Input{
 		Model:          request.Model,
 		Models:         models,
@@ -398,9 +413,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		Modalities:            modalities,
 		TextOutput:            textOutput,
 		ImageOutput:           imageOutput,
-		Audio:                 audioOutput || dedicatedAudio,
+		Audio:                 audioOutput || dedicatedAudio && !speech,
 		Decisions:             decisions,
 		Rerank:                rerank,
+		Units:                 units,
 		ImageReserveOnly:      imageReserveOnly,
 		ConfiguredPrice:       localUSD != nil,
 		PromptTokens:          prompt,
@@ -426,7 +442,13 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		outputReserve.OutputPriceUSD, outputReserve.OutputTokens = estimate.OutputPriceUSD, estimate.OutputTokens
 	}
 	if estimate.StaleCatalog {
-		logger.LogWarn(e.c, "OpenRouter reserve priced from a stale upstream catalog: model=%s batch=%t", request.Model, batch)
+		// An estimator without a bound request logs without a request context:
+		// a nil *gin.Context is not a usable context.Context.
+		var ctx context.Context
+		if e.c != nil {
+			ctx = e.c
+		}
+		logger.LogWarn(ctx, "OpenRouter reserve priced from a stale upstream catalog: model=%s batch=%t", request.Model, batch)
 	}
 	e.ReserveUse, e.ReserveModel = ReserveNotApplied, ""
 	e.ReserveSource = estimate.Source
@@ -437,6 +459,25 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		e.ReserveUse, e.ReserveModel = ReserveAddOn, request.Model
 	}
 	return estimate.USD, nil
+}
+
+// AdmissionPolicy is the channel reserve policy the last successful estimate
+// applied, as the admin log names it; empty when the channel has no reserve
+// for the reserve model or the estimate applied none.
+func (e *RequestEstimator) AdmissionPolicy(settings *dto.ChannelSettings) pricingdomain.AdmissionPolicy {
+	if settings.OpenRouterReserveUSD(e.ReserveModel) == nil {
+		return ""
+	}
+	switch e.ReserveUse {
+	case ReserveWholeHold:
+		if e.ReserveModel == SonarResearchModel {
+			return pricingdomain.AdmissionPolicySonarResearchApproximateReserve
+		}
+		return pricingdomain.AdmissionPolicyModelApproximateReserve
+	case ReserveAddOn:
+		return pricingdomain.AdmissionPolicyModelReserveAddOn
+	}
+	return ""
 }
 
 // ModelsFromRequest returns every possible model rather than assuming the

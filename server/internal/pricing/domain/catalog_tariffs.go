@@ -28,7 +28,8 @@ func (tariffs UpstreamCatalogTariffs) FreshAt(now time.Time, maxAge time.Duratio
 // "endpoint" and eligibility.eligible true; its provider tag, facts.pricing
 // object (the live pricing of the endpoint with that tag), variant
 // quantization and capabilities limits and parameters keep their published
-// values, and a null limit is no limit. An endpoint the document does not
+// values, and a null limit is no limit; its unit prices are those of its
+// model_page components (CatalogUnitPrices). An endpoint the document does not
 // describe whole (no tag, no pricing object, undecodable capabilities or
 // variant) leaves the whole model to live pricing, as does a document without
 // endpoints, an alias among them.
@@ -78,7 +79,7 @@ documents:
 			endpoints = append(endpoints, NativePricedEndpoint{
 				ModelID: id, Tag: *offer.Provider.Tag, Quantization: variant.Quantization,
 				ContextLength: capabilities.ContextLength, MaxPromptTokens: capabilities.MaxPromptTokens, MaxCompletionTokens: capabilities.MaxCompletionTokens,
-				SupportedParameters: parameters, Pricing: facts.Pricing,
+				SupportedParameters: parameters, Pricing: facts.Pricing, UnitPrices: CatalogUnitPrices(deps, offer.Components),
 			})
 		}
 		if len(endpoints) == 0 {

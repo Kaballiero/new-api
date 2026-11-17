@@ -1,0 +1,91 @@
+{
+ "alias": null,
+ "id": "bytedance-seed/seed-audio-1-0",
+ "modalities": {
+  "input": [
+   "text"
+  ],
+  "output": [
+   "speech"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.0025",
+     "billable": "output_audio",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "seed_audio_tts:output_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.15",
+     "billable": "output_audio",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:0:0:Audio Output",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "60",
+     "unit": "second",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.0025",
+     "discount": 0,
+     "prompt": "0"
+    }
+   },
+   "provider": {
+    "id": "seed",
+    "name": "Seed",
+    "tag": "seed"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "bytedance-seed/seed-audio-1-0-20260630",
+    "model_variant_slug": "bytedance-seed/seed-audio-1-0",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

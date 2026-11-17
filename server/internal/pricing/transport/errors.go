@@ -6,14 +6,16 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	channeldomain "github.com/QuantumNous/new-api/internal/channels/domain"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 
 	"github.com/gin-gonic/gin"
 )
 
-// WriteError writes err as the HTTP error response of a pricing read or
-// upstream ratio sync. Errors without a domain meaning are written as
-// {success:false} with HTTP 503 and the text of the error.
+// WriteError writes err as the HTTP error response of a pricing read,
+// upstream ratio sync or channel reserve preview. Errors without a domain
+// meaning are written as {success:false} with HTTP 503 and the text of the
+// error.
 func WriteError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrRevisionMismatch):
@@ -28,6 +30,10 @@ func WriteError(c *gin.Context, err error) {
 		writeFailure(c, http.StatusNotFound, err.Error())
 	case errors.Is(err, domain.ErrNoUpstreams):
 		writeFailure(c, http.StatusOK, common.TranslateMessage(c, i18n.MsgPricingNoValidUpstream))
+	case errors.Is(err, channeldomain.ErrChannelNotFound):
+		common.ApiErrorI18nStatusCode(c, http.StatusNotFound, "channel_not_found", i18n.MsgChannelNotExists)
+	case errors.Is(err, domain.ErrChannelNotOpenRouter):
+		writeFailure(c, http.StatusBadRequest, common.TranslateMessage(c, i18n.MsgPricingChannelNotOpenRouter))
 	default:
 		writeFailure(c, http.StatusServiceUnavailable, err.Error())
 	}

@@ -4326,7 +4326,8 @@ export function ChannelMutateDrawer({
                               <OpenRouterReserveField
                                 control={form.control}
                                 disabled={sensitiveLocked || isSubmitting}
-                                modelOptions={openRouterUpstreamModels}
+                                channelId={channelId}
+                                upstreamModels={openRouterUpstreamModels}
                               />
                             )}
 

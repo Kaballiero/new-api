@@ -1,0 +1,233 @@
+{
+ "alias": null,
+ "id": "google/gemini-3.8-flash-tts",
+ "modalities": {
+  "input": [
+   "text"
+  ],
+  "output": [
+   "speech"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 32768,
+    "max_completion_tokens": 16384,
+    "max_prompt_tokens": 8192,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.5",
+     "billable": "input_text",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:0:0:Input Price",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "million_tokens",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.5",
+     "billable": "input_text",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "gemini_tts:input_tokens",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "million_tokens",
+     "variant": {}
+    },
+    {
+     "amountUSD": "9",
+     "billable": "output_audio",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:1:0:Output Price",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "million_tokens",
+     "variant": {}
+    },
+    {
+     "amountUSD": "9",
+     "billable": "output_audio",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "gemini_tts:output_tokens",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "million_tokens",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.000009",
+     "discount": 0,
+     "prompt": "0.0000005"
+    }
+   },
+   "provider": {
+    "id": "google-vertex/global",
+    "name": "Google",
+    "tag": "google-vertex/global"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "google/gemini-3.8-flash-tts-20260922",
+    "model_variant_slug": "google/gemini-3.8-flash-tts",
+    "provider_region": "global",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 32768,
+    "max_completion_tokens": 16384,
+    "max_prompt_tokens": 8192,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.5",
+     "billable": "input_text",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:0:0:Input Price",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "million_tokens",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.5",
+     "billable": "input_text",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "gemini_tts:input_tokens",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "million_tokens",
+     "variant": {}
+    },
+    {
+     "amountUSD": "9",
+     "billable": "output_audio",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "display:1:0:Output Price",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "million_tokens",
+     "variant": {}
+    },
+    {
+     "amountUSD": "9",
+     "billable": "output_audio",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "gemini_tts:output_tokens",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "million_tokens",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0.000009",
+     "discount": 0,
+     "prompt": "0.0000005"
+    }
+   },
+   "provider": {
+    "id": "google-ai-studio",
+    "name": "Google AI Studio",
+    "tag": "google-ai-studio"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "google/gemini-3.8-flash-tts-20260922",
+    "model_variant_slug": "google/gemini-3.8-flash-tts",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

@@ -31,6 +31,7 @@ import type {
   CopyChannelParams,
   CopyChannelResponse,
   FetchModelsResponse,
+  GetChannelOpenRouterReservesResponse,
   GetChannelResponse,
   GetChannelsParams,
   GetChannelsResponse,
@@ -123,6 +124,16 @@ export async function searchChannels(
  */
 export async function getChannel(id: number): Promise<GetChannelResponse> {
   const res = await api.get(`/api/channel/${id}`)
+  return res.data
+}
+
+/**
+ * Get the OpenRouter reserve settings of a channel with a reference example
+ */
+export async function getChannelOpenRouterReserves(
+  id: number
+): Promise<GetChannelOpenRouterReservesResponse> {
+  const res = await api.get(`/api/channel/${id}/openrouter_reserves`)
   return res.data
 }
 

@@ -373,17 +373,17 @@ func appendOpenRouterConsumption(other *usagerecord.LogOther, request domain.Req
 			}
 		}
 		if state.ApproximateReserveUSD != nil {
-			other.SetAdmin("openrouter_admission_policy", "model_approximate_reserve")
+			other.SetAdmin("openrouter_admission_policy", string(pricingdomain.AdmissionPolicyModelApproximateReserve))
 			other.SetAdmin("openrouter_approximate_reserve_usd", *state.ApproximateReserveUSD)
 			other.SetAdmin("openrouter_approximate_reserve_model", state.ApproximateReserveModel)
 		}
 		if state.AddOnReserveUSD != nil {
-			other.SetAdmin("openrouter_admission_policy", "model_reserve_add_on")
+			other.SetAdmin("openrouter_admission_policy", string(pricingdomain.AdmissionPolicyModelReserveAddOn))
 			other.SetAdmin("openrouter_add_on_reserve_usd", *state.AddOnReserveUSD)
 			other.SetAdmin("openrouter_add_on_reserve_model", state.AddOnReserveModel)
 		}
 		if state.ApproximateResearchReserveUSD != nil {
-			other.SetAdmin("openrouter_admission_policy", "sonar_research_approximate_reserve")
+			other.SetAdmin("openrouter_admission_policy", string(pricingdomain.AdmissionPolicySonarResearchApproximateReserve))
 			other.SetAdmin("openrouter_approximate_research_reserve_usd", *state.ApproximateResearchReserveUSD)
 		}
 		if outcome != nil {
