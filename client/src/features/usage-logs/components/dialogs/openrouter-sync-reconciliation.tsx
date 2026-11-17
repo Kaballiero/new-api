@@ -180,6 +180,8 @@ export function OpenRouterSyncReconciliation(
   ]
     .filter(Boolean)
     .join(' / ')
+  const showAlert =
+    view.billing_state === 'manual_reconciliation' || view.alerted_at > 0
   const canRelease = props.isRoot && view.release_allowed
   const canSettle = props.isRoot && view.settle_allowed
 
@@ -208,6 +210,19 @@ export function OpenRouterSyncReconciliation(
         value={formatLogQuota(view.target_quota)}
         mono
       />
+      {showAlert ? (
+        <DetailRow
+          label={t('Telegram alert')}
+          value={
+            view.alerted_at > 0
+              ? t('Sent at {{time}}', {
+                  time: formatTimestampToDate(view.alerted_at, 'seconds'),
+                })
+              : t('Not yet sent')
+          }
+          muted={view.alerted_at === 0}
+        />
+      ) : null}
       {view.operator_decision ? (
         <DetailRow
           label={t('Operator decision')}

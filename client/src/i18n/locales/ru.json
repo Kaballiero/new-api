@@ -6374,6 +6374,20 @@
     "Use letters, digits, _ and - only, optionally prefixed with batches/": "Используйте только буквы, цифры, _ и -, с необязательным префиксом batches/",
     "Provider ownership could not be verified; the Batch is unchanged.": "Не удалось подтвердить принадлежность у провайдера; Batch не изменён.",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "Этот Batch больше нельзя восстановить по ID; Batch не изменён.",
-    "For Gemini use the full name, e.g. batches/abc123": "Для Gemini укажите полное имя, например batches/abc123"
+    "For Gemini use the full name, e.g. batches/abc123": "Для Gemini укажите полное имя, например batches/abc123",
+    "All billing states": "Все состояния биллинга",
+    "Awaiting cost": "Ожидает стоимость",
+    "OpenRouter billing state": "Состояние биллинга OpenRouter",
+    "Hold reason": "Причина удержания",
+    "Telegram alert": "Оповещение в Telegram",
+    "Sent at {{time}}": "Отправлено {{time}}",
+    "Not yet sent": "Ещё не отправлено",
+    "OpenRouter Cost": "Стоимость OpenRouter",
+    "Generation ID": "ID генерации",
+    "Cost source": "Источник стоимости",
+    "Cost basis": "База расчёта",
+    "Upstream cost": "Стоимость у провайдера",
+    "OpenRouter charge unknown": "Списание OpenRouter неизвестно",
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "Запрос дошёл до OpenRouter, но его стоимость не подтверждена. Проверьте списание в OpenRouter, прежде чем разрешать его."
   }
 }

@@ -6374,6 +6374,20 @@
     "Use letters, digits, _ and - only, optionally prefixed with batches/": "英数字、_、- のみ使用できます（batches/ 接頭辞は任意）",
     "Provider ownership could not be verified; the Batch is unchanged.": "プロバイダーでの所有権を検証できませんでした。Batchは変更されていません。",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "このBatchはIDで復旧できなくなりました。Batchは変更されていません。",
-    "For Gemini use the full name, e.g. batches/abc123": "Gemini の場合は完全な名前を入力してください（例: batches/abc123）"
+    "For Gemini use the full name, e.g. batches/abc123": "Gemini の場合は完全な名前を入力してください（例: batches/abc123）",
+    "All billing states": "すべての課金状態",
+    "Awaiting cost": "コスト待ち",
+    "OpenRouter billing state": "OpenRouter 課金状態",
+    "Hold reason": "保留理由",
+    "Telegram alert": "Telegram 通知",
+    "Sent at {{time}}": "{{time}} に送信済み",
+    "Not yet sent": "未送信",
+    "OpenRouter Cost": "OpenRouter コスト",
+    "Generation ID": "生成 ID",
+    "Cost source": "コストの取得元",
+    "Cost basis": "価格基準",
+    "Upstream cost": "上流コスト",
+    "OpenRouter charge unknown": "OpenRouter の請求額が不明",
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "リクエストは OpenRouter に到達しましたが、コストが確認されていません。解決する前に OpenRouter で請求を確認してください。"
   }
 }

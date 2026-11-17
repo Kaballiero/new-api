@@ -95,6 +95,13 @@ const (
 	SyncReasonAutoReleaseUnavailable   = "auto_release_unavailable"
 )
 
+// Billing states of an OpenRouter synchronous task the admin task list selects:
+// a manual hold awaiting an operator and an attempt still awaiting its cost.
+const (
+	SyncBillingManualReconciliation = "manual_reconciliation"
+	SyncBillingAwaitingCost         = "awaiting_cost"
+)
+
 // SyncManualFailReason is the stored failure text of a manual hold for reason.
 func SyncManualFailReason(reason string) string {
 	return "OpenRouter synchronous manual reconciliation required: " + reason
@@ -118,7 +125,7 @@ func FinishSyncTask(task *Task, now int64, prepare func(*Task)) {
 
 func OpenRouterSyncData(task *Task) map[string]any {
 	a, r := task.PrivateData.OpenRouterSyncState(), task.PrivateData.Reconciliation
-	status := "awaiting_cost"
+	status := SyncBillingAwaitingCost
 	if r.ReservationPending {
 		status = "reservation_unknown"
 	} else if r.SubmissionPending {
@@ -128,7 +135,7 @@ func OpenRouterSyncData(task *Task) map[string]any {
 	} else if r.Finalized {
 		status = "settled"
 	} else if task.Status == TaskStatusFailure {
-		status = "manual_reconciliation"
+		status = SyncBillingManualReconciliation
 	}
 	return map[string]any{"result_ready": a.ResultReady, "result_failed": a.ResultFailed, "billing_status": status, "cost_lookup_attempts": a.Attempts, "cost_lookup_http_status": a.LastHTTPStatus, "next_cost_lookup": a.NextPoll}
 }

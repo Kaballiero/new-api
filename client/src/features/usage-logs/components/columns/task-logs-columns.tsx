@@ -65,6 +65,15 @@ function TaskDetailsCell(props: {
           />
           {t('View details')}
         </button>
+        {props.log.admin_info?.openrouter_sync?.billing_state ===
+        'manual_reconciliation' ? (
+          <StatusBadge
+            label={t('Needs decision')}
+            variant='warning'
+            size='sm'
+            copyable={false}
+          />
+        ) : null}
         {props.log.fail_reason ? (
           <span className='max-w-full truncate text-xs text-red-600 dark:text-red-400'>
             {props.log.fail_reason}

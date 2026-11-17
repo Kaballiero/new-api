@@ -56,6 +56,7 @@ const manualHold: OpenRouterSyncAdminView = {
   operator_decision: null,
   release_allowed: true,
   settle_allowed: true,
+  alerted_at: 0,
 }
 
 const success = {
@@ -114,6 +115,26 @@ describe('OpenRouter sync reconciliation actions', () => {
     expect(
       screen.queryByRole('button', { name: 'Settle with cost' })
     ).not.toBeInTheDocument()
+  })
+
+  test('manual hold not yet reported shows the Telegram alert as not sent', () => {
+    renderReconciliation(manualHold, false)
+
+    expect(screen.getByText('Telegram alert')).toBeVisible()
+    expect(screen.getByText('Not yet sent')).toBeVisible()
+  })
+
+  test('reported manual hold shows when the Telegram alert was sent', () => {
+    renderReconciliation({ ...manualHold, alerted_at: 1700000000 }, false)
+
+    expect(screen.getByText(/^Sent at /)).toBeVisible()
+    expect(screen.queryByText('Not yet sent')).not.toBeInTheDocument()
+  })
+
+  test('task that never became a manual hold shows no Telegram alert row', () => {
+    renderReconciliation({ ...manualHold, billing_state: 'settled' }, false)
+
+    expect(screen.queryByText('Telegram alert')).not.toBeInTheDocument()
   })
 
   test('root sees no action the server does not allow', () => {

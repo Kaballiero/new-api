@@ -6374,6 +6374,20 @@
     "Use letters, digits, _ and - only, optionally prefixed with batches/": "Utilisez uniquement des lettres, chiffres, _ et -, avec le préfixe batches/ facultatif",
     "Provider ownership could not be verified; the Batch is unchanged.": "L’appartenance chez le fournisseur n’a pas pu être vérifiée ; le Batch est inchangé.",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "Ce Batch ne peut plus être récupéré par ID ; le Batch est inchangé.",
-    "For Gemini use the full name, e.g. batches/abc123": "Pour Gemini, utilisez le nom complet, par ex. batches/abc123"
+    "For Gemini use the full name, e.g. batches/abc123": "Pour Gemini, utilisez le nom complet, par ex. batches/abc123",
+    "All billing states": "Tous les états de facturation",
+    "Awaiting cost": "Coût en attente",
+    "OpenRouter billing state": "État de facturation OpenRouter",
+    "Hold reason": "Motif de la retenue",
+    "Telegram alert": "Alerte Telegram",
+    "Sent at {{time}}": "Envoyée le {{time}}",
+    "Not yet sent": "Pas encore envoyée",
+    "OpenRouter Cost": "Coût OpenRouter",
+    "Generation ID": "ID de génération",
+    "Cost source": "Source du coût",
+    "Cost basis": "Base de calcul",
+    "Upstream cost": "Coût en amont",
+    "OpenRouter charge unknown": "Facturation OpenRouter inconnue",
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "La requête a atteint OpenRouter mais son coût n'a pas été confirmé. Vérifiez la facturation dans OpenRouter avant de la résoudre."
   }
 }

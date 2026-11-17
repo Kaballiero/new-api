@@ -68,6 +68,9 @@ export interface DrawingLogFilters extends CommonFilters {
  */
 export interface TaskLogFilters extends CommonFilters {
   taskId?: string
+  /** Admin-only OpenRouter synchronous billing state and manual hold reason. */
+  syncBillingState?: string
+  syncHoldReason?: string
 }
 
 /**
@@ -202,6 +205,14 @@ export interface LogOtherData {
     // Reject / intercept reason (admin only)
     reject_reason?: string
     task_plugin?: TaskPluginInfo
+    // OpenRouter cost reconciliation of this request (admin only)
+    openrouter_generation_id?: string
+    openrouter_cost_source?: string
+    openrouter_cost_basis?: OpenRouterCostBasis
+    upstream_cost_usd?: number
+    reserved_quota?: number
+    openrouter_financial_outcome?: string
+    openrouter_unknown_reason?: string
   }
   root_info?: {
     task_plugin?: TaskPluginRuntimeInfo
@@ -383,6 +394,16 @@ export interface OpenRouterSyncAdminView {
   operator_decision?: OpenRouterSyncOperatorDecision | null
   release_allowed: boolean
   settle_allowed: boolean
+  /** When the manual hold was reported to Telegram; 0 until reported. */
+  alerted_at: number
+}
+
+/** Frozen price basis an OpenRouter cost is settled on. */
+interface OpenRouterCostBasis {
+  version: string
+  effective_group_ratio: number
+  quota_per_unit: number
+  estimated_usd: number
 }
 
 export interface OpenRouterSyncOperatorResult {
@@ -550,6 +571,8 @@ export interface GetTaskLogsParams {
   task_id?: string
   start_timestamp?: number
   end_timestamp?: number
+  sync_billing_state?: string
+  sync_hold_reason?: string
 }
 
 // ============================================================================
