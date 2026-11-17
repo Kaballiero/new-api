@@ -1,0 +1,434 @@
+{
+ "alias": null,
+ "id": "mistralai/voxtral-small-transcribe-3-0",
+ "modalities": {
+  "input": [
+   "audio"
+  ],
+  "output": [
+   "transcription"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.0000733333",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "net",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "display:0:0:Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000733333",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "stt:audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0044",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "mistral_stt:audio_minutes",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "60",
+     "unit": "second",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.0000733333"
+    }
+   },
+   "provider": {
+    "id": "mistral/us",
+    "name": "Mistral",
+    "tag": "mistral/us"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "mistralai/voxtral-small-transcribe-3-0-20261020",
+    "model_variant_slug": "mistralai/voxtral-small-transcribe-3-0",
+    "provider_region": "us",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.0000733333",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "net",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "display:0:0:Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000733333",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "stt:audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0044",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "mistral_stt:audio_minutes",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "60",
+     "unit": "second",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.0000733333"
+    }
+   },
+   "provider": {
+    "id": "mistral/eu",
+    "name": "Mistral",
+    "tag": "mistral/eu"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "mistralai/voxtral-small-transcribe-3-0-20261020",
+    "model_variant_slug": "mistralai/voxtral-small-transcribe-3-0",
+    "provider_region": "eu",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 65536,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.0000666667",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "net",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "display:0:0:Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000666667",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "stt:audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.004",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "mistral_stt:audio_minutes",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "60",
+     "unit": "second",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.0000666667"
+    }
+   },
+   "provider": {
+    "id": "mistral",
+    "name": "Mistral",
+    "tag": "mistral"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "mistralai/voxtral-small-transcribe-3-0-20261020",
+    "model_variant_slug": "mistralai/voxtral-small-transcribe-3-0",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {
+    "context_length": 65536,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.0000666667",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "net",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "display:0:0:Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000666667",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "stt:audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.004",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "source_conflict"
+      ]
+     },
+     "parameter": "mistral_stt:audio_minutes",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "60",
+     "unit": "second",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.0000666667"
+    }
+   },
+   "provider": {
+    "id": "mistral/zdr",
+    "name": "Mistral",
+    "tag": "mistral/zdr"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "mistralai/voxtral-small-transcribe-3-0-20261020",
+    "model_variant_slug": "mistralai/voxtral-small-transcribe-3-0",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {
+    "observations": [
+     {
+      "pricing": {
+       "completion": "0",
+       "prompt": "0.0000666667"
+      },
+      "scope": "model",
+      "source": "generic",
+      "sourceEndpointId": null,
+      "url": "https://openrouter.ai/api/v1/models",
+      "version": null
+     }
+    ]
+   },
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

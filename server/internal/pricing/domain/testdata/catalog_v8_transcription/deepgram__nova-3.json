@@ -1,0 +1,203 @@
+{
+ "alias": null,
+ "id": "deepgram/nova-3",
+ "modalities": {
+  "input": [
+   "audio"
+  ],
+  "output": [
+   "transcription"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.0000716666666667",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "net",
+      "effective": false,
+      "reasons": [
+       "rounded_source_alias"
+      ]
+     },
+     "parameter": "display:0:0:Audio Seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000716666666667",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "rounded_source_alias"
+      ]
+     },
+     "parameter": "deepgram_stt:audio_seconds",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0000866666666667",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "net",
+      "effective": false,
+      "reasons": [
+       "rounded_source_alias"
+      ]
+     },
+     "parameter": "display:1:0:Audio Seconds (Multilingual)",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {
+      "multilingual": true
+     }
+    },
+    {
+     "amountUSD": "0.0000866666666667",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": false,
+      "discountBasis": "unknown",
+      "effective": false,
+      "reasons": [
+       "rounded_source_alias"
+      ]
+     },
+     "parameter": "deepgram_stt:audio_seconds_multilingual",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "second",
+     "variant": {
+      "multilingual": true
+     }
+    },
+    {
+     "amountUSD": "0.0043",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": true,
+      "discountBasis": "unknown",
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "deepgram_stt:audio_minutes",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "60",
+     "unit": "second",
+     "variant": {}
+    },
+    {
+     "amountUSD": "0.0052",
+     "billable": "input_audio",
+     "conditions": {},
+     "normalization": {
+      "appliedDiscount": "0",
+      "comparable": true,
+      "discountBasis": "unknown",
+      "effective": true,
+      "reasons": []
+     },
+     "parameter": "deepgram_stt:audio_minutes_multilingual",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "60",
+     "unit": "second",
+     "variant": {
+      "multilingual": true
+     }
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0,
+     "prompt": "0.0000716666666667"
+    }
+   },
+   "provider": {
+    "id": "deepgram",
+    "name": "Deepgram",
+    "tag": "deepgram"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "deepgram/nova-3-20260714",
+    "model_variant_slug": "deepgram/nova-3",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {
+    "observations": [
+     {
+      "pricing": {
+       "completion": "0",
+       "prompt": "0.0000716666666667"
+      },
+      "scope": "model",
+      "source": "generic",
+      "sourceEndpointId": null,
+      "url": "https://openrouter.ai/api/v1/models",
+      "version": null
+     }
+    ]
+   },
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

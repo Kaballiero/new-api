@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -502,6 +503,60 @@ func TestExecuteUnitCost(t *testing.T) {
 			require.NoError(t, err)
 			assert.InDelta(t, tc.wantUSD, estimate.USD, 1e-12)
 			assert.Equal(t, tc.source, estimate.Source)
+		})
+	}
+}
+
+// A transcription is reserved at its seconds × the maximum per-second price
+// over the endpoints of its catalog document, although the endpoint prompt
+// mirrors another published amount of the dimension: a lower variant
+// (assemblyai prompted, deepgram multilingual), the price of another
+// provider endpoint, or the amount of a per-hour component (mai-transcribe).
+// A prompt no component publishes is still refused. The documents are
+// trimmed from the local catalog publication (normalization version 8).
+func TestExecuteTranscriptionOnCatalogDocuments(t *testing.T) {
+	deps := pricingadapter.Capabilities()
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	seconds := domain.PriceDimension{Billable: domain.PriceBillableInputAudio, Unit: domain.PriceUnitSecond}
+	for _, tc := range []struct {
+		model, prompt string
+		wantUSD       float64
+		wantErr       string
+	}{
+		{model: "assemblyai/universal-3-6-pro", prompt: "0.00009", wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint price prompt is not covered by its unit prices"},
+		{"assemblyai/universal-3-5-pro", "", 60 * 0.0000972222, ""},
+		{"assemblyai/universal-3-6-pro", "", 60 * 0.0000972222, ""},
+		{"deepgram/nova-3", "", 60 * 0.0000866666666667, ""},
+		{"openai/whisper-large-v3", "", 60 * 0.111 / 3600, ""},
+		{"openai/whisper-large-v3-turbo", "", 60 * 0.04 / 3600, ""},
+		{"mistralai/voxtral-mini-transcribe-3-0", "", 60 * 0.0000641667, ""},
+		{"mistralai/voxtral-small-transcribe-3-0", "", 60 * 0.0044 / 60, ""},
+		{"microsoft/mai-transcribe-1.5", "", 60 * 0.36 / 3600, ""},
+		{"microsoft/mai-transcribe-2", "", 60 * 0.1 / 3600, ""},
+	} {
+		t.Run(tc.model+tc.prompt, func(t *testing.T) {
+			raw, err := os.ReadFile("../domain/testdata/catalog_v8_transcription/" + strings.ReplaceAll(tc.model, "/", "__") + ".json")
+			require.NoError(t, err)
+			var document domain.SourceDocument
+			require.NoError(t, deps.Codec.Unmarshal(raw, &document))
+			if tc.prompt != "" {
+				document.Offers[0].Facts = json.RawMessage(`{"pricing":{"prompt":"` + tc.prompt + `","completion":"0","discount":0}}`)
+			}
+			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
+			catalog.Store(&domain.UpstreamCatalogTariffs{FetchedAt: now, Models: domain.CatalogEndpointTariffs(deps, map[string]*domain.SourceDocument{tc.model: &document})})
+			live := &fakeLive{}
+			estimate, err := NewUsecase(deps, catalog, func() time.Time { return now }, func() time.Duration { return 24 * time.Hour }).Execute(Input{
+				Model: tc.model, Models: []string{tc.model}, ChannelBaseURL: "https://openrouter.ai/api", Live: live,
+				Modalities: []string{"transcription"}, Count: 1, Units: map[domain.PriceDimension]int64{seconds: 60}, DefaultOutputTokens: 8192,
+			})
+			assert.Empty(t, live.asked)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.wantUSD, estimate.USD, 1e-9)
+			assert.Equal(t, domain.ReserveSourceCatalog, estimate.Source)
 		})
 	}
 }

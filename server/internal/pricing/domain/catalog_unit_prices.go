@@ -42,10 +42,13 @@ type PriceDimension struct {
 
 // EndpointUnitPrice is the USD price of one unit of a dimension on an
 // endpoint, for million_tokens the price of a million tokens; nil USD is
-// unknown.
+// unknown. PublishedUSD are the amounts every component of the dimension
+// publishes, amountUSD / quantity and amountUSD itself: the catalog mirrors
+// one of them, not necessarily USD, into the endpoint prompt or completion.
 type EndpointUnitPrice struct {
-	Dimension PriceDimension
-	USD       *decimal.Decimal
+	Dimension    PriceDimension
+	USD          *decimal.Decimal
+	PublishedUSD []decimal.Decimal
 }
 
 // CatalogUnitPrices are the unit prices of the model_page components of an
@@ -69,19 +72,24 @@ func CatalogUnitPrices(deps Capabilities, components []SourceRate) []EndpointUni
 			dimension = PriceDimension{Billable: PriceBillable(*component.Billable), Unit: unit}
 		}
 		var usd *decimal.Decimal
+		var published []decimal.Decimal
 		if component.AmountUSD != nil {
 			amount, amountErr := decimal.NewFromString(*component.AmountUSD)
 			quantity, quantityErr := decimal.NewFromString(component.Quantity)
 			if amountErr == nil && quantityErr == nil && !amount.IsNegative() && quantity.IsPositive() {
 				perUnit := amount.Div(quantity)
 				usd = &perUnit
+				published = []decimal.Decimal{perUnit, amount}
 			}
 		}
 		position, priced := positions[dimension]
-		switch {
-		case !priced:
+		if !priced {
 			positions[dimension] = len(prices)
-			prices = append(prices, EndpointUnitPrice{Dimension: dimension, USD: usd})
+			prices = append(prices, EndpointUnitPrice{Dimension: dimension, USD: usd, PublishedUSD: published})
+			continue
+		}
+		prices[position].PublishedUSD = append(prices[position].PublishedUSD, published...)
+		switch {
 		case prices[position].USD == nil || usd == nil:
 			prices[position].USD = nil
 		case usd.GreaterThan(*prices[position].USD):
