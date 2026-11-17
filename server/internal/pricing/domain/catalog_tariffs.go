@@ -9,10 +9,14 @@ import (
 // UpstreamCatalogTariffs are the endpoint tariffs of a published upstream
 // catalog revision by model id (CatalogEndpointTariffs) with the time its
 // catalog data last changed: the manifest fetchedAt the head stores.
+// Documents and Hashes are the decoded documents of the revision and their
+// hashes by model id.
 type UpstreamCatalogTariffs struct {
 	Revision  string
 	FetchedAt time.Time
 	Models    map[string]NativeEndpointResponse
+	Documents map[string]*SourceDocument
+	Hashes    map[string]string
 }
 
 // CatalogEndpointTariffs are the endpoint tariffs of upstream catalog

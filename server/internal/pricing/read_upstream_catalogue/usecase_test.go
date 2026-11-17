@@ -16,12 +16,19 @@ import (
 // fakeStore publishes one selection at a time, none for a selection without
 // a normalization version, and records the hashes whose payloads were read.
 type fakeStore struct {
-	selection domain.CatalogSelection
-	fetchedAt string
-	read      [][]string
+	selection  domain.CatalogSelection
+	fetchedAt  string
+	read       [][]string
+	selections int
+	// onHead runs once at the next head read.
+	onHead func()
 }
 
 func (store *fakeStore) Head(context.Context, string) (domain.CatalogSource, error) {
+	if store.onHead != nil {
+		store.onHead()
+		store.onHead = nil
+	}
 	if store.selection.NormalizationVersion == "" {
 		return domain.CatalogSource{}, nil
 	}
@@ -29,6 +36,7 @@ func (store *fakeStore) Head(context.Context, string) (domain.CatalogSource, err
 }
 func (store *fakeStore) IsMissing(error) bool { return false }
 func (store *fakeStore) ReadSelection(context.Context, string, string) (domain.CatalogSelection, error) {
+	store.selections++
 	return store.selection, nil
 }
 func (store *fakeStore) Documents(_ context.Context, _ string, hashes []string) (map[string]domain.CatalogDocument, error) {
@@ -139,4 +147,38 @@ func TestExecutePublishesTariffsOfPublishedRevision(t *testing.T) {
 	_, _, _, err = usecase.Execute(context.Background())
 	require.NoError(t, err)
 	assert.Nil(t, tariffs.Load())
+}
+
+// A head that moved only its fetchedAt is read alone: the selection and the
+// documents are not read again. A publication made while the head was read
+// is not replaced.
+func TestExecuteReadsOnlyHeadOfPublishedRevision(t *testing.T) {
+	model := domain.CatalogModelReference{ID: "acme/model", Hash: domain.CatalogHash([]byte("acme/model"))}
+	next := domain.CatalogModelReference{ID: "acme/next", Hash: domain.CatalogHash([]byte("acme/next"))}
+	deps := pricingadapter.Capabilities()
+	deps.Catalog = fakeCatalog{CatalogReader: deps.Catalog}
+	store := &fakeStore{selection: domain.CatalogSelection{NormalizationVersion: "1", Models: []domain.CatalogModelReference{model}}, fetchedAt: "2026-11-16T10:00:00Z"}
+	tariffs := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
+	usecase := NewUsecase(deps, store, &pricingadapter.UpstreamCatalogDocumentsCache{}, tariffs, func() (domain.CatalogSource, bool, error) {
+		return domain.CatalogSource{ID: domain.CatalogHash([]byte("source"))}, true, nil
+	})
+	first, _, _, err := usecase.Execute(context.Background())
+	require.NoError(t, err)
+
+	store.fetchedAt = "2026-11-17T10:00:00Z"
+	again, hashes, _, err := usecase.Execute(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.selections)
+	assert.Len(t, store.read, 1)
+	assert.Same(t, first[model.ID], again[model.ID])
+	assert.Equal(t, map[string]string{model.ID: model.Hash}, hashes)
+	assert.Equal(t, time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC), tariffs.Load().FetchedAt)
+
+	newer := &domain.UpstreamCatalogTariffs{Revision: "newer"}
+	store.selection = domain.CatalogSelection{NormalizationVersion: "2", Models: []domain.CatalogModelReference{next}}
+	store.onHead = func() { tariffs.Store(newer) }
+	read, _, _, err := usecase.Execute(context.Background())
+	require.NoError(t, err)
+	assert.Contains(t, read, next.ID)
+	assert.Same(t, newer, tariffs.Load())
 }
