@@ -6388,6 +6388,7 @@
     "Cost basis": "База расчёта",
     "Upstream cost": "Стоимость у провайдера",
     "OpenRouter charge unknown": "Списание OpenRouter неизвестно",
-    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "Запрос дошёл до OpenRouter, но его стоимость не подтверждена. Проверьте списание в OpenRouter, прежде чем разрешать его."
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "Запрос дошёл до OpenRouter, но его стоимость не подтверждена. Проверьте списание в OpenRouter, прежде чем разрешать его.",
+    "Reserved web searches": "Поисков в резерве"
   }
 }

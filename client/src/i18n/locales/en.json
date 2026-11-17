@@ -6388,6 +6388,7 @@
     "Cost basis": "Cost basis",
     "Upstream cost": "Upstream cost",
     "OpenRouter charge unknown": "OpenRouter charge unknown",
-    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it."
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.",
+    "Reserved web searches": "Reserved web searches"
   }
 }

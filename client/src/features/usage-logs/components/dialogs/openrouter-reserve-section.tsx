@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 import { StatusBadge } from '@/components/status-badge'
 
 import {
+  OPENROUTER_RESERVATION_QUANTITY,
   OPENROUTER_RESERVATION_SOURCE,
   type OpenRouterReservationSource,
   type OpenRouterReserveAdminInfo,
@@ -51,6 +52,12 @@ export function OpenRouterReserveSection(props: {
     info.openrouter_reservation_source ?? orderFacts?.reservation_source
   const orderReservation = orderFacts?.reservation
   const configuredReservation = orderFacts?.configured_reservation
+  const quantityLabels: Record<string, string> = {
+    [OPENROUTER_RESERVATION_QUANTITY.SEARCHES]: t('Reserved web searches'),
+  }
+  const quantities = Object.entries(
+    info.openrouter_reservation_quantities ?? {}
+  )
   const sourceLabels: Record<OpenRouterReservationSource, string> = {
     catalog: t('Catalog'),
     catalog_stale: t('Stale catalog'),
@@ -75,6 +82,14 @@ export function OpenRouterReserveSection(props: {
         }
       />
     ),
+    ...quantities.map(([quantity, value]) => (
+      <DetailRow
+        key={`quantity-${quantity}`}
+        label={quantityLabels[quantity] ?? quantity}
+        value={String(value)}
+        mono
+      />
+    )),
     info.openrouter_admission_policy && (
       <DetailRow
         key='admission-policy'

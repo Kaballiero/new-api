@@ -307,8 +307,14 @@ func getWebMDuration(r io.ReadSeeker) (float64, error) {
 	return 0, errors.New("failed to parse webm file")
 }
 
+// adtsHeaderSize is the ADTS header size without CRC, the smallest valid frame length.
+const adtsHeaderSize = 7
+
 // getAACDuration 解析 AAC (ADTS格式) 文件以获取时长。
-// 使用 gomedia 库来解析 AAC ADTS 帧
+// It counts every valid ADTS frame: after a valid frame the scan resumes at the next
+// sync word from the frame's end, after a false sync word one byte later, so leading
+// junk, an ID3 tag or a corrupt region is skipped. Each step moves forward, so the
+// scan is linear in the file size.
 func getAACDuration(r io.ReadSeeker) (float64, error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return 0, errors.Wrap(err, "failed to seek aac file")
@@ -320,23 +326,29 @@ func getAACDuration(r io.ReadSeeker) (float64, error) {
 		return 0, errors.Wrap(err, "failed to read aac file")
 	}
 
+	var header codec.ADTS_Frame_Header
 	var totalFrames int64
 	var sampleRate int
-
-	// 使用 gomedia 的 SplitAACFrame 函数来分割 AAC 帧
-	codec.SplitAACFrame(data, func(aac []byte) {
-		// 解析 ADTS 头部以获取采样率信息
-		if len(aac) >= 7 {
-			// 使用 ConvertADTSToASC 来获取音频配置信息
-			asc, err := codec.ConvertADTSToASC(aac)
-			if err == nil && sampleRate == 0 {
-				sampleRate = codec.AACSampleIdxToSample(int(asc.Sample_freq_index))
+	for offset := codec.FindSyncword(data, 0); offset >= 0; {
+		frame := data[offset:]
+		next := offset + 1
+		// FindSyncword matches the 12 sync bits; ADTS also requires a zero layer.
+		if len(frame) >= adtsHeaderSize && frame[1]&0xF6 == 0xF0 {
+			header.Decode(frame)
+			frameLength := int(header.Variable_Header.Frame_length)
+			samplingFrequencyIndex := int(header.Fix_Header.Sampling_frequency_index)
+			frameFits := frameLength >= adtsHeaderSize && frameLength <= len(frame)
+			if frameFits && samplingFrequencyIndex < len(codec.AAC_Sampling_Idx) {
+				if sampleRate == 0 {
+					sampleRate = codec.AACSampleIdxToSample(samplingFrequencyIndex)
+				}
+				totalFrames++
+				next = offset + frameLength
 			}
-			totalFrames++
 		}
-	})
-
-	if sampleRate == 0 || totalFrames == 0 {
+		offset = codec.FindSyncword(data, next)
+	}
+	if totalFrames == 0 {
 		return 0, errors.New("no valid aac frames found")
 	}
 

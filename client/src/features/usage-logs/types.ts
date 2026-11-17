@@ -110,6 +110,12 @@ export const USAGE_BILLING_PATH = {
 export type UsageBillingPath =
   (typeof USAGE_BILLING_PATH)[keyof typeof USAGE_BILLING_PATH]
 
+// Measured quantities an OpenRouter reserve is priced by
+// (admin_info.openrouter_reservation_quantities).
+export const OPENROUTER_RESERVATION_QUANTITY = {
+  SEARCHES: 'searches',
+} as const
+
 /** What the reserve of an OpenRouter request is priced from (openrouter_reservation_source). */
 export const OPENROUTER_RESERVATION_SOURCE = {
   CATALOG: 'catalog',
@@ -141,6 +147,7 @@ interface OpenRouterOrderFacts {
 /** Admin-only reserve fields of an OpenRouter request or task order. */
 export interface OpenRouterReserveAdminInfo {
   openrouter_reservation_source?: OpenRouterReservationSource
+  openrouter_reservation_quantities?: Record<string, number>
   openrouter_admission_policy?: string
   openrouter_configured_reserve_usd?: number
   openrouter_configured_reserve_model?: string

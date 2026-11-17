@@ -118,6 +118,12 @@ func Facts(c *gin.Context, info *relaycommon.RelayInfo) domain.RequestFacts {
 			ApproximateResearchReserveUSD: p.ApproximateResearchReserveUSD,
 			ReserveSource:                 string(p.ReserveSource),
 		}
+		if len(p.ReserveQuantities) > 0 {
+			out.OpenRouterCost.ReserveQuantities = make(map[string]int, len(p.ReserveQuantities))
+			for quantity, value := range p.ReserveQuantities {
+				out.OpenRouterCost.ReserveQuantities[string(quantity)] = value
+			}
+		}
 	}
 	if n := info.NativeImage; n != nil {
 		out.NativeImage = &domain.NativeImage{
