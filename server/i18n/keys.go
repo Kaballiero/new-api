@@ -737,6 +737,12 @@ const (
 	MsgTasksMJFailure         = "tasks.mj_failure"
 )
 
+// Async-task alerts to the operators use the root user's language.
+const (
+	MsgTasksSyncManualHoldsSubject = "tasks.sync_manual_holds_subject"
+	MsgTasksSyncManualHolds        = "tasks.sync_manual_holds"
+)
+
 // Batch response and recipient log messages.
 const (
 	MsgBatchBatchBusy                           = "batch.batch_busy"
