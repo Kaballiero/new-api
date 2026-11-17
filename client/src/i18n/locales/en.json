@@ -6375,6 +6375,20 @@
     "Provider ownership could not be verified; the Batch is unchanged.": "Provider ownership could not be verified; the Batch is unchanged.",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "This Batch can no longer be recovered by ID; the Batch is unchanged.",
     "For Gemini use the full name, e.g. batches/abc123": "For Gemini use the full name, e.g. batches/abc123",
+    "All billing states": "All billing states",
+    "Awaiting cost": "Awaiting cost",
+    "OpenRouter billing state": "OpenRouter billing state",
+    "Hold reason": "Hold reason",
+    "Telegram alert": "Telegram alert",
+    "Sent at {{time}}": "Sent at {{time}}",
+    "Not yet sent": "Not yet sent",
+    "OpenRouter Cost": "OpenRouter Cost",
+    "Generation ID": "Generation ID",
+    "Cost source": "Cost source",
+    "Cost basis": "Cost basis",
+    "Upstream cost": "Upstream cost",
+    "OpenRouter charge unknown": "OpenRouter charge unknown",
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.",
     "Reserved web searches": "Reserved web searches"
   }
 }

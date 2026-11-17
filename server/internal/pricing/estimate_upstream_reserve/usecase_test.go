@@ -457,11 +457,12 @@ func TestExecutePricesSearches(t *testing.T) {
 	}
 }
 
-// A speech request is priced from the unit prices of the endpoints of a fresh
-// catalog document: every non-zero price times its measured quantity, a
-// million_tokens price per million tokens, output audio tokens at the output
-// cap of the endpoint (the default output bound without one), the maximum
-// over the endpoints. An
+// A speech or rerank request is priced from the unit prices of the endpoints
+// of a fresh catalog document: every non-zero price times its measured
+// quantity, a million_tokens price per million tokens, output audio tokens at
+// the output cap of the endpoint (the default output bound without one), the
+// maximum over the endpoints. A rerank request measures both Cohere search
+// units and input tokens; each endpoint bills the dimension it prices. An
 // unknown price, a non-zero price of an unmeasured dimension or an endpoint
 // without unit prices is covered only by the manual reserve, without a live
 // check; a manual reserve below the priced cost is raised to it.
@@ -472,6 +473,7 @@ func TestExecuteUnitCost(t *testing.T) {
 	seconds := domain.PriceDimension{Billable: domain.PriceBillableOutputAudio, Unit: domain.PriceUnitSecond}
 	inputTokens := domain.PriceDimension{Billable: domain.PriceBillableInputText, Unit: domain.PriceUnitMillionTokens}
 	audioTokens := domain.PriceDimension{Billable: domain.PriceBillableOutputAudio, Unit: domain.PriceUnitMillionTokens}
+	searches := domain.PriceDimension{Billable: domain.PriceBillableSearch, Unit: domain.PriceUnitSearch}
 	price := func(dimension domain.PriceDimension, usd string) domain.EndpointUnitPrice {
 		if usd == "" {
 			return domain.EndpointUnitPrice{Dimension: dimension}
@@ -480,9 +482,10 @@ func TestExecuteUnitCost(t *testing.T) {
 		return domain.EndpointUnitPrice{Dimension: dimension, USD: &amount}
 	}
 	endpoint := func(tag string, prices ...domain.EndpointUnitPrice) domain.NativePricedEndpoint {
-		return domain.NativePricedEndpoint{Tag: tag, ModelID: "acme/tts", Pricing: endpointPricing(t, deps, `{"prompt":"0.000015","completion":"0"}`), UnitPrices: prices}
+		return domain.NativePricedEndpoint{Tag: tag, ModelID: "acme/tts", Pricing: endpointPricing(t, deps, `{"prompt":"0","completion":"0","discount":0}`), UnitPrices: prices}
 	}
 	units := map[domain.PriceDimension]int64{characters: 1000, seconds: 30, inputTokens: 1000}
+	rerankUnits := map[domain.PriceDimension]int64{searches: 2, inputTokens: 30000}
 	// gemini is the real v13 document of google/gemini-3.8-flash-tts: input
 	// $0.5 and output audio $9 per million tokens, output cap 16384.
 	raw, err := os.ReadFile("../domain/testdata/catalog_v13/google__gemini-3.8-flash-tts.json")
@@ -491,12 +494,24 @@ func TestExecuteUnitCost(t *testing.T) {
 	require.NoError(t, deps.Codec.Unmarshal(raw, &document))
 	gemini := domain.CatalogEndpointTariffs(deps, map[string]*domain.SourceDocument{"acme/tts": &document})["acme/tts"]
 	require.Len(t, gemini.Endpoints, 2)
+	// heygen is the real v13 document of heygen/heygen-voice-1: prompt mirrors
+	// its $0.00003 character price after the 0.5 endpoint discount.
+	raw, err = os.ReadFile("../domain/testdata/catalog_v13/heygen__heygen-voice-1.json")
+	require.NoError(t, err)
+	var heygenDocument domain.SourceDocument
+	require.NoError(t, deps.Codec.Unmarshal(raw, &heygenDocument))
+	heygen := domain.CatalogEndpointTariffs(deps, map[string]*domain.SourceDocument{"acme/tts": &heygenDocument})["acme/tts"]
+	withPricing := func(endpoint domain.NativePricedEndpoint, pricing string) domain.NativePricedEndpoint {
+		endpoint.Pricing = endpointPricing(t, deps, pricing)
+		return endpoint
+	}
 	manual, lowManual := .5, .01
 	for _, tc := range []struct {
 		name      string
 		endpoints []domain.NativePricedEndpoint
 		units     map[domain.PriceDimension]int64
 		manual    *float64
+		rerank    bool
 		wantUSD   float64
 		source    domain.ReserveSource
 		wantErr   string
@@ -514,11 +529,26 @@ func TestExecuteUnitCost(t *testing.T) {
 		{name: "a non-zero price of an unmeasured dimension is refused", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, units: map[domain.PriceDimension]int64{seconds: 30}, wantErr: "OpenRouter estimate unavailable: OpenRouter unit quantity is unmeasured: output_speech/character"},
 		{name: "an endpoint without unit prices is refused", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram")}, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint unit prices are unknown"},
 		{name: "an endpoint without unit prices takes the manual reserve", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram")}, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
+		{name: "prompt mirroring a unit price after the endpoint discount", endpoints: heygen.Endpoints, wantUSD: .03, source: domain.ReserveSourceCatalog},
+		{name: "a non-zero request rate is not covered by unit prices", endpoints: []domain.NativePricedEndpoint{withPricing(endpoint("deepgram", price(characters, "0.00003")), `{"prompt":"0.00003","request":"0.01"}`)}, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint price request is not covered by its unit prices"},
+		{name: "an uncovered rate takes the manual reserve", endpoints: []domain.NativePricedEndpoint{withPricing(endpoint("deepgram", price(characters, "0.00003")), `{"request":"0.01"}`)}, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
+		{name: "rerank prompt beyond the search price is not covered", endpoints: []domain.NativePricedEndpoint{withPricing(endpoint("cohere", price(searches, "0.002")), `{"prompt":"0.000001","completion":"0"}`)}, units: rerankUnits, rerank: true, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint price prompt is not covered by its unit prices"},
+		{name: "rerank per search", endpoints: []domain.NativePricedEndpoint{endpoint("cohere", price(searches, "0.002"))}, units: rerankUnits, rerank: true, wantUSD: .004, source: domain.ReserveSourceCatalog},
+		{name: "rerank per token", endpoints: []domain.NativePricedEndpoint{endpoint("voyageai", price(inputTokens, "0.05"))}, units: rerankUnits, rerank: true, wantUSD: .0015, source: domain.ReserveSourceCatalog},
+		{name: "rerank maximum over search prices", endpoints: []domain.NativePricedEndpoint{endpoint("cohere", price(searches, "0.001")), endpoint("bedrock", price(searches, "0.002"))}, units: rerankUnits, rerank: true, wantUSD: .004, source: domain.ReserveSourceCatalog},
+		{name: "rerank maximum over search and token prices", endpoints: []domain.NativePricedEndpoint{endpoint("cohere", price(searches, "0.001")), endpoint("mongodb", price(inputTokens, "0.1"))}, units: rerankUnits, rerank: true, wantUSD: .003, source: domain.ReserveSourceCatalog},
+		{name: "rerank manual reserve below the cost is raised to it", endpoints: []domain.NativePricedEndpoint{endpoint("voyageai", price(inputTokens, "0.5"))}, units: rerankUnits, rerank: true, manual: &lowManual, wantUSD: .015, source: domain.ReserveSourceManual},
+		{name: "rerank unknown price is refused", endpoints: []domain.NativePricedEndpoint{endpoint("cohere", price(searches, ""))}, units: rerankUnits, rerank: true, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint unit price is unknown"},
+		{name: "rerank unknown price takes the manual reserve", endpoints: []domain.NativePricedEndpoint{endpoint("cohere", price(searches, ""))}, units: rerankUnits, rerank: true, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			output := []string{"speech"}
+			if tc.rerank {
+				output = []string{"rerank"}
+			}
 			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
 			catalog.Store(&domain.UpstreamCatalogTariffs{FetchedAt: now, Models: map[string]domain.NativeEndpointResponse{
-				"acme/tts": {ID: "acme/tts", Endpoints: tc.endpoints, OutputModalities: []string{"speech"}},
+				"acme/tts": {ID: "acme/tts", Endpoints: tc.endpoints, OutputModalities: output},
 			}})
 			live := &fakeLive{}
 			in := Input{
@@ -527,6 +557,10 @@ func TestExecuteUnitCost(t *testing.T) {
 			}
 			if tc.units != nil {
 				in.Units = tc.units
+			}
+			if tc.rerank {
+				// The gateway passes a rerank request without output modalities.
+				in.Rerank, in.Modalities = true, nil
 			}
 			estimate, err := NewUsecase(deps, catalog, func() time.Time { return now }, func() time.Duration { return 24 * time.Hour }).Execute(in)
 			assert.Empty(t, live.asked)

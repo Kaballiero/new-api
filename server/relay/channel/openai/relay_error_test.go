@@ -596,6 +596,9 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 	completionCompleted := `data: {"id":"` + generationID + `","object":"text_completion","model":"vendor/provider-test","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"cost":0.004}}` + "\n\ndata: [DONE]\n\n"
 	completionNonstream := `{"id":"` + generationID + `","object":"text_completion","choices":[{"index":0,"text":"partial","finish_reason":"stop"}],"usage":{"prompt_tokens":3}}`
 	completionNonstreamWithoutID := `{"object":"text_completion","choices":[{"index":0,"text":"partial","finish_reason":"stop"}],"usage":{"prompt_tokens":3}}`
+	embedding := func(id, usage string) string {
+		return `{` + id + `"object":"list","model":"vendor/provider-test","data":[{"object":"embedding","index":0,"embedding":[0.25]}],"usage":` + usage + `}`
+	}
 
 	type clientFormat struct {
 		path, body  string
@@ -607,6 +610,7 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 	gemini := clientFormat{"/v1beta/models/vendor/provider-test:streamGenerateContent", chatBody, relayconstant.RelayModeGemini, types.RelayFormatGemini, constant.TaskActionChat}
 	responses := clientFormat{"/v1/responses", `{"model":"vendor/provider-test","input":"OK","max_output_tokens":8}`, relayconstant.RelayModeResponses, types.RelayFormatOpenAIResponses, constant.TaskActionChat}
 	completions := clientFormat{"/v1/completions", `{"model":"vendor/provider-test","prompt":"OK","max_tokens":8}`, relayconstant.RelayModeCompletions, types.RelayFormatOpenAI, constant.TaskActionCompletions}
+	embeddings := clientFormat{"/v1/embeddings", `{"model":"vendor/provider-test","input":"OK"}`, relayconstant.RelayModeEmbeddings, types.RelayFormatEmbedding, constant.TaskActionEmbeddings}
 	for _, tc := range []struct {
 		name     string
 		format   clientFormat
@@ -654,6 +658,11 @@ func TestOpenRouterTextStreamAbortDefersCostForEveryClientFormat(t *testing.T) {
 			disconnectAt: " more", deferred: true, delivered: "partial", undelivered: " lost"},
 		{name: "completions/abort before content", format: completions, stream: true, upstream: completion(""), wantErr: missingCost},
 		{name: "completions/completed", format: completions, stream: true, upstream: completion("partial") + completionCompleted, cost: .004, delivered: "partial"},
+
+		{name: "embeddings/without terminal cost", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1}`), deferred: true, delivered: "0.25"},
+		{name: "embeddings/without identity refunds", format: embeddings, upstream: embedding("", `{"prompt_tokens":1,"total_tokens":1}`), wantErr: missingCost},
+		{name: "embeddings/upstream error refunds", format: embeddings, upstream: `{"error":{"message":"Upstream failed","code":"server_error"}}`, wantErr: "Upstream failed"},
+		{name: "embeddings/completed", format: embeddings, upstream: embedding(`"id":"`+generationID+`",`, `{"prompt_tokens":1,"total_tokens":1,"cost":0.004}`), cost: .004, delivered: "0.25"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, recorder, _, info, billing := newOpenRouterChatTextRequest(t, "")
@@ -2358,14 +2367,10 @@ func TestOpenRouterRerankProviderRequiresReservationContract(t *testing.T) {
 			// discovery/transport failure must never satisfy the contract check.
 			require.NoError(t, openrouter.NewRequestEstimator().Discover(c, info, &Adaptor{}, model))
 			assert.Equal(t, 1, transport.gets)
-			// No configured price or explicit reserve: enabling Rerank may move
-			// the financial rejection past discovery, but must not permit a POST.
+			// No configured price or explicit reserve: live publishes no unit
+			// prices, so the rerank reserve is refused without a POST.
 			response, err := (&Adaptor{}).DoRequest(c, info, bytes.NewReader(body))
-			require.Error(t, err)
-			require.Contains(t, []string{
-				"OpenRouter operation lacks a validated cost reservation contract",
-				"OpenRouter rerank requires configured_price or an explicit approximate channel reserve and Rerank format",
-			}, err.Error())
+			require.EqualError(t, err, "OpenRouter estimate unavailable: OpenRouter endpoint unit prices are unknown")
 			assert.Nil(t, response)
 			assert.Zero(t, transport.posts)
 			assert.Zero(t, billing.reserveCalls)
@@ -2547,7 +2552,7 @@ func TestOpenRouterRerankDurableReservation(t *testing.T) {
 		{name: "token family below hold", family: "token", reserve: common.GetPointer(.02), cost: "0.01"},
 		{name: "search family above hold", family: "search", reserve: common.GetPointer(.02), cost: "0.03"},
 		{name: "authoritative zero", reserve: common.GetPointer(.02), cost: "0"},
-		{name: "zero catalog prices require opt in", wantError: "requires configured_price"},
+		{name: "live without unit prices requires a reserve", wantError: "OpenRouter endpoint unit prices are unknown"},
 		{name: "zero hold", reserve: common.GetPointer(0.0), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "negative hold", reserve: common.GetPointer(-1.0), wantError: "invalid OpenRouter approximate reserve"},
 		{name: "NaN hold", reserve: common.GetPointer(math.NaN()), wantError: "invalid OpenRouter approximate reserve"},

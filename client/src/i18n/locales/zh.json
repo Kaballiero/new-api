@@ -6375,6 +6375,20 @@
     "Provider ownership could not be verified; the Batch is unchanged.": "无法校验供应商归属；Batch 未更改。",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "此 Batch 已无法按 ID 恢复；Batch 未更改。",
     "For Gemini use the full name, e.g. batches/abc123": "Gemini 请填写完整名称，例如 batches/abc123",
+    "All billing states": "全部计费状态",
+    "Awaiting cost": "等待成本",
+    "OpenRouter billing state": "OpenRouter 计费状态",
+    "Hold reason": "挂起原因",
+    "Telegram alert": "Telegram 告警",
+    "Sent at {{time}}": "已于 {{time}} 发送",
+    "Not yet sent": "尚未发送",
+    "OpenRouter Cost": "OpenRouter 成本",
+    "Generation ID": "生成 ID",
+    "Cost source": "成本来源",
+    "Cost basis": "计价基准",
+    "Upstream cost": "上游成本",
+    "OpenRouter charge unknown": "OpenRouter 扣费未知",
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "请求已到达 OpenRouter，但其成本未确认。处理前请在 OpenRouter 中核对扣费。",
     "Reserved web searches": "预留网络搜索次数"
   }
 }

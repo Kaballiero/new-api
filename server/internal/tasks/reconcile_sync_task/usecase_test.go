@@ -110,10 +110,13 @@ func TestReconciliationMatchesGenerationOfTaskAction(t *testing.T) {
 	}{
 		{name: "chat generation settles", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionChat, apiType: "completions"},
 		{name: "completion generation settles", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionCompletions, apiType: "completions"},
+		{name: "embedding generation settles", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionEmbeddings, apiType: "embeddings"},
 		{name: "rerank generation settles", platform: domain.TaskPlatformOpenRouterRerank, action: domain.TaskActionRerank, apiType: "rerank"},
 		{name: "completion with another api type is held", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionCompletions, apiType: "embeddings", class: "identity_or_invalid_cost"},
+		{name: "embedding with another api type is held", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionEmbeddings, apiType: "completions", class: "identity_or_invalid_cost"},
 		{name: "rerank with another api type is held", platform: domain.TaskPlatformOpenRouterRerank, action: domain.TaskActionRerank, apiType: "completions", class: "identity_or_invalid_cost"},
 		{name: "cancelled completion settles", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionCompletions, apiType: "completions", cancelled: true},
+		{name: "cancelled embedding waits", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionEmbeddings, apiType: "embeddings", cancelled: true, class: "incomplete_metadata"},
 		{name: "cancelled chat image waits", platform: domain.TaskPlatformOpenRouterChatImage, action: domain.TaskActionChatImage, apiType: "completions", cancelled: true, class: "incomplete_metadata"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -68,13 +68,15 @@ func (r Reader) FillUsernames(tasks []*domain.Task) {
 }
 func taskReadQuery(query domain.TaskQuery) record.SyncTaskQueryParams {
 	return record.SyncTaskQueryParams{
-		Platform:       constant.TaskPlatform(query.Platform),
-		TaskID:         query.TaskID,
-		Status:         query.Status,
-		Action:         query.Action,
-		StartTimestamp: query.StartTimestamp,
-		EndTimestamp:   query.EndTimestamp,
-		ChannelID:      query.ChannelID,
+		Platform:         constant.TaskPlatform(query.Platform),
+		TaskID:           query.TaskID,
+		Status:           query.Status,
+		Action:           query.Action,
+		StartTimestamp:   query.StartTimestamp,
+		EndTimestamp:     query.EndTimestamp,
+		ChannelID:        query.ChannelID,
+		SyncBillingState: query.SyncBillingState,
+		SyncHoldReason:   query.SyncHoldReason,
 	}
 }
 

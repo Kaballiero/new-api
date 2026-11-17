@@ -14,6 +14,8 @@ func NewHandler(usecase Usecase) Handler { return Handler{usecase: usecase} }
 func (h Handler) Handle(c *gin.Context) {
 	page := common.GetPageQuery(c)
 	query := transport.ReadTaskQuery(c)
+	query.SyncBillingState = c.Query("sync_billing_state")
+	query.SyncHoldReason = c.Query("sync_hold_reason")
 
 	result, _ := h.usecase.Execute(Input{UserID: c.GetInt("id"), Offset: page.GetStartIdx(), Limit: page.GetPageSize(), Query: query,
 		Visibility: domain.Visibility{Admin: c.GetInt("role") >= common.RoleAdminUser, Root: c.GetInt("role") >= common.RoleRootUser}})

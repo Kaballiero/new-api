@@ -72,6 +72,12 @@ export function buildSearchParams(
       return {
         ...baseParams,
         ...(taskFilters.taskId && { filter: taskFilters.taskId }),
+        ...(taskFilters.syncBillingState && {
+          syncBillingState: taskFilters.syncBillingState,
+        }),
+        ...(taskFilters.syncHoldReason && {
+          syncHoldReason: taskFilters.syncHoldReason,
+        }),
       }
     }
     default:

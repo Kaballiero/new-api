@@ -6375,6 +6375,20 @@
     "Provider ownership could not be verified; the Batch is unchanged.": "Không thể xác minh quyền sở hữu tại nhà cung cấp; Batch không thay đổi.",
     "This Batch can no longer be recovered by ID; the Batch is unchanged.": "Batch này không còn khôi phục theo ID được nữa; Batch không thay đổi.",
     "For Gemini use the full name, e.g. batches/abc123": "Với Gemini, dùng tên đầy đủ, ví dụ batches/abc123",
+    "All billing states": "Tất cả trạng thái thanh toán",
+    "Awaiting cost": "Đang chờ chi phí",
+    "OpenRouter billing state": "Trạng thái thanh toán OpenRouter",
+    "Hold reason": "Lý do tạm giữ",
+    "Telegram alert": "Cảnh báo Telegram",
+    "Sent at {{time}}": "Đã gửi lúc {{time}}",
+    "Not yet sent": "Chưa gửi",
+    "OpenRouter Cost": "Chi phí OpenRouter",
+    "Generation ID": "ID lượt tạo",
+    "Cost source": "Nguồn chi phí",
+    "Cost basis": "Cơ sở tính giá",
+    "Upstream cost": "Chi phí thượng nguồn",
+    "OpenRouter charge unknown": "Chưa rõ khoản phí OpenRouter",
+    "The request reached OpenRouter but its cost was not confirmed. Check the charge in OpenRouter before resolving it.": "Yêu cầu đã đến OpenRouter nhưng chi phí chưa được xác nhận. Hãy kiểm tra khoản phí trên OpenRouter trước khi xử lý.",
     "Reserved web searches": "Số lượt tìm kiếm web đã giữ"
   }
 }
