@@ -1326,3 +1326,27 @@ func TestSyncUpstreamCatalogTakesBatchVariantsOfRequestedModels(t *testing.T) {
 		})
 	}
 }
+
+// The price report compares the synchronous minimum prices, so a :batch
+// variant the sync takes adds no entry even when its price changes.
+func TestSyncUpstreamCatalogReportsNoBatchVariantPrices(t *testing.T) {
+	template, err := os.ReadFile("../../../../model/testdata/upstream_catalog/direct.json")
+	require.NoError(t, err)
+	upstreamCatalogTestDB(t, "sqlite", false)
+	ctx := context.Background()
+	source := pricingdomain.CatalogSource{ID: pricingstate.CatalogHash([]byte("batch-price-changes")), Kind: "openrouter", BaseURL: "https://catalog.example"}
+	deps := pricingadapter.Capabilities()
+	for _, step := range []struct {
+		revision, batchPrice string
+	}{{"1", "1"}, {"2", "3"}} {
+		client := priceCatalogClient{template: string(template), revision: step.revision, description: "v1", prices: map[string]string{"acme/a": "1", "acme/a:batch": step.batchPrice}}
+		result, err := sync_upstream_catalog.NewUsecase(deps, pricingdomain.NewProjection(pricingdomain.ProjectionRuntime{Capabilities: deps}), pricingstate.NewImmutableCatalogPersistence(), &pricingadapter.UpstreamCatalogDocumentsCache{}, time.Now, func() {}).Execute(ctx, source, map[string]bool{"acme/a": true}, client)
+		require.NoError(t, err)
+		assert.Empty(t, result.PriceChanges.Changes, step.revision)
+		head, err := ensureCatalogSource(ctx, pricingrecord.CatalogSource(source))
+		require.NoError(t, err)
+		selection, err := pricingstate.ReadCatalogSelection(ctx, source.ID, head.Revision)
+		require.NoError(t, err)
+		assert.Len(t, selection.Models, 2, step.revision)
+	}
+}
