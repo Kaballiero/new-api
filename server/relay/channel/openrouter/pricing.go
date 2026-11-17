@@ -408,16 +408,14 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	addOnReserve := reserveUSD != nil && !approximateReserve
 	var approximateReserveUSD, addOnReserveUSD *float64
 	if approximateReserve {
-		approximateReserveUSD = reserveUSD
-	} else {
-		addOnReserveUSD = reserveUSD
-	}
-	if approximateReserve {
 		streamAllowed := audioOutput && request.Stream && info.IsStream
 		operationAllowed := operation == "chat/completions" || decisions || rerank || dedicatedAudio
 		if info.ChannelType != constant.ChannelTypeOpenRouter || batch || !operationAllowed || (request.Stream || info.IsStream) && !streamAllowed || count != 1 || len(request.Models) > 0 || request.Route != "" || len(request.Tools) > 0 || len(imageBlocks) > 0 {
 			return 0, errors.New("OpenRouter approximate reserve only supports one nonstream text chat response without routing or tools")
 		}
+		approximateReserveUSD = reserveUSD
+	} else {
+		addOnReserveUSD = reserveUSD
 	}
 	for _, cap := range []*int{request.MaxTokens, request.MaxCompletionTokens, request.MaxOutputTokens} {
 		if cap != nil && (*cap < 0 || *cap > helper.MaxTokensLimit) {
@@ -449,7 +447,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	endpoints := make(map[string][]pricingdomain.NativePricedEndpoint, len(models))
 	for _, model := range models {
 		discovered, ok := e.Models[model]
-		if _, converted := endpoints[model]; !ok || converted {
+		if !ok {
+			continue
+		}
+		if _, converted := endpoints[model]; converted {
 			continue
 		}
 		endpoints[model] = make([]pricingdomain.NativePricedEndpoint, len(discovered))
