@@ -73,7 +73,7 @@ func TestExecuteKeepsDocumentsOfPublishedRevision(t *testing.T) {
 	// Documents are stored per source: another source's document of the same
 	// hash is not taken as stored.
 	documents.Store(otherSource, first.Hash, &domain.SourceDocument{ID: first.ID})
-	usecase := NewUsecase(deps, store, documents, &atomic.Pointer[domain.UpstreamCatalogTariffs]{}, func() (domain.CatalogSource, bool, error) {
+	usecase := NewUsecase(deps, store, documents, &atomic.Pointer[Revision]{}, &atomic.Pointer[domain.UpstreamCatalogTariffs]{}, func() (domain.CatalogSource, bool, error) {
 		return domain.CatalogSource{ID: source}, true, nil
 	})
 
@@ -110,7 +110,7 @@ func TestExecutePublishesTariffsOfPublishedRevision(t *testing.T) {
 	deps.Catalog = fakeCatalog{CatalogReader: deps.Catalog}
 	store := &fakeStore{selection: domain.CatalogSelection{NormalizationVersion: "1", Models: []domain.CatalogModelReference{model}}, fetchedAt: "2026-11-16T10:00:00.5Z"}
 	tariffs := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
-	usecase := NewUsecase(deps, store, &pricingadapter.UpstreamCatalogDocumentsCache{}, tariffs, func() (domain.CatalogSource, bool, error) {
+	usecase := NewUsecase(deps, store, &pricingadapter.UpstreamCatalogDocumentsCache{}, &atomic.Pointer[Revision]{}, tariffs, func() (domain.CatalogSource, bool, error) {
 		return domain.CatalogSource{ID: domain.CatalogHash([]byte("source"))}, true, nil
 	})
 
@@ -159,7 +159,7 @@ func TestExecuteReadsOnlyHeadOfPublishedRevision(t *testing.T) {
 	deps.Catalog = fakeCatalog{CatalogReader: deps.Catalog}
 	store := &fakeStore{selection: domain.CatalogSelection{NormalizationVersion: "1", Models: []domain.CatalogModelReference{model}}, fetchedAt: "2026-11-16T10:00:00Z"}
 	tariffs := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
-	usecase := NewUsecase(deps, store, &pricingadapter.UpstreamCatalogDocumentsCache{}, tariffs, func() (domain.CatalogSource, bool, error) {
+	usecase := NewUsecase(deps, store, &pricingadapter.UpstreamCatalogDocumentsCache{}, &atomic.Pointer[Revision]{}, tariffs, func() (domain.CatalogSource, bool, error) {
 		return domain.CatalogSource{ID: domain.CatalogHash([]byte("source"))}, true, nil
 	})
 	first, _, _, err := usecase.Execute(context.Background())

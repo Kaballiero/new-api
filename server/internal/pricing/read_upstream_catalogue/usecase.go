@@ -30,22 +30,37 @@ type Tariffs interface {
 	Store(*domain.UpstreamCatalogTariffs)
 	CompareAndSwap(old, new *domain.UpstreamCatalogTariffs) bool
 }
+
+// Revision is a published revision as Execute read it: its decoded documents
+// and their hashes by model id.
+type Revision struct {
+	Revision  string
+	Documents map[string]*domain.SourceDocument
+	Hashes    map[string]string
+}
+
+// Revisions keeps the revision Execute read last.
+type Revisions interface {
+	Load() *Revision
+	Store(*Revision)
+}
 type Usecase struct {
 	deps      domain.Capabilities
 	store     Store
 	documents DocumentCache
+	revisions Revisions
 	tariffs   Tariffs
 	source    func() (domain.CatalogSource, bool, error)
 }
 
-func NewUsecase(deps domain.Capabilities, store Store, documents DocumentCache, tariffs Tariffs, source func() (domain.CatalogSource, bool, error)) Usecase {
-	return Usecase{deps: deps, store: store, documents: documents, tariffs: tariffs, source: source}
+func NewUsecase(deps domain.Capabilities, store Store, documents DocumentCache, revisions Revisions, tariffs Tariffs, source func() (domain.CatalogSource, bool, error)) Usecase {
+	return Usecase{deps: deps, store: store, documents: documents, revisions: revisions, tariffs: tariffs, source: source}
 }
 
 // Execute reads the documents of the published revision and publishes their
 // endpoint tariffs (domain.CatalogEndpointTariffs) with the head fetchedAt. A
 // revision is read and mapped once: for a head that moved only its fetchedAt,
-// only the head is read and the published documents are returned. The
+// only the head is read and the documents read last are returned. The
 // published tariffs are loaded before the head and replaced only if no other
 // publication happened since, so a slow read never publishes an older head
 // over a newer one. Without a published revision there are no tariffs; a
@@ -72,11 +87,12 @@ func (u Usecase) Execute(ctx context.Context) (map[string]*domain.SourceDocument
 	// The head stores a validated fetchedAt; one that does not parse leaves
 	// the zero time, so the tariffs are stale.
 	fetchedAt, _ := time.Parse(time.RFC3339Nano, head.FetchedAt)
-	if published != nil && published.Revision == head.Revision {
+	read := u.revisions.Load()
+	if published != nil && read != nil && published.Revision == head.Revision && read.Revision == head.Revision {
 		touched := *published
 		touched.FetchedAt = fetchedAt
 		u.tariffs.CompareAndSwap(published, &touched)
-		return published.Documents, published.Hashes, true, nil
+		return read.Documents, read.Hashes, true, nil
 	}
 	selection, err := u.store.ReadSelection(ctx, source.ID, head.Revision)
 	if err != nil {
@@ -104,9 +120,7 @@ func (u Usecase) Execute(ctx context.Context) (map[string]*domain.SourceDocument
 			return nil, nil, true, err
 		}
 	}
-	u.tariffs.CompareAndSwap(published, &domain.UpstreamCatalogTariffs{
-		Revision: head.Revision, FetchedAt: fetchedAt,
-		Models: domain.CatalogEndpointTariffs(u.deps, models), Documents: models, Hashes: byID,
-	})
+	u.revisions.Store(&Revision{Revision: head.Revision, Documents: models, Hashes: byID})
+	u.tariffs.CompareAndSwap(published, &domain.UpstreamCatalogTariffs{Revision: head.Revision, FetchedAt: fetchedAt, Models: domain.CatalogEndpointTariffs(u.deps, models)})
 	return models, byID, true, nil
 }

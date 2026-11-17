@@ -42,13 +42,6 @@ func (tariff modelTariffs) missesCatalogPrice(err error) bool {
 	return tariff.checksLive() && errors.Is(err, domain.ErrEndpointPriceMissing)
 }
 
-// liveRecheck asks Execute to price a catalog tariff model from live.
-type liveRecheck struct{ model string }
-
-func (recheck liveRecheck) Error() string {
-	return "OpenRouter catalog tariff needs a live check: " + recheck.model
-}
-
 // requestTariffs are the tariffs of the routable models of a request by tariff
 // model (domain.UpstreamTariffModel).
 type requestTariffs map[string]modelTariffs

@@ -35,11 +35,16 @@ var UpstreamCatalogDocuments pricingadapter.UpstreamCatalogDocumentsCache
 // catalog revision for the OpenRouter reserve estimates.
 var UpstreamCatalogTariffs atomic.Pointer[pricingdomain.UpstreamCatalogTariffs]
 
+// upstreamCatalogRevision keeps the upstream catalog revision the reader read
+// last.
+var upstreamCatalogRevision atomic.Pointer[read_upstream_catalogue.Revision]
+
 var cachedReadUpstreamCatalogue = sync.OnceValue(func() read_upstream_catalogue.Usecase {
 	return read_upstream_catalogue.NewUsecase(
 		pricingadapter.Capabilities(),
 		pricingstate.NewImmutableCatalogPersistence(),
 		&UpstreamCatalogDocuments,
+		&upstreamCatalogRevision,
 		&UpstreamCatalogTariffs,
 		func() (pricingdomain.CatalogSource, bool, error) {
 			v, on, err := pricingstate.ConfiguredCatalogSource()

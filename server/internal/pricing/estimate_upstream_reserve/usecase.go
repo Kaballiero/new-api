@@ -111,21 +111,21 @@ func (u Usecase) Execute(in Input) (Estimate, error) {
 		return Estimate{}, err
 	}
 	for {
-		estimate, err := u.price(in, tariffs)
-		var recheck liveRecheck
-		if !errors.As(err, &recheck) {
+		estimate, recheck, err := u.price(in, tariffs)
+		if recheck == "" {
 			return estimate, err
 		}
-		tariffs.recheckLive(in.Live, recheck.model)
+		tariffs.recheckLive(in.Live, recheck)
 	}
 }
 
 // price takes the complete maximum over the eligible endpoints of every
 // routable model. Price strings are USD per token/request/image. An
 // unavailable monetary estimate is a *domain.EstimateUnavailableError; with
-// an add-on reserve it is returned at the first such endpoint. A catalog
-// tariff to check against live (modelTariffs.checksLive) is a liveRecheck.
-func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error) {
+// an add-on reserve it is returned at the first such endpoint. The tariff
+// model it returns instead is a catalog tariff to price again from live
+// (modelTariffs.checksLive); it is empty otherwise.
+func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, string, error) {
 	type reservationCandidate struct {
 		tariff       domain.NativePricedEndpoint
 		output       int
@@ -144,10 +144,10 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 	quantizationMatched, parametersSupported := false, false
 	for _, model := range in.Models {
 		if model == "perplexity/sonar-deep-research" && !approximateReserve {
-			return Estimate{}, errors.New("OpenRouter Sonar research reserve policy is disabled")
+			return Estimate{}, "", errors.New("OpenRouter Sonar research reserve policy is disabled")
 		}
 		if strings.HasSuffix(model, ":online") {
-			return Estimate{}, errors.New("OpenRouter online routing includes unpriced hosted search")
+			return Estimate{}, "", errors.New("OpenRouter online routing includes unpriced hosted search")
 		}
 		tariffModel := domain.UpstreamTariffModel(model, in.Batch)
 		modelTariff := tariffsByModel[tariffModel]
@@ -158,28 +158,28 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 			declared = nil
 		}
 		if in.Rerank && !slices.Contains(declared, "rerank") {
-			return Estimate{}, errors.New("OpenRouter model does not declare rerank output capability")
+			return Estimate{}, "", errors.New("OpenRouter model does not declare rerank output capability")
 		}
 		if in.Decisions && !slices.Contains(declared, "decisions") {
-			return Estimate{}, errors.New("OpenRouter model does not declare decisions output capability")
+			return Estimate{}, "", errors.New("OpenRouter model does not declare decisions output capability")
 		}
 		if in.ImageReserveOnly && !slices.Contains(declared, "image") {
-			return Estimate{}, errors.New("OpenRouter model does not declare image output capability")
+			return Estimate{}, "", errors.New("OpenRouter model does not declare image output capability")
 		}
 		if in.Audio && len(declared) == 0 {
-			return Estimate{}, errors.New("OpenRouter audio model output capability is missing")
+			return Estimate{}, "", errors.New("OpenRouter audio model output capability is missing")
 		}
 		if declared != nil {
 			if in.ConfiguredPrice && len(in.Modalities) == 0 && !in.Decisions && !in.Rerank {
 				for _, modality := range declared {
 					if modality != "text" && modality != "image" {
-						return Estimate{}, errors.New("OpenRouter configured price reserve requires explicit text/image modalities for this model")
+						return Estimate{}, "", errors.New("OpenRouter configured price reserve requires explicit text/image modalities for this model")
 					}
 				}
 			}
 			for _, modality := range in.Modalities {
 				if !slices.Contains(declared, modality) {
-					return Estimate{}, errors.New("OpenRouter model does not support requested output modality")
+					return Estimate{}, "", errors.New("OpenRouter model does not support requested output modality")
 				}
 			}
 		}
@@ -209,7 +209,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 			}
 			quantizationMatched = true
 			if endpoint.Tag == "" {
-				return Estimate{}, errors.New("OpenRouter endpoint tag is missing")
+				return Estimate{}, "", errors.New("OpenRouter endpoint tag is missing")
 			}
 			// Service tiers require explicit opt-in; ordinary variants such as
 			// deepinfra/turbo remain in the base provider's eligible pool.
@@ -236,11 +236,11 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 				}
 			}
 			if in.ImageTokens != nil && in.Images > 0 && !matches("cohere") {
-				return Estimate{}, errors.New("OpenRouter Cohere Embed image tokens are measured only on the Cohere provider")
+				return Estimate{}, "", errors.New("OpenRouter Cohere Embed image tokens are measured only on the Cohere provider")
 			}
 
 			if endpoint.ContextLength < 0 || endpoint.MaxPromptTokens < 0 || endpoint.MaxCompletionTokens < 0 {
-				return Estimate{}, errors.New("invalid OpenRouter endpoint token limits")
+				return Estimate{}, "", errors.New("invalid OpenRouter endpoint token limits")
 			}
 			if endpoint.ContextLength > 0 && in.PromptTokens > endpoint.ContextLength || endpoint.MaxPromptTokens > 0 && in.PromptTokens > endpoint.MaxPromptTokens {
 				continue
@@ -250,7 +250,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 				if in.OutputLimit != nil {
 					output = *in.OutputLimit
 					if output < 0 || output > in.MaxTokensLimit {
-						return Estimate{}, errors.New("invalid OpenRouter output cap")
+						return Estimate{}, "", errors.New("invalid OpenRouter output cap")
 					}
 				} else {
 					// Without a client limit the reserve covers a bounded answer.
@@ -300,19 +300,19 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 			}
 			if approximateReserve || in.SearchReserveUSD != nil {
 				if in.Model == "perplexity/sonar-deep-research" && tag != "perplexity" {
-					return Estimate{}, errors.New("OpenRouter Sonar research reserve requires the Perplexity endpoint")
+					return Estimate{}, "", errors.New("OpenRouter Sonar research reserve requires the Perplexity endpoint")
 				}
 				if endpoint.ModelID != "" && endpoint.ModelID != in.Model {
-					return Estimate{}, errors.New("OpenRouter reserve endpoint model does not match final model ID")
+					return Estimate{}, "", errors.New("OpenRouter reserve endpoint model does not match final model ID")
 				}
 			}
 			tariffs, pricingErr := u.endpointPricingTariffs(endpoint, in.PromptTokens, in.MaxTokensLimit)
 			if pricingErr != nil {
 				if modelTariff.missesCatalogPrice(pricingErr) {
-					return Estimate{}, liveRecheck{model: tariffModel}
+					return Estimate{}, tariffModel, nil
 				}
 				if len(in.Provider.MaxPrice) > 0 {
-					return Estimate{}, pricingErr
+					return Estimate{}, "", pricingErr
 				}
 				// Keep the discovered route identity for local fallback, without
 				// inventing a tariff when its monetary declaration is unavailable.
@@ -323,14 +323,14 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 				for key, raw := range in.Provider.MaxPrice {
 					rate, err := domain.ReadEndpointRate(u.deps, tariff.Pricing[key])
 					if modelTariff.missesCatalogPrice(err) {
-						return Estimate{}, liveRecheck{model: tariffModel}
+						return Estimate{}, tariffModel, nil
 					}
 					if err != nil {
-						return Estimate{}, err
+						return Estimate{}, "", err
 					}
 					limit, err := domain.ReadEndpointRate(u.deps, raw)
 					if err != nil {
-						return Estimate{}, err
+						return Estimate{}, "", err
 					}
 					if key == "prompt" || key == "completion" {
 						rate = rate.Mul(decimal.NewFromInt(1000000))
@@ -353,7 +353,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 			}
 		}
 		if modelTariff.checksLive() && (len(candidates) == 0 || parametersExcluded) {
-			return Estimate{}, liveRecheck{model: tariffModel}
+			return Estimate{}, tariffModel, nil
 		}
 		// Only flex tariffs surviving the same route, capability, limit and
 		// max-price checks may constrain the default fallback reservation.
@@ -382,10 +382,10 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 				if raw, ok := tariff.Pricing["web_search"]; ok && estimateErr == nil && addOnReserve {
 					searchRate, err := domain.ReadEndpointRate(u.deps, raw)
 					if modelTariff.missesCatalogPrice(err) {
-						return Estimate{}, liveRecheck{model: tariffModel}
+						return Estimate{}, tariffModel, nil
 					}
 					if err != nil {
-						return Estimate{}, err
+						return Estimate{}, "", err
 					}
 					if in.SearchReserveUSD == nil && !searchRate.IsZero() {
 						cost = cost.Add(decimal.NewFromFloat(*in.AddOnReserveUSD))
@@ -395,17 +395,17 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 			}
 			if estimateErr != nil {
 				if modelTariff.missesCatalogPrice(estimateErr) {
-					return Estimate{}, liveRecheck{model: tariffModel}
+					return Estimate{}, tariffModel, nil
 				}
 				var unavailable *domain.EstimateUnavailableError
 				if addOnReserve && errors.As(estimateErr, &unavailable) {
-					return Estimate{}, estimateErr
+					return Estimate{}, "", estimateErr
 				}
 				if (!in.ConfiguredPrice && !((in.Decisions || in.Rerank || in.Audio || in.ImageReserveOnly) && approximateReserve)) || !errors.As(estimateErr, &unavailable) {
-					return Estimate{}, estimateErr
+					return Estimate{}, "", estimateErr
 				}
 				if *in.ApproximateReserveUSD <= 0 {
-					return Estimate{}, errors.New("OpenRouter unavailable estimate requires a positive reserve")
+					return Estimate{}, "", errors.New("OpenRouter unavailable estimate requires a positive reserve")
 				}
 				// This endpoint is eligible, but its unknown monetary quantity is
 				// covered only by the explicit local/minimum policy.
@@ -437,9 +437,9 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 			reasons = append(reasons, "provider.require_parameters excluded endpoints that do not support: "+strings.Join(slices.Compact(unsupportedParameters), ", "))
 		}
 		if len(reasons) > 0 {
-			return Estimate{}, fmt.Errorf("%w: %s", domain.ErrNoCompatibleEndpoint, strings.Join(reasons, "; "))
+			return Estimate{}, "", fmt.Errorf("%w: %s", domain.ErrNoCompatibleEndpoint, strings.Join(reasons, "; "))
 		}
-		return Estimate{}, domain.ErrNoCompatibleEndpoint
+		return Estimate{}, "", domain.ErrNoCompatibleEndpoint
 	}
 	if in.SearchReserveUSD != nil {
 		maximum = maximum.Add(decimal.NewFromFloat(*in.SearchReserveUSD))
@@ -452,11 +452,11 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, error
 	}
 	estimate.USD, _ = maximum.Float64()
 	if math.IsInf(estimate.USD, 0) || math.IsNaN(estimate.USD) {
-		return Estimate{}, errors.New("OpenRouter estimate overflow")
+		return Estimate{}, "", errors.New("OpenRouter estimate overflow")
 	}
 	estimate.Source = reserveSource(in, tariffsByModel)
 	estimate.StaleCatalog = tariffsByModel.hasStaleDocument()
-	return estimate, nil
+	return estimate, "", nil
 }
 
 // exceedsFlexPriceBounds excludes only fallback tariffs proven to exceed
