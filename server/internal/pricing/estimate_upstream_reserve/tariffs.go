@@ -26,14 +26,14 @@ type modelTariffs struct {
 	// source is ReserveSourceCatalog, ReserveSourceCatalogStale or
 	// ReserveSourceLive.
 	source domain.ReserveSource
-	// liveUnavailable marks a catalog tariff whose live check failed.
-	liveUnavailable bool
+	// liveErr is the failure of the live check of a catalog tariff.
+	liveErr error
 }
 
 // checksLive tells whether the tariff is a fresh catalog document not checked
 // against live yet.
 func (tariff modelTariffs) checksLive() bool {
-	return tariff.source == domain.ReserveSourceCatalog && !tariff.liveUnavailable
+	return tariff.source == domain.ReserveSourceCatalog && tariff.liveErr == nil
 }
 
 // missesCatalogPrice tells whether err is a price missing from a tariff that
@@ -47,13 +47,13 @@ func (tariff modelTariffs) missesCatalogPrice(err error) bool {
 type requestTariffs map[string]modelTariffs
 
 // recheckLive replaces the catalog tariff of a model with its live tariff.
-// When live fails, the document stays and prices the model without a live
-// check.
+// When live fails, the document stays with the live error (price decides what
+// it may still price).
 func (tariffs requestTariffs) recheckLive(live LiveTariffs, model string) {
 	response, err := live.Discover(model)
 	if err != nil {
 		tariff := tariffs[model]
-		tariff.liveUnavailable = true
+		tariff.liveErr = err
 		tariffs[model] = tariff
 		return
 	}

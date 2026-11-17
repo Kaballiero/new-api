@@ -103,8 +103,10 @@ func NewUsecase(deps domain.Capabilities, catalog CatalogTariffs, now func() tim
 // when a price it needs is missing, when no endpoint of it passes the filters
 // or when provider.require_parameters excludes one of them: it is priced again
 // from live, so that the client gets the result of live pricing. When live
-// fails, the model stays priced from the document as live would price it,
-// with the local cover of a missing price.
+// fails, a missing price is priced from the document as live would price it,
+// with the local cover; a pool the filters emptied or narrowed never prices
+// the model, so the reserve is never below live: only the local cover covers
+// it, otherwise the live error refuses the request.
 func (u Usecase) Execute(in Input) (Estimate, error) {
 	tariffs, err := u.loadTariffs(in)
 	if err != nil {
@@ -135,6 +137,9 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 	approximateReserve := in.ApproximateReserveUSD != nil
 	addOnReserve := in.AddOnReserveUSD != nil
 	outputReserve := in.TextOutput && !approximateReserve
+	// localCover is the explicit local/minimum policy that alone covers an
+	// unavailable monetary estimate.
+	localCover := in.ConfiguredPrice || (in.Decisions || in.Rerank || in.Audio || in.ImageReserveOnly) && approximateReserve
 	var estimate Estimate
 	var maximum decimal.Decimal
 	found := false
@@ -352,8 +357,25 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 				}
 			}
 		}
-		if modelTariff.checksLive() && (len(candidates) == 0 || parametersExcluded) {
+		poolNarrowed := len(candidates) == 0 || parametersExcluded
+		if modelTariff.checksLive() && poolNarrowed {
 			return Estimate{}, tariffModel, nil
+		}
+		if modelTariff.liveErr != nil && poolNarrowed {
+			// A pool the filters narrowed may hold fewer endpoints than live,
+			// so it never prices the model: only the local cover does, as for
+			// an unknown price, and otherwise the live error refuses it.
+			if addOnReserve {
+				return Estimate{}, "", &domain.EstimateUnavailableError{Cause: modelTariff.liveErr}
+			}
+			if !localCover {
+				return Estimate{}, "", modelTariff.liveErr
+			}
+			if *in.ApproximateReserveUSD <= 0 {
+				return Estimate{}, "", errors.New("OpenRouter unavailable estimate requires a positive reserve")
+			}
+			found = true
+			continue
 		}
 		// Only flex tariffs surviving the same route, capability, limit and
 		// max-price checks may constrain the default fallback reservation.
@@ -401,7 +423,7 @@ func (u Usecase) price(in Input, tariffsByModel requestTariffs) (Estimate, strin
 				if addOnReserve && errors.As(estimateErr, &unavailable) {
 					return Estimate{}, "", estimateErr
 				}
-				if (!in.ConfiguredPrice && !((in.Decisions || in.Rerank || in.Audio || in.ImageReserveOnly) && approximateReserve)) || !errors.As(estimateErr, &unavailable) {
+				if !localCover || !errors.As(estimateErr, &unavailable) {
 					return Estimate{}, "", estimateErr
 				}
 				if *in.ApproximateReserveUSD <= 0 {
