@@ -1729,7 +1729,7 @@ func TestOpenRouterAudioReservationAndAuthoritativeCost(t *testing.T) {
 		{name: "TTS receives raw audio with retained hold", kind: "tts", cost: "3"},
 		{name: "TTS numeric playback speed", kind: "tts", cost: "3", extra: `,"speed":1.2`},
 		{name: "TTS expression sees final request", kind: "tts", cost: "3", expression: `param("voice") == "alloy" ? tier("voice", fixed(2)) : tier("other", fixed(8))`},
-		{name: "TTS no source rejects before submission", kind: "tts", noSource: true, wantError: "requires configured_price"},
+		{name: "TTS without catalog unit prices or a source rejects before submission", kind: "tts", noSource: true, wantError: "endpoint unit prices are unknown"},
 		{name: "STT without price or channel opt in fails closed", kind: "stt", noSource: true, noLocal: true, wantError: "requires configured_price"},
 		{name: "TTS channel reserve without global price", kind: "tts", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},
 		{name: "STT channel reserve settles above hold", kind: "stt", cost: "3", noSource: true, noLocal: true, channelReserve: common.GetPointer(0.3)},

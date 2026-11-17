@@ -227,11 +227,14 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if audioOutput && (!request.Stream || !info.IsStream) {
 		return 0, errors.New("OpenRouter Chat audio output requires streaming")
 	}
+	speech := operation == "audio/speech"
 	if dedicatedAudio {
-		if localUSD == nil && reserveUSD == nil || info.RelayFormat != types.RelayFormatOpenAIAudio {
+		// Speech is priced from the catalog unit prices; transcription only by
+		// a configured price or a channel reserve.
+		if localUSD == nil && reserveUSD == nil && !speech || info.RelayFormat != types.RelayFormatOpenAIAudio {
 			return 0, errors.New("OpenRouter audio endpoint requires configured_price or an explicit approximate channel reserve (not a spending limit) and OpenAI Audio format")
 		}
-		if operation == "audio/speech" {
+		if speech {
 			modalities = []string{"speech"}
 		} else {
 			modalities = []string{"transcription"}
@@ -377,6 +380,13 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 	if info.ChannelMeta != nil {
 		channelBaseURL = info.ChannelBaseUrl
 	}
+	var units map[pricingdomain.PriceDimension]int64
+	if speech {
+		units, err = speechUnits(body, request.Model)
+		if err != nil {
+			return 0, err
+		}
+	}
 	estimate, err := e.reserve.Execute(estimate_upstream_reserve.Input{
 		Model:          request.Model,
 		Models:         models,
@@ -398,9 +408,10 @@ func (e *RequestEstimator) estimate(info *relaycommon.RelayInfo, body []byte, op
 		Modalities:            modalities,
 		TextOutput:            textOutput,
 		ImageOutput:           imageOutput,
-		Audio:                 audioOutput || dedicatedAudio,
+		Audio:                 audioOutput || dedicatedAudio && !speech,
 		Decisions:             decisions,
 		Rerank:                rerank,
+		Units:                 units,
 		ImageReserveOnly:      imageReserveOnly,
 		ConfiguredPrice:       localUSD != nil,
 		PromptTokens:          prompt,

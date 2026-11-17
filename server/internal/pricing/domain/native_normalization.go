@@ -17,6 +17,9 @@ type NativePricedEndpoint struct {
 	Quantization                                        string
 	SupportedParameters                                 []string
 	Pricing                                             map[string]json.RawMessage
+	// UnitPrices are the catalog unit prices of the endpoint
+	// (CatalogUnitPrices); nil from live, which publishes none.
+	UnitPrices []EndpointUnitPrice
 }
 type NativeImageCapability struct {
 	Type     string

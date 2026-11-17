@@ -1,0 +1,95 @@
+{
+ "alias": null,
+ "id": "heygen/heygen-voice-1",
+ "modalities": {
+  "input": [
+   "text"
+  ],
+  "output": [
+   "speech"
+  ]
+ },
+ "offers": [
+  {
+   "capabilities": {
+    "context_length": 0,
+    "max_completion_tokens": null,
+    "max_prompt_tokens": null,
+    "supported_parameters": []
+   },
+   "components": [
+    {
+     "amountUSD": "0.00003",
+     "billable": "output_speech",
+     "conditions": {},
+     "normalization": {
+      "comparable": false,
+      "effective": false,
+      "reasons": [
+       "discount_relationship_unknown"
+      ]
+     },
+     "parameter": "tts:characters",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1",
+     "unit": "character",
+     "variant": {}
+    },
+    {
+     "amountUSD": "15",
+     "billable": "output_speech",
+     "conditions": {},
+     "normalization": {
+      "comparable": true,
+      "effective": true,
+      "reasons": [
+       "source_discount_included"
+      ]
+     },
+     "parameter": "display:0:0:Characters",
+     "provenance": {
+      "scope": "endpoint",
+      "source": "model_page"
+     },
+     "quantity": "1000000",
+     "unit": "character",
+     "variant": {}
+    }
+   ],
+   "eligibility": {
+    "eligible": true,
+    "reasons": []
+   },
+   "facts": {
+    "pricing": {
+     "completion": "0",
+     "discount": 0.5,
+     "prompt": "0.000015"
+    }
+   },
+   "provider": {
+    "id": "heygen",
+    "name": "HeyGen",
+    "tag": "heygen"
+   },
+   "scope": "endpoint",
+   "variant": {
+    "model_variant_permaslug": "heygen/heygen-voice-1-20261009",
+    "model_variant_slug": "heygen/heygen-voice-1",
+    "quantization": "unknown",
+    "variant": "standard"
+   }
+  },
+  {
+   "capabilities": {},
+   "eligibility": null,
+   "facts": {},
+   "provider": null,
+   "scope": "model",
+   "variant": {}
+  }
+ ]
+}

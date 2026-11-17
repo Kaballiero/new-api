@@ -11,6 +11,7 @@ import (
 	pricingadapter "github.com/QuantumNous/new-api/internal/adapter/pricing"
 	"github.com/QuantumNous/new-api/internal/pricing/domain"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -381,5 +382,80 @@ func TestExecuteBatchSkipsDeclaredOutputModalities(t *testing.T) {
 		}
 		require.NoError(t, err)
 		assert.InDelta(t, 1.02, estimate.USD, 1e-9)
+	}
+}
+
+// A speech request is priced from the unit prices of the endpoints of a fresh
+// catalog document: every non-zero price times its measured quantity, a
+// million_tokens price per million tokens, the maximum over the endpoints. An
+// unknown price, a non-zero price of an unmeasured dimension or an endpoint
+// without unit prices is covered only by the manual reserve, without a live
+// check; a manual reserve below the priced cost is raised to it.
+func TestExecuteUnitCost(t *testing.T) {
+	deps := pricingadapter.Capabilities()
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	characters := domain.PriceDimension{Billable: domain.PriceBillableOutputSpeech, Unit: domain.PriceUnitCharacter}
+	seconds := domain.PriceDimension{Billable: domain.PriceBillableOutputAudio, Unit: domain.PriceUnitSecond}
+	inputTokens := domain.PriceDimension{Billable: domain.PriceBillableInputText, Unit: domain.PriceUnitMillionTokens}
+	audioTokens := domain.PriceDimension{Billable: domain.PriceBillableOutputAudio, Unit: domain.PriceUnitMillionTokens}
+	price := func(dimension domain.PriceDimension, usd string) domain.EndpointUnitPrice {
+		if usd == "" {
+			return domain.EndpointUnitPrice{Dimension: dimension}
+		}
+		amount := decimal.RequireFromString(usd)
+		return domain.EndpointUnitPrice{Dimension: dimension, USD: &amount}
+	}
+	endpoint := func(tag string, prices ...domain.EndpointUnitPrice) domain.NativePricedEndpoint {
+		return domain.NativePricedEndpoint{Tag: tag, ModelID: "acme/tts", Pricing: endpointPricing(t, deps, `{"prompt":"0.000015","completion":"0"}`), UnitPrices: prices}
+	}
+	units := map[domain.PriceDimension]int64{characters: 1000, seconds: 30, inputTokens: 1000, audioTokens: 8192}
+	manual, lowManual := .5, .01
+	for _, tc := range []struct {
+		name      string
+		endpoints []domain.NativePricedEndpoint
+		units     map[domain.PriceDimension]int64
+		manual    *float64
+		wantUSD   float64
+		source    domain.ReserveSource
+		wantErr   string
+	}{
+		{name: "per character", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, wantUSD: .03, source: domain.ReserveSourceCatalog},
+		{name: "per million tokens", endpoints: []domain.NativePricedEndpoint{endpoint("google", price(inputTokens, "0.5"), price(audioTokens, "9"))}, wantUSD: .074228, source: domain.ReserveSourceCatalog},
+		{name: "maximum over the endpoints", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003")), endpoint("seed", price(seconds, "0.0025"))}, wantUSD: .075, source: domain.ReserveSourceCatalog},
+		{name: "a zero price of an unmeasured dimension bills nothing", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"), price(domain.PriceDimension{}, "0"))}, wantUSD: .03, source: domain.ReserveSourceCatalog},
+		{name: "a measured zero quantity bills nothing", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, units: map[domain.PriceDimension]int64{characters: 0}, wantUSD: 0, source: domain.ReserveSourceCatalog},
+		{name: "a manual reserve below the cost is raised to it", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, manual: &lowManual, wantUSD: .03, source: domain.ReserveSourceManual},
+		{name: "a manual reserve above the cost is kept", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
+		{name: "an unknown price is refused", endpoints: []domain.NativePricedEndpoint{endpoint("elevenlabs", price(characters, "0.00003"), price(domain.PriceDimension{}, ""))}, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint unit price is unknown"},
+		{name: "an unknown price takes the manual reserve", endpoints: []domain.NativePricedEndpoint{endpoint("elevenlabs", price(characters, ""))}, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
+		{name: "a non-zero price of an unmeasured dimension is refused", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram", price(characters, "0.00003"))}, units: map[domain.PriceDimension]int64{seconds: 30}, wantErr: "OpenRouter estimate unavailable: OpenRouter unit quantity is unmeasured: output_speech/character"},
+		{name: "an endpoint without unit prices is refused", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram")}, wantErr: "OpenRouter estimate unavailable: OpenRouter endpoint unit prices are unknown"},
+		{name: "an endpoint without unit prices takes the manual reserve", endpoints: []domain.NativePricedEndpoint{endpoint("deepgram")}, manual: &manual, wantUSD: .5, source: domain.ReserveSourceManual},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := &atomic.Pointer[domain.UpstreamCatalogTariffs]{}
+			catalog.Store(&domain.UpstreamCatalogTariffs{FetchedAt: now, Models: map[string]domain.NativeEndpointResponse{
+				"acme/tts": {ID: "acme/tts", Endpoints: tc.endpoints, OutputModalities: []string{"speech"}},
+			}})
+			live := &fakeLive{}
+			in := Input{
+				Model: "acme/tts", Models: []string{"acme/tts"}, ChannelBaseURL: "https://openrouter.ai/api", Live: live,
+				Modalities: []string{"speech"}, Count: 1, Units: units, ApproximateReserveUSD: tc.manual,
+			}
+			if tc.units != nil {
+				in.Units = tc.units
+			}
+			estimate, err := NewUsecase(deps, catalog, func() time.Time { return now }, func() time.Duration { return 24 * time.Hour }).Execute(in)
+			assert.Empty(t, live.asked)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				var unavailable *domain.EstimateUnavailableError
+				assert.ErrorAs(t, err, &unavailable)
+				return
+			}
+			require.NoError(t, err)
+			assert.InDelta(t, tc.wantUSD, estimate.USD, 1e-12)
+			assert.Equal(t, tc.source, estimate.Source)
+		})
 	}
 }
